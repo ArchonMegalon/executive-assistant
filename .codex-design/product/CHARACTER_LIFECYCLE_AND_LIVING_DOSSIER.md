@@ -117,6 +117,7 @@ The current desktop dossier lane may generate an optional `Origin Dossier Bundle
 The bundle can include:
 
 * approved origin canon
+* humanized player-facing origin text that is checked against the approved canon facts
 * dossier PDF
 * portrait candidate set and one selected portrait
 * scene candidate set and one selected scene
@@ -128,6 +129,7 @@ The origin bundle is downstream of the runner dossier.
 It can inform ALICE suggestions, but it must not become the source of legality, nuyen, ware entitlement, or quality truth.
 GM allowances and requirements may seed the origin bundle, including extra gear, ware, availability exceptions, required magical activity, required addiction hooks, minimum attribute posture, or table-specific starting resources.
 Those inputs are table context until the player or GM commits matching mechanical edits through the normal character workflow.
+Humanizer output is presentation only: if it drops, adds, or mutates an approved canon or GM-steer fact, Chummer discards the humanized version and keeps the canonical draft.
 
 ## User-safe promise
 

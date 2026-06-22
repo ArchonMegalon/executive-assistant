@@ -255,6 +255,9 @@ def _check_room_receipt(
         "intelligibility_confirmed",
         "answer_text_fallback_visible",
         "no_internet_search_confirmed",
+        "normal_spoken_turn_confirmed",
+        "interruption_behavior_confirmed",
+        "retry_path_confirmed",
     }
     checks = dict(receipt.get("checks") or {})
     for key in sorted(required):

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 
 import pytest
+from tests.product_test_helpers import build_operator_product_client
 
 from app.domain.models import PlanValidationError, TaskExecutionRequest
 from app.repositories.approvals import InMemoryApprovalRepository
@@ -42,21 +43,11 @@ from app.services.tool_runtime import ToolRuntimeService
 
 def _api_client():
     pytest.importorskip("fastapi")
-    from fastapi.testclient import TestClient
 
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ.pop("EA_LEDGER_BACKEND", None)
-    os.environ["EA_API_TOKEN"] = "test-token"
-    os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
-    os.environ["EA_OPERATOR_PRINCIPAL_IDS"] = "exec-1"
     os.environ.pop("DATABASE_URL", None)
-
-    from app.api.app import create_app
-
-    client = TestClient(create_app())
-    client.headers.update({"Authorization": "Bearer test-token"})
-    client.headers.update({"X-EA-Principal-ID": "exec-1"})
-    return client
+    return build_operator_product_client(principal_id="exec-1", operator_id="exec-1-operator")
 
 
 def _step_keys(plan) -> tuple[str, ...]:

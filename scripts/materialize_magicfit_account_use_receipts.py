@@ -4,16 +4,17 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT_DIR = ROOT / "ea/_completion/magicfit"
-ACCOUNTS = (
-    "tibor.girschele@gmail.com",
-    "the.girscheles@gmail.com",
-    "archon.megalon@gmail.com",
+DEFAULT_ACCOUNT_EMAILS = (
+    "magicfit-account-1@example.test",
+    "magicfit-account-2@example.test",
+    "magicfit-account-3@example.test",
 )
 
 
@@ -29,6 +30,24 @@ def _slug(account: str) -> str:
     return account.lower().replace("@", "_at_").replace(".", "_")
 
 
+def _configured_accounts(raw: str | None = None) -> tuple[str, ...]:
+    source = (
+        raw
+        if raw is not None
+        else os.environ.get("CHUMMER_EA_MAGICFIT_ACCOUNT_EMAILS")
+        or os.environ.get("MAGICFIT_ACCOUNT_EMAILS")
+        or ",".join(DEFAULT_ACCOUNT_EMAILS)
+    )
+    accounts: list[str] = []
+    seen: set[str] = set()
+    for value in str(source).split(","):
+        account = value.strip().lower()
+        if account and account not in seen:
+            accounts.append(account)
+            seen.add(account)
+    return tuple(accounts)
+
+
 def build_receipt(
     *,
     account: str,
@@ -36,9 +55,10 @@ def build_receipt(
     status: str,
     render_receipt: str = "",
     generated_at: str | None = None,
+    known_accounts: tuple[str, ...] | None = None,
 ) -> dict[str, object]:
     normalized = account.strip().lower()
-    if normalized not in ACCOUNTS:
+    if normalized not in (known_accounts or _configured_accounts()):
         raise ValueError(f"unknown_magicfit_account:{account}")
     state = status.strip().lower()
     if state not in {"pass", "pending_account_use"}:
@@ -67,15 +87,18 @@ def main() -> int:
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR))
     parser.add_argument("--status", choices=("pending_account_use", "pass"), default="pending_account_use")
     parser.add_argument("--render-receipt", default="")
+    parser.add_argument("--accounts", default="", help="Comma-separated MagicFit account emails; defaults to env.")
     args = parser.parse_args()
+    accounts = _configured_accounts(str(args.accounts)) if str(args.accounts).strip() else _configured_accounts()
     receipts = [
         build_receipt(
             account=account,
             output_dir=Path(args.output_dir),
             status=str(args.status),
             render_receipt=str(args.render_receipt),
+            known_accounts=accounts,
         )
-        for account in ACCOUNTS
+        for account in accounts
     ]
     print(
         json.dumps(

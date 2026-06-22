@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,21 @@ DOCS_ROOT = ROOT / "docs" / "chummer5a_parity_lab"
 PACK_PATH = DOCS_ROOT / "NEXT90_M143_ROUTE_SPECIFIC_COMPARE_PACKS.generated.yaml"
 MARKDOWN_PATH = DOCS_ROOT / "NEXT90_M143_ROUTE_SPECIFIC_COMPARE_PACKS.generated.md"
 FEEDBACK_PATH = ROOT / "feedback" / "2026-05-05-next90-m143-ea-route-specific-compare-packs.md"
+
+
+def _env_path(name: str, default: Path) -> Path:
+    return Path(os.environ.get(name) or default)
+
+
+DESIGN_PRODUCT_ROOT = _env_path("CHUMMER6_DESIGN_PRODUCT_ROOT", ROOT / ".codex-design" / "product")
+FLEET_COMPLETION_ROOT = _env_path("EA_FLEET_COMPLETION_ROOT", ROOT / "ea" / "_completion" / "fleet")
+DESIGN_QUEUE_PATH = _env_path("EA_NEXT90_DESIGN_QUEUE_STAGING_PATH", DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
+FLEET_QUEUE_PATH = _env_path("EA_NEXT90_QUEUE_STAGING_PATH", DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
+LOCAL_MIRROR_QUEUE_PATH = DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
+SUCCESSOR_REGISTRY_PATH = _env_path("EA_NEXT90_SUCCESSOR_REGISTRY_PATH", DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml")
+LOCAL_MIRROR_REGISTRY_PATH = DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml"
+FLEET_M143_GATE_PATH = _env_path("EA_NEXT90_M143_FLEET_GATE_PATH", FLEET_COMPLETION_ROOT / "NEXT90_M143_FLEET_ROUTE_LOCAL_OUTPUT_CLOSEOUT_GATES.generated.json")
+FLAGSHIP_READINESS_PATH = _env_path("EA_FLAGSHIP_READINESS_PATH", FLEET_COMPLETION_ROOT / "FLAGSHIP_PRODUCT_READINESS.generated.json")
 
 PACKAGE_ID = "next90-m143-ea-compile-route-specific-compare-packs-and-artifact-proofs-for-print-export"
 TITLE = "Compile route-specific compare packs and artifact proofs for print, export, exchange, SR6 supplement, and house-rule workflows."
@@ -67,12 +83,12 @@ def main() -> int:
         issues.append("owned_surfaces drifted")
     source_inputs = dict(payload.get("source_inputs") or {})
     for source_key, expected_path in (
-        ("design_queue", "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml"),
-        ("fleet_queue", "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml"),
-        ("local_mirror_queue", "/docker/EA/.codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml"),
-        ("registry", "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml"),
-        ("local_mirror_registry", "/docker/EA/.codex-design/product/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml"),
-        ("fleet_m143_gate", "/docker/fleet/.codex-studio/published/NEXT90_M143_FLEET_ROUTE_LOCAL_OUTPUT_CLOSEOUT_GATES.generated.json"),
+        ("design_queue", str(DESIGN_QUEUE_PATH)),
+        ("fleet_queue", str(FLEET_QUEUE_PATH)),
+        ("local_mirror_queue", str(LOCAL_MIRROR_QUEUE_PATH)),
+        ("registry", str(SUCCESSOR_REGISTRY_PATH)),
+        ("local_mirror_registry", str(LOCAL_MIRROR_REGISTRY_PATH)),
+        ("fleet_m143_gate", str(FLEET_M143_GATE_PATH)),
     ):
         if dict(source_inputs.get(source_key) or {}).get("path") != expected_path:
             issues.append(f"{source_key} source path drifted")
@@ -99,7 +115,7 @@ def main() -> int:
         if not str(source_row.get("row_fingerprint") or "").strip():
             issues.append(f"{source_key} row_fingerprint missing")
     readiness_input = dict(source_inputs.get("flagship_readiness") or {})
-    if readiness_input.get("path") != "/docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json":
+    if readiness_input.get("path") != str(FLAGSHIP_READINESS_PATH):
         issues.append("flagship_readiness source path drifted")
     if readiness_input.get("coverage_key") != "desktop_client":
         issues.append("flagship_readiness coverage key drifted")

@@ -5,8 +5,11 @@ import json
 from pathlib import Path
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
 def _load_module():
-    script = Path("/docker/EA/scripts/materialize_fliplink_publication_receipt.py")
+    script = ROOT / "scripts" / "materialize_fliplink_publication_receipt.py"
     spec = importlib.util.spec_from_file_location("materialize_fliplink_publication_receipt", script)
     assert spec is not None
     assert spec.loader is not None
@@ -67,3 +70,14 @@ def test_fliplink_publication_receipt_fails_on_forbidden_source_terms(tmp_path: 
     assert payload["status"] == "fail"
     assert checks["forbidden_source_terms_absent"]["status"] == "fail"
     assert "sourcebook" in checks["forbidden_source_terms_absent"]["hits"]
+
+
+def test_fliplink_probe_user_agent_uses_generic_config(monkeypatch) -> None:
+    module = _load_module()
+    monkeypatch.delenv("EA_FLIPLINK_PROBE_CONTACT_URL", raising=False)
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://assistant.example.test")
+
+    assert module._probe_user_agent() == "EA-FlipLink-Receipt-Probe/1.0 (+https://assistant.example.test)"
+
+    monkeypatch.setenv("EA_FLIPLINK_PROBE_CONTACT_URL", "https://probe.example.test")
+    assert module._probe_user_agent() == "EA-FlipLink-Receipt-Probe/1.0 (+https://probe.example.test)"

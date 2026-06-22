@@ -17,14 +17,12 @@ ROOT = Path(__file__).resolve().parents[1]
 ENV_FILES = (ROOT / "ea" / ".env", ROOT / ".env")
 PLAYWRIGHT_IMAGE = os.environ.get("EA_UI_PLAYWRIGHT_IMAGE", "chummer-playwright:local").strip() or "chummer-playwright:local"
 _OUTPUT_ROOT_CANDIDATES = (
-    Path("/docker/fleet/state/chummer6/voicewave_provider"),
-    Path("/mnt/pcloud/EA/voicewave_provider"),
+    Path(os.environ.get("VOICEWAVE_MEMORIAL_OUTPUT_ROOT") or ROOT / ".codex-studio" / "published" / "voicewave_provider"),
     Path("/data/artifacts/voicewave_provider"),
     Path("/tmp/voicewave_provider"),
 )
 _SHARED_TEMP_ROOT_CANDIDATES = (
-    Path(os.environ.get("EA_UI_SERVICE_SHARED_TEMP_ROOT", "/docker/fleet/state/browseract_ui_worker_shared")).expanduser(),
-    Path("/mnt/pcloud/EA/browseract_ui_worker_shared"),
+    Path(os.environ.get("EA_UI_SERVICE_SHARED_TEMP_ROOT") or ROOT / ".codex-studio" / "published" / "browseract_ui_worker_shared").expanduser(),
     Path("/tmp/browseract_ui_worker_shared"),
 )
 DEFAULT_VOICE_LABEL = "Manfred Hoza Memorial"

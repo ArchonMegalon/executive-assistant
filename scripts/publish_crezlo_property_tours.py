@@ -12,8 +12,12 @@ import urllib.request
 from pathlib import Path
 
 
-DEFAULT_OUTPUT_DIR = Path("/docker/fleet/state/public_browseract_results")
-DEFAULT_PUBLIC_BASE_URL = str(os.environ.get("EA_PUBLIC_TOUR_BASE_URL", "https://myexternalbrain.com/tours")).strip().rstrip("/")
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_OUTPUT_DIR = ROOT / "ea" / "_completion" / "public_browseract_results"
+DEFAULT_PUBLIC_BASE_URL = str(
+    os.environ.get("EA_PUBLIC_TOUR_BASE_URL")
+    or f"{str(os.environ.get('EA_PUBLIC_APP_BASE_URL') or 'http://localhost:8090').strip().rstrip('/')}/tours"
+).strip().rstrip("/")
 
 
 def slugify(value: str) -> str:

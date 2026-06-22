@@ -1,12 +1,13 @@
 {
   "contract_name": "ea.memorial_room_audio_public_origin",
-  "generated_at": "2026-06-17T02:10:29Z",
+  "generated_at": "2026-06-18T22:47:06Z",
   "generated_by": "scripts/materialize_memorial_room_audio_receipt.py",
-  "source_git_head": "65f80831660870d44a2150960ff5ade4aa4f6455",
+  "proof_type": "manual_room_attestation",
+  "source_git_head": "8e6c434f4b8e7f1e1c87e1c6b3fdc566915cc85c",
   "head_semantics": "source_state",
-  "source_tree_fingerprint": "450a88f482fff3b35af9d9fc108f8727b83b0a0393b746d8a116f5680208336b",
-  "dirty_worktree": false,
-  "status": "pass",
+  "source_tree_fingerprint": "ab52159678c55b9ab04f0d3d375f1dc0b8d062b1169debb19c25b55f567a86eb",
+  "dirty_worktree": true,
+  "status": "fail",
   "base_url": "https://myexternalbrain.com",
   "slug": "manfred",
   "require_public_origin": true,
@@ -20,9 +21,41 @@
     "first_syllable_not_clipped": true,
     "intelligibility_confirmed": true,
     "answer_text_fallback_visible": true,
-    "no_internet_search_confirmed": true
+    "no_internet_search_confirmed": true,
+    "normal_spoken_turn_confirmed": false,
+    "interruption_behavior_confirmed": false,
+    "retry_path_confirmed": false
+  },
+  "check_requirements": {
+    "actual_device_checked": "The tester used the actual public-origin device/browser path, not a simulated CI playback.",
+    "actual_speaker_checked": "The tester heard the response through the intended output speaker/headphones.",
+    "first_syllable_not_clipped": "The first audible syllable was present and not clipped by playback startup.",
+    "intelligibility_confirmed": "The spoken answer was understandable in the room without reading the fallback text.",
+    "answer_text_fallback_visible": "Fallback transcript text remained visible for accessibility and recovery.",
+    "no_internet_search_confirmed": "The memorial answer did not use internet search as Manfred.",
+    "normal_spoken_turn_confirmed": "A normal spoken question completed as microphone capture, STT, answer, TTS, and playback.",
+    "interruption_behavior_confirmed": "Intentional interruption or barge-in behavior was observed and was not harsh or confusing.",
+    "retry_path_confirmed": "The tester observed a clear retry/recovery path after an acoustic or turn-taking problem."
+  },
+  "manual_attestation": {
+    "attestation_id": "",
+    "signed_at": "",
+    "source": "operator_room_review",
+    "ci_must_not_auto_assert": true
   },
   "notes": "",
-  "failed_codes": [],
-  "gold_claim_allowed": true
+  "failed_codes": [
+    "normal_spoken_turn_confirmed_missing",
+    "interruption_behavior_confirmed_missing",
+    "retry_path_confirmed_missing",
+    "reviewer_generic",
+    "device_label_generic",
+    "speaker_label_generic",
+    "room_label_generic",
+    "notes_missing",
+    "manual_attestation_id_missing",
+    "manual_attestation_signed_at_missing",
+    "dirty_worktree"
+  ],
+  "gold_claim_allowed": false
 }

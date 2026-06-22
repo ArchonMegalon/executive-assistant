@@ -30,6 +30,7 @@ SCRIPTS=(
   scripts/db_retention.sh
   scripts/smoke_api.sh
   scripts/smoke_help.sh
+  scripts/bootstrap_from_teable.sh
   scripts/smoke_postgres.sh
   scripts/test_postgres_contracts.sh
   scripts/hard_exit_gates.sh
@@ -40,6 +41,11 @@ SCRIPTS=(
   scripts/materialize_poppy_draft_packet.py
   scripts/materialize_whole_project_gold_map.py
   scripts/verify_whole_project_gold_map.py
+  scripts/materialize_whatsapp_web_action_processor_readiness.py
+  scripts/verify_whatsapp_web_action_processor_readiness.py
+  ea/scripts/verify_whatsapp_audiobook_live_delivery_receipt.py
+  ea/scripts/verify_whatsapp_audiobook_operator_proof_bundle.py
+  ea/scripts/verify_whatsapp_audiobook_public_share_playback.py
   scripts/list_endpoints.sh
   scripts/version_info.sh
   scripts/export_openapi.sh
@@ -57,7 +63,7 @@ for s in "${SCRIPTS[@]}"; do
   echo "== help smoke: ${s} =="
   case "${s}" in
     *.py)
-      out="$("${PYTHON_BIN}" "${EA_ROOT}/${s}" --help)"
+      out="$(PYTHONPATH="${EA_ROOT}/ea:${EA_ROOT}:${PYTHONPATH:-}" "${PYTHON_BIN}" "${EA_ROOT}/${s}" --help)"
       ;;
     *)
       out="$(bash "${EA_ROOT}/${s}" --help)"

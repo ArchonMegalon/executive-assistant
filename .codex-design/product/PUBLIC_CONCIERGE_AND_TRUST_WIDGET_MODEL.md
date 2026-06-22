@@ -9,7 +9,7 @@ This document defines the missing product layer between:
 * first-party truth surfaces (`/downloads`, `/now`, `/contact`, artifact pages, campaign invite pages)
 * bounded humanized guidance (`FacePop`)
 * structured intake (`Deftform`)
-* human booking or escalation (`Lunacal`)
+* rare invitation-only scheduling (`Lunacal`) outside normal Chummer support
 * polished explainer and briefing artifacts (`vidBoard`, `Soundmadeseen`, `MarkupGo`, `PeekShot`)
 
 The goal is not to turn Chummer into a vendor-widget collage. The goal is to create high-trust concierge experiences that make the product feel alive while keeping support, install, publication, and campaign truth first-party.
@@ -26,7 +26,7 @@ What is already strong:
 What this model closes:
 
 * no first-class public concierge or trust-widget model
-* no machine-readable workflow family for `FacePop -> Deftform -> Lunacal -> Hub` handoff
+* no machine-readable workflow family for `FacePop -> Deftform -> Hub` support handoff
 * no first-class testimonial or response-capture lane
 * no policy exception for public, low-risk trust widgets on Hub-owned pages
 * drift between the recently acquired tools (`FacePop`, `Lunacal`, `Deftform`) and the design or EA inventory
@@ -76,7 +76,7 @@ Allowed recovery moves:
 
 * open the first-party recovery article or install-help page
 * route to Deftform pre-intake when structured details help support
-* route to Lunacal when the documented escalation policy says a human help session is warranted
+* route to Chummer Instant Help or first-party support intake when help is needed
 * route to first-party relinking, release, or status copy that explains what the user can safely do next
 
 Forbidden recovery moves:
@@ -109,7 +109,7 @@ Allowed handoff destinations:
 * first-party help articles or release pages
 * Hub-owned support intake
 * Deftform structured intake
-* Lunacal booking pages
+* invitation-only booking pages outside normal Chummer support
 * approved artifact or media pages
 * MetaSurvey post-flow usefulness capture
 
@@ -153,14 +153,14 @@ Must not:
 
 ### Lunacal
 
-Primary role: human escalation and scheduling backend.
+Primary role: invitation-only scheduling backend outside normal Chummer support.
 
 Allowed jobs:
 
-* onboarding calls
-* GM office hours
+* press demos
+* invited GM office hours
 * creator consults
-* migration or setup clinics
+* rare research sessions
 * premium or publisher review sessions
 
 Must not:
@@ -168,6 +168,7 @@ Must not:
 * own support case truth
 * own campaign or install truth
 * be the only route to help
+* appear in the normal Chummer help or setup flow
 
 ### Deftform
 
@@ -216,9 +217,9 @@ Flow:
    * I need setup help
 3. `Download now` routes to first-party download truth.
 4. `Which platform should I pick?` routes to a short vidBoard explainer or first-party support article.
-5. `I need setup help` opens a Deftform support-enrichment form.
-6. If the form signals a human-help case, route to Lunacal for a short setup clinic.
-7. Hub records the pre-intake, booking receipt, and final support-case linkage.
+5. `I need setup help` opens Chummer Instant Help.
+6. If the issue remains unresolved, Hub creates a private support packet or a Deftform support-enrichment form.
+7. Hub records the pre-intake, diagnostic result, and final support-case linkage.
 
 ### 2. Campaign invite concierge
 
@@ -273,7 +274,7 @@ Flow:
    * Need help updating?
 3. vidBoard provides the localized release explainer.
 4. MarkupGo and Documentation.AI provide the text siblings.
-5. Setup or update difficulty routes to Deftform and, if needed, Lunacal.
+5. Setup or update difficulty routes to Chummer Instant Help and, if unresolved, first-party support intake.
 6. Hub remains the owner of the case, release truth, and closure status.
 
 ### 5. Testimonial and proof shelf

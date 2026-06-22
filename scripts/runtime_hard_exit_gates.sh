@@ -21,7 +21,7 @@ Runs the runtime-only hard exit bundle that a live deploy must pass:
   - smoke_api
   - verify_pocket_audio_archive
 
-`smoke_api_tibor.sh` stays in the full hard-exit bundle because it mutates
+`smoke_api_principal.sh` stays in the full hard-exit bundle because it mutates
 deeper task-contract state and is not a live-deploy-safe probe.
 EOF
   exit 0

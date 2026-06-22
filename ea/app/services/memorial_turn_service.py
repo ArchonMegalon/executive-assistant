@@ -13,7 +13,9 @@ from app.services.memorial_turn_runtime import MemorialTurnRuntime
 
 
 def transcribe_public_memorial_audio(*, runtime: MemorialTurnRuntime, payload: bytes, content_type: str) -> MemorialSpeechTranscription:
+    stt_started = time.perf_counter()
     result = dict(runtime.transcribe_audio_blob(payload=payload, content_type=content_type))
+    stt_ms = (time.perf_counter() - stt_started) * 1000.0
     transcript_text = runtime.text(result.get("transcript_text"), "")
     effective_question = runtime.canonical_contact_opening_question(transcript_text)
     visible_transcript = runtime.visible_transcript_text(
@@ -30,6 +32,7 @@ def transcribe_public_memorial_audio(*, runtime: MemorialTurnRuntime, payload: b
         transcript_original_text=runtime.text(result.get("transcript_original_text"), ""),
         transcription_status=runtime.text(result.get("transcription_status"), ""),
         transcriber=runtime.text(result.get("transcriber"), ""),
+        stt_ms=stt_ms,
         extra=result,
     )
 
@@ -103,7 +106,7 @@ def build_public_memorial_turn(*, runtime: MemorialTurnRuntime, request: Memoria
         fallback_used=bool(response_payload.get("llm_fallback_used")),
         tts_plugin=rendered_audio.tts_plugin,
         tts_fast_path=rendered_audio.tts_fast_path,
-        stt_ms=0.0,
+        stt_ms=transcription.stt_ms,
         llm_ms=answer_plan.llm_ms,
         tts_ms=rendered_audio.tts_ms,
         pad_ms=rendered_audio.pad_ms,

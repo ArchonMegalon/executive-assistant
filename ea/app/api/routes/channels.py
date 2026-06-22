@@ -6,6 +6,7 @@ import contextlib
 import hashlib
 import hmac
 import json
+import mimetypes
 import os
 import re
 import subprocess
@@ -33,7 +34,28 @@ from app.domain.models import ToolInvocationRequest
 from app.product.projections.common import compact_text
 from app.product import service as product_service_module
 from app.product.service import build_product_service
+from app.services import audiobook_access_approval
 from app.services import google_oauth as google_oauth_service
+from app.services import whatsapp_inbound_actions
+from app.services import whatsapp_delivery_router
+from app.services.audiobook_epub_pipeline import (
+    _record_audiobookshelf_public_share_telegram_delivery,
+    apply_audiobook_voice_audition_action,
+    audiobook_jobs_root,
+    audiobook_runtime_preflight,
+    audiobook_voice_audition_sample_messages,
+    create_job_from_epub,
+    download_telegram_epub,
+    prepare_audiobook_voice_audition,
+    ensure_audiobook_playback_acceptance_callback,
+    is_epub_document,
+    is_telegram_epub_download_url_allowed,
+    process_telegram_epub_audiobook_job,
+    record_audiobook_playback_acceptance_by_callback_token,
+    record_audiobook_voice_sample_delivery,
+    telegram_epub_reply_text,
+    telegram_epub_skill_enabled,
+)
 from app.services.ltd_runtime_catalog import LtdRuntimeCatalogService
 from app.services.ltd_runtime_skill_projection import projected_task_key, projected_task_key_for_request
 from app.services.property_billing import property_commercial_snapshot
@@ -47,6 +69,7 @@ from app.services.telegram_session_service import (
     TelegramReplyMemoryState,
     TelegramTurnContext,
     TelegramTurnDecision,
+    _telegram_file_download_url,
     _hydrate_instructional_video_transcript,
     build_turn_context,
     resolve_telegram_message_payload,
@@ -55,6 +78,8 @@ from app.services.telegram_session_service import (
 from app.services.telegram_onboarding_service import TELEGRAM_IDENTITY_CONNECTOR, TELEGRAM_OFFICIAL_BOT_CONNECTOR
 from app.services.telegram_delivery import send_telegram_video_for_principal
 from app.services.telegram_delivery import decode_telegram_feedback_callback_data
+from app.services.telegram_delivery import record_telegram_video_delivery_receipt as shared_record_telegram_video_delivery_receipt
+from app.services.telegram_delivery import telegram_video_source_receipt_context
 
 router = APIRouter(prefix="/v1/channels", tags=["channels"])
 _telegram = TelegramObservationAdapter()
@@ -96,6 +121,31 @@ _MATH_WORD_NUMBERS = {
     "eleven": "11",
     "twelve": "12",
 }
+
+
+def _assistant_owner_label() -> str:
+    for env_key in (
+        "EA_ASSISTANT_OWNER_LABEL",
+        "EA_WHATSAPP_WEB_DEFAULT_TENANT_NAME",
+        "EA_WHATSAPP_DEFAULT_TENANT_NAME",
+        "EA_WHATSAPP_WEB_DEFAULT_DISPLAY_NAME",
+        "EA_WHATSAPP_DEFAULT_DISPLAY_NAME",
+    ):
+        value = str(os.getenv(env_key) or "").strip()
+        if value:
+            return value
+    return "the principal"
+
+
+def _assistant_owner_possessive_label() -> str:
+    owner = _assistant_owner_label()
+    if owner == "the principal":
+        return "the principal's"
+    return f"{owner}'" if owner.endswith("s") else f"{owner}'s"
+
+
+def _telegram_saved_flow_reply_prefix() -> str:
+    return f"I got it. I saved this in {_assistant_owner_possessive_label()} assistant flow"
 _TELEGRAM_MONTH_ALIASES = {
     "jan": 1,
     "january": 1,
@@ -375,6 +425,14 @@ def _telegram_callback_ttl_seconds() -> int:
         return 3600
 
 
+def _telegram_audiobook_voice_callback_ttl_seconds() -> int:
+    raw = str(os.getenv("EA_TELEGRAM_AUDIOBOOK_VOICE_CALLBACK_TTL_SECONDS") or "604800").strip()
+    try:
+        return max(int(float(raw or "604800")), 3600)
+    except Exception:
+        return 604800
+
+
 def _telegram_callback_signature(
     *,
     secret: str,
@@ -489,6 +547,420 @@ def _telegram_send_message(
     except Exception:
         timeout_seconds = 10.0
     return _telegram_post_json_with_retries(request=request, timeout_seconds=timeout_seconds)
+
+
+def _base36_encode(value: int) -> str:
+    alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
+    normalized = max(int(value), 0)
+    if normalized == 0:
+        return "0"
+    chars: list[str] = []
+    while normalized:
+        normalized, remainder = divmod(normalized, 36)
+        chars.append(alphabet[remainder])
+    return "".join(reversed(chars))
+
+
+def _base36_decode(value: str) -> int:
+    return int(str(value or "0").strip().lower(), 36)
+
+
+def _telegram_audiobook_voice_callback_signature(
+    *,
+    secret: str,
+    action: str,
+    token: str,
+    chat_id: str,
+    expires_at: int,
+) -> str:
+    payload = "|".join(
+        (
+            "ab",
+            str(action or "").strip().lower(),
+            str(token or "").strip(),
+            str(chat_id or "").strip(),
+            str(int(expires_at)),
+        )
+    )
+    return hmac.new(str(secret or "").encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()[:10]
+
+
+def _telegram_encode_audiobook_voice_callback(
+    *,
+    bot_config: dict[str, object],
+    action: str,
+    token: str,
+    chat_id: str,
+) -> str:
+    secret = _telegram_callback_secret(bot_config=bot_config)
+    normalized_action = str(action or "").strip().lower()[:1]
+    normalized_token = str(token or "").strip()
+    normalized_chat_id = str(chat_id or "").strip()
+    if normalized_action not in {"u", "d"} or not normalized_token or not normalized_chat_id or not secret:
+        return ""
+    expires_at = int(time.time()) + _telegram_audiobook_voice_callback_ttl_seconds()
+    signature = _telegram_audiobook_voice_callback_signature(
+        secret=secret,
+        action=normalized_action,
+        token=normalized_token,
+        chat_id=normalized_chat_id,
+        expires_at=expires_at,
+    )
+    return f"ab|{normalized_action}|{normalized_token}|{_base36_encode(expires_at)}|{signature}"
+
+
+def _telegram_decode_audiobook_voice_callback(
+    *,
+    bot_config: dict[str, object],
+    callback_data: str,
+    chat_id: str,
+) -> dict[str, object]:
+    parts = str(callback_data or "").strip().split("|")
+    if len(parts) != 5 or parts[0] != "ab":
+        return {"ok": False, "reason": "invalid_format"}
+    _prefix, action, token, expires_raw, signature = parts
+    normalized_action = str(action or "").strip().lower()
+    if normalized_action not in {"u", "d"}:
+        return {"ok": False, "reason": "invalid_action"}
+    try:
+        expires_at = _base36_decode(expires_raw)
+    except Exception:
+        return {"ok": False, "reason": "invalid_expiry"}
+    if expires_at < int(time.time()):
+        return {"ok": False, "reason": "expired"}
+    secret = _telegram_callback_secret(bot_config=bot_config)
+    if not secret:
+        return {"ok": False, "reason": "missing_secret"}
+    expected = _telegram_audiobook_voice_callback_signature(
+        secret=secret,
+        action=normalized_action,
+        token=str(token or "").strip(),
+        chat_id=str(chat_id or "").strip(),
+        expires_at=expires_at,
+    )
+    if not hmac.compare_digest(str(signature or "").strip(), expected):
+        return {"ok": False, "reason": "invalid_signature"}
+    return {
+        "ok": True,
+        "action": "use" if normalized_action == "u" else "dismiss",
+        "token": str(token or "").strip(),
+        "expires_at": expires_at,
+    }
+
+
+def _telegram_audiobook_playback_callback_signature(
+    *,
+    secret: str,
+    action: str,
+    token: str,
+    chat_id: str,
+    expires_at: int,
+) -> str:
+    payload = "|".join(
+        (
+            "ap",
+            str(action or "").strip().lower(),
+            str(token or "").strip(),
+            str(chat_id or "").strip(),
+            str(int(expires_at)),
+        )
+    )
+    return hmac.new(str(secret or "").encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()[:10]
+
+
+def _telegram_encode_audiobook_playback_callback(
+    *,
+    bot_config: dict[str, object],
+    action: str,
+    token: str,
+    chat_id: str,
+) -> str:
+    normalized_action = str(action or "").strip().lower()[:1]
+    normalized_token = str(token or "").strip()
+    normalized_chat_id = str(chat_id or "").strip()
+    secret = _telegram_callback_secret(bot_config=bot_config)
+    if normalized_action not in {"a", "r"} or not normalized_token or not normalized_chat_id or not secret:
+        return ""
+    expires_at = int(time.time()) + _telegram_callback_ttl_seconds()
+    signature = _telegram_audiobook_playback_callback_signature(
+        secret=secret,
+        action=normalized_action,
+        token=normalized_token,
+        chat_id=normalized_chat_id,
+        expires_at=expires_at,
+    )
+    return f"ap|{normalized_action}|{normalized_token}|{expires_at}|{signature}"
+
+
+def _telegram_decode_audiobook_playback_callback(
+    *,
+    bot_config: dict[str, object],
+    callback_data: str,
+    chat_id: str,
+) -> dict[str, object]:
+    parts = str(callback_data or "").strip().split("|")
+    if len(parts) != 5 or parts[0] != "ap":
+        return {"ok": False, "reason": "invalid_format"}
+    _prefix, action, token, expires_raw, signature = parts
+    normalized_action = str(action or "").strip().lower()
+    if normalized_action not in {"a", "r"}:
+        return {"ok": False, "reason": "invalid_action"}
+    try:
+        expires_at = int(str(expires_raw or "").strip())
+    except Exception:
+        return {"ok": False, "reason": "invalid_expiry"}
+    if expires_at < int(time.time()):
+        return {"ok": False, "reason": "expired"}
+    secret = _telegram_callback_secret(bot_config=bot_config)
+    if not secret:
+        return {"ok": False, "reason": "missing_secret"}
+    expected = _telegram_audiobook_playback_callback_signature(
+        secret=secret,
+        action=normalized_action,
+        token=str(token or "").strip(),
+        chat_id=str(chat_id or "").strip(),
+        expires_at=expires_at,
+    )
+    if not hmac.compare_digest(str(signature or "").strip(), expected):
+        return {"ok": False, "reason": "invalid_signature"}
+    return {
+        "ok": True,
+        "action": "accepted" if normalized_action == "a" else "problem",
+        "token": str(token or "").strip(),
+        "expires_at": expires_at,
+    }
+
+
+def _telegram_audiobook_playback_acceptance_buttons(
+    *,
+    bot_config: dict[str, object],
+    chat_id: str,
+    job: dict[str, object],
+) -> tuple[dict[str, object], list[list[tuple[str, str]]]]:
+    updated_job = ensure_audiobook_playback_acceptance_callback(job)
+    imported = dict(updated_job.get("audiobookshelf_import") or {})
+    public_share = dict(imported.get("public_share") or {})
+    callback = dict(public_share.get("playback_acceptance_callback") or {})
+    token = str(callback.get("token") or "").strip()
+    if str(public_share.get("status") or "").strip() != "public_share_ready" or not token:
+        return updated_job, []
+    accepted_callback = _telegram_encode_audiobook_playback_callback(
+        bot_config=bot_config,
+        action="a",
+        token=token,
+        chat_id=chat_id,
+    )
+    rejected_callback = _telegram_encode_audiobook_playback_callback(
+        bot_config=bot_config,
+        action="r",
+        token=token,
+        chat_id=chat_id,
+    )
+    if not accepted_callback or not rejected_callback:
+        return updated_job, []
+    return updated_job, [[("Playback works", accepted_callback), ("Problem", rejected_callback)]]
+
+
+def _telegram_send_audio(
+    *,
+    bot_token: str,
+    chat_id: str,
+    audio_path: str,
+    caption: str,
+    inline_buttons: list[list[tuple[str, str]]] | None = None,
+) -> dict[str, object]:
+    normalized_token = str(bot_token or "").strip()
+    normalized_chat_id = str(chat_id or "").strip()
+    path = Path(str(audio_path or "")).expanduser()
+    if not normalized_token or not normalized_chat_id or not path.is_file():
+        return {}
+    boundary = f"----ea-telegram-audio-{uuid.uuid4().hex}"
+    fields: dict[str, object] = {"chat_id": normalized_chat_id, "caption": str(caption or "").strip()[:1024]}
+    if inline_buttons:
+        fields["reply_markup"] = json.dumps(_telegram_inline_keyboard(inline_buttons), separators=(",", ":"))
+    body = bytearray()
+    for key, value in fields.items():
+        body.extend(f"--{boundary}\r\n".encode("utf-8"))
+        body.extend(f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode("utf-8"))
+        body.extend(str(value or "").encode("utf-8"))
+        body.extend(b"\r\n")
+    content_type = mimetypes.guess_type(path.name)[0] or "audio/wav"
+    body.extend(f"--{boundary}\r\n".encode("utf-8"))
+    body.extend(
+        (
+            f'Content-Disposition: form-data; name="audio"; filename="{path.name}"\r\n'
+            f"Content-Type: {content_type}\r\n\r\n"
+        ).encode("utf-8")
+    )
+    body.extend(path.read_bytes())
+    body.extend(b"\r\n")
+    body.extend(f"--{boundary}--\r\n".encode("utf-8"))
+    request = urllib.request.Request(
+        f"https://api.telegram.org/bot{normalized_token}/sendAudio",
+        data=bytes(body),
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        method="POST",
+    )
+    try:
+        timeout_seconds = max(float(str(os.getenv("EA_TELEGRAM_SEND_TIMEOUT_SECONDS") or "10").strip() or "10"), 1.0)
+    except Exception:
+        timeout_seconds = 10.0
+    return _telegram_post_json_with_retries(request=request, timeout_seconds=timeout_seconds)
+
+
+def _telegram_send_audiobook_voice_samples(
+    *,
+    bot_config: dict[str, object],
+    chat_id: str,
+    job: dict[str, object],
+) -> list[dict[str, object]]:
+    bot_token = str(bot_config.get("token") or "").strip()
+    receipts: list[dict[str, object]] = []
+    for sample in audiobook_voice_audition_sample_messages(job):
+        token = str(sample.get("token") or "").strip()
+        use_callback = _telegram_encode_audiobook_voice_callback(
+            bot_config=bot_config,
+            action="u",
+            token=token,
+            chat_id=chat_id,
+        )
+        dismiss_callback = _telegram_encode_audiobook_voice_callback(
+            bot_config=bot_config,
+            action="d",
+            token=token,
+            chat_id=chat_id,
+        )
+        caption = str(sample.get("label") or "Voice sample").strip()
+        matched_tags = [str(item).strip() for item in list(sample.get("matched_tags") or []) if str(item).strip()]
+        if matched_tags:
+            caption = f"{caption} · {', '.join(matched_tags[:4])}"
+        try:
+            receipt = _telegram_send_audio(
+                bot_token=bot_token,
+                chat_id=chat_id,
+                audio_path=str(sample.get("audio_path") or ""),
+                caption=caption,
+                inline_buttons=[[("Use this", use_callback), ("Dismiss", dismiss_callback)]],
+            )
+        except Exception as exc:
+            receipts.append({"token": token, "status": "failed", "reason": type(exc).__name__})
+            continue
+        sent = bool(receipt) and bool(dict(receipt).get("ok", True))
+        reason = str(dict(receipt).get("description") or "").strip() if receipt else "telegram_audio_send_skipped"
+        receipts.append({"token": token, "status": "sent" if sent else "skipped", "reason": "" if sent else reason})
+    return receipts
+
+
+def _whatsapp_send_audiobook_voice_samples(
+    *,
+    tool_runtime,
+    principal_id: str,
+    recipient: str,
+    job: dict[str, object],
+    binding_id: str = "",
+    binding: object | None = None,
+) -> list[dict[str, object]]:
+    receipts: list[dict[str, object]] = []
+    for sample in audiobook_voice_audition_sample_messages(job):
+        token = str(sample.get("token") or "").strip()
+        use_callback = whatsapp_inbound_actions.encode_whatsapp_audiobook_voice_callback(
+            action="u",
+            token=token,
+            sender_ref=recipient,
+        )
+        dismiss_callback = whatsapp_inbound_actions.encode_whatsapp_audiobook_voice_callback(
+            action="d",
+            token=token,
+            sender_ref=recipient,
+        )
+        if not use_callback or not dismiss_callback:
+            receipts.append(
+                {
+                    "token": token,
+                    "status": "failed",
+                    "reason": (
+                        "EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET or "
+                        "EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET_FILE missing "
+                        "(/config/whatsapp_audiobook_callback_secret); whatsapp_callback_encoding_failed"
+                    ),
+                    "transport": "whatsapp",
+                }
+            )
+            continue
+        caption = str(sample.get("label") or "Voice sample").strip()
+        matched_tags = [str(item).strip() for item in list(sample.get("matched_tags") or []) if str(item).strip()]
+        if matched_tags:
+            caption = f"{caption} · {', '.join(matched_tags[:4])}"
+        try:
+            receipt = whatsapp_delivery_router.send_whatsapp_delivery_text(
+                tool_runtime=tool_runtime,
+                principal_id=principal_id,
+                recipient=recipient,
+                text=caption,
+                binding_id=binding_id,
+                binding=binding,
+                buttons=[[("Use this", use_callback), ("Dismiss", dismiss_callback)]],
+            )
+        except Exception as exc:
+            receipts.append({"token": token, "status": "failed", "reason": type(exc).__name__})
+            continue
+        sent = bool(getattr(receipt, "message_ids", ()))
+        receipts.append(
+            {
+                "token": token,
+                "status": "sent" if sent else "skipped",
+                "reason": "" if sent else "whatsapp_message_id_missing",
+                "transport": str(getattr(receipt, "delivery_transport", "") or "whatsapp").strip(),
+            }
+        )
+    return receipts
+
+
+def _telegram_refill_audiobook_voice_audition_if_needed(
+    *,
+    job: dict[str, object],
+) -> dict[str, object]:
+    storage = dict(job.get("storage") or {})
+    job_dir_raw = str(storage.get("job_dir") or "").strip()
+    if not job_dir_raw:
+        return job
+    try:
+        refreshed_job = prepare_audiobook_voice_audition(job_dir=Path(job_dir_raw), refill_pending=True)
+    except Exception:
+        return job
+    return refreshed_job if isinstance(refreshed_job, dict) else job
+
+
+def _extract_audiobook_voice_replacement_keys(
+    *,
+    voice_selection: dict[str, object],
+    last_action: dict[str, object],
+) -> set[str]:
+    return {
+        str(item or "").strip()
+        for item in list(
+            last_action.get("replacement_candidate_keys")
+            or voice_selection.get("replacement_candidate_keys")
+            or []
+        )
+        if str(item or "").strip()
+    }
+
+
+def _telegram_audiobook_voice_sample_subset(job: dict[str, object], candidate_keys: set[str]) -> dict[str, object]:
+    if not candidate_keys:
+        return dict(job)
+    subset = dict(job)
+    provider = dict(subset.get("provider") or {})
+    voice_selection = dict(provider.get("voice_selection") or {})
+    voice_selection["pending_batch"] = [
+        row
+        for row in list(voice_selection.get("pending_batch") or [])
+        if isinstance(row, dict) and str(row.get("preset_key") or "").strip() in candidate_keys
+    ]
+    provider["voice_selection"] = voice_selection
+    subset["provider"] = provider
+    return subset
 
 
 def _telegram_answer_callback_query(*, bot_token: str, callback_query_id: str, text: str = "") -> None:
@@ -909,21 +1381,7 @@ def _record_telegram_async_failed(
 
 
 def _telegram_video_source_receipt_context(payload: dict[str, object]) -> dict[str, object]:
-    source_url = str(payload.get("video_download_url") or "").strip()
-    parsed = urllib.parse.urlparse(source_url) if source_url else urllib.parse.urlparse("")
-    redacted_path = str(parsed.path or "")
-    redacted_path = re.sub(r"/file/bot[^/]+/", "/file/bot<redacted>/", redacted_path)
-    frame_paths = list(payload.get("source_video_reference_frame_paths") or [])
-    return {
-        "has_source_video": bool(source_url),
-        "source_url_raw_stored": False,
-        "source_url_sha256": hashlib.sha256(source_url.encode("utf-8")).hexdigest() if source_url else "",
-        "source_host": str(parsed.hostname or "").strip().lower(),
-        "source_path_redacted": redacted_path,
-        "source_video_duration_seconds": payload.get("video_duration_seconds"),
-        "source_video_reference_board_present": bool(str(payload.get("source_video_reference_board_path") or "").strip()),
-        "source_video_reference_frame_count": len(frame_paths),
-    }
+    return telegram_video_source_receipt_context(payload)
 
 
 def _record_telegram_video_delivery_receipt(
@@ -939,40 +1397,17 @@ def _record_telegram_video_delivery_receipt(
     error: str = "",
     sidecar: dict[str, object] | None = None,
 ) -> None:
-    normalized_provider = str(provider or "unknown").strip() or "unknown"
-    normalized_status = str(status or "").strip().lower() or "unknown"
-    normalized_error = compact_text(str(error or "").strip(), fallback="", limit=240)
-    normalized_message_ids = [str(item or "").strip() for item in list(message_ids or []) if str(item or "").strip()]
-    external_id = str(current_message_id or "").strip()
-    dedupe_material = json.dumps(
-        {
-            "source_message_id": external_id,
-            "provider": normalized_provider,
-            "status": normalized_status,
-            "message_ids": normalized_message_ids,
-            "error": normalized_error,
-        },
-        sort_keys=True,
-    )
-    dedupe_suffix = hashlib.sha256(dedupe_material.encode("utf-8")).hexdigest()[:16]
-    container.channel_runtime.ingest_observation(
+    shared_record_telegram_video_delivery_receipt(
+        container.channel_runtime,
         principal_id=principal_id,
-        channel="telegram",
-        event_type="telegram.video_delivery_receipt",
-        payload={
-            "receipt_type": "telegram_video_delivery",
-            "chat_id": str(chat_id or "").strip(),
-            "source_message_id": external_id,
-            "provider": normalized_provider,
-            "status": normalized_status,
-            "message_ids": normalized_message_ids,
-            "error": normalized_error,
-            "source_video": _telegram_video_source_receipt_context(payload),
-            "sidecar": dict(sidecar or {}),
-        },
-        source_id=f"telegram:{chat_id}" if chat_id else "telegram",
-        external_id=external_id,
-        dedupe_key=f"{external_id}:telegram_video_delivery:{dedupe_suffix}" if external_id else "",
+        chat_id=chat_id,
+        source_message_id=current_message_id,
+        provider=provider,
+        status=status,
+        source_payload=payload,
+        message_ids=message_ids,
+        error=error,
+        sidecar=sidecar,
     )
 
 
@@ -1019,7 +1454,7 @@ def _telegram_general_reply_text(*, container: AppContainer, principal_id: str, 
                 "i am still working on that last message.",
             }:
                 continue
-            if previous_lower.startswith("i got it. i saved this in tibor's assistant flow"):
+            if previous_lower.startswith(_telegram_saved_flow_reply_prefix().lower()):
                 continue
             return previous_normalized
         return "I do not have a useful previous answer to repeat yet."
@@ -1032,9 +1467,9 @@ def _telegram_general_reply_text(*, container: AppContainer, principal_id: str, 
             if math_answer:
                 return f"Yes. {math_answer}"
             if "http://" in previous_normalized or "https://" in previous_normalized:
-                return "Yes. I captured the link and kept it in Tibor's assistant inbox."
+                return f"Yes. I captured the link and kept it in {_assistant_owner_possessive_label()} assistant inbox."
             break
-        return "Yes. I captured your message and kept it in Tibor's assistant flow."
+        return f"Yes. I captured your message and kept it in {_assistant_owner_possessive_label()} assistant flow."
     if ("today" in lower and "day" in lower) or alpha in {"day", "today", "what day", "weekday"}:
         now = datetime.now(ZoneInfo("Europe/Vienna"))
         return f"Today is {now.strftime('%A, %d %B %Y')} in Vienna."
@@ -1157,6 +1592,26 @@ def _telegram_video_placeholder_text(text: str) -> bool:
     return normalized in {"", "video", "video message"}
 
 
+def _telegram_generic_video_followup_text(text: str) -> bool:
+    normalized = " ".join(str(text or "").strip().lower().split())
+    if not normalized:
+        return False
+    return normalized in {
+        "do it",
+        "go",
+        "go ahead",
+        "yes",
+        "yes please",
+        "ok",
+        "okay",
+        "done",
+        "continue",
+        "make it",
+        "please do it",
+        "send it",
+    }
+
+
 def _telegram_video_instruction_candidate(text: str) -> bool:
     normalized = " ".join(str(text or "").strip().lower().split())
     if not normalized or _telegram_video_placeholder_text(normalized):
@@ -1168,6 +1623,22 @@ def _telegram_video_instruction_candidate(text: str) -> bool:
     if _safe_math_answer(normalized):
         return False
     return True
+
+
+def _telegram_video_caption_task_text(*, followup_text: str, caption: str) -> str:
+    normalized_caption = str(caption or "").strip()
+    if not normalized_caption:
+        return str(followup_text or "").strip()
+    if not _telegram_generic_video_followup_text(followup_text):
+        return str(followup_text or "").strip()
+    if not _telegram_video_instruction_candidate(normalized_caption):
+        return str(followup_text or "").strip()
+    if _telegram_instructional_video_prefers_rendered_video(normalized_caption):
+        return normalized_caption
+    lowered_caption = " ".join(normalized_caption.lower().split())
+    if any(marker in lowered_caption for marker in _TELEGRAM_NON_RENDER_VIDEO_ANALYSIS_MARKERS):
+        return normalized_caption
+    return str(followup_text or "").strip()
 
 
 def _telegram_recent_video_message_payload(
@@ -1268,8 +1739,13 @@ def _telegram_instructional_video_payload(ctx: TelegramTurnContext) -> dict[str,
     )
     if not recent_video_payload:
         return {}
+    recent_metadata = dict(recent_video_payload.get("message_metadata") or {})
+    instruction_text = _telegram_video_caption_task_text(
+        followup_text=ctx.normalized,
+        caption=str(recent_metadata.get("caption") or "").strip(),
+    )
     return _telegram_build_instructional_video_payload(
-        instruction_text=ctx.normalized,
+        instruction_text=instruction_text,
         payload=recent_video_payload,
         fallback_message_id="",
     )
@@ -1455,6 +1931,31 @@ def _telegram_enrich_payload_with_source_video_references(payload: dict[str, obj
     return resolved
 
 
+def _telegram_hydrate_instructional_video_download_url(
+    payload: dict[str, object],
+    *,
+    bot_token: str,
+) -> dict[str, object]:
+    resolved = dict(payload or {})
+    if str(resolved.get("kind") or "").strip().lower() != "instructional_video":
+        return resolved
+    if str(resolved.get("video_download_url") or "").strip():
+        return resolved
+    file_id = str(resolved.get("video_file_id") or "").strip()
+    token = str(bot_token or "").strip()
+    if not file_id or not token:
+        return resolved
+    try:
+        resolved["video_download_url"] = _telegram_file_download_url(bot_token=token, file_id=file_id)
+        resolved["video_resolve_status"] = "ok"
+    except Exception as exc:
+        raw_error = str(exc or "").strip()
+        error_code = raw_error.split(":", 1)[0].strip().lower().replace(" ", "_") or "video_resolve_failed"
+        resolved["video_resolve_status"] = "failed"
+        resolved["video_resolve_error_code"] = error_code[:80]
+    return resolved
+
+
 def _telegram_magicfit_video_fallback_enabled() -> bool:
     raw = str(os.getenv("EA_TELEGRAM_MAGICFIT_VIDEO_FALLBACK_ENABLED") or "0").strip().lower()
     return raw in {"1", "true", "yes", "on"}
@@ -1484,8 +1985,6 @@ def _telegram_magicfit_docker_repo_root() -> Path:
     if configured:
         return Path(configured).expanduser()
     repo_root = Path(product_service_module._repo_root()).resolve()
-    if str(repo_root).startswith("/app"):
-        return Path("/docker/EA")
     return repo_root
 
 
@@ -1505,7 +2004,7 @@ def _telegram_magicfit_playwright_browsers_host_path() -> Path:
     raw = str(
         os.getenv("EA_TELEGRAM_MAGICFIT_PLAYWRIGHT_BROWSERS_PATH")
         or os.getenv("PLAYWRIGHT_BROWSERS_HOST_PATH")
-        or "/home/tibor/.cache/ms-playwright"
+        or (Path.home() / ".cache" / "ms-playwright")
     ).strip()
     return Path(raw).expanduser()
 
@@ -1577,10 +2076,12 @@ def _telegram_render_local_source_video_reply(
         principal_id=principal_id,
         video_ref=video_path,
         audio_probe_ref=video_path,
+        fallback_audio_text=caption or instruction_text,
         caption=caption,
     )
     return {
         "status": "sent",
+        "kind": "video",
         "provider": str(rendered.get("provider") or "local_source_video_fx").strip() or "local_source_video_fx",
         "video_file_path": video_path,
         "message_ids": list(receipt.message_ids),
@@ -1596,6 +2097,31 @@ def _telegram_source_video_specialized_fallback_text() -> str:
 
 def _telegram_render_success_reply_text() -> str:
     return "I rendered and sent a short video reply here."
+
+
+def _telegram_video_delivery_message_ids(delivery: dict[str, object]) -> list[str]:
+    return [
+        str(item or "").strip()
+        for item in list(dict(delivery or {}).get("message_ids") or [])
+        if str(item or "").strip()
+    ]
+
+
+def _telegram_video_delivery_sent(delivery: dict[str, object]) -> bool:
+    delivery_dict = dict(delivery or {})
+    return (
+        str(delivery_dict.get("status") or "").strip().lower() == "sent"
+        and str(delivery_dict.get("kind") or "").strip().lower() == "video"
+        and bool(_telegram_video_delivery_message_ids(delivery_dict))
+    )
+
+
+def _telegram_video_delivery_error(delivery: dict[str, object], fallback: str) -> str:
+    delivery_dict = dict(delivery or {})
+    status = str(delivery_dict.get("status") or "").strip().lower()
+    if status == "sent" and not _telegram_video_delivery_message_ids(delivery_dict):
+        return "video_delivery_message_ids_missing"
+    return str(delivery_dict.get("error") or "").strip() or fallback
 
 
 def _telegram_video_lane_status_reply(
@@ -1767,6 +2293,7 @@ def _telegram_render_magicfit_video_reply(
             container.tool_runtime,
             principal_id=principal_id,
             video_ref=str(out_path),
+            fallback_audio_text=caption or prompt_text or instruction_text,
             caption=caption,
         )
         sidecar: dict[str, object] = {}
@@ -1777,6 +2304,7 @@ def _telegram_render_magicfit_video_reply(
                     sidecar = loaded
         return {
             "status": "sent",
+            "kind": "video",
             "provider": "magicfit",
             "message_ids": list(receipt.message_ids),
             "chat_id": receipt.chat_id,
@@ -1857,6 +2385,8 @@ def _telegram_pocket_audio_query_candidate(text: str) -> bool:
     normalized = " ".join(str(text or "").strip().lower().split())
     if not normalized:
         return False
+    if _telegram_audiobook_text_intent(normalized):
+        return False
     direct_markers = (
         "pocket",
         "audio",
@@ -1881,6 +2411,320 @@ def _telegram_pocket_audio_query_candidate(text: str) -> bool:
     ):
         return True
     return False
+
+
+def _telegram_audiobook_text_intent(text: str) -> bool:
+    normalized = " ".join(str(text or "").strip().lower().split())
+    if not normalized:
+        return False
+    return any(
+        marker in normalized
+        for marker in (
+            "audiobook",
+            "audio book",
+            "hörbuch",
+            "hoerbuch",
+            "ebook to audio",
+            "kindle audiobook",
+            "azw audiobook",
+            "azw3 audiobook",
+            "mobi audiobook",
+            "epub to audio",
+            "epub audiobook",
+            "make audiobook",
+            "make an audiobook",
+            "generate audiobook",
+            "generate an audiobook",
+            "narrate this book",
+            "narrate the book",
+        )
+    )
+
+
+def _telegram_audiobook_text_request_reply_text(text: str) -> str:
+    if not _telegram_audiobook_text_intent(text):
+        return ""
+    return (
+        "Send the EPUB, AZW, AZW3, or MOBI file here in Telegram. I will extract the chapters, detect language and topic, "
+        "send voice samples with Use this/Dismiss buttons, then generate the audiobook after a voice is chosen."
+    )
+
+
+def _telegram_audiobook_status_intent(text: str) -> bool:
+    normalized = " ".join(str(text or "").strip().lower().split())
+    if not normalized:
+        return False
+    sample_reference = any(
+        marker in normalized
+        for marker in (
+            "voice sample",
+            "voice samples",
+            "3 samples",
+            "three samples",
+        )
+    )
+    if not _telegram_audiobook_text_intent(text) and not sample_reference:
+        return False
+    return any(
+        marker in normalized
+        for marker in (
+            "status",
+            "ready",
+            "configured",
+            "preflight",
+            "why",
+            "voice sample",
+            "voice samples",
+            "3 samples",
+            "three samples",
+            "not get",
+            "don't get",
+            "dont get",
+            "did not get",
+            "didn't get",
+        )
+    )
+
+
+def _telegram_audiobook_voice_sample_resend_intent(text: str) -> bool:
+    normalized = " ".join(str(text or "").strip().lower().split())
+    if not normalized:
+        return False
+    sample_reference = any(marker in normalized for marker in ("voice sample", "voice samples", "sample", "samples"))
+    missing_reference = any(
+        marker in normalized
+        for marker in (
+            "not get",
+            "don't get",
+            "dont get",
+            "did not get",
+            "didn't get",
+            "missing",
+            "resend",
+            "send again",
+        )
+    )
+    return sample_reference and missing_reference
+
+
+def _telegram_audiobook_check_label(check_key: str) -> str:
+    labels = {
+        "telegram_audiobook_enabled": "Telegram audiobook intake is disabled",
+        "telegram_epub_enabled": "Telegram audiobook intake is disabled",
+        "jobs_root_durable": "audiobook job storage is not durable-storage-backed",
+        "jobs_root_writable": "audiobook job storage is not writable",
+        "external_tts_enabled": "external audiobook TTS is disabled",
+        "unmixr_auto_render_enabled": "audio generation is disabled",
+        "voice_catalog_configured": "no audiobook voices are configured",
+        "voice_catalog_audition_ready": "fewer than three audiobook voices are available",
+        "unmixr_api_key_slot_present": "no owned audio generation account slot is configured",
+        "player_access_signing_secret_present": "player-scoped playback signing is not configured",
+        "player_access_base_url_present": "player-scoped playback base URL is not configured",
+        "audiobookshelf_import_root_durable": "Audiobookshelf import storage is not durable-storage-backed",
+        "audiobookshelf_import_root_writable": "Audiobookshelf import storage is not writable",
+        "audiobookshelf_public_share_configured": "Audiobookshelf public-share API is not configured",
+    }
+    return labels.get(check_key, check_key.replace("_", " "))
+
+
+def _telegram_latest_active_audiobook_job_for_chat(chat_id: str) -> dict[str, object]:
+    normalized_chat_id = str(chat_id or "").strip()
+    if not normalized_chat_id:
+        return {}
+    try:
+        root = audiobook_jobs_root()
+    except Exception:
+        return {}
+    candidates: list[tuple[float, dict[str, object]]] = []
+    for manifest_path in sorted(root.glob("*/job.json")):
+        try:
+            job = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        telegram = dict(job.get("telegram") or {})
+        if str(telegram.get("chat_id") or "").strip() != normalized_chat_id:
+            continue
+        status = str(job.get("status") or "").strip()
+        if status in {"audiobookshelf_imported", "failed_m4b_merge"}:
+            continue
+        try:
+            mtime = manifest_path.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+        candidates.append((mtime, job))
+    if not candidates:
+        return {}
+    candidates.sort(key=lambda row: row[0], reverse=True)
+    return dict(candidates[0][1])
+
+
+def _telegram_active_audiobook_status_reply_text(
+    *,
+    chat_id: str,
+    text: str = "",
+    bot_config: dict[str, object] | None = None,
+) -> str:
+    job = _telegram_latest_active_audiobook_job_for_chat(chat_id)
+    if not job:
+        return ""
+    metadata = dict(job.get("metadata") or {})
+    title = str(metadata.get("title") or metadata.get("source_filename") or "the audiobook").strip()
+    voice_selection = dict(dict(job.get("provider") or {}).get("voice_selection") or {})
+    reason = str(voice_selection.get("reason") or "").strip()
+    if (
+        str(job.get("status") or "").strip() == "waiting_voice_selection"
+        and str(voice_selection.get("status") or "").strip() == "waiting_user_choice"
+        and reason == "selected_voice_provider_balance_blocked"
+    ):
+        pending = [row for row in list(voice_selection.get("pending_batch") or []) if isinstance(row, dict)]
+        label = str(dict(pending[0]).get("label") or "the replacement voice").strip() if pending else "the replacement voice"
+        delivery = dict(dict(job.get("telegram") or {}).get("voice_sample_delivery") or {})
+        sent = str(delivery.get("status") or "").strip() == "sent"
+        selected_voice = str(dict(voice_selection.get("selected") or {}).get("label") or "").strip()
+        selected_line = f" The originally selected voice is {selected_voice}." if selected_voice else ""
+        sample_line = ""
+        if pending and _telegram_audiobook_voice_sample_resend_intent(text):
+            sample_receipts = _telegram_send_audiobook_voice_samples(
+                bot_config=dict(bot_config or {}),
+                chat_id=chat_id,
+                job=job,
+            )
+            if sample_receipts:
+                job = record_audiobook_voice_sample_delivery(job=job, sample_receipts=sample_receipts)
+                sent_count = sum(1 for item in sample_receipts if str(dict(item).get("status") or "").strip() == "sent")
+                if sent_count:
+                    sample_word = "sample" if sent_count == 1 else "samples"
+                    sample_line = f"I resent {sent_count} audiobook voice {sample_word}."
+        if not sample_line:
+            sample_line = (
+                f"I already sent the replacement sample for {label} with Use this/Dismiss buttons."
+                if sent
+                else f"The replacement sample for {label} is prepared but Telegram delivery is not confirmed."
+            )
+        return (
+            f"Audiobook status for {title}: waiting for your explicit voice choice. "
+            "The selected provider voice is blocked by credits/balance, so I stopped before publishing with a different voice."
+            f"{selected_line} {sample_line}"
+        )
+    return telegram_epub_reply_text(job)
+
+
+def _telegram_audiobook_runtime_status_reply_text(
+    text: str,
+    *,
+    chat_id: str = "",
+    bot_config: dict[str, object] | None = None,
+) -> str:
+    if not _telegram_audiobook_status_intent(text):
+        return ""
+    active_job_reply = _telegram_active_audiobook_status_reply_text(
+        chat_id=chat_id,
+        text=text,
+        bot_config=bot_config,
+    )
+    if active_job_reply:
+        return active_job_reply
+    receipt = audiobook_runtime_preflight()
+    provider = dict(receipt.get("provider") or {})
+    access = dict(receipt.get("access") or {})
+    failed = [str(item) for item in list(receipt.get("failed_checks") or []) if str(item).strip()]
+    warned = [str(item) for item in list(receipt.get("warned_checks") or []) if str(item).strip()]
+    voice_count = int(provider.get("voice_catalog_count") or 0)
+    min_voices = int(provider.get("voice_audition_min_candidates") or 3)
+    sample_blockers = [
+        key
+        for key in (
+            "telegram_audiobook_enabled",
+            "jobs_root_durable",
+            "jobs_root_writable",
+            "external_tts_enabled",
+            "unmixr_auto_render_enabled",
+            "voice_catalog_configured",
+        )
+        if key in failed
+    ]
+    if voice_count < min_voices and "voice_catalog_audition_ready" not in sample_blockers:
+        sample_blockers.append("voice_catalog_audition_ready")
+    if int(provider.get("api_key_slot_count") or 0) <= 0 and "unmixr_api_key_slot_present" not in sample_blockers:
+        sample_blockers.append("unmixr_api_key_slot_present")
+    completion_blockers = [
+        key
+        for key in (
+            "player_access_signing_secret_present",
+            "player_access_base_url_present",
+            "audiobookshelf_import_root_durable",
+            "audiobookshelf_import_root_writable",
+            "audiobookshelf_public_share_configured",
+        )
+        if key in failed or key in warned
+    ]
+    if sample_blockers:
+        blocker_text = "; ".join(_telegram_audiobook_check_label(key) for key in sample_blockers[:5])
+        return (
+            "Audiobook voice samples are not live-ready yet. "
+            f"Current blockers: {blocker_text}. "
+            f"Voice catalog: {voice_count}/{min_voices}; audio generation account slots configured: {int(provider.get('api_key_slot_count') or 0)}. "
+            "After those blockers clear, send the source ebook again and I should return three voice samples with Use this/Dismiss buttons. "
+            f"Completion blockers still tracked: {len(completion_blockers)}."
+        )
+    if completion_blockers:
+        blocker_text = "; ".join(_telegram_audiobook_check_label(key) for key in completion_blockers[:4])
+        return (
+            "Audiobook voice samples are ready, but full delivery is not complete-ready yet. "
+            f"Voice catalog: {voice_count}/{min_voices}. Remaining completion blockers: {blocker_text}."
+        )
+    public_share = "enabled" if access.get("audiobookshelf_public_share_enabled") else "disabled"
+    return (
+        "Audiobook intake and voice samples are ready. "
+        f"Voice catalog: {voice_count}/{min_voices}; Audiobookshelf public share is {public_share}. "
+        "Send an EPUB, AZW, AZW3, or MOBI file here in Telegram to get the three voice samples."
+    )
+
+
+def _telegram_latest_audiobook_playback_buttons_for_chat(
+    *,
+    bot_config: dict[str, object],
+    chat_id: str,
+) -> tuple[str, list[list[tuple[str, str]]]]:
+    normalized_chat_id = str(chat_id or "").strip()
+    if not normalized_chat_id:
+        return "", []
+    try:
+        root = audiobook_jobs_root()
+    except Exception:
+        return "", []
+    candidates: list[tuple[str, Path, dict[str, object]]] = []
+    for manifest_path in sorted(root.glob("*/job.json")):
+        try:
+            job = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        telegram = dict(job.get("telegram") or {})
+        if str(telegram.get("chat_id") or "").strip() != normalized_chat_id:
+            continue
+        imported = dict(job.get("audiobookshelf_import") or {})
+        public_share = dict(imported.get("public_share") or {})
+        delivery = dict(public_share.get("telegram_delivery") or {})
+        if str(public_share.get("status") or "").strip() != "public_share_ready":
+            continue
+        if str(delivery.get("status") or "").strip() != "sent":
+            continue
+        if str(dict(job.get("playback_acceptance") or {}).get("status") or "").strip() == "accepted":
+            continue
+        candidates.append((str(job.get("updated_at") or ""), manifest_path.parent, job))
+    if not candidates:
+        return "", []
+    _updated_at, _job_dir, job = sorted(candidates, key=lambda row: (row[0], row[1].name))[-1]
+    updated_job, buttons = _telegram_audiobook_playback_acceptance_buttons(
+        bot_config=bot_config,
+        chat_id=normalized_chat_id,
+        job=job,
+    )
+    if not buttons:
+        return "", []
+    metadata = dict(updated_job.get("metadata") or {})
+    title = str(metadata.get("title") or metadata.get("source_filename") or "the latest audiobook").strip()
+    return title, buttons
 
 
 def _telegram_audio_upload_announcement_reply_text(text: str) -> str:
@@ -5219,9 +6063,44 @@ def _telegram_send_and_record_reply(
     used_fallback_only: bool = False,
     probe_reply: str = "",
     last_resort_reply: str = "",
+    inline_buttons: list[list[tuple[str, str]]] | None = None,
 ) -> bool:
+    receipt = _telegram_send_and_record_reply_receipt(
+        container=container,
+        principal_id=principal_id,
+        bot_config=bot_config,
+        chat_id=chat_id,
+        dedupe_key=dedupe_key,
+        reply_text=reply_text,
+        source_text=source_text,
+        async_mode=async_mode,
+        current_message_id=current_message_id,
+        used_fallback_only=used_fallback_only,
+        probe_reply=probe_reply,
+        last_resort_reply=last_resort_reply,
+        inline_buttons=inline_buttons,
+    )
+    return str(receipt.get("status") or "").strip() == "sent"
+
+
+def _telegram_send_and_record_reply_receipt(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    bot_config: dict[str, object],
+    chat_id: str,
+    dedupe_key: str,
+    reply_text: str,
+    source_text: str,
+    async_mode: bool = False,
+    current_message_id: str = "",
+    used_fallback_only: bool = False,
+    probe_reply: str = "",
+    last_resort_reply: str = "",
+    inline_buttons: list[list[tuple[str, str]]] | None = None,
+) -> dict[str, object]:
     if not reply_text or not chat_id:
-        return False
+        return {"status": "skipped", "reason": "reply_text_or_chat_missing"}
     memory_state = _telegram_compute_reply_memory_state(
         container=container,
         principal_id=principal_id,
@@ -5236,6 +6115,7 @@ def _telegram_send_and_record_reply(
             bot_token=str(bot_config.get("token") or "").strip(),
             chat_id=chat_id,
             text=reply_text,
+            inline_buttons=inline_buttons,
         )
     except Exception as exc:
         if async_mode:
@@ -5248,11 +6128,12 @@ def _telegram_send_and_record_reply(
                 stage="send_message",
                 error=str(exc),
             )
-        return False
+        return {"status": "failed", "reason": type(exc).__name__}
     reply_sent = bool(receipt.get("ok"))
     if not reply_sent:
-        return False
+        return {"status": "failed", "reason": str(receipt.get("description") or "telegram_send_not_ok").strip()}
     result = dict(receipt.get("result") or {})
+    message_id = str(result.get("message_id") or "").strip()
     if async_mode:
         container.channel_runtime.ingest_observation(
             principal_id=principal_id,
@@ -5270,19 +6151,100 @@ def _telegram_send_and_record_reply(
             external_id=str(current_message_id or "").strip(),
             dedupe_key=f"{str(current_message_id or '').strip()}:assistant_async_sent" if str(current_message_id or '').strip() else "",
         )
-        return True
+        return {"status": "sent", "message_id": message_id}
     _record_telegram_reply_sent(
         container,
         principal_id=principal_id,
         chat_id=chat_id,
         dedupe_key=dedupe_key,
         reply_text=reply_text,
-        message_id=str(result.get("message_id") or "").strip(),
+        message_id=message_id,
         active_object_map=memory_state.active_object_map,
         intent_state=memory_state.intent_state,
         comparison_state=memory_state.comparison_state,
     )
-    return True
+    return {"status": "sent", "message_id": message_id}
+
+
+def _record_audiobook_public_share_reply_delivery(
+    *,
+    job: dict[str, object],
+    send_receipt: dict[str, object],
+) -> dict[str, object]:
+    if str(job.get("status") or "").strip() != "audiobookshelf_imported":
+        return job
+    import_result = dict(job.get("audiobookshelf_import") or {})
+    public_share = dict(import_result.get("public_share") or {})
+    if str(public_share.get("status") or "").strip() != "public_share_ready":
+        return job
+    job_dir_raw = str(dict(job.get("storage") or {}).get("job_dir") or "").strip()
+    if not job_dir_raw:
+        return job
+    notification = {
+        "status": str(send_receipt.get("status") or "").strip() or "unknown",
+        "message_id": str(send_receipt.get("message_id") or "").strip(),
+        "reason": str(send_receipt.get("reason") or "").strip(),
+    }
+    try:
+        return _record_audiobookshelf_public_share_telegram_delivery(
+            job_dir=Path(job_dir_raw),
+            job=job,
+            notification=notification,
+        )
+    except Exception:
+        return job
+
+
+def _telegram_audiobook_sender_ref(ctx: TelegramTurnContext) -> str:
+    chat_id = str(ctx.chat_id or "").strip()
+    return f"telegram:{chat_id}" if chat_id else ""
+
+
+def _telegram_start_approved_audiobook_request(
+    *,
+    bot_config: dict[str, object],
+    record: dict[str, object],
+) -> dict[str, object]:
+    source = dict(record.get("source") or {})
+    telegram = dict(record.get("telegram") or {})
+    source_path = audiobook_access_approval.source_path(record)
+    if not source_path.is_file():
+        raise RuntimeError("approved_audiobook_source_missing")
+    requester_chat_id = str(telegram.get("chat_id") or "").strip()
+    job = create_job_from_epub(
+        epub_path=source_path,
+        original_filename=str(source.get("filename") or source_path.name).strip() or source_path.name,
+        principal_id=str(record.get("principal_id") or "").strip(),
+        chat_id=requester_chat_id,
+        message_id=str(telegram.get("message_id") or "").strip(),
+        caption="",
+        source_url="",
+    )
+    if requester_chat_id:
+        sample_receipts = _telegram_send_audiobook_voice_samples(
+            bot_config=bot_config,
+            chat_id=requester_chat_id,
+            job=job,
+        )
+        if sample_receipts:
+            job = record_audiobook_voice_sample_delivery(job=job, sample_receipts=sample_receipts)
+        job, inline_buttons = _telegram_audiobook_playback_acceptance_buttons(
+            bot_config=bot_config,
+            chat_id=requester_chat_id,
+            job=job,
+        )
+        _telegram_send_message(
+            bot_token=str(bot_config.get("token") or "").strip(),
+            chat_id=requester_chat_id,
+            text=telegram_epub_reply_text(job),
+            inline_buttons=inline_buttons or None,
+        )
+    audiobook_access_approval.update_status(
+        str(record.get("approval_id") or "").strip(),
+        status="started",
+        job_id=str(job.get("job_id") or "").strip(),
+    )
+    return job
 
 
 def _telegram_turn_context(
@@ -5317,7 +6279,7 @@ def _telegram_command_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDec
             reply_text=(
                 f"{handle} is connected to Executive Assistant.\n\n"
                 "You can send messages, links, property alerts, and follow-up requests here. "
-                "EA will capture this chat for Tibor and use it as a live assistant inbox."
+                f"EA will capture this chat for {_assistant_owner_label()} and use it as a live assistant inbox."
             )
         )
     if command == "/help":
@@ -5348,6 +6310,190 @@ def _telegram_callback_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDe
     if str(ctx.payload.get("kind") or "").strip().lower() != "callback_query":
         return TelegramTurnDecision()
     callback_data = str(ctx.payload.get("callback_data") or "").strip()
+    if callback_data.startswith("aa|"):
+        bot_config = dict(ctx.payload.get("_bot_config") or {})
+        callback_packet = audiobook_access_approval.decode_telegram_approval_callback(
+            callback_data=callback_data,
+            approver_chat_id=ctx.chat_id,
+            bot_token=str(bot_config.get("token") or "").strip(),
+        )
+        if not bool(callback_packet.get("ok")):
+            reason = str(callback_packet.get("reason") or "").strip().lower()
+            if reason == "expired":
+                return TelegramTurnDecision(reply_text="That audiobook approval button expired.")
+            return TelegramTurnDecision(reply_text="That audiobook approval button is no longer valid.")
+        approval_id = str(callback_packet.get("approval_id") or "").strip()
+        record = audiobook_access_approval.load_request(approval_id)
+        if not record:
+            return TelegramTurnDecision(reply_text="That audiobook approval request no longer exists.")
+        current_status = str(record.get("status") or "").strip().lower()
+        if current_status not in {"pending", "approved"}:
+            return TelegramTurnDecision(reply_text=f"That audiobook request is already {current_status}.")
+        action = str(callback_packet.get("action") or "").strip()
+        if action == "deny":
+            audiobook_access_approval.update_status(
+                approval_id,
+                status="denied",
+                decided_by=f"telegram:{ctx.chat_id}",
+            )
+            telegram = dict(record.get("telegram") or {})
+            requester_chat_id = str(telegram.get("chat_id") or "").strip()
+            if requester_chat_id:
+                _telegram_send_message(
+                    bot_token=str(bot_config.get("token") or "").strip(),
+                    chat_id=requester_chat_id,
+                    text="That audiobook request was not approved.",
+                )
+            return TelegramTurnDecision(reply_text="Denied the audiobook request.")
+        approved = audiobook_access_approval.update_status(
+            approval_id,
+            status="approved",
+            decided_by=f"telegram:{ctx.chat_id}",
+        )
+        if str(approved.get("channel") or "").strip() == "telegram":
+            try:
+                job = _telegram_start_approved_audiobook_request(
+                    bot_config=bot_config,
+                    record=approved,
+                )
+            except Exception as exc:
+                audiobook_access_approval.update_status(
+                    approval_id,
+                    status="failed",
+                    reason=str(exc).strip() or type(exc).__name__,
+                )
+                return TelegramTurnDecision(
+                    reply_text=(
+                        "Approved, but I could not start that audiobook yet. "
+                        f"Current blocker: {compact_text(str(exc), fallback='approved_audiobook_start_failed', limit=140)}."
+                    )
+                )
+            title = str(dict(job.get("metadata") or {}).get("title") or dict(approved.get("source") or {}).get("filename") or "the audiobook").strip()
+            return TelegramTurnDecision(reply_text=f"Approved and started the audiobook job for {title}.")
+        return TelegramTurnDecision(reply_text="Approved. The WhatsApp audiobook processor will start this request on its next run.")
+    if callback_data.startswith("ap|"):
+        bot_config = dict(ctx.payload.get("_bot_config") or {})
+        callback_packet = _telegram_decode_audiobook_playback_callback(
+            bot_config=bot_config,
+            callback_data=callback_data,
+            chat_id=ctx.chat_id,
+        )
+        if not bool(callback_packet.get("ok")):
+            reason = str(callback_packet.get("reason") or "").strip().lower()
+            if reason == "expired":
+                return TelegramTurnDecision(reply_text="That audiobook playback button expired. Send 'audiobook status' if you want me to check the job again.")
+            return TelegramTurnDecision(reply_text="That audiobook playback button is no longer valid.")
+        action = str(callback_packet.get("action") or "").strip()
+        accepted = action == "accepted"
+        try:
+            record_audiobook_playback_acceptance_by_callback_token(
+                callback_token=str(callback_packet.get("token") or "").strip(),
+                accepted=accepted,
+                source="telegram_button",
+                message_id=ctx.current_message_id,
+                feedback="telegram_button_playback_accepted" if accepted else "telegram_button_playback_problem",
+            )
+        except Exception as exc:
+            return TelegramTurnDecision(
+                reply_text=(
+                    "I could not record that audiobook playback result. "
+                    f"Current blocker: {compact_text(str(exc), fallback='audiobook_playback_acceptance_failed', limit=140)}."
+                )
+            )
+        if accepted:
+            return TelegramTurnDecision(reply_text="Marked the audiobook playback as working.")
+        return TelegramTurnDecision(reply_text="Noted. I marked this audiobook for playback review.")
+    if callback_data.startswith("ab|"):
+        bot_config = dict(ctx.payload.get("_bot_config") or {})
+        callback_packet = _telegram_decode_audiobook_voice_callback(
+            bot_config=bot_config,
+            callback_data=callback_data,
+            chat_id=ctx.chat_id,
+        )
+        if not bool(callback_packet.get("ok")):
+            reason = str(callback_packet.get("reason") or "").strip().lower()
+            if reason == "expired":
+                return TelegramTurnDecision(reply_text="That audiobook voice button expired. Ask for fresh audiobook voice samples and I will resend them.")
+            return TelegramTurnDecision(reply_text="That audiobook voice button is no longer valid.")
+        try:
+            job = apply_audiobook_voice_audition_action(
+                callback_token=str(callback_packet.get("token") or "").strip(),
+                action=str(callback_packet.get("action") or "").strip(),
+            )
+        except Exception as exc:
+            reason = str(exc).strip()
+            if reason in {"voice_audition_token_not_found", "voice_audition_token_missing"}:
+                return TelegramTurnDecision(
+                    reply_text=(
+                        "That audiobook voice button is stale, so I ignored it. "
+                        "Use the latest voice sample buttons, or reply with the voice name or 'dismiss all'."
+                    )
+                )
+            return TelegramTurnDecision(
+                reply_text=(
+                    "I could not apply that audiobook voice choice. "
+                    f"Current blocker: {compact_text(str(exc), fallback='audiobook_voice_choice_failed', limit=140)}."
+                )
+            )
+        action = str(callback_packet.get("action") or "").strip()
+        if action == "dismiss":
+            voice_selection = dict(dict(job.get("provider") or {}).get("voice_selection") or {})
+            last_action = dict(voice_selection.get("last_action") or {})
+            replacement_keys = _extract_audiobook_voice_replacement_keys(
+                voice_selection=voice_selection,
+                last_action=last_action,
+            )
+            if not replacement_keys:
+                refreshed_job = _telegram_refill_audiobook_voice_audition_if_needed(job=job)
+                if refreshed_job is not job:
+                    job = refreshed_job
+                    voice_selection = dict(dict(job.get("provider") or {}).get("voice_selection") or {})
+                    last_action = dict(voice_selection.get("last_action") or {})
+                    replacement_keys = _extract_audiobook_voice_replacement_keys(
+                        voice_selection=voice_selection,
+                        last_action=last_action,
+                    )
+            if replacement_keys:
+                sample_job = _telegram_audiobook_voice_sample_subset(job, replacement_keys)
+                sample_receipts = _telegram_send_audiobook_voice_samples(bot_config=bot_config, chat_id=ctx.chat_id, job=sample_job)
+                if sample_receipts:
+                    job = record_audiobook_voice_sample_delivery(job=job, sample_receipts=sample_receipts)
+                    sent_count = sum(1 for item in sample_receipts if str(dict(item).get("status") or "").strip() == "sent")
+                    if sent_count and sent_count < len(sample_receipts):
+                        return TelegramTurnDecision(
+                            reply_text=f"Dismissed. I sent {sent_count} of {len(sample_receipts)} replacement audiobook voice samples; the rest are still blocked."
+                        )
+                    if sent_count:
+                        sample_word = "sample" if sent_count == 1 else "samples"
+                        return TelegramTurnDecision(reply_text=f"Dismissed. I sent {sent_count} replacement audiobook voice {sample_word}.")
+                    return TelegramTurnDecision(reply_text="Dismissed. The replacement audiobook voice is ready, but Telegram could not deliver the sample audio.")
+                return TelegramTurnDecision(reply_text="Dismissed. The replacement audiobook voice is ready, but I could not send the sample audio.")
+            if str(voice_selection.get("status") or "").strip().lower() == "exhausted":
+                return TelegramTurnDecision(reply_text="Dismissed. No more configured audiobook voice samples are available for this book.")
+            remaining = int(last_action.get("remaining_in_batch") or 0)
+            if remaining > 0:
+                sample_word = "sample" if remaining == 1 else "samples"
+                verb = "remains" if remaining == 1 else "remain"
+                return TelegramTurnDecision(
+                    reply_text=(
+                        f"Dismissed. {remaining} audiobook voice {sample_word} {verb} "
+                        "in this audition batch, and no replacement candidates were currently available."
+                    )
+                )
+            return TelegramTurnDecision(reply_text="Dismissed. No replacement audiobook voice sample is available yet.")
+        voice_selection = dict(dict(job.get("provider") or {}).get("voice_selection") or {})
+        if str(voice_selection.get("status") or "").strip() == "waiting_user_choice":
+            last_action = dict(voice_selection.get("last_action") or {})
+            replacement_keys = _extract_audiobook_voice_replacement_keys(
+                voice_selection=voice_selection,
+                last_action=last_action,
+            )
+            if replacement_keys:
+                sample_job = _telegram_audiobook_voice_sample_subset(job, replacement_keys)
+                sample_receipts = _telegram_send_audiobook_voice_samples(bot_config=bot_config, chat_id=ctx.chat_id, job=sample_job)
+                if sample_receipts:
+                    job = record_audiobook_voice_sample_delivery(job=job, sample_receipts=sample_receipts)
+        return TelegramTurnDecision(reply_text=telegram_epub_reply_text(job))
     if callback_data.startswith("fb|"):
         callback_packet = decode_telegram_feedback_callback_data(
             bot_token=str(dict(ctx.payload.get("_bot_config") or {}).get("token") or "").strip(),
@@ -5546,7 +6692,10 @@ def _telegram_link_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDecisi
     if local_assistant_reply:
         return TelegramTurnDecision(reply_text=local_assistant_reply)
     return TelegramTurnDecision(
-        reply_text="Link received. EA captured it and will route it into Tibor's assistant workspace for review."
+        reply_text=(
+            "Link received. EA captured it and will route it into "
+            f"{_assistant_owner_possessive_label()} assistant workspace for review."
+        )
     )
 
 
@@ -5765,6 +6914,80 @@ def _telegram_property_pdf_document_payload(ctx: TelegramTurnContext) -> dict[st
     }
 
 
+def _telegram_audiobook_epub_document_payload(ctx: TelegramTurnContext) -> dict[str, object]:
+    if not telegram_epub_skill_enabled():
+        return {}
+    payload = dict(ctx.payload or {})
+    if str(payload.get("kind") or "").strip().lower() != "document":
+        return {}
+    metadata = dict(payload.get("message_metadata") or {})
+    filename = str(metadata.get("file_name") or "").strip()
+    mime_type = str(metadata.get("mime_type") or "").strip()
+    download_url = str(metadata.get("download_url") or "").strip()
+    if not is_epub_document(filename=filename, mime_type=mime_type) or not download_url:
+        return {}
+    if not is_telegram_epub_download_url_allowed(download_url):
+        return {}
+    raw_size = metadata.get("file_size")
+    file_size = None
+    if isinstance(raw_size, int) and raw_size > 0:
+        file_size = raw_size
+    else:
+        with contextlib.suppress(Exception):
+            parsed_size = int(str(raw_size or "").strip())
+            if parsed_size > 0:
+                file_size = parsed_size
+    caption = str(metadata.get("caption") or ctx.normalized or "").strip()
+    return {
+        "kind": "audiobook_epub_document",
+        "source_epub_url": download_url,
+        "source_epub_filename": filename,
+        "source_epub_file_size": file_size,
+        "caption": caption,
+        "telegram_file_id": str(metadata.get("file_id") or "").strip(),
+        "telegram_file_size": metadata.get("file_size"),
+        "mime_type": mime_type,
+    }
+
+
+def _telegram_audiobook_epub_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDecision:
+    epub_payload = _telegram_audiobook_epub_document_payload(ctx)
+    if not epub_payload:
+        return TelegramTurnDecision()
+    filename = str(epub_payload.get("source_epub_filename") or "book.epub").strip() or "book.epub"
+    sender_ref = _telegram_audiobook_sender_ref(ctx)
+    if audiobook_access_approval.approval_required(sender_ref=sender_ref, channel="telegram"):
+        approval_payload = {
+            **epub_payload,
+            "kind": "audiobook_access_approval_request",
+            "source_channel": "telegram",
+            "sender_ref": sender_ref,
+        }
+        return TelegramTurnDecision(
+            reply_text=(
+                f"Got the ebook `{filename}`. This sender is not on the instant audiobook whitelist, "
+                "so I need operator approval before creating the audiobook."
+            ),
+            schedule_async=True,
+            async_text=f"Audiobook approval request: {filename}",
+            async_message_id=ctx.current_message_id,
+            async_payload=approval_payload,
+            suppress_async_ack=True,
+            retry_budget=0,
+        )
+    return TelegramTurnDecision(
+        reply_text=(
+            f"Got the ebook `{filename}`. I am preparing an audiobook job now and will report the ETA or blocker here."
+        ),
+        schedule_async=True,
+        async_text=f"Audiobook ebook upload: {filename}",
+        async_message_id=ctx.current_message_id,
+        async_payload=epub_payload,
+        suppress_async_ack=True,
+        retry_budget=0,
+    )
+
+
 def _telegram_property_pdf_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDecision:
     pdf_payload = _telegram_property_pdf_document_payload(ctx)
     if not pdf_payload:
@@ -5797,6 +7020,8 @@ def _telegram_local_tool_priority(ctx: TelegramTurnContext) -> bool:
         principal_id=ctx.principal_id,
     )
     if _telegram_pocket_candidate_selection(ctx.normalized) > 0:
+        return True
+    if _telegram_audiobook_text_request_reply_text(ctx.normalized):
         return True
     if _telegram_audio_upload_announcement_reply_text(ctx.normalized):
         return True
@@ -5948,6 +7173,25 @@ def _telegram_local_reply_allowed(ctx: TelegramTurnContext, reply_text: str) -> 
 
 
 def _telegram_local_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDecision:
+    audiobook_status_reply = _telegram_audiobook_runtime_status_reply_text(
+        ctx.normalized,
+        chat_id=ctx.chat_id,
+        bot_config=dict(ctx.payload.get("_bot_config") or {}),
+    )
+    if audiobook_status_reply:
+        title, inline_buttons = _telegram_latest_audiobook_playback_buttons_for_chat(
+            bot_config=dict(ctx.payload.get("_bot_config") or {}),
+            chat_id=ctx.chat_id,
+        )
+        if inline_buttons:
+            audiobook_status_reply = (
+                f"{audiobook_status_reply}\n\n"
+                f"Latest Audiobookshelf delivery awaiting playback confirmation: {title}."
+            )
+        return TelegramTurnDecision(reply_text=audiobook_status_reply, inline_buttons=inline_buttons or None)
+    audiobook_reply = _telegram_audiobook_text_request_reply_text(ctx.normalized)
+    if audiobook_reply:
+        return TelegramTurnDecision(reply_text=audiobook_reply)
     audio_upload_reply = _telegram_audio_upload_announcement_reply_text(ctx.normalized)
     if audio_upload_reply:
         return TelegramTurnDecision(reply_text=audio_upload_reply)
@@ -5997,6 +7241,10 @@ def _telegram_async_assistant_reply_worker(
     poll_backoff_seconds = _telegram_property_link_bundle_poll_backoff_seconds()
     payload = dict(async_payload or {})
     if str(payload.get("kind") or "").strip().lower() == "instructional_video":
+        payload = _telegram_hydrate_instructional_video_download_url(
+            payload,
+            bot_token=str(bot_config.get("token") or ""),
+        )
         instruction_text = str(payload.get("instruction_text") or text or "")
         video_render_requested = _telegram_instructional_video_prefers_rendered_video(instruction_text)
         prefers_magicfit = _telegram_instructional_video_prefers_magicfit(instruction_text)
@@ -6035,7 +7283,8 @@ def _telegram_async_assistant_reply_worker(
                     error=video_render_error,
                 )
             else:
-                if str(local_delivery.get("status") or "").strip().lower() == "sent":
+                local_message_ids = _telegram_video_delivery_message_ids(local_delivery)
+                if _telegram_video_delivery_sent(local_delivery):
                     reply_text = _telegram_render_success_reply_text()
                     video_render_error = ""
                     _record_telegram_video_delivery_receipt(
@@ -6047,10 +7296,13 @@ def _telegram_async_assistant_reply_worker(
                         or "local_source_video_fx",
                         status="sent",
                         payload=payload,
-                        message_ids=list(local_delivery.get("message_ids") or []),
+                        message_ids=local_message_ids,
                     )
                 else:
-                    video_render_error = str(local_delivery.get("error") or "").strip() or "source_video_edit_delivery_failed"
+                    video_render_error = _telegram_video_delivery_error(
+                        local_delivery,
+                        "source_video_edit_delivery_failed",
+                    )
                     _record_telegram_video_delivery_receipt(
                         container,
                         principal_id=principal_id,
@@ -6060,7 +7312,7 @@ def _telegram_async_assistant_reply_worker(
                         or "local_source_video_fx",
                         status="failed",
                         payload=payload,
-                        message_ids=list(local_delivery.get("message_ids") or []),
+                        message_ids=local_message_ids,
                         error=video_render_error,
                     )
         if not video_render_requested:
@@ -6127,7 +7379,8 @@ def _telegram_async_assistant_reply_worker(
                     error=video_render_error,
                 )
             else:
-                if str(magicfit_delivery.get("status") or "").strip().lower() == "sent":
+                magicfit_message_ids = _telegram_video_delivery_message_ids(magicfit_delivery)
+                if _telegram_video_delivery_sent(magicfit_delivery):
                     reply_text = _telegram_render_success_reply_text()
                     video_render_error = ""
                     _record_telegram_video_delivery_receipt(
@@ -6138,12 +7391,13 @@ def _telegram_async_assistant_reply_worker(
                         provider=str(magicfit_delivery.get("provider") or "magicfit").strip() or "magicfit",
                         status="sent",
                         payload=payload,
-                        message_ids=list(magicfit_delivery.get("message_ids") or []),
+                        message_ids=magicfit_message_ids,
                         sidecar=dict(magicfit_delivery.get("sidecar") or {}),
                     )
                 else:
-                    video_render_error = (
-                        str(magicfit_delivery.get("error") or "").strip() or "magicfit_delivery_failed"
+                    video_render_error = _telegram_video_delivery_error(
+                        magicfit_delivery,
+                        "magicfit_delivery_failed",
                     )
                     _record_telegram_video_delivery_receipt(
                         container,
@@ -6153,7 +7407,7 @@ def _telegram_async_assistant_reply_worker(
                         provider=str(magicfit_delivery.get("provider") or "magicfit").strip() or "magicfit",
                         status="failed",
                         payload=payload,
-                        message_ids=list(magicfit_delivery.get("message_ids") or []),
+                        message_ids=magicfit_message_ids,
                         error=video_render_error,
                         sidecar=dict(magicfit_delivery.get("sidecar") or {}),
                     )
@@ -6190,7 +7444,8 @@ def _telegram_async_assistant_reply_worker(
                 )
             else:
                 delivery_json = dict(dict(video_render_result.output_json or {}).get("telegram_delivery_json") or {})
-                if str(delivery_json.get("status") or "").strip().lower() == "sent":
+                delivery_message_ids = _telegram_video_delivery_message_ids(delivery_json)
+                if _telegram_video_delivery_sent(delivery_json):
                     reply_text = _telegram_render_success_reply_text()
                     video_render_error = ""
                     _record_telegram_video_delivery_receipt(
@@ -6202,11 +7457,14 @@ def _telegram_async_assistant_reply_worker(
                         or "browseract.mootion_movie",
                         status="sent",
                         payload=payload,
-                        message_ids=list(delivery_json.get("message_ids") or []),
+                        message_ids=delivery_message_ids,
                         sidecar=delivery_json,
                     )
                 else:
-                    video_render_error = str(delivery_json.get("error") or "").strip() or "instructional_video_render_delivery_failed"
+                    video_render_error = _telegram_video_delivery_error(
+                        delivery_json,
+                        "instructional_video_render_delivery_failed",
+                    )
                     _record_telegram_video_delivery_receipt(
                         container,
                         principal_id=principal_id,
@@ -6216,7 +7474,7 @@ def _telegram_async_assistant_reply_worker(
                         or "browseract.mootion_movie",
                         status="failed",
                         payload=payload,
-                        message_ids=list(delivery_json.get("message_ids") or []),
+                        message_ids=delivery_message_ids,
                         error=video_render_error,
                         sidecar=delivery_json,
                     )
@@ -6255,7 +7513,8 @@ def _telegram_async_assistant_reply_worker(
                     f"{fallback_error}"
                 )
             else:
-                if str(magicfit_delivery.get("status") or "").strip().lower() == "sent":
+                magicfit_message_ids = _telegram_video_delivery_message_ids(magicfit_delivery)
+                if _telegram_video_delivery_sent(magicfit_delivery):
                     reply_text = _telegram_render_success_reply_text()
                     video_render_error = ""
                     _record_telegram_video_delivery_receipt(
@@ -6266,11 +7525,14 @@ def _telegram_async_assistant_reply_worker(
                         provider=str(magicfit_delivery.get("provider") or "magicfit").strip() or "magicfit",
                         status="sent",
                         payload=payload,
-                        message_ids=list(magicfit_delivery.get("message_ids") or []),
+                        message_ids=magicfit_message_ids,
                         sidecar=dict(magicfit_delivery.get("sidecar") or {}),
                     )
                 else:
-                    fallback_error = str(magicfit_delivery.get("error") or "").strip() or "magicfit_delivery_failed"
+                    fallback_error = _telegram_video_delivery_error(
+                        magicfit_delivery,
+                        "magicfit_delivery_failed",
+                    )
                     _record_telegram_video_delivery_receipt(
                         container,
                         principal_id=principal_id,
@@ -6279,11 +7541,31 @@ def _telegram_async_assistant_reply_worker(
                         provider=str(magicfit_delivery.get("provider") or "magicfit").strip() or "magicfit",
                         status="failed",
                         payload=payload,
-                        message_ids=list(magicfit_delivery.get("message_ids") or []),
+                        message_ids=magicfit_message_ids,
                         error=fallback_error,
                         sidecar=dict(magicfit_delivery.get("sidecar") or {}),
                     )
                     video_render_error = f"{video_render_error}; magicfit_fallback:{fallback_error}"
+        if video_render_requested and not reply_text and not video_render_error:
+            if str(payload.get("video_resolve_status") or "").strip().lower() == "failed":
+                video_render_error = (
+                    "source_video_resolve_failed:"
+                    f"{str(payload.get('video_resolve_error_code') or 'unknown').strip() or 'unknown'}"
+                )
+            elif not str(payload.get("video_download_url") or "").strip():
+                video_render_error = "source_video_unavailable"
+            else:
+                video_render_error = "verified_render_lane_unavailable"
+            _record_telegram_video_delivery_receipt(
+                container,
+                principal_id=principal_id,
+                chat_id=chat_id,
+                current_message_id=current_message_id,
+                provider="telegram_video_delivery_router",
+                status="failed",
+                payload=payload,
+                error=video_render_error,
+            )
         if not reply_text:
             if video_render_requested:
                 reply_text = _telegram_video_lane_status_reply(
@@ -6329,6 +7611,159 @@ def _telegram_async_assistant_reply_worker(
             probe_reply="",
             last_resort_reply="",
         )
+        return
+    if str(payload.get("kind") or "").strip().lower() == "audiobook_access_approval_request":
+        filename = str(payload.get("source_epub_filename") or "book.epub").strip() or "book.epub"
+        sender_ref = str(payload.get("sender_ref") or (f"telegram:{chat_id}" if chat_id else "")).strip()
+        try:
+            record = audiobook_access_approval.find_request_for_source(
+                channel="telegram",
+                message_id=current_message_id,
+                sender_ref=sender_ref,
+            )
+            if not record:
+                root = audiobook_jobs_root()
+                staging_dir = root / "_incoming_approval" / datetime.now(ZoneInfo("UTC")).strftime("%Y%m%d")
+                staging_dir.mkdir(parents=True, exist_ok=True)
+                suffix = Path(filename).suffix or ".epub"
+                safe_name = re.sub(r"[^A-Za-z0-9._()\\[\\] -]+", "", Path(filename).name).strip(" .") or "book.epub"
+                if suffix and not safe_name.lower().endswith(suffix.lower()):
+                    safe_name = f"{safe_name}{suffix}"
+                staging_path = staging_dir / f"{uuid.uuid4().hex[:12]}-{safe_name}"
+                download_telegram_epub(
+                    source_url=str(payload.get("source_epub_url") or "").strip(),
+                    target_path=staging_path,
+                )
+                record = audiobook_access_approval.create_pending_request(
+                    channel="telegram",
+                    principal_id=principal_id,
+                    filename=filename,
+                    source_path=staging_path,
+                    sender_ref=sender_ref,
+                    chat_id=chat_id,
+                    message_id=current_message_id,
+                    file_size=payload.get("source_epub_file_size") if isinstance(payload.get("source_epub_file_size"), int) else None,
+                    mime_type=str(payload.get("mime_type") or "").strip(),
+                    caption=str(payload.get("caption") or "").strip(),
+                    requester_label=f"Telegram chat {chat_id}" if chat_id else "Telegram requester",
+                )
+            delivery = audiobook_access_approval.send_telegram_approval_request(
+                record=record,
+                bot_token=str(bot_config.get("token") or "").strip(),
+            )
+            reply_text = (
+                "I staged the ebook and sent the audiobook approval request to the operator."
+                if str(delivery.get("status") or "").strip() == "sent"
+                else (
+                    "I staged the ebook, but I could not send the operator approval request yet. "
+                    f"Current blocker: {compact_text(str(delivery.get('reason') or 'approval_delivery_failed'), fallback='approval_delivery_failed', limit=140)}."
+                )
+            )
+        except Exception as exc:
+            reply_text = (
+                "I could not stage that ebook for approval yet. "
+                f"Current blocker: {compact_text(str(exc), fallback='audiobook_access_approval_failed', limit=160)}."
+            )
+        if chat_id:
+            _telegram_send_and_record_reply(
+                container=container,
+                principal_id=principal_id,
+                bot_config=bot_config,
+                chat_id=chat_id,
+                dedupe_key="",
+                reply_text=reply_text,
+                source_text=text,
+                async_mode=True,
+                current_message_id=current_message_id,
+                used_fallback_only=False,
+                probe_reply="",
+                last_resort_reply="",
+            )
+        return
+    if str(payload.get("kind") or "").strip().lower() == "audiobook_epub_document":
+        try:
+            job = process_telegram_epub_audiobook_job(
+                download_url=str(payload.get("source_epub_url") or "").strip(),
+                filename=str(payload.get("source_epub_filename") or "book.epub").strip() or "book.epub",
+                file_size=(
+                    payload.get("source_epub_file_size")
+                    if isinstance(payload.get("source_epub_file_size"), int)
+                    else None
+                ),
+                principal_id=principal_id,
+                chat_id=chat_id,
+                message_id=current_message_id,
+                caption=str(payload.get("caption") or "").strip(),
+            )
+            sample_receipts = _telegram_send_audiobook_voice_samples(
+                bot_config=bot_config,
+                chat_id=chat_id,
+                job=job,
+            ) if chat_id else []
+            if sample_receipts:
+                job = record_audiobook_voice_sample_delivery(job=job, sample_receipts=sample_receipts)
+            reply_text = telegram_epub_reply_text(job)
+        except Exception as exc:
+            failure_reason = str(exc or "").strip() or "audiobook_epub_job_failed"
+            _record_telegram_async_failed(
+                container,
+                principal_id=principal_id,
+                chat_id=chat_id,
+                current_message_id=current_message_id,
+                prompt_text=text,
+                stage="audiobook_epub_job",
+                error=failure_reason,
+            )
+            if chat_id:
+                _telegram_send_and_record_reply(
+                    container=container,
+                    principal_id=principal_id,
+                    bot_config=bot_config,
+                    chat_id=chat_id,
+                    dedupe_key="",
+                    reply_text=(
+                        "I could not prepare the audiobook source job yet. "
+                        f"Current blocker: {compact_text(failure_reason, fallback='audiobook_epub_job_failed', limit=160)}."
+                    ),
+                    source_text=text,
+                    async_mode=True,
+                    current_message_id=current_message_id,
+                    used_fallback_only=True,
+                    probe_reply=_telegram_probe_reply_text(text),
+                    last_resort_reply=_telegram_last_resort_reply_text(text),
+                )
+            return
+        _record_telegram_async_sent(
+            container,
+            principal_id=principal_id,
+            chat_id=chat_id,
+            current_message_id=current_message_id,
+            prompt_text=text,
+            reply_text=reply_text,
+            used_fallback_only=False,
+        )
+        if chat_id:
+            job, inline_buttons = _telegram_audiobook_playback_acceptance_buttons(
+                bot_config=bot_config,
+                chat_id=chat_id,
+                job=job,
+            )
+            send_receipt = _telegram_send_and_record_reply_receipt(
+                container=container,
+                principal_id=principal_id,
+                bot_config=bot_config,
+                chat_id=chat_id,
+                dedupe_key="",
+                reply_text=reply_text,
+                source_text=text,
+                async_mode=True,
+                current_message_id=current_message_id,
+                used_fallback_only=False,
+                probe_reply="",
+                last_resort_reply="",
+                inline_buttons=inline_buttons,
+            )
+            _record_audiobook_public_share_reply_delivery(job=job, send_receipt=send_receipt)
         return
     if str(payload.get("kind") or "").strip().lower() == "property_pdf_document":
         try:
@@ -6874,7 +8309,7 @@ def _telegram_command_reply_text(
                 )
             ):
                 return "", False, fallback_retry_budget, False
-        if general_reply and not general_reply.startswith("I got it. I saved this in Tibor's assistant flow"):
+        if general_reply and not general_reply.startswith(_telegram_saved_flow_reply_prefix()):
             return general_reply, False, fallback_retry_budget, False
         if _telegram_prefers_async_codex_chat(ctx.normalized):
             if _telegram_low_signal_followup_cue(ctx.normalized):
@@ -6965,6 +8400,18 @@ def _telegram_session_turn(
         chat_id=chat_id,
         completion_cue_predicate=_telegram_low_signal_followup_cue,
     )
+    audiobook_epub_decision = _telegram_audiobook_epub_turn_decision(initial_ctx)
+    if audiobook_epub_decision.reply_text or audiobook_epub_decision.schedule_async:
+        return audiobook_epub_decision
+    audiobook_status_decision = _telegram_local_turn_decision(initial_ctx)
+    if (
+        _telegram_audiobook_status_intent(initial_ctx.normalized)
+        and (audiobook_status_decision.reply_text or audiobook_status_decision.schedule_async)
+    ):
+        return audiobook_status_decision
+    audiobook_text_reply = _telegram_audiobook_text_request_reply_text(initial_ctx.normalized)
+    if audiobook_text_reply:
+        return TelegramTurnDecision(reply_text=audiobook_text_reply)
     instructional_video_decision = _telegram_instructional_video_turn_decision(initial_ctx)
     if instructional_video_decision.reply_text or instructional_video_decision.schedule_async:
         return instructional_video_decision
@@ -6981,6 +8428,13 @@ def _telegram_session_turn(
         current_message_id=current_message_id,
         chat_id=chat_id,
     )
+    inline_buttons: list[list[tuple[str, str]]] | None = None
+    if reply_text and _telegram_audiobook_status_intent(text):
+        _title, status_buttons = _telegram_latest_audiobook_playback_buttons_for_chat(
+            bot_config=dict(dict(payload or {}).get("_bot_config") or {}),
+            chat_id=chat_id,
+        )
+        inline_buttons = status_buttons or None
     ctx = build_turn_context(
         container=container,
         principal_id=principal_id,
@@ -7000,6 +8454,7 @@ def _telegram_session_turn(
         return feedback_followup_decision
     return TelegramTurnDecision(
         reply_text=reply_text,
+        inline_buttons=inline_buttons,
         schedule_async=schedule_async,
         retry_budget=retry_budget,
         suppress_async_ack=suppress_async_ack,
@@ -7110,6 +8565,7 @@ def ingest_telegram(
                 dedupe_key=dedupe_key,
                 reply_text=reply_text,
                 source_text=str(message_payload.get("text") or ""),
+                inline_buttons=decision.inline_buttons,
             )
         except Exception:
             reply_sent = False

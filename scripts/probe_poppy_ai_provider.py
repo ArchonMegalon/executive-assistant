@@ -13,8 +13,15 @@ from pathlib import Path
 
 
 EA_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_OUTPUT = Path("/docker/chummercomplete/.integrated/fleet/_completion/poppy_ai/POPPY_AI_PROVIDER_ACCESS_PROBE.generated.json")
-SESSION_PROBE_PATH = Path("/docker/chummercomplete/.integrated/fleet/_completion/poppy_ai/POPPY_AI_PROVIDER_SESSION_PROBE.generated.json")
+DEFAULT_COMPLETION_DIR = Path(os.environ.get("POPPY_COMPLETION_DIR") or EA_ROOT / "ea/_completion/poppy_ai")
+DEFAULT_OUTPUT = Path(
+    os.environ.get("POPPY_PROVIDER_ACCESS_PROBE_OUTPUT")
+    or DEFAULT_COMPLETION_DIR / "POPPY_AI_PROVIDER_ACCESS_PROBE.generated.json"
+)
+SESSION_PROBE_PATH = Path(
+    os.environ.get("POPPY_PROVIDER_SESSION_PROBE_PATH")
+    or DEFAULT_COMPLETION_DIR / "POPPY_AI_PROVIDER_SESSION_PROBE.generated.json"
+)
 LOGIN_URL = "https://app.getpoppy.ai/login"
 MARKETING_URL = "https://getpoppy.ai/"
 BROWSERACT_API_BASE = str(os.environ.get("BROWSERACT_WORKFLOW_API_BASE") or "https://api.browseract.com/v2/workflow").rstrip("/")

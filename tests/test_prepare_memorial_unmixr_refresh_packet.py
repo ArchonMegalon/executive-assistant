@@ -5,7 +5,8 @@ import json
 from pathlib import Path
 
 
-SCRIPT_PATH = Path("/docker/EA/ea/scripts/prepare_memorial_unmixr_refresh_packet.py")
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT_PATH = ROOT / "ea" / "scripts" / "prepare_memorial_unmixr_refresh_packet.py"
 
 
 def _load_module():

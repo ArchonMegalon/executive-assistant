@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -21,39 +22,40 @@ for candidate in (ROOT, EA_PATH):
     if str(candidate) not in sys.path:
         sys.path.insert(0, str(candidate))
 
-from app.services.ltd_provider_governance import build_ltd_provider_governance_receipt  # noqa: E402
-
 
 DEFAULT_OUTPUT = ROOT / ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json"
 DEFAULT_FLAGSHIP_RECEIPT = ROOT / ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
 DEFAULT_WEEKLY_PULSE = ROOT / ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json"
 DEFAULT_BROWSER_PROOF = ROOT / ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json"
 DEFAULT_MIRROR_BOUNDARY = ROOT / ".codex-design/repo/MIRROR_SCOPE_BOUNDARY.md"
-DEFAULT_FLEET_JOURNEY_GATES = Path("/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json")
+CHUMMER_COMPLETION_ROOT = Path(os.environ.get("EA_CHUMMER_CROSS_REPO_COMPLETION_ROOT") or ROOT / "ea" / "_completion" / "chummer_cross_repo")
+FLEET_COMPLETION_ROOT = Path(os.environ.get("EA_FLEET_COMPLETION_ROOT") or ROOT / "ea" / "_completion" / "fleet")
+DEFAULT_FLEET_JOURNEY_GATES = FLEET_COMPLETION_ROOT / "JOURNEY_GATES.generated.json"
 DEFAULT_MEMORIAL_VOICE_ROUNDTRIP_RECEIPT = ROOT / ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json"
 DEFAULT_MEMORIAL_PUBLIC_VOICE_RECEIPT = ROOT / ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json"
 DEFAULT_MEMORIAL_PUBLIC_BROWSER_RECEIPT = ROOT / ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json"
 DEFAULT_MEMORIAL_PUBLIC_ROOM_RECEIPT = ROOT / ".codex-studio/published/memorial_room_audio_public_origin.generated.json"
 DEFAULT_TELEGRAM_VIDEO_DELIVERY_RECEIPT = ROOT / ".codex-studio/published/telegram_video_delivery_operator.generated.json"
+DEFAULT_TELEGRAM_VIDEO_DELIVERY_LIVE_RECEIPT = ROOT / ".codex-studio/published/telegram_video_delivery_live.generated.json"
 DEFAULT_CORE_RULE_RECEIPTS = (
-    Path("/docker/chummercomplete/chummer-core-engine/.codex-studio/published/OPERATOR_PROMOTED_RULE_AUTHORITY_GOLD.generated.json"),
-    Path("/docker/chummercomplete/chummer-core-engine/.codex-studio/published/FULL_PRODUCT_RULE_AUTHORITY_COMPLETION.generated.json"),
+    CHUMMER_COMPLETION_ROOT / "chummer-core-engine" / "OPERATOR_PROMOTED_RULE_AUTHORITY_GOLD.generated.json",
+    CHUMMER_COMPLETION_ROOT / "chummer-core-engine" / "FULL_PRODUCT_RULE_AUTHORITY_COMPLETION.generated.json",
 )
 DEFAULT_DESKTOP_UI_RECEIPTS = (
-    Path("/docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_EXECUTABLE_EXIT_GATE.generated.json"),
-    Path("/docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_VISUAL_FAMILIARITY_EXIT_GATE.generated.json"),
-    Path("/docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_LAYOUT_HARD_GATE.generated.json"),
+    CHUMMER_COMPLETION_ROOT / "chummer-presentation" / "DESKTOP_EXECUTABLE_EXIT_GATE.generated.json",
+    CHUMMER_COMPLETION_ROOT / "chummer-presentation" / "DESKTOP_VISUAL_FAMILIARITY_EXIT_GATE.generated.json",
+    CHUMMER_COMPLETION_ROOT / "chummer-presentation" / "CHUMMER5A_LAYOUT_HARD_GATE.generated.json",
 )
 DEFAULT_HUB_PUBLIC_WEB_RECEIPTS = (
-    Path("/docker/chummercomplete/chummer.run-services/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json"),
-    Path("/docker/chummercomplete/chummer.run-services/.codex-studio/published/PUBLIC_ORIGIN_REACHABILITY_GATE.generated.json"),
-    Path("/docker/chummercomplete/chummer.run-services/.codex-studio/published/PUBLIC_SHELL_CLICKABILITY_GATE.generated.json"),
+    CHUMMER_COMPLETION_ROOT / "chummer.run-services" / "FLAGSHIP_PRODUCT_READINESS.generated.json",
+    CHUMMER_COMPLETION_ROOT / "chummer.run-services" / "PUBLIC_ORIGIN_REACHABILITY_GATE.generated.json",
+    CHUMMER_COMPLETION_ROOT / "chummer.run-services" / "PUBLIC_SHELL_CLICKABILITY_GATE.generated.json",
 )
 DEFAULT_MOBILE_RECEIPTS = (
-    Path("/docker/chummercomplete/chummer-play/.codex-studio/published/MOBILE_LOCAL_RELEASE_PROOF.generated.json"),
+    CHUMMER_COMPLETION_ROOT / "chummer-play" / "MOBILE_LOCAL_RELEASE_PROOF.generated.json",
 )
 DEFAULT_MEDIA_RECEIPTS = (
-    Path("/docker/chummercomplete/chummer.run-services/.codex-studio/published/BLACK_LEDGER_LIVE_MEDIA_PROOF.generated.json"),
+    CHUMMER_COMPLETION_ROOT / "chummer.run-services" / "BLACK_LEDGER_LIVE_MEDIA_PROOF.generated.json",
 )
 
 BLOCKING_STATUSES = {
@@ -99,11 +101,30 @@ def _display_path(path: Path) -> str:
 
 
 def _load_ltd_summary() -> dict[str, Any]:
+    from app.services.ltd_provider_governance import build_ltd_provider_governance_receipt  # noqa: E402
+
     receipt = build_ltd_provider_governance_receipt()
     lanes = list(receipt.get("lanes") or [])
     runtime = [lane for lane in lanes if bool(lane.get("runtime_enabled"))]
     draft = [lane for lane in lanes if not bool(lane.get("runtime_enabled"))]
+    lanes_with_missing = [
+        lane
+        for lane in lanes
+        if [str(item).strip() for item in list(lane.get("missing_checks") or []) if str(item).strip()]
+    ]
+    excluded_draft = [
+        lane
+        for lane in draft
+        if not [str(item).strip() for item in list(lane.get("missing_checks") or []) if str(item).strip()]
+    ]
     poppy = next((lane for lane in lanes if lane.get("lane_key") == "poppy_draft_workbench"), {})
+    missing_lane_checks: list[str] = []
+    for lane in lanes:
+        lane_key = str(lane.get("lane_key") or "").strip()
+        for check in list(lane.get("missing_checks") or []):
+            check_key = str(check or "").strip()
+            if lane_key and check_key:
+                missing_lane_checks.append(f"{lane_key}:{check_key}")
     return {
         "contract_name": receipt.get("contract_name"),
         "status": receipt.get("status"),
@@ -113,7 +134,34 @@ def _load_ltd_summary() -> dict[str, Any]:
         "poppy_runtime_enabled": bool(poppy.get("runtime_enabled")) if poppy else None,
         "poppy_lane_state": poppy.get("lane_state") if poppy else None,
         "draft_or_operator_lanes": [str(lane.get("lane_key")) for lane in draft],
+        "whole_project_pending_lanes": [str(lane.get("lane_key")) for lane in lanes_with_missing],
+        "whole_project_excluded_lanes": [str(lane.get("lane_key")) for lane in excluded_draft],
+        "missing_lane_checks": missing_lane_checks,
+        "provider_contracts": receipt.get("provider_contracts") if isinstance(receipt.get("provider_contracts"), dict) else {},
+        "contract_backed_check_count": receipt.get("contract_backed_check_count"),
     }
+
+
+def _ltd_provider_missing_evidence(summary: dict[str, Any]) -> list[str]:
+    missing: list[str] = []
+    for item in list(summary.get("missing_lane_checks") or []):
+        normalized = str(item or "").strip()
+        if normalized:
+            missing.append(f"LTD provider lane check pending: {normalized}")
+    return list(dict.fromkeys(missing))
+
+
+DESIGN_SURFACE_MISSING_EVIDENCE = [
+    "canonical Chummer product/UI design review receipt from the owning design repo",
+    "public/human-facing Chummer documentation humanization review receipt",
+    "desktop/public surface visual polish acceptance receipt from the owning UI repo",
+]
+
+MEDIA_FACTORY_MISSING_EVIDENCE = [
+    "asset-specific media factory publication receipt for each promoted video/horizon asset",
+    "provider candidate promotion receipt before MagicFit, JoggAI, Poppy, or avatar lanes can count as publication proof",
+    "human publication approval receipt for generated media leaving the operator lab",
+]
 
 
 def _plane(
@@ -152,21 +200,39 @@ def _status_from_receipt(path: Path, allowed: set[str]) -> str:
     return "pass" if status in allowed else "unknown_missing_receipt"
 
 
-def _telegram_video_delivery_status(path: Path) -> tuple[str, list[str], list[str]]:
-    payload = _json(path)
-    if not payload:
-        return "unknown_missing_receipt", [], [_display_path(path)]
-    status = str(payload.get("status") or "").strip().lower()
-    evidence = [_display_path(path)]
-    if status == "pass":
+def _telegram_video_delivery_status(operator_path: Path, live_path: Path) -> tuple[str, list[str], list[str]]:
+    operator_payload = _json(operator_path)
+    live_payload = _json(live_path)
+    evidence: list[str] = []
+    missing: list[str] = []
+    if operator_payload:
+        evidence.append(_display_path(operator_path))
+    else:
+        return "unknown_missing_receipt", [], [_display_path(operator_path)]
+    if live_payload:
+        evidence.append(_display_path(live_path))
+
+    operator_status = str(operator_payload.get("status") or "").strip().lower()
+    live_status = str(live_payload.get("status") or "").strip().lower()
+    operator_blocking = [str(item) for item in list(operator_payload.get("blocking_checks") or []) if str(item).strip()]
+    operator_policy_ok = operator_status in {"pass", "bounded_pass"} and not operator_blocking
+
+    if not operator_policy_ok:
+        missing.append(f"{_display_path(operator_path)} status={operator_status or 'missing'}")
+        missing.extend(operator_blocking)
+        return "blocked", evidence, missing
+
+    if live_status == "pass":
         return "pass", evidence, []
-    if status == "bounded_pass":
-        missing = ["live Telegram video delivery receipt with operator message ID and delivery observation"]
-        return "bounded_pass", evidence, missing
-    blocking = list(payload.get("blocking_checks") or [])
-    missing = [f"{_display_path(path)} status={status or 'missing'}"]
-    missing.extend(str(item) for item in blocking if str(item).strip())
-    return "blocked", evidence, missing
+
+    if not live_payload:
+        missing.append("live Telegram video delivery receipt with operator message ID and delivery observation")
+        missing.append(_display_path(live_path))
+    else:
+        reason = str(live_payload.get("blocking_reason") or "").strip()
+        missing.append(f"{_display_path(live_path)} status={live_status or 'missing'}" + (f": {reason}" if reason else ""))
+        missing.extend(str(item) for item in list(live_payload.get("failed_codes") or []) if str(item).strip())
+    return "bounded_pass", evidence, list(dict.fromkeys(missing))
 
 
 def _room_receipt_status(path: Path) -> str:
@@ -181,6 +247,20 @@ def _room_receipt_status(path: Path) -> str:
         or not str(attestation.get("signed_at") or "").strip()
         or attestation.get("ci_must_not_auto_assert") is not True
     ):
+        return "blocked"
+    required_checks = {
+        "actual_device_checked",
+        "actual_speaker_checked",
+        "first_syllable_not_clipped",
+        "intelligibility_confirmed",
+        "answer_text_fallback_visible",
+        "no_internet_search_confirmed",
+        "normal_spoken_turn_confirmed",
+        "interruption_behavior_confirmed",
+        "retry_path_confirmed",
+    }
+    checks = dict(payload.get("checks") or {})
+    if any(checks.get(key) is not True for key in required_checks):
         return "blocked"
     return "pass"
 
@@ -258,6 +338,7 @@ def build_gold_map(
     memorial_public_browser_receipt: Path = DEFAULT_MEMORIAL_PUBLIC_BROWSER_RECEIPT,
     memorial_public_room_receipt: Path = DEFAULT_MEMORIAL_PUBLIC_ROOM_RECEIPT,
     telegram_video_delivery_receipt: Path = DEFAULT_TELEGRAM_VIDEO_DELIVERY_RECEIPT,
+    telegram_video_delivery_live_receipt: Path = DEFAULT_TELEGRAM_VIDEO_DELIVERY_LIVE_RECEIPT,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
     source_git_head = _git_head()
@@ -280,7 +361,8 @@ def build_gold_map(
     media_status_raw, media_evidence, media_missing = _receipt_group_status(media_receipts)
     media_status = "bounded_pass" if media_status_raw == "pass" else media_status_raw
     telegram_video_status, telegram_video_evidence, telegram_video_missing = _telegram_video_delivery_status(
-        telegram_video_delivery_receipt
+        telegram_video_delivery_receipt,
+        telegram_video_delivery_live_receipt,
     )
     memorial_voice_status_raw = _status_from_receipt(memorial_voice_roundtrip_receipt, {"pass"})
     memorial_voice_status = "pass" if memorial_voice_status_raw == "pass" else "separate_risk_zone"
@@ -319,6 +401,7 @@ def build_gold_map(
         ]
     )
     ltd_summary = _load_ltd_summary()
+    ltd_missing = _ltd_provider_missing_evidence(ltd_summary)
     mirror_boundary_present = _exists(mirror_boundary_path)
 
     planes = [
@@ -351,7 +434,9 @@ def build_gold_map(
             status="bounded_pass" if mirror_boundary_present else "unknown_missing_receipt",
             claim="EA owns a bounded mirror and cannot infer all Chummer product design readiness from mirrored docs alone.",
             evidence=[_display_path(mirror_boundary_path)] if mirror_boundary_present else [],
-            missing_evidence=[] if mirror_boundary_present else [_display_path(mirror_boundary_path)],
+            missing_evidence=DESIGN_SURFACE_MISSING_EVIDENCE
+            if mirror_boundary_present
+            else [_display_path(mirror_boundary_path), *DESIGN_SURFACE_MISSING_EVIDENCE],
             design_notes=[
                 "Whole-project design gold requires canonical product/UI review receipts outside the EA mirror.",
                 "The EA mirror may be green while product-wide visual polish remains unproven.",
@@ -400,7 +485,7 @@ def build_gold_map(
             status=media_status,
             claim="Published Black Ledger live media is accepted when its live media proof passes; future provider candidates remain draft/operator until asset-specific receipts exist.",
             evidence=media_evidence + ["scripts/verify_ltd_provider_lanes.py", ".codex-design/ea/POPPY_DRAFT_WORKFLOW.md"],
-            missing_evidence=media_missing,
+            missing_evidence=media_missing + MEDIA_FACTORY_MISSING_EVIDENCE,
             design_notes=[
                 "This is a bounded publication pass for current Black Ledger live media, not a blanket promotion of MagicFit, JoggAI, Poppy, or avatar candidate lanes.",
             ],
@@ -458,10 +543,18 @@ def build_gold_map(
             status="mixed",
             claim="Provider lanes may be verified runtime, draft/operator, or parked inventory; they are not product truth.",
             evidence=["scripts/verify_ltd_provider_lanes.py"],
+            missing_evidence=ltd_missing,
             design_notes=[
                 f"lane_count={ltd_summary.get('lane_count')}",
                 f"runtime_lane_count={ltd_summary.get('runtime_lane_count')}",
                 f"draft_or_operator_lane_count={ltd_summary.get('draft_or_operator_lane_count')}",
+                f"provider_contract_status={dict(ltd_summary.get('provider_contracts') or {}).get('status')}",
+                f"provider_contract_proof_scope={dict(ltd_summary.get('provider_contracts') or {}).get('proof_scope')}",
+                f"provider_contract_live_verified={dict(ltd_summary.get('provider_contracts') or {}).get('live_provider_runtime_verified')}",
+                f"contract_backed_check_count={ltd_summary.get('contract_backed_check_count')}",
+                f"whole_project_pending_lane_count={len(ltd_summary.get('whole_project_pending_lanes') or [])}",
+                f"whole_project_excluded_lane_count={len(ltd_summary.get('whole_project_excluded_lanes') or [])}",
+                f"missing_lane_check_count={len(ltd_summary.get('missing_lane_checks') or [])}",
             ],
         ),
     ]
@@ -498,7 +591,7 @@ def build_gold_map(
         "source_git_head": source_git_head,
         "head_semantics": "source_state",
         "head_semantics_note": "source_git_head records the proved source state. Generated-only artifact commits may advance repository HEAD without changing the source state that the receipts prove.",
-        "output_path": output_path.relative_to(ROOT).as_posix(),
+        "output_path": _display_path(output_path),
         "overall_status": overall_status,
         "gold_claim_allowed": gold_claim_allowed,
         "claim_scope": claim_scope,
@@ -566,9 +659,10 @@ def main() -> int:
     parser.add_argument("--fleet-journey-gates", type=Path, default=DEFAULT_FLEET_JOURNEY_GATES)
     args = parser.parse_args()
 
-    receipt = build_gold_map(output_path=args.output, fleet_journey_gates_path=args.fleet_journey_gates)
-    write_json_stable(args.output, receipt)
-    print(json.dumps({"status": "pass", "output": args.output.as_posix(), "overall_status": receipt["overall_status"]}))
+    output_path = args.output if args.output.is_absolute() else ROOT / args.output
+    receipt = build_gold_map(output_path=output_path, fleet_journey_gates_path=args.fleet_journey_gates)
+    write_json_stable(output_path, receipt)
+    print(json.dumps({"status": "pass", "output": output_path.as_posix(), "overall_status": receipt["overall_status"]}))
     return 0
 
 

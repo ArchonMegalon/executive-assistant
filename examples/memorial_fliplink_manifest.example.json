@@ -14,8 +14,8 @@
     "source.md"
   ],
   "build_artifacts": {
-    "html_path": "/docker/EA/memorial_archive/manfred/public/manfred-life-overview/build/index.html",
-    "pdf_path": "/docker/EA/memorial_archive/manfred/public/manfred-life-overview/build/output.pdf"
+    "html_path": "../memorial_archive/manfred/public/manfred-life-overview/build/index.html",
+    "pdf_path": "../memorial_archive/manfred/public/manfred-life-overview/build/output.pdf"
   },
   "thumbnail": "/memorials/files/manfred/thumbnails/life-overview.webp",
   "fliplink_slug": "manfred-life-overview",
@@ -23,5 +23,5 @@
   "share_with_memorial_app": true,
   "public": true,
   "ai_disclosure": "AI-assisted formatting only; no direct speech claim unless explicitly marked as verbatim source.",
-  "correction_contact": "memorial@myexternalbrain.com"
+  "correction_contact": "memorial@example.test"
 }

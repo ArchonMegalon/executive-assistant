@@ -19,11 +19,11 @@ This repo has already moved one step further: the old hero/title/footer elements
 ## Run
 
 ```bash
-cd /docker/EA/ea
-python3 -m pytest -q ../tests/test_memorial_current_landing_contracts.py
+cd "$EA_REPO_ROOT"
+python3 -m pytest -q tests/test_memorial_current_landing_contracts.py
 python3 scripts/memorial_demo_rehearsal.py manfred \
-  --base-url https://myexternalbrain.com \
-  --questions ../examples/demo_questions.manfred.current.json \
+  --base-url "${MEMORIAL_PUBLIC_ORIGIN:-https://memorial.example.test}" \
+  --questions examples/demo_questions.manfred.current.json \
   --save-audio-dir /tmp
 ```
 

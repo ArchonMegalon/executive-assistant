@@ -1,0 +1,324 @@
+{
+  "assembly": {
+    "chapter_metadata_embedded": true,
+    "cover_embedded": true,
+    "cover_filename": "cover.jpg",
+    "output_bytes": 203334305,
+    "output_file_ready": true,
+    "output_file_sha256": "cb6aee149e96a5999ec2b85ac36198136817dc2441242e484bd51487302b719b",
+    "output_files": 1,
+    "provider": "ffmpeg",
+    "status": "m4b_ready"
+  },
+  "audiobookshelf_import": {
+    "player_scoped_reference_status": "blocked",
+    "player_scoped_reference_token_sha256": "",
+    "public_share_raw_library_path_exposed": false,
+    "public_share_slug_sha256": "",
+    "public_share_status": "public_share_ready",
+    "public_share_telegram_audiobookshelf_token_exposed": false,
+    "public_share_telegram_callback_tokens_exposed": false,
+    "public_share_telegram_delivery_reason": "",
+    "public_share_telegram_delivery_status": "sent",
+    "public_share_telegram_followup_pending": false,
+    "public_share_telegram_message_id_present": true,
+    "public_share_telegram_message_id_sha256": "0780e42173170ed42c3349d728e28197bd5a97ba9b8231da422cd3eeb4d7be80",
+    "public_share_telegram_notified_at": "2026-06-20T04:06:05.401559Z",
+    "public_share_token_exposed": false,
+    "public_share_url": "https://audiobookshelf.girschele.com/audiobookshelf/share/ea-knuf-andreas-sei-nicht-so-hart-zu-dir-selbst-18d5f74451",
+    "status": "imported",
+    "target_file_ready": true,
+    "target_file_sha256": "cb6aee149e96a5999ec2b85ac36198136817dc2441242e484bd51487302b719b",
+    "target_storage_kind": "pcloud"
+  },
+  "chapters": [
+    {
+      "audio_filename": "001 - Sei nicht so hart zu dir selbst.wav",
+      "char_count": 1266,
+      "index": 1,
+      "text_sha256": "04327e240fb6c504fe03e78d76c70031ff020bc310f7465643e93b9b9dc0724e",
+      "title": "Sei nicht so hart zu dir selbst"
+    },
+    {
+      "audio_filename": "002 - Sei nicht so hart zu dir selbst.wav",
+      "char_count": 15409,
+      "index": 2,
+      "text_sha256": "af28ace5dd447ca39b1bb251e3f6a113d1c6562c32e8d09b00ae0f4795c77671",
+      "title": "Sei nicht so hart zu dir selbst"
+    },
+    {
+      "audio_filename": "003 - Sei nicht so hart zu dir selbst.wav",
+      "char_count": 18522,
+      "index": 3,
+      "text_sha256": "41f6850bf2b5c73ed0a2e5d0c4dc90a8d3d3f6c2ae3f171100f8ab4feb078b0a",
+      "title": "Sei nicht so hart zu dir selbst"
+    },
+    {
+      "audio_filename": "004 - Sei nicht so hart zu dir selbst.wav",
+      "char_count": 25499,
+      "index": 4,
+      "text_sha256": "2536c504fd39c65d33bf862ff775a1456e4e86f42f4feb63284a94f4ea325a45",
+      "title": "Sei nicht so hart zu dir selbst"
+    },
+    {
+      "audio_filename": "005 - Sei nicht so hart zu dir selbst.wav",
+      "char_count": 22447,
+      "index": 5,
+      "text_sha256": "8df96b7d671f09b48772baa2cb418fa014dd6ee1b6adc8ccfa7a8fbd03ed31ea",
+      "title": "Sei nicht so hart zu dir selbst"
+    },
+    {
+      "audio_filename": "006 - Sei nicht so hart zu dir selbst.wav",
+      "char_count": 39768,
+      "index": 6,
+      "text_sha256": "b93851c6e5b2e0c3fc111311af60955c762110e9415254ec7950ffcf570af469",
+      "title": "Sei nicht so hart zu dir selbst"
+    },
+    {
+      "audio_filename": "007 - Sei nicht so hart zu dir selbst.wav",
+      "char_count": 25109,
+      "index": 7,
+      "text_sha256": "c2b7d9a394b3dbb5297a6e8c061d97658358afe76955fd84b3d224c820fa030b",
+      "title": "Sei nicht so hart zu dir selbst"
+    },
+    {
+      "audio_filename": "008 - Sei nicht so hart zu dir selbst.wav",
+      "char_count": 22584,
+      "index": 8,
+      "text_sha256": "e00a55acf228c86acdcfc9784c975318c1bd806d4cd5c37b939e1ff7b15ed774",
+      "title": "Sei nicht so hart zu dir selbst"
+    },
+    {
+      "audio_filename": "009 - Sei nicht so hart zu dir selbst.wav",
+      "char_count": 37467,
+      "index": 9,
+      "text_sha256": "f9d65a1b87f590654131f621eb2d82fbf4d3386faf5d28f6c1a37a69f432966a",
+      "title": "Sei nicht so hart zu dir selbst"
+    },
+    {
+      "audio_filename": "010 - Sei nicht so hart zu dir selbst.wav",
+      "char_count": 20672,
+      "index": 10,
+      "text_sha256": "c06055c3cf7eedc110e6ce9868de129f30442dfd2e57f63aa3b7fbacd2a6ec06",
+      "title": "Sei nicht so hart zu dir selbst"
+    },
+    {
+      "audio_filename": "011 - Sei nicht so hart zu dir selbst.wav",
+      "char_count": 21587,
+      "index": 11,
+      "text_sha256": "8e32dcdb22968b297f4951760cd98c9816f1ce6a43ab9c9cc26a3139a1a69188",
+      "title": "Sei nicht so hart zu dir selbst"
+    },
+    {
+      "audio_filename": "012 - Sei nicht so hart zu dir selbst.wav",
+      "char_count": 3368,
+      "index": 12,
+      "text_sha256": "09a033303a7c8bb0affdf29f82e0e38661f16fea52372d61dafbbfb293e1cd5f",
+      "title": "Sei nicht so hart zu dir selbst"
+    },
+    {
+      "audio_filename": "013 - Sei nicht so hart zu dir selbst.wav",
+      "char_count": 22591,
+      "index": 13,
+      "text_sha256": "d2611b31151beef972406f97d2f93d703712ed2a9ba6cabe44fd198a17b88b53",
+      "title": "Sei nicht so hart zu dir selbst"
+    },
+    {
+      "audio_filename": "014 - Sei nicht so hart zu dir selbst.wav",
+      "char_count": 1188,
+      "index": 14,
+      "text_sha256": "adfca8f7b89e5792b0d1cf6db0a4ec9f55759274c9506712c488b1fe33700584",
+      "title": "Sei nicht so hart zu dir selbst"
+    },
+    {
+      "audio_filename": "015 - Sei nicht so hart zu dir selbst.wav",
+      "char_count": 1749,
+      "index": 15,
+      "text_sha256": "68a0ce943cd12dc31d1920f64f341a3054c86a3586b40f0ac7a2cdd62460012c",
+      "title": "Sei nicht so hart zu dir selbst"
+    },
+    {
+      "audio_filename": "016 - Sei nicht so hart zu dir selbst.wav",
+      "char_count": 3991,
+      "index": 16,
+      "text_sha256": "88f01e1a69217d1ada8f2e21453803a8de515924c12f1e0d3ab67bfdfe43b322",
+      "title": "Sei nicht so hart zu dir selbst"
+    },
+    {
+      "audio_filename": "017 - Sei nicht so hart zu dir selbst.wav",
+      "char_count": 827,
+      "index": 17,
+      "text_sha256": "725b44ad0239932c4fc555b7e544fce508ed62735064269601c3b830096887a1",
+      "title": "Sei nicht so hart zu dir selbst"
+    }
+  ],
+  "contract_name": "ea.telegram_epub_audiobook_job_receipt.v1",
+  "job_dir_name": "epub-audiobook-20260619T120239Z-9d82d2ec",
+  "job_id": "epub-audiobook-20260619T120239Z-9d82d2ec",
+  "metadata": {
+    "author": "Knuf, Andreas",
+    "language": "de",
+    "title": "Sei nicht so hart zu dir selbst"
+  },
+  "observed_at": "2026-06-20T04:42:53.720431Z",
+  "playback_acceptance": {
+    "accepted": false,
+    "audiobookshelf_target_file_sha256": "",
+    "callback_ready": false,
+    "callback_token_exposed": false,
+    "contract_name": "ea.telegram_epub_audiobook_playback_acceptance.v1",
+    "feedback_sha256": "",
+    "message_id_sha256": "",
+    "public_share_url_sha256": "",
+    "raw_feedback_exposed": false,
+    "raw_message_id_exposed": false,
+    "recorded_at": "",
+    "source": "",
+    "status": "not_recorded",
+    "telegram_public_share_message_id_sha256": ""
+  },
+  "privacy": {
+    "audiobookshelf_raw_path_exposed": false,
+    "audiobookshelf_token_exposed": false,
+    "chapter_text_path_exposed": false,
+    "private_job_path_exposed": false,
+    "provider_secret_exposed": false,
+    "provider_voice_id_exposed": false,
+    "raw_book_text_in_receipt": false,
+    "source_epub_path_exposed": false,
+    "telegram_chat_id_exposed": false,
+    "telegram_file_url_exposed": false,
+    "telegram_message_id_exposed": false,
+    "telegram_token_exposed": false
+  },
+  "render": {
+    "audio_quality": {
+      "checked_files": 0,
+      "failed_files": 0,
+      "issue_counts": {},
+      "passed_files": 0,
+      "quiet_tail_count": 0,
+      "raw_audio_paths_exposed": false,
+      "speech_energy_missing_count": 0,
+      "status": "not_checked",
+      "trailing_silence_count": 0,
+      "warned_files": 0
+    },
+    "chapter_audio_bytes": 1441904430,
+    "chapter_audio_files": 17,
+    "chapter_index": 0,
+    "pacing": {},
+    "provider": "unmixr_ai",
+    "provider_retry_after": "",
+    "provider_wait_seconds": 0,
+    "segment_count": 0,
+    "segment_index": 0,
+    "segment_part_bytes": 1412371548,
+    "segment_part_files": 162,
+    "status": "already_rendered",
+    "voice_selection": {
+      "book_profile": {
+        "dialogue_ratio": 0.0805,
+        "fiction_score": 0,
+        "language": "de",
+        "nonfiction_score": 1,
+        "recommended_tags": [
+          "nonfiction",
+          "german"
+        ],
+        "sample_sha256": "9be78b20aabcdac281724e70ba1cb03f5b44e6d7f37b2e225d96fe841a6b2644"
+      },
+      "candidate_count": 1,
+      "candidate_scores": [
+        {
+          "default": true,
+          "label": "Unmixr premium German narration voice",
+          "language": "de",
+          "matched_tags": [
+            "german",
+            "nonfiction"
+          ],
+          "preset_key": "default_env_voice",
+          "score": 65,
+          "tags": [
+            "audiobook",
+            "narration",
+            "german",
+            "calm",
+            "warm",
+            "clear",
+            "nonfiction"
+          ],
+          "voice_id_sha256": "59e9d59484e9ebbd02b9660c675d56e40cf831545f4339f480251b03b6e903c0"
+        }
+      ],
+      "selected": {
+        "default": true,
+        "label": "Unmixr premium German narration voice",
+        "language": "de",
+        "matched_tags": [
+          "german",
+          "nonfiction"
+        ],
+        "preset_key": "default_env_voice",
+        "score": 65,
+        "tags": [
+          "audiobook",
+          "narration",
+          "german",
+          "calm",
+          "warm",
+          "clear",
+          "nonfiction"
+        ],
+        "voice_id_sha256": "59e9d59484e9ebbd02b9660c675d56e40cf831545f4339f480251b03b6e903c0"
+      },
+      "status": "single_configured_voice",
+      "strategy": "book_profile_voice_selection"
+    },
+    "wait_kind": ""
+  },
+  "scheduler_resume": {
+    "next_action": "telegram_reply_includes_audiobookshelf_public_share",
+    "priority_label": "bulk_or_standard",
+    "priority_score": 10,
+    "priority_source_kinds": [
+      "origin_dossier_story",
+      "origin_dossier"
+    ],
+    "resume_state_present": false,
+    "retry_after": ""
+  },
+  "source": {
+    "kind": "epub",
+    "priority_for_resume": false,
+    "rights_basis": "operator_supplied_epub",
+    "source_filename": "Knuf_Sei-nicht-so-hart-zu-dir-selbs_9783641178222.epub",
+    "source_sha256": "47be302f17b5262512f0a41f01aa927b351a926c5d804bf3a0398ea39f8b8d1b",
+    "source_url_sha256": "9aaa164ebc404b1cd0d35b74b5505ea0d83c76682468b093ef20190262ed9b29"
+  },
+  "status": "audiobookshelf_imported",
+  "storage": {
+    "audiobookshelf_storage_kind": "pcloud",
+    "job_storage_kind": "pcloud",
+    "manifest_sha256": "1ce752fe9193d3da63dc2753bea210f4a61a07439a63ffaad0914d77cd636773"
+  },
+  "telegram": {
+    "caption_present": true,
+    "caption_sha256": "fddc35007b7885581d43b097580668e68a094c013cedf388c845d7cb93e67c6b",
+    "chat_bound": true,
+    "message_bound": true,
+    "voice_sample_callback_tokens_exposed": false,
+    "voice_sample_delivery_attempted_count": 0,
+    "voice_sample_delivery_expected_count": 0,
+    "voice_sample_delivery_failed_count": 0,
+    "voice_sample_delivery_reason": "",
+    "voice_sample_delivery_sent_count": 0,
+    "voice_sample_delivery_skipped_count": 0,
+    "voice_sample_delivery_status": ""
+  },
+  "totals": {
+    "chapter_count": 17,
+    "char_count": 284044
+  }
+}

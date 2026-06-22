@@ -1,23 +1,34 @@
 # Public help copy
 
-## Public feedback lane
+## Public feedback
 
-If you want to help without touching premium participation at all, use the public front door:
+If you want to help, start with the public front door:
 
 * file a public bug
 * send lightweight product feedback
 * flag confusing public copy
-* suggest a future lane
-* point at a horizon that sounds more useful than the current list
-* suggest or vote on a public ProductLift idea when it is not support, account, install, crash, private campaign, or copyrighted rules text
+* suggest a future product direction
+* suggest or vote on a public idea when it is not support, account, install, crash, private campaign, or copyrighted rules text
 
-That keeps feedback public and legible instead of making normal humans spelunk through design canon.
+That keeps feedback public and legible.
 
-ProductLift feedback is public. Do not post private logs, account data, campaign spoilers, copyrighted source text, crash dumps, or support requests there. Use Chummer Help for support.
+Public feedback is public. Do not post private logs, account data, campaign spoilers, copyrighted source text, crash dumps, or support requests there. Use Chummer Help for support.
 
-ProductLift roadmap and changelog pages are projections from Chummer-owned truth. They are not implementation priority, release authority, or support-case state.
+Roadmap and changelog pages are public planning views from Chummer. They are not implementation priority, release authority, or support-case state.
 
-## Private crash lane
+## Chummer Instant Help
+
+Most support should start inside Chummer or on the help page:
+
+* read the short answer
+* use `Show me` when a video is available
+* run the suggested check or repair
+* send a private report if the issue is still unresolved
+
+No normal Chummer help path should require a call, calendar slot, or vendor account.
+The user should not need to know which outside tool helped.
+
+## Private crash reports
 
 If Chummer closes unexpectedly, the first safe path is a private in-product crash report:
 
@@ -40,17 +51,18 @@ That is a relationship choice, not a special per-user build.
 
 When a public concierge widget appears on `/downloads`, `/now`, `/help`, or another public low-risk page:
 
-* the first-party help or release article remains the fixed truth
+* the first-party help or release article remains the main answer
+* the first-party help or release article remains the source users should follow
 * the widget is a preview overlay that helps the user choose a safe next step
-* fallback routes stay visible and must still work when the widget is disabled
+* normal help choices stay visible and must still work when the widget is disabled
 * recovery language must point at the real help, relinking, or escalation path instead of claiming the widget fixed anything itself
 * no claim codes, auth secrets, or private case identifiers belong in the widget
 
 ## Public content optimization bounds
 
-Katteb-assisted articles and guide improvements must be reviewed against approved Chummer source packets.
+Article and guide improvements must be reviewed against approved Chummer copy, screenshots, and release notes.
 
-Accepted content changes flow upstream into `chummer6-design` or public-guide source registries before generated guide output changes. Katteb must not invent rules, support answers, unshipped availability, or campaign/world truth.
+Accepted content changes flow upstream into Chummer's design notes or public guide copy before published guides change. Content tools must not invent rules, support answers, unshipped availability, or campaign/world state.
 
 ## Closure rule
 
@@ -64,36 +76,36 @@ The user-facing promise is:
 * we tell you when the fix is actually available on your channel
 * we may ask later whether that solved it
 
-## Guided contribution lane
+## Helping with fixes
 
-Guided contribution is the bounded "I want to help with real execution" lane.
+Some people want to do more than report an issue. The participation page is the place for hands-on testing, focused feedback, and fix follow-up.
 
 It is:
 
 * opt-in
 * temporary
-* additive on top of the free baseline
+* additive on top of normal feedback
 * still subject to review before anything lands
 
-Public copy should prefer `participate` and `guided contribution`.
+Public copy should prefer plain phrases such as `help test a fix`, `send feedback`, and `participate`.
 Operator phrasing belongs behind the scenes.
 
 ## Privacy and review safety
 
 Public participation copy must say all of this plainly:
 
-* the cheap baseline remains the default path
-* guided contribution is not a merge bypass
+* normal feedback remains the default path
+* participation is not a merge bypass
 * final landing still goes through review
 * people can stop or revoke later
 * private recognition settings remain valid even when badges or leaderboards exist
 
 ## Free later note
 
-Some expensive future lanes may begin as **guided previews** while approvals, compatibility, editorial work, provenance, or support cost remain unusually heavy.
+Some expensive future features may begin as narrow previews while approvals, compatibility, editorial work, provenance, or support cost remain unusually heavy.
 
 That is not the same thing as a permanent paywall.
-When those lanes become cheaper and safer to operate broadly, the long-run intent is wider access rather than keeping the interesting parts locked forever.
+When those areas become cheaper and safer to operate broadly, the long-run intent is wider access rather than keeping the interesting parts locked forever.
 
 ## Primary CTAs
 

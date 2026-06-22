@@ -1,0 +1,159 @@
+{
+  "contract_name": "ea.telegram_video_delivery_live_receipt",
+  "generated_at": "2026-06-22T14:56:01Z",
+  "generated_by": "scripts/materialize_telegram_video_delivery_live_receipt.py",
+  "source_git_head": "8e6c434f4b8e7f1e1c87e1c6b3fdc566915cc85c",
+  "head_semantics": "source_state",
+  "output_path": ".codex-studio/published/telegram_video_delivery_live.generated.json",
+  "status": "blocked",
+  "gold_claim_allowed": false,
+  "claim": "Telegram video delivery has live operator proof only when a real Telegram delivery observation records status=sent, sent message IDs, and a privacy-redacted source-video context.",
+  "observation_source": "docker_postgres:ea-db",
+  "runtime_env": {
+    "files": [
+      ".env",
+      ".env.local"
+    ],
+    "loaded_count": 337,
+    "storage_backend_present": true,
+    "database_url_present": true,
+    "docker_postgres_fallback": {
+      "attempted": true,
+      "containers": [
+        "ea-db"
+      ],
+      "selected_container": "ea-db",
+      "status": "pass",
+      "row_count": 0,
+      "diagnostics": {
+        "status": "pass",
+        "telegram_observation_count": 147,
+        "telegram_video_related_observation_count": 82,
+        "telegram_video_delivery_receipt_count": 0,
+        "telegram_video_sent_text_ack_count": 1,
+        "telegram_event_type_counts": [
+          {
+            "event_type": "telegram.message",
+            "count": 29
+          },
+          {
+            "event_type": "telegram.reply_async_processing",
+            "count": 22
+          },
+          {
+            "event_type": "telegram.reply_async_started",
+            "count": 22
+          },
+          {
+            "event_type": "telegram.reply_sent",
+            "count": 22
+          },
+          {
+            "event_type": "telegram.reply_async_sent",
+            "count": 20
+          },
+          {
+            "event_type": "telegram.processing_ack_sent",
+            "count": 17
+          },
+          {
+            "event_type": "telegram.callback_query",
+            "count": 13
+          },
+          {
+            "event_type": "telegram.reply_async_failed",
+            "count": 2
+          }
+        ],
+        "telegram_video_related_event_type_counts": [
+          {
+            "event_type": "telegram.message",
+            "count": 20
+          },
+          {
+            "event_type": "telegram.reply_async_processing",
+            "count": 17
+          },
+          {
+            "event_type": "telegram.reply_async_started",
+            "count": 17
+          },
+          {
+            "event_type": "telegram.processing_ack_sent",
+            "count": 15
+          },
+          {
+            "event_type": "telegram.reply_async_sent",
+            "count": 11
+          },
+          {
+            "event_type": "telegram.reply_async_failed",
+            "count": 2
+          }
+        ],
+        "delivery_outbox_table": true,
+        "delivery_outbox_channel_status_counts": [
+          {
+            "channel": "email",
+            "status": "queued",
+            "count": 81
+          },
+          {
+            "channel": "email",
+            "status": "retry",
+            "count": 19
+          },
+          {
+            "channel": "slack",
+            "status": "sent",
+            "count": 1
+          },
+          {
+            "channel": "whatsapp",
+            "status": "dead_lettered",
+            "count": 1
+          }
+        ],
+        "telegram_delivery_outbox_video_count": 0,
+        "interpretation": "telegram_video_sent_text_ack_without_delivery_receipt",
+        "privacy": {
+          "raw_payloads_included": false,
+          "raw_message_text_included": false,
+          "raw_chat_ids_included": false,
+          "raw_message_ids_included": false
+        }
+      }
+    }
+  },
+  "principal_id_filter_sha256": "",
+  "limit": 100,
+  "delivery_observation_event_type": "telegram.video_delivery_receipt",
+  "required_receipt_type": "telegram_video_delivery",
+  "required_status": "sent",
+  "delivery_observation_requirements": {
+    "channel": "telegram",
+    "event_type": "telegram.video_delivery_receipt",
+    "receipt_type": "telegram_video_delivery",
+    "status": "sent",
+    "delivery_kind": "video",
+    "telegram_method": "sendVideo",
+    "message_ids_required": true,
+    "source_video_context_required": true
+  },
+  "privacy": {
+    "raw_chat_id_stored": false,
+    "raw_source_message_id_stored": false,
+    "raw_source_video_url_stored": false,
+    "source_video_context_requires_redacted_path": true
+  },
+  "candidate_count": 0,
+  "selected_observation": null,
+  "failed_candidate_count": 0,
+  "failed_candidates": [],
+  "failed_codes": [
+    "live_observation_missing",
+    "video_sent_text_ack_without_delivery_receipt"
+  ],
+  "next_action": "fix_runtime_to_record_sendVideo_delivery_receipt_before_claiming_video_sent",
+  "blocking_reason": "live_observation_missing, video_sent_text_ack_without_delivery_receipt"
+}

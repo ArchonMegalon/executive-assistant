@@ -19,7 +19,7 @@ if EA_APP_ROOT.as_posix() not in sys.path:
 from app.services.browseract_ui_template_catalog import browseract_ui_template_spec
 
 
-DEFAULT_OUT_DIR = Path("/docker/fleet/state/chummer6/avatar_presenter_provider")
+DEFAULT_OUT_DIR = Path(os.environ.get("EA_AVATAR_PRESENTER_PROVIDER_OUT_DIR") or ROOT / "ea" / "_completion" / "avatar_presenter_provider")
 DEFAULT_CAPTURE_PATH = DEFAULT_OUT_DIR / "nonverbia_custom_project_analysis.generated.json"
 WORKER_SCRIPT = ROOT / "scripts" / "browseract_template_service_worker.py"
 ENV_FILES = (ROOT / "ea" / ".env", ROOT / ".env")

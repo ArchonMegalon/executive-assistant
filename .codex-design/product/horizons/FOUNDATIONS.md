@@ -39,7 +39,7 @@ The product needs:
 * starter builds, examples, and recovery flows that can become coachable product surfaces
 * bounded recommendation state instead of implicit UI folklore
 
-This foundation supports `ONRAMP`, `ALICE`, and future teaching or primer lanes.
+This foundation supports first-run starter lanes, `ALICE`, and future teaching or primer lanes.
 
 ### 4. GM-operations substrate
 

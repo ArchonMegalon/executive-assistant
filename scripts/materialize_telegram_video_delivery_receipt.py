@@ -22,6 +22,7 @@ if str(EA_PATH) not in sys.path:
     sys.path.insert(0, str(EA_PATH))
 
 from app.api.routes import channels as channels_route  # noqa: E402
+from app.services import telegram_delivery  # noqa: E402
 from app.services import telegram_video_effects  # noqa: E402
 
 
@@ -48,9 +49,15 @@ def _without_env(*keys: str):
 
 
 def build_receipt(*, output_path: Path = DEFAULT_OUTPUT, generated_at: str | None = None) -> dict[str, Any]:
-    with _without_env("EA_TELEGRAM_VIDEO_DOWNLOAD_ALLOWED_HOSTS", "EA_TELEGRAM_MAGICFIT_DOCKER_IMAGE"):
+    with _without_env(
+        "EA_TELEGRAM_VIDEO_DOWNLOAD_ALLOWED_HOSTS",
+        "EA_TELEGRAM_MAGICFIT_DOCKER_IMAGE",
+        "EA_TELEGRAM_VIDEO_FALLBACK_TTS_ENABLED",
+        "EA_TELEGRAM_VIDEO_FALLBACK_TTS_PROVIDERS",
+    ):
         default_allowed_hosts = telegram_video_effects._allowed_video_hosts()  # noqa: SLF001
         default_magicfit_image = channels_route._telegram_magicfit_docker_image()  # noqa: SLF001
+        audio_policy = telegram_delivery.telegram_video_delivery_audio_policy()
 
     redacted_context = channels_route._telegram_video_source_receipt_context(  # noqa: SLF001
         {
@@ -106,6 +113,44 @@ def build_receipt(*, output_path: Path = DEFAULT_OUTPUT, generated_at: str | Non
             else "fail",
             "source_context": redacted_context,
         },
+        {
+            "code": "video_delivery_requires_final_audio_probe",
+            "status": "pass"
+            if (
+                audio_policy.get("local_video_final_audio_probe_required") is True
+                and audio_policy.get("remote_video_audio_probe_required") is True
+            )
+            else "fail",
+            "audio_policy": audio_policy,
+        },
+        {
+            "code": "video_success_ack_requires_message_ids",
+            "status": "pass"
+            if (
+                channels_route._telegram_video_delivery_sent(  # noqa: SLF001
+                    {"status": "sent", "kind": "video", "message_ids": ["tg-video-proof"]}
+                )
+                and not channels_route._telegram_video_delivery_sent(  # noqa: SLF001
+                    {"status": "sent", "kind": "video", "message_ids": []}
+                )
+                and not channels_route._telegram_video_delivery_sent(  # noqa: SLF001
+                    {"status": "sent", "kind": "text", "message_ids": ["tg-text-ack"]}
+                )
+            )
+            else "fail",
+        },
+        {
+            "code": "fallback_narration_precedes_silent_track",
+            "status": "pass"
+            if (
+                audio_policy.get("fallback_audio_text_preferred_before_silence") is True
+                and audio_policy.get("silent_track_is_last_resort") is True
+                and audio_policy.get("fallback_tts_enabled_default") is True
+                and bool(audio_policy.get("fallback_tts_providers"))
+            )
+            else "fail",
+            "audio_policy": audio_policy,
+        },
     ]
     blocked = [str(item["code"]) for item in checks if item["status"] != "pass"]
     status = "bounded_pass" if not blocked else "blocked"
@@ -121,6 +166,7 @@ def build_receipt(*, output_path: Path = DEFAULT_OUTPUT, generated_at: str | Non
         "live_operator_delivery_required_for_gold": True,
         "delivery_observation_event_type": "telegram.video_delivery_receipt",
         "supported_local_edits": telegram_video_effects.supported_source_video_edit_summary(),
+        "audio_policy": audio_policy,
         "checks": checks,
         "blocking_checks": blocked,
     }

@@ -15,8 +15,8 @@ from pathlib import Path
 EA_ROOT = Path(__file__).resolve().parents[1]
 ENV_FILE = EA_ROOT / ".env"
 DEFAULT_HOST = os.environ.get("EA_HOST", "http://127.0.0.1:8090")
-DEFAULT_PRINCIPAL = os.environ.get("EA_DEFAULT_PRINCIPAL_ID", "local-user")
-DEFAULT_OUTPUT_DIR = Path("/docker/fleet/state/browseract_bootstrap/runtime/crezlo_property_tour_runs")
+DEFAULT_PRINCIPAL = os.environ.get("EA_DEFAULT_PRINCIPAL_ID", "principal-default")
+DEFAULT_OUTPUT_DIR = EA_ROOT / "ea" / "_completion" / "crezlo_property_tour_runs"
 
 
 def env_value(name: str, default: str = "") -> str:
@@ -220,7 +220,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--binding-id", required=True)
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--api-token", default=env_value("EA_API_TOKEN"))
-    parser.add_argument("--principal-id", default="cf-email:tibor.girschele@gmail.com" or DEFAULT_PRINCIPAL)
+    parser.add_argument("--principal-id", default=DEFAULT_PRINCIPAL)
     parser.add_argument("--skill-key", default="create_property_tour")
     parser.add_argument("--goal-prefix", default="create a steerable property tour variant")
     parser.add_argument("--variant-key", action="append", default=[], help="Restrict to one or more variant keys.")

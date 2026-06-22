@@ -21,7 +21,10 @@ from chummer6_runtime_config import load_local_env, load_runtime_overrides, reso
 EA_ROOT = Path(__file__).resolve().parents[1]
 ENV_FILE = EA_ROOT / ".env"
 API_BASE = "https://api.browseract.com/v2/workflow"
-RUNTIME_DIR = Path("/docker/fleet/state/browseract_bootstrap/runtime")
+RUNTIME_DIR = Path(
+    os.environ.get("CHUMMER6_BROWSERACT_BOOTSTRAP_RUNTIME_ROOT")
+    or EA_ROOT / ".codex-studio" / "published" / "browseract_bootstrap" / "runtime"
+)
 
 LOCAL_ENV = load_local_env()
 POLICY_ENV = load_runtime_overrides()

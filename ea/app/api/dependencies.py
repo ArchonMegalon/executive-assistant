@@ -20,7 +20,15 @@ from app.services.cloudflare_access import (
     build_operator_notes,
     resolve_access_identity,
 )
-from app.settings import RuntimeProfile, resolve_runtime_profile, resolve_signing_secret
+from app.settings import (
+    RuntimeProfile,
+    is_prod_mode,
+    resolve_runtime_profile,
+    resolve_signing_secret,
+    resolve_workspace_access_token_audience,
+    resolve_workspace_access_token_issuer,
+    resolve_workspace_access_token_key_version,
+)
 
 
 _LOG = logging.getLogger(__name__)
@@ -139,6 +147,18 @@ def _workspace_access_secret(container: AppContainer) -> str:
     return resolve_signing_secret(container.settings, purpose="workspace-access")
 
 
+def _workspace_access_token_issuer(container: AppContainer) -> str:
+    return resolve_workspace_access_token_issuer(container.settings)
+
+
+def _workspace_access_token_audience(container: AppContainer) -> str:
+    return resolve_workspace_access_token_audience(container.settings)
+
+
+def _workspace_access_token_key_version(container: AppContainer) -> str:
+    return resolve_workspace_access_token_key_version(container.settings)
+
+
 def _extract_workspace_session_token(request: Request) -> str:
     return (
         str(request.headers.get("x-ea-workspace-session") or "").strip()
@@ -194,12 +214,20 @@ def _workspace_session_payload(request: Request, container: AppContainer) -> dic
         return None
     principal_id = str(payload.get("principal_id") or "").strip()
     session_id = str(payload.get("session_id") or "").strip()
-    if not principal_id or not session_id:
+    if (
+        not principal_id
+        or not session_id
+        or str(payload.get("iss") or "").strip() != _workspace_access_token_issuer(container)
+        or str(payload.get("aud") or "").strip() != _workspace_access_token_audience(container)
+        or str(payload.get("kid") or "").strip() != _workspace_access_token_key_version(container)
+        or not str(payload.get("jti") or "").strip()
+    ):
         setattr(request.state, "workspace_access_session_payload", False)
         return None
     rows = list(container.channel_runtime.list_recent_observations(limit=1000, principal_id=principal_id))
     rows.sort(key=lambda row: (str(row.created_at or ""), str(row.observation_id or "")))
     revoked = False
+    issued_payload: dict[str, object] | None = None
     for row in rows:
         event_type = str(row.event_type or "").strip().lower()
         payload_row = dict(row.payload or {})
@@ -210,7 +238,20 @@ def _workspace_session_payload(request: Request, container: AppContainer) -> dic
             revoked = True
         elif event_type == "workspace_access_session_issued":
             revoked = False
+            issued_payload = payload_row
     if revoked:
+        setattr(request.state, "workspace_access_session_payload", False)
+        return None
+    if issued_payload is None:
+        setattr(request.state, "workspace_access_session_payload", False)
+        return None
+    if (
+        str(issued_payload.get("jti") or "").strip() != str(payload.get("jti") or "").strip()
+        or str(issued_payload.get("issuer") or issued_payload.get("iss") or "").strip() != str(payload.get("iss") or "").strip()
+        or str(issued_payload.get("audience") or issued_payload.get("aud") or "").strip() != str(payload.get("aud") or "").strip()
+        or str(issued_payload.get("key_version") or issued_payload.get("kid") or "").strip() != str(payload.get("kid") or "").strip()
+        or int(issued_payload.get("session_version") or 0) != int(payload.get("session_version") or 0)
+    ):
         setattr(request.state, "workspace_access_session_payload", False)
         return None
     setattr(request.state, "workspace_access_session_payload", payload)
@@ -259,7 +300,7 @@ def _provision_access_identity(container: AppContainer, identity: CloudflareAcce
         principal_id=identity.principal_id,
         operator_id=operator_id,
         display_name=identity.display_name,
-        roles=("cloudflare_access",),
+        roles=("operator", "cloudflare_access"),
         trust_tier="standard",
         status="active",
         notes=notes,
@@ -359,35 +400,12 @@ class RequestContext:
     auth_source: str = "anonymous"
     access_email: str = ""
     operator_id: str = ""
-
-
-def _operator_principal_allowlist() -> set[str]:
-    values: set[str] = set()
-    for env_name in ("EA_OPERATOR_PRINCIPAL_IDS", "EA_OPERATOR_PRINCIPALS"):
-        raw = str(os.environ.get(env_name) or "").strip()
-        if not raw:
-            continue
-        for item in raw.split(","):
-            normalized = str(item or "").strip()
-            if normalized:
-                values.add(normalized)
-    return values
-
-
-def _operator_email_allowlist() -> set[str]:
-    values: set[str] = set()
-    for env_name in ("EA_OPERATOR_EMAILS", "EA_OPERATOR_ACCESS_EMAILS"):
-        raw = str(os.environ.get(env_name) or "").strip()
-        if not raw:
-            continue
-        for item in raw.split(","):
-            normalized = str(item or "").strip().lower()
-            if normalized:
-                values.add(normalized)
-    return values
+    operator_authorized: bool = False
 
 
 def authenticated_principal_override_allowed() -> bool:
+    if is_prod_mode(os.environ.get("EA_RUNTIME_MODE")):
+        return False
     for env_name in (
         "EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER",
         "EA_ALLOW_AUTHENTICATED_PRINCIPAL_HEADER",
@@ -399,6 +417,8 @@ def authenticated_principal_override_allowed() -> bool:
 
 
 def browser_principal_override_allowed() -> bool:
+    if is_prod_mode(os.environ.get("EA_RUNTIME_MODE")):
+        return False
     for env_name in (
         "EA_TRUST_BROWSER_PRINCIPAL_OVERRIDE",
         "EA_ALLOW_BROWSER_PRINCIPAL_OVERRIDE",
@@ -409,24 +429,33 @@ def browser_principal_override_allowed() -> bool:
 
 
 def is_operator_context(context: RequestContext) -> bool:
-    principal_id = str(context.principal_id or "").strip()
-    if not principal_id:
-        return False
-    if context.auth_source == "workspace_access_session":
-        return bool(str(context.operator_id or "").strip())
     if context.auth_source == "loopback_no_auth":
         return True
-    if not bool(context.authenticated):
-        return False
-    if principal_id in _operator_principal_allowlist():
-        return True
-    access_email = str(context.access_email or "").strip().lower()
-    if access_email and access_email in _operator_email_allowlist():
-        return True
-    if context.auth_source != "cloudflare_access":
-        return False
-    lowered = principal_id.lower()
-    return lowered.startswith(("system", "operator", "admin", "automation", "scheduler", "cron", "daemon", "health"))
+    return bool(context.operator_authorized and str(context.operator_id or "").strip())
+
+
+_OPERATOR_PRIVILEGED_ROLES = frozenset({"operator", "admin", "reviewer", "cloudflare_access"})
+
+
+def _authorized_operator_id(
+    container: AppContainer,
+    *,
+    principal_id: str,
+    operator_id: str = "",
+) -> str:
+    normalized_principal = str(principal_id or "").strip()
+    normalized_operator = str(operator_id or "").strip()
+    if not normalized_principal or not normalized_operator:
+        return ""
+    profile = container.orchestrator.fetch_operator_profile(normalized_operator, principal_id=normalized_principal)
+    if profile is None:
+        return ""
+    if str(profile.status or "").strip().lower() != "active":
+        return ""
+    roles = {str(role or "").strip().lower() for role in tuple(profile.roles or ()) if str(role or "").strip()}
+    if not roles.intersection(_OPERATOR_PRIVILEGED_ROLES):
+        return ""
+    return normalized_operator
 
 
 def get_request_context(
@@ -447,12 +476,18 @@ def get_request_context(
             authenticated=True,
             access_identity=access_identity,
         )
+        operator_id = _authorized_operator_id(
+            container,
+            principal_id=principal_id,
+            operator_id=build_operator_id(access_identity),
+        )
         context = RequestContext(
             principal_id=principal_id,
             authenticated=True,
             auth_source="cloudflare_access",
             access_email=access_identity.email,
-            operator_id=build_operator_id(access_identity),
+            operator_id=operator_id,
+            operator_authorized=bool(operator_id),
         )
         setattr(request.state, "ea_request_context", context)
         return context
@@ -463,13 +498,20 @@ def get_request_context(
             _log_auth_failure(request, detail="principal_required", profile=profile, expected_token_configured=bool(_configured_api_token(container)))
             raise HTTPException(status_code=401, detail="principal_required")
         role = str(workspace_session.get("role") or "principal").strip().lower() or "principal"
-        operator_id = str(workspace_session.get("operator_id") or "").strip() if role == "operator" else ""
+        operator_id = ""
+        if role == "operator":
+            operator_id = _authorized_operator_id(
+                container,
+                principal_id=principal_id,
+                operator_id=str(workspace_session.get("operator_id") or "").strip(),
+            )
         context = RequestContext(
             principal_id=principal_id,
             authenticated=True,
             auth_source="workspace_access_session",
             access_email=str(workspace_session.get("email") or "").strip().lower(),
             operator_id=operator_id,
+            operator_authorized=bool(operator_id),
         )
         setattr(request.state, "ea_request_context", context)
         return context
@@ -488,6 +530,7 @@ def get_request_context(
             authenticated=True,
             auth_source="loopback_no_auth",
             operator_id=_requested_operator_id(request),
+            operator_authorized=True,
         )
         setattr(request.state, "ea_request_context", context)
         return context
@@ -512,11 +555,19 @@ def get_request_context(
     if not principal_id:
         _log_auth_failure(request, detail="principal_required", profile=profile, expected_token_configured=bool(_configured_api_token(container)))
         raise HTTPException(status_code=401, detail="principal_required")
+    operator_id = ""
+    if authenticated:
+        operator_id = _authorized_operator_id(
+            container,
+            principal_id=principal_id,
+            operator_id=_requested_operator_id(request),
+        )
     context = RequestContext(
         principal_id=principal_id,
         authenticated=authenticated,
         auth_source="api_token" if authenticated else "anonymous",
-        operator_id=_requested_operator_id(request) if authenticated else "",
+        operator_id=operator_id,
+        operator_authorized=bool(operator_id),
     )
     setattr(request.state, "ea_request_context", context)
     return context

@@ -1,0 +1,397 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+try:
+    from scripts.source_state_head import resolve_source_state_head
+except ModuleNotFoundError:  # pragma: no cover - script execution path
+    from source_state_head import resolve_source_state_head
+
+
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_OUTPUT = ROOT / ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"
+DEFAULT_OFFICE_RECEIPT = ROOT / ".codex-studio/published/ea_office_loop_goal.generated.json"
+DEFAULT_SIGNAL_RECEIPT = ROOT / ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json"
+DEFAULT_MEDIA_RECEIPT = ROOT / ".codex-studio/published/active_media_ltd_goal_bundle.generated.json"
+DEFAULT_MANFRED_RECEIPT = ROOT / ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json"
+DEFAULT_QUALITY_RECEIPT = ROOT / ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json"
+DEFAULT_TEABLE_RECOVERY_READINESS = ROOT / ".codex-studio/published/teable_env_recovery_readiness.generated.json"
+DEFAULT_TELEGRAM_AUDIOBOOK_READINESS = ROOT / ".codex-studio/published/telegram_audiobook_live_readiness.generated.json"
+DEFAULT_TELEGRAM_AUDIOBOOK_DELIVERY = ROOT / ".codex-studio/published/telegram_audiobook_live_delivery.generated.json"
+DEFAULT_WHATSAPP_AUDIOBOOK_INTAKE = ROOT / ".codex-studio/published/whatsapp_audiobook_local_intake_proof.generated.json"
+DEFAULT_WHATSAPP_AUDIOBOOK_BUNDLE = ROOT / ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json"
+DEFAULT_WHATSAPP_AUDIOBOOK_DELIVERY = ROOT / ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json"
+DEFAULT_WHATSAPP_AUDIOBOOK_SHARE = ROOT / ".codex-studio/published/whatsapp_audiobook_public_share_playback.generated.json"
+DEFAULT_WHATSAPP_AUDIOBOOK_VOICE = ROOT / ".codex-studio/published/whatsapp_audiobook_live_voice_selection_shadow.generated.json"
+
+BLOCKING_PREFIXES = ("blocked", "fail", "missing", "waiting", "error")
+
+
+def _utc_now() -> str:
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _git_head(path: Path) -> str:
+    return resolve_source_state_head(path)
+
+
+def _json(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _display_path(root: Path, path: Path) -> str:
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def _compact(value: object, default: str = "missing") -> str:
+    text = " ".join(str(value or "").split()).strip()
+    return text or default
+
+
+def _status(payload: dict[str, Any], default: str = "missing_receipt") -> str:
+    return _compact(payload.get("status"), default=default).lower()
+
+
+def _is_blocking(status: str) -> bool:
+    normalized = _compact(status).lower()
+    return normalized.startswith(BLOCKING_PREFIXES) or normalized == "command_backed_no_published_receipt"
+
+
+def _load_receipt(root: Path, path: Path) -> tuple[dict[str, Any], str]:
+    payload = _json(path)
+    if payload:
+        return payload, _display_path(root, path)
+    return {}, _display_path(root, path)
+
+
+def _source_receipt(path_text: str, payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "path": path_text,
+        "present": bool(payload),
+        "contract_name": _compact(payload.get("contract_name")),
+        "status": _status(payload),
+    }
+
+
+def _lens(
+    *,
+    key: str,
+    title: str,
+    status: str,
+    summary: str,
+    next_action: str,
+    verifier_commands: list[str],
+    source_receipts: list[dict[str, Any]],
+    components: list[dict[str, Any]] | None = None,
+    status_class: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "key": key,
+        "title": title,
+        "status": status,
+        "status_class": status_class or ("blocking" if _is_blocking(status) else "progress"),
+        "summary": summary,
+        "next_action": next_action,
+        "verifier_commands": verifier_commands,
+        "source_receipts": source_receipts,
+        "components": components or [],
+    }
+
+
+def _deliver_component(
+    *,
+    key: str,
+    title: str,
+    payload: dict[str, Any] | None = None,
+    fallback_status: str = "missing_receipt",
+    summary: str,
+    next_action: str,
+    receipts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    status = _status(payload or {}, default=fallback_status)
+    return {
+        "key": key,
+        "title": title,
+        "status": status,
+        "status_class": "blocking" if _is_blocking(status) else "progress",
+        "summary": summary,
+        "next_action": next_action,
+        "source_receipts": receipts,
+    }
+
+
+def build_goal_posture(
+    *,
+    root: Path = ROOT,
+    output_path: Path = DEFAULT_OUTPUT,
+    generated_at: str | None = None,
+) -> dict[str, Any]:
+    office, office_path = _load_receipt(root, root / DEFAULT_OFFICE_RECEIPT.relative_to(ROOT))
+    signal, signal_path = _load_receipt(root, root / DEFAULT_SIGNAL_RECEIPT.relative_to(ROOT))
+    media, media_path = _load_receipt(root, root / DEFAULT_MEDIA_RECEIPT.relative_to(ROOT))
+    manfred, manfred_path = _load_receipt(root, root / DEFAULT_MANFRED_RECEIPT.relative_to(ROOT))
+    quality, quality_path = _load_receipt(root, root / DEFAULT_QUALITY_RECEIPT.relative_to(ROOT))
+    recovery, recovery_path = _load_receipt(root, root / DEFAULT_TEABLE_RECOVERY_READINESS.relative_to(ROOT))
+    tg_ready, tg_ready_path = _load_receipt(root, root / DEFAULT_TELEGRAM_AUDIOBOOK_READINESS.relative_to(ROOT))
+    tg_live, tg_live_path = _load_receipt(root, root / DEFAULT_TELEGRAM_AUDIOBOOK_DELIVERY.relative_to(ROOT))
+    wa_intake, wa_intake_path = _load_receipt(root, root / DEFAULT_WHATSAPP_AUDIOBOOK_INTAKE.relative_to(ROOT))
+    wa_bundle, wa_bundle_path = _load_receipt(root, root / DEFAULT_WHATSAPP_AUDIOBOOK_BUNDLE.relative_to(ROOT))
+    wa_live, wa_live_path = _load_receipt(root, root / DEFAULT_WHATSAPP_AUDIOBOOK_DELIVERY.relative_to(ROOT))
+    wa_share, wa_share_path = _load_receipt(root, root / DEFAULT_WHATSAPP_AUDIOBOOK_SHARE.relative_to(ROOT))
+    wa_voice, wa_voice_path = _load_receipt(root, root / DEFAULT_WHATSAPP_AUDIOBOOK_VOICE.relative_to(ROOT))
+
+    detect_lens = _lens(
+        key="detect",
+        title="Signal ingest and prioritization",
+        status=_status(signal),
+        summary="Turn incoming signals into a bounded operator packet instead of letting them pile up as ambient noise.",
+        next_action=_compact(signal.get("next_action"), default="review_weekly_signal_to_decision_packet_with_operator"),
+        verifier_commands=[
+            "make verify-whole-project-signal-to-decision-receipt",
+            "make verify-proactive-ooda",
+        ],
+        source_receipts=[_source_receipt(signal_path, signal)],
+    )
+
+    decide_lens = _lens(
+        key="decide",
+        title="Decision and office-loop closure",
+        status=_status(office),
+        summary="Keep the morning brief, decision queue, and commitment loop coherent enough to drive ordinary daily work.",
+        next_action=_compact(office.get("next_action"), default="collect_real_daily_office_loop_acceptance_evidence"),
+        verifier_commands=[
+            "make verify-office-loop-goal-receipt",
+        ],
+        source_receipts=[_source_receipt(office_path, office)],
+    )
+
+    tg_summary = (
+        f"live delivery {_status(tg_live)}; readiness {_status(tg_ready)}"
+        if tg_live or tg_ready
+        else "Telegram audiobook live receipts are not mirrored."
+    )
+    wa_summary = (
+        f"intake {_status(wa_intake)}; bundle {_status(wa_bundle)}; live {_status(wa_live)}; share {_status(wa_share)}; voice {_status(wa_voice)}"
+        if wa_intake or wa_bundle or wa_live or wa_share or wa_voice
+        else "WhatsApp audiobook receipts are not mirrored."
+    )
+
+    deliver_components = [
+        _deliver_component(
+            key="promo_media",
+            title="Promo and cinematic media",
+            payload=media,
+            summary="Premium public media must sound good, cover the runtime, and keep provider claims honest.",
+            next_action=_compact(
+                media.get("next_action"),
+                default="collect_external_provider_and_public_route_proofs_before_any_gold_or_live_provider_claim",
+            ),
+            receipts=[_source_receipt(media_path, media)],
+        ),
+        _deliver_component(
+            key="manfred_speech",
+            title="Manfred realtime speech",
+            payload=manfred,
+            summary=_compact(manfred.get("current_label"), default="Realtime conversation evidence is not mirrored."),
+            next_action=_compact(
+                manfred.get("next_action"),
+                default="promote only a consented real captured STT fixture that passes the provider benchmark",
+            ),
+            receipts=[_source_receipt(manfred_path, manfred)],
+        ),
+        _deliver_component(
+            key="telegram_audiobook",
+            title="Telegram audiobook delivery",
+            payload=tg_live or tg_ready,
+            summary=tg_summary,
+            next_action="keep live Telegram audiobook delivery passing while widening playback acceptance evidence",
+            receipts=[
+                _source_receipt(tg_ready_path, tg_ready),
+                _source_receipt(tg_live_path, tg_live),
+            ],
+        ),
+        _deliver_component(
+            key="whatsapp_audiobook",
+            title="WhatsApp audiobook delivery",
+            payload=wa_live or wa_bundle or wa_intake,
+            summary=wa_summary,
+            next_action="clear blocked WhatsApp live delivery and keep share-link playback plus voice-selection flow honest",
+            receipts=[
+                _source_receipt(wa_intake_path, wa_intake),
+                _source_receipt(wa_bundle_path, wa_bundle),
+                _source_receipt(wa_live_path, wa_live),
+                _source_receipt(wa_share_path, wa_share),
+                _source_receipt(wa_voice_path, wa_voice),
+            ],
+        ),
+    ]
+
+    deliver_has_blocker = any(_is_blocking(str(component.get("status") or "")) for component in deliver_components)
+    deliver_status = "mixed_local_progress" if deliver_has_blocker else "ready_local_evidence"
+    deliver_next_action = next(
+        (
+            _compact(component.get("next_action"))
+            for component in deliver_components
+            if _is_blocking(str(component.get("status") or ""))
+        ),
+        "keep user-facing delivery proofs current and human-reviewed",
+    )
+    deliver_lens = _lens(
+        key="deliver",
+        title="User-facing delivery",
+        status=deliver_status,
+        summary="Complete real user-facing loops across media, speech, and audiobook channels instead of stopping at local generation.",
+        next_action=deliver_next_action,
+        verifier_commands=[
+            "make verify-active-media-ltd-goal-bundle",
+            "make verify-manfred-realtime-conversation-readiness",
+            "make verify-telegram-audiobook-live-readiness",
+            "make verify-telegram-audiobook-live-delivery-receipt",
+            "make verify-whatsapp-audiobook-local-intake-proof",
+            "make verify-whatsapp-audiobook-operator-proof-bundle",
+            "make verify-whatsapp-audiobook-live-delivery-receipt",
+            "make verify-whatsapp-audiobook-public-share-playback",
+        ],
+        source_receipts=[],
+        components=deliver_components,
+        status_class="blocking" if deliver_has_blocker else "progress",
+    )
+
+    if recovery:
+        recover_lens = _lens(
+            key="recover",
+            title="Fresh-host recovery",
+            status=_status(recovery),
+            summary=_compact(
+                recovery.get("summary"),
+                default="Teable recovery readiness is mirrored locally, but fresh-host drill proof is still pending.",
+            ),
+            next_action=_compact(
+                recovery.get("next_action"),
+                default="run_shell_seeded_fresh_host_probe_and_mirror_drill_evidence",
+            ),
+            verifier_commands=[
+                "make verify-teable-env-recovery-readiness",
+                "make verify-env-teable-recovery",
+                "make env-check-teable",
+                "make env-fresh-host-teable",
+                "make env-probe-teable",
+            ],
+            source_receipts=[_source_receipt(recovery_path, recovery)],
+        )
+    else:
+        recover_lens = _lens(
+            key="recover",
+            title="Fresh-host recovery",
+            status="command_backed_no_published_receipt",
+            summary="Teable recovery has runnable operator commands, but no mirrored published recovery receipt is attached yet.",
+            next_action="rehearse fresh-host Teable restore before widening claims",
+            verifier_commands=[
+                "make env-check-teable",
+                "make env-fresh-host-teable",
+                "make verify-env-teable-recovery",
+            ],
+            source_receipts=[],
+            status_class="blocking",
+        )
+
+    prove_lens = _lens(
+        key="prove",
+        title="Real-world acceptance and claim limits",
+        status=_status(quality),
+        summary="Keep local route confidence separate from real operator/principal acceptance before calling EA a good executive assistant.",
+        next_action=_compact(
+            quality.get("next_action"),
+            default="collect real principal/operator acceptance that the morning brief was worth reading",
+        ),
+        verifier_commands=[
+            "make verify-executive-assistant-quality-readiness",
+        ],
+        source_receipts=[_source_receipt(quality_path, quality)],
+    )
+
+    lenses = [detect_lens, decide_lens, deliver_lens, recover_lens, prove_lens]
+    blocking_reasons: list[str] = []
+    for lens in lenses:
+        if lens["key"] == "deliver":
+            for component in lens["components"]:
+                component_status = _compact(component.get("status")).lower()
+                if _is_blocking(component_status):
+                    blocking_reasons.append(f"deliver:{component['key']}={component_status}")
+        elif _is_blocking(str(lens["status"])):
+            blocking_reasons.append(f"{lens['key']}={lens['status']}")
+
+    if _status(quality) == "blocked_real_world_acceptance":
+        overall_status = "blocked_real_world_acceptance"
+    elif blocking_reasons:
+        overall_status = "active_with_blockers"
+    else:
+        overall_status = "ready_local_direction"
+
+    required_next_receipts = [
+        "real operator acceptance that the morning brief was worth reading",
+        "real weekly signal-to-decision review acceptance receipt",
+        "fresh-host Teable recovery drill receipt mirrored into the repo",
+    ]
+    if any(reason.startswith("deliver:manfred_speech") for reason in blocking_reasons):
+        required_next_receipts.append("consented Manfred STT/TTS realtime conversation proof")
+    if any(reason.startswith("deliver:whatsapp_audiobook") for reason in blocking_reasons):
+        required_next_receipts.append("passing WhatsApp audiobook live delivery receipt")
+
+    receipt = {
+        "contract_name": "ea.continuous_improvement_goal_posture.v1",
+        "generated_at": generated_at or _utc_now(),
+        "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
+        "source_git_head": _git_head(root),
+        "head_semantics": "source_state",
+        "output_path": _display_path(root, output_path),
+        "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
+        "goal_shorthand": "Make EA the user's dependable executive, conversation, and media operating system: proactive, cross-channel, self-healing, premium-quality, and governed by owning truth planes rather than assistant-local lore.",
+        "execution_lenses": [lens["key"] for lens in lenses],
+        "overall_status": overall_status,
+        "goal_completion_claim_allowed": False,
+        "real_use_claim_allowed": overall_status == "ready_local_direction" and _status(quality) == "pass",
+        "lenses": lenses,
+        "blocking_reasons": blocking_reasons,
+        "required_next_receipts": required_next_receipts,
+        "rules": [
+            "Local route receipts and operator commands may guide work, but they do not by themselves prove real daily usefulness.",
+            "The recover lens may use a mirrored local readiness receipt, but it must not claim pass until a fresh-host Teable recovery drill receipt is mirrored.",
+            "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open.",
+        ],
+    }
+    return receipt
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Materialize the long-running continuous-improvement goal posture receipt.")
+    parser.add_argument("--root", type=Path, default=ROOT)
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--pretty", action="store_true")
+    args = parser.parse_args()
+
+    output_path = args.output if args.output.is_absolute() else args.root / args.output
+    receipt = build_goal_posture(root=args.root, output_path=output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    if args.pretty:
+        print(json.dumps(receipt, indent=2, sort_keys=True))
+    else:
+        print(output_path)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

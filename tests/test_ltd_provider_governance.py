@@ -14,6 +14,10 @@ from app.services.ltd_provider_governance import (
     materialize_ltd_provider_governance_receipts,
 )
 from app.services.ltd_runtime_catalog import load_ltd_inventory_rows
+from scripts.materialize_ea_provider_contract_receipts import build_receipts as build_provider_contract_receipts
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def _sample_ltd_markdown() -> str:
@@ -25,6 +29,7 @@ def _sample_ltd_markdown() -> str:
 | Service | Plan / Tier | Holding | Status | Redeem By | Workspace Integration Tier | Local Integration | Notes |
 |---|---|---|---|---|---|---|---|
 | `blipai` | `No tier recorded` | `1 account` | `Owned` |  | `Tier 4` | Local credentials | Operator note capture only. |
+| `hedy.ai` | `LTD account` | `1 account` | `Owned` |  | `Tier 4` | Governed meeting-evidence lane defined | Hedy captures consented transcripts only; EA owns evidence, commitment, decision, draft and people-memory truth. |
 | `Teable` | `Tier 2` | `1 account` | `Owned` |  | `Tier 2` | Projection adapter | Projection only, not source of truth. |
 | `Syllabbles` | `No tier recorded` | `1 account` | `Owned` |  | `Tier 4` | Draft workbench | Dispatch draft only. |
 
@@ -33,6 +38,8 @@ def _sample_ltd_markdown() -> str:
 | Service | Plan / Tier | Holding | Status | Redeem By | Workspace Integration Tier | Local Integration | Notes |
 |---|---|---|---|---|---|---|---|
 | `FlipLink.me` | `Tier 10` | `1 account` | `Owned` |  | `Tier 3` | Candidate document portal | Must not host sourcebook PDFs, copied rulebook prose, private runner sheets, GM-only secrets, entitlement truth, or payment truth. |
+| `ApproveThis` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 2` | Governed external approval edge defined | Transport only; EA owns approval truth and downstream policy. |
+| `MarkupGo` | `7x code-based` | `7 codes` | `Activated` |  | `Tier 3` | Governed premium renderer lane defined | Renders approved packets only, not source of truth. |
 | `Unmixr AI` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 2` | Local UNMIXR_* env contract | Piper fallback policy remains active; live API key and voice ID pending. |
 | `MagicFit` | `License Tier 5` | `3 accounts` | `Owned` |  | `Tier 4` | Candidate adapter | Commercial-use, watermark, export, credit, safety scan, human review, quality and likeness proof pending. |
 | `Poppy AI` | `Tier 6` | `1 account` | `Owned` |  | `Tier 4` | BrowserAct session probe | Session proof exists; privacy review, export semantics, tenant isolation, source of truth boundary and runtime-boundary proof pending. |
@@ -62,10 +69,13 @@ def _sample_ltd_markdown() -> str:
 | Service | Account | Discovery Status | Verification Source | Last Verified | Notes |
 |---|---|---|---|---|---|
 | `FlipLink.me` |  | `manual_seeded` | `user_reported` | 2026-06-05T00:00:00Z | Provider verification pending. |
-| `Unmixr AI` | `the.girscheles@gmail.com` | `manual_seeded` | `user_report + local_runtime_docs` | 2026-06-03T09:58:09Z | API key and voice ID pending. |
-| `Poppy AI` | `the.girscheles@gmail.com` | `user_reported` | `live_google_session_probe` | 2026-06-09T10:25:00Z | Session proof recorded; privacy, export and tenant isolation still pending. |
-| `Rafter` | `the.girscheles@gmail.com` | `manual_seeded` | `fleet_verified` | 2026-05-29T20:16:00Z | Fleet proof passes. |
-| `Pixefy` | `the.girscheles@gmail.com` | `manual_seeded` | `fleet_verified` | 2026-05-29T20:16:00Z | Fleet proof passes. |
+| `ApproveThis` |  | `manual_seeded` | `manual_inventory` | 2026-06-18T00:00:00Z | Governed external approval edge defined; live provider proof pending. |
+| `MarkupGo` |  | `manual_seeded` | `manual_inventory` | 2026-06-18T00:00:00Z | Governed premium renderer lane defined; provider proof pending. |
+| `hedy.ai` | `ltd.account@example.test` | `manual_seeded` | `local_env` | 2026-06-18T00:00:00Z | Governed meeting-evidence lane defined; provider proof pending. |
+| `Unmixr AI` | `ltd.account@example.test` | `manual_seeded` | `user_report + local_runtime_docs` | 2026-06-03T09:58:09Z | API key and voice ID pending. |
+| `Poppy AI` | `ltd.account@example.test` | `user_reported` | `live_google_session_probe` | 2026-06-09T10:25:00Z | Session proof recorded; privacy, export and tenant isolation still pending. |
+| `Rafter` | `ltd.account@example.test` | `manual_seeded` | `fleet_verified` | 2026-05-29T20:16:00Z | Fleet proof passes. |
+| `Pixefy` | `ltd.account@example.test` | `manual_seeded` | `fleet_verified` | 2026-05-29T20:16:00Z | Fleet proof passes. |
 | `Prompt Architects` |  | `manual_seeded` | `local_env + prompt_foundry_receipts` | 2026-06-01T20:54:48Z | Prompt Foundry receipts exist. |
 """.strip()
 
@@ -101,7 +111,11 @@ def _minimal_ltds(markdown_row: str, discovery_row: str) -> str:
 def test_all_requested_ltd_provider_lanes_are_defined() -> None:
     keys = {lane.lane_key for lane in LANES}
     assert keys >= {
+        "hedy_meeting_evidence",
+        "markupgo_fliplink_premium_delivery",
         "fliplink_document_portal",
+        "approvethis_external_approval_edge",
+        "documentation_ai_publication",
         "unmixr_voice_runtime",
         "magicfit_media_factory_candidate",
         "poppy_draft_workbench",
@@ -156,6 +170,42 @@ def test_lane_boundaries_match_provider_risks() -> None:
     assert "approved_public_source_packet" in subscribr.allowed_inputs
     assert {"direct_publish", "publication_approval", "rules_truth", "release_truth"} <= set(subscribr.forbidden_inputs)
 
+    hedy = lane_by_key("hedy_meeting_evidence")
+    assert hedy is not None
+    assert hedy.providers == ("Hedy.ai",)
+    assert "consented_meeting_transcript" in hedy.allowed_inputs
+    assert {"unconsented_recording", "direct_commitment_creation", "direct_people_memory_overwrite"} <= set(
+        hedy.forbidden_inputs
+    )
+    assert "EA_HEDY_WEBHOOKS_ENABLED" in hedy.off_switch_env
+
+    premium = lane_by_key("markupgo_fliplink_premium_delivery")
+    assert premium is not None
+    assert premium.providers == ("MarkupGo", "FlipLink.me")
+    assert {"content_mutation", "unredacted_board_material", "access_grant_truth", "direct_publish"} <= set(
+        premium.forbidden_inputs
+    )
+    assert "rendered_artifact_hash" in premium.normalized_signal_schema
+
+    approvethis = lane_by_key("approvethis_external_approval_edge")
+    assert approvethis is not None
+    assert {"replace_internal_queue", "direct_downstream_action", "approval_without_ea_policy", "approval_truth"} <= set(
+        approvethis.forbidden_inputs
+    )
+    assert "ea_decision_id" in approvethis.normalized_signal_schema
+
+    docs = lane_by_key("documentation_ai_publication")
+    assert docs is not None
+    assert {"workspace_data", "customer_support_ticket", "private_incident_log", "silent_writeback"} <= set(
+        docs.forbidden_inputs
+    )
+    assert "EA_DOCUMENTATION_AI_AGENT_WRITEBACK_ENABLED" in docs.off_switch_env
+
+    release = lane_by_key("release_quality_gates")
+    assert release is not None
+    assert "release_truth" in release.forbidden_inputs
+    assert "ea_app_surface_release_candidate" in release.allowed_inputs
+
 
 def test_public_signal_lane_schema_is_single_normalized_object() -> None:
     lane = lane_by_key("public_signal_ingest")
@@ -188,6 +238,203 @@ def test_receipts_pass_hard_contracts_even_when_proofs_are_missing(tmp_path: Pat
     assert "first_publication_receipt" in lanes["fliplink_document_portal"]["missing_checks"]
     assert lanes["release_quality_gates"]["lane_state"] in {"verified_runtime_lane", "blocked_pending_proof"}
     assert lanes["public_signal_ingest"]["normalized_signal_schema"]
+
+
+def test_priority_ltd_lanes_are_bounded_until_live_proof_exists(tmp_path: Path) -> None:
+    ltd_path = _write_ltd(tmp_path)
+    markdown_text = ltd_path.read_text(encoding="utf-8")
+    inventory_rows = load_ltd_inventory_rows(ltd_path)
+
+    expectations = {
+        "hedy_meeting_evidence": {
+            "passed": {"inventory_recorded", "hedy_consent_gate", "hedy_review_gate", "hedy_memory_promotion_gate"},
+            "missing": {"hedy_provider_capability", "hedy_webhook_signature"},
+        },
+        "markupgo_fliplink_premium_delivery": {
+            "passed": {"providers_recorded", "premium_source_packet", "human_review"},
+            "missing": {"markupgo_provider_proof", "premium_delivery_receipt"},
+        },
+        "approvethis_external_approval_edge": {
+            "passed": {"inventory_recorded", "approvethis_external_scope", "approvethis_final_policy_gate"},
+            "missing": {"approvethis_provider_capability", "approvethis_webhook_signature"},
+        },
+        "documentation_ai_publication": {
+            "passed": {"inventory_recorded", "documentation_git_source_of_truth", "documentation_no_writeback", "documentation_privacy_boundary"},
+            "missing": {"documentation_ai_provider_capability", "documentation_llms_txt"},
+        },
+    }
+
+    for lane_key, expected in expectations.items():
+        lane = lane_by_key(lane_key)
+        assert lane is not None
+        receipt = build_ltd_provider_lane_receipt(
+            lane,
+            markdown_text=markdown_text,
+            inventory_rows=inventory_rows,
+            env={},
+            root=tmp_path,
+            generated_at="2026-06-18T00:00:00Z",
+        )
+        assert receipt["status"] == "pass"
+        assert receipt["lane_state"] == "blocked_pending_proof"
+        assert receipt["runtime_enabled"] is False
+        assert expected["passed"] <= set(receipt["passed_checks"])
+        assert expected["missing"] <= set(receipt["missing_checks"])
+
+
+def test_priority_ltd_lanes_use_contract_receipts_without_promoting_live_runtime(tmp_path: Path) -> None:
+    ltd_path = _write_ltd(tmp_path)
+    build_provider_contract_receipts(
+        output_dir=tmp_path / "_completion" / "ea_provider_contracts",
+        generated_at="2026-06-18T00:00:00Z",
+        source_git_head="contract-head",
+    )
+    markdown_text = ltd_path.read_text(encoding="utf-8")
+    inventory_rows = load_ltd_inventory_rows(ltd_path)
+
+    expectations = {
+        "hedy_meeting_evidence": {
+            "contract_sources": {
+                "hedy_consent_gate": "hedy_contract_receipt_consent_gate",
+                "hedy_webhook_signature": "hedy_contract_receipt_webhook_signature",
+                "hedy_session_mapping": "hedy_contract_receipt_session_mapping",
+            },
+            "live_missing": {"hedy_provider_capability"},
+        },
+        "markupgo_fliplink_premium_delivery": {
+            "contract_sources": {
+                "premium_source_packet": "premium_contract_receipt_source_packet",
+                "premium_artifact_hash": "premium_contract_receipt_artifact_hash",
+            },
+            "live_missing": {"markupgo_provider_proof", "premium_delivery_receipt"},
+        },
+        "approvethis_external_approval_edge": {
+            "contract_sources": {
+                "approvethis_external_scope": "approvethis_contract_receipt_external_scope",
+                "approvethis_webhook_signature": "approvethis_contract_receipt_webhook_signature",
+                "approvethis_evidence_mapping": "approvethis_contract_receipt_evidence_mapping",
+            },
+            "live_missing": {"approvethis_provider_capability"},
+        },
+        "documentation_ai_publication": {
+            "contract_sources": {
+                "documentation_git_source_of_truth": "documentation_contract_receipt_git_truth",
+                "documentation_no_writeback": "documentation_contract_receipt_no_writeback",
+            },
+            "live_missing": {"documentation_ai_provider_capability", "documentation_llms_txt"},
+        },
+        "release_quality_gates": {
+            "contract_sources": {
+                "ea_security_targets": "quality_contract_receipt_security_targets",
+                "ea_visual_targets": "quality_contract_receipt_visual_targets",
+                "release_truth_boundary": "quality_contract_receipt_release_truth_boundary",
+            },
+            "live_missing": set(),
+        },
+    }
+
+    for lane_key, expected in expectations.items():
+        lane = lane_by_key(lane_key)
+        assert lane is not None
+        receipt = build_ltd_provider_lane_receipt(
+            lane,
+            markdown_text=markdown_text,
+            inventory_rows=inventory_rows,
+            env={},
+            root=tmp_path,
+            generated_at="2026-06-18T00:00:00Z",
+        )
+        checks = {str(row["check_key"]): row for row in receipt["required_checks"]}
+        for check_key, source in expected["contract_sources"].items():
+            assert checks[check_key]["passed"] is True
+            assert checks[check_key]["source"] == source
+        assert expected["live_missing"] <= set(receipt["missing_checks"])
+        if expected["live_missing"]:
+            assert receipt["lane_state"] == "blocked_pending_proof"
+            assert receipt["runtime_enabled"] is False
+
+
+def test_aggregate_ltd_governance_summarizes_contract_proof_without_live_overclaim(tmp_path: Path) -> None:
+    ltd_path = _write_ltd(tmp_path)
+    build_provider_contract_receipts(
+        output_dir=tmp_path / "_completion" / "ea_provider_contracts",
+        generated_at="2026-06-18T00:00:00Z",
+        source_git_head="contract-head",
+    )
+
+    receipt = build_ltd_provider_governance_receipt(
+        markdown_path=ltd_path,
+        root=tmp_path,
+        env={},
+        generated_at="2026-06-18T00:00:00Z",
+    )
+
+    provider_contracts = dict(receipt["provider_contracts"])
+    assert provider_contracts["local_contracts_present"] is True
+    assert provider_contracts["status"] == "contract_pass_live_provider_pending"
+    assert provider_contracts["proof_scope"] == "local_contract_exercise"
+    assert provider_contracts["live_provider_runtime_verified"] is False
+    assert provider_contracts["gold_claim_allowed"] is False
+    assert "_completion/hedy/HEDY_PROVIDER_CAPABILITY.generated.json" in provider_contracts["required_next_receipts"]
+    assert receipt["contract_backed_check_count"] >= 10
+    backed = {
+        (str(row["lane_key"]), str(row["check_key"]), str(row["source"]))
+        for row in list(receipt["contract_backed_checks"])
+    }
+    assert (
+        "hedy_meeting_evidence",
+        "hedy_webhook_signature",
+        "hedy_contract_receipt_webhook_signature",
+    ) in backed
+    assert (
+        "documentation_ai_publication",
+        "documentation_no_writeback",
+        "documentation_contract_receipt_no_writeback",
+    ) in backed
+
+
+def test_priority_ltd_lane_hard_contracts_prevent_scope_creep() -> None:
+    from app.services.ltd_provider_governance import _hard_contract_failures
+
+    hedy = lane_by_key("hedy_meeting_evidence")
+    assert hedy is not None
+    hedy_regressed = replace(
+        hedy,
+        forbidden_inputs=tuple(value for value in hedy.forbidden_inputs if value != "direct_people_memory_overwrite"),
+    )
+    assert "hedy_review_boundary_incomplete" in _hard_contract_failures(hedy_regressed)
+
+    premium = lane_by_key("markupgo_fliplink_premium_delivery")
+    assert premium is not None
+    premium_regressed = replace(
+        premium,
+        forbidden_inputs=tuple(value for value in premium.forbidden_inputs if value != "access_grant_truth"),
+    )
+    assert "premium_delivery_boundary_incomplete" in _hard_contract_failures(premium_regressed)
+
+    approvethis = lane_by_key("approvethis_external_approval_edge")
+    assert approvethis is not None
+    approvethis_regressed = replace(
+        approvethis,
+        forbidden_inputs=tuple(value for value in approvethis.forbidden_inputs if value != "direct_downstream_action"),
+    )
+    assert "approvethis_boundary_incomplete" in _hard_contract_failures(approvethis_regressed)
+
+    docs = lane_by_key("documentation_ai_publication")
+    assert docs is not None
+    docs_regressed = replace(
+        docs,
+        forbidden_inputs=tuple(value for value in docs.forbidden_inputs if value != "silent_writeback"),
+    )
+    assert "documentation_ai_boundary_incomplete" in _hard_contract_failures(docs_regressed)
+
+    release = lane_by_key("release_quality_gates")
+    assert release is not None
+    release_regressed = replace(
+        release,
+        forbidden_inputs=tuple(value for value in release.forbidden_inputs if value != "release_truth"),
+    )
+    assert "release_quality_truth_boundary_missing" in _hard_contract_failures(release_regressed)
 
 
 def test_lane_receipt_never_leaks_env_secret_values(tmp_path: Path) -> None:
@@ -287,6 +534,36 @@ def test_subscribr_tier7_receipt_blocks_until_provider_proof(tmp_path: Path) -> 
     assert checks["channel_map"]["passed"] is False
     assert checks["script_roundtrip"]["passed"] is False
     assert checks["source_binding"]["passed"] is False
+
+
+def test_ltd_provider_governance_loads_env_local_for_private_runtime_slots(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    markdown_row = (
+        "| `Subscribr` | `License Tier 7 / Scale 3` | `1 lifetime license` | `Owned / activated` |  | "
+        "`Tier 4` | API/channel/export proof pending | Human review is required. |"
+    )
+    discovery_row = (
+        "| `Subscribr` |  | `manual_seeded` | `user_report_tier7` | 2026-06-18T00:00:00Z | "
+        "License Tier 7 / Scale 3 is recorded; channel map, Markdown export, source binding, and human review enforcement are still pending. |"
+    )
+    markdown_path = tmp_path / "LTDs.md"
+    markdown_path.write_text(_minimal_ltds(markdown_row, discovery_row), encoding="utf-8")
+    (tmp_path / ".env.local").write_text("SUBSCRIBR_API_TOKEN=runtime-only-test-token\n", encoding="utf-8")
+    monkeypatch.delenv("SUBSCRIBR_API_TOKEN", raising=False)
+
+    receipt = build_ltd_provider_governance_receipt(
+        markdown_path=markdown_path,
+        root=tmp_path,
+        generated_at="2026-06-18T00:00:00Z",
+    )
+
+    subscribr = next(row for row in receipt["lanes"] if row["lane_key"] == "subscribr_chummer_script_factory")
+    checks = {str(row["check_key"]): row for row in subscribr["required_checks"]}
+    assert checks["api_token_private"]["passed"] is True
+    assert checks["api_token_private"]["source"] == "SUBSCRIBR_API_TOKEN_present_outside_git"
+    assert "runtime-only-test-token" not in json.dumps(receipt, sort_keys=True)
 
 
 def test_subscribr_direct_publish_regression_is_hard_failure() -> None:
@@ -413,7 +690,7 @@ def test_verify_ltd_provider_lanes_cli_prints_requested_lane() -> None:
             "fliplink_document_portal",
             "--no-write",
         ],
-        cwd="/docker/EA",
+        cwd=ROOT,
         check=True,
         text=True,
         capture_output=True,
@@ -446,7 +723,7 @@ def test_verify_ltd_provider_lanes_cli_works_outside_repo_cwd() -> None:
 
 
 def test_verify_poppy_session_cli_fails_until_boundary_receipts_exist() -> None:
-    receipt_dir = Path("/docker/EA/ea/_completion/poppy")
+    receipt_dir = ROOT / "ea" / "_completion" / "poppy"
     if receipt_dir.is_dir() and all(
         (receipt_dir / name).is_file()
         for name in (
@@ -461,7 +738,7 @@ def test_verify_poppy_session_cli_fails_until_boundary_receipts_exist() -> None:
                 sys.executable,
                 "scripts/verify_poppy_session.py",
             ],
-            cwd="/docker/EA",
+            cwd=ROOT,
             text=True,
             capture_output=True,
             check=False,
@@ -478,7 +755,7 @@ def test_verify_poppy_session_cli_fails_until_boundary_receipts_exist() -> None:
             sys.executable,
             "scripts/verify_poppy_session.py",
         ],
-        cwd="/docker/EA",
+        cwd=ROOT,
         text=True,
         capture_output=True,
         check=False,
@@ -491,7 +768,7 @@ def test_verify_poppy_session_cli_fails_until_boundary_receipts_exist() -> None:
 
 
 def test_materialize_poppy_draft_workbench_receipts_promotes_draft_only_lane(tmp_path: Path) -> None:
-    script = Path("/docker/EA/scripts/materialize_poppy_draft_workbench_receipts.py")
+    script = ROOT / "scripts" / "materialize_poppy_draft_workbench_receipts.py"
     session_probe = tmp_path / "POPPY_AI_PROVIDER_SESSION_PROBE.generated.json"
     session_probe.write_text(
         json.dumps(
@@ -514,7 +791,7 @@ def test_materialize_poppy_draft_workbench_receipts_promotes_draft_only_lane(tmp
             "--session-probe",
             str(session_probe),
         ],
-        cwd="/docker/EA",
+        cwd=ROOT,
         text=True,
         capture_output=True,
         check=False,
@@ -542,7 +819,7 @@ def test_materialize_poppy_draft_workbench_receipts_promotes_draft_only_lane(tmp
 
 
 def test_materialize_poppy_draft_packet_accepts_only_approved_public_inputs(tmp_path: Path) -> None:
-    script = Path("/docker/EA/scripts/materialize_poppy_draft_packet.py")
+    script = ROOT / "scripts" / "materialize_poppy_draft_packet.py"
     source_packet = tmp_path / "source.packet.json"
     draft_output = tmp_path / "draft.txt"
     output_dir = tmp_path / "poppy-drafts"
@@ -572,7 +849,7 @@ def test_materialize_poppy_draft_packet_accepts_only_approved_public_inputs(tmp_
             "--output-dir",
             str(output_dir),
         ],
-        cwd="/docker/EA",
+        cwd=ROOT,
         text=True,
         capture_output=True,
         check=False,
@@ -591,7 +868,7 @@ def test_materialize_poppy_draft_packet_accepts_only_approved_public_inputs(tmp_
 
 
 def test_materialize_poppy_draft_packet_rejects_private_or_truth_inputs(tmp_path: Path) -> None:
-    script = Path("/docker/EA/scripts/materialize_poppy_draft_packet.py")
+    script = ROOT / "scripts" / "materialize_poppy_draft_packet.py"
     source_packet = tmp_path / "source.packet.json"
     draft_output = tmp_path / "draft.txt"
     source_packet.write_text(
@@ -621,7 +898,7 @@ def test_materialize_poppy_draft_packet_rejects_private_or_truth_inputs(tmp_path
             "--output-dir",
             str(tmp_path / "out"),
         ],
-        cwd="/docker/EA",
+        cwd=ROOT,
         text=True,
         capture_output=True,
         check=False,

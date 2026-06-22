@@ -14,12 +14,22 @@ def _client(*, principal_id: str) -> TestClient:
     os.environ.pop("EA_DEFAULT_PRINCIPAL_ID", None)
     os.environ["EA_API_TOKEN"] = "test-token"
     os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
-    os.environ["EA_OPERATOR_PRINCIPAL_IDS"] = "operator-1"
     from app.api.app import create_app
 
     client = TestClient(create_app())
+    for seeded_principal in (principal_id, "operator-1"):
+        client.app.state.container.orchestrator.upsert_operator_profile(
+            principal_id=seeded_principal,
+            operator_id="operator-1",
+            display_name="Plan Scope Operator",
+            roles=("operator", "reviewer"),
+            trust_tier="trusted",
+            status="active",
+            notes="Seeded for plan scope contracts.",
+        )
     client.headers.update({"Authorization": "Bearer test-token"})
     client.headers.update({"X-EA-Principal-ID": principal_id})
+    client.headers.update({"X-EA-Operator-ID": "operator-1"})
     return client
 
 

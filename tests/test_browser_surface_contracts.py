@@ -13,6 +13,7 @@ PUBLIC_ROUTES = (
     "/",
     "/product",
     "/security",
+    "/data-deletion",
     "/pricing",
     "/register",
     "/sign-in",
@@ -83,6 +84,11 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     security = client.get("/security")
     assert "Automatic digests" in security.text
     assert "Morning memo schedule" not in security.text
+
+    deletion = client.get("/data-deletion")
+    assert "Request deletion of your PropertyQuarry data." in deletion.text
+    assert "property@propertyquarry.com" in deletion.text
+    assert "Data deletion request" in deletion.text
 
     sign_in = client.get("/sign-in")
     assert "Shared review when needed" in sign_in.text

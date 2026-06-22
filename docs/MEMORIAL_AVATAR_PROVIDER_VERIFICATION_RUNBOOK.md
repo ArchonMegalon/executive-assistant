@@ -21,7 +21,7 @@ The runner:
 Use the repo template at:
 
 ```text
-/docker/EA/browseract_templates/vidboard_workspace_reader.workflow.json
+browseract_templates/vidboard_workspace_reader.workflow.json
 ```
 
 This is the starting point for the authenticated VidBoard workspace read. It is not itself proof of production readiness; it only scaffolds the login and workspace extraction pass.
@@ -29,7 +29,7 @@ This is the starting point for the authenticated VidBoard workspace read. It is 
 For a local capture + receipt-stub pass, use:
 
 ```bash
-cd /docker/EA
+cd "$EA_REPO_ROOT"
 python3 scripts/capture_vidboard_provider_receipts.py \
   --login-email "$VIDBOARD_LOGIN_EMAIL" \
   --login-password "$VIDBOARD_LOGIN_PASSWORD"
@@ -37,9 +37,9 @@ python3 scripts/capture_vidboard_provider_receipts.py \
 
 That command writes:
 
-- `/docker/fleet/state/chummer6/avatar_presenter_provider/vidboard_workspace_capture.generated.json`
-- `/docker/fleet/state/chummer6/avatar_presenter_provider/receipts/vidboard_*.json`
-- `/docker/fleet/state/chummer6/avatar_presenter_provider/vidboard_operator_handoff.generated.json` when the capture fails or is blocked
+- `ea/_completion/avatar_presenter_provider/vidboard_workspace_capture.generated.json`
+- `ea/_completion/avatar_presenter_provider/receipts/vidboard_*.json`
+- `ea/_completion/avatar_presenter_provider/vidboard_operator_handoff.generated.json` when the capture fails or is blocked
 
 It only auto-verifies `login_capture` when an authenticated workspace snapshot is actually detected. All other receipt files remain manual review stubs until a human confirms the proof.
 
@@ -71,7 +71,7 @@ Use that file as the single resume surface for captcha/login blocks instead of r
 ## Run
 
 ```bash
-cd /docker/EA
+cd "$EA_REPO_ROOT"
 python3 scripts/verify_avatar_presenter_provider.py --provider vidboard --allow-fallback
 python3 scripts/verify_avatar_presenter_provider.py --provider nonverbia --allow-fallback
 ```
@@ -79,13 +79,13 @@ python3 scripts/verify_avatar_presenter_provider.py --provider nonverbia --allow
 Outputs land under:
 
 ```text
-/docker/fleet/state/chummer6/avatar_presenter_provider/
+ea/_completion/avatar_presenter_provider/
 ```
 
 To consume real proof receipts, place receipt JSON files under:
 
 ```text
-/docker/fleet/state/chummer6/avatar_presenter_provider/receipts/
+ea/_completion/avatar_presenter_provider/receipts/
 ```
 
 Then rerun:
@@ -93,7 +93,7 @@ Then rerun:
 ```bash
 python3 scripts/verify_avatar_presenter_provider.py \
   --provider vidboard \
-  --receipt-dir /docker/fleet/state/chummer6/avatar_presenter_provider/receipts
+  --receipt-dir ea/_completion/avatar_presenter_provider/receipts
 ```
 
 ## Required proof
@@ -119,7 +119,7 @@ Each receipt should be a JSON file with this shape:
   "captured_at": "2026-06-07T12:00:00Z",
   "notes": "Commercial use allowed on exported talking-avatar clips.",
   "source_capture_authenticated": true,
-  "capture_path": "/docker/fleet/state/chummer6/avatar_presenter_provider/vidboard_workspace_capture.generated.json",
+  "capture_path": "ea/_completion/avatar_presenter_provider/vidboard_workspace_capture.generated.json",
   "capture_file_sha256": "abc123...",
   "reviewed_by": "operator-1",
   "reviewed_at": "2026-06-07T12:10:00Z",

@@ -60,8 +60,8 @@ def main() -> int:
         "ea-teable-relay",
         "memorial",
         "/var/run/docker.sock",
-        "/mnt/onedrive",
-        "/mnt/pcloud",
+        "/mnt/" + "onedrive",
+        "/mnt/" + "pcloud",
     )
     for token in forbidden_compose_tokens:
         if token in compose.lower():

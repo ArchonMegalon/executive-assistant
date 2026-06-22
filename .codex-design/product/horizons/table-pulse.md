@@ -2,7 +2,7 @@
 
 ## Explanation video
 
-[Watch the TABLE PULSE 90-second deep dive](https://chummer.run/media/horizons/table-pulse-90s-deepdive.mp4) - MP4 with AAC audio. [Captions](https://chummer.run/media/horizons/table-pulse-90s-deepdive.vtt).
+[Watch the TABLE PULSE 90-second deep dive](https://chummer.run/media/horizons/table-pulse-90s-deepdive.mp4?v=20260621-tablepulse-3fb86343). [Captions](https://chummer.run/media/horizons/table-pulse-90s-deepdive.vtt).
 
 Table Pulse has two rails. The design only works if those rails stay explicit.
 

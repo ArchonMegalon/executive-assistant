@@ -7,7 +7,7 @@ def test_personal_plan_blocks_browser_messaging_setup_routes() -> None:
     client = build_product_client(principal_id="unused-browser-header")
     container = client.app.state.container
     container.onboarding.start_workspace(
-        principal_id="local-user",
+        principal_id="principal-default",
         workspace_name="Pilot Workspace",
         workspace_mode="personal",
         region="AT",

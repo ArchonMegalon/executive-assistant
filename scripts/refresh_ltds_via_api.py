@@ -65,7 +65,7 @@ def main() -> int:
     )
     parser.add_argument("--host", default=os.environ.get("EA_HOST", "http://127.0.0.1:8000"))
     parser.add_argument("--api-token", default=os.environ.get("EA_API_TOKEN", ""))
-    parser.add_argument("--principal-id", default=os.environ.get("EA_DEFAULT_PRINCIPAL_ID", "local-user"))
+    parser.add_argument("--principal-id", default=os.environ.get("EA_DEFAULT_PRINCIPAL_ID", "principal-default"))
     parser.add_argument("--skill-key", default="ltd_inventory_refresh")
     parser.add_argument("--goal", default="refresh LTD inventory facts")
     parser.add_argument("--binding-id", required=True)

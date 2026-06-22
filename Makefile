@@ -1,4 +1,4 @@
-.PHONY: deploy deploy-ea-prod deploy-property deploy-legacy-ea-stack deploy-memory deploy-bootstrap bootstrap db-status db-size db-retention smoke-api smoke-api-tibor smoke-postgres smoke-postgres-legacy smoke-help release-smoke release-preflight release-docs test-api test-all test-postgres-contracts test-telegram-bot openapi-export openapi-diff openapi-prune endpoints version-info operator-summary operator-help provider-readiness overlay-vision-check overlay-vision-pull support-bundle tasks-archive tasks-archive-prune tasks-archive-dry-run materialize-release-assets materialize-memorial-public-voice-gold materialize-memorial-public-browser-gold materialize-memorial-public-browser-meaningful-gold materialize-memorial-room-audio-gold materialize-memorial-room-audio-gold-clean materialize-memorial-public-gold materialize-memorial-phrase-bank materialize-memorial-operator-status sync-memorial-public-sources-teable verify-generated-release-artifacts-clean ci-local ci-gates ci-gates-postgres ci-gates-postgres-legacy property-release-gates hard-exit-gates runtime-hard-exit-gates ltd-release-gates memorial-gold-gates verify-release-assets verify-flagship-release-readiness verify-project-mode-runtime verify-whole-project-gold-map verify-memorial-voice-stability verify-memorial-gold-readiness verify-pocket-audio-archive verify-ltd-critical-entries verify-ltd-flagship-subset verify-ltd-provider-lanes verify-poppy-draft-workflow verify-design-mirror-bundle verify-design-full-mirror-parity repair-design-mirror-bundle docs-verify all-local
+.PHONY: deploy deploy-ea-prod deploy-property deploy-legacy-ea-stack deploy-memory deploy-bootstrap bootstrap db-status db-size db-retention smoke-api smoke-api-principal smoke-postgres smoke-postgres-legacy smoke-help release-smoke release-preflight release-docs test-api test-all test-postgres-contracts test-telegram-bot openapi-export openapi-diff openapi-prune endpoints version-info proactive-ooda verify-proactive-ooda verify-proactive-ooda-live-receipt operator-summary operator-help provider-readiness overlay-vision-check overlay-vision-pull support-bundle tasks-archive tasks-archive-prune tasks-archive-dry-run materialize-release-assets materialize-continuous-improvement-goal-posture verify-continuous-improvement-goal-posture materialize-teable-env-recovery-readiness verify-teable-env-recovery-readiness send-audiobook-public-share-followups materialize-office-loop-goal-receipt verify-office-loop-goal-receipt materialize-executive-assistant-acceptance-evidence verify-executive-assistant-acceptance-evidence materialize-executive-assistant-quality-readiness verify-executive-assistant-quality-readiness materialize-whole-project-signal-to-decision-receipt verify-whole-project-signal-to-decision-receipt materialize-whole-project-scope-gap-audit verify-whole-project-scope-gap-audit materialize-active-media-ltd-goal-bundle verify-active-media-ltd-goal-bundle materialize-memorial-chatlab-external-evidence materialize-manfred-realtime-conversation-readiness verify-manfred-realtime-conversation-readiness materialize-telegram-audiobook-live-readiness verify-telegram-audiobook-live-readiness verify-telegram-audiobook-deployed-runtime materialize-telegram-audiobook-live-delivery-receipt verify-telegram-audiobook-live-delivery-receipt materialize-whatsapp-audiobook-local-intake-proof verify-whatsapp-audiobook-local-intake-proof materialize-whatsapp-audiobook-operator-proof-bundle verify-whatsapp-audiobook-operator-proof-bundle materialize-whatsapp-audiobook-live-delivery-receipt verify-whatsapp-audiobook-live-delivery-receipt verify-whatsapp-audiobook-public-share-playback materialize-whatsapp-audiobook-live-voice-selection-shadow verify-whatsapp-audiobook-live-voice-selection-shadow materialize-telegram-video-delivery-operator-receipt materialize-telegram-video-delivery-live-receipt materialize-telegram-video-delivery-receipts verify-telegram-video-delivery-live-receipt materialize-memorial-public-voice-gold materialize-memorial-public-browser-gold materialize-memorial-public-browser-meaningful-gold materialize-memorial-room-audio-attestation-packet materialize-memorial-room-audio-gold materialize-memorial-room-audio-gold-clean materialize-memorial-public-gold materialize-memorial-phrase-bank materialize-memorial-operator-status materialize-memorial-stt-provider-benchmark verify-memorial-stt-provider-benchmark sync-memorial-public-sources-teable env-backup-teable env-bootstrap-teable env-check-teable env-disable-extra-teable env-drill-teable env-ensure-local-teable env-fresh-host-teable env-local-status-teable env-probe-teable env-recover-teable env-restore-teable env-restore-teable-local env-restore-teable-service verify-env-teable-recovery verify-generated-release-artifacts-clean ci-local ci-gates ci-gates-postgres ci-gates-postgres-legacy property-release-gates hard-exit-gates runtime-hard-exit-gates ltd-release-gates memorial-gold-gates verify-release-assets verify-flagship-release-readiness verify-project-mode-runtime verify-whole-project-gold-map verify-memorial-voice-stability verify-memorial-gold-readiness verify-pocket-audio-archive verify-ltd-critical-entries verify-ltd-flagship-subset verify-ltd-provider-lanes verify-poppy-draft-workflow verify-design-mirror-bundle verify-design-full-mirror-parity repair-design-mirror-bundle docs-verify all-local
 
 PYTHON_BIN ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 TEST_API_PYTEST_IGNORE ?= --ignore-glob=tests/test_chummer*.py --ignore-glob=tests/test_next90*.py --ignore=tests/test_design_mirror_bundle_contracts.py
@@ -23,15 +23,25 @@ deploy:
 
 deploy-ea-prod:
 	@set -eu; \
-		primary_path="$${EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-/mnt/onedrive/Attachments}"; \
-		fallback_path="$${EA_ONEDRIVE_ATTACHMENTS_FALLBACK_HOST_PATH:-/mnt/pcloud/EA/onedrive_attachments_fallback}"; \
+		if [ -n "$${TEABLE_API_KEY:-}" ]; then \
+			echo "Ensuring EA env/config recovery artifacts from Teable before deploy."; \
+			scripts/bootstrap_from_teable.sh --ensure-local >/dev/null; \
+		fi; \
+		if [ ! -f .env ]; then \
+			cp .env.example .env; \
+			chmod 600 .env; \
+			echo "Created .env from .env.example. Fill values and rerun." >&2; \
+			exit 1; \
+		fi; \
+		primary_path="$${EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-./data/onedrive_attachments}"; \
+		fallback_path="$${EA_ONEDRIVE_ATTACHMENTS_FALLBACK_HOST_PATH:-.runtime/onedrive_attachments_fallback}"; \
 		selected_path="$$primary_path"; \
 		if ! ls "$$primary_path" >/dev/null 2>&1; then \
 			mkdir -p "$$fallback_path"; \
 			selected_path="$$fallback_path"; \
 			echo "OneDrive attachment mount unavailable; deploying with fallback path $$selected_path" >&2; \
 		fi; \
-		EA_ONEDRIVE_ATTACHMENTS_HOST_PATH="$$selected_path" docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build ea-api ea-worker ea-scheduler ea-responses-proxy
+		EA_ONEDRIVE_ATTACHMENTS_HOST_PATH="$$selected_path" docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build ea-api ea-worker ea-scheduler ea-responses-proxy ea-proactive-ooda
 
 deploy-property:
 	docker compose -f docker-compose.property.yml up -d --build --remove-orphans
@@ -60,8 +70,8 @@ db-retention:
 smoke-api:
 	bash scripts/smoke_api.sh
 
-smoke-api-tibor:
-	bash scripts/smoke_api_tibor.sh
+smoke-api-principal:
+	bash scripts/smoke_api_principal.sh
 
 smoke-postgres:
 	bash scripts/smoke_postgres.sh
@@ -77,11 +87,20 @@ release-smoke: smoke-help smoke-api
 release-preflight:
 	$(MAKE) verify-release-assets
 	$(MAKE) verify-flagship-release-readiness
+	$(MAKE) verify-telegram-audiobook-deployed-runtime
 	$(MAKE) verify-project-mode-runtime
 	$(MAKE) verify-whole-project-gold-map
+	$(MAKE) verify-office-loop-goal-receipt
+	$(MAKE) verify-executive-assistant-quality-readiness
+	$(MAKE) verify-active-media-ltd-goal-bundle
+	$(MAKE) verify-whole-project-signal-to-decision-receipt
+	$(MAKE) verify-whole-project-scope-gap-audit
 	$(MAKE) verify-generated-release-artifacts-clean
 	$(MAKE) operator-help
 	$(MAKE) release-smoke
+
+send-audiobook-public-share-followups:
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/send_audiobook_public_share_followups.py --force --pretty
 
 release-docs:
 	$(MAKE) docs-verify
@@ -115,6 +134,15 @@ endpoints:
 version-info:
 	bash scripts/version_info.sh
 
+proactive-ooda:
+	PYTHONPATH=ea $(PYTHON_BIN) scripts/run_proactive_ooda.py --pretty
+
+verify-proactive-ooda:
+	PYTHONPATH=ea $(PYTHON_BIN) scripts/verify_proactive_ooda.py
+
+verify-proactive-ooda-live-receipt:
+	docker compose -f docker-compose.yml exec -T ea-proactive-ooda python /app/scripts/verify_proactive_ooda_live_receipt.py --pretty
+
 operator-summary:
 	bash scripts/operator_summary.sh
 
@@ -122,7 +150,7 @@ provider-readiness:
 	$(PYTHON_BIN) scripts/chummer6_provider_readiness.py
 
 operator-help:
-	@for s in scripts/deploy.sh scripts/db_bootstrap.sh scripts/db_status.sh scripts/db_size.sh scripts/db_retention.sh scripts/smoke_api.sh scripts/smoke_help.sh scripts/smoke_postgres.sh scripts/test_postgres_contracts.sh scripts/hard_exit_gates.sh scripts/runtime_hard_exit_gates.sh scripts/verify_ltd_critical_entries.py scripts/verify_ltd_flagship_subset.py scripts/verify_ltd_provider_lanes.py scripts/materialize_poppy_draft_packet.py scripts/materialize_memorial_voice_roundtrip_exit_gate.py scripts/materialize_memorial_room_audio_receipt.py scripts/verify_memorial_voice_stability_gate.py scripts/verify_memorial_gold_readiness.py scripts/materialize_project_mode_manifests.py scripts/verify_project_mode_manifests.py scripts/verify_project_mode_runtime.py scripts/materialize_whole_project_gold_map.py scripts/verify_whole_project_gold_map.py scripts/list_endpoints.sh scripts/version_info.sh scripts/export_openapi.sh scripts/diff_openapi.sh scripts/prune_openapi.sh scripts/operator_summary.sh scripts/support_bundle.sh scripts/archive_tasks.sh scripts/bootstrap_payfunnels_propertyquarry.py scripts/bootstrap_emailit_propertyquarry.py scripts/verify_release_assets.sh scripts/chummer6_overlay_vision_readiness.py; do \
+	@for s in scripts/deploy.sh scripts/db_bootstrap.sh scripts/db_status.sh scripts/db_size.sh scripts/db_retention.sh scripts/smoke_api.sh scripts/smoke_help.sh scripts/smoke_postgres.sh scripts/test_postgres_contracts.sh scripts/hard_exit_gates.sh scripts/runtime_hard_exit_gates.sh scripts/verify_ltd_critical_entries.py scripts/verify_ltd_flagship_subset.py scripts/verify_ltd_provider_lanes.py scripts/bootstrap_from_teable.sh scripts/sync_env_to_teable.py scripts/verify_proactive_ooda.py scripts/verify_proactive_ooda_live_receipt.py scripts/materialize_continuous_improvement_goal_posture.py scripts/verify_continuous_improvement_goal_posture.py scripts/materialize_poppy_draft_packet.py scripts/materialize_memorial_voice_roundtrip_exit_gate.py scripts/materialize_memorial_room_audio_receipt.py scripts/verify_memorial_voice_stability_gate.py scripts/verify_memorial_gold_readiness.py scripts/materialize_project_mode_manifests.py scripts/verify_project_mode_manifests.py scripts/verify_project_mode_runtime.py scripts/materialize_whole_project_gold_map.py scripts/verify_whole_project_gold_map.py scripts/materialize_whatsapp_web_action_processor_readiness.py scripts/verify_whatsapp_web_action_processor_readiness.py ea/scripts/materialize_office_loop_goal_receipt.py ea/scripts/verify_office_loop_goal_receipt.py ea/scripts/materialize_executive_assistant_acceptance_evidence.py ea/scripts/verify_executive_assistant_acceptance_evidence.py ea/scripts/materialize_executive_assistant_quality_readiness.py ea/scripts/verify_executive_assistant_quality_readiness.py ea/scripts/materialize_whole_project_signal_to_decision_receipt.py ea/scripts/verify_whole_project_signal_to_decision_receipt.py ea/scripts/materialize_whole_project_scope_gap_audit.py ea/scripts/verify_whole_project_scope_gap_audit.py ea/scripts/materialize_active_media_ltd_goal_bundle.py ea/scripts/verify_active_media_ltd_goal_bundle.py ea/scripts/materialize_telegram_audiobook_live_readiness.py ea/scripts/verify_telegram_audiobook_live_readiness.py ea/scripts/verify_whatsapp_audiobook_live_delivery_receipt.py ea/scripts/verify_whatsapp_audiobook_operator_proof_bundle.py ea/scripts/verify_whatsapp_audiobook_public_share_playback.py scripts/list_endpoints.sh scripts/version_info.sh scripts/export_openapi.sh scripts/diff_openapi.sh scripts/prune_openapi.sh scripts/operator_summary.sh scripts/support_bundle.sh scripts/archive_tasks.sh scripts/bootstrap_payfunnels_propertyquarry.py scripts/bootstrap_emailit_propertyquarry.py scripts/verify_release_assets.sh scripts/chummer6_overlay_vision_readiness.py; do \
 	  echo "===== $$s --help ====="; \
 	  case "$$s" in \
 	    *.py) $(PYTHON_BIN) $$s --help ;; \
@@ -152,6 +180,155 @@ tasks-archive-dry-run:
 materialize-release-assets:
 	PYTHONPATH=ea $(PYTHON_BIN) scripts/materialize_release_bundle.py --python-bin $(PYTHON_BIN)
 
+materialize-continuous-improvement-goal-posture:
+	$(PYTHON_BIN) scripts/materialize_continuous_improvement_goal_posture.py
+
+verify-continuous-improvement-goal-posture:
+	$(PYTHON_BIN) scripts/materialize_continuous_improvement_goal_posture.py
+	$(PYTHON_BIN) scripts/verify_continuous_improvement_goal_posture.py --pretty
+
+materialize-teable-env-recovery-readiness:
+	$(PYTHON_BIN) scripts/materialize_teable_env_recovery_readiness.py
+
+verify-teable-env-recovery-readiness:
+	$(PYTHON_BIN) scripts/materialize_teable_env_recovery_readiness.py
+	$(PYTHON_BIN) scripts/verify_teable_env_recovery_readiness.py
+
+materialize-office-loop-goal-receipt:
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_office_loop_goal_receipt.py
+
+verify-office-loop-goal-receipt:
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_office_loop_goal_receipt.py
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/verify_office_loop_goal_receipt.py
+
+materialize-executive-assistant-acceptance-evidence:
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_executive_assistant_acceptance_evidence.py
+
+verify-executive-assistant-acceptance-evidence:
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_executive_assistant_acceptance_evidence.py
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/verify_executive_assistant_acceptance_evidence.py
+
+materialize-executive-assistant-quality-readiness:
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_executive_assistant_acceptance_evidence.py
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_executive_assistant_quality_readiness.py
+
+verify-executive-assistant-quality-readiness:
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_executive_assistant_acceptance_evidence.py
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/verify_executive_assistant_acceptance_evidence.py
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_executive_assistant_quality_readiness.py
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/verify_executive_assistant_quality_readiness.py
+
+materialize-whole-project-signal-to-decision-receipt:
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_whole_project_signal_to_decision_receipt.py
+
+verify-whole-project-signal-to-decision-receipt:
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_whole_project_signal_to_decision_receipt.py
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/verify_whole_project_signal_to_decision_receipt.py
+
+materialize-whole-project-scope-gap-audit:
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_executive_assistant_acceptance_evidence.py
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_executive_assistant_quality_readiness.py
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_whole_project_signal_to_decision_receipt.py
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_whole_project_scope_gap_audit.py
+
+verify-whole-project-scope-gap-audit:
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_executive_assistant_acceptance_evidence.py
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/verify_executive_assistant_acceptance_evidence.py
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_executive_assistant_quality_readiness.py
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_whole_project_signal_to_decision_receipt.py
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/verify_whole_project_signal_to_decision_receipt.py
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_whole_project_scope_gap_audit.py
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/verify_whole_project_scope_gap_audit.py
+
+materialize-active-media-ltd-goal-bundle:
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_active_media_ltd_goal_bundle.py
+
+verify-active-media-ltd-goal-bundle:
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_active_media_ltd_goal_bundle.py
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/verify_active_media_ltd_goal_bundle.py
+
+materialize-memorial-chatlab-external-evidence:
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_memorial_chatlab_external_evidence.py \
+		--provider "$${EA_MEMORIAL_CHATLAB_PROVIDER:-}" \
+		--account-capability-evidence "$${CHATLAB_ACCOUNT_CAPABILITY_EVIDENCE:-}" \
+		--runtime-probe-evidence "$${CHATLAB_RUNTIME_PROBE_EVIDENCE:-}" \
+		--no-private-context-evidence "$${CHATLAB_NO_PRIVATE_CONTEXT_EVIDENCE:-}" \
+		--guardrail-preservation-evidence "$${CHATLAB_GUARDRAIL_PRESERVATION_EVIDENCE:-}" \
+		--pretty
+
+materialize-manfred-realtime-conversation-readiness:
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_manfred_realtime_conversation_readiness.py
+
+verify-manfred-realtime-conversation-readiness:
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_manfred_realtime_conversation_readiness.py
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/verify_manfred_realtime_conversation_readiness.py
+
+materialize-telegram-audiobook-live-readiness:
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_telegram_audiobook_live_readiness.py --runtime-container "$${EA_TELEGRAM_AUDIOBOOK_RUNTIME_CONTAINER:-ea-api}"
+
+verify-telegram-audiobook-live-readiness:
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_telegram_audiobook_live_readiness.py --runtime-container "$${EA_TELEGRAM_AUDIOBOOK_RUNTIME_CONTAINER:-ea-api}"
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/verify_telegram_audiobook_live_readiness.py --runtime-container "$${EA_TELEGRAM_AUDIOBOOK_RUNTIME_CONTAINER:-ea-api}" --require-deployed-runtime
+
+verify-telegram-audiobook-deployed-runtime:
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/verify_telegram_audiobook_live_readiness.py --runtime-container "$${EA_TELEGRAM_AUDIOBOOK_RUNTIME_CONTAINER:-ea-api}" --require-deployed-runtime --pretty
+
+materialize-telegram-audiobook-live-delivery-receipt:
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_telegram_audiobook_live_delivery_receipt.py
+
+verify-telegram-audiobook-live-delivery-receipt:
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_telegram_audiobook_live_delivery_receipt.py --require-pass
+
+materialize-whatsapp-audiobook-local-intake-proof:
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_whatsapp_audiobook_local_intake_proof.py
+
+verify-whatsapp-audiobook-local-intake-proof:
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_whatsapp_audiobook_local_intake_proof.py --require-pass
+
+materialize-whatsapp-web-action-processor-readiness:
+	$(PYTHON_BIN) scripts/materialize_whatsapp_web_action_processor_readiness.py
+
+verify-whatsapp-web-action-processor-readiness:
+	$(PYTHON_BIN) scripts/materialize_whatsapp_web_action_processor_readiness.py
+	$(PYTHON_BIN) scripts/verify_whatsapp_web_action_processor_readiness.py
+
+materialize-whatsapp-audiobook-operator-proof-bundle:
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_whatsapp_audiobook_operator_proof_bundle.py
+
+verify-whatsapp-audiobook-operator-proof-bundle:
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_whatsapp_audiobook_operator_proof_bundle.py
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/verify_whatsapp_audiobook_operator_proof_bundle.py
+
+materialize-whatsapp-audiobook-live-delivery-receipt:
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_whatsapp_audiobook_live_delivery_receipt.py
+
+verify-whatsapp-audiobook-live-delivery-receipt:
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_whatsapp_audiobook_live_delivery_receipt.py
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/verify_whatsapp_audiobook_live_delivery_receipt.py
+
+verify-whatsapp-audiobook-public-share-playback:
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/verify_whatsapp_audiobook_public_share_playback.py --require-pass
+
+materialize-whatsapp-audiobook-live-voice-selection-shadow:
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_whatsapp_audiobook_live_voice_selection_shadow.py
+
+verify-whatsapp-audiobook-live-voice-selection-shadow:
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_whatsapp_audiobook_live_voice_selection_shadow.py --require-pass
+
+materialize-telegram-video-delivery-operator-receipt:
+	PYTHONPATH=ea $(PYTHON_BIN) scripts/materialize_telegram_video_delivery_receipt.py
+
+materialize-telegram-video-delivery-live-receipt:
+	PYTHONPATH=ea $(PYTHON_BIN) scripts/materialize_telegram_video_delivery_live_receipt.py
+
+materialize-telegram-video-delivery-receipts:
+	$(MAKE) materialize-telegram-video-delivery-operator-receipt
+	$(MAKE) materialize-telegram-video-delivery-live-receipt
+	PYTHONPATH=ea $(PYTHON_BIN) scripts/materialize_whole_project_gold_map.py
+
+verify-telegram-video-delivery-live-receipt:
+	PYTHONPATH=ea $(PYTHON_BIN) scripts/materialize_telegram_video_delivery_live_receipt.py --require-pass
+
 verify-generated-release-artifacts-clean:
 	$(MAKE) materialize-release-assets
 	$(PYTHON_BIN) scripts/verify_generated_release_artifacts_clean.py
@@ -161,7 +338,7 @@ ci-local:
 	$(PYTHON_BIN) -m compileall -q tests
 	bash scripts/smoke_help.sh
 
-# Mirror the smoke-runtime CI gate order locally from one entrypoint.
+# Run the local release gate order from one entrypoint.
 ci-gates:
 	$(MAKE) smoke-help
 	$(MAKE) ci-local
@@ -231,6 +408,11 @@ materialize-memorial-public-browser-meaningful-gold:
 		--max-first-answer-ms "$${MEMORIAL_GOLD_MAX_MEANINGFUL_BROWSER_FIRST_ANSWER_MS:-8000}" \
 		--output .codex-studio/published/memorial_realtime_browser_meaningful_public_origin.generated.json
 
+materialize-memorial-room-audio-attestation-packet:
+	$(PYTHON_BIN) scripts/materialize_memorial_room_audio_attestation_packet.py \
+		--base-url "$${MEMORIAL_PUBLIC_ORIGIN:-https://example.test}" \
+		--slug "$${MEMORIAL_PUBLIC_SLUG:-manfred}"
+
 materialize-memorial-room-audio-gold:
 	$(PYTHON_BIN) scripts/materialize_memorial_room_audio_receipt.py \
 		--base-url "$${MEMORIAL_PUBLIC_ORIGIN:?Set MEMORIAL_PUBLIC_ORIGIN to the deployed memorial origin}" \
@@ -249,7 +431,10 @@ materialize-memorial-room-audio-gold:
 		--first-syllable-not-clipped \
 		--intelligibility-confirmed \
 		--answer-text-fallback-visible \
-		--no-internet-search-confirmed
+		--no-internet-search-confirmed \
+		--normal-spoken-turn-confirmed \
+		--interruption-behavior-confirmed \
+		--retry-path-confirmed
 
 materialize-memorial-room-audio-gold-clean:
 	$(PYTHON_BIN) scripts/materialize_memorial_room_audio_receipt_clean.py \
@@ -290,8 +475,56 @@ materialize-memorial-phrase-bank:
 materialize-memorial-operator-status:
 	$(PYTHON_BIN) scripts/materialize_memorial_operator_status.py
 
+materialize-memorial-stt-provider-benchmark:
+	PYTHONPATH=ea $(PYTHON_BIN) scripts/benchmark_memorial_stt_providers.py
+
+verify-memorial-stt-provider-benchmark:
+	PYTHONPATH=ea $(PYTHON_BIN) scripts/benchmark_memorial_stt_providers.py --require-production-eligible
+
 sync-memorial-public-sources-teable:
 	PYTHONPATH=ea $(PYTHON_BIN) scripts/sync_memorial_public_sources_to_teable.py
+
+env-backup-teable:
+	$(PYTHON_BIN) scripts/sync_env_to_teable.py backup --include-values
+
+env-bootstrap-teable:
+	$(PYTHON_BIN) scripts/sync_env_to_teable.py bootstrap
+
+env-check-teable:
+	$(PYTHON_BIN) scripts/sync_env_to_teable.py check
+
+env-disable-extra-teable:
+	$(PYTHON_BIN) scripts/sync_env_to_teable.py disable-extras
+
+env-drill-teable:
+	$(PYTHON_BIN) scripts/sync_env_to_teable.py drill
+
+env-ensure-local-teable:
+	@scripts/bootstrap_from_teable.sh --ensure-local
+
+env-fresh-host-teable:
+	@scripts/bootstrap_from_teable.sh --fresh-host
+
+env-local-status-teable:
+	$(PYTHON_BIN) scripts/sync_env_to_teable.py local-status
+
+env-probe-teable:
+	@scripts/bootstrap_from_teable.sh --probe
+
+env-recover-teable:
+	@scripts/bootstrap_from_teable.sh
+
+env-restore-teable:
+	$(PYTHON_BIN) scripts/sync_env_to_teable.py restore --output-path .env --source-scope ea_root
+
+env-restore-teable-local:
+	$(PYTHON_BIN) scripts/sync_env_to_teable.py restore --output-path .env.local --source-scope ea_root_local
+
+env-restore-teable-service:
+	$(PYTHON_BIN) scripts/sync_env_to_teable.py restore --output-path ea/.env --source-scope ea_service
+
+verify-env-teable-recovery:
+	$(PYTHON_BIN) scripts/sync_env_to_teable.py verify
 
 ltd-release-gates:
 	$(MAKE) verify-ltd-critical-entries

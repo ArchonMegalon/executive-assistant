@@ -6,8 +6,11 @@ from pathlib import Path
 import pytest
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
 def _load_module():
-    path = Path("/docker/EA/scripts/measure_memorial_live_browser.py")
+    path = ROOT / "scripts" / "measure_memorial_live_browser.py"
     spec = importlib.util.spec_from_file_location("measure_memorial_live_browser", path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
@@ -154,7 +157,7 @@ def test_should_accept_visible_answer_early_rejects_non_contact_profile() -> Non
 
 
 def test_measure_script_avoids_networkidle_as_primary_page_gate() -> None:
-    source = Path("/docker/EA/scripts/measure_memorial_live_browser.py").read_text(encoding="utf-8")
+    source = (ROOT / "scripts" / "measure_memorial_live_browser.py").read_text(encoding="utf-8")
 
     assert 'wait_until="domcontentloaded"' in source
     assert 'page.wait_for_load_state("networkidle", timeout=5000)' in source

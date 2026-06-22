@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="/docker/EA"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMPDIR="${TMPDIR:-/tmp}"
 PYTHON_BIN="$ROOT/.venv/bin/python"
 if [[ ! -x "$PYTHON_BIN" ]]; then

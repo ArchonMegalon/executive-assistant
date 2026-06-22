@@ -1,3 +1,2 @@
-from app.api.app import create_app
+from __future__ import annotations
 
-__all__ = ["create_app"]

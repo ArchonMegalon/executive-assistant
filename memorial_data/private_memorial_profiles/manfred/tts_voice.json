@@ -25,6 +25,7 @@
     "status": "approved",
     "scope": [
       "clone",
+      "profile_build",
       "synthesize",
       "conversation_turn",
       "realtime"

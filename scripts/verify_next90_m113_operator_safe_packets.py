@@ -38,9 +38,14 @@ PROOF_PATH = ROOT / ".codex-studio" / "published" / "NEXT90_M113_OPERATOR_SAFE_P
 MATERIALIZER_PATH = ROOT / "scripts" / "materialize_next90_m113_operator_safe_packets.py"
 HANDOFF_CLOSEOUT_PATH = ROOT / "docs" / "chummer_operator_safe_packets" / "SUCCESSOR_HANDOFF_CLOSEOUT.yaml"
 FEEDBACK_CLOSEOUT_PATH = ROOT / "feedback" / "2026-04-24-ea-operator-safe-packets-package-closeout.md"
-QUEUE_STAGING_PATH = Path("/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
-DESIGN_QUEUE_STAGING_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
-SUCCESSOR_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml")
+DESIGN_PRODUCT_ROOT = Path(os.environ.get("CHUMMER6_DESIGN_PRODUCT_ROOT") or ROOT / ".codex-design/product")
+QUEUE_STAGING_PATH = Path(os.environ.get("EA_NEXT90_QUEUE_STAGING_PATH") or DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
+DESIGN_QUEUE_STAGING_PATH = Path(
+    os.environ.get("EA_NEXT90_DESIGN_QUEUE_STAGING_PATH") or DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
+)
+SUCCESSOR_REGISTRY_PATH = Path(
+    os.environ.get("EA_NEXT90_SUCCESSOR_REGISTRY_PATH") or DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml"
+)
 LANDED_COMMIT = "38fdba5"
 COMPLETION_ACTION = "verify_closed_package_only"
 DO_NOT_REOPEN_REASON = (
@@ -48,16 +53,22 @@ DO_NOT_REOPEN_REASON = (
     "generated proof, focused verifier and test, canonical registry row, and queue rows instead of reopening "
     "the GM prep and roster followthrough slice."
 )
+
+
+def _repo_path(relative_path: str) -> str:
+    return (ROOT / relative_path).as_posix()
+
+
 QUEUE_PROOF = [
-    "/docker/EA/docs/chummer_operator_safe_packets/CHUMMER_OPERATOR_SAFE_PACKET_PACK.yaml",
-    "/docker/EA/docs/chummer_operator_safe_packets/OPERATOR_SAFE_PACKET_SPECIMENS.yaml",
-    "/docker/EA/docs/chummer_operator_safe_packets/README.md",
-    "/docker/EA/docs/chummer_operator_safe_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml",
-    "/docker/EA/scripts/materialize_next90_m113_operator_safe_packets.py",
-    "/docker/EA/scripts/verify_next90_m113_operator_safe_packets.py",
-    "/docker/EA/tests/test_next90_m113_operator_safe_packets.py",
-    "/docker/EA/.codex-studio/published/NEXT90_M113_OPERATOR_SAFE_PACKETS.generated.json",
-    "/docker/EA/feedback/2026-04-24-ea-operator-safe-packets-package-closeout.md",
+    _repo_path("docs/chummer_operator_safe_packets/CHUMMER_OPERATOR_SAFE_PACKET_PACK.yaml"),
+    _repo_path("docs/chummer_operator_safe_packets/OPERATOR_SAFE_PACKET_SPECIMENS.yaml"),
+    _repo_path("docs/chummer_operator_safe_packets/README.md"),
+    _repo_path("docs/chummer_operator_safe_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml"),
+    _repo_path("scripts/materialize_next90_m113_operator_safe_packets.py"),
+    _repo_path("scripts/verify_next90_m113_operator_safe_packets.py"),
+    _repo_path("tests/test_next90_m113_operator_safe_packets.py"),
+    _repo_path(".codex-studio/published/NEXT90_M113_OPERATOR_SAFE_PACKETS.generated.json"),
+    _repo_path("feedback/2026-04-24-ea-operator-safe-packets-package-closeout.md"),
 ]
 
 
@@ -213,7 +224,11 @@ def main() -> int:
         evidence = [str(item) for item in registry_task.get("evidence") or []]
         if not evidence:
             missing.append("registry work task evidence missing")
-        if "/docker/EA/docs/chummer_operator_safe_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml records the closed EA proof boundary, canonical queue and registry authority, and repeat-prevention rule for future shards." not in evidence:
+        expected_handoff_evidence = (
+            _repo_path("docs/chummer_operator_safe_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml")
+            + " records the closed EA proof boundary, canonical queue and registry authority, and repeat-prevention rule for future shards."
+        )
+        if expected_handoff_evidence not in evidence:
             missing.append("registry work task handoff evidence missing")
 
     encoded = json.dumps(

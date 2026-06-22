@@ -49,6 +49,7 @@ GENERATED_RECEIPT_PATHS = {
     ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
     ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json",
     ".codex-studio/published/telegram_video_delivery_operator.generated.json",
+    ".codex-studio/published/telegram_video_delivery_live.generated.json",
     ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
     ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
     ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",

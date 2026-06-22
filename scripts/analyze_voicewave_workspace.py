@@ -19,7 +19,7 @@ if EA_APP_ROOT.as_posix() not in sys.path:
 from app.services.browseract_ui_template_catalog import browseract_ui_template_spec
 
 
-DEFAULT_OUT_DIR = Path("/docker/fleet/state/chummer6/voicewave_provider")
+DEFAULT_OUT_DIR = Path(os.environ.get("EA_VOICEWAVE_PROVIDER_OUT_DIR") or ROOT / "ea" / "_completion" / "voicewave_provider")
 DEFAULT_CAPTURE_PATH = DEFAULT_OUT_DIR / "voicewave_workspace_analysis.generated.json"
 WORKER_SCRIPT = ROOT / "scripts" / "browseract_template_service_worker.py"
 ENV_FILES = (ROOT / "ea" / ".env", ROOT / ".env")

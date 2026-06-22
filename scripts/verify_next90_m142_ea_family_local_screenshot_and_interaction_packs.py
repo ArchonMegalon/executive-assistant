@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -22,7 +23,18 @@ EXPECTED_FAMILIES = {
     "dice_initiative_and_table_utilities",
     "identity_contacts_lifestyles_history",
 }
-QUEUE_STAGING_PATH = Path("/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
+
+
+def _env_path(name: str, default: Path) -> Path:
+    return Path(os.environ.get(name) or default)
+
+
+DESIGN_PRODUCT_ROOT = _env_path("CHUMMER6_DESIGN_PRODUCT_ROOT", ROOT / ".codex-design" / "product")
+FLEET_COMPLETION_ROOT = _env_path("EA_FLEET_COMPLETION_ROOT", ROOT / "ea" / "_completion" / "fleet")
+QUEUE_STAGING_PATH = _env_path("EA_NEXT90_QUEUE_STAGING_PATH", DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
+LOCAL_MIRROR_QUEUE_PATH = DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
+LOCAL_MIRROR_REGISTRY_PATH = DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml"
+FLAGSHIP_READINESS_PATH = _env_path("EA_FLAGSHIP_READINESS_PATH", FLEET_COMPLETION_ROOT / "FLAGSHIP_PRODUCT_READINESS.generated.json")
 EXPECTED_MARKDOWN_RECEIPTS = {
     "dense_builder_and_career_workflows": {
         "compare artifacts: `oracle:tabs, oracle:workspace_actions, workflow:build_explain_publish`",
@@ -147,7 +159,7 @@ def main() -> int:
     if not str(fleet_queue.get("row_fingerprint") or "").strip():
         issues.append("fleet_queue row_fingerprint missing")
     local_mirror_queue = dict(source_inputs.get("local_mirror_queue") or {})
-    if local_mirror_queue.get("path") != "/docker/EA/.codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml":
+    if local_mirror_queue.get("path") != str(LOCAL_MIRROR_QUEUE_PATH):
         issues.append("local_mirror_queue source path drifted")
     if int(local_mirror_queue.get("match_count") or 0) != 1:
         issues.append("local_mirror_queue match_count drifted")
@@ -169,7 +181,7 @@ def main() -> int:
     if not str(registry_input.get("row_fingerprint") or "").strip():
         issues.append("registry row_fingerprint missing")
     local_mirror_registry = dict(source_inputs.get("local_mirror_registry") or {})
-    if local_mirror_registry.get("path") != "/docker/EA/.codex-design/product/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml":
+    if local_mirror_registry.get("path") != str(LOCAL_MIRROR_REGISTRY_PATH):
         issues.append("local_mirror_registry source path drifted")
     if int(local_mirror_registry.get("match_count") or 0) != 1:
         issues.append("local_mirror_registry match_count drifted")
@@ -180,7 +192,7 @@ def main() -> int:
     if not str(local_mirror_registry.get("row_fingerprint") or "").strip():
         issues.append("local_mirror_registry row_fingerprint missing")
     readiness_input = dict(source_inputs.get("flagship_readiness") or {})
-    if readiness_input.get("path") != "/docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json":
+    if readiness_input.get("path") != str(FLAGSHIP_READINESS_PATH):
         issues.append("flagship_readiness source path drifted")
     if readiness_input.get("coverage_key") != "desktop_client":
         issues.append("flagship_readiness coverage key drifted")

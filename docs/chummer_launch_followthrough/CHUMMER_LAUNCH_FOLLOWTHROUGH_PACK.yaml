@@ -48,7 +48,7 @@ source_truth:
     required: true
     use_rule: Followthrough drafts must keep preview, fallback, recovery, and flagship claims subordinate to the current release shelf and its bounded public route rules.
   ea_governor_packet_baseline:
-    path: /docker/EA/docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml
+    path: docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml
     required: true
     use_rule: Reuse the earlier EA governor packet baseline for reporter-safe release posture instead of inventing a second release-claim framework.
 proof_guardrails:

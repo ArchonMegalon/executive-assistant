@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import urllib.error
 import urllib.request
 from datetime import UTC, datetime
@@ -15,6 +16,7 @@ from urllib.parse import urlparse
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MANIFEST = ROOT / "memorial_archive/manfred/public/manfred-how-this-memorial-works/manifest.json"
 DEFAULT_OUTPUT = ROOT / "ea/_completion/fliplink/CHUMMER_FLIPLINK_PUBLICATION.generated.json"
+DEFAULT_PROBE_CONTACT_URL = "https://example.test"
 
 
 def _utc_now() -> str:
@@ -34,6 +36,18 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _probe_contact_url() -> str:
+    return (
+        os.environ.get("EA_FLIPLINK_PROBE_CONTACT_URL")
+        or os.environ.get("EA_PUBLIC_APP_BASE_URL")
+        or DEFAULT_PROBE_CONTACT_URL
+    ).strip() or DEFAULT_PROBE_CONTACT_URL
+
+
+def _probe_user_agent() -> str:
+    return f"EA-FlipLink-Receipt-Probe/1.0 (+{_probe_contact_url()})"
+
+
 def _pdf_path(manifest: dict[str, Any], manifest_path: Path) -> Path:
     artifacts = manifest.get("build_artifacts") if isinstance(manifest.get("build_artifacts"), dict) else {}
     raw = str(artifacts.get("pdf_path") or manifest.get("pdf_path") or "build/output.pdf").strip()
@@ -48,7 +62,7 @@ def _live_get(url: str, *, timeout: int) -> dict[str, Any]:
         url,
         headers={
             "Accept": "text/html,application/pdf,*/*",
-            "User-Agent": "EA-FlipLink-Receipt-Probe/1.0 (+https://myexternalbrain.com)",
+            "User-Agent": _probe_user_agent(),
         },
         method="GET",
     )

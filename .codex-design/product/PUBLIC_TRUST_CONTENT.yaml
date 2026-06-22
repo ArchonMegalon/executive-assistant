@@ -16,46 +16,45 @@ trust_pages:
       - label: "Open support intake"
         href: "/contact#support-intake"
         tone: primary
-      - label: "See what works today"
-        href: "/now"
-        tone: secondary
       - label: "Open downloads"
         href: "/downloads"
+        tone: secondary
+      - label: "Read FAQ"
+        href: "/faq"
         tone: ghost
     sections:
       - id: install-update
         eyebrow: "Install or update"
-        heading: "Start with the release page and download help"
-        body: "The release page should answer the normal download and setup questions directly: current package, known issues, update status, and the next support step if the path still is not clear."
+        heading: "Start with Downloads"
+        body: "Downloads has Stable and Nightly installers for Windows and Linux. Use Help when install or update does not behave as expected."
         bullets:
-          - "The release page should make the current public download obvious."
-          - "Installer language stays off until an installer is actually published."
-          - "Create an account when you want tracked support, recovery, or future linked installs."
-          - "Check the release page before assuming another platform is already on the public downloads page."
+          - "Stable is the calm default."
+          - "Nightly is the newest published build."
+          - "Create an account only when you want tracked support or recovery."
       - id: sign-in-recovery
         eyebrow: "Sign-in or account recovery"
-        heading: "Keep access and recovery on one calm path"
-        body: "Account creation, sign-in, and recovery should stay boring. Use the account page and the recovery flow before you fall back to manual troubleshooting."
+        heading: "Use Account for recovery"
+        body: "Sign in when you want support history, recovery, and install return tied to your account."
         bullets:
-          - "Create an account when you want recovery, tracked support, and a cleaner return path for future downloads."
-          - "Use recovery email so one sign-in method is never the whole story."
-          - "Devices and access stay separate from identity recovery."
+          - "Guest use is allowed."
+          - "Account support keeps follow-up in one place."
+          - "Recovery should stay boring."
       - id: product-bug
         eyebrow: "Product bug"
-        heading: "Product help should become a support case, not a rumor"
-        body: "Use Contact first for install trouble, product bugs, and practical feedback. GitHub is there when you want a public bug thread, not as the normal support door."
+        heading: "Send bugs through Contact"
+        body: "Use Contact for install trouble, product bugs, and practical feedback. Public issue threads are optional."
         bullets:
           - "Use Contact for install trouble, product bugs, or UX friction."
           - "Use Account > Support if you want your support history saved in one place."
-          - "Use GitHub only when you want a public bug thread."
+          - "Choose a public issue thread only when the bug should be public."
       - id: product-question
         eyebrow: "Product question or UX confusion"
-        heading: "Ask from inside Chummer first"
-        body: "Normal preview questions should be answerable from inside the product. Support and FAQ exist so you do not have to dig through project details just to get a clear answer."
+        heading: "Ask Chummer first"
+        body: "FAQ and Help should answer the normal questions without making you dig through project details."
         bullets:
-          - "FAQ answers the normal preview and product questions in plain language."
-          - "Support cases stay separate from optional participation."
-          - "You do not need a GitHub account to ask for help."
+          - "FAQ answers normal product questions in plain language."
+          - "Support cases stay separate from public feedback."
+          - "You do not need another account to ask for help."
   - id: privacy
     eyebrow: "Privacy"
     heading: "What Chummer stores, and what it does not"
@@ -80,11 +79,11 @@ trust_pages:
       - id: hosted-account
         eyebrow: "Account record"
         heading: "Your account keeps sign-in, preferences, and support together"
-        body: "Your Chummer account keeps your basic profile, linked sign-in methods, device access, support cases, and preview preferences together so you do not have to rebuild that history by hand."
+        body: "Your Chummer account keeps your basic profile, linked sign-in methods, device access, support cases, and preferences together so you do not have to rebuild that history by hand."
       - id: install-linking
         eyebrow: "Install linking"
         heading: "The download file is the same for everyone"
-        body: "When Chummer publishes a download, everyone gets the same file. Chummer does not build a private installer just for your account. If linked handoff is available, the account-aware piece is the short-lived receipt or code that reconnects a local copy back to your account."
+        body: "When Chummer publishes a download, everyone gets the same file. Chummer does not build a private installer just for your account. If account linking is available, the account step is a short-lived code that reconnects a local copy back to your account."
       - id: not-in-hub
         eyebrow: "What stays out"
         heading: "Temporary sign-in tokens and raw secrets stay out of your account record"
@@ -95,12 +94,11 @@ trust_pages:
         body: "Participation and recognition remain optional layers. Private product use, private support, and a quiet account setup remain valid even while community pages exist."
   - id: terms
     eyebrow: "Terms"
-    heading: "Preview terms in plain language"
-    intro: "These are the plain rules for the current preview: early access, honest labels, real downloads, and straightforward support."
+    heading: "Terms in plain language"
+    intro: "These are the plain rules for the current app: honest labels, real downloads, and straightforward support."
     effective_date: "2026-03-25"
     updated_date: "2026-03-25"
     summary_points:
-      - "Early access, not finished breadth"
       - "Current downloads when available"
       - "Support starts with Chummer"
     actions:
@@ -114,10 +112,10 @@ trust_pages:
         href: "/help"
         tone: ghost
     sections:
-      - id: preview-posture
-        eyebrow: "Preview status"
-        heading: "The product is real, but still early access"
-        body: "Expect real pages, current downloads, visible proof, and explicit preview labels when support, compatibility, or breadth are still moving."
+      - id: release-labels
+        eyebrow: "Release labels"
+        heading: "Labels should say what you can install"
+        body: "Expect current downloads and explicit labels when support, compatibility, or breadth are still moving."
       - id: account-support
         eyebrow: "Account and support"
         heading: "Sign-in is simple, and support starts with Chummer"
@@ -154,19 +152,19 @@ trust_pages:
       - id: tracked-support
         eyebrow: "Tracked follow-up"
         heading: "Create an account when you want support history inside Chummer"
-        body: "You can submit help here without a GitHub account. Create a Chummer account if you want to see your support history later in one place."
+        body: "You can submit help here without another account. Create a Chummer account if you want to see your support history later in one place."
       - id: public-issues
-        eyebrow: "Advanced public issues"
-        heading: "GitHub is the advanced public bug path, not the main support door"
-        body: "Use the public issue tracker only when you want a public bug thread. Most people should start with Help or Contact."
+        eyebrow: "Public issue threads"
+        heading: "Use public issue threads only when the report should be public"
+        body: "Most people should start with Help or Contact. A public issue thread is only for technical reports you want discussed in public."
 faq_pages:
   - id: faq
     eyebrow: "FAQ"
     heading: "Plain answers before you spend more time"
-    intro: "The public front door should answer the normal questions directly: what is real now, what preview access means, and how to get help without reverse-engineering the repos."
+    intro: "The public front door should answer the normal questions directly: what to install, what an account is for, and how to get help."
     actions:
-      - label: "See what works today"
-        href: "/now"
+      - label: "Open downloads"
+        href: "/downloads"
         tone: primary
       - label: "Open support intake"
         href: "/contact#support-intake"
@@ -178,22 +176,22 @@ faq_pages:
       - title: "Using Chummer"
         entries:
           - question: "Can I actually use Chummer right now?"
-            answer: "Yes, as an honest early-access preview. There is a current public download, a real proof trail, and explicit labels for what is live, inspectable, or still opening next."
-          - question: "Why would I trust it more than an opaque assistant?"
-            answer: "Because the product is trying to keep the result, the trail, and the current release picture visible together instead of asking you to trust mystery math."
+            answer: "Yes. There is a current public download, clear platform labels, and a direct help path when something goes wrong."
+          - question: "Why would I trust what Chummer shows me?"
+            answer: "Because Chummer keeps results and explanations close together in the product."
           - question: "What does account creation give me right away?"
-            answer: "Account creation gives you recovery, support history in Account, and a cleaner return path when linked downloads or account-aware preview features are available."
+            answer: "Account creation gives you recovery, support history in Account, and a cleaner return path when linked installs are available."
       - title: "Downloads and installs"
         entries:
           - question: "Do I need an account to download the current release?"
             answer: "No. The current Linux package is open public. Create an account when you want recovery, tracked support, and a cleaner return path when linked downloads are available."
-          - question: "Do I get a personalized download?"
-            answer: "No. The published package stays the same for everyone. Any account-aware receipt or handoff is separate from the file itself."
+          - question: "Does the account change the download file?"
+            answer: "No. The published package stays the same for everyone. Account linking is separate from the file itself."
           - question: "Where do I go if install or update goes sideways?"
-            answer: "Start with Downloads, then use Contact or Account > Support. GitHub is the advanced public issue path, not the default support door."
+            answer: "Start with Downloads, then use Contact or Account > Support. Public issue threads are optional and not the default support door."
       - title: "Participation and support"
         entries:
           - question: "Do I need to participate to help or report a bug?"
             answer: "No. Support and feedback stand on their own. Participation is optional and separate from the normal customer help path."
-          - question: "Can I get help without a GitHub account?"
+          - question: "Can I get help without another account?"
             answer: "Yes. The first-party support intake is the default help path. Create a Chummer account if you want tracked support history inside your account."

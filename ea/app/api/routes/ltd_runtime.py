@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from app.api.dependencies import RequestContext, get_container, get_request_context, require_operator_context
 from app.container import AppContainer
 from app.domain.models import ToolInvocationRequest
+from app.services.provider_contract_status import build_provider_contract_status
 from app.services.ltd_runtime_catalog import LtdRuntimeAction, LtdRuntimeCatalogService
 from app.services.ltd_runtime_skill_projection import infer_onemin_media_feature_type
 from app.services.ltd_provider_governance import build_ltd_provider_governance_receipt
@@ -143,6 +144,11 @@ def get_provider_lane(lane_key: str) -> dict[str, object]:
         if str(lane.get("lane_key") or "").strip().lower() == normalized:
             return dict(lane)
     raise HTTPException(status_code=404, detail="ltd_provider_lane_not_found")
+
+
+@router.get("/provider-contracts")
+def get_provider_contracts() -> dict[str, object]:
+    return build_provider_contract_status()
 
 
 @router.get("/{service_name}")

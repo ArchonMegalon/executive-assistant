@@ -334,23 +334,19 @@ async def public_memorial_voice_clone(slug: str, request: Request) -> JSONRespon
     if not isinstance(body, dict):
         body = {}
     memory_person_name = _text(memorial.get("person_name"), "Memorial")
-    requested_plugin = _safe_tts_plugin_id(_text(body.get("tts_plugin"), _text(body.get("tts_mode"), UNMIXR_TTS_PLUGIN_ID)))
+    requested_plugin = UNMIXR_TTS_PLUGIN_ID
     voice_label = _text(
         body.get("voice_label"),
-        _text(body.get("label"), f"{memory_person_name} {'Unmixr' if requested_plugin == UNMIXR_TTS_PLUGIN_ID else 'OpenVoice'}"),
+        _text(body.get("label"), f"{memory_person_name} Unmixr"),
     )
-    if requested_plugin == UNMIXR_TTS_PLUGIN_ID:
-        sample_paths = _profile_clip_assets_for_memorial(slug=slug)
-        if not sample_paths:
-            raise HTTPException(status_code=400, detail="voice_profile_no_samples")
-        cloned_voice_id = unmixr_clone_request(
-            slug=slug,
-            voice_label=voice_label,
-            sample_paths=sample_paths[:_TTS_MAX_CLONE_FILES],
-        )
-    else:
-        requested_plugin = OPENVOICE_TTS_PLUGIN_ID
-        cloned_voice_id = _openvoice_clone_from_memorial(slug=slug, voice_label=voice_label)
+    sample_paths = _profile_clip_assets_for_memorial(slug=slug)
+    if not sample_paths:
+        raise HTTPException(status_code=400, detail="voice_profile_no_samples")
+    cloned_voice_id = unmixr_clone_request(
+        slug=slug,
+        voice_label=voice_label,
+        sample_paths=sample_paths[:_TTS_MAX_CLONE_FILES],
+    )
     _save_voice_config_payload(
         slug=slug,
         payload={

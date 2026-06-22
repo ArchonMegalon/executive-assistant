@@ -1,0 +1,14 @@
+;FFMETADATA1
+title=M4B Structure Probe
+artist=EA Probe
+album_artist=EA Probe
+[CHAPTER]
+TIMEBASE=1/1000
+START=0
+END=1200
+title=Opening Signal
+[CHAPTER]
+TIMEBASE=1/1000
+START=1200
+END=2600
+title=Second Signal

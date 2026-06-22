@@ -1,6 +1,6 @@
 @host = http://localhost:8090
 @token = replace_with_token_or_leave_blank
-@principal_id = exec-1
+@principal_id = principal-default
 @session_id = replace_me
 @artifact_id = replace_me
 @evidence_id = replace_me
@@ -482,12 +482,12 @@ POST {{host}}/v1/observations/ingest
 Content-Type: application/json
 
 {
-  "principal_id": "exec-1",
+  "principal_id": "{{principal_id}}",
   "channel": "email",
   "event_type": "thread.opened",
-  "source_id": "gmail:exec-1",
+  "source_id": "gmail:{{principal_id}}",
   "external_id": "msg-42",
-  "dedupe_key": "gmail:exec-1:msg-42",
+  "dedupe_key": "gmail:{{principal_id}}:msg-42",
   "auth_context_json": {
     "scope": "mail.readonly"
   },
@@ -1821,7 +1821,7 @@ POST {{host}}/v1/memory/entities
 Content-Type: application/json
 
 {
-  "principal_id": "exec-1",
+  "principal_id": "{{principal_id}}",
   "entity_type": "person",
   "canonical_name": "Alex Executive",
   "attributes_json": {
@@ -1832,7 +1832,7 @@ Content-Type: application/json
 }
 
 ### Memory -> list entities
-GET {{host}}/v1/memory/entities?limit=20&principal_id=exec-1
+GET {{host}}/v1/memory/entities?limit=20&principal_id={{principal_id}}
 
 ### Memory -> get entity
 GET {{host}}/v1/memory/entities/{{entity_id}}
@@ -1842,7 +1842,7 @@ POST {{host}}/v1/memory/relationships
 Content-Type: application/json
 
 {
-  "principal_id": "exec-1",
+  "principal_id": "{{principal_id}}",
   "from_entity_id": "replace_entity_a",
   "to_entity_id": "replace_entity_b",
   "relationship_type": "reports_to",
@@ -1853,7 +1853,7 @@ Content-Type: application/json
 }
 
 ### Memory -> list relationships
-GET {{host}}/v1/memory/relationships?limit=20&principal_id=exec-1
+GET {{host}}/v1/memory/relationships?limit=20&principal_id={{principal_id}}
 
 ### Memory -> get relationship
 GET {{host}}/v1/memory/relationships/{{relationship_id}}
@@ -1863,7 +1863,7 @@ POST {{host}}/v1/memory/commitments
 Content-Type: application/json
 
 {
-  "principal_id": "exec-1",
+  "principal_id": "{{principal_id}}",
   "title": "Send board follow-up",
   "details": "Draft and send by Friday",
   "status": "open",
@@ -1875,17 +1875,17 @@ Content-Type: application/json
 }
 
 ### Memory -> list commitments (principal-scoped)
-GET {{host}}/v1/memory/commitments?principal_id=exec-1&limit=20
+GET {{host}}/v1/memory/commitments?principal_id={{principal_id}}&limit=20
 
 ### Memory -> get commitment (principal-scoped)
-GET {{host}}/v1/memory/commitments/{{commitment_id}}?principal_id=exec-1
+GET {{host}}/v1/memory/commitments/{{commitment_id}}?principal_id={{principal_id}}
 
 ### Memory -> upsert authority binding (principal-scoped)
 POST {{host}}/v1/memory/authority-bindings
 Content-Type: application/json
 
 {
-  "principal_id": "exec-1",
+  "principal_id": "{{principal_id}}",
   "subject_ref": "assistant",
   "action_scope": "calendar.write",
   "approval_level": "manager",
@@ -1900,17 +1900,17 @@ Content-Type: application/json
 }
 
 ### Memory -> list authority bindings (principal-scoped)
-GET {{host}}/v1/memory/authority-bindings?principal_id=exec-1&limit=20
+GET {{host}}/v1/memory/authority-bindings?principal_id={{principal_id}}&limit=20
 
 ### Memory -> get authority binding (principal-scoped)
-GET {{host}}/v1/memory/authority-bindings/{{authority_binding_id}}?principal_id=exec-1
+GET {{host}}/v1/memory/authority-bindings/{{authority_binding_id}}?principal_id={{principal_id}}
 
 ### Memory -> upsert delivery preference (principal-scoped)
 POST {{host}}/v1/memory/delivery-preferences
 Content-Type: application/json
 
 {
-  "principal_id": "exec-1",
+  "principal_id": "{{principal_id}}",
   "channel": "email",
   "recipient_ref": "ceo@example.com",
   "cadence": "urgent_only",
@@ -1925,17 +1925,17 @@ Content-Type: application/json
 }
 
 ### Memory -> list delivery preferences (principal-scoped)
-GET {{host}}/v1/memory/delivery-preferences?principal_id=exec-1&limit=20
+GET {{host}}/v1/memory/delivery-preferences?principal_id={{principal_id}}&limit=20
 
 ### Memory -> get delivery preference (principal-scoped)
-GET {{host}}/v1/memory/delivery-preferences/{{delivery_preference_id}}?principal_id=exec-1
+GET {{host}}/v1/memory/delivery-preferences/{{delivery_preference_id}}?principal_id={{principal_id}}
 
 ### Memory -> upsert follow-up (principal-scoped)
 POST {{host}}/v1/memory/follow-ups
 Content-Type: application/json
 
 {
-  "principal_id": "exec-1",
+  "principal_id": "{{principal_id}}",
   "stakeholder_ref": "ceo@example.com",
   "topic": "Board follow-up",
   "status": "open",
@@ -1948,17 +1948,17 @@ Content-Type: application/json
 }
 
 ### Memory -> list follow-ups (principal-scoped)
-GET {{host}}/v1/memory/follow-ups?principal_id=exec-1&limit=20
+GET {{host}}/v1/memory/follow-ups?principal_id={{principal_id}}&limit=20
 
 ### Memory -> get follow-up (principal-scoped)
-GET {{host}}/v1/memory/follow-ups/{{follow_up_id}}?principal_id=exec-1
+GET {{host}}/v1/memory/follow-ups/{{follow_up_id}}?principal_id={{principal_id}}
 
 ### Memory -> upsert deadline window (principal-scoped)
 POST {{host}}/v1/memory/deadline-windows
 Content-Type: application/json
 
 {
-  "principal_id": "exec-1",
+  "principal_id": "{{principal_id}}",
   "title": "Board prep delivery window",
   "start_at": "2026-03-07T08:30:00+00:00",
   "end_at": "2026-03-07T10:00:00+00:00",
@@ -1971,17 +1971,17 @@ Content-Type: application/json
 }
 
 ### Memory -> list deadline windows (principal-scoped)
-GET {{host}}/v1/memory/deadline-windows?principal_id=exec-1&limit=20
+GET {{host}}/v1/memory/deadline-windows?principal_id={{principal_id}}&limit=20
 
 ### Memory -> get deadline window (principal-scoped)
-GET {{host}}/v1/memory/deadline-windows/{{window_id}}?principal_id=exec-1
+GET {{host}}/v1/memory/deadline-windows/{{window_id}}?principal_id={{principal_id}}
 
 ### Memory -> upsert stakeholder (principal-scoped)
 POST {{host}}/v1/memory/stakeholders
 Content-Type: application/json
 
 {
-  "principal_id": "exec-1",
+  "principal_id": "{{principal_id}}",
   "display_name": "Sam Stakeholder",
   "channel_ref": "email:sam@example.com",
   "authority_level": "approver",
@@ -2002,17 +2002,17 @@ Content-Type: application/json
 }
 
 ### Memory -> list stakeholders (principal-scoped)
-GET {{host}}/v1/memory/stakeholders?principal_id=exec-1&limit=20
+GET {{host}}/v1/memory/stakeholders?principal_id={{principal_id}}&limit=20
 
 ### Memory -> get stakeholder (principal-scoped)
-GET {{host}}/v1/memory/stakeholders/{{stakeholder_id}}?principal_id=exec-1
+GET {{host}}/v1/memory/stakeholders/{{stakeholder_id}}?principal_id={{principal_id}}
 
 ### Memory -> upsert decision window (principal-scoped)
 POST {{host}}/v1/memory/decision-windows
 Content-Type: application/json
 
 {
-  "principal_id": "exec-1",
+  "principal_id": "{{principal_id}}",
   "title": "Board response decision",
   "context": "Choose timing and channel for reply",
   "opens_at": "2026-03-06T08:00:00+00:00",
@@ -2027,17 +2027,17 @@ Content-Type: application/json
 }
 
 ### Memory -> list decision windows (principal-scoped)
-GET {{host}}/v1/memory/decision-windows?principal_id=exec-1&limit=20
+GET {{host}}/v1/memory/decision-windows?principal_id={{principal_id}}&limit=20
 
 ### Memory -> get decision window (principal-scoped)
-GET {{host}}/v1/memory/decision-windows/{{decision_window_id}}?principal_id=exec-1
+GET {{host}}/v1/memory/decision-windows/{{decision_window_id}}?principal_id={{principal_id}}
 
 ### Memory -> upsert communication policy (principal-scoped)
 POST {{host}}/v1/memory/communication-policies
 Content-Type: application/json
 
 {
-  "principal_id": "exec-1",
+  "principal_id": "{{principal_id}}",
   "scope": "board_threads",
   "preferred_channel": "email",
   "tone": "concise_diplomatic",
@@ -2054,17 +2054,17 @@ Content-Type: application/json
 }
 
 ### Memory -> list communication policies (principal-scoped)
-GET {{host}}/v1/memory/communication-policies?principal_id=exec-1&limit=20
+GET {{host}}/v1/memory/communication-policies?principal_id={{principal_id}}&limit=20
 
 ### Memory -> get communication policy (principal-scoped)
-GET {{host}}/v1/memory/communication-policies/{{policy_id}}?principal_id=exec-1
+GET {{host}}/v1/memory/communication-policies/{{policy_id}}?principal_id={{principal_id}}
 
 ### Memory -> upsert follow-up rule (principal-scoped)
 POST {{host}}/v1/memory/follow-up-rules
 Content-Type: application/json
 
 {
-  "principal_id": "exec-1",
+  "principal_id": "{{principal_id}}",
   "name": "Board reminder escalation",
   "trigger_kind": "deadline_risk",
   "channel_scope": [
@@ -2085,17 +2085,17 @@ Content-Type: application/json
 }
 
 ### Memory -> list follow-up rules (principal-scoped)
-GET {{host}}/v1/memory/follow-up-rules?principal_id=exec-1&limit=20
+GET {{host}}/v1/memory/follow-up-rules?principal_id={{principal_id}}&limit=20
 
 ### Memory -> get follow-up rule (principal-scoped)
-GET {{host}}/v1/memory/follow-up-rules/{{rule_id}}?principal_id=exec-1
+GET {{host}}/v1/memory/follow-up-rules/{{rule_id}}?principal_id={{principal_id}}
 
 ### Memory -> upsert interruption budget (principal-scoped)
 POST {{host}}/v1/memory/interruption-budgets
 Content-Type: application/json
 
 {
-  "principal_id": "exec-1",
+  "principal_id": "{{principal_id}}",
   "scope": "workday",
   "window_kind": "daily",
   "budget_minutes": 120,
@@ -2110,7 +2110,7 @@ Content-Type: application/json
 }
 
 ### Memory -> list interruption budgets (principal-scoped)
-GET {{host}}/v1/memory/interruption-budgets?principal_id=exec-1&limit=20
+GET {{host}}/v1/memory/interruption-budgets?principal_id={{principal_id}}&limit=20
 
 ### Memory -> get interruption budget (principal-scoped)
-GET {{host}}/v1/memory/interruption-budgets/{{interruption_budget_id}}?principal_id=exec-1
+GET {{host}}/v1/memory/interruption-budgets/{{interruption_budget_id}}?principal_id={{principal_id}}

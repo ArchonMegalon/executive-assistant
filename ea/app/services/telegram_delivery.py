@@ -1,21 +1,27 @@
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import hmac
 import json
 import mimetypes
 import os
 import subprocess
+import tempfile
 import time
 import uuid
+import urllib.parse
 import urllib.request
 from urllib.error import HTTPError, URLError
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from app.domain.models import ConnectorBinding
 from app.services.telegram_onboarding_service import TELEGRAM_IDENTITY_CONNECTOR
-from app.services.tool_runtime import ToolRuntimeService
+
+if TYPE_CHECKING:
+    from app.services.tool_runtime import ToolRuntimeService
 
 _TELEGRAM_MESSAGE_LIMIT = 4000
 _TELEGRAM_CAPTION_LIMIT = 1024
@@ -41,6 +47,25 @@ def _telegram_retry_backoff_seconds() -> float:
 def _telegram_upload_max_bytes() -> int:
     default_limit = 50 * 1024 * 1024
     return max(int(str(os.getenv("EA_TELEGRAM_UPLOAD_MAX_BYTES") or str(default_limit)).strip() or str(default_limit)), 1)
+
+
+def _telegram_env_bool(name: str, default: bool) -> bool:
+    raw = str(os.getenv(name) or "").strip().lower()
+    if not raw:
+        return default
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def _telegram_csv_env(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    raw = str(os.getenv(name) or "").strip()
+    if not raw:
+        return default
+    values = [item.strip() for item in raw.replace(";", ",").split(",") if item.strip()]
+    return tuple(values) or default
 
 
 @dataclass(frozen=True)
@@ -243,6 +268,75 @@ def _telegram_video_has_audio(video_ref: str) -> bool:
     return any(str(dict(stream).get("codec_type") or "").strip().lower() == "audio" for stream in streams if isinstance(stream, dict))
 
 
+def telegram_video_delivery_audio_policy() -> dict[str, object]:
+    fallback_tts_enabled = _telegram_env_bool("EA_TELEGRAM_VIDEO_FALLBACK_TTS_ENABLED", True)
+    fallback_tts_providers = list(
+        _telegram_csv_env(
+            "EA_TELEGRAM_VIDEO_FALLBACK_TTS_PROVIDERS",
+            ("piper_fast",),
+        )
+    )
+    return {
+        "local_video_final_audio_probe_required": True,
+        "remote_video_audio_probe_required": True,
+        "fallback_audio_text_preferred_before_silence": True,
+        "silent_track_is_last_resort": True,
+        "fallback_tts_enabled_default": fallback_tts_enabled,
+        "fallback_tts_providers": fallback_tts_providers,
+    }
+
+
+def _telegram_video_redacted_path(raw_url: str) -> str:
+    parsed = urllib.parse.urlparse(str(raw_url or "").strip())
+    path = str(parsed.path or "").strip()
+    if not path:
+        return ""
+    if "/bot" in path:
+        prefix, suffix = path.split("/bot", 1)
+        tokenless_suffix = suffix.split("/", 1)[1] if "/" in suffix else ""
+        if tokenless_suffix:
+            return f"{prefix}/bot<redacted>/{tokenless_suffix}".replace("//", "/")
+        return f"{prefix}/bot<redacted>".replace("//", "/")
+    return path
+
+
+def telegram_video_source_receipt_context(payload: dict[str, object]) -> dict[str, object]:
+    source_video = dict(payload.get("source_video") or {}) if isinstance(payload.get("source_video"), dict) else {}
+    raw_url = str(
+        source_video.get("source_url")
+        or payload.get("video_download_url")
+        or payload.get("source_video_url")
+        or ""
+    ).strip()
+    parsed = urllib.parse.urlparse(raw_url) if raw_url else None
+    frame_paths = payload.get("source_video_reference_frame_paths")
+    if isinstance(frame_paths, (list, tuple)):
+        frame_count = len([item for item in frame_paths if str(item or "").strip()])
+    else:
+        frame_count = int(source_video.get("source_video_reference_frame_count") or 0)
+    board_present = bool(
+        str(payload.get("source_video_reference_board_path") or "").strip()
+        or bool(source_video.get("source_video_reference_board_present"))
+    )
+    duration_seconds = payload.get("video_duration_seconds")
+    if duration_seconds in {None, ""}:
+        duration_seconds = source_video.get("source_video_duration_seconds")
+    context = {
+        "has_source_video": bool(raw_url),
+        "source_url_raw_stored": False,
+        "source_url_sha256": hashlib.sha256(raw_url.encode("utf-8")).hexdigest() if raw_url else "",
+        "source_host": str(parsed.netloc or "").strip().lower() if parsed else "",
+        "source_path_redacted": _telegram_video_redacted_path(raw_url),
+        "source_video_duration_seconds": duration_seconds if duration_seconds not in {None, ""} else 0,
+        "source_video_reference_board_present": board_present,
+        "source_video_reference_frame_count": max(frame_count, 0),
+    }
+    for key, value in source_video.items():
+        if key not in context and key not in {"source_url"}:
+            context[key] = value
+    return context
+
+
 def _extract_video_ref(*, output_json: dict[str, object]) -> str:
     for key in ("asset_url", "download_url", "video_url", "asset_path"):
         value = str(output_json.get(key) or "").strip()
@@ -300,6 +394,144 @@ def _guess_content_type(file_ref: str, *, fallback: str = "application/octet-str
     return str(guessed or fallback).strip() or fallback
 
 
+def _telegram_video_render_fallback_audio_path(*, source_path: Path, text: str, language: str) -> Path:
+    normalized_text = " ".join(str(text or "").split()).strip()
+    if not normalized_text:
+        raise RuntimeError("telegram_video_fallback_audio_text_missing")
+    from app.services.memorial_openvoice import piper_fast_synthesize_request
+
+    try:
+        audio_bytes, content_type = piper_fast_synthesize_request(
+            text=normalized_text,
+            lang=str(language or "en").strip() or "en",
+            base_voice_variant="default",
+        )
+    except Exception as exc:  # pragma: no cover - network/runtime dependent
+        raise RuntimeError("telegram_video_fallback_audio_render_failed") from exc
+    suffix = ".wav"
+    normalized_content_type = str(content_type or "").strip().lower()
+    if "mpeg" in normalized_content_type or "mp3" in normalized_content_type:
+        suffix = ".mp3"
+    elif "ogg" in normalized_content_type:
+        suffix = ".ogg"
+    fd, raw_path = tempfile.mkstemp(prefix="ea-telegram-video-fallback-audio-", suffix=suffix)
+    os.close(fd)
+    path = Path(raw_path)
+    path.write_bytes(audio_bytes)
+    return path
+
+
+def _telegram_video_with_attached_audio(source_path: str | Path, rendered_audio_path: str | Path) -> tuple[str, Path]:
+    ffmpeg_bin = str(os.getenv("EA_FFMPEG_BIN") or "ffmpeg").strip() or "ffmpeg"
+    source = Path(source_path).expanduser().resolve()
+    audio = Path(rendered_audio_path).expanduser().resolve()
+    fd, raw_path = tempfile.mkstemp(prefix="ea-telegram-video-with-audio-", suffix=".mp4")
+    os.close(fd)
+    output_path = Path(raw_path)
+    completed = subprocess.run(
+        [
+            ffmpeg_bin,
+            "-y",
+            "-i",
+            str(source),
+            "-i",
+            str(audio),
+            "-filter_complex",
+            "[1:a]apad[a]",
+            "-map",
+            "0:v:0",
+            "-map",
+            "[a]",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-shortest",
+            "-movflags",
+            "+faststart",
+            str(output_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=max(int(str(os.getenv("EA_TELEGRAM_VIDEO_NORMALIZE_TIMEOUT_SECONDS") or "180").strip() or "180"), 30),
+    )
+    if completed.returncode != 0 or not output_path.exists():
+        with contextlib.suppress(FileNotFoundError):
+            output_path.unlink()
+        raise RuntimeError("telegram_video_add_audio_failed")
+    return str(output_path), output_path
+
+
+def _telegram_video_with_silent_audio(source_path: str | Path) -> tuple[str, Path]:
+    ffmpeg_bin = str(os.getenv("EA_FFMPEG_BIN") or "ffmpeg").strip() or "ffmpeg"
+    source = Path(source_path).expanduser().resolve()
+    fd, raw_path = tempfile.mkstemp(prefix="ea-telegram-video-silent-audio-", suffix=".mp4")
+    os.close(fd)
+    output_path = Path(raw_path)
+    completed = subprocess.run(
+        [
+            ffmpeg_bin,
+            "-y",
+            "-i",
+            str(source),
+            "-f",
+            "lavfi",
+            "-i",
+            "anullsrc=channel_layout=stereo:sample_rate=44100",
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-shortest",
+            "-movflags",
+            "+faststart",
+            str(output_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=max(int(str(os.getenv("EA_TELEGRAM_VIDEO_NORMALIZE_TIMEOUT_SECONDS") or "180").strip() or "180"), 30),
+    )
+    if completed.returncode != 0 or not output_path.exists():
+        with contextlib.suppress(FileNotFoundError):
+            output_path.unlink()
+        raise RuntimeError("telegram_video_add_audio_failed")
+    return str(output_path), output_path
+
+
+def _telegram_video_with_fallback_audio(
+    source_path: str,
+    audio_ref: str = "",
+    fallback_audio_text: str = "",
+    fallback_audio_language: str = "",
+) -> tuple[str, Path]:
+    normalized_source_path = Path(str(source_path or "").strip()).expanduser()
+    if not normalized_source_path.is_file():
+        raise RuntimeError("telegram_video_source_path_missing")
+    normalized_audio_ref = Path(str(audio_ref or "").strip()).expanduser() if str(audio_ref or "").strip() else None
+    if normalized_audio_ref is not None and normalized_audio_ref.is_file() and _telegram_video_has_audio(str(normalized_audio_ref)):
+        return _telegram_video_with_attached_audio(normalized_source_path, normalized_audio_ref)
+    rendered_audio_path: Path | None = None
+    if str(fallback_audio_text or "").strip() and telegram_video_delivery_audio_policy().get("fallback_tts_enabled_default") is True:
+        try:
+            rendered_audio_path = _telegram_video_render_fallback_audio_path(
+                source_path=normalized_source_path,
+                text=str(fallback_audio_text or "").strip(),
+                language=str(fallback_audio_language or "en").strip() or "en",
+            )
+            return _telegram_video_with_attached_audio(normalized_source_path, rendered_audio_path)
+        finally:
+            if rendered_audio_path is not None:
+                with contextlib.suppress(FileNotFoundError):
+                    rendered_audio_path.unlink()
+    return _telegram_video_with_silent_audio(normalized_source_path)
+
+
 def _telegram_remote_ref_reachable(file_ref: str) -> bool:
     normalized = str(file_ref or "").strip()
     if not normalized.lower().startswith(("http://", "https://")):
@@ -335,7 +567,7 @@ def _telegram_binding_principal_candidates(principal_id: str) -> tuple[str, ...]
     return tuple(ordered)
 
 
-def resolve_primary_telegram_binding(tool_runtime: ToolRuntimeService, *, principal_id: str) -> ConnectorBinding | None:
+def resolve_primary_telegram_binding(tool_runtime: "ToolRuntimeService", *, principal_id: str) -> ConnectorBinding | None:
     def _sort_key(item: ConnectorBinding) -> tuple[int, int, str]:
         metadata = dict(item.auth_metadata_json or {})
         chat_ref = str(metadata.get("default_chat_ref") or item.external_account_ref or "").strip()
@@ -363,7 +595,7 @@ def resolve_primary_telegram_binding(tool_runtime: ToolRuntimeService, *, princi
 
 
 def send_telegram_chat_action_for_principal(
-    tool_runtime: ToolRuntimeService,
+    tool_runtime: "ToolRuntimeService",
     *,
     principal_id: str,
     action: str = "typing",
@@ -414,7 +646,7 @@ def send_telegram_chat_action_for_principal(
 
 
 def send_telegram_message_for_principal(
-    tool_runtime: ToolRuntimeService,
+    tool_runtime: "ToolRuntimeService",
     *,
     principal_id: str,
     text: str,
@@ -474,7 +706,7 @@ def send_telegram_message_for_principal(
 
 
 def send_telegram_photo_for_principal(
-    tool_runtime: ToolRuntimeService,
+    tool_runtime: "ToolRuntimeService",
     *,
     principal_id: str,
     photo_ref: str,
@@ -582,7 +814,7 @@ def _telegram_feedback_signature(
 
 
 def build_telegram_feedback_callback_data_for_principal(
-    tool_runtime: ToolRuntimeService,
+    tool_runtime: "ToolRuntimeService",
     *,
     principal_id: str,
     notification_key: str,
@@ -652,12 +884,66 @@ def decode_telegram_feedback_callback_data(
     }
 
 
+def record_telegram_video_delivery_receipt(
+    channel_runtime,
+    *,
+    principal_id: str,
+    chat_id: str,
+    source_message_id: str,
+    provider: str,
+    status: str,
+    source_payload: dict[str, object],
+    message_ids: list[object] | tuple[object, ...] | None = None,
+    error: str = "",
+    sidecar: dict[str, object] | None = None,
+) -> dict[str, object]:
+    payload = {
+        "receipt_type": "telegram_video_delivery",
+        "chat_id": str(chat_id or "").strip(),
+        "source_message_id": str(source_message_id or "").strip(),
+        "provider": str(provider or "").strip(),
+        "status": str(status or "").strip(),
+        "delivery_kind": "video",
+        "telegram_method": "sendVideo",
+        "message_ids": [str(item or "").strip() for item in list(message_ids or []) if str(item or "").strip()],
+        "error": str(error or "").strip(),
+        "source_video": telegram_video_source_receipt_context(dict(source_payload or {})),
+    }
+    if sidecar:
+        payload["sidecar"] = dict(sidecar)
+    dedupe_key = ":".join(
+        item
+        for item in (
+            "telegram_video_delivery",
+            str(chat_id or "").strip(),
+            str(source_message_id or "").strip(),
+            str(provider or "").strip(),
+            str(status or "").strip(),
+            ",".join(payload["message_ids"]),
+        )
+        if item
+    )
+    if hasattr(channel_runtime, "ingest_observation"):
+        channel_runtime.ingest_observation(
+            principal_id=str(principal_id or "").strip(),
+            channel="telegram",
+            event_type="telegram.video_delivery_receipt",
+            payload=payload,
+            source_id=f"telegram:{str(chat_id or '').strip()}" if str(chat_id or "").strip() else "telegram",
+            external_id=str(source_message_id or "").strip(),
+            dedupe_key=dedupe_key,
+        )
+    return payload
+
+
 def send_telegram_video_for_principal(
-    tool_runtime: ToolRuntimeService,
+    tool_runtime: "ToolRuntimeService",
     *,
     principal_id: str,
     video_ref: str,
     audio_probe_ref: str = "",
+    fallback_audio_text: str = "",
+    fallback_audio_language: str = "",
     caption: str = "",
 ) -> TelegramDeliveryReceipt:
     binding = resolve_primary_telegram_binding(tool_runtime, principal_id=principal_id)
@@ -678,38 +964,59 @@ def send_telegram_video_for_principal(
     normalized_video_ref = str(video_ref or "").strip()
     if not normalized_video_ref:
         raise RuntimeError("telegram_video_ref_missing")
-    normalized_probe_ref = str(audio_probe_ref or normalized_video_ref).strip()
-    has_audio = _telegram_video_has_audio(normalized_probe_ref)
-    if Path(normalized_video_ref).is_file():
-        method = "sendVideo" if has_audio else "sendDocument"
-        file_field = "video" if has_audio else "document"
-        result = _telegram_send_multipart(
-            token=token,
-            method=method,
-            fields={
-                "chat_id": chat_id,
-                "caption": _telegram_caption(caption),
-                **({"supports_streaming": "true"} if has_audio else {}),
-            },
-            file_field=file_field,
-            file_path=normalized_video_ref,
-            content_type=_guess_content_type(normalized_video_ref, fallback="video/mp4"),
-        )
-    else:
-        if not has_audio:
+    normalized_probe_ref = str(audio_probe_ref or "").strip()
+    original_video_path = Path(normalized_video_ref).resolve() if Path(normalized_video_ref).is_file() else None
+    effective_video_ref = normalized_video_ref
+    temporary_video_path: Path | None = None
+    video_has_audio = _telegram_video_has_audio(normalized_video_ref)
+    probe_has_audio = _telegram_video_has_audio(normalized_probe_ref) if normalized_probe_ref else False
+    if not video_has_audio:
+        try:
+            effective_video_ref, temporary_video_path = _telegram_video_with_fallback_audio(
+                normalized_video_ref,
+                audio_ref=normalized_probe_ref if probe_has_audio else "",
+                fallback_audio_text=str(fallback_audio_text or "").strip(),
+                fallback_audio_language=str(fallback_audio_language or "").strip(),
+            )
+        except Exception as exc:
+            raise RuntimeError("telegram_video_audio_missing") from exc
+        if not _telegram_video_has_audio(str(effective_video_ref or "").strip()):
+            if temporary_video_path is not None and temporary_video_path.exists():
+                with contextlib.suppress(FileNotFoundError):
+                    temporary_video_path.unlink()
             raise RuntimeError("telegram_video_audio_missing")
-        if not _telegram_remote_ref_reachable(normalized_video_ref):
-            raise RuntimeError("telegram_video_unreachable")
-        result = _telegram_send_json(
-            token=token,
-            method="sendVideo",
-            payload={
-                "chat_id": chat_id,
-                "video": normalized_video_ref,
-                "caption": _telegram_caption(caption),
-                "supports_streaming": True,
-            },
-        )
+    try:
+        if Path(effective_video_ref).is_file():
+            result = _telegram_send_multipart(
+                token=token,
+                method="sendVideo",
+                fields={
+                    "chat_id": chat_id,
+                    "caption": _telegram_caption(caption),
+                    "supports_streaming": "true",
+                },
+                file_field="video",
+                file_path=effective_video_ref,
+                content_type=_guess_content_type(effective_video_ref, fallback="video/mp4"),
+            )
+        else:
+            if not _telegram_remote_ref_reachable(effective_video_ref):
+                raise RuntimeError("telegram_video_unreachable")
+            result = _telegram_send_json(
+                token=token,
+                method="sendVideo",
+                payload={
+                    "chat_id": chat_id,
+                    "video": effective_video_ref,
+                    "caption": _telegram_caption(caption),
+                    "supports_streaming": True,
+                },
+            )
+    finally:
+        if temporary_video_path is not None and temporary_video_path.exists():
+            if original_video_path is None or temporary_video_path.resolve() != original_video_path:
+                with contextlib.suppress(FileNotFoundError):
+                    temporary_video_path.unlink()
     return TelegramDeliveryReceipt(
         principal_id=str(principal_id or "").strip(),
         chat_id=chat_id,
@@ -720,7 +1027,7 @@ def send_telegram_video_for_principal(
 
 
 def send_telegram_audio_for_principal(
-    tool_runtime: ToolRuntimeService,
+    tool_runtime: "ToolRuntimeService",
     *,
     principal_id: str,
     audio_ref: str,
@@ -771,7 +1078,7 @@ def send_telegram_audio_for_principal(
 
 
 def send_telegram_document_for_principal(
-    tool_runtime: ToolRuntimeService,
+    tool_runtime: "ToolRuntimeService",
     *,
     principal_id: str,
     document_ref: str,

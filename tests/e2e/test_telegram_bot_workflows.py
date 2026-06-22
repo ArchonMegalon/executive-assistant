@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
+import zipfile
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -57,12 +60,21 @@ class _TelegramScenarioAgent:
         assert response.status_code == 200
         return response.json()
 
+    def send_callback_query(self, payload: dict[str, object]) -> dict[str, object]:
+        response = self.client.post(
+            "/v1/channels/telegram/ingest",
+            headers={"X-Telegram-Bot-Api-Secret-Token": self.secret},
+            json={"callback_query": dict(payload)},
+        )
+        assert response.status_code == 200
+        return response.json()
+
 
 def test_telegram_bot_workflow_routes_documents_photos_and_ltd_actions(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-e2e-routing")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-e2e-routing")
     monkeypatch.setenv("EA_ANSWERLY_ONEDRIVE_API_KEY", "onedrive-key")
     monkeypatch.setenv("EA_ANSWERLY_ONEDRIVE_AGENT_ID", "onedrive-agent")
@@ -96,7 +108,7 @@ def test_telegram_bot_workflow_routes_documents_photos_and_ltd_actions(monkeypat
             self.token_status = "active"
             self.binding = type("Binding", (), {"status": "enabled"})()
             self.granted_scopes = [channels_route.google_oauth_service.GOOGLE_SCOPE_PHOTOS_PICKER]
-            self.google_email = "tibor.girschele@gmail.com"
+            self.google_email = "principal@example.test"
 
     def _fake_answerly_chat(*, config, message, conversation_id=""):
         answerly_calls.append({"scope": config["scope"], "label": config["label"], "message": message})
@@ -248,7 +260,7 @@ def test_telegram_bot_workflow_media_prompts(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-e2e-media")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-e2e-media")
 
     from app.api.routes import channels as channels_route
@@ -332,14 +344,731 @@ def test_telegram_bot_workflow_media_prompts(monkeypatch: pytest.MonkeyPatch) ->
     assert dict(scheduled[-1]["async_payload"] or {})["instruction_text"] == "pull the key points and any risks from that video"
     assert dict(scheduled[-1]["async_payload"] or {})["video_file_id"] == "video-followup-file"
 
-    assert len(sent) == 6
+    audiobook_request = agent.ask("Audiobook plz")
+    assert audiobook_request["reply_sent"] is True
+    assert "Send the EPUB, AZW, AZW3, or MOBI file here in Telegram" in str(audiobook_request["reply_text"])
+    assert "Pocket recording" not in str(audiobook_request["reply_text"])
+
+    assert len(sent) == 7
+
+
+def test_telegram_epub_webhook_sends_three_voice_samples_with_inline_controls(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-e2e-audiobook")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-e2e-audiobook")
+    monkeypatch.setenv("EA_TELEGRAM_CALLBACK_SECRET", "callback-secret")
+    monkeypatch.setenv("EA_AUDIOBOOK_ALLOW_NON_DURABLE_STORAGE", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(tmp_path / "jobs"))
+    monkeypatch.setenv("EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_AUTO_RENDER", "1")
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+        json.dumps(
+            [
+                {"voice_id": "voice-one", "label": "Voice One", "language": "en-US", "tags": ["audiobook", "narration", "clear"]},
+                {"voice_id": "voice-two", "label": "Voice Two", "language": "en-US", "tags": ["audiobook", "narration", "warm"]},
+                {"voice_id": "voice-three", "label": "Voice Three", "language": "en-US", "tags": ["audiobook", "narration", "story"]},
+            ]
+        ),
+    )
+    from app.api.routes import channels as channels_route
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    class _InlineExecutor:
+        def submit(self, fn, *args, **kwargs):  # noqa: ANN001
+            fn(*args, **kwargs)
+            return SimpleNamespace()
+
+    class _FakeResponse:
+        def __init__(self, message_id: int) -> None:
+            self._message_id = message_id
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": self._message_id}}).encode("utf-8")
+
+    def _write_epub(path: Path) -> None:
+        with zipfile.ZipFile(path, "w") as book:
+            book.writestr("mimetype", "application/epub+zip")
+            book.writestr(
+                "META-INF/container.xml",
+                """<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>
+""",
+            )
+            book.writestr(
+                "OEBPS/content.opf",
+                """<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid" version="2.0">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>Telegram Sample Book</dc:title>
+    <dc:creator>A. Writer</dc:creator>
+    <dc:language>en-US</dc:language>
+  </metadata>
+  <manifest>
+    <item id="chap1" href="chapters/chapter-1.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine>
+    <itemref idref="chap1"/>
+  </spine>
+</package>
+""",
+            )
+            book.writestr(
+                "OEBPS/chapters/chapter-1.xhtml",
+                "<html><head><title>Opening</title></head><body><h1>Opening</h1><p>Hello from the sample audiobook. It should let the listener compare voices before the full render.</p></body></html>",
+            )
+
+    source_epub = tmp_path / "sample.epub"
+    _write_epub(source_epub)
+    sent_messages: list[dict[str, object]] = []
+    sent_audio_bodies: list[bytes] = []
+
+    def _fake_urlopen(request, timeout=30):
+        url = str(getattr(request, "full_url", ""))
+        body = bytes(getattr(request, "data", b"") or b"")
+        if url.endswith("/sendAudio"):
+            sent_audio_bodies.append(body)
+        elif url.endswith("/sendMessage"):
+            sent_messages.append(json.loads(body.decode("utf-8")))
+        return _FakeResponse(18000 + len(sent_messages) + len(sent_audio_bodies))
+
+    def _fake_resolve_telegram_message_payload(**kwargs):
+        payload = dict(kwargs.get("payload") or {})
+        metadata = dict(payload.get("message_metadata") or {})
+        if str(payload.get("kind") or "").strip().lower() == "document":
+            metadata["download_url"] = "https://api.telegram.org/file/botTOKEN/books/sample.epub"
+            payload["message_metadata"] = metadata
+            payload["text"] = "Document: sample.epub"
+        return payload
+
+    def _fake_download_telegram_epub(*, source_url: str, target_path: Path, max_bytes: int | None = None) -> dict[str, object]:
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        target_path.write_bytes(source_epub.read_bytes())
+        return {"bytes": target_path.stat().st_size, "sha256": "test-sha", "archive_validation": {"status": "pass"}}
+
+    monkeypatch.setattr(channels_route, "_TELEGRAM_ASYNC_EXECUTOR", _InlineExecutor())
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(channels_route, "resolve_telegram_message_payload", _fake_resolve_telegram_message_payload)
+    monkeypatch.setattr(pipeline, "download_telegram_epub", _fake_download_telegram_epub)
+    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", lambda **kwargs: (b"fake-wav", "audio/wav"))
+    monkeypatch.setattr(pipeline, "_normalize_rendered_audio_file", lambda path: path)
+
+    client = _client(principal_id="")
+    agent = _TelegramScenarioAgent(client, secret="tg-secret")
+    response = agent.send_message_payload(
+        {
+            "document": {
+                "file_id": "epub-file-1",
+                "file_name": "sample.epub",
+                "mime_type": "application/epub+zip",
+                "file_size": source_epub.stat().st_size,
+            },
+            "caption": "Audiobook plz",
+        }
+    )
+
+    assert response["reply_sent"] is True
+    assert "preparing an audiobook job" in str(response["reply_text"])
+    assert len(sent_audio_bodies) == 3
+    assert any("I sent 3 short voice samples" in str(message.get("text") or "") for message in sent_messages)
+    for body in sent_audio_bodies:
+        assert b"Use this" in body
+        assert b"Dismiss" in body
+        assert b"ab|u|" in body
+        assert b"ab|d|" in body
+        assert b'filename="' in body
+    rendered_audio_payload = b"\n".join(sent_audio_bodies).decode("utf-8", "replace")
+    assert "Voice One" in rendered_audio_payload
+    assert "Voice Two" in rendered_audio_payload
+    assert "Voice Three" in rendered_audio_payload
+
+
+def test_telegram_epub_webhook_dismiss_replaces_voice_sample_immediately(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_epub = tmp_path / "sample.epub"
+    with zipfile.ZipFile(source_epub, "w") as book:
+        book.writestr("mimetype", "application/epub+zip")
+        book.writestr(
+            "META-INF/container.xml",
+            """<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>
+""",
+        )
+        book.writestr(
+            "OEBPS/content.opf",
+            """<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid" version="2.0">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>Telegram Replacements</dc:title>
+    <dc:creator>Replacement Author</dc:creator>
+    <dc:language>en-US</dc:language>
+  </metadata>
+  <manifest>
+    <item id="chap1" href="chapters/chapter-1.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine>
+    <itemref idref="chap1"/>
+  </spine>
+</package>
+""",
+        )
+        book.writestr(
+            "OEBPS/chapters/chapter-1.xhtml",
+            "<html><head><title>Opening</title></head><body><h1>Opening</h1><p>Short opening scene for replacement checks.</p></body></html>",
+        )
+
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-e2e-audiobook-replace")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-e2e-audiobook-replace")
+    monkeypatch.setenv("EA_TELEGRAM_CALLBACK_SECRET", "callback-secret")
+    monkeypatch.setenv("EA_AUDIOBOOK_ALLOW_NON_DURABLE_STORAGE", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(tmp_path / "jobs"))
+    monkeypatch.setenv("EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_AUTO_RENDER", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED", "0")
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+        json.dumps(
+            [
+                {"voice_id": f"voice-{index}", "label": f"Voice {index}", "language": "en-US", "tags": ["audiobook", "narration"]}
+                for index in range(1, 6)
+            ]
+        ),
+    )
+    from app.api.routes import channels as channels_route
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    class _InlineExecutor:
+        def submit(self, fn, *args, **kwargs):  # noqa: ANN001
+            fn(*args, **kwargs)
+            return SimpleNamespace()
+
+    class _FakeResponse:
+        def __init__(self, message_id: int) -> None:
+            self._message_id = message_id
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": self._message_id}}).encode("utf-8")
+
+    sent_messages: list[dict[str, object]] = []
+    sent_audio_bodies: list[bytes] = []
+
+    def _fake_urlopen(request, timeout=30):
+        url = str(getattr(request, "full_url", ""))
+        body = bytes(getattr(request, "data", b"") or b"")
+        if url.endswith("/sendAudio"):
+            sent_audio_bodies.append(body)
+        elif url.endswith("/sendMessage"):
+            sent_messages.append(json.loads(body.decode("utf-8")))
+        return _FakeResponse(18000 + len(sent_messages) + len(sent_audio_bodies))
+
+    def _fake_resolve_telegram_message_payload(**kwargs):
+        payload = dict(kwargs.get("payload") or {})
+        metadata = dict(payload.get("message_metadata") or {})
+        if str(payload.get("kind") or "").strip().lower() == "document":
+            metadata["download_url"] = "https://api.telegram.org/file/botTOKEN/books/sample.epub"
+            payload["message_metadata"] = metadata
+            payload["text"] = "Document: sample.epub"
+        return payload
+
+    def _fake_download_telegram_epub(*, source_url: str, target_path: Path, max_bytes: int | None = None) -> dict[str, object]:
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        target_path.write_bytes(source_epub.read_bytes())
+        return {"bytes": target_path.stat().st_size, "sha256": "test-sha", "archive_validation": {"status": "pass"}}
+
+    def _extract_dismiss_callback(body: bytes) -> str:
+        text = body.decode("utf-8", "replace")
+        match = re.search(r'"text":"Dismiss","callback_data":"([^"\\]+)"', text)
+        assert match is not None
+        return match.group(1)
+
+    monkeypatch.setattr(channels_route, "_TELEGRAM_ASYNC_EXECUTOR", _InlineExecutor())
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(channels_route, "resolve_telegram_message_payload", _fake_resolve_telegram_message_payload)
+    monkeypatch.setattr(pipeline, "download_telegram_epub", _fake_download_telegram_epub)
+    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", lambda **kwargs: (b"fake-wav", "audio/wav"))
+    monkeypatch.setattr(pipeline, "_normalize_rendered_audio_file", lambda path: path)
+
+    client = _client(principal_id="")
+    agent = _TelegramScenarioAgent(client, secret="tg-secret")
+    response = agent.send_message_payload(
+        {
+            "document": {
+                "file_id": "epub-file-1",
+                "file_name": "sample.epub",
+                "mime_type": "application/epub+zip",
+                "file_size": source_epub.stat().st_size,
+            },
+            "caption": "Audiobook plz",
+        }
+    )
+
+    assert response["reply_sent"] is True
+    assert "preparing an audiobook job" in str(response["reply_text"])
+    assert len(sent_audio_bodies) == 3
+
+    dismiss_callback = _extract_dismiss_callback(sent_audio_bodies[0])
+    dismissal_response = agent.send_callback_query(
+        {
+            "id": "dismiss-callback-1",
+            "from": {"id": agent.chat_id, "first_name": "Tester"},
+            "message": {
+                "message_id": 123456,
+                "chat": {"id": agent.chat_id, "type": "private"},
+            },
+            "data": dismiss_callback,
+        }
+    )
+
+    assert dismissal_response["reply_sent"] is True
+    assert "I sent 1 replacement audiobook voice sample" in str(dismissal_response["reply_text"])
+    assert len(sent_audio_bodies) == 4
+
+    dismiss_callback_2 = _extract_dismiss_callback(sent_audio_bodies[-1])
+    dismissal_response_2 = agent.send_callback_query(
+        {
+            "id": "dismiss-callback-2",
+            "from": {"id": agent.chat_id, "first_name": "Tester"},
+            "message": {
+                "message_id": 123456,
+                "chat": {"id": agent.chat_id, "type": "private"},
+            },
+            "data": dismiss_callback_2,
+        }
+    )
+
+    assert dismissal_response_2["reply_sent"] is True
+    assert "replacement audiobook voice sample" in str(dismissal_response_2["reply_text"])
+    assert len(sent_audio_bodies) == 5
+
+    dismiss_callback_3 = _extract_dismiss_callback(sent_audio_bodies[-1])
+    dismissal_response_3 = agent.send_callback_query(
+        {
+            "id": "dismiss-callback-3",
+            "from": {"id": agent.chat_id, "first_name": "Tester"},
+            "message": {
+                "message_id": 123456,
+                "chat": {"id": agent.chat_id, "type": "private"},
+            },
+            "data": dismiss_callback_3,
+        }
+    )
+
+    assert dismissal_response_3["reply_sent"] is True
+    assert (
+        "replacement audiobook voice sample" in str(dismissal_response_3["reply_text"])
+        or "No replacement audiobook voice is available yet." in str(dismissal_response_3["reply_text"])
+        or "No more configured audiobook voice samples" in str(dismissal_response_3["reply_text"])
+    )
+
+
+def test_telegram_epub_webhook_dismiss_replaces_voice_sample_immediately_with_small_catalog(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import channels as channels_route
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    source_epub = tmp_path / "sample.epub"
+    with zipfile.ZipFile(source_epub, "w") as book:
+        book.writestr("mimetype", "application/epub+zip")
+        book.writestr(
+            "META-INF/container.xml",
+            """<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>
+""",
+        )
+        book.writestr(
+            "OEBPS/content.opf",
+            """<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid" version="2.0">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>Small Catalog Replacement</dc:title>
+    <dc:creator>Replacement Author</dc:creator>
+    <dc:language>en-US</dc:language>
+  </metadata>
+  <manifest>
+    <item id="chap1" href="chapters/chapter-1.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine>
+    <itemref idref="chap1"/>
+  </spine>
+</package>
+""",
+        )
+        book.writestr("OEBPS/chapters/chapter-1.xhtml", "<html><body><p>Replacement loop test sample chapter.</p></body></html>")
+
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-e2e-audiobook-replace-small")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-e2e-audiobook-replace-small")
+    monkeypatch.setenv("EA_TELEGRAM_CALLBACK_SECRET", "callback-secret")
+    monkeypatch.setenv("EA_AUDIOBOOK_ALLOW_NON_DURABLE_STORAGE", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(tmp_path / "jobs"))
+    monkeypatch.setenv("EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_AUTO_RENDER", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED", "0")
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+        json.dumps(
+            [
+                {"voice_id": f"voice-{index}", "label": f"Voice {index}", "language": "en-US", "tags": ["audiobook", "narration"]}
+                for index in range(1, 4)
+            ]
+        ),
+    )
+
+    class _InlineExecutor:
+        def submit(self, fn, *args, **kwargs):  # noqa: ANN001
+            fn(*args, **kwargs)
+            return SimpleNamespace()
+
+    class _FakeResponse:
+        def __init__(self, message_id: int) -> None:
+            self._message_id = message_id
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": self._message_id}}).encode("utf-8")
+
+    sent_audio_bodies: list[bytes] = []
+
+    def _fake_urlopen(request, timeout=30):
+        url = str(getattr(request, "full_url", ""))
+        body = bytes(getattr(request, "data", b"") or b"")
+        if url.endswith("/sendAudio"):
+            sent_audio_bodies.append(body)
+        return _FakeResponse(16000 + len(sent_audio_bodies))
+
+    def _fake_resolve_telegram_message_payload(**kwargs):
+        payload = dict(kwargs.get("payload") or {})
+        metadata = dict(payload.get("message_metadata") or {})
+        if str(payload.get("kind") or "").strip().lower() == "document":
+            metadata["download_url"] = "https://api.telegram.org/file/botTOKEN/books/sample.epub"
+            payload["message_metadata"] = metadata
+            payload["text"] = "Document: sample.epub"
+        return payload
+
+    def _fake_download_telegram_epub(*, source_url: str, target_path: Path, max_bytes: int | None = None) -> dict[str, object]:
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        target_path.write_bytes(source_epub.read_bytes())
+        return {"bytes": target_path.stat().st_size, "sha256": "test-sha", "archive_validation": {"status": "pass"}}
+
+    def _extract_dismiss_callback(body: bytes) -> str:
+        text = body.decode("utf-8", "replace")
+        match = re.search(r'"text":"Dismiss","callback_data":"([^"\\]+)"', text)
+        assert match is not None
+        return match.group(1)
+
+    monkeypatch.setattr(channels_route, "_TELEGRAM_ASYNC_EXECUTOR", _InlineExecutor())
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(channels_route, "resolve_telegram_message_payload", _fake_resolve_telegram_message_payload)
+    monkeypatch.setattr(pipeline, "download_telegram_epub", _fake_download_telegram_epub)
+    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", lambda **kwargs: (b"fake-wav", "audio/wav"))
+    monkeypatch.setattr(pipeline, "_normalize_rendered_audio_file", lambda path: path)
+
+    client = _client(principal_id="")
+    agent = _TelegramScenarioAgent(client, secret="tg-secret")
+    response = agent.send_message_payload(
+        {
+            "document": {
+                "file_id": "epub-file-small",
+                "file_name": "sample.epub",
+                "mime_type": "application/epub+zip",
+                "file_size": source_epub.stat().st_size,
+            },
+            "caption": "Audiobook plz",
+        }
+    )
+
+    assert response["reply_sent"] is True
+    assert "preparing an audiobook job" in str(response["reply_text"])
+    assert len(sent_audio_bodies) == 3
+
+    def dismiss_latest() -> str:
+        return _extract_dismiss_callback(sent_audio_bodies[-1])
+
+    for idx in range(3):
+        data = dismiss_latest()
+        result = agent.send_callback_query(
+            {
+                "id": f"dismiss-callback-small-{idx}",
+                "from": {"id": agent.chat_id, "first_name": "Tester"},
+                "message": {
+                    "message_id": 123456,
+                    "chat": {"id": agent.chat_id, "type": "private"},
+                },
+                "data": data,
+            }
+        )
+        assert result["reply_sent"] is True
+        assert "replacement audiobook voice sample" in str(result["reply_text"])
+
+
+def test_telegram_epub_webhook_uses_supplied_knuf_epub_for_german_voice_samples(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_epub = Path(
+        os.getenv(
+            "EA_E2E_SUPPLIED_EPUB_PATH",
+            "/mnt/pcloud/EA/audiobook_jobs/epub-audiobook-20260619T120239Z-9d82d2ec/source/Knuf_Sei-nicht-so-hart-zu-dir-selbs_9783641178222.epub",
+        )
+    )
+    if not source_epub.is_file():
+        pytest.skip(f"operator-supplied EPUB not present: {source_epub}")
+
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-e2e-knuf-audiobook")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-e2e-knuf-audiobook")
+    monkeypatch.setenv("EA_TELEGRAM_CALLBACK_SECRET", "callback-secret")
+    monkeypatch.setenv("EA_AUDIOBOOK_ALLOW_NON_DURABLE_STORAGE", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(tmp_path / "jobs"))
+    monkeypatch.setenv("EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_AUTO_RENDER", "1")
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+        json.dumps(
+            [
+                {"voice_id": "de-voice-one", "label": "German Clear", "language": "de", "tags": ["audiobook", "narration", "german", "nonfiction", "clear"]},
+                {"voice_id": "de-voice-two", "label": "German Warm", "language": "de", "tags": ["audiobook", "narration", "german", "nonfiction", "warm"]},
+                {"voice_id": "de-voice-three", "label": "German Calm", "language": "de", "tags": ["audiobook", "narration", "german", "nonfiction", "calm"]},
+            ]
+        ),
+    )
+    from app.api.routes import channels as channels_route
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    class _InlineExecutor:
+        def submit(self, fn, *args, **kwargs):  # noqa: ANN001
+            fn(*args, **kwargs)
+            return SimpleNamespace()
+
+    class _FakeResponse:
+        def __init__(self, message_id: int) -> None:
+            self._message_id = message_id
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": self._message_id}}).encode("utf-8")
+
+    sent_messages: list[dict[str, object]] = []
+    sent_audio_bodies: list[bytes] = []
+
+    def _fake_urlopen(request, timeout=30):
+        url = str(getattr(request, "full_url", ""))
+        body = bytes(getattr(request, "data", b"") or b"")
+        if url.endswith("/sendAudio"):
+            sent_audio_bodies.append(body)
+        elif url.endswith("/sendMessage"):
+            try:
+                sent_messages.append(json.loads(body.decode("utf-8")))
+            except json.JSONDecodeError:
+                sent_messages.append({"raw": body.decode("utf-8", "replace")})
+        return _FakeResponse(19000 + len(sent_messages) + len(sent_audio_bodies))
+
+    def _fake_resolve_telegram_message_payload(**kwargs):
+        payload = dict(kwargs.get("payload") or {})
+        metadata = dict(payload.get("message_metadata") or {})
+        if str(payload.get("kind") or "").strip().lower() == "document":
+            metadata["download_url"] = "https://api.telegram.org/file/botTOKEN/books/knuf.epub"
+            payload["message_metadata"] = metadata
+            payload["text"] = f"Document: {source_epub.name}"
+        return payload
+
+    def _fake_download_telegram_epub(*, source_url: str, target_path: Path, max_bytes: int | None = None) -> dict[str, object]:
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        target_path.write_bytes(source_epub.read_bytes())
+        return {"bytes": target_path.stat().st_size, "sha256": "test-sha", "archive_validation": {"status": "pass"}}
+
+    monkeypatch.setattr(channels_route, "_TELEGRAM_ASYNC_EXECUTOR", _InlineExecutor())
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(channels_route, "resolve_telegram_message_payload", _fake_resolve_telegram_message_payload)
+    monkeypatch.setattr(pipeline, "download_telegram_epub", _fake_download_telegram_epub)
+    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", lambda **kwargs: (b"fake-wav", "audio/wav"))
+    monkeypatch.setattr(pipeline, "_normalize_rendered_audio_file", lambda path: path)
+
+    client = _client(principal_id="")
+    agent = _TelegramScenarioAgent(client, secret="tg-secret")
+    response = agent.send_message_payload(
+        {
+            "document": {
+                "file_id": "epub-file-knuf",
+                "file_name": source_epub.name,
+                "mime_type": "application/epub+zip",
+                "file_size": source_epub.stat().st_size,
+            },
+            "caption": "Audiobook plz",
+        }
+    )
+
+    assert response["reply_sent"] is True
+    assert "preparing an audiobook job" in str(response["reply_text"])
+    assert len(sent_audio_bodies) == 3
+    assert any("I sent 3 short voice samples" in str(message.get("text") or message.get("raw") or "") for message in sent_messages)
+    job_paths = sorted((tmp_path / "jobs").glob("epub-audiobook-*/job.json"))
+    assert len(job_paths) == 1
+    job = json.loads(job_paths[0].read_text(encoding="utf-8"))
+    assert job["metadata"]["language"] == "de"
+    assert job["metadata"]["title"] == "Sei nicht so hart zu dir selbst"
+    profile = job["provider"]["voice_selection"]["book_profile"]
+    assert profile["language"] == "de"
+    assert "nonfiction" in profile["recommended_tags"]
+    rendered_audio_payload = b"\n".join(sent_audio_bodies).decode("utf-8", "replace")
+    assert "German Clear" in rendered_audio_payload
+    assert "German Warm" in rendered_audio_payload
+    assert "German Calm" in rendered_audio_payload
+    assert b"Use this" in sent_audio_bodies[0]
+    assert b"Dismiss" in sent_audio_bodies[0]
+
+
+def test_telegram_audiobook_status_webhook_resends_playback_buttons(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-e2e-audiobook-status")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-e2e-audiobook-status")
+    monkeypatch.setenv("EA_TELEGRAM_CALLBACK_SECRET", "callback-secret")
+    monkeypatch.setenv("EA_AUDIOBOOK_ALLOW_NON_DURABLE_STORAGE", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(tmp_path / "jobs"))
+    monkeypatch.setenv("EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_AUTO_RENDER", "1")
+    monkeypatch.setenv("UNMIXR_API_KEY", "fake-unmixr-key")
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+        json.dumps(
+            [
+                {"voice_id": f"voice-{index}", "label": f"Voice {index}", "language": "en-US", "tags": ["audiobook", "narration"]}
+                for index in range(1, 4)
+            ]
+        ),
+    )
+    jobs_root = tmp_path / "jobs"
+    job_dir = jobs_root / "job-ready"
+    job_dir.mkdir(parents=True)
+    target_path = tmp_path / "audiobookshelf" / "A. Writer" / "Ready Book" / "Ready Book.m4b"
+    target_path.parent.mkdir(parents=True)
+    target_path.write_bytes(b"fake m4b")
+    (job_dir / "job.json").write_text(
+        json.dumps(
+            {
+                "job_id": "job-ready",
+                "status": "audiobookshelf_imported",
+                "updated_at": "2026-06-20T04:06:00Z",
+                "metadata": {"title": "Ready Book", "author": "A. Writer", "language": "en-US"},
+                "storage": {"job_dir": str(job_dir)},
+                "telegram": {"chat_id": "1354554303", "message_id": "7"},
+                "audiobookshelf_import": {
+                    "status": "imported",
+                    "target_path": str(target_path),
+                    "public_share": {
+                        "status": "public_share_ready",
+                        "absolute_url": "https://abs.example.com/share/ea-ready-book",
+                        "telegram_delivery": {"status": "sent", "message_id": "2942"},
+                        "playback_acceptance_callback": {
+                            "status": "ready",
+                            "token": "callback-token",
+                            "raw_token_exposed": False,
+                        },
+                    },
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    from app.api.routes import channels as channels_route
+
+    sent_messages: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 19500}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        sent_messages.append(json.loads(bytes(getattr(request, "data", b"") or b"{}").decode("utf-8")))
+        return _FakeResponse()
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+
+    client = _client(principal_id="")
+    agent = _TelegramScenarioAgent(client, secret="tg-secret")
+    response = agent.ask("audiobook status")
+
+    assert response["reply_sent"] is True
+    assert sent_messages
+    reply_markup = sent_messages[-1]["reply_markup"]
+    buttons = [
+        button
+        for row in list(reply_markup.get("inline_keyboard") or [])
+        for button in row
+    ]
+    assert any(button.get("text") == "Playback works" for button in buttons)
+    assert any(button.get("text") == "Problem" for button in buttons)
+    assert any(str(button.get("callback_data") or "").startswith("ap|a|callback-token|") for button in buttons)
 
 
 def test_telegram_bot_workflow_persists_async_admin_followup_memory(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-e2e-admin")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-e2e-admin")
     from app.api.routes import channels as channels_route
 
@@ -418,7 +1147,7 @@ def test_telegram_bot_workflow_persists_property_comparison_memory(monkeypatch: 
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-e2e-property")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-e2e-property")
     from app.api.routes import channels as channels_route
     from app.product.models import EvidenceRef
@@ -517,7 +1246,7 @@ def test_telegram_bot_workflow_answers_focus_on_tomorrow_from_calendar_signal(mo
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-e2e-focus")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-e2e-focus")
     from app.api.routes import channels as channels_route
 
@@ -571,7 +1300,7 @@ def test_telegram_codex_human_audit_simulation_checks_calendar_pocket_semantic_f
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-e2e-codex-audit")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-e2e-codex-audit")
     from app.api.routes import channels as channels_route
 
@@ -775,7 +1504,7 @@ def test_telegram_codex_human_audit_simulation_checks_calendar_pocket_semantic_f
     channels_route._telegram_async_assistant_reply_worker(
         container=client.app.state.container,
         principal_id="exec-telegram-e2e-codex-audit",
-        bot_config={"handle": "tibor_concierge_bot", "token": "telegram-token-e2e-codex-audit"},
+        bot_config={"handle": "ea_concierge_bot", "token": "telegram-token-e2e-codex-audit"},
         chat_id=str(agent.chat_id),
         text="Bip, bip, bip. Give me a short audit plan for today.",
         current_message_id=str(agent._message_id),

@@ -10,6 +10,10 @@ def test_public_video_meeting_payload_defaults_to_fallback(monkeypatch) -> None:
     assert payload["integration_state"] == "fallback_only"
     assert payload["provider_key"] == ""
     assert payload["next_action"] == "fallback_to_portrait_voice"
+    assert payload["contract_name"] == memorial_video_meeting.CONTRACT_NAME
+    assert payload["provider_truth_allowed"] is False
+    assert payload["gold_claim_allowed"] is False
+    assert payload["provider_session_creation_allowed"] is False
 
 
 def test_public_video_meeting_payload_marks_tavus_live_ready_when_fully_configured(monkeypatch) -> None:
@@ -23,6 +27,11 @@ def test_public_video_meeting_payload_marks_tavus_live_ready_when_fully_configur
     assert payload["integration_state"] == "provider_live_session_ready"
     assert payload["provider_key"] == "tavus"
     assert payload["next_action"] == "create_provider_session"
+    assert payload["provider_contract_only"] is True
+    assert payload["provider_session_creation_allowed"] is True
+    assert payload["live_provider_runtime_verified"] is False
+    assert payload["gold_claim_allowed"] is False
+    assert "tavus_provider_session_create_receipt" in payload["required_next_receipts"]
 
 
 def test_create_video_meeting_session_returns_fallback_when_not_live_ready(monkeypatch) -> None:
@@ -39,6 +48,10 @@ def test_create_video_meeting_session_returns_fallback_when_not_live_ready(monke
     assert payload["integration_state"] == "provider_configured_contract_only"
     assert payload["provider_key"] == "did"
     assert payload["next_action"] == "provider_client_sdk_not_implemented"
+    assert payload["provider_contract_only"] is True
+    assert payload["provider_session_creation_allowed"] is False
+    assert payload["provider_truth_allowed"] is False
+    assert "did_client_sdk_integration_receipt" in payload["required_next_receipts"]
 
 
 def test_create_video_meeting_session_uses_tavus_when_live_ready(monkeypatch) -> None:
@@ -84,10 +97,15 @@ def test_create_video_meeting_session_uses_tavus_when_live_ready(monkeypatch) ->
     assert seen["json"]["persona_id"] == "persona"
     assert seen["json"]["replica_id"] == "replica"
     assert seen["json"]["require_auth"] is True
+    assert "personal_memory_enabled" not in seen["json"]
     assert payload["integration_state"] == "provider_live_session_created"
     assert payload["provider_key"] == "tavus"
     assert payload["next_action"] == "join_provider_session"
     assert payload["provider_session"]["conversation_url"] == "https://tavus.daily.co/c123"
+    assert payload["provider_session_created"] is True
+    assert payload["live_provider_runtime_verified"] is False
+    assert payload["gold_claim_allowed"] is False
+    assert "tavus_provider_session_create_receipt" not in payload["required_next_receipts"]
 
 
 def test_sanitize_provider_callback_strips_tavus_payload_to_summary() -> None:

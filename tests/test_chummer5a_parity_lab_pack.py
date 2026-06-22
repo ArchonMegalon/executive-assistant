@@ -1578,7 +1578,7 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
     memorial_workflow_hardening_subject = "Harden memorial proof workflow and STT log policy"
     memorial_workflow_hardening_paths = {
         ".codex-design/repo/IMPLEMENTATION_SCOPE.md",
-        ".github/workflows/memorial-public-gold.yml",
+        "Makefile",
         "ea/app/services/memorial_stt_error_log.py",
         "scripts/materialize_memorial_operator_status.py",
         "tests/test_chummer5a_parity_lab_pack.py",
@@ -1646,7 +1646,7 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         "ea/app/services/telegram_session_service.py",
         "ea/app/services/tool_execution_common.py",
         "ea/app/services/tool_execution_connector_dispatch_adapter.py",
-        "scripts/smoke_api_tibor.sh",
+        "scripts/smoke_api.sh",
         "scripts/verify_pocket_audio_archive.py",
         "tests/e2e/test_telegram_bot_workflows.py",
         "tests/smoke_runtime_api_suite_2.py",
@@ -1768,7 +1768,7 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         "scripts/operator_summary.sh",
         "scripts/runtime_hard_exit_gates.sh",
         "scripts/smoke_api.sh",
-        "scripts/smoke_api_tibor.sh",
+        "scripts/smoke_api.sh",
         "scripts/smoke_help.sh",
         "scripts/support_bundle.sh",
         "scripts/verify_ltd_critical_entries.py",

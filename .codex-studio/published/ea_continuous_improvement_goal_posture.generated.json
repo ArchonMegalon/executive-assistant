@@ -1,0 +1,238 @@
+{
+  "blocking_reasons": [
+    "deliver:manfred_speech=blocked_realtime_prerequisites",
+    "deliver:whatsapp_audiobook=waiting_for_live_epub",
+    "prove=blocked_real_world_acceptance"
+  ],
+  "contract_name": "ea.continuous_improvement_goal_posture.v1",
+  "execution_lenses": [
+    "detect",
+    "decide",
+    "deliver",
+    "recover",
+    "prove"
+  ],
+  "generated_at": "2026-06-22T16:39:40Z",
+  "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
+  "goal_completion_claim_allowed": false,
+  "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
+  "goal_shorthand": "Make EA the user's dependable executive, conversation, and media operating system: proactive, cross-channel, self-healing, premium-quality, and governed by owning truth planes rather than assistant-local lore.",
+  "head_semantics": "source_state",
+  "lenses": [
+    {
+      "components": [],
+      "key": "detect",
+      "next_action": "review_weekly_signal_to_decision_packet_with_operator",
+      "source_receipts": [
+        {
+          "contract_name": "ea.whole_project_signal_to_decision_receipt.v1",
+          "path": ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
+          "present": true,
+          "status": "ready_local_packet_pending_operator_acceptance"
+        }
+      ],
+      "status": "ready_local_packet_pending_operator_acceptance",
+      "status_class": "progress",
+      "summary": "Turn incoming signals into a bounded operator packet instead of letting them pile up as ambient noise.",
+      "title": "Signal ingest and prioritization",
+      "verifier_commands": [
+        "make verify-whole-project-signal-to-decision-receipt",
+        "make verify-proactive-ooda"
+      ]
+    },
+    {
+      "components": [],
+      "key": "decide",
+      "next_action": "collect_real_daily_office_loop_acceptance_evidence",
+      "source_receipts": [
+        {
+          "contract_name": "ea.office_loop_goal_receipt.v1",
+          "path": ".codex-studio/published/ea_office_loop_goal.generated.json",
+          "present": true,
+          "status": "ready_local_evidence"
+        }
+      ],
+      "status": "ready_local_evidence",
+      "status_class": "progress",
+      "summary": "Keep the morning brief, decision queue, and commitment loop coherent enough to drive ordinary daily work.",
+      "title": "Decision and office-loop closure",
+      "verifier_commands": [
+        "make verify-office-loop-goal-receipt"
+      ]
+    },
+    {
+      "components": [
+        {
+          "key": "promo_media",
+          "next_action": "collect_external_provider_and_public_route_proofs_before_any_gold_or_live_provider_claim",
+          "source_receipts": [
+            {
+              "contract_name": "ea.active_media_ltd_goal_bundle.v1",
+              "path": ".codex-studio/published/active_media_ltd_goal_bundle.generated.json",
+              "present": true,
+              "status": "ready_local_evidence"
+            }
+          ],
+          "status": "ready_local_evidence",
+          "status_class": "progress",
+          "summary": "Premium public media must sound good, cover the runtime, and keep provider claims honest.",
+          "title": "Promo and cinematic media"
+        },
+        {
+          "key": "manfred_speech",
+          "next_action": "Promote only a consented real captured STT fixture that passes the provider benchmark.",
+          "source_receipts": [
+            {
+              "contract_name": "ea.manfred_realtime_conversation_readiness.v1",
+              "path": ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
+              "present": true,
+              "status": "blocked_realtime_prerequisites"
+            }
+          ],
+          "status": "blocked_realtime_prerequisites",
+          "status_class": "blocking",
+          "summary": "Memorial public-origin gold: blocked",
+          "title": "Manfred realtime speech"
+        },
+        {
+          "key": "telegram_audiobook",
+          "next_action": "keep live Telegram audiobook delivery passing while widening playback acceptance evidence",
+          "source_receipts": [
+            {
+              "contract_name": "ea.telegram_audiobook_live_readiness_checklist.v1",
+              "path": ".codex-studio/published/telegram_audiobook_live_readiness.generated.json",
+              "present": true,
+              "status": "ready_for_live_epub_delivery_test"
+            },
+            {
+              "contract_name": "ea.telegram_audiobook_live_delivery_receipt.v1",
+              "path": ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
+              "present": true,
+              "status": "pass"
+            }
+          ],
+          "status": "pass",
+          "status_class": "progress",
+          "summary": "live delivery pass; readiness ready_for_live_epub_delivery_test",
+          "title": "Telegram audiobook delivery"
+        },
+        {
+          "key": "whatsapp_audiobook",
+          "next_action": "clear blocked WhatsApp live delivery and keep share-link playback plus voice-selection flow honest",
+          "source_receipts": [
+            {
+              "contract_name": "ea.whatsapp_audiobook_local_epub_intake_proof.v1",
+              "path": ".codex-studio/published/whatsapp_audiobook_local_intake_proof.generated.json",
+              "present": true,
+              "status": "pass"
+            },
+            {
+              "contract_name": "ea.whatsapp_audiobook_operator_proof_bundle.v1",
+              "path": ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json",
+              "present": true,
+              "status": "waiting_for_live_epub"
+            },
+            {
+              "contract_name": "ea.whatsapp_audiobook_live_delivery_receipt.v1",
+              "path": ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
+              "present": true,
+              "status": "waiting_for_live_epub"
+            },
+            {
+              "contract_name": "ea.whatsapp_audiobook_public_share_playback_e2e.v1",
+              "path": ".codex-studio/published/whatsapp_audiobook_public_share_playback.generated.json",
+              "present": true,
+              "status": "pass"
+            },
+            {
+              "contract_name": "ea.whatsapp_audiobook_live_voice_selection_shadow.v1",
+              "path": ".codex-studio/published/whatsapp_audiobook_live_voice_selection_shadow.generated.json",
+              "present": true,
+              "status": "waiting"
+            }
+          ],
+          "status": "waiting_for_live_epub",
+          "status_class": "blocking",
+          "summary": "intake pass; bundle waiting_for_live_epub; live waiting_for_live_epub; share pass; voice waiting",
+          "title": "WhatsApp audiobook delivery"
+        }
+      ],
+      "key": "deliver",
+      "next_action": "Promote only a consented real captured STT fixture that passes the provider benchmark.",
+      "source_receipts": [],
+      "status": "mixed_local_progress",
+      "status_class": "blocking",
+      "summary": "Complete real user-facing loops across media, speech, and audiobook channels instead of stopping at local generation.",
+      "title": "User-facing delivery",
+      "verifier_commands": [
+        "make verify-active-media-ltd-goal-bundle",
+        "make verify-manfred-realtime-conversation-readiness",
+        "make verify-telegram-audiobook-live-readiness",
+        "make verify-telegram-audiobook-live-delivery-receipt",
+        "make verify-whatsapp-audiobook-local-intake-proof",
+        "make verify-whatsapp-audiobook-operator-proof-bundle",
+        "make verify-whatsapp-audiobook-live-delivery-receipt"
+      ]
+    },
+    {
+      "components": [],
+      "key": "recover",
+      "next_action": "run_shell_seeded_fresh_host_probe_and_mirror_drill_evidence",
+      "source_receipts": [
+        {
+          "contract_name": "ea.teable_env_recovery_readiness.v1",
+          "path": ".codex-studio/published/teable_env_recovery_readiness.generated.json",
+          "present": true,
+          "status": "ready_local_audit"
+        }
+      ],
+      "status": "ready_local_audit",
+      "status_class": "progress",
+      "summary": "Teable recovery command surface is mirrored and documented locally; a seeded fresh-host drill receipt is still required before any pass claim.",
+      "title": "Fresh-host recovery",
+      "verifier_commands": [
+        "make verify-teable-env-recovery-readiness",
+        "make verify-env-teable-recovery",
+        "make env-check-teable",
+        "make env-fresh-host-teable",
+        "make env-probe-teable"
+      ]
+    },
+    {
+      "components": [],
+      "key": "prove",
+      "next_action": "Collect real principal/operator acceptance that the morning brief was worth reading.",
+      "source_receipts": [
+        {
+          "contract_name": "ea.executive_assistant_quality_readiness.v1",
+          "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
+          "present": true,
+          "status": "blocked_real_world_acceptance"
+        }
+      ],
+      "status": "blocked_real_world_acceptance",
+      "status_class": "blocking",
+      "summary": "Keep local route confidence separate from real operator/principal acceptance before calling EA a good executive assistant.",
+      "title": "Real-world acceptance and claim limits",
+      "verifier_commands": [
+        "make verify-executive-assistant-quality-readiness"
+      ]
+    }
+  ],
+  "output_path": ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json",
+  "overall_status": "blocked_real_world_acceptance",
+  "real_use_claim_allowed": false,
+  "required_next_receipts": [
+    "real operator acceptance that the morning brief was worth reading",
+    "real weekly signal-to-decision review acceptance receipt",
+    "fresh-host Teable recovery drill receipt mirrored into the repo",
+    "consented Manfred STT/TTS realtime conversation proof",
+    "passing WhatsApp audiobook live delivery receipt"
+  ],
+  "rules": [
+    "Local route receipts and operator commands may guide work, but they do not by themselves prove real daily usefulness.",
+    "The recover lens may use a mirrored local readiness receipt, but it must not claim pass until a fresh-host Teable recovery drill receipt is mirrored.",
+    "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
+  ],
+  "source_git_head": "8e6c434f4b8e7f1e1c87e1c6b3fdc566915cc85c"
+}

@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 
-EA_ROOT = Path("/docker/EA")
-DESIGN_ROOT = Path("/docker/chummercomplete/chummer-design/products/chummer")
-COMPLETION_DIR = Path("/docker/chummercomplete/_completion/ltd_capability_mesh_v2")
+EA_ROOT = Path(__file__).resolve().parents[1]
+DESIGN_ROOT = Path(os.environ.get("CHUMMER6_DESIGN_PRODUCT_ROOT") or EA_ROOT / ".codex-design/product")
+COMPLETION_DIR = Path(os.environ.get("LTD_CAPABILITY_MESH_COMPLETION_DIR") or EA_ROOT / "ea/_completion/ltd_capability_mesh_v2")
 
 
 def main() -> int:

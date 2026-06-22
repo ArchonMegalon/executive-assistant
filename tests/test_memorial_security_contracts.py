@@ -539,6 +539,10 @@ def test_public_memorial_video_meeting_status_reports_provider_configured_contra
     assert video_meeting["provider_key"] == "tavus"
     assert video_meeting["provider_label"] == "Tavus"
     assert video_meeting["next_action"] == "provider_session_runtime_not_implemented"
+    assert video_meeting["contract_name"] == "ea.memorial_video_meeting_ltd_integration.v1"
+    assert video_meeting["provider_truth_allowed"] is False
+    assert video_meeting["gold_claim_allowed"] is False
+    assert video_meeting["provider_session_creation_allowed"] is False
 
     session = client.post(f"/memorials/{slug}/video-meeting/session", json={"camera_requested": False})
     assert session.status_code == 202
@@ -547,6 +551,84 @@ def test_public_memorial_video_meeting_status_reports_provider_configured_contra
     assert body["provider_key"] == "tavus"
     assert body["provider_label"] == "Tavus"
     assert body["next_action"] == "provider_session_runtime_not_implemented"
+    assert body["provider_truth_allowed"] is False
+    assert body["gold_claim_allowed"] is False
+
+
+def test_public_memorial_chatlab_status_defaults_to_first_party_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    for name in (
+        "EA_MEMORIAL_CHATLAB_ENABLED",
+        "EA_MEMORIAL_CHAT_LAB_ENABLED",
+        "EA_MEMORIAL_CHATLAB_PROVIDER",
+        "EA_MEMORIAL_CHAT_LAB_PROVIDER",
+        "EA_MEMORIAL_CHATLAB_API_KEY",
+        "EA_MEMORIAL_CHATLAB_API_URL",
+        "EA_MEMORIAL_CHATLAB_ALLOW_PROVIDER_RUNTIME",
+        "CHATLAB_API_KEY",
+        "CHATLAB_API_URL",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    public_root = tmp_path / "public"
+    slug = "manfred"
+    _write_public_memorial(public_root, slug, {"slug": slug, "person_name": "Manfred Hoza", "audio_clips": []})
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    _patch_memorial_runtime_roots(tmp_path)
+
+    client = _client(principal_id="exec-memorial-chatlab-first-party")
+    response = client.get(f"/memorials/{slug}/chatlab/status")
+
+    assert response.status_code == 200
+    chatlab = response.json()["chatlab"]
+    assert chatlab["contract_name"] == "ea.memorial_chatlab_ltd_integration.v1"
+    assert chatlab["integration_state"] == "fallback_first_party_chat"
+    assert chatlab["provider_key"] == ""
+    assert chatlab["provider_truth_allowed"] is False
+    assert chatlab["provider_persona_truth_allowed"] is False
+    assert chatlab["provider_memory_write_allowed"] is False
+    assert chatlab["provider_guardrail_override_allowed"] is False
+    assert chatlab["raw_private_context_allowed"] is False
+    assert chatlab["gold_claim_allowed"] is False
+    assert chatlab["first_party_chat_remains_authoritative"] is True
+    assert "chatlab_runtime_probe_receipt" in chatlab["required_next_receipts"]
+
+
+def test_public_memorial_chat_response_exposes_chatlab_transport_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    monkeypatch.setenv("EA_MEMORIAL_CHATLAB_ENABLED", "1")
+    monkeypatch.setenv("EA_MEMORIAL_CHATLAB_PROVIDER", "chatlab")
+    monkeypatch.setenv("EA_MEMORIAL_CHATLAB_API_KEY", "test-chatlab-key")
+    monkeypatch.setenv("EA_MEMORIAL_CHATLAB_API_URL", "https://chatlab.example.test")
+    monkeypatch.delenv("EA_MEMORIAL_CHATLAB_ALLOW_PROVIDER_RUNTIME", raising=False)
+    public_root = tmp_path / "public"
+    slug = "manfred"
+    _write_public_memorial(public_root, slug, {"slug": slug, "person_name": "Manfred Hoza", "audio_clips": []})
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    _patch_memorial_runtime_roots(tmp_path)
+
+    client = _client(principal_id="exec-memorial-chatlab-contract")
+    response = client.post(f"/memorials/{slug}/chat", json={"question": "Was dachte er ueber Kinder schlagen?"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["fallback_reason"] == "difficult_memory_guardrail"
+    chatlab = body["chatlab_contract"]
+    assert chatlab["integration_state"] == "provider_configured_contract_only"
+    assert chatlab["provider_key"] == "chatlab"
+    assert chatlab["provider_label"] == "ChatLab"
+    assert chatlab["provider_configured"] is True
+    assert chatlab["provider_runtime_allowed"] is False
+    assert chatlab["provider_truth_allowed"] is False
+    assert chatlab["provider_memory_write_allowed"] is False
+    assert chatlab["provider_guardrail_override_allowed"] is False
+    assert chatlab["first_party_chat_remains_authoritative"] is True
+    assert chatlab["difficult_memory_guardrail_owner"] == "ea_first_party_memorial_chat"
 
 
 def test_public_memorial_video_meeting_status_reports_tavus_live_ready(
@@ -576,6 +658,9 @@ def test_public_memorial_video_meeting_status_reports_tavus_live_ready(
     assert video_meeting["provider_key"] == "tavus"
     assert video_meeting["provider_label"] == "Tavus"
     assert video_meeting["next_action"] == "create_provider_session"
+    assert video_meeting["provider_session_creation_allowed"] is True
+    assert video_meeting["live_provider_runtime_verified"] is False
+    assert video_meeting["gold_claim_allowed"] is False
 
 
 def test_public_memorial_video_meeting_session_creates_tavus_session(
@@ -635,10 +720,14 @@ def test_public_memorial_video_meeting_session_creates_tavus_session(
     assert body["next_action"] == "join_provider_session"
     assert body["provider_session"]["conversation_url"] == "https://tavus.daily.co/conv-123"
     assert body["provider_session"]["callback_url"].endswith(f"/memorials/{slug}/video-meeting/provider-callback")
+    assert body["provider_session_created"] is True
+    assert body["live_provider_runtime_verified"] is False
+    assert body["gold_claim_allowed"] is False
     assert seen["url"] == "https://tavusapi.com/v2/conversations"
     assert seen["headers"]["x-api-key"] == "test-key"
     assert seen["json"]["persona_id"] == "persona-123"
     assert seen["json"]["replica_id"] == "replica-123"
+    assert "personal_memory_enabled" not in seen["json"]
 
 
 def test_public_memorial_video_meeting_provider_callback_is_sanitized(
@@ -1452,6 +1541,7 @@ def test_public_memorial_operator_status_route_returns_current_generated_card(
     payload = response.json()
     assert payload["current_label"] == "Memorial public-origin gold: blocked"
     assert payload["slug"] == slug
+    assert payload["actions"]["prepare_room_audio_attestation_packet"] == "make materialize-memorial-room-audio-attestation-packet"
     assert payload["actions"]["record_room_audio_proof_clean"] == "make materialize-memorial-room-audio-gold-clean"
 
 
@@ -1488,6 +1578,39 @@ def test_public_memorial_operator_gold_page_renders_human_status_summary(
                 "public_browser_meaningful_receipt": "pass",
                 "room_audio_receipt": "pass",
                 "whole_project_gold": "pass",
+                "spoken_conversation_stt": {
+                    "status": "blocked",
+                    "best_provider": "",
+                    "production_provider": "",
+                    "top_candidate_provider": "full_runtime",
+                    "passed_samples": 0,
+                    "sample_count": 4,
+                    "ground_truth_fixture_mode": "synthetic_only",
+                    "next_action": "add_real_captured_stt_fixture",
+                    "scoring": {
+                        "production_eligible_rule": "provider must pass every ground-truth benchmark sample and hostile variant",
+                        "text_mode": "redacted",
+                        "redacted_text_fields": True,
+                    },
+                },
+                "spoken_conversation_tts": {
+                    "status": "pass",
+                    "premium_status": "blocked",
+                    "next_action": "collect_real_room_audio_attestation",
+                },
+                "room_audio_attestation_packet": {
+                    "status": "ready",
+                    "receipt_path": ".codex-studio/published/memorial_room_audio_attestation_packet.generated.json",
+                    "manual_only": True,
+                    "ci_must_not_auto_assert": True,
+                    "operator_command": "make materialize-memorial-room-audio-gold-clean",
+                    "next_action": "collect_real_room_audio_attestation",
+                    "required_check_ids": [
+                        "normal_spoken_turn_confirmed",
+                        "interruption_behavior_confirmed",
+                        "retry_path_confirmed",
+                    ],
+                },
                 "workflow_backing": {"status": "no"},
                 "public_voice_receipt_semantics": {"label": "Memorial public voice provenance proof", "transcriber_mode": "provenance_cache"},
                 "readiness": {"current_head": "abc123"},
@@ -1521,6 +1644,23 @@ def test_public_memorial_operator_gold_page_renders_human_status_summary(
     assert response.status_code == 200
     assert "Memorial public-origin gold: pass" in response.text
     assert "Workflow-backed" in response.text
+    assert "Spoken STT" in response.text
+    assert "Spoken TTS" in response.text
+    assert "Premium Speech" in response.text
+    assert "Text fallback is useful, but it is not a premium spoken turn." in response.text
+    assert "no_production_stt_provider" in response.text
+    assert "full_runtime" in response.text
+    assert ".codex-studio/published/memorial_room_audio_attestation_packet.generated.json" in response.text
+    assert "make materialize-memorial-room-audio-gold-clean" in response.text
+    assert "normal_spoken_turn_confirmed" in response.text
+    assert "interruption_behavior_confirmed" in response.text
+    assert "retry_path_confirmed" in response.text
+    assert "provider must pass every ground-truth benchmark sample and hostile variant" in response.text
+    assert "STT fixture mode" in response.text
+    assert "synthetic_only" in response.text
+    assert "add_real_captured_stt_fixture" in response.text
+    assert "STT benchmark privacy" in response.text
+    assert "raw transcript fields redacted" in response.text
     assert "Memorial public voice provenance proof" in response.text
 
 

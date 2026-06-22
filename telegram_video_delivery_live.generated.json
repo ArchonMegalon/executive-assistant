@@ -1,0 +1,70 @@
+{
+  "contract_name": "ea.telegram_video_delivery_live_receipt",
+  "generated_at": "2026-06-19T00:00:00Z",
+  "generated_by": "scripts/materialize_telegram_video_delivery_live_receipt.py",
+  "source_git_head": "8e6c434f4b8e7f1e1c87e1c6b3fdc566915cc85c",
+  "head_semantics": "source_state",
+  "output_path": "telegram_video_delivery_live.generated.json",
+  "status": "pass",
+  "gold_claim_allowed": true,
+  "claim": "Telegram video delivery has live operator proof only when a real Telegram delivery observation records status=sent, sent message IDs, and a privacy-redacted source-video context.",
+  "observation_source": "runtime",
+  "runtime_env": {},
+  "principal_id_filter_sha256": "",
+  "limit": 100,
+  "delivery_observation_event_type": "telegram.video_delivery_receipt",
+  "required_receipt_type": "telegram_video_delivery",
+  "required_status": "sent",
+  "delivery_observation_requirements": {
+    "channel": "telegram",
+    "event_type": "telegram.video_delivery_receipt",
+    "receipt_type": "telegram_video_delivery",
+    "status": "sent",
+    "delivery_kind": "video",
+    "telegram_method": "sendVideo",
+    "message_ids_required": true,
+    "source_video_context_required": true
+  },
+  "privacy": {
+    "raw_chat_id_stored": false,
+    "raw_source_message_id_stored": false,
+    "raw_source_video_url_stored": false,
+    "source_video_context_requires_redacted_path": true
+  },
+  "candidate_count": 1,
+  "selected_observation": {
+    "observation_id": "b475ca2a-681b-4273-baf8-7db5beb0a684",
+    "principal_id_sha256": "355752edeadc5f6db407bd2ed14e66c6390e8b9ce5a37b51f92f4d55f36da389",
+    "channel": "telegram",
+    "event_type": "telegram.video_delivery_receipt",
+    "created_at": "2026-06-19T00:21:28.877302+00:00",
+    "source_id_sha256": "65d845547d3df3f13741413da574f3a2c5b3395bc0a57f4cb0e985af5e394d17",
+    "source_message_id_sha256": "abc0433d7a6416e76b1bcb3371ca04ac70211e0fa16c0ceafc915790048be633",
+    "dedupe_key_sha256": "d854797d926fd2c7425aef99fb8548c17ee53e9567b98851e708b94d972476d9",
+    "chat_id_present": true,
+    "chat_id_sha256": "73475cb40a568e8da8a045ced110137e159f890ac4da883b6b17dc651b3a8049",
+    "provider": "test.video.render",
+    "delivery_kind": "video",
+    "telegram_method": "sendVideo",
+    "status": "sent",
+    "sent_message_ids": [
+      "99"
+    ],
+    "sent_message_count": 1,
+    "source_video": {
+      "has_source_video": true,
+      "source_host": "api.telegram.org",
+      "source_path_redacted": "/file/bot<redacted>/videos/source.mp4",
+      "source_url_raw_stored": false,
+      "source_url_sha256": "dd19bffeb39810001a48f82c2949293e4fc025972904cffe6b5fe2cf173d1fb4",
+      "source_video_duration_seconds": 12,
+      "source_video_reference_board_present": true,
+      "source_video_reference_frame_count": 2
+    }
+  },
+  "failed_candidate_count": 0,
+  "failed_candidates": [],
+  "failed_codes": [],
+  "next_action": "",
+  "blocking_reason": ""
+}

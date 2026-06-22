@@ -44,6 +44,8 @@ Environment:
   PROPERTYQUARRY_ENABLE_CLOUDFLARED=1|0   Force Cloudflare tunnel override on or off (default: auto when PROPERTYQUARRY_CF_TUNNEL_TOKEN is set).
   PROPERTYQUARRY_CF_TUNNEL_TOKEN=<token>  PropertyQuarry Cloudflare tunnel token alias.
   PROPERTYQUARRY_RUN_RUNTIME_HARD_EXIT_GATES=1|0  Run runtime hard exit gates after health goes green (default: 1).
+  TEABLE_API_KEY=...                      Verify and recover EA env/config artifacts from Teable before deploy.
+  TEABLE_BASE_URL=https://app.teable.ai   Optional non-default Teable host for recovery.
 
 Backward-compatible aliases:
   EA_MEMORY_ONLY, EA_BOOTSTRAP_DB, EA_ENABLE_FASTESTVPN, EA_ENABLE_CLOUDFLARED,
@@ -81,6 +83,11 @@ EOF
 fi
 
 echo "== PropertyQuarry deploy: ${APP_ROOT} (project=${COMPOSE_PROJECT_NAME}) =="
+
+if [[ -n "${TEABLE_API_KEY:-}" ]]; then
+  echo "Ensuring EA env/config recovery artifacts from Teable before deploy."
+  bash "${APP_ROOT}/scripts/bootstrap_from_teable.sh" --ensure-local >/dev/null
+fi
 
 if [[ ! -f "${APP_ROOT}/.env" ]]; then
   cp "${APP_ROOT}/.env.example" "${APP_ROOT}/.env"
@@ -282,7 +289,9 @@ for _ in $(seq 1 60); do
       bash "${APP_ROOT}/scripts/runtime_hard_exit_gates.sh"
     fi
     if [[ "${CLOUDFLARED_OVERLAY_ENABLED}" == "1" ]]; then
-      public_smoke_urls="${PROPERTYQUARRY_CLOUDFLARED_PUBLIC_SMOKE_URLS:-${EA_CLOUDFLARED_PUBLIC_SMOKE_URLS:-https://propertyquarry.com/sign-in}}"
+      public_smoke_base_url="${PROPERTYQUARRY_PUBLIC_BASE_URL:-${EA_PUBLIC_APP_BASE_URL:-https://example.test}}"
+      public_smoke_base_url="${public_smoke_base_url%/}"
+      public_smoke_urls="${PROPERTYQUARRY_CLOUDFLARED_PUBLIC_SMOKE_URLS:-${EA_CLOUDFLARED_PUBLIC_SMOKE_URLS:-${public_smoke_base_url}/sign-in}}"
       for public_url in ${public_smoke_urls}; do
         for _public in $(seq 1 20); do
           if curl -fsS --max-time 10 "${public_url}" >/dev/null 2>&1; then

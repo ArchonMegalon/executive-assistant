@@ -1,0 +1,78 @@
+{
+  "candidate": {
+    "job_dir_name": "epub-audiobook-20260622T181748Z-221a540d",
+    "job_id_sha256": "19694841d0205f8edb7a3cab55ca588218bdff291ec68cc92d6d1c66e9b56d42",
+    "language": "en-US",
+    "manifest_sha256": "49b6e5f37344fa1e1f766cda042ad7a4eff189411fb764329e28f992c6b7a787",
+    "next_action": "choose_audiobook_voice",
+    "pending_voice_count": 3,
+    "private_job_path_exposed": false,
+    "raw_callback_token_exposed": false,
+    "raw_sender_ref_exposed": false,
+    "raw_voice_id_exposed": false,
+    "status": "waiting_voice_selection",
+    "title_present": true,
+    "title_sha256": "05b3508f18aca729b725c0cea8285d8ecc15708815a9b18c74492ae3899b5dc1",
+    "voice_sample_delivery_sent_count": 1,
+    "voice_sample_delivery_status": "sent",
+    "voice_selection_reason": "",
+    "voice_selection_status": "waiting_user_choice",
+    "whatsapp_chat_ref_bound": true,
+    "whatsapp_sender_bound": true
+  },
+  "checks": {
+    "live_job_unchanged": true,
+    "shadow_callback_applied": true,
+    "shadow_pending_batch_cleared": true,
+    "shadow_raw_voice_ids_not_exposed": true,
+    "shadow_reached_render_action": true,
+    "shadow_text_fallback_ready": true,
+    "voice_sample_delivery_sent": true,
+    "waiting_voice_selection_job_found": true
+  },
+  "contract_name": "ea.whatsapp_audiobook_live_voice_selection_shadow.v1",
+  "generated_at": "2026-06-22T18:29:01.048097Z",
+  "live_mutation": {
+    "manifest_sha256_after": "49b6e5f37344fa1e1f766cda042ad7a4eff189411fb764329e28f992c6b7a787",
+    "manifest_sha256_before": "49b6e5f37344fa1e1f766cda042ad7a4eff189411fb764329e28f992c6b7a787",
+    "unchanged": true
+  },
+  "privacy": {
+    "private_job_path_exposed": false,
+    "raw_callback_token_exposed": false,
+    "raw_message_id_exposed": false,
+    "raw_sender_ref_exposed": false,
+    "raw_voice_id_exposed": false
+  },
+  "reason": "",
+  "shadow": {
+    "callback_action": "use",
+    "callback_kind": "audiobook_voice",
+    "callback_status": "applied",
+    "candidate_token_sha256": "5e11ef25d72000ded201c3ac8cadf8534ccf5ab453d11cca41c00fb87acaa085",
+    "pending_voice_count_after": 0,
+    "raw_callback_token_exposed": false,
+    "raw_message_id_exposed": false,
+    "raw_sender_ref_exposed": false,
+    "raw_voice_ids_exposed": false,
+    "reason": "",
+    "selected_candidate_key_present": true,
+    "selected_candidate_key_sha256": "80f579aa8c7576c5a1c355e751d498364b319d296fc8b5f626f9fc44db115f20",
+    "selected_label_present": true,
+    "selected_label_sha256": "9d947488b01cf7d049fc2d0fc02da18468a2dc08822048259ce5dea7eae9c4be",
+    "shadow_next_action": "render_chapter_audio",
+    "shadow_status": "voice_selected",
+    "status": "pass"
+  },
+  "status": "pass",
+  "text_fallback": {
+    "bare_voice_choice_resolved": true,
+    "dismiss_all_action": "dismiss_all",
+    "dismiss_named_action": "dismiss_named",
+    "fallback_prompt_mentions_text_commands": true,
+    "raw_label_exposed": false,
+    "reason": "",
+    "status": "pass",
+    "use_named_action": "use_named"
+  }
+}

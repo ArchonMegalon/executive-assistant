@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -11,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PULSE = ROOT / ".codex-design" / "product" / "WEEKLY_PRODUCT_PULSE.generated.json"
 DEFAULT_FLAGSHIP_RECEIPT = ROOT / ".codex-design" / "product" / "EA_FLAGSHIP_RELEASE_GATE.generated.json"
 DEFAULT_BROWSER_PROOF = ROOT / ".codex-studio" / "published" / "EA_BROWSER_WORKFLOW_PROOF.generated.json"
-DEFAULT_JOURNEY_GATES = Path("/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json")
+DEFAULT_JOURNEY_GATES = Path(os.environ.get("EA_FLEET_JOURNEY_GATES_PATH") or ROOT / "ea" / "_completion" / "fleet" / "JOURNEY_GATES.generated.json")
 DEFAULT_IMPLEMENTATION_SCOPE = ROOT / ".codex-design" / "repo" / "IMPLEMENTATION_SCOPE.md"
 
 REQUIRED_RELEASE_CONTRACT_PATHS = (

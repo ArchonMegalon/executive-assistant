@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 
 from app.services.responses_upstream import UpstreamResult
 from app.services.tool_execution_browseract_adapter import BrowserActToolAdapter
+from tests.product_test_helpers import build_operator_product_client
 
 
 @pytest.fixture(autouse=True)
@@ -60,9 +61,7 @@ def _client(*, principal_id: str, operator: bool = False) -> TestClient:
     os.environ.pop("EA_LEDGER_BACKEND", None)
     os.environ.pop("EA_DEFAULT_PRINCIPAL_ID", None)
     if operator:
-        os.environ["EA_API_TOKEN"] = "test-token"
-        os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
-        os.environ["EA_OPERATOR_PRINCIPAL_IDS"] = principal_id
+        return build_operator_product_client(principal_id=principal_id, operator_id=f"{principal_id}-operator")
     else:
         os.environ["EA_API_TOKEN"] = ""
         os.environ.pop("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER", None)
@@ -2744,7 +2743,7 @@ Safe first commands if you need orientation, copy them exactly instead of invent
                 "name": "exec_command",
                 "arguments": json.dumps(
                     {
-                        "cmd": "PYTHONPATH=/docker/EA/ea pytest -q /docker/EA/tests/test_responses_api_contracts.py -k direct_nested_staged"
+                        "cmd": "PYTHONPATH=ea pytest -q tests/test_responses_api_contracts.py -k direct_nested_staged"
                     }
                 ),
                 "call_id": "call_pytest",

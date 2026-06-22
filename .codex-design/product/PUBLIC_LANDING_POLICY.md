@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`chummer.run` is the public product homepage, proof shelf, and invitation surface for Chummer.
+`chummer.run` is the public product homepage, download front door, and help entry for Chummer.
 It is not the docs site, not a repo index, and not a second design authority.
 
 `Chummer6` remains the richer downstream explainer and guide.
@@ -23,6 +23,7 @@ The landing surface must let a normal person understand, in one visit:
 * `chummer.run` is product-facing, not repo-facing.
 * Public landing copy must not lead with repo jargon, pipeline jargon, or architecture sermon language.
 * Provider names and LTD names are implementation details and must not be named on the landing page.
+* Assistant, generation, provider, proof, receipt, and operator terms are hidden from normal homepage copy unless a legal, privacy, or consent reason requires disclosure.
 * Empty placeholder boxes are forbidden.
 * If a feature is not live, the card must still explain what is coming and why it matters.
 * Public guest chrome must expose `Sign in` plus one primary acquisition action.
@@ -34,7 +35,7 @@ The landing surface must let a normal person understand, in one visit:
 * Provider names may appear only on dedicated auth and account-security surfaces, not on the landing hero or proof cards.
 * Download-facing copy and CTA labels must follow `PUBLIC_DOWNLOADS_POLICY.md` and `PUBLIC_AUTO_UPDATE_POLICY.md`.
 * Client acquisition must route through `chummer.run`; GitHub may link to source or to `chummer.run`, but it must not host public client binaries as the download path.
-* Proof-shelf language is scoped to posted files, named flows, and recent checks a person can inspect today; it must not silently upgrade a preview lane into a flagship claim.
+* Proof and verification language belongs behind status, progress, or advanced trust routes; the homepage stays minimal and user-facing.
 * Fallback heads, archive packages, manual commands, and recovery routes must read as bounded compatibility, backup, or recovery paths rather than equal defaults.
 * Artifact-factory explainers, preview cards, captions, packet siblings, and proof-gallery artifacts may deepen inspection, but they must not be framed as the recommended install path, the authority over the install shelf, or as proof that the whole product is flagship-ready.
 
@@ -43,7 +44,7 @@ The landing surface must let a normal person understand, in one visit:
 `chummer.run` owns:
 
 * homepage / product front door
-* public proof shelf
+* public download and help entry points
 * public progress report
 * current-state summary
 * coming-next summary
@@ -77,7 +78,7 @@ Registered overlays may unlock:
 
 * `/home`
 * `/account`
-* horizon follows or watchlists
+* feature follows or watchlists
 * beta-interest and waitlist state
 * participation / guided-contribution state
 * future vote placeholders
@@ -89,7 +90,7 @@ The early-access shell may keep registered overlays thin, but the split must be 
 The landing page must always provide at least these public actions:
 
 * one primary acquisition action such as `Open downloads` or `Request early access`
-* one proof action such as `See what works today`
+* one status/help action such as `Check status` or `Get help`
 * participate / help
 * sign in
 
@@ -98,32 +99,30 @@ The landing page must always provide at least these public actions:
 The landing page should read in this order:
 
 * value
-* proof
-* fit
 * access
+* support/status
+* fit
 
 It should not read like a route index.
 
-## Proof rule
+## Minimal public rule
 
-The landing page must prove something real exists now.
+The landing page must show what is real now without asking the visitor to read the release machinery.
 
-Allowed proof surfaces include:
+Allowed homepage surfaces include:
 
 * current-state cards
 * release shelf entries
 * public featured artifacts
 * public status summaries
-* grounded horizon cards that clearly say `horizon`, `preview`, `guided preview`, or `available today`
+* grounded feature cards that clearly say `preview`, `guided preview`, or `available today`
 
 Those surfaces may prove what is posted, inspectable, or recently checked today.
 They must not treat artifact-factory siblings, preview cards, or fallback routes as automatic proof of flagship readiness.
 They must not let a posted proof card, teaser artifact, explainer bundle, or packet sibling outrank the actual install shelf for a platform.
 
-The release shelf should feel like an install-and-update shelf first and an archive list second.
+The release shelf should feel like an install-and-update shelf first. It is not an archive list.
 It must present one obvious recommended default per platform before exposing advanced alternatives.
-
-The release shelf should feel like an install-and-update shelf first and an archive list second.
 
 ## Participation wording
 

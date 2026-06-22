@@ -48,7 +48,7 @@ source_truth:
     required: true
     use_rule: Support followthrough counts, gate names, and packet ids must stay aligned with Fleet support truth before organizer followthrough can claim clearance.
   ea_operator_safe_baseline:
-    path: /docker/EA/docs/chummer_operator_safe_packets/CHUMMER_OPERATOR_SAFE_PACKET_PACK.yaml
+    path: docs/chummer_operator_safe_packets/CHUMMER_OPERATOR_SAFE_PACKET_PACK.yaml
     required: true
     use_rule: Reuse the EA operator-safe baseline for prep posture and fail-closed escalation rules instead of inventing a second packet baseline.
 proof_guardrails:

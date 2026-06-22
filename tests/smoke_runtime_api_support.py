@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 
 from fastapi.testclient import TestClient
+from tests.product_test_helpers import build_operator_product_client
 
 
 def _seed_operator_profiles(client: TestClient) -> None:
@@ -68,20 +69,14 @@ def build_client(
     auth_token: str = "",
     database_url: str = "",
     approval_threshold_chars: int | None = None,
-    principal_id: str = "exec-1",
+    principal_id: str = "principal-default",
     operator: bool = False,
     authenticated: bool = True,
 ) -> TestClient:
     effective_auth_token = auth_token or "smoke-token"
     os.environ["EA_STORAGE_BACKEND"] = storage_backend
     os.environ.pop("EA_LEDGER_BACKEND", None)
-    os.environ["EA_API_TOKEN"] = effective_auth_token
     os.environ.pop("EA_ALLOW_LOOPBACK_NO_AUTH", None)
-    os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
-    if operator and principal_id:
-        os.environ["EA_OPERATOR_PRINCIPAL_IDS"] = principal_id
-    else:
-        os.environ.pop("EA_OPERATOR_PRINCIPAL_IDS", None)
     os.environ.pop("EA_DEFAULT_PRINCIPAL_ID", None)
     if approval_threshold_chars is None:
         os.environ.pop("EA_APPROVAL_THRESHOLD_CHARS", None)
@@ -91,6 +86,19 @@ def build_client(
         os.environ["DATABASE_URL"] = database_url
     else:
         os.environ.pop("DATABASE_URL", None)
+    if operator:
+        client = build_operator_product_client(
+            principal_id=principal_id or "principal-default",
+            operator_id=f"{principal_id or 'principal-default'}-operator",
+        )
+        if auth_token and auth_token != "test-token":
+            client.headers.update({"Authorization": f"Bearer {effective_auth_token}"})
+        if principal_id:
+            client.headers.update({"X-EA-Principal-ID": principal_id})
+        _seed_operator_profiles(client)
+        return client
+
+    os.environ["EA_API_TOKEN"] = effective_auth_token
     from app.api.app import create_app
 
     client = TestClient(create_app())
@@ -98,8 +106,6 @@ def build_client(
         client.headers.update({"Authorization": f"Bearer {effective_auth_token}"})
     if principal_id:
         client.headers.update({"X-EA-Principal-ID": principal_id})
-    if operator:
-        _seed_operator_profiles(client)
     return client
 
 

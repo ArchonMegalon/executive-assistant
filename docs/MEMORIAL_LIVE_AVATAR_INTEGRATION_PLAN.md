@@ -54,10 +54,10 @@ That is the clean seam where the current memorial page can ask:
 ## Generated artifact
 
 ```bash
-cd /docker/EA
+cd "$EA_REPO_ROOT"
 python3 scripts/plan_memorial_live_avatar_integration.py
 ```
 
 Default output:
 
-- `/docker/fleet/state/chummer6/avatar_presenter_provider/memorial_live_avatar_integration_plan.generated.json`
+- `.codex-studio/published/avatar_presenter_provider/memorial_live_avatar_integration_plan.generated.json`

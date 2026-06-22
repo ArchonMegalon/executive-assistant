@@ -5,11 +5,11 @@ This is the final step before opening the memorial in front of people.
 ## Command
 
 ```bash
-cd /docker/EA/ea
+cd "$EA_REPO_ROOT"
 python3 scripts/memorial_room_ready.py \
   --slug manfred \
-  --base-url https://myexternalbrain.com \
-  --questions ../examples/demo_questions.manfred.json \
+  --base-url "${MEMORIAL_PUBLIC_ORIGIN:-https://memorial.example.test}" \
+  --questions examples/demo_questions.manfred.json \
   --output-dir /tmp/manfred_room_ready \
   --optional-exit-gates
 ```

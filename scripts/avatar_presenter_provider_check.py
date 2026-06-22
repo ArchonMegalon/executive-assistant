@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 LTD_PATH = ROOT / "LTDs.md"
-OUTPUT_PATH = Path("/docker/fleet/state/chummer6/AVATAR_PRESENTER_PROVIDER_VERIFICATION.generated.json")
+OUTPUT_PATH = Path(os.environ.get("EA_AVATAR_PRESENTER_PROVIDER_OUTPUT") or ROOT / "ea" / "_completion" / "avatar_presenter_provider" / "AVATAR_PRESENTER_PROVIDER_VERIFICATION.generated.json")
 
 
 PROVIDER_SPECS = [

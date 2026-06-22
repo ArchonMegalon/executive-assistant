@@ -1,0 +1,126 @@
+{
+  "contract_name": "ea.promo_video_fallback_storyboard.v1",
+  "faction_id": "ashline-circle",
+  "generated_at": "2026-06-20T06:10:35Z",
+  "media": {
+    "captions": "promo.vtt",
+    "duration_seconds": 32.0,
+    "has_audio": false,
+    "has_video": false,
+    "kind": "storyboard_static_motion",
+    "narration_windows": "narration_windows.generated.json",
+    "poster_frame": "poster-frame.storyboard.json",
+    "preview_html": "promo.html",
+    "rolling_narration_receipt_status": "pass",
+    "rolling_narration_window_count": 4,
+    "storyboard_static_motion_ready": true
+  },
+  "narration": {
+    "contract_name": "ea.promo_rolling_narration_windows.v1",
+    "current_scene_conditioned": true,
+    "ea_is_product_truth": false,
+    "provider_output_truth_allowed": false,
+    "rolling_state_preserved": true,
+    "scene_bound": false,
+    "scene_signal_is_canon": false,
+    "window_count": 4,
+    "windows_file": "narration_windows.generated.json"
+  },
+  "next_action": "deploy_public_route_and_run_browser_proof",
+  "provider": {
+    "live_provider_runtime_verified": false,
+    "provider_output_truth_allowed": false,
+    "provider_ready": false,
+    "requested_provider": "Advertisemind",
+    "verified_provider_claim_allowed": false
+  },
+  "public_copy": {
+    "caption_language": "en-US",
+    "provider_claims_present": false,
+    "provider_names_present": false
+  },
+  "render_mode": "fallback_static_storyboard",
+  "route": {
+    "browser_verified": false,
+    "local_preview": "promo.html",
+    "promo_json": "/ledger/factions/ashline-circle/promo.json",
+    "promo_vtt": "/ledger/factions/ashline-circle/promo.vtt",
+    "route_deployment_verified": false,
+    "verification_status": "local_artifact_ready_public_route_pending",
+    "watch_page": "/ledger/factions/ashline-circle/promo"
+  },
+  "safety": {
+    "gold_claim_allowed": false,
+    "human_review_required_before_publication": true,
+    "no_private_campaign_data": true,
+    "no_provider_live_claim": true,
+    "no_provider_names_in_public_copy": true,
+    "no_sourcebook_text": true,
+    "no_unapproved_spoilers": true,
+    "public_safe": true
+  },
+  "source": {
+    "ea_is_product_truth": false,
+    "source_digest": {
+      ".codex-design/ea/CINEMATIC_NARRATION_AND_PROMO_PIPELINE.md": "2b28238189be7fb783a3491777381556ac7e2bdc4d609503c4cc4a51352404ec",
+      ".codex-design/product/PUBLIC_LANDING_MANIFEST.yaml": "de3771fd83b85b1a540cdb5c3cf6067927bb4750f9e061bebffcdde0d6b5d5e7",
+      ".codex-design/product/PUBLIC_VIDEO_BRIEFS.yaml": "faf8d0a4d2e15aa8b76d74193501c7944d8bab5718395f91e4cb237344ad355f",
+      "combined_sha256": "9eca8bb1f54dca5a74bbe96dfbabfe21f286733e7ce27808b0c903251271704e"
+    },
+    "truth_owner": "chummer_owned_public_manifest_and_video_briefs"
+  },
+  "storyboard": {
+    "scenes": [
+      {
+        "duration_seconds": 8,
+        "end_seconds": 8,
+        "narration": "The signal opens: Signal before contact frames the pressure: The city hears the rumor before the runners do. The visible receipt trail carries through without a reset.",
+        "narration_window_digest": "3c45c16e49b8097a0ed69366066245f09ae259fcc98c09479607c02002372e2c",
+        "narration_window_id": "cinematic_window_001_529ef41741",
+        "on_screen_text": "Signal before contact",
+        "scene_id": "signal_before_contact",
+        "scene_signal_digest": "3912642c1a0e0ff350a43619612d4d3bff2b7306aa2d8c2e8e8e52d2e08e7e4b",
+        "start_seconds": 0,
+        "visual": "Rain on a transit shelter, a torn faction mark, and a table map catching one sharp line of light."
+      },
+      {
+        "duration_seconds": 8,
+        "end_seconds": 16,
+        "narration": "The thread continues: Pattern, not noise frames the pressure: Every faction leaves a pattern. Chummer keeps the signal inspectable before anyone follows it. The visible receipt trail carries through without a reset.",
+        "narration_window_digest": "fdd800f726d7d19cf69ae224e78c1af7bba654ff58540b77439cc31e7cba8640",
+        "narration_window_id": "cinematic_window_002_d5fec6328c",
+        "on_screen_text": "Pattern, not noise",
+        "scene_id": "pattern_not_noise",
+        "scene_signal_digest": "92ff9e63cce027b434cf2e42e9564dad4a64e09004ac9946d4e59c70b7853e14",
+        "start_seconds": 8,
+        "visual": "Three storyboard panels show public clues, a crossed-out false lead, and an evidence card with source markers."
+      },
+      {
+        "duration_seconds": 8,
+        "end_seconds": 24,
+        "narration": "The thread continues: Choose the angle frames the pressure: A promo should create pressure, not pretend to be truth. The packet stays readable beside the motion. The visible receipt trail carries through without a reset.",
+        "narration_window_digest": "5eda7e020a547ac2edd938bb65b6d5eaf02a0472e1d41c38ffda39452b2a9719",
+        "narration_window_id": "cinematic_window_003_d486bee844",
+        "on_screen_text": "Choose the angle",
+        "scene_id": "choose_the_angle",
+        "scene_signal_digest": "647b40b1c9998306b47dfcc7e88250b982a21c1ef757b34f9c635f365e3c5955",
+        "start_seconds": 16,
+        "visual": "A runner hand pauses over two route cards while the promo frame remains visibly downstream of the dossier."
+      },
+      {
+        "duration_seconds": 8,
+        "end_seconds": 32,
+        "narration": "The thread continues: Walk in ready frames the pressure: Read the hook, check the receipts, and enter the run with the stakes already alive. The visible receipt trail carries through without a reset.",
+        "narration_window_digest": "2c8864ec2065b81f3ea12899741fab770fc5c041454a51e8eba777eefa0ba3ff",
+        "narration_window_id": "cinematic_window_004_1ec4db38af",
+        "on_screen_text": "Walk in ready",
+        "scene_id": "walk_in_ready",
+        "scene_signal_digest": "41ca0a6bf8d61234df0728f8f2b1dbd1c2492e041183090dc8d75821154564be",
+        "start_seconds": 24,
+        "visual": "Final static-motion frame: faction colors, a clean caption band, and a visible receipt tab beside the call to action."
+      }
+    ]
+  },
+  "title": "Black Ledger faction promo",
+  "verdict": "READY_VIA_FALLBACK"
+}

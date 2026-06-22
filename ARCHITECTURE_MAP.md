@@ -101,4 +101,4 @@
 - Postgres smoke: `scripts/smoke_postgres.sh`
 - LTD refresh: `scripts/refresh_ltds_via_api.py`, `scripts/refresh_ltds_from_inventory.py`
 - Support bundle: `scripts/support_bundle.sh`
-- CI workflow: `.github/workflows/smoke-runtime.yml`
+- Local gates: `make ci-gates`, `make release-smoke`, and `make release-preflight`

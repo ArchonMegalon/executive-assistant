@@ -10,8 +10,12 @@ from pathlib import Path
 
 
 EA_ROOT = Path(__file__).resolve().parents[1]
-OUTPUT = Path("/docker/chummercomplete/.integrated/fleet/_completion/poppy_ai/POPPY_AI_BROWSERACT_PUBLISH_PROBE.generated.json")
-WORKFLOW_SPEC = Path("/docker/EA/browseract_templates/poppy_ai_login_surface_reader.workflow.json")
+DEFAULT_COMPLETION_DIR = Path(os.environ.get("POPPY_COMPLETION_DIR") or EA_ROOT / "ea/_completion/poppy_ai")
+OUTPUT = Path(
+    os.environ.get("POPPY_BROWSERACT_PUBLISH_PROBE_OUTPUT")
+    or DEFAULT_COMPLETION_DIR / "POPPY_AI_BROWSERACT_PUBLISH_PROBE.generated.json"
+)
+WORKFLOW_SPEC = Path(os.environ.get("POPPY_BROWSERACT_WORKFLOW_SPEC") or EA_ROOT / "browseract_templates/poppy_ai_login_surface_reader.workflow.json")
 AUTH_URL = "https://ab-gw.browseract.com/api/security/token"
 PASSWORD_TICKET_URL = "https://ab-gw.browseract.com/api/security/ticket/password"
 WORKFLOW_CREATE_URL = "https://ab-gw.browseract.com/api/workflow"

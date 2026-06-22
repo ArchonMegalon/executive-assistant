@@ -8,8 +8,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 
-OUT_DIR = Path("/docker/chummercomplete/_completion/magicfit_provider")
+EA_ROOT = Path(__file__).resolve().parents[1]
+OUT_DIR = Path(os.environ.get("MAGICFIT_PROVIDER_COMPLETION_ROOT") or EA_ROOT / "ea/_completion/magicfit_provider")
 OUT_PATH = OUT_DIR / "MAGICFIT_PROVIDER_VERIFICATION.generated.json"
+DEFAULT_MAGICFIT_EMAIL = "magicfit-account@example.test"
 
 
 def utc_now() -> str:
@@ -21,7 +23,11 @@ def account_hash(email: str) -> str:
 
 
 def main() -> int:
-    out_email = os.environ.get("CHUMMER_EA_MAGICFIT_EMAIL", "tibor.girschele@gmail.com").strip() or "tibor.girschele@gmail.com"
+    out_email = (
+        os.environ.get("CHUMMER_EA_MAGICFIT_EMAIL")
+        or os.environ.get("MAGICFIT_EMAIL")
+        or DEFAULT_MAGICFIT_EMAIL
+    ).strip() or DEFAULT_MAGICFIT_EMAIL
     out_tier = os.environ.get("CHUMMER_EA_MAGICFIT_TIER", "5").strip() or "5"
     password_present = bool((os.environ.get("CHUMMER_EA_MAGICFIT_PASSWORD") or "").strip())
     payload = {

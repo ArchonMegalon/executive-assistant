@@ -254,6 +254,33 @@ def resolve_signing_secret(settings: Settings, *, purpose: str = "") -> str:
     return f"{secret}:{normalized_purpose}"
 
 
+def resolve_workspace_access_token_issuer(settings: Settings | None = None) -> str:
+    explicit = str(os.environ.get("EA_WORKSPACE_ACCESS_TOKEN_ISSUER") or "").strip().rstrip("/")
+    if explicit:
+        return explicit
+    public_base = str(os.environ.get("EA_PUBLIC_APP_BASE_URL") or "").strip().rstrip("/")
+    if public_base:
+        return public_base
+    redirect_uri = str(os.environ.get("EA_GOOGLE_OAUTH_REDIRECT_URI") or "").strip()
+    if redirect_uri:
+        return redirect_uri.rsplit("/", 1)[0]
+    return "ea://workspace-access"
+
+
+def resolve_workspace_access_token_audience(settings: Settings | None = None) -> str:
+    explicit = str(os.environ.get("EA_WORKSPACE_ACCESS_TOKEN_AUDIENCE") or "").strip()
+    if explicit:
+        return explicit
+    return "workspace-access"
+
+
+def resolve_workspace_access_token_key_version(settings: Settings | None = None) -> str:
+    explicit = str(os.environ.get("EA_WORKSPACE_ACCESS_TOKEN_KEY_VERSION") or "").strip()
+    if explicit:
+        return explicit
+    return "v1"
+
+
 def resolve_runtime_profile(settings: Settings) -> RuntimeProfile:
     source_backend = str(settings.storage.backend or "auto").strip().lower() or "auto"
     database_url = _database_url(settings)
@@ -340,6 +367,34 @@ def ensure_prod_signing_secret_configured(settings: Settings) -> None:
     raise RuntimeError("EA_RUNTIME_MODE=prod requires EA_SIGNING_SECRET")
 
 
+def _placeholder_like_value(value: str) -> bool:
+    normalized = str(value or "").strip().lower()
+    if not normalized:
+        return False
+    return normalized in {
+        "changeme",
+        "change-me",
+        "secret-token",
+        "signing-secret",
+        "example-token",
+        "example-secret",
+        "replace-me",
+        "replace_this",
+        "replace-this",
+        "todo",
+        "tbd",
+    }
+
+
+def ensure_prod_non_placeholder_secrets(settings: Settings) -> None:
+    if not is_prod_mode(settings.runtime.mode):
+        return
+    if _placeholder_like_value(str(getattr(settings.auth, "api_token", "") or "")):
+        raise RuntimeError("EA_RUNTIME_MODE=prod forbids placeholder EA_API_TOKEN")
+    if _placeholder_like_value(str(getattr(settings.auth, "signing_secret", "") or "")):
+        raise RuntimeError("EA_RUNTIME_MODE=prod forbids placeholder EA_SIGNING_SECRET")
+
+
 def ensure_prod_loopback_no_auth_disabled(settings: Settings) -> None:
     if not is_prod_mode(settings.runtime.mode):
         return
@@ -357,9 +412,30 @@ def _email_sender_domain(value: str) -> str:
     return normalized.rsplit("@", 1)[1].strip().strip(".")
 
 
-def _propertyquarry_sender_domain_allowed(value: str) -> bool:
+def _registration_sender_domain_allowed(value: str) -> bool:
     domain = _email_sender_domain(value)
-    return domain == "propertyquarry.com" or domain.endswith(".propertyquarry.com")
+    return _sender_domain_allowed(domain, _registration_email_allowed_domains())
+
+
+def _split_csv_env(value: str) -> tuple[str, ...]:
+    return tuple(part.strip().lower().strip(".") for part in str(value or "").split(",") if part.strip())
+
+
+def _registration_email_allowed_domains() -> tuple[str, ...]:
+    configured = _split_csv_env(os.environ.get("EA_REGISTRATION_EMAIL_ALLOWED_DOMAINS") or "")
+    if configured:
+        return configured
+    return _split_csv_env(os.environ.get("PROPERTYQUARRY_PUBLIC_HOSTS") or "")
+
+
+def _sender_domain_allowed(domain: str, allowed_domains: tuple[str, ...]) -> bool:
+    normalized = str(domain or "").strip().lower().strip(".")
+    if not normalized:
+        return False
+    for allowed in allowed_domains:
+        if normalized == allowed or normalized.endswith(f".{allowed}"):
+            return True
+    return False
 
 
 def ensure_prod_registration_email_sender_domain(settings: Settings) -> None:
@@ -367,11 +443,15 @@ def ensure_prod_registration_email_sender_domain(settings: Settings) -> None:
         return
     if _env_truthy(os.environ.get("EA_ALLOW_NON_PROPERTYQUARRY_EMAIL_SENDER")):
         return
+    allowed_domains = _registration_email_allowed_domains()
+    if not allowed_domains:
+        return
     for key in ("EA_REGISTRATION_EMAIL_FROM", "EA_EMAIL_DEFAULT_FROM", "EA_REGISTRATION_EMAIL_FROM_FALLBACK"):
         value = str(os.environ.get(key) or "").strip()
-        if value and not _propertyquarry_sender_domain_allowed(value):
+        if value and not _sender_domain_allowed(_email_sender_domain(value), allowed_domains):
             raise RuntimeError(
-                "EA_RUNTIME_MODE=prod requires PropertyQuarry email sender domains "
+                "EA_RUNTIME_MODE=prod requires registration email sender domains "
+                "listed in EA_REGISTRATION_EMAIL_ALLOWED_DOMAINS or PROPERTYQUARRY_PUBLIC_HOSTS, "
                 "or EA_ALLOW_NON_PROPERTYQUARRY_EMAIL_SENDER=1"
             )
 
@@ -379,6 +459,7 @@ def ensure_prod_registration_email_sender_domain(settings: Settings) -> None:
 def validate_startup_settings(settings: Settings) -> RuntimeProfile:
     ensure_prod_api_token_configured(settings)
     ensure_prod_signing_secret_configured(settings)
+    ensure_prod_non_placeholder_secrets(settings)
     ensure_prod_loopback_no_auth_disabled(settings)
     ensure_prod_registration_email_sender_domain(settings)
     profile = resolve_runtime_profile(settings)
@@ -421,7 +502,9 @@ def get_settings() -> Settings:
 
     api_token = (os.environ.get("EA_API_TOKEN") or "").strip()
     signing_secret = (os.environ.get("EA_SIGNING_SECRET") or "").strip()
-    default_principal_id = (os.environ.get("EA_DEFAULT_PRINCIPAL_ID") or "local-user").strip() or "local-user"
+    default_principal_id = (
+        os.environ.get("EA_DEFAULT_PRINCIPAL_ID") or "principal-default"
+    ).strip() or "principal-default"
     allow_loopback_no_auth = _env_truthy(os.environ.get("EA_ALLOW_LOOPBACK_NO_AUTH"))
     cf_access_team_domain = (os.environ.get("EA_CF_ACCESS_TEAM_DOMAIN") or "").strip().lower().rstrip("/")
     raw_cf_access_aud = (os.environ.get("EA_CF_ACCESS_AUD") or "").strip()

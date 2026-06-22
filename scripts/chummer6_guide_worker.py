@@ -36,9 +36,13 @@ from chummer6_guide_canon import (
 from chummer6_runtime_config import load_local_env, load_runtime_overrides
 
 EA_ROOT = Path(__file__).resolve().parents[1]
-OVERRIDE_OUT = Path("/docker/fleet/state/chummer6/ea_overrides.json")
-STYLE_EPOCH_PATH = Path("/docker/fleet/state/chummer6/ea_style_epoch.json")
-SCENE_LEDGER_PATH = Path("/docker/fleet/state/chummer6/ea_scene_ledger.json")
+CHUMMER6_GUIDE_STATE_ROOT = Path(
+    os.environ.get("CHUMMER6_GUIDE_STATE_ROOT")
+    or EA_ROOT / ".codex-studio" / "published" / "chummer6_media"
+)
+OVERRIDE_OUT = Path(os.environ.get("CHUMMER6_EA_OVERRIDES_PATH") or CHUMMER6_GUIDE_STATE_ROOT / "ea_overrides.json")
+STYLE_EPOCH_PATH = Path(os.environ.get("CHUMMER6_EA_STYLE_EPOCH_PATH") or CHUMMER6_GUIDE_STATE_ROOT / "ea_style_epoch.json")
+SCENE_LEDGER_PATH = Path(os.environ.get("CHUMMER6_EA_SCENE_LEDGER_PATH") or CHUMMER6_GUIDE_STATE_ROOT / "ea_scene_ledger.json")
 DEFAULT_MODEL = "ea-groundwork"
 WORKING_VARIANT: dict[str, object] | None = None
 TEXT_PROVIDER_USED: str = ""
@@ -68,12 +72,12 @@ REQUIRED_CHUMMER6_SKILL_KEYS: tuple[str, ...] = (
 SKILL_BOOTSTRAP_STATUS: dict[str, object] | None = None
 STYLE_PACKS: tuple[dict[str, str], ...] = (
     {
-        "style_family": "grimy_cinematic_realism",
+        "style_family": "clean_cinematic_realism",
         "palette": "saturated sodium orange, acid cyan, nicotine yellow, wet asphalt blue",
         "lighting": "practical lamps, sodium spill, rain reflections",
         "realism_mode": "documentary cyberpunk realism",
         "lens_grammar": "28mm and 40mm layered frames with strong foreground obstruction and visible room depth",
-        "texture_treatment": "fine film grain, scratched hardware surfaces, denser prop layering, and harder focal separation",
+        "texture_treatment": "clean low-noise finish, scratched hardware surfaces, denser prop layering, and harder focal separation",
         "signage_treatment": "icon-first transit grime and cropped labels",
         "troll_material_style": "worn stickers, scratched pins, faded decals",
         "weather_bias": "rain-biased exterior with day-edge spill and damp interior carry-over",
@@ -112,9 +116,29 @@ STYLE_PACKS: tuple[dict[str, str], ...] = (
         "texture_treatment": "grease, powder, heat haze, metal wear, and visibly packed work surfaces",
         "signage_treatment": "warning icons, hazard bands, stamped surfaces",
         "troll_material_style": "patches, tool decals, hazard stickers",
-        "weather_bias": "indoor heat with outdoor rain, soot, and grit suggested secondarily",
+        "weather_bias": "indoor heat with outdoor rain, soot, and polished worn-surface detail suggested secondarily",
         "humor_ceiling": "deadpan and tightly controlled",
     },
+)
+PREMIUM_IMAGE_FINISH_RULES = """Image finish rules:
+- prefer crisp, premium, low-noise cinematic realism over coarse documentary texture
+- do not request coarse analog texture, speckled dark areas, posterized contour passes, murky atmosphere, or over-sharpened grit
+- keep weather, wear, smoke, grime, scratches, and practical clutter as physical scene detail, not as a noisy overlay
+- preserve clean faces, readable silhouettes, crisp material edges, controlled highlights, and non-crushed shadow detail
+- if a style asks for grit, translate it into worn surfaces, dirty props, wet reflections, scratches, dust on objects, and practical light falloff
+"""
+VISUAL_FINISH_REPLACEMENTS: tuple[tuple[str, str], ...] = (
+    ("heavy film grain", "crisp low-noise material detail"),
+    ("35mm film grain", "clean cinematic lensing"),
+    ("fine film grain", "clean low-noise finish"),
+    ("film grain", "low-noise cinematic finish"),
+    ("analog grain", "controlled cinematic texture"),
+    ("grainy", "clean and detailed"),
+    ("noisy shadows", "controlled detailed shadows"),
+    ("muddy haze", "clear atmospheric depth"),
+    ("over-sharpened grit", "crisp material edges"),
+    ("posterized contour pass", "natural tonal depth"),
+    ("posterized contour-map rendering", "natural tonal depth"),
 )
 PUBLIC_WRITER_RULES = """Public-writer contract:
 - write for a curious player, GM, tester, or supporter
@@ -156,6 +180,11 @@ FORBIDDEN_PUBLIC_COPY_PHRASES: tuple[str, ...] = (
     "signoff only",
     "shared interface",
     "where do i propose design changes?\n\nin `chummer6-design`",
+    "optional guided contribution path",
+    "guided contribution path",
+    "instead of normal product help",
+    "ai harness",
+    "automation harness",
 )
 PUBLIC_COPY_REPLACEMENTS: tuple[tuple[str, str], ...] = (
     ("blueprint", "long-range plan"),
@@ -508,6 +537,13 @@ def _contains_forbidden_public_copy(text: str) -> str:
     if "fix" in lowered and "guide" in lowered and "first" in lowered:
         return "maintainer_imperative"
     return ""
+
+
+def clean_visual_finish_language(text: str) -> str:
+    cleaned = str(text or "")
+    for source, replacement in VISUAL_FINISH_REPLACEMENTS:
+        cleaned = re.sub(re.escape(source), replacement, cleaned, flags=re.IGNORECASE)
+    return " ".join(cleaned.split()).strip()
 
 
 def _mechanics_receipt_refs(value: object) -> tuple[str, ...]:
@@ -1006,6 +1042,18 @@ def assert_public_reader_safe(mapping: dict[str, object], *, context: str) -> No
         raise ValueError(f"unbacked mechanics claim in {first['scope']}:{first['reason']}")
 
 
+def browseract_key_available() -> bool:
+    for key_name in (
+        "BROWSERACT_API_KEY",
+        "BROWSERACT_API_KEY_FALLBACK_1",
+        "BROWSERACT_API_KEY_FALLBACK_2",
+        "BROWSERACT_API_KEY_FALLBACK_3",
+    ):
+        if env_value(key_name):
+            return True
+    return False
+
+
 def shlex_command(env_name: str) -> list[str]:
     raw = env_value(env_name)
     if raw:
@@ -1028,7 +1076,7 @@ def shlex_command(env_name: str) -> list[str]:
         ),
     }
     required_workflow_refs = browseract_names.get(env_name)
-    if required_workflow_refs and not any(env_value(name) for name in required_workflow_refs):
+    if required_workflow_refs and not any(env_value(name) for name in required_workflow_refs) and not browseract_key_available():
         return []
     return list(defaults.get(env_name, []))
 
@@ -1047,7 +1095,7 @@ PAGE_REGISTRY = load_page_registry()
 SCREENSHOT_REGISTRY = load_screenshot_registry()
 MEDIA_BRIEFS = load_media_briefs()
 PUBLIC_FEATURE_REGISTRY = load_public_feature_registry()
-GUIDE_ROOT = Path("/docker/chummercomplete/Chummer6")
+GUIDE_ROOT = Path(os.environ.get("CHUMMER6_GUIDE_ROOT") or Path(__file__).resolve().parents[1] / "chummer6_guide")
 BLACK_LEDGER_GENERATOR_BRIEF = (
     "BLACK LEDGER source anchors:\n"
     "- BLACK LEDGER is Chummer's living-world layer: a persistent Shadowrun power struggle where megacorps, factions, "
@@ -1232,12 +1280,12 @@ def overlay_mode_for_target(target: str) -> str:
 def fallback_finish_clause_for_target(target: str) -> str:
     normalized = str(target or "").replace("\\", "/").strip()
     if normalized in {"assets/hero/chummer6-hero.png", "README.md"}:
-        return "illustrated cover-grade Shadowrun streetdoc poster, gritty garage-clinic props, metahuman runner-life pressure, dense practical clutter"
+        return "illustrated cover-grade Shadowrun streetdoc poster, clean low-noise finish, worn garage-clinic props, metahuman runner-life pressure, dense practical clutter"
     if normalized == "assets/pages/horizons-index.png":
-        return "illustrated cover-grade cyberpunk futures crossroads poster, branching districts, dense clue clusters, readable plurality"
+        return "illustrated cover-grade cyberpunk futures crossroads poster, clean low-noise finish, branching districts, dense clue clusters, readable plurality"
     if normalized == "assets/horizons/karma-forge.png":
-        return "illustrated cover-grade Shadowrun rules-forge poster, industrial approval machinery, dangerous motion, provenance pressure"
-    return "cinematic 35mm, grounded prop-led still"
+        return "illustrated cover-grade Shadowrun rules-forge poster, clean low-noise finish, industrial approval machinery, dangerous motion, provenance pressure"
+    return "clean cinematic lensing, grounded prop-led still, crisp low-noise finish"
 
 
 def visual_contract_guardrails_for_target(target: str) -> list[str]:
@@ -1955,7 +2003,8 @@ def help_page_source() -> str:
     tail = f" Current public actions: {'; '.join(joined_bits)}." if joined_bits else ""
     return (
         "Explain how a normal human can help right now without sounding like operator onboarding. "
-        "Keep it on public feedback, current visible actions, and honest expectations." + tail
+        "Give the reader one clear next step first, then keep the rest on public feedback, current visible actions, "
+        "and honest expectations." + tail
     )
 
 
@@ -2100,7 +2149,11 @@ def ea_json(
     if app_root not in sys.path:
         sys.path.insert(0, app_root)
     from app.domain.models import TaskExecutionRequest
-    from app.services.orchestrator import AsyncExecutionQueuedError
+    try:
+        from app.services.orchestrator import AsyncExecutionQueuedError
+    except ModuleNotFoundError:
+        class AsyncExecutionQueuedError(RuntimeError):
+            session_id: str = ""
 
     def execute_request():
         return _ea_orchestrator().execute_task_artifact(
@@ -2217,6 +2270,8 @@ def chat_json(
 
 
 def humanizer_available() -> bool:
+    if browseract_key_available():
+        return True
     explicit_env_names = [
         "CHUMMER6_BROWSERACT_HUMANIZER_COMMAND",
         "CHUMMER6_TEXT_HUMANIZER_COMMAND",
@@ -2577,7 +2632,13 @@ def humanize_text(text: str, *, target: str) -> str:
 
 
 def humanize_mapping_fields(mapping: dict[str, object], keys: tuple[str, ...], *, target_prefix: str) -> dict[str, object]:
-    for key in keys:
+    humanize_keys = list(keys)
+    for key, value in mapping.items():
+        if key in humanize_keys or not isinstance(value, str):
+            continue
+        if sentence_count(value) >= humanizer_min_sentences() and word_count(value) >= humanizer_min_words():
+            humanize_keys.append(str(key))
+    for key in humanize_keys:
         if key not in mapping:
             continue
         value = str(mapping.get(key, "")).strip()
@@ -2594,18 +2655,9 @@ def humanize_mapping_fields_with_mode(
     target_prefix: str,
     brain_only: bool,
 ) -> dict[str, object]:
-    if brain_only:
-        for key in keys:
-            if key not in mapping:
-                continue
-            value = str(mapping.get(key, "")).strip()
-            if not value:
-                continue
-            mapping[key] = humanize_text_local(value, target=f"{target_prefix}:{key}")
-        return mapping
     global HUMANIZER_BRAIN_ONLY
     previous = HUMANIZER_BRAIN_ONLY
-    HUMANIZER_BRAIN_ONLY = bool(brain_only)
+    HUMANIZER_BRAIN_ONLY = bool(brain_only) and not external_humanizer_ready()
     try:
         return humanize_mapping_fields(mapping, keys, target_prefix=target_prefix)
     finally:
@@ -5553,6 +5605,8 @@ Recent accepted scene ledger rows:
 Variation guardrails:
 {json.dumps(variation_guardrails or [], ensure_ascii=True)}
 
+{PREMIUM_IMAGE_FINISH_RULES}
+
 Requirements:
 - infer the scene from the source, do not literalize repo-role labels
 - do not say or imply "visitor center"
@@ -5656,6 +5710,8 @@ Recent accepted scene ledger rows:
 Variation guardrails:
 {json.dumps(variation_guardrails or [], ensure_ascii=True)}
 
+{PREMIUM_IMAGE_FINISH_RULES}
+
 Requirements:
 - infer the scene from the source, do not repeat repo labels back as literal signage
 - keep the image copy flagship-facing while staying accurate about what is currently visible
@@ -5754,6 +5810,8 @@ Recent accepted scene ledger rows:
 
 Variation guardrails:
 {json.dumps(variation_guardrails or [], ensure_ascii=True)}
+
+{PREMIUM_IMAGE_FINISH_RULES}
 
 Requirements:
 - infer the scene from the source, do not just repeat headings back
@@ -6023,7 +6081,7 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         *,
         fallback: str,
     ) -> str:
-        cleaned = " ".join(str(text or "").split()).strip()
+        cleaned = clean_visual_finish_language(text)
         if not cleaned:
             return fallback
         parts = re.split(r"(?<=[.!?])\s+", cleaned)

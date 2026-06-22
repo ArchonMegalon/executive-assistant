@@ -6,12 +6,10 @@ EA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 usage() {
   cat <<'EOF'
 Usage:
-  /docker/EA/scripts/release_v115_rag.sh prune_meta
-  /docker/EA/scripts/release_v115_rag.sh prune_pycache
-  /docker/EA/scripts/release_v115_rag.sh clean_rewrite_baseline
-  /docker/property/scripts/release_v115_rag.sh prune_meta
-  /docker/property/scripts/release_v115_rag.sh prune_pycache
-  /docker/property/scripts/release_v115_rag.sh clean_rewrite_baseline
+  scripts/release_v115_rag.sh prune_meta
+  scripts/release_v115_rag.sh prune_pycache
+  scripts/release_v115_rag.sh clean_rewrite_baseline
+  PROPERTYQUARRY_ROOT=/path/to/property scripts/release_v115_rag.sh prune_meta
 
 This is a controlled maintenance wrapper used for rewrite-baseline cleanup.
 EOF
@@ -30,7 +28,7 @@ prune_pycache() {
 
 clean_rewrite_baseline() {
   cd "${EA_ROOT}"
-  rm -rf attachments logs daemon-gogcli-config data-family-girschele data-liz bin ea/config
+  rm -rf attachments logs daemon-gogcli-config data-private bin ea/config
   rm -f .env scripts/apply_patch.sh
   prune_pycache
 }

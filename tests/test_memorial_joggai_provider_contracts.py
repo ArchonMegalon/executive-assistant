@@ -8,8 +8,11 @@ from pathlib import Path
 from types import ModuleType
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
 def _load_script() -> ModuleType:
-    path = Path(__file__).resolve().parents[1] / "scripts" / "verify_joggai_provider.py"
+    path = ROOT / "scripts" / "verify_joggai_provider.py"
     spec = importlib.util.spec_from_file_location("verify_joggai_provider", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -56,8 +59,8 @@ def test_verify_joggai_provider_cli_writes_receipt(tmp_path: Path) -> None:
     script = Path(__file__).resolve().parents[1] / "scripts" / "verify_joggai_provider.py"
     output = tmp_path / "receipt.json"
     result = subprocess.run(
-        [sys.executable, str(script), "--ltds", "/docker/EA/LTDs.md", "--output", str(output)],
-        cwd="/docker/EA",
+        [sys.executable, str(script), "--ltds", str(ROOT / "LTDs.md"), "--output", str(output)],
+        cwd=ROOT,
         text=True,
         capture_output=True,
         check=False,

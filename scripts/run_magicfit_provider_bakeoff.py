@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 
 
-OUT_DIR = Path("/docker/chummercomplete/_completion/magicfit_provider")
+EA_ROOT = Path(__file__).resolve().parents[1]
+OUT_DIR = Path(os.environ.get("MAGICFIT_PROVIDER_COMPLETION_ROOT") or EA_ROOT / "ea/_completion/magicfit_provider")
 OUT_PATH = OUT_DIR / "MAGICFIT_SAMPLE_RENDER_RECEIPT.generated.json"
 
 

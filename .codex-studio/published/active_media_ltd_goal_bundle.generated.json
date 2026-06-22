@@ -1,0 +1,314 @@
+{
+  "contract_name": "ea.active_media_ltd_goal_bundle.v1",
+  "credential_values_exposed": false,
+  "ea_is_memory_truth": false,
+  "ea_is_product_truth": false,
+  "external_proof_posture": {
+    "audiobook_live_delivery": {
+      "candidate_count": 2,
+      "failed_codes": [
+        "job_not_audiobookshelf_imported",
+        "m4b_output_file_not_ready",
+        "m4b_chapter_metadata_not_embedded",
+        "audiobookshelf_import_not_imported",
+        "audiobookshelf_target_file_not_ready",
+        "player_scoped_reference_not_ready",
+        "audiobookshelf_public_share_not_ready",
+        "audiobookshelf_public_share_url_missing",
+        "telegram_public_share_delivery_not_sent",
+        "telegram_public_share_message_id_missing"
+      ],
+      "goal_completion_claim_allowed": false,
+      "live_delivery_claim_allowed": true,
+      "next_action": "collect_human_playback_acceptance_evidence",
+      "privacy": {
+        "playback_acceptance_feedback_hashed": false,
+        "public_share_url_hashed": true,
+        "raw_audiobookshelf_path_included": false,
+        "raw_audiobookshelf_token_included": false,
+        "raw_chat_id_included": false,
+        "raw_public_share_url_included": false,
+        "raw_telegram_message_id_included": false
+      },
+      "real_user_playback_acceptance_verified": false,
+      "selected_delivery": {
+        "job_id_sha256": "d63d9e9045275ceb66e3707244363eec583b6c9c126e4471aecd68212603f014",
+        "playback_acceptance_source": "",
+        "playback_acceptance_status": "not_recorded",
+        "playback_acceptance_verified": false,
+        "public_share_host": "audiobookshelf.girschele.com",
+        "public_share_url_present": true,
+        "public_share_url_sha256": "ec53e9043cadd18905806a3c92ce882c663f2cab5e9ab1fe980cc8ede866adcd",
+        "telegram_delivery_message_id_present": true,
+        "telegram_delivery_status": "sent",
+        "title_present": true,
+        "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4"
+      },
+      "source_receipt": {
+        "bytes": 3982,
+        "exists": true,
+        "path": ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
+        "sha256": "70d3da4ef7bfd62a69be236d117d7e1153f60d4314d38a7b03b0c31fc452305a"
+      },
+      "status": "live_delivery_verified"
+    },
+    "manfred_spoken_conversation": {
+      "blocking_actions": [
+        "rerun_operator_local_full_text_benchmark_or_correct_ground_truth_transcript",
+        "collect_real_room_audio_attestation"
+      ],
+      "captured_candidate_diagnostic": {
+        "captured_row_count": 2,
+        "diagnostic_status": "ready",
+        "may_update_fixture_manifest": false,
+        "next_action": "rerun_operator_local_full_text_benchmark_or_correct_ground_truth_transcript",
+        "promotion_allowed": false,
+        "receipt_path": ".codex-studio/published/memorial_stt_captured_candidate_diagnostic.generated.json",
+        "row_failure_codes": [
+          "required_tokens_missing",
+          "token_f1_below_min",
+          "transcript_hash_mismatch",
+          "wer_above_max"
+        ],
+        "status": "blocked"
+      },
+      "current_label": "Memorial public-origin gold: blocked",
+      "next_action": "rerun_operator_local_full_text_benchmark_or_correct_ground_truth_transcript",
+      "operator_status": "blocked",
+      "premium_spoken_claim_allowed": false,
+      "privacy": {
+        "raw_private_context_exposed": false,
+        "raw_transcript_fields": false,
+        "redacted_text_fields": true
+      },
+      "public_voice_receipt_semantics": {
+        "label": "Memorial public voice provenance proof",
+        "transcriber_mode": "provenance_cache"
+      },
+      "room_audio_attestation_packet": {
+        "ci_must_not_auto_assert": true,
+        "manual_only": true,
+        "next_action": "collect_real_room_audio_attestation",
+        "operator_command": "make materialize-memorial-room-audio-gold-clean",
+        "receipt_path": ".codex-studio/published/memorial_room_audio_attestation_packet.generated.json",
+        "required_check_ids": [
+          "actual_device_checked",
+          "actual_speaker_checked",
+          "first_syllable_not_clipped",
+          "intelligibility_confirmed",
+          "answer_text_fallback_visible",
+          "no_internet_search_confirmed",
+          "normal_spoken_turn_confirmed",
+          "interruption_behavior_confirmed",
+          "retry_path_confirmed"
+        ],
+        "status": "ready"
+      },
+      "roundtrip_ready": false,
+      "source_receipt": {
+        "bytes": 19227,
+        "exists": true,
+        "path": ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json",
+        "sha256": "a829e7ac19d580ef98c9624fb07f515d042f25fb3daa5769c63efc039a8a9898"
+      },
+      "source_worktree_dirty": true,
+      "status": "blocked_external_proof",
+      "stt": {
+        "avg_token_f1": 1.0,
+        "avg_wer": 0.0,
+        "ground_truth_fixture_mode": "synthetic_only",
+        "next_action": "rerun_operator_local_full_text_benchmark_or_correct_ground_truth_transcript",
+        "passed_samples": 4,
+        "production_eligible": true,
+        "production_provider": "full_runtime",
+        "provider_label": "cartesia/ink-whisper+enhanced_wav",
+        "real_captured_fixture_required": true,
+        "real_captured_fixture_status": "captured_candidate_diagnostic_blocked",
+        "receipt_path": ".codex-studio/published/memorial_stt_provider_benchmark.generated.json",
+        "sample_count": 4,
+        "status": "pass"
+      },
+      "tts": {
+        "browser_audio_ready_for_ui": true,
+        "browser_audio_transport": "ui_playback_probe",
+        "browser_play_calls": 1,
+        "browser_play_ended": 1,
+        "browser_receipt_path": ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
+        "conversation_turn_audio_f1": 1.0,
+        "conversation_turn_audio_status": "pass",
+        "direct_tts_audio_status": "pass",
+        "direct_tts_f1": 1.0,
+        "next_action": "collect_real_room_audio_attestation",
+        "premium_failed_codes": [
+          "room_audio_attestation_not_pass"
+        ],
+        "premium_status": "blocked",
+        "receipt_path": ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
+        "room_audio_receipt": "blocked",
+        "room_audio_receipt_path": ".codex-studio/published/memorial_room_audio_public_origin.generated.json",
+        "status": "pass"
+      }
+    }
+  },
+  "generated_at": "2026-06-20T06:10:35Z",
+  "goal_completion_claim_allowed": false,
+  "goal_scope": [
+    "telegram_epub_audiobook_voice_quality",
+    "telegram_epub_audiobook_live_readiness",
+    "chaptered_m4b_with_cover_art",
+    "manfred_chatlab_ltd_boundary",
+    "manfred_realtime_conversation_speaker_readiness",
+    "continuous_cinematic_narration",
+    "local_fallback_promo_video_quality"
+  ],
+  "gold_claim_allowed": false,
+  "guardrail_override_allowed": false,
+  "lane_summary": {
+    "audiobook": "voice audition, immediate dismiss-to-replacement, live-readiness actions, audio quality, and M4B structure are locally verified",
+    "cinematic_narration": "standalone continuity and media pipeline contracts are verified",
+    "manfred_chatlab": "contract, runtime preflight, and public status route are bounded and verified",
+    "manfred_realtime_conversation": "realtime STT, TTS, room-audio, interruption, retry, and privacy blockers are summarized as a local readiness gate",
+    "manfred_spoken_conversation": "operator status is summarized separately because real STT/TTS room evidence remains external",
+    "promo_video": "local fallback review bundle and quality rubric are verified"
+  },
+  "live_provider_runtime_verified": false,
+  "next_action": "collect_external_provider_and_public_route_proofs_before_any_gold_or_live_provider_claim",
+  "provider_memory_write_allowed": false,
+  "provider_output_truth_allowed": false,
+  "provider_persona_truth_allowed": false,
+  "provider_publication_allowed": false,
+  "provider_ready": false,
+  "public_route_claim_allowed": false,
+  "public_route_deployment_verified": false,
+  "raw_private_context_exposed": false,
+  "remaining_external_proofs": [
+    "ChatLab account capability receipt",
+    "ChatLab live runtime probe receipt",
+    "ChatLab no-private-context-upload runtime receipt",
+    "ChatLab guardrail-preservation runtime receipt",
+    "named promo video provider account/runtime proof",
+    "deployed public promo route browser proof",
+    "human review approval for public promo publication",
+    "real user EPUB render and playback acceptance evidence",
+    "real Manfred realtime conversation room acceptance evidence",
+    "real Manfred spoken-conversation STT/TTS roundtrip evidence"
+  ],
+  "status": "ready_local_evidence",
+  "verifications": {
+    "audiobook_live_readiness": {
+      "issues": [],
+      "receipt": {
+        "bytes": 10232,
+        "exists": true,
+        "path": ".codex-studio/published/telegram_audiobook_live_readiness.generated.json",
+        "sha256": "e755dfec549ceef23bf4eb39aecf148b19c0ebd601ffd7bdb84b07560e164431"
+      },
+      "status": "pass"
+    },
+    "audiobook_m4b_structure": {
+      "issues": [],
+      "receipt": {
+        "bytes": 1972,
+        "exists": true,
+        "path": ".codex-studio/published/audiobook_m4b_structure_probe/audiobook_m4b_structure_probe.generated.json",
+        "sha256": "d1ba5dfbd28d1d2b46b132f6e76c866bf351fe4b9a0fb84cbe2f705e43bc067f"
+      },
+      "status": "pass"
+    },
+    "audiobook_quality": {
+      "issues": [],
+      "receipt": {
+        "bytes": 4461,
+        "exists": true,
+        "path": ".codex-studio/published/ea_audiobook_epub_quality_contract.generated.json",
+        "sha256": "b7907dec0ee96ced0dc60e71b305bc9a5158ddc696c9244a602a1747b795f112"
+      },
+      "status": "pass"
+    },
+    "chatlab_contract": {
+      "issues": [],
+      "receipt": {
+        "bytes": 3097,
+        "exists": true,
+        "path": ".codex-studio/published/memorial_chatlab_contract.generated.json",
+        "sha256": "d8476b61cd007c8dc1742401fabbfac39b87e1efcd3821bb86377e6e75e433b7"
+      },
+      "status": "pass"
+    },
+    "chatlab_route_surface": {
+      "issues": [],
+      "receipt": {
+        "bytes": 5747,
+        "exists": true,
+        "path": ".codex-studio/published/memorial_chatlab_route_surface.generated.json",
+        "sha256": "97220eb986e7b2cd6233b2a24b8758968a9a4c2461238bd3a2ed3ac8197b3dfc"
+      },
+      "status": "pass"
+    },
+    "chatlab_runtime_preflight": {
+      "issues": [],
+      "receipt": {
+        "bytes": 5554,
+        "exists": true,
+        "path": ".codex-studio/published/memorial_chatlab_runtime_preflight.generated.json",
+        "sha256": "407b72d922bf934ed1b979ce1b34d07c0d429aee1cfc5e1c08e0e28e9a60f75b"
+      },
+      "status": "pass"
+    },
+    "cinematic_continuity_demo": {
+      "issues": [],
+      "receipt": {
+        "bytes": 27707,
+        "exists": true,
+        "path": ".codex-studio/published/cinematic_narration_continuity_demo/cinematic_narration_continuity_demo.generated.json",
+        "sha256": "d1e9edfb9053e6cfaedc71cf10dbc90997162bf8e6c2659545abb08d608d86f1"
+      },
+      "status": "pass"
+    },
+    "cinematic_media_contract": {
+      "issues": [],
+      "status": "pass"
+    },
+    "manfred_realtime_readiness": {
+      "issues": [],
+      "receipt": {
+        "bytes": 8949,
+        "exists": true,
+        "path": ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
+        "sha256": "d9f18da7c61501832e3a073ac9a3c4a7638c01e1e6ac6a765c424379668f038b"
+      },
+      "status": "pass"
+    },
+    "promo_public_route_surface": {
+      "issues": [],
+      "receipt": {
+        "bytes": 21610,
+        "exists": true,
+        "path": ".codex-studio/published/ea_promo_public_route_surface.generated.json",
+        "sha256": "2041a8644e2eba6576bab1abf7c2765fb3fa33e5c63c128dbc3e98be770cd4c3"
+      },
+      "status": "pass"
+    },
+    "promo_quality_rubric": {
+      "issues": [],
+      "receipt": {
+        "bytes": 3178,
+        "exists": true,
+        "path": ".codex-studio/published/ea_promo_video_fallback/ashline-circle/promo_quality_rubric.generated.json",
+        "sha256": "fd4804864454d59e8c2509a561ba44278125bba8c9a69fd4697f257937ebd608"
+      },
+      "status": "pass"
+    },
+    "promo_review_bundle": {
+      "issues": [],
+      "receipt": {
+        "bytes": 3511,
+        "exists": true,
+        "path": ".codex-studio/published/ea_promo_video_fallback/ashline-circle/promo_review_bundle.generated.json",
+        "sha256": "23b48e5e33ec1fe2eed528f2b4ad30ad240d601e44b70b17efd14ca6af1a5d5d"
+      },
+      "status": "pass"
+    }
+  },
+  "verified_provider_claim_allowed": false
+}

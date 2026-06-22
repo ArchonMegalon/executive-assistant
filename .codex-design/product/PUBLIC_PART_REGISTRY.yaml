@@ -20,12 +20,12 @@ parts:
       - ../WHERE_TO_GO_DEEPER.md
   - id: core
     title: Core
-    public_tagline: The deterministic rules engine.
-    you_touch_this_when: A number looks wrong, a modifier needs explaining, or you want proof instead of vibe-based tool behavior.
+    public_tagline: The rules engine that keeps the numbers explainable.
+    you_touch_this_when: A number looks wrong, a modifier needs explaining, or you want the math shown instead of hand-waved.
     why_you_care: This is where Chummer earns trust. If the math cannot be reproduced and explained here, the rest of the product becomes expensive theater.
     what_you_notice:
       - reproducible rules outcomes
-      - readable receipts for why a pool or result changed
+      - readable explanations for why a pool or result changed
       - a cleaner split between rules math and the extra features layered around it
     public_noteworthy_limits:
       - this is not the online account or update side
@@ -78,7 +78,7 @@ parts:
     public_noteworthy_limits:
       - it is not the rules engine
       - some deeper support and admin screens are still being simplified
-    current_truth: Hub already powers sign-in, landing and home views, participation, and community features, and it is still getting simpler behind the scenes. It now carries account-aware home and account posture for claim, participation, reward, and recovery on the same community-ledger path.
+    current_truth: Hub already powers sign-in, landing and home views, participation, and community features, and it is still getting simpler behind the scenes. It exposes account-aware home and account posture for claim, participation, reward, and recovery through the same community-ledger path without making users learn the plumbing.
     go_deeper_links:
       - ../NOW/current-status.md
       - ../WHERE_TO_GO_DEEPER.md
@@ -94,39 +94,39 @@ parts:
     public_noteworthy_limits:
       - it is shared design infrastructure, not a standalone app
       - it only counts when the other heads visibly get smaller because it exists
-    current_truth: UI Kit is real enough to matter, and the next proof is whether the rest of the product can use it instead of rebuilding the same visual pieces over and over.
+    current_truth: UI Kit is real enough to matter, and the next check is whether the rest of the product can use it instead of rebuilding the same visual pieces over and over.
     go_deeper_links:
       - ../NOW/current-status.md
       - ../WHERE_TO_GO_DEEPER.md
   - id: hub-registry
     title: Hub Registry
-    public_tagline: The release shelf, install record, and compatibility record.
-    you_touch_this_when: You care about what exists, what can be installed, what is published, or whether a release file can be trusted and reused.
+    public_tagline: The release shelf, install history, and compatibility notes.
+    you_touch_this_when: You care about what exists, what can be installed, what is published, or whether a release file is the right one.
     why_you_care: Without this, release files turn into a warehouse full of unlabeled boxes and compatibility folklore.
     what_you_notice:
       - cleaner release metadata and publication status
       - a more believable path from preview outputs to shareable or installable files
-      - compatibility and moderation signals that can stay on the record
+      - compatibility and moderation notes that stay attached to the release
     public_noteworthy_limits:
       - this is not the media studio
       - this is not the rules engine
-    current_truth: Hub Registry is the growing record for published releases and compatibility, and it becomes more visible as the public release story gets richer.
+    current_truth: Hub Registry is the growing home for published releases and compatibility, and it becomes more visible as the public release story gets richer.
     go_deeper_links:
       - ../NOW/public-surfaces.md
       - ../WHERE_TO_GO_DEEPER.md
   - id: media-factory
     title: Media Factory
     public_tagline: The dedicated media studio.
-    you_touch_this_when: You care about finished images, teaser media, dossiers, narrated packets, or other polished outputs that still need clear proof of where the material came from.
-    why_you_care: This is how the product can look finished without letting style quietly rewrite the facts.
+    you_touch_this_when: You care about finished images, teaser media, dossiers, narration, or other polished outputs that still need clear sources.
+    why_you_care: This is how the product can look finished without letting style quietly rewrite what happened.
     what_you_notice:
       - cleaner asset generation and preview flows
-      - a stronger line between content rendering and product meaning
+      - a stronger line between presentation and product meaning
       - a path toward richer teaser and release media without forcing every product area to become its own studio
     public_noteworthy_limits:
       - this is not the decision-maker for what a session means
       - it should stay focused on media production even when the outputs get more ambitious
-    current_truth: Media Factory is where polished media gets produced and curated, and the current work is about making richer outputs possible without blurring where the material came from or who owns it.
+    current_truth: Media Factory is where polished media gets produced and curated, and the current work is about making richer outputs possible without blurring who approved the material.
     go_deeper_links:
       - ../NOW/public-surfaces.md
       - ../WHERE_TO_GO_DEEPER.md

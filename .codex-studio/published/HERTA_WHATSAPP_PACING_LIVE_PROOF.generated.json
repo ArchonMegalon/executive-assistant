@@ -1,0 +1,114 @@
+{
+  "contract_name": "ea.whatsapp_herta_test_pacing_live_proof.v3",
+  "generated_at_utc": "2026-06-21T21:14:26Z",
+  "status": "pass",
+  "session_ref": "tibor-wa-web",
+  "health": {
+    "ok": true,
+    "status": "ready"
+  },
+  "sidecar_status": {
+    "ready": true,
+    "authenticated": true,
+    "default_heyy_ai_key": "empathetic_slow_typing_old_lady",
+    "default_heyy_ai_name": "Herta (Heyy Lady)",
+    "default_pre_reply_delay_min_seconds": 10,
+    "default_pre_reply_delay_max_seconds": 30,
+    "default_quiet_hours_start_hour": 0,
+    "default_quiet_hours_end_hour": 0,
+    "default_typing_delay_ms": 6500,
+    "default_typing_delay_ms_per_character": 4000,
+    "default_typing_status_enabled": true
+  },
+  "herta_routes": [
+    {
+      "route_key_sha256_12": "37a8eec1ce19",
+      "inbound_number_present": false,
+      "pre_reply_delay_min_seconds": 10,
+      "pre_reply_delay_max_seconds": 30,
+      "quiet_hours_start_hour": 0,
+      "quiet_hours_end_hour": 0,
+      "typing_delay_ms": 6500,
+      "typing_delay_ms_per_character": 4000,
+      "typing_status_enabled": true
+    },
+    {
+      "route_key_sha256_12": "0a928b07e61c",
+      "inbound_number_present": true,
+      "pre_reply_delay_min_seconds": 10,
+      "pre_reply_delay_max_seconds": 30,
+      "quiet_hours_start_hour": 0,
+      "quiet_hours_end_hour": 0,
+      "typing_delay_ms": 6500,
+      "typing_delay_ms_per_character": 4000,
+      "typing_status_enabled": true
+    },
+    {
+      "route_key_sha256_12": "d9a51d6e7693",
+      "inbound_number_present": true,
+      "pre_reply_delay_min_seconds": 10,
+      "pre_reply_delay_max_seconds": 30,
+      "quiet_hours_start_hour": 0,
+      "quiet_hours_end_hour": 0,
+      "typing_delay_ms": 6500,
+      "typing_delay_ms_per_character": 4000,
+      "typing_status_enabled": true
+    }
+  ],
+  "processor_reply_env": {
+    "EA_WHATSAPP_WEB_ACTION_REPLY_PRE_REPLY_DELAY_MIN_SECONDS": "10",
+    "EA_WHATSAPP_WEB_ACTION_REPLY_TYPING_STATUS_ENABLED": "1",
+    "EA_WHATSAPP_WEB_ACTION_REPLY_QUIET_HOURS_END_HOUR": "0",
+    "EA_WHATSAPP_WEB_ACTION_REPLY_TYPING_DELAY_MS": "6500",
+    "EA_WHATSAPP_WEB_ACTION_REPLY_PRE_REPLY_DELAY_MAX_SECONDS": "30",
+    "EA_WHATSAPP_WEB_ACTION_REPLY_QUIET_HOURS_START_HOUR": "0",
+    "EA_WHATSAPP_WEB_ACTION_REPLY_HEYY_AI_NAME": "Herta (Heyy Lady)",
+    "EA_WHATSAPP_WEB_ACTION_REPLY_TYPING_DELAY_MS_PER_CHARACTER": "0",
+    "EA_WHATSAPP_WEB_ACTION_REPLY_HEYY_AI_KEY": "empathetic_slow_typing_old_lady",
+    "EA_WHATSAPP_WEB_SESSION_REQUEST_TIMEOUT_SECONDS": "180"
+  },
+  "sidecar_herta_env": {
+    "WA_WEB_HEYY_AI_PRE_REPLY_DELAY_MAX_SECONDS": "30",
+    "WA_WEB_HEYY_AI_TYPING_STATUS_ENABLED": "1",
+    "WA_WEB_HEYY_AI_TYPING_DELAY_MS": "6500",
+    "WA_WEB_HEYY_AI_QUIET_HOURS_START_HOUR": "0",
+    "WA_WEB_HEYY_AI_TYPING_DELAY_MS_PER_CHARACTER": "4000",
+    "WA_WEB_HEYY_AI_MAX_TYPING_DELAY_MS": "3600000",
+    "WA_WEB_HEYY_AI_QUIET_HOURS_END_HOUR": "0",
+    "WA_WEB_HEYY_AI_ROUTE_MAP_JSON": "",
+    "WA_WEB_HEYY_AI_PRE_REPLY_DELAY_MIN_SECONDS": "10"
+  },
+  "content_builder": {
+    "herta_reply_builder_present": true,
+    "auto_reply_uses_builder": true,
+    "thanks_ack_branch_present": true,
+    "bank_safety_branch_present": true,
+    "last_reply_variation_state_present": true
+  },
+  "checks": {
+    "herta_routes_test_pacing_ok": true,
+    "processor_action_reply_test_pacing_ok": true,
+    "sidecar_env_test_pacing_ok": true,
+    "contextual_herta_reply_builder_ok": true,
+    "raw_phone_numbers_redacted": true,
+    "contextual_herta_reply_execution_ok": true
+  },
+  "contextual_reply_execution": {
+    "status": "pass",
+    "checks": {
+      "functions_present": true,
+      "thanks_contextual": true,
+      "thanks_non_repeated": true,
+      "bank_safety": true,
+      "identity_check": true,
+      "impatience_contextual": true
+    },
+    "replies": {
+      "thanks_first": "Ja, passt. Ich leg mir die Brille gleich wieder her, sonst les ich alles zweimal.",
+      "thanks_second_same_chat": "Gern, mein Lieber. Ich hab es gesehen. Ich brauch nur einen Moment, ja?",
+      "bank_safety": "Na, Bank mach ich hier nicht. Da ruf ich lieber die alte Nummer an, sonst wird mir ganz schwindlig.",
+      "identity_check": "Ich bin die Herta. Aber bei neuen Nummern frag ich lieber erst nach. Was soll denn Sabi wissen?",
+      "impatience": "Nicht hudeln bitte. Schreib mir das nochmal kurz, dann komm ich schon mit."
+    }
+  }
+}

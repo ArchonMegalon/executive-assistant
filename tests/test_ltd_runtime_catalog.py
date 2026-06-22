@@ -8,6 +8,9 @@ from app.services.ltd_runtime_catalog import LtdRuntimeCatalogService, _inventor
 from app.services.provider_registry import ProviderRegistryService
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
 def _sample_ltd_markdown() -> str:
     return """
 # LTDs
@@ -88,7 +91,7 @@ def test_vidboard_template_detects_recaptcha_as_auth_failure() -> None:
 def test_nonverbia_static_workflow_matches_runtime_template() -> None:
     import json
 
-    static = json.loads(Path("/docker/EA/browseract_templates/nonverbia_workspace_reader.workflow.json").read_text(encoding="utf-8"))
+    static = json.loads((ROOT / "browseract_templates" / "nonverbia_workspace_reader.workflow.json").read_text(encoding="utf-8"))
     dynamic = browseract_ui_template_spec("nonverbia_workspace_reader")
 
     assert static == dynamic
@@ -97,7 +100,7 @@ def test_nonverbia_static_workflow_matches_runtime_template() -> None:
 def test_vidboard_static_workflow_matches_runtime_template() -> None:
     import json
 
-    static = json.loads(Path("/docker/EA/browseract_templates/vidboard_workspace_reader.workflow.json").read_text(encoding="utf-8"))
+    static = json.loads((ROOT / "browseract_templates" / "vidboard_workspace_reader.workflow.json").read_text(encoding="utf-8"))
     dynamic = browseract_ui_template_spec("vidboard_workspace_reader")
 
     assert static == dynamic
@@ -106,7 +109,7 @@ def test_vidboard_static_workflow_matches_runtime_template() -> None:
 def test_voicewave_static_workflow_matches_runtime_template() -> None:
     import json
 
-    static = json.loads(Path("/docker/EA/browseract_templates/voicewave_workspace_reader.workflow.json").read_text(encoding="utf-8"))
+    static = json.loads((ROOT / "browseract_templates" / "voicewave_workspace_reader.workflow.json").read_text(encoding="utf-8"))
     dynamic = browseract_ui_template_spec("voicewave_workspace_reader")
 
     assert static == dynamic

@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Black Ledger faction promo</title>
+  <style>
+    :root { color-scheme: dark; --bg: #101419; --panel: #1a2027; --line: #56616d; --text: #f4f0e8; --muted: #b8b1a5; --gold: #d7b56d; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    main { width: min(1180px, calc(100vw - 32px)); margin: 0 auto; padding: 28px 0 42px; display: grid; gap: 20px; }
+    header { display: grid; gap: 12px; }
+    h1 { margin: 0; font-size: clamp(2rem, 4vw, 4.2rem); line-height: 1; letter-spacing: 0; }
+    video { width: 100%; aspect-ratio: 16 / 9; background: #07090c; border: 1px solid var(--line); border-radius: 8px; display: block; }
+    .status { display: flex; flex-wrap: wrap; gap: 8px; }
+    .pill { border: 1px solid var(--line); border-radius: 999px; padding: 6px 10px; color: var(--muted); font-size: .88rem; }
+    .pill strong { color: var(--text); }
+    .panel { border-top: 1px solid var(--line); padding-top: 16px; display: grid; gap: 12px; }
+    .sheet { width: 100%; border: 1px solid var(--line); border-radius: 8px; display: block; background: var(--panel); }
+    .transcript { display: grid; gap: 8px; }
+    .cue { display: grid; grid-template-columns: 44px 1fr; gap: 12px; align-items: baseline; padding: 10px 0; border-top: 1px solid rgba(86,97,109,.45); }
+    .cue span { color: var(--gold); font-weight: 700; }
+    .cue p { margin: 0; color: var(--muted); line-height: 1.45; }
+    .receipt { color: var(--muted); font-size: .92rem; display: flex; flex-wrap: wrap; gap: 10px; }
+    .receipt code { color: var(--text); }
+    @media (max-width: 760px) { main { width: min(100vw - 24px, 640px); padding-top: 20px; } .cue { grid-template-columns: 34px 1fr; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Black Ledger faction promo</h1>
+      <div class="status">
+        <span class="pill"><strong>local_ffmpeg_static_card_video</strong></span>
+        <span class="pill">provider proof pending</span>
+        <span class="pill">public deployment proof pending</span>
+        <span class="pill">duration 46.986s</span>
+      </div>
+    </header>
+    <video controls preload="metadata" poster="poster.jpg">
+      <source src="promo-fallback.mp4" type="video/mp4">
+      <track kind="subtitles" srclang="en" label="English" src="../promo.vtt" default>
+    </video>
+    <section class="panel">
+      <img class="sheet" src="contact-sheet.jpg" alt="Fallback promo contact sheet">
+    </section>
+    <section class="panel transcript"><article class="cue" data-scene-id="signal_before_contact">
+  <span>01</span>
+  <p>The signal opens: Signal before contact frames the pressure: The city hears the rumor before the runners do. The visible receipt trail carries through without a reset.</p>
+</article><article class="cue" data-scene-id="pattern_not_noise">
+  <span>02</span>
+  <p>The thread continues: Pattern, not noise frames the pressure: Every faction leaves a pattern. Chummer keeps the signal inspectable before anyone follows it. The visible receipt trail carries through without a reset.</p>
+</article><article class="cue" data-scene-id="choose_the_angle">
+  <span>03</span>
+  <p>The thread continues: Choose the angle frames the pressure: A promo should create pressure, not pretend to be truth. The packet stays readable beside the motion. The visible receipt trail carries through without a reset.</p>
+</article><article class="cue" data-scene-id="walk_in_ready">
+  <span>04</span>
+  <p>The thread continues: Walk in ready frames the pressure: Read the hook, check the receipts, and enter the run with the stakes already alive. The visible receipt trail carries through without a reset.</p>
+</article>
+    </section>
+    <footer class="receipt">
+      <span>receipt <code>../promo_fallback_video.generated.json</code></span>
+      <span>captions <code>../promo.vtt</code></span>
+      <span>review only</span>
+    </footer>
+  </main>
+</body>
+</html>

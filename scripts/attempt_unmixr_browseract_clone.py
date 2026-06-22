@@ -19,7 +19,7 @@ import requests
 ROOT = Path(__file__).resolve().parents[1]
 ENV_FILES = (ROOT / "ea" / ".env", ROOT / ".env")
 PLAYWRIGHT_IMAGE = os.environ.get("EA_UI_PLAYWRIGHT_IMAGE", "chummer-playwright:local").strip() or "chummer-playwright:local"
-DEFAULT_OUT_DIR = Path("/docker/fleet/state/chummer6/unmixr_provider")
+DEFAULT_OUT_DIR = Path(os.environ.get("EA_UNMIXR_PROVIDER_OUT_DIR") or ROOT / "ea" / "_completion" / "unmixr_provider")
 DEFAULT_REFERENCE_AUDIO = (
     ROOT
     / "memorial_data"

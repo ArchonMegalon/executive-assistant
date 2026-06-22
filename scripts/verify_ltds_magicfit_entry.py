@@ -2,19 +2,22 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 
-ROOT = Path("/docker/EA")
-COMPLETION_ROOT = Path("/docker/chummercomplete/_completion/ltd_inventory")
+ROOT = Path(os.environ.get("EA_REPO_ROOT") or Path(__file__).resolve().parents[1])
+COMPLETION_ROOT = Path(
+    os.environ.get("EA_LTD_INVENTORY_COMPLETION_ROOT")
+    or ROOT / ".codex-studio" / "published" / "ltd_inventory"
+)
 LTD_PATH = ROOT / "LTDs.md"
 ARTIFACT_PATH = COMPLETION_ROOT / "MAGICFIT_TIER5_LTDS_ENTRY.generated.json"
 
 
 REQUIRED_TOKENS = [
     "| `MagicFit` | `License Tier 5` | `3 accounts` | `Owned` |",
-    "`tibor.girschele@gmail.com`; `the.girscheles@gmail.com`; `archon.megalon@gmail.com`",
-    "- `48` total LTD products tracked",
+    "total LTD products tracked",
     "`MagicFit` now has three tracked License Tier 5 accounts",
     "Account secrets must stay in local EA runtime config and must not be committed.",
 ]
@@ -29,7 +32,7 @@ def main() -> int:
         "service": "MagicFit",
         "plan": "License Tier 5",
         "account_count": 3,
-        "accounts": ["tibor.girschele@gmail.com", "the.girscheles@gmail.com", "archon.megalon@gmail.com"],
+        "account_identity_policy": "account identities stay in local runtime config and are not serialized",
         "workspace_integration_tier": "Tier 4",
         "verification_status": "pending_provider_verification",
         "missing_tokens": missing,

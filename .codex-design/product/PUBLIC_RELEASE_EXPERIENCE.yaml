@@ -5,10 +5,10 @@ guest_readable_channels:
   - stable
   - public_stable
   - preview
-release_notes_summary: The current release keeps one direct download path for Windows and Linux, with the posted build, release date, and verification date aligned on the public pages.
+release_notes_summary: The current release keeps direct Stable and Nightly paths for Windows and Linux, with posted build, release date, and verification date aligned on the public pages.
 download_authority_summary: chummer.run is the only official client download source. GitHub is source and development evidence only, never a public binary release shelf for installers, archives, update payloads, or preview clients.
-proof_scope_summary: Public proof language is scoped to the files, named flows, and recent checks posted on the current public release page that a person can inspect today; it is not a blanket flagship-grade claim.
-flagship_claim_summary: Flagship wording is reserved for surfaces that currently satisfy FLAGSHIP_RELEASE_ACCEPTANCE.yaml; preview artifacts, proof cards, captions, packet siblings, artifact-factory explainers, and fallback routes do not earn that claim by proximity.
+proof_scope_summary: Public release detail stays scoped to the builds, named flows, and recent checks a person can inspect today; it is not a blanket flagship-grade claim.
+flagship_claim_summary: Flagship wording is reserved for surfaces that currently satisfy FLAGSHIP_RELEASE_ACCEPTANCE.yaml; preview artifacts, status cards, captions, packet siblings, artifact-factory explainers, and fallback routes do not earn that claim by proximity.
 flagship_grade_summary: A public release is only truly ready when downloads, install/update help, recovery, support, and the product surfaces behind them feel like one premium, honest product rather than a technically functional preview bundle.
 flagship_acceptance_source: FLAGSHIP_RELEASE_ACCEPTANCE.yaml
 desktop_platform_matrix_source: DESKTOP_PLATFORM_ACCEPTANCE_MATRIX.yaml
@@ -19,14 +19,14 @@ long_running_action_safety_source: LONG_RUNNING_ACTION_SAFETY_CONTRACT.md
 campaign_operability_rubric_source: CAMPAIGN_OPERABILITY_SCORING_RUBRIC.yaml
 release_label_resolver_rules:
   - Public labels must resolve from registry-backed release truth before any shelf, help, status, or packet copy is generated.
-  - The strongest allowed public label is bounded by the weakest proof-bearing surface in the same route family.
+  - The strongest allowed public label is limited by the weakest checked surface in the same route family.
   - A fallback, preview, account-gated, or setup-script lane must keep that weaker label even when adjacent proof artifacts look more complete.
   - Gold or flagship wording is forbidden unless the current platform route, support posture, and desktop-head proof all satisfy FLAGSHIP_RELEASE_ACCEPTANCE.yaml.
-  - If platform bytes, startup-smoke proof, support posture, and release-copy posture disagree, the resolver must fail closed to preview wording.
+  - If platform bytes, startup checks, support posture, and release-copy posture disagree, the resolver must fail closed to preview wording.
   - Known-issue and fix words must resolve from KNOWN_ISSUE_AND_FIX_STATUS_LANGUAGE.md before public help, status, or support copy is emitted.
 desktop_flagship_head: Chummer.Avalonia
 desktop_fallback_head: Chummer.Blazor.Desktop
-desktop_cut_summary: The current desktop wave treats Avalonia as the primary public desktop head, keeps Blazor Desktop as the bounded compatibility fallback only while Avalonia remains the promoted primary route, and resolves successful mainline Windows/Linux builds into the latest rolling preview shelf automatically.
+desktop_cut_summary: The current desktop wave treats Avalonia as the primary public desktop head, keeps Blazor Desktop as the bounded compatibility fallback only while Avalonia remains the promoted primary route, and publishes at most one scheduled morning public shelf update per day unless a targeted test build is explicitly needed.
 supported_locale_targets:
   - en-US
   - de-DE
@@ -43,20 +43,21 @@ public_concierge_summary: Public concierge widgets may appear only as bounded pr
 flagship_release_rules:
   - The shelf must present one obvious primary download path per supported platform.
   - Every official client download or install handoff must start from chummer.run and resolve through registry-backed release truth.
-  - GitHub releases, GitHub Actions artifacts, repo attachments, and repo-hosted binary shelves must not be used as public client download sources.
+  - GitHub releases, repository automation artifacts, repo attachments, and repo-hosted binary shelves must not be used as public client download sources.
   - Avalonia is the flagship desktop head. Blazor Desktop is only a compatibility fallback when the platform matrix and release copy both say so.
-  - If Blazor Desktop is the only visible desktop head for a lane or the recommended download, the release page must treat it as the flagship route and require flagship proof rather than fallback proof.
-  - Public proof shelf wording is limited to posted files, recent checks, and inspectable trails; it must not imply that all current product surfaces are flagship-ready.
-  - Public proof shelf wording must stay subordinate to the posted install shelf for each platform; proof cards and explainer bundles cannot outrank the actual download route.
-  - Public proof shelf wording must also stay subordinate to the recommended install route when artifact-factory packets, captions, previews, or packet-detail pages are visible on the same public surface.
+  - If Blazor Desktop is the only visible desktop head for a lane or the recommended download, the release page must treat it as the flagship route and require the same flagship checks as Avalonia.
+  - Public release-detail wording is limited to posted files, recent checks, and inspectable trails; it must not imply that all current product surfaces are flagship-ready.
+  - Public release-detail wording must stay subordinate to the posted install shelf for each platform; status cards and explainer bundles cannot outrank the actual download route.
+  - Public release-detail wording must also stay subordinate to the recommended install route when artifact-factory packets, captions, previews, or packet-detail pages are visible on the same public surface.
   - Any public concierge widget on release, downloads, or help-entry surfaces must stay in preview-overlay posture and must not become release authority.
   - Fixed route, fallback route, and recovery route language must remain distinct on public surfaces; warm concierge copy may not blur them.
   - First-run, no-data, and recovery copy on public release-adjacent surfaces must stay aligned with ONBOARDING_AND_EMPTY_STATE_JOURNEY_CONTRACT.md.
   - The flagship release path starts with a guided Chummer product installer path first and opens the real workbench or restore continuation flow on first launch.
   - The happy path must not send the user to a browser to copy or paste a claim code by hand.
+  - Public account language should say `Claim your copy` and avoid account-plumbing labels.
   - Public release claims must stay within the surfaces that currently pass FLAGSHIP_RELEASE_ACCEPTANCE.yaml or carry a bounded preview explanation.
   - Help, known issues, claim/recovery guidance, and update posture must agree with the actual released artifacts.
-  - Public pages must not overclaim platform or feature readiness just because internal proof artifacts exist.
+  - Public pages must not overclaim platform or feature readiness just because internal check artifacts exist.
   - Artifact-factory previews, captions, packet siblings, explainers, and public packet-detail routes can prove inspectable output, but they do not by themselves promote a preview or fallback lane into a flagship claim or override the recommended install shelf.
   - Concierge copy must not imply that a fix is already available, installed, or correct for this user unless the same claim is already true in first-party release or support truth.
   - Flagship desktop quality requires polished install, update, crash-recovery, and support flows in addition to build/startup proof.
@@ -80,17 +81,18 @@ guest_gate_summary: Open downloads. Create an account only when you want linked 
 guest_gate_primary_label: Open downloads
 guest_gate_secondary_label: Already have an account? Sign in
 signed_in_dispatch_heading: Linked install
-signed_in_dispatch_summary: Use the published installer for this device. Account linking happens after the first successful launch.
+signed_in_dispatch_summary: Use the published installer for this device. Claim your copy online after download or first launch.
 signed_in_dispatch_steps:
-  - Start from the signed-in handoff page for the platform you are installing.
+  - Start from the public download or signed-in claim page for the platform you are installing.
   - Follow the platform-specific guided install path; when macOS needs the setup lane, that path begins with a short-lived Terminal install command.
-  - The happy path must apply the install claim automatically on first successful launch instead of depending on a manual claim-code ritual.
+  - First launch must offer a clear claim path and a clear continue-unlinked path; closing the claim window keeps the app open as an unlinked install.
+  - The happy path must apply the install claim automatically from the online claim page instead of depending on a manual claim-code ritual.
   - If Chummer reports missing rule packs or amend packages during restore, follow the explicit recovery guidance before trusting the restored result.
   - Reopen Devices and access later only for recovery, relinking, or support follow-through.
 install_steps:
   - Download the current published package for your platform.
   - Finish setup for that package, then launch Chummer.
-  - Create an account when you want download receipts, recovery, and support history to stay attached.
+  - Create an account when you want download receipts, recovery, and support history to stay attached; otherwise continue unlinked.
   - If a restored runner or campaign needs rule packs or amend packages that are not present locally, Chummer must say so before compute continues.
   - Use Devices and access later if you need to reconnect a downloaded copy back to the same account.
 account_required_install_steps:
@@ -99,7 +101,7 @@ account_required_install_steps:
   - Finish setup for that package and launch Chummer.
   - Follow the platform-specific guided install path where one exists; macOS setup continuity begins with a Terminal command only when that guided setup lane is the active route.
   - Resolve any shown rule-environment or package mismatch before trusting the restored workspace.
-  - Let the happy path attach the install automatically; use claim/recovery details only when Chummer explicitly falls back to recovery mode.
+  - Let the happy path attach the install automatically from the online claim page; if the user closes the claim window, keep the install local and unlinked instead of blocking startup.
 windows_requirements:
   - 64-bit Windows 10 or newer.
   - Enough free disk space for the installed release plus future updates.
@@ -108,8 +110,9 @@ linux_requirements:
   - 64-bit Linux with the currently published package support.
   - Use the current public package when available; use manual packages only for advanced or support-directed setup.
   - Linux remains inside the current rolling public release scope and should always point at the newest successful public package lane.
+  - Arch-based distributions should receive an AUR package projection when the Linux packaging lane is ready; converting `.deb` packages is not the flagship path.
 macos_requirements:
   - The public downloads page may expose a macOS guided setup lane when needed, but the promoted shelf route is the signed, notarized DMG installer.
   - The Mac default action is a Terminal command, not a downloaded unsigned `.command` file and not the raw DMG. The command must stream a guided setup assistant that downloads the current DMGs, removes quarantine, lets the user choose which supported desktop heads to install, lets the user choose `/Applications` versus `~/Applications`, and offers to open the selected apps when setup finishes.
-  - The guided setup assistant must apply the baked install claim codes automatically on first launch instead of asking the user to copy codes by hand.
+  - The guided setup assistant must apply install claiming automatically on first launch or route the user to the online claim page instead of asking the user to copy codes by hand.
   - Guest-visible macOS downloads should stay tied to the promoted signed and notarized installer truth, not a preview-coded lane.

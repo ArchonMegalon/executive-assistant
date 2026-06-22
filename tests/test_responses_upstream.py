@@ -2060,7 +2060,7 @@ def test_onemin_provider_health_pick_recovers_quarantined_budget_limited_slot_fo
                             "estimated_remaining_credits": 219,
                             "billing_remaining_credits": 15025,
                             "last_probe_result": "depleted",
-                            "last_probe_detail": "INSUFFICIENT_CREDITS:The feature requires 1726 credits, but the Tibor Girschele team only has 219 credits",
+                            "last_probe_detail": "INSUFFICIENT_CREDITS:The feature requires 1726 credits, but the Principal User team only has 219 credits",
                         },
                         {
                             "account_name": "ONEMIN_AI_API_KEY_FALLBACK_1",
@@ -2534,7 +2534,7 @@ def test_call_onemin_provider_health_uses_quarantine_budget_signal_for_smaller_r
                             "estimated_remaining_credits": 219,
                             "billing_remaining_credits": 15025,
                             "last_probe_result": "depleted",
-                            "last_probe_detail": "INSUFFICIENT_CREDITS:The feature requires 1726 credits, but the Tibor Girschele team only has 219 credits",
+                            "last_probe_detail": "INSUFFICIENT_CREDITS:The feature requires 1726 credits, but the Principal User team only has 219 credits",
                         },
                         {
                             "account_name": "ONEMIN_AI_API_KEY_FALLBACK_1",

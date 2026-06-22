@@ -7,7 +7,15 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from app.yaml_inputs import load_yaml_dict
+
+try:
+    from app.yaml_inputs import load_yaml_dict
+except ModuleNotFoundError:  # pragma: no cover - supports repo-tool execution when app modules are trimmed
+    def load_yaml_dict(path: Path) -> dict[str, Any]:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError(f"Expected YAML object in {path}")
+        return data
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PACK_PATH = REPO_ROOT / "docs/chummer_closure_coverage/CHUMMER_CLOSURE_COVERAGE_PACK.yaml"
@@ -27,12 +35,17 @@ def _read_text(path: Path) -> str:
     return path.read_text()
 
 
+def _anchor_path(path_value: object) -> Path:
+    path = Path(str(path_value))
+    return path if path.is_absolute() else REPO_ROOT / path
+
+
 def _anchor_status(anchor: dict[str, Any]) -> dict[str, Any]:
-    path = Path(anchor["path"])
+    path = _anchor_path(anchor["path"])
     present = path.exists()
     status: dict[str, Any] = {
         "anchor_id": anchor["anchor_id"],
-        "path": str(path),
+        "path": str(anchor["path"]),
         "kind": anchor["kind"],
         "present": present,
     }

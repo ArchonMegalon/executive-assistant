@@ -11,6 +11,7 @@ class MemorialSpeechTranscription:
     transcript_original_text: str
     transcription_status: str
     transcriber: str
+    stt_ms: float = 0.0
     extra: dict[str, Any] = field(default_factory=dict)
 
     def as_public_payload(self) -> dict[str, Any]:
@@ -20,6 +21,7 @@ class MemorialSpeechTranscription:
         payload["transcript_original_text"] = self.transcript_original_text
         payload["transcription_status"] = self.transcription_status
         payload["transcriber"] = self.transcriber
+        payload["stt_ms"] = self.stt_ms
         return payload
 
 

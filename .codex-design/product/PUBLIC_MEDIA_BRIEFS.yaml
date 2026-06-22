@@ -778,7 +778,7 @@ asset_overlay_contracts:
     render_layers:
       - base_scene
       - verified_overlay_optional
-  assets/horizons/nexus-pan.png:
+  assets/features/nexus-pan.png:
     overlay_density: high
     required_overlay_mode: smartlink_tactical
     world_marker_minimum: 5

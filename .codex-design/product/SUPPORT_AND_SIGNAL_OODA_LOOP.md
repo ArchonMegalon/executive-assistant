@@ -26,6 +26,8 @@ Raw inputs include:
 * ClickRank crawl, metadata, schema, broken-link, internal-link, and AI-search visibility findings
 * release regressions
 * public-promise drift findings
+* Chummer Instant Help unresolved intents
+* stale or missing support-video findings
 
 Detailed intake posture lives in `FEEDBACK_AND_CRASH_REPORTING_SYSTEM.md`.
 
@@ -39,6 +41,7 @@ Signals become one bounded packet with:
 * whether the failure is code, docs, policy, queue, or canon
 * whether trust, release safety, or roadmap honesty is at risk
 * whether the item is support, public signal, content optimization, discovery, or canon work
+* whether the fix should create or refresh an Instant Help article, checklist, diagnostic, or support video
 
 Detailed packet routing lives in `FEEDBACK_AND_SIGNAL_OODA_LOOP.md`.
 
@@ -48,6 +51,8 @@ The legal outcomes are:
 
 * code fix
 * docs/help fix
+* Instant Help answer or repair-check update
+* support-video refresh or new VidBoard render request
 * queue or package change
 * policy change
 * canon change
@@ -77,6 +82,9 @@ ProductLift-linked closure requires Chummer-owned release, guide, Hub route, art
 Katteb-linked closure requires an upstream source change or explicit rejection before generated guide or article copy changes.
 
 ClickRank-linked closure requires a Hub/design source, metadata config, registry, or article-source change plus regeneration or explicit no-change rationale before public output changes.
+
+Instant Help closure requires the user-facing answer, optional video, repair action, or diagnostic path to change.
+A support case is not closed merely because a script or video draft exists; the relevant help surface must be current and reachable.
 
 Detailed closure semantics live in `FEEDBACK_AND_CRASH_STATUS_MODEL.md`.
 

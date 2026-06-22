@@ -1494,7 +1494,7 @@ def _run_openvoice() -> None:
         port = 8093
     log_level = str(os.environ.get("OPENVOICE_LOG_LEVEL") or get_settings().log_level).strip().lower() or "info"
     uvicorn.run(
-        "app.openvoice_app:app",
+        "app.main:app",
         host=host,
         port=port,
         log_level=log_level,

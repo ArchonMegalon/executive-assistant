@@ -404,7 +404,7 @@ All notable changes to the Executive Assistant runtime and product baseline are 
   - `Makefile` shortcuts
   - `RUNBOOK.md`, `ARCHITECTURE_MAP.md`, `HTTP_EXAMPLES.http`
 - CI/local gate bundle tooling and docs (`make ci-gates`, `make release-smoke`, `make release-preflight`, `make docs-verify`, `make release-docs`, script `--help` contracts).
-- CI smoke workflow: `.github/workflows/smoke-runtime.yml`
+- Local smoke and release gates: `make ci-gates`, `make release-smoke`, and `make release-preflight`
 - Runtime API smoke tests: `tests/smoke_runtime_api.py`
 - DB size/operator clarity:
   - `db_size.sh` now explains that Compose volume `ea_pgdata` maps to `/var/lib/postgresql/data`

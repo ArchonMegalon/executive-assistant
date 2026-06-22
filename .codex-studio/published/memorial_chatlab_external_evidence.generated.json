@@ -1,0 +1,67 @@
+{
+  "contract_name": "ea.memorial_chatlab_external_evidence.v1",
+  "generated_at": "2026-06-20T04:19:23.953364Z",
+  "gold_claim_allowed": false,
+  "missing_receipts": [
+    "chatlab_account_capability_receipt",
+    "chatlab_runtime_probe_receipt",
+    "chatlab_no_private_context_upload_receipt",
+    "chatlab_guardrail_preservation_receipt"
+  ],
+  "next_action": "attach_remaining_redacted_chatlab_external_evidence",
+  "observed_at": "2026-06-20T04:19:23.953342Z",
+  "privacy": {
+    "credential_values_exposed": false,
+    "endpoint_value_exposed": false,
+    "raw_private_context_exposed": false,
+    "raw_provider_payload_exposed": false,
+    "raw_provider_response_exposed": false
+  },
+  "provider_key": "chatplayground_ai",
+  "provider_label": "ChatPlayground AI",
+  "provider_ready_claim_allowed": false,
+  "receipts": {
+    "chatlab_account_capability_receipt": {
+      "credential_values_exposed": false,
+      "endpoint_value_exposed": false,
+      "evidence_sha256": "",
+      "observed_at": "",
+      "raw_provider_payload_exposed": false,
+      "redacted": true,
+      "source": "operator_redacted_evidence_hash",
+      "status": "missing"
+    },
+    "chatlab_guardrail_preservation_receipt": {
+      "credential_values_exposed": false,
+      "endpoint_value_exposed": false,
+      "evidence_sha256": "",
+      "observed_at": "",
+      "raw_provider_payload_exposed": false,
+      "redacted": true,
+      "source": "operator_redacted_evidence_hash",
+      "status": "missing"
+    },
+    "chatlab_no_private_context_upload_receipt": {
+      "credential_values_exposed": false,
+      "endpoint_value_exposed": false,
+      "evidence_sha256": "",
+      "observed_at": "",
+      "raw_provider_payload_exposed": false,
+      "redacted": true,
+      "source": "operator_redacted_evidence_hash",
+      "status": "missing"
+    },
+    "chatlab_runtime_probe_receipt": {
+      "credential_values_exposed": false,
+      "endpoint_value_exposed": false,
+      "evidence_sha256": "",
+      "observed_at": "",
+      "raw_provider_payload_exposed": false,
+      "redacted": true,
+      "source": "operator_redacted_evidence_hash",
+      "status": "missing"
+    }
+  },
+  "slug": "manfred",
+  "status": "incomplete"
+}

@@ -963,32 +963,6 @@ def _all_enabled_browseract_bindings(container: AppContainer) -> list[object]:
     ]
 
 
-def _operator_principal_allowlist() -> set[str]:
-    values: set[str] = set()
-    for env_name in ("EA_OPERATOR_PRINCIPAL_IDS", "EA_OPERATOR_PRINCIPALS"):
-        raw = str(upstream._env(env_name) or "").strip()  # type: ignore[attr-defined]
-        if not raw:
-            continue
-        for item in raw.split(","):
-            normalized = str(item or "").strip()
-            if normalized:
-                values.add(normalized)
-    return values
-
-
-def _operator_email_allowlist() -> set[str]:
-    values: set[str] = set()
-    for env_name in ("EA_OPERATOR_EMAILS", "EA_OPERATOR_ACCESS_EMAILS"):
-        raw = str(upstream._env(env_name) or "").strip()  # type: ignore[attr-defined]
-        if not raw:
-            continue
-        for item in raw.split(","):
-            normalized = str(item or "").strip().lower()
-            if normalized:
-                values.add(normalized)
-    return values
-
-
 def _is_operator_context(context: RequestContext) -> bool:
     return shared_is_operator_context(context)
 

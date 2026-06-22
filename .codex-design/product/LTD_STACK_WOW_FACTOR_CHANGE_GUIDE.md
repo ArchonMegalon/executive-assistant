@@ -18,7 +18,7 @@ The immediate problem was that the design and inventory had drifted:
 Add:
 
 * `FacePop` as bounded public trust or concierge widget lane
-* `Lunacal` as promoted booking and human-escalation lane
+* `Lunacal` as an invitation-only scheduling lane for creator consults, press/research, GM office hours, and rare publisher or premium review sessions
 * `Deftform` as promoted structured intake lane
 
 Also update the EA-side inventory to include:
@@ -78,8 +78,8 @@ Recipe:
 * FacePop short host clip
 * CTA 1: download now -> first-party downloads truth
 * CTA 2: which platform should I use? -> vidBoard explainer plus article fallback
-* CTA 3: I need setup help -> Deftform support-enrichment form
-* CTA 4: book a setup clinic -> Lunacal booking
+* CTA 3: I need setup help -> Chummer Instant Help
+* CTA 4: still unresolved -> first-party support packet or Deftform support-enrichment form
 * Email or confirmation -> Hub plus optional Emailit
 
 Owners:
@@ -138,8 +138,8 @@ Recipe:
 * FacePop release host clip
 * watch what changed -> vidBoard release explainer
 * read notes -> first-party release notes
-* need help updating -> Deftform support pre-intake
-* book help -> Lunacal
+* need help updating -> Chummer Instant Help
+* still unresolved -> first-party support packet or Deftform support-enrichment form
 * after successful fix or use -> FacePop testimonial capture
 
 Important:

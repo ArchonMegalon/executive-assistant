@@ -17,9 +17,13 @@ if str(SCRIPTS_DIR) not in sys.path:
 from chummer6_runtime_config import load_local_env, load_runtime_overrides
 from chummer6_overlay_vision_readiness import overlay_vision_readiness
 
-EA_ROOT = Path(__file__).resolve().parents[1]
+EA_ROOT = Path(os.environ.get("EA_ROOT") or Path(__file__).resolve().parents[1])
 ENV_FILE = EA_ROOT / ".env"
-STATE_OUT = Path("/docker/fleet/state/chummer6/ea_provider_readiness.json")
+CHUMMER6_MEDIA_STATE_ROOT = Path(
+    os.environ.get("CHUMMER6_MEDIA_STATE_ROOT")
+    or EA_ROOT / ".codex-studio" / "published" / "chummer6_media"
+)
+STATE_OUT = Path(os.environ.get("CHUMMER6_PROVIDER_READINESS_PATH") or CHUMMER6_MEDIA_STATE_ROOT / "ea_provider_readiness.json")
 
 RAW_KEY_NAMES = {
     "pollinations": [],
@@ -375,7 +379,10 @@ def provider_state(name: str) -> dict[str, object]:
             detail = "No AI Magicx credentials found."
         return {"provider": name, "status": status, "available": available, "raw_keys": raw_keys, "adapters": adapters, "detail": detail}
     if name == "media_factory":
-        script_path = Path("/docker/fleet/repos/chummer-media-factory/scripts/render_guide_asset.py")
+        script_path = Path(
+            os.environ.get("CHUMMER6_MEDIA_FACTORY_RENDER_SCRIPT")
+            or EA_ROOT / "third_party" / "chummer-media-factory" / "scripts" / "render_guide_asset.py"
+        )
         configured_command = env_value("CHUMMER6_MEDIA_FACTORY_RENDER_COMMAND")
         command_name, cli_ready = command_state(configured_command or "python3")
         onemin_keys = key_names_present(raw_key_names("onemin"))

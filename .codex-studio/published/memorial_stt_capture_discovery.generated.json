@@ -1,0 +1,452 @@
+{
+  "contract_name": "ea.memorial_stt_capture_discovery",
+  "status": "blocked",
+  "target_samples": [
+    "contact_opening",
+    "stt_retry"
+  ],
+  "bundle_count": 148,
+  "bundle_discovery_mode": "auto_pcloud_root_scan",
+  "bundle_root": "/mnt/pcloud/EA/memorial_stt_errors",
+  "matched_count": 12,
+  "promotable_count": 0,
+  "failed_codes": [
+    "audio_too_short_for_expected_text"
+  ],
+  "text_mode": "redacted",
+  "raw_text_fields": false,
+  "rows": [
+    {
+      "status": "blocked",
+      "failed_codes": [
+        "audio_too_short_for_expected_text"
+      ],
+      "bundle_id": "070839_conversation_turn_conversation_turn_llm_timeout_7e87a9122bc2",
+      "reason": "conversation_turn_llm_timeout",
+      "route": "conversation_turn",
+      "content_type": "audio/wav",
+      "stored_wav": true,
+      "matched_metadata_fields": [
+        "answer.question",
+        "transcription.transcript_effective_text",
+        "transcription.transcript_text"
+      ],
+      "sample": "contact_opening",
+      "expected_text_chars": 48,
+      "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
+      "required_token_count": 3,
+      "required_token_sha256": [
+        "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
+        "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
+        "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
+      ],
+      "audio": {
+        "input_file": "input.wav",
+        "sha256": "4234eede1d86a969f1fe22fcb91248406f95bc0aa0b8aeab107ff6fd4e4ba620",
+        "bytes": 11244,
+        "max_bytes": 26214400,
+        "duration_seconds": 0.35,
+        "expected_min_duration_seconds": 2.24,
+        "max_duration_seconds": 120.0
+      },
+      "fixture_file": "contact_opening_real_captured.wav",
+      "raw_text_fields": false
+    },
+    {
+      "status": "blocked",
+      "failed_codes": [
+        "audio_too_short_for_expected_text"
+      ],
+      "bundle_id": "070925_conversation_turn_conversation_turn_llm_timeout_d6cf61bfeace",
+      "reason": "conversation_turn_llm_timeout",
+      "route": "conversation_turn",
+      "content_type": "audio/wav",
+      "stored_wav": true,
+      "matched_metadata_fields": [
+        "answer.question",
+        "transcription.transcript_effective_text",
+        "transcription.transcript_text"
+      ],
+      "sample": "contact_opening",
+      "expected_text_chars": 48,
+      "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
+      "required_token_count": 3,
+      "required_token_sha256": [
+        "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
+        "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
+        "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
+      ],
+      "audio": {
+        "input_file": "input.wav",
+        "sha256": "4234eede1d86a969f1fe22fcb91248406f95bc0aa0b8aeab107ff6fd4e4ba620",
+        "bytes": 11244,
+        "max_bytes": 26214400,
+        "duration_seconds": 0.35,
+        "expected_min_duration_seconds": 2.24,
+        "max_duration_seconds": 120.0
+      },
+      "fixture_file": "contact_opening_real_captured.wav",
+      "raw_text_fields": false
+    },
+    {
+      "status": "blocked",
+      "failed_codes": [
+        "audio_too_short_for_expected_text"
+      ],
+      "bundle_id": "072040_conversation_turn_conversation_turn_llm_timeout_e8d762147100",
+      "reason": "conversation_turn_llm_timeout",
+      "route": "conversation_turn",
+      "content_type": "audio/wav",
+      "stored_wav": true,
+      "matched_metadata_fields": [
+        "answer.question",
+        "transcription.transcript_effective_text",
+        "transcription.transcript_text"
+      ],
+      "sample": "contact_opening",
+      "expected_text_chars": 48,
+      "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
+      "required_token_count": 3,
+      "required_token_sha256": [
+        "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
+        "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
+        "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
+      ],
+      "audio": {
+        "input_file": "input.wav",
+        "sha256": "4234eede1d86a969f1fe22fcb91248406f95bc0aa0b8aeab107ff6fd4e4ba620",
+        "bytes": 11244,
+        "max_bytes": 26214400,
+        "duration_seconds": 0.35,
+        "expected_min_duration_seconds": 2.24,
+        "max_duration_seconds": 120.0
+      },
+      "fixture_file": "contact_opening_real_captured.wav",
+      "raw_text_fields": false
+    },
+    {
+      "status": "blocked",
+      "failed_codes": [
+        "audio_too_short_for_expected_text"
+      ],
+      "bundle_id": "072741_conversation_turn_conversation_turn_llm_timeout_e06c26d6fb21",
+      "reason": "conversation_turn_llm_timeout",
+      "route": "conversation_turn",
+      "content_type": "audio/wav",
+      "stored_wav": true,
+      "matched_metadata_fields": [
+        "answer.question",
+        "transcription.transcript_effective_text",
+        "transcription.transcript_text"
+      ],
+      "sample": "contact_opening",
+      "expected_text_chars": 48,
+      "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
+      "required_token_count": 3,
+      "required_token_sha256": [
+        "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
+        "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
+        "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
+      ],
+      "audio": {
+        "input_file": "input.wav",
+        "sha256": "4234eede1d86a969f1fe22fcb91248406f95bc0aa0b8aeab107ff6fd4e4ba620",
+        "bytes": 11244,
+        "max_bytes": 26214400,
+        "duration_seconds": 0.35,
+        "expected_min_duration_seconds": 2.24,
+        "max_duration_seconds": 120.0
+      },
+      "fixture_file": "contact_opening_real_captured.wav",
+      "raw_text_fields": false
+    },
+    {
+      "status": "blocked",
+      "failed_codes": [
+        "audio_too_short_for_expected_text"
+      ],
+      "bundle_id": "072814_conversation_turn_conversation_turn_llm_timeout_7c824dc6be11",
+      "reason": "conversation_turn_llm_timeout",
+      "route": "conversation_turn",
+      "content_type": "audio/wav",
+      "stored_wav": true,
+      "matched_metadata_fields": [
+        "answer.question",
+        "transcription.transcript_effective_text",
+        "transcription.transcript_text"
+      ],
+      "sample": "contact_opening",
+      "expected_text_chars": 48,
+      "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
+      "required_token_count": 3,
+      "required_token_sha256": [
+        "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
+        "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
+        "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
+      ],
+      "audio": {
+        "input_file": "input.wav",
+        "sha256": "4234eede1d86a969f1fe22fcb91248406f95bc0aa0b8aeab107ff6fd4e4ba620",
+        "bytes": 11244,
+        "max_bytes": 26214400,
+        "duration_seconds": 0.35,
+        "expected_min_duration_seconds": 2.24,
+        "max_duration_seconds": 120.0
+      },
+      "fixture_file": "contact_opening_real_captured.wav",
+      "raw_text_fields": false
+    },
+    {
+      "status": "blocked",
+      "failed_codes": [
+        "audio_too_short_for_expected_text"
+      ],
+      "bundle_id": "075450_conversation_turn_conversation_turn_llm_timeout_bc6a86f35364",
+      "reason": "conversation_turn_llm_timeout",
+      "route": "conversation_turn",
+      "content_type": "audio/wav",
+      "stored_wav": true,
+      "matched_metadata_fields": [
+        "answer.question",
+        "transcription.transcript_effective_text",
+        "transcription.transcript_text"
+      ],
+      "sample": "contact_opening",
+      "expected_text_chars": 48,
+      "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
+      "required_token_count": 3,
+      "required_token_sha256": [
+        "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
+        "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
+        "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
+      ],
+      "audio": {
+        "input_file": "input.wav",
+        "sha256": "4234eede1d86a969f1fe22fcb91248406f95bc0aa0b8aeab107ff6fd4e4ba620",
+        "bytes": 11244,
+        "max_bytes": 26214400,
+        "duration_seconds": 0.35,
+        "expected_min_duration_seconds": 2.24,
+        "max_duration_seconds": 120.0
+      },
+      "fixture_file": "contact_opening_real_captured.wav",
+      "raw_text_fields": false
+    },
+    {
+      "status": "blocked",
+      "failed_codes": [
+        "audio_too_short_for_expected_text"
+      ],
+      "bundle_id": "075551_conversation_turn_conversation_turn_llm_timeout_463e1b43c2fc",
+      "reason": "conversation_turn_llm_timeout",
+      "route": "conversation_turn",
+      "content_type": "audio/wav",
+      "stored_wav": true,
+      "matched_metadata_fields": [
+        "answer.question",
+        "transcription.transcript_effective_text",
+        "transcription.transcript_text"
+      ],
+      "sample": "contact_opening",
+      "expected_text_chars": 48,
+      "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
+      "required_token_count": 3,
+      "required_token_sha256": [
+        "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
+        "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
+        "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
+      ],
+      "audio": {
+        "input_file": "input.wav",
+        "sha256": "4234eede1d86a969f1fe22fcb91248406f95bc0aa0b8aeab107ff6fd4e4ba620",
+        "bytes": 11244,
+        "max_bytes": 26214400,
+        "duration_seconds": 0.35,
+        "expected_min_duration_seconds": 2.24,
+        "max_duration_seconds": 120.0
+      },
+      "fixture_file": "contact_opening_real_captured.wav",
+      "raw_text_fields": false
+    },
+    {
+      "status": "blocked",
+      "failed_codes": [
+        "audio_too_short_for_expected_text"
+      ],
+      "bundle_id": "075655_conversation_turn_conversation_turn_llm_timeout_fc7fcb871eb1",
+      "reason": "conversation_turn_llm_timeout",
+      "route": "conversation_turn",
+      "content_type": "audio/wav",
+      "stored_wav": true,
+      "matched_metadata_fields": [
+        "answer.question",
+        "transcription.transcript_effective_text",
+        "transcription.transcript_text"
+      ],
+      "sample": "contact_opening",
+      "expected_text_chars": 48,
+      "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
+      "required_token_count": 3,
+      "required_token_sha256": [
+        "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
+        "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
+        "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
+      ],
+      "audio": {
+        "input_file": "input.wav",
+        "sha256": "4234eede1d86a969f1fe22fcb91248406f95bc0aa0b8aeab107ff6fd4e4ba620",
+        "bytes": 11244,
+        "max_bytes": 26214400,
+        "duration_seconds": 0.35,
+        "expected_min_duration_seconds": 2.24,
+        "max_duration_seconds": 120.0
+      },
+      "fixture_file": "contact_opening_real_captured.wav",
+      "raw_text_fields": false
+    },
+    {
+      "status": "blocked",
+      "failed_codes": [
+        "audio_too_short_for_expected_text"
+      ],
+      "bundle_id": "075759_conversation_turn_conversation_turn_llm_timeout_a1dd6a3e9b7b",
+      "reason": "conversation_turn_llm_timeout",
+      "route": "conversation_turn",
+      "content_type": "audio/wav",
+      "stored_wav": true,
+      "matched_metadata_fields": [
+        "answer.question",
+        "transcription.transcript_effective_text",
+        "transcription.transcript_text"
+      ],
+      "sample": "contact_opening",
+      "expected_text_chars": 48,
+      "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
+      "required_token_count": 3,
+      "required_token_sha256": [
+        "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
+        "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
+        "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
+      ],
+      "audio": {
+        "input_file": "input.wav",
+        "sha256": "4234eede1d86a969f1fe22fcb91248406f95bc0aa0b8aeab107ff6fd4e4ba620",
+        "bytes": 11244,
+        "max_bytes": 26214400,
+        "duration_seconds": 0.35,
+        "expected_min_duration_seconds": 2.24,
+        "max_duration_seconds": 120.0
+      },
+      "fixture_file": "contact_opening_real_captured.wav",
+      "raw_text_fields": false
+    },
+    {
+      "status": "blocked",
+      "failed_codes": [
+        "audio_too_short_for_expected_text"
+      ],
+      "bundle_id": "081520_conversation_turn_conversation_turn_llm_timeout_f59fa7388505",
+      "reason": "conversation_turn_llm_timeout",
+      "route": "conversation_turn",
+      "content_type": "audio/wav",
+      "stored_wav": true,
+      "matched_metadata_fields": [
+        "answer.question",
+        "transcription.transcript_effective_text",
+        "transcription.transcript_text"
+      ],
+      "sample": "contact_opening",
+      "expected_text_chars": 48,
+      "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
+      "required_token_count": 3,
+      "required_token_sha256": [
+        "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
+        "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
+        "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
+      ],
+      "audio": {
+        "input_file": "input.wav",
+        "sha256": "4234eede1d86a969f1fe22fcb91248406f95bc0aa0b8aeab107ff6fd4e4ba620",
+        "bytes": 11244,
+        "max_bytes": 26214400,
+        "duration_seconds": 0.35,
+        "expected_min_duration_seconds": 2.24,
+        "max_duration_seconds": 120.0
+      },
+      "fixture_file": "contact_opening_real_captured.wav",
+      "raw_text_fields": false
+    },
+    {
+      "status": "blocked",
+      "failed_codes": [
+        "audio_too_short_for_expected_text"
+      ],
+      "bundle_id": "081820_conversation_turn_conversation_turn_llm_timeout_a1cf05049072",
+      "reason": "conversation_turn_llm_timeout",
+      "route": "conversation_turn",
+      "content_type": "audio/wav",
+      "stored_wav": true,
+      "matched_metadata_fields": [
+        "answer.question",
+        "transcription.transcript_effective_text",
+        "transcription.transcript_text"
+      ],
+      "sample": "contact_opening",
+      "expected_text_chars": 48,
+      "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
+      "required_token_count": 3,
+      "required_token_sha256": [
+        "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
+        "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
+        "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
+      ],
+      "audio": {
+        "input_file": "input.wav",
+        "sha256": "4234eede1d86a969f1fe22fcb91248406f95bc0aa0b8aeab107ff6fd4e4ba620",
+        "bytes": 11244,
+        "max_bytes": 26214400,
+        "duration_seconds": 0.35,
+        "expected_min_duration_seconds": 2.24,
+        "max_duration_seconds": 120.0
+      },
+      "fixture_file": "contact_opening_real_captured.wav",
+      "raw_text_fields": false
+    },
+    {
+      "status": "blocked",
+      "failed_codes": [
+        "audio_too_short_for_expected_text"
+      ],
+      "bundle_id": "081927_conversation_turn_conversation_turn_llm_timeout_891f8a27521d",
+      "reason": "conversation_turn_llm_timeout",
+      "route": "conversation_turn",
+      "content_type": "audio/wav",
+      "stored_wav": true,
+      "matched_metadata_fields": [
+        "answer.question",
+        "transcription.transcript_effective_text",
+        "transcription.transcript_text"
+      ],
+      "sample": "contact_opening",
+      "expected_text_chars": 48,
+      "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
+      "required_token_count": 3,
+      "required_token_sha256": [
+        "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
+        "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
+        "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
+      ],
+      "audio": {
+        "input_file": "input.wav",
+        "sha256": "4234eede1d86a969f1fe22fcb91248406f95bc0aa0b8aeab107ff6fd4e4ba620",
+        "bytes": 11244,
+        "max_bytes": 26214400,
+        "duration_seconds": 0.35,
+        "expected_min_duration_seconds": 2.24,
+        "max_duration_seconds": 120.0
+      },
+      "fixture_file": "contact_opening_real_captured.wav",
+      "raw_text_fields": false
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "artifact_dir": "/docker/EA/.codex-studio/published/ea_promo_video_fallback/ashline-circle",
+  "contract_name": "ea.promo_video_fallback_receipt.v1",
+  "files": {
+    "narration_windows": {
+      "path": "narration_windows.generated.json",
+      "sha256": "23334698c0d6e5ca9afc93222c8c53df4ab84f75530a87dfc45ba14edaea4e02"
+    },
+    "poster_frame": {
+      "path": "poster-frame.storyboard.json",
+      "sha256": "4cb511ba72a0705e3cf85943a3db7d8a4d496f7856c3405ccaa4f14e6ad5a7fc"
+    },
+    "preview_html": {
+      "path": "promo.html",
+      "sha256": "4e994819b58ee864933b7f71d3dde2c013402f9769e2ea8bbb8da79d305b44f3"
+    },
+    "promo_json": {
+      "path": "promo.json",
+      "sha256": "732af4c183a82b12f5a595305d4325c0e715c4d2860e28dd20daf7fcf3976640"
+    },
+    "promo_vtt": {
+      "path": "promo.vtt",
+      "sha256": "85109e4d9b26d8d9a9117abb22583603b74ffe34e99b03b5f238c9b5f0f9bb25"
+    }
+  },
+  "generated_at": "2026-06-20T06:10:35Z",
+  "gold_claim_allowed": false,
+  "live_provider_runtime_verified": false,
+  "narration": {
+    "current_scene_conditioned": true,
+    "provider_output_truth_allowed": false,
+    "rolling_state_preserved": true,
+    "scene_bound": false,
+    "scene_signal_is_canon": false,
+    "window_count": 4
+  },
+  "next_action": "deploy_public_route_and_run_browser_proof",
+  "provider_ready": false,
+  "public_route_deployment_verified": false,
+  "render_mode": "fallback_static_storyboard",
+  "status": "ready_via_fallback_local_artifacts",
+  "verdict": "READY_VIA_FALLBACK"
+}

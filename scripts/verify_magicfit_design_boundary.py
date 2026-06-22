@@ -2,13 +2,15 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 
-ROOT = Path("/docker/fleet/repos/chummer-media-factory")
+ROOT = Path(os.environ.get("CHUMMER_MEDIA_FACTORY_ROOT") or Path(__file__).resolve().parents[1] / "ea" / "_completion" / "chummer-media-factory")
 DOC_PATH = ROOT / "docs" / "MAGICFIT_PROVIDER_BOUNDARY.md"
 ADAPTER_PATH = ROOT / "src" / "Chummer.Media.Factory.Runtime" / "Providers" / "MagicFit" / "MagicFitProviderAdapter.cs"
-OUT_DIR = Path("/docker/chummercomplete/_completion/magicfit_provider")
+EA_ROOT = Path(__file__).resolve().parents[1]
+OUT_DIR = Path(os.environ.get("MAGICFIT_PROVIDER_COMPLETION_ROOT") or EA_ROOT / "ea/_completion/magicfit_provider")
 OUT_PATH = OUT_DIR / "MAGICFIT_DESIGN_BOUNDARY.generated.json"
 
 

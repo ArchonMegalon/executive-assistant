@@ -28,13 +28,14 @@ It does not imply that every owned tool must be integrated.
 * `Soundmadeseen` - narrated media, recap, and briefing clips
 * `Signitic` - passive outreach and signature-campaign projection lane
 * `Emailit` - outbound delivery provider candidate for Hub-owned lifecycle, digest, and closeout mail
+* `Subscribr.ai` - Tier 7 YouTube idea, script, hook, metadata, and thumbnail-brief lane for approved creator/public-growth source packets
 * `Taja` - approved media repurposing and distribution lane
 * `Teable` - operator admin projection and AdminIntent workbench, never system of record
 * `vidBoard` - structured presenter-video and multilingual walkthrough lane
 * `Crezlo Tours` - explorable GM run-site artifacts
 * `Deftform` - structured intake and concierge handoff lane
 * `First Book ai` - long-form player, GM, and creator authoring lane
-* `Lunacal` - booking and human-escalation lane
+* `Lunacal` - invitation-only scheduling lane for creator consults, press/research, GM office hours, and rare publisher or premium review sessions; not normal Chummer support
 * `MarkupGo` - bounded document rendering and formatted artifact output
 * `AvoMap` - route and location visualization lane
 * `PeekShot` - preview/share-card adapter lane
@@ -99,6 +100,7 @@ Working rule:
 * `Taja` may repurpose approved media only after claim and publication approval; it does not become artifact truth.
 * `ProductLift` may collect public ideas, votes, and reactions, but Chummer-owned packets and Product Governor decisions remain canonical.
 * `Katteb` may draft or optimize public content only from approved source packets; accepted changes return to Chummer-owned source before publication.
+* `Subscribr.ai` may turn approved public-growth, creator, or tutorial source packets into YouTube ideas, scripts, hooks, metadata, and thumbnail briefs, but accepted copy still returns to Chummer-owned source and publication review before release.
 * `ClickRank` may audit public crawl health, metadata, schema, internal links, and AI-search visibility, but Chummer-owned source and Product Governor/content-owner review remain canonical.
 
 ## Public concierge / trust posture
@@ -106,7 +108,7 @@ Working rule:
 Working rule:
 
 * `FacePop` is bounded to public, low-risk trust surfaces with a kill switch and first-party fallback.
-* `Lunacal` may provide human escalation and booking, but it may not become support-case or campaign truth.
+* `Lunacal` may provide invitation-only scheduling for creator consults, press/research, GM office hours, and rare publisher or premium review sessions, but it may not appear in the normal Chummer help flow or become support-case, campaign, install, or release truth.
 * `Deftform` may provide structured intake, but Hub-owned receipts and first-party followthrough remain canonical.
 * `Signitic` may amplify public recruitment, release, world-tick, or faction-war campaigns, but those campaigns remain projections into first-party pages rather than notification truth, world truth, or authorization truth.
 * `Emailit` may send claim/install mail, support closure, open-run invitations, world-tick digests, faction newsletters, creator-program mail, and ProductLift closeout only when Hub owns the notification event and suppression state.
@@ -128,9 +130,10 @@ Working rule:
 * `ClickRank` - `chummer6-hub` for public site crawl and metadata remediation, `chummer6-design` for search-visibility policy and source-truth boundaries, `executive-assistant` for findings normalization, `fleet` for weekly pulse evidence synthesis
 * `FacePop` - `chummer6-hub` for public-surface routing, consent, fallback, and intake receipt mirroring; `chummer6-media-factory` for moderated testimonial derivative support
 * `Deftform` - `chummer6-hub` for structured intake routing and receipt mirroring
-* `Lunacal` - `chummer6-hub` for booking linkage and escalation routing
+* `Lunacal` - `chummer6-hub` for invitation-only booking linkage outside normal Chummer support
 * `NextStep` - `fleet` for governed process execution and mirrored operator runbooks
 * `Signitic` - `chummer6-hub` for destination shaping, segment routing, UTM naming, and public recruitment/release/world-tick campaign routing; `chummer6-design` for public-safe claim boundaries; `fleet` for bounded measurement review
+* `Subscribr.ai` - `chummer6-media-factory` for creator/video preproduction drafts, `chummer6-design` for approved source-packet boundaries, and `executive-assistant` for channel brief normalization; credentials stay in the external account vault and are not repo content
 * `Taja` - `chummer6-media-factory` for approved media repurposing and distribution only
 * `hedy.ai` - `chummer6-hub` for consent-gated coaching packet orchestration, `chummer6-media-factory` for transcript prep and rendered recap packet support
 * `Nonverbia` - `chummer6-hub` for coaching analysis and privacy gating, `chummer6-media-factory` for bounded rendered outputs
@@ -140,10 +143,10 @@ Working rule:
 
 The owned LTD stack should be evaluated as governed product loops, not isolated vendor notes.
 
-* Public Growth System - `ClickRank`, `NeuronWriter`, `Rybbit`, `Katteb`, `ProductLift`, `Signitic`, `Emailit`, `Taja`, and `vidBoard` route public discovery into first-party pages, measurable CTA journeys, changelog proof, and closeout.
+* Public Growth System - `ClickRank`, `NeuronWriter`, `Subscribr.ai`, `Rybbit`, `Katteb`, `ProductLift`, `Signitic`, `Emailit`, `Taja`, and `vidBoard` route public discovery into first-party pages, creator/video preproduction, measurable CTA journeys, changelog proof, and closeout.
 * Public Experience QA System - `Rafter`, `Pixefy`, and Fleet provide auxiliary live-site, security, screenshot, responsiveness, and visual QA evidence without becoming truth owners.
 * Discovery System - `ProductLift`, `Deftform`, `Icanpreneur`, `MetaSurvey`, `Lunacal`, `Teable`, and Product Governor convert public demand into Chummer-owned packets and decisions.
-* Artifact Factory - `vidBoard`, `MarkupGo`, `PeekShot`, `Taja`, `Soundmadeseen`, `Unmixr AI`, and `First Book ai` render approved source packets into repeatable media, document, and share artifacts.
+* Artifact Factory - `vidBoard`, `Subscribr.ai`, `MarkupGo`, `PeekShot`, `Taja`, `Soundmadeseen`, `Unmixr AI`, and `First Book ai` render approved source packets into repeatable media, document, script, and share artifacts.
 * BLACK LEDGER Ops - Hub, `Teable`, `NextStep`, `ApproveThis`, `Signitic`, `Emailit`, and first-party map infrastructure run world ticks, faction operations, open-run closeout, and operator review.
 * Table Pulse / Companion Lab - `hedy.ai`, `Nonverbia`, `Unmixr AI`, `Soundmadeseen`, `MarkupGo`, `PeekShot`, `Prompting Systems`, `ChatPlayground AI`, and `Teable` support consent-gated debriefs and reviewed line packs.
 * Trust / Closure System - Hub, Registry, Fleet, Product Governor, `ProductLift`, `Emailit`, and first-party analytics/observability prove that install, support, roadmap, and release promises actually closed.

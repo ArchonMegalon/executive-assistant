@@ -293,6 +293,91 @@ video_families:
     source_modes:
       - approved_gm_debrief_script
       - approved_coaching_packet
+planned_horizon_reels:
+  - id: origin_dossier_90s_deepdive
+    horizon_id: origin-dossier
+    family: horizon_explainer_reel
+    status: magicfit_proof_clip_rendered_full_reel_credit_blocked
+    source_doc: products/chummer/horizons/origin-dossier.md
+    output_target: /media/horizons/origin-dossier-90s-deepdive.mp4
+    captions_target: /media/horizons/origin-dossier-90s-deepdive.vtt
+    proof_clip:
+      source_receipt: /docker/chummercomplete/_completion/origin_dossier_horizon_20260618/magicfit_clips_api/origin_dossier_90s_deepdive/origin_dossier_01_sheet_without_soul_4s.magicfit.json
+      local_mp4: /docker/chummercomplete/_completion/origin_dossier_horizon_20260618/magicfit_clips_api/origin_dossier_90s_deepdive/origin_dossier_01_sheet_without_soul_4s.mp4
+      duration_seconds: 4.096
+      has_audio: true
+      public_link_allowed: false
+      reason: Short provider proof clip only; the full horizon reel still needs enough MagicFit credits for the remaining scenes.
+    blockers:
+      - full_90s_reel_needs_magicfit_video_credits
+      - public_link_waits_for_full_reel_audio_probe_and_human_review
+    approval_posture: proof_clip_verified_public_horizon_explainer_not_yet_publishable
+    creative_contract:
+      style: grounded live-action product documentary with restrained cyberpunk table detail
+      avoid:
+        - prompt-looking generated text
+        - official Shadowrun logos or sourcebook layouts
+        - autonomous AI authority framing
+        - media provider as character truth
+        - sheet mechanics silently changing
+      must_show:
+        - player review and approval
+        - GM steer as advisory context
+        - origin canon feeding later ALICE follow-up
+        - dossier media as downstream artifact
+        - optional audiobook as a scoped player handoff
+        - Chummer-owned rules truth boundary
+    scenes:
+      - scene_id: origin_dossier_01_sheet_without_soul
+        duration_seconds: 9
+        on_screen_text: ORIGIN DOSSIER
+        narration: "A runner can be legal and still feel unfinished. Origin Dossier starts where the numbers need a person behind them."
+        visual: "A player studies a clean but impersonal character sheet beside dice, notes, and an empty portrait frame."
+      - scene_id: origin_dossier_02_gm_steer
+        duration_seconds: 9
+        on_screen_text: GM steer stays visible
+        narration: "The GM can add the campaign pressure: clinic debt, restricted ware, hard requirements, and the reason this story belongs at this table."
+        visual: "The GM writes bounded constraints on a tablet while the player watches, with practical AR tags hovering near the physical notes."
+      - scene_id: origin_dossier_03_draft_origin
+        duration_seconds: 9
+        on_screen_text: Draft origin
+        narration: "Chummer turns the build and the steer into a grounded origin draft, not a hidden rule change."
+        visual: "Draft pages, portrait thumbnails, and a city-scene board assemble around the runner concept without readable generated UI text."
+      - scene_id: origin_dossier_04_approval
+        duration_seconds: 9
+        on_screen_text: Player and GM approve
+        narration: "The player and GM approve canon before it becomes part of the dossier. Review is the feature."
+        visual: "Two hands confirm a reviewed dossier packet on a shared table, with sparse approval indicators added in post."
+      - scene_id: origin_dossier_05_bundle_root
+        duration_seconds: 9
+        on_screen_text: Dossier bundle
+        narration: "The approved origin becomes a bundle root: canon, PDF, portraits, scenes, narration, audiobook, storyboard, and render requests."
+        visual: "Physical folders, portrait contact sheets, and a small audio waveform card spread across the table like a professional case file."
+      - scene_id: origin_dossier_06_media_downstream
+        duration_seconds: 9
+        on_screen_text: Media is downstream
+        narration: "Portraits, scenes, and video make the runner easier to remember. They do not become character authority."
+        visual: "A portrait candidate and scene still are reviewed with reject and select gestures; the sheet remains untouched nearby."
+      - scene_id: origin_dossier_07_alice_reads_context
+        duration_seconds: 9
+        on_screen_text: ALICE reads approved canon
+        narration: "Later, ALICE can use the approved origin, and open the player's audiobook, without pretending story prose outranks mechanics."
+        visual: "ALICE-style coaching context appears beside a runner dossier, a scoped audiobook chip, and a separate mechanics receipt card."
+      - scene_id: origin_dossier_08_boundary
+        duration_seconds: 9
+        on_screen_text: No silent mechanics
+        narration: "The clinic favor can explain a debt. It cannot auto-apply ware, nuyen, qualities, magic, or legality."
+        visual: "A sheet edit stays locked until a deliberate player action, while the origin note remains clearly separate."
+      - scene_id: origin_dossier_09_table_memory
+        duration_seconds: 9
+        on_screen_text: The table remembers
+        narration: "The runner now has history, obligations, and a clean handoff into campaign memory."
+        visual: "The player places the approved dossier beside a campaign map as the GM points toward the next run."
+      - scene_id: origin_dossier_10_close
+        duration_seconds: 9
+        on_screen_text: A person, not just a build
+        narration: "Origin Dossier gives Chummer a way to make characters feel human while the rules engine stays honest."
+        visual: "Final hero shot of the runner portrait, dice, approved packet, and table crew in warm practical light."
 render_companions:
   preview_lane: PeekShot
   document_lane: MarkupGo

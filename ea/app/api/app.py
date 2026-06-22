@@ -22,6 +22,7 @@ def _include_public_routes(
     app: FastAPI,
     *,
     settings,
+    audiobook_player_router: APIRouter,
     public_documents_router: APIRouter,
     landing_access_router: APIRouter,
     landing_setup_router: APIRouter,
@@ -37,6 +38,7 @@ def _include_public_routes(
     health_router: APIRouter,
     register_router: APIRouter,
 ) -> None:
+    app.include_router(audiobook_player_router)
     app.include_router(public_documents_router)
     app.include_router(landing_access_router)
     app.include_router(landing_setup_router)
@@ -138,6 +140,7 @@ def create_app() -> FastAPI:
     validate_startup_settings(s)
     if inline_sync_handlers_enabled():
         install_inline_threadpool_compat()
+    from app.api.routes.audiobook_player import router as audiobook_player_router
     from app.api.routes.channels import router as channels_router
     from app.api.routes.connectors import router as connectors_router
     from app.api.routes.delivery import router as delivery_router
@@ -182,6 +185,7 @@ def create_app() -> FastAPI:
     _include_public_routes(
         app,
         settings=s,
+        audiobook_player_router=audiobook_player_router,
         public_documents_router=public_documents_router,
         landing_access_router=landing_access_router,
         landing_setup_router=landing_setup_router,

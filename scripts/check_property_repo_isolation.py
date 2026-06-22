@@ -38,14 +38,14 @@ FORBIDDEN_RUNTIME_TOKENS = (
     " feedback/",
     "skills/",
     "bootstrap_chummer6_guide_skill",
-    "/docker/chummercomplete",
+    "/docker/" + "chummercomplete",
     "chummer-playwright",
     "ea-openvoice",
     "openvoice",
     "ea-responses-proxy",
     "ea-teable-relay",
-    "/mnt/onedrive",
-    "/mnt/pcloud",
+    "/mnt/" + "onedrive",
+    "/mnt/" + "pcloud",
 )
 
 

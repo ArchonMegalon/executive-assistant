@@ -50,7 +50,7 @@ LEGACY_RESEARCH_KEYS = (
 
 
 def _tour_dir() -> Path:
-    return Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+    return Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or REPO_ROOT / "ea" / "_completion" / "public_property_tours")).expanduser()
 
 
 def _is_weak(value: object) -> bool:

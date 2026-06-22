@@ -46,7 +46,7 @@ def test_settings_defaults() -> None:
     assert s.storage.backend == "auto"
     assert s.storage.database_url == ""
     assert s.auth.enabled is False
-    assert s.auth.default_principal_id == "local-user"
+    assert s.auth.default_principal_id == "principal-default"
     assert s.policy.max_rewrite_chars == 20000
     assert s.policy.approval_required_chars == 5000
     assert s.policy.approval_ttl_minutes == 120
@@ -154,9 +154,9 @@ def test_runtime_mode_unknown_defaults_to_dev() -> None:
 
 def test_default_principal_override() -> None:
     _clear_env()
-    os.environ["EA_DEFAULT_PRINCIPAL_ID"] = "exec-1"
+    os.environ["EA_DEFAULT_PRINCIPAL_ID"] = "principal-override"
     s = get_settings()
-    assert s.auth.default_principal_id == "exec-1"
+    assert s.auth.default_principal_id == "principal-override"
 
 
 def test_readiness_service_rejects_prod_without_api_token() -> None:

@@ -7,7 +7,13 @@ import pytest
 from fastapi import HTTPException
 from starlette.requests import Request
 
-from app.api.dependencies import RequestContext, get_request_context, resolve_principal_id
+from app.api.dependencies import (
+    RequestContext,
+    browser_principal_override_allowed,
+    get_request_context,
+    resolve_principal_id,
+)
+from app.product.service import _sign_channel_payload
 from app.domain.models import TaskContract, now_utc_iso
 from app.repositories.task_contracts import InMemoryTaskContractRepository
 from app.services.provider_registry import ProviderRegistryService
@@ -35,8 +41,15 @@ def _clear_env() -> None:
         "EA_REGISTRATION_EMAIL_FROM",
         "EA_REGISTRATION_EMAIL_FROM_FALLBACK",
         "EA_EMAIL_DEFAULT_FROM",
+        "EA_REGISTRATION_EMAIL_ALLOWED_DOMAINS",
         "EA_ALLOW_NON_PROPERTYQUARRY_EMAIL_SENDER",
         "EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER",
+        "EA_PUBLIC_APP_BASE_URL",
+        "EA_GOOGLE_OAUTH_REDIRECT_URI",
+        "EA_WORKSPACE_ACCESS_TOKEN_ISSUER",
+        "EA_WORKSPACE_ACCESS_TOKEN_AUDIENCE",
+        "EA_WORKSPACE_ACCESS_TOKEN_KEY_VERSION",
+        "EA_TRUST_BROWSER_PRINCIPAL_OVERRIDE",
         "EA_CF_ACCESS_TEAM_DOMAIN",
         "EA_CF_ACCESS_AUD",
         "EA_CF_ACCESS_CERTS_URL",
@@ -59,8 +72,15 @@ def _isolated_env() -> None:
         "EA_REGISTRATION_EMAIL_FROM": os.environ.get("EA_REGISTRATION_EMAIL_FROM"),
         "EA_REGISTRATION_EMAIL_FROM_FALLBACK": os.environ.get("EA_REGISTRATION_EMAIL_FROM_FALLBACK"),
         "EA_EMAIL_DEFAULT_FROM": os.environ.get("EA_EMAIL_DEFAULT_FROM"),
+        "EA_REGISTRATION_EMAIL_ALLOWED_DOMAINS": os.environ.get("EA_REGISTRATION_EMAIL_ALLOWED_DOMAINS"),
         "EA_ALLOW_NON_PROPERTYQUARRY_EMAIL_SENDER": os.environ.get("EA_ALLOW_NON_PROPERTYQUARRY_EMAIL_SENDER"),
         "EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER": os.environ.get("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"),
+        "EA_PUBLIC_APP_BASE_URL": os.environ.get("EA_PUBLIC_APP_BASE_URL"),
+        "EA_GOOGLE_OAUTH_REDIRECT_URI": os.environ.get("EA_GOOGLE_OAUTH_REDIRECT_URI"),
+        "EA_WORKSPACE_ACCESS_TOKEN_ISSUER": os.environ.get("EA_WORKSPACE_ACCESS_TOKEN_ISSUER"),
+        "EA_WORKSPACE_ACCESS_TOKEN_AUDIENCE": os.environ.get("EA_WORKSPACE_ACCESS_TOKEN_AUDIENCE"),
+        "EA_WORKSPACE_ACCESS_TOKEN_KEY_VERSION": os.environ.get("EA_WORKSPACE_ACCESS_TOKEN_KEY_VERSION"),
+        "EA_TRUST_BROWSER_PRINCIPAL_OVERRIDE": os.environ.get("EA_TRUST_BROWSER_PRINCIPAL_OVERRIDE"),
         "EA_CF_ACCESS_TEAM_DOMAIN": os.environ.get("EA_CF_ACCESS_TEAM_DOMAIN"),
         "EA_CF_ACCESS_AUD": os.environ.get("EA_CF_ACCESS_AUD"),
         "EA_CF_ACCESS_CERTS_URL": os.environ.get("EA_CF_ACCESS_CERTS_URL"),
@@ -92,10 +112,25 @@ def _request(headers: dict[str, str] | None = None) -> Request:
     )
 
 
+def _observation(**kwargs):
+    return SimpleNamespace(
+        event_type=kwargs.get("event_type", ""),
+        payload=kwargs.get("payload", {}),
+        source_id=kwargs.get("source_id", ""),
+        created_at=kwargs.get("created_at", "2026-06-22T00:00:00+00:00"),
+        observation_id=kwargs.get("observation_id", "obs-1"),
+        principal_id=kwargs.get("principal_id", ""),
+    )
+
+
 def _container_for_current_settings():
     settings = get_settings()
     profile = resolve_runtime_profile(settings)
-    return SimpleNamespace(settings=settings, runtime_profile=profile), profile
+    return SimpleNamespace(
+        settings=settings,
+        runtime_profile=profile,
+        orchestrator=SimpleNamespace(fetch_operator_profile=lambda operator_id, principal_id: None),
+    ), profile
 
 
 def test_runtime_profile_auto_without_database_prefers_memory() -> None:
@@ -142,8 +177,8 @@ def test_runtime_profile_non_prod_token_auth_still_allows_caller_header_or_defau
 def test_prod_requires_database_url() -> None:
     _clear_env()
     os.environ["EA_RUNTIME_MODE"] = "prod"
-    os.environ["EA_API_TOKEN"] = "secret-token"
-    os.environ["EA_SIGNING_SECRET"] = "signing-secret"
+    os.environ["EA_API_TOKEN"] = "real-api-token"
+    os.environ["EA_SIGNING_SECRET"] = "real-signing-secret"
     with pytest.raises(RuntimeError, match="DATABASE_URL"):
         validate_startup_settings(get_settings())
 
@@ -157,35 +192,69 @@ def test_prod_requires_explicit_signing_secret() -> None:
         validate_startup_settings(get_settings())
 
 
-def test_prod_forbids_loopback_no_auth() -> None:
+def test_prod_rejects_placeholder_api_token() -> None:
     _clear_env()
     os.environ["EA_RUNTIME_MODE"] = "prod"
     os.environ["EA_API_TOKEN"] = "secret-token"
+    os.environ["EA_SIGNING_SECRET"] = "real-signing-secret"
+    os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
+    with pytest.raises(RuntimeError, match="placeholder EA_API_TOKEN"):
+        validate_startup_settings(get_settings())
+
+
+def test_prod_rejects_placeholder_signing_secret() -> None:
+    _clear_env()
+    os.environ["EA_RUNTIME_MODE"] = "prod"
+    os.environ["EA_API_TOKEN"] = "real-api-token"
     os.environ["EA_SIGNING_SECRET"] = "signing-secret"
+    os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
+    with pytest.raises(RuntimeError, match="placeholder EA_SIGNING_SECRET"):
+        validate_startup_settings(get_settings())
+
+
+def test_prod_forbids_loopback_no_auth() -> None:
+    _clear_env()
+    os.environ["EA_RUNTIME_MODE"] = "prod"
+    os.environ["EA_API_TOKEN"] = "real-api-token"
+    os.environ["EA_SIGNING_SECRET"] = "real-signing-secret"
     os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
     os.environ["EA_ALLOW_LOOPBACK_NO_AUTH"] = "1"
     with pytest.raises(RuntimeError, match="EA_ALLOW_LOOPBACK_NO_AUTH"):
         validate_startup_settings(get_settings())
 
 
-def test_prod_rejects_inherited_registration_sender_domains() -> None:
+def test_prod_rejects_registration_sender_domains_outside_configured_allowlist() -> None:
     _clear_env()
     os.environ["EA_RUNTIME_MODE"] = "prod"
-    os.environ["EA_API_TOKEN"] = "secret-token"
-    os.environ["EA_SIGNING_SECRET"] = "signing-secret"
+    os.environ["EA_API_TOKEN"] = "real-api-token"
+    os.environ["EA_SIGNING_SECRET"] = "real-signing-secret"
     os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
     os.environ["EA_REGISTRATION_EMAIL_FROM"] = "concierge@chummer.run"
-    with pytest.raises(RuntimeError, match="PropertyQuarry email sender"):
+    os.environ["EA_REGISTRATION_EMAIL_ALLOWED_DOMAINS"] = "example.test"
+    with pytest.raises(RuntimeError, match="registration email sender domains"):
         validate_startup_settings(get_settings())
+
+
+def test_prod_allows_registration_sender_domain_from_configured_allowlist() -> None:
+    _clear_env()
+    os.environ["EA_RUNTIME_MODE"] = "prod"
+    os.environ["EA_API_TOKEN"] = "real-api-token"
+    os.environ["EA_SIGNING_SECRET"] = "real-signing-secret"
+    os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
+    os.environ["EA_REGISTRATION_EMAIL_FROM"] = "concierge@chummer.run"
+    os.environ["EA_REGISTRATION_EMAIL_ALLOWED_DOMAINS"] = "chummer.run"
+    profile = validate_startup_settings(get_settings())
+    assert profile.storage_backend == "postgres"
 
 
 def test_prod_allows_registration_sender_domain_override() -> None:
     _clear_env()
     os.environ["EA_RUNTIME_MODE"] = "prod"
-    os.environ["EA_API_TOKEN"] = "secret-token"
-    os.environ["EA_SIGNING_SECRET"] = "signing-secret"
+    os.environ["EA_API_TOKEN"] = "real-api-token"
+    os.environ["EA_SIGNING_SECRET"] = "real-signing-secret"
     os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
     os.environ["EA_REGISTRATION_EMAIL_FROM"] = "concierge@chummer.run"
+    os.environ["EA_REGISTRATION_EMAIL_ALLOWED_DOMAINS"] = "example.test"
     os.environ["EA_ALLOW_NON_PROPERTYQUARRY_EMAIL_SENDER"] = "1"
     profile = validate_startup_settings(get_settings())
     assert profile.storage_backend == "postgres"
@@ -257,6 +326,58 @@ def test_loopback_no_auth_preserves_token_auth_principal_contract() -> None:
     assert loopback_context.authenticated is True
 
 
+def test_authenticated_request_requires_active_operator_profile_for_operator_context() -> None:
+    _clear_env()
+    os.environ["EA_API_TOKEN"] = "secret-token"
+    os.environ["EA_DEFAULT_PRINCIPAL_ID"] = "ops-fallback"
+    settings = get_settings()
+    profile = resolve_runtime_profile(settings)
+    operator_profile = SimpleNamespace(
+        operator_id="operator-1",
+        principal_id="ops-fallback",
+        roles=("operator", "reviewer"),
+        status="active",
+    )
+    container = SimpleNamespace(
+        settings=settings,
+        runtime_profile=profile,
+        channel_runtime=SimpleNamespace(list_recent_observations=lambda **kwargs: []),
+        orchestrator=SimpleNamespace(
+            fetch_operator_profile=lambda operator_id, principal_id: operator_profile
+            if operator_id == "operator-1" and principal_id == "ops-fallback"
+            else None
+        ),
+    )
+
+    context = get_request_context(
+        _request(headers={"Authorization": "Bearer secret-token", "X-EA-Operator-ID": "operator-1"}),
+        container=container,
+    )
+    assert context.operator_id == "operator-1"
+    assert context.operator_authorized is True
+
+
+def test_authenticated_request_does_not_gain_operator_context_without_active_operator_profile() -> None:
+    _clear_env()
+    os.environ["EA_API_TOKEN"] = "secret-token"
+    os.environ["EA_DEFAULT_PRINCIPAL_ID"] = "ops-fallback"
+    settings = get_settings()
+    profile = resolve_runtime_profile(settings)
+    container = SimpleNamespace(
+        settings=settings,
+        runtime_profile=profile,
+        channel_runtime=SimpleNamespace(list_recent_observations=lambda **kwargs: []),
+        orchestrator=SimpleNamespace(fetch_operator_profile=lambda operator_id, principal_id: None),
+    )
+
+    context = get_request_context(
+        _request(headers={"Authorization": "Bearer secret-token", "X-EA-Operator-ID": "operator-1"}),
+        container=container,
+    )
+    assert context.operator_id == ""
+    assert context.operator_authorized is False
+
+
 def test_runtime_profile_prod_authenticated_header_matches_request_context_contract() -> None:
     _clear_env()
     os.environ["EA_RUNTIME_MODE"] = "prod"
@@ -275,6 +396,92 @@ def test_runtime_profile_prod_authenticated_header_matches_request_context_contr
     with pytest.raises(HTTPException, match="principal_required"):
         get_request_context(
             _request(headers={"Authorization": "Bearer secret-token", "X-EA-Principal-ID": "ops-1"}),
+            container=container,
+        )
+
+
+def test_prod_ignores_authenticated_principal_override_even_when_flagged() -> None:
+    _clear_env()
+    os.environ["EA_RUNTIME_MODE"] = "prod"
+    os.environ["EA_API_TOKEN"] = "real-api-token"
+    os.environ["EA_SIGNING_SECRET"] = "real-signing-secret"
+    os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
+    os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
+    container, _ = _container_for_current_settings()
+
+    with pytest.raises(HTTPException, match="principal_required"):
+        get_request_context(
+            _request(headers={"Authorization": "Bearer real-api-token", "X-EA-Principal-ID": "ops-1"}),
+            container=container,
+        )
+
+
+def test_prod_disables_browser_principal_override_even_when_flagged() -> None:
+    _clear_env()
+    os.environ["EA_RUNTIME_MODE"] = "prod"
+    os.environ["EA_TRUST_BROWSER_PRINCIPAL_OVERRIDE"] = "1"
+    assert browser_principal_override_allowed() is False
+
+
+def test_workspace_session_rejects_forged_jti_even_with_valid_signature() -> None:
+    _clear_env()
+    os.environ["EA_RUNTIME_MODE"] = "prod"
+    os.environ["EA_API_TOKEN"] = "real-api-token"
+    os.environ["EA_SIGNING_SECRET"] = "real-signing-secret"
+    os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
+    os.environ["EA_WORKSPACE_ACCESS_TOKEN_ISSUER"] = "ea://workspace-access"
+    os.environ["EA_WORKSPACE_ACCESS_TOKEN_AUDIENCE"] = "workspace-access"
+    os.environ["EA_WORKSPACE_ACCESS_TOKEN_KEY_VERSION"] = "v1"
+    settings = get_settings()
+    profile = resolve_runtime_profile(settings)
+    principal_id = "principal-1"
+    session_id = "access_123"
+    issued_payload = {
+        "session_id": session_id,
+        "principal_id": principal_id,
+        "jti": "wsa_real_token",
+        "issuer": "ea://workspace-access",
+        "audience": "workspace-access",
+        "key_version": "v1",
+        "session_version": 1,
+    }
+    forged_payload = {
+        "token_kind": "workspace_access_session",
+        "session_id": session_id,
+        "principal_id": principal_id,
+        "email": "principal@example.com",
+        "role": "principal",
+        "display_name": "Principal",
+        "source_kind": "workspace_access",
+        "expires_at": "2026-06-23T00:00:00+00:00",
+        "iss": "ea://workspace-access",
+        "aud": "workspace-access",
+        "kid": "v1",
+        "jti": "wsa_forged_token",
+        "session_version": 1,
+    }
+    token = _sign_channel_payload(
+        secret=resolve_signing_secret(settings, purpose="workspace-access"),
+        payload=forged_payload,
+    )
+    container = SimpleNamespace(
+        settings=settings,
+        runtime_profile=profile,
+        channel_runtime=SimpleNamespace(
+            list_recent_observations=lambda limit=1000, principal_id=None: [
+                _observation(
+                    event_type="workspace_access_session_issued",
+                    payload=issued_payload,
+                    source_id=session_id,
+                    principal_id=principal_id or "",
+                )
+            ]
+        ),
+    )
+
+    with pytest.raises(HTTPException, match="auth_required"):
+        get_request_context(
+            _request(headers={"cookie": f"ea_workspace_session={token}"}),
             container=container,
         )
 

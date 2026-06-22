@@ -49,10 +49,10 @@ So for ongoing operation, the captcha risk remains live until a durable non-capt
 Generate the current matrix with:
 
 ```bash
-cd /docker/EA
+cd "$EA_REPO_ROOT"
 python3 scripts/compare_memorial_video_meeting_providers.py
 ```
 
 Default output:
 
-- `/docker/fleet/state/chummer6/avatar_presenter_provider/memorial_video_meeting_provider_matrix.generated.json`
+- `.codex-studio/published/avatar_presenter_provider/memorial_video_meeting_provider_matrix.generated.json`

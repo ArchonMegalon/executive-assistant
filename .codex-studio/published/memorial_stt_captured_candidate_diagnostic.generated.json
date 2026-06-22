@@ -1,0 +1,352 @@
+{
+  "benchmark_fixture_quality_status": "pass",
+  "benchmark_receipt": {
+    "bytes": 24528,
+    "exists": true,
+    "path": ".codex-studio/published/memorial_stt_provider_benchmark_captured_candidate.generated.json",
+    "sha256": "ed2a8390f14bcbd51459c854629b5c811d19ada06a5d8482e106b649aa9f04c1"
+  },
+  "benchmark_status": "blocked",
+  "blocker_summary": {
+    "fixture_quality_failed_codes": [],
+    "full_runtime_failed_rows": [
+      {
+        "failure_codes": [
+          "required_tokens_missing",
+          "token_f1_below_min",
+          "transcript_hash_mismatch",
+          "wer_above_max"
+        ],
+        "sample": "real_room_retry_candidate",
+        "token_f1": 0.2353,
+        "variant": "captured",
+        "wer": 0.8889
+      },
+      {
+        "failure_codes": [
+          "required_tokens_missing",
+          "token_f1_below_min",
+          "transcript_hash_mismatch",
+          "wer_above_max"
+        ],
+        "sample": "real_room_retry_candidate_hostile",
+        "token_f1": 0.2353,
+        "variant": "hostile",
+        "wer": 0.8889
+      }
+    ],
+    "row_failure_codes": [
+      "required_tokens_missing",
+      "token_f1_below_min",
+      "transcript_hash_mismatch",
+      "wer_above_max"
+    ]
+  },
+  "candidate": {
+    "audio_bytes": 84558,
+    "audio_duration_seconds": 2.64,
+    "audio_sha256": "58a71024b6d5c1b8912fdc6c1344735eea5babedca660559baea4aa6e6f22c1d",
+    "bundle_id": "082347_realtime_audio_turn_generic_fallback_answer_ecbb37fce864",
+    "candidate_scope": "audio_quality_and_provenance_only",
+    "expected_min_duration_seconds": 2.52,
+    "expected_text_chars": 43,
+    "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+    "failed_codes": [],
+    "fixture_file": "real_room_retry_candidate_captured.wav",
+    "promotion_gate": {
+      "may_update_fixture_manifest": false,
+      "next_action": "run_captured_candidate_benchmark_before_fixture_manifest",
+      "required_receipt": ".codex-studio/published/memorial_stt_provider_benchmark_captured_candidate.generated.json",
+      "status": "pending_captured_candidate_benchmark"
+    },
+    "raw_text_fields": false,
+    "required_token_sha256": [
+      "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
+      "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
+    ],
+    "sample": "real_room_retry_candidate",
+    "status": "pass"
+  },
+  "candidate_receipt": {
+    "bytes": 2539,
+    "exists": true,
+    "path": ".codex-studio/published/memorial_stt_fixture_candidate.generated.json",
+    "sha256": "12e10b0a60a4e18d741ea352e8c7023d2dc4e8e89c413144bff623c21ce02d20"
+  },
+  "captured_row_count": 2,
+  "captured_rows": [
+    {
+      "all_provider_failure_codes": [
+        "required_tokens_missing",
+        "token_f1_below_min",
+        "transcript_hash_mismatch",
+        "transcript_unusable",
+        "wer_above_max"
+      ],
+      "fixture": "[pcloud_bundle]/082347_realtime_audio_turn_generic_fallback_answer_ecbb37fce864/input.wav",
+      "fixture_quality": {
+        "audio_duration_seconds": 2.64,
+        "expected_min_duration_seconds": 2.52,
+        "failed_codes": [],
+        "status": "pass"
+      },
+      "fixture_sha256": "58a71024b6d5c1b8912fdc6c1344735eea5babedca660559baea4aa6e6f22c1d",
+      "provenance": {
+        "accent": "Austrian German",
+        "allowed_purpose": "memorial_stt_regression_and_provider_bakeoff",
+        "bundle_id": "082347_realtime_audio_turn_generic_fallback_answer_ecbb37fce864",
+        "bundle_root": "[pcloud_memorial_stt_errors]",
+        "external_bundle": true,
+        "retention": "pcloud_private_captured_regression_candidate",
+        "speaker_consent": "operator_attested_for_private_stt_regression",
+        "synthetic": false
+      },
+      "providers": {
+        "full_runtime": {
+          "actual_text_chars": 41,
+          "actual_text_sha256": "a511743c01cb653f8047435fbd4040eea735f825d01a84fbdb8ccb69a41ac413",
+          "expected_text_chars": 43,
+          "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+          "failure_codes": [
+            "required_tokens_missing",
+            "token_f1_below_min",
+            "wer_above_max",
+            "transcript_hash_mismatch"
+          ],
+          "intent_correct": false,
+          "max_wer": 0.55,
+          "min_token_f1": 0.55,
+          "ms": 303.1,
+          "passed": false,
+          "required_token_count": 2,
+          "required_token_sha256": [
+            "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
+            "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
+          ],
+          "status": "transcribed",
+          "text_mode": "redacted",
+          "text_redacted": true,
+          "token_f1": 0.2353,
+          "transcriber": "cartesia/ink-whisper+enhanced_wav",
+          "usable": true,
+          "wer": 0.8889
+        },
+        "onemin_sample": {
+          "actual_text_chars": 29,
+          "actual_text_sha256": "94b1cd4726fb188e8a9fa34cf50d9255bbf735552ed315465c8b003dd1335406",
+          "expected_text_chars": 43,
+          "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+          "failure_codes": [
+            "required_tokens_missing",
+            "token_f1_below_min",
+            "wer_above_max",
+            "transcript_hash_mismatch"
+          ],
+          "intent_correct": false,
+          "max_wer": 0.55,
+          "min_token_f1": 0.55,
+          "ms": 2031.2,
+          "passed": false,
+          "required_token_count": 2,
+          "required_token_sha256": [
+            "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
+            "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
+          ],
+          "status": "ok",
+          "text_mode": "redacted",
+          "text_redacted": true,
+          "token_f1": 0.0,
+          "transcriber": "",
+          "usable": true,
+          "wer": 1.0
+        },
+        "shadow": {
+          "actual_text_chars": 0,
+          "actual_text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "expected_text_chars": 43,
+          "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+          "failure_codes": [
+            "transcript_unusable",
+            "required_tokens_missing",
+            "token_f1_below_min",
+            "wer_above_max",
+            "transcript_hash_mismatch"
+          ],
+          "intent_correct": false,
+          "max_wer": 0.55,
+          "min_token_f1": 0.55,
+          "ms": 0.0,
+          "passed": false,
+          "required_token_count": 2,
+          "required_token_sha256": [
+            "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
+            "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
+          ],
+          "status": "",
+          "text_mode": "redacted",
+          "text_redacted": true,
+          "token_f1": 0.0,
+          "transcriber": "",
+          "usable": false,
+          "wer": 1.0
+        }
+      },
+      "row_failure_codes": [
+        "required_tokens_missing",
+        "token_f1_below_min",
+        "transcript_hash_mismatch",
+        "wer_above_max"
+      ],
+      "sample": "real_room_retry_candidate",
+      "variant": "captured"
+    },
+    {
+      "all_provider_failure_codes": [
+        "required_tokens_missing",
+        "token_f1_below_min",
+        "transcript_hash_mismatch",
+        "transcript_unusable",
+        "wer_above_max"
+      ],
+      "fixture": "[pcloud_bundle]/082347_realtime_audio_turn_generic_fallback_answer_ecbb37fce864/input.wav",
+      "fixture_quality": {
+        "audio_duration_seconds": 2.64,
+        "expected_min_duration_seconds": 2.52,
+        "failed_codes": [],
+        "status": "pass"
+      },
+      "fixture_sha256": "58a71024b6d5c1b8912fdc6c1344735eea5babedca660559baea4aa6e6f22c1d",
+      "provenance": {
+        "accent": "Austrian German",
+        "allowed_purpose": "memorial_stt_regression_and_provider_bakeoff",
+        "bundle_id": "082347_realtime_audio_turn_generic_fallback_answer_ecbb37fce864",
+        "bundle_root": "[pcloud_memorial_stt_errors]",
+        "external_bundle": true,
+        "retention": "pcloud_private_captured_regression_candidate",
+        "speaker_consent": "operator_attested_for_private_stt_regression",
+        "synthetic": false
+      },
+      "providers": {
+        "full_runtime": {
+          "actual_text_chars": 32,
+          "actual_text_sha256": "9ac0b646066685b392747e439ddf5978660c8faee41b4e42bcf504a66ad26e1f",
+          "expected_text_chars": 43,
+          "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+          "failure_codes": [
+            "required_tokens_missing",
+            "token_f1_below_min",
+            "wer_above_max",
+            "transcript_hash_mismatch"
+          ],
+          "intent_correct": false,
+          "max_wer": 0.55,
+          "min_token_f1": 0.55,
+          "ms": 268.6,
+          "passed": false,
+          "required_token_count": 2,
+          "required_token_sha256": [
+            "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
+            "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
+          ],
+          "status": "transcribed",
+          "text_mode": "redacted",
+          "text_redacted": true,
+          "token_f1": 0.2353,
+          "transcriber": "cartesia/ink-whisper+enhanced_wav",
+          "usable": true,
+          "wer": 0.8889
+        },
+        "onemin_sample": {
+          "actual_text_chars": 37,
+          "actual_text_sha256": "ec8217bd672e94efa6e4a8da99c94cc8f03783ed5651d9f0faf9da1f231cb300",
+          "expected_text_chars": 43,
+          "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+          "failure_codes": [
+            "required_tokens_missing",
+            "token_f1_below_min",
+            "wer_above_max",
+            "transcript_hash_mismatch"
+          ],
+          "intent_correct": false,
+          "max_wer": 0.55,
+          "min_token_f1": 0.55,
+          "ms": 1488.4,
+          "passed": false,
+          "required_token_count": 2,
+          "required_token_sha256": [
+            "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
+            "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
+          ],
+          "status": "ok",
+          "text_mode": "redacted",
+          "text_redacted": true,
+          "token_f1": 0.0,
+          "transcriber": "",
+          "usable": true,
+          "wer": 1.0
+        },
+        "shadow": {
+          "actual_text_chars": 0,
+          "actual_text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "expected_text_chars": 43,
+          "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+          "failure_codes": [
+            "transcript_unusable",
+            "required_tokens_missing",
+            "token_f1_below_min",
+            "wer_above_max",
+            "transcript_hash_mismatch"
+          ],
+          "intent_correct": false,
+          "max_wer": 0.55,
+          "min_token_f1": 0.55,
+          "ms": 0.0,
+          "passed": false,
+          "required_token_count": 2,
+          "required_token_sha256": [
+            "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
+            "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
+          ],
+          "status": "",
+          "text_mode": "redacted",
+          "text_redacted": true,
+          "token_f1": 0.0,
+          "transcriber": "",
+          "usable": false,
+          "wer": 1.0
+        }
+      },
+      "row_failure_codes": [
+        "required_tokens_missing",
+        "token_f1_below_min",
+        "transcript_hash_mismatch",
+        "wer_above_max"
+      ],
+      "sample": "real_room_retry_candidate_hostile",
+      "variant": "hostile"
+    }
+  ],
+  "contract_name": "ea.memorial_stt_captured_candidate_diagnostic",
+  "diagnostic_status": "ready",
+  "generated_at": "2026-06-20T06:10:52Z",
+  "issues": [
+    "captured_candidate_full_runtime_failed"
+  ],
+  "may_update_fixture_manifest": false,
+  "next_action": "rerun_operator_local_full_text_benchmark_or_correct_ground_truth_transcript",
+  "operator_full_text_debug": {
+    "allowed_only_operator_local": true,
+    "env": "EA_MEMORIAL_STT_BENCHMARK_TEXT_MODE=full",
+    "must_not_commit_full_text_receipt": true,
+    "reason": "Full text is useful only to compare operator ground truth with provider transcript when redacted hashes mismatch."
+  },
+  "privacy": {
+    "candidate_raw_text_fields": false,
+    "public_receipt_must_not_include_full_text": true,
+    "raw_transcript_fields": false,
+    "redacted_text_fields": true,
+    "text_mode": "redacted"
+  },
+  "promotion_allowed": false,
+  "status": "blocked"
+}

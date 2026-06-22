@@ -111,6 +111,79 @@ def test_google_signal_loader_retries_without_q_for_metadata_scope(monkeypatch: 
     ]
 
 
+def test_google_raw_export_uses_query_without_inbox_label(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import google_oauth as google_service
+
+    requests: list[str] = []
+
+    class _Response:
+        def __init__(self, payload: dict[str, object]) -> None:
+            self._payload = json.dumps(payload).encode("utf-8")
+
+        def read(self) -> bytes:
+            return self._payload
+
+        def __enter__(self) -> "_Response":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    binding = SimpleNamespace(binding_id="memorial:manfred:google_gmail")
+
+    def _fake_resolve(**kwargs):  # type: ignore[no-untyped-def]
+        assert kwargs["required_scope"] == google_service.GOOGLE_SCOPE_GMAIL_MODIFY
+        assert kwargs["account_email_filter"] == "manfred.hoza@gmail.com"
+        return binding, "token-123", (google_service.GOOGLE_SCOPE_GMAIL_MODIFY,), "manfred.hoza@gmail.com"
+
+    raw = base64.urlsafe_b64encode(
+        b"Message-ID: <gmail-export-1@example.test>\n"
+        b"From: Manfred <manfred.hoza@gmail.com>\n"
+        b"Subject: Sent style\n\n"
+        b"Bitte die Fakten zuerst sauber ordnen.\n"
+    ).decode("ascii").rstrip("=")
+
+    def _fake_urlopen(request, timeout=30):  # type: ignore[no-untyped-def]
+        url = str(request.full_url)
+        requests.append(url)
+        if url.startswith("https://gmail.googleapis.com/gmail/v1/users/me/messages?"):
+            parsed = urllib.parse.urlparse(url)
+            query = urllib.parse.parse_qs(parsed.query)
+            assert query["q"] == ["in:sent"]
+            assert "labelIds" not in query
+            return _Response({"messages": [{"id": "msg-raw-1", "threadId": "thread-raw-1"}]})
+        if "/gmail/v1/users/me/messages/msg-raw-1?format=raw" in url:
+            return _Response(
+                {
+                    "raw": raw,
+                    "threadId": "thread-raw-1",
+                    "labelIds": ["SENT"],
+                    "internalDate": "1781841000000",
+                }
+            )
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    monkeypatch.setattr(google_service, "_resolve_google_binding_access_token", _fake_resolve)
+    monkeypatch.setattr(google_service.urllib.request, "urlopen", _fake_urlopen)
+
+    rows = google_service.export_google_gmail_raw_messages(
+        container=SimpleNamespace(),
+        principal_id="memorial:manfred",
+        account_email_filter="manfred.hoza@gmail.com",
+        gmail_query="in:sent",
+        max_messages=10,
+    )
+
+    assert len(rows) == 1
+    assert rows[0].binding is binding
+    assert rows[0].account_email == "manfred.hoza@gmail.com"
+    assert rows[0].message_id == "msg-raw-1"
+    assert rows[0].thread_id == "thread-raw-1"
+    assert rows[0].label_ids == ("SENT",)
+    assert b"Bitte die Fakten zuerst sauber ordnen." in rows[0].raw_bytes
+    assert len([url for url in requests if url.startswith("https://gmail.googleapis.com/gmail/v1/users/me/messages?")]) == 1
+
+
 def test_google_signal_loader_preserves_explicit_query_filter(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.services import google_oauth as google_service
 
@@ -210,7 +283,7 @@ def test_google_signal_loader_retries_without_q_on_generic_forbidden_query(monke
     rows = google_service._list_recent_gmail_signals(
         access_token="token-123",
         max_results=5,
-        account_email="elisabeth.girschele@gmail.com",
+        account_email="property.alerts@example.test",
         gmail_query="from:(agent.willhaben.at OR no-reply@agent.willhaben.at)",
     )
 
@@ -354,7 +427,7 @@ def test_google_signal_loader_extracts_pdf_attachments_when_full_message_access_
         access_token="token-123",
         max_results=5,
         include_message_body=True,
-        account_email="tibor.girschele@gmail.com",
+        account_email="principal.user@example.test",
     )
 
     assert len(rows) == 1
@@ -425,7 +498,7 @@ def test_google_signal_loader_falls_back_to_raw_message_when_full_body_is_empty(
         access_token="token-123",
         max_results=5,
         include_message_body=True,
-        account_email="elisabeth.girschele@gmail.com",
+        account_email="property.alerts@example.test",
     )
 
     assert len(rows) == 1
@@ -500,7 +573,7 @@ def test_google_signal_loader_falls_back_to_metadata_when_full_message_fetch_is_
         access_token="token-123",
         max_results=5,
         include_message_body=True,
-        account_email="elisabeth.girschele@gmail.com",
+        account_email="property.alerts@example.test",
     )
 
     assert len(rows) == 1
@@ -556,7 +629,7 @@ def test_google_signal_loader_skips_forbidden_message_details_instead_of_failing
         access_token="token-123",
         max_results=5,
         include_message_body=False,
-        account_email="elisabeth.girschele@gmail.com",
+        account_email="property.alerts@example.test",
     )
 
     assert rows == []
@@ -745,18 +818,18 @@ def test_google_signal_loader_skips_seen_mail_and_continues_paging(monkeypatch: 
     rows = google_service._list_recent_gmail_signals(
         access_token="token-123",
         max_results=1,
-        account_email="elisabeth.girschele@gmail.com",
+        account_email="property.alerts@example.test",
         seen_source_refs={
-            "gmail-thread:elisabeth.girschele@gmail.com:thread-1",
-            "gmail-thread:elisabeth.girschele@gmail.com:thread-2",
+            "gmail-thread:property.alerts@example.test:thread-1",
+            "gmail-thread:property.alerts@example.test:thread-2",
         },
         seen_external_ids={
-            "gmail-message:elisabeth.girschele@gmail.com:msg-1",
-            "gmail-message:elisabeth.girschele@gmail.com:msg-2",
+            "gmail-message:property.alerts@example.test:msg-1",
+            "gmail-message:property.alerts@example.test:msg-2",
         },
     )
 
-    assert [row.external_id for row in rows] == ["gmail-message:elisabeth.girschele@gmail.com:msg-3"]
+    assert [row.external_id for row in rows] == ["gmail-message:property.alerts@example.test:msg-3"]
     detail_requests = [url for url in requests if "/gmail/v1/users/me/messages/msg-" in url]
     assert detail_requests == [next(url for url in requests if "/gmail/v1/users/me/messages/msg-3?" in url)]
 
@@ -838,8 +911,8 @@ def test_google_workspace_signal_sync_reads_all_connected_google_accounts(monkey
                     scope_json={"bundle": "core"},
                     auth_metadata_json={
                         "google_subject": "google-sub-1",
-                        "google_email": "tibor@girschele.com",
-                        "google_hosted_domain": "girschele.com",
+                        "google_email": "primary@example.test",
+                        "google_hosted_domain": "example.test",
                         "granted_scopes": [
                             google_service.GOOGLE_SCOPE_METADATA,
                             google_service.GOOGLE_SCOPE_CALENDAR_READONLY,
@@ -861,8 +934,8 @@ def test_google_workspace_signal_sync_reads_all_connected_google_accounts(monkey
                     scope_json={"bundle": "verify"},
                     auth_metadata_json={
                         "google_subject": "google-sub-2",
-                        "google_email": "office@girschele.com",
-                        "google_hosted_domain": "girschele.com",
+                        "google_email": "office@example.test",
+                        "google_hosted_domain": "example.test",
                         "granted_scopes": [google_service.GOOGLE_SCOPE_METADATA],
                         "refresh_token_ref": "refresh-secondary",
                         "token_status": "active",
@@ -954,7 +1027,7 @@ def test_google_workspace_signal_sync_reads_all_connected_google_accounts(monkey
                 payload={"account_email": kwargs["account_email"]},
             )
         ]
-        if kwargs["account_email"] == "tibor@girschele.com"
+        if kwargs["account_email"] == "primary@example.test"
         else [],
     )
 
@@ -967,16 +1040,16 @@ def test_google_workspace_signal_sync_reads_all_connected_google_accounts(monkey
         calendar_limit=5,
     )
 
-    assert packet.account_email == "tibor@girschele.com"
-    assert packet.account_emails == ("tibor@girschele.com", "office@girschele.com")
+    assert packet.account_email == "primary@example.test"
+    assert packet.account_emails == ("primary@example.test", "office@example.test")
     assert set(packet.granted_scopes) == {
         google_service.GOOGLE_SCOPE_METADATA,
         google_service.GOOGLE_SCOPE_CALENDAR_READONLY,
     }
     assert [row.source_ref for row in packet.signals] == [
-        "gmail-thread:tibor@girschele.com:thread-1",
-        "calendar-event:tibor@girschele.com:evt-1",
-        "gmail-thread:office@girschele.com:thread-1",
+        "gmail-thread:primary@example.test:thread-1",
+        "calendar-event:primary@example.test:evt-1",
+        "gmail-thread:office@example.test:thread-1",
     ]
 
 
@@ -1003,7 +1076,7 @@ def test_list_recent_workspace_signals_filters_to_requested_account_and_forwards
                 scope_json={},
                 probe_details_json={},
                 auth_metadata_json={
-                    "google_email": "tibor@girschele.com",
+                    "google_email": "primary@example.test",
                     "refresh_token_ref": "refresh-primary",
                     "granted_scopes": [google_service.GOOGLE_SCOPE_METADATA],
                 },
@@ -1015,7 +1088,7 @@ def test_list_recent_workspace_signals_filters_to_requested_account_and_forwards
                 scope_json={},
                 probe_details_json={},
                 auth_metadata_json={
-                    "google_email": "elisabeth.girschele@gmail.com",
+                    "google_email": "property.alerts@example.test",
                     "refresh_token_ref": "refresh-secondary",
                     "granted_scopes": [google_service.GOOGLE_SCOPE_METADATA],
                 },
@@ -1065,17 +1138,17 @@ def test_list_recent_workspace_signals_filters_to_requested_account_and_forwards
         principal_id="exec-google",
         email_limit=5,
         calendar_limit=0,
-        account_email_filter="elisabeth.girschele@gmail.com",
+        account_email_filter="property.alerts@example.test",
         gmail_query="from:(agent.willhaben.at OR no-reply@agent.willhaben.at)",
     )
 
-    assert packet.account_email == "elisabeth.girschele@gmail.com"
-    assert packet.account_emails == ("elisabeth.girschele@gmail.com",)
+    assert packet.account_email == "property.alerts@example.test"
+    assert packet.account_emails == ("property.alerts@example.test",)
     assert [row.source_ref for row in packet.signals] == [
-        "gmail-thread:elisabeth.girschele@gmail.com:thread-1",
+        "gmail-thread:property.alerts@example.test:thread-1",
     ]
     assert len(gmail_calls) == 1
-    assert gmail_calls[0]["account_email"] == "elisabeth.girschele@gmail.com"
+    assert gmail_calls[0]["account_email"] == "property.alerts@example.test"
     assert gmail_calls[0]["gmail_query"] == "from:(agent.willhaben.at OR no-reply@agent.willhaben.at)"
 
 
@@ -1094,9 +1167,9 @@ def test_list_recent_workspace_signals_falls_back_to_local_user_bindings(
     class _Registry:
         def __init__(self) -> None:
             self.rows: dict[str, ProviderBindingRecord] = {
-                "local-user:google_gmail": ProviderBindingRecord(
-                    binding_id="local-user:google_gmail",
-                    principal_id="local-user",
+                "principal-default:google_gmail": ProviderBindingRecord(
+                    binding_id="principal-default:google_gmail",
+                    principal_id="principal-default",
                     provider_key="google_gmail",
                     status="enabled",
                     priority=80,
@@ -1105,7 +1178,7 @@ def test_list_recent_workspace_signals_falls_back_to_local_user_bindings(
                     scope_json={"bundle": "core"},
                     auth_metadata_json={
                         "google_subject": "google-sub-local",
-                        "google_email": "elisabeth.girschele@gmail.com",
+                        "google_email": "property.alerts@example.test",
                         "granted_scopes": [google_service.GOOGLE_SCOPE_METADATA],
                         "refresh_token_ref": "refresh-local",
                         "token_status": "active",
@@ -1171,8 +1244,8 @@ def test_list_recent_workspace_signals_falls_back_to_local_user_bindings(
                 title="Mail for Elisabeth",
                 summary="",
                 text="",
-                source_ref="gmail-thread:elisabeth.girschele@gmail.com:thread-1",
-                external_id="gmail-message:elisabeth.girschele@gmail.com:msg-1",
+                source_ref="gmail-thread:property.alerts@example.test:thread-1",
+                external_id="gmail-message:property.alerts@example.test:msg-1",
                 counterparty="Counterparty",
                 due_at=None,
                 payload={"account_email": kwargs["account_email"]},
@@ -1183,16 +1256,16 @@ def test_list_recent_workspace_signals_falls_back_to_local_user_bindings(
 
     packet = google_service.list_recent_workspace_signals(
         container=SimpleNamespace(provider_registry=_Registry()),
-        principal_id="cf-email:tibor.girschele@gmail.com",
+        principal_id="cf-email:principal.user@example.test",
         email_limit=5,
         calendar_limit=0,
-        account_email_filter="elisabeth.girschele@gmail.com",
+        account_email_filter="property.alerts@example.test",
     )
 
-    assert packet.account_email == "elisabeth.girschele@gmail.com"
-    assert packet.account_emails == ("elisabeth.girschele@gmail.com",)
+    assert packet.account_email == "property.alerts@example.test"
+    assert packet.account_emails == ("property.alerts@example.test",)
     assert [row.source_ref for row in packet.signals] == [
-        "gmail-thread:elisabeth.girschele@gmail.com:thread-1",
+        "gmail-thread:property.alerts@example.test:thread-1",
     ]
 
 
@@ -1223,7 +1296,7 @@ def test_list_recent_workspace_signals_marks_binding_reauth_required_on_invalid_
                 scope_json={},
                 probe_details_json={},
                 auth_metadata_json={
-                    "google_email": "tibor.girschele@gmail.com",
+                    "google_email": "principal.user@example.test",
                     "refresh_token_ref": "refresh-token",
                     "granted_scopes": [google_service.GOOGLE_SCOPE_METADATA],
                     "token_status": "active",
@@ -1261,7 +1334,7 @@ def test_list_recent_workspace_signals_marks_binding_reauth_required_on_invalid_
             principal_id="exec-google",
             email_limit=5,
             calendar_limit=0,
-            account_email_filter="tibor.girschele@gmail.com",
+            account_email_filter="principal.user@example.test",
         )
 
     assert len(registry.upserts) == 1
@@ -1285,7 +1358,7 @@ def test_send_google_gmail_message_marks_binding_reauth_required_on_invalid_gran
         probe_details_json={},
         scope_json={},
         auth_metadata_json={
-            "google_email": "tibor.girschele@gmail.com",
+            "google_email": "principal.user@example.test",
             "refresh_token_ref": "refresh-token",
             "granted_scopes": [google_service.GOOGLE_SCOPE_SEND],
             "token_status": "active",
@@ -1331,7 +1404,7 @@ def test_send_google_gmail_message_marks_binding_reauth_required_on_invalid_gran
         google_service.send_google_gmail_message(
             container=SimpleNamespace(provider_registry=registry),
             principal_id="exec-google",
-            recipient_email="tibor.girschele@gmail.com",
+            recipient_email="principal.user@example.test",
             subject="Subject",
             body_text="Body",
             binding_id="binding-send-invalid-grant",

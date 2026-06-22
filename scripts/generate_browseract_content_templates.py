@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 
-DEFAULT_OUTPUT_DIR = Path("/mnt/pcloud/EA/browseract_templates")
+DEFAULT_OUTPUT_DIR = Path(os.environ.get("EA_BROWSERACT_CONTENT_TEMPLATE_OUTPUT_DIR") or Path(__file__).resolve().parents[1] / "browseract_templates")
 ONEMIN_LOGIN_URL = "https://app.1min.ai/login"
 ONEMIN_APP_URL = "https://app.1min.ai/"
 ONEMIN_BILLING_USAGE_URL = "https://app.1min.ai/billing-usage"
@@ -703,8 +703,9 @@ def client():
     os.environ.setdefault("EA_API_TOKEN", "")
     from app.api.app import create_app
 
+    principal_id = os.environ.get("EA_DEFAULT_PRINCIPAL_ID") or "principal-default"
     test_client = TestClient(create_app())
-    test_client.headers.update({"X-EA-Principal-ID": "exec-1"})
+    test_client.headers.update({"X-EA-Principal-ID": principal_id})
     return test_client
 
 

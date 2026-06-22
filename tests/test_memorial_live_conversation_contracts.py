@@ -23,7 +23,32 @@ from fastapi.testclient import TestClient
 from app.services.brain_catalog import GEMINI_VORTEX_PUBLIC_MODEL
 
 
+ROOT = Path(__file__).resolve().parents[1]
+MEMORIAL_FIXTURE_ROOT = ROOT / "tests" / "fixtures" / "memorial"
+PUBLIC_MEMORIALS_SOURCE = ROOT / "ea" / "app" / "api" / "routes" / "public_memorials.py"
+
+
 CONTACT_REPLY_VARIANTS = {"Worum geht es?"}
+_CARTESIA_SECRET_ENV_NAMES = (
+    "CARTESIA_API_KEY",
+    "EA_CARTESIA_API_KEY",
+    "CARTESIA_API_KEY_JSON",
+    "EA_CARTESIA_API_KEY_JSON",
+    "CARTESIA_CREDENTIALS_JSON",
+    "EA_CARTESIA_CREDENTIALS_JSON",
+    "CARTESIA_API_KEY_FILE",
+    "EA_CARTESIA_API_KEY_FILE",
+    "CARTESIA_CREDENTIALS_JSON_FILE",
+    "EA_CARTESIA_CREDENTIALS_JSON_FILE",
+)
+
+
+def _clear_cartesia_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in _CARTESIA_SECRET_ENV_NAMES:
+        monkeypatch.delenv(name, raising=False)
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(public_memorials, "_CARTESIA_DEFAULT_CREDENTIAL_FILES", ())
 
 
 def test_contact_reply_variants_avoid_fragile_roundtrip_phrasing() -> None:
@@ -82,15 +107,15 @@ def _stt_error_bundles(root: Path) -> list[Path]:
 
 
 def _captured_contact_opening_wav_bytes() -> bytes:
-    return Path("/docker/EA/tests/fixtures/memorial/contact_opening_captured.wav").read_bytes()
+    return MEMORIAL_FIXTURE_ROOT / "contact_opening_captured.wav".read_bytes()
 
 
 def _captured_stt_retry_wav_bytes() -> bytes:
-    return Path("/docker/EA/tests/fixtures/memorial/rescue_stt_retry_captured.wav").read_bytes()
+    return MEMORIAL_FIXTURE_ROOT / "rescue_stt_retry_captured.wav".read_bytes()
 
 
 def _captured_technical_retry_wav_bytes() -> bytes:
-    return Path("/docker/EA/tests/fixtures/memorial/rescue_technical_retry_captured.wav").read_bytes()
+    return MEMORIAL_FIXTURE_ROOT / "rescue_technical_retry_captured.wav".read_bytes()
 
 
 def _wav_pcm16_samples(payload: bytes) -> tuple[int, list[int]]:
@@ -836,6 +861,15 @@ def test_memorial_canonical_question_rescues_weather_and_current_state_intents()
     )
 
 
+def test_memorial_transcript_repair_recovers_stumm_from_hostile_audio_confusion() -> None:
+    from app.api.routes import public_memorials
+
+    assert (
+        public_memorials._repair_memorial_transcript_text("Kommt da noch was oder bist du jetzt dumm?")
+        == "Kommt da noch was oder bist du jetzt stumm?"
+    )
+
+
 def test_memorial_visible_transcript_preserves_original_user_wording() -> None:
     from app.api.routes import public_memorials
 
@@ -901,6 +935,7 @@ def test_memorial_transcribe_applies_shadow_stt_correction_to_effective_transcri
     from app.api.routes import public_memorials
     from app.product import service as product_service
 
+    _clear_cartesia_env(monkeypatch)
     monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
     monkeypatch.setattr(
         product_service,
@@ -910,7 +945,7 @@ def test_memorial_transcribe_applies_shadow_stt_correction_to_effective_transcri
     monkeypatch.setattr(
         product_service,
         "_onemin_speech_to_text",
-        lambda **kwargs: {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": "Untertitel der Amara.org-Community"}}}},
+        lambda **kwargs: {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": "Hallo Manfred, kannst du jetzt mit mir brechen?"}}}},
     )
     monkeypatch.setattr(
         public_memorials,
@@ -935,7 +970,7 @@ def test_memorial_transcribe_applies_shadow_stt_correction_to_effective_transcri
     )
 
     assert result["transcript_text"] == "Hallo Manfred, kannst du jetzt mit mir sprechen?"
-    assert result["primary_transcript_text"] == "Untertitel der Amara.org-Community"
+    assert result["primary_transcript_text"] == "Hallo Manfred, kannst du jetzt mit mir brechen?"
 
 
 def test_memorial_transcribe_uses_fast_shadow_stt_candidate_before_slow_primary(
@@ -996,6 +1031,157 @@ def test_memorial_transcribe_prefers_cartesia_stt_before_onemin(
         product_service,
         "_pocket_onemin_api_keys",
         lambda: (),
+    )
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=_generated_wav_bytes(textish_seed="Würdest du dich gegen Covid impfen lassen?"),
+        content_type="audio/wav",
+    )
+
+    assert result["transcript_text"] == "Würdest du dich gegen Covid impfen lassen?"
+    assert result["transcriber"] == "cartesia/ink-whisper+enhanced_wav"
+
+
+def test_memorial_transcribe_rejects_cartesia_generic_tiny_transcript_for_long_audio(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+    from app.product import service as product_service
+
+    monkeypatch.setenv("CARTESIA_API_KEY", "cartesia-test-key")
+    public_memorials._MEMORIAL_STT_PROVIDER_COOLDOWNS.clear()
+    public_memorials._MEMORIAL_STT_KEY_COOLDOWNS.clear()
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_shadow_stt_result",
+        lambda **kwargs: {
+            "enabled": False,
+            "provider": "blipai",
+            "status": "skipped",
+            "transcript_text": "",
+            "correction": {"should_correct": False},
+        },
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_cartesia_transcribe_audio",
+        lambda **kwargs: {"text": "Was ist das?"},
+    )
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ())
+    monkeypatch.setattr(public_memorials, "_convert_audio_to_wav", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("skip_enhanced")))
+    monkeypatch.setattr(public_memorials, "_wav_payload_has_speech_energy", lambda payload: True)
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=_generated_wav_bytes(textish_seed="Ich möchte fragen wie das Wetter dort ist", duration_seconds=2.6),
+        content_type="audio/wav",
+    )
+
+    assert result["transcription_status"] == "no_speech"
+    assert result["retryable"] is True
+    assert "cartesia_low_confidence_generic_transcript" in result["detail"]
+
+
+def test_memorial_transcribe_allows_short_cartesia_generic_question(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+    from app.product import service as product_service
+
+    monkeypatch.setenv("CARTESIA_API_KEY", "cartesia-test-key")
+    public_memorials._MEMORIAL_STT_PROVIDER_COOLDOWNS.clear()
+    public_memorials._MEMORIAL_STT_KEY_COOLDOWNS.clear()
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_shadow_stt_result",
+        lambda **kwargs: {
+            "enabled": False,
+            "provider": "blipai",
+            "status": "skipped",
+            "transcript_text": "",
+            "correction": {"should_correct": False},
+        },
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_cartesia_transcribe_audio",
+        lambda **kwargs: {"text": "Was ist das?"},
+    )
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ())
+    monkeypatch.setattr(public_memorials, "_convert_audio_to_wav", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("skip_enhanced")))
+    monkeypatch.setattr(public_memorials, "_wav_payload_has_speech_energy", lambda payload: True)
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=_generated_wav_bytes(textish_seed="Was ist das?", duration_seconds=0.45),
+        content_type="audio/wav",
+    )
+
+    assert result["transcription_status"] == "transcribed"
+    assert result["transcript_text"] == "Was ist das?"
+    assert result["transcriber"] == "cartesia/ink-whisper"
+
+
+def test_memorial_cartesia_key_loader_accepts_inline_private_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api.routes import public_memorials
+
+    _clear_cartesia_env(monkeypatch)
+    monkeypatch.setenv("EA_CARTESIA_CREDENTIALS_JSON", json.dumps({"api_key": "cartesia-json-key"}))
+
+    assert public_memorials._memorial_cartesia_api_key() == "cartesia-json-key"
+
+
+def test_memorial_cartesia_key_loader_accepts_private_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from app.api.routes import public_memorials
+
+    _clear_cartesia_env(monkeypatch)
+    credential_path = tmp_path / "cartesia.local.json"
+    credential_path.write_text(json.dumps({"cartesia": {"token": "cartesia-file-key"}}), encoding="utf-8")
+    monkeypatch.setenv("EA_CARTESIA_CREDENTIALS_JSON_FILE", str(credential_path))
+
+    assert public_memorials._memorial_cartesia_api_key() == "cartesia-file-key"
+
+
+def test_memorial_cartesia_key_loader_accepts_default_private_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from app.api.routes import public_memorials
+
+    _clear_cartesia_env(monkeypatch)
+    credential_path = tmp_path / "cartesia.local.json"
+    credential_path.write_text(json.dumps({"credentials": {"api_key": "cartesia-default-file-key"}}), encoding="utf-8")
+    monkeypatch.setattr(public_memorials, "_CARTESIA_DEFAULT_CREDENTIAL_FILES", (str(credential_path),))
+
+    assert public_memorials._memorial_cartesia_api_key() == "cartesia-default-file-key"
+
+
+def test_memorial_transcribe_uses_cartesia_from_private_json_before_onemin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+    from app.product import service as product_service
+
+    _clear_cartesia_env(monkeypatch)
+    monkeypatch.setenv("EA_CARTESIA_CREDENTIALS_JSON", json.dumps({"api_key": "cartesia-json-key"}))
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_shadow_stt_result",
+        lambda **kwargs: {
+            "enabled": False,
+            "provider": "blipai",
+            "status": "skipped",
+            "transcript_text": "",
+            "correction": {"should_correct": False},
+        },
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_cartesia_transcribe_audio",
+        lambda **kwargs: {"text": "Würdest du dich gegen Covid impfen lassen?"},
+    )
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
+    monkeypatch.setattr(
+        product_service,
+        "_onemin_asset_upload",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("1min upload should not run when Cartesia JSON credentials are present")),
     )
 
     result = public_memorials._memorial_transcribe_audio_blob(
@@ -1102,6 +1288,7 @@ def test_memorial_transcribe_sets_cartesia_cooldown_after_auth_error(
         },
     )
     public_memorials._MEMORIAL_STT_PROVIDER_COOLDOWNS.clear()
+    public_memorials._MEMORIAL_STT_KEY_COOLDOWNS.clear()
     monkeypatch.setenv("EA_MEMORIAL_CARTESIA_ERROR_COOLDOWN_SECONDS", "120")
     monkeypatch.setattr(
         public_memorials,
@@ -1121,18 +1308,18 @@ def test_memorial_transcribe_sets_cartesia_cooldown_after_auth_error(
     assert public_memorials._MEMORIAL_STT_PROVIDER_COOLDOWNS["cartesia"] > time.time()
 
 
-def test_memorial_transcribe_sets_onemin_cooldown_after_insufficient_credits(
+def test_memorial_transcribe_skips_depleted_onemin_key_and_uses_next_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from app.api.routes import public_memorials
     from app.product import service as product_service
 
-    monkeypatch.delenv("CARTESIA_API_KEY", raising=False)
-    monkeypatch.delenv("EA_CARTESIA_API_KEY", raising=False)
+    _clear_cartesia_env(monkeypatch)
     monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1", "key-2"))
-    monkeypatch.setenv("EA_MEMORIAL_ONEMIN_MAX_KEY_ATTEMPTS", "1")
+    monkeypatch.setenv("EA_MEMORIAL_ONEMIN_MAX_KEY_ATTEMPTS", "2")
     monkeypatch.setenv("EA_MEMORIAL_ONEMIN_ERROR_COOLDOWN_SECONDS", "120")
     public_memorials._MEMORIAL_STT_PROVIDER_COOLDOWNS.clear()
+    public_memorials._MEMORIAL_STT_KEY_COOLDOWNS.clear()
     monkeypatch.setattr(
         public_memorials,
         "_memorial_shadow_stt_result",
@@ -1146,27 +1333,109 @@ def test_memorial_transcribe_sets_onemin_cooldown_after_insufficient_credits(
     )
     monkeypatch.setattr(public_memorials, "_convert_audio_to_wav", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("skip_enhanced")))
     monkeypatch.setattr(public_memorials, "_wav_payload_has_speech_energy", lambda payload: True)
+    uploaded_keys: list[str] = []
     monkeypatch.setattr(
         product_service,
         "_onemin_asset_upload",
-        lambda **kwargs: {"asset": {"key": "audio"}, "fileContent": {"path": "audio-path"}},
+        lambda **kwargs: (
+            uploaded_keys.append(str(kwargs.get("api_key") or "")),
+            {"asset": {"key": "audio"}, "fileContent": {"path": "audio-path"}},
+        )[1],
     )
-    monkeypatch.setattr(
-        product_service,
-        "_onemin_speech_to_text",
-        lambda **kwargs: (_ for _ in ()).throw(
-            RuntimeError('onemin_transcribe_http_406:{"errorCode":"INSUFFICIENT_CREDITS","message":"credits low"}')
-        ),
-    )
+
+    def _fake_onemin_speech_to_text(**kwargs):
+        if kwargs.get("api_key") == "key-1":
+            raise RuntimeError('onemin_transcribe_http_406:{"errorCode":"INSUFFICIENT_CREDITS","message":"credits low"}')
+        return {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": "Wie ist das Wetter heute in Wien?"}}}}
+
+    monkeypatch.setattr(product_service, "_onemin_speech_to_text", _fake_onemin_speech_to_text)
 
     result = public_memorials._memorial_transcribe_audio_blob(
         payload=_generated_wav_bytes(textish_seed="Wie ist das Wetter heute in Wien?"),
         content_type="audio/wav",
     )
 
-    assert result["transcription_status"] == "no_speech"
-    assert "INSUFFICIENT_CREDITS" in result["detail"]
-    assert public_memorials._MEMORIAL_STT_PROVIDER_COOLDOWNS["onemin"] > time.time()
+    assert result["transcription_status"] == "transcribed"
+    assert result["transcript_text"] == "Wie ist das Wetter heute in Wien?"
+    assert uploaded_keys[:2] == ["key-1", "key-2"]
+    assert "onemin" not in public_memorials._MEMORIAL_STT_PROVIDER_COOLDOWNS
+    assert public_memorials._memorial_stt_key_cooldown_remaining("onemin", "key-1") > 0.0
+    assert public_memorials._memorial_stt_key_cooldown_remaining("onemin", "key-2") == 0.0
+    public_memorials._MEMORIAL_STT_KEY_COOLDOWNS.clear()
+
+
+def test_memorial_onemin_available_keys_spreads_large_pool(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api.routes import public_memorials
+
+    public_memorials._MEMORIAL_STT_KEY_COOLDOWNS.clear()
+    monkeypatch.setenv("EA_MEMORIAL_ONEMIN_MAX_KEY_ATTEMPTS", "4")
+
+    selected = public_memorials._memorial_onemin_available_keys(
+        tuple(f"key-{index}" for index in range(1, 72))
+    )
+
+    assert selected == ("key-1", "key-24", "key-48", "key-71")
+
+
+def test_memorial_transcribe_rejects_known_bad_onemin_subtitle_and_uses_next_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+    from app.product import service as product_service
+
+    _clear_cartesia_env(monkeypatch)
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1", "key-2"))
+    monkeypatch.setenv("EA_MEMORIAL_ONEMIN_MAX_KEY_ATTEMPTS", "2")
+    public_memorials._MEMORIAL_STT_PROVIDER_COOLDOWNS.clear()
+    public_memorials._MEMORIAL_STT_KEY_COOLDOWNS.clear()
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_shadow_stt_result",
+        lambda **kwargs: {
+            "enabled": False,
+            "provider": "blipai",
+            "status": "skipped",
+            "transcript_text": "",
+            "correction": {"should_correct": False},
+        },
+    )
+    monkeypatch.setattr(public_memorials, "_convert_audio_to_wav", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("skip_enhanced")))
+    monkeypatch.setattr(public_memorials, "_wav_payload_has_speech_energy", lambda payload: True)
+    uploaded_keys: list[str] = []
+    monkeypatch.setattr(
+        product_service,
+        "_onemin_asset_upload",
+        lambda **kwargs: (
+            uploaded_keys.append(str(kwargs.get("api_key") or "")),
+            {"asset": {"key": "audio"}, "fileContent": {"path": "audio-path"}},
+        )[1],
+    )
+
+    def _fake_onemin_speech_to_text(**kwargs):
+        if kwargs.get("api_key") == "key-1":
+            return {
+                "aiRecord": {
+                    "aiRecordDetail": {
+                        "responseObject": {
+                            "text": '{"task":"transcribe","text":"Untertitel der Amara.org-Community","segments":[]}'
+                        }
+                    }
+                }
+            }
+        return {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": "Würdest du dich gegen Covid impfen lassen?"}}}}
+
+    monkeypatch.setattr(product_service, "_onemin_speech_to_text", _fake_onemin_speech_to_text)
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=_generated_wav_bytes(textish_seed="Würdest du dich gegen Covid impfen lassen?"),
+        content_type="audio/wav",
+    )
+
+    assert result["transcription_status"] == "transcribed"
+    assert result["transcript_text"] == "Würdest du dich gegen Covid impfen lassen?"
+    assert uploaded_keys[:2] == ["key-1", "key-2"]
+    assert public_memorials._memorial_stt_key_cooldown_remaining("onemin", "key-1") == 0.0
+    public_memorials._MEMORIAL_STT_KEY_COOLDOWNS.clear()
 
 
 def test_memorial_transcribe_skips_onemin_during_provider_cooldown(
@@ -1175,9 +1444,9 @@ def test_memorial_transcribe_skips_onemin_during_provider_cooldown(
     from app.api.routes import public_memorials
     from app.product import service as product_service
 
-    monkeypatch.delenv("CARTESIA_API_KEY", raising=False)
-    monkeypatch.delenv("EA_CARTESIA_API_KEY", raising=False)
+    _clear_cartesia_env(monkeypatch)
     public_memorials._MEMORIAL_STT_PROVIDER_COOLDOWNS.clear()
+    public_memorials._MEMORIAL_STT_KEY_COOLDOWNS.clear()
     public_memorials._MEMORIAL_STT_PROVIDER_COOLDOWNS["onemin"] = time.time() + 60.0
     monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
     monkeypatch.setattr(
@@ -1207,6 +1476,61 @@ def test_memorial_transcribe_skips_onemin_during_provider_cooldown(
     assert result["transcription_status"] == "no_speech"
     assert "onemin_provider_cooldown_active" in result["detail"]
     public_memorials._MEMORIAL_STT_PROVIDER_COOLDOWNS.clear()
+    public_memorials._MEMORIAL_STT_KEY_COOLDOWNS.clear()
+
+
+def test_memorial_transcribe_stops_onemin_pool_when_live_timeout_budget_is_exhausted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+    from app.product import service as product_service
+
+    _clear_cartesia_env(monkeypatch)
+    public_memorials._MEMORIAL_STT_PROVIDER_COOLDOWNS.clear()
+    public_memorials._MEMORIAL_STT_KEY_COOLDOWNS.clear()
+    monkeypatch.setenv("EA_MEMORIAL_ONEMIN_MAX_KEY_ATTEMPTS", "3")
+    monkeypatch.setenv("EA_MEMORIAL_ONEMIN_TOTAL_TIMEOUT_SECONDS", "1")
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1", "key-2", "key-3"))
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_shadow_stt_result",
+        lambda **kwargs: {
+            "enabled": False,
+            "provider": "blipai",
+            "status": "skipped",
+            "transcript_text": "",
+            "correction": {"should_correct": False},
+        },
+    )
+    monkeypatch.setattr(public_memorials, "_convert_audio_to_wav", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("skip_enhanced")))
+    monkeypatch.setattr(public_memorials, "_wav_payload_has_speech_energy", lambda payload: True)
+    monotonic_values = iter([0.0, 0.0, 0.0, 2.0])
+    monkeypatch.setattr(public_memorials.time, "monotonic", lambda: next(monotonic_values, 2.0))
+    uploaded_keys: list[str] = []
+    monkeypatch.setattr(
+        product_service,
+        "_onemin_asset_upload",
+        lambda **kwargs: (
+            uploaded_keys.append(str(kwargs.get("api_key") or "")),
+            {"asset": {"key": "audio"}, "fileContent": {"path": "audio-path"}},
+        )[1],
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_onemin_speech_to_text",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("temporary_provider_failure")),
+    )
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=_generated_wav_bytes(textish_seed="Wie ist das Wetter heute in Wien?"),
+        content_type="audio/wav",
+    )
+
+    assert result["transcription_status"] == "no_speech"
+    assert result["detail"] == "onemin_live_timeout_budget_exhausted"
+    assert uploaded_keys == ["key-1"]
+    public_memorials._MEMORIAL_STT_PROVIDER_COOLDOWNS.clear()
+    public_memorials._MEMORIAL_STT_KEY_COOLDOWNS.clear()
 
 
 def test_memorial_transcribe_uses_shadow_intent_when_primary_stt_returns_no_speech(
@@ -1404,6 +1728,7 @@ def test_memorial_transcribe_prefers_enhanced_wav_before_original_for_strong_res
     from app.api.routes import public_memorials
     from app.product import service as product_service
 
+    _clear_cartesia_env(monkeypatch)
     monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
     monkeypatch.setattr(public_memorials, "_wav_payload_has_speech_energy", lambda payload: True)
     monkeypatch.setattr(
@@ -1444,6 +1769,7 @@ def test_memorial_transcribe_prefers_enhanced_wav_for_hostile_captured_audio(
     from app.product import service as product_service
 
     payload = _hostile_captured_wav_bytes(_captured_contact_opening_wav_bytes())
+    _clear_cartesia_env(monkeypatch)
     monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
     monkeypatch.setattr(public_memorials, "_wav_payload_has_speech_energy", lambda payload: True)
     monkeypatch.setattr(
@@ -1620,7 +1946,7 @@ def test_memorial_whatsapp_draft_queues_draft_only_delivery_for_principal(
     client.app.state.container.tool_runtime.upsert_connector_binding(
         principal_id="exec-memorial-whatsapp-draft",
         connector_name="whatsapp_export",
-        external_account_ref="the.girscheles@gmail.com",
+        external_account_ref="family.account@example.test",
         scope_json={"selected_chat_labels": ["Memorial"], "scopes": ["whatsapp.send"]},
         auth_metadata_json={"status": "export_planned"},
         status="planned",
@@ -1639,7 +1965,7 @@ def test_memorial_whatsapp_draft_queues_draft_only_delivery_for_principal(
     response = client.post(
         f"/memorials/{slug}/whatsapp-draft",
         json={
-            "recipient": "+436641112223",
+            "recipient": "+15550101223",
             "question": "Schreib Tibor eine kurze liebe Nachricht.",
             "idempotency_key": "memorial-whatsapp-draft-test",
         },
@@ -1660,7 +1986,7 @@ def test_memorial_whatsapp_draft_queues_draft_only_delivery_for_principal(
     )
     assert any(
         row.channel == "whatsapp"
-        and row.recipient == "+436641112223"
+        and row.recipient == "+15550101223"
         and row.metadata.get("delivery_mode") == "queued"
         and row.metadata.get("memorial_slug") == slug
         for row in pending
@@ -1761,6 +2087,37 @@ def test_memorial_chat_current_medical_speculation_short_circuits_to_guardrail(
     assert body["llm_provider"] == "memorial_guardrail"
     assert body["current_world_policy"] == "no_current_medical_or_political_speculation"
     assert "aktuelle medizinische oder politische entscheidung" in body["answer"].lower()
+
+
+def test_memorial_chat_covid_attitude_question_uses_specific_difficult_memory_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    called = {"generate_text": 0}
+
+    def _fake_generate_text(**kwargs):
+        called["generate_text"] += 1
+        return SimpleNamespace(text="Sollte hier nicht benutzt werden.", provider_key="unit-test-model", model="unit-test-model")
+
+    monkeypatch.setattr(public_memorials, "generate_text", _fake_generate_text)
+    client = _client(principal_id="exec-memorial-covid-attitude-boundary")
+
+    response = client.post(f"/memorials/{slug}/chat", json={"question": "Wie stehst du zur Covid-Impfung?"})
+
+    assert response.status_code == 200
+    body = response.json()
+    lowered = body["answer"].lower()
+    assert called["generate_text"] == 0
+    assert body["fallback_reason"] == "difficult_memory_guardrail"
+    assert body["llm_provider"] == "memorial_guardrail"
+    assert "covid-impfung" in lowered
+    assert "heutige medizinische entscheidung" in lowered
+    assert "ich-form-rekonstruktion" in lowered
+    assert "misstrauen gegen aerzte" in lowered
+    assert "zu diesem thema gebe ich standardmaessig" not in lowered
 
 
 def test_memorial_chat_current_weather_ignores_present_world_search_even_when_enabled(
@@ -1911,6 +2268,9 @@ def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_
     decoded_audio = base64.b64decode(body["audio_base64"])
     assert decoded_audio.startswith(b"RIFF")
     assert body["audio_content_type"] == "audio/wav"
+    assert body["audio_unavailable"] is False
+    assert body["voice_delivery_status"] == "spoken_audio_ready"
+    assert body["spoken_turn"] is True
     assert body["tts_plugin"] == public_memorials.OPENVOICE_TTS_PLUGIN_ID
     assert body["tts_fast_path"] is False
     assert len(seen_pad_calls) >= 1
@@ -2247,6 +2607,77 @@ def test_memorial_conversation_turn_current_medical_speculation_short_circuits_t
     assert "aktuelle medizinische oder politische entscheidung" in body["answer"].lower()
 
 
+def test_memorial_conversation_turn_covid_attitude_question_gets_specific_spoken_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.OPENVOICE_TTS_PLUGIN_ID,
+            "tts_plugin_voice_id": "manfred-openvoice-test",
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-06T08:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+
+    input_audio = _generated_wav_bytes(textish_seed="Wie stehst du zur Covid-Impfung?")
+    output_audio = _generated_wav_bytes(textish_seed="Zur Covid-Impfung trenne ich drei Dinge.")
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_transcribe_audio_blob",
+        lambda **kwargs: {
+            "transcription_status": "transcribed",
+            "transcript_text": "Wie stehst du zur Covid-Impfung?",
+            "transcriber": "unit-test",
+        },
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_render_memorial_tts_audio",
+        lambda **kwargs: (output_audio, "audio/wav"),
+    )
+
+    called = {"generate_text": 0}
+
+    def _fake_generate_text(**kwargs):
+        called["generate_text"] += 1
+        return SimpleNamespace(text="Sollte hier nicht benutzt werden.", provider_key="unit-test-model", model="unit-test-model")
+
+    monkeypatch.setattr(public_memorials, "generate_text", _fake_generate_text)
+    client = _client(principal_id="exec-memorial-covid-attitude-turn")
+
+    response = client.post(
+        f"/memorials/{slug}/conversation-turn",
+        content=input_audio,
+        headers={"content-type": "audio/wav"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    lowered = body["answer"].lower()
+    assert called["generate_text"] == 0
+    assert body["fallback_reason"] == "difficult_memory_guardrail"
+    assert body["audio_content_type"] == "audio/wav"
+    assert body["audio_base64"]
+    assert body["transcript_text"] == "Wie stehst du zur Covid-Impfung?"
+    assert "covid-impfung" in lowered
+    assert "heutige medizinische entscheidung" in lowered
+    assert "ich-form-rekonstruktion" in lowered
+    assert "zu diesem thema gebe ich standardmaessig" not in lowered
+
+
 def test_memorial_conversation_turn_exposes_original_and_effective_transcript_text(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -2454,7 +2885,7 @@ def test_memorial_conversation_turn_falls_back_when_llm_times_out(
     assert "langsame Antwort" not in body["answer"]
 
 
-def test_memorial_conversation_turn_logs_generic_fallback_answers_to_pcloud_bundle(
+def test_memorial_conversation_turn_logs_generic_fallback_answers_to_private_bundle(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2477,9 +2908,11 @@ def test_memorial_conversation_turn_logs_generic_fallback_answers_to_pcloud_bund
             },
         },
     )
-    log_root = tmp_path / "pcloud-errors"
+    log_root = tmp_path / "private-stt-errors"
     monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_ENABLED", "1")
     monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_DIR", str(log_root))
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_ALLOW_LOCAL", "1")
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_RETENTION_DAYS", "14")
     input_audio = _generated_wav_bytes(textish_seed="Erzähl mir etwas")
     output_audio = _generated_wav_bytes(textish_seed="Fallback")
 
@@ -2528,10 +2961,120 @@ def test_memorial_conversation_turn_logs_generic_fallback_answers_to_pcloud_bund
     metadata = json.loads((bundles[0] / "error.json").read_text(encoding="utf-8"))
     assert metadata["route"] == "conversation_turn"
     assert metadata["reason"] == "generic_fallback_answer"
-    assert metadata["answer"]["answer"].startswith("Sag mir den konkreten Punkt")
-    assert metadata["transcription"]["transcript_original_text"] == "Erzaehl mir etwas ueber Gerechtigkeit"
+    assert metadata["text_mode"] == "redacted"
+    assert metadata["storage_policy"]["storage_mode"] == "operator_local_override"
+    assert metadata["answer"]["answer"]["redacted"] is True
+    assert metadata["answer"]["answer"]["chars"] > 20
+    assert len(metadata["answer"]["answer"]["sha256"]) == 64
+    assert metadata["transcription"]["transcript_original_text"]["redacted"] is True
+    assert metadata["transcription"]["transcript_original_text"]["chars"] == len("Erzaehl mir etwas ueber Gerechtigkeit")
+    assert "Sag mir den konkreten Punkt" not in json.dumps(metadata, ensure_ascii=False)
+    assert "Erzaehl mir etwas ueber Gerechtigkeit" not in json.dumps(metadata, ensure_ascii=False)
     assert metadata["stored_wav"] is True
     assert (bundles[0] / "input.wav").read_bytes() == input_audio
+
+
+def test_memorial_stt_error_bundle_can_opt_into_full_text_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import memorial_stt_error_log
+
+    log_root = tmp_path / "private-stt-errors"
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_ENABLED", "1")
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_DIR", str(log_root))
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_ALLOW_LOCAL", "1")
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_RETENTION_DAYS", "14")
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_TEXT_MODE", "full")
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_FULL_TEXT_ALLOWED", "1")
+
+    result = memorial_stt_error_log.log_memorial_stt_issue(
+        slug="manfred",
+        route="conversation_turn",
+        reason="generic_fallback_answer",
+        audio_payload=_generated_wav_bytes(textish_seed="full text debug"),
+        content_type="audio/wav",
+        transcription_payload={"transcription_status": "transcribed", "transcript_text": "Covid-Impfung"},
+        answer_payload={"answer": "Sag mir den konkreten Punkt noch etwas enger."},
+    )
+
+    metadata = json.loads((Path(result["directory"]) / "error.json").read_text(encoding="utf-8"))
+
+    assert metadata["text_mode"] == "full"
+    assert metadata["transcription"]["transcript_text"] == "Covid-Impfung"
+    assert metadata["answer"]["answer"] == "Sag mir den konkreten Punkt noch etwas enger."
+
+
+def test_memorial_stt_error_bundle_ignores_full_text_mode_without_second_opt_in(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import memorial_stt_error_log
+
+    log_root = tmp_path / "private-stt-errors"
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_ENABLED", "1")
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_DIR", str(log_root))
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_ALLOW_LOCAL", "1")
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_RETENTION_DAYS", "14")
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_TEXT_MODE", "full")
+    monkeypatch.delenv("EA_MEMORIAL_STT_ERROR_LOG_FULL_TEXT_ALLOWED", raising=False)
+
+    result = memorial_stt_error_log.log_memorial_stt_issue(
+        slug="manfred",
+        route="conversation_turn",
+        reason="generic_fallback_answer",
+        audio_payload=_generated_wav_bytes(textish_seed="full text debug"),
+        content_type="audio/wav",
+        transcription_payload={"transcription_status": "transcribed", "transcript_text": "Covid-Impfung"},
+        answer_payload={"answer": "Sag mir den konkreten Punkt noch etwas enger."},
+    )
+
+    metadata = json.loads((Path(result["directory"]) / "error.json").read_text(encoding="utf-8"))
+
+    assert metadata["text_mode"] == "redacted"
+    assert metadata["transcription"]["transcript_text"]["redacted"] is True
+    assert metadata["answer"]["answer"]["redacted"] is True
+
+
+def test_memorial_stt_error_bundle_masks_provider_urls_and_tokens(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import memorial_stt_error_log
+
+    log_root = tmp_path / "private-stt-errors"
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_ENABLED", "1")
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_DIR", str(log_root))
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_ALLOW_LOCAL", "1")
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_RETENTION_DAYS", "14")
+
+    result = memorial_stt_error_log.log_memorial_stt_issue(
+        slug="manfred",
+        route="conversation_turn",
+        reason="generic_fallback_answer",
+        audio_payload=_generated_wav_bytes(textish_seed="masked provider detail"),
+        content_type="audio/wav",
+        transcription_payload={
+            "transcription_status": "error",
+            "provider_detail": (
+                "Failed media probe at https://s3.us-east-1.amazonaws.com/private-bucket/input.wav "
+                "with sk_car_1234567890abcdef and Bearer abc.def.ghi"
+            ),
+        },
+        answer_payload={"answer": "Sag mir den konkreten Punkt noch etwas enger."},
+        extra={"callback_url": "https://example.com/private/result?token=abc"},
+    )
+
+    metadata_text = (Path(result["directory"]) / "error.json").read_text(encoding="utf-8")
+    metadata = json.loads(metadata_text)
+
+    assert metadata["transcription"]["provider_detail"].count("[url]") == 1
+    assert "[secret]" in metadata["transcription"]["provider_detail"]
+    assert metadata["extra"]["callback_url"] == "[url]"
+    assert "https://" not in metadata_text
+    assert "s3.us-east-1.amazonaws.com" not in metadata_text
+    assert "sk_car_1234567890abcdef" not in metadata_text
+    assert "abc.def.ghi" not in metadata_text
 
 
 def test_memorial_stt_error_bundle_converts_webm_input_to_wav(
@@ -2540,9 +3083,11 @@ def test_memorial_stt_error_bundle_converts_webm_input_to_wav(
 ) -> None:
     from app.services import memorial_stt_error_log
 
-    log_root = tmp_path / "pcloud"
+    log_root = tmp_path / "private-stt-errors"
     monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_ENABLED", "1")
     monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_DIR", str(log_root))
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_ALLOW_LOCAL", "1")
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_RETENTION_DAYS", "14")
     converted_wav = _generated_wav_bytes(textish_seed="webm bundle")
 
     def _run(*args, **kwargs):
@@ -2569,7 +3114,11 @@ def test_memorial_stt_error_bundle_converts_webm_input_to_wav(
     assert metadata["stored_wav"] is True
     assert metadata["content_type"] == "audio/webm;codecs=opus"
     assert metadata["consent_mode"] == "explicit_operator_opt_in"
+    assert metadata["storage_policy"]["storage_mode"] == "operator_local_override"
     assert metadata["retention_days"] >= 1
+    assert metadata["text_mode"] == "redacted"
+    assert metadata["transcription"]["transcript_text"]["redacted"] is True
+    assert metadata["answer"]["answer"]["redacted"] is True
     with contextlib.closing(wave.open(str(bundle_dir / "input.wav"), "rb")) as wav_file:
         assert wav_file.getframerate() == 16000
         assert wav_file.getnchannels() == 1
@@ -2583,7 +3132,7 @@ def test_memorial_stt_error_bundle_is_disabled_by_default(
     from app.services import memorial_stt_error_log
 
     monkeypatch.delenv("EA_MEMORIAL_STT_ERROR_LOG_ENABLED", raising=False)
-    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_DIR", str(tmp_path / "pcloud"))
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_DIR", str(tmp_path / "private-stt-errors"))
 
     result = memorial_stt_error_log.log_memorial_stt_issue(
         slug="manfred",
@@ -2596,7 +3145,83 @@ def test_memorial_stt_error_bundle_is_disabled_by_default(
     )
 
     assert result == {"status": "disabled", "reason": "logging_disabled"}
-    assert not (tmp_path / "pcloud").exists()
+    assert not (tmp_path / "private-stt-errors").exists()
+
+
+def test_memorial_stt_error_bundle_requires_retention_policy_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import memorial_stt_error_log
+
+    log_root = tmp_path / "private-stt-errors"
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_ENABLED", "1")
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_DIR", str(log_root))
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_ALLOW_LOCAL", "1")
+    monkeypatch.delenv("EA_MEMORIAL_STT_ERROR_LOG_RETENTION_DAYS", raising=False)
+
+    result = memorial_stt_error_log.log_memorial_stt_issue(
+        slug="manfred",
+        route="conversation_turn",
+        reason="generic_fallback_answer",
+        audio_payload=b"fake-audio",
+        content_type="audio/wav",
+        transcription_payload={"transcription_status": "transcribed", "transcript_text": "Covid-Impfung"},
+        answer_payload={"answer": "Sag mir den konkreten Punkt noch etwas enger."},
+    )
+
+    assert result == {"status": "disabled", "reason": "retention_policy_missing"}
+    assert not log_root.exists()
+
+
+def test_memorial_stt_error_bundle_rejects_external_root_without_local_override(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import memorial_stt_error_log
+
+    log_root = tmp_path / "local-ssd"
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_ENABLED", "1")
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_DIR", str(log_root))
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_RETENTION_DAYS", "14")
+    monkeypatch.delenv("EA_MEMORIAL_STT_ERROR_LOG_ALLOW_LOCAL", raising=False)
+
+    result = memorial_stt_error_log.log_memorial_stt_issue(
+        slug="manfred",
+        route="conversation_turn",
+        reason="generic_fallback_answer",
+        audio_payload=b"fake-audio",
+        content_type="audio/wav",
+        transcription_payload={"transcription_status": "transcribed", "transcript_text": "Covid-Impfung"},
+        answer_payload={"answer": "Sag mir den konkreten Punkt noch etwas enger."},
+    )
+
+    assert result == {"status": "disabled", "reason": "root_not_under_memorial_stt_error_root"}
+    assert not log_root.exists()
+
+
+def test_memorial_stt_error_bundle_requires_private_storage_without_local_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services import memorial_stt_error_log
+
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_ENABLED", "1")
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_DIR", "/private/archive/memorial_stt_errors")
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_RETENTION_DAYS", "14")
+    monkeypatch.delenv("EA_MEMORIAL_STT_ERROR_LOG_ALLOW_LOCAL", raising=False)
+    monkeypatch.setattr(memorial_stt_error_log, "_private_storage_available", lambda: False)
+
+    result = memorial_stt_error_log.log_memorial_stt_issue(
+        slug="manfred",
+        route="conversation_turn",
+        reason="generic_fallback_answer",
+        audio_payload=b"fake-audio",
+        content_type="audio/wav",
+        transcription_payload={"transcription_status": "transcribed", "transcript_text": "Covid-Impfung"},
+        answer_payload={"answer": "Sag mir den konkreten Punkt noch etwas enger."},
+    )
+
+    assert result == {"status": "disabled", "reason": "private_storage_missing"}
 
 
 def test_memorial_conversation_turn_contact_opening_bypasses_llm(
@@ -2707,6 +3332,8 @@ def test_memorial_rescue_turn_accepts_short_guardrail_tts_audio(
     )
 
     assert result["audio_unavailable"] is False
+    assert result["voice_delivery_status"] == "spoken_audio_ready"
+    assert result["spoken_turn"] is True
     assert result["audio_base64"]
     assert result["fallback_reason"] == "stt_retry_required"
 
@@ -2766,6 +3393,39 @@ def test_memorial_voice_config_forces_german_over_browser_or_provider_locale(
     assert seen["lang"] == "de-AT"
     assert seen["speaking_rate"] == "0.90"
     assert "atempo=0.92" in str(pad_seen["extra_filters"])
+
+
+def test_memorial_speech_synthesize_rejects_empty_tts_audio(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
+            "tts_plugin_voice_id": "manfred-unmixr-test",
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-06T08:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+    monkeypatch.setenv("UNMIXR_API_KEY", "unit-test-unmixr-key")
+    monkeypatch.setattr(public_memorials, "unmixr_synthesize_request", lambda **kwargs: (b"", "audio/wav"))
+
+    client = _client(principal_id="exec-memorial-synthesize-empty-tts")
+    response = client.post(f"/memorials/{slug}/speech-synthesize", json={"text": "Ich antworte ruhig."})
+
+    assert response.status_code == 502
+    assert "tts_audio_missing" in response.text
 
 
 def test_memorial_voice_config_resolves_committed_voice_id_placeholders_from_env(
@@ -3048,8 +3708,63 @@ def test_memorial_conversation_turn_rescue_survives_tts_failure_without_audio(
     body = response.json()
     assert body["fallback_reason"] == "stt_retry_required"
     assert body["audio_unavailable"] is True
+    assert body["voice_delivery_status"] == "audio_unavailable"
+    assert body["spoken_turn"] is False
     assert body["audio_base64"] == ""
     assert "akustisch" in body["answer"].lower()
+
+
+def test_memorial_conversation_turn_empty_tts_is_degraded_not_spoken_success(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
+            "tts_plugin_voice_id": "voice-123",
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-06T08:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+    monkeypatch.setenv("UNMIXR_API_KEY", "unmixr-test-key")
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_transcribe_audio_blob",
+        lambda **kwargs: {
+            "transcription_status": "transcribed",
+            "transcript_text": "Hallo Manfred, kannst du jetzt mit mir sprechen?",
+            "transcriber": "unit-test",
+        },
+    )
+    monkeypatch.setattr(public_memorials, "_render_memorial_tts_audio", lambda **kwargs: (b"", "audio/wav"))
+
+    client = _client(principal_id="exec-memorial-live-empty-tts")
+    response = client.post(
+        f"/memorials/{slug}/conversation-turn",
+        content=_captured_contact_opening_wav_bytes(),
+        headers={"content-type": "audio/wav"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["fallback_reason"] == "technical_retry_required"
+    assert body["turn_rescue_reason"] == "tts_audio_missing"
+    assert body["audio_unavailable"] is True
+    assert body["voice_delivery_status"] == "audio_unavailable"
+    assert body["spoken_turn"] is False
+    assert body["audio_base64"] == ""
+    assert "nicht sauber hörbar" in body["answer"].lower()
 
 
 def test_memorial_conversation_turn_supports_voicewave_clone(
@@ -3517,7 +4232,7 @@ def test_memorial_realtime_text_turn_falls_back_when_llm_times_out(
 
 
 def test_memorial_realtime_text_turn_does_not_fallback_to_piper_when_configured_tts_times_out() -> None:
-    source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
+    source = PUBLIC_MEMORIALS_SOURCE.read_text(encoding="utf-8")
 
     assert 'raise HTTPException(status_code=504, detail="tts_timeout")' in source
     assert 'raise HTTPException(status_code=502, detail="tts_plugin_failed")' in source
@@ -4347,7 +5062,7 @@ def test_memorial_realtime_chat_model_never_uses_default_openai_style_fallback()
 
 
 def test_memorial_realtime_timeout_copy_invites_retry_without_sounding_like_a_failure() -> None:
-    source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
+    source = PUBLIC_MEMORIALS_SOURCE.read_text(encoding="utf-8")
 
     assert "Ich bin noch da, aber gerade etwas langsamer. Bitte sag es noch einmal." in source
     assert "Ich brauche gerade laenger als erwartet. Bitte sprich noch einmal." not in source
@@ -4652,7 +5367,7 @@ def test_memorial_voice_clone_route_is_disabled_without_operator_surface_flag(
 
 
 def test_memorial_browser_playback_guardrails_are_shipped() -> None:
-    source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
+    source = PUBLIC_MEMORIALS_SOURCE.read_text(encoding="utf-8")
 
     assert "audio_never_started" in source
     assert "audio_ended_too_soon" in source
@@ -4671,7 +5386,7 @@ def test_memorial_realtime_public_error_codes_are_stable() -> None:
 
 
 def test_memorial_live_status_copy_is_quieter_and_less_chattery() -> None:
-    source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
+    source = PUBLIC_MEMORIALS_SOURCE.read_text(encoding="utf-8")
 
     assert 'transcribingText: "Einen Moment ..."' in source
     assert 'setSpeechStatus("Ich höre zu.", "listening", "Sprich, wenn du magst");' in source
@@ -4681,7 +5396,7 @@ def test_memorial_live_status_copy_is_quieter_and_less_chattery() -> None:
 
 
 def test_memorial_live_page_source_uses_more_tolerant_turn_detection_and_barge_in_restart() -> None:
-    source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
+    source = PUBLIC_MEMORIALS_SOURCE.read_text(encoding="utf-8")
 
     assert "autoStopMs: 5200" in source
     assert "maxAfterSpeechMs: 5200" in source
@@ -4704,7 +5419,7 @@ def test_memorial_live_page_source_uses_more_tolerant_turn_detection_and_barge_i
 
 
 def test_memorial_live_page_source_keeps_long_pause_budget_before_forcing_turn_end() -> None:
-    source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
+    source = PUBLIC_MEMORIALS_SOURCE.read_text(encoding="utf-8")
 
     assert "autoStopMs: 5200" in source
     assert "maxAfterSpeechMs: 5200" in source
@@ -4717,7 +5432,7 @@ def test_memorial_live_page_source_keeps_long_pause_budget_before_forcing_turn_e
 
 
 def test_memorial_live_page_source_accepts_shorter_first_turn_browser_transcripts() -> None:
-    source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
+    source = PUBLIC_MEMORIALS_SOURCE.read_text(encoding="utf-8")
 
     assert "const looksGreeting =" in source
     assert "const hasSpeechLikeChars = /[a-z0-9äöüß]/i.test(normalized);" in source
@@ -4736,7 +5451,7 @@ def test_memorial_pcm_gate_ignores_low_energy_room_noise() -> None:
 
 
 def test_memorial_live_page_source_does_not_fallback_to_browser_voice_when_realtime_server_audio_is_missing() -> None:
-    source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
+    source = PUBLIC_MEMORIALS_SOURCE.read_text(encoding="utf-8")
 
     assert 'browserSpeechFallbackConfig("Browser Fallback")' not in source
     assert "Manfreds Stimme konnte gerade nicht sauber starten." in source
@@ -4744,7 +5459,7 @@ def test_memorial_live_page_source_does_not_fallback_to_browser_voice_when_realt
 
 
 def test_memorial_live_page_source_primes_audio_output_before_playback() -> None:
-    source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
+    source = PUBLIC_MEMORIALS_SOURCE.read_text(encoding="utf-8")
 
     assert "async function primeMemorialAudioOutput(durationMs = 900)" in source
     assert "gain.gain.value = 0.0008;" in source
@@ -4754,7 +5469,7 @@ def test_memorial_live_page_source_primes_audio_output_before_playback() -> None
 
 
 def test_memorial_live_page_source_rejects_cut_off_audio_before_next_turn() -> None:
-    source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
+    source = PUBLIC_MEMORIALS_SOURCE.read_text(encoding="utf-8")
 
     assert "audio_too_short_for_answer" in source
     assert "const tooShortThresholdMs = normalizedText.length >= 36" in source
@@ -4902,16 +5617,18 @@ def test_memorial_speech_transcribe_route_exposes_original_and_effective_transcr
     assert body["transcript_original_text"] == "wie ist wetter heute in wien"
 
 
-def test_memorial_speech_transcribe_logs_stt_failures_to_pcloud_bundle(
+def test_memorial_speech_transcribe_logs_stt_failures_to_private_bundle(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     slug = _setup_memorial(monkeypatch, tmp_path)
     from app.api.routes import public_memorials
 
-    log_root = tmp_path / "pcloud-errors"
+    log_root = tmp_path / "private-stt-errors"
     monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_ENABLED", "1")
     monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_DIR", str(log_root))
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_ALLOW_LOCAL", "1")
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_RETENTION_DAYS", "14")
     monkeypatch.setattr(
         public_memorials,
         "_memorial_transcribe_audio_blob",
@@ -4950,6 +5667,7 @@ def test_memorial_speech_transcribe_route_accepts_hostile_captured_contact_clip(
     from app.api.routes import public_memorials
     from app.product import service as product_service
 
+    _clear_cartesia_env(monkeypatch)
     monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
     monkeypatch.setattr(
         public_memorials,
@@ -5034,7 +5752,7 @@ def test_memorial_speech_transcribe_route_rejects_overcompressed_captured_clip_b
 
 
 def test_memorial_warmup_prefers_fast_piper_tts_instead_of_profile_voice() -> None:
-    source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
+    source = PUBLIC_MEMORIALS_SOURCE.read_text(encoding="utf-8")
 
     assert 'selected_plugin = PIPER_FAST_TTS_PLUGIN_ID' in source
     assert 'piper_fast_synthesize_request(' in source
@@ -5042,7 +5760,7 @@ def test_memorial_warmup_prefers_fast_piper_tts_instead_of_profile_voice() -> No
 
 
 def test_memorial_landing_does_not_enable_conversation_on_warmup_timeout() -> None:
-    source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
+    source = PUBLIC_MEMORIALS_SOURCE.read_text(encoding="utf-8")
 
     assert "waitForMemorialVoiceReady(30000)" in source
     assert 'setMemorialLandingReady(false, "Ich bin gleich bereit.")' in source
@@ -5431,7 +6149,7 @@ def test_memorial_gemini_live_fails_closed_without_server_key(
 
 
 def test_memorial_full_realtime_client_uses_funeral_safe_pause_threshold() -> None:
-    source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
+    source = PUBLIC_MEMORIALS_SOURCE.read_text(encoding="utf-8")
 
     assert "Number(options.maxNoSpeechMs || options.autoStopMs || 2600)" in source
     assert "const minSpeechMs = 320" in source

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -10,7 +11,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ea"))
 from app.services.productlift_signal_adapter import build_product_signal_bridge_dry_run
 
 
-COMPLETION_DIR = Path("/docker/chummercomplete/_completion/ltd_capability_mesh_v2")
+EA_ROOT = Path(__file__).resolve().parents[1]
+COMPLETION_DIR = Path(os.environ.get("LTD_CAPABILITY_MESH_COMPLETION_DIR") or EA_ROOT / "ea/_completion/ltd_capability_mesh_v2")
 
 
 def parse_args() -> argparse.Namespace:

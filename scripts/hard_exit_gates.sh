@@ -26,7 +26,7 @@ Runs the full flagship hard exit bundle:
   - postgres contract tests
   - postgres smoke
   - postgres legacy smoke
-  - Tibor smoke
+  - principal API smoke
   - pocket audio archive verification
 EOF
   exit 0
@@ -43,5 +43,5 @@ make verify-ltd-flagship-subset
 make test-postgres-contracts
 make smoke-postgres
 make smoke-postgres-legacy
-make smoke-api-tibor
+make smoke-api-principal
 make verify-pocket-audio-archive

@@ -3,19 +3,53 @@
   "status": "blocked",
   "scoring": {
     "pass_rule": "usable transcript + required tokens present + token_f1 >= sample min + WER <= sample max",
-    "known_bad_non_empty_text_is_not_enough": true
+    "fixture_quality_rule": "ground-truth fixtures must be long enough to contain their expected transcript before provider accuracy is scored",
+    "known_bad_non_empty_text_is_not_enough": true,
+    "production_eligible_rule": "provider must pass every ground-truth benchmark sample and hostile variant",
+    "text_mode": "redacted",
+    "raw_transcript_fields": false,
+    "redacted_text_fields": true,
+    "redacted_receipt_rule": "Default receipts store transcript hashes, lengths, and token hashes instead of raw expected/actual text. Set EA_MEMORIAL_STT_BENCHMARK_TEXT_MODE=full or pass --text-mode full for operator-local raw transcript diagnostics."
   },
+  "fixture_quality_status": "pass",
+  "fixture_quality_failed_codes": [],
   "availability": {
     "shadow_provider": "blipai",
     "cartesia_configured": false,
-    "onemin_key_count": 0,
-    "onemin_max_key_attempts": 3
+    "cartesia_default_credential_file_present": false,
+    "cartesia": {
+      "configured": false,
+      "credential_source": "none",
+      "accepted_source_types": [
+        "direct_env",
+        "inline_json_env",
+        "credential_file_env",
+        "default_credential_file"
+      ],
+      "default_credential_files": [],
+      "operator_hint": "Configure Cartesia with an env key, inline JSON, credential-file env, or ignored config/cartesia.local.json."
+    },
+    "onemin_key_count": 1,
+    "onemin_max_key_attempts": 3,
+    "provider_env": {
+      "files": [
+        ".env",
+        ".env.local"
+      ],
+      "loaded_count": 337,
+      "provider_families": {
+        "cartesia": false,
+        "onemin": true,
+        "blipai_shadow": true
+      }
+    }
   },
   "provider_ranking": [
     {
-      "provider": "onemin_sample",
+      "provider": "full_runtime",
       "passed_samples": 0,
       "sample_count": 4,
+      "scored_samples": 4,
       "intent_correct_samples": 0,
       "avg_token_f1": 0.0,
       "avg_wer": 1.0,
@@ -23,257 +57,389 @@
       "production_eligible": false
     },
     {
-      "provider": "full_runtime",
-      "passed_samples": 0,
-      "sample_count": 4,
-      "intent_correct_samples": 0,
-      "avg_token_f1": 0.0,
-      "avg_wer": 1.0,
-      "avg_latency_ms": 13.8,
-      "production_eligible": false
-    },
-    {
       "provider": "shadow",
       "passed_samples": 0,
       "sample_count": 4,
+      "scored_samples": 4,
       "intent_correct_samples": 0,
       "avg_token_f1": 0.0,
       "avg_wer": 1.0,
-      "avg_latency_ms": 523.4,
+      "avg_latency_ms": 0.0,
+      "production_eligible": false
+    },
+    {
+      "provider": "onemin_sample",
+      "passed_samples": 0,
+      "sample_count": 4,
+      "scored_samples": 4,
+      "intent_correct_samples": 0,
+      "avg_token_f1": 0.0,
+      "avg_wer": 1.0,
+      "avg_latency_ms": 0.0,
       "production_eligible": false
     }
   ],
   "rows": [
     {
       "sample": "contact_opening",
-      "variant": "captured",
+      "variant": "synthetic",
       "fixture": "contact_opening_captured.wav",
-      "fixture_sha256": "4234eede1d86a969f1fe22fcb91248406f95bc0aa0b8aeab107ff6fd4e4ba620",
+      "fixture_sha256": "a5589abeb9b81ab6fb991d280e285d3416ec1c29a92013bc5e47fee3d2198d88",
+      "fixture_quality": {
+        "status": "pass",
+        "failed_codes": [],
+        "audio_duration_seconds": 2.9,
+        "expected_min_duration_seconds": 2.24
+      },
       "provenance": {
-        "origin": "Captured operator memorial test audio from the Manfred realtime conversation lane.",
-        "speaker_consent": "operator_attested_for_private_stt_regression",
+        "origin": "Synthetic German speech generated through EA Unmixr TTS from the exact expected text after the previous captured fixture proved truncated.",
+        "speaker_consent": "synthetic_voice_provider_output_no_human_speaker",
         "allowed_purpose": "memorial_stt_regression_and_provider_bakeoff",
-        "retention": "private_repo_fixture_until_replaced_by_synthetic_equivalent",
-        "synthetic": false,
-        "accent": "Austrian German"
+        "retention": "private_repo_synthetic_regression_fixture",
+        "synthetic": true,
+        "accent": "synthetic German voice"
       },
       "shadow": {
-        "status": "error",
-        "text": "",
-        "ms": 523.4,
-        "reason": "http_401",
-        "expected_text": "Hallo Manfred, kannst du jetzt mit mir sprechen?",
-        "required_tokens": [
-          "hallo",
-          "manfred",
-          "sprechen"
-        ],
-        "actual_text": "",
+        "status": null,
+        "ms": 0.0,
+        "reason": "",
         "wer": 1.0,
         "token_f1": 0.0,
         "intent_correct": false,
         "usable": false,
         "passed": false,
         "min_token_f1": 0.65,
-        "max_wer": 0.45
+        "max_wer": 0.45,
+        "text_mode": "redacted",
+        "expected_text_chars": 48,
+        "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
+        "actual_text_chars": 0,
+        "actual_text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "required_token_count": 3,
+        "required_token_sha256": [
+          "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
+          "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
+          "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
+        ],
+        "text_redacted": true
       },
       "onemin_sample": {
-        "status": "unavailable",
-        "detail": "no_keys"
-      },
-      "full_runtime": {
-        "status": "http_error",
-        "text": "",
-        "ms": 54.7,
-        "transcriber": "",
-        "detail": "speech_transcriber_unavailable",
-        "expected_text": "Hallo Manfred, kannst du jetzt mit mir sprechen?",
-        "required_tokens": [
-          "hallo",
-          "manfred",
-          "sprechen"
-        ],
-        "actual_text": "",
+        "status": "empty",
+        "ms": 0.0,
         "wer": 1.0,
         "token_f1": 0.0,
         "intent_correct": false,
         "usable": false,
         "passed": false,
         "min_token_f1": 0.65,
-        "max_wer": 0.45
+        "max_wer": 0.45,
+        "text_mode": "redacted",
+        "expected_text_chars": 48,
+        "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
+        "actual_text_chars": 0,
+        "actual_text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "required_token_count": 3,
+        "required_token_sha256": [
+          "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
+          "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
+          "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
+        ],
+        "text_redacted": true
+      },
+      "full_runtime": {
+        "status": "unavailable",
+        "ms": 0.0,
+        "transcriber": "fallback",
+        "detail": "",
+        "wer": 1.0,
+        "token_f1": 0.0,
+        "intent_correct": false,
+        "usable": false,
+        "passed": false,
+        "min_token_f1": 0.65,
+        "max_wer": 0.45,
+        "text_mode": "redacted",
+        "expected_text_chars": 48,
+        "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
+        "actual_text_chars": 0,
+        "actual_text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "required_token_count": 3,
+        "required_token_sha256": [
+          "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
+          "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
+          "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
+        ],
+        "text_redacted": true
       }
     },
     {
       "sample": "contact_opening_hostile",
       "variant": "hostile",
       "fixture": "contact_opening_captured.wav",
-      "fixture_sha256": "4234eede1d86a969f1fe22fcb91248406f95bc0aa0b8aeab107ff6fd4e4ba620",
+      "fixture_sha256": "a5589abeb9b81ab6fb991d280e285d3416ec1c29a92013bc5e47fee3d2198d88",
+      "fixture_quality": {
+        "status": "pass",
+        "failed_codes": [],
+        "audio_duration_seconds": 2.9,
+        "expected_min_duration_seconds": 2.24
+      },
       "provenance": {
-        "origin": "Captured operator memorial test audio from the Manfred realtime conversation lane.",
-        "speaker_consent": "operator_attested_for_private_stt_regression",
+        "origin": "Synthetic German speech generated through EA Unmixr TTS from the exact expected text after the previous captured fixture proved truncated.",
+        "speaker_consent": "synthetic_voice_provider_output_no_human_speaker",
         "allowed_purpose": "memorial_stt_regression_and_provider_bakeoff",
-        "retention": "private_repo_fixture_until_replaced_by_synthetic_equivalent",
-        "synthetic": false,
-        "accent": "Austrian German"
+        "retention": "private_repo_synthetic_regression_fixture",
+        "synthetic": true,
+        "accent": "synthetic German voice"
       },
       "shadow": {
         "status": null,
-        "text": "",
         "ms": 0.0,
-        "reason": "provider_cooldown_active",
-        "expected_text": "Hallo Manfred, kannst du jetzt mit mir sprechen?",
-        "required_tokens": [
-          "hallo",
-          "manfred",
-          "sprechen"
-        ],
-        "actual_text": "",
+        "reason": "",
         "wer": 1.0,
         "token_f1": 0.0,
         "intent_correct": false,
         "usable": false,
         "passed": false,
         "min_token_f1": 0.65,
-        "max_wer": 0.45
+        "max_wer": 0.45,
+        "text_mode": "redacted",
+        "expected_text_chars": 48,
+        "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
+        "actual_text_chars": 0,
+        "actual_text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "required_token_count": 3,
+        "required_token_sha256": [
+          "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
+          "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
+          "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
+        ],
+        "text_redacted": true
       },
       "onemin_sample": {
-        "status": "unavailable",
-        "detail": "no_keys"
-      },
-      "full_runtime": {
-        "status": "http_error",
-        "text": "",
-        "ms": 0.1,
-        "transcriber": "",
-        "detail": "speech_transcriber_unavailable",
-        "expected_text": "Hallo Manfred, kannst du jetzt mit mir sprechen?",
-        "required_tokens": [
-          "hallo",
-          "manfred",
-          "sprechen"
-        ],
-        "actual_text": "",
+        "status": "empty",
+        "ms": 0.0,
         "wer": 1.0,
         "token_f1": 0.0,
         "intent_correct": false,
         "usable": false,
         "passed": false,
         "min_token_f1": 0.65,
-        "max_wer": 0.45
+        "max_wer": 0.45,
+        "text_mode": "redacted",
+        "expected_text_chars": 48,
+        "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
+        "actual_text_chars": 0,
+        "actual_text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "required_token_count": 3,
+        "required_token_sha256": [
+          "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
+          "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
+          "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
+        ],
+        "text_redacted": true
+      },
+      "full_runtime": {
+        "status": "unavailable",
+        "ms": 0.0,
+        "transcriber": "fallback",
+        "detail": "",
+        "wer": 1.0,
+        "token_f1": 0.0,
+        "intent_correct": false,
+        "usable": false,
+        "passed": false,
+        "min_token_f1": 0.65,
+        "max_wer": 0.45,
+        "text_mode": "redacted",
+        "expected_text_chars": 48,
+        "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
+        "actual_text_chars": 0,
+        "actual_text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "required_token_count": 3,
+        "required_token_sha256": [
+          "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
+          "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
+          "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
+        ],
+        "text_redacted": true
       }
     },
     {
       "sample": "stt_retry",
-      "variant": "captured",
+      "variant": "synthetic",
       "fixture": "rescue_stt_retry_captured.wav",
-      "fixture_sha256": "341ca9589cc4481628317342f81ef08fc0add2b1aab5414b4da551505f6197c7",
+      "fixture_sha256": "844ffb440ad0dd2ee30f75ddef046c982f183f196009004ba0d28fece72c3d2d",
+      "fixture_quality": {
+        "status": "pass",
+        "failed_codes": [],
+        "audio_duration_seconds": 3.579,
+        "expected_min_duration_seconds": 2.52
+      },
       "provenance": {
-        "origin": "Captured operator memorial retry-test audio after a weak or missing STT turn.",
-        "speaker_consent": "operator_attested_for_private_stt_regression",
+        "origin": "Synthetic German speech generated through EA Unmixr TTS from the exact expected text after the previous captured fixture proved truncated.",
+        "speaker_consent": "synthetic_voice_provider_output_no_human_speaker",
         "allowed_purpose": "memorial_stt_regression_and_provider_bakeoff",
-        "retention": "private_repo_fixture_until_replaced_by_synthetic_equivalent",
-        "synthetic": false,
-        "accent": "Austrian German"
+        "retention": "private_repo_synthetic_regression_fixture",
+        "synthetic": true,
+        "accent": "synthetic German voice"
       },
       "shadow": {
         "status": null,
-        "text": "",
         "ms": 0.0,
-        "reason": "provider_cooldown_active",
-        "expected_text": "Kommt da noch was oder bist du jetzt stumm?",
-        "required_tokens": [
-          "kommt",
-          "stumm"
-        ],
-        "actual_text": "",
+        "reason": "",
         "wer": 1.0,
         "token_f1": 0.0,
         "intent_correct": false,
         "usable": false,
         "passed": false,
         "min_token_f1": 0.55,
-        "max_wer": 0.55
+        "max_wer": 0.55,
+        "text_mode": "redacted",
+        "expected_text_chars": 43,
+        "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+        "actual_text_chars": 0,
+        "actual_text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "required_token_count": 2,
+        "required_token_sha256": [
+          "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
+          "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
+        ],
+        "text_redacted": true
       },
       "onemin_sample": {
-        "status": "unavailable",
-        "detail": "no_keys"
-      },
-      "full_runtime": {
-        "status": "http_error",
-        "text": "",
-        "ms": 0.1,
-        "transcriber": "",
-        "detail": "speech_transcriber_unavailable",
-        "expected_text": "Kommt da noch was oder bist du jetzt stumm?",
-        "required_tokens": [
-          "kommt",
-          "stumm"
-        ],
-        "actual_text": "",
+        "status": "empty",
+        "ms": 0.0,
         "wer": 1.0,
         "token_f1": 0.0,
         "intent_correct": false,
         "usable": false,
         "passed": false,
         "min_token_f1": 0.55,
-        "max_wer": 0.55
+        "max_wer": 0.55,
+        "text_mode": "redacted",
+        "expected_text_chars": 43,
+        "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+        "actual_text_chars": 0,
+        "actual_text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "required_token_count": 2,
+        "required_token_sha256": [
+          "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
+          "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
+        ],
+        "text_redacted": true
+      },
+      "full_runtime": {
+        "status": "unavailable",
+        "ms": 0.0,
+        "transcriber": "fallback",
+        "detail": "",
+        "wer": 1.0,
+        "token_f1": 0.0,
+        "intent_correct": false,
+        "usable": false,
+        "passed": false,
+        "min_token_f1": 0.55,
+        "max_wer": 0.55,
+        "text_mode": "redacted",
+        "expected_text_chars": 43,
+        "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+        "actual_text_chars": 0,
+        "actual_text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "required_token_count": 2,
+        "required_token_sha256": [
+          "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
+          "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
+        ],
+        "text_redacted": true
       }
     },
     {
       "sample": "stt_retry_hostile",
       "variant": "hostile",
       "fixture": "rescue_stt_retry_captured.wav",
-      "fixture_sha256": "341ca9589cc4481628317342f81ef08fc0add2b1aab5414b4da551505f6197c7",
+      "fixture_sha256": "844ffb440ad0dd2ee30f75ddef046c982f183f196009004ba0d28fece72c3d2d",
+      "fixture_quality": {
+        "status": "pass",
+        "failed_codes": [],
+        "audio_duration_seconds": 3.579,
+        "expected_min_duration_seconds": 2.52
+      },
       "provenance": {
-        "origin": "Captured operator memorial retry-test audio after a weak or missing STT turn.",
-        "speaker_consent": "operator_attested_for_private_stt_regression",
+        "origin": "Synthetic German speech generated through EA Unmixr TTS from the exact expected text after the previous captured fixture proved truncated.",
+        "speaker_consent": "synthetic_voice_provider_output_no_human_speaker",
         "allowed_purpose": "memorial_stt_regression_and_provider_bakeoff",
-        "retention": "private_repo_fixture_until_replaced_by_synthetic_equivalent",
-        "synthetic": false,
-        "accent": "Austrian German"
+        "retention": "private_repo_synthetic_regression_fixture",
+        "synthetic": true,
+        "accent": "synthetic German voice"
       },
       "shadow": {
         "status": null,
-        "text": "",
         "ms": 0.0,
-        "reason": "provider_cooldown_active",
-        "expected_text": "Kommt da noch was oder bist du jetzt stumm?",
-        "required_tokens": [
-          "kommt",
-          "stumm"
-        ],
-        "actual_text": "",
+        "reason": "",
         "wer": 1.0,
         "token_f1": 0.0,
         "intent_correct": false,
         "usable": false,
         "passed": false,
         "min_token_f1": 0.55,
-        "max_wer": 0.55
+        "max_wer": 0.55,
+        "text_mode": "redacted",
+        "expected_text_chars": 43,
+        "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+        "actual_text_chars": 0,
+        "actual_text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "required_token_count": 2,
+        "required_token_sha256": [
+          "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
+          "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
+        ],
+        "text_redacted": true
       },
       "onemin_sample": {
-        "status": "unavailable",
-        "detail": "no_keys"
-      },
-      "full_runtime": {
-        "status": "http_error",
-        "text": "",
-        "ms": 0.1,
-        "transcriber": "",
-        "detail": "speech_transcriber_unavailable",
-        "expected_text": "Kommt da noch was oder bist du jetzt stumm?",
-        "required_tokens": [
-          "kommt",
-          "stumm"
-        ],
-        "actual_text": "",
+        "status": "empty",
+        "ms": 0.0,
         "wer": 1.0,
         "token_f1": 0.0,
         "intent_correct": false,
         "usable": false,
         "passed": false,
         "min_token_f1": 0.55,
-        "max_wer": 0.55
+        "max_wer": 0.55,
+        "text_mode": "redacted",
+        "expected_text_chars": 43,
+        "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+        "actual_text_chars": 0,
+        "actual_text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "required_token_count": 2,
+        "required_token_sha256": [
+          "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
+          "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
+        ],
+        "text_redacted": true
+      },
+      "full_runtime": {
+        "status": "unavailable",
+        "ms": 0.0,
+        "transcriber": "fallback",
+        "detail": "",
+        "wer": 1.0,
+        "token_f1": 0.0,
+        "intent_correct": false,
+        "usable": false,
+        "passed": false,
+        "min_token_f1": 0.55,
+        "max_wer": 0.55,
+        "text_mode": "redacted",
+        "expected_text_chars": 43,
+        "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+        "actual_text_chars": 0,
+        "actual_text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "required_token_count": 2,
+        "required_token_sha256": [
+          "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
+          "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
+        ],
+        "text_redacted": true
       }
     }
   ]

@@ -31,33 +31,33 @@ governed_truth_bundle:
     - codexea eta
   source_anchors:
     - anchor_id: governor_operator_packet_contract
-      path: /docker/EA/docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml
+      path: docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml
       kind: yaml_contract
     - anchor_id: operator_safe_followthrough_receipt
-      path: /docker/EA/.codex-studio/published/NEXT90_M113_OPERATOR_SAFE_PACKETS.generated.json
+      path: .codex-studio/published/NEXT90_M113_OPERATOR_SAFE_PACKETS.generated.json
       kind: json_receipt
     - anchor_id: organizer_followthrough_receipt
-      path: /docker/EA/.codex-studio/published/NEXT90_M118_EA_ORGANIZER_PACKETS.generated.json
+      path: .codex-studio/published/NEXT90_M118_EA_ORGANIZER_PACKETS.generated.json
       kind: json_receipt
     - anchor_id: launch_followthrough_contract
-      path: /docker/EA/docs/chummer_launch_followthrough/CHUMMER_LAUNCH_FOLLOWTHROUGH_PACK.yaml
+      path: docs/chummer_launch_followthrough/CHUMMER_LAUNCH_FOLLOWTHROUGH_PACK.yaml
       kind: yaml_contract
     - anchor_id: participation_followthrough_receipt
-      path: /docker/EA/.codex-studio/published/NEXT90_M129_EA_PARTICIPATION_FOLLOWTHROUGH_PACKETS.generated.json
+      path: .codex-studio/published/NEXT90_M129_EA_PARTICIPATION_FOLLOWTHROUGH_PACKETS.generated.json
       kind: json_receipt
     - anchor_id: explain_companion_contract
-      path: /docker/EA/docs/chummer_explain_narration_packs/CHUMMER_EXPLAIN_NARRATION_PACKET_PACK.yaml
+      path: docs/chummer_explain_narration_packs/CHUMMER_EXPLAIN_NARRATION_PACKET_PACK.yaml
       kind: yaml_contract
     - anchor_id: provider_digest_script
-      path: /docker/EA/scripts/chummer6_provider_readiness.py
+      path: scripts/chummer6_provider_readiness.py
       kind: bounded_script
       required_markers:
-        - STATE_OUT = Path("/docker/fleet/state/chummer6/ea_provider_readiness.json")
+        - CHUMMER6_PROVIDER_READINESS_PATH
         - RAW_KEY_NAMES
         - ADAPTER_ENV_NAMES
         - overlay_vision_readiness
     - anchor_id: public_copy_guard_script
-      path: /docker/EA/scripts/chummer6_guide_worker.py
+      path: scripts/chummer6_guide_worker.py
       kind: bounded_script
       required_markers:
         - for public copy, reject developer-facing planning language

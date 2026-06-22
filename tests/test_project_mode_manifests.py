@@ -75,6 +75,42 @@ def test_materialized_project_mode_manifests_verify() -> None:
     assert verify_project_modes() == 0
 
 
+def test_project_modes_reject_old_room_audio_receipts_without_spoken_loop_checks(tmp_path: Path) -> None:
+    receipt = {
+        "status": "pass",
+        "source_git_head": "HEAD",
+        "proof_type": "manual_room_attestation",
+        "manual_attestation": {
+            "attestation_id": "room-review-001",
+            "signed_at": "2026-06-18T12:00:00Z",
+            "ci_must_not_auto_assert": True,
+        },
+        "checks": {
+            "actual_device_checked": True,
+            "actual_speaker_checked": True,
+            "first_syllable_not_clipped": True,
+            "intelligibility_confirmed": True,
+            "answer_text_fallback_visible": True,
+            "no_internet_search_confirmed": True,
+        },
+    }
+    path = tmp_path / "room.json"
+    path.write_text(json.dumps(receipt), encoding="utf-8")
+
+    assert _room_receipt_passes(path, current_head="HEAD") is False
+
+    receipt["checks"].update(
+        {
+            "normal_spoken_turn_confirmed": True,
+            "interruption_behavior_confirmed": True,
+            "retry_path_confirmed": True,
+        }
+    )
+    path.write_text(json.dumps(receipt), encoding="utf-8")
+
+    assert _room_receipt_passes(path, current_head="HEAD") is True
+
+
 def test_project_modes_source_head_skips_generated_only_head_commit(monkeypatch: pytest.MonkeyPatch) -> None:
     import scripts.materialize_project_mode_manifests as module
 
@@ -106,3 +142,38 @@ def test_source_state_head_skips_verifier_and_generated_only_commits(monkeypatch
     monkeypatch.setattr(source_state_head.subprocess, "run", _fake_run)
 
     assert source_state_head.resolve_source_state_head(ROOT) == "SOURCE_HEAD"
+
+
+def test_source_worktree_metadata_reports_source_dirty_without_generated_noise(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = {
+        (
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+        ): "\n".join(
+            [
+                " M .codex-design/product/PROJECT_MODES.generated.json",
+                " M .codex-studio/published/memorial_stt_provider_benchmark.generated.json",
+                " M app/api/routes/public_memorials.py",
+                "?? scripts/source_state_head.py",
+                "R  old_service.py -> app/services/new_service.py",
+            ]
+        )
+        + "\n",
+    }
+
+    def _fake_run(args, **kwargs):
+        key = tuple(args[3:])
+        return SimpleNamespace(stdout=responses.get(key, ""), returncode=0)
+
+    monkeypatch.setattr(source_state_head.subprocess, "run", _fake_run)
+
+    metadata = source_state_head.source_worktree_metadata(ROOT, dirty_path_limit=1)
+
+    assert metadata["source_worktree_dirty"] is True
+    assert metadata["source_dirty_count"] == 2
+    assert metadata["source_dirty_files"] == ["app/api/routes/public_memorials.py"]
+    assert metadata["source_dirty_omitted_count"] == 1
+    assert metadata["source_dirty_status_sha256"]

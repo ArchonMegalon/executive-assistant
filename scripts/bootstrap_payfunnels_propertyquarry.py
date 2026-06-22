@@ -51,7 +51,7 @@ def _public_base(env_values: dict[str, str]) -> str:
     return (
         env_values.get("PROPERTYQUARRY_PUBLIC_BASE_URL")
         or env_values.get("EA_PUBLIC_APP_BASE_URL")
-        or "https://propertyquarry.com"
+        or "https://example.test"
     ).strip().rstrip("/")
 
 

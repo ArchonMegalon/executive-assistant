@@ -13,6 +13,7 @@ Use `FIRST_VALUE_JOURNEY.md` when the question is "what has to work on day one?"
 Use `PREFERENCE_PROFILE_AND_DECISION_ENGINE.md` when the question is "how should EA learn a person's preferences, predict likely decisions, and rank options over time?"
 Use `METRICS_AND_SLOS.yaml` when the question is "what counts as healthy enough to ship?"
 Use `LTD_INTEGRATION_MAP.md` when the question is "which owned tools should accelerate this product?"
+Use `CONTINUOUS_IMPROVEMENT_GOAL.md` when the question is "what should idle improvement work keep optimizing, including Manfred speech quality?"
 
 This canon is product truth for Executive Assistant itself.
 It does not replace Chummer canon, Fleet release authority, or cross-repo milestones.

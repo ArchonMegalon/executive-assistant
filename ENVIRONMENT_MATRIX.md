@@ -45,7 +45,7 @@
 - `EA_MEMORIAL_SHADOW_STT_REFRESH_TOKEN`: preferred refresh token used to recover an expired BlipAI access token before the lane enters cooldown.
 - `BLIPAI_APP_API_TOKEN`: fallback BlipAI access token used when no explicit memorial shadow token is configured.
 - `BLIPAI_APP_REFRESH_TOKEN`: fallback BlipAI refresh token used when no explicit memorial refresh token is configured.
-- `EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH`: optional override for the persisted refreshed-token state file. Default is `/docker/EA/state/memorial_blipai_shadow_stt_tokens.json`.
+- `EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH`: optional override for the persisted refreshed-token state file. Default is `state/memorial_blipai_shadow_stt_tokens.json` under the configured memorial state directory.
 - `EA_MEMORIAL_SHADOW_STT_TIMEOUT_SECONDS`: per-request timeout for the shadow STT provider call.
 - `EA_MEMORIAL_SHADOW_STT_MAX_BYTES`: upper bound for user-question audio sent to the shadow STT lane.
 - `EA_MEMORIAL_SHADOW_STT_ERROR_COOLDOWN_SECONDS`: cooldown after BlipAI auth/rate-limit errors (`401`, `403`, `429`) so one bad token does not slow every memorial turn.

@@ -1,25 +1,2 @@
-from app.domain.models import (
-    Artifact,
-    DeliveryOutboxItem,
-    ExecutionEvent,
-    ExecutionSession,
-    HumanTask,
-    IntentSpecV3,
-    ObservationEvent,
-    PolicyDecision,
-    PolicyDecisionRecord,
-    RewriteRequest,
-)
+from __future__ import annotations
 
-__all__ = [
-    "Artifact",
-    "DeliveryOutboxItem",
-    "ExecutionEvent",
-    "ExecutionSession",
-    "HumanTask",
-    "IntentSpecV3",
-    "ObservationEvent",
-    "PolicyDecision",
-    "PolicyDecisionRecord",
-    "RewriteRequest",
-]

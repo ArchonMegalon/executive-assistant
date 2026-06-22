@@ -71,13 +71,14 @@ print_product_control_summary() {
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
 root = Path.cwd()
 sys.path.insert(0, str(root / "ea"))
 pulse_path = root / ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json"
-default_journey_path = Path("/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json")
+default_journey_path = Path(os.environ.get("EA_FLEET_JOURNEY_GATES_PATH") or root / "ea/_completion/fleet/JOURNEY_GATES.generated.json")
 
 from app.product.service import _public_guide_freshness_projection
 

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -10,12 +11,22 @@ import yaml
 from app.yaml_inputs import load_yaml_dict
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _env_path(name: str, default: Path) -> Path:
+    return Path(os.environ.get(name) or default)
+
+
+CHUMMER_COMPLETION_ROOT = _env_path("EA_CHUMMER_CROSS_REPO_COMPLETION_ROOT", ROOT / "ea" / "_completion" / "chummer_cross_repo")
+FLEET_COMPLETION_ROOT = _env_path("EA_FLEET_COMPLETION_ROOT", ROOT / "ea" / "_completion" / "fleet")
+
+
 PACK_PATH = ROOT / "docs" / "chummer_participation_followthrough_packets" / "CHUMMER_PARTICIPATION_FOLLOWTHROUGH_PACKET_PACK.yaml"
 SPECIMENS_PATH = ROOT / "docs" / "chummer_participation_followthrough_packets" / "PARTICIPATION_FOLLOWTHROUGH_PACKET_SPECIMENS.yaml"
 PROOF_PATH = ROOT / ".codex-studio" / "published" / "NEXT90_M129_EA_PARTICIPATION_FOLLOWTHROUGH_PACKETS.generated.json"
 HANDOFF_CLOSEOUT_PATH = ROOT / "docs" / "chummer_participation_followthrough_packets" / "SUCCESSOR_HANDOFF_CLOSEOUT.yaml"
-HUB_PROOF_PATH = Path("/docker/chummercomplete/chummer6-hub-m112/.codex-studio/published/NEXT90_M129_HUB_REUSABLE_ACCOUNT_FLOWS.generated.json")
-FLEET_PROOF_PATH = Path("/docker/fleet/.codex-studio/published/NEXT90_M129_FLEET_PARTICIPATION_LANE_RECEIPTS.generated.json")
+HUB_PROOF_PATH = _env_path("EA_NEXT90_M129_HUB_PROOF_PATH", CHUMMER_COMPLETION_ROOT / "chummer6-hub-m112" / "NEXT90_M129_HUB_REUSABLE_ACCOUNT_FLOWS.generated.json")
+FLEET_PROOF_PATH = _env_path("EA_NEXT90_M129_FLEET_PROOF_PATH", FLEET_COMPLETION_ROOT / "NEXT90_M129_FLEET_PARTICIPATION_LANE_RECEIPTS.generated.json")
 
 def _yaml(path: Path) -> dict[str, Any]:
     return load_yaml_dict(path)

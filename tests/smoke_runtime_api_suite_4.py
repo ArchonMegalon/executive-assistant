@@ -15,7 +15,7 @@ def test_memory_follow_up_rules_principal_scope_flow() -> None:
     created = client.post(
         "/v1/memory/follow-up-rules",
         json={
-            "principal_id": "exec-1",
+            "principal_id": "principal-default",
             "name": "Board reminder escalation",
             "trigger_kind": "deadline_risk",
             "channel_scope": ["email", "slack"],
@@ -31,11 +31,11 @@ def test_memory_follow_up_rules_principal_scope_flow() -> None:
     assert created.status_code == 200
     rule_id = created.json()["rule_id"]
 
-    listed = client.get("/v1/memory/follow-up-rules", params={"principal_id": "exec-1", "limit": 10})
+    listed = client.get("/v1/memory/follow-up-rules", params={"principal_id": "principal-default", "limit": 10})
     assert listed.status_code == 200
     assert any(row["rule_id"] == rule_id for row in listed.json())
 
-    fetched = client.get(f"/v1/memory/follow-up-rules/{rule_id}", params={"principal_id": "exec-1"})
+    fetched = client.get(f"/v1/memory/follow-up-rules/{rule_id}", params={"principal_id": "principal-default"})
     assert fetched.status_code == 200
     assert fetched.json()["name"] == "Board reminder escalation"
 
@@ -50,7 +50,7 @@ def test_memory_interruption_budgets_principal_scope_flow() -> None:
     created = client.post(
         "/v1/memory/interruption-budgets",
         json={
-            "principal_id": "exec-1",
+            "principal_id": "principal-default",
             "scope": "workday",
             "window_kind": "daily",
             "budget_minutes": 120,
@@ -64,11 +64,11 @@ def test_memory_interruption_budgets_principal_scope_flow() -> None:
     assert created.status_code == 200
     budget_id = created.json()["budget_id"]
 
-    listed = client.get("/v1/memory/interruption-budgets", params={"principal_id": "exec-1", "limit": 10})
+    listed = client.get("/v1/memory/interruption-budgets", params={"principal_id": "principal-default", "limit": 10})
     assert listed.status_code == 200
     assert any(row["budget_id"] == budget_id for row in listed.json())
 
-    fetched = client.get(f"/v1/memory/interruption-budgets/{budget_id}", params={"principal_id": "exec-1"})
+    fetched = client.get(f"/v1/memory/interruption-budgets/{budget_id}", params={"principal_id": "principal-default"})
     assert fetched.status_code == 200
     assert fetched.json()["scope"] == "workday"
 
@@ -83,7 +83,7 @@ def test_memory_deadline_windows_principal_scope_flow() -> None:
     created = client.post(
         "/v1/memory/deadline-windows",
         json={
-            "principal_id": "exec-1",
+            "principal_id": "principal-default",
             "title": "Board prep delivery window",
             "start_at": "2026-03-07T08:30:00+00:00",
             "end_at": "2026-03-07T10:00:00+00:00",
@@ -96,11 +96,11 @@ def test_memory_deadline_windows_principal_scope_flow() -> None:
     assert created.status_code == 200
     window_id = created.json()["window_id"]
 
-    listed = client.get("/v1/memory/deadline-windows", params={"principal_id": "exec-1", "limit": 10})
+    listed = client.get("/v1/memory/deadline-windows", params={"principal_id": "principal-default", "limit": 10})
     assert listed.status_code == 200
     assert any(row["window_id"] == window_id for row in listed.json())
 
-    fetched = client.get(f"/v1/memory/deadline-windows/{window_id}", params={"principal_id": "exec-1"})
+    fetched = client.get(f"/v1/memory/deadline-windows/{window_id}", params={"principal_id": "principal-default"})
     assert fetched.status_code == 200
     assert fetched.json()["title"] == "Board prep delivery window"
 
@@ -115,7 +115,7 @@ def test_memory_stakeholders_principal_scope_flow() -> None:
     created = client.post(
         "/v1/memory/stakeholders",
         json={
-            "principal_id": "exec-1",
+            "principal_id": "principal-default",
             "display_name": "Sam Stakeholder",
             "channel_ref": "email:sam@example.com",
             "authority_level": "approver",
@@ -134,11 +134,11 @@ def test_memory_stakeholders_principal_scope_flow() -> None:
     assert created.status_code == 200
     stakeholder_id = created.json()["stakeholder_id"]
 
-    listed = client.get("/v1/memory/stakeholders", params={"principal_id": "exec-1", "limit": 10})
+    listed = client.get("/v1/memory/stakeholders", params={"principal_id": "principal-default", "limit": 10})
     assert listed.status_code == 200
     assert any(row["stakeholder_id"] == stakeholder_id for row in listed.json())
 
-    fetched = client.get(f"/v1/memory/stakeholders/{stakeholder_id}", params={"principal_id": "exec-1"})
+    fetched = client.get(f"/v1/memory/stakeholders/{stakeholder_id}", params={"principal_id": "principal-default"})
     assert fetched.status_code == 200
     assert fetched.json()["display_name"] == "Sam Stakeholder"
 
@@ -153,7 +153,7 @@ def test_memory_decision_windows_principal_scope_flow() -> None:
     created = client.post(
         "/v1/memory/decision-windows",
         json={
-            "principal_id": "exec-1",
+            "principal_id": "principal-default",
             "title": "Board response decision",
             "context": "Choose timing and channel for reply",
             "opens_at": "2026-03-06T08:00:00+00:00",
@@ -168,13 +168,13 @@ def test_memory_decision_windows_principal_scope_flow() -> None:
     assert created.status_code == 200
     decision_window_id = created.json()["decision_window_id"]
 
-    listed = client.get("/v1/memory/decision-windows", params={"principal_id": "exec-1", "limit": 10})
+    listed = client.get("/v1/memory/decision-windows", params={"principal_id": "principal-default", "limit": 10})
     assert listed.status_code == 200
     assert any(row["decision_window_id"] == decision_window_id for row in listed.json())
 
     fetched = client.get(
         f"/v1/memory/decision-windows/{decision_window_id}",
-        params={"principal_id": "exec-1"},
+        params={"principal_id": "principal-default"},
     )
     assert fetched.status_code == 200
     assert fetched.json()["title"] == "Board response decision"
@@ -193,7 +193,7 @@ def test_memory_communication_policies_principal_scope_flow() -> None:
     created = client.post(
         "/v1/memory/communication-policies",
         json={
-            "principal_id": "exec-1",
+            "principal_id": "principal-default",
             "scope": "board_threads",
             "preferred_channel": "email",
             "tone": "concise_diplomatic",
@@ -207,11 +207,11 @@ def test_memory_communication_policies_principal_scope_flow() -> None:
     assert created.status_code == 200
     policy_id = created.json()["policy_id"]
 
-    listed = client.get("/v1/memory/communication-policies", params={"principal_id": "exec-1", "limit": 10})
+    listed = client.get("/v1/memory/communication-policies", params={"principal_id": "principal-default", "limit": 10})
     assert listed.status_code == 200
     assert any(row["policy_id"] == policy_id for row in listed.json())
 
-    fetched = client.get(f"/v1/memory/communication-policies/{policy_id}", params={"principal_id": "exec-1"})
+    fetched = client.get(f"/v1/memory/communication-policies/{policy_id}", params={"principal_id": "principal-default"})
     assert fetched.status_code == 200
     assert fetched.json()["scope"] == "board_threads"
 
@@ -232,7 +232,7 @@ def test_memory_routes_use_default_principal_when_header_and_body_are_omitted() 
         },
     )
     assert staged.status_code == 200
-    assert staged.json()["principal_id"] == "local-user"
+    assert staged.json()["principal_id"] == "principal-default"
 
     listed = client.get("/v1/memory/candidates", params={"limit": 10})
     assert listed.status_code == 200

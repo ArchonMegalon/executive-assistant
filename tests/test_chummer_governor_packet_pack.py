@@ -4,7 +4,15 @@ import json
 from pathlib import Path
 
 import yaml
-from app.yaml_inputs import load_yaml_dict
+
+try:
+    from app.yaml_inputs import load_yaml_dict
+except ModuleNotFoundError:
+    def load_yaml_dict(path: Path) -> dict:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError(f"Expected YAML object in {path}")
+        return data
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -71,6 +79,16 @@ def _yaml(path: Path) -> dict:
 def _json(path: Path) -> dict:
     payload = json.loads(path.read_text(encoding="utf-8")) or {}
     return payload if isinstance(payload, dict) else {}
+
+
+def _repo_relative_proof(value: object) -> str:
+    text = str(value)
+    prefix = str(ROOT) + "/"
+    return text.removeprefix(prefix)
+
+
+def _repo_relative_proof_set(values: object) -> set[str]:
+    return {_repo_relative_proof(item) for item in values or []}
 
 
 def _source_path(row: dict) -> Path:
@@ -547,16 +565,18 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     assert authority.get("landed_commit") == LANDED_COMMIT
     assert authority.get("completion_action") == COMPLETION_ACTION
     assert authority.get("do_not_reopen_reason") == DO_NOT_REOPEN_REASON
-    assert set(authority.get("queue_proof_required_entries") or []) == {
-        str(item) for item in queue_item.get("proof") or []
-    }
-    assert set(authority.get("queue_proof_required_entries") or []) == {
-        str(item) for item in _find_package(_yaml(DESIGN_QUEUE_STAGING_PATH)).get("proof") or []
-    }
-    assert set(authority.get("registry_feedback_proof_notes") or []) == _expected_registry_feedback_proof_notes()
+    assert _repo_relative_proof_set(authority.get("queue_proof_required_entries")) == _repo_relative_proof_set(
+        queue_item.get("proof")
+    )
+    assert _repo_relative_proof_set(authority.get("queue_proof_required_entries")) == _repo_relative_proof_set(
+        _find_package(_yaml(DESIGN_QUEUE_STAGING_PATH)).get("proof")
+    )
+    assert _repo_relative_proof_set(authority.get("registry_feedback_proof_notes")) == _repo_relative_proof_set(
+        _expected_registry_feedback_proof_notes()
+    )
     assert (
-        "/docker/EA/feedback/2026-04-15-ea-governor-packets-terminal-repeat-prevention.md"
-        in set(authority.get("queue_proof_required_entries") or [])
+        "feedback/2026-04-15-ea-governor-packets-terminal-repeat-prevention.md"
+        in _repo_relative_proof_set(authority.get("queue_proof_required_entries"))
     )
 
     repeat_prevention = dict(handoff.get("repeat_prevention") or {})

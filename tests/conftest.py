@@ -26,6 +26,7 @@ _REPO_ASSET_RESTORE_PATHS = (
     ".codex-design/product/SHOW_SURFACE_MANIFEST.generated.json",
     ".codex-design/product/TELEGRAM_FLAGSHIP_RUNTIME_DESIGN.md",
     ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
+    ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json",
 )
 
 

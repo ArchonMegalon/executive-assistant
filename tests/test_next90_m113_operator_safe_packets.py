@@ -5,7 +5,15 @@ import json
 from pathlib import Path
 
 import yaml
-from app.yaml_inputs import load_yaml_dict
+
+try:
+    from app.yaml_inputs import load_yaml_dict
+except ModuleNotFoundError:
+    def load_yaml_dict(path: Path) -> dict:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError(f"Expected YAML object in {path}")
+        return data
 
 
 ROOT = Path(__file__).resolve().parents[1]

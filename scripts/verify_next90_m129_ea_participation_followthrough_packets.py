@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -34,9 +35,16 @@ PROOF_PATH = ROOT / ".codex-studio" / "published" / "NEXT90_M129_EA_PARTICIPATIO
 MATERIALIZER_PATH = ROOT / "scripts" / "materialize_next90_m129_ea_participation_followthrough_packets.py"
 HANDOFF_CLOSEOUT_PATH = ROOT / "docs" / "chummer_participation_followthrough_packets" / "SUCCESSOR_HANDOFF_CLOSEOUT.yaml"
 FEEDBACK_PROGRESS_PATH = ROOT / "feedback" / "2026-05-05-next90-m129-ea-participation-followthrough-progress.md"
-QUEUE_STAGING_PATH = Path("/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
-DESIGN_QUEUE_STAGING_PATH = Path("/docker/chummercomplete/chummer-design-m114/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
-SUCCESSOR_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design-m114/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml")
+
+
+def _env_path(name: str, default: Path) -> Path:
+    return Path(os.environ.get(name) or default)
+
+
+DESIGN_PRODUCT_ROOT = _env_path("CHUMMER6_DESIGN_PRODUCT_ROOT", ROOT / ".codex-design" / "product")
+QUEUE_STAGING_PATH = _env_path("EA_NEXT90_QUEUE_STAGING_PATH", DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
+DESIGN_QUEUE_STAGING_PATH = _env_path("EA_NEXT90_DESIGN_QUEUE_STAGING_PATH", DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
+SUCCESSOR_REGISTRY_PATH = _env_path("EA_NEXT90_SUCCESSOR_REGISTRY_PATH", DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml")
 
 def load_yaml(path: Path) -> dict[str, Any]:
     return load_yaml_dict(path)

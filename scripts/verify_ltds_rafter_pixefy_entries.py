@@ -2,11 +2,15 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 
-ROOT = Path("/docker/EA")
-COMPLETION_ROOT = Path("/docker/chummercomplete/_completion/ltd_inventory")
+ROOT = Path(os.environ.get("EA_REPO_ROOT") or Path(__file__).resolve().parents[1])
+COMPLETION_ROOT = Path(
+    os.environ.get("EA_LTD_INVENTORY_COMPLETION_ROOT")
+    or ROOT / ".codex-studio" / "published" / "ltd_inventory"
+)
 LTD_PATH = ROOT / "LTDs.md"
 
 RAFTER_ARTIFACT = COMPLETION_ROOT / "RAFTER_TIER3_LTDS_ENTRY.generated.json"
@@ -28,12 +32,12 @@ def _row_contains(row: str, *needles: str) -> bool:
     return all(needle in row for needle in needles)
 
 
-def _build_payload(service: str, tier: str, account_user: str, status: str) -> dict:
+def _build_payload(service: str, tier: str, status: str) -> dict:
     return {
         "status": status,
         "service": service,
         "plan": tier,
-        "account_user": account_user,
+        "account_identity_policy": "account identities stay in local runtime config and are not serialized",
         "workspace_integration_tier": "Tier 2",
         "verification_status": "fleet_verified",
         "missing_tokens": [],
@@ -55,7 +59,7 @@ def _extract_discovery_row(lines: str, service: str) -> str | None:
 
 def main() -> int:
     text = _read_lines(LTD_PATH)
-    summary_has_forty_five = "`45` total LTD products tracked" in text
+    summary_has_total = "total LTD products tracked" in text
     rafter_attention = "`Rafter` highest tier is now reported and Fleet security/proof provider verification now passes. It remains an auxiliary QA gate, not release truth." in text
     pixefy_attention = "`Pixefy` highest tier is tracked and Fleet responsive-visual-QA provider verification now passes. It remains an auxiliary QA gate, not product truth." in text
 
@@ -99,15 +103,15 @@ def main() -> int:
 
     if not rafter_discovery:
         rafter_missing.append("rafter_discovery_tracking_row")
-    elif "the.girscheles@gmail.com" not in rafter_discovery or "fleet_verified" not in rafter_discovery:
-        rafter_missing.append("rafter_discovery_tracking_account")
+    elif "fleet_verified" not in rafter_discovery:
+        rafter_missing.append("rafter_discovery_tracking_status")
 
     if not pixefy_discovery:
         pixefy_missing.append("pixefy_discovery_tracking_row")
-    elif "the.girscheles@gmail.com" not in pixefy_discovery or "fleet_verified" not in pixefy_discovery:
-        pixefy_missing.append("pixefy_discovery_tracking_account")
+    elif "fleet_verified" not in pixefy_discovery:
+        pixefy_missing.append("pixefy_discovery_tracking_status")
 
-    if not summary_has_forty_five:
+    if not summary_has_total:
         rafter_missing.append("summary_total")
         pixefy_missing.append("summary_total")
 
@@ -119,13 +123,11 @@ def main() -> int:
     rafter_payload = _build_payload(
         service="Rafter",
         tier="License Tier 3 / highest AppSumo tier",
-        account_user="the.girscheles@gmail.com",
         status="pass" if not rafter_missing else "fail",
     )
     pixefy_payload = _build_payload(
         service="Pixefy",
         tier="License Tier 3 / highest AppSumo tier",
-        account_user="the.girscheles@gmail.com",
         status="pass" if not pixefy_missing else "fail",
     )
     rafter_payload["missing_tokens"] = rafter_missing

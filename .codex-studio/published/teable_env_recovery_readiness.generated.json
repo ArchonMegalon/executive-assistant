@@ -1,0 +1,70 @@
+{
+  "checks": {
+    "bootstrap_script": {
+      "check_help": true,
+      "drill_help": true,
+      "ensure_local_help": true,
+      "fresh_host_help": true,
+      "probe_help": true,
+      "seeded_key_required_fresh_host": true,
+      "seeded_key_required_probe": true
+    },
+    "makefile": {
+      "env_check_teable_target": true,
+      "env_fresh_host_teable_target": true,
+      "env_probe_teable_target": true,
+      "verify_env_teable_recovery_target": true
+    },
+    "readme": {
+      "check_doc": true,
+      "drill_doc": true,
+      "fresh_host_doc": true,
+      "local_status_doc": true,
+      "probe_doc": true
+    },
+    "sync_script": {
+      "check_command": true,
+      "drill_command": true,
+      "ensure_local_command": true,
+      "local_status_command": true,
+      "recover_command": true,
+      "recovery_proof_contract": true,
+      "seeded_api_key_flag": true,
+      "verify_command": true
+    }
+  },
+  "claim_limit": "local_command_contract_readiness_not_fresh_host_drill",
+  "command_surface_ready": true,
+  "contract_name": "ea.teable_env_recovery_readiness.v1",
+  "fresh_host_drill_receipt_mirrored": false,
+  "generated_at": "2026-06-22T15:55:53Z",
+  "generated_by": "scripts/materialize_teable_env_recovery_readiness.py",
+  "head_semantics": "source_state",
+  "issues": [],
+  "next_action": "run_shell_seeded_fresh_host_probe_and_mirror_drill_evidence",
+  "output_path": "/docker/EA/.codex-studio/published/teable_env_recovery_readiness.generated.json",
+  "required_next_receipts": [
+    "fresh_host_teable_recovery_drill_receipt"
+  ],
+  "rules": [
+    "This receipt proves local command and documentation readiness only; it does not prove a fresh-host recovery drill happened.",
+    "Do not claim Teable recovery pass from this receipt alone.",
+    "A seeded fresh-host probe or drill receipt must be mirrored separately before the recover lens can claim pass."
+  ],
+  "source_files": {
+    "bootstrap_script": "scripts/bootstrap_from_teable.sh",
+    "makefile": "Makefile",
+    "readme": "README.md",
+    "sync_script": "scripts/sync_env_to_teable.py"
+  },
+  "source_git_head": "8e6c434f4b8e7f1e1c87e1c6b3fdc566915cc85c",
+  "status": "ready_local_audit",
+  "summary": "Teable recovery command surface is mirrored and documented locally; a seeded fresh-host drill receipt is still required before any pass claim.",
+  "verifier_commands": [
+    "make verify-teable-env-recovery-readiness",
+    "make verify-env-teable-recovery",
+    "make env-check-teable",
+    "make env-probe-teable",
+    "make env-fresh-host-teable"
+  ]
+}

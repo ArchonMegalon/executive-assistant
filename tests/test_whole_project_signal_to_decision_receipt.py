@@ -1,0 +1,257 @@
+from __future__ import annotations
+
+import importlib.util
+import json
+import subprocess
+import sys
+from pathlib import Path
+from types import ModuleType
+
+
+GENERATED_AT = "2026-06-20T09:45:00Z"
+
+
+def _load_script(name: str) -> ModuleType:
+    path = Path(__file__).resolve().parents[1] / "ea" / "scripts" / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _write_lower_receipts(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
+    office = tmp_path / "office.generated.json"
+    acceptance = tmp_path / "ea-acceptance.generated.json"
+    quality = tmp_path / "ea-quality.generated.json"
+    active = tmp_path / "active-media.generated.json"
+    office.write_text(
+        json.dumps(
+            {
+                "contract_name": "ea.office_loop_goal_receipt.v1",
+                "status": "ready_local_evidence",
+                "goal_completion_claim_allowed": False,
+                "remaining_external_proofs": [
+                    "real daily morning brief acceptance",
+                    "real weekly signal-to-decision review accepted by the operator",
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    acceptance.write_text(
+        json.dumps(
+            {
+                "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
+                "status": "blocked_missing_real_world_acceptance_evidence",
+                "goal_completion_claim_allowed": False,
+                "remaining_external_proofs": [
+                    "real decision cleared by the principal or operator",
+                    "real provider failure recovered with operator-grade reason",
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    quality.write_text(
+        json.dumps(
+            {
+                "contract_name": "ea.executive_assistant_quality_readiness.v1",
+                "status": "blocked_real_world_acceptance",
+                "goal_completion_claim_allowed": False,
+                "remaining_external_proofs": [
+                    "real commitment recovered or closed with an evidence receipt",
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    active.write_text(
+        json.dumps(
+            {
+                "contract_name": "ea.active_media_ltd_goal_bundle.v1",
+                "status": "ready_local_evidence",
+                "goal_completion_claim_allowed": False,
+                "remaining_external_proofs": [
+                    "ChatLab live runtime probe receipt",
+                    "real user EPUB render and playback acceptance evidence",
+                    "real Manfred spoken-conversation STT/TTS roundtrip evidence",
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return office, acceptance, quality, active
+
+
+def test_signal_to_decision_receipt_materializes_local_packet_without_overclaim(tmp_path: Path) -> None:
+    materializer = _load_script("materialize_whole_project_signal_to_decision_receipt")
+    verifier = _load_script("verify_whole_project_signal_to_decision_receipt")
+    office, acceptance, quality, active = _write_lower_receipts(tmp_path)
+    receipt_path = tmp_path / "signal.generated.json"
+
+    receipt = materializer.materialize_whole_project_signal_to_decision_receipt(
+        receipt_path=receipt_path,
+        office_loop_receipt_path=office,
+        acceptance_evidence_receipt_path=acceptance,
+        ea_quality_receipt_path=quality,
+        active_media_receipt_path=active,
+        generated_at=GENERATED_AT,
+    )
+
+    assert receipt["status"] == "ready_local_packet_pending_operator_acceptance"
+    assert receipt["goal_completion_claim_allowed"] is False
+    assert receipt["queue_truth_claim_allowed"] is False
+    assert receipt["release_authority_claim_allowed"] is False
+    assert receipt["real_weekly_operator_review_accepted"] is False
+    assert receipt["closed_loop_followthrough_receipt_verified"] is False
+    assert "real weekly signal-to-decision review accepted by the operator" in receipt["remaining_external_proofs"]
+    assert "closed-loop signal-to-decision follow-through receipt accepted by the operator" in receipt["remaining_external_proofs"]
+    signal_sources = {row["key"]: row for row in receipt["signal_sources"]}  # type: ignore[index]
+    for key in materializer.REQUIRED_SIGNAL_SOURCES:
+        assert signal_sources[key]["status"] == "mapped_from_sources"
+        assert signal_sources[key]["owner_truth_plane"]
+        assert signal_sources[key]["journey_or_release_gate_mapping"]
+    assert len(receipt["decision_packet"]["decision_items"]) >= 4  # type: ignore[index]
+
+    verification = verifier.verify_whole_project_signal_to_decision_receipt(receipt_path)
+
+    assert verification["status"] == "pass"
+    assert verification["issues"] == []
+
+
+def test_signal_to_decision_receipt_hashes_operator_review_and_followthrough(tmp_path: Path) -> None:
+    materializer = _load_script("materialize_whole_project_signal_to_decision_receipt")
+    verifier = _load_script("verify_whole_project_signal_to_decision_receipt")
+    office, acceptance, quality, active = _write_lower_receipts(tmp_path)
+    receipt_path = tmp_path / "accepted-signal.generated.json"
+    raw_review = "Weekly packet was accepted after reviewing private support and media notes."
+    raw_followthrough = "Operator routed provider recovery to the owner and closed the review loop."
+    raw_actor = "operator-private-reviewer"
+    raw_packet_ref = "weekly-signal-packet-private-123"
+
+    receipt = materializer.materialize_whole_project_signal_to_decision_receipt(
+        receipt_path=receipt_path,
+        office_loop_receipt_path=office,
+        acceptance_evidence_receipt_path=acceptance,
+        ea_quality_receipt_path=quality,
+        active_media_receipt_path=active,
+        input_payload={
+            "review": {
+                "accepted": True,
+                "source_kind": "operator",
+                "review": raw_review,
+                "actor": raw_actor,
+                "packet_ref": raw_packet_ref,
+                "recorded_at": GENERATED_AT,
+            },
+            "followthrough": {
+                "accepted": True,
+                "source_kind": "operator",
+                "followthrough": raw_followthrough,
+                "actor": raw_actor,
+                "packet_ref": raw_packet_ref,
+                "recorded_at": GENERATED_AT,
+            },
+        },
+        generated_at=GENERATED_AT,
+    )
+
+    assert receipt["status"] == "ready_real_signal_to_decision_closure"
+    assert receipt["real_weekly_operator_review_accepted"] is True
+    assert receipt["closed_loop_followthrough_receipt_verified"] is True
+    assert receipt["goal_completion_claim_allowed"] is False
+    receipt_text = receipt_path.read_text(encoding="utf-8")
+    assert raw_review not in receipt_text
+    assert raw_followthrough not in receipt_text
+    assert raw_actor not in receipt_text
+    assert raw_packet_ref not in receipt_text
+    assert receipt["operator_review"]["review_sha256"]  # type: ignore[index]
+    assert receipt["followthrough_receipt"]["followthrough_sha256"]  # type: ignore[index]
+
+    verification = verifier.verify_whole_project_signal_to_decision_receipt(receipt_path)
+
+    assert verification["status"] == "pass"
+    assert verification["issues"] == []
+
+
+def test_signal_to_decision_verifier_rejects_overclaim_and_missing_source(tmp_path: Path) -> None:
+    materializer = _load_script("materialize_whole_project_signal_to_decision_receipt")
+    verifier = _load_script("verify_whole_project_signal_to_decision_receipt")
+    office, acceptance, quality, active = _write_lower_receipts(tmp_path)
+    receipt_path = tmp_path / "tampered.generated.json"
+    materializer.materialize_whole_project_signal_to_decision_receipt(
+        receipt_path=receipt_path,
+        office_loop_receipt_path=office,
+        acceptance_evidence_receipt_path=acceptance,
+        ea_quality_receipt_path=quality,
+        active_media_receipt_path=active,
+        generated_at=GENERATED_AT,
+    )
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["goal_completion_claim_allowed"] = True
+    receipt["queue_truth_claim_allowed"] = True
+    receipt["boundary_posture"]["ea_is_product_truth"] = True
+    receipt["signal_sources"] = [row for row in receipt["signal_sources"] if row["key"] != "provider_runtime_failures"]
+    receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    verification = verifier.verify_whole_project_signal_to_decision_receipt(receipt_path)
+
+    assert verification["status"] == "fail"
+    assert "signal_decision_completion_overclaim" in verification["issues"]
+    assert "signal_decision_queue_truth_overclaim" in verification["issues"]
+    assert "signal_decision_ea_product_truth_overclaim" in verification["issues"]
+    assert "signal_decision_source_row_missing:provider_runtime_failures" in verification["issues"]
+
+
+def test_signal_to_decision_clis_work(tmp_path: Path) -> None:
+    script_root = Path(__file__).resolve().parents[1] / "ea" / "scripts"
+    office, acceptance, quality, active = _write_lower_receipts(tmp_path)
+    receipt_path = tmp_path / "cli-signal.generated.json"
+    materialized = subprocess.run(
+        [
+            sys.executable,
+            str(script_root / "materialize_whole_project_signal_to_decision_receipt.py"),
+            "--receipt",
+            str(receipt_path),
+            "--office-loop-receipt",
+            str(office),
+            "--acceptance-evidence-receipt",
+            str(acceptance),
+            "--ea-quality-receipt",
+            str(quality),
+            "--active-media-receipt",
+            str(active),
+            "--generated-at",
+            GENERATED_AT,
+        ],
+        cwd=Path(__file__).resolve().parents[1] / "ea",
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert materialized.returncode == 0, materialized.stderr + materialized.stdout
+    receipt = json.loads(materialized.stdout)
+    assert receipt["status"] == "ready_local_packet_pending_operator_acceptance"
+    assert receipt["receipt"] == receipt_path.as_posix()
+
+    verified = subprocess.run(
+        [
+            sys.executable,
+            str(script_root / "verify_whole_project_signal_to_decision_receipt.py"),
+            "--receipt",
+            str(receipt_path),
+        ],
+        cwd=Path(__file__).resolve().parents[1] / "ea",
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert verified.returncode == 0, verified.stderr + verified.stdout
+    verification = json.loads(verified.stdout)
+    assert verification["status"] == "pass"

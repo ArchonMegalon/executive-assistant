@@ -83,7 +83,7 @@ def main() -> int:
         issues.append("owned_surfaces drifted")
     source_inputs = dict(payload.get("source_inputs") or {})
     design_queue = dict(source_inputs.get("design_queue") or {})
-    if design_queue.get("path") != "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml":
+    if design_queue.get("path") != str(module.DESIGN_QUEUE_PATH):
         issues.append("design_queue source path drifted")
     if int(design_queue.get("match_count") or 0) != 1:
         issues.append("design_queue match_count drifted")
@@ -104,7 +104,7 @@ def main() -> int:
     if not str(design_queue.get("row_fingerprint") or "").strip():
         issues.append("design_queue row_fingerprint missing")
     fleet_queue = dict(source_inputs.get("fleet_queue") or {})
-    if fleet_queue.get("path") != "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml":
+    if fleet_queue.get("path") != str(module.FLEET_QUEUE_PATH):
         issues.append("fleet_queue source path drifted")
     if int(fleet_queue.get("match_count") or 0) != 1:
         issues.append("fleet_queue match_count drifted")
@@ -125,7 +125,7 @@ def main() -> int:
     if not str(fleet_queue.get("row_fingerprint") or "").strip():
         issues.append("fleet_queue row_fingerprint missing")
     local_mirror_queue = dict(source_inputs.get("local_mirror_queue") or {})
-    if local_mirror_queue.get("path") != "/docker/EA/.codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml":
+    if local_mirror_queue.get("path") != str(module.LOCAL_MIRROR_QUEUE_PATH):
         issues.append("local_mirror_queue source path drifted")
     if int(local_mirror_queue.get("match_count") or 0) != 1:
         issues.append("local_mirror_queue match_count drifted")
@@ -146,7 +146,7 @@ def main() -> int:
     if not str(local_mirror_queue.get("row_fingerprint") or "").strip():
         issues.append("local_mirror_queue row_fingerprint missing")
     registry_input = dict(source_inputs.get("registry") or {})
-    if registry_input.get("path") != "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml":
+    if registry_input.get("path") != str(module.SUCCESSOR_REGISTRY_PATH):
         issues.append("registry source path drifted")
     if int(registry_input.get("match_count") or 0) != 1:
         issues.append("registry match_count drifted")
@@ -163,7 +163,7 @@ def main() -> int:
     if not str(registry_input.get("row_fingerprint") or "").strip():
         issues.append("registry row_fingerprint missing")
     local_mirror_registry = dict(source_inputs.get("local_mirror_registry") or {})
-    if local_mirror_registry.get("path") != "/docker/EA/.codex-design/product/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml":
+    if local_mirror_registry.get("path") != str(module.LOCAL_MIRROR_REGISTRY_PATH):
         issues.append("local_mirror_registry source path drifted")
     if int(local_mirror_registry.get("match_count") or 0) != 1:
         issues.append("local_mirror_registry match_count drifted")
@@ -182,7 +182,7 @@ def main() -> int:
     if not str(local_mirror_registry.get("row_fingerprint") or "").strip():
         issues.append("local_mirror_registry row_fingerprint missing")
     readiness_input = dict(source_inputs.get("flagship_readiness") or {})
-    if readiness_input.get("path") != "/docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json":
+    if readiness_input.get("path") != str(module.FLAGSHIP_READINESS_PATH):
         issues.append("flagship_readiness source path drifted")
     if readiness_input.get("coverage_key") != "desktop_client":
         issues.append("flagship_readiness coverage key drifted")

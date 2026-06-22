@@ -24,7 +24,7 @@ def test_postgres_artifact_roundtrip_persists_across_repo_reinit(tmp_path) -> No
         kind="rewrite_note",
         content="postgres durable content",
         execution_session_id=str(uuid.uuid4()),
-        principal_id="exec-1",
+        principal_id="principal-default",
         mime_type="text/markdown",
         preview_text="postgres durable preview",
         storage_handle="artifact://custom-handle",
@@ -43,7 +43,7 @@ def test_postgres_artifact_roundtrip_persists_across_repo_reinit(tmp_path) -> No
     assert loaded is not None
     assert loaded.artifact_id == artifact.artifact_id
     assert loaded.content == "postgres durable content"
-    assert loaded.principal_id == "exec-1"
+    assert loaded.principal_id == "principal-default"
     assert loaded.mime_type == "text/markdown"
     assert loaded.preview_text == "postgres durable preview"
     assert loaded.storage_handle == "artifact://custom-handle"

@@ -12,7 +12,6 @@ def _client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.setenv("EA_API_TOKEN", "test-token")
     monkeypatch.setenv("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER", "1")
-    monkeypatch.setenv("EA_OPERATOR_PRINCIPAL_IDS", "operator-1")
     monkeypatch.delenv("EA_DEFAULT_PRINCIPAL_ID", raising=False)
     monkeypatch.delenv("EA_ALLOW_AUTHENTICATED_PRINCIPAL_HEADER", raising=False)
     monkeypatch.delenv("EA_TRUST_API_TOKEN_PRINCIPAL_HEADER", raising=False)
@@ -20,7 +19,17 @@ def _client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     from app.api.app import create_app
 
     client = TestClient(create_app())
+    client.app.state.container.orchestrator.upsert_operator_profile(
+        principal_id="operator-1",
+        operator_id="operator-1",
+        display_name="Principal Scope Operator",
+        roles=("operator", "reviewer"),
+        trust_tier="trusted",
+        status="active",
+        notes="Seeded for principal scoped rewrite tests.",
+    )
     client.headers.update({"Authorization": "Bearer test-token"})
+    client.headers.update({"X-EA-Operator-ID": "operator-1"})
     return client
 
 

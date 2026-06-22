@@ -11,6 +11,7 @@ The public-growth system is not public truth. It helps people find, understand, 
 ```text
 ClickRank audit
   -> NeuronWriter source-packet optimization brief
+  -> Subscribr.ai approved video idea / script / metadata brief where a public-growth or tutorial video is useful
   -> Katteb source-packet draft or rewrite suggestion
   -> chummer6-design / Product Governor approval
   -> Hub or public-guide source patch
@@ -46,12 +47,14 @@ ClickRank audit
 
 ClickRank may recommend.
 NeuronWriter may optimize approved source packets.
+Subscribr.ai may draft YouTube ideas, scripts, hooks, descriptions, tags, and thumbnail briefs from approved source packets.
 Katteb may draft from source packets.
 ProductLift may project public feedback and changelog state.
 Signitic may amplify first-party links.
 Emailit may deliver lifecycle or digest email.
 Taja and vidBoard may repurpose approved media.
 Rybbit may measure first-party public CTA journeys and bounded desktop shell events.
+Subscribr.ai credentials, channel memory, and third-party workspace state stay outside the repo; Chummer stores only approved source packets and accepted output receipts.
 
 None of those tools may own:
 

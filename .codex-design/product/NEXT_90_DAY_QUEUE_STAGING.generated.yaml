@@ -909,7 +909,7 @@ items:
   - python3 -m unittest tests/test_workspace_restore_queue_identity.py
   - python3 -m unittest tests/test_workspace_restore_receipts.py tests/test_workspace_restore_queue_frontier_guard.py tests/test_workspace_restore_commit_resolution.py
       tests/test_workspace_restore_queue_identity.py
-  - dotnet test --project Chummer.Tests/Chummer.Tests.csproj --filter "CampaignSpineRestoreReceiptTests|CampaignWorkspaceServerPlaneServiceTests|CampaignOsLocalProofMaterializerTests"
+  - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "CampaignSpineRestoreReceiptTests|CampaignWorkspaceServerPlaneServiceTests|CampaignOsLocalProofMaterializerTests"
       --no-restore
   allowed_paths:
   - Chummer.Run.Api
@@ -3413,7 +3413,7 @@ items:
   - community_scale_audit_boundaries
 - title: Orchestrate guided first-playable-session onboarding
   task: Join install, claim, campaign primer, starter build, briefing, and support-safe recovery into a measured first-session
-    lane.
+    path.
   package_id: next90-m119-hub-first-session-onboarding
   work_task_id: 119.1
   milestone_id: 119
@@ -3424,7 +3424,7 @@ items:
   landed_commit: TO_BE_FILLED_M119_COMMIT
   completion_action: verify_closed_package_only
   do_not_reopen_reason: M119 chummer6-hub guided first-playable-session onboarding is complete; future shards must verify
-    the starter-lane proof receipts, local release proof package, canonical registry row, Fleet queue row, and design
+    the first-session records, local release package, canonical registry row, Fleet queue row, and design
     queue row instead of reopening the install-to-first-session onboarding slice.
   allowed_paths:
   - Chummer.Run.Api

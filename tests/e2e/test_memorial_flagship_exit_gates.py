@@ -22,6 +22,10 @@ Server = uvicorn.Server
 from app.api.app import create_app
 
 
+ROOT = Path(__file__).resolve().parents[2]
+APP_ROOT = ROOT / "ea"
+
+
 def _free_port() -> int:
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.bind(("127.0.0.1", 0))
@@ -246,7 +250,7 @@ def test_memorial_flagship_preflight_cli_passes_against_runtime(memorial_flagshi
     env = dict(os.environ)
     env["EA_PUBLIC_MEMORIAL_DIR"] = str(memorial_flagship_server["public_root"])
     env["EA_PRIVATE_MEMORIAL_PROFILE_DIR"] = str(memorial_flagship_server["private_root"])
-    env["PYTHONPATH"] = "/docker/EA/ea"
+    env["PYTHONPATH"] = str(APP_ROOT)
     tmpdir = tmp_path / "tmp"
     tmpdir.mkdir()
     env["TMPDIR"] = str(tmpdir)
@@ -254,7 +258,7 @@ def test_memorial_flagship_preflight_cli_passes_against_runtime(memorial_flagshi
     result = subprocess.run(
         [
             sys.executable,
-            "/docker/EA/ea/scripts/memorial_flagship_preflight.py",
+            str(APP_ROOT / "scripts" / "memorial_flagship_preflight.py"),
             "manfred",
             "--base-url",
             base_url,
@@ -297,14 +301,14 @@ def test_memorial_flagship_exit_gate_script_accepts_optional_avatar_warn(
     env = dict(os.environ)
     env["EA_PUBLIC_MEMORIAL_DIR"] = str(memorial_flagship_server["public_root"])
     env["EA_PRIVATE_MEMORIAL_PROFILE_DIR"] = str(memorial_flagship_server["private_root"])
-    env["PYTHONPATH"] = "/docker/EA/ea"
+    env["PYTHONPATH"] = str(APP_ROOT)
     env["MEMORIAL_FLAGSHIP_BASE_URL"] = str(memorial_flagship_server["base_url"])
     tmpdir = tmp_path / "tmp-exit-gate"
     tmpdir.mkdir()
     env["TMPDIR"] = str(tmpdir)
 
     result = subprocess.run(
-        ["/docker/EA/scripts/memorial_flagship_exit_gates.sh"],
+        [str(ROOT / "scripts" / "memorial_flagship_exit_gates.sh")],
         check=False,
         capture_output=True,
         text=True,

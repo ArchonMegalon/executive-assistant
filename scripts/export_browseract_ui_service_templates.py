@@ -18,8 +18,7 @@ from app.services.browseract_ui_template_catalog import (  # noqa: E402
 
 
 DEFAULT_OUTPUT_DIRS = (
-    Path("/docker/EA/browseract_templates"),
-    Path("/mnt/pcloud/EA/browseract_templates"),
+    EA_ROOT / "browseract_templates",
 )
 
 
@@ -39,7 +38,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--state-output-dir",
-        default=os.environ.get("EA_BROWSERACT_TEMPLATE_OUTPUT_DIR", "/docker/fleet/state/browseract_bootstrap"),
+        default=os.environ.get("EA_BROWSERACT_TEMPLATE_OUTPUT_DIR")
+        or str(EA_ROOT / ".codex-studio" / "published" / "browseract_bootstrap"),
         help="Workflow spec meta.output_dir value embedded into the generated spec.",
     )
     return parser.parse_args()

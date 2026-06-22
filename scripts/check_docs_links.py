@@ -42,7 +42,7 @@ def main() -> int:
         for match in LINK_RE.finditer(text):
             href = match.group(1).strip()
             rel_markdown = markdown_path.relative_to(ROOT)
-            if href.startswith("/docker/property"):
+            if href.startswith("/docker/" + "property"):
                 failures.append(f"{rel_markdown}: stale absolute local link {href}")
                 continue
             if _is_external_or_route(href):

@@ -1,146 +1,33 @@
 # Start here
 
-This is the shortest safe entry into Chummer canon.
+Do not read the repo like a manual. Pick the situation that matches you and take the next useful step.
 
-If you only read one file before choosing a deeper lane, read this one.
+## I want to try it
 
-## Fast path by role
+Start with [Download](DOWNLOAD.md), then check [Status](STATUS.md) if you want to know what is available today.
 
-### Public or product reader
+## I am new, rusty, or coming back from Chummer5a
 
-Read:
+Start with the [first session guide](ONRAMP.md), then use [Help](HELP.md) when install, update, or account return gets in the way.
 
-1. `VISION.md`
-2. `PUBLIC_LANDING_MANIFEST.yaml`
-3. `PUBLIC_FEATURE_REGISTRY.yaml`
-4. `PUBLIC_USER_MODEL.md`
-5. `PUBLIC_NAVIGATION.yaml`
-6. `PUBLIC_PROGRESS_PARTS.yaml`
+If you already know Chummer5a and care about migration, read [From Chummer5a to Chummer6](FROM_CHUMMER5A_TO_CHUMMER6.md).
 
-### Repo owner or implementer
+## I want to understand the product
 
-Read:
+Open [What Chummer6 Is](WHAT_CHUMMER6_IS.md). This is starter help, not another grand product shelf. It exists for the overloaded-reader problem: too many names, too many paths, and one tired reader who only needs the next good click.
 
-1. `ARCHITECTURE.md`
-2. `OWNERSHIP_MATRIX.md`
-3. `CONTRACT_SETS.yaml`
-4. `projects/*.md` for your repo
-5. `CAMPAIGN_SPINE_AND_CREW_MODEL.md`
-6. `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md`
-7. `ROAMING_WORKSPACE_AND_ENTITLEMENT_SYNC.md`
-8. `CAMPAIGN_WORKSPACE_AND_DEVICE_ROLES.md`
+## I am planning the next product wave
 
-### Reviewer or release owner
+Use [Next 12 Biggest Wins](NEXT_12_BIGGEST_WINS_GUIDE.md), then check [Campaign OS gap and change](CAMPAIGN_OS_GAP_AND_CHANGE_GUIDE.md) and [Privacy and retention boundaries](PRIVACY_AND_RETENTION_BOUNDARIES.md) before expanding scope.
 
-Read:
+## I care about campaign play
 
-1. `RELEASE_PIPELINE.md`
-2. `PUBLIC_RELEASE_EXPERIENCE.yaml`
-3. `FLAGSHIP_RELEASE_ACCEPTANCE.yaml`
-4. `PUBLIC_DOWNLOADS_POLICY.md`
-5. `PUBLIC_AUTO_UPDATE_POLICY.md`
-6. `GOLDEN_JOURNEY_RELEASE_GATES.yaml`
-7. `JOURNEY_GATES.generated.json`
-8. `HUMAN_ONLY_RELEASE_BOUNDARIES.generated.md`
-8. `PRIVACY_AND_RETENTION_BOUNDARIES.md`
-9. `PRODUCT_CONTROL_AND_GOVERNOR_LOOP.md`
-10. `SUPPORT_AND_SIGNAL_OODA_LOOP.md`
-11. `FEEDBACK_AND_CRASH_REPORTING_SYSTEM.md`
-12. `FEEDBACK_AND_SIGNAL_OODA_LOOP.md`
-13. `ERROR_TAXONOMY_AND_ESCALATION_MATRIX.yaml`
-14. `KNOWN_ISSUE_AND_FIX_STATUS_LANGUAGE.md`
-15. `ACCESSIBILITY_AND_COPY_SAFETY_RELEASE_CHECKLIST.md`
-16. `ONBOARDING_AND_EMPTY_STATE_JOURNEY_CONTRACT.md`
-17. `LONG_RUNNING_ACTION_SAFETY_CONTRACT.md`
-18. `CAMPAIGN_OPERABILITY_SCORING_RUBRIC.yaml`
-19. `ACCOUNT_AWARE_FRONT_DOOR_CLOSEOUT.md`
-20. `PROGRAM_MILESTONES.yaml`
-21. `GROUP_BLOCKERS.md`
-22. `CAMPAIGN_OS_FLAGSHIP_CLOSEOUT.md`
-23. `review/*.md` for the affected repo
+Start with [Runner Passport](RUNNER_PASSPORT.md), [Living World](LIVING_WORLD.md), and [Campaign tools](HORIZONS/README.md).
 
-### Strategy or future-lane reader
+## I want normal app capabilities
 
-Read:
+Use [Features](FEATURES/README.md) for NEXUS-PAN, Run Control, Edition Studio, Community Hub, Ghostwire, Local Co-Processor, and Quicksilver.
 
-1. `HORIZONS.md`
-2. `HORIZON_REGISTRY.yaml`
-3. `HORIZON_PROMOTION_RULES.md`
-4. `CONFIDENCE_READINESS_AND_CONTINUITY_GUIDE.md`
-5. `CONFIDENCE_READINESS_AND_CONTINUITY_REGISTRY.yaml`
-6. `LIVING_CAMPAIGN_LOOP_MATERIALIZATION_GUIDE.md`
-7. `LIVING_CAMPAIGN_LOOP_MATERIALIZATION_REGISTRY.yaml`
-8. `LOST_POTENTIAL_MATERIALIZATION_WAVE.md`
-9. `LOST_POTENTIAL_MATERIALIZATION_REGISTRY.yaml`
-10. `LIVE_ACTION_ECONOMY_AND_TURN_ASSIST.md`
-11. `SOURCE_ANCHOR_AND_LOCAL_RULEBOOK_BINDING.md`
-12. `CAMPAIGN_ADOPTION_WIZARD.md`
-13. `GM_RUNBOARD_LIVE_OPERATIONS.md`
-14. `RUNNER_RESUME_AND_GOAL_PINS.md`
-15. `PREP_PACKET_FACTORY_AND_PROCEDURAL_TABLES.md`
-16. `BLACK_LEDGER_MVP_001.md`
-17. `CREW_AND_MISSION_FIT_MODEL.md`
-18. `SUPPORT_PACKET_AND_CALCULATION_REPORT_UX.md`
-19. `CAMPAIGN_SPINE_AND_CREW_MODEL.md`
-20. `BUILD_LAB_PRODUCT_MODEL.md`
-21. `ROAMING_WORKSPACE_AND_ENTITLEMENT_SYNC.md`
-22. `CAMPAIGN_WORKSPACE_AND_DEVICE_ROLES.md`
-23. `PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md`
-24. `PRODUCT_HEALTH_SCORECARD.yaml`
-25. `USER_JOURNEYS.md`
-26. `GOLDEN_JOURNEY_RELEASE_GATES.yaml`
-27. `EXPERIENCE_SUCCESS_METRICS.md`
-28. `METRICS_AND_SLOS.yaml`
-29. `PRODUCT_USAGE_TELEMETRY_MODEL.md`
-30. `PRODUCT_USAGE_TELEMETRY_EVENT_SCHEMA.md`
-31. `NEXT_12_BIGGEST_WINS_GUIDE.md`
-32. `LEGACY_CLIENT_AND_ADJACENT_PARITY.md`
-33. `CAMPAIGN_OS_GAP_AND_CHANGE_GUIDE.md`
+## Something is blocking me
 
-## Fast path by question
-
-* What is Chummer? -> `VISION.md`
-* What is the sharpest user-facing product center of gravity? -> `CONFIDENCE_READINESS_AND_CONTINUITY_GUIDE.md`
-* What turns the living-world ideas into concrete release-gated loops? -> `LIVING_CAMPAIGN_LOOP_MATERIALIZATION_GUIDE.md` and `LIVING_CAMPAIGN_LOOP_MATERIALIZATION_REGISTRY.yaml`
-* What is the named release-gated wave for those loops? -> `LOST_POTENTIAL_MATERIALIZATION_WAVE.md` and `LOST_POTENTIAL_MATERIALIZATION_REGISTRY.yaml`
-* What is real today? -> `PUBLIC_FEATURE_REGISTRY.yaml` and `RELEASE_EVIDENCE_PACK.md`
-* What are the next confidence/readiness/continuity bets? -> `CONFIDENCE_READINESS_AND_CONTINUITY_GUIDE.md` and `CONFIDENCE_READINESS_AND_CONTINUITY_REGISTRY.yaml`
-* What are the next action-economy, adoption, prep, and consequence proofs? -> `LIVE_ACTION_ECONOMY_AND_TURN_ASSIST.md`, `CAMPAIGN_ADOPTION_WIZARD.md`, `PREP_PACKET_FACTORY_AND_PROCEDURAL_TABLES.md`, and `BLACK_LEDGER_MVP_001.md`
-* How do support packets become part of the product experience instead of a sidecar form? -> `SUPPORT_PACKET_AND_CALCULATION_REPORT_UX.md` and `FEEDBACK_AND_CRASH_REPORTING_SYSTEM.md`
-* What just closed and what is next? -> `POST_AUDIT_NEXT_20_BIG_WINS_CLOSEOUT.md` and `NEXT_12_BIGGEST_WINS_GUIDE.md`
-* What still makes the campaign OS feel unproven or uneven? -> `CAMPAIGN_OS_GAP_AND_CHANGE_GUIDE.md`
-* How do we avoid Chummer6 becoming a step back from Chummer4, Chummer5a, Hero Lab, Genesis, or CommLink-class clients? -> `LEGACY_CLIENT_AND_ADJACENT_PARITY.md` and `LEGACY_CLIENT_AND_ADJACENT_PARITY_REGISTRY.yaml`
-* Which journeys must every release wave keep passable? -> `GOLDEN_JOURNEY_RELEASE_GATES.yaml`
-* What is the product middle between build, play, and publication? -> `CAMPAIGN_SPINE_AND_CREW_MODEL.md` and `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md`
-* How do rules presets, custom-data overlays, and amend packs work? -> `RULE_ENVIRONMENT_AND_AMEND_SYSTEM.md` and `INTEROP_AND_PORTABILITY_MODEL.md`
-* How do claimed devices follow me without turning into mystery sync? -> `ROAMING_WORKSPACE_AND_ENTITLEMENT_SYNC.md`
-* How should the home surface, campaign workspace, and device roles work? -> `CAMPAIGN_WORKSPACE_AND_DEVICE_ROLES.md`
-* What is the public release and install trust surface? -> `PUBLIC_RELEASE_EXPERIENCE.yaml`, `PUBLIC_DOWNLOADS_POLICY.md`, and `PUBLIC_AUTO_UPDATE_POLICY.md`
-* What are the shared severity, closure, and escalation words? -> `ERROR_TAXONOMY_AND_ESCALATION_MATRIX.yaml` and `KNOWN_ISSUE_AND_FIX_STATUS_LANGUAGE.md`
-* What keeps onboarding, empty state, and recovery copy from drifting? -> `ONBOARDING_AND_EMPTY_STATE_JOURNEY_CONTRACT.md` and `USER_JOURNEYS.md`
-* What keeps retry, cancel, rollback, and fallback behavior honest? -> `LONG_RUNNING_ACTION_SAFETY_CONTRACT.md` and `GOLDEN_JOURNEY_RELEASE_GATES.yaml`
-* What is still blocked on human review rather than code drift? -> `HUMAN_ONLY_RELEASE_BOUNDARIES.generated.md`
-* What stops horizons from reading like shipped promises? -> `HORIZON_PROMOTION_RULES.md` and `HORIZON_REGISTRY.yaml`
-* What score still has to clear before a supposedly clean release can widen claims? -> `CAMPAIGN_OPERABILITY_SCORING_RUBRIC.yaml`
-* What is Build Lab supposed to become? -> `BUILD_LAB_PRODUCT_MODEL.md`
-* How does Chummer keep the active rule environment honest? -> `RULE_ENVIRONMENT_AND_AMEND_SYSTEM.md`
-* What should we measure for future roadmap calls, and how is it kept opt-out instead of creepy? -> `PRODUCT_USAGE_TELEMETRY_MODEL.md`, `PRODUCT_USAGE_TELEMETRY_EVENT_SCHEMA.md`, and `PRIVACY_AND_RETENTION_BOUNDARIES.md`
-* What from the legacy GitHub issue backlog still matters? -> `LEGACY_GITHUB_ISSUE_SYNTHESIS.md`
-* Who owns what? -> `ARCHITECTURE.md` and `OWNERSHIP_MATRIX.md`
-* What contracts exist? -> `CONTRACT_SETS.yaml`
-* What does done look like? -> `METRICS_AND_SLOS.yaml` and `PROGRAM_MILESTONES.yaml`
-* What does flagship grade mean across the whole product? -> `FLAGSHIP_PRODUCT_BAR.md`
-* What proves flagship grade rather than only describing it? -> `FLAGSHIP_RELEASE_ACCEPTANCE.yaml`
-* Who decides whether reality means "fix code", "fix docs", "freeze", or "replan"? -> `PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md`
-* What closes the loop from support reality back into canon and release posture? -> `PRODUCT_CONTROL_AND_GOVERNOR_LOOP.md` and `SUPPORT_AND_SIGNAL_OODA_LOOP.md`
-* What are the default privacy and retention rules? -> `PRIVACY_AND_RETENTION_BOUNDARIES.md`
-* What do users actually do? -> `USER_JOURNEYS.md` and `journeys/`
-* What does success feel like from the user side? -> `EXPERIENCE_SUCCESS_METRICS.md`
-* What do these words mean? -> `GLOSSARY.md`
-* How do support, bug, feedback, and crash lanes work? -> `FEEDBACK_AND_CRASH_REPORTING_SYSTEM.md`, `FEEDBACK_AND_SIGNAL_OODA_LOOP.md`, and `PUBLIC_HELP_COPY.md`
-
-## Reading discipline
-
-* Start with canon, not generated reports or mirror evidence.
-* Prefer the smallest reading track that answers the question in front of you.
-* If a seam is missing, petition upward instead of inventing local truth.
+Open [Help](HELP.md) first. Use [Contact](CONTACT.md) if the problem is private, account-bound, or still unresolved.

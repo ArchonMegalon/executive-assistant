@@ -341,7 +341,7 @@ def product_browser_server() -> Iterator[dict[str, object]]:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ.pop("EA_LEDGER_BACKEND", None)
     os.environ["EA_API_TOKEN"] = ""
-    os.environ["EA_DEFAULT_PRINCIPAL_ID"] = "local-user"
+    os.environ["EA_DEFAULT_PRINCIPAL_ID"] = "principal-default"
     os.environ["EA_ALLOW_LOOPBACK_NO_AUTH"] = "1"
     os.environ["EA_ENABLE_PUBLIC_SIDE_SURFACES"] = "0"
     os.environ["EA_ENABLE_PUBLIC_RESULTS"] = "0"
@@ -349,8 +349,8 @@ def product_browser_server() -> Iterator[dict[str, object]]:
 
     app = create_app()
     client = TestClient(app)
-    client.headers.update({"X-EA-Principal-ID": "local-user"})
-    seeded = seed_product_state(client, principal_id="local-user")
+    client.headers.update({"X-EA-Principal-ID": "principal-default"})
+    seeded = seed_product_state(client, principal_id="principal-default")
     started = client.post(
         "/v1/onboarding/start",
         json={
@@ -1203,8 +1203,7 @@ def test_operator_runtime_catalog_and_ltd_compile_flow_over_http(
 ) -> None:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ["EA_API_TOKEN"] = "test-token"
-    os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
-    os.environ["EA_OPERATOR_PRINCIPAL_IDS"] = "ops-e2e"
+    os.environ["EA_DEFAULT_PRINCIPAL_ID"] = "ops-e2e"
     os.environ["ONEMIN_AI_API_KEY"] = "onemin-key"
     markdown_path = tmp_path / "LTDs.md"
     markdown_path.write_text(_sample_ltd_runtime_markdown(), encoding="utf-8")
@@ -1221,6 +1220,15 @@ def test_operator_runtime_catalog_and_ltd_compile_flow_over_http(
     )
 
     app = create_app()
+    app.state.container.orchestrator.upsert_operator_profile(
+        principal_id="ops-e2e",
+        operator_id="operator-ops-e2e",
+        display_name="Ops E2E Operator",
+        roles=("operator", "reviewer"),
+        trust_tier="trusted",
+        status="active",
+        notes="Seeded for operator runtime catalog e2e.",
+    )
     captured: list[object] = []
     original_execute = app.state.container.tool_execution.execute_invocation
 
@@ -1265,6 +1273,7 @@ def test_operator_runtime_catalog_and_ltd_compile_flow_over_http(
         headers = {
             "Authorization": "Bearer test-token",
             "X-EA-Principal-ID": "ops-e2e",
+            "X-EA-Operator-ID": "operator-ops-e2e",
         }
 
         status, catalog = _http_json(base_url, "/v1/ltds/runtime-catalog/1min.AI", headers=headers)

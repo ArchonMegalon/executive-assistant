@@ -1484,7 +1484,8 @@ def test_render_with_ooda_delegates_media_factory_provider(tmp_path: Path, monke
 
     assert result["provider"] == "media_factory"
     assert result["status"] == "media_factory:rendered"
-    assert seen["prompt"] == "bounded runsite scene"
+    assert str(seen["prompt"]).startswith("bounded runsite scene")
+    assert "Premium clean image finish" in str(seen["prompt"])
 
 
 def test_render_with_ooda_treats_explicit_provider_order_as_a_strict_filter(
@@ -1951,7 +1952,7 @@ def test_build_safe_onemin_prompt_uses_direct_scene_prompts_for_alice_nexus_and_
     nexus_prompt = media.build_safe_onemin_prompt(
         prompt="Reconnect lane scene.",
         spec={
-            "target": "assets/horizons/nexus-pan.png",
+            "target": "assets/features/nexus-pan.png",
             "media_row": {
                 "scene_contract": {
                     "subject": "a reconnect operator",
@@ -2047,6 +2048,22 @@ def test_build_safe_onemin_prompt_keeps_critical_scene_brief_before_clip() -> No
     assert "cyberlimb calibration" not in lowered
     assert "bod rail" not in lowered
     assert "figures occupy less than one quarter of frame" in lowered
+
+
+def test_provider_prompt_sanitizer_removes_grain_and_adds_clean_finish() -> None:
+    media = _load_module()
+
+    prompt = media.sanitize_prompt_for_provider(
+        "A Shadowrun poster with heavy film grain, 35mm film grain, noisy shadows, and muddy haze.",
+        provider="onemin",
+    )
+    lowered = prompt.lower()
+
+    assert "film grain" not in lowered
+    assert "noisy shadows" not in lowered
+    assert "muddy haze" not in lowered
+    assert "premium clean image finish" in lowered
+    assert "low-noise" in lowered
 
 
 def test_onemin_size_candidates_honor_specified_wide_sizes() -> None:
@@ -2251,7 +2268,7 @@ def test_first_contact_target_variant_count_and_overlay_gate() -> None:
     assert media.quality_focus_target("assets/horizons/alice.png") is True
     assert media.first_contact_variant_count(target="assets/pages/public-surfaces.png") == 4
     assert media.first_contact_variant_count(target="assets/horizons/alice.png") == 10
-    assert media.first_contact_variant_count(target="assets/horizons/nexus-pan.png") == 8
+    assert media.first_contact_variant_count(target="assets/features/nexus-pan.png") == 8
     assert media.first_contact_variant_count(target="assets/horizons/runsite.png") == 8
     assert media.first_contact_variant_count(target="assets/parts/hub.png") == 8
     assert media.first_contact_variant_count(target="assets/pages/parts-index.png") == 10
@@ -2277,6 +2294,8 @@ def test_target_visual_contract_loads_density_profile_and_blocks_flagship_humor(
     core_contract = media.target_visual_contract("assets/parts/core.png")
     horizons_contract = media.target_visual_contract("assets/pages/horizons-index.png")
     alice_contract = media.target_visual_contract("assets/horizons/alice.png")
+    nexus_contract = media.target_visual_contract("assets/features/nexus-pan.png")
+    legacy_nexus_contract = media.target_visual_contract("assets/horizons/nexus-pan.png")
 
     assert hero_contract["person_count_target"] == "duo_or_team"
     assert any("bright streetdoc shack" in marker for marker in hero_contract["required_setting_markers"])
@@ -2294,6 +2313,10 @@ def test_target_visual_contract_loads_density_profile_and_blocks_flagship_humor(
     assert "approval or provenance logic" in contract["must_show_semantic_anchors"]
     assert "none" not in horizons_contract["allowed_overlay_modes"]
     assert "none" not in alice_contract["allowed_overlay_modes"]
+    assert nexus_contract["required_overlay_mode"] == "smartlink_tactical"
+    assert nexus_contract["overlay_render_strategy"] == "verified_post_composite_public"
+    assert "battered van or service rig required" in nexus_contract["required_setting_markers"]
+    assert legacy_nexus_contract["required_setting_markers"] == nexus_contract["required_setting_markers"]
     assert media.humor_allowed_for_target(target="assets/horizons/karma-forge.png", contract={}) is False
 
 
@@ -3681,7 +3704,7 @@ def test_asset_specs_propagate_onemin_strict_models_for_direct_targets() -> None
     specs = media.asset_specs()
     parts_index = next(spec for spec in specs if spec["target"] == "assets/pages/parts-index.png")
     alice = next(spec for spec in specs if spec["target"] == "assets/horizons/alice.png")
-    nexus = next(spec for spec in specs if spec["target"] == "assets/horizons/nexus-pan.png")
+    nexus = next(spec for spec in specs if spec["target"] == "assets/features/nexus-pan.png")
 
     assert parts_index["onemin_models"] == ["gpt-image-1"]
     assert parts_index["onemin_strict_models"] is True
@@ -3873,7 +3896,7 @@ def test_ooda_variant_prompt_adds_nexus_and_parts_index_corrections() -> None:
 
     nexus_prompt, nexus_tags = media.ooda_variant_prompt(
         prompt="Base nexus prompt.",
-        target="assets/horizons/nexus-pan.png",
+        target="assets/features/nexus-pan.png",
         variant=2,
         previous_notes=["visual_audit:text_sprawl", "visual_audit:workzone_story_weak"],
         previous_gate_failures=[],
@@ -3979,7 +4002,8 @@ def test_refine_prompt_with_ooda_can_disable_external_refinement(monkeypatch: py
 
     refined = media.refine_prompt_with_ooda(prompt="base prompt", target="assets/pages/start-here.png")
 
-    assert refined == "base prompt"
+    assert refined.startswith("base prompt")
+    assert "Premium clean image finish" in refined
 
 
 def test_refine_prompt_with_ooda_skips_external_refiner_for_quality_focus_target(
@@ -3997,7 +4021,8 @@ def test_refine_prompt_with_ooda_skips_external_refiner_for_quality_focus_target
 
     refined = media.refine_prompt_with_ooda(prompt="base prompt", target="assets/pages/what-chummer6-is.png")
 
-    assert refined == "base prompt"
+    assert refined.startswith("base prompt")
+    assert "Premium clean image finish" in refined
 
 
 def test_refine_prompt_with_ooda_falls_back_to_local_prompt_on_timeout_when_not_required(
@@ -4015,7 +4040,8 @@ def test_refine_prompt_with_ooda_falls_back_to_local_prompt_on_timeout_when_not_
 
     refined = media.refine_prompt_with_ooda(prompt="base prompt", target="assets/pages/start-here.png")
 
-    assert refined == "base prompt"
+    assert refined.startswith("base prompt")
+    assert "Premium clean image finish" in refined
 
 
 def test_sanitize_media_row_strips_machine_overlay_labels_from_render_prompts() -> None:

@@ -8,14 +8,20 @@ from pathlib import Path
 import urllib.parse
 
 
+EA_ROOT = Path(os.environ.get("EA_ROOT") or Path(__file__).resolve().parents[1])
 DEFAULT_MANIFEST_CANDIDATES: tuple[Path, ...] = (
-    Path("/docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json"),
-    Path("/docker/chummercomplete/chummer-hub-registry/.codex-studio/published/releases.json"),
-    Path("/docker/chummercomplete/chummer.run-services/legacy/tooling/docker/Docker/Downloads/releases.json"),
-    Path("/docker/chummer5a/Docker/Downloads/releases.json"),
+    EA_ROOT / "chummer6_guide" / "RELEASE_CHANNEL.generated.json",
+    EA_ROOT / "chummer6_guide" / "releases.json",
 )
-DEFAULT_OUTPUT_PATH = Path("/docker/fleet/state/chummer6/chummer6_release_matrix.json")
-DEFAULT_BASE_URL = "https://chummer.run"
+DEFAULT_OUTPUT_PATH = Path(
+    os.environ.get("CHUMMER6_RELEASE_MATRIX_PATH")
+    or EA_ROOT / ".codex-studio" / "published" / "chummer6_media" / "chummer6_release_matrix.json"
+)
+DEFAULT_BASE_URL = "https://example.test"
+
+
+def default_base_url() -> str:
+    return str(os.environ.get("CHUMMER6_RELEASE_BASE_URL") or os.environ.get("EA_PUBLIC_APP_BASE_URL") or DEFAULT_BASE_URL).strip().rstrip("/") or DEFAULT_BASE_URL
 
 
 def default_manifest_path() -> Path:
@@ -134,7 +140,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Normalize the current Chummer6 desktop downloads manifest into a guide-facing release matrix.")
     parser.add_argument("--manifest", default=str(default_manifest_path()))
     parser.add_argument("--output", default=str(DEFAULT_OUTPUT_PATH))
-    parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
+    parser.add_argument("--base-url", default=default_base_url())
     args = parser.parse_args()
 
     manifest_path = Path(args.manifest).expanduser()

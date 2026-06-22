@@ -1,2 +1,2 @@
-"""Channel adapters emit normalized observation events into the runtime kernel."""
+from __future__ import annotations
 

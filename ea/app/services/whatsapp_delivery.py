@@ -8,10 +8,14 @@ import urllib.request
 from dataclasses import dataclass
 
 from app.domain.models import ConnectorBinding
-from app.services.whatsapp_onboarding_service import (
-    WHATSAPP_BUSINESS_CONNECTOR,
-    WHATSAPP_EXPORT_CONNECTOR,
-)
+try:
+    from app.services.whatsapp_onboarding_service import (
+        WHATSAPP_BUSINESS_CONNECTOR,
+        WHATSAPP_EXPORT_CONNECTOR,
+    )
+except ModuleNotFoundError:
+    WHATSAPP_BUSINESS_CONNECTOR = "whatsapp_business"
+    WHATSAPP_EXPORT_CONNECTOR = "whatsapp_export"
 
 
 _WHATSAPP_CONNECTOR_NAMES = {WHATSAPP_BUSINESS_CONNECTOR, WHATSAPP_EXPORT_CONNECTOR}
@@ -169,7 +173,7 @@ def _coerce_binding_principal_id(candidates: tuple[str, ...]) -> tuple[str, ...]
             str(os.getenv("EA_DEFAULT_PRINCIPAL_ID") or "").strip(),
             str(os.getenv("EA_HEYY_DEFAULT_PRINCIPAL_ID") or "").strip(),
             str(os.getenv("EA_DEFAULT_PRINCIPAL") or "").strip(),
-            "local-user",
+            "principal-default",
         ]
     )
     deduped: list[str] = []

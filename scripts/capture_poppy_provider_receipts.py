@@ -3,17 +3,25 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
 
-EA_ROOT = Path(__file__).resolve().parents[1]
-OUT_DIR = Path("/docker/chummercomplete/.integrated/fleet/_completion/poppy_ai")
+EA_ROOT = Path(os.environ.get("EA_ROOT") or Path(__file__).resolve().parents[1])
+OUT_DIR = Path(os.environ.get("POPPY_COMPLETION_DIR") or EA_ROOT / "ea/_completion/poppy_ai")
 RECEIPT_PATH = OUT_DIR / "POPPY_AI_PROVIDER_SESSION_PROBE.generated.json"
 SCREENSHOT_DIR = OUT_DIR / "live_browser_proof"
-PLAYWRIGHT_WORKDIR = Path("/docker/chummercomplete/chummer.run-services")
-CHROMIUM_PATH = Path("/home/tibor/.cache/ms-playwright/chromium-1223/chrome-linux64/chrome")
+PLAYWRIGHT_WORKDIR = Path(os.environ.get("POPPY_PLAYWRIGHT_WORKDIR") or EA_ROOT)
+CHROMIUM_PATH = (
+    os.environ.get("POPPY_CHROMIUM_PATH")
+    or os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE")
+    or shutil.which("chromium")
+    or shutil.which("chromium-browser")
+    or shutil.which("google-chrome")
+    or ""
+)
 LOGIN_URL = "https://app.getpoppy.ai/login"
 TARGET_URL = "https://app.getpoppy.ai/onboarding/call"
 
@@ -61,12 +69,13 @@ def _run_playwright_probe() -> dict[str, object]:
 const { chromium } = require('playwright');
 
 (async () => {
-  const browser = await chromium.launch({
-    executablePath: process.env.POPPY_CHROMIUM_PATH,
+  const launchOptions = {
     headless: false,
     args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-blink-features=AutomationControlled'],
     ignoreDefaultArgs: ['--enable-automation'],
-  });
+  };
+  if (process.env.POPPY_CHROMIUM_PATH) launchOptions.executablePath = process.env.POPPY_CHROMIUM_PATH;
+  const browser = await chromium.launch(launchOptions);
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1200 },
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
@@ -148,6 +157,7 @@ const { chromium } = require('playwright');
         timeout=360,
         cwd=str(PLAYWRIGHT_WORKDIR),
         env={
+            **os.environ,
             "POPPY_CHROMIUM_PATH": str(CHROMIUM_PATH),
             "POPPY_LOGIN_URL": LOGIN_URL,
             "POPPY_LOGIN_EMAIL": LOGIN_EMAIL,

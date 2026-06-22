@@ -17,6 +17,7 @@ from app.repositories.task_contracts import InMemoryTaskContractRepository
 from app.services.ltd_runtime_skill_projection import projected_task_key
 from app.services.skills import SkillCatalogService
 from app.services.task_contracts import TaskContractService
+from tests.product_test_helpers import build_operator_product_client
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -53,16 +54,8 @@ def test_chummer6_public_writer_bootstrap_mentions_sr4_to_sr6_public_story() -> 
 def _client() -> TestClient:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ.pop("EA_LEDGER_BACKEND", None)
-    os.environ["EA_API_TOKEN"] = "test-token"
     os.environ.setdefault("EA_GEMINI_VORTEX_COMMAND", "python3")
-    os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
-    os.environ["EA_OPERATOR_PRINCIPAL_IDS"] = "exec-1"
-    from app.api.app import create_app
-
-    client = TestClient(create_app())
-    client.headers.update({"Authorization": "Bearer test-token"})
-    client.headers.update({"X-EA-Principal-ID": "exec-1"})
-    return client
+    return build_operator_product_client(principal_id="exec-1", operator_id="exec-1-operator")
 
 
 def _execute_plan_and_read_artifact(client: TestClient, payload: dict[str, Any]) -> dict[str, Any]:

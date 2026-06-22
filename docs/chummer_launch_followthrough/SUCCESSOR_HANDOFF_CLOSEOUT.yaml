@@ -54,7 +54,7 @@ shared_truth_runtime_sources:
     path: /docker/chummercomplete/chummer-design/products/chummer/PUBLIC_RELEASE_EXPERIENCE.yaml
     use_rule: Draft followthrough must keep preview, fallback, recovery, and flagship wording subordinate to the current public shelf rules.
   - source_anchor_id: ea_governor_packet_baseline
-    path: /docker/EA/docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml
+    path: docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml
     use_rule: The earlier EA governor packet baseline remains the release-claim discipline source for bounded reporter followthrough.
 canonical_authority:
   successor_registry_path: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml

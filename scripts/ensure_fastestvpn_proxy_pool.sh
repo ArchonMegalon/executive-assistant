@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="${PROPERTYQUARRY_ROOT:-/docker/property}"
+SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="${PROPERTYQUARRY_ROOT:-${SCRIPT_ROOT}}"
 ENV_FILE="${ROOT_DIR}/.env"
 POOL_SIZE="${1:-${FASTESTVPN_PROXY_POOL_SIZE:-20}}"
 POOL_NETWORK="${PROPERTYQUARRY_PROXY_POOL_NETWORK:-${EA_PROXY_POOL_NETWORK:-property_default}}"
@@ -49,7 +50,9 @@ mapfile -t CONFIG_FILES < <(
   python3 - <<'PY'
 from pathlib import Path
 
-root = Path("/docker/property/vpn/fastestvpn")
+import os
+
+root = Path(os.environ.get("FASTESTVPN_CONFIG_ROOT") or Path.cwd() / "vpn" / "fastestvpn")
 selected = []
 seen = set()
 for path in sorted(root.glob("*-tcp.ovpn")):

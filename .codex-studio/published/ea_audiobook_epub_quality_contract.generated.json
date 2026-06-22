@@ -1,0 +1,123 @@
+{
+  "audio_normalization_target": {
+    "filter_chain_required": "dynaudnorm+loudnorm",
+    "integrated_lufs": -16,
+    "true_peak_db": -1.5
+  },
+  "checks": {
+    "alice_blocklist_default_present": true,
+    "audio_normalization_present": true,
+    "author_gender_voice_signal_present": true,
+    "delayed_audiobookshelf_share_followup_present": true,
+    "focused_tests_cover_audio_and_m4b": true,
+    "focused_tests_cover_m4b_structure_probe": true,
+    "focused_tests_cover_voice_complaints": true,
+    "language_topic_voice_ranking_present": true,
+    "live_telegram_audiobook_delivery_receipt_present": true,
+    "ltd_provider_boundary_present": true,
+    "m4b_chapters_and_cover_present": true,
+    "m4b_structure_probe_present": true,
+    "operator_docs_cover_exit_criteria": true,
+    "privacy_boundary_present": true,
+    "quiet_tail_quality_gates_present": true,
+    "short_voice_sample_present": true,
+    "skill_doc_present": true,
+    "telegram_dismiss_immediate_replacement_present": true,
+    "telegram_inline_voice_controls_present": true,
+    "telegram_playback_acceptance_callback_present": true,
+    "telegram_voice_sample_delivery_audit_present": true,
+    "telegram_voice_sample_status_diagnostic_present": true,
+    "voice_audition_runtime_present": true,
+    "webhook_e2e_covers_voice_sample_delivery": true
+  },
+  "contract_name": "ea.telegram_epub_audiobook_quality_contract.v1",
+  "default_voice_blocklist": "alice",
+  "issues": [],
+  "m4b_requirements": {
+    "chapter_metadata_embedded": true,
+    "cover_embedded_when_epub_cover_present": true
+  },
+  "privacy": {
+    "provider_secrets_public": false,
+    "raw_book_text_public": false,
+    "raw_provider_voice_ids_public": false,
+    "raw_storage_paths_public": false
+  },
+  "source_files": {
+    "live_delivery_script": {
+      "bytes": 17889,
+      "exists": true,
+      "path": "ea/scripts/materialize_telegram_audiobook_live_delivery_receipt.py",
+      "sha256": "9edb0d41fb96d2f07bd8ac4f622fbe5750623d0846a09d87a5e11ce79dc4c6dd"
+    },
+    "live_delivery_tests": {
+      "bytes": 8673,
+      "exists": true,
+      "path": "tests/test_telegram_audiobook_live_delivery_receipt.py",
+      "sha256": "a0360f4f47653f02ec8f447750318176967bada1abd7a5e86598c49e629bc030"
+    },
+    "ltd_map": {
+      "bytes": 13956,
+      "exists": true,
+      "path": ".codex-design/ea/LTD_INTEGRATION_MAP.md",
+      "sha256": "748091b0eb3c8c967337b2ddc064b5ba07d7b4fe8ab00fa50cb810ecb0d496a6"
+    },
+    "m4b_probe_materializer": {
+      "bytes": 7875,
+      "exists": true,
+      "path": "ea/scripts/materialize_audiobook_m4b_structure_probe.py",
+      "sha256": "6b5a30fafe4c72d0d76f0153d948f57fc596e42b880b11d404aeca8d8093c6bc"
+    },
+    "m4b_probe_tests": {
+      "bytes": 4134,
+      "exists": true,
+      "path": "tests/test_audiobook_m4b_structure_probe.py",
+      "sha256": "4d4e09fee019d45e04b509b2a4687a36aab92146b118b3793e91cdeaa2a5367e"
+    },
+    "m4b_probe_verifier": {
+      "bytes": 7023,
+      "exists": true,
+      "path": "ea/scripts/verify_audiobook_m4b_structure_probe.py",
+      "sha256": "2114f9d1f8c1419045ebecec3476d43bd11e20dc0fd6758340ddb9a403731a35"
+    },
+    "pipeline": {
+      "bytes": 215454,
+      "exists": true,
+      "path": "ea/app/services/audiobook_epub_pipeline.py",
+      "sha256": "426c25fee552b8f7f30afc7600cf6a9b52ea30f51e505ccaa0abf631eea8ff36"
+    },
+    "skill_doc": {
+      "bytes": 13701,
+      "exists": true,
+      "path": ".codex-design/ea/AUDIOBOOK_EPUB_TELEGRAM_SKILL.md",
+      "sha256": "fab92f2faeb2c1fc927d6c4683d7b2347347bf0ad6507d1fb54dbb1db63b8b78"
+    },
+    "telegram_channels": {
+      "bytes": 332802,
+      "exists": true,
+      "path": "ea/app/api/routes/channels.py",
+      "sha256": "bf5e9a83c89da62b7fd06ea992a725dea67254dec1b5d669500edd40167e2f32"
+    },
+    "telegram_e2e_tests": {
+      "bytes": 70149,
+      "exists": true,
+      "path": "tests/e2e/test_telegram_bot_workflows.py",
+      "sha256": "cb4bc494b6b02a1ded7dc81768a48f744b7f70ff1797416a03886841af8f58b9"
+    },
+    "tests": {
+      "bytes": 135374,
+      "exists": true,
+      "path": "tests/test_telegram_epub_audiobook_pipeline.py",
+      "sha256": "e4f74e97b39a5150aa73b077f4769fbe3a60ee6a427825fdbeddd29ec5258600"
+    }
+  },
+  "status": "pass",
+  "telegram_controls": {
+    "dismiss": true,
+    "dismiss_immediately_replaces_voice": true,
+    "playback_problem": true,
+    "playback_works": true,
+    "use_this": true
+  },
+  "voice_sample_batch_size": 3
+}

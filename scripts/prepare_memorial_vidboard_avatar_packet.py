@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import subprocess
 import urllib.error
@@ -14,7 +15,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BUNDLE_ROOT = ROOT / "memorial_data" / "public_memorials"
-DEFAULT_PACKET_ROOT = Path("/docker/fleet/state/chummer6/avatar_presenter_provider")
+DEFAULT_PACKET_ROOT = Path(
+    os.environ.get("CHUMMER6_AVATAR_PROVIDER_ROOT")
+    or ROOT / ".codex-studio" / "published" / "avatar_presenter_provider"
+)
 _STOPWORDS = {
     "aber",
     "alle",

@@ -6,22 +6,14 @@ import pytest
 
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
+from tests.product_test_helpers import build_operator_product_client
 
 
 def _client(*, principal_id: str = "exec-1") -> TestClient:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ.pop("EA_LEDGER_BACKEND", None)
     os.environ.pop("EA_DEFAULT_PRINCIPAL_ID", None)
-    os.environ["EA_API_TOKEN"] = "test-token"
-    os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
-    os.environ["EA_OPERATOR_PRINCIPAL_IDS"] = principal_id
-    from app.api.app import create_app
-
-    client = TestClient(create_app())
-    client.headers.update({"Authorization": "Bearer test-token"})
-    if principal_id:
-        client.headers.update({"X-EA-Principal-ID": principal_id})
-    return client
+    return build_operator_product_client(principal_id=principal_id, operator_id=f"{principal_id}-operator")
 
 
 def test_plan_execute_accepts_structured_input_json_and_context_refs() -> None:

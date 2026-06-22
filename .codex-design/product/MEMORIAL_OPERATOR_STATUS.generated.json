@@ -1,14 +1,60 @@
 {
   "contract_name": "ea.memorial_operator_status",
   "generated_by": "scripts/materialize_memorial_operator_status.py",
-  "source_git_head": "e739be479a4e9e7c2b364259d7a8b15e9d9318e6",
+  "source_git_head": "8e6c434f4b8e7f1e1c87e1c6b3fdc566915cc85c",
   "head_semantics": "source_state",
+  "source_worktree_dirty": true,
+  "source_dirty_count": 332,
+  "source_dirty_files": [
+    ".codex-design/ea/AUDIOBOOK_EPUB_TELEGRAM_SKILL.md",
+    ".codex-design/ea/CINEMATIC_NARRATION_AND_PROMO_PIPELINE.md",
+    ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
+    ".codex-design/ea/EA_LTD_PRIORITY_INTEGRATIONS.md",
+    ".codex-design/ea/LTD_INTEGRATION_MAP.md",
+    ".codex-design/ea/README.md",
+    ".codex-design/ea/USER_FIRST_AUDIT_2026-06-18.md",
+    ".env.example",
+    ".env.local.example",
+    ".github/workflows/env-no-secrets.yml",
+    ".github/workflows/memorial-public-gold.yml",
+    ".github/workflows/memorial-security.yml",
+    ".github/workflows/project-gold-gates.yml",
+    ".github/workflows/smoke-runtime.yml",
+    ".gitignore",
+    "ARCHITECTURE_MAP.md",
+    "CHANGELOG.md",
+    "ENVIRONMENT_MATRIX.md",
+    "HTTP_EXAMPLES.http",
+    "LTDs.md",
+    "Makefile",
+    "NEXT_SESSION_HANDOFF.md",
+    "README.md",
+    "RUNBOOK.md",
+    "SKILLS.md",
+    "browseract_templates/apixdrive_workspace_reader.workflow.json",
+    "browseract_templates/approvethis_queue_reader.workflow.json",
+    "browseract_templates/documentation_ai_workspace_reader.workflow.json",
+    "browseract_templates/invoiless_workspace_reader.workflow.json",
+    "browseract_templates/markupgo_workspace_reader.workflow.json",
+    "browseract_templates/metasurvey_results_reader.workflow.json",
+    "browseract_templates/nonverbia_workspace_reader.workflow.json",
+    "browseract_templates/paperguide_workspace_reader.workflow.json",
+    "browseract_templates/peekshot_workspace_reader.workflow.json",
+    "browseract_templates/poppy_ai_login_surface_reader.packet.json",
+    "browseract_templates/poppy_ai_login_surface_reader.workflow.json",
+    "browseract_templates/unmixr_workspace_reader.workflow.json",
+    "browseract_templates/vidboard_workspace_reader.workflow.json",
+    "browseract_templates/vizologi_workspace_reader.workflow.json",
+    "browseract_templates/voicewave_workspace_reader.workflow.json"
+  ],
+  "source_dirty_omitted_count": 292,
+  "source_dirty_status_sha256": "97881edf578e6b4610de2fd482ba4f432f0e8684c98d0de9fc6a3e07d469c126",
   "slug": "manfred",
   "status": "blocked",
   "current_label": "Memorial public-origin gold: blocked",
-  "local_release_candidate": "blocked",
-  "public_voice_receipt": "missing_or_blocked",
-  "public_browser_receipt": "missing_or_blocked",
+  "local_release_candidate": "pass",
+  "public_voice_receipt": "pass",
+  "public_browser_receipt": "pass",
   "public_browser_meaningful_receipt": "pass",
   "room_audio_receipt": "missing_or_blocked",
   "whole_project_gold": "blocked",
@@ -17,45 +63,53 @@
     "Public-origin gold requires voice, browser, and room receipts at current HEAD/public origin.",
     "The current public voice receipt is a provenance proof when its transcriber mode is provenance_cache; browser + room receipts carry the intelligibility proof.",
     "source_git_head records the proved source state; a later artifact-only commit may differ without making the proof stale.",
-    "whole_project_gold is reported separately and must not block a memorial-specific public-origin pass when unrelated planes remain not_gold."
+    "whole_project_gold is reported separately and must not block a memorial-specific public-origin pass when unrelated planes remain not_gold.",
+    "Manfred premium spoken conversation additionally requires spoken_conversation_stt.status=pass and spoken_conversation_tts.premium_status=pass; memorial public-origin gold alone is not a production STT/TTS claim.",
+    "If source_worktree_dirty is true, the receipt is an operator snapshot with pending source changes and must not be used as final release evidence.",
+    "If room_audio_receipt is missing_or_blocked, use room_audio_attestation_packet to collect the required real-room evidence; CI must not auto-assert manual room checks.",
+    "If spoken_conversation_stt.ground_truth_fixture_mode is synthetic_only, use stt_fixture_candidate to promote only a consented, plausible captured clip; normalize suspect WAV/WebM captures first.",
+    "If stt_capture_discovery matched bundles but has no promotable captures, the logged audio is not enough for real captured STT regression proof.",
+    "If captured_candidate_benchmark is blocked, do not promote the captured clip until the operator confirms ground truth or the STT lane recognizes the captured speech.",
+    "If captured_candidate_diagnostic is blocked with transcript_hash_mismatch, rerun full-text diagnostics only operator-locally or correct the ground-truth transcript; do not commit raw transcript receipts."
   ],
-  "source_head_note": "source_git_head records the source state the receipts prove. Generated-only follow-up commits may change repository HEAD without invalidating those receipts.",
+  "source_head_note": "source_git_head records the source state the receipts prove. Generated-only follow-up commits may change repository HEAD without invalidating those receipts. source_worktree_dirty records whether source-relevant local changes were present when this operator snapshot was generated.",
   "artifact_paths": {
     "local_release_receipt": ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
     "public_gold_receipt": ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
     "public_browser_gold_receipt": ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
     "public_meaningful_browser_gold_receipt": ".codex-studio/published/memorial_realtime_browser_meaningful_public_origin.generated.json",
-    "room_audio_receipt": ".codex-studio/published/memorial_room_audio_public_origin.generated.json"
+    "room_audio_receipt": ".codex-studio/published/memorial_room_audio_public_origin.generated.json",
+    "room_audio_attestation_packet": ".codex-studio/published/memorial_room_audio_attestation_packet.generated.json",
+    "spoken_stt_provider_benchmark": ".codex-studio/published/memorial_stt_provider_benchmark.generated.json",
+    "stt_fixture_candidate": ".codex-studio/published/memorial_stt_fixture_candidate.generated.json",
+    "stt_capture_discovery": ".codex-studio/published/memorial_stt_capture_discovery.generated.json",
+    "captured_candidate_benchmark": ".codex-studio/published/memorial_stt_provider_benchmark_captured_candidate.generated.json",
+    "captured_candidate_diagnostic": ".codex-studio/published/memorial_stt_captured_candidate_diagnostic.generated.json"
   },
   "readiness": {
     "status": "blocked",
-    "current_head": "e739be479a4e9e7c2b364259d7a8b15e9d9318e6",
+    "current_head": "8e6c434f4b8e7f1e1c87e1c6b3fdc566915cc85c",
     "claim_labels": {
       "ea_receipt_set": "EA receipt-set gold",
       "memorial_local": "Memorial local release candidate",
       "memorial_public": "Memorial public-origin gold"
     },
     "local_release_receipt": ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
-    "local_release_issues": [
-      "receipt_stale_relative_to_current_head"
-    ],
+    "local_release_issues": [],
     "public_gold_receipt": ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
-    "public_gold_issues": [
-      "receipt_stale_relative_to_current_head"
-    ],
+    "public_gold_issues": [],
     "public_browser_gold_receipt": ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
-    "public_browser_gold_issues": [
-      "browser_receipt_stale_relative_to_current_head"
-    ],
+    "public_browser_gold_issues": [],
     "public_meaningful_browser_gold_receipt": ".codex-studio/published/memorial_realtime_browser_meaningful_public_origin.generated.json",
     "public_meaningful_browser_gold_issues": [],
     "room_audio_receipt": ".codex-studio/published/memorial_room_audio_public_origin.generated.json",
     "room_audio_issues": [
-      "room_receipt_stale_relative_to_current_head",
-      "room_manual_attestation_proof_type_missing",
+      "room_receipt_status_not_pass",
       "room_manual_attestation_id_missing",
       "room_manual_attestation_signed_at_missing",
-      "room_manual_attestation_ci_guard_missing"
+      "room_interruption_behavior_confirmed_missing",
+      "room_normal_spoken_turn_confirmed_missing",
+      "room_retry_path_confirmed_missing"
     ],
     "gold_thresholds": {
       "direct_tts_f1_min": 0.92,
@@ -73,11 +127,11 @@
     }
   },
   "evidence_heads": {
-    "whole_project_map": "e739be479a4e9e7c2b364259d7a8b15e9d9318e6",
-    "public_voice_receipt": "65f80831660870d44a2150960ff5ade4aa4f6455",
-    "public_browser_receipt": "65f80831660870d44a2150960ff5ade4aa4f6455",
+    "whole_project_map": "8e6c434f4b8e7f1e1c87e1c6b3fdc566915cc85c",
+    "public_voice_receipt": "e739be479a4e9e7c2b364259d7a8b15e9d9318e6",
+    "public_browser_receipt": "e739be479a4e9e7c2b364259d7a8b15e9d9318e6",
     "public_meaningful_browser_receipt": "65f80831660870d44a2150960ff5ade4aa4f6455",
-    "room_audio_receipt": "65f80831660870d44a2150960ff5ade4aa4f6455"
+    "room_audio_receipt": "8e6c434f4b8e7f1e1c87e1c6b3fdc566915cc85c"
   },
   "workflow_backing": {
     "status": "no",
@@ -90,17 +144,286 @@
     "direct_tts_transcriber": "memorial_tts_provenance_cache",
     "conversation_turn_transcriber": "memorial_tts_provenance_cache"
   },
-  "whole_project": {
+  "room_audio_attestation_packet": {
+    "status": "ready",
+    "receipt_path": ".codex-studio/published/memorial_room_audio_attestation_packet.generated.json",
+    "manual_only": true,
+    "ci_must_not_auto_assert": true,
+    "proof_target": ".codex-studio/published/memorial_room_audio_public_origin.generated.json",
+    "operator_command": "make materialize-memorial-room-audio-gold-clean",
+    "required_env_keys": [
+      "MEMORIAL_PUBLIC_ORIGIN",
+      "MEMORIAL_PUBLIC_SLUG",
+      "MEMORIAL_ROOM_ATTESTATION_ID",
+      "MEMORIAL_ROOM_ATTESTATION_SIGNED_AT",
+      "MEMORIAL_ROOM_ATTESTATION_SOURCE",
+      "MEMORIAL_ROOM_DEVICE_LABEL",
+      "MEMORIAL_ROOM_LABEL",
+      "MEMORIAL_ROOM_NOTES",
+      "MEMORIAL_ROOM_REVIEWER",
+      "MEMORIAL_ROOM_SPEAKER_LABEL"
+    ],
+    "required_check_ids": [
+      "actual_device_checked",
+      "actual_speaker_checked",
+      "first_syllable_not_clipped",
+      "intelligibility_confirmed",
+      "answer_text_fallback_visible",
+      "no_internet_search_confirmed",
+      "normal_spoken_turn_confirmed",
+      "interruption_behavior_confirmed",
+      "retry_path_confirmed"
+    ],
+    "next_action": "collect_real_room_audio_attestation"
+  },
+  "spoken_conversation_stt": {
     "status": "blocked",
-    "issues": [
-      "memorial voice receipt is stale relative to current HEAD"
-    ]
+    "receipt_status": "blocked",
+    "production_eligible": false,
+    "best_provider": "",
+    "production_provider": "",
+    "top_candidate_provider": "full_runtime",
+    "provider_label": "no_production_stt_provider",
+    "provider_key": "full_runtime",
+    "production_transcriber": "",
+    "production_transcriber_set": [],
+    "fallback_provider_statuses": [
+      {
+        "provider": "shadow",
+        "passed_samples": 0,
+        "sample_count": 4,
+        "scored_samples": 4,
+        "avg_token_f1": 0.0,
+        "avg_wer": 1.0,
+        "production_eligible": false
+      },
+      {
+        "provider": "onemin_sample",
+        "passed_samples": 0,
+        "sample_count": 4,
+        "scored_samples": 4,
+        "avg_token_f1": 0.0,
+        "avg_wer": 1.0,
+        "production_eligible": false
+      }
+    ],
+    "fallback_production_eligible": false,
+    "fallback_health": "blocked",
+    "passed_samples": 0,
+    "sample_count": 4,
+    "avg_token_f1": 0.0,
+    "avg_wer": 1.0,
+    "avg_latency_ms": 0.0,
+    "receipt_path": ".codex-studio/published/memorial_stt_provider_benchmark.generated.json",
+    "availability": {
+      "shadow_provider": "blipai",
+      "cartesia_configured": false,
+      "cartesia_default_credential_file_present": false,
+      "cartesia": {
+        "configured": false,
+        "credential_source": "none",
+        "accepted_source_types": [
+          "direct_env",
+          "inline_json_env",
+          "credential_file_env",
+          "default_credential_file"
+        ],
+        "default_credential_files": [],
+        "operator_hint": "Configure Cartesia with an env key, inline JSON, credential-file env, or ignored config/cartesia.local.json."
+      },
+      "onemin_key_count": 1,
+      "onemin_max_key_attempts": 3,
+      "provider_env": {
+        "files": [
+          ".env",
+          ".env.local"
+        ],
+        "loaded_count": 337,
+        "provider_families": {
+          "cartesia": false,
+          "onemin": true,
+          "blipai_shadow": true
+        }
+      }
+    },
+    "fixture_quality_status": "pass",
+    "fixture_quality_failed_codes": [],
+    "ground_truth_fixture_mode": "synthetic_only",
+    "cartesia_credential_status": {
+      "configured": false,
+      "credential_source": "none",
+      "accepted_source_types": [
+        "direct_env",
+        "inline_json_env",
+        "credential_file_env",
+        "default_credential_file"
+      ],
+      "default_credential_files": [],
+      "operator_hint": "Configure Cartesia with an env key, inline JSON, credential-file env, or ignored config/cartesia.local.json."
+    },
+    "next_action": "configure_cartesia_credentials",
+    "scoring": {
+      "pass_rule": "usable transcript + required tokens present + token_f1 >= sample min + WER <= sample max",
+      "fixture_quality_rule": "ground-truth fixtures must be long enough to contain their expected transcript before provider accuracy is scored",
+      "known_bad_non_empty_text_is_not_enough": true,
+      "production_eligible_rule": "provider must pass every ground-truth benchmark sample and hostile variant",
+      "text_mode": "redacted",
+      "raw_transcript_fields": false,
+      "redacted_text_fields": true,
+      "redacted_receipt_rule": "Default receipts store transcript hashes, lengths, and token hashes instead of raw expected/actual text. Set EA_MEMORIAL_STT_BENCHMARK_TEXT_MODE=full or pass --text-mode full for operator-local raw transcript diagnostics."
+    }
+  },
+  "stt_fixture_candidate": {
+    "status": "pass",
+    "receipt_path": ".codex-studio/published/memorial_stt_fixture_candidate.generated.json",
+    "failed_codes": [],
+    "candidate_scope": "audio_quality_and_provenance_only",
+    "promotion_gate": {
+      "status": "pending_captured_candidate_benchmark",
+      "required_receipt": ".codex-studio/published/memorial_stt_provider_benchmark_captured_candidate.generated.json",
+      "required_rule": "captured candidate must pass full-runtime STT scoring against operator-confirmed ground truth before fixture-manifest promotion",
+      "may_update_fixture_manifest": false,
+      "next_action": "run_captured_candidate_benchmark_before_fixture_manifest"
+    },
+    "bundle_id": "082347_realtime_audio_turn_generic_fallback_answer_ecbb37fce864",
+    "sample": "real_room_retry_candidate",
+    "synthetic": false,
+    "text_mode": "redacted",
+    "raw_text_fields": false,
+    "audio_bytes": 84558,
+    "audio_duration_seconds": 2.64,
+    "next_action": "run_captured_candidate_benchmark_before_fixture_manifest"
+  },
+  "stt_capture_discovery": {
+    "status": "blocked",
+    "receipt_path": ".codex-studio/published/memorial_stt_capture_discovery.generated.json",
+    "target_samples": [
+      "contact_opening",
+      "stt_retry"
+    ],
+    "bundle_count": 148,
+    "matched_count": 12,
+    "promotable_count": 0,
+    "failed_codes": [
+      "audio_too_short_for_expected_text"
+    ],
+    "text_mode": "redacted",
+    "raw_text_fields": false,
+    "next_action": "capture_new_real_question_audio_or_fix_truncated_logger"
+  },
+  "captured_candidate_benchmark": {
+    "status": "blocked",
+    "receipt_path": ".codex-studio/published/memorial_stt_provider_benchmark_captured_candidate.generated.json",
+    "best_provider": "full_runtime",
+    "production_eligible": false,
+    "passed_samples": 4,
+    "sample_count": 6,
+    "captured_rows": 2,
+    "captured_full_runtime_passed": false,
+    "captured_full_runtime_failures": [
+      {
+        "sample": "real_room_retry_candidate",
+        "variant": "captured",
+        "wer": 0.8889,
+        "token_f1": 0.2353,
+        "intent_correct": false
+      },
+      {
+        "sample": "real_room_retry_candidate_hostile",
+        "variant": "hostile",
+        "wer": 0.8889,
+        "token_f1": 0.2353,
+        "intent_correct": false
+      }
+    ],
+    "next_action": "inspect_captured_candidate_ground_truth_or_stt_failure"
+  },
+  "captured_candidate_diagnostic": {
+    "status": "blocked",
+    "diagnostic_status": "ready",
+    "receipt_path": ".codex-studio/published/memorial_stt_captured_candidate_diagnostic.generated.json",
+    "promotion_allowed": false,
+    "may_update_fixture_manifest": false,
+    "captured_row_count": 2,
+    "row_failure_codes": [
+      "required_tokens_missing",
+      "token_f1_below_min",
+      "transcript_hash_mismatch",
+      "wer_above_max"
+    ],
+    "full_runtime_failed_rows": [
+      {
+        "sample": "real_room_retry_candidate",
+        "variant": "captured",
+        "failure_codes": [
+          "required_tokens_missing",
+          "token_f1_below_min",
+          "transcript_hash_mismatch",
+          "wer_above_max"
+        ],
+        "token_f1": 0.2353,
+        "wer": 0.8889
+      },
+      {
+        "sample": "real_room_retry_candidate_hostile",
+        "variant": "hostile",
+        "failure_codes": [
+          "required_tokens_missing",
+          "token_f1_below_min",
+          "transcript_hash_mismatch",
+          "wer_above_max"
+        ],
+        "token_f1": 0.2353,
+        "wer": 0.8889
+      }
+    ],
+    "privacy": {
+      "candidate_raw_text_fields": false,
+      "public_receipt_must_not_include_full_text": true,
+      "raw_transcript_fields": false,
+      "redacted_text_fields": true,
+      "text_mode": "redacted"
+    },
+    "next_action": "rerun_operator_local_full_text_benchmark_or_correct_ground_truth_transcript"
+  },
+  "spoken_conversation_tts": {
+    "status": "pass",
+    "premium_status": "blocked",
+    "receipt_path": ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
+    "browser_receipt_path": ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
+    "room_audio_receipt_path": ".codex-studio/published/memorial_room_audio_public_origin.generated.json",
+    "direct_tts_audio_status": "pass",
+    "conversation_turn_audio_status": "pass",
+    "direct_tts_f1": 1.0,
+    "conversation_turn_audio_f1": 1.0,
+    "browser_audio_ready_for_ui": true,
+    "browser_audio_payload_ready": false,
+    "browser_audio_transport": "ui_playback_probe",
+    "browser_audio_unavailable": false,
+    "browser_play_calls": 1,
+    "browser_play_ended": 1,
+    "browser_play_error": "",
+    "conversation_turn_payload_audio_embedded": false,
+    "room_audio_receipt": "blocked",
+    "failed_codes": [],
+    "premium_failed_codes": [
+      "room_audio_attestation_not_pass"
+    ],
+    "next_action": "collect_real_room_audio_attestation"
+  },
+  "whole_project": {
+    "status": "pass",
+    "message": "whole-project gold map is honest and fail-closed."
   },
   "whole_project_map_summary": {
     "overall_status": "not_gold",
     "gold_claim_allowed": false,
     "blocking_planes": [
       "design_surface",
+      "chummer_core_rules",
+      "chummer_desktop_ui",
+      "chummer_hub_public_web",
+      "mobile_and_second_device",
       "media_factory_publication",
       "telegram_video_delivery",
       "memorial_public_origin_gold",

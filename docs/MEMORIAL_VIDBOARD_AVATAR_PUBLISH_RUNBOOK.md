@@ -15,7 +15,7 @@ If any of those conditions are missing, the page must stay on the portrait fallb
 ## Inputs
 
 - verified provider proof:
-  - `/docker/fleet/state/chummer6/avatar_presenter_provider/vidboard_AVATAR_PRESENTER_PROVIDER_PROOF.generated.json`
+  - `.codex-studio/published/avatar_presenter_provider/vidboard_AVATAR_PRESENTER_PROVIDER_PROOF.generated.json`
 - rendered avatar clip:
   - local `.mp4`, `.webm`, or `.mov`
 - poster image:
@@ -25,7 +25,7 @@ If any of those conditions are missing, the page must stay on the portrait fallb
 ## Publish
 
 ```bash
-cd /docker/EA
+cd "$EA_REPO_ROOT"
 
 python3 scripts/publish_memorial_video_call_avatar.py \
   --slug manfred \
@@ -52,13 +52,13 @@ The script:
 - copies the video and poster into `memorial_data/public_memorials/{slug}/video/`
 - updates `memorial.json` with a `video_call_avatar` block
 - writes a publish receipt to:
-  - `/docker/fleet/state/chummer6/avatar_presenter_provider/{slug}_video_call_avatar_publish.generated.json`
+  - `.codex-studio/published/avatar_presenter_provider/{slug}_video_call_avatar_publish.generated.json`
 
 ## Verify
 
 ```bash
-cd /docker/EA/ea
-python3 -m pytest -q /docker/EA/tests/test_publish_memorial_video_call_avatar.py /docker/EA/tests/test_memorial_security_contracts.py
+cd "$EA_REPO_ROOT"
+python3 -m pytest -q tests/test_publish_memorial_video_call_avatar.py tests/test_memorial_security_contracts.py
 ```
 
 Then confirm live route behavior:

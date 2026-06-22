@@ -24,7 +24,7 @@ LOCAL_PRODUCT_ROOT = ROOT / ".codex-design" / "product"
 DEFAULT_DESIGN_ROOT = Path(
     os.environ.get("EA_DESIGN_ROOT")
     or os.environ.get("EA_MIRROR_FIXTURE_ROOT")
-    or "/docker/chummercomplete/chummer-design/products/chummer"
+    or LOCAL_PRODUCT_ROOT
 )
 QUEUE_OVERLAY_PATH = ROOT / ".codex-studio" / "published" / "QUEUE.generated.yaml"
 EXPECTED_QUEUE_PACKAGE_ID = "audit-task-4257456"
@@ -74,7 +74,7 @@ def _sha256(path: Path) -> str:
 
 
 def _expected_queue_source_items() -> list[str]:
-    return [f"/docker/EA/{binding.local_path.relative_to(ROOT).as_posix()}" for binding in _bindings()]
+    return [(ROOT / binding.local_path.relative_to(ROOT)).as_posix() for binding in _bindings()]
 
 
 def _acceptable_queue_source_items() -> tuple[list[str], ...]:

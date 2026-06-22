@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-completion = Path('/docker/chummercomplete/_completion/chummer6_absolute_completion')
+ROOT = Path(__file__).resolve().parents[1]
+completion = Path(os.environ.get("CHUMMER_REQUEST_AUDIT_COMPLETION_DIR") or ROOT / "ea" / "_completion" / "chummer6_absolute_completion")
 payload = {
     'contract_name': 'chummer.feedback_ea_dry_run',
     'status': 'pass',

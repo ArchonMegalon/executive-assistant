@@ -44,15 +44,17 @@ def test_load_horizon_canon_tracks_live_design_horizons() -> None:
     canon = _load_module()
 
     catalog = canon.load_horizon_canon()
+    features = canon.load_feature_canon()
 
     assert set(catalog) >= {
-        "nexus-pan",
         "alice",
         "karma-forge",
         "jackpoint",
         "runsite",
         "runbook-press",
     }
+    assert "nexus-pan" not in catalog
+    assert "nexus-pan" in features
     assert "ghostwire" not in catalog
     assert "knowledge-fabric" not in catalog
     assert "local-co-processor" not in catalog
@@ -78,13 +80,13 @@ def test_load_faq_and_help_canon_track_public_question_sets() -> None:
 
     assert "participation_and_preview" in faq
     questions = {entry["question"] for entry in faq["participation_and_preview"]["entries"]}
-    assert "What is guided contribution?" in questions
-    assert "Will guided-preview access open wider later?" in questions
-    assert "the cheap baseline remains the default path" in help_copy["privacy_and_review_safety"]
+    assert "Can I help with fixes or testing?" in questions
+    assert "Will preview access open wider later?" in questions
+    assert "normal feedback remains the default path" in help_copy["privacy_and_review_safety"]
     assert canon.design_root() == ROOT / ".codex-design" / "product"
     release_summary = str(release["release_notes_summary"]).lower()
-    assert "one clear" in release_summary
-    assert "download" in release_summary
+    assert "direct stable and nightly paths" in release_summary
+    assert "windows and linux" in release_summary
     trust_pages = {str(page.get("id") or ""): page for page in trust.get("trust_pages") or [] if isinstance(page, dict)}
     help_page = dict(trust_pages["help"])
     assert "downloads and setup stay clear" in [str(value).lower() for value in help_page.get("summary_points") or []]
@@ -107,6 +109,8 @@ def test_asset_visual_profile_derives_critical_first_contact_requirements() -> N
     readme = canon.asset_visual_profile("README.md")
     horizons = canon.asset_visual_profile("assets/pages/horizons-index.png")
     forge = canon.asset_visual_profile("assets/horizons/karma-forge.png")
+    nexus = canon.asset_visual_profile("assets/features/nexus-pan.png")
+    legacy_nexus = canon.asset_visual_profile("assets/horizons/nexus-pan.png")
 
     assert hero["visual_density_profile"] == "first_contact_hero"
     assert hero["required_person_count"] == "duo_or_team"
@@ -142,7 +146,7 @@ def test_asset_visual_profile_derives_critical_first_contact_requirements() -> N
     assert "lane arcs" in " ".join(horizons["overlay_geometry"]).lower()
     assert horizons["overlay_render_strategy"] == "verified_post_composite_public"
     assert "none" not in horizons["allowed_overlay_modes"]
-    assert "branching futures" in " ".join(horizons["must_show_semantic_anchors"]).lower()
+    assert "base product features separated from expansion bets" in " ".join(horizons["must_show_semantic_anchors"]).lower()
     assert forge["visual_density_profile"] == "flagship_horizon"
     assert forge["required_person_count"] == "duo_preferred"
     assert forge["required_overlay_mode"] == "forge_review_ar"
@@ -157,6 +161,11 @@ def test_asset_visual_profile_derives_critical_first_contact_requirements() -> N
     assert forge["overlay_anchor_required"] is True
     assert "approval state" in " ".join(forge["overlay_priority_order"]).lower()
     assert "reviewer" in " ".join(forge["must_show_semantic_anchors"]).lower()
+    assert nexus["required_overlay_mode"] == "smartlink_tactical"
+    assert nexus["overlay_render_strategy"] == "verified_post_composite_public"
+    assert nexus["environment_share_minimum"] == 0.56
+    assert "battered van or service rig required" in nexus["required_setting_markers"]
+    assert legacy_nexus["required_setting_markers"] == nexus["required_setting_markers"]
 
 
 def test_asset_image_curation_tracks_editorial_cover_locks() -> None:

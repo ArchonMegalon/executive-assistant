@@ -1,0 +1,156 @@
+{
+  "chatlab_contract": {
+    "contract_name": "ea.memorial_chatlab_ltd_integration.v1",
+    "detail": "No verified ChatLab runtime is enabled; the public memorial chat uses the governed first-party memorial route.",
+    "difficult_memory_guardrail_owner": "ea_first_party_memorial_chat",
+    "first_party_chat_remains_authoritative": true,
+    "gold_claim_allowed": false,
+    "integration_state": "fallback_first_party_chat",
+    "next_action": "keep_first_party_memorial_chat",
+    "provider_configured": false,
+    "provider_guardrail_override_allowed": false,
+    "provider_key": "",
+    "provider_label": "",
+    "provider_memory_write_allowed": false,
+    "provider_persona_truth_allowed": false,
+    "provider_publication_allowed": false,
+    "provider_runtime_allowed": false,
+    "provider_truth_allowed": false,
+    "raw_private_context_allowed": false,
+    "required_next_receipts": [
+      "chatlab_account_capability_receipt",
+      "chatlab_runtime_probe_receipt",
+      "chatlab_no_private_context_upload_receipt",
+      "chatlab_guardrail_preservation_receipt"
+    ],
+    "slug": "manfred"
+  },
+  "checks": [
+    {
+      "detail": "Provider-disabled fallback and provider-enabled contract-only modes are both explicit states.",
+      "key": "provider_enabled_or_fallback_declared",
+      "status": "pass"
+    },
+    {
+      "detail": "Configured provider must normalize to chatlab or chatplayground_ai.",
+      "key": "supported_provider_selected",
+      "status": "pass"
+    },
+    {
+      "detail": "Enabled provider lane requires an API key, but the value is never written to the receipt.",
+      "key": "api_key_present_when_enabled",
+      "status": "pass"
+    },
+    {
+      "detail": "Enabled provider lane requires an endpoint, but the URL value is never written to the receipt.",
+      "key": "endpoint_present_when_enabled",
+      "status": "pass"
+    },
+    {
+      "detail": "Provider runtime opt-in is ignored unless provider, API key, and endpoint are configured.",
+      "key": "runtime_opt_in_requires_config",
+      "status": "pass"
+    },
+    {
+      "detail": "No provider account capability receipt has been attached to this local preflight.",
+      "key": "account_capability_receipt_present",
+      "status": "warn"
+    },
+    {
+      "detail": "No live ChatLab runtime probe has been executed by this local preflight.",
+      "key": "runtime_probe_receipt_present",
+      "status": "warn"
+    },
+    {
+      "detail": "The ChatLab route contract blocks raw private memorial context upload.",
+      "key": "no_private_context_upload_policy",
+      "status": "pass"
+    },
+    {
+      "detail": "No external no-private-context-upload runtime receipt has been attached.",
+      "key": "no_private_context_upload_receipt_present",
+      "status": "warn"
+    },
+    {
+      "detail": "EA first-party memorial chat keeps the difficult-memory guardrail and public answer route.",
+      "key": "guardrail_preservation_policy",
+      "status": "pass"
+    },
+    {
+      "detail": "No external guardrail-preservation runtime receipt has been attached.",
+      "key": "guardrail_preservation_receipt_present",
+      "status": "warn"
+    },
+    {
+      "detail": "Provider output cannot become persona, memory, or answer truth.",
+      "key": "provider_truth_blocked",
+      "status": "pass"
+    },
+    {
+      "detail": "Provider output cannot publish or support gold claims from this preflight.",
+      "key": "provider_publication_blocked",
+      "status": "pass"
+    }
+  ],
+  "contract_name": "ea.memorial_chatlab_runtime_preflight.v1",
+  "credential_values_exposed": false,
+  "external_evidence": {
+    "configured_path_present": true,
+    "contract_name": "ea.memorial_chatlab_external_evidence.v1",
+    "credential_values_exposed": false,
+    "endpoint_value_exposed": false,
+    "raw_private_context_exposed": false,
+    "raw_provider_payload_exposed": false,
+    "status": "incomplete"
+  },
+  "failed_checks": [],
+  "gold_claim_allowed": false,
+  "guardrail_override_allowed": false,
+  "live_provider_runtime_verified": false,
+  "memory_truth_allowed": false,
+  "next_action": "run_chatlab_account_and_runtime_receipts_before_any_live_provider_claim",
+  "persona_truth_allowed": false,
+  "provider": {
+    "api_key_present": false,
+    "credential_values_exposed": false,
+    "endpoint_present": false,
+    "endpoint_value_exposed": false,
+    "provider_configured": false,
+    "provider_enabled": false,
+    "provider_key": "",
+    "provider_label": "",
+    "runtime_opt_in": false
+  },
+  "provider_ready": false,
+  "provider_truth_allowed": false,
+  "publication_allowed": false,
+  "raw_private_context_exposed": false,
+  "readiness_state": "fallback_first_party_chat",
+  "receipts": {
+    "chatlab_account_capability_receipt": {
+      "evidence_scope": "env_presence_only",
+      "status": "missing_provider_evidence"
+    },
+    "chatlab_guardrail_preservation_receipt": {
+      "first_party_chat_remains_authoritative": true,
+      "guardrail_owner": "ea_first_party_memorial_chat",
+      "status": "pass_policy"
+    },
+    "chatlab_no_private_context_upload_receipt": {
+      "raw_private_context_allowed": false,
+      "status": "pass_policy"
+    },
+    "chatlab_runtime_probe_receipt": {
+      "evidence_scope": "no_network_probe",
+      "status": "not_run"
+    }
+  },
+  "slug": "manfred",
+  "status": "warn",
+  "warned_checks": [
+    "account_capability_receipt_present",
+    "runtime_probe_receipt_present",
+    "no_private_context_upload_receipt_present",
+    "guardrail_preservation_receipt_present"
+  ]
+}

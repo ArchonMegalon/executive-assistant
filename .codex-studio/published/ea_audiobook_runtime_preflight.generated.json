@@ -1,0 +1,161 @@
+{
+  "access": {
+    "audiobookshelf_api_base_url_present": false,
+    "audiobookshelf_api_token_present": false,
+    "audiobookshelf_auto_import_enabled": true,
+    "audiobookshelf_library_id_present": false,
+    "audiobookshelf_public_base_url_present": false,
+    "audiobookshelf_public_share_configured": false,
+    "audiobookshelf_public_share_enabled": false,
+    "player_access_base_url_present": false,
+    "player_access_signing_secret_present": false,
+    "tokens_exposed": false
+  },
+  "assembly": {
+    "ffmpeg_available": true,
+    "ffmpeg_m4b_fallback_available": true,
+    "ffmpeg_m4b_fallback_enabled": true,
+    "ffprobe_available": true,
+    "m4b_assembly_available": true,
+    "m4b_tool_available": false
+  },
+  "checks": [
+    {
+      "detail": "Telegram EPUB intake switch.",
+      "key": "telegram_epub_enabled",
+      "status": "pass"
+    },
+    {
+      "detail": "Large EPUB, WAV, and M4B artifacts stay on pCloud.",
+      "key": "jobs_root_pcloud",
+      "status": "pass"
+    },
+    {
+      "detail": "Audiobook job root can be created or written.",
+      "key": "jobs_root_writable",
+      "status": "pass"
+    },
+    {
+      "detail": "Raw book text may leave EA only through the explicit external-TTS gate.",
+      "key": "external_tts_enabled",
+      "status": "fail"
+    },
+    {
+      "detail": "Telegram EPUB jobs can render without a separate manual resume.",
+      "key": "unmixr_auto_render_enabled",
+      "status": "fail"
+    },
+    {
+      "detail": "At least one Unmixr narration voice is configured.",
+      "key": "voice_catalog_configured",
+      "status": "fail"
+    },
+    {
+      "detail": "At least three voices are available for Telegram comparison samples.",
+      "key": "voice_catalog_audition_ready",
+      "status": "warn"
+    },
+    {
+      "detail": "ffmpeg is available for segment conversion and fallback M4B assembly.",
+      "key": "ffmpeg_available",
+      "status": "pass"
+    },
+    {
+      "detail": "ffprobe is available for chapter-duration metadata.",
+      "key": "ffprobe_available",
+      "status": "pass"
+    },
+    {
+      "detail": "m4b-tool is available, or ffmpeg fallback is available.",
+      "key": "m4b_assembly_available",
+      "status": "pass"
+    },
+    {
+      "detail": "Audiobookshelf import storage is pCloud-backed.",
+      "key": "audiobookshelf_import_root_pcloud",
+      "status": "pass"
+    },
+    {
+      "detail": "Audiobookshelf import root can be created or written.",
+      "key": "audiobookshelf_import_root_writable",
+      "status": "pass"
+    },
+    {
+      "detail": "Player/runner-scoped playback references can be signed.",
+      "key": "player_access_signing_secret_present",
+      "status": "fail"
+    },
+    {
+      "detail": "Telegram replies can include a full scoped playback URL.",
+      "key": "player_access_base_url_present",
+      "status": "fail"
+    },
+    {
+      "detail": "Provider-throttled jobs can resume without operator babysitting.",
+      "key": "scheduler_resume_enabled",
+      "status": "pass"
+    },
+    {
+      "detail": "Large EPUB renders pause voluntarily between batches so one book does not monopolize the Unmixr lane.",
+      "key": "unmixr_bulk_pacing_configured",
+      "status": "pass"
+    }
+  ],
+  "contract_name": "ea.telegram_epub_audiobook_runtime_preflight.v1",
+  "failed_checks": [
+    "external_tts_enabled",
+    "unmixr_auto_render_enabled",
+    "voice_catalog_configured",
+    "player_access_signing_secret_present",
+    "player_access_base_url_present"
+  ],
+  "observed_at": "2026-06-19T22:25:56.765587Z",
+  "provider": {
+    "api_key_slot_count": 0,
+    "bulk_pacing": {
+      "bulk_char_threshold": 60000,
+      "max_segments_per_run": 20,
+      "pacing_wait_seconds": 1800,
+      "priority_source_kinds": [
+        "origin_dossier_story",
+        "origin_dossier"
+      ]
+    },
+    "external_tts_enabled": false,
+    "provider": "unmixr",
+    "provider_secrets_exposed": false,
+    "raw_voice_ids_exposed": false,
+    "unmixr_auto_render_enabled": false,
+    "voice_audition_min_candidates": 3,
+    "voice_catalog": [],
+    "voice_catalog_count": 0,
+    "voice_discovery_enabled": false,
+    "voice_discovery_target_count": 30
+  },
+  "scheduler": {
+    "priority_source_kinds": [
+      "origin_dossier_story",
+      "origin_dossier"
+    ],
+    "resume_due_limit": 2,
+    "resume_enabled": true,
+    "resume_interval_seconds": 300,
+    "resume_order": [
+      "priority_source",
+      "retry_at",
+      "job_dir_name"
+    ]
+  },
+  "status": "fail",
+  "storage": {
+    "audiobookshelf_import_root_kind": "pcloud",
+    "audiobookshelf_import_root_pcloud_mounted": true,
+    "jobs_root_kind": "pcloud",
+    "jobs_root_pcloud_mounted": true,
+    "pcloud_mounted": true,
+    "raw_paths_exposed": false
+  },
+  "warned_checks": [
+    "voice_catalog_audition_ready"
+  ]
+}

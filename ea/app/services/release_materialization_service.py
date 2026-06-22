@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import os
 import subprocess
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -16,34 +16,85 @@ class ReleaseMaterializerStep:
     extra_env: dict[str, str] | None = None
 
 
-DEFAULT_RELEASE_MATERIALIZERS: tuple[ReleaseMaterializerStep, ...] = (
-    ReleaseMaterializerStep("ea_browser_workflow_proof", ("scripts/materialize_ea_browser_workflow_proof.py",)),
-    ReleaseMaterializerStep("ea_flagship_release_gate", ("scripts/materialize_ea_flagship_release_gate.py",)),
-    ReleaseMaterializerStep("weekly_product_pulse", ("scripts/materialize_weekly_product_pulse.py",)),
-    ReleaseMaterializerStep("project_mode_manifests", ("scripts/materialize_project_mode_manifests.py",)),
-    ReleaseMaterializerStep("telegram_video_delivery_receipt", ("scripts/materialize_telegram_video_delivery_receipt.py",), extra_env={"PYTHONPATH": "ea"}),
-    ReleaseMaterializerStep("whole_project_gold_map", ("scripts/materialize_whole_project_gold_map.py",), extra_env={"PYTHONPATH": "ea"}),
-    ReleaseMaterializerStep("memorial_phrase_bank", ("scripts/materialize_memorial_phrase_bank.py",)),
-    ReleaseMaterializerStep("memorial_operator_status", ("scripts/materialize_memorial_operator_status.py",)),
-)
-
-
-def materialize_release_assets(*, python_bin: str = sys.executable) -> None:
-    for step in DEFAULT_RELEASE_MATERIALIZERS:
-        _run_python(python_bin=python_bin, step=step)
+def _steps() -> tuple[ReleaseMaterializerStep, ...]:
+    return (
+        ReleaseMaterializerStep(
+            name="ea_browser_workflow_proof",
+            command=("scripts/materialize_ea_browser_workflow_proof.py",),
+        ),
+        ReleaseMaterializerStep(
+            name="project_mode_manifests",
+            command=("scripts/materialize_project_mode_manifests.py",),
+        ),
+        ReleaseMaterializerStep(
+            name="ea_flagship_release_gate",
+            command=("scripts/materialize_ea_flagship_release_gate.py",),
+        ),
+        ReleaseMaterializerStep(
+            name="weekly_product_pulse",
+            command=("scripts/materialize_weekly_product_pulse.py",),
+        ),
+        ReleaseMaterializerStep(
+            name="telegram_video_delivery_receipt",
+            command=("scripts/materialize_telegram_video_delivery_receipt.py",),
+            extra_env={"PYTHONPATH": "ea"},
+        ),
+        ReleaseMaterializerStep(
+            name="telegram_video_delivery_live_receipt",
+            command=("scripts/materialize_telegram_video_delivery_live_receipt.py",),
+            extra_env={"PYTHONPATH": "ea"},
+        ),
+        ReleaseMaterializerStep(
+            name="memorial_phrase_bank",
+            command=("scripts/materialize_memorial_phrase_bank.py",),
+        ),
+        ReleaseMaterializerStep(
+            name="ea_provider_contract_receipts",
+            command=("scripts/materialize_ea_provider_contract_receipts.py",),
+            extra_env={"PYTHONPATH": "ea"},
+        ),
+        ReleaseMaterializerStep(
+            name="whole_project_gold_map",
+            command=("scripts/materialize_whole_project_gold_map.py",),
+            extra_env={"PYTHONPATH": "ea"},
+        ),
+        ReleaseMaterializerStep(
+            name="teable_env_recovery_readiness",
+            command=("scripts/materialize_teable_env_recovery_readiness.py",),
+        ),
+        ReleaseMaterializerStep(
+            name="whatsapp_web_action_processor_readiness",
+            command=("scripts/materialize_whatsapp_web_action_processor_readiness.py",),
+        ),
+        ReleaseMaterializerStep(
+            name="continuous_improvement_goal_posture",
+            command=("scripts/materialize_continuous_improvement_goal_posture.py",),
+        ),
+        ReleaseMaterializerStep(
+            name="memorial_stt_provider_benchmark",
+            command=("scripts/benchmark_memorial_stt_providers.py",),
+            extra_env={"PYTHONPATH": "ea"},
+        ),
+        ReleaseMaterializerStep(
+            name="memorial_operator_status",
+            command=("scripts/materialize_memorial_operator_status.py",),
+        ),
+    )
 
 
 def _run_python(*, python_bin: str, step: ReleaseMaterializerStep) -> None:
-    import os
-
     env = os.environ.copy()
     if step.extra_env:
         env.update(step.extra_env)
-    proc = subprocess.run(
+    subprocess.run(
         [python_bin, *step.command],
-        cwd=str(ROOT),
+        cwd=ROOT,
         env=env,
-        check=False,
+        check=True,
+        text=True,
     )
-    if proc.returncode != 0:
-        raise SystemExit(proc.returncode)
+
+
+def materialize_release_assets(*, python_bin: str = "python3") -> None:
+    for step in _steps():
+        _run_python(python_bin=python_bin, step=step)

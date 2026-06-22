@@ -8,9 +8,10 @@ import os
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
+from pathlib import Path
 from urllib.parse import urlparse
 
-sys.path.insert(0, "/docker/EA/ea")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ea"))
 
 from app.api.dependencies import RequestContext  # noqa: E402
 from app.api.routes.responses import _run_response  # noqa: E402
@@ -91,7 +92,7 @@ class ResponsesProxyHandler(BaseHTTPRequestHandler):
             return None
         principal_id = str(self.headers.get("X-EA-Principal-ID") or "").strip()
         if not principal_id:
-            principal_id = str(CONTAINER.settings.auth.default_principal_id or "").strip() or "local-user"
+            principal_id = str(CONTAINER.settings.auth.default_principal_id or "").strip() or "principal-default"
         return RequestContext(
             principal_id=principal_id,
             authenticated=bool(AUTH_TOKEN),

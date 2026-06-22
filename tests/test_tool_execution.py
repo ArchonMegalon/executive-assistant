@@ -82,21 +82,26 @@ def test_tool_execution_service_sends_rendered_video_to_telegram_when_audio_is_p
         tool_registry=InMemoryToolRegistryRepository(),
         connector_bindings=InMemoryConnectorBindingRepository(),
     )
+    channel_runtime = ChannelRuntimeService(
+        observations=InMemoryObservationEventRepository(),
+        outbox=InMemoryDeliveryOutboxRepository(),
+    )
     tool_runtime.upsert_connector_binding(
         principal_id="exec-video-send",
         connector_name="telegram_identity",
         external_account_ref="42",
-        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "ea_concierge_bot"},
         scope_json={"assistant_surfaces": ["dm"]},
         status="enabled",
     )
-    service = _tool_execution_service(tool_runtime=tool_runtime, artifacts=artifacts)
+    service = _tool_execution_service(tool_runtime=tool_runtime, artifacts=artifacts, channel_runtime=channel_runtime)
     monkeypatch.setenv(
         "EA_TELEGRAM_BOT_REGISTRY_JSON",
-        json.dumps({"default": {"token": "telegram-token", "handle": "tibor_concierge_bot"}}),
+        json.dumps({"default": {"token": "telegram-token", "handle": "ea_concierge_bot"}}),
     )
     monkeypatch.setattr("app.services.telegram_delivery._telegram_video_has_audio", lambda value: True)
     monkeypatch.setattr("app.services.telegram_delivery._telegram_remote_ref_reachable", lambda value: True)
+    monkeypatch.setattr("app.product.service._pocket_audio_fallback_available", lambda: True)
     tool_runtime.upsert_tool(
         tool_name="test.video.render",
         version="test-v1",
@@ -157,7 +162,14 @@ def test_tool_execution_service_sends_rendered_video_to_telegram_when_audio_is_p
             step_id="step-video-send-1",
             tool_name="test.video.render",
             action_kind="movie.render",
-            payload_json={"script_text": "Create a teaser."},
+            payload_json={
+                "script_text": "Create a teaser.",
+                "current_message_id": "source-message-99",
+                "video_download_url": "https://api.telegram.org/file/bot123456:secret-token/videos/source.mp4",
+                "video_duration_seconds": 12,
+                "source_video_reference_board_path": "/tmp/source-board.jpg",
+                "source_video_reference_frame_paths": ["/tmp/frame-1.jpg", "/tmp/frame-2.jpg"],
+            },
             context_json={"principal_id": "exec-video-send"},
         )
     )
@@ -166,6 +178,253 @@ def test_tool_execution_service_sends_rendered_video_to_telegram_when_audio_is_p
     assert sent[0]["payload"]["video"] == "https://cdn.example/mootion/brigittenau-shortlist.mp4"
     assert result.output_json["telegram_delivery_json"]["status"] == "sent"
     assert result.output_json["telegram_delivery_json"]["message_ids"] == ["99"]
+    observations = channel_runtime.list_recent_observations(limit=10, principal_id="exec-video-send")
+    video_receipts = [row for row in observations if row.event_type == "telegram.video_delivery_receipt"]
+    assert len(video_receipts) == 1
+    receipt_payload = dict(video_receipts[0].payload or {})
+    assert receipt_payload["status"] == "sent"
+    assert receipt_payload["delivery_kind"] == "video"
+    assert receipt_payload["telegram_method"] == "sendVideo"
+    assert receipt_payload["provider"] == "test.video.render"
+    assert receipt_payload["message_ids"] == ["99"]
+    source_video = dict(receipt_payload["source_video"])
+    assert source_video["source_url_raw_stored"] is False
+    assert source_video["source_host"] == "api.telegram.org"
+    assert source_video["source_path_redacted"] == "/file/bot<redacted>/videos/source.mp4"
+    assert source_video["source_video_reference_frame_count"] == 2
+    serialized = json.dumps(receipt_payload)
+    assert "secret-token" not in serialized
+    assert "bot123456" not in serialized
+
+    from scripts.materialize_telegram_video_delivery_live_receipt import build_receipt as build_live_receipt
+
+    live_receipt = build_live_receipt(
+        output_path=Path("telegram_video_delivery_live.generated.json"),
+        observations=video_receipts,
+        generated_at="2026-06-19T00:00:00Z",
+    )
+    assert live_receipt["status"] == "pass"
+    assert live_receipt["selected_observation"]["sent_message_ids"] == ["99"]
+
+
+def test_tool_execution_service_transcribes_fitted_video_audio_before_telegram_send(monkeypatch: pytest.MonkeyPatch) -> None:
+    artifacts = InMemoryArtifactRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    tool_runtime.upsert_connector_binding(
+        principal_id="exec-video-stt",
+        connector_name="telegram_identity",
+        external_account_ref="42",
+        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "ea_concierge_bot"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    service = _tool_execution_service(tool_runtime=tool_runtime, artifacts=artifacts)
+    monkeypatch.setenv(
+        "EA_TELEGRAM_BOT_REGISTRY_JSON",
+        json.dumps({"default": {"token": "telegram-token", "handle": "ea_concierge_bot"}}),
+    )
+    monkeypatch.setattr("app.services.telegram_delivery._telegram_video_has_audio", lambda value: True)
+    monkeypatch.setattr("app.services.telegram_delivery._telegram_remote_ref_reachable", lambda value: True)
+    monkeypatch.setattr("app.product.service._pocket_audio_fallback_available", lambda: True)
+
+    transcript_calls: list[dict[str, object]] = []
+
+    def _fake_retranscribe(
+        *,
+        recording_id: str,
+        title: str,
+        language: str,
+        audio_download_url: str,
+    ) -> dict[str, object]:
+        transcript_calls.append(
+            {
+                "recording_id": recording_id,
+                "title": title,
+                "language": language,
+                "audio_download_url": audio_download_url,
+            }
+        )
+        return {
+            "transcript_text": "Hallo Manfred, wir haben eine neue Idee für den Ring.",
+            "transcript_segment_count": 1,
+            "transcript_metadata": {"transcriber": "test"},
+        }
+
+    monkeypatch.setattr("app.product.service._pocket_retranscribe_from_audio_url", _fake_retranscribe)
+
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 99}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        sent.append(
+            {
+                "url": request.full_url,
+                "payload": json.loads(request.data.decode("utf-8")),
+                "timeout": timeout,
+            }
+        )
+        return _FakeResponse()
+
+    monkeypatch.setattr("app.services.telegram_delivery.urllib.request.urlopen", _fake_urlopen)
+
+    def _fake_handler(request, definition):
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind=str(request.action_kind or "movie.render") or "movie.render",
+            target_ref="mootion:test",
+            output_json={
+                "result_title": "Ring teaser",
+                "render_status": "rendered",
+                "asset_url": "https://cdn.example/mootion/ring-shortlist.mp4",
+                "mime_type": "video/mp4",
+                "audio_probe_ref": "https://cdn.example/audio/ring_voiceover.wav",
+                "public_url": "https://viewer.example/mootion/ring",
+            },
+            receipt_json={"handler_key": definition.tool_name},
+        )
+
+    tool_runtime.upsert_tool(
+        tool_name="test.video.render",
+        version="test-v1",
+        input_schema_json={"type": "object"},
+        output_schema_json={"type": "object"},
+        policy_json={},
+        enabled=True,
+    )
+    service.register_handler("test.video.render", _fake_handler)
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-video-stt-1",
+            step_id="step-video-stt-1",
+            tool_name="test.video.render",
+            action_kind="movie.render",
+            payload_json={"script_text": "Create a teaser."},
+            context_json={"principal_id": "exec-video-stt"},
+        )
+    )
+
+    assert sent and sent[0]["url"] == "https://api.telegram.org/bottelegram-token/sendVideo"
+    assert result.output_json["telegram_delivery_json"]["status"] == "sent"
+    assert result.output_json["telegram_delivery_json"]["video_transcript_status"] == "ok"
+    assert result.output_json["telegram_delivery_json"]["video_transcript_segment_count"] == 1
+    assert result.output_json["telegram_delivery_json"]["video_transcript_source"] == "audio_probe"
+    assert dict(result.output_json["telegram_delivery_json"].get("video_transcript_metadata") or {}).get("transcriber") == "test"
+    assert len(transcript_calls) == 1
+    assert transcript_calls[0]["audio_download_url"] == "https://cdn.example/audio/ring_voiceover.wav"
+    assert transcript_calls[0]["language"] == "de"
+
+
+def test_tool_execution_service_stt_failure_does_not_block_telegram_video_send(monkeypatch: pytest.MonkeyPatch) -> None:
+    artifacts = InMemoryArtifactRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    tool_runtime.upsert_connector_binding(
+        principal_id="exec-video-stt-fail",
+        connector_name="telegram_identity",
+        external_account_ref="42",
+        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "ea_concierge_bot"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    service = _tool_execution_service(tool_runtime=tool_runtime, artifacts=artifacts)
+    monkeypatch.setenv(
+        "EA_TELEGRAM_BOT_REGISTRY_JSON",
+        json.dumps({"default": {"token": "telegram-token", "handle": "ea_concierge_bot"}}),
+    )
+    monkeypatch.setattr("app.services.telegram_delivery._telegram_video_has_audio", lambda value: True)
+    monkeypatch.setattr("app.services.telegram_delivery._telegram_remote_ref_reachable", lambda value: True)
+    monkeypatch.setattr("app.product.service._pocket_audio_fallback_available", lambda: True)
+
+    def _fake_retranscribe(
+        *,
+        recording_id: str,
+        title: str,
+        language: str,
+        audio_download_url: str,
+    ) -> dict[str, object]:
+        raise RuntimeError("transcript_provider_down")
+
+    monkeypatch.setattr("app.product.service._pocket_retranscribe_from_audio_url", _fake_retranscribe)
+
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 98}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        sent.append(
+            {
+                "url": request.full_url,
+                "payload": json.loads(request.data.decode("utf-8")),
+                "timeout": timeout,
+            }
+        )
+        return _FakeResponse()
+
+    monkeypatch.setattr("app.services.telegram_delivery.urllib.request.urlopen", _fake_urlopen)
+
+    def _fake_handler(request, definition):
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind=str(request.action_kind or "movie.render") or "movie.render",
+            target_ref="mootion:test",
+            output_json={
+                "result_title": "Ring teaser",
+                "render_status": "rendered",
+                "asset_url": "https://cdn.example/mootion/ring-shortlist.mp4",
+                "mime_type": "video/mp4",
+                "audio_probe_ref": "https://cdn.example/audio/ring_voiceover.wav",
+            },
+            receipt_json={"handler_key": definition.tool_name},
+        )
+
+    tool_runtime.upsert_tool(
+        tool_name="test.video.render",
+        version="test-v1",
+        input_schema_json={"type": "object"},
+        output_schema_json={"type": "object"},
+        policy_json={},
+        enabled=True,
+    )
+    service.register_handler("test.video.render", _fake_handler)
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-video-stt-2",
+            step_id="step-video-stt-2",
+            tool_name="test.video.render",
+            action_kind="movie.render",
+            payload_json={"script_text": "Create a teaser."},
+            context_json={"principal_id": "exec-video-stt-fail"},
+        )
+    )
+
+    assert sent and sent[0]["url"] == "https://api.telegram.org/bottelegram-token/sendVideo"
+    assert result.output_json["telegram_delivery_json"]["status"] == "sent"
+    assert result.output_json["telegram_delivery_json"]["video_transcript_status"] == "failed"
+    assert result.output_json["telegram_delivery_json"]["video_transcript_status_reason"] == "transcript_provider_down"
 
 
 def test_tool_execution_service_blocks_rendered_video_telegram_send_without_audio(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -187,7 +446,10 @@ def test_tool_execution_service_blocks_rendered_video_telegram_send_without_audi
         "EA_TELEGRAM_BOT_REGISTRY_JSON",
         json.dumps({"default": {"token": "telegram-token"}}),
     )
-    monkeypatch.setattr("app.services.telegram_delivery._telegram_video_has_audio", lambda value: False)
+    monkeypatch.setattr(
+        "app.services.telegram_delivery._telegram_video_has_audio",
+        lambda value: str(value or "").endswith("render.with-audio.webm"),
+    )
     tool_runtime.upsert_tool(
         tool_name="test.video.render",
         version="test-v1",
@@ -242,14 +504,14 @@ def test_tool_execution_service_sends_local_worker_video_path_to_telegram(monkey
         principal_id="exec-video-local-path",
         connector_name="telegram_identity",
         external_account_ref="42",
-        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "ea_concierge_bot"},
         scope_json={"assistant_surfaces": ["dm"]},
         status="enabled",
     )
     service = _tool_execution_service(tool_runtime=tool_runtime, artifacts=artifacts)
     monkeypatch.setenv(
         "EA_TELEGRAM_BOT_REGISTRY_JSON",
-        json.dumps({"default": {"token": "telegram-token", "handle": "tibor_concierge_bot"}}),
+        json.dumps({"default": {"token": "telegram-token", "handle": "ea_concierge_bot"}}),
     )
     local_video = tmp_path / "render.webm"
     local_video.write_bytes(b"fake-video-bytes")
@@ -314,6 +576,221 @@ def test_tool_execution_service_sends_local_worker_video_path_to_telegram(monkey
     assert sent_multipart[0]["file_path"] == str(local_video)
     assert result.output_json["telegram_delivery_json"]["status"] == "sent"
     assert result.output_json["telegram_delivery_json"]["media_ref"] == str(local_video)
+
+
+def test_tool_execution_service_normalizes_silent_local_video_to_send_video(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    artifacts = InMemoryArtifactRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    tool_runtime.upsert_connector_binding(
+        principal_id="exec-video-silent-local",
+        connector_name="telegram_identity",
+        external_account_ref="42",
+        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "ea_concierge_bot"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    service = _tool_execution_service(tool_runtime=tool_runtime, artifacts=artifacts)
+    monkeypatch.setenv(
+        "EA_TELEGRAM_BOT_REGISTRY_JSON",
+        json.dumps({"default": {"token": "telegram-token", "handle": "ea_concierge_bot"}}),
+    )
+    local_video = tmp_path / "render.webm"
+    normalized_video = tmp_path / "render.with-audio.webm"
+    local_video.write_bytes(b"fake-video-bytes")
+    normalized_video.write_bytes(b"fake-video-with-audio-bytes")
+    monkeypatch.setattr(
+        "app.services.telegram_delivery._telegram_video_has_audio",
+        lambda value: str(value or "").endswith("render.with-audio.webm"),
+    )
+    monkeypatch.setattr(
+        "app.services.telegram_delivery._telegram_video_with_fallback_audio",
+        lambda value, audio_ref="", fallback_audio_text="", fallback_audio_language="": (
+            str(normalized_video),
+            normalized_video,
+        ),
+    )
+
+    tool_runtime.upsert_tool(
+        tool_name="test.video.local",
+        version="test-v1",
+        input_schema_json={"type": "object"},
+        output_schema_json={"type": "object"},
+        policy_json={},
+        enabled=True,
+    )
+
+    sent_multipart: list[dict[str, object]] = []
+
+    def _fake_send_multipart(*, token, method, fields, file_field, file_path, content_type="application/octet-stream", timeout=120):  # noqa: ANN001
+        sent_multipart.append(
+            {
+                "token": token,
+                "method": method,
+                "fields": dict(fields),
+                "file_field": file_field,
+                "file_path": file_path,
+                "content_type": content_type,
+                "timeout": timeout,
+            }
+        )
+        return {"message_id": 112}
+
+    monkeypatch.setattr("app.services.telegram_delivery._telegram_send_multipart", _fake_send_multipart)
+
+    def _fake_handler(request, definition):
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind="movie.render",
+            target_ref="mootion:test",
+            output_json={
+                "result_title": "Local silent video render",
+                "mime_type": "video/webm",
+                "structured_output_json": {
+                    "browser_video_path": str(local_video),
+                    "render_status": "completed",
+                },
+            },
+            receipt_json={"handler_key": definition.tool_name},
+        )
+
+    service.register_handler("test.video.local", _fake_handler)
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-video-local-2",
+            step_id="step-video-local-2",
+            tool_name="test.video.local",
+            action_kind="movie.render",
+            payload_json={},
+            context_json={"principal_id": "exec-video-silent-local"},
+        )
+    )
+
+    assert sent_multipart
+    assert sent_multipart[0]["method"] == "sendVideo"
+    assert sent_multipart[0]["file_path"] == str(normalized_video)
+    assert result.output_json["telegram_delivery_json"]["status"] == "sent"
+    assert result.output_json["telegram_delivery_json"]["media_ref"] == str(local_video)
+
+
+def test_tool_execution_service_sends_silent_local_video_with_audio_probe(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    artifacts = InMemoryArtifactRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    tool_runtime.upsert_tool(
+        tool_name="test.video.local",
+        version="test-v1",
+        input_schema_json={"type": "object"},
+        output_schema_json={"type": "object"},
+        policy_json={},
+        enabled=True,
+    )
+    tool_runtime.upsert_connector_binding(
+        principal_id="exec-video-probe",
+        connector_name="telegram_identity",
+        external_account_ref="42",
+        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "ea_concierge_bot"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    service = _tool_execution_service(tool_runtime=tool_runtime, artifacts=artifacts)
+    monkeypatch.setenv(
+        "EA_TELEGRAM_BOT_REGISTRY_JSON",
+        json.dumps({"default": {"token": "telegram-token", "handle": "ea_concierge_bot"}}),
+    )
+
+    local_video = tmp_path / "render.webm"
+    local_audio_probe = tmp_path / "voice.wav"
+    normalized_video = tmp_path / "render.with-audio.webm"
+    local_video.write_bytes(b"fake-video-bytes")
+    local_audio_probe.write_bytes(b"fake-audio-bytes")
+    normalized_video.write_bytes(b"fake-video-with-audio-bytes")
+
+    observed_probe: dict[str, object] = {}
+
+    def _fake_video_has_audio(value: str) -> bool:
+        normalized = str(value or "").strip()
+        if normalized.endswith("render.webm"):
+            return False
+        if normalized.endswith("render.with-audio.webm"):
+            return True
+        if normalized.endswith("voice.wav"):
+            return True
+        return False
+
+    monkeypatch.setattr("app.services.telegram_delivery._telegram_video_has_audio", _fake_video_has_audio)
+
+    def _fake_fallback(
+        video_ref: str,
+        audio_ref: str = "",
+        fallback_audio_text: str = "",
+        fallback_audio_language: str = "",
+    ) -> tuple[str, Path]:
+        observed_probe["audio_ref"] = str(audio_ref)
+        observed_probe["fallback_audio_text"] = str(fallback_audio_text)
+        return str(normalized_video), normalized_video
+
+    monkeypatch.setattr("app.services.telegram_delivery._telegram_video_with_fallback_audio", _fake_fallback)
+
+    sent_multipart: list[dict[str, object]] = []
+
+    def _fake_send_multipart(*, token, method, fields, file_field, file_path, content_type="application/octet-stream", timeout=120):  # noqa: ANN001
+        sent_multipart.append(
+            {
+                "token": token,
+                "method": method,
+                "fields": dict(fields),
+                "file_field": file_field,
+                "file_path": file_path,
+                "content_type": content_type,
+                "timeout": timeout,
+            }
+        )
+        return {"message_id": 113}
+
+    monkeypatch.setattr("app.services.telegram_delivery._telegram_send_multipart", _fake_send_multipart)
+
+    def _fake_handler(request, definition):
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind="movie.render",
+            target_ref="mootion:test",
+            output_json={
+                "result_title": "Local silent with probe",
+                "mime_type": "video/webm",
+                "audio_probe_ref": str(local_audio_probe),
+                "structured_output_json": {
+                    "browser_video_path": str(local_video),
+                    "audio_probe_ref": str(local_audio_probe),
+                },
+                "asset_url": str(local_video),
+            },
+            receipt_json={"handler_key": definition.tool_name},
+        )
+
+    service.register_handler("test.video.local", _fake_handler)
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-video-probe-1",
+            step_id="step-video-probe-1",
+            tool_name="test.video.local",
+            action_kind="movie.render",
+            payload_json={"tone": "fire"},
+            context_json={"principal_id": "exec-video-probe"},
+        )
+    )
+
+    assert sent_multipart
+    assert sent_multipart[0]["method"] == "sendVideo"
+    assert sent_multipart[0]["file_path"] == str(normalized_video)
+    assert observed_probe.get("audio_ref") == str(local_audio_probe)
+    assert observed_probe.get("fallback_audio_text") == "Local silent with probe"
+    assert result.output_json["telegram_delivery_json"]["status"] == "sent"
 
 
 def test_tool_execution_service_auto_sends_audio_outputs_to_telegram(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1049,7 +1526,7 @@ def test_tool_execution_service_executes_builtin_connector_dispatch_handler_for_
     binding = tool_runtime.upsert_connector_binding(
         principal_id="exec-1",
         connector_name="whatsapp_business",
-        external_account_ref="+436601234567",
+        external_account_ref="+15550102000",
         scope_json={"scopes": ["whatsapp.send"]},
         auth_metadata_json={"provider": "meta"},
         status="enabled",
@@ -1065,7 +1542,7 @@ def test_tool_execution_service_executes_builtin_connector_dispatch_handler_for_
                 "binding_id": binding.binding_id,
                 "principal_id": "exec-1",
                 "channel": "whatsapp",
-                "recipient": "+436641112223",
+                "recipient": "+15550101223",
                 "content": "queued memorial draft",
                 "metadata": {"source": "tool"},
                 "idempotency_key": "tool-dispatch-whatsapp-test",
@@ -1079,7 +1556,7 @@ def test_tool_execution_service_executes_builtin_connector_dispatch_handler_for_
     assert result.output_json["channel"] == "whatsapp"
     pending = channel_runtime.list_pending_delivery(limit=10)
     assert any(
-        row.delivery_id == result.target_ref and row.channel == "whatsapp" and row.recipient == "+436641112223"
+        row.delivery_id == result.target_ref and row.channel == "whatsapp" and row.recipient == "+15550101223"
         for row in pending
     )
 
@@ -4158,7 +4635,7 @@ def test_tool_execution_service_self_heals_missing_builtin_browseract_crezlo_pro
                     "rooms": "2",
                     "area_sqm": "58",
                 },
-                "login_email": "the.girscheles@gmail.com",
+                "login_email": "media.account@example.test",
                 "login_password": "fixture-crezlo-password",
             },
             context_json={"principal_id": "exec-1"},
@@ -4388,7 +4865,7 @@ def test_tool_execution_service_uses_binding_account_email_for_direct_ui_worker_
 
     def _fake_publish(cls, row: dict[str, object]) -> str:
         captured["published_row"] = dict(row)
-        return "https://ea.girschele.com/results/avomap/brigittenau-flyover"
+        return "https://assistant.example.test/results/avomap/brigittenau-flyover"
 
     monkeypatch.setenv("EA_UI_SERVICE_LOGIN_EMAIL", "env-default@example.com")
     monkeypatch.setenv("EA_UI_SERVICE_LOGIN_PASSWORD", "env-direct-pass")
@@ -4415,7 +4892,7 @@ def test_tool_execution_service_uses_binding_account_email_for_direct_ui_worker_
     assert captured["packet"]["login_email"] == "binding-avomap@example.com"
     assert captured["packet"]["login_password"] == "env-direct-pass"
     assert captured["packet"]["route_data"] == "LINESTRING(16.3665 48.2356, 16.3727 48.2392)"
-    assert result.output_json["public_url"] == "https://ea.girschele.com/results/avomap/brigittenau-flyover"
+    assert result.output_json["public_url"] == "https://assistant.example.test/results/avomap/brigittenau-flyover"
     assert result.output_json["asset_url"] == "https://cdn.example/avomap/brigittenau-flyover.mp4"
     assert result.output_json["structured_output_json"]["requested_inputs"]["route_data"] == (
         "LINESTRING(16.3665 48.2356, 16.3727 48.2392)"
@@ -4473,7 +4950,7 @@ def test_tool_execution_service_executes_template_backed_ui_worker_without_workf
 
     def _fake_publish(cls, row: dict[str, object]) -> str:
         captured["published_row"] = dict(row)
-        return "https://ea.girschele.com/results/paperguide-research-surface"
+        return "https://assistant.example.test/results/paperguide-research-surface"
 
     monkeypatch.setenv("EA_UI_SERVICE_LOGIN_PASSWORD", "env-template-pass")
     monkeypatch.setattr(BrowserActToolAdapter, "_run_ui_service_worker", classmethod(_fake_worker))
@@ -4503,7 +4980,7 @@ def test_tool_execution_service_executes_template_backed_ui_worker_without_workf
     assert packet["workflow_spec_json"]["meta"]["slug"] == "paperguide_workspace_reader"
     assert packet["workflow_spec_json"]["meta"]["workflow_kind"] == "page_extract"
     assert packet["page_url"] == "https://paperguide.ai/workspace/research"
-    assert result.output_json["public_url"] == "https://ea.girschele.com/results/paperguide-research-surface"
+    assert result.output_json["public_url"] == "https://assistant.example.test/results/paperguide-research-surface"
     assert result.output_json["editor_url"] == "https://paperguide.ai/workspace/research"
     assert result.output_json["requested_url"] == "browseract-template://paperguide_workspace_reader"
     assert result.output_json["structured_output_json"]["requested_inputs"]["page_url"] == (
@@ -4558,7 +5035,7 @@ def test_tool_execution_service_uses_browseract_env_credentials_for_direct_ui_wo
 
     def _fake_publish(cls, row: dict[str, object]) -> str:
         captured["published_row"] = dict(row)
-        return "https://ea.girschele.com/results/mootion/env-credential-smoke"
+        return "https://assistant.example.test/results/mootion/env-credential-smoke"
 
     monkeypatch.delenv("EA_UI_SERVICE_LOGIN_EMAIL", raising=False)
     monkeypatch.delenv("EA_UI_SERVICE_LOGIN_PASSWORD", raising=False)
@@ -4592,7 +5069,7 @@ def test_tool_execution_service_uses_browseract_env_credentials_for_direct_ui_wo
     assert packet["browseract_password"] == "browseract-default-pass"
     assert packet["login_password"] != "None"
     assert result.output_json["asset_url"] == "https://cdn.example/mootion/env-credential-smoke.mp4"
-    assert result.output_json["public_url"] == "https://ea.girschele.com/results/mootion/env-credential-smoke"
+    assert result.output_json["public_url"] == "https://assistant.example.test/results/mootion/env-credential-smoke"
 
 
 def test_browseract_ui_template_spec_waits_for_direct_login_fields() -> None:
@@ -4834,7 +5311,7 @@ def test_tool_execution_service_falls_back_to_remote_browseract_when_template_wo
         return {
             "status": "completed",
             "output": {
-                "public_url": "https://ea.girschele.com/results/paperguide-workspace-remote",
+                "public_url": "https://assistant.example.test/results/paperguide-workspace-remote",
                 "editor_url": "https://paperguide.ai/workspace/research",
                 "page_body": "Paperguide workspace captured remotely.",
             },
@@ -4867,7 +5344,7 @@ def test_tool_execution_service_falls_back_to_remote_browseract_when_template_wo
     assert captured["workflow_inputs"]["page_url"] == "https://paperguide.ai/workspace/research"
     assert captured["workflow_inputs"]["browseract_username"] == "binding-paperguide@example.com"
     assert captured["workflow_inputs"]["browseract_password"] == "env-template-pass"
-    assert result.output_json["public_url"] == "https://ea.girschele.com/results/paperguide-workspace-remote"
+    assert result.output_json["public_url"] == "https://assistant.example.test/results/paperguide-workspace-remote"
     assert result.output_json["editor_url"] == "https://paperguide.ai/workspace/research"
     assert result.output_json["requested_url"] == "browseract://workflow/wf-paperguide-1"
 
@@ -4970,7 +5447,7 @@ def test_tool_execution_service_executes_crezlo_property_tour_via_direct_api_rem
     created_scenes: list[dict[str, object]] = []
 
     def _fake_login(*, login_email: str, login_password: str, timeout_seconds: int = 120) -> str:
-        assert login_email == "the.girscheles@gmail.com"
+        assert login_email == "media.account@example.test"
         assert login_password == "fixture-crezlo-password"
         return "crezlo-token-1"
 
@@ -5092,7 +5569,7 @@ def test_tool_execution_service_executes_crezlo_property_tour_via_direct_api_rem
     monkeypatch.setattr(
         BrowserActToolAdapter,
         "_publish_crezlo_public_tour_bundle",
-        classmethod(lambda cls, normalized: "https://ea.girschele.com/tours/kahlenberg-variant-b"),
+        classmethod(lambda cls, normalized: "https://assistant.example.test/tours/kahlenberg-variant-b"),
     )
 
     registry._rows.pop("browseract.crezlo_property_tour", None)  # type: ignore[attr-defined]
@@ -5120,7 +5597,7 @@ def test_tool_execution_service_executes_crezlo_property_tour_via_direct_api_rem
                 "floorplan_urls_json": [
                     "https://assets.example/floorplan-1.jpg",
                 ],
-                "login_email": "the.girscheles@gmail.com",
+                "login_email": "media.account@example.test",
                 "login_password": "fixture-crezlo-password",
             },
             context_json={"principal_id": "exec-1"},
@@ -5133,8 +5610,8 @@ def test_tool_execution_service_executes_crezlo_property_tour_via_direct_api_rem
     assert result.output_json["slug"] == "kahlenberg-variant-b"
     assert result.output_json["creation_mode"] == "crezlo_api_remote_assets"
     assert result.output_json["scene_count"] == 3
-    assert result.output_json["public_url"] == "https://ea.girschele.com/tours/kahlenberg-variant-b"
-    assert result.output_json["hosted_url"] == "https://ea.girschele.com/tours/kahlenberg-variant-b"
+    assert result.output_json["public_url"] == "https://assistant.example.test/tours/kahlenberg-variant-b"
+    assert result.output_json["hosted_url"] == "https://assistant.example.test/tours/kahlenberg-variant-b"
     assert result.output_json["crezlo_public_url"] == "https://ea-property-tours-20260320.crezlotours.com/tours/kahlenberg-variant-b"
     assert result.output_json["workflow_id"] is None
     assert result.output_json["requested_url"] == "crezlo://direct/workspace-crezlo-1"
@@ -5142,8 +5619,8 @@ def test_tool_execution_service_executes_crezlo_property_tour_via_direct_api_rem
     structured = result.output_json["structured_output_json"]
     assert structured["tour_id"] == "tour-crezlo-2"
     assert structured["slug"] == "kahlenberg-variant-b"
-    assert structured["public_url"] == "https://ea.girschele.com/tours/kahlenberg-variant-b"
-    assert structured["hosted_url"] == "https://ea.girschele.com/tours/kahlenberg-variant-b"
+    assert structured["public_url"] == "https://assistant.example.test/tours/kahlenberg-variant-b"
+    assert structured["hosted_url"] == "https://assistant.example.test/tours/kahlenberg-variant-b"
     assert structured["crezlo_public_url"] == "https://ea-property-tours-20260320.crezlotours.com/tours/kahlenberg-variant-b"
     assert structured["requested_inputs"]["scene_strategy"] == "layout_first"
     assert [entry["meta"]["role"] for entry in created_files] == ["floorplan", "photo", "photo"]
@@ -5236,7 +5713,7 @@ def test_tool_execution_service_keeps_direct_crezlo_tour_when_followup_workflow_
     monkeypatch.setattr(
         BrowserActToolAdapter,
         "_publish_crezlo_public_tour_bundle",
-        classmethod(lambda cls, normalized: "https://myexternalbrain.com/tours/wahring-layout-first"),
+        classmethod(lambda cls, normalized: "https://assistant.example.test/tours/wahring-layout-first"),
     )
 
     result = service.execute_invocation(
@@ -5251,7 +5728,7 @@ def test_tool_execution_service_keeps_direct_crezlo_tour_when_followup_workflow_
                 "tour_title": "Wahring Layout First",
                 "property_url": "https://www.willhaben.at/listing/wahring-layout-first",
                 "media_urls_json": ["https://assets.example/photo-1.jpg"],
-                "login_email": "the.girscheles@gmail.com",
+                "login_email": "media.account@example.test",
                 "login_password": "fixture-crezlo-password",
             },
             context_json={"principal_id": "exec-1"},
@@ -5260,7 +5737,7 @@ def test_tool_execution_service_keeps_direct_crezlo_tour_when_followup_workflow_
 
     assert result.output_json["tour_id"] == "tour-crezlo-3"
     assert result.output_json["workflow_id"] == "wf-crezlo-followup-1"
-    assert result.output_json["public_url"] == "https://myexternalbrain.com/tours/wahring-layout-first"
+    assert result.output_json["public_url"] == "https://assistant.example.test/tours/wahring-layout-first"
     assert result.output_json["crezlo_public_url"] == "https://ea-property-tours-20260320.crezlotours.com/tours/wahring-layout-first"
     structured = result.output_json["structured_output_json"]
     assert structured["workflow_followup_status"] == "failed"
@@ -5334,7 +5811,7 @@ def test_tool_execution_service_executes_crezlo_property_tour_via_ui_worker_uplo
     monkeypatch.setattr(
         BrowserActToolAdapter,
         "_publish_crezlo_public_tour_bundle",
-        classmethod(lambda cls, normalized: "https://myexternalbrain.com/tours/wahring-ui-worker"),
+        classmethod(lambda cls, normalized: "https://assistant.example.test/tours/wahring-ui-worker"),
     )
 
     result = service.execute_invocation(
@@ -5356,7 +5833,7 @@ def test_tool_execution_service_executes_crezlo_property_tour_via_ui_worker_uplo
                     "https://assets.example/photo-2.jpg",
                 ],
                 "floorplan_urls_json": [],
-                "login_email": "the.girscheles@gmail.com",
+                "login_email": "media.account@example.test",
                 "login_password": "fixture-crezlo-password",
             },
             context_json={"principal_id": "exec-1"},
@@ -5370,7 +5847,7 @@ def test_tool_execution_service_executes_crezlo_property_tour_via_ui_worker_uplo
     assert packet["tour_title"] == "Wahring UI Worker"
     assert result.output_json["tour_id"] == "tour-crezlo-ui-1"
     assert result.output_json["creation_mode"] == "crezlo_ui_worker_upload"
-    assert result.output_json["public_url"] == "https://myexternalbrain.com/tours/wahring-ui-worker"
+    assert result.output_json["public_url"] == "https://assistant.example.test/tours/wahring-ui-worker"
     assert result.output_json["crezlo_public_url"] == "https://ea-property-tours-20260320.crezlotours.com/tours/wahring-ui-worker"
     structured = dict(result.output_json["structured_output_json"] or {})
     workflow_output = dict(structured.get("workflow_output_json") or {})

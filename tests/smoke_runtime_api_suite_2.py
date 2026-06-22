@@ -921,7 +921,7 @@ def test_observation_and_delivery_flow() -> None:
     obs = client.post(
         "/v1/observations/ingest",
         json={
-            "principal_id": "exec-1",
+            "principal_id": "principal-default",
             "channel": "email",
             "event_type": "thread.opened",
             "payload": {"subject": "Board prep"},
@@ -943,7 +943,7 @@ def test_observation_and_delivery_flow() -> None:
     obs_dupe = client.post(
         "/v1/observations/ingest",
         json={
-            "principal_id": "exec-1",
+            "principal_id": "principal-default",
             "channel": "email",
             "event_type": "thread.opened",
             "payload": {"subject": "Board prep"},
@@ -1076,7 +1076,7 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
     )
     assert binding.status_code == 200
     binding_id = binding.json()["binding_id"]
-    assert binding.json()["principal_id"] == "exec-1"
+    assert binding.json()["principal_id"] == "principal-default"
 
     listed_bindings = client.get("/v1/connectors/bindings", params={"limit": 10})
     assert listed_bindings.status_code == 200
@@ -1088,7 +1088,7 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
             "tool_name": "connector.dispatch",
             "action_kind": "delivery.send",
             "payload_json": {
-                "principal_id": "exec-1",
+                "principal_id": "principal-default",
                 "binding_id": binding_id,
                 "channel": "email",
                 "recipient": "ops@example.com",
@@ -1129,7 +1129,7 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
             "tool_name": "connector.dispatch",
             "action_kind": "delivery.send",
             "payload_json": {
-                "principal_id": "exec-1",
+                "principal_id": "principal-default",
                 "binding_id": binding_id,
                 "channel": "email",
                 "recipient": "ops@example.com",
@@ -1147,7 +1147,7 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
             "tool_name": "connector.dispatch",
             "action_kind": "delivery.send",
             "payload_json": {
-                "principal_id": "exec-1",
+                "principal_id": "principal-default",
                 "binding_id": binding_id,
                 "channel": "sms",
                 "recipient": "ops@example.com",
@@ -1179,7 +1179,7 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
             "tool_name": "connector.dispatch",
             "action_kind": "delivery.send",
             "payload_json": {
-                "principal_id": "exec-1",
+                "principal_id": "principal-default",
                 "binding_id": readonly_binding.json()["binding_id"],
                 "channel": "email",
                 "recipient": "ops@example.com",
@@ -1195,7 +1195,7 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
 
     mismatch = client.get(
         "/v1/connectors/bindings",
-        params={"principal_id": "exec-1", "limit": 10},
+        params={"principal_id": "principal-default", "limit": 10},
         headers=_headers(token="smoke-token", principal_id="exec-2"),
     )
     assert mismatch.status_code == 403
@@ -1208,7 +1208,7 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
             "tool_name": "browseract.extract_account_facts",
             "action_kind": "account.extract",
             "payload_json": {
-                "principal_id": "exec-1",
+                "principal_id": "principal-default",
                 "binding_id": binding_id,
                 "service_name": "BrowserAct",
             },
@@ -1235,7 +1235,7 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
             "tool_name": "browseract.extract_account_facts",
             "action_kind": "account.extract",
             "payload_json": {
-                "principal_id": "exec-1",
+                "principal_id": "principal-default",
                 "binding_id": browseract_binding.json()["binding_id"],
                 "service_name": "Teable",
             },
@@ -1265,7 +1265,7 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
             "tool_name": "browseract.extract_account_facts",
             "action_kind": "account.extract",
             "payload_json": {
-                "principal_id": "exec-1",
+                "principal_id": "principal-default",
                 "binding_id": browseract_binding.json()["binding_id"],
                 "service_name": "BrowserAct",
             },
@@ -1293,7 +1293,7 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
 
 
 def test_browseract_tool_execution_and_workflow_template_flow() -> None:
-    client = _client(storage_backend="memory", principal_id="exec-1", operator=True)
+    client = _client(storage_backend="memory", principal_id="principal-default", operator=True)
 
     binding = client.post(
         "/v1/connectors/bindings",
@@ -1331,7 +1331,7 @@ def test_browseract_tool_execution_and_workflow_template_flow() -> None:
             "tool_name": "browseract.extract_account_facts",
             "action_kind": "account.extract",
             "payload_json": {
-                "principal_id": "exec-1",
+                "principal_id": "principal-default",
                 "binding_id": binding_id,
                 "service_name": "BrowserAct",
                 "requested_fields": ["tier", "account_email", "status"],
@@ -1360,7 +1360,7 @@ def test_browseract_tool_execution_and_workflow_template_flow() -> None:
             "tool_name": "browseract.extract_account_inventory",
             "action_kind": "account.extract_inventory",
             "payload_json": {
-                "principal_id": "exec-1",
+                "principal_id": "principal-default",
                 "binding_id": binding_id,
                 "service_names": ["BrowserAct", "Teable"],
                 "requested_fields": ["tier", "account_email", "status"],
@@ -1636,7 +1636,7 @@ def test_task_contracts_flow_and_rewrite_compilation() -> None:
 
     compiled = client.post(
         "/v1/plans/compile",
-        json={"task_key": "rewrite_text", "principal_id": "exec-1", "goal": "rewrite this"},
+        json={"task_key": "rewrite_text", "principal_id": "principal-default", "goal": "rewrite this"},
     )
     assert compiled.status_code == 200
     assert compiled.json()["intent"]["task_type"] == "rewrite_text"
@@ -1704,7 +1704,7 @@ def test_task_contracts_flow_and_rewrite_compilation() -> None:
 
     compiled_review = client.post(
         "/v1/plans/compile",
-        json={"task_key": "rewrite_review", "principal_id": "exec-1", "goal": "review this rewrite"},
+        json={"task_key": "rewrite_review", "principal_id": "principal-default", "goal": "review this rewrite"},
     )
     assert compiled_review.status_code == 200
     assert len(compiled_review.json()["plan"]["steps"]) == 4
@@ -1949,15 +1949,15 @@ def test_skill_catalog_can_project_ltd_inventory_refresh_runtime() -> None:
 
 
 def test_plan_compile_derives_request_principal_and_rejects_mismatch() -> None:
-    client = _client(storage_backend="memory", principal_id="exec-1")
+    client = _client(storage_backend="memory", principal_id="principal-default")
 
     compiled = client.post(
         "/v1/plans/compile",
         json={"task_key": "rewrite_text", "goal": "rewrite this"},
     )
     assert compiled.status_code == 200
-    assert compiled.json()["intent"]["principal_id"] == "exec-1"
-    assert compiled.json()["plan"]["principal_id"] == "exec-1"
+    assert compiled.json()["intent"]["principal_id"] == "principal-default"
+    assert compiled.json()["plan"]["principal_id"] == "principal-default"
 
     mismatch = client.post(
         "/v1/plans/compile",
@@ -1968,7 +1968,7 @@ def test_plan_compile_derives_request_principal_and_rejects_mismatch() -> None:
 
 
 def test_generic_task_execution_uses_compiled_contract_runtime() -> None:
-    client = _client(storage_backend="memory", principal_id="exec-1", operator=True)
+    client = _client(storage_backend="memory", principal_id="principal-default", operator=True)
 
     contract = client.post(
         "/v1/tasks/contracts",
@@ -2006,7 +2006,7 @@ def test_generic_task_execution_uses_compiled_contract_runtime() -> None:
     assert body["content"] == "Board context and stakeholder sensitivities."
     assert body["execution_session_id"]
     assert body["deliverable_type"] == "stakeholder_briefing"
-    assert body["principal_id"] == "exec-1"
+    assert body["principal_id"] == "principal-default"
     assert body["mime_type"] == "text/plain"
     assert body["preview_text"] == "Board context and stakeholder sensitivities."
     assert body["storage_handle"] == f"artifact://{body['artifact_id']}"
@@ -2024,7 +2024,7 @@ def test_generic_task_execution_uses_compiled_contract_runtime() -> None:
     assert session_body["artifacts"][0]["skill_key"] == "stakeholder_briefing"
     assert session_body["artifacts"][0]["task_key"] == "stakeholder_briefing"
     assert session_body["artifacts"][0]["deliverable_type"] == "stakeholder_briefing"
-    assert session_body["artifacts"][0]["principal_id"] == "exec-1"
+    assert session_body["artifacts"][0]["principal_id"] == "principal-default"
     assert session_body["artifacts"][0]["mime_type"] == "text/plain"
     assert session_body["artifacts"][0]["preview_text"] == "Board context and stakeholder sensitivities."
     assert session_body["artifacts"][0]["storage_handle"] == f"artifact://{body['artifact_id']}"
@@ -2050,7 +2050,7 @@ def test_generic_task_execution_uses_compiled_contract_runtime() -> None:
     assert fetched_artifact.json()["skill_key"] == "stakeholder_briefing"
     assert fetched_artifact.json()["task_key"] == "stakeholder_briefing"
     assert fetched_artifact.json()["deliverable_type"] == "stakeholder_briefing"
-    assert fetched_artifact.json()["principal_id"] == "exec-1"
+    assert fetched_artifact.json()["principal_id"] == "principal-default"
     assert fetched_artifact.json()["mime_type"] == "text/plain"
     assert fetched_artifact.json()["preview_text"] == "Board context and stakeholder sensitivities."
     assert fetched_artifact.json()["storage_handle"] == f"artifact://{body['artifact_id']}"

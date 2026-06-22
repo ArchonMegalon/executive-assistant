@@ -3,10 +3,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 
-STATE_DIR = Path("/docker/fleet/state/browseract_bootstrap")
+ROOT = Path(__file__).resolve().parents[1]
+STATE_DIR = Path(
+    os.environ.get("BROWSERACT_BOOTSTRAP_STATE_DIR")
+    or ROOT / ".codex-studio" / "published" / "browseract_bootstrap"
+)
 
 
 def slugify(value: str) -> str:

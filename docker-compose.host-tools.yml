@@ -1,14 +1,24 @@
 services:
   ea-api:
+    build:
+      context: .
+      dockerfile: ea/Dockerfile.operator
+    image: ea-runtime-operator:latest
+    user: "0:0"
     environment:
       - EA_RUN_AS_UID=${EA_GEMINI_UID:-1000}
       - EA_RUN_AS_GID=${EA_GEMINI_GID:-1000}
-      - EA_CREZLO_SHARED_TEMP_ROOT=/docker/fleet/state/browseract_bootstrap/runtime/crezlo_worker_shared
+      - EA_CREZLO_SHARED_TEMP_ROOT=${EA_CREZLO_SHARED_TEMP_ROOT:-.runtime/browseract_bootstrap/runtime/crezlo_worker_shared}
     volumes:
       - /docker:/docker
       - /var/run/docker.sock:/var/run/docker.sock
 
   ea-responses-proxy:
+    build:
+      context: .
+      dockerfile: ea/Dockerfile.operator
+    image: ea-runtime-operator:latest
+    user: "0:0"
     environment:
       - EA_RUN_AS_UID=${EA_GEMINI_UID:-1000}
       - EA_RUN_AS_GID=${EA_GEMINI_GID:-1000}
@@ -17,19 +27,29 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
 
   ea-worker:
+    build:
+      context: .
+      dockerfile: ea/Dockerfile.operator
+    image: ea-runtime-operator:latest
+    user: "0:0"
     environment:
       - EA_RUN_AS_UID=${EA_GEMINI_UID:-1000}
       - EA_RUN_AS_GID=${EA_GEMINI_GID:-1000}
-      - EA_CREZLO_SHARED_TEMP_ROOT=/docker/fleet/state/browseract_bootstrap/runtime/crezlo_worker_shared
+      - EA_CREZLO_SHARED_TEMP_ROOT=${EA_CREZLO_SHARED_TEMP_ROOT:-.runtime/browseract_bootstrap/runtime/crezlo_worker_shared}
     volumes:
       - /docker:/docker
       - /var/run/docker.sock:/var/run/docker.sock
 
   ea-scheduler:
+    build:
+      context: .
+      dockerfile: ea/Dockerfile.operator
+    image: ea-runtime-operator:latest
+    user: "0:0"
     environment:
       - EA_RUN_AS_UID=${EA_GEMINI_UID:-1000}
       - EA_RUN_AS_GID=${EA_GEMINI_GID:-1000}
-      - EA_CREZLO_SHARED_TEMP_ROOT=/docker/fleet/state/browseract_bootstrap/runtime/crezlo_worker_shared
+      - EA_CREZLO_SHARED_TEMP_ROOT=${EA_CREZLO_SHARED_TEMP_ROOT:-.runtime/browseract_bootstrap/runtime/crezlo_worker_shared}
     volumes:
       - /docker:/docker
       - /var/run/docker.sock:/var/run/docker.sock

@@ -21,7 +21,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 @dataclass(frozen=True)
 class _Auth:
     api_token: str = ""
-    default_principal_id: str = "local-user"
+    default_principal_id: str = "principal-default"
 
 
 @dataclass(frozen=True)
@@ -37,7 +37,7 @@ class _Settings:
 
 class _FakeOrchestrator:
     def build_artifact(self, req: RewriteRequest) -> Artifact:
-        principal_id = str(req.principal_id or "").strip() or "local-user"
+        principal_id = str(req.principal_id or "").strip() or "principal-default"
         return Artifact(
             artifact_id="artifact-fake",
             kind="rewrite_note",

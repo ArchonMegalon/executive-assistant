@@ -63,33 +63,53 @@ def build_operator_product_client(*, principal_id: str = "exec-product-api", ope
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ.pop("EA_LEDGER_BACKEND", None)
     os.environ["EA_API_TOKEN"] = "test-token"
+    os.environ["EA_DEFAULT_PRINCIPAL_ID"] = principal_id
     os.environ["PROPERTYQUARRY_DEFAULT_BRAND"] = "0"
     os.environ.pop("PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES", None)
-    os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
-    os.environ["EA_OPERATOR_PRINCIPAL_IDS"] = principal_id
     os.environ.pop("EA_ENABLE_PUBLIC_SIDE_SURFACES", None)
     os.environ.pop("EA_ENABLE_PUBLIC_RESULTS", None)
     os.environ.pop("EA_ENABLE_PUBLIC_TOURS", None)
-    return _build_client(principal_id=principal_id, api_token="test-token", operator_id=operator_id)
+    client = _build_client(principal_id=principal_id, api_token="test-token", operator_id=operator_id)
+    container = client.app.state.container
+    container.orchestrator.upsert_operator_profile(
+        principal_id=principal_id,
+        operator_id=operator_id,
+        display_name="Operator Client",
+        roles=("operator", "reviewer"),
+        trust_tier="trusted",
+        status="active",
+        notes="Seeded by build_operator_product_client.",
+    )
+    return client
 
 
 def build_property_operator_client(*, principal_id: str = "exec-product-api", operator_id: str = "operator-office") -> TestClient:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ.pop("EA_LEDGER_BACKEND", None)
     os.environ["EA_API_TOKEN"] = "test-token"
+    os.environ["EA_DEFAULT_PRINCIPAL_ID"] = principal_id
     os.environ["PROPERTYQUARRY_DEFAULT_BRAND"] = "1"
-    os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
-    os.environ["EA_OPERATOR_PRINCIPAL_IDS"] = principal_id
     os.environ.pop("EA_ENABLE_PUBLIC_SIDE_SURFACES", None)
     os.environ.pop("EA_ENABLE_PUBLIC_RESULTS", None)
     os.environ.pop("EA_ENABLE_PUBLIC_TOURS", None)
-    return _build_client(
+    client = _build_client(
         principal_id=principal_id,
         api_token="test-token",
         operator_id=operator_id,
         base_url="https://propertyquarry.com",
         host="propertyquarry.com",
     )
+    container = client.app.state.container
+    container.orchestrator.upsert_operator_profile(
+        principal_id=principal_id,
+        operator_id=operator_id,
+        display_name="Property Operator Client",
+        roles=("operator", "reviewer"),
+        trust_tier="trusted",
+        status="active",
+        notes="Seeded by build_property_operator_client.",
+    )
+    return client
 
 
 def seed_product_state(client: TestClient, *, principal_id: str) -> dict[str, str]:

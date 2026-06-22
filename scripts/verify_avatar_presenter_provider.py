@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -11,7 +12,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 LTD_PATH = ROOT / "LTDs.md"
-DEFAULT_OUT_DIR = Path("/docker/fleet/state/chummer6/avatar_presenter_provider")
+DEFAULT_OUT_DIR = Path(os.environ.get("EA_AVATAR_PRESENTER_PROVIDER_OUT_DIR") or ROOT / "ea" / "_completion" / "avatar_presenter_provider")
 DEFAULT_RECEIPT_DIR = DEFAULT_OUT_DIR / "receipts"
 
 
@@ -20,7 +21,7 @@ PROVIDER_SPECS = {
         "provider": "VidBoard",
         "service_key": "VidBoard.ai",
         "role": "photoreal_avatar_presenter_candidate",
-        "account_email_hint": "the.girscheles@gmail.com",
+        "account_email_hint_env": "EA_AVATAR_PRESENTER_VIDBOARD_ACCOUNT_EMAIL_HINT",
         "status": "pilot",
         "commercial_use_allowed": False,
         "watermark_free": False,
@@ -39,7 +40,7 @@ PROVIDER_SPECS = {
         "provider": "Nonverbia",
         "service_key": "Nonverbia",
         "role": "avatar_presenter_candidate",
-        "account_email_hint": "",
+        "account_email_hint_env": "EA_AVATAR_PRESENTER_NONVERBIA_ACCOUNT_EMAIL_HINT",
         "status": "pilot",
         "commercial_use_allowed": False,
         "watermark_free": False,
@@ -164,6 +165,13 @@ def _receipt_is_trusted(receipt: dict[str, Any], provider_key: str, receipt_type
     return True, "trusted_manual_review"
 
 
+def _account_email_hint(spec: dict[str, object]) -> str:
+    env_name = str(spec.get("account_email_hint_env") or "").strip()
+    if not env_name:
+        return ""
+    return str(os.environ.get(env_name) or "").strip()
+
+
 def _load_receipts(provider_key: str, receipt_dir: Path) -> list[dict[str, Any]]:
     receipts: list[dict[str, Any]] = []
     if not receipt_dir.is_dir():
@@ -243,7 +251,7 @@ def build_payload(provider_key: str, *, allow_fallback: bool, receipt_dir: Path 
         "account": {
             "service_key": str(spec["service_key"]),
             "account_status": str(row.get("status") or "tracked"),
-            "account_email_hint": str(spec["account_email_hint"]),
+            "account_email_hint": _account_email_hint(spec),
             "tier": str(row.get("plan_tier") or "unknown"),
             "workspace_integration_tier": str(row.get("workspace_integration_tier") or "unknown"),
             "local_integration": str(row.get("local_integration") or ""),

@@ -111,6 +111,20 @@ def _room_receipt_passes(path: Path, *, current_head: str) -> bool:
         or attestation.get("ci_must_not_auto_assert") is not True
     ):
         return False
+    required_checks = {
+        "actual_device_checked",
+        "actual_speaker_checked",
+        "first_syllable_not_clipped",
+        "intelligibility_confirmed",
+        "answer_text_fallback_visible",
+        "no_internet_search_confirmed",
+        "normal_spoken_turn_confirmed",
+        "interruption_behavior_confirmed",
+        "retry_path_confirmed",
+    }
+    checks = dict(receipt.get("checks") or {})
+    if any(checks.get(key) is not True for key in required_checks):
+        return False
     return _fresh_enough(_recorded_source_head(receipt), current_head=current_head)
 
 

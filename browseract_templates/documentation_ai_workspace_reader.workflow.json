@@ -172,7 +172,7 @@
   ],
   "meta": {
     "slug": "documentation_ai_workspace_reader",
-    "output_dir": "/docker/fleet/state/browseract_bootstrap",
+    "output_dir": ".codex-studio/published/browseract_bootstrap",
     "status": "pending_browseract_seed",
     "workflow_kind": "page_extract",
     "auth_flow": "google_oauth",

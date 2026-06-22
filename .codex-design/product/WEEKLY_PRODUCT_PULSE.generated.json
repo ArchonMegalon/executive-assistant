@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.weekly_product_pulse",
   "contract_version": 1,
-  "generated_at": "2026-06-18T16:01:17Z",
-  "as_of": "2026-06-18",
+  "generated_at": "2026-06-22T15:37:23Z",
+  "as_of": "2026-06-22",
   "scorecard_source": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml",
   "release_truth_source": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
   "release_truth_provenance": {
@@ -10,25 +10,25 @@
     "resolved_path": "/docker/EA/.codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
     "present": true,
     "size_bytes": 6090,
-    "mtime_utc": "2026-06-18T16:01:17Z",
-    "sha256": "77b3e0cea781224d0e47485d06cd82466866d13e58737c7c6581d19332d2cdca",
+    "mtime_utc": "2026-06-22T15:37:13Z",
+    "sha256": "10c953e948d8061c0a43bff7ee5bbbd5d32a103eb807ea2082223c7f57fd0bc2",
     "git_repo_root": "/docker/EA",
-    "git_head": "e739be479a4e9e7c2b364259d7a8b15e9d9318e6",
+    "git_head": "8e6c434f4b8e7f1e1c87e1c6b3fdc566915cc85c",
     "git_branch": "main",
     "repo_relative_path": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
   },
-  "journey_gate_source": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
+  "journey_gate_source": "ea/_completion/fleet/JOURNEY_GATES.generated.json",
   "journey_gate_provenance": {
-    "source_path": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
-    "resolved_path": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
+    "source_path": "/docker/EA/ea/_completion/fleet/JOURNEY_GATES.generated.json",
+    "resolved_path": "/docker/EA/ea/_completion/fleet/JOURNEY_GATES.generated.json",
     "present": true,
-    "size_bytes": 65861,
-    "mtime_utc": "2026-06-17T18:19:18Z",
-    "sha256": "e345cd87b4f28b497c77de2e12f46bd0cb943c8dbb81208dc12a6f0454f48143",
-    "git_repo_root": "/docker/fleet",
-    "git_head": "b9878e9d6c68c70121563dfe1813c50e1f30ada8",
+    "size_bytes": 363,
+    "mtime_utc": "2026-06-22T15:09:08Z",
+    "sha256": "393e73411e5727539027135dc54ae70e43d3c9220cd0be9ba01df19a26350678",
+    "git_repo_root": "/docker/EA",
+    "git_head": "8e6c434f4b8e7f1e1c87e1c6b3fdc566915cc85c",
     "git_branch": "main",
-    "repo_relative_path": ".codex-studio/published/JOURNEY_GATES.generated.json"
+    "repo_relative_path": "ea/_completion/fleet/JOURNEY_GATES.generated.json"
   },
   "summary": "Executive Assistant has a green flagship receipt, the fleet journey gate is ready, and no journeys block wider release claims.",
   "active_wave": "EA flagship receipt closeout",
@@ -71,7 +71,7 @@
       "cluster_id": "fleet_journey_coverage",
       "summary": "Fleet journey gates are ready across the install/claim/restore/continue story, so wider publish claims can follow the current release truth.",
       "source_paths": [
-        "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
+        "ea/_completion/fleet/JOURNEY_GATES.generated.json",
         "scripts/verify_release_assets.sh"
       ]
     },
@@ -127,13 +127,13 @@
     "provider_route_stewardship": {
       "default_status": "EA routes are governed by local truth surfaces.",
       "canary_status": "Browser execution proof is published and routes are aligned to local truth surfaces.",
-      "review_due": "2026-06-25T16:01:17Z",
+      "review_due": "2026-06-29T15:37:23Z",
       "next_decision": "Re-materialize the weekly pulse after the next meaningful release or journey-truth change."
     },
-    "journey_gate_source": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
-    "journey_gate_git_head": "b9878e9d6c68c70121563dfe1813c50e1f30ada8",
+    "journey_gate_source": "ea/_completion/fleet/JOURNEY_GATES.generated.json",
+    "journey_gate_git_head": "8e6c434f4b8e7f1e1c87e1c6b3fdc566915cc85c",
     "flagship_release_receipt_source": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
-    "flagship_release_receipt_git_head": "e739be479a4e9e7c2b364259d7a8b15e9d9318e6",
+    "flagship_release_receipt_git_head": "8e6c434f4b8e7f1e1c87e1c6b3fdc566915cc85c",
     "scorecard_source": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml",
     "release_pipeline_source": ".codex-design/product/RELEASE_PIPELINE.md",
     "governor_loop_source": ".codex-design/product/PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md",
@@ -180,7 +180,7 @@
         "cluster_id": "fleet_journey_coverage",
         "summary": "Fleet journey gates are ready across the install/claim/restore/continue story, so wider publish claims can follow the current release truth.",
         "source_paths": [
-          "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
+          "ea/_completion/fleet/JOURNEY_GATES.generated.json",
           "scripts/verify_release_assets.sh"
         ]
       },

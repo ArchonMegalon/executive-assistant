@@ -22,15 +22,13 @@ print_product_control_summary() {
 from __future__ import annotations
 
 import json
-import sys
+import os
+from datetime import UTC, datetime
 from pathlib import Path
 
 root = Path.cwd()
-sys.path.insert(0, str(root / "ea"))
 pulse_path = root / ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json"
-default_journey_path = Path("/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json")
-
-from app.product.service import _public_guide_freshness_projection
+default_journey_path = Path(os.environ.get("EA_FLEET_JOURNEY_GATES_PATH") or root / "ea/_completion/fleet/JOURNEY_GATES.generated.json")
 
 
 def load_json(path: Path) -> dict[str, object] | None:
@@ -38,6 +36,22 @@ def load_json(path: Path) -> dict[str, object] | None:
         return json.loads(path.read_text())
     except Exception:
         return None
+
+
+def public_guide_projection() -> dict[str, str]:
+    manifest_path = root / ".codex-design/product/PUBLIC_GUIDE_EXPORT_MANIFEST.yaml"
+    if manifest_path.exists():
+        generated_at = datetime.fromtimestamp(manifest_path.stat().st_mtime, tz=UTC).isoformat().replace("+00:00", "Z")
+        return {
+            "path": str(manifest_path),
+            "generated_at": generated_at,
+            "detail": "Manifest-backed freshness only; downstream published guide proof is not mirrored in this repo.",
+        }
+    return {
+        "path": "missing",
+        "generated_at": "missing",
+        "detail": "No public-guide manifest is mirrored locally.",
+    }
 
 
 pulse = load_json(pulse_path) if pulse_path.exists() else None
@@ -49,7 +63,7 @@ journey_summary = dict((journey or {}).get("summary") or {})
 journies = [dict(row) for row in list((journey or {}).get("journeys") or []) if isinstance(row, dict)]
 pulse_gate = dict((pulse or {}).get("journey_gate_health") or {})
 route = dict(signals.get("provider_route_stewardship") or {})
-public_guide = _public_guide_freshness_projection()
+public_guide = public_guide_projection()
 support_closures_waiting = sum(int(dict(row.get("signals") or {}).get("support_closure_waiting_count") or 0) for row in journies)
 support_human_responses = sum(int(dict(row.get("signals") or {}).get("support_needs_human_response_count") or 0) for row in journies)
 
@@ -137,39 +151,26 @@ print_codex_governance_summary() {
   python3 - <<'PY'
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 root = Path.cwd()
-sys.path.insert(0, str(root / "ea"))
-
-from app.api.routes.responses import _codex_governance_payload, _codex_profiles
 
 
 def compact(value: object) -> str:
     return " ".join(str(value or "").split()).strip() or "missing"
 
 
-profiles = {
-    str(item.get("profile") or "").strip(): dict(item)
-    for item in _codex_profiles()
-    if isinstance(item, dict)
+lane_summaries = {
+    "easy": "Fast lane for cheap, low-stakes drafting and quick steering.",
+    "hard coder": "Primary deep implementation and debugging lane for real code work.",
+    "groundwork": "Gather evidence, prepare packets, and do cheap bounded prep before deeper execution.",
+    "audit/jury": "Review, risk triage, and boundary checking before stronger claims.",
 }
 
-governance = _codex_governance_payload()
-cadence = dict(governance.get("review_cadence") or {})
-support = dict(governance.get("support_help_boundary") or {})
-
-for key, label in (
-    ("easy", "easy"),
-    ("core", "hard coder"),
-    ("groundwork", "groundwork"),
-    ("audit", "audit/jury"),
-):
-    row = profiles.get(key, {})
-    print(f"{label}:           {compact(row.get('expectation_summary'))}")
-print(f"review cadence:  {compact(cadence.get('review') or 'weekly')} / {compact(cadence.get('snapshot_owner') or 'product_governor')}")
-print(f"support/help:    {compact(support.get('summary'))}")
+for label, summary in lane_summaries.items():
+    print(f"{label}:           {compact(summary)}")
+print("review cadence:  weekly / product_governor")
+print("support/help:    Grounded help lane only; it must not become product canon or support-case truth.")
 PY
 }
 
@@ -210,6 +211,46 @@ print(f"whole gold:        {receipt_state(payload, 'whole_project_gold')}")
 PY
 }
 
+print_goal_posture_summary() {
+  python3 - <<'PY'
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+root = Path.cwd()
+if str(root) not in sys.path:
+    sys.path.insert(0, str(root))
+
+from scripts.materialize_continuous_improvement_goal_posture import build_goal_posture
+
+def compact(value: object) -> str:
+    return " ".join(str(value or "").split()).strip() or "missing"
+
+receipt = build_goal_posture(root=root)
+lenses = {str(lens.get("key") or ""): dict(lens) for lens in list(receipt.get("lenses") or []) if isinstance(lens, dict)}
+deliver_components = {str(component.get("key") or ""): dict(component) for component in list(lenses.get("deliver", {}).get("components") or []) if isinstance(component, dict)}
+print("north star:        dependable executive, conversation, and media operating system")
+print(f"detect:            {compact(lenses.get('detect', {}).get('status'))} -> make verify-whole-project-signal-to-decision-receipt")
+print(f"decide:            {compact(lenses.get('decide', {}).get('status'))} -> make verify-office-loop-goal-receipt")
+print(
+    "deliver:           "
+    f"media {compact(deliver_components.get('promo_media', {}).get('status'))} / "
+    f"speech {compact(deliver_components.get('manfred_speech', {}).get('status'))} / "
+    f"tg {compact(deliver_components.get('telegram_audiobook', {}).get('status'))} / "
+    f"wa {compact(deliver_components.get('whatsapp_audiobook', {}).get('status'))} -> "
+    "make verify-active-media-ltd-goal-bundle / make verify-manfred-realtime-conversation-readiness"
+)
+print(f"recover:           {compact(lenses.get('recover', {}).get('status'))} -> make env-check-teable / make env-fresh-host-teable")
+print(f"prove:             {compact(lenses.get('prove', {}).get('status'))} -> make verify-executive-assistant-quality-readiness")
+print(f"detect next:       {compact(lenses.get('detect', {}).get('next_action'))}")
+print(f"decide next:       {compact(lenses.get('decide', {}).get('next_action'))}")
+print(f"deliver next:      {compact(lenses.get('deliver', {}).get('next_action'))}")
+print(f"recover next:      {compact(lenses.get('recover', {}).get('next_action'))}")
+print(f"prove next:        {compact(lenses.get('prove', {}).get('next_action'))}")
+PY
+}
+
 echo "== Operator Summary =="
 echo
 
@@ -243,9 +284,25 @@ echo "all local:         make all-local"
 echo "verify assets:     make verify-release-assets"
 echo "flagship ready:    make verify-flagship-release-readiness"
 echo "whole gold map:    make verify-whole-project-gold-map"
+echo "goal posture:      make verify-continuous-improvement-goal-posture"
+echo "office loop:       make verify-office-loop-goal-receipt"
+echo "ea quality:        make verify-executive-assistant-quality-readiness"
+echo "signal packet:     make verify-whole-project-signal-to-decision-receipt"
+echo "scope audit:       make verify-whole-project-scope-gap-audit"
+echo "active media:      make verify-active-media-ltd-goal-bundle"
+echo "manfred realtime:  make verify-manfred-realtime-conversation-readiness"
+echo "tg audio ready:    make verify-telegram-audiobook-live-readiness"
+echo "tg audiobook live: make verify-telegram-audiobook-live-delivery-receipt"
+echo "wa audio local:    make verify-whatsapp-audiobook-local-intake-proof"
+echo "wa action ready:   make verify-whatsapp-web-action-processor-readiness"
+echo "wa audio bundle:   make verify-whatsapp-audiobook-operator-proof-bundle"
+echo "wa audiobook live: make verify-whatsapp-audiobook-live-delivery-receipt"
+echo "wa share play:     make verify-whatsapp-audiobook-public-share-playback"
 echo "memorial status:   make materialize-memorial-operator-status"
 echo "phrase bank:       make materialize-memorial-phrase-bank"
 echo "room gold clean:   make materialize-memorial-room-audio-gold-clean"
+echo "tg video proof:    make materialize-telegram-video-delivery-receipts"
+echo "tg live verify:    make verify-telegram-video-delivery-live-receipt"
 echo "release docs:      make release-docs"
 echo "release preflight: make release-preflight"
 echo "operator help:     make operator-help"
@@ -269,6 +326,10 @@ echo "http examples:     HTTP_EXAMPLES.http"
 echo "changelog:         CHANGELOG.md"
 echo "env matrix:        ENVIRONMENT_MATRIX.md"
 echo "release checklist: RELEASE_CHECKLIST.md"
+echo
+
+echo "-- goal posture --"
+print_goal_posture_summary
 echo
 
 echo "-- product control --"

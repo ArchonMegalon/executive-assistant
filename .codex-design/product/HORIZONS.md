@@ -1,20 +1,21 @@
 # Horizons
 
-Horizons are the canonical registry for future-capability lanes in Project Chummer.
+Horizons are the canonical registry for campaign-adjacent expansion bets and deeper design lanes in Project Chummer.
 
-They exist so future product intent lives in `chummer6-design`, not only in downstream public storytelling.
+They exist so public storytelling, deeper guide pages, and future product intent stay tied to `chummer6-design` instead of becoming a separate marketing shelf.
 
 For the writing, public-guide, and media standard, use `HORIZON_DESIGN_INSTRUCTIONS.md` before changing any horizon doc or generator.
 
 ## Rules
 
-* Horizon docs are canon for future-capability posture, not promises of shipment.
+* Horizon docs are canon for lane posture, not promises of shipment.
+* Mature base-client areas belong in `PUBLIC_FEATURE_REGISTRY.yaml` and `features/*.md`, not in the Horizon registry.
 * Horizon docs must stay consistent with `VISION.md`, `ARCHITECTURE.md`, `EXTERNAL_TOOLS_PLANE.md`, and `PROGRAM_MILESTONES.yaml`.
 * The public `Chummer6` guide may explain Horizons in human language, but it may not outrun this directory.
 * Public horizon output must satisfy `HORIZON_DESIGN_INSTRUCTIONS.md`: human value first, no repo-speak, no foundation-code checklists, no unsupported shipment claims, and no decorative AR that does not fit the scene.
 * When a horizon already has first-party preview artifacts or detail routes in the public registry, downstream public surfaces should point at that proof instead of presenting the horizon as an empty teaser.
 * Public votes, surveys, Discord chatter, and guide feedback are advisory inputs only.
-* A horizon becomes implementation work only when the owning repos, bounded tool posture, milestone ties, and build path are explicit.
+* A lane becomes implementation work only when the owning repos, bounded tool posture, milestone ties, and build path are explicit.
 * Horizons that analyze human session behavior must define consent, privacy, and non-truth boundaries explicitly.
 
 ## Foundation rule
@@ -25,7 +26,7 @@ That means:
 
 * future speed lanes must name the current latency, keyboard, bulk-edit, and dense-state seams they depend on
 * future ruleset-expression lanes must name the current edition-specific UI and semantic seams they depend on
-* future coaching or primer lanes must name the current explain, legality, sample-build, and recommendation seams they depend on
+* future coaching lanes must name the current explain, legality, sample-build, and recommendation seams they depend on; first-run help itself belongs in `ONRAMP_STARTER_LANE.md`, not in Horizons
 * future GM-control lanes must name the current campaign-state, device-role, roster, recap, and publication seams they depend on
 * future continuity lanes must name the current offline, receipt, replay, and conflict-resolution seams they depend on
 
@@ -35,15 +36,11 @@ The subdirectory `horizons/HORIZON_REGISTRY.yaml` is a derived guide-routing ind
 
 ## Horizon families
 
-Horizons should group into stable capability families rather than reading like an unstructured idea list.
+Horizons should group into stable capability families rather than reading like an unstructured idea list. Public guide output should keep them separate from normal product features.
 
 Current families are:
 
-* expert-speed and command surfaces
-* ruleset-specific authored heads
 * guided mastery and teaching
-* GM operations and campaign control
-* session continuity
 * build and simulation
 * governed rules evolution
 * knowledge fabric and explainability
@@ -53,7 +50,6 @@ Current families are:
 * spatial exploration
 * replay and forensics
 * table coaching and social dynamics
-* optional local acceleration
 * community signal
 
 ## Canon layers
@@ -69,24 +65,16 @@ They must not carry a private hardcoded horizon catalog.
 
 ## Registry
 
-Read `horizons/README.md` first, then the relevant lane docs:
+Read `horizons/README.md` first, then the relevant lane docs. Base product features such as NEXUS-PAN, Run Control, Edition Studio, Community Hub, Ghostwire, Local Co-Processor, and Quicksilver live under `features/*.md`.
 
-* `horizons/quicksilver.md`
-* `horizons/edition-studio.md`
-* `horizons/onramp.md`
-* `horizons/run-control.md`
-* `horizons/nexus-pan.md`
 * `horizons/alice.md`
 * `horizons/karma-forge.md`
 * `horizons/black-ledger.md`
-* `horizons/community-hub.md`
 * `horizons/knowledge-fabric.md`
 * `horizons/jackpoint.md`
 * `horizons/runsite.md`
 * `horizons/runbook-press.md`
-* `horizons/ghostwire.md`
 * `horizons/table-pulse.md`
-* `horizons/local-co-processor.md`
 
 ## Required fields for every horizon
 
@@ -98,7 +86,6 @@ Every horizon must define, either in its long-form doc or in `HORIZON_REGISTRY.y
 * the LTD/tool posture
 * the dependency foundations
 * the current horizon state
-* the eventual build path
 * why it is still a horizon
 
 ## Working rule

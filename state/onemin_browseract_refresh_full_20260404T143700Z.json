@@ -10,7 +10,7 @@
   "results": [
     {
       "account_label": "ONEMIN_AI_API_KEY",
-      "owner_email": "tibor.girschele@gmail.com",
+      "owner_email": "primary.account@example.test",
       "status": "ok",
       "failure_code": "",
       "duration_seconds": 51.572,
@@ -84,7 +84,7 @@
     },
     {
       "account_label": "ONEMIN_AI_API_KEY_FALLBACK_2",
-      "owner_email": "the.girscheles@gmail.com",
+      "owner_email": "shared.account@example.test",
       "status": "ok",
       "failure_code": "",
       "duration_seconds": 61.701,

@@ -8,9 +8,11 @@ import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlparse
 
 
 EMAILIT_API_BASE = "https://api.emailit.com/v2"
+DEFAULT_PROPERTYQUARRY_DOMAIN = "propertyquarry.example.test"
 
 
 def _root() -> Path:
@@ -119,6 +121,31 @@ def _force_fallback(env_values: dict[str, str]) -> bool:
     }
 
 
+def _configured_domain(env_values: dict[str, str]) -> str:
+    explicit = (
+        env_values.get("PROPERTYQUARRY_EMAILIT_DOMAIN")
+        or os.environ.get("PROPERTYQUARRY_EMAILIT_DOMAIN")
+        or env_values.get("PROPERTYQUARRY_PUBLIC_BASE_URL")
+        or os.environ.get("PROPERTYQUARRY_PUBLIC_BASE_URL")
+        or env_values.get("EA_PUBLIC_APP_BASE_URL")
+        or os.environ.get("EA_PUBLIC_APP_BASE_URL")
+        or DEFAULT_PROPERTYQUARRY_DOMAIN
+    )
+    value = str(explicit).strip()
+    if "://" in value:
+        parsed = urlparse(value)
+        value = parsed.netloc or value
+    return value.strip().strip("/").lower() or DEFAULT_PROPERTYQUARRY_DOMAIN
+
+
+def _configured_sender_email(env_values: dict[str, str], domain: str) -> str:
+    return (
+        env_values.get("EA_REGISTRATION_EMAIL_FROM")
+        or os.environ.get("EA_REGISTRATION_EMAIL_FROM")
+        or f"property@{domain}"
+    ).strip()
+
+
 def _send_probe(
     *,
     api_key: str,
@@ -149,7 +176,7 @@ def main() -> int:
         print()
     parser = argparse.ArgumentParser(description="Prepare and inspect the PropertyQuarry Emailit sending domain.")
     parser.add_argument("--env-file", default=str(_default_env_file()), help="Env file to inspect.")
-    parser.add_argument("--domain", default="propertyquarry.com", help="Sending domain to inspect or create.")
+    parser.add_argument("--domain", default="", help="Sending domain to inspect or create. Defaults to PROPERTYQUARRY_EMAILIT_DOMAIN or public base URL.")
     parser.add_argument("--verify", action="store_true", help="Trigger Emailit DNS verification after loading the domain.")
     parser.add_argument("--send-test-to", default="", help="Optional recipient email for a live send probe.")
     args = parser.parse_args()
@@ -159,7 +186,8 @@ def main() -> int:
     if not api_key:
         raise SystemExit("EMAILIT_API_KEY is missing.")
 
-    domain = _ensure_domain(api_key=api_key, domain_name=str(args.domain or "").strip())
+    domain_name = str(args.domain or "").strip() or _configured_domain(env_values)
+    domain = _ensure_domain(api_key=api_key, domain_name=domain_name)
     if args.verify and (not str(domain.get("verified_at") or "").strip() or not _dns_ready(domain)):
         domain = _verify_domain(api_key=api_key, domain_id=str(domain.get("id") or "").strip())
 
@@ -191,7 +219,7 @@ def main() -> int:
             )
         )
     if str(args.send_test_to or "").strip():
-        sender_email = str(env_values.get("EA_REGISTRATION_EMAIL_FROM") or os.environ.get("EA_REGISTRATION_EMAIL_FROM") or "property@propertyquarry.com").strip()
+        sender_email = _configured_sender_email(env_values, domain_name)
         sender_name = str(env_values.get("EA_REGISTRATION_EMAIL_NAME") or os.environ.get("EA_REGISTRATION_EMAIL_NAME") or "PropertyQuarry").strip()
         if _force_fallback(env_values):
             sender_email = str(env_values.get("EA_REGISTRATION_EMAIL_FROM_FALLBACK") or os.environ.get("EA_REGISTRATION_EMAIL_FROM_FALLBACK") or sender_email).strip()

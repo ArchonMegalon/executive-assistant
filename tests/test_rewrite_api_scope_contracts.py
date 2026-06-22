@@ -14,18 +14,28 @@ def _client(*, principal_id: str) -> TestClient:
     os.environ.pop("EA_DEFAULT_PRINCIPAL_ID", None)
     os.environ["EA_API_TOKEN"] = "test-token"
     os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
-    os.environ["EA_OPERATOR_PRINCIPAL_IDS"] = "operator-1"
     os.environ["EA_APPROVAL_THRESHOLD_CHARS"] = "5000"
     from app.api.app import create_app
 
     client = TestClient(create_app())
+    for seeded_principal in (principal_id, "operator-1"):
+        client.app.state.container.orchestrator.upsert_operator_profile(
+            principal_id=seeded_principal,
+            operator_id="operator-1",
+            display_name="Rewrite Scope Operator",
+            roles=("operator", "reviewer"),
+            trust_tier="trusted",
+            status="active",
+            notes="Seeded for rewrite scope contracts.",
+        )
     client.headers.update({"Authorization": "Bearer test-token"})
     client.headers.update({"X-EA-Principal-ID": principal_id})
+    client.headers.update({"X-EA-Operator-ID": "operator-1"})
     return client
 
 
 def test_rewrite_fetch_routes_reject_cross_principal_access() -> None:
-    owner = _client(principal_id="exec-1")
+    owner = _client(principal_id="principal-default")
     created = owner.post("/v1/rewrite/artifact", json={"text": "scoped artifact"})
     assert created.status_code == 200
 
@@ -33,11 +43,11 @@ def test_rewrite_fetch_routes_reject_cross_principal_access() -> None:
     session = owner.get(f"/v1/rewrite/sessions/{payload['execution_session_id']}")
     assert session.status_code == 200
     session_body = session.json()
-    assert payload["principal_id"] == "exec-1"
-    assert session_body["artifacts"][0]["principal_id"] == "exec-1"
+    assert payload["principal_id"] == "principal-default"
+    assert session_body["artifacts"][0]["principal_id"] == "principal-default"
     fetched_artifact = owner.get(f"/v1/rewrite/artifacts/{payload['artifact_id']}")
     assert fetched_artifact.status_code == 200
-    assert fetched_artifact.json()["principal_id"] == "exec-1"
+    assert fetched_artifact.json()["principal_id"] == "principal-default"
 
     for path in (
         f"/v1/rewrite/sessions/{payload['execution_session_id']}",
@@ -51,7 +61,7 @@ def test_rewrite_fetch_routes_reject_cross_principal_access() -> None:
 
 
 def test_rewrite_artifact_surfaces_delayed_retry_as_queued_async_acceptance() -> None:
-    owner = _client(principal_id="exec-1")
+    owner = _client(principal_id="principal-default")
     container = owner.app.state.container
     original = container.tool_execution._handlers["artifact_repository"]
     calls = {"count": 0}

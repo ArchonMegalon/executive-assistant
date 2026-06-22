@@ -16,6 +16,44 @@ def _load_runner_module(monkeypatch: pytest.MonkeyPatch):
     return importlib.import_module("app.runner")
 
 
+def test_run_api_uses_main_asgi_target(monkeypatch: pytest.MonkeyPatch) -> None:
+    runner = _load_runner_module(monkeypatch)
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    monkeypatch.setattr(
+        runner.uvicorn,
+        "run",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+
+    runner._run_api()
+
+    assert calls
+    assert calls[0][0] == ("app.main:app",)
+
+
+def test_run_openvoice_uses_main_asgi_target(monkeypatch: pytest.MonkeyPatch) -> None:
+    runner = _load_runner_module(monkeypatch)
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    monkeypatch.setattr(
+        runner.uvicorn,
+        "run",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+    monkeypatch.setenv("OPENVOICE_HOST", "127.0.0.1")
+    monkeypatch.setenv("OPENVOICE_PORT", "9123")
+    monkeypatch.setenv("OPENVOICE_LOG_LEVEL", "warning")
+
+    runner._run_openvoice()
+
+    assert calls
+    assert calls[0][0] == ("app.main:app",)
+    assert calls[0][1]["host"] == "127.0.0.1"
+    assert calls[0][1]["port"] == 9123
+    assert calls[0][1]["log_level"] == "warning"
+
+
 def test_scheduler_onemin_billing_refresh_runs_browseract_and_provider_api_sweep(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -421,7 +459,7 @@ def test_scheduler_google_signal_sync_runs_configured_property_mailboxes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     runner = _load_runner_module(monkeypatch)
-    monkeypatch.setenv("EA_PROPERTY_ALERT_ACCOUNT_EMAILS", "elisabeth.girschele@gmail.com")
+    monkeypatch.setenv("EA_PROPERTY_ALERT_ACCOUNT_EMAILS", "property.alerts@example.test")
 
     calls: list[str] = []
     property_calls: list[str] = []
@@ -429,9 +467,9 @@ def test_scheduler_google_signal_sync_runs_configured_property_mailboxes(
         binding_id="binding-google-1",
         principal_id="principal-google-1",
         connector_name="google_workspace",
-        external_account_ref="tibor@example.com",
+        external_account_ref="principal.test",
         scope_json={},
-        auth_metadata_json={"google_email": "tibor@example.com"},
+        auth_metadata_json={"google_email": "principal.test"},
         status="enabled",
         created_at="2026-03-26T00:00:00Z",
         updated_at="2026-03-26T00:00:00Z",
@@ -465,12 +503,12 @@ def test_scheduler_google_signal_sync_runs_configured_property_mailboxes(
         "synced": 1,
         "errors": 0,
         "skipped": 0,
-        "property_accounts": ["elisabeth.girschele@gmail.com"],
+        "property_accounts": ["property.alerts@example.test"],
         "property_attempted": 1,
         "property_synced": 2,
     }
     assert calls == ["principal-google-1|scheduler|5|5"]
-    assert property_calls == ["principal-google-1|scheduler|elisabeth.girschele@gmail.com|10"]
+    assert property_calls == ["principal-google-1|scheduler|property.alerts@example.test|10"]
 
 
 def test_scheduler_pocket_signal_sync_runs_for_default_principal(
@@ -489,7 +527,7 @@ def test_scheduler_pocket_signal_sync_runs_for_default_principal(
 
     container = SimpleNamespace(
         settings=SimpleNamespace(
-            auth=SimpleNamespace(default_principal_id="local-user"),
+            auth=SimpleNamespace(default_principal_id="principal-default"),
         ),
     )
 
@@ -501,8 +539,8 @@ def test_scheduler_pocket_signal_sync_runs_for_default_principal(
 
     summary = runner._run_scheduler_pocket_signal_sync(container, logging.getLogger("test.runner"))
 
-    assert summary == {"ran": True, "attempted": 1, "synced": 3, "errors": 0, "principal_id": "local-user"}
-    assert calls == ["local-user|scheduler|7"]
+    assert summary == {"ran": True, "attempted": 1, "synced": 3, "errors": 0, "principal_id": "principal-default"}
+    assert calls == ["principal-default|scheduler|7"]
 
 
 def test_scheduler_property_scout_runs_for_configured_principals(
@@ -974,7 +1012,7 @@ def test_scheduler_whatsapp_async_recovery_sends_queued_message(monkeypatch: pyt
                 SimpleNamespace(
                     channel="whatsapp",
                     principal_id="principal-whatsapp-1",
-                    recipient="+436641112223",
+                    recipient="+15550101223",
                     content="Ich denke an dich.",
                     metadata={"delivery_mode": "queued", "binding_id": "binding-1"},
                     created_at="2026-01-01T00:00:00Z",
@@ -1069,7 +1107,7 @@ def test_scheduler_whatsapp_async_recovery_dead_letters_after_retry_budget(monke
                 SimpleNamespace(
                     channel="whatsapp",
                     principal_id="principal-whatsapp-2",
-                    recipient="+436640000000",
+                    recipient="+15550100000",
                     content="Das ist wichtig.",
                     metadata={"delivery_mode": "queued", "binding_id": "binding-2"},
                     created_at="2026-01-01T00:00:00Z",

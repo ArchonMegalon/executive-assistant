@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Dict, List, Protocol
+from typing import Protocol
 
 from app.domain.models import TaskContract, now_utc_iso
 
@@ -19,8 +19,8 @@ class TaskContractRepository(Protocol):
 
 class InMemoryTaskContractRepository:
     def __init__(self) -> None:
-        self._rows: Dict[str, TaskContract] = {}
-        self._order: List[str] = []
+        self._rows: dict[str, TaskContract] = {}
+        self._order: list[str] = []
 
     def upsert(self, row: TaskContract) -> TaskContract:
         key = str(row.task_key or "").strip()
@@ -37,6 +37,5 @@ class InMemoryTaskContractRepository:
 
     def list_all(self, limit: int = 100) -> list[TaskContract]:
         n = max(1, min(500, int(limit or 100)))
-        keys = list(reversed(self._order))
-        rows = [self._rows[k] for k in keys if k in self._rows]
-        return rows[:n]
+        return [self._rows[key] for key in reversed(self._order) if key in self._rows][:n]
+

@@ -2,7 +2,7 @@
 
 ## Explanation video
 
-[Watch the ALICE 90-second deep dive](https://chummer.run/media/horizons/alice-90s-deepdive.mp4) - MP4 with AAC audio. [Captions](https://chummer.run/media/horizons/alice-90s-deepdive.vtt).
+[Watch the ALICE 90-second deep dive](https://chummer.run/media/horizons/alice-90s-deepdive.mp4). [Captions](https://chummer.run/media/horizons/alice-90s-deepdive.vtt).
 
 ## The problem
 
@@ -24,8 +24,9 @@ The shipped ALICE slice is now broader than the first compare bench:
 * rules-coach prompts that explain selectable build options without claiming rule authority beyond cited Chummer mechanics context
 * GM allowance and requirement notes that can seed ALICE guidance with bounded exceptions or constraints such as extra ware, availability, nuyen, gear, qualities, required magical activity, illegal-addiction requirements, or minimum mental-attribute requirements without mutating build truth
 * an origin-dossier lane that can generate a grounded origin draft from blank-state or active-runner context, freeze approved canon, and seed later ALICE suggestions from that canon
-* origin-dossier bundle outputs that can branch into dossier PDF, portrait candidates, scene candidates, vidBoard video packets, default narration packets, alternate narration packets, and local media-factory render requests
+* origin-dossier bundle outputs that can branch into dossier PDF, portrait candidates, scene candidates, vidBoard video packets, default narration packets, alternate narration packets, approved-story audiobook requests, and local media-factory render requests
 * voice-selection controls that let the player choose between at least a default and alternate narration posture before the audiobook packet is rendered
+* player-scoped audiobook handoffs that let the desktop open the approved origin-story audio without receiving global Audiobookshelf credentials
 * GM-steered origin context that can shape the dossier tone, faction hooks, and campaign constraints before or after sheet creation without pretending that story output is mechanical truth
 
 This is still not an assistant-side build oracle.
@@ -43,6 +44,7 @@ Desktop ALICE may:
 * respect GM allowances and hard GM requirements as advisory context
 * generate downstream dossier media packets
 * let the player choose a narration posture before generating dossier audiobook packets
+* open an EA-issued player/runner-scoped origin-story audiobook reference when the approved dossier has one
 * keep origin-dossier generation additive for finished runners instead of treating story output as a forced rebuild lane
 * accept campaign or GM steer as bounded context for origin-dossier generation
 
@@ -53,6 +55,7 @@ Desktop ALICE must not:
 * invent rule legality
 * treat dossier prose as canonical build truth
 * let a downstream media provider become rules or character authority
+* hold an Audiobookshelf admin token, global library token, provider secret, or raw pCloud media path
 * silently turn GM narrative steer into applied mechanics on an already-established sheet
 
 ## Likely owners
@@ -94,5 +97,6 @@ The intended flow is:
 3. origin draft
 4. approve canon
 5. choose voice posture for narration lanes when desired
-6. render the origin dossier bundle
-7. let later ALICE suggestions read that canon without mutating established build truth
+6. request an approved-story audiobook when desired
+7. render the origin dossier bundle
+8. let later ALICE suggestions read that canon without mutating established build truth

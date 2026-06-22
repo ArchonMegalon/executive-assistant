@@ -6,7 +6,8 @@ import sys
 from pathlib import Path
 
 
-SCRIPT_PATH = Path("/docker/EA/scripts/attempt_unmixr_browseract_clone.py")
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT_PATH = ROOT / "scripts" / "attempt_unmixr_browseract_clone.py"
 
 
 def _load_module():

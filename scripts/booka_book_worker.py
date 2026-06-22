@@ -13,10 +13,17 @@ import traceback
 import uuid
 from pathlib import Path
 
+try:
+    from scripts.ui_service_worker_cleanup import cleanup_ui_service_run_dir, ui_service_worker_cleanup_enabled
+except ImportError:
+    from ui_service_worker_cleanup import cleanup_ui_service_run_dir, ui_service_worker_cleanup_enabled
+
 
 PLAYWRIGHT_IMAGE = os.environ.get("EA_UI_PLAYWRIGHT_IMAGE", "chummer-playwright:local").strip() or "chummer-playwright:local"
-OUTPUT_ROOT = Path(os.environ.get("EA_UI_SERVICE_WORKER_OUTPUT_ROOT", "/docker/fleet/state/browseract_ui_worker_outputs")).expanduser()
-SHARED_TEMP_ROOT = Path(os.environ.get("EA_UI_SERVICE_SHARED_TEMP_ROOT", "/docker/fleet/state/browseract_ui_worker_shared")).expanduser()
+ROOT = Path(__file__).resolve().parents[1]
+RUNTIME_ROOT = ROOT / ".runtime" / "browseract"
+OUTPUT_ROOT = Path(os.environ.get("EA_UI_SERVICE_WORKER_OUTPUT_ROOT") or RUNTIME_ROOT / "worker_outputs").expanduser()
+SHARED_TEMP_ROOT = Path(os.environ.get("EA_UI_SERVICE_SHARED_TEMP_ROOT") or RUNTIME_ROOT / "worker_shared").expanduser()
 DEFAULT_EMAIL = os.environ.get("EA_UI_SERVICE_LOGIN_EMAIL", "").strip()
 DEFAULT_PASSWORD = os.environ.get("EA_UI_SERVICE_LOGIN_PASSWORD", "").strip()
 
@@ -294,6 +301,9 @@ def main() -> int:
         _standalone_html(packet=packet, browser_output=browser_output, screenshot_data_uri=screenshot_data_uri),
         encoding="utf-8",
     )
+    cleanup = {}
+    if ui_service_worker_cleanup_enabled():
+        cleanup = cleanup_ui_service_run_dir(run_dir=run_dir, asset_path=html_path)
     result_title = str(packet.get("result_title") or packet.get("title") or "First Book AI result").strip() or "First Book AI result"
     body_text = str(browser_output.get("bodyText") or "").strip()
     render_status = "completed" if "PHASE 2: STRUCTURE" in body_text or "Refine Your Outline" in body_text else "partial"
@@ -317,6 +327,8 @@ def main() -> int:
             "render_status": render_status,
         },
     }
+    if cleanup:
+        result["cleanup"] = cleanup
     print(json.dumps(result, ensure_ascii=False))
     return 0
 

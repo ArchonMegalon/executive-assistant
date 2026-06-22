@@ -6,8 +6,11 @@ import sys
 from pathlib import Path
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
 def _script() -> Path:
-    return Path(__file__).resolve().parents[1] / "scripts" / "verify_memorial_joggai_asset.py"
+    return ROOT / "scripts" / "verify_memorial_joggai_asset.py"
 
 
 def _write_video(path: Path) -> None:
@@ -99,7 +102,7 @@ def _run_verifier(tmp_path: Path, *, packet_overrides: dict[str, object] | None 
         "video/joggai/how-this-memorial-works-poster.webp",
     ]
     command.extend(extra_args or [])
-    return subprocess.run(command, cwd="/docker/EA", text=True, capture_output=True, check=False)
+    return subprocess.run(command, cwd=ROOT, text=True, capture_output=True, check=False)
 
 
 def test_joggai_asset_verifier_writes_public_ready_receipt(tmp_path: Path) -> None:
@@ -166,7 +169,7 @@ def test_joggai_asset_verifier_defaults_to_public_bundle_relpaths(tmp_path: Path
             "--output",
             str(output),
         ],
-        cwd="/docker/EA",
+        cwd=ROOT,
         text=True,
         capture_output=True,
         check=False,

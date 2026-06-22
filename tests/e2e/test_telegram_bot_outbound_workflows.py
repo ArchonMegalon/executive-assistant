@@ -25,7 +25,7 @@ from app.product.service import ProductService
 def test_telegram_outbound_workflow_property_tour_sent(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
-    principal_id = "cf-email:tibor.girschele@gmail.com"
+    principal_id = "cf-email:principal.user@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Telegram Outbound Tour Office")
 
@@ -71,7 +71,7 @@ def test_telegram_outbound_workflow_property_tour_sent(monkeypatch: pytest.Monke
         lambda tool_runtime, *, principal_id, text: SimpleNamespace(
             chat_id="1354554303",
             bot_key="default",
-            bot_handle="tibor_concierge_bot",
+            bot_handle="ea_concierge_bot",
             message_ids=("tg-1",),
         ),
     )
@@ -81,7 +81,7 @@ def test_telegram_outbound_workflow_property_tour_sent(monkeypatch: pytest.Monke
         lambda tool_runtime, *, principal_id, video_ref, audio_probe_ref="", caption="": SimpleNamespace(
             chat_id="1354554303",
             bot_key="default",
-            bot_handle="tibor_concierge_bot",
+            bot_handle="ea_concierge_bot",
             message_ids=("tg-video-1",),
         ),
     )
@@ -94,8 +94,8 @@ def test_telegram_outbound_workflow_property_tour_sent(monkeypatch: pytest.Monke
             execution_session_id="session-property-tour-1",
             principal_id=principal_id,
             structured_output_json={
-                "hosted_url": "https://myexternalbrain.com/tours/brigittenau-apartment-a",
-                "public_url": "https://myexternalbrain.com/tours/brigittenau-apartment-a",
+                "hosted_url": "https://assistant.example.test/tours/brigittenau-apartment-a",
+                "public_url": "https://assistant.example.test/tours/brigittenau-apartment-a",
                 "crezlo_public_url": "https://vendor.example.com/tours/brigittenau-apartment-a",
                 "editor_url": "https://vendor.example.com/editor/brigittenau-apartment-a",
                 "tour_id": "tour-123",
@@ -124,7 +124,7 @@ def test_telegram_outbound_workflow_property_tour_sent(monkeypatch: pytest.Monke
     assert body["telegram_message_ids"] == ["tg-1"]
     assert body["telegram_video_delivery_status"] == "sent"
     assert body["telegram_video_message_ids"] == ["tg-video-1"]
-    assert body["telegram_video_url"] == "https://myexternalbrain.com/tours/files/brigittenau-apartment-a/tour.mp4"
+    assert body["telegram_video_url"] == "https://assistant.example.test/tours/files/brigittenau-apartment-a/tour.mp4"
 
     tg_events = client.get("/app/api/events", params={"channel": "product", "event_type": "willhaben_property_tour_telegram_sent"})
     assert tg_events.status_code == 200
@@ -189,8 +189,8 @@ def test_telegram_outbound_workflow_suppresses_weak_property_digest(monkeypatch:
         google_oauth_service,
         "list_recent_workspace_signals",
         lambda **_: google_oauth_service.GoogleWorkspaceSignalSync(
-            account_email="elisabeth.girschele@gmail.com",
-            account_emails=("elisabeth.girschele@gmail.com",),
+            account_email="property.alerts@example.test",
+            account_emails=("property.alerts@example.test",),
             granted_scopes=(google_oauth_service.GOOGLE_SCOPE_GMAIL_MODIFY,),
             signals=(
                 google_oauth_service.GoogleWorkspaceSignal(
@@ -199,14 +199,14 @@ def test_telegram_outbound_workflow_suppresses_weak_property_digest(monkeypatch:
                     title='"Eigentumswohnungen" hat 5 neue Anzeigen für dich gefunden',
                     summary="Recent mail from willhaben-Suchagent.",
                     text="Neue Anzeigen gefunden.",
-                    source_ref="gmail-thread:elisabeth.girschele@gmail.com:quiet-digest-1",
-                    external_id="gmail-message:elisabeth.girschele@gmail.com:quiet-digest-1",
+                    source_ref="gmail-thread:property.alerts@example.test:quiet-digest-1",
+                    external_id="gmail-message:property.alerts@example.test:quiet-digest-1",
                     counterparty="willhaben-Suchagent",
                     due_at=None,
                     payload={
                         "from_email": "no-reply@agent.willhaben.at",
                         "from_name": "willhaben-Suchagent",
-                        "account_email": "elisabeth.girschele@gmail.com",
+                        "account_email": "property.alerts@example.test",
                         "body_text_excerpt": "Neue Anzeigen gefunden.",
                         "labels": ["CATEGORY_UPDATES", "INBOX"],
                     },
@@ -221,7 +221,7 @@ def test_telegram_outbound_workflow_suppresses_weak_property_digest(monkeypatch:
         lambda *args, **kwargs: sent.append({"args": args, "kwargs": kwargs}) or SimpleNamespace(message_ids=["1"], chat_id="chat"),
     )
 
-    synced = client.post("/app/api/signals/google/property-sync", params={"account_email": "elisabeth.girschele@gmail.com", "email_limit": 5})
+    synced = client.post("/app/api/signals/google/property-sync", params={"account_email": "property.alerts@example.test", "email_limit": 5})
     assert synced.status_code == 200
     assert synced.json()["synced_total"] == 1
     assert sent == []
@@ -242,8 +242,8 @@ def test_telegram_outbound_workflow_google_photos_sync_sends_summary(monkeypatch
         google_oauth_service,
         "sync_google_photos_picker_session",
         lambda **_: google_oauth_service.GooglePhotosSignalSync(
-            account_email="tibor.girschele@gmail.com",
-            account_emails=("tibor.girschele@gmail.com",),
+            account_email="principal.user@example.test",
+            account_emails=("principal.user@example.test",),
             binding_id="exec-google-photos:google_gmail",
             session_id="photos-session-2",
             granted_scopes=(google_oauth_service.GOOGLE_SCOPE_PHOTOS_PICKER,),
@@ -254,13 +254,13 @@ def test_telegram_outbound_workflow_google_photos_sync_sends_summary(monkeypatch
                     channel="google_photos",
                     title="IMG_1001.JPG",
                     summary="PHOTO · 4032x3024 · Apple iPhone",
-                    text="Google Photos photo selected by tibor.girschele@gmail.com.",
-                    source_ref="google-photo:tibor.girschele@gmail.com:item-1001",
-                    external_id="google-photo:tibor.girschele@gmail.com:item-1001",
-                    counterparty="tibor.girschele@gmail.com",
+                    text="Google Photos photo selected by principal.user@example.test.",
+                    source_ref="google-photo:principal.user@example.test:item-1001",
+                    external_id="google-photo:principal.user@example.test:item-1001",
+                    counterparty="principal.user@example.test",
                     due_at=None,
                     payload={
-                        "account_email": "tibor.girschele@gmail.com",
+                        "account_email": "principal.user@example.test",
                         "google_photos_session_id": "photos-session-2",
                         "google_photos_media_item_id": "item-1001",
                         "mime_type": "image/jpeg",
@@ -299,7 +299,7 @@ def test_telegram_outbound_workflow_google_photos_sync_sends_summary(monkeypatch
 
     synced = client.post(
         "/app/api/signals/google/photos/sync",
-        json={"session_id": "photos-session-2", "account_email": "tibor.girschele@gmail.com", "max_items": 10, "delete_session": False},
+        json={"session_id": "photos-session-2", "account_email": "principal.user@example.test", "max_items": 10, "delete_session": False},
     )
     assert synced.status_code == 200
     assert synced.json()["analyzed_total"] == 1
@@ -316,7 +316,7 @@ def test_telegram_outbound_workflow_memo_delivery_records_telegram_send_and_prof
     start_workspace(client, mode="personal", workspace_name="Telegram Outbound Memo Office")
     product = ProductService(client.app.state.container)
 
-    product.upsert_preference_profile(principal_id=principal_id, person_id="self", display_name="Tibor Girschele", learning_enabled=True)
+    product.upsert_preference_profile(principal_id=principal_id, person_id="self", display_name="Principal User", learning_enabled=True)
     product.upsert_preference_node(
         principal_id=principal_id,
         person_id="self",
@@ -336,7 +336,7 @@ def test_telegram_outbound_workflow_memo_delivery_records_telegram_send_and_prof
         domain="document_ingest",
         event_type="document_pattern_detected",
         object_type="scanned_document_batch",
-        object_id="onedrive:tibor-insurance-rehab-authorizations",
+        object_id="onedrive:principal-insurance-rehab-authorizations",
         source_ref="/mnt/onedrive/Documents/Scanned Documents",
         raw_signal_json={"sample_documents": ["20250615 Kfa Bewilligung Physio.pdf"]},
         interpreted_signal_json={"summary": "Recurring KfA and rehab authorization paperwork."},

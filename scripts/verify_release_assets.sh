@@ -55,8 +55,13 @@ required_files=(
   ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json"
   ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json"
   ".codex-studio/published/telegram_video_delivery_operator.generated.json"
+  ".codex-studio/published/telegram_video_delivery_live.generated.json"
+  ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"
+  ".codex-studio/published/teable_env_recovery_readiness.generated.json"
+  ".codex-studio/published/whatsapp_audiobook_public_share_playback.generated.json"
   ".codex-design/product/MEMORIAL_PHRASE_BANK.manfred.generated.json"
   ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json"
+  ".codex-studio/published/whatsapp_web_action_processor_readiness.generated.json"
   "scripts/deploy.sh"
   "scripts/db_bootstrap.sh"
   "scripts/db_status.sh"
@@ -80,6 +85,7 @@ required_files=(
   "scripts/materialize_ea_browser_workflow_proof.py"
   "scripts/materialize_weekly_product_pulse.py"
   "scripts/materialize_telegram_video_delivery_receipt.py"
+  "scripts/materialize_telegram_video_delivery_live_receipt.py"
   "scripts/materialize_poppy_draft_packet.py"
   "scripts/materialize_memorial_phrase_bank.py"
   "scripts/materialize_memorial_operator_status.py"
@@ -89,7 +95,16 @@ required_files=(
   "scripts/verify_project_mode_manifests.py"
   "scripts/verify_project_mode_runtime.py"
   "scripts/materialize_whole_project_gold_map.py"
+  "scripts/materialize_teable_env_recovery_readiness.py"
+  "scripts/materialize_whatsapp_web_action_processor_readiness.py"
+  "scripts/verify_whatsapp_web_action_processor_readiness.py"
+  "ea/scripts/verify_whatsapp_audiobook_live_delivery_receipt.py"
+  "ea/scripts/verify_whatsapp_audiobook_operator_proof_bundle.py"
+  "ea/scripts/verify_whatsapp_audiobook_public_share_playback.py"
   "scripts/verify_whole_project_gold_map.py"
+  "scripts/materialize_continuous_improvement_goal_posture.py"
+  "scripts/verify_continuous_improvement_goal_posture.py"
+  "scripts/verify_teable_env_recovery_readiness.py"
   "scripts/verify_generated_release_artifacts_clean.py"
   "scripts/verify_flagship_release_readiness.py"
   "scripts/verify_design_mirror_bundle.py"
@@ -160,6 +175,7 @@ fi
 
 if python3 - <<'PY'
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -188,8 +204,9 @@ journey_gate_source = pulse.get("journey_gate_source") or supporting.get("journe
 release_truth_provenance = pulse.get("release_truth_provenance") or {}
 journey_gate_provenance = pulse.get("journey_gate_provenance") or {}
 assert release_truth_source == ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
-assert journey_gate_source == "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json"
-assert supporting.get("journey_gate_source") == "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json"
+expected_journey_gate_source = os.environ.get("EA_FLEET_JOURNEY_GATES_PATH") or "ea/_completion/fleet/JOURNEY_GATES.generated.json"
+assert journey_gate_source == expected_journey_gate_source
+assert supporting.get("journey_gate_source") == expected_journey_gate_source
 assert supporting.get("flagship_release_receipt_source") == ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
 assert release_truth_provenance.get("present") is True
 assert release_truth_provenance.get("sha256")
@@ -269,7 +286,6 @@ if release_truth_head and current_head and release_truth_head != current_head:
         "Makefile",
         "CHANGELOG.md",
         "LTDs.md",
-        ".github/workflows/smoke-runtime.yml",
         "ea/app/api/routes/plans.py",
         "ea/app/services/execution_approval_pause_service.py",
         "scripts/materialize_ea_browser_workflow_proof.py",
@@ -310,77 +326,13 @@ else
   missing=1
 fi
 
-if python3 - <<'PY'
-import json
-import subprocess
-from pathlib import Path
-
-
-def _head_json(path: str) -> dict:
-    payload = subprocess.run(
-        ["git", "show", f"HEAD:{path}"],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
-    return json.loads(payload)
-
-
-def _worktree_json(path: str) -> dict:
-    return json.loads(Path(path).read_text(encoding="utf-8"))
-
-
-def _normalize(value):
-    if isinstance(value, dict):
-        normalized = {}
-        for key, item in value.items():
-            if key in {
-                "generated_at",
-                "as_of",
-                "created_at",
-                "mtime_utc",
-                "size_bytes",
-                "sha256",
-                "duration_seconds",
-                "git_branch",
-                "git_head",
-                "source_path",
-                "resolved_path",
-                "git_repo_root",
-                "command",
-                "cwd",
-                "python_bin",
-            }:
-                continue
-            if key.endswith("_git_head"):
-                continue
-            if key == "review_due":
-                continue
-            if key == "output_excerpt":
-                continue
-            normalized[key] = _normalize(item)
-        return normalized
-    if isinstance(value, list):
-        return [_normalize(item) for item in value]
-    return value
-
-
-paths = (
-    ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
-    ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
-    ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json",
-)
-for path in paths:
-    assert _normalize(_head_json(path)) == _normalize(_worktree_json(path)), path
-PY
+if python3 scripts/verify_generated_release_artifacts_clean.py >/tmp/ea_generated_release_artifacts_clean.out 2>/tmp/ea_generated_release_artifacts_clean.err
 then
   echo "ok: generated release artifacts stay semantically aligned after materialization"
 else
+  cat /tmp/ea_generated_release_artifacts_clean.out
+  cat /tmp/ea_generated_release_artifacts_clean.err >&2
   echo "missing: generated release artifacts drift semantically after materialization" >&2
-  git diff -- \
-    .codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json \
-    .codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json \
-    .codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json >&2 || true
   missing=1
 fi
 
@@ -1239,38 +1191,39 @@ else
   missing=1
 fi
 
-if grep -Fq "make ci-gates" ".github/workflows/smoke-runtime.yml"; then
-  echo "ok: smoke-runtime workflow uses ci-gates"
+if grep -Fq "ci-gates:" "Makefile" && grep -Fq "release-preflight:" "Makefile"; then
+  echo "ok: local gate bundle uses Makefile release gates"
 else
-  echo "missing: smoke-runtime workflow ci-gates usage" >&2
+  echo "missing: local gate bundle Makefile release gates" >&2
   missing=1
 fi
 
-if grep -Fq "python -m playwright install --with-deps chromium" ".github/workflows/smoke-runtime.yml"; then
-  echo "ok: smoke-runtime workflow installs playwright browsers for real-browser gates"
+if grep -Fq "python -m playwright install --with-deps chromium" "README.md" || \
+   grep -Fq "python -m playwright install --with-deps chromium" "RUNBOOK.md"; then
+  echo "ok: local docs cover playwright browser install for real-browser gates"
 else
-  echo "missing: smoke-runtime workflow playwright browser install" >&2
+  echo "missing: local docs playwright browser install" >&2
   missing=1
 fi
 
-if grep -Fq "scripts/smoke_postgres.sh" ".github/workflows/smoke-runtime.yml"; then
-  echo "ok: smoke-runtime workflow includes postgres smoke job"
+if grep -Fq "smoke-postgres:" "Makefile" && grep -Fq "scripts/smoke_postgres.sh" "Makefile"; then
+  echo "ok: local gates include postgres smoke"
 else
-  echo "missing: smoke-runtime workflow postgres smoke job" >&2
+  echo "missing: local postgres smoke gate" >&2
   missing=1
 fi
 
-if grep -Fq "scripts/test_postgres_contracts.sh" ".github/workflows/smoke-runtime.yml"; then
-  echo "ok: smoke-runtime workflow includes postgres contract job"
+if grep -Fq "test-postgres-contracts:" "Makefile" && grep -Fq "scripts/test_postgres_contracts.sh" "Makefile"; then
+  echo "ok: local gates include postgres contract job"
 else
-  echo "missing: smoke-runtime workflow postgres contract job" >&2
+  echo "missing: local postgres contract gate" >&2
   missing=1
 fi
 
-if grep -Fq -- "--legacy-fixture" ".github/workflows/smoke-runtime.yml"; then
-  echo "ok: smoke-runtime workflow includes legacy migration smoke job"
+if grep -Fq -- "--legacy-fixture" "scripts/smoke_postgres.sh"; then
+  echo "ok: local postgres smoke includes legacy migration mode"
 else
-  echo "missing: smoke-runtime workflow legacy migration smoke job" >&2
+  echo "missing: local postgres smoke legacy migration mode" >&2
   missing=1
 fi
 
@@ -2732,7 +2685,7 @@ then
      grep -Fq "assigned_by_actor_id" "scripts/smoke_api.sh" && \
      grep -Fq "orchestrator:auto_preselected" "scripts/smoke_api.sh" && \
      grep -Fq 'task["assigned_by_actor_id"] == ""' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
-     grep -Fq 'assigned.json()["assigned_by_actor_id"] == "exec-1"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'assigned.json()["assigned_by_actor_id"] == "principal-default"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq 'review_task["assigned_by_actor_id"] == "orchestrator:auto_preselected"' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq 'assigned_by_actor_id="principal-1"' "tests/test_postgres_contract_matrix_integration.py" && \
      grep -Fq 'assigned_by_actor_id == "operator-1"' "tests/test_postgres_contract_matrix_integration.py" && \
@@ -2816,9 +2769,9 @@ then
      grep -Fq "assigned_by_actor_id" "README.md" && \
      grep -Fq "assigned_operator_id" "RUNBOOK.md" && \
      grep -Fq "assigned_by_actor_id" "RUNBOOK.md" && \
-     grep -Fq "event_name=human_task_assigned&assigned_by_actor_id=exec-1" "scripts/smoke_api.sh" && \
+     grep -Fq "event_name=human_task_assigned&assigned_by_actor_id=principal-default" "scripts/smoke_api.sh" && \
      grep -Fq "event_name=human_task_returned&assigned_operator_id=operator-junior" "scripts/smoke_api.sh" && \
-     grep -Fq 'params={"limit": 10, "event_name": "human_task_assigned", "assigned_by_actor_id": "exec-1"}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
+     grep -Fq 'params={"limit": 10, "event_name": "human_task_assigned", "assigned_by_actor_id": "principal-default"}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq 'params={"limit": 10, "event_name": "human_task_returned", "assigned_operator_id": "operator-junior"}' "${SMOKE_RUNTIME_GUARD_TARGET}" && \
      grep -Fq "/v1/human/tasks/{{human_task_id}}/assignment-history?limit=20&event_name=human_task_assigned&assigned_by_actor_id={{principal_id}}" "HTTP_EXAMPLES.http" && \
      grep -Fq "Promoted the human-task assignment-history filters slice into a released milestone capability" "CHANGELOG.md"; then
@@ -4009,7 +3962,7 @@ PY
 then
   if grep -Fq "current matrix covers artifacts, channel runtime, approvals, policy decisions, and task contracts" "README.md" && \
      grep -Fq 'Current `scripts/test_postgres_contracts.sh` coverage includes artifacts, channel runtime, approvals, policy decisions, and task contracts.' "RUNBOOK.md" && \
-     grep -Fq "bash scripts/test_postgres_contracts.sh" ".github/workflows/smoke-runtime.yml" && \
+     grep -Fq "test-postgres-contracts:" "Makefile" && \
      grep -Fq "tests/test_postgres_contract_matrix_integration.py" "scripts/test_postgres_contracts.sh" && \
      grep -Fq "test_postgres_approvals_create_decide_and_list_history" "tests/test_postgres_contract_matrix_integration.py" && \
      grep -Fq "test_postgres_policy_decisions_append_and_filter_recent" "tests/test_postgres_contract_matrix_integration.py" && \

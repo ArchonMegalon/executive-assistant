@@ -6,8 +6,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
-    docker.io \
-    docker-compose \
     espeak-ng \
     ffmpeg \
     libasound2 \
@@ -34,12 +32,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxrandr2 \
     libxrender1 \
     libxshmfence1 && \
-    curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-29.3.0.tgz -o /tmp/docker.tgz && \
-    tar -xzf /tmp/docker.tgz -C /tmp && \
-    mv /tmp/docker/docker /usr/local/bin/docker && \
-    chmod +x /usr/local/bin/docker && \
     rm -rf /var/lib/apt/lists/* && \
-    rm -rf /tmp/docker /tmp/docker.tgz && \
     adduser --system --uid 10001 --group ea
 
 WORKDIR /app
@@ -95,16 +88,13 @@ RUN set -eu; \
     chown -R ea:ea /app /usr/local/bin/docker-entrypoint.sh; \
     rm -rf /tmp/src
 
-RUN if [ -f requirements.lock ]; then \
-      pip install --no-cache-dir -r requirements.txt -c requirements.lock; \
-    else \
-      pip install --no-cache-dir -r requirements.txt; \
-    fi
+RUN test -f requirements.lock && \
+    pip install --no-cache-dir -r requirements.txt -c requirements.lock
 
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh && \
     find /app/scripts -maxdepth 1 -type f -name '*.sh' -exec chmod +x {} \;
 
-USER root
+USER ea
 HEALTHCHECK --interval=30s --timeout=15s --start-period=30s --retries=5 \
   CMD ["/bin/sh", "-ec", "role=${EA_ROLE:-api}; case \"$role\" in worker|scheduler) exit 0 ;; openvoice) port=${OPENVOICE_PORT:-8093}; curl -fsS --connect-timeout 2 --max-time 10 http://127.0.0.1:${port}/health/live >/dev/null ;; *) curl -fsS --connect-timeout 2 --max-time 10 http://127.0.0.1:8090/health/live >/dev/null ;; esac"]
 

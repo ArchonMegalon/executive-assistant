@@ -296,6 +296,104 @@ def test_humanize_text_uses_brain_when_required_without_external_humanizer(monke
     assert "inspect the math" in result.lower()
 
 
+def test_browseract_key_enables_default_undetectable_humanizer_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    worker = _load_worker_module()
+    monkeypatch.setenv("BROWSERACT_API_KEY", "browseract-test-key")
+    monkeypatch.delenv("CHUMMER6_BROWSERACT_HUMANIZER_COMMAND", raising=False)
+    monkeypatch.delenv("CHUMMER6_BROWSERACT_HUMANIZER_WORKFLOW_ID", raising=False)
+    monkeypatch.delenv("CHUMMER6_BROWSERACT_HUMANIZER_WORKFLOW_QUERY", raising=False)
+
+    command = worker.shlex_command("CHUMMER6_BROWSERACT_HUMANIZER_COMMAND")
+
+    assert worker.humanizer_available() is True
+    assert command[:3] == ["python3", str(ROOT / "scripts" / "chummer6_browseract_humanizer.py"), "humanize"]
+    assert "--text" in command
+    assert "{text}" in command
+    assert "--target" in command
+    assert "{target}" in command
+
+
+def test_brain_only_mode_does_not_bypass_ready_browseract_humanizer(monkeypatch: pytest.MonkeyPatch) -> None:
+    worker = _load_worker_module()
+    calls: list[tuple[dict[str, object], tuple[str, ...], str, bool]] = []
+    row = {
+        "intro": "The current public guide is rough, but it should explain the table value before it explains repo wiring.",
+    }
+
+    monkeypatch.setattr(worker, "external_humanizer_ready", lambda: True)
+
+    def _fake_humanize_mapping_fields(mapping, keys, *, target_prefix):  # noqa: ANN001
+        calls.append((mapping, keys, target_prefix, worker.HUMANIZER_BRAIN_ONLY))
+        mapping["intro"] = "The public guide should start with table value, then mention the wiring only when it helps."
+        return mapping
+
+    monkeypatch.setattr(worker, "humanize_mapping_fields", _fake_humanize_mapping_fields)
+
+    result = worker.humanize_mapping_fields_with_mode(
+        row,
+        ("intro",),
+        target_prefix="guide:page:start_here",
+        brain_only=True,
+    )
+
+    assert calls
+    assert calls[0][3] is False
+    assert "table value" in result["intro"]
+
+
+def test_public_copy_rejects_guided_contribution_path_language() -> None:
+    worker = _load_worker_module()
+
+    with pytest.raises(ValueError, match="optional guided contribution path"):
+        worker.assert_public_reader_safe(
+            {
+                "intro": "You want the optional guided contribution path instead of normal product help.",
+            },
+            context="page:start_here",
+        )
+
+
+def test_public_copy_rejects_ai_harness_language() -> None:
+    worker = _load_worker_module()
+
+    with pytest.raises(ValueError, match="ai harness"):
+        worker.assert_public_reader_safe(
+            {
+                "intro": "The repo may look like an AI harness before the actual product story appears.",
+            },
+            context="page:start_here",
+        )
+
+
+def test_humanize_mapping_fields_auto_humanizes_long_unlisted_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    worker = _load_worker_module()
+    calls: list[str] = []
+    row = {
+        "intro": "A short intro still goes through because the caller listed it.",
+        "body": (
+            "The first page should tell a player what this helps them do at the table. "
+            "It should not open with repo topology, contribution routing, or the machinery behind the guide."
+        ),
+        "slug": "start_here",
+    }
+
+    monkeypatch.setenv("CHUMMER6_TEXT_HUMANIZER_MIN_WORDS", "5")
+    monkeypatch.setenv("CHUMMER6_TEXT_HUMANIZER_MIN_SENTENCES", "1")
+
+    def _fake_humanize(value: str, *, target: str) -> str:
+        calls.append(target)
+        return f"humanized:{target}:{value}"
+
+    monkeypatch.setattr(worker, "humanize_text", _fake_humanize)
+
+    result = worker.humanize_mapping_fields(row, ("intro",), target_prefix="guide:page:start_here")
+
+    assert calls == ["guide:page:start_here:intro", "guide:page:start_here:body"]
+    assert str(result["intro"]).startswith("humanized:guide:page:start_here:intro:")
+    assert str(result["body"]).startswith("humanized:guide:page:start_here:body:")
+    assert result["slug"] == "start_here"
+
+
 def test_recent_scene_rows_for_style_epoch_can_refuse_stale_fallback_rows(tmp_path: Path) -> None:
     worker = _load_worker_module()
     ledger_path = tmp_path / "ledger.json"
@@ -1245,6 +1343,8 @@ def test_normalize_media_override_derives_horizon_asset_key_from_title_when_slug
     assert normalized["scene_contract"]["subject"] == "a standing rulesmith and skeptical reviewer forcing unstable house-rule packs through an industrial approval rail while the apparatus looms larger than they do"
     assert normalized["scene_contract"]["environment"] == "an improvised industrial rules lab with approval rails, rollback rig hardware, provenance seals, consequence chambers, assay racks, cassette bins, gantry hooks, sample lockers, and hard sodium spill"
     assert normalized["scene_contract"]["composition"] == "approval_rail"
+    assert "film grain" not in normalized["visual_prompt"].lower()
+    assert "low-noise" in normalized["visual_prompt"].lower() or "clean cinematic" in normalized["visual_prompt"].lower()
 
 
 def test_normalize_media_override_preserves_curated_scene_contract_for_known_horizon_assets() -> None:
@@ -1373,7 +1473,7 @@ def test_page_prompts_include_faq_and_help_ids() -> None:
     faq_source = worker.PAGE_PROMPTS["faq"]["source"]
     help_source = worker.PAGE_PROMPTS["how_can_i_help"]["source"].lower()
     assert "Do I need an account to download the current release?" in faq_source
-    assert "one clear" in help_source
+    assert "start here for downloads" in help_source
     assert "download" in help_source
 
 
@@ -1695,7 +1795,7 @@ def test_fallback_horizon_copy_uses_varied_scene_lengths() -> None:
                 if line.strip()
             ]
         )
-        for name in ("nexus-pan", "alice", "karma-forge", "jackpoint", "runsite", "runbook-press")
+        for name in ("black-ledger", "alice", "karma-forge", "jackpoint", "runsite", "runbook-press")
     }
 
     assert len(set(counts.values())) >= 3
@@ -1785,6 +1885,8 @@ def test_build_media_prompt_hardens_hero_and_forge_scene_requirements() -> None:
     assert "ugly troll patient" in hero_prompt
     assert "improvised garage clinic" in hero_prompt
     assert "white-coat doctor staging" in hero_prompt
+    assert "low-noise cinematic realism" in hero_prompt
+    assert "film grain" not in hero_prompt.lower()
     assert "standing rulesmith plus reviewer or witness" in forge_prompt
     assert "industrial approval rail" in forge_prompt
     assert "quiet workbench or paperwork table" in forge_prompt

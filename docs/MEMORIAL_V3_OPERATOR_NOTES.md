@@ -23,11 +23,11 @@ The public memorial is now conversation-first. That means the launch risk is les
 ## Operator run order
 
 ```bash
-cd /docker/EA/ea
+cd "$EA_REPO_ROOT"
 python3 scripts/memorial_flagship_preflight.py manfred
-python3 scripts/memorial_flagship_preflight.py manfred --base-url https://myexternalbrain.com
-python3 scripts/memorial_demo_rehearsal.py manfred --base-url https://myexternalbrain.com --questions ../examples/demo_questions.manfred.json --save-audio-dir /tmp
-python3 scripts/memorial_launch_snapshot.py manfred --base-url https://myexternalbrain.com --questions ../examples/demo_questions.manfred.json --output /tmp/manfred_launch_snapshot.json
+python3 scripts/memorial_flagship_preflight.py manfred --base-url "${MEMORIAL_PUBLIC_ORIGIN:-https://memorial.example.test}"
+python3 scripts/memorial_demo_rehearsal.py manfred --base-url "${MEMORIAL_PUBLIC_ORIGIN:-https://memorial.example.test}" --questions examples/demo_questions.manfred.json --save-audio-dir /tmp
+python3 scripts/memorial_launch_snapshot.py manfred --base-url "${MEMORIAL_PUBLIC_ORIGIN:-https://memorial.example.test}" --questions examples/demo_questions.manfred.json --output /tmp/manfred_launch_snapshot.json
 ```
 
 ## Notes

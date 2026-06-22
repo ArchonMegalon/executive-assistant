@@ -59,6 +59,9 @@ def build_room_receipt_command(args: argparse.Namespace) -> list[str]:
         "--intelligibility-confirmed",
         "--answer-text-fallback-visible",
         "--no-internet-search-confirmed",
+        "--normal-spoken-turn-confirmed",
+        "--interruption-behavior-confirmed",
+        "--retry-path-confirmed",
     ]
     return cmd
 

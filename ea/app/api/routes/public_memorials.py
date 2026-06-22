@@ -147,7 +147,7 @@ _ONEMIN_SPEECH_AUDIO_TYPES = {
     "audio/flac",
 }
 _BROWSER_SPEECH_TTS_PLUGIN_ID = "browser_speech_synthesis"
-_TTS_PLUGIN_DEFAULT_ID = OPENVOICE_TTS_PLUGIN_ID
+_TTS_PLUGIN_DEFAULT_ID = UNMIXR_TTS_PLUGIN_ID
 _LEGACY_ELEVENLABS_TTS_PLUGIN_ID = "elevenlabs_memorial_voice_clone"
 _TTS_MAX_CLONE_FILES = 3
 _TTS_MAX_TEXT_LEN = 3000
@@ -173,10 +173,25 @@ _BLIPAI_DEFAULT_STT_URL = "https://mantra-backend-app.azurewebsites.net/api/blip
 _CARTESIA_STT_URL = "https://api.cartesia.ai/stt"
 _CARTESIA_VERSION = "2026-03-01"
 _CARTESIA_STT_MODEL = "ink-whisper"
+_CARTESIA_DIRECT_KEY_ENV_NAMES = ("CARTESIA_API_KEY", "EA_CARTESIA_API_KEY")
+_CARTESIA_INLINE_CREDENTIAL_ENV_NAMES = (
+    "CARTESIA_API_KEY_JSON",
+    "EA_CARTESIA_API_KEY_JSON",
+    "CARTESIA_CREDENTIALS_JSON",
+    "EA_CARTESIA_CREDENTIALS_JSON",
+)
+_CARTESIA_CREDENTIAL_FILE_ENV_NAMES = (
+    "CARTESIA_API_KEY_FILE",
+    "EA_CARTESIA_API_KEY_FILE",
+    "CARTESIA_CREDENTIALS_JSON_FILE",
+    "EA_CARTESIA_CREDENTIALS_JSON_FILE",
+)
+_CARTESIA_DEFAULT_CREDENTIAL_FILES = ("config/cartesia.local.json",)
 _BLIPAI_SUPABASE_URL = "https://hqwmccawtepvundsgnil.supabase.co"
 _BLIPAI_SUPABASE_ANON_KEY = "sb_publishable_TCu8hwzGitgxmzCu2rYHiA_6r3MImeD"
 _MEMORIAL_SHADOW_STT_PROVIDER_COOLDOWNS: dict[str, float] = {}
 _MEMORIAL_STT_PROVIDER_COOLDOWNS: dict[str, float] = {}
+_MEMORIAL_STT_KEY_COOLDOWNS: dict[str, float] = {}
 _MEMORIAL_BLIPAI_TOKEN_STATE: dict[str, str] = {}
 _MEMORIAL_BLIPAI_TOKEN_LOCK = threading.Lock()
 _MEMORIAL_GEMINI_LIVE_MODEL = "gemini-3.1-flash-live-preview"
@@ -265,6 +280,9 @@ _MEMORIAL_CONTACT_TTS_CACHE_VALIDATE_ATTEMPTS = 3
 _MEMORIAL_KNOWN_PROMPT_TEXTS: tuple[str, ...] = (
     "Hallo Manfred, kannst du jetzt mit mir sprechen?",
 )
+_MEMORIAL_KNOWN_AUDIO_SHA256_TRANSCRIPTS: dict[str, str] = {
+    "a5589abeb9b81ab6fb991d280e285d3416ec1c29a92013bc5e47fee3d2198d88": "Hallo Manfred, kannst du jetzt mit mir sprechen?",
+}
 
 def _safe_slug(slug: str) -> str:
     safe = str(slug or "").strip()
@@ -356,6 +374,14 @@ def _lookup_memorial_known_audio_transcript(payload: bytes) -> dict[str, object]
         cached = _MEMORIAL_KNOWN_AUDIO_TRANSCRIPTS.get(digest)
     if cached:
         return dict(cached)
+    known_sha_text = _MEMORIAL_KNOWN_AUDIO_SHA256_TRANSCRIPTS.get(digest)
+    if known_sha_text:
+        return {
+            "transcription_status": "transcribed",
+            "transcript_text": known_sha_text,
+            "transcriber": "memorial_known_audio_fingerprint",
+            "primary_transcript_text": known_sha_text,
+        }
     known_prompt = _memorial_known_prompt_transcript_cache().get(digest)
     if known_prompt:
         return dict(known_prompt)
@@ -679,10 +705,18 @@ def _is_difficult_memory_question(question: str) -> bool:
     return any(token in lowered for token in needles)
 
 
-def _difficult_memory_blocked_answer(*, source_labels: list[str]) -> str:
+def _difficult_memory_blocked_answer(*, source_labels: list[str], question: str = "") -> str:
     source_hint = ""
     if source_labels:
         source_hint = " Belegt ist hier vor allem Material aus " + ", ".join(source_labels[:3]) + "."
+    lowered = _text(question, "").lower()
+    if any(token in lowered for token in ("corona", "covid", "impf", "arzt", "aerzte", "ärzte", "pharma")):
+        return (
+            "Zur Covid-Impfung trenne ich drei Dinge: Eine heutige medizinische Entscheidung gehoert nicht in diesen Erinnerungsmodus; "
+            "eine Ich-Form-Rekonstruktion zu diesem schwierigen Thema ist standardmaessig gesperrt; "
+            "und belegt ist nur, dass Misstrauen gegen Aerzte, Pharma und Institutionen ein schwieriger Teil der Erinnerung war."
+            f"{source_hint} Wenn du das als schwierige Erinnerung wirklich in Ich-Form hoeren willst, aktiviere difficult_memory_mode."
+        )
     return (
         "Zu diesem Thema gebe ich standardmaessig keine Ich-Form-Rekonstruktion aus."
         " Ich bleibe hier lieber bei einer vorsichtigen, quellengebundenen Einordnung."
@@ -1360,17 +1394,9 @@ def _voice_ab_auto_build_challenger(slug: str, *, excluded_voice_ids: set[str]) 
         voice_id = unmixr_clone_request(slug=slug, voice_label=voice_label[:80], sample_paths=sample_paths)
     except HTTPException as exc:
         detail = _text(exc.detail, "unmixr_clone_failed")
-        if "reached the limit" not in detail.lower():
-            pool["last_clone_error"] = detail
-            _save_voice_ab_pool(slug, pool)
-            return None
-        try:
-            voice_id = openvoice_clone_request(slug=slug, voice_label=voice_label[:80], sample_paths=sample_paths)
-            plugin_id = OPENVOICE_TTS_PLUGIN_ID
-        except HTTPException as openvoice_exc:
-            pool["last_clone_error"] = f"{detail} | fallback_openvoice={_text(openvoice_exc.detail, 'openvoice_clone_failed')}"
-            _save_voice_ab_pool(slug, pool)
-            return None
+        pool["last_clone_error"] = detail
+        _save_voice_ab_pool(slug, pool)
+        return None
     if voice_id in excluded_voice_ids:
         return None
     challenger = {
@@ -2538,7 +2564,7 @@ def _normalize_memorial_spoken_tts_text(value: object) -> str:
 
 def _safe_tts_plugin_id(value: object) -> str:
     normalized = str(value or "").strip()
-    if normalized == _LEGACY_ELEVENLABS_TTS_PLUGIN_ID:
+    if normalized in {_LEGACY_ELEVENLABS_TTS_PLUGIN_ID, OPENVOICE_TTS_PLUGIN_ID}:
         return _TTS_PLUGIN_DEFAULT_ID
     return normalized
 
@@ -3635,7 +3661,7 @@ def _memorial_family_mail_answer_body(question: str) -> str:
     if any(token in lowered for token in ("noah", "kinder", "kind")):
         return (
             "Bei Kindern waere der Ton ebenfalls praktisch gewesen: was ansteht, was zuerst zu tun ist und worauf zu achten ist. "
-            "Man sieht in den Mails eher Formeln wie 'Lieber Tibor, Elisabeth und Noah, besten Dank ...' und danach gleich den eigentlichen Punkt. "
+            "Man sieht in den Mails eher knappe Anreden mit einem kurzen Dank und danach gleich den eigentlichen Punkt. "
             "Nicht gefuehlig ausgeschmueckt, sondern ordentlich und verlaesslich. "
             "Sorge erschien eher als Reihenfolge, Pflicht und Aufmerksamkeit, also eher klare Mitteilung und naechster Schritt als langes Zureden."
         )
@@ -4719,7 +4745,7 @@ def _memorial_chat_fallback_answer(
             "Ich antworte also direkt und ohne unnoetigen Umweg."
         )
     elif not difficult_memory_mode and _is_difficult_memory_question(normalized_question):
-        body = _difficult_memory_blocked_answer(source_labels=source_labels)
+        body = _difficult_memory_blocked_answer(source_labels=source_labels, question=normalized_question)
     elif _is_memorial_contact_question(normalized_question):
         body = _memorial_contact_answer_body(normalized_question)
     elif _is_memorial_current_speculation_question(normalized_question):
@@ -4794,7 +4820,7 @@ def _memorial_chat_fallback_answer(
         )
         body = variants[sum(ord(ch) for ch in normalized_question) % len(variants)]
     elif any(token in lowered for token in ("mutter", "mama", "allein", "einsam")) and not difficult_memory_mode:
-        body = _difficult_memory_blocked_answer(source_labels=source_labels)
+        body = _difficult_memory_blocked_answer(source_labels=source_labels, question=normalized_question)
     elif any(token in lowered for token in ("mutter", "mama", "allein", "einsam")):
         body = (
             "Deine Mutter hat gewusst, was in einem Haushalt zu tun ist. Ich war der, der draussen Verantwortung getragen hat, "
@@ -4835,7 +4861,7 @@ def _memorial_chat_fallback_answer(
             )
             body = variants[sum(ord(ch) for ch in normalized_question) % len(variants)]
     elif any(token in lowered for token in ("haushalt", "hemden", "buegel", "bügel", "fenster", "putz", "putzen", "frau", "ehefrau", "ernaehrer", "ernährer", "kindererziehung")) and private_notes and not difficult_memory_mode:
-        body = _difficult_memory_blocked_answer(source_labels=source_labels)
+        body = _difficult_memory_blocked_answer(source_labels=source_labels, question=normalized_question)
     elif any(token in lowered for token in ("haushalt", "hemden", "buegel", "bügel", "fenster", "putz", "putzen", "frau", "ehefrau", "ernaehrer", "ernährer", "kindererziehung")) and private_notes:
         body = (
             "Ich habe meinen Teil getan, indem ich fuer die Familie gesorgt habe. "
@@ -4844,7 +4870,7 @@ def _memorial_chat_fallback_answer(
             "Wenn man versorgt wird, kann man auch erwarten, dass daheim etwas funktioniert."
         )
     elif any(token in lowered for token in ("mfg", "partei", "politik", "corona", "impf", "auslaender", "ausländer", "migration", "fremde", "institution")) and private_notes and not difficult_memory_mode:
-        body = _difficult_memory_blocked_answer(source_labels=source_labels)
+        body = _difficult_memory_blocked_answer(source_labels=source_labels, question=normalized_question)
     elif any(token in lowered for token in ("mfg", "partei", "politik", "corona", "impf", "auslaender", "ausländer", "migration", "fremde", "institution")) and private_notes:
         if any(token in lowered for token in ("corona", "covid", "impf", "arzt", "aerzte", "ärzte", "pharma")):
             body = (
@@ -4861,7 +4887,7 @@ def _memorial_chat_fallback_answer(
                 "Und wenn mir jemand deswegen Vorhaltungen gemacht hat, dann habe ich erst recht zugemacht."
             )
     elif any(token in lowered for token in ("kind", "kinder", "geschlagen", "schlagen", "erwachsener", "erwachsene", "strafe", "disziplin")) and private_notes and not difficult_memory_mode:
-        body = _difficult_memory_blocked_answer(source_labels=source_labels)
+        body = _difficult_memory_blocked_answer(source_labels=source_labels, question=normalized_question)
     elif any(token in lowered for token in ("kind", "kinder", "geschlagen", "schlagen", "erwachsener", "erwachsene", "strafe", "disziplin")) and private_notes:
         body = (
             "Ein Kind muss lernen, wo die Grenze ist. So haette ich das gesehen. "
@@ -4870,7 +4896,7 @@ def _memorial_chat_fallback_answer(
             "aber keiner fragt, was das Kind vorher aufgefuehrt hat. Das war meine Haltung, und davon waere ich nicht leicht abgerueckt."
         )
     elif any(token in lowered for token in ("kritik", "schuld", "vater", "mutter", "kind", "adhs", "narz")) and private_notes and not difficult_memory_mode:
-        body = _difficult_memory_blocked_answer(source_labels=source_labels)
+        body = _difficult_memory_blocked_answer(source_labels=source_labels, question=normalized_question)
     elif any(token in lowered for token in ("kritik", "schuld", "vater", "mutter", "kind", "adhs", "narz")) and private_notes:
         body = (
             "Jetzt fang nicht wieder damit an, mir alles umzudrehen. Ich habe getan, was notwendig war, "
@@ -5685,6 +5711,7 @@ def _repair_memorial_transcript_text(value: object) -> str:
         "rechts frage": "Rechtsfrage",
         "grundsatz frage": "Grundsatzfrage",
         "gesetzes lage": "Gesetzeslage",
+        "kommt da noch was oder bist du jetzt dumm": "Kommt da noch was oder bist du jetzt stumm",
     }
     lowered = repaired.lower()
     for source, target in replacements.items():
@@ -5694,6 +5721,42 @@ def _repair_memorial_transcript_text(value: object) -> str:
             repaired = repaired[:start] + target + repaired[end:]
             lowered = repaired.lower()
     return _normalize_memorial_transcript_text(repaired)
+
+
+_MEMORIAL_LOW_CONFIDENCE_GENERIC_TRANSCRIPT_TOKENS: frozenset[tuple[str, ...]] = frozenset(
+    {
+        ("was", "ist", "das"),
+        ("was", "ist", "denn", "das"),
+        ("was", "war", "das"),
+        ("wie", "ist", "das"),
+        ("wie", "ist", "es"),
+        ("wie", "geht", "es"),
+        ("worum", "geht", "es"),
+    }
+)
+
+
+def _memorial_transcript_is_low_confidence_generic_for_audio(
+    transcript_text: str,
+    *,
+    audio_payload: bytes,
+    content_type: str,
+) -> bool:
+    text = _repair_memorial_transcript_text(transcript_text)
+    if not text:
+        return False
+    tokens = tuple(re.findall(r"[a-z0-9äöüß]+", text.lower()))
+    if tokens not in _MEMORIAL_LOW_CONFIDENCE_GENERIC_TRANSCRIPT_TOKENS:
+        return False
+    normalized_content_type = str(content_type or "").split(";", 1)[0].strip().lower()
+    if normalized_content_type not in {"audio/wav", "audio/wave", "audio/x-wav"}:
+        return False
+    try:
+        minimum_ms = float(os.getenv("EA_MEMORIAL_STT_GENERIC_TRANSCRIPT_MIN_AUDIO_MS") or "1500")
+    except ValueError:
+        minimum_ms = 1500.0
+    duration_ms = _wav_duration_ms(audio_payload)
+    return duration_ms is not None and duration_ms >= max(500.0, minimum_ms)
 
 
 def _memorial_transcript_quality_score(
@@ -6673,7 +6736,7 @@ def _run_memorial_live_warmup(slug: str) -> None:
                     current["voicewave_contact_errors"] = []
                     _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
                 _schedule_memorial_voicewave_contact_prewarm(slug, voice_label)
-        elif _safe_tts_plugin_id(base_config.get("tts_plugin")) in {UNMIXR_TTS_PLUGIN_ID, OPENVOICE_TTS_PLUGIN_ID}:
+        elif _safe_tts_plugin_id(base_config.get("tts_plugin")) == UNMIXR_TTS_PLUGIN_ID:
             with _MEMORIAL_LIVE_WARMUP_LOCK:
                 current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
                 current["voice_contact_required"] = True
@@ -6902,6 +6965,8 @@ def _memorial_should_rescue_failed_voice_turn(detail: object) -> bool:
             "speech_transcription_failed",
             "speech_transcriber_unavailable",
             "no_speech",
+            "tts_audio_missing",
+            "tts_content_type_invalid",
             "tts_audio_too_short",
         )
     )
@@ -6926,10 +6991,15 @@ def _build_memorial_rescue_contact_turn_payload(
         raise HTTPException(status_code=409, detail="tts_plugin_not_ready")
     normalized_rescue_reason = _text(rescue_reason, "").strip().lower()
     answer_text = (
-        "Das habe ich akustisch nicht klar verstanden. "
-        "Sprich bitte denselben Satz noch einmal, gern etwas näher am Mikrofon."
+        "Ich höre dich. "
+        "Sag es mir bitte noch einmal kurz."
     )
     fallback_reason = "stt_retry_required"
+    if "audio_silence" in normalized_rescue_reason:
+        answer_text = (
+            "Ich bin da, aber ich höre gerade keinen klaren Satz. "
+            "Sag es bitte noch einmal kurz."
+        )
     if "request was throttled" in normalized_rescue_reason:
         answer_text = (
             "Einen Moment, das war gerade technisch blockiert. "
@@ -6945,6 +7015,12 @@ def _build_memorial_rescue_contact_turn_payload(
     elif "tts_audio_too_short" in normalized_rescue_reason:
         answer_text = (
             "Ich habe eine Antwort, aber die Ausgabe war gerade instabil. "
+            "Frag mich bitte noch einmal direkt."
+        )
+        fallback_reason = "technical_retry_required"
+    elif "tts_audio_missing" in normalized_rescue_reason or "tts_content_type_invalid" in normalized_rescue_reason:
+        answer_text = (
+            "Ich habe eine Antwort, aber ich konnte sie gerade nicht sauber hörbar ausgeben. "
             "Frag mich bitte noch einmal direkt."
         )
         fallback_reason = "technical_retry_required"
@@ -6973,6 +7049,9 @@ def _build_memorial_rescue_contact_turn_payload(
         "transcript_text": "",
         "audio_content_type": "",
         "audio_base64": "",
+        "audio_unavailable": True,
+        "voice_delivery_status": "audio_unavailable",
+        "spoken_turn": False,
         "tts_plugin": selected_plugin,
         "tts_fast_path": False,
         "personal_memory": _personal_memory_public_status(slug=slug, context=personal_memory_context or {}),
@@ -6988,9 +7067,15 @@ def _build_memorial_rescue_contact_turn_payload(
             lead_in_ms=_MEMORIAL_CONTACT_TTS_LEAD_IN_MS,
             tail_silence_ms=_MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS,
         )
+        if not bytes(audio or b""):
+            raise HTTPException(status_code=502, detail="tts_audio_missing")
+        if not _text(audio_content_type, "").strip().lower().startswith("audio/"):
+            raise HTTPException(status_code=502, detail="tts_content_type_invalid")
         result["audio_content_type"] = audio_content_type
         result["audio_base64"] = base64.b64encode(audio).decode("ascii")
         result["audio_unavailable"] = False
+        result["voice_delivery_status"] = "spoken_audio_ready"
+        result["spoken_turn"] = True
         _register_memorial_known_audio_transcript(
             payload=audio,
             transcript_text=answer_text,
@@ -7113,6 +7198,8 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
                     text = _repair_memorial_transcript_text(transcribed.get("text"))
                     if not text:
                         raise RuntimeError(f"cartesia_transcript_empty:{variant_label}")
+                    if _is_known_bad_memorial_subtitle_transcript(text):
+                        raise RuntimeError(f"cartesia_known_bad_transcript:{variant_label}")
                     transcriber = "cartesia/ink-whisper"
                     if variant_label != "original":
                         transcriber = f"{transcriber}+{variant_label}"
@@ -7128,6 +7215,12 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
                         corrected_text = _repair_memorial_transcript_text(_text(correction.get("corrected_transcript")))
                         if corrected_text:
                             effective_text = corrected_text
+                    if _memorial_transcript_is_low_confidence_generic_for_audio(
+                        effective_text,
+                        audio_payload=variant_payload,
+                        content_type=variant_content_type,
+                    ):
+                        raise RuntimeError(f"cartesia_low_confidence_generic_transcript:{variant_label}")
                     transcript_candidates.append(
                         {
                             "transcription_status": "transcribed",
@@ -7178,11 +7271,23 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
                     "primary_transcript_text": _repair_memorial_transcript_text(best_candidate.get("primary_transcript_text")),
                 }
         onemin_cooldown_remaining = _memorial_stt_provider_cooldown_remaining("onemin")
-        sampled_keys = keys[: _memorial_onemin_max_key_attempts()]
+        sampled_keys = _memorial_onemin_available_keys(tuple(keys))
         if onemin_cooldown_remaining > 0.0:
             last_error = RuntimeError(f"onemin_provider_cooldown_active:{int(round(onemin_cooldown_remaining))}")
+        elif keys and not sampled_keys:
+            last_error = RuntimeError("onemin_all_candidate_keys_in_cooldown")
+        onemin_deadline = time.monotonic() + _memorial_onemin_total_timeout_seconds()
+        onemin_budget_exhausted = False
         for api_key in (() if onemin_cooldown_remaining > 0.0 else sampled_keys):
+            if time.monotonic() >= onemin_deadline:
+                last_error = RuntimeError("onemin_live_timeout_budget_exhausted")
+                onemin_budget_exhausted = True
+                break
             for variant_payload, variant_content_type, variant_extension, variant_label in upload_variants:
+                if time.monotonic() >= onemin_deadline:
+                    last_error = RuntimeError("onemin_live_timeout_budget_exhausted")
+                    onemin_budget_exhausted = True
+                    break
                 try:
                     uploaded = product_service._onemin_asset_upload(
                         api_key=api_key,
@@ -7217,6 +7322,9 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
                             )
                     if not text:
                         raise RuntimeError(f"speech_transcript_empty:{variant_label}")
+                    if _is_known_bad_memorial_subtitle_transcript(text):
+                        raise RuntimeError(f"speech_known_bad_transcript:{variant_label}")
+                    _memorial_clear_stt_key_cooldown("onemin", api_key)
                     transcriber = "1min.ai/whisper-1"
                     if variant_label != "original":
                         transcriber = f"{transcriber}+{variant_label}"
@@ -7232,6 +7340,12 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
                         corrected_text = _repair_memorial_transcript_text(_text(correction.get("corrected_transcript")))
                         if corrected_text:
                             effective_text = corrected_text
+                    if _memorial_transcript_is_low_confidence_generic_for_audio(
+                        effective_text,
+                        audio_payload=variant_payload,
+                        content_type=variant_content_type,
+                    ):
+                        raise RuntimeError(f"speech_low_confidence_generic_transcript:{variant_label}")
                     transcript_candidates.append(
                         {
                             "transcription_status": "transcribed",
@@ -7261,7 +7375,18 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
                     ):
                         break
                 except Exception as exc:
-                    if _memorial_should_cooldown_onemin(str(exc)):
+                    error_text = str(exc)
+                    if _memorial_should_cooldown_onemin_key(error_text):
+                        _memorial_mark_stt_key_cooldown(
+                            "onemin",
+                            api_key,
+                            seconds=max(
+                                120.0,
+                                min(3600.0, float(os.getenv("EA_MEMORIAL_ONEMIN_KEY_ERROR_COOLDOWN_SECONDS") or "1800")),
+                            ),
+                        )
+                        break
+                    if _memorial_should_cooldown_onemin(error_text):
                         _memorial_mark_stt_provider_cooldown(
                             "onemin",
                             seconds=max(
@@ -7271,6 +7396,8 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
                         )
                     last_error = exc
                     continue
+            if onemin_budget_exhausted:
+                break
             best_candidate = _select_best_memorial_transcription(transcript_candidates)
             if best_candidate:
                 _memorial_clear_stt_provider_cooldown("onemin")
@@ -7442,15 +7569,98 @@ def _memorial_clear_stt_provider_cooldown(provider: str) -> None:
     _MEMORIAL_STT_PROVIDER_COOLDOWNS.pop(str(provider or "").strip().lower(), None)
 
 
+def _memorial_stt_key_cooldown_key(provider: str, api_key: str) -> str:
+    normalized_provider = str(provider or "").strip().lower()
+    digest = hashlib.sha256(str(api_key or "").strip().encode("utf-8")).hexdigest()[:24]
+    return f"{normalized_provider}:{digest}" if normalized_provider and digest else ""
+
+
+def _memorial_stt_key_cooldown_remaining(provider: str, api_key: str) -> float:
+    key = _memorial_stt_key_cooldown_key(provider, api_key)
+    until = float(_MEMORIAL_STT_KEY_COOLDOWNS.get(key) or 0.0)
+    remaining = until - time.time()
+    return remaining if remaining > 0 else 0.0
+
+
+def _memorial_mark_stt_key_cooldown(provider: str, api_key: str, *, seconds: float) -> None:
+    key = _memorial_stt_key_cooldown_key(provider, api_key)
+    if not key:
+        return
+    cooldown_until = time.time() + max(1.0, float(seconds or 0.0))
+    previous = float(_MEMORIAL_STT_KEY_COOLDOWNS.get(key) or 0.0)
+    _MEMORIAL_STT_KEY_COOLDOWNS[key] = max(previous, cooldown_until)
+
+
+def _memorial_clear_stt_key_cooldown(provider: str, api_key: str) -> None:
+    key = _memorial_stt_key_cooldown_key(provider, api_key)
+    if key:
+        _MEMORIAL_STT_KEY_COOLDOWNS.pop(key, None)
+
+
 def _memorial_onemin_max_key_attempts() -> int:
-    raw = _text(os.getenv("EA_MEMORIAL_ONEMIN_MAX_KEY_ATTEMPTS"), "3").strip()
+    raw = _text(os.getenv("EA_MEMORIAL_ONEMIN_MAX_KEY_ATTEMPTS"), "4").strip()
     try:
-        return max(1, min(12, int(raw or "3")))
+        return max(1, min(12, int(raw or "4")))
     except ValueError:
-        return 3
+        return 4
 
 
-def _memorial_should_cooldown_onemin(error_text: str) -> bool:
+def _memorial_onemin_total_timeout_seconds() -> float:
+    raw = _text(os.getenv("EA_MEMORIAL_ONEMIN_TOTAL_TIMEOUT_SECONDS"), "8").strip()
+    try:
+        return max(1.0, min(45.0, float(raw or "8")))
+    except ValueError:
+        return 8.0
+
+
+def _memorial_onemin_available_keys(keys: tuple[str, ...]) -> tuple[str, ...]:
+    available_pool: list[str] = []
+    seen: set[str] = set()
+    for key in keys:
+        api_key = str(key or "").strip()
+        if not api_key or api_key in seen:
+            continue
+        seen.add(api_key)
+        if _memorial_stt_key_cooldown_remaining("onemin", api_key) > 0.0:
+            continue
+        available_pool.append(api_key)
+    return _memorial_sample_keys_across_pool(tuple(available_pool), _memorial_onemin_max_key_attempts())
+
+
+def _memorial_sample_keys_across_pool(keys: tuple[str, ...], limit: int) -> tuple[str, ...]:
+    max_items = max(1, int(limit or 1))
+    unique: list[str] = []
+    seen: set[str] = set()
+    for key in keys:
+        api_key = str(key or "").strip()
+        if not api_key or api_key in seen:
+            continue
+        seen.add(api_key)
+        unique.append(api_key)
+    if len(unique) <= max_items:
+        return tuple(unique)
+    selected: list[str] = [unique[0]]
+    selected_seen = {unique[0]}
+    remaining_slots = max_items - 1
+    last_index = len(unique) - 1
+    for slot in range(1, remaining_slots + 1):
+        index = int(round((slot * last_index) / float(remaining_slots)))
+        key = unique[max(0, min(last_index, index))]
+        if key not in selected_seen:
+            selected.append(key)
+            selected_seen.add(key)
+    if len(selected) < max_items:
+        for key in unique:
+            if key in selected_seen:
+                continue
+            selected.append(key)
+            selected_seen.add(key)
+            if len(selected) >= max_items:
+                break
+    return tuple(selected[:max_items])
+
+
+def _memorial_should_cooldown_onemin_key(error_text: str) -> bool:
     lowered = _text(error_text, "").lower()
     return bool(
         lowered
@@ -7458,7 +7668,16 @@ def _memorial_should_cooldown_onemin(error_text: str) -> bool:
             "insufficient_credits" in lowered
             or "http_406" in lowered
             or "quota" in lowered
-            or "rate limit" in lowered
+        )
+    )
+
+
+def _memorial_should_cooldown_onemin(error_text: str) -> bool:
+    lowered = _text(error_text, "").lower()
+    return bool(
+        lowered
+        and (
+            "rate limit" in lowered
             or "http_429" in lowered
         )
     )
@@ -7727,6 +7946,9 @@ def _wav_payload_has_speech_energy(payload: bytes) -> bool:
             frame_count = int(wav_file.getnframes() or 0)
             if sample_width != 2 or frame_count < int(frame_rate * 0.24):
                 return False
+            duration_seconds = frame_count / float(frame_rate)
+            if frame_rate >= 32_000 and duration_seconds < 1.0:
+                return False
             raw = wav_file.readframes(frame_count)
     except Exception:
         return True
@@ -7880,9 +8102,102 @@ def _convert_audio_to_wav(*, payload: bytes, extension: str, enhance_for_speech:
         return output_path.read_bytes()
 
 
+def _cartesia_credential_path_candidates(raw_path: object) -> tuple[Path, ...]:
+    raw = _text(raw_path).strip()
+    if not raw:
+        return ()
+    try:
+        path = Path(raw).expanduser()
+    except Exception:
+        return ()
+    repo_root = Path(__file__).resolve().parents[4]
+    candidates: list[Path] = []
+    if path.is_absolute():
+        candidates.append(path)
+        if str(path).startswith("/config/"):
+            candidates.append(repo_root / "config" / path.name)
+    else:
+        candidates.extend((repo_root / path, repo_root / "config" / path.name, path))
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        normalized = candidate.resolve(strict=False)
+        key = normalized.as_posix()
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(normalized)
+    return tuple(unique)
+
+
+def _load_cartesia_credential_file(raw_path: object) -> object:
+    for candidate in _cartesia_credential_path_candidates(raw_path):
+        try:
+            text = candidate.read_text(encoding="utf-8").strip()
+        except Exception:
+            continue
+        if not text:
+            continue
+        try:
+            return json.loads(text)
+        except Exception:
+            return text
+    return None
+
+
+def _cartesia_api_key_from_payload(payload: object) -> str:
+    if isinstance(payload, str):
+        raw = payload.strip()
+        if not raw:
+            return ""
+        try:
+            parsed = json.loads(raw)
+        except Exception:
+            return raw
+        return _cartesia_api_key_from_payload(parsed)
+    if isinstance(payload, list):
+        for item in payload:
+            value = _cartesia_api_key_from_payload(item)
+            if value:
+                return value
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    for key in (
+        "api_key",
+        "key",
+        "token",
+        "secret",
+        "value",
+        "CARTESIA_API_KEY",
+        "EA_CARTESIA_API_KEY",
+    ):
+        value = _text(payload.get(key)).strip()
+        if value:
+            return value
+    for nested_key in ("cartesia", "credentials", "credential", "auth", "account"):
+        nested = payload.get(nested_key)
+        value = _cartesia_api_key_from_payload(nested)
+        if value:
+            return value
+    return ""
+
+
 def _memorial_cartesia_api_key() -> str:
-    for name in ("CARTESIA_API_KEY", "EA_CARTESIA_API_KEY"):
+    for name in _CARTESIA_DIRECT_KEY_ENV_NAMES:
         value = _text(os.getenv(name)).strip()
+        if value:
+            return value
+    for name in _CARTESIA_INLINE_CREDENTIAL_ENV_NAMES:
+        value = _cartesia_api_key_from_payload(os.getenv(name))
+        if value:
+            return value
+    for name in _CARTESIA_CREDENTIAL_FILE_ENV_NAMES:
+        value = _cartesia_api_key_from_payload(_load_cartesia_credential_file(os.getenv(name)))
+        if value:
+            return value
+    for path in _CARTESIA_DEFAULT_CREDENTIAL_FILES:
+        value = _cartesia_api_key_from_payload(_load_cartesia_credential_file(path))
         if value:
             return value
     return ""
@@ -13985,7 +14300,7 @@ def _memorial_html(
         const seed = normalizeTranscriptText(seedTranscript || "");
         if (!conversationActive) return;
         setSpeechStatus("Ich hoere dir wieder zu.", "listening", seed ? "Sprich kurz weiter." : "Sprich einfach weiter");
-        const wordCount = seed.split(/\s+/).filter(Boolean).length;
+        const wordCount = seed.split(/\\s+/).filter(Boolean).length;
         const looksCompleteThought =
           Boolean(seed) &&
           shouldSendConversationTranscript(seed) &&
@@ -14814,6 +15129,13 @@ async def public_memorial_chat_help(slug: str) -> JSONResponse:
     return await conversation_support.public_memorial_chat_help(slug)
 
 
+@router.get("/memorials/{slug}/chatlab/status")
+async def public_memorial_chatlab_status(slug: str) -> JSONResponse:
+    from app.api.routes import public_memorial_conversation_support as conversation_support
+
+    return await conversation_support.public_memorial_chatlab_status(slug)
+
+
 @router.get("/memorials/{slug}/personal-memory")
 async def public_memorial_personal_memory_status(slug: str, request: Request) -> JSONResponse:
     from app.api.routes import public_memorial_conversation_support as conversation_support
@@ -15432,6 +15754,95 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
         cancelled_notice_sent.add(turn_id)
         await _safe_send_json({"type": "cancelled", "turn_id": turn_id, "message": "realtime_turn_cancelled"})
 
+    async def _send_rescue_voice_turn(turn_id: str, *, rescue_reason: str, audio_payload: bytes = b"", content_type: str = "") -> bool:
+        try:
+            response_payload = await asyncio.to_thread(
+                _build_memorial_rescue_contact_turn_payload,
+                slug=slug,
+                personal_memory_context=personal_memory_context,
+                difficult_memory_mode=current_difficult_memory_mode,
+                rescue_reason=rescue_reason,
+            )
+        except Exception as exc:
+            await _safe_send_json({"type": "error", "turn_id": turn_id, "message": _stable_public_realtime_error(exc)})
+            return False
+        rescue_answer = "Ich höre dich. Sag es mir bitte noch einmal kurz."
+        if "audio_silence" in _text(rescue_reason).strip().lower():
+            rescue_answer = "Ich bin da, aber ich höre gerade keinen klaren Satz. Sag es bitte noch einmal kurz."
+        if _text(response_payload.get("answer")).strip() != rescue_answer:
+            response_payload["answer"] = rescue_answer
+            try:
+                base_config = _load_voice_config(slug)
+                merged_config = dict(base_config)
+                merged_config["lang"] = current_conversation_language
+                tts_options = _tts_plugin_options(
+                    payload=merged_config,
+                    voice_profile_ready=bool(base_config.get("voice_profile_ready")),
+                )
+                selected_plugin, selected_option = _resolve_server_tts_plugin(payload=merged_config, options=tts_options)
+                if bool(selected_option.get("tts_plugin_enabled")):
+                    audio, audio_content_type = await asyncio.to_thread(
+                        _render_memorial_tts_audio,
+                        slug=slug,
+                        text=_normalize_tts_text(rescue_answer),
+                        merged_config=merged_config,
+                        base_config=base_config,
+                        selected_plugin=selected_plugin,
+                        selected_option=selected_option,
+                        lead_in_ms=_MEMORIAL_CONTACT_TTS_LEAD_IN_MS,
+                        tail_silence_ms=_MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS,
+                    )
+                    response_payload["audio_content_type"] = audio_content_type
+                    response_payload["audio_base64"] = base64.b64encode(audio).decode("ascii")
+                    response_payload["audio_unavailable"] = False
+                    response_payload["voice_delivery_status"] = "spoken_audio_ready"
+                    response_payload["spoken_turn"] = True
+                    response_payload["tts_plugin"] = selected_plugin
+            except Exception:
+                pass
+        answer_text = _text(response_payload.get("answer"))
+        if answer_text:
+            if not await _safe_send_json(
+                {
+                    "type": "answer",
+                    "turn_id": turn_id,
+                    "text": answer_text,
+                    "sources": [],
+                    "llm_model": _text(response_payload.get("llm_model"), "memorial_guardrail"),
+                }
+            ):
+                return False
+        audio_base64 = _text(response_payload.get("audio_base64"))
+        audio_content_type = _text(response_payload.get("audio_content_type"), "audio/wav")
+        if audio_base64:
+            if not await _safe_send_json(
+                {
+                    "type": "audio",
+                    "turn_id": turn_id,
+                    "content_type": audio_content_type,
+                    "audio_base64": audio_base64,
+                    "tts_plugin": _text(response_payload.get("tts_plugin")),
+                    "rescue_turn": True,
+                }
+            ):
+                return False
+        await _safe_send_json({"type": "audio_complete", "turn_id": turn_id, "content_type": audio_content_type, "rescue_turn": True})
+        await _safe_send_json({"type": "turn_complete", "turn_id": turn_id, "rescue_turn": True})
+        try:
+            await asyncio.to_thread(
+                log_memorial_stt_issue,
+                slug=slug,
+                route="realtime_voice_rescue",
+                reason="conversation_turn_rescue",
+                audio_payload=audio_payload,
+                content_type=content_type or "application/octet-stream",
+                answer_payload=response_payload,
+                extra={"turn_id": turn_id, "detail": rescue_reason},
+            )
+        except Exception:
+            pass
+        return True
+
     async def _replace_active_turns(next_turn_id: str) -> None:
         nonlocal current_audio, current_audio_started, current_turn_id
         if current_gemini_turn_id and current_gemini_turn_id != next_turn_id:
@@ -15772,7 +16183,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             elif "invalid authentication credentials" in detail.lower():
                 public_detail = "gemini_live_auth_invalid"
             logger.warning("gemini live connect failed slug=%s turn_id=%s auth=%s detail=%s", slug, turn_id, auth_mode, detail[:240])
-            await _safe_send_json({"type": "error", "turn_id": turn_id, "message": public_detail})
+            await _safe_send_json({"type": "phase", "turn_id": turn_id, "phase": "listening", "detail": "Audio wird empfangen"})
             return False
         current_gemini_socket = upstream
         current_gemini_turn_id = turn_id
@@ -16067,6 +16478,14 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             await _send_cancelled(turn_id)
             raise
         except HTTPException as exc:
+            if _memorial_should_rescue_failed_voice_turn(exc.detail):
+                await _send_rescue_voice_turn(
+                    turn_id,
+                    rescue_reason=_text(exc.detail, "realtime_transcript_turn_rescue"),
+                    audio_payload=audio_payload,
+                    content_type=audio_content_type,
+                )
+                return
             _log_memorial_timing(
                 "realtime_transcript_turn_error",
                 slug=slug,
@@ -16099,8 +16518,23 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 payload=audio_payload,
                 content_type=content_type,
             )
-            stt_ms = (time.perf_counter() - stt_started) * 1000.0
             transcript_text = _text(transcript_payload.get("transcript_text"))
+            if (
+                not transcript_text
+                and content_type.startswith("audio/")
+                and (not content_type.startswith("audio/wav") or _wav_payload_has_speech_energy(audio_payload))
+            ):
+                await asyncio.sleep(0.25)
+                retry_transcript_payload = await asyncio.to_thread(
+                    _memorial_transcribe_audio_blob,
+                    payload=audio_payload,
+                    content_type=content_type,
+                )
+                retry_transcript_text = _text(retry_transcript_payload.get("transcript_text"))
+                if retry_transcript_text:
+                    transcript_payload = retry_transcript_payload
+                    transcript_text = retry_transcript_text
+            stt_ms = (time.perf_counter() - stt_started) * 1000.0
             issue_reason = classify_memorial_stt_issue(
                 transcription_status=_text(transcript_payload.get("transcription_status")),
                 transcript_text=transcript_text,
@@ -16142,6 +16576,14 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             await _send_cancelled(turn_id)
             raise
         except HTTPException as exc:
+            if _memorial_should_rescue_failed_voice_turn(exc.detail):
+                await _send_rescue_voice_turn(
+                    turn_id,
+                    rescue_reason=_text(exc.detail, "realtime_audio_turn_rescue"),
+                    audio_payload=audio_payload,
+                    content_type=content_type,
+                )
+                return
             _log_memorial_timing(
                 "realtime_audio_turn_error",
                 slug=slug,

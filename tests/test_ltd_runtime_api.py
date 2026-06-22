@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from app.domain.models import ToolInvocationResult
 from app.services.ltd_runtime_catalog import LtdRuntimeCatalogService
+from tests.product_test_helpers import build_operator_product_client
 
 
 def _sample_ltd_markdown() -> str:
@@ -37,16 +38,8 @@ Updated: 2026-05-02
 
 def _client(*, principal_id: str = "ops-1") -> TestClient:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
-    os.environ["EA_API_TOKEN"] = "test-token"
-    os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
-    os.environ["EA_OPERATOR_PRINCIPAL_IDS"] = principal_id
     os.environ["PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES"] = "1"
-    from app.api.app import create_app
-
-    client = TestClient(create_app())
-    client.headers.update({"Authorization": "Bearer test-token"})
-    client.headers.update({"X-EA-Principal-ID": principal_id})
-    return client
+    return build_operator_product_client(principal_id=principal_id, operator_id=f"{principal_id}-operator")
 
 
 def _patch_catalog(monkeypatch: pytest.MonkeyPatch, client: TestClient, tmp_path: Path) -> None:
@@ -159,6 +152,46 @@ def test_ltd_provider_lane_route_returns_one_receipt(monkeypatch: pytest.MonkeyP
     assert body["not_source_of_truth"] is True
     assert body["runtime_enabled"] is False
     assert body["missing_checks"] == ["voice_roundtrip_validation"]
+
+
+def test_ltd_provider_contracts_route_returns_operator_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="ops-provider-contracts")
+    from app.api.routes import ltd_runtime as ltd_runtime_route
+
+    monkeypatch.setattr(
+        ltd_runtime_route,
+        "build_provider_contract_status",
+        lambda: {
+            "contract_name": "ea.provider_contract_status",
+            "status": "pass",
+            "contract_receipt_count": 5,
+            "contract_receipts_valid": 5,
+            "live_provider_runtime_verified": False,
+            "gold_claim_allowed": False,
+            "not_live_provider_proof": True,
+            "not_release_gold_proof": True,
+            "operator_label": "Provider contract layer is exercised; live provider receipts and E2E proof are still pending.",
+            "rows": [
+                {
+                    "key": "hedy_meeting_evidence",
+                    "status": "contract_pass",
+                    "issues": [],
+                    "required_next_receipts": ["_completion/hedy/HEDY_PROVIDER_CAPABILITY.generated.json"],
+                }
+            ],
+        },
+    )
+
+    response = client.get("/v1/ltds/runtime-catalog/provider-contracts")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["contract_name"] == "ea.provider_contract_status"
+    assert body["status"] == "pass"
+    assert body["live_provider_runtime_verified"] is False
+    assert body["gold_claim_allowed"] is False
+    assert body["not_live_provider_proof"] is True
+    assert body["rows"][0]["key"] == "hedy_meeting_evidence"
 
 
 def test_ltd_provider_lane_route_404s_unknown_lane(monkeypatch: pytest.MonkeyPatch) -> None:

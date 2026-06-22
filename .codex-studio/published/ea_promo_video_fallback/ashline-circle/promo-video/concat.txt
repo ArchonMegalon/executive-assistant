@@ -1,0 +1,4 @@
+file '/docker/EA/.codex-studio/published/ea_promo_video_fallback/ashline-circle/promo-video/clips/promo-card-001.mp4'
+file '/docker/EA/.codex-studio/published/ea_promo_video_fallback/ashline-circle/promo-video/clips/promo-card-002.mp4'
+file '/docker/EA/.codex-studio/published/ea_promo_video_fallback/ashline-circle/promo-video/clips/promo-card-003.mp4'
+file '/docker/EA/.codex-studio/published/ea_promo_video_fallback/ashline-circle/promo-video/clips/promo-card-004.mp4'

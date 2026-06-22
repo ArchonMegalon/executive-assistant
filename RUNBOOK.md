@@ -114,19 +114,19 @@ Error envelope for failures:
 Auth:
 - Set `EA_API_TOKEN=<token>` to require auth for all non-health routes.
 - Use `Authorization: Bearer <token>` or `X-API-Token: <token>`.
-- Use `X-EA-Principal-ID: <principal>` for principal-scoped rewrite/session/artifact/receipt/run-cost, plan-compile/execute, connector, human-task, and memory routes; if omitted, `EA_DEFAULT_PRINCIPAL_ID` (default `local-user`) is used.
+- Use `X-EA-Principal-ID: <principal>` for principal-scoped rewrite/session/artifact/receipt/run-cost, plan-compile/execute, connector, human-task, and memory routes; if omitted, `EA_DEFAULT_PRINCIPAL_ID` (default `principal-default`) is used.
 - On those routes, body/query `principal_id` remains a compatibility field only and mismatches fail with `403 principal_scope_mismatch`.
 - `GET /v1/models` returns both the public EA aliases and the currently configured upstream model IDs, so Codex can target concrete provider models when needed.
 - `GET /v1/responses/_provider_health` and `GET /v1/codex/profiles` expose account-name-only provider attribution plus 1min owner metadata matched by hash or stable slot/account identifiers, latest explicit probe evidence, 1min.AI depletion, observed per-slot consumption (`observed_consumed_credits`, `observed_success_count`), rolling burn-rate, and deleted-key telemetry (`remaining_credits`, `required_credits`, `estimated_remaining_credits_total`, `remaining_percent_of_max`, `estimated_burn_credits_per_hour`, `estimated_hours_remaining_at_current_pace`) without leaking raw API keys.
 - `POST /v1/providers/onemin/probe-all` sends one live low-volume request to each selected 1min slot, records `last_probe_result`, and updates deleted/depleted/rate-limited evidence immediately instead of waiting for incidental runtime traffic.
 - `python3 scripts/sync_onemin_owner_ledger.py --write` re-hashes the current `ONEMIN_AI_API_KEY*` values plus any `ONEMIN_DIRECT_API_KEYS_JSON(_FILE)` manifest entries into `config/onemin_slot_owners.json` and carries owner labels/emails forward by slot/account when the runtime key set rotates.
 - The template-backed 1min BrowserAct refresh lane now accepts a generic rotating proxy through `EA_UI_BROWSER_PROXY_SERVER`, `EA_UI_BROWSER_PROXY_USERNAME`, `EA_UI_BROWSER_PROXY_PASSWORD`, and `EA_UI_BROWSER_PROXY_BYPASS`; use `ONEMIN_BROWSERACT_MAX_ACCOUNTS_PER_REFRESH` plus `EA_ONEMIN_BILLING_REFRESH_MIN_INTERVAL_SECONDS` when you want one operator-triggered refresh cycle to sweep the full slot set without the old cadence throttle.
-- FastestVPN can back that lane through [docker-compose.fastestvpn.yml](/docker/property/docker-compose.fastestvpn.yml): place FastestVPN OpenVPN profiles under [vpn/fastestvpn/README.md](/docker/property/vpn/fastestvpn/README.md), or fetch them with [bootstrap_fastestvpn_configs.sh](/docker/property/scripts/bootstrap_fastestvpn_configs.sh), then deploy with `EA_ENABLE_FASTESTVPN=1 bash scripts/deploy.sh --compose-override docker-compose.fastestvpn.yml`. If you use `scripts/deploy.sh`, keep that overlay explicit with `EA_ENABLE_FASTESTVPN=1`. Use [rotate_fastestvpn_proxy.sh](/docker/property/scripts/rotate_fastestvpn_proxy.sh) to recreate the proxy on a fresh FastestVPN exit profile before a full 1min BrowserAct refresh.
+- FastestVPN can back that lane through [docker-compose.fastestvpn.yml](docker-compose.fastestvpn.yml): place FastestVPN OpenVPN profiles under `vpn/fastestvpn/`, or fetch them with `scripts/bootstrap_fastestvpn_configs.sh`, then deploy with `EA_ENABLE_FASTESTVPN=1 bash scripts/deploy.sh --compose-override docker-compose.fastestvpn.yml`. If you use `scripts/deploy.sh`, keep that overlay explicit with `EA_ENABLE_FASTESTVPN=1`. Use `scripts/rotate_fastestvpn_proxy.sh` to recreate the proxy on a fresh FastestVPN exit profile before a full 1min BrowserAct refresh.
 - `EA_RESPONSES_ONEMIN_INCLUDED_CREDITS_PER_KEY`, `EA_RESPONSES_ONEMIN_BONUS_CREDITS_PER_KEY`, `EA_RESPONSES_ONEMIN_DELETED_KEY_QUARANTINE_SECONDS`, `EA_RESPONSES_ONEMIN_OWNER_LEDGER_PATH`, `EA_RESPONSES_ONEMIN_PROBE_MODEL`, and `EA_RESPONSES_ONEMIN_PROBE_TIMEOUT_SECONDS` tune those credit, owner-ledger, and explicit-probe diagnostics.
 - `EA_RESPONSES_MAGICX_HEALTH_CHECK`, `EA_RESPONSES_MAGICX_HEALTH_INTERVAL_SECONDS`, and `EA_RESPONSES_MAGICX_HEALTH_TIMEOUT_SECONDS` enable and tune the live Magicx fallback probe so provider health reflects a real upstream readiness check.
-- After a BrowserAct inventory refresh, `bash scripts/refresh_ltds_from_inventory.sh --input <inventory.json> --write` can rewrite the `## Discovery Tracking` section in [LTDs.md](/docker/property/LTDs.md) from the structured inventory artifact/output instead of editing the markdown table by hand.
-- When the local API is already running, `bash scripts/refresh_ltds_via_api.sh --binding-id <browseract-binding-id> --service-name BrowserAct --service-name Teable --write` can execute the BrowserAct-backed `ltd_inventory_refresh` skill via `/v1/plans/execute`, save the raw inventory payload if requested, and update [LTDs.md](/docker/EA/LTDs.md) in one pass.
-- `python3 scripts/verify_ltd_critical_entries.py` is the hard verifier for the currently depended-on LTD lanes. It fails closed if [LTDs.md](/docker/EA/LTDs.md) or the live env drift away from the required `1min.AI`, `Prompt Architects`, BrowserAct, and Teable facts.
+- After a BrowserAct inventory refresh, `bash scripts/refresh_ltds_from_inventory.sh --input <inventory.json> --write` can rewrite the `## Discovery Tracking` section in [LTDs.md](LTDs.md) from the structured inventory artifact/output instead of editing the markdown table by hand.
+- When the local API is already running, `bash scripts/refresh_ltds_via_api.sh --binding-id <browseract-binding-id> --service-name BrowserAct --service-name Teable --write` can execute the BrowserAct-backed `ltd_inventory_refresh` skill via `/v1/plans/execute`, save the raw inventory payload if requested, and update [LTDs.md](LTDs.md) in one pass.
+- `python3 scripts/verify_ltd_critical_entries.py` is the hard verifier for the currently depended-on LTD lanes. It fails closed if [LTDs.md](LTDs.md) or the live env drift away from the required `1min.AI`, `Prompt Architects`, BrowserAct, and Teable facts.
 - `python3 scripts/verify_ltd_flagship_subset.py` is the broader release gate for the current flagship verified subset. It intentionally covers a named subset instead of pretending all `manual_seeded` or `missing` LTD rows are already proven.
 - `python3 scripts/verify_ltd_provider_lanes.py` writes governed provider-lane receipts with off-switches, source-of-truth boundaries, allowed/forbidden inputs, and missing proof checks.
 - `python3 scripts/materialize_poppy_draft_packet.py --source-packet <packet.json> --draft-output <draft.txt>` turns a manually copied Poppy draft into a hash-only receipt. It accepts only public or operator-approved source packets, leaves `runtime_enabled=false`, and requires human review before any source-controlled content change.
@@ -141,7 +141,7 @@ Memorial shadow STT:
 - The memorial `speech-transcribe` path can run a shadow STT lane for user-question audio only; it never ships Manfred's answer audio, private memorial memory, or authority truth to the provider.
 - Current supported provider is BlipAI. Runtime calls it in shadow-only mode, scores the returned correction, and can replace only the user transcript, never the answer policy.
 - If BlipAI returns `401`/`403`, the runtime attempts one refresh-token recovery before entering cooldown.
-- Refreshed BlipAI tokens are persisted locally at `/docker/EA/state/memorial_blipai_shadow_stt_tokens.json` unless `EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH` overrides that path.
+- Refreshed BlipAI tokens are persisted locally at `state/memorial_blipai_shadow_stt_tokens.json` under the configured memorial state directory unless `EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH` overrides that path.
 - If BlipAI returns `401`, `403`, or `429` after refresh handling, the lane enters cooldown for `EA_MEMORIAL_SHADOW_STT_ERROR_COOLDOWN_SECONDS` and primary STT remains authoritative.
 - The memorial remains fail-closed without BlipAI credentials: primary STT still answers; shadow STT simply reports `url_missing`, `provider_cooldown_active`, or another bounded reason.
 
@@ -176,14 +176,14 @@ Policy notes:
 - Task contracts can now also switch the compiled workflow skeleton with `budget_policy_json.workflow_template`; the built-in `artifact_then_dispatch` template emits `step_input_prepare -> step_artifact_save -> step_policy_evaluate -> step_connector_dispatch`, persists the artifact before approval, and resumes into `connector.dispatch` only after the approval-backed delivery gate is approved.
 - Task contracts can now also use the generic `workflow_template=tool_then_artifact` macro plus `budget_policy_json.pre_artifact_tool_name=<tool>` to compile a reusable pre-artifact tool branch, and the supported BrowserAct slices prove both `browseract.extract_account_facts` and `browseract.extract_account_inventory` can run through `step_input_prepare -> ... -> step_artifact_save` without another one-off planner path.
 - Task contracts can now also switch to `workflow_template=browseract_extract_then_artifact`, compiling `step_input_prepare -> step_browseract_extract -> step_artifact_save` so BrowserAct-backed account discovery can extract tier/email/status facts and persist them as a structured artifact in one queue-backed pass.
-- `/v1/skills` now exposes a first-class executive skill catalog on top of those task contracts, preserving product metadata such as memory reads/writes, authority/tool/human/provider policy, evaluation cases, and workflow-template selection in the existing task-contract store; [SKILLS.md](/docker/property/SKILLS.md) tracks the current catalog and now includes the Gemini Vortex-backed `chummer6_public_writer` for audience-safe guide copy, the Gemini Vortex-backed `chummer6_visual_director` with style-epoch and scene-ledger memory, the BrowserAct-backed `browseract_bootstrap_manager` for prompt-tool and page-extract templates, and the BrowserAct-backed `ltd_inventory_refresh` inventory skill alongside `meeting_prep`.
+- `/v1/skills` now exposes a first-class executive skill catalog on top of those task contracts, preserving product metadata such as memory reads/writes, authority/tool/human/provider policy, evaluation cases, and workflow-template selection in the existing task-contract store; [SKILLS.md](SKILLS.md) tracks the current catalog and now includes the Gemini Vortex-backed `chummer6_public_writer` for audience-safe guide copy, the Gemini Vortex-backed `chummer6_visual_director` with style-epoch and scene-ledger memory, the BrowserAct-backed `browseract_bootstrap_manager` for prompt-tool and page-extract templates, and the BrowserAct-backed `ltd_inventory_refresh` inventory skill alongside `meeting_prep`.
 - `/v1/skills?provider_hint=<value>` now filters that catalog against nested `provider_hints_json`, so operator tooling can answer questions like “which skills rely on BrowserAct or 1min.AI?” without maintaining a second provider map outside the task-contract store.
 - The runtime now also keeps typed read projections for task-contract policy (`TaskContractPolicyRecord`), product-facing skill metadata (`SkillCatalogRecord`), and provider posture (`ProviderBindingState`) so planner/catalog/provider code reads structured records instead of unpacking raw JSON blobs at every boundary.
 - `/v1/plans/compile` and `/v1/plans/execute` now also project the resolved `skill_key`, so operator tooling can render the product-facing executive capability name without reverse-mapping every `task_key` client-side.
 - `POST /v1/plans/compile` and `POST /v1/plans/execute` now also accept `skill_key` directly, so product-facing clients can compile or execute a skill without first resolving its backing `task_key`.
 - `/v1/rewrite/sessions/{session_id}` plus direct artifact/receipt/run-cost reads now also project that same `skill_key`, so queue/runtime inspection stays aligned with the product-facing skill catalog once work has been executed.
 - Chummer6 guide text generation is now intentionally EA-only on the planner side. If the Gemini Vortex lane is missing, the worker hard-fails instead of drifting into Codex fallback.
-- `python3 scripts/generate_browseract_content_templates.py` writes ready-to-edit BrowserAct packet and workflow JSON for the Economist, The Atlantic, NYTimes, ApproveThis, and MetaSurvey reader templates into `/mnt/pcloud/EA/browseract_templates`.
+- `python3 scripts/generate_browseract_content_templates.py` writes ready-to-edit BrowserAct packet and workflow JSON for the Economist, The Atlantic, NYTimes, ApproveThis, and MetaSurvey reader templates into `browseract_templates/` by default. Set `EA_BROWSERACT_CONTENT_TEMPLATE_OUTPUT_DIR` to publish them somewhere else.
 - Task contracts can now also use `workflow_template=artifact_then_packs` plus `budget_policy_json.post_artifact_packs=[...]` to compose shared post-artifact planner branches (currently `dispatch` and `memory_candidate`) without adding another one-off named workflow template for every combination.
 - The built-in `artifact_then_memory_candidate` workflow template now emits `step_input_prepare -> step_policy_evaluate -> step_artifact_save -> step_memory_candidate_stage`, persists the artifact, then stages a pending principal-scoped memory candidate through the same queue runtime so task contracts can write reviewable memory without adding a second API-side post-process.
 - Task contracts can now also set `budget_policy_json.artifact_output_template=evidence_pack`, so `step_input_prepare` emits structured `claims`, `evidence_refs`, `open_questions`, and `confidence` fields that persist through `step_artifact_save` as a first-class evidence envelope and carry forward into downstream memory-candidate staging instead of only plain text.
@@ -289,24 +289,28 @@ Refresh the machine-readable receipt with `python3 scripts/materialize_ea_flagsh
 Refresh the weekly pulse in `WEEKLY_PRODUCT_PULSE.generated.json` with `python3 scripts/materialize_weekly_product_pulse.py`.
 EA product canon for those claims now lives in `.codex-design/ea/START_HERE.md`.
 
-## CI Gate Summary
+## Local Gate Summary
 
-`smoke-runtime` workflow currently enforces:
+The local release-check bundle is:
 
-- API gate bundle job:
-  - `make smoke-help`
-  - `make ci-local`
-  - `make test-api`
-  - `make verify-release-assets`
+- `make smoke-help`
+- `make ci-local`
+- `make test-api`
+- `make verify-release-assets`
+- `make verify-flagship-release-readiness`
+- `make verify-whole-project-gold-map`
+- `make verify-generated-release-artifacts-clean`
+- `make runtime-hard-exit-gates`
+- `make hard-exit-gates`
+- `bash scripts/smoke_postgres.sh`
+- `bash scripts/test_postgres_contracts.sh`
+- `bash scripts/smoke_postgres.sh --legacy-fixture`
+
+Release-preflight highlights:
+
   - `make verify-flagship-release-readiness`
   - `make verify-whole-project-gold-map`
   - `make verify-generated-release-artifacts-clean`
-  - `make runtime-hard-exit-gates`
-  - `make hard-exit-gates`
-- Postgres smoke jobs:
-  - `bash scripts/smoke_postgres.sh`
-  - `bash scripts/test_postgres_contracts.sh`
-  - `bash scripts/smoke_postgres.sh --legacy-fixture`
 
 Milestone tracking linkage remains historical, but EA flagship release claims now key off `EA_FLAGSHIP_TRUTH_PLANE.md`, `EA_FLAGSHIP_RELEASE_GATE.json`, and the generated receipt instead of treating `MILESTONE.json` as the oracle.
 
@@ -508,7 +512,7 @@ curl -fsS -X POST http://localhost:${EA_HOST_PORT:-8090}/v1/policy/evaluate \
 ```bash
 curl -fsS -X POST http://localhost:${EA_HOST_PORT:-8090}/v1/observations/ingest \
   -H 'content-type: application/json' \
-  -d '{"principal_id":"exec-1","channel":"email","event_type":"thread.opened","payload":{"subject":"Board prep"}}'
+  -d '{"principal_id":"principal-default","channel":"email","event_type":"thread.opened","payload":{"subject":"Board prep"}}'
 ```
 
 ```bash
@@ -554,11 +558,11 @@ The smoke script now includes external-send policy evaluation plus a blocked-pol
 
 ## 8) Memory Candidate Promotion Smoke
 
-For every principal-scoped connector or memory example below, send `X-EA-Principal-ID: exec-1` (or your chosen principal). If you also pass `principal_id`, it must match that request header or the runtime will return `403 principal_scope_mismatch`.
+For every principal-scoped connector or memory example below, send `X-EA-Principal-ID: principal-default` (or your chosen principal). If you also pass `principal_id`, it must match that request header or the runtime will return `403 principal_scope_mismatch`.
 
 ```bash
 curl -fsS -X POST http://localhost:${EA_HOST_PORT:-8090}/v1/memory/candidates \
-  -H "X-EA-Principal-ID: exec-1" \
+  -H "X-EA-Principal-ID: principal-default" \
   -H 'content-type: application/json' \
   -d '{"category":"stakeholder_pref","summary":"CEO prefers concise updates","fact_json":{"tone":"concise"}}'
 ```
@@ -567,10 +571,10 @@ Promote using the returned `candidate_id`:
 
 ```bash
 curl -fsS -X POST http://localhost:${EA_HOST_PORT:-8090}/v1/memory/candidates/<candidate_id>/promote \
-  -H "X-EA-Principal-ID: exec-1" \
+  -H "X-EA-Principal-ID: principal-default" \
   -H 'content-type: application/json' \
   -d '{"reviewer":"operator","sharing_policy":"private"}'
-curl -fsS -H "X-EA-Principal-ID: exec-1" "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/items?limit=10"
+curl -fsS -H "X-EA-Principal-ID: principal-default" "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/items?limit=10"
 ```
 
 Seed semantic entities/relationships:
@@ -578,12 +582,12 @@ Seed semantic entities/relationships:
 ```bash
 curl -fsS -X POST http://localhost:${EA_HOST_PORT:-8090}/v1/memory/entities \
   -H 'content-type: application/json' \
-  -d '{"principal_id":"exec-1","entity_type":"person","canonical_name":"Alex Executive","attributes_json":{"role":"executive"}}'
+  -d '{"principal_id":"principal-default","entity_type":"person","canonical_name":"Alex Executive","attributes_json":{"role":"executive"}}'
 curl -fsS -X POST http://localhost:${EA_HOST_PORT:-8090}/v1/memory/relationships \
   -H 'content-type: application/json' \
-  -d '{"principal_id":"exec-1","from_entity_id":"<entity_a>","to_entity_id":"<entity_b>","relationship_type":"reports_to"}'
-curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/entities?limit=10&principal_id=exec-1"
-curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/relationships?limit=10&principal_id=exec-1"
+  -d '{"principal_id":"principal-default","from_entity_id":"<entity_a>","to_entity_id":"<entity_b>","relationship_type":"reports_to"}'
+curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/entities?limit=10&principal_id=principal-default"
+curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/relationships?limit=10&principal_id=principal-default"
 ```
 
 Principal-scoped commitments:
@@ -591,20 +595,20 @@ Principal-scoped commitments:
 ```bash
 curl -fsS -X POST http://localhost:${EA_HOST_PORT:-8090}/v1/memory/commitments \
   -H 'content-type: application/json' \
-  -d '{"principal_id":"exec-1","title":"Send board follow-up","details":"Draft by Friday","status":"open","priority":"high"}'
-curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/commitments?principal_id=exec-1&limit=10"
-curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/commitments/<commitment_id>?principal_id=exec-1"
+  -d '{"principal_id":"principal-default","title":"Send board follow-up","details":"Draft by Friday","status":"open","priority":"high"}'
+curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/commitments?principal_id=principal-default&limit=10"
+curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/commitments/<commitment_id>?principal_id=principal-default"
 ```
 
 Principal-scoped authority bindings:
 
 ```bash
 curl -fsS -X POST http://localhost:${EA_HOST_PORT:-8090}/v1/memory/authority-bindings \
-  -H "X-EA-Principal-ID: exec-1" \
+  -H "X-EA-Principal-ID: principal-default" \
   -H 'content-type: application/json' \
-  -d '{"principal_id":"exec-1","subject_ref":"assistant","action_scope":"calendar.write","approval_level":"manager","channel_scope":["email","slack"],"policy_json":{"quiet_hours_enforced":true},"status":"active"}'
-curl -fsS -H "X-EA-Principal-ID: exec-1" "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/authority-bindings?principal_id=exec-1&limit=10"
-curl -fsS -H "X-EA-Principal-ID: exec-1" "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/authority-bindings/<binding_id>?principal_id=exec-1"
+  -d '{"principal_id":"principal-default","subject_ref":"assistant","action_scope":"calendar.write","approval_level":"manager","channel_scope":["email","slack"],"policy_json":{"quiet_hours_enforced":true},"status":"active"}'
+curl -fsS -H "X-EA-Principal-ID: principal-default" "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/authority-bindings?principal_id=principal-default&limit=10"
+curl -fsS -H "X-EA-Principal-ID: principal-default" "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/authority-bindings/<binding_id>?principal_id=principal-default"
 ```
 
 If the request principal and a supplied `principal_id` disagree, the runtime now returns `403 principal_scope_mismatch` instead of silently reading another principal scope.
@@ -614,9 +618,9 @@ Principal-scoped delivery preferences:
 ```bash
 curl -fsS -X POST http://localhost:${EA_HOST_PORT:-8090}/v1/memory/delivery-preferences \
   -H 'content-type: application/json' \
-  -d '{"principal_id":"exec-1","channel":"email","recipient_ref":"ceo@example.com","cadence":"urgent_only","quiet_hours_json":{"start":"22:00","end":"07:00"},"format_json":{"style":"concise"},"status":"active"}'
-curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/delivery-preferences?principal_id=exec-1&limit=10"
-curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/delivery-preferences/<preference_id>?principal_id=exec-1"
+  -d '{"principal_id":"principal-default","channel":"email","recipient_ref":"ceo@example.com","cadence":"urgent_only","quiet_hours_json":{"start":"22:00","end":"07:00"},"format_json":{"style":"concise"},"status":"active"}'
+curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/delivery-preferences?principal_id=principal-default&limit=10"
+curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/delivery-preferences/<preference_id>?principal_id=principal-default"
 ```
 
 Principal-scoped follow-ups:
@@ -624,9 +628,9 @@ Principal-scoped follow-ups:
 ```bash
 curl -fsS -X POST http://localhost:${EA_HOST_PORT:-8090}/v1/memory/follow-ups \
   -H 'content-type: application/json' \
-  -d '{"principal_id":"exec-1","stakeholder_ref":"ceo@example.com","topic":"Board follow-up","status":"open","due_at":"2026-03-07T09:00:00+00:00","channel_hint":"email","notes":"Send summary after prep call","source_json":{"source":"manual"}}'
-curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/follow-ups?principal_id=exec-1&limit=10"
-curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/follow-ups/<follow_up_id>?principal_id=exec-1"
+  -d '{"principal_id":"principal-default","stakeholder_ref":"ceo@example.com","topic":"Board follow-up","status":"open","due_at":"2026-03-07T09:00:00+00:00","channel_hint":"email","notes":"Send summary after prep call","source_json":{"source":"manual"}}'
+curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/follow-ups?principal_id=principal-default&limit=10"
+curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/follow-ups/<follow_up_id>?principal_id=principal-default"
 ```
 
 Principal-scoped deadline windows:
@@ -634,9 +638,9 @@ Principal-scoped deadline windows:
 ```bash
 curl -fsS -X POST http://localhost:${EA_HOST_PORT:-8090}/v1/memory/deadline-windows \
   -H 'content-type: application/json' \
-  -d '{"principal_id":"exec-1","title":"Board prep delivery window","start_at":"2026-03-07T08:30:00+00:00","end_at":"2026-03-07T10:00:00+00:00","status":"open","priority":"high","notes":"Draft must be ready before board sync","source_json":{"source":"manual"}}'
-curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/deadline-windows?principal_id=exec-1&limit=10"
-curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/deadline-windows/<window_id>?principal_id=exec-1"
+  -d '{"principal_id":"principal-default","title":"Board prep delivery window","start_at":"2026-03-07T08:30:00+00:00","end_at":"2026-03-07T10:00:00+00:00","status":"open","priority":"high","notes":"Draft must be ready before board sync","source_json":{"source":"manual"}}'
+curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/deadline-windows?principal_id=principal-default&limit=10"
+curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/deadline-windows/<window_id>?principal_id=principal-default"
 ```
 
 Principal-scoped stakeholders:
@@ -644,9 +648,9 @@ Principal-scoped stakeholders:
 ```bash
 curl -fsS -X POST http://localhost:${EA_HOST_PORT:-8090}/v1/memory/stakeholders \
   -H 'content-type: application/json' \
-  -d '{"principal_id":"exec-1","display_name":"Sam Stakeholder","channel_ref":"email:sam@example.com","authority_level":"approver","importance":"high","response_cadence":"fast","tone_pref":"diplomatic","sensitivity":"confidential","escalation_policy":"notify_exec","open_loops_json":{"board_follow_up":"open"},"friction_points_json":{"scheduling":"tight"},"last_interaction_at":"2026-03-06T15:30:00+00:00","status":"active","notes":"Needs concise summaries"}'
-curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/stakeholders?principal_id=exec-1&limit=10"
-curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/stakeholders/<stakeholder_id>?principal_id=exec-1"
+  -d '{"principal_id":"principal-default","display_name":"Sam Stakeholder","channel_ref":"email:sam@example.com","authority_level":"approver","importance":"high","response_cadence":"fast","tone_pref":"diplomatic","sensitivity":"confidential","escalation_policy":"notify_exec","open_loops_json":{"board_follow_up":"open"},"friction_points_json":{"scheduling":"tight"},"last_interaction_at":"2026-03-06T15:30:00+00:00","status":"active","notes":"Needs concise summaries"}'
+curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/stakeholders?principal_id=principal-default&limit=10"
+curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/stakeholders/<stakeholder_id>?principal_id=principal-default"
 ```
 
 Principal-scoped decision windows:
@@ -654,9 +658,9 @@ Principal-scoped decision windows:
 ```bash
 curl -fsS -X POST http://localhost:${EA_HOST_PORT:-8090}/v1/memory/decision-windows \
   -H 'content-type: application/json' \
-  -d '{"principal_id":"exec-1","title":"Board response decision","context":"Choose timing and channel for reply","opens_at":"2026-03-06T08:00:00+00:00","closes_at":"2026-03-06T12:00:00+00:00","urgency":"high","authority_required":"exec","status":"open","notes":"Needs decision before board prep","source_json":{"source":"manual"}}'
-curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/decision-windows?principal_id=exec-1&limit=10"
-curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/decision-windows/<decision_window_id>?principal_id=exec-1"
+  -d '{"principal_id":"principal-default","title":"Board response decision","context":"Choose timing and channel for reply","opens_at":"2026-03-06T08:00:00+00:00","closes_at":"2026-03-06T12:00:00+00:00","urgency":"high","authority_required":"exec","status":"open","notes":"Needs decision before board prep","source_json":{"source":"manual"}}'
+curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/decision-windows?principal_id=principal-default&limit=10"
+curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/decision-windows/<decision_window_id>?principal_id=principal-default"
 ```
 
 Principal-scoped communication policies:
@@ -664,9 +668,9 @@ Principal-scoped communication policies:
 ```bash
 curl -fsS -X POST http://localhost:${EA_HOST_PORT:-8090}/v1/memory/communication-policies \
   -H 'content-type: application/json' \
-  -d '{"principal_id":"exec-1","scope":"board_threads","preferred_channel":"email","tone":"concise_diplomatic","max_length":1200,"quiet_hours_json":{"start":"22:00","end":"07:00"},"escalation_json":{"on_high_urgency":"notify_exec"},"status":"active","notes":"Board-facing communication defaults"}'
-curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/communication-policies?principal_id=exec-1&limit=10"
-curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/communication-policies/<policy_id>?principal_id=exec-1"
+  -d '{"principal_id":"principal-default","scope":"board_threads","preferred_channel":"email","tone":"concise_diplomatic","max_length":1200,"quiet_hours_json":{"start":"22:00","end":"07:00"},"escalation_json":{"on_high_urgency":"notify_exec"},"status":"active","notes":"Board-facing communication defaults"}'
+curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/communication-policies?principal_id=principal-default&limit=10"
+curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/communication-policies/<policy_id>?principal_id=principal-default"
 ```
 
 Principal-scoped follow-up rules:
@@ -674,9 +678,9 @@ Principal-scoped follow-up rules:
 ```bash
 curl -fsS -X POST http://localhost:${EA_HOST_PORT:-8090}/v1/memory/follow-up-rules \
   -H 'content-type: application/json' \
-  -d '{"principal_id":"exec-1","name":"Board reminder escalation","trigger_kind":"deadline_risk","channel_scope":["email","slack"],"delay_minutes":120,"max_attempts":3,"escalation_policy":"notify_exec","conditions_json":{"priority":"high"},"action_json":{"action":"draft_follow_up"},"status":"active","notes":"Escalate if follow-up is late"}'
-curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/follow-up-rules?principal_id=exec-1&limit=10"
-curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/follow-up-rules/<rule_id>?principal_id=exec-1"
+  -d '{"principal_id":"principal-default","name":"Board reminder escalation","trigger_kind":"deadline_risk","channel_scope":["email","slack"],"delay_minutes":120,"max_attempts":3,"escalation_policy":"notify_exec","conditions_json":{"priority":"high"},"action_json":{"action":"draft_follow_up"},"status":"active","notes":"Escalate if follow-up is late"}'
+curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/follow-up-rules?principal_id=principal-default&limit=10"
+curl -fsS "http://localhost:${EA_HOST_PORT:-8090}/v1/memory/follow-up-rules/<rule_id>?principal_id=principal-default"
 ```
 ## 9) Script Help Smoke
 
@@ -747,6 +751,9 @@ make operator-summary
 
 The operator summary includes release smoke/readiness commands plus legacy smoke/parity shortcuts, release/support commands such as `make release-preflight` and `make support-bundle`, and task-archive shortcuts.
 It also includes the aggregate LTD release gate shortcut `make ltd-release-gates`.
+It also includes the standalone WhatsApp runtime gate `make verify-whatsapp-web-action-processor-readiness`, which proves action-processor health without overclaiming live audiobook delivery. After publication, `make verify-whatsapp-audiobook-public-share-playback` replays the shared player route in Playwright and proves the audio actually advances.
+It also prints the current long-running goal posture through `detect`, `decide`, `deliver`, `recover`, and `prove`, keeping local receipt evidence separate from command-backed recovery checks and real-world acceptance blockers.
+Materialize or verify that posture directly with `make materialize-continuous-improvement-goal-posture` and `make verify-continuous-improvement-goal-posture`.
 
 ## 15) Generate Support Bundle
 
@@ -818,7 +825,7 @@ make all-local
 
 `make all-local` is a lightweight readiness pass that still checks release assets, flagship release readiness, and generated release artifact cleanliness. Use `make release-preflight` for release-stage smoke and operator checks.
 
-Deploys now default to a runtime hard-exit pass after the stack reports healthy. `scripts/deploy.sh` will run `bash scripts/runtime_hard_exit_gates.sh` unless `EA_RUN_RUNTIME_HARD_EXIT_GATES=0`. The runtime bundle is deploy-safe and excludes the deeper `smoke_api_tibor.sh` contract lane; that lane remains part of `make hard-exit-gates`.
+Deploys now default to a runtime hard-exit pass after the stack reports healthy. `scripts/deploy.sh` will run `bash scripts/runtime_hard_exit_gates.sh` unless `EA_RUN_RUNTIME_HARD_EXIT_GATES=0`. The runtime bundle is deploy-safe and excludes the deeper `smoke_api_principal.sh` contract lane; that lane remains part of `make hard-exit-gates`.
 
 Release preflight aggregate (asset checks + flagship release-readiness verification + generated release artifact cleanliness + operator help + release smoke):
 

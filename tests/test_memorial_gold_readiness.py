@@ -76,6 +76,9 @@ def _room_receipt(*, base_url: str = "https://memorial.example.test") -> dict[st
             "intelligibility_confirmed": True,
             "answer_text_fallback_visible": True,
             "no_internet_search_confirmed": True,
+            "normal_spoken_turn_confirmed": True,
+            "interruption_behavior_confirmed": True,
+            "retry_path_confirmed": True,
         },
     }
 

@@ -11,6 +11,7 @@ from pathlib import Path
 
 EA_ROOT = Path(__file__).resolve().parents[1]
 ENV_FILE = EA_ROOT / ".env"
+DEFAULT_CHUMMER6_GUIDE_PUBLISH_REPO = "chummer6/docs"
 
 
 def env_value(name: str) -> str:
@@ -26,6 +27,14 @@ def env_value(name: str) -> str:
             if key.strip() == name:
                 return value.strip()
     return ""
+
+
+def chummer6_guide_publish_repo() -> str:
+    return (
+        env_value("CHUMMER6_GUIDE_PUBLISH_REPO")
+        or env_value("EA_CHUMMER6_GUIDE_PUBLISH_REPO")
+        or DEFAULT_CHUMMER6_GUIDE_PUBLISH_REPO
+    )
 
 
 def skill_host() -> str:
@@ -68,7 +77,7 @@ def _budget_policy(*, publishable: bool) -> dict[str, object]:
         budget.update(
             {
                 "publish_on_success": True,
-                "publish_repo": "ArchonMegalon/Chummer6",
+                "publish_repo": chummer6_guide_publish_repo(),
                 "publish_branch": "main",
                 "refresh_schedule_utc": {"weekday": 0, "hour": 5, "minute": 30},
             }

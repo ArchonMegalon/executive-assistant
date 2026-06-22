@@ -1,0 +1,250 @@
+{
+  "can_run_live_epub_delivery_test": true,
+  "contract_name": "ea.telegram_audiobook_live_readiness_checklist.v1",
+  "delivery": {
+    "audiobookshelf_auto_import_enabled": true,
+    "audiobookshelf_public_share_configured": true,
+    "audiobookshelf_public_share_enabled": true,
+    "items": [
+      {
+        "env_values_exposed": false,
+        "env_var_names": [
+          "EA_M4B_TOOL_BIN",
+          "EA_AUDIOBOOK_FFMPEG_M4B_FALLBACK"
+        ],
+        "key": "m4b_assembly_available",
+        "operator_action": "Install m4b-tool or keep the ffmpeg M4B fallback enabled and available.",
+        "status": "ready",
+        "verification_command": "make verify-telegram-audiobook-live-readiness"
+      },
+      {
+        "env_values_exposed": false,
+        "env_var_names": [
+          "EA_AUDIOBOOKSHELF_AUTO_IMPORT"
+        ],
+        "key": "audiobookshelf_auto_import_enabled",
+        "operator_action": "Enable automatic import into the Audiobookshelf library folder.",
+        "status": "ready",
+        "verification_command": "make verify-telegram-audiobook-live-readiness"
+      },
+      {
+        "env_values_exposed": false,
+        "env_var_names": [
+          "EA_AUDIOBOOKSHELF_IMPORT_ROOT",
+          "EA_AUDIOBOOK_ALLOW_NON_PCLOUD_STORAGE"
+        ],
+        "key": "audiobookshelf_import_root_pcloud",
+        "operator_action": "Point the Audiobookshelf import root at pCloud-backed audiobook storage.",
+        "status": "ready",
+        "verification_command": "make verify-telegram-audiobook-live-readiness"
+      },
+      {
+        "env_values_exposed": false,
+        "env_var_names": [
+          "EA_AUDIOBOOKSHELF_IMPORT_ROOT"
+        ],
+        "key": "audiobookshelf_import_root_writable",
+        "operator_action": "Create the Audiobookshelf import root and make it writable by EA.",
+        "status": "ready",
+        "verification_command": "make verify-telegram-audiobook-live-readiness"
+      },
+      {
+        "env_values_exposed": false,
+        "env_var_names": [
+          "EA_AUDIOBOOKSHELF_PUBLIC_SHARE_ENABLED"
+        ],
+        "key": "audiobookshelf_public_share_enabled",
+        "operator_action": "Enable Audiobookshelf public-share creation after scan/import.",
+        "status": "ready",
+        "verification_command": "make verify-telegram-audiobook-live-readiness"
+      },
+      {
+        "env_values_exposed": false,
+        "env_var_names": [
+          "EA_AUDIOBOOKSHELF_API_BASE_URL",
+          "EA_AUDIOBOOKSHELF_PUBLIC_BASE_URL",
+          "EA_AUDIOBOOKSHELF_API_TOKEN",
+          "EA_AUDIOBOOKSHELF_LIBRARY_ID"
+        ],
+        "key": "audiobookshelf_public_share_configured",
+        "operator_action": "Configure the Audiobookshelf API/public base URL, library id, and admin token.",
+        "status": "ready",
+        "verification_command": "make verify-telegram-audiobook-live-readiness"
+      },
+      {
+        "env_values_exposed": false,
+        "env_var_names": [
+          "EA_AUDIOBOOK_ACCESS_SIGNING_SECRET"
+        ],
+        "key": "player_access_signing_secret_present",
+        "operator_action": "Configure the EA signing secret for player-scoped audiobook links.",
+        "status": "ready",
+        "verification_command": "make verify-telegram-audiobook-live-readiness"
+      },
+      {
+        "env_values_exposed": false,
+        "env_var_names": [
+          "EA_AUDIOBOOK_PLAYER_ACCESS_BASE_URL"
+        ],
+        "key": "player_access_base_url_present",
+        "operator_action": "Configure the public EA base URL for player-scoped audiobook links.",
+        "status": "ready",
+        "verification_command": "make verify-telegram-audiobook-live-readiness"
+      },
+      {
+        "env_values_exposed": false,
+        "env_var_names": [
+          "EA_SCHEDULER_AUDIOBOOK_RESUME_ENABLED",
+          "EA_SCHEDULER_AUDIOBOOK_RESUME_INTERVAL_SECONDS"
+        ],
+        "key": "scheduler_resume_enabled",
+        "operator_action": "Enable the audiobook scheduler so provider waits and Audiobookshelf scans resume automatically.",
+        "status": "ready",
+        "verification_command": "make verify-telegram-audiobook-live-readiness"
+      }
+    ],
+    "m4b_assembly_available": true,
+    "scheduler_resume_enabled": true,
+    "status": "ready"
+  },
+  "delivery_blockers": [],
+  "generated_at": "2026-06-21T07:07:06.921538Z",
+  "goal_completion_claim_allowed": false,
+  "live_delivery_claim_allowed": false,
+  "next_action": "run_real_telegram_epub_audiobook_delivery_test",
+  "observation_source": "runtime_container",
+  "operator_commands": [
+    "make verify-telegram-audiobook-live-readiness",
+    "make verify-telegram-audiobook-live-delivery-receipt",
+    "make verify-active-media-ltd-goal-bundle"
+  ],
+  "preflight_failed_checks": [],
+  "preflight_status": "pass",
+  "preflight_warned_checks": [],
+  "privacy": {
+    "env_values_exposed": false,
+    "preflight_contract_sha256": "b8c20206b7a50d5db4fa512fceac5ed52ef6cd97a9abd56708226bdc4edb8297",
+    "raw_provider_voice_ids_exposed": false,
+    "raw_public_share_url_included": false,
+    "raw_storage_paths_included": false,
+    "raw_telegram_chat_id_included": false
+  },
+  "public_share_delivery_prereqs_ready": true,
+  "real_user_playback_acceptance_verified": false,
+  "required_live_proof_after_readiness": [
+    "real Telegram EPUB upload",
+    "three Telegram voice samples delivered with Use this/Dismiss controls",
+    "operator-selected voice callback applied",
+    "M4B rendered and imported into Audiobookshelf",
+    "Audiobookshelf scan completed",
+    "public share link sent back to Telegram",
+    "sanitized live delivery receipt materialized",
+    "separate human playback acceptance captured"
+  ],
+  "runtime_container": "ea-api",
+  "sample_blockers": [],
+  "status": "ready_for_live_epub_delivery_test",
+  "voice_sample_prereqs_ready": true,
+  "voice_samples": {
+    "api_key_slot_count": 3,
+    "items": [
+      {
+        "env_values_exposed": false,
+        "env_var_names": [
+          "EA_TELEGRAM_AUDIOBOOK_EPUB_ENABLED"
+        ],
+        "key": "telegram_epub_enabled",
+        "operator_action": "Enable Telegram EPUB intake for the audiobook bot.",
+        "status": "ready",
+        "verification_command": "make verify-telegram-audiobook-live-readiness"
+      },
+      {
+        "env_values_exposed": false,
+        "env_var_names": [
+          "EA_AUDIOBOOK_JOBS_ROOT",
+          "EA_AUDIOBOOK_ALLOW_NON_PCLOUD_STORAGE"
+        ],
+        "key": "jobs_root_pcloud",
+        "operator_action": "Mount pCloud and point the audiobook job root at pCloud-backed storage.",
+        "status": "ready",
+        "verification_command": "make verify-telegram-audiobook-live-readiness"
+      },
+      {
+        "env_values_exposed": false,
+        "env_var_names": [
+          "EA_AUDIOBOOK_JOBS_ROOT"
+        ],
+        "key": "jobs_root_writable",
+        "operator_action": "Create the audiobook job root and make it writable by the EA runtime user.",
+        "status": "ready",
+        "verification_command": "make verify-telegram-audiobook-live-readiness"
+      },
+      {
+        "env_values_exposed": false,
+        "env_var_names": [
+          "EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED"
+        ],
+        "key": "external_tts_enabled",
+        "operator_action": "Approve raw owned EPUB text leaving EA for governed external audiobook TTS.",
+        "status": "ready",
+        "verification_command": "make verify-telegram-audiobook-live-readiness"
+      },
+      {
+        "env_values_exposed": false,
+        "env_var_names": [
+          "EA_AUDIOBOOK_UNMIXR_AUTO_RENDER"
+        ],
+        "key": "unmixr_auto_render_enabled",
+        "operator_action": "Enable automatic Unmixr rendering after the user chooses a voice.",
+        "status": "ready",
+        "verification_command": "make verify-telegram-audiobook-live-readiness"
+      },
+      {
+        "env_values_exposed": false,
+        "env_var_names": [
+          "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+          "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_PATH",
+          "EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED",
+          "EA_AUDIOBOOK_UNMIXR_VOICE_DISCOVERY_USE_CASES",
+          "UNMIXR_VOICE_ID",
+          "UNMIXR_API_KEY"
+        ],
+        "key": "voice_catalog_configured",
+        "operator_action": "Configure or discover the Unmixr audiobook voice catalog.",
+        "status": "ready",
+        "verification_command": "make verify-telegram-audiobook-live-readiness"
+      },
+      {
+        "env_values_exposed": false,
+        "env_var_names": [
+          "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+          "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_PATH",
+          "EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED",
+          "EA_AUDIOBOOK_UNMIXR_VOICE_DISCOVERY_TARGET_COUNT",
+          "EA_AUDIOBOOK_UNMIXR_VOICE_DISCOVERY_USE_CASES"
+        ],
+        "key": "voice_catalog_audition_ready",
+        "operator_action": "Provide or discover at least three audiobook voices so Telegram can send comparison samples.",
+        "status": "ready",
+        "verification_command": "make verify-telegram-audiobook-live-readiness"
+      },
+      {
+        "env_values_exposed": false,
+        "env_var_names": [
+          "UNMIXR_API_KEY",
+          "UNMIXR_API_KEY_FALLBACK_1",
+          "UNMIXR_API_KEY_FALLBACK_2"
+        ],
+        "key": "unmixr_api_key_slot_present",
+        "operator_action": "Configure at least one owned Unmixr API-key slot for sample and chapter rendering.",
+        "status": "ready",
+        "verification_command": "make verify-telegram-audiobook-live-readiness"
+      }
+    ],
+    "status": "ready",
+    "voice_audition_min_candidates": 3,
+    "voice_catalog_count": 30,
+    "voice_discovery_enabled": true,
+    "voice_discovery_target_count": 30
+  }
+}

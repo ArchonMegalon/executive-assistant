@@ -31,6 +31,7 @@ from functools import lru_cache
 from html import escape as html_escape
 from html.parser import HTMLParser
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
@@ -86,19 +87,60 @@ from app.product.projections import (
     status_open,
     thread_items_from_objects,
 )
-from app.services import photo_signal_analysis
-from app.services import responses_upstream
+try:
+    from app.services import photo_signal_analysis
+except Exception:  # pragma: no cover - compat path when optional media analysis deps are unavailable
+    photo_signal_analysis = SimpleNamespace(
+        analyze_photo_url=lambda *_args, **_kwargs: {
+            "status": "unavailable",
+            "reason": "photo_signal_analysis_unavailable",
+        }
+    )
+
+try:
+    from app.services import responses_upstream
+except Exception:  # pragma: no cover - compat path when optional upstream-response deps are unavailable
+    responses_upstream = SimpleNamespace(
+        _onemin_secret_env_names=lambda: (),
+        _onemin_secret_value=lambda *_args, **_kwargs: "",
+        generate_text=lambda *_args, **_kwargs: {
+            "status": "unavailable",
+            "reply_text": "",
+            "text": "",
+            "reason": "responses_upstream_unavailable",
+        },
+    )
 from app.yaml_inputs import load_yaml_dict as load_design_yaml_dict
 from app.services import google_oauth as google_oauth_service
 from app.services.ltd_runtime_catalog import LtdRuntimeCatalogService
 from app.services.ltd_runtime_skill_projection import projected_task_key
-from app.services.teable_projection_adapter import build_teable_projection_records, build_teable_projection_summary
-from app.services.propertyquarry_teable_projection import (
-    PROPERTYQUARRY_TEABLE_TABLE_NAMES,
-    build_propertyquarry_teable_projection_records,
-    build_propertyquarry_teable_projection_summary,
-    propertyquarry_teable_tenant_key,
-)
+try:
+    from app.services.teable_projection_adapter import build_teable_projection_records, build_teable_projection_summary
+except Exception:  # pragma: no cover - compat path when Teable helpers are unavailable
+    def build_teable_projection_records(*_args: object, **_kwargs: object) -> tuple[dict[str, object], ...]:
+        return ()
+
+    def build_teable_projection_summary(*_args: object, **_kwargs: object) -> dict[str, object]:
+        return {"status": "unavailable", "reason": "teable_projection_unavailable"}
+
+try:
+    from app.services.propertyquarry_teable_projection import (
+        PROPERTYQUARRY_TEABLE_TABLE_NAMES,
+        build_propertyquarry_teable_projection_records,
+        build_propertyquarry_teable_projection_summary,
+        propertyquarry_teable_tenant_key,
+    )
+except Exception:  # pragma: no cover - compat path when propertyquarry Teable helpers are unavailable
+    PROPERTYQUARRY_TEABLE_TABLE_NAMES = ()
+
+    def build_propertyquarry_teable_projection_records(*_args: object, **_kwargs: object) -> tuple[dict[str, object], ...]:
+        return ()
+
+    def build_propertyquarry_teable_projection_summary(*_args: object, **_kwargs: object) -> dict[str, object]:
+        return {"status": "unavailable", "reason": "propertyquarry_teable_projection_unavailable"}
+
+    def propertyquarry_teable_tenant_key(*_args: object, **_kwargs: object) -> str:
+        return ""
 from app.services.telegram_delivery import (
     build_telegram_feedback_callback_data_for_principal,
     resolve_primary_telegram_binding,
@@ -122,7 +164,13 @@ from app.services.registration_email import (
     send_workspace_access_email,
     send_workspace_invitation_email,
 )
-from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, PropertyPacketKind
+try:
+    from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, PropertyPacketKind
+except Exception:  # pragma: no cover - compat path when FlipLink publication deps are unavailable
+    _enum_value = lambda value: SimpleNamespace(value=value)
+    FlipLinkFormat = SimpleNamespace(SMART_DOCUMENT=_enum_value("smart_document"))
+    PacketPrivacyMode = SimpleNamespace(OWNER_PRIVATE=_enum_value("owner_private"))
+    PropertyPacketKind = SimpleNamespace(OWNER_REVIEW=_enum_value("owner_review"))
 from app.services.property_market_catalog import (
     country_label,
     default_platforms_for_country,
@@ -141,7 +189,12 @@ from app.services.property_market_catalog import (
     provider_host_markers,
     provider_listing_markers_for_host,
 )
-from app.settings import resolve_signing_secret
+from app.settings import (
+    resolve_signing_secret,
+    resolve_workspace_access_token_audience,
+    resolve_workspace_access_token_issuer,
+    resolve_workspace_access_token_key_version,
+)
 
 if TYPE_CHECKING:
     from app.container import AppContainer
@@ -14641,10 +14694,29 @@ class ProductService:
     def _workspace_access_secret(self) -> str:
         return resolve_signing_secret(self._container.settings, purpose="workspace-access")
 
-    def _sign_workspace_access_launch_token(self, *, session_id: str, expires_at: str) -> str:
+    def _workspace_access_token_issuer(self) -> str:
+        return resolve_workspace_access_token_issuer(self._container.settings)
+
+    def _workspace_access_token_audience(self) -> str:
+        return resolve_workspace_access_token_audience(self._container.settings)
+
+    def _workspace_access_token_key_version(self) -> str:
+        return resolve_workspace_access_token_key_version(self._container.settings)
+
+    def _workspace_access_claims_valid(self, payload: dict[str, object] | None) -> bool:
+        body = dict(payload or {})
+        return (
+            str(body.get("iss") or "").strip() == self._workspace_access_token_issuer()
+            and str(body.get("aud") or "").strip() == self._workspace_access_token_audience()
+            and str(body.get("kid") or "").strip() == self._workspace_access_token_key_version()
+            and bool(str(body.get("jti") or "").strip())
+        )
+
+    def _sign_workspace_access_launch_token(self, *, session_id: str, expires_at: str, jti: str) -> str:
         normalized_session_id = str(session_id or "").strip()
         normalized_expires_at = str(expires_at or "").strip()
-        if not normalized_session_id or not normalized_expires_at:
+        normalized_jti = str(jti or "").strip()
+        if not normalized_session_id or not normalized_expires_at or not normalized_jti:
             return ""
         try:
             expires_dt = datetime.fromisoformat(normalized_expires_at)
@@ -14658,6 +14730,10 @@ class ProductService:
                 "k": "wa",
                 "s": normalized_session_id,
                 "x": int(expires_dt.timestamp()),
+                "iss": self._workspace_access_token_issuer(),
+                "aud": self._workspace_access_token_audience(),
+                "kid": self._workspace_access_token_key_version(),
+                "jti": normalized_jti,
             },
         )
 
@@ -29554,6 +29630,8 @@ class ProductService:
             resolved_operator_id = _operator_id_from_email(normalized_email)
         expires_at = datetime.now(timezone.utc).timestamp() + max(int(expires_in_hours), 1) * 3600
         session_id = f"access_{uuid4().hex[:10]}"
+        token_jti = f"wsa_{uuid4().hex}"
+        session_version = 1
         token_payload = {
             "token_kind": "workspace_access_session",
             "session_id": session_id,
@@ -29564,6 +29642,11 @@ class ProductService:
             "operator_id": resolved_operator_id,
             "source_kind": str(source_kind or "workspace_access").strip() or "workspace_access",
             "expires_at": datetime.fromtimestamp(expires_at, tz=timezone.utc).isoformat(),
+            "iss": self._workspace_access_token_issuer(),
+            "aud": self._workspace_access_token_audience(),
+            "kid": self._workspace_access_token_key_version(),
+            "jti": token_jti,
+            "session_version": session_version,
         }
         access_token = _sign_channel_payload(secret=self._workspace_access_secret(), payload=token_payload)
         resolved_default_target = str(default_target or "").strip()
@@ -29582,6 +29665,11 @@ class ProductService:
             "revoked_at": "",
             "revoked_by": "",
             "expires_at": str(token_payload["expires_at"]),
+            "issuer": str(token_payload["iss"]),
+            "audience": str(token_payload["aud"]),
+            "key_version": str(token_payload["kid"]),
+            "jti": str(token_payload["jti"]),
+            "session_version": int(token_payload["session_version"]),
             "access_token": access_token,
             "access_url": f"/workspace-access/{access_token}",
             "default_target": resolved_default_target,
@@ -29589,6 +29677,7 @@ class ProductService:
         launch_token = self._sign_workspace_access_launch_token(
             session_id=session_id,
             expires_at=str(token_payload["expires_at"]),
+            jti=f"wal_{uuid4().hex}",
         )
         payload["access_launch_token"] = launch_token
         payload["access_launch_url"] = f"/workspace-access/{launch_token}"
@@ -29633,6 +29722,11 @@ class ProductService:
                     "revoked_at": "",
                     "revoked_by": "",
                     "expires_at": str(payload.get("expires_at") or "").strip(),
+                    "issuer": str(payload.get("issuer") or payload.get("iss") or "").strip(),
+                    "audience": str(payload.get("audience") or payload.get("aud") or "").strip(),
+                    "key_version": str(payload.get("key_version") or payload.get("kid") or "").strip(),
+                    "jti": str(payload.get("jti") or "").strip(),
+                    "session_version": int(payload.get("session_version") or 0),
                     "access_token": str(payload.get("access_token") or "").strip(),
                     "access_url": str(payload.get("access_url") or "").strip(),
                     "default_target": str(payload.get("default_target") or ("/admin/office" if normalized_role == "operator" else "/app/today")).strip(),
@@ -29665,6 +29759,8 @@ class ProductService:
         if payload is None:
             return None
         token_kind = str(payload.get("token_kind") or payload.get("k") or "").strip()
+        if not self._workspace_access_claims_valid(payload):
+            return None
         if token_kind == "wa":
             try:
                 expires_unix = int(str(payload.get("x") or "0").strip() or "0")
@@ -29685,6 +29781,14 @@ class ProductService:
         if current is not None:
             if str(current.get("status") or "").strip().lower() == "revoked":
                 return None
+            if (
+                str(current.get("jti") or "").strip() != str(payload.get("jti") or "").strip()
+                or str(current.get("issuer") or "").strip() != str(payload.get("iss") or "").strip()
+                or str(current.get("audience") or "").strip() != str(payload.get("aud") or "").strip()
+                or str(current.get("key_version") or "").strip() != str(payload.get("kid") or "").strip()
+                or int(current.get("session_version") or 0) != int(payload.get("session_version") or current.get("session_version") or 0)
+            ):
+                return None
             return current
         if token_kind == "wa":
             return None
@@ -29702,6 +29806,11 @@ class ProductService:
             "revoked_at": "",
             "revoked_by": "",
             "expires_at": str(payload.get("expires_at") or "").strip(),
+            "issuer": str(payload.get("iss") or "").strip(),
+            "audience": str(payload.get("aud") or "").strip(),
+            "key_version": str(payload.get("kid") or "").strip(),
+            "jti": str(payload.get("jti") or "").strip(),
+            "session_version": int(payload.get("session_version") or 0),
             "access_token": str(token or "").strip(),
             "access_url": f"/workspace-access/{token}",
             "default_target": "/admin/office" if normalized_role == "operator" else "/app/today",

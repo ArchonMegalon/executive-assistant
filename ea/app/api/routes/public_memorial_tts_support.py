@@ -24,7 +24,6 @@ def _tts_plugin_options(
 ) -> list[dict[str, object]]:
     configured_voice_id = runtime_secret_placeholder(text(payload.get("tts_plugin_voice_id"), ""))
     unmixr_voice_id = configured_voice_id or unmixr_memorial_voice_id()
-    openvoice_voice_id = configured_voice_id or openvoice_memorial_voice_id()
     voicewave_voice_id = configured_voice_id or voicewave_memorial_voice_label()
     return [
         piper_fast_plugin_option(),
@@ -43,10 +42,6 @@ def _tts_plugin_options(
         ),
         voicewave_plugin_option(
             configured_voice_id=voicewave_voice_id,
-            voice_profile_ready=bool(voice_profile_ready),
-        ),
-        openvoice_plugin_option(
-            configured_voice_id=openvoice_voice_id,
             voice_profile_ready=bool(voice_profile_ready),
         ),
     ]
@@ -80,7 +75,7 @@ def _resolve_tts_plugin(
         "tts_plugin_enabled": False,
         "tts_plugin_needs_clone": False,
         "tts_plugin_voice_id": "",
-        "tts_plugin_label": "OpenVoice Local Clone",
+        "tts_plugin_label": "Unmixr Voice Clone",
         "tts_plugin_description": "Keine Voice-Konfiguration aktiv.",
     }
 
@@ -186,7 +181,7 @@ def _load_voice_config(
         "pitch": 0.92,
         "volume": 1.0,
         "voice_name_hints": ["de-AT", "de-DE", "German"],
-        "tts_plugin_voice_id": unmixr_memorial_voice_id() or openvoice_memorial_voice_id(),
+        "tts_plugin_voice_id": unmixr_memorial_voice_id(),
         "tts_base_voice_variant": "high",
         "tts_postprocess_profile": "",
         "consent_basis": "generic_or_owner_consented_voice",
@@ -238,7 +233,7 @@ def _load_voice_config(
     default_config["tts_mode"] = default_config["tts_plugin"]
     default_config["tts_plugin_voice_id"] = runtime_secret_placeholder(text(selected_option.get("tts_plugin_voice_id"), str(default_config["tts_plugin_voice_id"])))
     if not default_config["tts_plugin_voice_id"]:
-        default_config["tts_plugin_voice_id"] = text(unmixr_memorial_voice_id(), "") or text(openvoice_memorial_voice_id(), "")
+        default_config["tts_plugin_voice_id"] = text(unmixr_memorial_voice_id(), "")
     default_config["tts_plugin_options"] = options
     return default_config
 
@@ -265,7 +260,7 @@ def _voice_config_to_public_payload(
         "pitch": float_between(payload.get("pitch"), fallback=0.92, minimum=0.5, maximum=1.5),
         "volume": float_between(payload.get("volume"), fallback=1.0, minimum=0.0, maximum=1.0),
         "voice_name_hints": [str(item).strip() for item in list(payload.get("voice_name_hints") or [])[:8] if str(item or "").strip()],
-        "tts_plugin_voice_id": text(payload.get("tts_plugin_voice_id"), openvoice_memorial_voice_id()),
+        "tts_plugin_voice_id": text(payload.get("tts_plugin_voice_id"), ""),
         "tts_base_voice_variant": text(payload.get("tts_base_voice_variant"), "high") or "high",
         "notes": text(payload.get("notes"), ""),
         "synthetic_voice_clone_of_memorial_person": False,
@@ -310,7 +305,7 @@ def _normalize_voice_config_payload(
         "volume": 1.0,
         "voice_name_hints": ["de-AT", "de-DE", "German"],
         "tts_plugin": tts_plugin_default_id,
-        "tts_plugin_voice_id": unmixr_memorial_voice_id() or openvoice_memorial_voice_id(),
+        "tts_plugin_voice_id": unmixr_memorial_voice_id(),
         "tts_base_voice_variant": "high",
         "tts_postprocess_profile": "",
         "consent_basis": "generic_or_owner_consented_voice",

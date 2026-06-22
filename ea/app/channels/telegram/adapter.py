@@ -2,8 +2,6 @@ from __future__ import annotations
 
 
 class TelegramObservationAdapter:
-    """Converts raw Telegram webhook/poll payloads into generic observation fields."""
-
     channel = "telegram"
 
     @staticmethod
@@ -22,6 +20,8 @@ class TelegramObservationAdapter:
             metadata["file_id"] = audio.get("file_id")
             metadata["duration"] = audio.get("duration")
             metadata["file_name"] = audio.get("file_name")
+            metadata["mime_type"] = audio.get("mime_type")
+            metadata["file_size"] = audio.get("file_size")
             if text:
                 metadata["caption"] = text
             return "Audio Message", "audio", metadata
@@ -36,6 +36,8 @@ class TelegramObservationAdapter:
             video = dict(msg.get("video") or {})
             metadata["file_id"] = video.get("file_id")
             metadata["duration"] = video.get("duration")
+            metadata["mime_type"] = video.get("mime_type")
+            metadata["file_size"] = video.get("file_size")
             if text:
                 metadata["caption"] = text
             return text or "Video Message", "video", metadata
@@ -44,6 +46,8 @@ class TelegramObservationAdapter:
             filename = str(document.get("file_name") or "").strip()
             metadata["file_id"] = document.get("file_id")
             metadata["file_name"] = filename
+            metadata["mime_type"] = document.get("mime_type")
+            metadata["file_size"] = document.get("file_size")
             if text:
                 metadata["caption"] = text
             return text or (f"Document: {filename}" if filename else "Document"), "document", metadata
@@ -88,9 +92,7 @@ class TelegramObservationAdapter:
                 "dedupe_key": "",
             }
         chat = msg.get("chat")
-        chat_id = ""
-        if isinstance(chat, dict):
-            chat_id = str(chat.get("id") or "")
+        chat_id = str(dict(chat).get("id") or "") if isinstance(chat, dict) else ""
         text, message_kind, message_metadata = self._message_text_and_kind(msg)
         message_id = str(msg.get("message_id") or "").strip()
         return {
@@ -108,3 +110,4 @@ class TelegramObservationAdapter:
                 "raw": update,
             },
         }
+

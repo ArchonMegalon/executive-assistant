@@ -2,22 +2,36 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 import yaml
-from app.yaml_inputs import load_yaml_dict
+
+try:
+    from app.yaml_inputs import load_yaml_dict
+except ModuleNotFoundError:  # pragma: no cover - supports repo-tool execution when app modules are trimmed
+    def load_yaml_dict(path: Path) -> dict[str, Any]:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError(f"Expected YAML object in {path}")
+        return data
 
 from materialize_next90_m135_ea_closure_coverage import OUTPUT_PATH, build_payload, without_generated_at
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+DESIGN_PRODUCT_ROOT = Path(os.environ.get("CHUMMER6_DESIGN_PRODUCT_ROOT") or REPO_ROOT / ".codex-design/product")
 PACK_PATH = REPO_ROOT / "docs/chummer_closure_coverage/CHUMMER_CLOSURE_COVERAGE_PACK.yaml"
 HANDOFF_PATH = REPO_ROOT / "docs/chummer_closure_coverage/SUCCESSOR_HANDOFF_CLOSEOUT.yaml"
 README_PATH = REPO_ROOT / "docs/chummer_closure_coverage/README.md"
 FEEDBACK_PATH = REPO_ROOT / "feedback/2026-05-05-next90-m135-ea-closure-coverage-progress.md"
-DESIGN_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml")
-DESIGN_QUEUE_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
-FLEET_QUEUE_PATH = Path("/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
+DESIGN_REGISTRY_PATH = Path(
+    os.environ.get("EA_NEXT90_SUCCESSOR_REGISTRY_PATH") or DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml"
+)
+DESIGN_QUEUE_PATH = Path(
+    os.environ.get("EA_NEXT90_DESIGN_QUEUE_STAGING_PATH") or DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
+)
+FLEET_QUEUE_PATH = Path(os.environ.get("EA_NEXT90_QUEUE_STAGING_PATH") or DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
 EXPECTED_ANCHORS = [
     "governor_operator_packet_contract",
     "operator_safe_followthrough_receipt",
@@ -28,14 +42,20 @@ EXPECTED_ANCHORS = [
     "provider_digest_script",
     "public_copy_guard_script",
 ]
+
+
+def _repo_path(relative_path: str) -> str:
+    return (REPO_ROOT / relative_path).as_posix()
+
+
 EXPECTED_PROOF_PATHS = [
-    "/docker/EA/docs/chummer_closure_coverage/CHUMMER_CLOSURE_COVERAGE_PACK.yaml",
-    "/docker/EA/docs/chummer_closure_coverage/README.md",
-    "/docker/EA/docs/chummer_closure_coverage/SUCCESSOR_HANDOFF_CLOSEOUT.yaml",
-    "/docker/EA/scripts/materialize_next90_m135_ea_closure_coverage.py",
-    "/docker/EA/scripts/verify_next90_m135_ea_closure_coverage.py",
-    "/docker/EA/.codex-studio/published/NEXT90_M135_EA_CLOSURE_COVERAGE.generated.json",
-    "/docker/EA/feedback/2026-05-05-next90-m135-ea-closure-coverage-progress.md",
+    _repo_path("docs/chummer_closure_coverage/CHUMMER_CLOSURE_COVERAGE_PACK.yaml"),
+    _repo_path("docs/chummer_closure_coverage/README.md"),
+    _repo_path("docs/chummer_closure_coverage/SUCCESSOR_HANDOFF_CLOSEOUT.yaml"),
+    _repo_path("scripts/materialize_next90_m135_ea_closure_coverage.py"),
+    _repo_path("scripts/verify_next90_m135_ea_closure_coverage.py"),
+    _repo_path(".codex-studio/published/NEXT90_M135_EA_CLOSURE_COVERAGE.generated.json"),
+    _repo_path("feedback/2026-05-05-next90-m135-ea-closure-coverage-progress.md"),
 ]
 FORBIDDEN_MARKERS = [
     "TODO",
@@ -43,9 +63,9 @@ FORBIDDEN_MARKERS = [
     "placeholder",
 ]
 EXPECTED_EVIDENCE_SUBSTRINGS = [
-    "/docker/EA/docs/chummer_closure_coverage/CHUMMER_CLOSURE_COVERAGE_PACK.yaml",
-    "/docker/EA/.codex-studio/published/NEXT90_M135_EA_CLOSURE_COVERAGE.generated.json now summarizes the live M106, M113, M118, M120, M129, and M145 source contracts",
-    "/docker/EA/scripts/chummer6_provider_readiness.py and /docker/EA/scripts/chummer6_guide_worker.py remain explicit bounded source surfaces",
+    _repo_path("docs/chummer_closure_coverage/CHUMMER_CLOSURE_COVERAGE_PACK.yaml"),
+    _repo_path(".codex-studio/published/NEXT90_M135_EA_CLOSURE_COVERAGE.generated.json") + " now summarizes the live M106, M113, M118, M120, M129, and M145 source contracts",
+    _repo_path("scripts/chummer6_provider_readiness.py") + " and " + _repo_path("scripts/chummer6_guide_worker.py") + " remain explicit bounded source surfaces",
     "python3 scripts/materialize_next90_m135_ea_closure_coverage.py",
 ]
 

@@ -1,0 +1,211 @@
+{
+  "blocked_checks": [
+    "real_captured_stt_fixture_ready",
+    "captured_candidate_diagnostic_clean",
+    "room_audio_receipt_passed",
+    "manual_room_checks_confirmed"
+  ],
+  "blocking_actions": [
+    "Promote only a consented real captured STT fixture that passes the provider benchmark.",
+    "Rerun the captured-candidate diagnostic locally or correct the confirmed ground-truth transcript.",
+    "Run make materialize-memorial-room-audio-gold-clean after a real room review.",
+    "Complete the real room review for first syllable, intelligibility, interruption, and retry behavior."
+  ],
+  "captured_candidate_diagnostic": {
+    "captured_row_count": 2,
+    "diagnostic_status": "ready",
+    "may_update_fixture_manifest": false,
+    "next_action": "rerun_operator_local_full_text_benchmark_or_correct_ground_truth_transcript",
+    "promotion_allowed": false,
+    "receipt_path": ".codex-studio/published/memorial_stt_captured_candidate_diagnostic.generated.json",
+    "row_failure_codes": [
+      "required_tokens_missing",
+      "token_f1_below_min",
+      "transcript_hash_mismatch",
+      "wer_above_max"
+    ],
+    "status": "blocked"
+  },
+  "checklist": [
+    {
+      "key": "operator_status_materialized",
+      "operator_action": "Run make materialize-memorial-operator-status.",
+      "status": "ready",
+      "verification_command": "make verify-manfred-realtime-conversation-readiness"
+    },
+    {
+      "key": "stt_production_provider_ready",
+      "operator_action": "Run make verify-memorial-stt-provider-benchmark and fix the selected STT provider.",
+      "status": "ready",
+      "verification_command": "make verify-manfred-realtime-conversation-readiness"
+    },
+    {
+      "key": "real_captured_stt_fixture_ready",
+      "operator_action": "Promote only a consented real captured STT fixture that passes the provider benchmark.",
+      "status": "blocked",
+      "verification_command": "make verify-manfred-realtime-conversation-readiness"
+    },
+    {
+      "key": "captured_candidate_diagnostic_clean",
+      "operator_action": "Rerun the captured-candidate diagnostic locally or correct the confirmed ground-truth transcript.",
+      "status": "blocked",
+      "verification_command": "make verify-manfred-realtime-conversation-readiness"
+    },
+    {
+      "key": "direct_tts_audio_ready",
+      "operator_action": "Run make materialize-memorial-public-voice-gold and fix direct TTS audio output.",
+      "status": "ready",
+      "verification_command": "make verify-manfred-realtime-conversation-readiness"
+    },
+    {
+      "key": "conversation_turn_tts_ready",
+      "operator_action": "Run make materialize-memorial-public-voice-gold and fix conversation-turn audio output.",
+      "status": "ready",
+      "verification_command": "make verify-manfred-realtime-conversation-readiness"
+    },
+    {
+      "key": "browser_audio_playback_ready",
+      "operator_action": "Run make materialize-memorial-public-browser-gold and fix browser playback.",
+      "status": "ready",
+      "verification_command": "make verify-manfred-realtime-conversation-readiness"
+    },
+    {
+      "key": "room_audio_receipt_passed",
+      "operator_action": "Run make materialize-memorial-room-audio-gold-clean after a real room review.",
+      "status": "blocked",
+      "verification_command": "make verify-manfred-realtime-conversation-readiness"
+    },
+    {
+      "key": "room_attestation_packet_ready",
+      "operator_action": "Run make materialize-memorial-room-audio-attestation-packet.",
+      "status": "ready",
+      "verification_command": "make verify-manfred-realtime-conversation-readiness"
+    },
+    {
+      "key": "manual_room_checks_confirmed",
+      "operator_action": "Complete the real room review for first syllable, intelligibility, interruption, and retry behavior.",
+      "status": "blocked",
+      "verification_command": "make verify-manfred-realtime-conversation-readiness"
+    },
+    {
+      "key": "privacy_redaction_ready",
+      "operator_action": "Keep committed STT diagnostics redacted and do full-text comparison only operator-locally.",
+      "status": "ready",
+      "verification_command": "make verify-manfred-realtime-conversation-readiness"
+    }
+  ],
+  "contract_name": "ea.manfred_realtime_conversation_readiness.v1",
+  "current_label": "Memorial public-origin gold: blocked",
+  "generated_at": "2026-06-20T06:10:35Z",
+  "generated_by": "ea/scripts/materialize_manfred_realtime_conversation_readiness.py",
+  "goal_completion_claim_allowed": false,
+  "guardrail_override_allowed": false,
+  "interaction_acceptance": {
+    "answer_text_fallback_visible": false,
+    "interruption_behavior_confirmed": false,
+    "no_internet_search_confirmed": false,
+    "normal_spoken_turn_confirmed": false,
+    "ongoing_cinematic_narration_not_scene_bound": true,
+    "retry_path_confirmed": false
+  },
+  "next_action": "Promote only a consented real captured STT fixture that passes the provider benchmark.",
+  "operator_commands": [
+    "make verify-manfred-realtime-conversation-readiness",
+    "make materialize-memorial-stt-provider-benchmark",
+    "make materialize-memorial-room-audio-attestation-packet",
+    "make materialize-memorial-room-audio-gold-clean",
+    "make materialize-memorial-operator-status",
+    "make verify-active-media-ltd-goal-bundle"
+  ],
+  "operator_status": "blocked",
+  "operator_status_refresh": {
+    "status": "skipped"
+  },
+  "premium_spoken_claim_allowed": false,
+  "privacy": {
+    "candidate_raw_text_fields": false,
+    "credential_values_exposed": false,
+    "env_values_exposed": false,
+    "raw_private_context_exposed": false,
+    "raw_transcript_fields": false,
+    "redacted_text_fields": true
+  },
+  "provider_memory_write_allowed": false,
+  "raw_private_context_exposed": false,
+  "ready_for_realtime_conversation_review": false,
+  "realtime_conversation_claim_allowed": false,
+  "required_live_proof_after_readiness": [
+    "real captured STT fixture benchmark pass",
+    "public-origin direct and conversation-turn TTS audio pass",
+    "browser playback ends in the UI",
+    "manual room audio attestation from the real playback device",
+    "normal spoken turn confirmed",
+    "interruption and retry behavior confirmed",
+    "fallback text visible during spoken use",
+    "no internet search as Manfred confirmed",
+    "operator acceptance that this behaves like an ongoing spoken conversation"
+  ],
+  "room_audio_attestation": {
+    "ci_must_not_auto_assert": true,
+    "manual_only": true,
+    "missing_required_check_ids": [],
+    "next_action": "collect_real_room_audio_attestation",
+    "operator_command": "make materialize-memorial-room-audio-gold-clean",
+    "receipt_path": ".codex-studio/published/memorial_room_audio_attestation_packet.generated.json",
+    "required_check_ids": [
+      "actual_device_checked",
+      "actual_speaker_checked",
+      "answer_text_fallback_visible",
+      "first_syllable_not_clipped",
+      "intelligibility_confirmed",
+      "interruption_behavior_confirmed",
+      "no_internet_search_confirmed",
+      "normal_spoken_turn_confirmed",
+      "retry_path_confirmed"
+    ],
+    "status": "ready"
+  },
+  "scene_bound_claim_allowed": false,
+  "source_receipt": {
+    "bytes": 19227,
+    "exists": true,
+    "path": ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json",
+    "sha256": "a829e7ac19d580ef98c9624fb07f515d042f25fb3daa5769c63efc039a8a9898"
+  },
+  "status": "blocked_realtime_prerequisites",
+  "stt": {
+    "avg_token_f1": 1.0,
+    "avg_wer": 0.0,
+    "ground_truth_fixture_mode": "synthetic_only",
+    "next_action": "rerun_operator_local_full_text_benchmark_or_correct_ground_truth_transcript",
+    "passed_samples": 4,
+    "production_eligible": true,
+    "production_provider": "full_runtime",
+    "provider_label": "cartesia/ink-whisper+enhanced_wav",
+    "real_captured_fixture_required": true,
+    "real_captured_fixture_status": "captured_candidate_diagnostic_blocked",
+    "receipt_path": ".codex-studio/published/memorial_stt_provider_benchmark.generated.json",
+    "sample_count": 4,
+    "status": "pass"
+  },
+  "tts": {
+    "browser_audio_ready_for_ui": true,
+    "browser_audio_transport": "ui_playback_probe",
+    "browser_play_calls": 1,
+    "browser_play_ended": 1,
+    "browser_receipt_path": ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
+    "conversation_turn_audio_f1": 1.0,
+    "conversation_turn_audio_status": "pass",
+    "direct_tts_audio_status": "pass",
+    "direct_tts_f1": 1.0,
+    "next_action": "collect_real_room_audio_attestation",
+    "premium_failed_codes": [
+      "room_audio_attestation_not_pass"
+    ],
+    "premium_status": "blocked",
+    "receipt_path": ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
+    "room_audio_receipt": "blocked",
+    "room_audio_receipt_path": ".codex-studio/published/memorial_room_audio_public_origin.generated.json",
+    "status": "pass"
+  }
+}

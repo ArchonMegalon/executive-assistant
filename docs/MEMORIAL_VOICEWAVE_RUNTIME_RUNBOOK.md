@@ -5,7 +5,7 @@ Use this lane when you want a real bounded `VoiceWave.ai` studio flow for Manfre
 Current status:
 - `VoiceWave` is now wired into the live memorial TTS route for `manfred`
 - the active memorial voice can be `voicewave_clone`
-- live runtime needs the compose override [docker-compose.voicewave-runtime.yml](/docker/EA/docker-compose.voicewave-runtime.yml) because the studio worker still shells out to a Dockerized Playwright lane
+- live runtime needs the compose override `docker-compose.voicewave-runtime.yml` because the studio worker still shells out to a Dockerized Playwright lane
 
 What this script can do:
 - inspect the visible `My Clones` inventory
@@ -15,7 +15,7 @@ What this script can do:
 Script:
 
 ```bash
-cd /docker/EA
+cd "$EA_REPO_ROOT"
 python3 scripts/voicewave_memorial_voice.py --help
 ```
 
@@ -33,10 +33,10 @@ python3 scripts/voicewave_memorial_voice.py catalog \
 Output:
 
 ```text
-/docker/fleet/state/chummer6/voicewave_provider/voicewave_catalog.generated.json
+.codex-studio/published/voicewave_provider/voicewave_catalog.generated.json
 
-Inside the running container, writable fallback paths are used automatically when `/docker/fleet/...` is not available:
-- `/mnt/pcloud/EA/voicewave_provider`
+Set `VOICEWAVE_MEMORIAL_OUTPUT_ROOT` when production should write somewhere else.
+Inside the running container, writable fallback paths are used automatically when the repo-local output is not available:
 - `/data/artifacts/voicewave_provider`
 - `/tmp/voicewave_provider`
 ```
@@ -48,7 +48,7 @@ This proves whether the requested clone is already visible in `My Clones`.
 Default reference audio currently uses the strongest curated late-interview clip already living in the memorial profile:
 
 ```text
-/docker/EA/memorial_data/private_memorial_profiles/manfred/voice_profile/optimization/candidates/oSQ9FhFc4YI-01440s-28.wav
+memorial_data/private_memorial_profiles/manfred/voice_profile/optimization/candidates/oSQ9FhFc4YI-01440s-28.wav
 ```
 
 Run:
@@ -71,7 +71,7 @@ python3 scripts/voicewave_memorial_voice.py clone \
 Output:
 
 ```text
-/docker/fleet/state/chummer6/voicewave_provider/voicewave_clone_create.generated.json
+.codex-studio/published/voicewave_provider/voicewave_clone_create.generated.json
 ```
 
 If the clone already exists, the script now reuses it instead of silently creating duplicates.
@@ -87,16 +87,17 @@ python3 scripts/voicewave_memorial_voice.py render \
 Outputs:
 
 ```text
-/docker/fleet/state/chummer6/voicewave_provider/voicewave_render.generated.json
-/docker/fleet/state/chummer6/voicewave_provider/voicewave_render.latest.wav
-/docker/fleet/state/chummer6/voicewave_provider/voicewave_render.latest.png
+.codex-studio/published/voicewave_provider/voicewave_render.generated.json
+.codex-studio/published/voicewave_provider/voicewave_render.latest.wav
+.codex-studio/published/voicewave_provider/voicewave_render.latest.png
+```
 
 ## 4. Reproducible live runtime deploy
 
 The live memorial route now depends on a small compose override so `ea-api` can start the bounded Playwright worker:
 
 ```bash
-cd /docker/EA
+cd "$EA_REPO_ROOT"
 docker compose \
   -f docker-compose.yml \
   -f docker-compose.voicewave-runtime.yml \
@@ -105,8 +106,8 @@ docker compose \
 
 This override contributes only:
 - `/var/run/docker.sock` into `ea-api`
-- `EA_UI_SERVICE_SHARED_TEMP_ROOT=/mnt/pcloud/EA/browseract_ui_worker_shared`
-- `VOICEWAVE_RUNTIME_TMP_ROOT=/mnt/pcloud/EA/voicewave_runtime_tmp`
+- `EA_UI_SERVICE_SHARED_TEMP_ROOT=${EA_UI_SERVICE_SHARED_TEMP_ROOT:-/data/artifacts/browseract_ui_worker_shared}`
+- `VOICEWAVE_RUNTIME_TMP_ROOT=${VOICEWAVE_RUNTIME_TMP_ROOT:-/data/artifacts/voicewave_runtime_tmp}`
 
 Live checks:
 
@@ -118,7 +119,6 @@ curl -sS \
   -d '{"text":"Ich bin da. Sprich direkt mit mir."}' \
   http://127.0.0.1:8090/memorials/manfred/speech-synthesize \
   -o /tmp/manfred-voicewave-check.wav
-```
 ```
 
 ## Practical interpretation

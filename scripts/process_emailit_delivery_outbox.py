@@ -12,8 +12,8 @@ import urllib.request
 
 
 DEFAULT_HOST = "http://127.0.0.1:8090"
-DEFAULT_SENDER_EMAIL = "sprachenzentrum@myexternalbrain.com"
-DEFAULT_SENDER_NAME = "Sprachenzentrum"
+DEFAULT_SENDER_EMAIL = "no-reply@example.test"
+DEFAULT_SENDER_NAME = "Executive Assistant"
 EMAILIT_API_BASE = "https://api.emailit.com/v2/emails"
 
 

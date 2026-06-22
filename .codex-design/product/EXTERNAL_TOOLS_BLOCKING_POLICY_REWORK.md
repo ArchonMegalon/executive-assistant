@@ -58,7 +58,7 @@ Allowed examples:
 
 * FacePop greeting on `/downloads`
 * FacePop release concierge on `/now`
-* FacePop booking wrapper for a Lunacal clinic
+* FacePop booking wrapper for an invitation-only Lunacal creator, GM office-hour, press/research, or publisher review session
 * FacePop testimonial capture page for later moderation
 
 Forbidden examples:
@@ -81,7 +81,8 @@ A public concierge widget may:
 
 * help the user choose between help paths
 * route to Deftform or Hub support intake
-* route to Lunacal for human escalation
+* route normal support to Chummer Instant Help or first-party intake
+* route invitation-only consults, GM office hours, press/research, or publisher review sessions to Lunacal
 * show a short human greeting or explainer
 
 A public concierge widget may not:
@@ -173,14 +174,14 @@ Blocked:
 
 ### Lunacal
 
-Posture: promoted human booking backend
+Posture: invitation-only booking backend outside normal Chummer support
 
 Allowed:
 
-* onboarding clinics
-* setup calls
 * creator consults
 * GM office hours
+* press or research sessions
+* publisher or premium review sessions
 
 Blocked:
 

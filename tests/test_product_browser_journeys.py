@@ -748,7 +748,7 @@ def test_google_settings_surface_connect_action_and_browser_connect_route(monkey
     assert "https://accounts.google.com/o/oauth2/v2/auth" in started_head.headers["location"]
 
 
-def test_google_settings_surface_prefers_configured_google_callback_host_over_public_brand_host(monkeypatch) -> None:
+def test_google_settings_surface_prefers_public_brand_host_over_configured_google_callback_host(monkeypatch) -> None:
     monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com")
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "google-client")
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
@@ -763,9 +763,9 @@ def test_google_settings_surface_prefers_configured_google_callback_host_over_pu
     assert started.status_code == 303
     parsed = urllib.parse.urlparse(started.headers["location"])
     query = urllib.parse.parse_qs(parsed.query)
-    assert query["redirect_uri"][0] == "https://propertyquarry.com/google/callback"
+    assert query["redirect_uri"][0] == "https://myexternalbrain.com/google/callback"
     state = read_google_oauth_state(query["state"][0])
-    assert state["redirect_uri"] == "https://propertyquarry.com/google/callback"
+    assert state["redirect_uri"] == "https://myexternalbrain.com/google/callback"
     assert state["return_to"] == "/app/settings/google"
 
 
@@ -825,7 +825,7 @@ def test_google_settings_surface_manages_multiple_connected_inboxes(monkeypatch)
         "_fetch_google_userinfo",
         lambda access_token: {
             "sub": "google-sub-1",
-            "email": "tibor@girschele.com",
+            "email": "primary@example.test",
             "hd": "girschele.com",
         },
     )
@@ -840,7 +840,7 @@ def test_google_settings_surface_manages_multiple_connected_inboxes(monkeypatch)
     primary_connected = client.get(primary_callback.headers["location"])
     assert primary_connected.status_code == 200
     assert "Google is linked for sign-in and verified return access only." in primary_connected.text
-    assert "tibor@girschele.com" in primary_connected.text
+    assert "primary@example.test" in primary_connected.text
     assert "Google link posture" in primary_connected.text
 
     started_secondary = client.get(
@@ -871,7 +871,7 @@ def test_google_settings_surface_manages_multiple_connected_inboxes(monkeypatch)
         "_fetch_google_userinfo",
         lambda access_token: {
             "sub": "google-sub-2",
-            "email": "office@girschele.com",
+            "email": "office@example.test",
             "hd": "girschele.com",
         },
     )
@@ -886,7 +886,7 @@ def test_google_settings_surface_manages_multiple_connected_inboxes(monkeypatch)
     secondary_connected = client.get(secondary_callback.headers["location"])
     assert secondary_connected.status_code == 200
     assert "Inbox connected." in secondary_connected.text
-    assert "office@girschele.com" in secondary_connected.text
+    assert "office@example.test" in secondary_connected.text
     monkeypatch.setattr(
         google_service,
         "_refresh_google_access_token",
@@ -906,9 +906,9 @@ def test_google_settings_surface_manages_multiple_connected_inboxes(monkeypatch)
     settings = client.get("/app/settings/google")
     assert settings.status_code == 200
     assert "Connected inboxes and send defaults" in settings.text
-    assert "tibor@girschele.com" in settings.text
-    assert "office@girschele.com" in settings.text
-    assert settings.text.index("tibor@girschele.com") < settings.text.index("office@girschele.com")
+    assert "primary@example.test" in settings.text
+    assert "office@example.test" in settings.text
+    assert settings.text.index("primary@example.test") < settings.text.index("office@example.test")
     assert "Add inbox" in settings.text
     assert "Make primary" in settings.text
     assert "Verify send" in settings.text
@@ -927,20 +927,20 @@ def test_google_settings_surface_manages_multiple_connected_inboxes(monkeypatch)
     assert captured_send["access_token"] == "fresh-refresh-token"
     verified_page = client.get(verified.headers["location"])
     assert verified_page.status_code == 200
-    assert "Last send verification" in verified_page.text
-    assert "Verified tibor@girschele.com" in verified_page.text
+    assert "Last send test" in verified_page.text
+    assert "Verified primary@example.test" in verified_page.text
     reloaded_settings = client.get("/app/settings/google")
     assert reloaded_settings.status_code == 200
-    assert "Verified tibor@girschele.com" in reloaded_settings.text
+    assert "Verified primary@example.test" in reloaded_settings.text
     diagnostics = client.get("/app/api/diagnostics")
     assert diagnostics.status_code == 200
     sync = diagnostics.json()["analytics"]["sync"]
     assert sync["google_send_verification_last_state"] == "completed"
-    assert sync["google_send_verification_last_sender_email"] == "tibor@girschele.com"
-    assert sync["google_send_verification_last_recipient_email"] == "tibor@girschele.com"
+    assert sync["google_send_verification_last_sender_email"] == "primary@example.test"
+    assert sync["google_send_verification_last_recipient_email"] == "primary@example.test"
     verified_accounts = {row["binding_id"]: row for row in sync["google_send_verification_accounts"]}
     assert verified_accounts["exec-browser-google-multi:google_gmail"]["state"] == "completed"
-    assert verified_accounts["exec-browser-google-multi:google_gmail"]["sender_email"] == "tibor@girschele.com"
+    assert verified_accounts["exec-browser-google-multi:google_gmail"]["sender_email"] == "primary@example.test"
     assert verified_accounts["exec-browser-google-multi:google_gmail:acct:google-sub-2"]["state"] == ""
 
     promoted = client.post(
@@ -953,12 +953,12 @@ def test_google_settings_surface_manages_multiple_connected_inboxes(monkeypatch)
     promoted_page = client.get(promoted.headers["location"])
     assert promoted_page.status_code == 200
     assert "Primary inbox updated." in promoted_page.text
-    assert promoted_page.text.index("office@girschele.com") < promoted_page.text.index("tibor@girschele.com")
+    assert promoted_page.text.index("office@example.test") < promoted_page.text.index("primary@example.test")
     assert "/app/actions/google/accounts/exec-browser-google-multi:google_gmail/disconnect" in promoted_page.text
     assert "send not yet verified" in promoted_page.text
     reloaded_after_promote = client.get("/app/settings/google")
     assert reloaded_after_promote.status_code == 200
-    assert "Primary inbox updated. office@girschele.com" in reloaded_after_promote.text
+    assert "Primary inbox updated. office@example.test" in reloaded_after_promote.text
 
     verified_primary_after_promotion = client.post(
         "/app/actions/google/accounts/exec-browser-google-multi:google_gmail/verify-send",
@@ -968,17 +968,17 @@ def test_google_settings_surface_manages_multiple_connected_inboxes(monkeypatch)
     assert verified_primary_after_promotion.status_code == 303
     promoted_verified_page = client.get(verified_primary_after_promotion.headers["location"])
     assert promoted_verified_page.status_code == 200
-    assert "Verified office@girschele.com" in promoted_verified_page.text
+    assert "Verified office@example.test" in promoted_verified_page.text
     diagnostics_after_promotion = client.get("/app/api/diagnostics")
     assert diagnostics_after_promotion.status_code == 200
     sync_after_promotion = diagnostics_after_promotion.json()["analytics"]["sync"]
     verified_accounts_after_promotion = {
         row["binding_id"]: row for row in sync_after_promotion["google_send_verification_accounts"]
     }
-    assert verified_accounts_after_promotion["exec-browser-google-multi:google_gmail"]["sender_email"] == "office@girschele.com"
+    assert verified_accounts_after_promotion["exec-browser-google-multi:google_gmail"]["sender_email"] == "office@example.test"
     assert (
         verified_accounts_after_promotion["exec-browser-google-multi:google_gmail:acct:google-sub-1"]["sender_email"]
-        == "tibor@girschele.com"
+        == "primary@example.test"
     )
     assert verified_accounts_after_promotion["exec-browser-google-multi:google_gmail:acct:google-sub-1"]["state"] == "completed"
 
@@ -995,12 +995,12 @@ def test_google_settings_surface_manages_multiple_connected_inboxes(monkeypatch)
     assert "Reconnect" in disconnected_page.text
     reloaded_after_disconnect = client.get("/app/settings/google")
     assert reloaded_after_disconnect.status_code == 200
-    assert "Inbox disconnected. tibor@girschele.com" in reloaded_after_disconnect.text
+    assert "Inbox disconnected. primary@example.test" in reloaded_after_disconnect.text
     diagnostics_after_disconnect = client.get("/app/api/diagnostics")
     assert diagnostics_after_disconnect.status_code == 200
     sync_after_disconnect = diagnostics_after_disconnect.json()["analytics"]["sync"]
     assert sync_after_disconnect["google_account_change_last_state"] == "account_disconnected"
-    assert sync_after_disconnect["google_account_change_last_email"] == "tibor@girschele.com"
+    assert sync_after_disconnect["google_account_change_last_email"] == "primary@example.test"
     changed_accounts = {row["binding_id"]: row for row in sync_after_disconnect["google_account_change_accounts"]}
     assert changed_accounts["exec-browser-google-multi:google_gmail"]["state"] == "account_primary_updated"
     assert changed_accounts["exec-browser-google-multi:google_gmail:acct:google-sub-1"]["state"] == "account_disconnected"
@@ -1093,10 +1093,10 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert support_page.status_code == 200
     assert "Support and recovery" in support_page.text
     assert "Operational reliability" in support_page.text
-    assert "Fix verification" in support_page.text
+    assert "Fix status" in support_page.text
     assert "Support closure grounding" in support_page.text
-    assert "Weekly pulse and journey-gate truth" in support_page.text
-    assert "What the published release gate is saying" in support_page.text
+    assert "What needs attention" in support_page.text
+    assert "Current journey outcomes" in support_page.text
     assert "Support fallout" in support_page.text
     assert "Public guide freshness" in support_page.text
     assert "Open bundle" in support_page.text
@@ -1108,9 +1108,9 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert "How quickly the workspace reached first value" in outcomes_page.text
     assert "How the daily loop is performing" in outcomes_page.text
     assert "How the recurring memo loop is proving itself" in outcomes_page.text
-    assert "What the office-loop release gate would say right now" in outcomes_page.text
+    assert "Current outcome" in outcomes_page.text
     assert "Support fallout" in outcomes_page.text
-    assert "Public guide freshness" in outcomes_page.text
+    assert "Next route review" in outcomes_page.text
     assert "Blocked delivery handoffs" in outcomes_page.text
     assert "Delivery handoffs closed" in outcomes_page.text
 
@@ -1319,7 +1319,7 @@ def test_morning_memo_issue_surfaces_reason_and_fix_target() -> None:
             "return_to": "/app/settings",
             "enabled": "true",
             "cadence": "daily_morning",
-            "recipient_email": "tibor@myexternalbrain.com",
+            "recipient_email": "principal@assistant.example.test",
             "delivery_time_local": "08:00",
             "quiet_hours_start": "20:00",
             "quiet_hours_end": "07:00",
@@ -1367,7 +1367,7 @@ def test_manual_memo_issue_surfaces_reason_and_fix_target_even_when_schedule_dis
         payload={
             "delivery_id": "memo-delivery-issue",
             "digest_key": "memo",
-            "recipient_email": "tibor@myexternalbrain.com",
+            "recipient_email": "principal@assistant.example.test",
             "error": 'registration_email_send_failed:422:{"error":"Domain not verified"}',
         },
         source_id="memo-delivery-issue",
@@ -1450,7 +1450,7 @@ def test_support_page_explains_current_memo_issue_and_fix_detail() -> None:
         payload={
             "delivery_id": "memo-delivery-issue",
             "digest_key": "memo",
-            "recipient_email": "tibor@myexternalbrain.com",
+            "recipient_email": "principal@assistant.example.test",
             "error": 'registration_email_send_failed:422:{"error":"Domain not verified"}',
         },
         source_id="memo-delivery-issue",
@@ -1478,7 +1478,7 @@ def test_channel_loop_memo_digest_surfaces_memo_issue_fix_action() -> None:
         payload={
             "delivery_id": "memo-delivery-issue",
             "digest_key": "memo",
-            "recipient_email": "tibor@myexternalbrain.com",
+            "recipient_email": "principal@assistant.example.test",
             "error": 'registration_email_send_failed:422:{"error":"Domain not verified"}',
         },
         source_id="memo-delivery-issue",

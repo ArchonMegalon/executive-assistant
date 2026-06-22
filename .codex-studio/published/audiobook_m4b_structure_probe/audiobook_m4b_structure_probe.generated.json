@@ -1,0 +1,72 @@
+{
+  "artifact_dir": "/docker/EA/.codex-studio/published/audiobook_m4b_structure_probe",
+  "contract_name": "ea.telegram_epub_audiobook_m4b_structure_probe.v1",
+  "cover": {
+    "exists": true,
+    "media_type": "image/jpeg",
+    "path": "job/assets/cover.jpg",
+    "sha256": "198a079f6f65e91eca3ba40fbc6efb3596f6b3fe4893c5e2c5c2cfbd74f2296c"
+  },
+  "ea_is_product_truth": false,
+  "expected": {
+    "author": "EA Probe",
+    "chapter_count": 2,
+    "chapter_metadata_embedded": true,
+    "chapter_titles": [
+      "Opening Signal",
+      "Second Signal"
+    ],
+    "cover_embedded": true,
+    "title": "M4B Structure Probe"
+  },
+  "generated_at": "2026-06-20T06:10:35Z",
+  "job_dir": "job",
+  "m4b": {
+    "bytes": 24064,
+    "exists": true,
+    "path": "job/output/M4B Structure Probe.m4b",
+    "sha256": "cd7b0f32476186d3a46bba72b9cb6bf35534ab9ab37caaf62306da3206a5db8e"
+  },
+  "merge_result": {
+    "chapter_count": 2,
+    "command": [
+      "ffmpeg",
+      "-y",
+      "-f",
+      "concat",
+      "-safe",
+      "0",
+      "-i",
+      "/docker/EA/.codex-studio/published/audiobook_m4b_structure_probe/job/m4b/concat.txt",
+      "-i",
+      "/docker/EA/.codex-studio/published/audiobook_m4b_structure_probe/job/m4b/chapters.ffmetadata",
+      "-i",
+      "/docker/EA/.codex-studio/published/audiobook_m4b_structure_probe/job/assets/cover.jpg",
+      "-map",
+      "0:a",
+      "-map",
+      "2:v",
+      "-disposition:v:0",
+      "attached_pic",
+      "-map_metadata",
+      "1",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "96k",
+      "-ac",
+      "1",
+      "-c:v",
+      "copy",
+      "/docker/EA/.codex-studio/published/audiobook_m4b_structure_probe/job/output/M4B Structure Probe.m4b"
+    ],
+    "cover_embedded": true,
+    "cover_filename": "cover.jpg",
+    "provider": "ffmpeg",
+    "status": "m4b_ready"
+  },
+  "next_action": "verify_m4b_structure_probe",
+  "provider_output_truth_allowed": false,
+  "raw_storage_paths_public": false,
+  "status": "ready"
+}

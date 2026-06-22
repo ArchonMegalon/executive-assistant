@@ -6,7 +6,8 @@ import sys
 from pathlib import Path
 
 
-SCRIPT_PATH = Path("/docker/EA/ea/scripts/refresh_memorial_voicewave_backup.py")
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT_PATH = ROOT / "ea" / "scripts" / "refresh_memorial_voicewave_backup.py"
 
 
 def _load_module():

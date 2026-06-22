@@ -22,15 +22,19 @@ The paying-customer product is intentionally narrow:
 - one commitment system
 - approvals and auditability
 
-Default product mode is `EA_CORE`: the executive office loop. Memorial, provider lab, Chummer release control, and property are separate project modes, not implied EA-core product scope. See [PRODUCT_BOUNDARY.md](/docker/EA/PRODUCT_BOUNDARY.md), `.codex-design/product/PROJECT_MODES.generated.json`, and `.codex-design/product/SHOW_SURFACE_MANIFEST.generated.json`.
+Default product mode is `EA_CORE`: the executive office loop. Memorial, provider lab, Chummer release control, and property are separate project modes, not implied EA-core product scope. See [PRODUCT_BOUNDARY.md](PRODUCT_BOUNDARY.md), `.codex-design/product/PROJECT_MODES.generated.json`, and `.codex-design/product/SHOW_SURFACE_MANIFEST.generated.json`.
 Default product mode does not mount experimental public utility routes such as `/results/*`, `/tours/*`, or `/memorials/*`. Those surfaces must be explicitly enabled for their own project mode and are not part of the core product story.
 
 ## Run It
 
 ```bash
+# Fresh host with Teable recovery:
+export TEABLE_API_KEY='...'
+make deploy-ea-prod
+
+# Fallback without Teable recovery:
 cp .env.example .env
-# edit .env values
-bash scripts/deploy.sh
+# edit .env values, then rerun deploy
 bash scripts/db_bootstrap.sh
 ```
 
@@ -55,6 +59,59 @@ To expose the stack through Cloudflare Tunnel, layer the tunnel override explici
 bash scripts/deploy.sh --compose-override docker-compose.cloudflared.yml
 ```
 
+## Teable Environment Recovery
+
+EA can rebuild its local environment from Teable after host loss. On a fresh host, seed only the Teable credential in the shell, then restore the root env, root local override env, service env, and referenced credential files:
+
+```bash
+export TEABLE_API_KEY='...'
+# Optional when using a non-default Teable host:
+export TEABLE_BASE_URL='https://app.teable.ai'
+scripts/bootstrap_from_teable.sh
+scripts/bootstrap_from_teable.sh --check
+scripts/bootstrap_from_teable.sh --drill
+scripts/bootstrap_from_teable.sh --ensure-local
+scripts/bootstrap_from_teable.sh --fresh-host
+scripts/bootstrap_from_teable.sh --probe
+```
+
+The restore script discovers the `ea_environment_secrets_recovery` table by name, so `EA_ENV_TEABLE_TABLE_ID` is not required on a fresh host. The default wrapper command restores and then returns one JSON result with bootstrap details, post-restore verification, and a redacted `recovery_proof` block with restored paths, counts, modes, and hash status but no secret values. Restore and bootstrap use the `EA_ENV_TEABLE_HOST_PROFILE` value, defaulting to `ea-prod`, so one recovery table can hold multiple host profiles without mixing restored values. Restore and bootstrap restore `.env`, `.env.local`, `ea/.env`, referenced local secret files such as `ONEMIN_DIRECT_API_KEYS_JSON_FILE`, and curated ignored local credential files matching `config/*.local.json` or `config/*client_secret*.json` when they were captured by backup.
+Use `scripts/bootstrap_from_teable.sh --fresh-host` or `make env-fresh-host-teable` for the host-loss path: it requires `TEABLE_API_KEY` in the shell, ignores any need for `EA_ENV_TEABLE_TABLE_ID`, discovers the recovery table by name, restores live env/config artifacts, and verifies the restored hashes.
+When `TEABLE_API_KEY` is seeded, `scripts/deploy.sh` and `make deploy-ea-prod` first run a Teable-backed local status check for `.env`, `.env.local`, `ea/.env`, and referenced credential files; they recover from Teable only when those local artifacts are missing, have the wrong owner-only mode, or no longer match the stored hashes. Without that seed, they keep the template fallback and stop for manual values when `.env` is absent.
+When `recover` is pointed at a non-default env output tree, referenced secret files are restored under that same tree rather than the live repo paths.
+Restore and bootstrap preserve any existing target env file or referenced secret file as a timestamped `.bak` next to the file before writing restored values.
+Those `.bak` files contain secret material and are ignored by git; delete stale backups after confirming the restored files are healthy.
+Restored env files and referenced secret files are written with owner-only permissions.
+Restore and bootstrap fail before writing if Teable marks a value as present but the stored secret cell is blank.
+Keep the recovery table current after changing local credentials:
+
+```bash
+make env-backup-teable
+make verify-env-teable-recovery
+make env-local-status-teable
+make env-ensure-local-teable
+make env-fresh-host-teable
+make env-drill-teable
+make env-check-teable
+make env-probe-teable
+make env-disable-extra-teable
+```
+
+Direct backup use must choose a value mode explicitly: `scripts/sync_env_to_teable.py backup --include-values` for disaster recovery, or `scripts/sync_env_to_teable.py backup --metadata-only` when refreshing env and referenced-file metadata without changing stored secret cells.
+`scripts/bootstrap_from_teable.sh --check` or `make env-check-teable` runs table verification and a non-destructive drill, then removes the temporary drill directory when no explicit drill output path was provided.
+`scripts/sync_env_to_teable.py local-status` or `make env-local-status-teable` verifies the current local env/config artifacts against Teable without writing anything.
+`scripts/bootstrap_from_teable.sh --ensure-local` or `make env-ensure-local-teable` fixes mode-only drift in place and performs full recovery only when content is missing or mismatched.
+`scripts/bootstrap_from_teable.sh --probe` or `make env-probe-teable` performs a fresh-host rehearsal: it clears the table-id argument, discovers the recovery table by name, restores into a throwaway private directory, verifies hashes, prints the recovery JSON, and removes the directory.
+Verification fails with `extra_restorable_count` and sample `extra_restorable_keys` when same-profile Teable rows would restore but no longer appear in the current env files.
+Verification also fails with `uncovered_local_secret_file_count` and sample `uncovered_local_secret_file_paths` when a likely local credential file in `config/` is present on disk but not covered by the recovery set.
+Verification fails with `missing_required_env_file_count` when required default env files such as `.env` or `.env.local` are missing locally.
+Verification fails with `missing_required_compose_env_count` when a non-defaulted Docker Compose `${VAR}` reference is not present in the Teable-recovered env set. Host-provided `HOME` is intentionally ignored.
+
+Use `make env-disable-extra-teable` to set `restore_enabled=false` on stale same-profile rows without deleting their stored values, then rerun `make env-check-teable`. This target refuses to run while required default env files are missing, so a temporary local file loss cannot disable valid recovery rows.
+`scripts/bootstrap_from_teable.sh --drill` or `make env-drill-teable` restores root env, service env, and referenced secret files into a private temporary directory and prints the directory path plus materialized referenced-file paths. It does not overwrite the live `.env` files. The drill directory contains secret material; delete it after inspection.
+Drill output includes `drill_verification`, which checks restored file existence, owner-only file modes, the private drill directory mode, restored row counts, and post-write hash verification.
+If you pass `--drill-output-dir` under the repo, use `.teable-recovery-drill/`, `teable-recovery-drill/`, or `ea-teable-recovery-drill-*`; those paths are git-ignored.
+
 For an explicit durable deployment profile, layer the prod override on top of the base compose:
 
 ```bash
@@ -73,7 +130,7 @@ If a workflow needs both host tools and the host Gemini CLI, layer both override
 docker compose -f docker-compose.yml -f docker-compose.host-tools.yml -f docker-compose.gemini.yml up -d --force-recreate ea-api ea-worker ea-scheduler
 ```
 
-Worker topology is explicit in [docker-compose.yml](/docker/EA/docker-compose.yml):
+Worker topology is explicit in [docker-compose.yml](docker-compose.yml):
 
 - `ea-api`: HTTP API and inline queue drain for request-scoped work
 - `ea-worker`: background queue drainer for general execution leases
@@ -91,23 +148,26 @@ Then open `http://localhost:8090/health`.
 
 ## Runtime Docs
 
-- EA design canon: [.codex-design/ea/START_HERE.md](/docker/EA/.codex-design/ea/START_HERE.md)
-- EA vision and surface system: [.codex-design/ea/VISION.md](/docker/EA/.codex-design/ea/VISION.md), [.codex-design/ea/SURFACE_DESIGN_SYSTEM.md](/docker/EA/.codex-design/ea/SURFACE_DESIGN_SYSTEM.md)
-- EA first-value journey and copy rules: [.codex-design/ea/FIRST_VALUE_JOURNEY.md](/docker/EA/.codex-design/ea/FIRST_VALUE_JOURNEY.md), [.codex-design/ea/COPY_PRINCIPLES.md](/docker/EA/.codex-design/ea/COPY_PRINCIPLES.md)
-- Operator runbook: [RUNBOOK.md](/docker/EA/RUNBOOK.md)
-- Architecture map: [ARCHITECTURE_MAP.md](/docker/EA/ARCHITECTURE_MAP.md)
-- Product brief v2: [PRODUCT_BRIEF_V2.md](/docker/EA/PRODUCT_BRIEF_V2.md)
-- Product boundary: [PRODUCT_BOUNDARY.md](/docker/EA/PRODUCT_BOUNDARY.md)
-- HTTP examples: [HTTP_EXAMPLES.http](/docker/EA/HTTP_EXAMPLES.http)
-- Environment/profile guidance: [ENVIRONMENT_MATRIX.md](/docker/EA/ENVIRONMENT_MATRIX.md)
-- Release notes: [CHANGELOG.md](/docker/EA/CHANGELOG.md)
-- EA flagship truth plane: [EA_FLAGSHIP_TRUTH_PLANE.md](/docker/EA/.codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md)
-- EA flagship gate seed: [EA_FLAGSHIP_RELEASE_GATE.json](/docker/EA/.codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json)
-- EA flagship release receipt: [EA_FLAGSHIP_RELEASE_GATE.generated.json](/docker/EA/.codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json) (refresh with `python3 scripts/materialize_ea_flagship_release_gate.py`)
-- EA weekly product pulse: [WEEKLY_PRODUCT_PULSE.generated.json](/docker/EA/.codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json) (refresh with `python3 scripts/materialize_weekly_product_pulse.py`)
-- Milestone/state model: [MILESTONE.json](/docker/EA/MILESTONE.json) (delivery history, not the flagship oracle)
-- Skills catalog: [SKILLS.md](/docker/EA/SKILLS.md)
-- Workspace inventory and LTD notes: [LTDs.md](/docker/EA/LTDs.md)
+- EA design canon: [.codex-design/ea/START_HERE.md](.codex-design/ea/START_HERE.md)
+- EA vision and surface system: [.codex-design/ea/VISION.md](.codex-design/ea/VISION.md), [.codex-design/ea/SURFACE_DESIGN_SYSTEM.md](.codex-design/ea/SURFACE_DESIGN_SYSTEM.md)
+- EA first-value journey and copy rules: [.codex-design/ea/FIRST_VALUE_JOURNEY.md](.codex-design/ea/FIRST_VALUE_JOURNEY.md), [.codex-design/ea/COPY_PRINCIPLES.md](.codex-design/ea/COPY_PRINCIPLES.md)
+- EA production-grade umbrella goal: [.codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md](.codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md)
+- Working shorthand for that goal: make EA the user's dependable executive, conversation, and media operating system: proactive, cross-channel, self-healing, premium-quality, and governed by owning truth planes rather than assistant-local lore.
+- Persistent execution lenses: `detect`, `decide`, `deliver`, `recover`, `prove`.
+- Operator runbook: [RUNBOOK.md](RUNBOOK.md)
+- Architecture map: [ARCHITECTURE_MAP.md](ARCHITECTURE_MAP.md)
+- Product brief v2: [PRODUCT_BRIEF_V2.md](PRODUCT_BRIEF_V2.md)
+- Product boundary: [PRODUCT_BOUNDARY.md](PRODUCT_BOUNDARY.md)
+- HTTP examples: [HTTP_EXAMPLES.http](HTTP_EXAMPLES.http)
+- Environment/profile guidance: [ENVIRONMENT_MATRIX.md](ENVIRONMENT_MATRIX.md)
+- Release notes: [CHANGELOG.md](CHANGELOG.md)
+- EA flagship truth plane: [EA_FLAGSHIP_TRUTH_PLANE.md](.codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md)
+- EA flagship gate seed: [EA_FLAGSHIP_RELEASE_GATE.json](.codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json)
+- EA flagship release receipt: [EA_FLAGSHIP_RELEASE_GATE.generated.json](.codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json) (refresh with `python3 scripts/materialize_ea_flagship_release_gate.py`)
+- EA weekly product pulse: [WEEKLY_PRODUCT_PULSE.generated.json](.codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json) (refresh with `python3 scripts/materialize_weekly_product_pulse.py`)
+- Milestone/state model: [MILESTONE.json](MILESTONE.json) (delivery history, not the flagship oracle)
+- Skills catalog: [SKILLS.md](SKILLS.md)
+- Workspace inventory and LTD notes: [LTDs.md](LTDs.md)
 - BrowserAct content-template exporter: `python3 scripts/generate_browseract_content_templates.py` (includes 1min daily-bonus and billing/usage scaffold packets)
 - Release preflight now keys off the EA flagship truth plane, gate seed, generated release receipt, and weekly pulse; `MILESTONE.json` remains supporting delivery history.
 - The EA flagship gate also requires the EA product canon in `.codex-design/ea/*`, so product truth is not inferred from mirrored Chummer sources alone.
@@ -129,7 +189,7 @@ Then open `http://localhost:8090/health`.
 - `make verify-ltd-flagship-subset` runs the broader flagship verified-subset gate.
 - `make verify-ltd-provider-lanes` runs the governed provider-lane verifier.
 - `make ltd-release-gates` runs all LTD release verifiers together.
-- Optional FastestVPN sidecar support is available in [docker-compose.fastestvpn.yml](/docker/EA/docker-compose.fastestvpn.yml). Put FastestVPN `*.ovpn` files under [vpn/fastestvpn/README.md](/docker/EA/vpn/fastestvpn/README.md), or fetch them with [bootstrap_fastestvpn_configs.sh](/docker/EA/scripts/bootstrap_fastestvpn_configs.sh), then start `ea-fastestvpn-proxy` with the main EA services so BrowserAct login traffic goes out through a local rotating HTTP proxy. If you deploy through `scripts/deploy.sh`, keep the overlay explicit with `EA_ENABLE_FASTESTVPN=1`.
+- Optional FastestVPN sidecar support is available in [docker-compose.fastestvpn.yml](docker-compose.fastestvpn.yml). Put FastestVPN `*.ovpn` files under [vpn/fastestvpn/README.md](vpn/fastestvpn/README.md), or fetch them with [bootstrap_fastestvpn_configs.sh](scripts/bootstrap_fastestvpn_configs.sh), then start `ea-fastestvpn-proxy` with the main EA services so BrowserAct login traffic goes out through a local rotating HTTP proxy. If you deploy through `scripts/deploy.sh`, keep the overlay explicit with `EA_ENABLE_FASTESTVPN=1`.
 
 ## Operator Shortcuts
 
@@ -165,7 +225,7 @@ Then open `http://localhost:8090/health`.
   - `GET /v1/responses/_provider_health` and `GET /v1/codex/profiles` expose account-name attribution, owner-ledger metadata matched by hash or stable slot/account identifiers, latest explicit probe result, observed `remaining_credits` / `required_credits`, per-slot `observed_consumed_credits` / `observed_success_count`, aggregate `estimated_remaining_credits_total` / `remaining_percent_of_max`, rolling `estimated_burn_credits_per_hour` / `estimated_hours_remaining_at_current_pace`, and deleted-key quarantine state without returning raw API secrets.
   - `python3 scripts/sync_onemin_owner_ledger.py --write` refreshes `config/onemin_slot_owners.json` from the current `ONEMIN_AI_API_KEY*` values plus any `ONEMIN_DIRECT_API_KEYS_JSON(_FILE)` manifest entries while preserving the existing owner roster metadata by slot/account.
   - The template-backed 1min BrowserAct login lanes can now read a generic rotating proxy from `EA_UI_BROWSER_PROXY_SERVER`, `EA_UI_BROWSER_PROXY_USERNAME`, `EA_UI_BROWSER_PROXY_PASSWORD`, and `EA_UI_BROWSER_PROXY_BYPASS`, and `ONEMIN_BROWSERACT_MAX_ACCOUNTS_PER_REFRESH` / `EA_ONEMIN_BILLING_REFRESH_MIN_INTERVAL_SECONDS` control whether one refresh cycle can sweep the full configured slot set without the old per-minute cadence gate.
-  - [rotate_fastestvpn_proxy.sh](/docker/EA/scripts/rotate_fastestvpn_proxy.sh) recreates the FastestVPN sidecar plus EA services so BrowserAct can pick up a fresh FastestVPN exit profile before a broad 1min sweep.
+  - [rotate_fastestvpn_proxy.sh](scripts/rotate_fastestvpn_proxy.sh) recreates the FastestVPN sidecar plus EA services so BrowserAct can pick up a fresh FastestVPN exit profile before a broad 1min sweep.
   - `GET /v1/models` includes the Gemini Vortex-backed `ea-gemini-flash` public alias, the groundwork aliases `ea-groundwork-gemini` and `ea-groundwork`, plus the concrete `gemini-2.5-flash` model id when that backend is configured.
   - the survival lane reduces the request locally first, then tries Gemini Vortex, then BrowserAct Gemini web, and only then a single-role ChatPlayground tie-break
   - UI-backed survival backends are challenge-aware: Cloudflare/Turnstile/human-verification or session-expiry responses put that backend on cooldown and survival falls through to the next backend instead of trying to automate the challenge
@@ -395,7 +455,7 @@ stream_max_retries = 5
 ## Auth
 
 - Set `EA_API_TOKEN=<token>` to require bearer auth on all non-health routes.
-- Set `EA_DEFAULT_PRINCIPAL_ID=<principal>` to define the fallback request principal when `X-EA-Principal-ID` is omitted (default `local-user`).
+- Set `EA_DEFAULT_PRINCIPAL_ID=<principal>` to define the fallback request principal when `X-EA-Principal-ID` is omitted (default `principal-default`).
 - Principal-scoped rewrite/session/artifact/receipt/run-cost, plan-compile, connector, human-task, and memory routes treat body/query `principal_id` as compatibility input only; mismatches against the request principal fail with `403 principal_scope_mismatch`.
 
 ## Policy Tuning
@@ -410,15 +470,76 @@ stream_max_retries = 5
 
 - Bootstrap during deploy: `EA_BOOTSTRAP_DB=1 bash scripts/deploy.sh`
 - Memory-only local profile: `cp .env.local.example .env && EA_MEMORY_ONLY=1 bash scripts/deploy.sh`
-- Common targets: `make deploy-ea-prod`, `make deploy-property`, `make bootstrap`, `make db-status`, `make db-size`, `make db-retention`, `make operator-summary`, `make smoke-api`, `make smoke-api-tibor`, `make smoke-postgres`, `make smoke-postgres-legacy`, `make release-smoke`, `make ci-gates-postgres`, `make ci-gates-postgres-legacy`, `make runtime-hard-exit-gates`, `make hard-exit-gates`, `make ltd-release-gates`, `make verify-ltd-critical-entries`, `make verify-ltd-flagship-subset`, `make all-local`, `make verify-release-assets`, `make release-docs`, `make release-preflight`
+- Common targets: `make deploy-ea-prod`, `make deploy-property`, `make env-backup-teable`, `make env-bootstrap-teable`, `make env-check-teable`, `make env-disable-extra-teable`, `make env-drill-teable`, `make env-ensure-local-teable`, `make env-local-status-teable`, `make env-probe-teable`, `make env-recover-teable`, `make verify-env-teable-recovery`, `make env-restore-teable`, `make env-restore-teable-local`, `make env-restore-teable-service`, `make bootstrap`, `make db-status`, `make db-size`, `make db-retention`, `make proactive-ooda`, `make verify-proactive-ooda`, `make operator-summary`, `make smoke-api`, `make smoke-api-principal`, `make smoke-postgres`, `make smoke-postgres-legacy`, `make release-smoke`, `make ci-gates-postgres`, `make ci-gates-postgres-legacy`, `make runtime-hard-exit-gates`, `make hard-exit-gates`, `make ltd-release-gates`, `make verify-ltd-critical-entries`, `make verify-ltd-flagship-subset`, `make all-local`, `make verify-release-assets`, `make release-docs`, `make release-preflight`
 - OpenAPI export/diff: `scripts/export_openapi.sh`, `scripts/diff_openapi.sh`, `make openapi-export`, `make openapi-diff`
 - Release checklist: `RELEASE_CHECKLIST.md`
+
+## Proactive OODA Ink
+
+EA can ingest workspace or generic discovery signals, orient them into concise OODA ink, and notify the principal only when the result is actionable. The notification includes why it matters, the recommended decision/action, approval status, the ignored consequence, and source evidence.
+
+Run it manually or from cron:
+
+```bash
+make proactive-ooda
+```
+
+`make deploy-ea-prod` also starts `ea-proactive-ooda`, a lightweight Python service that runs the same OODA loop on `EA_PROACTIVE_OODA_INTERVAL_SECONDS`. It stays quiet unless `EA_PROACTIVE_OODA_ENABLED=1`.
+
+Check readiness without sending a Telegram message:
+
+```bash
+make verify-proactive-ooda
+```
+
+Check the privacy-safe live Telegram delivery proof:
+
+```bash
+make verify-proactive-ooda-live-receipt
+```
+
+Useful runtime knobs:
+
+- `EA_PROACTIVE_OODA_PRINCIPAL_ID`: principal to notify, default `principal-default`
+- `EA_PROACTIVE_OODA_EMAIL_LIMIT` / `EA_PROACTIVE_OODA_CALENDAR_LIMIT`: workspace scan bounds when the full Google adapter is available
+- `EA_PROACTIVE_OODA_GMAIL_QUERY`: optional Gmail query filter
+- `EA_PROACTIVE_OODA_MAX_ITEMS`: maximum actionable items per run
+- `EA_PROACTIVE_OODA_STATE_PATH`: dedupe state file, default `state/proactive_ooda_notified.json`
+- `EA_PROACTIVE_OODA_CONTAINER_STATE_PATH`: container dedupe state path, default `/data/provider-ledger/proactive_ooda_notified.json`
+- `EA_PROACTIVE_OODA_OBSERVATION_LOOKBACK_HOURS` / `EA_PROACTIVE_OODA_OBSERVATION_LIMIT`: fallback scan window for recent EA observation events
+- `EA_PROACTIVE_OODA_PERSIST_RECEIPTS`: persist redacted run receipts into `observation_events`, default `1`
+- `EA_PROACTIVE_OODA_SIGNALS_JSON`: optional file-backed signal feed
+- `EA_PROACTIVE_OODA_DISCOVERY_JSON`: JSON source list for generic `json`, `jsonl`, `rss`, or `teable` discovery feeds
+- `EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID`: direct Telegram fallback chat id when the full app adapter is unavailable
+
+Generic discovery example:
+
+```bash
+EA_PROACTIVE_OODA_DISCOVERY_JSON='{"sources":[{"type":"rss","url":"https://example.com/feed.xml","channel":"market_watch","counterparty":"Example"}]}' \
+PYTHONPATH=ea .venv/bin/python scripts/run_proactive_ooda.py --dry-run --pretty
+```
+
+Teable discovery example:
+
+```bash
+EA_PROACTIVE_OODA_DISCOVERY_JSON='{"sources":[{"type":"teable","ref":"tbl_exec_signals","channel":"teable_admin","signal_type":"admin_signal","field_map":{"title":"Task","summary":"Brief","counterparty":"Owner","due_at":"Due"}}]}' \
+PYTHONPATH=ea .venv/bin/python scripts/run_proactive_ooda.py --dry-run --pretty
+```
+
+The runner can also be tested from a static signal feed:
+
+```bash
+PYTHONPATH=ea .venv/bin/python scripts/run_proactive_ooda.py --signals-json signals.json --dry-run --pretty
+```
 Snapshot pruning is available via `scripts/prune_openapi.sh` or `make openapi-prune`.
 Endpoint inventory can be printed via `scripts/list_endpoints.sh` or `make endpoints`.
 Version fingerprint can be printed via `scripts/version_info.sh` or `make version-info`.
 `scripts/version_info.sh` still prints milestone capability-status counts and release tags from `MILESTONE.json` as delivery history, but EA flagship release claims now come from `EA_FLAGSHIP_TRUTH_PLANE.md`, `EA_FLAGSHIP_RELEASE_GATE.json`, and `EA_FLAGSHIP_RELEASE_GATE.generated.json`.
 Operator summary can be printed via `scripts/operator_summary.sh` or `make operator-summary`.
 The operator summary includes smoke, readiness, CI parity, release/support, and task-archive shortcuts.
+It also includes the standalone WhatsApp Web action-processor readiness check via `make verify-whatsapp-web-action-processor-readiness`, so runtime health can be distinguished from live EPUB delivery evidence. For the published link itself, `make verify-whatsapp-audiobook-public-share-playback` proves the shared audiobook route still plays audio in a real browser session.
+It also prints the long-running goal posture through the `detect`, `decide`, `deliver`, `recover`, and `prove` lenses, using the current local receipts where they exist and explicit commands where they do not.
+The same posture can be materialized and verified explicitly via `make materialize-continuous-improvement-goal-posture` and `make verify-continuous-improvement-goal-posture`.
 `bash scripts/operator_summary.sh --help` prints the usage contract and is included in `make operator-help`.
 Operator script usage index can be printed via `make operator-help`.
 Endpoint/version/OpenAPI helper scripts also expose `--help` and are included in `make operator-help`.
@@ -450,14 +571,15 @@ Local CI-parity compile checks can be run via `make ci-local`.
 One-command local CI gate bundle is available via `make ci-gates`; it includes release asset verification, flagship release-readiness verification, whole-project gold-map verification, and generated release artifact cleanliness after the full memory-backed test suite.
 Combined local API+Postgres parity run is available via `make ci-gates-postgres`.
 Combined local API+Postgres legacy-migration parity run is available via `make ci-gates-postgres-legacy`.
-Runtime deploy hard gate is available via `make runtime-hard-exit-gates`; `scripts/deploy.sh` runs it by default after health goes green unless `EA_RUN_RUNTIME_HARD_EXIT_GATES=0`. This live bundle uses the deploy-safe API smoke lane and Pocket archive verification; the deeper Tibor contract smoke stays in `make hard-exit-gates`.
-Full flagship hard exit gate is available via `make hard-exit-gates`; it runs the full pytest suite plus release preflight, Postgres contract/smoke lanes, Tibor smoke, and Pocket archive verification.
+Runtime deploy hard gate is available via `make runtime-hard-exit-gates`; `scripts/deploy.sh` runs it by default after health goes green unless `EA_RUN_RUNTIME_HARD_EXIT_GATES=0`. This live bundle uses the deploy-safe API smoke lane and Pocket archive verification; the deeper principal contract smoke stays in `make hard-exit-gates`.
+Full flagship hard exit gate is available via `make hard-exit-gates`; it runs the full pytest suite plus release preflight, Postgres contract/smoke lanes, principal API smoke, and Pocket archive verification.
 Aggregate LTD release gates are available via `make ltd-release-gates`; the bundle includes critical runtime entries, the flagship verified subset, and governed provider-lane receipts.
 Release asset integrity can be checked via `scripts/verify_release_assets.sh` or `make verify-release-assets`.
 Whole-project gold-map integrity can be checked via `scripts/verify_whole_project_gold_map.py` or `make verify-whole-project-gold-map`; when green, it means the current EA-controlled receipt set is coherent. Owning repos remain authoritative for their own product planes. For memorial presentation readiness, also run `make verify-memorial-voice-stability` against the deployed stack.
 Docs-focused alias for the same check: `make docs-verify`.
 Docs + operator help aggregate: `make release-docs`.
 Release preflight aggregate is available via `make release-preflight`; it includes `make verify-flagship-release-readiness`, `make verify-whole-project-gold-map`, and generated release artifact cleanliness so a green receipt cannot hide a blocked weekly pulse, Fleet journey gate, overbroad gold claim, or dirty regenerated receipt.
+For real-browser gates on a fresh host, install the browser dependency first with `python -m playwright install --with-deps chromium`.
 Recommended sequencing: run `make release-docs` before `make release-preflight`.
 One-command local readiness check: `make all-local`.
 `make all-local` is a lighter local readiness pass; it still verifies release assets, flagship readiness, and generated release artifact cleanliness, but use `make release-preflight` for release-stage smoke + operator checks.

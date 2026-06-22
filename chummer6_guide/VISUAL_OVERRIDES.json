@@ -320,7 +320,7 @@
       "easter_egg_visibility": "readable on the banner"
     }
   },
-  "assets/horizons/ghostwire.png": {
+  "assets/features/ghostwire.png": {
     "visual_prompt": "Timeline replay scene: the team rewinds a run to the exact alarm trigger, linked causes visible on a real wall or projected surface, memory versus evidence in one tense moment.",
     "scene_contract": {
       "composition": "forensic_replay",
@@ -383,7 +383,7 @@
       "mood": "scheming, civic, pressure-loaded, and unmistakably alive"
     }
   },
-  "assets/horizons/community-hub.png": {
+  "assets/features/community-hub.png": {
     "visual_prompt": "Open-run intake and roster handoff at a grimy Sixth World coordination checkpoint: one organizer, one GM, and one runner candidate meet at a crowded dispatch counter where seat chips, consent tags, roster sleeves, prep packet rails, and schedule handoff markers cling to a real check-in lane. The scene must feel like governed recruiting and table fit, not another approval bench or a vague social app metaphor. Keep the queue geometry, roster lane, packet handoff, and practical check-in hardware dominant. No readable text, no clean conference table, no empty lobby, and no generic neon-hub wallpaper.",
     "scene_contract": {
       "composition": "transit_checkpoint",
@@ -405,7 +405,7 @@
       "easter_egg_visibility": "clear enough to find on a banner"
     }
   },
-  "assets/horizons/nexus-pan.png": {
+  "assets/features/nexus-pan.png": {
     "visual_prompt": "Asymmetrical rain-soaked reconnect scene during a live Shadowrun firefight: one operator at the edge of the session has just gotten a phone back online, AR initiative and penalty traces snap back across a Renraku-style or Horizon-style device shell, a secondary tablet, and nearby gear while the rest of the table lives only as distant blur. Make the operator clearly metahuman or visibly augmented with a datajack, smart lenses, trode band, or cyberarm. Seed the scene with a clipped hell hound photo, a Paper Lotus charm, one faint totem portrait or ward reflection in the wet glass, and harder street fallout like grimy cups, bad fluorescent light, cough syrup, or a bloodied bandage on the sill. Use recognizable location residue if it helps, like Redmond transit grime, Ork Underground tilework, or Arcology-shadow window geometry. Grounded cinematic realism, no centered four-person pose, no readable text, no app icons, no letters on the phone.",
     "scene_contract": {
       "composition": "solo_operator",

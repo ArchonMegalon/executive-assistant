@@ -7,7 +7,15 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from app.yaml_inputs import load_yaml_dict
+
+try:
+    from app.yaml_inputs import load_yaml_dict
+except ModuleNotFoundError:  # pragma: no cover - supports repo-tool execution when app modules are trimmed
+    def load_yaml_dict(path: Path) -> dict[str, Any]:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError(f"Expected YAML object in {path}")
+        return data
 
 
 ROOT = Path(__file__).resolve().parents[1]

@@ -2,11 +2,19 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.api.routes.responses import _codex_governance_payload, _codex_profiles
+try:
+    from app.api.routes.responses import _codex_governance_payload, _codex_profiles
+except Exception:  # pragma: no cover - compat path when the responses surface is trimmed down
+    def _codex_governance_payload(*_args: object, **_kwargs: object) -> dict[str, object]:
+        return {}
+
+    def _codex_profiles(*_args: object, **_kwargs: object) -> tuple[dict[str, object], ...]:
+        return ()
 from app.container import AppContainer
 from app.product.projections.handoffs import handoff_action_options, handoff_action_plan, handoff_from_human_task
 from app.product.service import build_product_service
 from app.services.ltd_provider_governance import build_ltd_provider_governance_receipt
+from app.services.provider_contract_status import build_provider_contract_status
 
 
 def _row(
@@ -129,6 +137,40 @@ def _provider_lane_rows() -> list[dict[str, str]]:
                 str(lane.get("title") or lane.get("lane_key") or "Provider lane"),
                 detail or "Provider lane is governed by receipts.",
                 _humanize(str(lane.get("lane_state") or lane.get("status") or "unknown")).title(),
+            )
+        )
+    return rows
+
+
+def _provider_contract_rows() -> list[dict[str, str]]:
+    try:
+        status = build_provider_contract_status()
+    except Exception:
+        return []
+    rows: list[dict[str, str]] = []
+    summary = str(status.get("operator_label") or "").strip()
+    if summary:
+        rows.append(_row("Contract layer summary", summary, _humanize(str(status.get("status") or "unknown")).title()))
+    for item in list(status.get("rows") or []):
+        if not isinstance(item, dict):
+            continue
+        issues = ", ".join(str(value) for value in list(item.get("issues") or []) if str(value or "").strip())
+        required = ", ".join(str(value) for value in list(item.get("required_next_receipts") or [])[:2] if str(value or "").strip())
+        detail = " · ".join(
+            part
+            for part in (
+                "Local capability status is separate from live runtime status",
+                "Live provider proof pending" if item.get("live_provider_runtime_verified") is False else "Live provider proof verified",
+                f"Issues: {issues}" if issues else "",
+                f"Next proof: {required}" if required else "",
+            )
+            if part
+        )
+        rows.append(
+            _row(
+                str(item.get("title") or item.get("key") or "Provider capability"),
+                detail or "Provider contract posture is visible here.",
+                _humanize(str(item.get("status") or "unknown")).title(),
             )
         )
     return rows
@@ -1045,6 +1087,12 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
                         _row("Fallback lanes", str(diagnostics_provider.get("lanes_with_fallback") or 0), "Support"),
                         _row("Failover-ready lanes", str(diagnostics_provider.get("failover_ready_lanes") or 0), "Support"),
                     ],
+                },
+                {
+                    "eyebrow": "Provider capability",
+                    "title": "Contract-backed capability posture",
+                    "items": _provider_contract_rows()
+                    or [_row("No provider contract summary", "Run the provider contract materializer and verifier before using this surface for release claims.", "Missing")],
                 },
                 {
                     "eyebrow": "Governance",

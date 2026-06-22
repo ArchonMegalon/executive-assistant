@@ -68,16 +68,23 @@ Claimed installs let support history, fix notices, and gated-channel guidance at
 A later optional Hub-side helper that answers from curated help, known-issue, and support-case sources.
 It is not phase 0 and it does not replace the crash, bug, or feedback lanes.
 
+### Chummer Instant Help
+
+The maintenance surface that turns support facts into short answers, optional "Show me" videos, guided repair steps, automatic checks, and private issue reports.
+Its design lives in `INSTANT_HELP_MAINTENANCE_MODEL.md`.
+It is not a horizon and it does not route normal Chummer help to calendar booking.
+
 ## First implementation order
 
 1. crash reporting
 2. structured bug reporting
 3. lightweight feedback
-4. knowledge base and human escalation
-5. assistant later
+4. knowledge base and Chummer Instant Help
+5. human escalation only for rare invitation-only cases
 
 That order is intentional.
 The support plane must work before any support assistant becomes user-facing.
+Normal help should be asynchronous and repair-oriented, not appointment-oriented.
 
 ## Three-lane support plane
 

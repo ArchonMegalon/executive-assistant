@@ -10,7 +10,7 @@ This repo now treats that as a bounded provider-verification problem, not as an 
 
 The local verification source is:
 
-- [avatar_presenter_provider_check.py](/docker/EA/scripts/avatar_presenter_provider_check.py)
+- `scripts/avatar_presenter_provider_check.py`
 
 It fails closed by default to:
 

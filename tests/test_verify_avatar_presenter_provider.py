@@ -58,6 +58,28 @@ def test_verify_nonverbia_avatar_provider_returns_not_ready_without_fallback() -
     assert payload["provider_ready"] is False
 
 
+def test_avatar_provider_account_hint_is_runtime_configured(monkeypatch) -> None:
+    module = _load_script()
+    monkeypatch.delenv("EA_AVATAR_PRESENTER_VIDBOARD_ACCOUNT_EMAIL_HINT", raising=False)
+
+    payload = module.build_payload("vidboard", allow_fallback=True)
+
+    assert payload["account"]["account_email_hint"] == ""
+
+    monkeypatch.setenv("EA_AVATAR_PRESENTER_VIDBOARD_ACCOUNT_EMAIL_HINT", "avatar-owner@example.test")
+    configured = module.build_payload("vidboard", allow_fallback=True)
+    assert configured["account"]["account_email_hint"] == "avatar-owner@example.test"
+
+
+def test_avatar_provider_script_does_not_default_to_real_account_email() -> None:
+    source = (Path(__file__).resolve().parents[1] / "scripts" / "verify_avatar_presenter_provider.py").read_text(
+        encoding="utf-8"
+    )
+    forbidden = "the.girscheles" + "@gmail.com"
+
+    assert forbidden not in source
+
+
 def test_verify_vidboard_avatar_provider_promotes_with_complete_receipts(tmp_path: Path) -> None:
     module = _load_script()
     receipt_dir = tmp_path / "receipts"

@@ -1,3 +1,2 @@
-from app.channels.telegram.adapter import TelegramObservationAdapter
+from __future__ import annotations
 
-__all__ = ["TelegramObservationAdapter"]

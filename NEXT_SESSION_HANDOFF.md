@@ -1,7 +1,7 @@
 # Next Session Handoff
 
 Date: 2026-03-16
-Workspace focus: `/docker/EA`
+Workspace focus: the EA repository root.
 
 ## What changed in this session
 
@@ -12,9 +12,9 @@ Workspace focus: `/docker/EA`
 
 ## Files changed
 
-- [ea/app/services/responses_upstream.py](/docker/EA/ea/app/services/responses_upstream.py)
+- `ea/app/services/responses_upstream.py`
   - for `DEFAULT_PUBLIC_MODEL`, fast-lane routing now prepends `magixai` but also appends the configured provider order, allowing fallback to `onemin`
-- [tests/test_responses_upstream.py](/docker/EA/tests/test_responses_upstream.py)
+- `tests/test_responses_upstream.py`
   - updated candidate expectations for the default public model
   - added regression coverage proving `ea-coder-best` falls back to `onemin` when Magicx is unavailable
 
@@ -51,7 +51,7 @@ Workspace focus: `/docker/EA`
 ## First checks next session
 
 1. Check live provider health:
-   - `curl -sS -H "X-EA-Principal-ID: tibor" http://127.0.0.1:8090/v1/responses/_provider_health`
+   - `curl -sS -H "X-EA-Principal-ID: ${EA_DEFAULT_PRINCIPAL_ID:-principal-default}" http://127.0.0.1:8090/v1/responses/_provider_health`
 2. If Magicx is still degraded, prefer:
    - `ea-coder-best`
    - `ea-coder-hard`
@@ -64,5 +64,5 @@ Workspace focus: `/docker/EA`
 
 ## Repo state at handoff
 
-- `/docker/EA`: clean after commit except for local secrets in [`.env`](/docker/EA/.env), which are intentionally not tracked
+- repo root: clean after commit except for local secrets in `.env`, which are intentionally not tracked
 - Live EA containers have already been rebuilt with this slice

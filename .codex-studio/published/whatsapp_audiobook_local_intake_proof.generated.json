@@ -1,0 +1,147 @@
+{
+  "checks": {
+    "audiobookshelf_imported": true,
+    "chapter_audio_rendered": true,
+    "chapters_extracted": true,
+    "epub_processed_once": true,
+    "intake_job_waiting_for_voice_choice": true,
+    "intake_processor_passed": true,
+    "intake_stage_waits_for_voice_choice": true,
+    "job_created": true,
+    "local_delivery_tracks_machine_playback_gap": true,
+    "m4b_ready": true,
+    "player_http_audio_download_works": true,
+    "player_http_metadata_ready": true,
+    "player_scoped_audio_probe_passed": true,
+    "player_scoped_reference_ready": true,
+    "player_scoped_reference_resolves": true,
+    "public_share_ready": true,
+    "receipt_voice_delivery_sent": true,
+    "three_voice_samples_sent": true,
+    "use_callback_captured": true,
+    "voice_choice_callback_processed": true,
+    "voice_selected_by_user": true,
+    "voice_selection_processor_passed": true,
+    "whatsapp_message_hash_present": true,
+    "whatsapp_public_share_sent": true,
+    "whatsapp_sender_bound": true,
+    "whatsapp_session_bound": true
+  },
+  "claim": "A local generated EPUB can pass through the WhatsApp action processor into the audiobook pipeline, create a WhatsApp-bound job, send three voice samples, accept a WhatsApp Use voice callback, render/import the audiobook, and send the Audiobookshelf public share link through WhatsApp. This is not a live WhatsApp delivery claim.",
+  "contract_name": "ea.whatsapp_audiobook_local_epub_intake_proof.v1",
+  "generated_at": "2026-06-22T18:29:01.390855Z",
+  "generated_by": "ea/scripts/materialize_whatsapp_audiobook_local_intake_proof.py",
+  "intake_summary": {
+    "pending_voice_sample_count": 3,
+    "stage_next_action": "choose_whatsapp_audiobook_voice_sample",
+    "status": "waiting_voice_selection",
+    "voice_selection_status": "waiting_user_choice"
+  },
+  "job_summary": {
+    "audiobookshelf_import_status": "imported",
+    "chapter_count": 2,
+    "m4b_status": "m4b_ready",
+    "pending_voice_sample_count": 0,
+    "public_share_status": "public_share_ready",
+    "render_status": "rendered",
+    "status": "audiobookshelf_imported",
+    "voice_selection_status": "selected_by_user",
+    "whatsapp_source": "whatsapp_web_session"
+  },
+  "local_stage_receipt_summary": {
+    "delivery": {
+      "live_delivery_claim_allowed": false,
+      "next_action": "finish_user_selected_voice_audiobook_before_sending_whatsapp_public_share_link",
+      "stage_counts": {
+        "waiting_machine_playback_verification": 1
+      },
+      "status": "blocked"
+    },
+    "intake": {
+      "live_delivery_claim_allowed": false,
+      "next_action": "choose_whatsapp_audiobook_voice_sample",
+      "stage_counts": {
+        "waiting_voice_choice": 1
+      },
+      "status": "waiting_voice_choice"
+    }
+  },
+  "player_http_probe_summary": {
+    "download_bytes": 27301,
+    "download_cache_control": "no-store",
+    "download_content_type": "audio/mp4",
+    "download_status_code": 200,
+    "metadata_cache_control": "no-store",
+    "metadata_download_url_present": true,
+    "metadata_raw_library_path_exposed": false,
+    "metadata_status": "ready",
+    "metadata_status_code": 200,
+    "metadata_vendor_token_exposed": false,
+    "raw_path_exposed": false,
+    "raw_token_exposed": false,
+    "status": "pass"
+  },
+  "player_probe_summary": {
+    "audio_streams": 1,
+    "chapter_count": 2,
+    "content_type": "audio/mp4",
+    "duration_seconds": 0.24,
+    "file_ready": true,
+    "file_sha256": "62aae5883edff5dc39c2f4a214bab2aa17c42acb9a76e5fd5b41bb9ca70f83c5",
+    "metadata_status": "ready",
+    "raw_path_exposed": false,
+    "raw_token_exposed": false,
+    "status": "pass"
+  },
+  "privacy": {
+    "audiobookshelf_raw_path_exposed": false,
+    "callback_tokens_exposed": false,
+    "live_whatsapp_claim": false,
+    "local_temp_job_root_removed_after_run": true,
+    "player_access_token_exposed": false,
+    "provider_secret_exposed": false,
+    "provider_voice_ids_exposed": false,
+    "public_share_token_exposed": false,
+    "raw_epub_text_persisted": false,
+    "raw_message_id_exposed": false,
+    "raw_sender_ref_exposed": false
+  },
+  "processor_report": {
+    "intake": {
+      "epub_candidate_count": 1,
+      "epub_processed": 1,
+      "errors": 0,
+      "message_count": 1,
+      "reply_sent": 1,
+      "status": "pass",
+      "voice_sample_sent": 3
+    },
+    "voice_selection": {
+      "candidate_count": 1,
+      "errors": 0,
+      "processed": 1,
+      "reply_sent": 0,
+      "share_link_sent": 1,
+      "status": "pass"
+    }
+  },
+  "sanitized_receipt_summary": {
+    "audiobookshelf_import_status": "imported",
+    "author_sha256": "",
+    "chapter_metadata_embedded": true,
+    "contract_name": "ea.telegram_epub_audiobook_job_receipt.v1",
+    "m4b_output_ready": true,
+    "player_scoped_reference_status": "signed_reference_ready",
+    "public_share_status": "public_share_ready",
+    "public_share_whatsapp_delivery_status": "sent",
+    "public_share_whatsapp_message_id_present": true,
+    "status": "audiobookshelf_imported",
+    "title_sha256": "",
+    "whatsapp_message_hash_present": true,
+    "whatsapp_sender_bound": true,
+    "whatsapp_session_bound": true,
+    "whatsapp_voice_sample_delivery_sent_count": 3,
+    "whatsapp_voice_sample_delivery_status": "sent"
+  },
+  "status": "pass"
+}

@@ -8,33 +8,28 @@ from pathlib import Path
 import yaml
 
 
-DEFAULT_DESIGN_ROOT = Path("/docker/chummercomplete/chummer-design/products/chummer")
 LOCAL_DESIGN_ROOT = Path(__file__).resolve().parents[1] / ".codex-design" / "product"
 TITLE_RE = re.compile(r"^#\s+(.+?)\s*$")
 SECTION_RE = re.compile(r"^##\s+(.+?)\s*$")
+ASSET_CONTRACT_TARGET_ALIASES = {
+    "assets/features/nexus-pan.png": "assets/horizons/nexus-pan.png",
+    "assets/horizons/nexus-pan.png": "assets/features/nexus-pan.png",
+}
 
 
 def design_root() -> Path:
     raw = str(os.environ.get("CHUMMER6_DESIGN_PRODUCT_ROOT") or "").strip()
     if raw:
         return Path(raw)
-    if LOCAL_DESIGN_ROOT.exists():
-        return LOCAL_DESIGN_ROOT
-    return DEFAULT_DESIGN_ROOT
+    return LOCAL_DESIGN_ROOT
 
 
 def design_repo_root() -> Path:
     root = design_root()
     try:
-        repo_root = root.parents[1]
+        return root.parents[1]
     except Exception:
-        repo_root = root
-    if root == LOCAL_DESIGN_ROOT and not (repo_root / "products" / "chummer").exists() and DEFAULT_DESIGN_ROOT.exists():
-        try:
-            return DEFAULT_DESIGN_ROOT.parents[1]
-        except Exception:
-            return DEFAULT_DESIGN_ROOT
-    return repo_root
+        return root
 
 
 def _read_text(path: Path) -> str:
@@ -44,6 +39,15 @@ def _read_text(path: Path) -> str:
 def _read_yaml(path: Path) -> dict[str, object]:
     loaded = yaml.safe_load(_read_text(path))
     return dict(loaded or {})
+
+
+def _asset_contract_lookup_keys(target_path: str) -> list[str]:
+    normalized = str(target_path or "").replace("\\", "/").strip()
+    keys = [normalized]
+    alias = ASSET_CONTRACT_TARGET_ALIASES.get(normalized)
+    if alias:
+        keys.append(alias)
+    return [key for index, key in enumerate(keys) if key and key not in keys[:index]]
 
 
 def _first_sentence(text: str) -> str:
@@ -170,10 +174,6 @@ def _source_path(key: str, fallback: str) -> Path:
     candidate = root / relative
     if candidate.exists():
         return candidate
-    if root == LOCAL_DESIGN_ROOT:
-        fallback_candidate = DEFAULT_DESIGN_ROOT / relative
-        if fallback_candidate.exists():
-            return fallback_candidate
     return candidate
 
 
@@ -188,10 +188,6 @@ def _optional_source_path(key: str, fallback: str) -> Path | None:
     candidate = root / relative
     if candidate.exists():
         return candidate
-    if root == LOCAL_DESIGN_ROOT:
-        fallback_candidate = DEFAULT_DESIGN_ROOT / relative
-        if fallback_candidate.exists():
-            return fallback_candidate
     return None
 
 
@@ -363,7 +359,12 @@ def asset_visual_profile(target_path: str) -> dict[str, object]:
     profile_name = str(page_profile.get("visual_density_profile") or fallback_profile or "").strip()
     contract = dict(contracts.get(profile_name) or {}) if profile_name else {}
     normalized_target = str(target_path or "").replace("\\", "/").strip()
-    asset_contract = dict(asset_overlay_contracts.get(normalized_target) or {}) if isinstance(asset_overlay_contracts, dict) else {}
+    asset_contract: dict[str, object] = {}
+    if isinstance(asset_overlay_contracts, dict):
+        for lookup_key in _asset_contract_lookup_keys(normalized_target):
+            asset_contract = dict(asset_overlay_contracts.get(lookup_key) or {})
+            if asset_contract:
+                break
     if not asset_contract and normalized_target == "README.md":
         asset_contract = dict(asset_overlay_contracts.get("assets/hero/chummer6-hero.png") or {})
     merged: dict[str, object] = {}
@@ -457,12 +458,39 @@ def _public_horizon_rows() -> list[dict[str, object]]:
     return sorted(enabled, key=lambda row: int((row.get("public_guide") or {}).get("order") or 0))
 
 
+def _feature_slug_from_public_card_id(card_id: str) -> str:
+    normalized = str(card_id or "").strip()
+    if not normalized.startswith("feature_"):
+        return ""
+    return normalized[len("feature_") :].replace("_", "-")
+
+
+def _public_feature_rows() -> list[dict[str, object]]:
+    data = load_public_feature_registry()
+    cards = data.get("cards") if isinstance(data.get("cards"), list) else []
+    rows: list[dict[str, object]] = []
+    for row in cards:
+        if not isinstance(row, dict):
+            continue
+        slug = _feature_slug_from_public_card_id(str(row.get("id") or ""))
+        if not slug:
+            continue
+        next_row = dict(row)
+        next_row["slug"] = slug
+        rows.append(next_row)
+    return rows
+
+
 def canonical_part_slugs() -> list[str]:
     return [str(row.get("id") or "").strip() for row in _part_rows() if str(row.get("id") or "").strip()]
 
 
 def canonical_horizon_slugs() -> list[str]:
     return [str(row.get("id") or "").strip() for row in _public_horizon_rows() if str(row.get("id") or "").strip()]
+
+
+def canonical_feature_slugs() -> list[str]:
+    return [str(row.get("slug") or "").strip() for row in _public_feature_rows() if str(row.get("slug") or "").strip()]
 
 
 def assert_public_horizon_catalog(expected_slugs: list[str], rendered_slugs: list[str]) -> None:
@@ -551,6 +579,43 @@ def load_horizon_canon() -> dict[str, dict[str, object]]:
             "booster_nudge": str(row.get("booster_nudge") or "").strip(),
             "free_later_intent": str(row.get("free_later_intent") or "").strip(),
             "recognition_eligible": bool(row.get("recognition_eligible")),
+        }
+    return catalog
+
+
+def load_feature_canon() -> dict[str, dict[str, object]]:
+    root = design_root()
+    catalog: dict[str, dict[str, object]] = {}
+    for row in _public_feature_rows():
+        slug = str(row.get("slug") or "").strip()
+        if not slug:
+            continue
+        feature_doc = root / "features" / f"{slug}.md"
+        title = str(row.get("title") or slug.replace("-", " ").title()).strip()
+        sections: dict[str, str] = {}
+        if feature_doc.exists():
+            doc_title, sections = _markdown_sections(feature_doc)
+            if doc_title:
+                title = doc_title
+        problem = _paragraph(sections.get("the problem", "")) or str(row.get("pain") or "").strip()
+        current = (
+            _paragraph(sections.get("what it does now", ""))
+            or _paragraph(sections.get("current shipped posture", ""))
+            or str(row.get("summary") or "").strip()
+        )
+        boundary = _paragraph(sections.get("current boundary", "")) or str(row.get("proof_note") or "").strip()
+        catalog[slug] = {
+            "title": title,
+            "hook": _first_sentence(str(row.get("summary") or "").strip() or current or problem),
+            "summary": str(row.get("summary") or "").strip(),
+            "problem": problem,
+            "current": current,
+            "boundary": boundary,
+            "badge": str(row.get("badge") or "").strip(),
+            "href": str(row.get("href") or "").strip(),
+            "proof_note": str(row.get("proof_note") or "").strip(),
+            "microproof": str(row.get("microproof") or "").strip(),
+            "public_body": _strip_public_only_sections(_read_text(feature_doc)) if feature_doc.exists() else "",
         }
     return catalog
 

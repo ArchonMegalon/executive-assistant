@@ -52,7 +52,6 @@ def test_latest_kernel_migrations_define_provider_bindings_and_runtime_policy_co
 
 def test_legacy_migration_regression_smoke_contract_is_wired() -> None:
     smoke = (ROOT / "scripts/smoke_postgres.sh").read_text()
-    workflow = (ROOT / ".github/workflows/smoke-runtime.yml").read_text()
 
     assert "--legacy-fixture" in smoke
     assert "apply_legacy_fixture()" in smoke
@@ -75,14 +74,17 @@ def test_legacy_migration_regression_smoke_contract_is_wired() -> None:
     assert "token_candidates=" in smoke
     assert 'X-EA-API-Token: ${candidate_token}' in smoke
     assert 'X-EA-API-Token: ${EA_API_TOKEN}' in (ROOT / "scripts/smoke_api.sh").read_text()
-    assert 'set_env_value "EA_OPERATOR_PRINCIPAL_IDS" "exec-1"' in smoke
+    assert 'set_env_value "EA_OPERATOR_PRINCIPAL_ID" "principal-default"' in smoke
+    assert 'export EA_OPERATOR_PRINCIPAL_ID="principal-default"' in smoke
     assert "docker cp" in smoke
+    assert "ln -sfn /app /" + "docker" not in smoke
     assert 'API_SERVICE="${PROPERTYQUARRY_API_SERVICE:-${EA_API_SERVICE:-ea-api}}"' in smoke
     assert 'resolve_service_container()' in smoke
     assert '"${API_CONTAINER}" bash /app/scripts/smoke_api.sh' in smoke
     assert "refresh_ltds_via_api.sh" in smoke
     assert "refresh_ltds_via_api.py" in smoke
     assert "container_operator_principal=" in smoke
+    assert "container_operator_principal=\"$(docker exec \"${API_CONTAINER}\" /bin/sh -lc 'printenv EA_OPERATOR_PRINCIPAL_ID' 2>/dev/null || true)\"" in smoke
     assert 'EA_OPERATOR_PRINCIPAL_ID="${container_operator_principal}"' in smoke
     assert "EA_ALLOW_LOOPBACK_NO_AUTH=${EA_ALLOW_LOOPBACK_NO_AUTH:-0}" in (ROOT / "docker-compose.yml").read_text()
     assert "wait_for_postgres_sql 90" in smoke
@@ -95,8 +97,6 @@ def test_legacy_migration_regression_smoke_contract_is_wired() -> None:
     assert 'API_CONTAINER="$(resolve_service_container "${API_SERVICE}")"' in smoke
     assert 'could not resolve container for compose API service ${API_SERVICE} after prod fail-fast recreate' in smoke
     assert "forbids EA_ALLOW_LOOPBACK_NO_AUTH=1" in smoke
-    assert "bash scripts/smoke_postgres.sh --legacy-fixture" in workflow
-    assert "python -m playwright install --with-deps chromium" in workflow
 
 
 def test_legacy_compatibility_migrations_encode_uuid_and_approval_upgrades() -> None:
@@ -166,6 +166,9 @@ def test_operator_summary_lists_legacy_postgres_shortcuts() -> None:
     assert "make tasks-archive-dry-run" in text
     assert "make tasks-archive-prune" in text
     assert "scripts/operator_summary.sh" in smoke_help
+    assert "ea/scripts/verify_whatsapp_audiobook_live_delivery_receipt.py" in smoke_help
+    assert "ea/scripts/verify_whatsapp_audiobook_operator_proof_bundle.py" in smoke_help
+    assert "ea/scripts/verify_whatsapp_audiobook_public_share_playback.py" in smoke_help
     assert "scripts/operator_summary.sh" in makefile
     assert "scripts/chummer6_overlay_vision_readiness.py" in makefile
 
@@ -186,7 +189,6 @@ def test_local_gate_bundles_include_flagship_readiness_and_generated_cleanliness
     makefile = (ROOT / "Makefile").read_text()
     readme = (ROOT / "README.md").read_text()
     runbook = (ROOT / "RUNBOOK.md").read_text()
-    workflow = (ROOT / ".github/workflows/smoke-runtime.yml").read_text()
 
     ci_gates = _make_target_body(makefile, "ci-gates")
     all_local = _make_target_body(makefile, "all-local")
@@ -202,7 +204,6 @@ def test_local_gate_bundles_include_flagship_readiness_and_generated_cleanliness
     assert "scripts/verify_generated_release_artifacts_clean.py" in generated_clean
     assert "git diff --exit-code -- .codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json" not in generated_clean
 
-    assert "make ci-gates" in workflow
     assert "flagship release-readiness verification" in readme
     assert "whole-project gold-map verification" in readme
     assert "generated release artifact cleanliness" in readme
@@ -220,7 +221,7 @@ def test_hard_exit_gate_targets_and_runtime_gate_scripts_are_wired() -> None:
     deploy = (ROOT / "scripts/deploy.sh").read_text()
     runtime_gate = (ROOT / "scripts/runtime_hard_exit_gates.sh").read_text()
     full_gate = (ROOT / "scripts/hard_exit_gates.sh").read_text()
-    tibor_smoke = (ROOT / "scripts/smoke_api_tibor.sh").read_text()
+    principal_smoke = (ROOT / "scripts/smoke_api.sh").read_text()
 
     runtime_target = _make_target_body(makefile, "runtime-hard-exit-gates")
     hard_target = _make_target_body(makefile, "hard-exit-gates")
@@ -239,7 +240,7 @@ def test_hard_exit_gate_targets_and_runtime_gate_scripts_are_wired() -> None:
 
     assert "bash scripts/smoke_help.sh" in runtime_gate
     assert "env -u EA_API_TOKEN bash scripts/smoke_api.sh" in runtime_gate
-    assert "smoke_api_tibor.sh` stays in the full hard-exit bundle" in runtime_gate
+    assert "smoke_api_principal.sh` stays in the full hard-exit bundle" in runtime_gate
     assert 'PYTHON_BIN="${PYTHON_BIN:-}"' in runtime_gate
     assert '"${PYTHON_BIN}" scripts/verify_pocket_audio_archive.py' in runtime_gate
 
@@ -247,7 +248,7 @@ def test_hard_exit_gate_targets_and_runtime_gate_scripts_are_wired() -> None:
     assert "make test-postgres-contracts" in full_gate
     assert "make smoke-postgres" in full_gate
     assert "make smoke-postgres-legacy" in full_gate
-    assert "make smoke-api-tibor" in full_gate
+    assert "make smoke-api-principal" in full_gate
     assert "make verify-pocket-audio-archive" in full_gate
     assert "make verify-ltd-critical-entries" in full_gate
     assert "make verify-ltd-flagship-subset" in full_gate
@@ -271,8 +272,8 @@ def test_hard_exit_gate_targets_and_runtime_gate_scripts_are_wired() -> None:
     assert "make ltd-release-gates" in runbook
     assert "verify_ltd_critical_entries.py" in runbook
     assert "verify_ltd_flagship_subset.py" in runbook
-    assert 'cp "${EA_ROOT}/LTDs.md"' in tibor_smoke
-    assert 'bash "${EA_ROOT}/scripts/refresh_ltds_via_api.sh"' in tibor_smoke
+    assert 'cp "${EA_ROOT}/LTDs.md"' in principal_smoke
+    assert 'bash "${EA_ROOT}/scripts/refresh_ltds_via_api.sh"' in principal_smoke
     assert "PYTHON_BIN" in (ROOT / "scripts/smoke_help.sh").read_text()
 
 
@@ -283,10 +284,10 @@ def test_deploy_ea_prod_falls_back_when_onedrive_mount_is_unavailable() -> None:
 
     deploy_target = _make_target_body(makefile, "deploy-ea-prod")
 
-    assert 'EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-/mnt/onedrive/Attachments' in compose
+    assert 'EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-./data/onedrive_attachments' in compose
     assert 'EA_ALLOW_LOOPBACK_NO_AUTH: "0"' in prod_compose
-    assert 'primary_path="$${EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-/mnt/onedrive/Attachments}"' in deploy_target
-    assert 'fallback_path="$${EA_ONEDRIVE_ATTACHMENTS_FALLBACK_HOST_PATH:-/mnt/pcloud/EA/onedrive_attachments_fallback}"' in deploy_target
+    assert 'primary_path="$${EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-./data/onedrive_attachments}"' in deploy_target
+    assert 'fallback_path="$${EA_ONEDRIVE_ATTACHMENTS_FALLBACK_HOST_PATH:-.runtime/onedrive_attachments_fallback}"' in deploy_target
     assert 'if ! ls "$$primary_path" >/dev/null 2>&1; then' in deploy_target
     assert 'mkdir -p "$$fallback_path";' in deploy_target
     assert 'EA_ONEDRIVE_ATTACHMENTS_HOST_PATH="$$selected_path" docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build ea-api ea-worker ea-scheduler ea-responses-proxy' in deploy_target
@@ -320,6 +321,8 @@ def test_smoke_help_has_help_contract_and_operator_help_wiring() -> None:
         "scripts/runtime_hard_exit_gates.sh",
         "scripts/verify_ltd_critical_entries.py",
         "scripts/verify_ltd_flagship_subset.py",
+        "scripts/materialize_whatsapp_web_action_processor_readiness.py",
+        "scripts/verify_whatsapp_web_action_processor_readiness.py",
         "scripts/bootstrap_payfunnels_propertyquarry.py",
         "scripts/bootstrap_emailit_propertyquarry.py",
     ):

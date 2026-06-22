@@ -3,11 +3,20 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 
 
-DEFAULT_OUT = Path("/docker/fleet/state/chummer6/avatar_presenter_provider/memorial_live_avatar_integration_plan.generated.json")
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_AVATAR_PROVIDER_ROOT = Path(
+    os.environ.get("CHUMMER6_AVATAR_PROVIDER_ROOT")
+    or ROOT / ".codex-studio" / "published" / "avatar_presenter_provider"
+)
+DEFAULT_OUT = Path(
+    os.environ.get("CHUMMER6_LIVE_AVATAR_INTEGRATION_PLAN_PATH")
+    or DEFAULT_AVATAR_PROVIDER_ROOT / "memorial_live_avatar_integration_plan.generated.json"
+)
 
 
 def _utc_now() -> str:

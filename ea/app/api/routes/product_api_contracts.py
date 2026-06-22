@@ -639,6 +639,11 @@ class WorkspaceAccessSessionOut(BaseModel):
     revoked_at: str = ""
     revoked_by: str = ""
     expires_at: str = ""
+    issuer: str = ""
+    audience: str = ""
+    key_version: str = ""
+    jti: str = ""
+    session_version: int = 0
     access_token: str = ""
     access_url: str = ""
     default_target: str = "/app/today"

@@ -4,7 +4,8 @@ import importlib.util
 from pathlib import Path
 
 
-SCRIPT_PATH = Path("/docker/EA/ea/scripts/compare_memorial_ltd_voice_outputs.py")
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT_PATH = ROOT / "ea" / "scripts" / "compare_memorial_ltd_voice_outputs.py"
 
 
 def _load_module():

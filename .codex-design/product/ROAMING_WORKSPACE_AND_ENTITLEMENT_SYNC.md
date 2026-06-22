@@ -265,7 +265,7 @@ The base capability is current canon, not a far-future horizon.
 
 Future-most layers project into existing horizons:
 
-* `horizons/nexus-pan.md` for richer cross-device handoff, travel prefetch, and continuity follow-me behavior
+* `features/nexus-pan.md` for richer cross-device handoff, travel prefetch, and continuity follow-me behavior
 * `horizons/karma-forge.md` for governed house-rule promotion and reusable rule-environment sharing
 * `horizons/jackpoint.md` for a deeper artifact shelf and richer publication follow-through
 

@@ -55,15 +55,15 @@ canonical_authority:
   completion_action: verify_closed_package_only
   do_not_reopen_reason: M113 executive-assistant operator-safe packets is complete; future shards must verify the EA packet pack, generated proof, focused verifier and test, canonical registry row, and queue rows instead of reopening the GM prep and roster followthrough slice.
   queue_proof_required_entries:
-    - /docker/EA/docs/chummer_operator_safe_packets/CHUMMER_OPERATOR_SAFE_PACKET_PACK.yaml
-    - /docker/EA/docs/chummer_operator_safe_packets/OPERATOR_SAFE_PACKET_SPECIMENS.yaml
-    - /docker/EA/docs/chummer_operator_safe_packets/README.md
-    - /docker/EA/docs/chummer_operator_safe_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml
-    - /docker/EA/scripts/materialize_next90_m113_operator_safe_packets.py
-    - /docker/EA/scripts/verify_next90_m113_operator_safe_packets.py
-    - /docker/EA/tests/test_next90_m113_operator_safe_packets.py
-    - /docker/EA/.codex-studio/published/NEXT90_M113_OPERATOR_SAFE_PACKETS.generated.json
-    - /docker/EA/feedback/2026-04-24-ea-operator-safe-packets-package-closeout.md
+    - docs/chummer_operator_safe_packets/CHUMMER_OPERATOR_SAFE_PACKET_PACK.yaml
+    - docs/chummer_operator_safe_packets/OPERATOR_SAFE_PACKET_SPECIMENS.yaml
+    - docs/chummer_operator_safe_packets/README.md
+    - docs/chummer_operator_safe_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml
+    - scripts/materialize_next90_m113_operator_safe_packets.py
+    - scripts/verify_next90_m113_operator_safe_packets.py
+    - tests/test_next90_m113_operator_safe_packets.py
+    - .codex-studio/published/NEXT90_M113_OPERATOR_SAFE_PACKETS.generated.json
+    - feedback/2026-04-24-ea-operator-safe-packets-package-closeout.md
     - python3 scripts/materialize_next90_m113_operator_safe_packets.py exits 0
     - python3 scripts/verify_next90_m113_operator_safe_packets.py exits 0
     - python3 tests/test_next90_m113_operator_safe_packets.py exits 0 with ran=6 failed=0

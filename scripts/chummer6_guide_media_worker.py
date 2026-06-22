@@ -54,6 +54,7 @@ if str(SCRIPTS_DIR) not in sys.path:
 
 from chummer6_guide_canon import (
     asset_image_curation,
+    load_feature_canon,
     load_horizon_canon,
     load_media_briefs,
     load_page_registry,
@@ -70,24 +71,55 @@ from chummer6_magixai_api import (
 from chummer6_runtime_config import load_local_env, load_runtime_overrides
 
 
-EA_ROOT = Path(__file__).resolve().parents[1]
+EA_ROOT = Path(os.environ.get("EA_ROOT") or Path(__file__).resolve().parents[1])
 ENV_FILE = EA_ROOT / ".env"
-STATE_OUT = Path("/docker/fleet/state/chummer6/ea_media_last.json")
-MANIFEST_OUT = Path("/docker/fleet/state/chummer6/ea_media_manifest.json")
-SCENE_LEDGER_OUT = Path("/docker/fleet/state/chummer6/ea_scene_ledger.json")
-CHALLENGER_LEDGER_OUT = Path("/docker/fleet/state/chummer6/ea_challenger_ledger.json")
-PROVIDER_SCHEDULER_OUT = Path("/docker/fleet/state/chummer6/ea_provider_scheduler.json")
-PROVIDER_HEALTH_OUT = Path("/docker/fleet/state/chummer6/ea_provider_health_registry.json")
-MEDIA_FACTORY_PROVIDER_HEALTH_OUT = Path("/docker/fleet/state/chummer6/media-factory/guide_provider_health.json")
+CHUMMER6_MEDIA_STATE_ROOT = Path(
+    os.environ.get("CHUMMER6_MEDIA_STATE_ROOT")
+    or EA_ROOT / ".codex-studio" / "published" / "chummer6_media"
+)
+STATE_OUT = Path(os.environ.get("CHUMMER6_EA_MEDIA_LAST_PATH") or CHUMMER6_MEDIA_STATE_ROOT / "ea_media_last.json")
+MANIFEST_OUT = Path(os.environ.get("CHUMMER6_EA_MEDIA_MANIFEST_PATH") or CHUMMER6_MEDIA_STATE_ROOT / "ea_media_manifest.json")
+SCENE_LEDGER_OUT = Path(os.environ.get("CHUMMER6_EA_SCENE_LEDGER_PATH") or CHUMMER6_MEDIA_STATE_ROOT / "ea_scene_ledger.json")
+CHALLENGER_LEDGER_OUT = Path(os.environ.get("CHUMMER6_EA_CHALLENGER_LEDGER_PATH") or CHUMMER6_MEDIA_STATE_ROOT / "ea_challenger_ledger.json")
+PROVIDER_SCHEDULER_OUT = Path(os.environ.get("CHUMMER6_EA_PROVIDER_SCHEDULER_PATH") or CHUMMER6_MEDIA_STATE_ROOT / "ea_provider_scheduler.json")
+PROVIDER_HEALTH_OUT = Path(os.environ.get("CHUMMER6_EA_PROVIDER_HEALTH_PATH") or CHUMMER6_MEDIA_STATE_ROOT / "ea_provider_health_registry.json")
+MEDIA_FACTORY_PROVIDER_HEALTH_OUT = Path(os.environ.get("CHUMMER6_MEDIA_FACTORY_PROVIDER_HEALTH_PATH") or CHUMMER6_MEDIA_STATE_ROOT / "media-factory" / "guide_provider_health.json")
 FLEET_STATE_ROOT = STATE_OUT.parent
+MEDIA_ASSET_ROOT = Path(os.environ.get("CHUMMER6_EA_MEDIA_ASSET_ROOT") or CHUMMER6_MEDIA_STATE_ROOT / "ea_media_assets")
+BROWSERACT_BOOTSTRAP_RUNTIME_ROOT = Path(
+    os.environ.get("CHUMMER6_BROWSERACT_BOOTSTRAP_RUNTIME_ROOT")
+    or EA_ROOT / ".codex-studio" / "published" / "browseract_bootstrap" / "runtime"
+)
 GUIDE_VISUAL_OVERRIDES = EA_ROOT / "chummer6_guide" / "VISUAL_OVERRIDES.json"
-MEDIA_FACTORY_ROOT = Path("/docker/fleet/repos/chummer-media-factory")
+MEDIA_FACTORY_ROOT = Path(os.environ.get("CHUMMER6_MEDIA_FACTORY_ROOT") or EA_ROOT / "third_party" / "chummer-media-factory")
 MEDIA_FACTORY_RENDER_SCRIPT = MEDIA_FACTORY_ROOT / "scripts" / "render_guide_asset.py"
-RELEASE_CONTROL_SCRIPT = Path("/docker/fleet/scripts/materialize_chummer_release_registry_projection.py")
+RELEASE_CONTROL_SCRIPT = Path(
+    os.environ.get("CHUMMER6_RELEASE_CONTROL_SCRIPT")
+    or EA_ROOT / "scripts" / "materialize_chummer_release_registry_projection.py"
+)
 RELEASE_BUILDER_SCRIPT = EA_ROOT / "scripts" / "chummer6_release_builder.py"
-RELEASE_MATRIX_OUT = Path("/docker/fleet/state/chummer6/chummer6_release_matrix.json")
-TROLL_MARK_PATH = Path("/docker/chummercomplete/Chummer6/assets/meta/chummer-troll.png")
-CHUMMER6_REPO_ROOT = Path("/docker/chummercomplete/Chummer6")
+RELEASE_MATRIX_OUT = Path(os.environ.get("CHUMMER6_RELEASE_MATRIX_PATH") or CHUMMER6_MEDIA_STATE_ROOT / "chummer6_release_matrix.json")
+TROLL_MARK_PATH = Path(os.environ.get("CHUMMER6_TROLL_MARK_PATH") or EA_ROOT / "chummer6_guide" / "assets" / "meta" / "chummer-troll.png")
+CHUMMER6_REPO_ROOT = Path(os.environ.get("CHUMMER6_REPO_ROOT") or EA_ROOT / "chummer6_guide")
+PREMIUM_CLEAN_IMAGE_FINISH_CLAUSE = (
+    "Premium clean image finish: crisp low-noise cinematic realism, clean faces, readable silhouettes, "
+    "crisp material edges, controlled highlights, and detailed non-crushed shadows. Keep grime, scratches, "
+    "rain, smoke, and wear as physical scene details only; avoid coarse analog texture, murky atmosphere, "
+    "posterized contour rendering, and speckled dark areas."
+)
+VISUAL_FINISH_REPLACEMENTS: tuple[tuple[str, str], ...] = (
+    ("heavy film grain", "crisp low-noise material detail"),
+    ("35mm film grain", "clean cinematic lensing"),
+    ("fine film grain", "clean low-noise finish"),
+    ("film grain", "low-noise cinematic finish"),
+    ("analog grain", "controlled cinematic texture"),
+    ("grainy", "clean and detailed"),
+    ("noisy shadows", "controlled detailed shadows"),
+    ("muddy haze", "clear atmospheric depth"),
+    ("over-sharpened grit", "crisp material edges"),
+    ("posterized contour-map rendering", "natural tonal depth"),
+    ("posterized contour pass", "natural tonal depth"),
+)
 DEFAULT_PROVIDER_ORDER = [
     "media_factory",
     "browseract_prompting_systems",
@@ -103,6 +135,10 @@ CANONICAL_RENDER_PROVIDERS = {
     "magixai",
     "onemin",
 }
+FEATURE_ASSET_POLICY_TARGETS = {
+    "assets/features/nexus-pan.png": "assets/horizons/nexus-pan.png",
+}
+FEATURE_ASSET_CANONICAL_TARGETS = {legacy: canonical for canonical, legacy in FEATURE_ASSET_POLICY_TARGETS.items()}
 PALETTES = [
     ("#0f766e", "#34d399"),
     ("#1d4ed8", "#7dd3fc"),
@@ -131,6 +167,7 @@ FLAGSHIP_POSTPASS_TARGETS = FIRST_CONTACT_TARGETS | frozenset(
         "assets/horizons/alice.png",
         "assets/horizons/jackpoint.png",
         "assets/horizons/nexus-pan.png",
+        "assets/features/nexus-pan.png",
         "assets/horizons/runbook-press.png",
         "assets/horizons/table-pulse.png",
         "assets/pages/parts-index.png",
@@ -161,6 +198,7 @@ PUBLIC_OVERLAY_TARGETS = frozenset(
         "assets/horizons/jackpoint.png",
         "assets/horizons/karma-forge.png",
         "assets/horizons/nexus-pan.png",
+        "assets/features/nexus-pan.png",
         "assets/horizons/runbook-press.png",
         "assets/horizons/runsite.png",
         "assets/horizons/table-pulse.png",
@@ -183,6 +221,7 @@ QUALITY_FOCUS_TARGETS = frozenset(
         "assets/horizons/alice.png",
         "assets/horizons/jackpoint.png",
         "assets/horizons/nexus-pan.png",
+        "assets/features/nexus-pan.png",
         "assets/horizons/runsite.png",
         "assets/horizons/runbook-press.png",
         "assets/horizons/table-pulse.png",
@@ -217,6 +256,7 @@ DIRECT_ONEMIN_SCENE_PROMPT_TARGETS = FIRST_CONTACT_TARGETS | frozenset(
         "assets/horizons/alice.png",
         "assets/horizons/jackpoint.png",
         "assets/horizons/nexus-pan.png",
+        "assets/features/nexus-pan.png",
         "assets/horizons/runbook-press.png",
         "assets/horizons/table-pulse.png",
         "assets/pages/parts-index.png",
@@ -237,6 +277,7 @@ DIRECT_ONEMIN_PREFERRED_TARGETS = frozenset(
         "assets/horizons/alice.png",
         "assets/horizons/jackpoint.png",
         "assets/horizons/nexus-pan.png",
+        "assets/features/nexus-pan.png",
         "assets/horizons/runbook-press.png",
         "assets/horizons/table-pulse.png",
         "assets/pages/parts-index.png",
@@ -257,6 +298,7 @@ STRICT_ONEMIN_MODEL_TARGETS = frozenset(
         "assets/horizons/alice.png",
         "assets/horizons/jackpoint.png",
         "assets/horizons/nexus-pan.png",
+        "assets/features/nexus-pan.png",
         "assets/horizons/runbook-press.png",
         "assets/horizons/table-pulse.png",
         "assets/pages/parts-index.png",
@@ -343,6 +385,28 @@ READABLE_JOKE_TOKENS = (
     "placard reads",
     "quote:",
 )
+
+
+def policy_target_key(target: str) -> str:
+    normalized = str(target or "").replace("\\", "/").strip()
+    return FEATURE_ASSET_POLICY_TARGETS.get(normalized, normalized)
+
+
+def canonical_asset_contract_key(target: str) -> str:
+    normalized = str(target or "").replace("\\", "/").strip()
+    return FEATURE_ASSET_CANONICAL_TARGETS.get(normalized, normalized)
+
+
+def asset_contract_lookup_keys(target: str) -> list[str]:
+    normalized = str(target or "").replace("\\", "/").strip()
+    policy_target = policy_target_key(normalized)
+    keys = [
+        normalized,
+        policy_target,
+        canonical_asset_contract_key(normalized),
+        canonical_asset_contract_key(policy_target),
+    ]
+    return [key for index, key in enumerate(keys) if key and key not in keys[:index]]
 
 
 LOCAL_ENV = load_local_env()
@@ -472,7 +536,7 @@ def _ea_local_cache_ttl_seconds() -> float:
 
 
 def _onemin_total_remaining_credits() -> int | None:
-    runtime_root = Path("/docker/fleet/state/browseract_bootstrap/runtime")
+    runtime_root = BROWSERACT_BOOTSTRAP_RUNTIME_ROOT
     if not runtime_root.exists():
         return None
     aggregate_files = sorted(runtime_root.glob("onemin_aggregate*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
@@ -584,7 +648,7 @@ def _onemin_slot_health_hints() -> dict[str, dict[str, object]]:
             }
         return parsed
 
-    runtime_root = Path("/docker/fleet/state/browseract_bootstrap/runtime")
+    runtime_root = BROWSERACT_BOOTSTRAP_RUNTIME_ROOT
     aggregate_files = sorted(runtime_root.glob("onemin_aggregate*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
     cache_key = "|".join(f"{path}:{int(path.stat().st_mtime)}" for path in aggregate_files[:4])
     if cache_key and _ONEMIN_SLOT_HEALTH_CACHE.get("cache_key") == cache_key:
@@ -621,7 +685,7 @@ def _onemin_slot_health_hints() -> dict[str, dict[str, object]]:
                 stale_hints = parsed
 
     if not hints:
-        route_script = Path("/docker/fleet/scripts/codexea_route.py")
+        route_script = Path(os.environ.get("CHUMMER6_CODEXEA_ROUTE_SCRIPT") or EA_ROOT / "scripts" / "codexea_route.py")
         if route_script.exists():
             try:
                 completed = subprocess.run(
@@ -1266,11 +1330,13 @@ def media_row_requests_easter_egg(*, target: str, row: dict[str, object] | None)
 
 
 def first_contact_target(target: str) -> bool:
-    return str(target or "").replace("\\", "/").strip() in FIRST_CONTACT_TARGETS
+    normalized = str(target or "").replace("\\", "/").strip()
+    return normalized in FIRST_CONTACT_TARGETS or policy_target_key(normalized) in FIRST_CONTACT_TARGETS
 
 
 def quality_focus_target(target: str) -> bool:
-    return str(target or "").replace("\\", "/").strip() in QUALITY_FOCUS_TARGETS
+    normalized = str(target or "").replace("\\", "/").strip()
+    return normalized in QUALITY_FOCUS_TARGETS or policy_target_key(normalized) in QUALITY_FOCUS_TARGETS
 
 
 def review_overlay_enabled(*, spec: dict[str, object] | None, image_path: Path | None = None) -> bool:
@@ -1352,28 +1418,35 @@ def _floatish(value: object, *, default: float = 0.0) -> float:
 
 def visual_density_profile_name_for_target(target: str) -> str:
     normalized = str(target or "").replace("\\", "/").strip()
+    policy_target = policy_target_key(normalized)
     page_types = _page_registry().get("page_types") if isinstance(_page_registry().get("page_types"), dict) else {}
-    if normalized == "assets/hero/chummer6-hero.png":
+    if policy_target == "assets/hero/chummer6-hero.png":
         return str((page_types.get("root_story") or {}).get("visual_density_profile") or "first_contact_hero").strip()
-    if normalized == "assets/pages/horizons-index.png":
+    if policy_target == "assets/pages/horizons-index.png":
         return str((page_types.get("horizon_index") or {}).get("visual_density_profile") or "page_index").strip()
-    if normalized == "assets/pages/parts-index.png":
+    if policy_target == "assets/pages/parts-index.png":
         return "page_index"
-    if normalized == "assets/horizons/karma-forge.png":
+    if policy_target == "assets/horizons/karma-forge.png":
         return "flagship_horizon"
     return ""
 
 
 def target_visual_contract(target: str) -> dict[str, object]:
     normalized = str(target or "").replace("\\", "/").strip()
+    policy_target = policy_target_key(normalized)
     briefs = _media_briefs()
     contracts = briefs.get("visual_contract") if isinstance(briefs.get("visual_contract"), dict) else {}
     asset_overlay_contracts = (
         briefs.get("asset_overlay_contracts") if isinstance(briefs.get("asset_overlay_contracts"), dict) else {}
     )
-    profile_name = visual_density_profile_name_for_target(normalized)
+    profile_name = visual_density_profile_name_for_target(policy_target)
     contract = dict(contracts.get(profile_name) or {}) if profile_name else {}
-    asset_contract = dict(asset_overlay_contracts.get(normalized) or {}) if isinstance(asset_overlay_contracts, dict) else {}
+    asset_contract: dict[str, object] = {}
+    if isinstance(asset_overlay_contracts, dict):
+        for lookup_key in asset_contract_lookup_keys(normalized):
+            asset_contract = dict(asset_overlay_contracts.get(lookup_key) or {})
+            if asset_contract:
+                break
     if not asset_contract and normalized == "README.md":
         asset_contract = dict(asset_overlay_contracts.get("assets/hero/chummer6-hero.png") or {})
     contract.update(asset_contract)
@@ -1385,7 +1458,7 @@ def target_visual_contract(target: str) -> dict[str, object]:
         )
     if briefs.get("world_marker_minimum") not in (None, ""):
         contract.setdefault("world_marker_minimum", briefs.get("world_marker_minimum"))
-    if normalized in FIRST_CONTACT_TARGETS:
+    if normalized in FIRST_CONTACT_TARGETS or policy_target in FIRST_CONTACT_TARGETS:
         critical_style = briefs.get("critical_asset_style_epoch")
         if isinstance(critical_style, dict):
             if isinstance(critical_style.get("overrides_shared_prompt_scaffold"), bool):
@@ -1397,7 +1470,7 @@ def target_visual_contract(target: str) -> dict[str, object]:
             contract.setdefault("critical_style_anchor", str(critical_style.get("style_anchor") or "").strip())
             contract.setdefault("critical_negative_prompt", str(critical_style.get("negative_prompt") or "").strip())
     page_types = _page_registry().get("page_types") if isinstance(_page_registry().get("page_types"), dict) else {}
-    if normalized == "assets/pages/horizons-index.png":
+    if policy_target == "assets/pages/horizons-index.png":
         horizon_index = page_types.get("horizon_index") if isinstance(page_types.get("horizon_index"), dict) else {}
         anchors = _string_list(contract.get("must_show_semantic_anchors"))
         anchors.extend(_string_list(horizon_index.get("must_show_semantic_anchors")))
@@ -1454,7 +1527,7 @@ def overlay_mode_for_target(target: str) -> str:
     )
     if normalized_mode:
         return normalized_mode
-    normalized = str(target or "").replace("\\", "/").strip()
+    normalized = policy_target_key(str(target or "").replace("\\", "/").strip())
     if normalized == "assets/hero/chummer6-hero.png":
         return "cyberarm_fit_diagnostic"
     if normalized == "assets/pages/horizons-index.png":
@@ -1872,23 +1945,28 @@ def _provider_scheduler_hold_seconds(*, provider: str) -> int:
 
 def target_family_for(target: str) -> str:
     normalized = str(target or "").replace("\\", "/").strip()
-    if normalized == "assets/hero/chummer6-hero.png":
+    policy_target = policy_target_key(normalized)
+    if policy_target == "assets/hero/chummer6-hero.png":
         return "hero_flagship"
-    if normalized == "assets/horizons/karma-forge.png":
+    if policy_target == "assets/horizons/karma-forge.png":
         return "forge_flagship"
-    if normalized == "assets/pages/horizons-index.png":
+    if policy_target == "assets/pages/horizons-index.png":
         return "index_flagship"
     if normalized in QUALITY_FOCUS_TARGETS:
         if normalized.startswith("assets/pages/"):
             return "weak_page"
         if normalized.startswith("assets/horizons/"):
             return "weak_horizon"
+        if normalized.startswith("assets/features/"):
+            return "weak_feature"
         if normalized.startswith("assets/parts/"):
             return "weak_part"
     if normalized.startswith("assets/pages/"):
         return "page"
     if normalized.startswith("assets/horizons/"):
         return "horizon"
+    if normalized.startswith("assets/features/"):
+        return "feature"
     if normalized.startswith("assets/parts/"):
         return "part"
     if normalized.startswith("assets/hero/"):
@@ -1963,9 +2041,9 @@ def provider_health_penalty(*, provider: str, target: str) -> int:
     family_key = target_family_for(target)
     family_entry = dict(families.get(family_key) or {})
     attempts = [dict(entry) for entry in (family_entry.get("recent_attempts") or []) if isinstance(entry, dict)][-6:]
-    if not attempts and family_key in {"weak_page", "weak_horizon", "weak_part"}:
+    if not attempts and family_key in {"weak_page", "weak_horizon", "weak_feature", "weak_part"}:
         related: list[dict[str, object]] = []
-        for key in ("weak_page", "weak_horizon", "weak_part"):
+        for key in ("weak_page", "weak_horizon", "weak_feature", "weak_part"):
             related.extend(dict(entry) for entry in (dict(families.get(key) or {}).get("recent_attempts") or []) if isinstance(entry, dict))
         attempts = related[-6:]
     penalty = 0
@@ -1990,9 +2068,9 @@ def provider_should_skip_for_health(*, provider: str, target: str) -> str:
     family_key = target_family_for(target)
     family_entry = dict(families.get(family_key) or {})
     attempts = [dict(entry) for entry in (family_entry.get("recent_attempts") or []) if isinstance(entry, dict)][-3:]
-    if not attempts and family_key in {"weak_page", "weak_horizon", "weak_part"}:
+    if not attempts and family_key in {"weak_page", "weak_horizon", "weak_feature", "weak_part"}:
         related: list[dict[str, object]] = []
-        for key in ("weak_page", "weak_horizon", "weak_part"):
+        for key in ("weak_page", "weak_horizon", "weak_feature", "weak_part"):
             related.extend(dict(entry) for entry in (dict(families.get(key) or {}).get("recent_attempts") or []) if isinstance(entry, dict))
         attempts = related[-3:]
     outcomes = [str(entry.get("outcome") or "").strip() for entry in attempts]
@@ -2403,6 +2481,7 @@ def provider_busy_delay_seconds() -> int:
 
 CANON_PARTS = load_part_canon()
 CANON_HORIZONS = load_horizon_canon()
+CANON_FEATURES = load_feature_canon()
 LEGACY_PART_SLUGS = {
     "ui": "presentation",
     "mobile": "play",
@@ -3294,7 +3373,7 @@ def load_visual_overrides() -> dict[str, dict[str, object]]:
     return normalized
 
 
-OVERRIDE_PATH = Path("/docker/fleet/state/chummer6/ea_overrides.json")
+OVERRIDE_PATH = Path(os.environ.get("CHUMMER6_EA_OVERRIDES_PATH") or CHUMMER6_MEDIA_STATE_ROOT / "ea_overrides.json")
 
 
 def shlex_command(env_name: str) -> list[str]:
@@ -4541,7 +4620,17 @@ def _ffmpeg_path(value: Path) -> str:
 
 
 def refine_prompt_local(prompt: str, *, target: str) -> str:
-    return " ".join(prompt.split()).strip()
+    cleaned = clean_visual_finish_language(prompt)
+    if cleaned and "Premium clean image finish:" not in cleaned:
+        cleaned = f"{cleaned} {PREMIUM_CLEAN_IMAGE_FINISH_CLAUSE}"
+    return cleaned
+
+
+def clean_visual_finish_language(text: object) -> str:
+    cleaned = " ".join(str(text or "").split()).strip()
+    for source, replacement in VISUAL_FINISH_REPLACEMENTS:
+        cleaned = re.sub(re.escape(source), replacement, cleaned, flags=re.IGNORECASE)
+    return " ".join(cleaned.split()).strip()
 
 
 def prompt_refinement_required() -> bool:
@@ -4657,7 +4746,7 @@ def refine_prompt_with_ooda(*, prompt: str, target: str) -> str:
 
 
 def sanitize_prompt_for_provider(prompt: str, *, provider: str) -> str:
-    cleaned = " ".join(str(prompt or "").split()).strip()
+    cleaned = clean_visual_finish_language(prompt)
     if not cleaned:
         return cleaned
     original = cleaned
@@ -4695,8 +4784,8 @@ def sanitize_prompt_for_provider(prompt: str, *, provider: str) -> str:
             "surgery": "calibration",
             "surgical": "repair",
             "cough syrup bottle": "recovery bottle",
-            "blood-soaked": "grimy",
-            "stress-soaked": "grimy",
+            "blood-soaked": "used",
+            "stress-soaked": "worn",
             "old blood smears": "recovery residue",
             "blood smear": "stress smear",
             "blood": "stress",
@@ -4712,6 +4801,8 @@ def sanitize_prompt_for_provider(prompt: str, *, provider: str) -> str:
             cleaned = cleaned.replace(src, dst)
         if cleaned != original:
             cleaned += " Adult Shadowrun tone is fine; keep the scene grounded, harsh, and non-graphic."
+        if "Premium clean image finish:" not in cleaned:
+            cleaned = f"{cleaned} {PREMIUM_CLEAN_IMAGE_FINISH_CLAUSE}"
     return cleaned
 
 
@@ -5085,7 +5176,7 @@ def first_contact_variant_count(*, target: str) -> int:
         if raw:
             value = int(raw)
         else:
-            normalized = str(target or "").replace("\\", "/").strip()
+            normalized = policy_target_key(str(target or "").replace("\\", "/").strip())
             value = {
                 "assets/hero/chummer6-hero.png": 10,
                 "assets/pages/horizons-index.png": 12,
@@ -5134,7 +5225,8 @@ def critical_visual_gate_failures(
     final_notes: list[str],
 ) -> list[str]:
     normalized = str(target or "").replace("\\", "/").strip()
-    if normalized not in CRITICAL_VISUAL_TARGETS:
+    policy_target = policy_target_key(normalized)
+    if normalized not in CRITICAL_VISUAL_TARGETS and policy_target not in CRITICAL_VISUAL_TARGETS:
         return []
     gate = {
         "assets/hero/chummer6-hero.png": {
@@ -5378,7 +5470,21 @@ def critical_visual_gate_failures(
                 "visual_audit:text_sprawl",
             },
         },
-    }.get(normalized, {})
+    }.get(normalized, {}) or {
+        "assets/horizons/nexus-pan.png": {
+            "min_base_score": 72.0,
+            "min_final_score": 315.0,
+            "reject_notes": {
+                "visual_audit:dead_negative_space",
+                "visual_audit:environment_share_too_low",
+                "visual_audit:low_semantic_density",
+                "visual_audit:readable_signage_risk",
+                "visual_audit:subject_crop_too_tight",
+                "visual_audit:text_sprawl",
+                "visual_audit:workzone_story_weak",
+            },
+        }
+    }.get(policy_target, {})
     failures: list[str] = []
     min_base_score = float(gate.get("min_base_score") or 0.0)
     if min_base_score and base_score < min_base_score:
@@ -6271,7 +6377,7 @@ def _static_first_contact_overlay_layout(*, target: str, width: int, height: int
                 {"x": int(width * 0.16), "y": int(height * 0.75), "text": "biomon live", "color": lime, "font_size": 9},
             ],
         }
-    if target == "assets/horizons/nexus-pan.png":
+    if policy_target_key(target) == "assets/horizons/nexus-pan.png":
         return {
             "fills": [
                 {"x": int(width * 0.07), "y": int(height * 0.10), "w": int(width * 0.13), "h": int(height * 0.005), "color": cyan},
@@ -7075,7 +7181,7 @@ def _flagship_finish_focus_mask(*, target: str, size: tuple[int, int]):
                 ),
                 fill=int(strength),
             )
-    elif target == "assets/horizons/nexus-pan.png":
+    elif policy_target_key(target) == "assets/horizons/nexus-pan.png":
         for left, top, right, bottom, strength in (
             (0.02, 0.08, 0.40, 0.92, 136),
             (0.20, 0.10, 0.72, 0.88, 178),
@@ -7457,7 +7563,7 @@ def _apply_flagship_finish_postpass_pillow(*, image_path: Path, target: str) -> 
             image = Image.composite(lifted, image, focus_mask)
         image.save(image_path)
         return "flagship_finish_postpass:applied_pillow_alice_custom"
-    elif target == "assets/horizons/nexus-pan.png":
+    elif policy_target_key(target) == "assets/horizons/nexus-pan.png":
         image = ImageEnhance.Brightness(image).enhance(1.07)
         image = ImageEnhance.Contrast(image).enhance(1.11)
         image = ImageEnhance.Color(image).enhance(1.09)
@@ -7639,7 +7745,7 @@ def _apply_flagship_finish_postpass_ffmpeg(*, image_path: Path, target: str) -> 
             "cas=strength=0.28,"
             "unsharp=5:5:0.78:3:3:0.0"
         )
-    elif target == "assets/horizons/nexus-pan.png":
+    elif policy_target_key(target) == "assets/horizons/nexus-pan.png":
         filtergraph = (
             "curves=all='0/0 0.13/0.11 0.53/0.58 0.89/0.95 1/1',"
             "eq=contrast=1.11:saturation=1.10:brightness=0.022:gamma=1.020,"
@@ -7829,7 +7935,7 @@ def _flagship_localized_repair_regions(*, target: str, width: int, height: int) 
                 "filter": "eq=contrast=0.97:saturation=0.94:brightness=-0.010,gblur=sigma=0.9",
             },
         ]
-    if target == "assets/horizons/nexus-pan.png":
+    if policy_target_key(target) == "assets/horizons/nexus-pan.png":
         return [
             {
                 "x": int(width * 0.06),
@@ -8177,7 +8283,7 @@ def _flagship_ambient_cue_layout(*, target: str, width: int, height: int) -> dic
                 {"x": int(width * 0.54), "y": int(height * 0.24), "w": int(width * 0.20), "h": int(height * 0.28), "color": (255, 184, 72, 32), "radius": max(18, width // 34)},
             ],
         }
-    if normalized == "assets/horizons/nexus-pan.png":
+    if policy_target_key(normalized) == "assets/horizons/nexus-pan.png":
         return {
             "lines": [
                 {"points": (int(width * 0.12), int(height * 0.74), int(width * 0.28), int(height * 0.60), int(width * 0.44), int(height * 0.52)), "color": (92, 230, 255, 72), "width": max(2, width // 360)},
@@ -9188,6 +9294,7 @@ def apply_text_suppression_repair_postpass(*, image_path: Path, spec: dict[str, 
         "assets/pages/horizons-index.png",
         "assets/horizons/jackpoint.png",
         "assets/horizons/nexus-pan.png",
+        "assets/features/nexus-pan.png",
         "assets/horizons/runbook-press.png",
         "assets/horizons/runsite.png",
         "assets/horizons/table-pulse.png",
@@ -10022,7 +10129,7 @@ def critical_asset_onemin_scene_brief(target: str) -> str:
             "Visible hazard guidance should already cling to the rig, glass shields, cyberlimb, and floor lanes as short chips and brackets about load spike, torque risk, ward bleed, and safest intervention, not as a wall display. Keep the finish in painted rulebook-cover realism instead of a dim office still, blurry photo, or etched contour pass. Seed Sixth World clues like a cropped DocWagon trauma wrap, Renraku sensor shell, devil-rat trap, and stale stim debris. "
             "No giant wall screen, no booth window, no framed display panel, no verdict sign, and no centered gallery mannequin posed like a product shot."
         )
-    if normalized == "assets/horizons/nexus-pan.png":
+    if policy_target_key(normalized) == "assets/horizons/nexus-pan.png":
         return (
             "Ultra-wide 16:9 illustrated Shadowrun reconnect-rig scene inside a battered van interior during an ugly live recovery. "
             "Set the camera several meters back and off-axis from the side door or rear quarter so cable nests, sync cradles, relay bricks, patch rails, rugged mounts, roof cabling, wet floor, door geometry, and a second teammate or drone shadow tell most of the story. "
@@ -10191,7 +10298,7 @@ def critical_asset_onemin_scene_prompt(*, target: str, row: dict[str, object], c
             ),
             limit=2200,
         )
-    if normalized == "assets/horizons/nexus-pan.png":
+    if policy_target_key(normalized) == "assets/horizons/nexus-pan.png":
         return clip_prompt_text(
             " ".join(
                 [
@@ -10460,9 +10567,10 @@ def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
         row = {}
     contract = row.get("scene_contract") if isinstance(row, dict) else {}
     target = str(spec.get("target") or "").strip()
+    policy_target = policy_target_key(target)
     if not isinstance(contract, dict):
         return sanitize_prompt_for_provider(prompt, provider="onemin")
-    critical_asset = target in DIRECT_ONEMIN_SCENE_PROMPT_TARGETS
+    critical_asset = target in DIRECT_ONEMIN_SCENE_PROMPT_TARGETS or policy_target in DIRECT_ONEMIN_SCENE_PROMPT_TARGETS
     subject = compact_text(contract.get("subject") or "a cyberpunk protagonist", limit=88)
     environment = compact_text(contract.get("environment") or "a neon-lit cyberpunk setting", limit=92)
     action = compact_text(contract.get("action") or "holding the moment together", limit=104)
@@ -10476,7 +10584,7 @@ def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
     framing = compact_text(row.get("framing") or contract.get("framing") or "", limit=92)
     avoid = compact_text(row.get("avoid") or contract.get("avoid") or "", limit=150)
     if critical_asset:
-        direct_flagship_prompt = critical_asset_onemin_scene_prompt(target=target, row=row, contract=contract)
+        direct_flagship_prompt = critical_asset_onemin_scene_prompt(target=policy_target, row=row, contract=contract)
         if direct_flagship_prompt:
             detail_parts = [
                 compact_text(row.get("visual_prompt") or "", limit=220),
@@ -10488,15 +10596,15 @@ def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
             sanitized = sanitize_prompt_for_provider(stitched, provider="onemin")
             return clip_prompt_text(sanitized, limit=2200)
     if critical_asset:
-        visual_seed_source = critical_asset_onemin_scene_brief(target) or row.get("replace_visual_prompt") or row.get("visual_prompt") or prompt or ""
+        visual_seed_source = critical_asset_onemin_scene_brief(policy_target) or row.get("replace_visual_prompt") or row.get("visual_prompt") or prompt or ""
         visual_seed = clip_prompt_text(" ".join(str(visual_seed_source or "").split()).strip(), limit=760)
     else:
         visual_seed = compact_text(row.get("visual_prompt") or prompt or "", limit=220)
-    overlay_clause = overlay_mode_prompt_clause(target=target)
-    story_clause = lived_story_clause(target)
-    recurring_clause = chummer_dev_clause(target)
+    overlay_clause = overlay_mode_prompt_clause(target=policy_target)
+    story_clause = lived_story_clause(policy_target)
+    recurring_clause = chummer_dev_clause(policy_target)
     hard_block = ""
-    if target in {
+    if policy_target in {
         "assets/hero/chummer6-hero.png",
         "assets/hero/poc-warning.png",
         "assets/pages/start-here.png",
@@ -10506,7 +10614,7 @@ def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
         "assets/pages/horizons-index.png",
     }:
         hard_block = "If a signboard, poster, label plate, crate stencil, jacket patch, or glowing panel starts to become readable, remove it entirely and keep the composition environmental."
-    elif target in {
+    elif policy_target in {
         "assets/pages/what-chummer6-is.png",
         "assets/pages/where-to-go-deeper.png",
         "assets/parts/core.png",
@@ -10521,34 +10629,34 @@ def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
         "assets/horizons/runbook-press.png",
     }:
         hard_block = "If a paper, binder tab, monitor, sheet front, or handheld screen starts to face camera, remove it and replace it with chips, sleeves, rails, clamps, bands, or abstract light traces."
-    if target == "assets/hero/chummer6-hero.png":
+    if policy_target == "assets/hero/chummer6-hero.png":
         hard_block += " The hero must show a bright streetdoc shack or converted clinic bay where a runner is getting a new cyberarm fitted by a visibly augmented streetdoc or cybertech, with an assistant, teammate, or witness in frame. The cyberarm, surgical clamps, implant trays, tool wall, med rig, warm clinic lamps, vivid color spill, wet floor, and street-level clutter must read before any abstract mood. Show the full bay and its surroundings, including floor, shelves, doorway, and treatment hardware, not a tight bedside crop. Any readable AR text must be useful to the runner or streetdoc, such as NERVE SYNC, JOINT SEAL, GRIP TEST, PAIN WATCH, or TORQUE LIMIT, and must anchor to implant work. No generic HUD menus, pseudo-writing, shop signs, crate desk, seated brood, dominant face crop, hallway symmetry, or blown-out doorway panel."
-    elif target == "assets/pages/what-chummer6-is.png":
+    elif policy_target == "assets/pages/what-chummer6-is.png":
         hard_block += " Show enough of the room and proof anchors to explain the tool; no face-only portrait, no whiteboard glamour, and no giant blank panel."
-    elif target in {"assets/pages/current-status.png", "assets/pages/public-surfaces.png"}:
+    elif policy_target in {"assets/pages/current-status.png", "assets/pages/public-surfaces.png"}:
         hard_block += " Keep any device fully secondary or absent; the wall, shelf, glass, and weathered public surface must carry the frame."
-    elif target in {"assets/pages/parts-index.png", "assets/pages/horizons-index.png"}:
+    elif policy_target in {"assets/pages/parts-index.png", "assets/pages/horizons-index.png"}:
         hard_block += " Treat this as an environment map first; human figures should stay minimal, partial, or plural, and no title-card centerpiece is allowed. No lone centered silhouette, no trio of back-facing figures marching toward center, no central sign panel, no menu slab, no glowing billboard, no single corridor vanishing point, and no directory board may take over the frame."
-    elif target == "assets/horizons/karma-forge.png":
+    elif policy_target == "assets/horizons/karma-forge.png":
         hard_block += " Prefer a visible reviewer, witness, or second active figure at the approval rail. Show the full research forge and surrounding materials-test lab, not a tight two-person workstation crop. The assay rig, sample racks, crucible chamber, and approval hardware must occupy more space than the operators. Do not show fire worship, an anvil, magic runes, glowing letterforms, a fantasy forge pose, paper sheets in hand, loose card inspection, two people sitting at a table, a paperwork workshop, a perfect cathedral-front symmetry shot, or a tabletop spread of cards as the whole scene; publication-control hardware, rollback machinery, active test rig hardware, and diff pressure must carry the image."
-    elif target == "assets/horizons/runsite.png":
+    elif policy_target == "assets/horizons/runsite.png":
         hard_block += " Planning cues must cling to walls, floors, rails, and crate edges in the real space; never a bright freestanding hologram slab."
-    elif target == "assets/horizons/nexus-pan.png":
+    elif policy_target == "assets/horizons/nexus-pan.png":
         hard_block += " Keep the reconnect lane buried inside van hardware: cable nests, sync cradles, patch rails, relay bricks, and roof cabling must outrank the operator. No windshield shop-copy, no readable exterior window bleed, no dashboard wall, and no device raised toward camera."
-    elif target == "assets/parts/core.png":
+    elif policy_target == "assets/parts/core.png":
         hard_block += " The rules truth must live on a standing proof rail in a dirty Sixth World bay, not on a desk. Show a visibly augmented metahuman referee, obvious cyberware, diegetic AR traces, and hard lore crumbs. No sticky notes, no whiteboard, no generic office, and no tabletop dice ritual."
-    elif target == "assets/parts/design.png":
+    elif policy_target == "assets/parts/design.png":
         hard_block += " Design must read as a Shadowrun tactical war room of maquettes, route strings, prototype shards, and ownership pressure. Show at least one visibly augmented metahuman and clear Sixth World lore crumbs. No blueprint wall, no architecture board, no drafting table, and no office planning room."
-    elif target == "assets/parts/hub.png":
+    elif policy_target == "assets/parts/hub.png":
         hard_block += " Break tunnel symmetry and avoid a single white vanishing point. The hosted state must read through racks, patch bays, relay seams, cartridge housings, and service cuts, never through a monitor wall or a centered runway corridor."
-    elif target == "assets/parts/ui-kit.png":
+    elif policy_target == "assets/parts/ui-kit.png":
         hard_block += " Shared chrome must live across a vertical review board, clipped component rail, and hanging sample frame with one visibly augmented designer in motion. No paired monitors, no sterile showroom, no desk-only swatch wall, and no generic product-design lab."
-    elif target == "assets/parts/hub-registry.png":
+    elif policy_target == "assets/parts/hub-registry.png":
         hard_block += " Registry must read as a grimy intake lane with shelves, bins, scanner rails, quarantine sleeves, and one visibly augmented registrar embedded in the archive. No clean library aisle, no office records room, no desk stack, and no generic file archive."
-    elif target == "assets/horizons/runbook-press.png":
+    elif policy_target == "assets/horizons/runbook-press.png":
         hard_block += " Keep sheets edge-on, clipped, or half-obscured inside the mechanism; never presented frontally like a readable page."
     if critical_asset:
-        overlay_mode = overlay_mode_for_target(target)
+        overlay_mode = overlay_mode_for_target(policy_target)
         parts = [
             flagship_prompt_intro(target, fallback="Grounded cinematic Shadowrun scene still."),
             "Render the first pass as a clean, geometry-rich scene that a second-stage smart-glasses planner can inspect. If diegetic AR appears in the base art, keep it faint, sparse, and welded to real geometry so verified post-composite chooses the final explicit chips instead of fighting the painting.",
@@ -10563,7 +10671,7 @@ def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
             f"Moment: {action}." if action else "",
             f"Framing: {framing}." if framing else "",
             f"Composition: {composition}." if composition else "",
-            " ".join(visual_contract_prompt_parts(target=target)) if target else "",
+            " ".join(visual_contract_prompt_parts(target=policy_target)) if policy_target else "",
             f"Key props: {props}." if props else "",
             (
                 "If any diegetic AR appears in the hero base scene, it must be runner-facing cyberarm fit diagnostics: NERVE SYNC, JOINT SEAL, GRIP TEST, PAIN WATCH, TORQUE LIMIT, calibration rings, seam traces, clamp brackets, color dots, and alignment glows anchored to the cyberarm, clamps, tools, or med rig. No generic HUD menus, pseudo-writing, signs, or detached label slabs."
@@ -10951,7 +11059,7 @@ def ooda_variant_prompt(
                 "alice_reframe",
                 "ALICE correction: use an oblique crash-lab angle across the test lane rather than a centered shrine or stage display, and keep the operator and mannequin secondary to the room hardware."
             )
-    elif normalized == "assets/horizons/nexus-pan.png" and (correction_tags or variant >= 1):
+    elif policy_target_key(normalized) == "assets/horizons/nexus-pan.png" and (correction_tags or variant >= 1):
         _add_correction(
             "nexus_rig_density",
             "Nexus-PAN correction: anchor the scene inside a cramped van or service-rig interior packed with sync cradles, patch bays, cable nests, relay bricks, rugged side rails, roof cabling, and battered reconnect hardware so the mesh lane reads before the operator."
@@ -11120,7 +11228,7 @@ def ooda_variant_prompt(
                 "ui_reframe",
                 "UI correction: use a tighter oblique bench angle with a clear foreground prop cluster, midground hands, and background inspection surfaces so the scene reads like active build work instead of wall browsing."
             )
-    elif normalized in {
+    elif policy_target_key(normalized) in {
         "assets/horizons/alice.png",
         "assets/horizons/nexus-pan.png",
         "assets/horizons/runsite.png",
@@ -11213,7 +11321,7 @@ def ooda_variant_spec(
         "assets/horizons/nexus-pan.png": ["magixai", "media_factory", "browseract_prompting_systems", "browseract_magixai"],
         "assets/parts/core.png": ["magixai", "media_factory", "browseract_prompting_systems", "browseract_magixai"],
         "assets/parts/media-factory.png": ["magixai", "browseract_magixai", "browseract_prompting_systems"],
-    }.get(normalized, [])
+    }.get(policy_target_key(normalized), [])
     if flagship_rotation:
         rotated_provider = flagship_rotation[(variant - 1) % len(flagship_rotation)]
         before = providers[0] if providers else ""
@@ -11296,7 +11404,7 @@ def ooda_variant_spec(
     } & notes:
         _prioritize("media_factory")
         provider_tags.append("prefer_media_factory_forge_apparatus")
-    if normalized == "assets/horizons/nexus-pan.png" and {
+    if policy_target_key(normalized) == "assets/horizons/nexus-pan.png" and {
         "visual_audit:insufficient_flash",
         "critical_visual_gate:insufficient_flash",
         "visual_audit:environment_share_too_low",
@@ -11535,9 +11643,13 @@ def asset_specs() -> list[dict[str, object]]:
         raise RuntimeError("missing page section OODA in EA output")
 
     def apply_visual_override(target: str, row: dict[str, object]) -> dict[str, object]:
-        if str(target or "").replace("\\", "/").strip() in CANON_LOCKED_TARGETS:
+        normalized_target = str(target or "").replace("\\", "/").strip()
+        policy_target = policy_target_key(normalized_target)
+        if normalized_target in CANON_LOCKED_TARGETS or policy_target in CANON_LOCKED_TARGETS:
             return sanitize_media_row(target=target, row=row)
-        override = visual_overrides.get(target)
+        override = visual_overrides.get(normalized_target)
+        if not isinstance(override, dict):
+            override = visual_overrides.get(policy_target)
         if not isinstance(override, dict):
             return sanitize_media_row(target=target, row=row)
         merged = deep_merge(row, override)
@@ -12104,7 +12216,8 @@ def asset_specs() -> list[dict[str, object]]:
     }
 
     def scene_policy_for_target(target: str) -> dict[str, object]:
-        return dict(target_scene_policies.get(target) or {})
+        normalized_target = str(target or "").replace("\\", "/").strip()
+        return dict(target_scene_policies.get(normalized_target) or target_scene_policies.get(policy_target_key(normalized_target)) or {})
 
     def planned_scene_row(target: str, row: dict[str, object]) -> dict[str, str]:
         contract = row.get("scene_contract") if isinstance(row.get("scene_contract"), dict) else {}
@@ -12285,7 +12398,7 @@ def asset_specs() -> list[dict[str, object]]:
             ("assets/horizons/alice.png", "simulation_lab"),
             ("assets/horizons/jackpoint.png", "archive_room"),
             ("assets/horizons/karma-forge.png", "approval_rail"),
-            ("assets/horizons/nexus-pan.png", "van_interior"),
+            ("assets/features/nexus-pan.png", "van_interior"),
             ("assets/horizons/runbook-press.png", "proof_room"),
         ):
             match = next((spec for spec in audited_specs if str(spec.get("target") or "") == expected_target), None)
@@ -12335,6 +12448,28 @@ def asset_specs() -> list[dict[str, object]]:
                 "target": target,
                 "role": f"{slug} part page",
                 "prompt": render_prompt_from_row(row, role=f"{slug} part page", target=target),
+                "width": 1600,
+                "height": 900,
+                "media_row": row,
+                "style_epoch": style_epoch,
+                "providers": provider_order(),
+            }
+        )
+    feature_overrides = media.get("features") if isinstance(media, dict) else {}
+    legacy_horizon_overrides = media.get("horizons") if isinstance(media, dict) else {}
+    for slug, item in CANON_FEATURES.items():
+        override = feature_overrides.get(slug) if isinstance(feature_overrides, dict) else None
+        if not isinstance(override, dict):
+            override = legacy_horizon_overrides.get(slug) if isinstance(legacy_horizon_overrides, dict) else None
+        if not isinstance(override, dict) or not str(override.get("visual_prompt", "")).strip():
+            override = fallback_horizon_media_row(slug, item)
+        target = f"assets/features/{slug}.png"
+        row = apply_visual_override(target, override)
+        specs.append(
+            {
+                "target": target,
+                "role": f"{slug} feature page",
+                "prompt": render_prompt_from_row(row, role=f"{slug} feature page", target=target),
                 "width": 1600,
                 "height": 900,
                 "media_row": row,
@@ -12888,11 +13023,11 @@ def main() -> int:
     render.add_argument("--height", type=int, default=720)
     render.add_argument("--reference-image")
     render_pack_parser = sub.add_parser("render-pack")
-    render_pack_parser.add_argument("--output-dir", default="/docker/fleet/state/chummer6/ea_media_assets")
+    render_pack_parser.add_argument("--output-dir", default=str(MEDIA_ASSET_ROOT))
     render_pack_parser.add_argument("--skip-release-build", action="store_true")
     render_targets_parser = sub.add_parser("render-targets")
     render_targets_parser.add_argument("--target", action="append", required=True)
-    render_targets_parser.add_argument("--output-dir", default="/docker/fleet/state/chummer6/ea_media_assets")
+    render_targets_parser.add_argument("--output-dir", default=str(MEDIA_ASSET_ROOT))
     render_targets_parser.add_argument("--build-release", action="store_true")
     args = parser.parse_args()
 

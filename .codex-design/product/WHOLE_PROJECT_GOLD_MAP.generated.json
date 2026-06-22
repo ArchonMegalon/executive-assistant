@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.whole_project_gold_map",
-  "generated_at": "2026-06-18T16:01:19Z",
+  "generated_at": "2026-06-22T15:38:26Z",
   "generated_by": "scripts/materialize_whole_project_gold_map.py",
-  "source_git_head": "e739be479a4e9e7c2b364259d7a8b15e9d9318e6",
+  "source_git_head": "8e6c434f4b8e7f1e1c87e1c6b3fdc566915cc85c",
   "head_semantics": "source_state",
   "head_semantics_note": "source_git_head records the proved source state. Generated-only artifact commits may advance repository HEAD without changing the source state that the receipts prove.",
   "output_path": ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
@@ -24,6 +24,10 @@
   ],
   "blocking_planes": [
     "design_surface",
+    "chummer_core_rules",
+    "chummer_desktop_ui",
+    "chummer_hub_public_web",
+    "mobile_and_second_device",
     "media_factory_publication",
     "telegram_video_delivery",
     "memorial_public_origin_gold",
@@ -51,7 +55,7 @@
       "status": "pass",
       "claim": "Fleet journey gates are separate evidence; EA only consumes their generated summary.",
       "evidence": [
-        "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json"
+        "ea/_completion/fleet/JOURNEY_GATES.generated.json"
       ],
       "missing_evidence": [],
       "design_notes": []
@@ -65,7 +69,11 @@
       "evidence": [
         ".codex-design/repo/MIRROR_SCOPE_BOUNDARY.md"
       ],
-      "missing_evidence": [],
+      "missing_evidence": [
+        "canonical Chummer product/UI design review receipt from the owning design repo",
+        "public/human-facing Chummer documentation humanization review receipt",
+        "desktop/public surface visual polish acceptance receipt from the owning UI repo"
+      ],
       "design_notes": [
         "Whole-project design gold requires canonical product/UI review receipts outside the EA mirror.",
         "The EA mirror may be green while product-wide visual polish remains unproven."
@@ -75,67 +83,71 @@
       "key": "chummer_core_rules",
       "title": "Chummer Core Rules And Data Correctness",
       "owner_repo": "chummer6-core",
-      "status": "pass",
+      "status": "unknown_missing_receipt",
       "claim": "Chummer core rules/data correctness is accepted only when the external rule-authority gold and completion receipts pass.",
-      "evidence": [
-        "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/OPERATOR_PROMOTED_RULE_AUTHORITY_GOLD.generated.json",
-        "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/FULL_PRODUCT_RULE_AUTHORITY_COMPLETION.generated.json"
+      "evidence": [],
+      "missing_evidence": [
+        "ea/_completion/chummer_cross_repo/chummer-core-engine/OPERATOR_PROMOTED_RULE_AUTHORITY_GOLD.generated.json",
+        "ea/_completion/chummer_cross_repo/chummer-core-engine/FULL_PRODUCT_RULE_AUTHORITY_COMPLETION.generated.json"
       ],
-      "missing_evidence": [],
       "design_notes": []
     },
     {
       "key": "chummer_desktop_ui",
       "title": "Chummer Desktop/UI Product Surface",
       "owner_repo": "chummer6-ui",
-      "status": "pass",
+      "status": "unknown_missing_receipt",
       "claim": "Desktop/UI readiness is accepted only when executable, visual familiarity, and layout hard-gate receipts pass.",
-      "evidence": [
-        "/docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_EXECUTABLE_EXIT_GATE.generated.json",
-        "/docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_VISUAL_FAMILIARITY_EXIT_GATE.generated.json",
-        "/docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_LAYOUT_HARD_GATE.generated.json"
+      "evidence": [],
+      "missing_evidence": [
+        "ea/_completion/chummer_cross_repo/chummer-presentation/DESKTOP_EXECUTABLE_EXIT_GATE.generated.json",
+        "ea/_completion/chummer_cross_repo/chummer-presentation/DESKTOP_VISUAL_FAMILIARITY_EXIT_GATE.generated.json",
+        "ea/_completion/chummer_cross_repo/chummer-presentation/CHUMMER5A_LAYOUT_HARD_GATE.generated.json"
       ],
-      "missing_evidence": [],
       "design_notes": []
     },
     {
       "key": "chummer_hub_public_web",
       "title": "Chummer Hub And Public Web",
       "owner_repo": "chummer6-hub",
-      "status": "pass",
+      "status": "unknown_missing_receipt",
       "claim": "Hub/public web readiness is accepted only when flagship readiness, public origin reachability, and shell clickability receipts pass.",
-      "evidence": [
-        "/docker/chummercomplete/chummer.run-services/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json",
-        "/docker/chummercomplete/chummer.run-services/.codex-studio/published/PUBLIC_ORIGIN_REACHABILITY_GATE.generated.json",
-        "/docker/chummercomplete/chummer.run-services/.codex-studio/published/PUBLIC_SHELL_CLICKABILITY_GATE.generated.json"
+      "evidence": [],
+      "missing_evidence": [
+        "ea/_completion/chummer_cross_repo/chummer.run-services/FLAGSHIP_PRODUCT_READINESS.generated.json",
+        "ea/_completion/chummer_cross_repo/chummer.run-services/PUBLIC_ORIGIN_REACHABILITY_GATE.generated.json",
+        "ea/_completion/chummer_cross_repo/chummer.run-services/PUBLIC_SHELL_CLICKABILITY_GATE.generated.json"
       ],
-      "missing_evidence": [],
       "design_notes": []
     },
     {
       "key": "mobile_and_second_device",
       "title": "Mobile And Second-Device Continuation",
       "owner_repo": "mobile / hub",
-      "status": "pass",
+      "status": "unknown_missing_receipt",
       "claim": "Mobile readiness is accepted only when the Chummer play/mobile local release proof passes.",
-      "evidence": [
-        "/docker/chummercomplete/chummer-play/.codex-studio/published/MOBILE_LOCAL_RELEASE_PROOF.generated.json"
+      "evidence": [],
+      "missing_evidence": [
+        "ea/_completion/chummer_cross_repo/chummer-play/MOBILE_LOCAL_RELEASE_PROOF.generated.json"
       ],
-      "missing_evidence": [],
       "design_notes": []
     },
     {
       "key": "media_factory_publication",
       "title": "Media Factory And Video Publication",
       "owner_repo": "EA / Chummer media factory",
-      "status": "bounded_pass",
+      "status": "unknown_missing_receipt",
       "claim": "Published Black Ledger live media is accepted when its live media proof passes; future provider candidates remain draft/operator until asset-specific receipts exist.",
       "evidence": [
-        "/docker/chummercomplete/chummer.run-services/.codex-studio/published/BLACK_LEDGER_LIVE_MEDIA_PROOF.generated.json",
         "scripts/verify_ltd_provider_lanes.py",
         ".codex-design/ea/POPPY_DRAFT_WORKFLOW.md"
       ],
-      "missing_evidence": [],
+      "missing_evidence": [
+        "ea/_completion/chummer_cross_repo/chummer.run-services/BLACK_LEDGER_LIVE_MEDIA_PROOF.generated.json",
+        "asset-specific media factory publication receipt for each promoted video/horizon asset",
+        "provider candidate promotion receipt before MagicFit, JoggAI, Poppy, or avatar lanes can count as publication proof",
+        "human publication approval receipt for generated media leaving the operator lab"
+      ],
       "design_notes": [
         "This is a bounded publication pass for current Black Ledger live media, not a blanket promotion of MagicFit, JoggAI, Poppy, or avatar candidate lanes."
       ]
@@ -147,10 +159,13 @@
       "status": "bounded_pass",
       "claim": "Telegram video replies are accepted only when source-video download safety, governed render lanes, durable delivery receipts, and live operator message-ID proof are present.",
       "evidence": [
-        ".codex-studio/published/telegram_video_delivery_operator.generated.json"
+        ".codex-studio/published/telegram_video_delivery_operator.generated.json",
+        ".codex-studio/published/telegram_video_delivery_live.generated.json"
       ],
       "missing_evidence": [
-        "live Telegram video delivery receipt with operator message ID and delivery observation"
+        ".codex-studio/published/telegram_video_delivery_live.generated.json status=blocked: live_observation_missing, video_sent_text_ack_without_delivery_receipt",
+        "live_observation_missing",
+        "video_sent_text_ack_without_delivery_receipt"
       ],
       "design_notes": [
         "Local source-video edits can be a bounded operator lane.",
@@ -202,23 +217,49 @@
       "evidence": [
         "scripts/verify_ltd_provider_lanes.py"
       ],
-      "missing_evidence": [],
+      "missing_evidence": [
+        "LTD provider lane check pending: fliplink_document_portal:first_publication_receipt",
+        "LTD provider lane check pending: hedy_meeting_evidence:hedy_provider_capability",
+        "LTD provider lane check pending: markupgo_fliplink_premium_delivery:markupgo_provider_proof",
+        "LTD provider lane check pending: markupgo_fliplink_premium_delivery:premium_delivery_receipt",
+        "LTD provider lane check pending: approvethis_external_approval_edge:approvethis_provider_capability",
+        "LTD provider lane check pending: documentation_ai_publication:documentation_ai_provider_capability",
+        "LTD provider lane check pending: documentation_ai_publication:documentation_llms_txt",
+        "LTD provider lane check pending: unmixr_voice_runtime:voice_roundtrip_validation",
+        "LTD provider lane check pending: subscribr_chummer_script_factory:api_token_private",
+        "LTD provider lane check pending: subscribr_chummer_script_factory:channel_map",
+        "LTD provider lane check pending: subscribr_chummer_script_factory:script_roundtrip",
+        "LTD provider lane check pending: subscribr_chummer_script_factory:source_binding"
+      ],
       "design_notes": [
-        "lane_count=12",
-        "runtime_lane_count=3",
-        "draft_or_operator_lane_count=9"
+        "lane_count=16",
+        "runtime_lane_count=1",
+        "draft_or_operator_lane_count=15",
+        "provider_contract_status=contract_pass_live_provider_pending",
+        "provider_contract_proof_scope=local_contract_exercise",
+        "provider_contract_live_verified=False",
+        "contract_backed_check_count=14",
+        "whole_project_pending_lane_count=7",
+        "whole_project_excluded_lane_count=8",
+        "missing_lane_check_count=12"
       ]
     }
   ],
   "ltd_provider_lane_summary": {
     "contract_name": "ea.verify_ltd_provider_lanes",
     "status": "pass",
-    "lane_count": 12,
-    "runtime_lane_count": 3,
-    "draft_or_operator_lane_count": 9,
+    "lane_count": 16,
+    "runtime_lane_count": 1,
+    "draft_or_operator_lane_count": 15,
     "poppy_runtime_enabled": false,
     "poppy_lane_state": "verified_draft_operator_lane",
     "draft_or_operator_lanes": [
+      "fliplink_document_portal",
+      "hedy_meeting_evidence",
+      "markupgo_fliplink_premium_delivery",
+      "approvethis_external_approval_edge",
+      "documentation_ai_publication",
+      "unmixr_voice_runtime",
       "magicfit_media_factory_candidate",
       "poppy_draft_workbench",
       "public_signal_ingest",
@@ -228,13 +269,98 @@
       "operator_control_plane",
       "video_provider_bakeoff",
       "commercial_ops"
-    ]
+    ],
+    "whole_project_pending_lanes": [
+      "fliplink_document_portal",
+      "hedy_meeting_evidence",
+      "markupgo_fliplink_premium_delivery",
+      "approvethis_external_approval_edge",
+      "documentation_ai_publication",
+      "unmixr_voice_runtime",
+      "subscribr_chummer_script_factory"
+    ],
+    "whole_project_excluded_lanes": [
+      "magicfit_media_factory_candidate",
+      "poppy_draft_workbench",
+      "public_signal_ingest",
+      "docs_draft_factory",
+      "prompt_foundry",
+      "operator_control_plane",
+      "video_provider_bakeoff",
+      "commercial_ops"
+    ],
+    "missing_lane_checks": [
+      "fliplink_document_portal:first_publication_receipt",
+      "hedy_meeting_evidence:hedy_provider_capability",
+      "markupgo_fliplink_premium_delivery:markupgo_provider_proof",
+      "markupgo_fliplink_premium_delivery:premium_delivery_receipt",
+      "approvethis_external_approval_edge:approvethis_provider_capability",
+      "documentation_ai_publication:documentation_ai_provider_capability",
+      "documentation_ai_publication:documentation_llms_txt",
+      "unmixr_voice_runtime:voice_roundtrip_validation",
+      "subscribr_chummer_script_factory:api_token_private",
+      "subscribr_chummer_script_factory:channel_map",
+      "subscribr_chummer_script_factory:script_roundtrip",
+      "subscribr_chummer_script_factory:source_binding"
+    ],
+    "provider_contracts": {
+      "local_contracts_present": true,
+      "status": "contract_pass_live_provider_pending",
+      "proof_scope": "local_contract_exercise",
+      "live_provider_runtime_verified": false,
+      "gold_claim_allowed": false,
+      "required_next_receipts": [
+        "_completion/approvethis/APPROVETHIS_PROVIDER_CAPABILITY.generated.json",
+        "_completion/approvethis/APPROVETHIS_WEBHOOK_SIGNATURE.generated.json",
+        "_completion/documentation_ai/DOCUMENTATION_AI_LLMS_TXT.generated.json",
+        "_completion/documentation_ai/DOCUMENTATION_AI_PROVIDER_CAPABILITY.generated.json",
+        "_completion/hedy/HEDY_LIVE_WEBHOOK_TO_EA_REVIEW_QUEUE.generated.json",
+        "_completion/hedy/HEDY_PROVIDER_CAPABILITY.generated.json",
+        "_completion/hedy/HEDY_WEBHOOK_SIGNATURE.generated.json",
+        "_completion/markupgo/MARKUPGO_PROVIDER_VERIFICATION.generated.json",
+        "_completion/pixefy/EA_PIXEFY_VISUAL_TARGETS.generated.json",
+        "_completion/premium_delivery/EA_PREMIUM_DELIVERY_ROUNDTRIP.generated.json",
+        "_completion/rafter/EA_RAFTER_SECURITY_TARGETS.generated.json",
+        "approvethis_external_approval_e2e.generated.json",
+        "documentation_ai_publication_e2e.generated.json",
+        "ea_release_quality_gates_e2e.generated.json",
+        "premium_packet_to_delivery_e2e.generated.json"
+      ]
+    },
+    "contract_backed_check_count": 14
   },
   "required_next_receipts": [
-    "design_surface requires an owning-plane pass receipt",
-    "media_factory_publication requires an owning-plane pass receipt",
-    "live Telegram video delivery receipt with operator message ID and delivery observation",
+    "canonical Chummer product/UI design review receipt from the owning design repo",
+    "public/human-facing Chummer documentation humanization review receipt",
+    "desktop/public surface visual polish acceptance receipt from the owning UI repo",
+    "ea/_completion/chummer_cross_repo/chummer-core-engine/OPERATOR_PROMOTED_RULE_AUTHORITY_GOLD.generated.json",
+    "ea/_completion/chummer_cross_repo/chummer-core-engine/FULL_PRODUCT_RULE_AUTHORITY_COMPLETION.generated.json",
+    "ea/_completion/chummer_cross_repo/chummer-presentation/DESKTOP_EXECUTABLE_EXIT_GATE.generated.json",
+    "ea/_completion/chummer_cross_repo/chummer-presentation/DESKTOP_VISUAL_FAMILIARITY_EXIT_GATE.generated.json",
+    "ea/_completion/chummer_cross_repo/chummer-presentation/CHUMMER5A_LAYOUT_HARD_GATE.generated.json",
+    "ea/_completion/chummer_cross_repo/chummer.run-services/FLAGSHIP_PRODUCT_READINESS.generated.json",
+    "ea/_completion/chummer_cross_repo/chummer.run-services/PUBLIC_ORIGIN_REACHABILITY_GATE.generated.json",
+    "ea/_completion/chummer_cross_repo/chummer.run-services/PUBLIC_SHELL_CLICKABILITY_GATE.generated.json",
+    "ea/_completion/chummer_cross_repo/chummer-play/MOBILE_LOCAL_RELEASE_PROOF.generated.json",
+    "ea/_completion/chummer_cross_repo/chummer.run-services/BLACK_LEDGER_LIVE_MEDIA_PROOF.generated.json",
+    "asset-specific media factory publication receipt for each promoted video/horizon asset",
+    "provider candidate promotion receipt before MagicFit, JoggAI, Poppy, or avatar lanes can count as publication proof",
+    "human publication approval receipt for generated media leaving the operator lab",
+    ".codex-studio/published/telegram_video_delivery_live.generated.json status=blocked: live_observation_missing, video_sent_text_ack_without_delivery_receipt",
+    "live_observation_missing",
+    "video_sent_text_ack_without_delivery_receipt",
     "public-origin room/device audio intelligibility receipt with manual attestation",
-    "ltd_provider_lanes requires an owning-plane pass receipt"
+    "LTD provider lane check pending: fliplink_document_portal:first_publication_receipt",
+    "LTD provider lane check pending: hedy_meeting_evidence:hedy_provider_capability",
+    "LTD provider lane check pending: markupgo_fliplink_premium_delivery:markupgo_provider_proof",
+    "LTD provider lane check pending: markupgo_fliplink_premium_delivery:premium_delivery_receipt",
+    "LTD provider lane check pending: approvethis_external_approval_edge:approvethis_provider_capability",
+    "LTD provider lane check pending: documentation_ai_publication:documentation_ai_provider_capability",
+    "LTD provider lane check pending: documentation_ai_publication:documentation_llms_txt",
+    "LTD provider lane check pending: unmixr_voice_runtime:voice_roundtrip_validation",
+    "LTD provider lane check pending: subscribr_chummer_script_factory:api_token_private",
+    "LTD provider lane check pending: subscribr_chummer_script_factory:channel_map",
+    "LTD provider lane check pending: subscribr_chummer_script_factory:script_roundtrip",
+    "LTD provider lane check pending: subscribr_chummer_script_factory:source_binding"
   ]
 }

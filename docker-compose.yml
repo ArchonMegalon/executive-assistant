@@ -11,7 +11,7 @@ services:
     environment:
       - EA_ROLE=openvoice
       - OPENVOICE_PORT=8093
-      - OPENVOICE_BASE_TTS=piper
+      - OPENVOICE_BASE_TTS=${OPENVOICE_BASE_TTS:-espeak}
       - OPENVOICE_HOST=0.0.0.0
       - OPENVOICE_DATA_DIR=/data/openvoice
       - OPENVOICE_CHECKPOINT_ROOT=/models/openvoice
@@ -34,6 +34,14 @@ services:
       - ./ea/.models/openvoice:/models/openvoice:ro
       - ./ea/.models/piper:/models/piper:ro
       - ea_openvoice_data:/data/openvoice
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - port=$${OPENVOICE_PORT:-8093}; curl -fsS --connect-timeout 2 --max-time 10 http://127.0.0.1:$${port}/health/live >/dev/null
+      interval: 30s
+      timeout: 15s
+      start_period: 45s
+      retries: 5
 
   ea-teable-relay:
     build:
@@ -77,12 +85,49 @@ services:
     environment:
       - EA_ROLE=api
       - EA_PORT=8090
+      - EA_ASSISTANT_OWNER_LABEL=${EA_ASSISTANT_OWNER_LABEL:-the principal}
       - EA_API_TOKEN=${EA_API_TOKEN:-}
       - EA_ALLOW_LOOPBACK_NO_AUTH=${EA_ALLOW_LOOPBACK_NO_AUTH:-0}
       - EA_ARTIFACTS_DIR=/data/artifacts
       - EA_RESPONSES_PROVIDER_LEDGER_DIR=/data/provider-ledger
       - EA_ONEDRIVE_ATTACHMENT_ROOT=/data/onedrive_attachments
       - EA_ANSWERLY_AUTO_IMPORT_GMAIL_PDFS=${EA_ANSWERLY_AUTO_IMPORT_GMAIL_PDFS:-1}
+      - EA_TELEGRAM_AUDIOBOOK_EPUB_ENABLED=${EA_TELEGRAM_AUDIOBOOK_EPUB_ENABLED:-1}
+      - EA_AUDIOBOOK_DURABLE_STORAGE_ROOT=${EA_AUDIOBOOK_DURABLE_STORAGE_ROOT:-/data/audiobooks}
+      - EA_AUDIOBOOK_JOBS_ROOT=${EA_AUDIOBOOK_JOBS_ROOT:-/data/audiobooks/jobs}
+      - EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED=${EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED:-1}
+      - EA_AUDIOBOOK_UNMIXR_AUTO_RENDER=${EA_AUDIOBOOK_UNMIXR_AUTO_RENDER:-1}
+      - EA_AUDIOBOOK_UNMIXR_MAX_CHARS_PER_REQUEST=${EA_AUDIOBOOK_UNMIXR_MAX_CHARS_PER_REQUEST:-1800}
+      - EA_AUDIOBOOK_EBOOK_CONVERT_BIN=${EA_AUDIOBOOK_EBOOK_CONVERT_BIN:-ebook-convert}
+      - EA_AUDIOBOOK_KINDLE_CONVERT_TIMEOUT_SECONDS=${EA_AUDIOBOOK_KINDLE_CONVERT_TIMEOUT_SECONDS:-900}
+      - EA_AUDIOBOOK_PARAGRAPH_PAUSES_ENABLED=${EA_AUDIOBOOK_PARAGRAPH_PAUSES_ENABLED:-1}
+      - EA_AUDIOBOOK_PARAGRAPH_PAUSE_SECONDS=${EA_AUDIOBOOK_PARAGRAPH_PAUSE_SECONDS:-0.45}
+      - EA_AUDIOBOOK_PUBLICATION_STT_GATE_REQUIRED=${EA_AUDIOBOOK_PUBLICATION_STT_GATE_REQUIRED:-1}
+      - EA_AUDIOBOOK_PUBLICATION_STT_GATE_ENABLED=${EA_AUDIOBOOK_PUBLICATION_STT_GATE_ENABLED:-0}
+      - EA_AUDIOBOOK_PUBLICATION_STT_COMMAND=${EA_AUDIOBOOK_PUBLICATION_STT_COMMAND:-}
+      - EA_AUDIOBOOK_PUBLICATION_STT_SAMPLE_SECONDS=${EA_AUDIOBOOK_PUBLICATION_STT_SAMPLE_SECONDS:-30}
+      - EA_AUDIOBOOK_PUBLICATION_STT_SAMPLE_COUNT=${EA_AUDIOBOOK_PUBLICATION_STT_SAMPLE_COUNT:-3}
+      - EA_AUDIOBOOK_PUBLICATION_STT_MIN_BOOK_TOKEN_OVERLAP=${EA_AUDIOBOOK_PUBLICATION_STT_MIN_BOOK_TOKEN_OVERLAP:-0.55}
+      - EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED=${EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED:-1}
+      - EA_AUDIOBOOK_VOICE_DISCOVERY_TARGET_COUNT=${EA_AUDIOBOOK_VOICE_DISCOVERY_TARGET_COUNT:-30}
+      - EA_AUDIOBOOK_VOICE_AUDITION_MIN_CANDIDATES=${EA_AUDIOBOOK_VOICE_AUDITION_MIN_CANDIDATES:-3}
+      - EA_AUDIOBOOK_DEFAULT_VOICE_LABEL=${EA_AUDIOBOOK_DEFAULT_VOICE_LABEL:-Unmixr premium German narration voice}
+      - EA_AUDIOBOOK_DEFAULT_VOICE_LANGUAGE=${EA_AUDIOBOOK_DEFAULT_VOICE_LANGUAGE:-de}
+      - EA_AUDIOBOOK_DEFAULT_VOICE_TAGS=${EA_AUDIOBOOK_DEFAULT_VOICE_TAGS:-audiobook,narration,german,calm,warm,clear,nonfiction}
+      - EA_AUDIOBOOK_M4B_AUTO_MERGE=${EA_AUDIOBOOK_M4B_AUTO_MERGE:-1}
+      - EA_AUDIOBOOK_FFMPEG_M4B_FALLBACK=${EA_AUDIOBOOK_FFMPEG_M4B_FALLBACK:-1}
+      - EA_AUDIOBOOKSHELF_AUTO_IMPORT=${EA_AUDIOBOOKSHELF_AUTO_IMPORT:-1}
+      - EA_AUDIOBOOKSHELF_IMPORT_ROOT=${EA_AUDIOBOOKSHELF_IMPORT_ROOT:-/data/audiobooks/audiobookshelf}
+      - EA_AUDIOBOOKSHELF_PUBLIC_SHARE_ENABLED=${EA_AUDIOBOOKSHELF_PUBLIC_SHARE_ENABLED:-1}
+      - EA_AUDIOBOOKSHELF_API_BASE_URL=${EA_AUDIOBOOKSHELF_API_BASE_URL:-}
+      - EA_AUDIOBOOKSHELF_PUBLIC_BASE_URL=${EA_AUDIOBOOKSHELF_PUBLIC_BASE_URL:-}
+      - EA_AUDIOBOOKSHELF_API_TOKEN=${EA_AUDIOBOOKSHELF_API_TOKEN:-}
+      - EA_AUDIOBOOKSHELF_LIBRARY_ID=${EA_AUDIOBOOKSHELF_LIBRARY_ID:-}
+      - EA_AUDIOBOOKSHELF_PUBLIC_SHARE_EXPIRES_DAYS=${EA_AUDIOBOOKSHELF_PUBLIC_SHARE_EXPIRES_DAYS:-30}
+      - EA_AUDIOBOOKSHELF_PUBLIC_SHARE_DOWNLOADABLE=${EA_AUDIOBOOKSHELF_PUBLIC_SHARE_DOWNLOADABLE:-0}
+      - EA_AUDIOBOOK_ACCESS_SIGNING_SECRET=${EA_SIGNING_SECRET:-}
+      - EA_AUDIOBOOK_ACCESS_EXPIRES_DAYS=${EA_AUDIOBOOK_ACCESS_EXPIRES_DAYS:-30}
+      - EA_AUDIOBOOK_PLAYER_ACCESS_BASE_URL=${EA_AUDIOBOOK_PLAYER_ACCESS_BASE_URL:-}
       - HOME=/home/ea
       - EA_CREZLO_PROPERTY_TOUR_WORKER=/app/scripts/crezlo_property_tour_worker.py
       - EA_MOOTION_MOVIE_WORKER=/app/scripts/mootion_movie_worker.py
@@ -97,20 +142,24 @@ services:
       - EA_PRIVATE_MEMORIAL_PROFILE_DIR=${EA_PRIVATE_MEMORIAL_PROFILE_DIR:-/data/memorial_data/private_memorial_profiles}
       - EA_MEMORIAL_LIVE_TTS_PLUGIN=${EA_MEMORIAL_LIVE_TTS_PLUGIN:-unmixr_clone}
       - OPENVOICE_BASE_URL=${OPENVOICE_BASE_URL:-http://ea-openvoice:8093}
-      - EA_UI_SERVICE_SHARED_TEMP_ROOT=${EA_UI_SERVICE_SHARED_TEMP_ROOT:-/mnt/pcloud/EA/browseract_ui_worker_shared}
-      - VOICEWAVE_RUNTIME_TMP_ROOT=${VOICEWAVE_RUNTIME_TMP_ROOT:-/mnt/pcloud/EA/voicewave_runtime_tmp}
+      - EA_UI_SERVICE_SHARED_TEMP_ROOT=${EA_UI_SERVICE_SHARED_TEMP_ROOT:-/data/artifacts/browseract_ui_worker_shared}
+      - VOICEWAVE_RUNTIME_TMP_ROOT=${VOICEWAVE_RUNTIME_TMP_ROOT:-/data/artifacts/voicewave_runtime_tmp}
       - EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360=1
       - TEABLE_BASE_URL=${TEABLE_RUNTIME_BASE_URL:-https://app.teable.ai}
       - TEABLE_TABLE_SYNC_CONFIG_JSON=${TEABLE_TABLE_SYNC_CONFIG_JSON:-}
       - TZ=Europe/Vienna
     ports:
-      - "${EA_HOST_PORT:-8090}:8090"
+      - "127.0.0.1:${EA_HOST_PORT:-8090}:8090"
     volumes:
       - ./config:/config:ro
       - ./config:/app/config:ro
-      - ${EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-/mnt/onedrive/Attachments}:/data/onedrive_attachments
-      - /mnt/pcloud/EA:/mnt/pcloud/EA
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ./ea/app/api/routes/channels.py:/app/app/api/routes/channels.py:ro
+      - ./ea/app/services/audiobook_epub_pipeline.py:/app/app/services/audiobook_epub_pipeline.py:ro
+      - ./ea/app/services/whatsapp_delivery_router.py:/app/app/services/whatsapp_delivery_router.py:ro
+      - ./ea/app/services/whatsapp_inbound_actions.py:/app/app/services/whatsapp_inbound_actions.py:ro
+      - ./ea/app/services/whatsapp_web_session_delivery.py:/app/app/services/whatsapp_web_session_delivery.py:ro
+      - ${EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-./data/onedrive_attachments}:/data/onedrive_attachments
+      - ${EA_DURABLE_AUDIOBOOK_HOST_ROOT:-./data/audiobooks}:/data/audiobooks
       - ea_memorial_data:/data/memorial_data:ro
       - ea_artifacts:/data/artifacts
       - ea_public_tours:/data/public_property_tours
@@ -118,8 +167,6 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
-      ea-openvoice:
-        condition: service_healthy
       ea-teable-relay:
         condition: service_healthy
       ea-db:
@@ -142,12 +189,18 @@ services:
       - PYTHONPATH=/app
       - TZ=Europe/Vienna
     ports:
-      - "${EA_RESPONSES_PROXY_HOST_PORT:-8092}:8091"
+      - "127.0.0.1:${EA_RESPONSES_PROXY_HOST_PORT:-8092}:8091"
     volumes:
       - ./config:/config:ro
       - ./config:/app/config:ro
-      - ${EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-/mnt/onedrive/Attachments}:/data/onedrive_attachments
-      - /mnt/pcloud/EA:/mnt/pcloud/EA
+      - ./ea/app/services/audiobook_epub_pipeline.py:/app/app/services/audiobook_epub_pipeline.py:ro
+      - ./ea/app/services/whatsapp_delivery_outbox.py:/app/app/services/whatsapp_delivery_outbox.py:ro
+      - ./ea/app/services/whatsapp_delivery_router.py:/app/app/services/whatsapp_delivery_router.py:ro
+      - ./ea/app/services/whatsapp_inbound_actions.py:/app/app/services/whatsapp_inbound_actions.py:ro
+      - ./ea/app/services/whatsapp_web_session_delivery.py:/app/app/services/whatsapp_web_session_delivery.py:ro
+      - ./ea/app/services/whatsapp_web_session_readiness.py:/app/app/services/whatsapp_web_session_readiness.py:ro
+      - ${EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-./data/onedrive_attachments}:/data/onedrive_attachments
+      - ${EA_DURABLE_AUDIOBOOK_HOST_ROOT:-./data/audiobooks}:/data/audiobooks
       - ea_artifacts:/data/artifacts
       - ea_public_tours:/data/public_property_tours
       - ea_provider_ledger:/data/provider-ledger
@@ -180,6 +233,42 @@ services:
       - EA_RESPONSES_PROVIDER_LEDGER_DIR=/data/provider-ledger
       - EA_ONEDRIVE_ATTACHMENT_ROOT=/data/onedrive_attachments
       - EA_ANSWERLY_AUTO_IMPORT_GMAIL_PDFS=${EA_ANSWERLY_AUTO_IMPORT_GMAIL_PDFS:-1}
+      - EA_TELEGRAM_AUDIOBOOK_EPUB_ENABLED=${EA_TELEGRAM_AUDIOBOOK_EPUB_ENABLED:-1}
+      - EA_AUDIOBOOK_DURABLE_STORAGE_ROOT=${EA_AUDIOBOOK_DURABLE_STORAGE_ROOT:-/data/audiobooks}
+      - EA_AUDIOBOOK_JOBS_ROOT=${EA_AUDIOBOOK_JOBS_ROOT:-/data/audiobooks/jobs}
+      - EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED=${EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED:-1}
+      - EA_AUDIOBOOK_UNMIXR_AUTO_RENDER=${EA_AUDIOBOOK_UNMIXR_AUTO_RENDER:-1}
+      - EA_AUDIOBOOK_UNMIXR_MAX_CHARS_PER_REQUEST=${EA_AUDIOBOOK_UNMIXR_MAX_CHARS_PER_REQUEST:-1800}
+      - EA_AUDIOBOOK_EBOOK_CONVERT_BIN=${EA_AUDIOBOOK_EBOOK_CONVERT_BIN:-ebook-convert}
+      - EA_AUDIOBOOK_KINDLE_CONVERT_TIMEOUT_SECONDS=${EA_AUDIOBOOK_KINDLE_CONVERT_TIMEOUT_SECONDS:-900}
+      - EA_AUDIOBOOK_PARAGRAPH_PAUSES_ENABLED=${EA_AUDIOBOOK_PARAGRAPH_PAUSES_ENABLED:-1}
+      - EA_AUDIOBOOK_PARAGRAPH_PAUSE_SECONDS=${EA_AUDIOBOOK_PARAGRAPH_PAUSE_SECONDS:-0.45}
+      - EA_AUDIOBOOK_PUBLICATION_STT_GATE_REQUIRED=${EA_AUDIOBOOK_PUBLICATION_STT_GATE_REQUIRED:-1}
+      - EA_AUDIOBOOK_PUBLICATION_STT_GATE_ENABLED=${EA_AUDIOBOOK_PUBLICATION_STT_GATE_ENABLED:-0}
+      - EA_AUDIOBOOK_PUBLICATION_STT_COMMAND=${EA_AUDIOBOOK_PUBLICATION_STT_COMMAND:-}
+      - EA_AUDIOBOOK_PUBLICATION_STT_SAMPLE_SECONDS=${EA_AUDIOBOOK_PUBLICATION_STT_SAMPLE_SECONDS:-30}
+      - EA_AUDIOBOOK_PUBLICATION_STT_SAMPLE_COUNT=${EA_AUDIOBOOK_PUBLICATION_STT_SAMPLE_COUNT:-3}
+      - EA_AUDIOBOOK_PUBLICATION_STT_MIN_BOOK_TOKEN_OVERLAP=${EA_AUDIOBOOK_PUBLICATION_STT_MIN_BOOK_TOKEN_OVERLAP:-0.55}
+      - EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED=${EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED:-1}
+      - EA_AUDIOBOOK_VOICE_DISCOVERY_TARGET_COUNT=${EA_AUDIOBOOK_VOICE_DISCOVERY_TARGET_COUNT:-30}
+      - EA_AUDIOBOOK_VOICE_AUDITION_MIN_CANDIDATES=${EA_AUDIOBOOK_VOICE_AUDITION_MIN_CANDIDATES:-3}
+      - EA_AUDIOBOOK_DEFAULT_VOICE_LABEL=${EA_AUDIOBOOK_DEFAULT_VOICE_LABEL:-Unmixr premium German narration voice}
+      - EA_AUDIOBOOK_DEFAULT_VOICE_LANGUAGE=${EA_AUDIOBOOK_DEFAULT_VOICE_LANGUAGE:-de}
+      - EA_AUDIOBOOK_DEFAULT_VOICE_TAGS=${EA_AUDIOBOOK_DEFAULT_VOICE_TAGS:-audiobook,narration,german,calm,warm,clear,nonfiction}
+      - EA_AUDIOBOOK_M4B_AUTO_MERGE=${EA_AUDIOBOOK_M4B_AUTO_MERGE:-1}
+      - EA_AUDIOBOOK_FFMPEG_M4B_FALLBACK=${EA_AUDIOBOOK_FFMPEG_M4B_FALLBACK:-1}
+      - EA_AUDIOBOOKSHELF_AUTO_IMPORT=${EA_AUDIOBOOKSHELF_AUTO_IMPORT:-1}
+      - EA_AUDIOBOOKSHELF_IMPORT_ROOT=${EA_AUDIOBOOKSHELF_IMPORT_ROOT:-/data/audiobooks/audiobookshelf}
+      - EA_AUDIOBOOKSHELF_PUBLIC_SHARE_ENABLED=${EA_AUDIOBOOKSHELF_PUBLIC_SHARE_ENABLED:-1}
+      - EA_AUDIOBOOKSHELF_API_BASE_URL=${EA_AUDIOBOOKSHELF_API_BASE_URL:-}
+      - EA_AUDIOBOOKSHELF_PUBLIC_BASE_URL=${EA_AUDIOBOOKSHELF_PUBLIC_BASE_URL:-}
+      - EA_AUDIOBOOKSHELF_API_TOKEN=${EA_AUDIOBOOKSHELF_API_TOKEN:-}
+      - EA_AUDIOBOOKSHELF_LIBRARY_ID=${EA_AUDIOBOOKSHELF_LIBRARY_ID:-}
+      - EA_AUDIOBOOKSHELF_PUBLIC_SHARE_EXPIRES_DAYS=${EA_AUDIOBOOKSHELF_PUBLIC_SHARE_EXPIRES_DAYS:-30}
+      - EA_AUDIOBOOKSHELF_PUBLIC_SHARE_DOWNLOADABLE=${EA_AUDIOBOOKSHELF_PUBLIC_SHARE_DOWNLOADABLE:-0}
+      - EA_AUDIOBOOK_ACCESS_SIGNING_SECRET=${EA_SIGNING_SECRET:-}
+      - EA_AUDIOBOOK_ACCESS_EXPIRES_DAYS=${EA_AUDIOBOOK_ACCESS_EXPIRES_DAYS:-30}
+      - EA_AUDIOBOOK_PLAYER_ACCESS_BASE_URL=${EA_AUDIOBOOK_PLAYER_ACCESS_BASE_URL:-}
       - HOME=/home/ea
       - EA_CREZLO_PROPERTY_TOUR_WORKER=/app/scripts/crezlo_property_tour_worker.py
       - EA_MOOTION_MOVIE_WORKER=/app/scripts/mootion_movie_worker.py
@@ -193,8 +282,14 @@ services:
     volumes:
       - ./config:/config:ro
       - ./config:/app/config:ro
-      - ${EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-/mnt/onedrive/Attachments}:/data/onedrive_attachments
-      - /mnt/pcloud/EA:/mnt/pcloud/EA
+      - ./ea/app/services/audiobook_epub_pipeline.py:/app/app/services/audiobook_epub_pipeline.py:ro
+      - ./ea/app/services/whatsapp_delivery_outbox.py:/app/app/services/whatsapp_delivery_outbox.py:ro
+      - ./ea/app/services/whatsapp_delivery_router.py:/app/app/services/whatsapp_delivery_router.py:ro
+      - ./ea/app/services/whatsapp_inbound_actions.py:/app/app/services/whatsapp_inbound_actions.py:ro
+      - ./ea/app/services/whatsapp_web_session_delivery.py:/app/app/services/whatsapp_web_session_delivery.py:ro
+      - ./ea/app/services/whatsapp_web_session_readiness.py:/app/app/services/whatsapp_web_session_readiness.py:ro
+      - ${EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-./data/onedrive_attachments}:/data/onedrive_attachments
+      - ${EA_DURABLE_AUDIOBOOK_HOST_ROOT:-./data/audiobooks}:/data/audiobooks
       - ea_artifacts:/data/artifacts
       - ea_public_tours:/data/public_property_tours
       - ea_provider_ledger:/data/provider-ledger
@@ -223,6 +318,46 @@ services:
       - EA_RESPONSES_PROVIDER_LEDGER_DIR=/data/provider-ledger
       - EA_ONEDRIVE_ATTACHMENT_ROOT=/data/onedrive_attachments
       - EA_ANSWERLY_AUTO_IMPORT_GMAIL_PDFS=${EA_ANSWERLY_AUTO_IMPORT_GMAIL_PDFS:-1}
+      - EA_TELEGRAM_AUDIOBOOK_EPUB_ENABLED=${EA_TELEGRAM_AUDIOBOOK_EPUB_ENABLED:-1}
+      - EA_AUDIOBOOK_DURABLE_STORAGE_ROOT=${EA_AUDIOBOOK_DURABLE_STORAGE_ROOT:-/data/audiobooks}
+      - EA_AUDIOBOOK_JOBS_ROOT=${EA_AUDIOBOOK_JOBS_ROOT:-/data/audiobooks/jobs}
+      - EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED=${EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED:-1}
+      - EA_AUDIOBOOK_UNMIXR_AUTO_RENDER=${EA_AUDIOBOOK_UNMIXR_AUTO_RENDER:-1}
+      - EA_AUDIOBOOK_UNMIXR_MAX_CHARS_PER_REQUEST=${EA_AUDIOBOOK_UNMIXR_MAX_CHARS_PER_REQUEST:-1800}
+      - EA_AUDIOBOOK_EBOOK_CONVERT_BIN=${EA_AUDIOBOOK_EBOOK_CONVERT_BIN:-ebook-convert}
+      - EA_AUDIOBOOK_KINDLE_CONVERT_TIMEOUT_SECONDS=${EA_AUDIOBOOK_KINDLE_CONVERT_TIMEOUT_SECONDS:-900}
+      - EA_AUDIOBOOK_PARAGRAPH_PAUSES_ENABLED=${EA_AUDIOBOOK_PARAGRAPH_PAUSES_ENABLED:-1}
+      - EA_AUDIOBOOK_PARAGRAPH_PAUSE_SECONDS=${EA_AUDIOBOOK_PARAGRAPH_PAUSE_SECONDS:-0.45}
+      - EA_AUDIOBOOK_PUBLICATION_STT_GATE_REQUIRED=${EA_AUDIOBOOK_PUBLICATION_STT_GATE_REQUIRED:-1}
+      - EA_AUDIOBOOK_PUBLICATION_STT_GATE_ENABLED=${EA_AUDIOBOOK_PUBLICATION_STT_GATE_ENABLED:-0}
+      - EA_AUDIOBOOK_PUBLICATION_STT_COMMAND=${EA_AUDIOBOOK_PUBLICATION_STT_COMMAND:-}
+      - EA_AUDIOBOOK_PUBLICATION_STT_SAMPLE_SECONDS=${EA_AUDIOBOOK_PUBLICATION_STT_SAMPLE_SECONDS:-30}
+      - EA_AUDIOBOOK_PUBLICATION_STT_SAMPLE_COUNT=${EA_AUDIOBOOK_PUBLICATION_STT_SAMPLE_COUNT:-3}
+      - EA_AUDIOBOOK_PUBLICATION_STT_MIN_BOOK_TOKEN_OVERLAP=${EA_AUDIOBOOK_PUBLICATION_STT_MIN_BOOK_TOKEN_OVERLAP:-0.55}
+      - EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED=${EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED:-1}
+      - EA_AUDIOBOOK_VOICE_DISCOVERY_TARGET_COUNT=${EA_AUDIOBOOK_VOICE_DISCOVERY_TARGET_COUNT:-30}
+      - EA_AUDIOBOOK_VOICE_AUDITION_MIN_CANDIDATES=${EA_AUDIOBOOK_VOICE_AUDITION_MIN_CANDIDATES:-3}
+      - EA_AUDIOBOOK_DEFAULT_VOICE_LABEL=${EA_AUDIOBOOK_DEFAULT_VOICE_LABEL:-Unmixr premium German narration voice}
+      - EA_AUDIOBOOK_DEFAULT_VOICE_LANGUAGE=${EA_AUDIOBOOK_DEFAULT_VOICE_LANGUAGE:-de}
+      - EA_AUDIOBOOK_DEFAULT_VOICE_TAGS=${EA_AUDIOBOOK_DEFAULT_VOICE_TAGS:-audiobook,narration,german,calm,warm,clear,nonfiction}
+      - EA_AUDIOBOOK_M4B_AUTO_MERGE=${EA_AUDIOBOOK_M4B_AUTO_MERGE:-1}
+      - EA_AUDIOBOOK_FFMPEG_M4B_FALLBACK=${EA_AUDIOBOOK_FFMPEG_M4B_FALLBACK:-1}
+      - EA_AUDIOBOOKSHELF_AUTO_IMPORT=${EA_AUDIOBOOKSHELF_AUTO_IMPORT:-1}
+      - EA_AUDIOBOOKSHELF_IMPORT_ROOT=${EA_AUDIOBOOKSHELF_IMPORT_ROOT:-/data/audiobooks/audiobookshelf}
+      - EA_AUDIOBOOKSHELF_PUBLIC_SHARE_ENABLED=${EA_AUDIOBOOKSHELF_PUBLIC_SHARE_ENABLED:-1}
+      - EA_AUDIOBOOKSHELF_API_BASE_URL=${EA_AUDIOBOOKSHELF_API_BASE_URL:-}
+      - EA_AUDIOBOOKSHELF_PUBLIC_BASE_URL=${EA_AUDIOBOOKSHELF_PUBLIC_BASE_URL:-}
+      - EA_AUDIOBOOKSHELF_API_TOKEN=${EA_AUDIOBOOKSHELF_API_TOKEN:-}
+      - EA_AUDIOBOOKSHELF_LIBRARY_ID=${EA_AUDIOBOOKSHELF_LIBRARY_ID:-}
+      - EA_AUDIOBOOKSHELF_PUBLIC_SHARE_EXPIRES_DAYS=${EA_AUDIOBOOKSHELF_PUBLIC_SHARE_EXPIRES_DAYS:-30}
+      - EA_AUDIOBOOKSHELF_PUBLIC_SHARE_DOWNLOADABLE=${EA_AUDIOBOOKSHELF_PUBLIC_SHARE_DOWNLOADABLE:-0}
+      - EA_AUDIOBOOK_ACCESS_SIGNING_SECRET=${EA_SIGNING_SECRET:-}
+      - EA_AUDIOBOOK_ACCESS_EXPIRES_DAYS=${EA_AUDIOBOOK_ACCESS_EXPIRES_DAYS:-30}
+      - EA_AUDIOBOOK_PLAYER_ACCESS_BASE_URL=${EA_AUDIOBOOK_PLAYER_ACCESS_BASE_URL:-}
+      - EA_SCHEDULER_AUDIOBOOK_RESUME_ENABLED=${EA_SCHEDULER_AUDIOBOOK_RESUME_ENABLED:-1}
+      - EA_SCHEDULER_AUDIOBOOK_RESUME_INTERVAL_SECONDS=${EA_SCHEDULER_AUDIOBOOK_RESUME_INTERVAL_SECONDS:-300}
+      - EA_AUDIOBOOK_RESUME_DUE_LIMIT=${EA_AUDIOBOOK_RESUME_DUE_LIMIT:-2}
+      - EA_AUDIOBOOK_RESUME_ATTEMPT_COOLDOWN_SECONDS=${EA_AUDIOBOOK_RESUME_ATTEMPT_COOLDOWN_SECONDS:-900}
       - HOME=/home/ea
       - EA_CREZLO_PROPERTY_TOUR_WORKER=/app/scripts/crezlo_property_tour_worker.py
       - EA_MOOTION_MOVIE_WORKER=/app/scripts/mootion_movie_worker.py
@@ -236,8 +371,14 @@ services:
     volumes:
       - ./config:/config:ro
       - ./config:/app/config:ro
-      - ${EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-/mnt/onedrive/Attachments}:/data/onedrive_attachments
-      - /mnt/pcloud/EA:/mnt/pcloud/EA
+      - ./ea/app/services/audiobook_epub_pipeline.py:/app/app/services/audiobook_epub_pipeline.py:ro
+      - ./ea/app/services/whatsapp_delivery_outbox.py:/app/app/services/whatsapp_delivery_outbox.py:ro
+      - ./ea/app/services/whatsapp_delivery_router.py:/app/app/services/whatsapp_delivery_router.py:ro
+      - ./ea/app/services/whatsapp_inbound_actions.py:/app/app/services/whatsapp_inbound_actions.py:ro
+      - ./ea/app/services/whatsapp_web_session_delivery.py:/app/app/services/whatsapp_web_session_delivery.py:ro
+      - ./ea/app/services/whatsapp_web_session_readiness.py:/app/app/services/whatsapp_web_session_readiness.py:ro
+      - ${EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-./data/onedrive_attachments}:/data/onedrive_attachments
+      - ${EA_DURABLE_AUDIOBOOK_HOST_ROOT:-./data/audiobooks}:/data/audiobooks
       - ea_artifacts:/data/artifacts
       - ea_provider_ledger:/data/provider-ledger
     extra_hosts:
@@ -249,6 +390,94 @@ services:
         condition: service_healthy
     healthcheck:
       disable: true
+
+  ea-proactive-ooda:
+    image: ea-runtime:latest
+    container_name: ea-proactive-ooda
+    restart: unless-stopped
+    env_file:
+      - .env
+    working_dir: /app
+    environment:
+      - EA_PROACTIVE_OODA_ENABLED=${EA_PROACTIVE_OODA_ENABLED:-0}
+      - EA_PROACTIVE_OODA_INTERVAL_SECONDS=${EA_PROACTIVE_OODA_INTERVAL_SECONDS:-900}
+      - EA_PROACTIVE_OODA_STATE_PATH=${EA_PROACTIVE_OODA_CONTAINER_STATE_PATH:-/data/provider-ledger/proactive_ooda_notified.json}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD}@ea-db:5432/ea}
+      - PYTHONPATH=/app/ea
+      - TZ=Europe/Vienna
+    volumes:
+      - ./:/app:ro
+      - ea_proactive_ooda_state:/data
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        while :; do
+          if [ "$${EA_PROACTIVE_OODA_ENABLED:-0}" = "1" ]; then
+            python /app/scripts/run_proactive_ooda.py || true
+          fi
+          sleep "$${EA_PROACTIVE_OODA_INTERVAL_SECONDS:-900}"
+        done
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - python -c "import pathlib; p=pathlib.Path('/app/scripts/run_proactive_ooda.py'); raise SystemExit(0 if p.exists() else 1)"
+      interval: 2m
+      timeout: 10s
+      retries: 5
+    depends_on:
+      ea-db:
+        condition: service_healthy
+
+  ea-telegram-teable-sync:
+    image: ea-runtime:latest
+    container_name: ea-telegram-teable-sync
+    restart: unless-stopped
+    env_file:
+      - .env
+    working_dir: /app
+    environment:
+      - EA_TELEGRAM_TEABLE_SYNC_ENABLED=${EA_TELEGRAM_TEABLE_SYNC_ENABLED:-0}
+      - EA_TELEGRAM_TEABLE_SYNC_INTERVAL_SECONDS=${EA_TELEGRAM_TEABLE_SYNC_INTERVAL_SECONDS:-60}
+      - EA_TELEGRAM_TEABLE_SYNC_BATCH_SIZE=${EA_TELEGRAM_TEABLE_SYNC_BATCH_SIZE:-500}
+      - EA_TELEGRAM_TEABLE_BASE_ID=${EA_TELEGRAM_TEABLE_BASE_ID:-}
+      - EA_TELEGRAM_MESSAGES_TEABLE_TABLE_ID=${EA_TELEGRAM_MESSAGES_TEABLE_TABLE_ID:-}
+      - EA_TELEGRAM_MESSAGES_TEABLE_TABLE_NAME=${EA_TELEGRAM_MESSAGES_TEABLE_TABLE_NAME:-ea_telegram_conversation_messages}
+      - EA_TELEGRAM_TEABLE_SYNC_STATE_FILE=${EA_TELEGRAM_TEABLE_SYNC_STATE_FILE:-/data/telegram-teable-sync/state.json}
+      - EA_RESPONSES_PROVIDER_LEDGER_DIR=/data/telegram-teable-sync
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD:-}@ea-db:5432/ea}
+      - TEABLE_BASE_URL=${TEABLE_RUNTIME_BASE_URL:-https://app.teable.ai}
+      - PYTHONUNBUFFERED=1
+      - TZ=Europe/Vienna
+    volumes:
+      - ./:/app:ro
+      - ea_telegram_teable_sync:/data/telegram-teable-sync
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        while :; do
+          if [ "$${EA_TELEGRAM_TEABLE_SYNC_ENABLED:-0}" = "1" ]; then
+            python /app/scripts/sync_telegram_conversations_to_teable.py || true
+          else
+            echo '{"enabled":false,"event":"telegram_teable_sync_idle","ok":true}';
+          fi
+          sleep "$${EA_TELEGRAM_TEABLE_SYNC_INTERVAL_SECONDS:-60}";
+        done
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - python -c "import pathlib; p=pathlib.Path('/app/scripts/sync_telegram_conversations_to_teable.py'); raise SystemExit(0 if p.exists() else 1)"
+      interval: 2m
+      timeout: 10s
+      retries: 5
+    depends_on:
+      ea-teable-relay:
+        condition: service_healthy
+      ea-db:
+        condition: service_healthy
 
   ea-db:
     image: postgres:16-alpine
@@ -280,6 +509,8 @@ volumes:
   ea_memorial_data: {}
   ea_openvoice_data: {}
   ea_pgdata: {}
+  ea_proactive_ooda_state: {}
+  ea_telegram_teable_sync: {}
   ea_public_tours:
     external: true
     name: property_propertyquarry_public_tours

@@ -4,8 +4,8 @@ version: 1
 headline: Build Shadowrun characters. Know why the numbers changed.
 subhead: Download Chummer, open or import a character, and keep sessions moving with
   explainable rules math, durable local state, and clear recovery paths.
-proof_line: The current nightly and stable builds are posted with plain release notes
-  so you can see what is ready today.
+proof_line: Stable and Nightly point at the current published builds with short release
+  notes so you can see what is ready today.
 no_provider_names: true
 no_ltd_names: true
 hero_ctas:
@@ -35,8 +35,8 @@ product_proof_secondary_label: See status
 product_proof_secondary_href: /status
 product_proof_topline_label: Current release
 product_proof_scope_line: Public pages focus on the builds, platforms, and workflows
-  a player can actually try today; downloads remain the primary route for trying Chummer.
-product_flagship_boundary_line: Experimental surfaces stay behind lab routes until
+  a player can actually try today; downloads stay the simplest way to try Chummer.
+product_flagship_boundary_line: Experimental surfaces stay off the main path until
   their visuals, behavior, and tests are ready for normal users.
 product_proof_result_title: Final pool 9
 product_proof_result_summary: Same inputs, same answer, with a clear explanation
@@ -86,21 +86,21 @@ public_routes:
 - path: /horizons
   title: Roadmap
   audience: public
-  purpose: horizon_summary
+  purpose: maintenance_redirect
   requires_auth: false
   guest_fallback: /horizons
   must_exist: true
   placeholder_allowed: false
-  placeholder_requirements: public horizon set only
+  placeholder_requirements: maintenance page and roadmap pointer only
 - path: /roadmap
   title: Roadmap
   audience: public
-  purpose: horizon_summary
+  purpose: roadmap_summary
   requires_auth: false
   guest_fallback: /roadmap
   must_exist: true
   placeholder_allowed: false
-  placeholder_requirements: public horizon set only
+  placeholder_requirements: public roadmap summary only
 - path: /changelog
   title: Changelog
   audience: public
@@ -1569,24 +1569,24 @@ sections:
   audience: public
   route: /
 - id: product_proof
-  eyebrow: Real product proof
-  title: One concrete result, one visible trail, one current build
-  intro: Open downloads for the current preview, inspect one visible trail, and see
-    the same result stay legible when the next device or network wobble shows up.
+  eyebrow: Current build
+  title: One current download, one readable result
+  intro: Open downloads for the current build, inspect one clear result, and keep
+    the same answer readable when the next device or network wobble shows up.
   audience: public
   route: /
 - id: start_here
   eyebrow: How Chummer helps at the table
-  title: What comes after the core proof
-  intro: Once the build, explanation trail, and continuity path feel trustworthy,
+  title: What comes after the core app
+  intro: Once the build, explanation trail, and continuity path feel dependable,
     the next product jobs are publication and improvement.
   audience: public
   route: /
 - id: why_trust_it
   eyebrow: Why trust Chummer
-  title: Product claims backed by evidence
-  intro: 'The trust model is simple: deterministic rules truth, visible receipts,
-    and local-first continuity.'
+  title: Clear results, current downloads, local-first continuity
+  intro: 'The trust model is simple: deterministic rules math, visible checks,
+    and files that stay useful between sessions.'
   audience: public
   route: /
 - id: choose_your_lane
@@ -1611,21 +1611,21 @@ sections:
 - id: coming_next
   eyebrow: Opening next
   title: Opening next
-  intro: Each horizon names the pain, the payoff, and the preview artifact or detail
-    page that already makes the next wave inspectable.
+  intro: Each planned item names the pain, the payoff, and the current page that
+    makes the next wave inspectable.
   audience: public
-  route: /horizons
+  route: /roadmap
 - id: featured_artifacts
-  eyebrow: Proof, not promises
-  title: Artifacts that make the product tangible
-  intro: The gallery starts with live proof, then shows preview packets, briefing
-    reels, primers, and run-prep artifacts that already make the factory visible.
+  eyebrow: Files, not promises
+  title: Work that makes the product tangible
+  intro: The gallery starts with live files, then shows preview packets, briefing
+    reels, primers, and run-prep material that already make the factory visible.
   audience: public
   route: /artifacts
 registered_overlays:
 - id: follow_horizons
   path: /home
-  title: Follow horizons
+  title: Follow roadmap updates
   summary: Track the futures you care about without turning advisory signals into
     canon.
 - id: beta_interest
@@ -1633,4 +1633,4 @@ registered_overlays:
   title: Beta interest
   summary: Raise your hand for future player, GM, or creator previews.
 footer_canonical_source: Chummer product front canon
-footer_generated_note: Projection compiled from the approved design mirror.
+footer_generated_note: Chummer project notes.

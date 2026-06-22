@@ -371,7 +371,7 @@ def main() -> int:
     parser.add_argument(
         "--archive-root",
         type=Path,
-        default=Path(os.environ.get("EA_POCKET_AUDIO_ARCHIVE_ROOT") or "/mnt/pcloud/EA/pocket-ai-audio"),
+        default=Path(os.environ.get("EA_POCKET_AUDIO_ARCHIVE_ROOT") or Path(__file__).resolve().parents[1] / "ea" / "_completion" / "pocket-ai-audio"),
     )
     parser.add_argument("--postgres-container", default=os.environ.get("EA_POSTGRES_CONTAINER") or "ea-db")
     parser.add_argument("--postgres-user", default=os.environ.get("POSTGRES_USER") or "postgres")

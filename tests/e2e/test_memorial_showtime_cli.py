@@ -22,6 +22,11 @@ Server = uvicorn.Server
 from app.api.app import create_app
 
 
+ROOT = Path(__file__).resolve().parents[2]
+APP_ROOT = ROOT / "ea"
+EXAMPLES_ROOT = ROOT / "examples"
+
+
 def _free_port() -> int:
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.bind(("127.0.0.1", 0))
@@ -254,20 +259,20 @@ def test_memorial_showtime_cli_writes_pass_report(
     env = dict(os.environ)
     env["EA_PUBLIC_MEMORIAL_DIR"] = str(memorial_showtime_server["public_root"])
     env["EA_PRIVATE_MEMORIAL_PROFILE_DIR"] = str(memorial_showtime_server["private_root"])
-    env["PYTHONPATH"] = "/docker/EA/ea"
+    env["PYTHONPATH"] = str(APP_ROOT)
     env["TMPDIR"] = str(tmp_path / "tmp")
     Path(env["TMPDIR"]).mkdir(exist_ok=True)
 
     result = subprocess.run(
         [
             sys.executable,
-            "/docker/EA/ea/scripts/memorial_showtime.py",
+            str(APP_ROOT / "scripts" / "memorial_showtime.py"),
             "--slug",
             "manfred",
             "--base-url",
             str(memorial_showtime_server["base_url"]),
             "--questions",
-            "/docker/EA/examples/demo_questions.manfred.json",
+            str(EXAMPLES_ROOT / "demo_questions.manfred.json"),
             "--output-dir",
             str(output_dir),
             "--skip-unit-contracts",
@@ -313,20 +318,20 @@ def test_memorial_showtime_cli_optional_avatar_gate_warns_without_failing(
     env = dict(os.environ)
     env["EA_PUBLIC_MEMORIAL_DIR"] = str(memorial_showtime_server["public_root"])
     env["EA_PRIVATE_MEMORIAL_PROFILE_DIR"] = str(memorial_showtime_server["private_root"])
-    env["PYTHONPATH"] = "/docker/EA/ea"
+    env["PYTHONPATH"] = str(APP_ROOT)
     env["TMPDIR"] = str(tmp_path / "tmp-optional-avatar")
     Path(env["TMPDIR"]).mkdir(exist_ok=True)
 
     result = subprocess.run(
         [
             sys.executable,
-            "/docker/EA/ea/scripts/memorial_showtime.py",
+            str(APP_ROOT / "scripts" / "memorial_showtime.py"),
             "--slug",
             "manfred",
             "--base-url",
             str(memorial_showtime_server["base_url"]),
             "--questions",
-            "/docker/EA/examples/demo_questions.manfred.json",
+            str(EXAMPLES_ROOT / "demo_questions.manfred.json"),
             "--output-dir",
                 str(output_dir),
                 "--skip-unit-contracts",
@@ -354,7 +359,7 @@ def test_memorial_showtime_cli_launch_mode_rejects_skip_flags(tmp_path: Path) ->
     result = subprocess.run(
         [
             sys.executable,
-            "/docker/EA/ea/scripts/memorial_showtime.py",
+            str(APP_ROOT / "scripts" / "memorial_showtime.py"),
             "--slug",
             "manfred",
             "--base-url",

@@ -106,6 +106,21 @@ def test_default_manifest_path_honors_env_override(monkeypatch: pytest.MonkeyPat
     assert builder.default_manifest_path() == custom_manifest
 
 
+def test_default_base_url_is_example_safe_and_env_configurable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("CHUMMER6_RELEASE_BASE_URL", raising=False)
+    monkeypatch.delenv("EA_PUBLIC_APP_BASE_URL", raising=False)
+    builder = _load_module()
+
+    assert builder.DEFAULT_BASE_URL == "https://example.test"
+    assert builder.default_base_url() == "https://example.test"
+
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://public.example.test/")
+    assert builder.default_base_url() == "https://public.example.test"
+
+    monkeypatch.setenv("CHUMMER6_RELEASE_BASE_URL", "https://downloads.example.test/")
+    assert builder.default_base_url() == "https://downloads.example.test"
+
+
 def test_default_manifest_path_prefers_first_existing_candidate(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     builder = _load_module()
     first = tmp_path / "preferred.json"

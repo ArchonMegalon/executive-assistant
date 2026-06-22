@@ -24,7 +24,8 @@ async def public_memorial_speech_transcribe(slug: str, request: Request) -> JSON
         raise HTTPException(status_code=413, detail="audio_too_large")
     payload = await request.body()
     content_type = str(request.headers.get("content-type") or "application/octet-stream")
-    result = transcribe_public_memorial_audio(runtime=runtime, payload=payload, content_type=content_type).as_public_payload()
+    transcription = transcribe_public_memorial_audio(runtime=runtime, payload=payload, content_type=content_type)
+    result = transcription.as_public_payload()
     issue_reason = classify_memorial_stt_issue(
         transcription_status=shared._text(result.get("transcription_status")),
         transcript_text=shared._text(result.get("transcript_original_text") or result.get("transcript_text")),
@@ -50,6 +51,7 @@ async def public_memorial_speech_transcribe(slug: str, request: Request) -> JSON
         transcript_chars=len(transcript_text if transcript_text else shared._text(result.get("transcript_text"))),
         status=shared._text(result.get("transcription_status")),
         transcriber=shared._text(result.get("transcriber")),
+        stt_ms=transcription.stt_ms,
     )
     return JSONResponse(result)
 
@@ -124,6 +126,10 @@ async def public_memorial_speech_synthesize(slug: str, request: Request) -> Resp
         ),
         force_regenerate=force_regenerate,
     )
+    if not bytes(audio or b""):
+        raise HTTPException(status_code=502, detail="tts_audio_missing")
+    if not shared._text(content_type, "").strip().lower().startswith("audio/"):
+        raise HTTPException(status_code=502, detail="tts_content_type_invalid")
     shared._register_memorial_known_audio_transcript(
         payload=audio,
         transcript_text=text,

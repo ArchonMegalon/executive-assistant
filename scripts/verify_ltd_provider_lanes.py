@@ -12,11 +12,6 @@ for candidate in (ROOT, EA_PATH):
     if str(candidate) not in sys.path:
         sys.path.insert(0, str(candidate))
 
-from app.services.ltd_provider_governance import (  # noqa: E402
-    build_ltd_provider_governance_receipt,
-    materialize_ltd_provider_governance_receipts,
-)
-
 
 def main() -> int:
     if any(arg in {"-h", "--help"} for arg in sys.argv[1:]):
@@ -27,6 +22,11 @@ def main() -> int:
             "With --lane, print and optionally write only the requested lane receipt."
         )
         return 0
+    from app.services.ltd_provider_governance import (  # noqa: E402
+        build_ltd_provider_governance_receipt,
+        materialize_ltd_provider_governance_receipts,
+    )
+
     parser = argparse.ArgumentParser(
         description="Verify governed LTD provider lanes and materialize proof/boundary receipts."
     )

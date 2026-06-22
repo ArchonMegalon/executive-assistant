@@ -6,7 +6,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl espeak-ng ffmpeg && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* && \
+    adduser --system --uid 10001 --group ea
 
 WORKDIR /app
 
@@ -18,9 +19,14 @@ RUN pip install --no-cache-dir -r /app/requirements.txt -c /app/requirements.loc
 
 COPY app /app/app
 COPY scripts /app/scripts
-RUN find /app/scripts -maxdepth 1 -type f -name '*.sh' -exec chmod +x {} \;
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh && \
+    find /app/scripts -maxdepth 1 -type f -name '*.sh' -exec chmod +x {} \; && \
+    chown -R ea:ea /app /usr/local/bin/docker-entrypoint.sh
 
 HEALTHCHECK --interval=30s --timeout=15s --start-period=45s --retries=5 \
   CMD ["/bin/sh", "-ec", "port=${OPENVOICE_PORT:-8093}; curl -fsS --connect-timeout 2 --max-time 10 http://127.0.0.1:${port}/health/ready >/dev/null"]
 
-CMD ["uvicorn", "app.openvoice_app:app", "--host", "0.0.0.0", "--port", "8093"]
+USER ea
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD ["python", "-m", "app.runner"]

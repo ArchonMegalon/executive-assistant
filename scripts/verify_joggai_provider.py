@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_OUTPUT = Path("/docker/fleet/state/chummer6/avatar_presenter_provider/JOGGAI_PROVIDER_VERIFICATION.generated.json")
+DEFAULT_OUTPUT = Path(os.environ.get("EA_JOGGAI_PROVIDER_OUTPUT") or ROOT / "ea" / "_completion" / "avatar_presenter_provider" / "JOGGAI_PROVIDER_VERIFICATION.generated.json")
 
 
 def _utc_now() -> str:

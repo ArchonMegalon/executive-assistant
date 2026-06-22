@@ -6,14 +6,14 @@ It stays downstream of existing packet and design truth. The bundle proves that 
 
 ## Source anchors
 
-- `/docker/EA/docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml`
-- `/docker/EA/.codex-studio/published/NEXT90_M113_OPERATOR_SAFE_PACKETS.generated.json`
-- `/docker/EA/.codex-studio/published/NEXT90_M118_EA_ORGANIZER_PACKETS.generated.json`
-- `/docker/EA/docs/chummer_launch_followthrough/CHUMMER_LAUNCH_FOLLOWTHROUGH_PACK.yaml`
-- `/docker/EA/.codex-studio/published/NEXT90_M129_EA_PARTICIPATION_FOLLOWTHROUGH_PACKETS.generated.json`
-- `/docker/EA/docs/chummer_explain_narration_packs/CHUMMER_EXPLAIN_NARRATION_PACKET_PACK.yaml`
-- `/docker/EA/scripts/chummer6_provider_readiness.py`
-- `/docker/EA/scripts/chummer6_guide_worker.py`
+- `docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml`
+- `.codex-studio/published/NEXT90_M113_OPERATOR_SAFE_PACKETS.generated.json`
+- `.codex-studio/published/NEXT90_M118_EA_ORGANIZER_PACKETS.generated.json`
+- `docs/chummer_launch_followthrough/CHUMMER_LAUNCH_FOLLOWTHROUGH_PACK.yaml`
+- `.codex-studio/published/NEXT90_M129_EA_PARTICIPATION_FOLLOWTHROUGH_PACKETS.generated.json`
+- `docs/chummer_explain_narration_packs/CHUMMER_EXPLAIN_NARRATION_PACKET_PACK.yaml`
+- `scripts/chummer6_provider_readiness.py`
+- `scripts/chummer6_guide_worker.py`
 
 ## Closure rule
 

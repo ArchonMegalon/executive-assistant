@@ -18,40 +18,40 @@ It intentionally does **not** surface archive browsing, public recordings, sourc
 Run the preflight:
 
 ```bash
-cd /docker/EA/ea
+cd "$EA_REPO_ROOT"
 python3 scripts/memorial_flagship_preflight.py manfred
-python3 scripts/memorial_flagship_preflight.py manfred --base-url https://myexternalbrain.com
+python3 scripts/memorial_flagship_preflight.py manfred --base-url "${MEMORIAL_PUBLIC_ORIGIN:-https://memorial.example.test}"
 ```
 
 Run the live rehearsal and snapshot:
 
 ```bash
-python3 scripts/memorial_demo_rehearsal.py manfred --base-url https://myexternalbrain.com --questions ../examples/demo_questions.manfred.json --save-audio-dir /tmp
-python3 scripts/memorial_launch_snapshot.py manfred --base-url https://myexternalbrain.com --questions ../examples/demo_questions.manfred.json --output /tmp/manfred_launch_snapshot.json
+python3 scripts/memorial_demo_rehearsal.py manfred --base-url "${MEMORIAL_PUBLIC_ORIGIN:-https://memorial.example.test}" --questions examples/demo_questions.manfred.json --save-audio-dir /tmp
+python3 scripts/memorial_launch_snapshot.py manfred --base-url "${MEMORIAL_PUBLIC_ORIGIN:-https://memorial.example.test}" --questions examples/demo_questions.manfred.json --output /tmp/manfred_launch_snapshot.json
 ```
 
 Run the one-command showtime wrapper:
 
 ```bash
-python3 scripts/memorial_showtime.py --slug manfred --base-url https://myexternalbrain.com --questions ../examples/demo_questions.manfred.json --output-dir /tmp/manfred_showtime --optional-exit-gates
+python3 scripts/memorial_showtime.py --slug manfred --base-url "${MEMORIAL_PUBLIC_ORIGIN:-https://memorial.example.test}" --questions examples/demo_questions.manfred.json --output-dir /tmp/manfred_showtime --optional-exit-gates
 ```
 
 Final room-ready pass right before the presentation:
 
 ```bash
-python3 scripts/memorial_room_ready.py --slug manfred --base-url https://myexternalbrain.com --questions ../examples/demo_questions.manfred.json --output-dir /tmp/manfred_room_ready --optional-exit-gates
+python3 scripts/memorial_room_ready.py --slug manfred --base-url "${MEMORIAL_PUBLIC_ORIGIN:-https://memorial.example.test}" --questions examples/demo_questions.manfred.json --output-dir /tmp/manfred_room_ready --optional-exit-gates
 ```
 
 Run the full memorial exit gates:
 
 ```bash
-/docker/EA/scripts/memorial_flagship_exit_gates.sh
+scripts/memorial_flagship_exit_gates.sh
 ```
 
 ## Supporting docs
 
-- [MEMORIAL_FLAGSHIP_RUNBOOK.md](/docker/EA/docs/MEMORIAL_FLAGSHIP_RUNBOOK.md)
-- [MEMORIAL_GO_NO_GO_CHECKLIST.md](/docker/EA/docs/MEMORIAL_GO_NO_GO_CHECKLIST.md)
+- [MEMORIAL_FLAGSHIP_RUNBOOK.md](MEMORIAL_FLAGSHIP_RUNBOOK.md)
+- [MEMORIAL_GO_NO_GO_CHECKLIST.md](MEMORIAL_GO_NO_GO_CHECKLIST.md)
 
 ## Archive publishing
 
@@ -60,7 +60,7 @@ Archive generation and FlipLink publishing still exist, but they are now support
 Build archive documents:
 
 ```bash
-cd /docker/EA/ea
+cd "$EA_REPO_ROOT"
 python3 scripts/build_memorial_archive_documents.py manfred
 ```
 

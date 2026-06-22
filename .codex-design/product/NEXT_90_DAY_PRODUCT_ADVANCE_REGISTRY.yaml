@@ -2177,7 +2177,7 @@ milestones:
         title: Define role and audit boundaries for community-scale operations.
 
   - id: 119
-    title: Guided onboarding and starter lane to first playable session
+    title: Guided onboarding to first playable session
     wave: W14
     owners:
       - chummer6-hub

@@ -7,9 +7,12 @@ from functools import lru_cache
 from pathlib import Path
 
 
-EA_ROOT = Path(__file__).resolve().parents[1]
+EA_ROOT = Path(os.environ.get("EA_ROOT") or Path(__file__).resolve().parents[1])
 ENV_FILE = EA_ROOT / ".env"
-POLICY_PATH = Path(os.environ.get("CHUMMER6_POLICY_PATH", "/docker/fleet/.chummer6_local_policy.json"))
+POLICY_PATH = Path(
+    os.environ.get("CHUMMER6_POLICY_PATH")
+    or EA_ROOT / ".codex-studio" / "published" / "chummer6_local_policy.json"
+)
 
 
 @lru_cache(maxsize=1)

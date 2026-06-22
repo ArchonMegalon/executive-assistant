@@ -83,20 +83,20 @@ curl -sS -X POST \
 Local verifier:
 
 ```bash
-PYTHONPATH=/docker/EA/ea:/docker/EA python3 /docker/EA/scripts/verify_preference_teable_sync.py --principal-id <principal> --person-id self
+PYTHONPATH=ea:. python3 scripts/verify_preference_teable_sync.py --principal-id <principal> --person-id self
 ```
 
 Execute via verifier:
 
 ```bash
-PYTHONPATH=/docker/EA/ea:/docker/EA python3 /docker/EA/scripts/verify_preference_teable_sync.py --principal-id <principal> --person-id self --execute
+PYTHONPATH=ea:. python3 scripts/verify_preference_teable_sync.py --principal-id <principal> --person-id self --execute
 ```
 
 Bootstrap the Teable table and emit/write the mapping:
 
 ```bash
-PYTHONPATH=/docker/EA/ea:/docker/EA python3 /docker/EA/scripts/bootstrap_preference_teable_table.py --base-id <base-id>
-PYTHONPATH=/docker/EA/ea:/docker/EA python3 /docker/EA/scripts/bootstrap_preference_teable_table.py --base-id <base-id> --create-table --write-config
+PYTHONPATH=ea:. python3 scripts/bootstrap_preference_teable_table.py --base-id <base-id>
+PYTHONPATH=ea:. python3 scripts/bootstrap_preference_teable_table.py --base-id <base-id> --create-table --write-config
 ```
 
 If Teable returns Cloudflare `1010` or another access denial, run the bootstrap from an allowed network or browser-authenticated environment. The EA runtime contract is still valid; the block is external to EA.

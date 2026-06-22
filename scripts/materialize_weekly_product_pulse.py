@@ -15,13 +15,13 @@ import yaml
 
 DEFAULT_OUTPUT = Path(".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json")
 DEFAULT_SCORECARD = Path(".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml")
-DEFAULT_JOURNEY_GATES = Path("/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json")
+DEFAULT_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_JOURNEY_GATES = Path(os.environ.get("EA_FLEET_JOURNEY_GATES_PATH") or "ea/_completion/fleet/JOURNEY_GATES.generated.json")
 DEFAULT_FLAGSHIP_RECEIPT = Path(".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json")
 DEFAULT_GOVERNOR_LOOP = Path(".codex-design/product/PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md")
 DEFAULT_CONTROL_LOOP = Path(".codex-design/product/PRODUCT_CONTROL_AND_GOVERNOR_LOOP.md")
 DEFAULT_RELEASE_PIPELINE = Path(".codex-design/product/RELEASE_PIPELINE.md")
 DEFAULT_RELEASE_CHECKLIST = Path("RELEASE_CHECKLIST.md")
-DEFAULT_ROOT = Path(__file__).resolve().parents[1]
 _RELEASE_TRUTH_HEAD_KEYS = {
     "release_truth_provenance.git_head",
     "supporting_signals.flagship_release_receipt_git_head",
@@ -39,7 +39,6 @@ _PROVENANCE_REFRESH_ALLOWED_EXACT = {
     "Makefile",
     "CHANGELOG.md",
     "LTDs.md",
-    ".github/workflows/smoke-runtime.yml",
     "ea/app/api/routes/plans.py",
     "ea/app/services/execution_approval_pause_service.py",
     "scripts/materialize_ea_browser_workflow_proof.py",

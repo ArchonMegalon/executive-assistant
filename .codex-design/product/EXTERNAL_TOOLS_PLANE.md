@@ -76,6 +76,7 @@ Current known external-tool inventory includes:
 * PeekShot
 * ProductLift
 * Signitic
+* Subscribr.ai
 * Taja
 * Teable
 * Unmixr AI
@@ -97,6 +98,7 @@ Important current distinctions:
 * Paperguide - workspace integration Tier 3, vendor license plan Tier 4
 * Prompt Architects - workspace integration Tier 3, vendor license plan Tier 4
 * PayFunnels - workspace integration Tier 3 until test-billing receipts and entitlement-event simulation gates are complete
+* Subscribr.ai - workspace integration Tier 3, vendor license plan Tier 7; high-capacity creator preproduction lane only, not publication truth
 
 Chummer routing, rollout, and architectural ownership should follow workspace integration tier and system-of-record safety rules, not marketing or license-plan tier labels.
 
@@ -122,7 +124,7 @@ Public trust surfaces may consume owned LTDs only through bounded public-concier
 Current public-surface posture:
 
 * Hub-owned public trust surfaces such as `/downloads`, `/now`, public help entry pages, artifact pages, creator pages, and tokenized invite pages that expose no private truth may use `FacePop` as a bounded public concierge or trust-widget lane
-* public intake or guided escalation may use `Deftform` for structured intake and `Lunacal` for human booking only when Chummer-owned fallback paths and receipt mirroring remain intact
+* public intake or guided escalation may use `Deftform` for structured intake; `Lunacal` is limited to invitation-only creator consults, press/research, GM office hours, and rare publisher or premium review sessions, never normal Chummer support
 * public or network-visible open-run discovery may use `FacePop`, `Deftform`, and `Lunacal` for first contact, application intake, and booking projection only when accepted-roster truth, meeting-handoff truth, and observer-consent truth remain first-party
 * community-run play surfaces such as Discord, Teams, Foundry, Roll20, or generic meeting URLs may receive handoff and export packages only when Chummer remains the first-party authority for run, roster, rule-environment, and closeout truth
 * passive outreach and recruitment projection may use `Signitic` only when the CTA lands on first-party Chummer pages and any resulting intake still lands in Chummer-owned receipts or routes
@@ -131,6 +133,7 @@ Current public-surface posture:
 * public concierge flows may use `vidBoard`, `MarkupGo`, `PeekShot`, and `Soundmadeseen` as sibling explainer and artifact lanes, but those companions remain downstream of Chummer-owned release, support, invite, and publication truth
 * public feature ideas, votes, roadmap projection, changelog projection, and voter closeout may use `ProductLift` only as a projection of Chummer-owned design, milestone, release, and closeout truth
 * public guide readability, SEO, AI-search visibility, and article-draft work may use `Katteb` only against approved source packets; accepted changes must flow upstream into `chummer6-design` or public-guide source registries before generated guide output changes
+* public tutorial, creator, and launch-video preproduction may use `Subscribr.ai` only against approved source packets; scripts, hooks, descriptions, tags, and thumbnail briefs must return to Chummer-owned review before publication
 * public site crawl health, technical SEO, metadata/schema coverage, broken-link checks, internal-link suggestions, and AI-search visibility measurement may use `ClickRank` only as audit and recommendation output; accepted changes still patch Chummer-owned source first
 
 ## Classification model
@@ -401,7 +404,8 @@ A public concierge widget may:
 
 * help the user choose between help paths
 * route to Deftform or Hub support intake
-* route to Lunacal for human escalation
+* route normal support to Chummer Instant Help or first-party intake
+* route invitation-only consults, GM office hours, press/research, or publisher review sessions to Lunacal
 * show a short human greeting or explainer
 
 A public concierge widget may not:
@@ -922,13 +926,14 @@ Structured prescreen and intake lane.
 
 ### Role
 
-Follow-up booking and human-escalation lane.
+Invitation-only booking lane outside normal Chummer support.
 
 ### Architectural use
 
 * GM follow-up calls
 * creator clinics
-* setup or onboarding calls
+* press or research sessions
+* publisher or premium review sessions
 * organizer or BLACK LEDGER pilot sessions
 
 ### Owner
@@ -938,6 +943,7 @@ Follow-up booking and human-escalation lane.
 ### Hard boundary
 
 * not support-case truth
+* not normal setup or update help
 * not campaign truth
 * not final approval truth
 

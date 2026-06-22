@@ -2,7 +2,7 @@
 
 ## Explanation video
 
-[Watch the RUNBOOK PRESS 90-second deep dive](https://chummer.run/media/horizons/runbook-press-90s-deepdive.mp4) - MP4 with AAC audio. [Captions](https://chummer.run/media/horizons/runbook-press-90s-deepdive.vtt).
+[Watch the RUNBOOK PRESS 90-second deep dive](https://chummer.run/media/horizons/runbook-press-90s-deepdive.mp4). [Captions](https://chummer.run/media/horizons/runbook-press-90s-deepdive.vtt).
 
 ## The problem
 

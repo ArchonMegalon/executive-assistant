@@ -6,6 +6,7 @@ from app.repositories.connector_bindings import InMemoryConnectorBindingReposito
 from app.repositories.tool_registry import InMemoryToolRegistryRepository
 from app.services.telegram_delivery import (
     _chunk_telegram_text,
+    _telegram_video_with_fallback_audio,
     resolve_primary_telegram_binding,
     send_telegram_audio_for_principal,
     send_telegram_document_for_principal,
@@ -35,13 +36,13 @@ def test_send_telegram_message_for_principal_uses_bound_chat(monkeypatch) -> Non
         principal_id="exec-telegram-send",
         connector_name="telegram_identity",
         external_account_ref="42",
-        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "ea_concierge_bot"},
         scope_json={"assistant_surfaces": ["dm"]},
         status="enabled",
     )
     monkeypatch.setenv(
         "EA_TELEGRAM_BOT_REGISTRY_JSON",
-        json.dumps({"default": {"token": "telegram-token", "handle": "tibor_concierge_bot"}}),
+        json.dumps({"default": {"token": "telegram-token", "handle": "ea_concierge_bot"}}),
     )
 
     sent: list[dict[str, object]] = []
@@ -81,13 +82,13 @@ def test_send_telegram_message_for_principal_includes_inline_buttons(monkeypatch
         principal_id="exec-telegram-buttons",
         connector_name="telegram_identity",
         external_account_ref="42",
-        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "ea_concierge_bot"},
         scope_json={"assistant_surfaces": ["dm"]},
         status="enabled",
     )
     monkeypatch.setenv(
         "EA_TELEGRAM_BOT_REGISTRY_JSON",
-        json.dumps({"default": {"token": "telegram-token", "handle": "tibor_concierge_bot"}}),
+        json.dumps({"default": {"token": "telegram-token", "handle": "ea_concierge_bot"}}),
     )
 
     sent: list[dict[str, object]] = []
@@ -120,16 +121,16 @@ def test_send_telegram_message_for_principal_includes_inline_buttons(monkeypatch
 def test_resolve_primary_telegram_binding_falls_back_to_default_principal(monkeypatch) -> None:
     runtime = _tool_runtime()
     runtime.upsert_connector_binding(
-        principal_id="local-user",
+        principal_id="principal-default",
         connector_name="telegram_identity",
         external_account_ref="1354554303",
         auth_metadata_json={"default_chat_ref": "1354554303", "bot_key": "default"},
         scope_json={"assistant_surfaces": ["dm"]},
         status="enabled",
     )
-    monkeypatch.setenv("EA_DEFAULT_PRINCIPAL_ID", "local-user")
+    monkeypatch.setenv("EA_DEFAULT_PRINCIPAL_ID", "principal-default")
 
-    binding = resolve_primary_telegram_binding(runtime, principal_id="cf-email:tibor.girschele@gmail.com")
+    binding = resolve_primary_telegram_binding(runtime, principal_id="cf-email:principal@example.test")
     assert binding is not None
     assert str(binding.external_account_ref) == "1354554303"
 
@@ -137,17 +138,17 @@ def test_resolve_primary_telegram_binding_falls_back_to_default_principal(monkey
 def test_send_telegram_message_for_principal_falls_back_to_default_principal_binding(monkeypatch) -> None:
     runtime = _tool_runtime()
     runtime.upsert_connector_binding(
-        principal_id="local-user",
+        principal_id="principal-default",
         connector_name="telegram_identity",
         external_account_ref="1354554303",
-        auth_metadata_json={"default_chat_ref": "1354554303", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        auth_metadata_json={"default_chat_ref": "1354554303", "bot_key": "default", "bot_handle": "ea_concierge_bot"},
         scope_json={"assistant_surfaces": ["dm"]},
         status="enabled",
     )
-    monkeypatch.setenv("EA_DEFAULT_PRINCIPAL_ID", "local-user")
+    monkeypatch.setenv("EA_DEFAULT_PRINCIPAL_ID", "principal-default")
     monkeypatch.setenv(
         "EA_TELEGRAM_BOT_REGISTRY_JSON",
-        json.dumps({"default": {"token": "telegram-token", "handle": "tibor_concierge_bot"}}),
+        json.dumps({"default": {"token": "telegram-token", "handle": "ea_concierge_bot"}}),
     )
 
     sent: list[dict[str, object]] = []
@@ -175,8 +176,8 @@ def test_send_telegram_message_for_principal_falls_back_to_default_principal_bin
     monkeypatch.setattr("app.services.telegram_delivery.urllib.request.urlopen", _fake_urlopen)
     receipt = send_telegram_message_for_principal(
         runtime,
-        principal_id="cf-email:tibor.girschele@gmail.com",
-        text="Fallback from local-user binding",
+        principal_id="cf-email:principal@example.test",
+        text="Fallback from principal-default binding",
     )
     assert receipt.chat_id == "1354554303"
     assert receipt.message_ids == ("17",)
@@ -189,13 +190,13 @@ def test_send_telegram_video_for_principal_uses_bound_chat_and_sendvideo(monkeyp
         principal_id="exec-telegram-video",
         connector_name="telegram_identity",
         external_account_ref="42",
-        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "ea_concierge_bot"},
         scope_json={"assistant_surfaces": ["dm"]},
         status="enabled",
     )
     monkeypatch.setenv(
         "EA_TELEGRAM_BOT_REGISTRY_JSON",
-        json.dumps({"default": {"token": "telegram-token", "handle": "tibor_concierge_bot"}}),
+        json.dumps({"default": {"token": "telegram-token", "handle": "ea_concierge_bot"}}),
     )
     monkeypatch.setattr("app.services.telegram_delivery._telegram_video_has_audio", lambda value: value.endswith(".mp4"))
     monkeypatch.setattr("app.services.telegram_delivery._telegram_remote_ref_reachable", lambda value: True)
@@ -242,13 +243,13 @@ def test_send_telegram_video_for_principal_uploads_local_file(monkeypatch, tmp_p
         principal_id="exec-telegram-video-local",
         connector_name="telegram_identity",
         external_account_ref="42",
-        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "ea_concierge_bot"},
         scope_json={"assistant_surfaces": ["dm"]},
         status="enabled",
     )
     monkeypatch.setenv(
         "EA_TELEGRAM_BOT_REGISTRY_JSON",
-        json.dumps({"default": {"token": "telegram-token", "handle": "tibor_concierge_bot"}}),
+        json.dumps({"default": {"token": "telegram-token", "handle": "ea_concierge_bot"}}),
     )
     video_path = tmp_path / "render.mp4"
     video_path.write_bytes(b"fake-video-bytes")
@@ -288,23 +289,35 @@ def test_send_telegram_video_for_principal_uploads_local_file(monkeypatch, tmp_p
     assert b"Local upload" in bytes(seen["body"])
 
 
-def test_send_telegram_video_for_principal_falls_back_to_document_for_silent_local_file(monkeypatch, tmp_path) -> None:
+def test_send_telegram_video_for_principal_normalizes_silent_local_file_to_sendvideo(monkeypatch, tmp_path) -> None:
     runtime = _tool_runtime()
     runtime.upsert_connector_binding(
         principal_id="exec-telegram-video-silent",
         connector_name="telegram_identity",
         external_account_ref="42",
-        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "ea_concierge_bot"},
         scope_json={"assistant_surfaces": ["dm"]},
         status="enabled",
     )
     monkeypatch.setenv(
         "EA_TELEGRAM_BOT_REGISTRY_JSON",
-        json.dumps({"default": {"token": "telegram-token", "handle": "tibor_concierge_bot"}}),
+        json.dumps({"default": {"token": "telegram-token", "handle": "ea_concierge_bot"}}),
     )
     video_path = tmp_path / "silent.mp4"
     video_path.write_bytes(b"fake-video-bytes")
-    monkeypatch.setattr("app.services.telegram_delivery._telegram_video_has_audio", lambda value: False)
+    fixed_silent_with_audio = tmp_path / "silent.with-audio.mp4"
+    fixed_silent_with_audio.write_bytes(b"fake-video-with-audio-bytes")
+    monkeypatch.setattr(
+        "app.services.telegram_delivery._telegram_video_has_audio",
+        lambda value: str(value).endswith(".with-audio.mp4"),
+    )
+    monkeypatch.setattr(
+        "app.services.telegram_delivery._telegram_video_with_fallback_audio",
+        lambda value, audio_ref="", fallback_audio_text="", fallback_audio_language="": (
+            str(fixed_silent_with_audio),
+            fixed_silent_with_audio,
+        ),
+    )
 
     seen: dict[str, object] = {}
 
@@ -331,8 +344,48 @@ def test_send_telegram_video_for_principal_falls_back_to_document_for_silent_loc
         caption="Silent local upload",
     )
     assert receipt.message_ids == ("12",)
-    assert seen["url"] == "https://api.telegram.org/bottelegram-token/sendDocument"
-    assert b'name="document"' in bytes(seen["body"])
+    assert seen["url"] == "https://api.telegram.org/bottelegram-token/sendVideo"
+    assert b'name="video"' in bytes(seen["body"])
+
+
+def test_send_telegram_video_for_principal_rejects_local_file_when_audio_normalization_still_has_no_audio(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    runtime = _tool_runtime()
+    runtime.upsert_connector_binding(
+        principal_id="exec-telegram-video-local-audio-fail",
+        connector_name="telegram_identity",
+        external_account_ref="42",
+        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    monkeypatch.setenv("EA_TELEGRAM_BOT_REGISTRY_JSON", json.dumps({"default": {"token": "telegram-token"}}))
+    video_path = tmp_path / "silent.mp4"
+    video_path.write_bytes(b"fake-video-bytes")
+    normalized_path = tmp_path / "silent.with-audio.mp4"
+    normalized_path.write_bytes(b"fake-video-still-without-audio")
+    monkeypatch.setattr("app.services.telegram_delivery._telegram_video_has_audio", lambda value: False)
+    monkeypatch.setattr(
+        "app.services.telegram_delivery._telegram_video_with_fallback_audio",
+        lambda value, audio_ref="", fallback_audio_text="", fallback_audio_language="": (
+            str(normalized_path),
+            normalized_path,
+        ),
+    )
+
+    try:
+        send_telegram_video_for_principal(
+            runtime,
+            principal_id="exec-telegram-video-local-audio-fail",
+            video_ref=str(video_path),
+            caption="Silent local upload",
+        )
+    except RuntimeError as exc:
+        assert str(exc) == "telegram_video_audio_missing"
+    else:
+        raise AssertionError("expected telegram_video_audio_missing")
 
 
 def test_send_telegram_video_for_principal_rejects_video_without_audio(monkeypatch) -> None:
@@ -350,6 +403,15 @@ def test_send_telegram_video_for_principal_rejects_video_without_audio(monkeypat
         json.dumps({"default": {"token": "telegram-token"}}),
     )
     monkeypatch.setattr("app.services.telegram_delivery._telegram_video_has_audio", lambda value: False)
+    def _fallback_raise(
+        video_ref: str,
+        audio_ref: str = "",
+        fallback_audio_text: str = "",
+        fallback_audio_language: str = "",
+    ) -> tuple[str, object]:
+        raise RuntimeError("telegram_video_add_audio_failed")
+
+    monkeypatch.setattr("app.services.telegram_delivery._telegram_video_with_fallback_audio", _fallback_raise)
 
     try:
         send_telegram_video_for_principal(
@@ -363,19 +425,133 @@ def test_send_telegram_video_for_principal_rejects_video_without_audio(monkeypat
         raise AssertionError("expected telegram_video_audio_missing")
 
 
+def test_send_telegram_video_for_principal_fits_audio_probe_for_silent_local_video(monkeypatch, tmp_path) -> None:
+    runtime = _tool_runtime()
+    runtime.upsert_connector_binding(
+        principal_id="exec-telegram-video-probe",
+        connector_name="telegram_identity",
+        external_account_ref="42",
+        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "ea_concierge_bot"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    monkeypatch.setenv(
+        "EA_TELEGRAM_BOT_REGISTRY_JSON",
+        json.dumps({"default": {"token": "telegram-token", "handle": "ea_concierge_bot"}}),
+    )
+    video_path = tmp_path / "silent-with-probe.webm"
+    video_path.write_bytes(b"fake-video-bytes")
+    audio_probe = tmp_path / "speech-track.wav"
+    audio_probe.write_bytes(b"fake-audio-bytes")
+    normalised = []
+
+    def _fake_video_has_audio(value: str) -> bool:
+        normalized = str(value or "").strip()
+        if normalized.endswith(".with-audio.webm"):
+            return True
+        if normalized.endswith(".webm"):
+            return False
+        if normalized.endswith(".wav"):
+            return True
+        return False
+
+    monkeypatch.setattr("app.services.telegram_delivery._telegram_video_has_audio", _fake_video_has_audio)
+    monkeypatch.setattr(
+        "app.services.telegram_delivery._telegram_video_with_fallback_audio",
+        lambda video_ref, audio_ref="", fallback_audio_text="", fallback_audio_language="": (
+            normalised.append((str(video_ref), str(audio_ref), str(fallback_audio_text)))
+            or (
+                str(video_path.with_name("silent-with-probe.with-audio.webm")),
+                video_path.with_name("silent-with-probe.with-audio.webm"),
+            )
+        ),
+    )
+
+    sent: list[dict[str, object]] = []
+
+    def _fake_send_multipart(*, token, method, fields, file_field, file_path, content_type="application/octet-stream", timeout=120):  # noqa: ANN001
+        sent.append(
+            {
+                "token": token,
+                "method": method,
+                "fields": dict(fields),
+                "file_field": file_field,
+                "file_path": file_path,
+                "content_type": content_type,
+                "timeout": timeout,
+            }
+        )
+        return {"message_id": 13}
+
+    monkeypatch.setattr("app.services.telegram_delivery._telegram_send_multipart", _fake_send_multipart)
+    normalized_video = video_path.with_name("silent-with-probe.with-audio.webm")
+    normalized_video.write_bytes(b"fake-video-with-audio")
+
+    receipt = send_telegram_video_for_principal(
+        runtime,
+        principal_id="exec-telegram-video-probe",
+        video_ref=str(video_path),
+        audio_probe_ref=str(audio_probe),
+    )
+    assert receipt.message_ids == ("13",)
+    assert sent and sent[0]["method"] == "sendVideo"
+    assert sent[0]["file_path"] == str(video_path.with_name("silent-with-probe.with-audio.webm"))
+    assert normalised == [(str(video_path), str(audio_probe), "")]
+
+
+def test_telegram_video_with_fallback_audio_synthesizes_text_before_silent(monkeypatch, tmp_path) -> None:
+    video_path = tmp_path / "silent.mp4"
+    audio_path = tmp_path / "narration.wav"
+    target_path = tmp_path / "silent.with-audio.mp4"
+    video_path.write_bytes(b"fake-video")
+    audio_path.write_bytes(b"fake-audio")
+    target_path.write_bytes(b"fake-video-with-audio")
+    calls: list[tuple[str, str]] = []
+
+    def _fake_render_fallback_audio_path(*, source_path, text, language):  # noqa: ANN001
+        calls.append((str(text), str(language)))
+        return audio_path
+
+    def _fake_attach(source_path, rendered_audio_path):  # noqa: ANN001
+        assert source_path == video_path
+        assert rendered_audio_path == audio_path
+        return str(target_path), target_path
+
+    def _fake_silent(source_path):  # noqa: ANN001
+        raise AssertionError("silent fallback should not be used when narration synthesis succeeds")
+
+    monkeypatch.setattr(
+        "app.services.telegram_delivery._telegram_video_render_fallback_audio_path",
+        _fake_render_fallback_audio_path,
+    )
+    monkeypatch.setattr("app.services.telegram_delivery._telegram_video_with_attached_audio", _fake_attach)
+    monkeypatch.setattr("app.services.telegram_delivery._telegram_video_with_silent_audio", _fake_silent)
+
+    normalized_ref, temporary_path = _telegram_video_with_fallback_audio(
+        str(video_path),
+        fallback_audio_text="They call me Kestrel. That was not my first name.",
+        fallback_audio_language="en",
+    )
+
+    assert normalized_ref == str(target_path)
+    assert temporary_path == target_path
+    assert calls == [("They call me Kestrel. That was not my first name.", "en")]
+    assert not audio_path.exists()
+
+
 def test_send_telegram_audio_for_principal_uploads_local_file(monkeypatch, tmp_path) -> None:
     runtime = _tool_runtime()
     runtime.upsert_connector_binding(
         principal_id="exec-telegram-audio-local",
         connector_name="telegram_identity",
         external_account_ref="42",
-        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "ea_concierge_bot"},
         scope_json={"assistant_surfaces": ["dm"]},
         status="enabled",
     )
     monkeypatch.setenv(
         "EA_TELEGRAM_BOT_REGISTRY_JSON",
-        json.dumps({"default": {"token": "telegram-token", "handle": "tibor_concierge_bot"}}),
+        json.dumps({"default": {"token": "telegram-token", "handle": "ea_concierge_bot"}}),
     )
     audio_path = tmp_path / "meeting.mp3"
     audio_path.write_bytes(b"fake-audio-bytes")
@@ -418,13 +594,13 @@ def test_send_telegram_document_for_principal_uses_bound_chat(monkeypatch) -> No
         principal_id="exec-telegram-document",
         connector_name="telegram_identity",
         external_account_ref="42",
-        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "ea_concierge_bot"},
         scope_json={"assistant_surfaces": ["dm"]},
         status="enabled",
     )
     monkeypatch.setenv(
         "EA_TELEGRAM_BOT_REGISTRY_JSON",
-        json.dumps({"default": {"token": "telegram-token", "handle": "tibor_concierge_bot"}}),
+        json.dumps({"default": {"token": "telegram-token", "handle": "ea_concierge_bot"}}),
     )
     monkeypatch.setattr("app.services.telegram_delivery._telegram_remote_ref_reachable", lambda value: True)
     sent: list[dict[str, object]] = []

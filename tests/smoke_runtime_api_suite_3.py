@@ -5,7 +5,7 @@ from tests.smoke_runtime_api_support import build_headers as _headers
 
 
 def test_plan_execute_returns_accepted_when_inline_queue_drain_does_not_settle() -> None:
-    client = _client(storage_backend="memory", principal_id="exec-1")
+    client = _client(storage_backend="memory", principal_id="principal-default")
 
     def _queued_execute(_request):  # type: ignore[no-untyped-def]
         raise RuntimeError("queued task did not execute: session-still-queued")
@@ -30,7 +30,7 @@ def test_plan_execute_returns_accepted_when_inline_queue_drain_does_not_settle()
 
 
 def test_generic_task_execution_supports_async_approval_and_human_contracts() -> None:
-    client = _client(storage_backend="memory", principal_id="exec-1", operator=True)
+    client = _client(storage_backend="memory", principal_id="principal-default", operator=True)
 
     approval_contract = client.post(
         "/v1/tasks/contracts",
@@ -93,7 +93,7 @@ def test_generic_task_execution_supports_async_approval_and_human_contracts() ->
 
     approved = client.post(
         f"/v1/policy/approvals/{approval_body['approval_id']}/approve",
-        json={"decided_by": "exec-1", "reason": "approved generic task execution"},
+        json={"decided_by": "principal-default", "reason": "approved generic task execution"},
     )
     assert approved.status_code == 200
     assert approved.json()["task_key"] == "decision_brief_approval"
@@ -229,7 +229,7 @@ def test_generic_task_execution_supports_async_approval_and_human_contracts() ->
 
 
 def test_task_contract_workflow_template_can_compile_and_resume_dispatch_branch() -> None:
-    client = _client(storage_backend="memory", principal_id="exec-1", operator=True)
+    client = _client(storage_backend="memory", principal_id="principal-default", operator=True)
 
     binding = client.post(
         "/v1/connectors/bindings",
@@ -331,7 +331,7 @@ def test_task_contract_workflow_template_can_compile_and_resume_dispatch_branch(
 
     approved = client.post(
         f"/v1/policy/approvals/{execute_body['approval_id']}/approve",
-        json={"decided_by": "exec-1", "reason": "approved dispatch workflow"},
+        json={"decided_by": "principal-default", "reason": "approved dispatch workflow"},
     )
     assert approved.status_code == 200
     assert approved.json()["task_key"] == "stakeholder_dispatch"
@@ -357,7 +357,7 @@ def test_task_contract_workflow_template_can_compile_and_resume_dispatch_branch(
 
 
 def test_artifact_then_memory_candidate_workflow_template_stages_candidate_over_http() -> None:
-    client = _client(storage_backend="memory", principal_id="exec-1", operator=True)
+    client = _client(storage_backend="memory", principal_id="principal-default", operator=True)
 
     contract = client.post(
         "/v1/tasks/contracts",
@@ -427,7 +427,7 @@ def test_artifact_then_memory_candidate_workflow_template_stages_candidate_over_
     assert execute_body["kind"] == "stakeholder_briefing"
     assert execute_body["deliverable_type"] == "stakeholder_briefing"
     assert execute_body["content"] == "Board context and stakeholder sensitivities."
-    assert execute_body["principal_id"] == "exec-1"
+    assert execute_body["principal_id"] == "principal-default"
     session_id = execute_body["execution_session_id"]
 
     session = client.get(f"/v1/rewrite/sessions/{session_id}")
@@ -453,7 +453,7 @@ def test_artifact_then_memory_candidate_workflow_template_stages_candidate_over_
     candidates = client.get("/v1/memory/candidates", params={"limit": 20, "status": "pending"})
     assert candidates.status_code == 200
     candidate = next(row for row in candidates.json() if row["candidate_id"] == candidate_id)
-    assert candidate["principal_id"] == "exec-1"
+    assert candidate["principal_id"] == "principal-default"
     assert candidate["category"] == "stakeholder_briefing_fact"
     assert candidate["summary"] == "Board context and stakeholder sensitivities."
     assert candidate["source_session_id"] == session_id
@@ -461,7 +461,7 @@ def test_artifact_then_memory_candidate_workflow_template_stages_candidate_over_
 
 
 def test_dispatch_then_memory_candidate_workflow_template_stages_candidate_after_approval_over_http() -> None:
-    client = _client(storage_backend="memory", principal_id="exec-1", operator=True)
+    client = _client(storage_backend="memory", principal_id="principal-default", operator=True)
 
     binding = client.post(
         "/v1/connectors/bindings",
@@ -570,7 +570,7 @@ def test_dispatch_then_memory_candidate_workflow_template_stages_candidate_after
 
     approved = client.post(
         f"/v1/policy/approvals/{execute_body['approval_id']}/approve",
-        json={"decided_by": "exec-1", "reason": "approved dispatch memory workflow"},
+        json={"decided_by": "principal-default", "reason": "approved dispatch memory workflow"},
     )
     assert approved.status_code == 200
     assert approved.json()["task_key"] == "stakeholder_dispatch_memory_candidate"
@@ -601,7 +601,7 @@ def test_dispatch_then_memory_candidate_workflow_template_stages_candidate_after
 
 
 def test_review_then_dispatch_then_memory_candidate_workflow_template_stages_candidate_after_human_and_approval_over_http() -> None:
-    client = _client(storage_backend="memory", principal_id="exec-1", operator=True)
+    client = _client(storage_backend="memory", principal_id="principal-default", operator=True)
 
     binding = client.post(
         "/v1/connectors/bindings",
@@ -719,7 +719,7 @@ def test_review_then_dispatch_then_memory_candidate_workflow_template_stages_can
 
     approved = client.post(
         f"/v1/policy/approvals/{approval_row['approval_id']}/approve",
-        json={"decided_by": "exec-1", "reason": "approved reviewed dispatch memory workflow"},
+        json={"decided_by": "principal-default", "reason": "approved reviewed dispatch memory workflow"},
     )
     assert approved.status_code == 200
     assert approved.json()["task_key"] == "stakeholder_review_dispatch_memory_candidate"
@@ -749,7 +749,7 @@ def test_review_then_dispatch_then_memory_candidate_workflow_template_stages_can
 
 
 def test_review_then_dispatch_workflow_template_pauses_for_human_then_approval_over_http() -> None:
-    client = _client(storage_backend="memory", principal_id="exec-1", operator=True)
+    client = _client(storage_backend="memory", principal_id="principal-default", operator=True)
 
     binding = client.post(
         "/v1/connectors/bindings",
@@ -851,7 +851,7 @@ def test_review_then_dispatch_workflow_template_pauses_for_human_then_approval_o
 
     approved = client.post(
         f"/v1/policy/approvals/{approval_row['approval_id']}/approve",
-        json={"decided_by": "exec-1", "reason": "approved reviewed dispatch"},
+        json={"decided_by": "principal-default", "reason": "approved reviewed dispatch"},
     )
     assert approved.status_code == 200
     assert approved.json()["task_key"] == "stakeholder_review_dispatch"
@@ -869,7 +869,7 @@ def test_review_then_dispatch_workflow_template_pauses_for_human_then_approval_o
 
 
 def test_review_then_dispatch_delayed_retry_stays_queued_after_http_approval() -> None:
-    client = _client(storage_backend="memory", principal_id="exec-1", operator=True)
+    client = _client(storage_backend="memory", principal_id="principal-default", operator=True)
 
     contract = client.post(
         "/v1/tasks/contracts",
@@ -938,7 +938,7 @@ def test_review_then_dispatch_delayed_retry_stays_queued_after_http_approval() -
 
     approved = client.post(
         f"/v1/policy/approvals/{approval_row['approval_id']}/approve",
-        json={"decided_by": "exec-1", "reason": "approve reviewed dispatch retry"},
+        json={"decided_by": "principal-default", "reason": "approve reviewed dispatch retry"},
     )
     assert approved.status_code == 200
     assert approved.json()["task_key"] == "stakeholder_review_dispatch_retry"
@@ -1142,7 +1142,7 @@ def test_rewrite_compiled_human_review_branch_pauses_and_resumes() -> None:
 
 
 def test_evidence_object_routes_materialize_and_merge_evidence_pack_artifacts() -> None:
-    client = _client(storage_backend="memory", principal_id="exec-1", operator=True)
+    client = _client(storage_backend="memory", principal_id="principal-default", operator=True)
 
     contract = client.post(
         "/v1/tasks/contracts",
@@ -1199,7 +1199,7 @@ def test_evidence_object_routes_materialize_and_merge_evidence_pack_artifacts() 
 
     listed = client.get(
         "/v1/evidence/objects",
-        params={"limit": 10, "artifact_id": first_body["artifact_id"], "principal_id": "exec-1"},
+        params={"limit": 10, "artifact_id": first_body["artifact_id"], "principal_id": "principal-default"},
     )
     assert listed.status_code == 200
     rows = listed.json()
@@ -1225,7 +1225,7 @@ def test_evidence_object_routes_materialize_and_merge_evidence_pack_artifacts() 
     )
     merged = client.post(
         "/v1/evidence/merge",
-        json={"principal_id": "exec-1", "evidence_ids": [first_evidence_id, second_evidence_id]},
+        json={"principal_id": "principal-default", "evidence_ids": [first_evidence_id, second_evidence_id]},
     )
     assert merged.status_code == 200
     merged_body = merged.json()
@@ -1263,7 +1263,7 @@ def test_memory_candidate_promotion_flow() -> None:
     )
     assert staged.status_code == 200
     candidate_id = staged.json()["candidate_id"]
-    assert staged.json()["principal_id"] == "exec-1"
+    assert staged.json()["principal_id"] == "principal-default"
     assert staged.json()["status"] == "pending"
 
     listed_candidates = client.get("/v1/memory/candidates", params={"limit": 10, "status": "pending"})
@@ -1299,7 +1299,7 @@ def test_memory_entities_relationships_flow() -> None:
     executive = client.post(
         "/v1/memory/entities",
         json={
-            "principal_id": "exec-1",
+            "principal_id": "principal-default",
             "entity_type": "person",
             "canonical_name": "Alex Executive",
             "attributes_json": {"role": "executive"},
@@ -1313,7 +1313,7 @@ def test_memory_entities_relationships_flow() -> None:
     stakeholder = client.post(
         "/v1/memory/entities",
         json={
-            "principal_id": "exec-1",
+            "principal_id": "principal-default",
             "entity_type": "person",
             "canonical_name": "Sam Stakeholder",
             "attributes_json": {"role": "board_member"},
@@ -1327,7 +1327,7 @@ def test_memory_entities_relationships_flow() -> None:
     relationship = client.post(
         "/v1/memory/relationships",
         json={
-            "principal_id": "exec-1",
+            "principal_id": "principal-default",
             "from_entity_id": executive_id,
             "to_entity_id": stakeholder_id,
             "relationship_type": "reports_to",
@@ -1338,7 +1338,7 @@ def test_memory_entities_relationships_flow() -> None:
     assert relationship.status_code == 200
     relationship_id = relationship.json()["relationship_id"]
 
-    listed_entities = client.get("/v1/memory/entities", params={"limit": 10, "principal_id": "exec-1"})
+    listed_entities = client.get("/v1/memory/entities", params={"limit": 10, "principal_id": "principal-default"})
     assert listed_entities.status_code == 200
     assert any(row["entity_id"] == executive_id for row in listed_entities.json())
 
@@ -1346,7 +1346,7 @@ def test_memory_entities_relationships_flow() -> None:
     assert fetched_entity.status_code == 200
     assert fetched_entity.json()["canonical_name"] == "Alex Executive"
 
-    listed_relationships = client.get("/v1/memory/relationships", params={"limit": 10, "principal_id": "exec-1"})
+    listed_relationships = client.get("/v1/memory/relationships", params={"limit": 10, "principal_id": "principal-default"})
     assert listed_relationships.status_code == 200
     assert any(row["relationship_id"] == relationship_id for row in listed_relationships.json())
 
@@ -1361,7 +1361,7 @@ def test_memory_commitments_principal_scope_flow() -> None:
     created = client.post(
         "/v1/memory/commitments",
         json={
-            "principal_id": "exec-1",
+            "principal_id": "principal-default",
             "title": "Send board follow-up",
             "details": "Draft and send by Friday",
             "status": "open",
@@ -1373,11 +1373,11 @@ def test_memory_commitments_principal_scope_flow() -> None:
     assert created.status_code == 200
     commitment_id = created.json()["commitment_id"]
 
-    listed = client.get("/v1/memory/commitments", params={"principal_id": "exec-1", "limit": 10})
+    listed = client.get("/v1/memory/commitments", params={"principal_id": "principal-default", "limit": 10})
     assert listed.status_code == 200
     assert any(row["commitment_id"] == commitment_id for row in listed.json())
 
-    fetched = client.get(f"/v1/memory/commitments/{commitment_id}", params={"principal_id": "exec-1"})
+    fetched = client.get(f"/v1/memory/commitments/{commitment_id}", params={"principal_id": "principal-default"})
     assert fetched.status_code == 200
     assert fetched.json()["title"] == "Send board follow-up"
 
@@ -1392,7 +1392,7 @@ def test_memory_authority_bindings_principal_scope_flow() -> None:
     created = client.post(
         "/v1/memory/authority-bindings",
         json={
-            "principal_id": "exec-1",
+            "principal_id": "principal-default",
             "subject_ref": "assistant",
             "action_scope": "calendar.write",
             "approval_level": "manager",
@@ -1404,11 +1404,11 @@ def test_memory_authority_bindings_principal_scope_flow() -> None:
     assert created.status_code == 200
     binding_id = created.json()["binding_id"]
 
-    listed = client.get("/v1/memory/authority-bindings", params={"principal_id": "exec-1", "limit": 10})
+    listed = client.get("/v1/memory/authority-bindings", params={"principal_id": "principal-default", "limit": 10})
     assert listed.status_code == 200
     assert any(row["binding_id"] == binding_id for row in listed.json())
 
-    fetched = client.get(f"/v1/memory/authority-bindings/{binding_id}", params={"principal_id": "exec-1"})
+    fetched = client.get(f"/v1/memory/authority-bindings/{binding_id}", params={"principal_id": "principal-default"})
     assert fetched.status_code == 200
     assert fetched.json()["action_scope"] == "calendar.write"
 
@@ -1423,7 +1423,7 @@ def test_memory_delivery_preferences_principal_scope_flow() -> None:
     created = client.post(
         "/v1/memory/delivery-preferences",
         json={
-            "principal_id": "exec-1",
+            "principal_id": "principal-default",
             "channel": "email",
             "recipient_ref": "ceo@example.com",
             "cadence": "urgent_only",
@@ -1435,11 +1435,11 @@ def test_memory_delivery_preferences_principal_scope_flow() -> None:
     assert created.status_code == 200
     preference_id = created.json()["preference_id"]
 
-    listed = client.get("/v1/memory/delivery-preferences", params={"principal_id": "exec-1", "limit": 10})
+    listed = client.get("/v1/memory/delivery-preferences", params={"principal_id": "principal-default", "limit": 10})
     assert listed.status_code == 200
     assert any(row["preference_id"] == preference_id for row in listed.json())
 
-    fetched = client.get(f"/v1/memory/delivery-preferences/{preference_id}", params={"principal_id": "exec-1"})
+    fetched = client.get(f"/v1/memory/delivery-preferences/{preference_id}", params={"principal_id": "principal-default"})
     assert fetched.status_code == 200
     assert fetched.json()["channel"] == "email"
 
@@ -1454,7 +1454,7 @@ def test_memory_follow_ups_principal_scope_flow() -> None:
     created = client.post(
         "/v1/memory/follow-ups",
         json={
-            "principal_id": "exec-1",
+            "principal_id": "principal-default",
             "stakeholder_ref": "ceo@example.com",
             "topic": "Board follow-up",
             "status": "open",
@@ -1467,11 +1467,11 @@ def test_memory_follow_ups_principal_scope_flow() -> None:
     assert created.status_code == 200
     follow_up_id = created.json()["follow_up_id"]
 
-    listed = client.get("/v1/memory/follow-ups", params={"principal_id": "exec-1", "limit": 10})
+    listed = client.get("/v1/memory/follow-ups", params={"principal_id": "principal-default", "limit": 10})
     assert listed.status_code == 200
     assert any(row["follow_up_id"] == follow_up_id for row in listed.json())
 
-    fetched = client.get(f"/v1/memory/follow-ups/{follow_up_id}", params={"principal_id": "exec-1"})
+    fetched = client.get(f"/v1/memory/follow-ups/{follow_up_id}", params={"principal_id": "principal-default"})
     assert fetched.status_code == 200
     assert fetched.json()["topic"] == "Board follow-up"
 

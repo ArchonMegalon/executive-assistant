@@ -1,0 +1,469 @@
+{
+  "boundary_posture": {
+    "assistant_local_prompts_are_canon": false,
+    "canonical_product_truth_created": false,
+    "ea_is_product_truth": false,
+    "ea_owns_canonical_queue_truth": false,
+    "ea_owns_release_authority": false,
+    "provider_telemetry_is_product_authority": false
+  },
+  "contract_name": "ea.whole_project_scope_gap_audit.v1",
+  "evidence_receipts": {
+    "active_media_ltd": {
+      "contract_name": "ea.active_media_ltd_goal_bundle.v1",
+      "file": {
+        "bytes": 12743,
+        "exists": true,
+        "path": ".codex-studio/published/active_media_ltd_goal_bundle.generated.json",
+        "sha256": "1fdade5f749ffb540765c53cb853d9577aba7451fc94e09eaf6860a9c6fea047"
+      },
+      "goal_completion_claim_allowed": false,
+      "status": "ready_local_evidence"
+    },
+    "ea_quality": {
+      "contract_name": "ea.executive_assistant_quality_readiness.v1",
+      "file": {
+        "bytes": 10864,
+        "exists": true,
+        "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
+        "sha256": "cec6e682a043cb4018911a91d412fadc516a495e993b97770a7d6eff4d664c31"
+      },
+      "goal_completion_claim_allowed": false,
+      "status": "blocked_real_world_acceptance"
+    },
+    "executive_assistant_acceptance_evidence": {
+      "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
+      "file": {
+        "bytes": 3288,
+        "exists": true,
+        "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
+        "sha256": "544d0c3a3d4e556a5fe578e19dba9cfb85722fe7e00681845dbdf0f6f8502b64"
+      },
+      "goal_completion_claim_allowed": false,
+      "status": "blocked_missing_real_world_acceptance_evidence"
+    },
+    "office_loop": {
+      "contract_name": "ea.office_loop_goal_receipt.v1",
+      "file": {
+        "bytes": 75217,
+        "exists": true,
+        "path": ".codex-studio/published/ea_office_loop_goal.generated.json",
+        "sha256": "3166642b39c064ce310fd86aa430216343d8767193568e4c10188cb8ec728d69"
+      },
+      "goal_completion_claim_allowed": false,
+      "status": "ready_local_evidence"
+    },
+    "signal_to_decision": {
+      "contract_name": "ea.whole_project_signal_to_decision_receipt.v1",
+      "file": {
+        "bytes": 18470,
+        "exists": true,
+        "path": ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
+        "sha256": "747f9b2c823aadb80bdbdd3e9f44d95f9fc43f71a8a7882e9f9262c4ce630883"
+      },
+      "goal_completion_claim_allowed": false,
+      "status": "ready_local_packet_pending_operator_acceptance"
+    }
+  },
+  "generated_at": "2026-06-20T06:12:48Z",
+  "goal_completion_claim_allowed": false,
+  "gold_claim_allowed": false,
+  "issues": [],
+  "live_daily_use_verified": false,
+  "local_audit_only": true,
+  "next_action": "review_scope_gap_audit_against_current_product_spine_with_a_human_operator",
+  "project_learning_goal": {
+    "claim_limit": "local_signal_synthesis_not_canonical_queue_or_release_truth",
+    "key": "whole_project_signal_to_decision_closure",
+    "label": "Whole-project signal-to-decision closure",
+    "protected_signal_sources": [
+      "real_usage_telemetry",
+      "support_and_recovery_cases",
+      "feedback_and_crash_reports",
+      "public_or_premium_publication_reactions",
+      "provider_runtime_failures",
+      "audiobook_and_media_acceptance",
+      "manfred_spoken_conversation_acceptance",
+      "telegram_whatsapp_email_channel_friction",
+      "release_install_update_friction",
+      "privacy_or_boundary_incidents"
+    ],
+    "requires": [
+      "cross_surface_signal_intake",
+      "journey_or_release_gate_mapping",
+      "owner_truth_plane_routing",
+      "weekly_operator_decision_packet",
+      "closed_loop_followthrough_receipt",
+      "human_acceptance_before_queue_or_release_claim"
+    ],
+    "source_path": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
+    "status": "active_local_goal"
+  },
+  "public_or_premium_claim_allowed": false,
+  "real_user_acceptance_verified": false,
+  "remaining_external_proofs": [
+    "real daily morning brief acceptance",
+    "real decision cleared by the principal or operator",
+    "real commitment recovered or closed with an evidence receipt",
+    "real approved outbound action with audit trail",
+    "real provider failure recovered with operator-grade reason",
+    "real whole-project scope gap audit reviewed against the current product spine",
+    "real weekly signal-to-decision review accepted by the operator",
+    "ChatLab account capability receipt",
+    "ChatLab live runtime probe receipt",
+    "ChatLab no-private-context-upload runtime receipt",
+    "ChatLab guardrail-preservation runtime receipt",
+    "named promo video provider account/runtime proof",
+    "deployed public promo route browser proof",
+    "human review approval for public promo publication",
+    "real user EPUB render and playback acceptance evidence",
+    "real Manfred realtime conversation room acceptance evidence",
+    "real Manfred spoken-conversation STT/TTS roundtrip evidence",
+    "closed-loop signal-to-decision follow-through receipt accepted by the operator"
+  ],
+  "scope_axes": [
+    {
+      "key": "build_character_and_rules",
+      "label": "Build character and rules",
+      "next_external_or_human_proof": "human parity and build/explain journey acceptance",
+      "source_files": [
+        {
+          "bytes": 4483,
+          "exists": true,
+          "path": ".codex-design/product/CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md",
+          "sha256": "41699b294f6513202b80ce77ff74aefd200e8a916a7ad0aeaececc9f1b20f10c"
+        },
+        {
+          "bytes": 6024,
+          "exists": true,
+          "path": ".codex-design/product/CAMPAIGN_AUTHORITY_AND_PERMISSIONS.md",
+          "sha256": "815e13b2d8ec559ba9fd7cd6b8df8189f4f75d32ef2ea6374421b767c7f17911"
+        }
+      ],
+      "status": "mapped_from_mirrored_sources",
+      "truth_plane": "mirrored_chummer_design"
+    },
+    {
+      "key": "run_session",
+      "label": "Run session",
+      "next_external_or_human_proof": "real table/session readiness proof",
+      "source_files": [
+        {
+          "bytes": 5282,
+          "exists": true,
+          "path": ".codex-design/product/CAMPAIGN_SPINE_AND_CREW_MODEL.md",
+          "sha256": "c2e864c6984be6f63dad30bf902a28d3236262169ed97735c653a876c3de97b5"
+        },
+        {
+          "bytes": 3178,
+          "exists": true,
+          "path": ".codex-design/product/EXPERIENCE_SUCCESS_METRICS.md",
+          "sha256": "1892ee531f160aa653976101d31a9c643014ee4ac5eaec6b73e18af3b659736d"
+        }
+      ],
+      "status": "mapped_from_mirrored_sources",
+      "truth_plane": "mirrored_chummer_design"
+    },
+    {
+      "key": "remember_campaign_and_dossier",
+      "label": "Remember campaign and dossier",
+      "next_external_or_human_proof": "real campaign continuity acceptance",
+      "source_files": [
+        {
+          "bytes": 5282,
+          "exists": true,
+          "path": ".codex-design/product/CAMPAIGN_SPINE_AND_CREW_MODEL.md",
+          "sha256": "c2e864c6984be6f63dad30bf902a28d3236262169ed97735c653a876c3de97b5"
+        },
+        {
+          "bytes": 4483,
+          "exists": true,
+          "path": ".codex-design/product/CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md",
+          "sha256": "41699b294f6513202b80ce77ff74aefd200e8a916a7ad0aeaececc9f1b20f10c"
+        }
+      ],
+      "status": "mapped_from_mirrored_sources",
+      "truth_plane": "mirrored_chummer_design"
+    },
+    {
+      "key": "explain_sources_and_decisions",
+      "label": "Explain sources and decisions",
+      "next_external_or_human_proof": "source-aware explanation review",
+      "source_files": [
+        {
+          "bytes": 11237,
+          "exists": true,
+          "path": ".codex-design/product/EXPLAIN_EVERY_VALUE_AND_GROUNDED_FOLLOW_UP.md",
+          "sha256": "8b13f3b90ed8fed984dd6336636e072d3ef5bf31e5bbf3853150bdcc45da9b9d"
+        },
+        {
+          "bytes": 4279,
+          "exists": true,
+          "path": ".codex-design/product/PROVIDER_AND_ROUTE_STEWARDSHIP.md",
+          "sha256": "a735b8d7088c88fe20ff82cf427479ae071420c8954348cccc4d9f9e5b401ea0"
+        }
+      ],
+      "status": "mapped_from_mirrored_sources",
+      "truth_plane": "mirrored_chummer_design"
+    },
+    {
+      "key": "publish_public_or_premium_artifacts",
+      "label": "Publish public or premium artifacts",
+      "next_external_or_human_proof": "human public or premium publication approval",
+      "source_files": [
+        {
+          "bytes": 11072,
+          "exists": true,
+          "path": ".codex-design/product/PUBLIC_RELEASE_EXPERIENCE.yaml",
+          "sha256": "9a355919ae5afb2a2a121d8a3c896cb152fc36d5db8d39fc92e3cbe857e348df"
+        },
+        {
+          "bytes": 14484,
+          "exists": true,
+          "path": ".codex-design/product/PUBLIC_VIDEO_BRIEFS.yaml",
+          "sha256": "faf8d0a4d2e15aa8b76d74193501c7944d8bab5718395f91e4cb237344ad355f"
+        },
+        {
+          "bytes": 1390,
+          "exists": true,
+          "path": ".codex-design/product/PREMIUM_AND_COMMUNITY_PACKAGING_MODEL.md",
+          "sha256": "adae45a0d75705460cc89175718815668b0187a4773f6c2364587d16f6bf7b41"
+        }
+      ],
+      "status": "mapped_from_mirrored_sources",
+      "truth_plane": "mirrored_chummer_design"
+    },
+    {
+      "key": "office_loop_operations",
+      "label": "Office-loop operations",
+      "next_external_or_human_proof": "real daily office-loop acceptance",
+      "source_files": [
+        {
+          "bytes": 3632,
+          "exists": true,
+          "path": ".codex-design/repo/IMPLEMENTATION_SCOPE.md",
+          "sha256": "81235c00d6c0ac4b69978f4d0f192c6e29e1dd52eb72096b52cbac6caab77a6a"
+        },
+        {
+          "bytes": 17545,
+          "exists": true,
+          "path": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
+          "sha256": "1dc9a42d6d06be5c767371a0b48259551aa9834e7e36f14ca36b6c316ff363a6"
+        }
+      ],
+      "status": "mapped_from_mirrored_sources",
+      "truth_plane": "ea_local_downstream_runtime"
+    },
+    {
+      "key": "desktop_release_install_update",
+      "label": "Desktop release, install, and update",
+      "next_external_or_human_proof": "release install/update acceptance",
+      "source_files": [
+        {
+          "bytes": 5784,
+          "exists": true,
+          "path": ".codex-design/product/PUBLIC_DOWNLOADS_POLICY.md",
+          "sha256": "cea04efe6efe547dc73f1befa32cfe4a179952ab09c98eafeec1e2b173a0016c"
+        },
+        {
+          "bytes": 7221,
+          "exists": true,
+          "path": ".codex-design/product/DESKTOP_AUTO_UPDATE_SYSTEM.md",
+          "sha256": "7b0042fb8a83f22e6dac527705243600ce56a8a0ab9d12182c993252c827904c"
+        },
+        {
+          "bytes": 1607,
+          "exists": true,
+          "path": ".codex-design/product/PUBLIC_AUTO_UPDATE_POLICY.md",
+          "sha256": "1f4fcd2aed7ad3a0b8a8cce88fe6263adab3408f204da0d6f8e23e67c636d306"
+        }
+      ],
+      "status": "mapped_from_mirrored_sources",
+      "truth_plane": "mirrored_chummer_design"
+    },
+    {
+      "key": "identity_account_entitlement",
+      "label": "Identity, account, and entitlement",
+      "next_external_or_human_proof": "Hub/account owner acceptance",
+      "source_files": [
+        {
+          "bytes": 3150,
+          "exists": true,
+          "path": ".codex-design/product/PUBLIC_AUTH_FLOW.md",
+          "sha256": "961bcb62ddb622fbcd347ab3f249be2a2059f19275182e4962f236168a6d9ee0"
+        },
+        {
+          "bytes": 4391,
+          "exists": true,
+          "path": ".codex-design/product/IDENTITY_AND_CHANNEL_LINKING_MODEL.md",
+          "sha256": "2c312154e1f3ca83e6728d75f56f7ee25e5d1d5e97d45cbebb90148fe6292185"
+        },
+        {
+          "bytes": 7650,
+          "exists": true,
+          "path": ".codex-design/product/ROAMING_WORKSPACE_AND_ENTITLEMENT_SYNC.md",
+          "sha256": "8d6ce9285efaefe677f874420ecb0320f7e29e659c4daae60e10eda37048cd32"
+        }
+      ],
+      "status": "mapped_from_mirrored_sources",
+      "truth_plane": "mirrored_chummer_design"
+    },
+    {
+      "key": "privacy_retention",
+      "label": "Privacy and retention",
+      "next_external_or_human_proof": "privacy and retention review",
+      "source_files": [
+        {
+          "bytes": 8735,
+          "exists": true,
+          "path": ".codex-design/product/PRIVACY_AND_RETENTION_BOUNDARIES.md",
+          "sha256": "f0e15461d59aa7e1110e5117946262b0c53e0302fd28bc24143d76989a78a392"
+        },
+        {
+          "bytes": 2226,
+          "exists": true,
+          "path": ".codex-design/product/USER_CONTRIBUTION_PRIVACY_AND_IP_POLICY.md",
+          "sha256": "dc72b45aed6ee1b429f85a862c7cc0b1c84fd1a98a03ca71eb7a2c3c7f79dfb6"
+        }
+      ],
+      "status": "mapped_from_mirrored_sources",
+      "truth_plane": "mirrored_chummer_design"
+    },
+    {
+      "key": "support_recovery",
+      "label": "Support and recovery",
+      "next_external_or_human_proof": "real support/recovery case closure",
+      "source_files": [
+        {
+          "bytes": 2925,
+          "exists": true,
+          "path": ".codex-design/product/SUPPORT_AND_SIGNAL_OODA_LOOP.md",
+          "sha256": "2cda3b3c435c4300612e7d90b908a600cbcd6736326183c2f8e7892b9ef166c0"
+        },
+        {
+          "bytes": 12879,
+          "exists": true,
+          "path": ".codex-design/product/FEEDBACK_AND_CRASH_REPORTING_SYSTEM.md",
+          "sha256": "ee1024f7912e0525c49d08f059cb8ef033ce9982c34c36b44cdbc417810b3006"
+        },
+        {
+          "bytes": 4053,
+          "exists": true,
+          "path": ".codex-design/product/FEEDBACK_AND_CRASH_STATUS_MODEL.md",
+          "sha256": "66a9628125fe9748cd2b5ee956496306ef055e0fde5cac08ffbec9cdfed7e68f"
+        }
+      ],
+      "status": "mapped_from_mirrored_sources",
+      "truth_plane": "mirrored_chummer_design"
+    },
+    {
+      "key": "metrics_slos_and_feedback",
+      "label": "Metrics, SLOs, and feedback",
+      "next_external_or_human_proof": "journey telemetry and feedback review",
+      "source_files": [
+        {
+          "bytes": 25821,
+          "exists": true,
+          "path": ".codex-design/product/METRICS_AND_SLOS.yaml",
+          "sha256": "687732a5f41e25e01715d46132862ee492c5e4f7b2a1b0e93359ad849267adbc"
+        },
+        {
+          "bytes": 18804,
+          "exists": true,
+          "path": ".codex-design/product/PRODUCT_USAGE_TELEMETRY_MODEL.md",
+          "sha256": "0c5864ae13df87b26945fbeca6082b7605d2779b04f51305a7fe810e1dae2017"
+        },
+        {
+          "bytes": 3178,
+          "exists": true,
+          "path": ".codex-design/product/EXPERIENCE_SUCCESS_METRICS.md",
+          "sha256": "1892ee531f160aa653976101d31a9c643014ee4ac5eaec6b73e18af3b659736d"
+        }
+      ],
+      "status": "mapped_from_mirrored_sources",
+      "truth_plane": "mirrored_chummer_design"
+    },
+    {
+      "key": "provider_ltd_governance",
+      "label": "Provider and LTD governance",
+      "next_external_or_human_proof": "named provider runtime/account proof",
+      "source_files": [
+        {
+          "bytes": 38966,
+          "exists": true,
+          "path": ".codex-design/product/EXTERNAL_TOOLS_PLANE.md",
+          "sha256": "a23aedb90910636aa5632e1abe8856d890e9a8f68f16b0f8aa328ff5b3d3cc37"
+        },
+        {
+          "bytes": 15974,
+          "exists": true,
+          "path": ".codex-design/product/LTD_CAPABILITY_MAP.md",
+          "sha256": "233a2b4e9c05d83f153888738b4ab9a9f83224d93dd495eaf5cba0a09be8d2a4"
+        },
+        {
+          "bytes": 4279,
+          "exists": true,
+          "path": ".codex-design/product/PROVIDER_AND_ROUTE_STEWARDSHIP.md",
+          "sha256": "a735b8d7088c88fe20ff82cf427479ae071420c8954348cccc4d9f9e5b401ea0"
+        }
+      ],
+      "status": "mapped_from_mirrored_sources",
+      "truth_plane": "mirrored_chummer_design"
+    }
+  ],
+  "scope_goal": {
+    "claim_limit": "local_scope_audit_not_canonical_product_truth",
+    "key": "whole_project_scope_gap_audit",
+    "label": "Whole-project scope gap audit",
+    "protected_scope_axes": [
+      "build_character_and_rules",
+      "run_session",
+      "remember_campaign_and_dossier",
+      "explain_sources_and_decisions",
+      "publish_public_or_premium_artifacts",
+      "office_loop_operations",
+      "desktop_release_install_update",
+      "identity_account_entitlement",
+      "privacy_retention",
+      "support_recovery",
+      "metrics_slos_and_feedback",
+      "provider_ltd_governance"
+    ],
+    "requires": [
+      "core_product_loop_mapping",
+      "release_gate_or_human_only_boundary_check",
+      "privacy_retention_support_telemetry_check",
+      "owner_repo_and_truth_plane",
+      "next_external_or_human_proof"
+    ],
+    "source_path": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
+    "status": "active_local_goal"
+  },
+  "source_authority": {
+    "continuous_goal": {
+      "bytes": 17545,
+      "exists": true,
+      "path": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
+      "sha256": "1dc9a42d6d06be5c767371a0b48259551aa9834e7e36f14ca36b6c316ff363a6"
+    },
+    "implementation_scope": {
+      "bytes": 3632,
+      "exists": true,
+      "path": ".codex-design/repo/IMPLEMENTATION_SCOPE.md",
+      "sha256": "81235c00d6c0ac4b69978f4d0f192c6e29e1dd52eb72096b52cbac6caab77a6a"
+    },
+    "product_readme": {
+      "bytes": 43428,
+      "exists": true,
+      "path": ".codex-design/product/README.md",
+      "sha256": "6083feb7fc0d691bd3452e797cbc492ff522f61ad8193bf62b6e8b24492b8749"
+    },
+    "review_context": {
+      "bytes": 1043,
+      "exists": true,
+      "path": ".codex-design/review/REVIEW_CONTEXT.md",
+      "sha256": "6cebbfeb7e5ee59f08dd087aaf27cd598680ef4324e7895ee2eb6cd5fce38520"
+    }
+  },
+  "status": "ready_local_audit"
+}

@@ -1,0 +1,106 @@
+{
+  "artifact_dir": "/docker/EA/.codex-studio/published/ea_promo_video_fallback/ashline-circle",
+  "contract_name": "ea.promo_review_bundle.v1",
+  "ea_is_product_truth": false,
+  "faction_id": "ashline-circle",
+  "files": {
+    "contact_sheet": {
+      "bytes": 42663,
+      "exists": true,
+      "path": "promo-video/contact-sheet.jpg",
+      "sha256": "4919bda08156d3cd5b763f0ec6db58d5e6b95f4a882289ff6bdb99bf051a637a"
+    },
+    "continuity_demo": {
+      "bytes": 27710,
+      "exists": true,
+      "path": "cinematic_narration_continuity_demo.generated.json",
+      "sha256": "660fd07f2a535378fa937b975438d6cd2478e2be235e33e4e16ec3784dc1d402"
+    },
+    "fallback_video": {
+      "bytes": 821840,
+      "exists": true,
+      "path": "promo-video/promo-fallback.mp4",
+      "sha256": "97e5d634768f8f1306852af9965ad5060f14ecb62c2db8acf093ff805dc27f93"
+    },
+    "fallback_video_receipt": {
+      "bytes": 2273,
+      "exists": true,
+      "path": "promo_fallback_video.generated.json",
+      "sha256": "fa08d604cbd4ab12c67699f72ecf2fe910ad50132756c69a3d8ab3f77cb78e2b"
+    },
+    "narration_segments": {
+      "bytes": 31202,
+      "exists": true,
+      "path": "narration_segments.generated.json",
+      "sha256": "0e600cddd2bb8fe5ae6b43cf44a6c79e1331051cf3e3220fbd67d6fb783d191c"
+    },
+    "narration_windows": {
+      "bytes": 11851,
+      "exists": true,
+      "path": "narration_windows.generated.json",
+      "sha256": "23334698c0d6e5ca9afc93222c8c53df4ab84f75530a87dfc45ba14edaea4e02"
+    },
+    "poster": {
+      "bytes": 78520,
+      "exists": true,
+      "path": "promo-video/poster.jpg",
+      "sha256": "4612f073cc72ad492653c6246e7d429fb28d350ed9073fd4a2e4dee48cb08824"
+    },
+    "preview_html": {
+      "bytes": 4792,
+      "exists": true,
+      "path": "promo.html",
+      "sha256": "4e994819b58ee864933b7f71d3dde2c013402f9769e2ea8bbb8da79d305b44f3"
+    },
+    "promo_json": {
+      "bytes": 6128,
+      "exists": true,
+      "path": "promo.json",
+      "sha256": "732af4c183a82b12f5a595305d4325c0e715c4d2860e28dd20daf7fcf3976640"
+    },
+    "promo_vtt": {
+      "bytes": 944,
+      "exists": true,
+      "path": "promo.vtt",
+      "sha256": "85109e4d9b26d8d9a9117abb22583603b74ffe34e99b03b5f238c9b5f0f9bb25"
+    },
+    "watch_page": {
+      "bytes": 4171,
+      "exists": true,
+      "path": "promo-video/watch.html",
+      "sha256": "9c19566eb7c29f56010483d1f0b166ff725b479ddc4c2f228f95f2bf595839dc"
+    }
+  },
+  "generated_at": "2026-06-20T06:10:35Z",
+  "live_provider_runtime_verified": false,
+  "materialization_statuses": {
+    "continuity_demo": "ready",
+    "fallback_video": "ready",
+    "narration_segments": "ready",
+    "promo": "ok"
+  },
+  "missing_files": [],
+  "next_action": "human_review_local_watch_page_before_public_route_or_provider_claim",
+  "provider_output_truth_allowed": false,
+  "provider_ready": false,
+  "public_route_claim_allowed": false,
+  "render_modes": {
+    "continuity_demo": "local_ffmpeg_flite_speech_fixture",
+    "narration": "local_ffmpeg_flite_speech_fixture",
+    "storyboard": "fallback_static_storyboard",
+    "video": "local_ffmpeg_static_card_video"
+  },
+  "requested_provider": "Advertisemind",
+  "route_deployment_verified": false,
+  "status": "ready",
+  "title": "Black Ledger faction promo",
+  "verification_issues": {},
+  "verification_statuses": {
+    "continuity_demo": "pass",
+    "contract": "pass",
+    "fallback_video": "pass",
+    "narration_segments": "pass",
+    "promo": "pass"
+  },
+  "verified_provider_claim_allowed": false
+}

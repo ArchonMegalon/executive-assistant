@@ -18,8 +18,23 @@ GENERATED_ARTIFACTS = (
     Path(".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json"),
     Path(".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json"),
     Path(".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json"),
+    Path(".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"),
+    Path(".codex-studio/published/teable_env_recovery_readiness.generated.json"),
     Path(".codex-studio/published/telegram_video_delivery_operator.generated.json"),
-    Path(".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json"),
+    Path(".codex-studio/published/whatsapp_web_action_processor_readiness.generated.json"),
+)
+MATERIALIZER_COMMANDS = (
+    ("scripts/materialize_ea_flagship_release_gate.py",),
+    ("scripts/materialize_memorial_operator_status.py",),
+    ("scripts/materialize_memorial_phrase_bank.py",),
+    ("scripts/materialize_project_mode_manifests.py",),
+    ("scripts/materialize_weekly_product_pulse.py",),
+    ("scripts/materialize_whole_project_gold_map.py",),
+    ("scripts/materialize_teable_env_recovery_readiness.py",),
+    ("scripts/materialize_whatsapp_web_action_processor_readiness.py",),
+    ("scripts/materialize_ea_browser_workflow_proof.py",),
+    ("scripts/materialize_continuous_improvement_goal_posture.py",),
+    ("scripts/materialize_telegram_video_delivery_receipt.py",),
 )
 VOLATILE_KEYS = {
     "generated_at",
@@ -42,6 +57,8 @@ VOLATILE_KEYS = {
     "python_bin",
     "review_due",
     "source_tree_fingerprint",
+    "state_age_seconds",
+    "state_updated_at",
 }
 
 
@@ -59,6 +76,8 @@ def _normalize(value: Any) -> Any:
                 or key_str.endswith("_ms_min")
                 or key_str.endswith("_ms_total")
                 or key_str.endswith("_ms_std")
+                or key_str.endswith("_updated_at")
+                or key_str.endswith("_age_seconds")
             ):
                 continue
             normalized[key] = _normalize(item)
@@ -72,40 +91,59 @@ def _load_worktree(path: Path) -> Any:
     return json.loads((ROOT / path).read_text(encoding="utf-8"))
 
 
-def _load_head(path: Path) -> Any:
-    result = subprocess.run(
-        ["git", "-C", str(ROOT), "show", f"HEAD:{path.as_posix()}"],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return json.loads(result.stdout)
+def _load_text(path: Path) -> str:
+    return (ROOT / path).read_text(encoding="utf-8")
+
+
+def _run_materializers() -> None:
+    for command in MATERIALIZER_COMMANDS:
+        subprocess.run(
+            [sys.executable, *command],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
 
 
 def main() -> int:
+    original_text_by_path: dict[Path, str] = {}
+    original_payload_by_path: dict[Path, Any] = {}
+    for path in GENERATED_ARTIFACTS:
+        try:
+            original_text_by_path[path] = _load_text(path)
+            original_payload_by_path[path] = json.loads(original_text_by_path[path])
+        except Exception as exc:
+            print(f"{path}: unable to load generated artifact before materialization: {exc}", file=sys.stderr)
+            return 1
+
+    try:
+        _run_materializers()
+    except Exception as exc:
+        print(f"materializers failed: {exc}", file=sys.stderr)
+        return 1
+
     failures: list[str] = []
     semantically_clean: list[Path] = []
     for path in GENERATED_ARTIFACTS:
         try:
-            head_payload = _load_head(path)
+            baseline_payload = original_payload_by_path[path]
             worktree_payload = _load_worktree(path)
         except Exception as exc:
             failures.append(f"{path}: unable to load generated artifact: {exc}")
             continue
-        if _normalize(head_payload) != _normalize(worktree_payload):
+        if _normalize(baseline_payload) != _normalize(worktree_payload):
             failures.append(f"{path}: semantic drift after materialization")
         else:
             semantically_clean.append(path)
+
+    for path in semantically_clean:
+        (ROOT / path).write_text(original_text_by_path[path], encoding="utf-8")
 
     if failures:
         for failure in failures:
             print(failure, file=sys.stderr)
         return 1
-
-    subprocess.run(
-        ["git", "-C", str(ROOT), "restore", "--", *(path.as_posix() for path in semantically_clean)],
-        check=True,
-    )
     print("generated release artifacts are semantically clean")
     return 0
 

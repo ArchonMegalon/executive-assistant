@@ -1,0 +1,67 @@
+{
+  "contract_name": "ea.memorial_stt_fixture_candidate",
+  "status": "pass",
+  "failed_codes": [],
+  "candidate_scope": "audio_quality_and_provenance_only",
+  "promotion_gate": {
+    "status": "pending_captured_candidate_benchmark",
+    "required_receipt": ".codex-studio/published/memorial_stt_provider_benchmark_captured_candidate.generated.json",
+    "required_rule": "captured candidate must pass full-runtime STT scoring against operator-confirmed ground truth before fixture-manifest promotion",
+    "may_update_fixture_manifest": false,
+    "next_action": "run_captured_candidate_benchmark_before_fixture_manifest"
+  },
+  "bundle": {
+    "root": "[pcloud_memorial_stt_errors]",
+    "id": "082347_realtime_audio_turn_generic_fallback_answer_ecbb37fce864",
+    "has_error_json": true,
+    "event_type": "",
+    "reason": "generic_fallback_answer"
+  },
+  "audio": {
+    "input_file": "input.wav",
+    "sha256": "58a71024b6d5c1b8912fdc6c1344735eea5babedca660559baea4aa6e6f22c1d",
+    "bytes": 84558,
+    "max_bytes": 26214400,
+    "duration_seconds": 2.64,
+    "expected_min_duration_seconds": 2.52,
+    "max_duration_seconds": 120.0
+  },
+  "fixture_quality": {
+    "status": "pass",
+    "failed_codes": [],
+    "audio_duration_seconds": 2.64,
+    "expected_min_duration_seconds": 2.52,
+    "max_duration_seconds": 120.0
+  },
+  "candidate_manifest_entry": {
+    "sample": "real_room_retry_candidate",
+    "file": "real_room_retry_candidate_captured.wav",
+    "origin": "Captured Manfred memorial test audio selected from pCloud STT error logging with operator-supplied transcript.",
+    "speaker_consent": "operator_attested_for_private_stt_regression",
+    "allowed_purpose": "memorial_stt_regression_and_provider_bakeoff",
+    "retention": "private_repo_captured_regression_fixture",
+    "synthetic": false,
+    "language": "de",
+    "accent": "Austrian German",
+    "expected_text": {
+      "text_chars": 43,
+      "text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+      "text_redacted": true
+    },
+    "required_tokens": [
+      {
+        "text_chars": 5,
+        "text_sha256": "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
+        "text_redacted": true
+      },
+      {
+        "text_chars": 5,
+        "text_sha256": "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1",
+        "text_redacted": true
+      }
+    ],
+    "sha256": "58a71024b6d5c1b8912fdc6c1344735eea5babedca660559baea4aa6e6f22c1d"
+  },
+  "text_mode": "redacted",
+  "raw_text_fields": false
+}

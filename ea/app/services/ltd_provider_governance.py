@@ -6,7 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
-from typing import Mapping
+from typing import Any, Mapping
 
 from app.services.ltd_runtime_catalog import LtdInventoryRow, load_ltd_inventory_rows
 
@@ -64,6 +64,38 @@ DOCUMENT_PORTAL_CHECKS = (
 )
 
 
+def _provider_contract_receipt(root: Path, filename: str) -> dict[str, Any]:
+    for relative_path in (
+        f"_completion/ea_provider_contracts/{filename}",
+        f"ea/_completion/ea_provider_contracts/{filename}",
+    ):
+        path = root / relative_path
+        if not path.is_file():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if isinstance(payload, dict):
+            return payload
+    return {}
+
+
+def _provider_contract_check(
+    root: Path,
+    *,
+    filename: str,
+    verification_key: str,
+) -> bool:
+    payload = _provider_contract_receipt(root, filename)
+    verification = payload.get("verification")
+    return bool(isinstance(verification, dict) and str(verification.get(verification_key) or "").strip().lower() == "pass")
+
+
+def _provider_contract_summary(root: Path) -> dict[str, Any]:
+    return _provider_contract_receipt(root, "EA_PROVIDER_CONTRACTS_SUMMARY.generated.json")
+
+
 LANES: tuple[ProviderLane, ...] = (
     ProviderLane(
         lane_key="fliplink_document_portal",
@@ -91,6 +123,128 @@ LANES: tuple[ProviderLane, ...] = (
         ),
         normalized_signal_schema=(),
         required_checks=DOCUMENT_PORTAL_CHECKS,
+    ),
+    ProviderLane(
+        lane_key="hedy_meeting_evidence",
+        title="Hedy Meeting Evidence Intake",
+        providers=("Hedy.ai",),
+        integration_lane="meeting_evidence_review",
+        verified_state="verified_draft_operator_lane",
+        missing_state="blocked_pending_proof",
+        off_switch_env=("EA_HEDY_WEBHOOKS_ENABLED", "EA_HEDY_MEETING_EVIDENCE_ENABLED"),
+        source_of_truth=(
+            "EA owns evidence, commitment, decision, draft, and people-memory truth; "
+            "Hedy only supplies consented meeting evidence for review."
+        ),
+        allowed_inputs=("consented_meeting_transcript", "consented_meeting_summary", "consented_meeting_followup_draft"),
+        forbidden_inputs=(
+            "unconsented_recording",
+            "direct_commitment_creation",
+            "direct_decision_creation",
+            "direct_people_memory_overwrite",
+            "direct_followup_send",
+            "truth_overwrite",
+        ),
+        normalized_signal_schema=("session_id", "ea_decision_id", "recording_consent_confirmed", "transcript_hash"),
+        required_checks=(
+            LaneCheck("inventory_recorded", "Provider is recorded in LTDs.md.", "Inventory row exists."),
+            LaneCheck("hedy_provider_capability", "Live provider capability proof exists.", "Live provider receipt."),
+            LaneCheck("hedy_consent_gate", "Consent gate stays fail-closed.", "Contract or lane boundary proof."),
+            LaneCheck("hedy_webhook_signature", "Webhook signature contract is verified.", "Webhook contract or live proof."),
+            LaneCheck("hedy_review_gate", "Meeting evidence remains review-only.", "Contract or lane boundary proof."),
+            LaneCheck("hedy_memory_promotion_gate", "People-memory promotion requires review.", "Contract or lane boundary proof."),
+            LaneCheck("hedy_session_mapping", "Webhook maps to EA review/session objects.", "Contract receipt."),
+        ),
+    ),
+    ProviderLane(
+        lane_key="markupgo_fliplink_premium_delivery",
+        title="MarkupGo and FlipLink Premium Delivery",
+        providers=("MarkupGo", "FlipLink.me"),
+        integration_lane="premium_packet_delivery",
+        verified_state="verified_draft_operator_lane",
+        missing_state="blocked_pending_proof",
+        off_switch_env=("EA_MARKUPGO_PREMIUM_DELIVERY_ENABLED", "EA_FLIPLINK_PREMIUM_DELIVERY_ENABLED"),
+        source_of_truth=(
+            "EA approved packets, redaction policy, and access controls remain truth; "
+            "MarkupGo renders and FlipLink presents approved premium artifacts only."
+        ),
+        allowed_inputs=("approved_source_packet", "approved_private_packet", "approved_board_packet", "rendered_artifact"),
+        forbidden_inputs=(
+            "content_mutation",
+            "unredacted_board_material",
+            "access_grant_truth",
+            "direct_publish",
+            "raw_workspace_data",
+        ),
+        normalized_signal_schema=("source_packet_id", "rendered_artifact_hash", "publication_id", "access_policy_hash"),
+        required_checks=(
+            LaneCheck("providers_recorded", "Providers are recorded in LTDs.md.", "Inventory rows exist."),
+            LaneCheck("markupgo_provider_proof", "MarkupGo live provider proof exists.", "Live provider receipt."),
+            LaneCheck("premium_source_packet", "Premium delivery starts from an approved source packet.", "Contract or boundary receipt."),
+            LaneCheck("premium_artifact_hash", "Rendered artifact hashing is verified.", "Contract receipt."),
+            LaneCheck("human_review", "Premium delivery requires human review.", "Contract or boundary receipt."),
+            LaneCheck("premium_delivery_receipt", "End-to-end premium delivery receipt exists.", "Live roundtrip receipt."),
+        ),
+    ),
+    ProviderLane(
+        lane_key="approvethis_external_approval_edge",
+        title="ApproveThis External Approval Edge",
+        providers=("ApproveThis",),
+        integration_lane="external_approval_edge",
+        verified_state="verified_draft_operator_lane",
+        missing_state="blocked_pending_proof",
+        off_switch_env=("EA_APPROVETHIS_EXTERNAL_APPROVAL_ENABLED", "EA_APPROVETHIS_WEBHOOKS_ENABLED"),
+        source_of_truth=(
+            "EA policy, decision state, and downstream action truth stay inside EA; "
+            "ApproveThis carries bounded external approval evidence only."
+        ),
+        allowed_inputs=("bounded_ea_decision", "external_review_request", "reviewer_contact_hash"),
+        forbidden_inputs=(
+            "replace_internal_queue",
+            "direct_downstream_action",
+            "approval_without_ea_policy",
+            "approval_truth",
+            "workspace_truth",
+        ),
+        normalized_signal_schema=("ea_decision_id", "provider_request_id", "provider_status", "approver_contact_sha256"),
+        required_checks=(
+            LaneCheck("inventory_recorded", "Provider is recorded in LTDs.md.", "Inventory row exists."),
+            LaneCheck("approvethis_provider_capability", "Live provider capability proof exists.", "Live provider receipt."),
+            LaneCheck("approvethis_external_scope", "Only bounded external scope is transportable.", "Contract or lane boundary proof."),
+            LaneCheck("approvethis_final_policy_gate", "Final EA policy gate remains required.", "Contract or lane boundary proof."),
+            LaneCheck("approvethis_webhook_signature", "Webhook signature contract is verified.", "Contract or live proof."),
+            LaneCheck("approvethis_evidence_mapping", "Provider results map to evidence only.", "Contract receipt."),
+        ),
+    ),
+    ProviderLane(
+        lane_key="documentation_ai_publication",
+        title="Documentation.AI Publication Projection",
+        providers=("Documentation.AI",),
+        integration_lane="docs_publication_projection",
+        verified_state="verified_draft_operator_lane",
+        missing_state="blocked_pending_proof",
+        off_switch_env=("EA_DOCUMENTATION_AI_PUBLICATION_ENABLED", "EA_DOCUMENTATION_AI_AGENT_WRITEBACK_ENABLED"),
+        source_of_truth=(
+            "Source-controlled markdown and mirrored design canon stay truth; "
+            "Documentation.AI may project approved docs but must never own publication truth or silent writeback."
+        ),
+        allowed_inputs=("source_controlled_markdown", "approved_security_trust_center", "approved_release_notes"),
+        forbidden_inputs=(
+            "workspace_data",
+            "customer_support_ticket",
+            "private_incident_log",
+            "silent_writeback",
+            "publication_truth",
+        ),
+        normalized_signal_schema=("site_key", "source_tree_fingerprint", "source_git_head", "link_check_sha256"),
+        required_checks=(
+            LaneCheck("inventory_recorded", "Provider is recorded in LTDs.md.", "Inventory row exists."),
+            LaneCheck("documentation_ai_provider_capability", "Live provider capability proof exists.", "Live provider receipt."),
+            LaneCheck("documentation_git_source_of_truth", "Git remains the source of truth.", "Contract or boundary proof."),
+            LaneCheck("documentation_no_writeback", "Provider writeback remains disabled.", "Contract or boundary proof."),
+            LaneCheck("documentation_privacy_boundary", "Workspace/private data is blocked.", "Boundary proof."),
+            LaneCheck("documentation_llms_txt", "llms.txt delivery proof exists.", "Live route receipt."),
+        ),
     ),
     ProviderLane(
         lane_key="unmixr_voice_runtime",
@@ -176,13 +330,16 @@ LANES: tuple[ProviderLane, ...] = (
         missing_state="blocked_pending_proof",
         off_switch_env=("EA_RAFTER_SECURITY_GATE_ENABLED", "EA_PIXEFY_VISUAL_GATE_ENABLED"),
         source_of_truth="Fleet/Chummer release process owns release truth; Rafter and Pixefy provide auxiliary gate evidence.",
-        allowed_inputs=("public_ui_release_candidate", "memorial_landing_change", "black_ledger_newsroom_change", "security_scan_target"),
+        allowed_inputs=("ea_app_surface_release_candidate", "memorial_landing_change", "black_ledger_newsroom_change", "security_scan_target"),
         forbidden_inputs=("product_truth", "release_truth", "roadmap_truth", "direct_publish", "source_code_mutation"),
         normalized_signal_schema=(),
         required_checks=(
             LaneCheck("rafter_fleet_verified", "Rafter Fleet provider verification passes.", "Fleet Rafter proof receipt."),
             LaneCheck("pixefy_fleet_verified", "Pixefy Fleet visual QA verification passes.", "Fleet Pixefy proof receipt."),
             LaneCheck("ci_targets", "CI targets exist for both gates.", "Make targets or gate scripts."),
+            LaneCheck("ea_security_targets", "EA security targets are exercised against the current head.", "Contract receipt."),
+            LaneCheck("ea_visual_targets", "EA visual targets are exercised against the current head.", "Contract receipt."),
+            LaneCheck("release_truth_boundary", "Provider evidence cannot own release truth.", "Contract receipt."),
         ),
     ),
     ProviderLane(
@@ -473,9 +630,166 @@ def _check_passed(
 ) -> tuple[bool, str]:
     key = check.check_key
     notes = "missing"
+    contract_summary = _provider_contract_summary(root)
     if key in {"inventory_recorded", "providers_recorded"}:
         ok = _all_providers_present(lane, inventory)
         return ok, "inventory_rows_present" if ok else "inventory_rows_missing"
+    if key == "hedy_provider_capability":
+        ok = _passing_json_receipt(
+            root,
+            "_completion/hedy/HEDY_PROVIDER_CAPABILITY.generated.json",
+            "ea/_completion/hedy/HEDY_PROVIDER_CAPABILITY.generated.json",
+        )
+        return ok, "hedy_live_provider_capability" if ok else "hedy_provider_capability_missing"
+    if key == "hedy_consent_gate":
+        if _provider_contract_check(
+            root,
+            filename="HEDY_MEETING_EVIDENCE_CONTRACT.generated.json",
+            verification_key="consent_gate_contract",
+        ):
+            return True, "hedy_contract_receipt_consent_gate"
+        ok = "consented_meeting_transcript" in lane.allowed_inputs and "unconsented_recording" in lane.forbidden_inputs
+        return ok, "hedy_consent_boundary_defined" if ok else "hedy_consent_boundary_missing"
+    if key == "hedy_webhook_signature":
+        if _provider_contract_check(
+            root,
+            filename="HEDY_MEETING_EVIDENCE_CONTRACT.generated.json",
+            verification_key="webhook_signature_contract",
+        ):
+            return True, "hedy_contract_receipt_webhook_signature"
+        ok = _passing_json_receipt(
+            root,
+            "_completion/hedy/HEDY_WEBHOOK_SIGNATURE.generated.json",
+            "ea/_completion/hedy/HEDY_WEBHOOK_SIGNATURE.generated.json",
+        )
+        return ok, "hedy_live_webhook_signature" if ok else "hedy_webhook_signature_missing"
+    if key == "hedy_review_gate":
+        ok = (
+            "direct_commitment_creation" in lane.forbidden_inputs
+            and "direct_decision_creation" in lane.forbidden_inputs
+            and "review" in lane.source_of_truth.lower()
+        )
+        return ok, "hedy_review_only_boundary" if ok else "hedy_review_only_boundary_missing"
+    if key == "hedy_memory_promotion_gate":
+        ok = "direct_people_memory_overwrite" in lane.forbidden_inputs
+        return ok, "hedy_memory_promotion_boundary" if ok else "hedy_memory_promotion_boundary_missing"
+    if key == "hedy_session_mapping":
+        ok = _provider_contract_check(
+            root,
+            filename="HEDY_MEETING_EVIDENCE_CONTRACT.generated.json",
+            verification_key="webhook_to_review_queue_contract",
+        )
+        return ok, "hedy_contract_receipt_session_mapping" if ok else "hedy_session_mapping_missing"
+    if key == "markupgo_provider_proof":
+        ok = _passing_json_receipt(
+            root,
+            "_completion/markupgo/MARKUPGO_PROVIDER_VERIFICATION.generated.json",
+            "ea/_completion/markupgo/MARKUPGO_PROVIDER_VERIFICATION.generated.json",
+        )
+        return ok, "markupgo_live_provider_capability" if ok else "markupgo_provider_proof_missing"
+    if key == "premium_source_packet":
+        if _provider_contract_check(
+            root,
+            filename="PREMIUM_DELIVERY_CONTRACT.generated.json",
+            verification_key="approved_source_contract",
+        ):
+            return True, "premium_contract_receipt_source_packet"
+        ok = any(item in lane.allowed_inputs for item in ("approved_source_packet", "approved_private_packet", "approved_board_packet"))
+        return ok, "premium_source_packet_boundary" if ok else "premium_source_packet_missing"
+    if key == "premium_artifact_hash":
+        ok = _provider_contract_check(
+            root,
+            filename="PREMIUM_DELIVERY_CONTRACT.generated.json",
+            verification_key="artifact_hash_contract",
+        )
+        return ok, "premium_contract_receipt_artifact_hash" if ok else "premium_artifact_hash_missing"
+    if key == "premium_delivery_receipt":
+        ok = _passing_json_receipt(
+            root,
+            "_completion/premium_delivery/EA_PREMIUM_DELIVERY_ROUNDTRIP.generated.json",
+            "ea/_completion/premium_delivery/EA_PREMIUM_DELIVERY_ROUNDTRIP.generated.json",
+            "_completion/premium_delivery/premium_packet_to_delivery_e2e.generated.json",
+            "ea/_completion/premium_delivery/premium_packet_to_delivery_e2e.generated.json",
+        )
+        return ok, "premium_delivery_roundtrip_passed" if ok else "premium_delivery_receipt_missing"
+    if key == "approvethis_provider_capability":
+        ok = _passing_json_receipt(
+            root,
+            "_completion/approvethis/APPROVETHIS_PROVIDER_CAPABILITY.generated.json",
+            "ea/_completion/approvethis/APPROVETHIS_PROVIDER_CAPABILITY.generated.json",
+        )
+        return ok, "approvethis_live_provider_capability" if ok else "approvethis_provider_capability_missing"
+    if key == "approvethis_external_scope":
+        if _provider_contract_check(
+            root,
+            filename="APPROVETHIS_EXTERNAL_APPROVAL_CONTRACT.generated.json",
+            verification_key="bounded_scope_contract",
+        ):
+            return True, "approvethis_contract_receipt_external_scope"
+        ok = "replace_internal_queue" in lane.forbidden_inputs and "approval_truth" in lane.forbidden_inputs
+        return ok, "approvethis_external_scope_boundary" if ok else "approvethis_external_scope_missing"
+    if key == "approvethis_final_policy_gate":
+        ok = "direct_downstream_action" in lane.forbidden_inputs and "approval_without_ea_policy" in lane.forbidden_inputs
+        return ok, "approvethis_final_policy_gate_boundary" if ok else "approvethis_final_policy_gate_missing"
+    if key == "approvethis_webhook_signature":
+        if _provider_contract_check(
+            root,
+            filename="APPROVETHIS_EXTERNAL_APPROVAL_CONTRACT.generated.json",
+            verification_key="webhook_signature_contract",
+        ):
+            return True, "approvethis_contract_receipt_webhook_signature"
+        ok = _passing_json_receipt(
+            root,
+            "_completion/approvethis/APPROVETHIS_WEBHOOK_SIGNATURE.generated.json",
+            "ea/_completion/approvethis/APPROVETHIS_WEBHOOK_SIGNATURE.generated.json",
+        )
+        return ok, "approvethis_live_webhook_signature" if ok else "approvethis_webhook_signature_missing"
+    if key == "approvethis_evidence_mapping":
+        ok = _provider_contract_check(
+            root,
+            filename="APPROVETHIS_EXTERNAL_APPROVAL_CONTRACT.generated.json",
+            verification_key="evidence_mapping_contract",
+        )
+        return ok, "approvethis_contract_receipt_evidence_mapping" if ok else "approvethis_evidence_mapping_missing"
+    if key == "documentation_ai_provider_capability":
+        ok = _passing_json_receipt(
+            root,
+            "_completion/documentation_ai/DOCUMENTATION_AI_PROVIDER_CAPABILITY.generated.json",
+            "ea/_completion/documentation_ai/DOCUMENTATION_AI_PROVIDER_CAPABILITY.generated.json",
+        )
+        return ok, "documentation_ai_live_provider_capability" if ok else "documentation_ai_provider_capability_missing"
+    if key == "documentation_git_source_of_truth":
+        if _provider_contract_check(
+            root,
+            filename="DOCUMENTATION_AI_PUBLICATION_CONTRACT.generated.json",
+            verification_key="source_hash_contract",
+        ):
+            return True, "documentation_contract_receipt_git_truth"
+        ok = "source-controlled markdown" in lane.source_of_truth.lower() or "git" in lane.source_of_truth.lower()
+        return ok, "documentation_git_truth_boundary" if ok else "documentation_git_truth_missing"
+    if key == "documentation_no_writeback":
+        if _provider_contract_check(
+            root,
+            filename="DOCUMENTATION_AI_PUBLICATION_CONTRACT.generated.json",
+            verification_key="provider_writeback_boundary",
+        ):
+            return True, "documentation_contract_receipt_no_writeback"
+        ok = "EA_DOCUMENTATION_AI_AGENT_WRITEBACK_ENABLED" in lane.off_switch_env and "silent_writeback" in lane.forbidden_inputs
+        return ok, "documentation_no_writeback_boundary" if ok else "documentation_no_writeback_missing"
+    if key == "documentation_privacy_boundary":
+        ok = {
+            "workspace_data",
+            "customer_support_ticket",
+            "private_incident_log",
+        } <= set(lane.forbidden_inputs)
+        return ok, "documentation_privacy_boundary_defined" if ok else "documentation_privacy_boundary_missing"
+    if key == "documentation_llms_txt":
+        ok = _passing_json_receipt(
+            root,
+            "_completion/documentation_ai/DOCUMENTATION_AI_LLMS_TXT.generated.json",
+            "ea/_completion/documentation_ai/DOCUMENTATION_AI_LLMS_TXT.generated.json",
+        )
+        return ok, "documentation_ai_llms_txt_passed" if ok else "documentation_llms_txt_missing"
     if key in {"copyright_privacy_boundary", "provider_boundaries", "citation_required", "freshness_check", "retention_boundary"}:
         needles = {
             "copyright_privacy_boundary": ("must not host sourcebook PDFs", "copied rulebook prose", "private runner sheets"),
@@ -512,6 +826,15 @@ def _check_passed(
         )
         return ok, "fallback_policy_present" if ok else "fallback_policy_missing"
     if key in {"commercial_use", "watermark_export", "watermark_duration_export", "credit_budget", "safety_scan", "human_review", "likeness_policy", "quality_score"}:
+        if key == "human_review" and lane.lane_key == "markupgo_fliplink_premium_delivery":
+            if _provider_contract_check(
+                root,
+                filename="PREMIUM_DELIVERY_CONTRACT.generated.json",
+                verification_key="private_redaction_access_contract",
+            ):
+                return True, "premium_contract_receipt_human_review"
+            ok = "human review" in lane.source_of_truth.lower() or "direct_publish" in lane.forbidden_inputs
+            return ok, "premium_human_review_boundary" if ok else "premium_human_review_missing"
         relevant = "\n".join(str(inventory.get(_normalize(provider), "") or "") for provider in lane.providers)
         terms = {
             "commercial_use": ("commercial-use",),
@@ -573,6 +896,39 @@ def _check_passed(
         text = makefile.read_text(encoding="utf-8") if makefile.is_file() else ""
         ok = "ltd-release-gates" in text and "verify-ltd-provider-lanes" in text
         return ok, "ci_target_present" if ok else "ci_target_missing"
+    if key == "ea_security_targets":
+        if _provider_contract_check(
+            root,
+            filename="EA_QUALITY_GATES_CONTRACT.generated.json",
+            verification_key="security_target_matrix_contract",
+        ):
+            return True, "quality_contract_receipt_security_targets"
+        ok = (
+            contract_summary.get("status") == "contract_pass_live_provider_pending"
+            or _row_notes(discovery, "Rafter").find("fleet proof passes") >= 0
+        )
+        return ok, "release_quality_security_targets_local" if ok else "ea_security_targets_missing"
+    if key == "ea_visual_targets":
+        if _provider_contract_check(
+            root,
+            filename="EA_QUALITY_GATES_CONTRACT.generated.json",
+            verification_key="visual_target_matrix_contract",
+        ):
+            return True, "quality_contract_receipt_visual_targets"
+        ok = (
+            contract_summary.get("status") == "contract_pass_live_provider_pending"
+            or _row_notes(discovery, "Pixefy").find("fleet proof passes") >= 0
+        )
+        return ok, "release_quality_visual_targets_local" if ok else "ea_visual_targets_missing"
+    if key == "release_truth_boundary":
+        if _provider_contract_check(
+            root,
+            filename="EA_QUALITY_GATES_CONTRACT.generated.json",
+            verification_key="release_truth_boundary",
+        ):
+            return True, "quality_contract_receipt_release_truth_boundary"
+        ok = "release_truth" in lane.forbidden_inputs
+        return ok, "release_truth_boundary_defined" if ok else "release_truth_boundary_missing"
     if key == "normalized_schema":
         ok = bool(lane.normalized_signal_schema)
         return ok, "schema_defined" if ok else "schema_missing"
@@ -711,6 +1067,21 @@ def _hard_contract_failures(lane: ProviderLane) -> list[str]:
             failures.append("subscribr_source_packet_missing")
         if "EA_SUBSCRIBR_DIRECT_PUBLISH_ENABLED" not in lane.off_switch_env:
             failures.append("subscribr_direct_publish_off_switch_missing")
+    if lane.lane_key == "hedy_meeting_evidence":
+        if "direct_people_memory_overwrite" not in lane.forbidden_inputs:
+            failures.append("hedy_review_boundary_incomplete")
+    if lane.lane_key == "markupgo_fliplink_premium_delivery":
+        if "access_grant_truth" not in lane.forbidden_inputs:
+            failures.append("premium_delivery_boundary_incomplete")
+    if lane.lane_key == "approvethis_external_approval_edge":
+        if "direct_downstream_action" not in lane.forbidden_inputs:
+            failures.append("approvethis_boundary_incomplete")
+    if lane.lane_key == "documentation_ai_publication":
+        if "silent_writeback" not in lane.forbidden_inputs:
+            failures.append("documentation_ai_boundary_incomplete")
+    if lane.lane_key == "release_quality_gates":
+        if "release_truth" not in lane.forbidden_inputs:
+            failures.append("release_quality_truth_boundary_missing")
     return failures
 
 
@@ -727,9 +1098,12 @@ def build_ltd_provider_governance_receipt(
     inventory_rows = load_ltd_inventory_rows(path)
     merged_env = dict(env or {})
     if env is None:
-        merged_env.update({key: value for key, value in os.environ.items() if value})
         dot_env = _load_dotenv(resolved_root / ".env")
-        dot_env.update(merged_env)
+        local_env = _load_dotenv(resolved_root / ".env.local")
+        service_env = _load_dotenv(resolved_root / "ea" / ".env")
+        dot_env.update(local_env)
+        dot_env.update(service_env)
+        dot_env.update({key: value for key, value in os.environ.items() if value})
         merged_env = dot_env
     receipts = [
         build_ltd_provider_lane_receipt(
@@ -743,6 +1117,25 @@ def build_ltd_provider_governance_receipt(
         for lane in LANES
     ]
     failures = [receipt["lane_key"] for receipt in receipts if receipt["status"] != "pass"]
+    contract_summary = _provider_contract_summary(resolved_root)
+    contract_backed_checks = [
+        {
+            "lane_key": receipt["lane_key"],
+            "check_key": check["check_key"],
+            "source": check["source"],
+        }
+        for receipt in receipts
+        for check in list(receipt["required_checks"])
+        if isinstance(check, dict) and "contract_receipt_" in str(check.get("source") or "")
+    ]
+    provider_contracts = {
+        "local_contracts_present": bool(contract_summary),
+        "status": str(contract_summary.get("status") or "missing"),
+        "proof_scope": str(contract_summary.get("proof_scope") or ""),
+        "live_provider_runtime_verified": bool(contract_summary.get("live_provider_runtime_verified")),
+        "gold_claim_allowed": bool(contract_summary.get("gold_claim_allowed")),
+        "required_next_receipts": list(contract_summary.get("required_next_receipts") or []),
+    }
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at": generated_at or datetime.now(UTC).isoformat().replace("+00:00", "Z"),
@@ -751,6 +1144,9 @@ def build_ltd_provider_governance_receipt(
         "lane_count": len(receipts),
         "verified_or_blocked_count": sum(1 for receipt in receipts if receipt["status"] == "pass"),
         "failures": failures,
+        "provider_contracts": provider_contracts,
+        "contract_backed_checks": contract_backed_checks,
+        "contract_backed_check_count": len(contract_backed_checks),
         "lanes": receipts,
     }
 

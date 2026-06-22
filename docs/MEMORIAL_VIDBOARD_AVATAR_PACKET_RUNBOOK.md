@@ -14,7 +14,7 @@ This lane does not pretend VidBoard is already live. It only packages:
 ## Generate the packet
 
 ```bash
-cd /docker/EA
+cd "$EA_REPO_ROOT"
 
 python3 scripts/prepare_memorial_vidboard_avatar_packet.py \
   --slug manfred \
@@ -25,8 +25,8 @@ python3 scripts/prepare_memorial_vidboard_avatar_packet.py \
 
 Default output:
 
-- `/docker/fleet/state/chummer6/avatar_presenter_provider/manfred_vidboard_avatar_packet/packet.generated.json`
-- `/docker/fleet/state/chummer6/avatar_presenter_provider/manfred_vidboard_avatar_packet/README.md`
+- `.codex-studio/published/avatar_presenter_provider/manfred_vidboard_avatar_packet/packet.generated.json`
+- `.codex-studio/published/avatar_presenter_provider/manfred_vidboard_avatar_packet/README.md`
 
 ## What the packet contains
 
@@ -59,7 +59,7 @@ This repo does not currently bypass VidBoard login captcha. The packet is there 
 Once the real VidBoard clip exists locally:
 
 ```bash
-cd /docker/EA
+cd "$EA_REPO_ROOT"
 
 python3 scripts/publish_memorial_video_call_avatar.py \
   --slug manfred \

@@ -52,13 +52,13 @@ canonical_authority:
   queue_package: next90-m145-ea-grounded-explain-narration-packs status=done
   registry_work_task: 145.4 status=done owner=executive-assistant
   queue_proof_required_entries:
-    - /docker/EA/docs/chummer_explain_narration_packs/CHUMMER_EXPLAIN_NARRATION_PACKET_PACK.yaml
-    - /docker/EA/docs/chummer_explain_narration_packs/GROUNDED_FOLLOW_UP_SPECIMENS.yaml
-    - /docker/EA/docs/chummer_explain_narration_packs/README.md
-    - /docker/EA/docs/chummer_explain_narration_packs/SUCCESSOR_HANDOFF_CLOSEOUT.yaml
-    - /docker/EA/skills/chummer_grounded_explain_narration/SKILL.md
-    - /docker/EA/tests/test_next90_m145_grounded_explain_narration_packs.py
-    - /docker/EA/feedback/2026-05-05-ea-grounded-explain-narration-packs-package-closeout.md
+    - docs/chummer_explain_narration_packs/CHUMMER_EXPLAIN_NARRATION_PACKET_PACK.yaml
+    - docs/chummer_explain_narration_packs/GROUNDED_FOLLOW_UP_SPECIMENS.yaml
+    - docs/chummer_explain_narration_packs/README.md
+    - docs/chummer_explain_narration_packs/SUCCESSOR_HANDOFF_CLOSEOUT.yaml
+    - skills/chummer_grounded_explain_narration/SKILL.md
+    - tests/test_next90_m145_grounded_explain_narration_packs.py
+    - feedback/2026-05-05-ea-grounded-explain-narration-packs-package-closeout.md
     - python3 tests/test_next90_m145_grounded_explain_narration_packs.py exits 0 with ran=7 failed=0
 repeat_prevention:
   worker_rule: Treat this package as an active but bounded EA compile lane until core, UI, mobile, media-factory, Fleet, and design sibling receipts are complete; do not widen it into arithmetic, trigger, or presenter-authority work.

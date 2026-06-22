@@ -60,36 +60,36 @@ Do not present live if any of these fail:
 Filesystem and live-route preflight:
 
 ```bash
-cd /docker/EA/ea
+cd "$EA_REPO_ROOT"
 python3 scripts/memorial_flagship_preflight.py manfred
-python3 scripts/memorial_flagship_preflight.py manfred --base-url https://myexternalbrain.com
+python3 scripts/memorial_flagship_preflight.py manfred --base-url "${MEMORIAL_PUBLIC_ORIGIN:-https://memorial.example.test}"
 ```
 
 Automation-friendly JSON:
 
 ```bash
-python3 scripts/memorial_flagship_preflight.py manfred --base-url https://myexternalbrain.com --json
+python3 scripts/memorial_flagship_preflight.py manfred --base-url "${MEMORIAL_PUBLIC_ORIGIN:-https://memorial.example.test}" --json
 ```
 
 Full exit gate runner:
 
 ```bash
-/docker/EA/scripts/memorial_flagship_exit_gates.sh
+scripts/memorial_flagship_exit_gates.sh
 ```
 
 Live rehearsal and launch evidence:
 
 ```bash
-python3 scripts/memorial_demo_rehearsal.py manfred --base-url https://myexternalbrain.com --questions ../examples/demo_questions.manfred.json --save-audio-dir /tmp
-python3 scripts/memorial_launch_snapshot.py manfred --base-url https://myexternalbrain.com --questions ../examples/demo_questions.manfred.json --output /tmp/manfred_launch_snapshot.json
+python3 scripts/memorial_demo_rehearsal.py manfred --base-url "${MEMORIAL_PUBLIC_ORIGIN:-https://memorial.example.test}" --questions examples/demo_questions.manfred.json --save-audio-dir /tmp
+python3 scripts/memorial_launch_snapshot.py manfred --base-url "${MEMORIAL_PUBLIC_ORIGIN:-https://memorial.example.test}" --questions examples/demo_questions.manfred.json --output /tmp/manfred_launch_snapshot.json
 ```
 
 Showtime wrapper:
 
 ```bash
-python3 scripts/memorial_showtime.py --slug manfred --base-url https://myexternalbrain.com --questions ../examples/demo_questions.manfred.json --output-dir /tmp/manfred_showtime --optional-exit-gates
+python3 scripts/memorial_showtime.py --slug manfred --base-url "${MEMORIAL_PUBLIC_ORIGIN:-https://memorial.example.test}" --questions examples/demo_questions.manfred.json --output-dir /tmp/manfred_showtime --optional-exit-gates
 
-python3 scripts/memorial_room_ready.py --slug manfred --base-url https://myexternalbrain.com --questions ../examples/demo_questions.manfred.json --output-dir /tmp/manfred_room_ready --optional-exit-gates
+python3 scripts/memorial_room_ready.py --slug manfred --base-url "${MEMORIAL_PUBLIC_ORIGIN:-https://memorial.example.test}" --questions examples/demo_questions.manfred.json --output-dir /tmp/manfred_room_ready --optional-exit-gates
 ```
 
 ## Recovery plan

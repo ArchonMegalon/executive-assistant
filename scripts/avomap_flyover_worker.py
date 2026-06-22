@@ -17,11 +17,17 @@ import uuid
 from pathlib import Path
 
 from browseract_ui_media import transcode_video
+try:
+    from scripts.ui_service_worker_cleanup import cleanup_ui_service_run_dir, ui_service_worker_cleanup_enabled
+except ImportError:
+    from ui_service_worker_cleanup import cleanup_ui_service_run_dir, ui_service_worker_cleanup_enabled
 
 
 PLAYWRIGHT_IMAGE = os.environ.get("EA_UI_PLAYWRIGHT_IMAGE", "chummer-playwright:local").strip() or "chummer-playwright:local"
-OUTPUT_ROOT = Path(os.environ.get("EA_UI_SERVICE_WORKER_OUTPUT_ROOT", "/docker/fleet/state/browseract_ui_worker_outputs")).expanduser()
-SHARED_TEMP_ROOT = Path(os.environ.get("EA_UI_SERVICE_SHARED_TEMP_ROOT", "/docker/fleet/state/browseract_ui_worker_shared")).expanduser()
+ROOT = Path(__file__).resolve().parents[1]
+RUNTIME_ROOT = ROOT / ".runtime" / "browseract"
+OUTPUT_ROOT = Path(os.environ.get("EA_UI_SERVICE_WORKER_OUTPUT_ROOT") or RUNTIME_ROOT / "worker_outputs").expanduser()
+SHARED_TEMP_ROOT = Path(os.environ.get("EA_UI_SERVICE_SHARED_TEMP_ROOT") or RUNTIME_ROOT / "worker_shared").expanduser()
 DEFAULT_EMAIL = os.environ.get("EA_UI_SERVICE_LOGIN_EMAIL", "").strip()
 DEFAULT_PASSWORD = os.environ.get("EA_UI_SERVICE_LOGIN_PASSWORD", "").strip()
 
@@ -402,6 +408,9 @@ def main() -> int:
         recorded_mp4_path = run_dir / "flyover-preview.mp4"
         shutil.copy2(recorded_input_path, recorded_webm_path)
         transcode_video(recorded_input_path, recorded_mp4_path)
+        cleanup = {}
+        if ui_service_worker_cleanup_enabled():
+            cleanup = cleanup_ui_service_run_dir(run_dir=run_dir, asset_path=recorded_webm_path)
         result = {
             "service_key": "avomap_flyover",
             "result_title": result_title,
@@ -417,13 +426,15 @@ def main() -> int:
                 "buttons": list(browser_output.get("buttons") or []),
                 "links": list(browser_output.get("links") or []),
                 "video_candidates": list(browser_output.get("videoSrcs") or []),
-                "route_path": str(route_path),
+                "route_path": str(route_path) if route_path.exists() else "",
                 "screenshot_path": str(screenshot_path) if screenshot_path.exists() else "",
-                "browser_video_path": str(recorded_webm_path),
-                "recorded_video_path": str(recorded_mp4_path),
+                "browser_video_path": str(recorded_webm_path) if recorded_webm_path.exists() else "",
+                "recorded_video_path": str(recorded_mp4_path) if recorded_mp4_path.exists() else "",
                 "render_status": "completed",
             },
         }
+        if cleanup:
+            result["cleanup"] = cleanup
         print(json.dumps(result, ensure_ascii=False))
         return 0
     html_path = run_dir / "result.html"
@@ -431,6 +442,9 @@ def main() -> int:
         _standalone_html(packet=packet, browser_output=browser_output, screenshot_data_uri=_image_data_uri(screenshot_path)),
         encoding="utf-8",
     )
+    cleanup = {}
+    if ui_service_worker_cleanup_enabled():
+        cleanup = cleanup_ui_service_run_dir(run_dir=run_dir, asset_path=html_path)
     body_text = str(browser_output.get("bodyText") or "").strip()
     render_status = "render_triggered" if browser_output.get("renderTriggered") else "preview_ready"
     result = {
@@ -448,13 +462,15 @@ def main() -> int:
             "buttons": list(browser_output.get("buttons") or []),
             "links": list(browser_output.get("links") or []),
             "video_candidates": list(browser_output.get("videoSrcs") or []),
-            "route_path": str(route_path),
+            "route_path": str(route_path) if route_path.exists() else "",
             "screenshot_path": str(screenshot_path) if screenshot_path.exists() else "",
             "recorded_video_path": str(recorded_input_path) if recorded_input_path.exists() else "",
             "html_path": str(html_path),
             "render_status": render_status,
         },
     }
+    if cleanup:
+        result["cleanup"] = cleanup
     print(json.dumps(result, ensure_ascii=False))
     return 0
 

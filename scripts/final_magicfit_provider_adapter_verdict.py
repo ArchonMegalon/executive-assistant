@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 
-ROOT = Path("/docker/chummercomplete/_completion/magicfit_provider")
+EA_ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(os.environ.get("MAGICFIT_PROVIDER_COMPLETION_ROOT") or EA_ROOT / "ea/_completion/magicfit_provider")
 VERDICT_PATH = ROOT / "FINAL_MAGICFIT_PROVIDER_ADAPTER_VERDICT.md"
 
 

@@ -9,20 +9,20 @@
   "source_owner": "Manfred Memorial Archive",
   "archive_section_title": "Oeffentliches Archiv",
   "fliplink_slug": "manfred-how-this-memorial-works",
-  "fliplink_url": "https://archive.myexternalbrain.com/manfred-how-this-memorial-works",
+  "fliplink_url": "https://archive.example.test/manfred-how-this-memorial-works",
   "approved": true,
   "source_files": [
     "source.md"
   ],
   "build_artifacts": {
-    "html_path": "/docker/EA/memorial_archive/manfred/public/manfred-how-this-memorial-works/build/index.html",
-    "pdf_path": "/docker/EA/memorial_archive/manfred/public/manfred-how-this-memorial-works/build/output.pdf"
+    "html_path": "../memorial_archive/manfred/public/manfred-how-this-memorial-works/build/index.html",
+    "pdf_path": "../memorial_archive/manfred/public/manfred-how-this-memorial-works/build/output.pdf"
   },
   "sha256": "d749e8c9a29f9745f0b2ce3198b5668f45d19730b97fd1eb3ea18dbb85e5366f",
   "description": "Erklaert Quellen, Grenzen, AI-Nutzung und den Unterschied zwischen Archiv und Gespraech.",
-  "correction_contact": "memorial@myexternalbrain.com",
+  "correction_contact": "memorial@example.test",
   "ai_disclosure": "AI-assisted formatting, no direct speech claim unless explicitly marked as verbatim source.",
-  "contact_or_correction_path": "memorial@myexternalbrain.com",
+  "contact_or_correction_path": "memorial@example.test",
   "noindex": false,
   "share_with_memorial_app": true,
   "public": true,

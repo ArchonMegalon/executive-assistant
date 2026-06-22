@@ -11,7 +11,7 @@ defaults:
   render_owner: chummer6-media-factory
   registry_owner: chummer6-hub-registry
   widget_lane: FacePop
-  booking_lane: Lunacal
+  booking_lane: invitation_only_lunacal
   intake_lane: Deftform
   long_form_video_lane: vidBoard
   packet_lane: MarkupGo
@@ -75,9 +75,9 @@ flows:
       - id: platform_help
         target: platform_guide_or_release_explainer
       - id: setup_help
-        target: deftform_setup_preintake
-      - id: human_setup_call
-        target: lunacal_setup_clinic
+        target: chummer_instant_help
+      - id: unresolved_setup_issue
+        target: first_party_support_packet_or_deftform_enrichment
     proof_anchors:
       - public_release_truth
       - locale
@@ -90,12 +90,13 @@ flows:
         - platform_guide_or_release_explainer
       recovery_route_targets:
         - public_install_help_article
-        - deftform_setup_preintake
-        - lunacal_setup_clinic
+        - chummer_instant_help
+        - first_party_support_packet_or_deftform_enrichment
       copy_requirements:
         - recommended_download_must_stay_first_party
         - fallback_assets_must_be_labeled_fallback_or_manual
         - recovery_paths_must_not_claim_fix_completion
+        - normal_setup_help_must_not_route_to_calendar_booking
 
   - id: campaign_invite_concierge
     audience: invited_player_or_gm
@@ -170,9 +171,9 @@ flows:
       - id: read_notes
         target: release_notes_page
       - id: update_help
-        target: deftform_update_help_preintake
-      - id: book_help
-        target: lunacal_setup_clinic
+        target: chummer_instant_help
+      - id: unresolved_update_issue
+        target: first_party_support_packet_or_deftform_enrichment
     proof_anchors:
       - release_channel_truth
       - locale
@@ -184,18 +185,19 @@ flows:
         - public_release_page
         - public_help_article
       recovery_route_targets:
-        - deftform_update_help_preintake
-        - lunacal_setup_clinic
+        - chummer_instant_help
+        - first_party_support_packet_or_deftform_enrichment
         - public_install_recovery_article
       copy_requirements:
         - fixed_release_truth_must_match_channel_and_build_posture
         - fallback_head_or_manual_update_paths_must_be_labeled_fallback
         - recovery_copy_must_not_imply_fix_shipped_for_this_user
+        - normal_update_help_must_not_route_to_calendar_booking
 
   - id: support_entry_concierge
     audience: public_or_pre_auth_help_entry
     entry_surface: public_help_entry
-    widget_goal: route_public_feedback_private_support_install_continuity_or_human_help
+    widget_goal: route_public_feedback_private_support_install_continuity_or_instant_help
     branches:
       - id: public_feedback
         target: public_feedback_entry
@@ -203,8 +205,8 @@ flows:
         target: public_support_intake
       - id: install_continuity
         target: first_party_downloads_or_signed_in_access
-      - id: human_help
-        target: human_support_handoff
+      - id: instant_help
+        target: chummer_instant_help
     proof_anchors:
       - public_signal_boundary
       - private_support_boundary
@@ -219,11 +221,11 @@ flows:
         - public_help_article
       recovery_route_targets:
         - public_support_intake
-        - human_support_handoff
+        - chummer_instant_help
       copy_requirements:
         - public_feedback_must_not_collect_private_logs_or_account_secrets
         - private_support_must_remain_first_party
-        - human_handoff_must_not_replace_support_truth
+        - calendar_booking_must_not_appear_in_normal_chummer_help
 
   - id: testimonial_capture
     audience: opted_in_user

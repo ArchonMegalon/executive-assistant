@@ -13,6 +13,9 @@ import urllib.request
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ea"))
 
 
+EA_ROOT = Path(os.environ.get("EA_ROOT") or Path(__file__).resolve().parents[1])
+
+
 PREFERENCE_REVIEW_QUEUE_FIELDS = [
     {"name": "projection_id", "type": "singleLineText", "notNull": True, "unique": True},
     {"name": "person_id", "type": "singleLineText"},
@@ -40,15 +43,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--table-name", default="preference_review_queue")
     parser.add_argument("--create-table", action="store_true")
     parser.add_argument("--write-config", action="store_true")
-    parser.add_argument("--env-file", default="/docker/EA/.env")
+    parser.add_argument("--env-file", default=os.environ.get("EA_ENV_FILE") or str(EA_ROOT / ".env"))
     return parser.parse_args()
 
 
-def _api_key() -> str:
+def _api_key(env_file: Path) -> str:
     direct = str(os.environ.get("TEABLE_API_KEY") or "").strip()
     if direct:
         return direct
-    env_file = Path("/docker/EA/.env")
     if env_file.is_file():
         for raw in env_file.read_text(encoding="utf-8").splitlines():
             if raw.startswith("TEABLE_API_KEY="):
@@ -111,8 +113,9 @@ def _write_env_mapping(*, env_file: Path, table_name: str, table_id: str) -> Non
 
 def main() -> int:
     args = parse_args()
-    api_key = _api_key()
-    if not api_key:
+    env_file = Path(args.env_file).expanduser()
+    api_key = _api_key(env_file)
+    if args.create_table and not api_key:
         raise SystemExit("missing TEABLE_API_KEY")
     base_url = str(args.base_url or "https://app.teable.ai").strip().rstrip("/")
     table_name = str(args.table_name or "preference_review_queue").strip() or "preference_review_queue"
@@ -140,7 +143,7 @@ def main() -> int:
             }
         }
         if args.write_config:
-            _write_env_mapping(env_file=Path(args.env_file), table_name=table_name, table_id=table_id)
+            _write_env_mapping(env_file=env_file, table_name=table_name, table_id=table_id)
         print(
             json.dumps(
                 {

@@ -2,7 +2,7 @@
 
 ## Explanation video
 
-[Watch the KARMA FORGE 90-second deep dive](https://chummer.run/media/horizons/karma-forge-90s-deepdive.mp4) - MP4 with AAC audio. [Captions](https://chummer.run/media/horizons/karma-forge-90s-deepdive.vtt).
+[Watch the KARMA FORGE 90-second deep dive](https://chummer.run/media/horizons/karma-forge-90s-deepdive.mp4). [Captions](https://chummer.run/media/horizons/karma-forge-90s-deepdive.vtt).
 
 KARMA FORGE is Chummer’s governed house-rule and custom-rules layer: a way for GMs, players, creators, organizers, and living communities to change the rules of their table without turning every campaign into an incompatible private fork.
 

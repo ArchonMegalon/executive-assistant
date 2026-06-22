@@ -1,6 +1,6 @@
 {
   "contract_name": "ea.next90_m118_organizer_packets",
-  "generated_at": "2026-05-05T13:13:15Z",
+  "generated_at": "2026-06-22T11:59:11Z",
   "guardrails": {
     "active_package_status": "active_package_proven",
     "claim_guard_rules": [
@@ -142,7 +142,7 @@
       "required": true
     },
     "ea_operator_safe_baseline": {
-      "path": "/docker/EA/docs/chummer_operator_safe_packets/CHUMMER_OPERATOR_SAFE_PACKET_PACK.yaml",
+      "path": "docs/chummer_operator_safe_packets/CHUMMER_OPERATOR_SAFE_PACKET_PACK.yaml",
       "present": true,
       "required": true
     },

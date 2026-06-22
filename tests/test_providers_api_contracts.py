@@ -18,6 +18,7 @@ import pytest
 
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
+from tests.product_test_helpers import build_operator_product_client
 
 
 def _client(*, principal_id: str, operator: bool = False) -> TestClient:
@@ -26,9 +27,7 @@ def _client(*, principal_id: str, operator: bool = False) -> TestClient:
     os.environ.pop("EA_LEDGER_BACKEND", None)
     os.environ.pop("EA_DEFAULT_PRINCIPAL_ID", None)
     if operator:
-        os.environ["EA_API_TOKEN"] = "test-token"
-        os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
-        os.environ["EA_OPERATOR_PRINCIPAL_IDS"] = principal_id
+        return build_operator_product_client(principal_id=principal_id, operator_id=f"{principal_id}-operator")
     else:
         os.environ["EA_API_TOKEN"] = ""
         os.environ.pop("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER", None)
@@ -239,6 +238,92 @@ def test_google_oauth_routes_create_and_disconnect_binding(monkeypatch: pytest.M
     assert disconnected_body["reauth_required_reason"] == "disconnected_by_operator"
 
 
+def test_google_oauth_everything_persists_returned_granted_scopes(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "google-client")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://ea.example/v1/providers/google/oauth/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "provider-secret-key")
+
+    owner = _client(principal_id="memorial:manfred")
+
+    started = owner.post("/v1/providers/google/oauth/start", json={"scope_bundle": "everything"})
+    assert started.status_code == 200
+    started_body = started.json()
+    assert "https://www.googleapis.com/auth/gmail.modify" in started_body["requested_scopes"]
+    assert "https://www.googleapis.com/auth/calendar" in started_body["requested_scopes"]
+    assert "https://www.googleapis.com/auth/drive.metadata.readonly" in started_body["requested_scopes"]
+    assert "https://www.googleapis.com/auth/keep" not in started_body["requested_scopes"]
+    assert "https://www.googleapis.com/auth/photospicker.mediaitems.readonly" not in started_body["requested_scopes"]
+
+    from app.services import google_oauth as google_service
+
+    returned_scope_text = "openid email profile https://www.googleapis.com/auth/gmail.send"
+    monkeypatch.setattr(
+        google_service,
+        "_exchange_google_code_for_tokens",
+        lambda **kwargs: {
+            "access_token": "access-token",
+            "refresh_token": "refresh-token",
+            "scope": returned_scope_text,
+            "expires_in": 3600,
+        },
+    )
+    monkeypatch.setattr(
+        google_service,
+        "_fetch_google_userinfo",
+        lambda access_token: {
+            "sub": "google-sub-manfred",
+            "email": "manfred@gmail.example",
+            "hd": "gmail.example",
+        },
+    )
+
+    callback = owner.get(
+        "/v1/providers/google/oauth/callback",
+        params={"code": "code-123", "state": started_body["state"]},
+    )
+    assert callback.status_code == 200
+    callback_body = callback.json()
+    assert callback_body["granted_scopes"] == [
+        "email",
+        "https://www.googleapis.com/auth/gmail.send",
+        "openid",
+        "profile",
+    ]
+
+    binding = owner.app.state.container.provider_registry.get_persisted_binding_record(
+        principal_id="memorial:manfred",
+        binding_id="memorial:manfred:google_gmail",
+    )
+    assert binding is not None
+    assert binding.scope_json["bundle"] == "everything"
+    assert "https://www.googleapis.com/auth/gmail.modify" in binding.scope_json["requested_scopes"]
+    assert "https://www.googleapis.com/auth/keep" not in binding.scope_json["requested_scopes"]
+    assert "https://www.googleapis.com/auth/photospicker.mediaitems.readonly" not in binding.scope_json["requested_scopes"]
+    assert binding.scope_json["granted_scopes"] == [
+        "email",
+        "https://www.googleapis.com/auth/gmail.send",
+        "openid",
+        "profile",
+    ]
+    assert binding.scope_json["granted_scopes_source"] == "google_token_response"
+    assert binding.auth_metadata_json["granted_scopes_source"] == "google_token_response"
+    assert binding.auth_metadata_json["returned_scope_text"] == returned_scope_text
+
+    connector = owner.app.state.container.tool_runtime.get_connector_binding(callback_body["connector_binding_id"])
+    assert connector is not None
+    assert connector.scope_json["bundle"] == "everything"
+    assert connector.scope_json["granted_scopes_source"] == "google_token_response"
+    assert connector.scope_json["granted_scopes"] == [
+        "email",
+        "https://www.googleapis.com/auth/gmail.send",
+        "openid",
+        "profile",
+    ]
+    assert connector.auth_metadata_json["returned_scope_text"] == returned_scope_text
+
+
 def test_google_oauth_routes_support_second_google_account_on_same_principal(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "google-client")
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
@@ -268,7 +353,7 @@ def test_google_oauth_routes_support_second_google_account_on_same_principal(mon
         "_fetch_google_userinfo",
         lambda access_token: {
             "sub": "google-sub-1",
-            "email": "tibor@girschele.com",
+            "email": "primary@example.test",
             "hd": "girschele.com",
         },
     )
@@ -287,7 +372,7 @@ def test_google_oauth_routes_support_second_google_account_on_same_principal(mon
         "_fetch_google_userinfo",
         lambda access_token: {
             "sub": "google-sub-2",
-            "email": "office@girschele.com",
+            "email": "office@example.test",
             "hd": "girschele.com",
         },
     )
@@ -298,12 +383,12 @@ def test_google_oauth_routes_support_second_google_account_on_same_principal(mon
     assert secondary_callback.status_code == 200
     secondary_body = secondary_callback.json()
     assert secondary_body["binding_id"] == "exec-google-multi:google_gmail:acct:google-sub-2"
-    assert secondary_body["google_email"] == "office@girschele.com"
+    assert secondary_body["google_email"] == "office@example.test"
 
     accounts = owner.get("/v1/providers/google/accounts")
     assert accounts.status_code == 200
     rows = accounts.json()
-    assert [row["google_email"] for row in rows] == ["tibor@girschele.com", "office@girschele.com"]
+    assert [row["google_email"] for row in rows] == ["primary@example.test", "office@example.test"]
 
     monkeypatch.setattr(
         google_service,
@@ -328,7 +413,7 @@ def test_google_oauth_routes_support_second_google_account_on_same_principal(mon
     )
     assert smoke.status_code == 200
     smoke_body = smoke.json()
-    assert smoke_body["sender_email"] == "office@girschele.com"
+    assert smoke_body["sender_email"] == "office@example.test"
     assert captured["access_token"] == "fresh-refresh-token"
 
     promoted = owner.post(
@@ -338,13 +423,13 @@ def test_google_oauth_routes_support_second_google_account_on_same_principal(mon
     assert promoted.status_code == 200
     promoted_body = promoted.json()
     assert promoted_body["binding_id"] == "exec-google-multi:google_gmail"
-    assert promoted_body["google_email"] == "office@girschele.com"
+    assert promoted_body["google_email"] == "office@example.test"
     assert promoted_body["is_primary"] is True
 
     accounts_after = owner.get("/v1/providers/google/accounts")
     assert accounts_after.status_code == 200
     rows_after = accounts_after.json()
-    assert [row["google_email"] for row in rows_after] == ["office@girschele.com", "tibor@girschele.com"]
+    assert [row["google_email"] for row in rows_after] == ["office@example.test", "primary@example.test"]
     assert rows_after[0]["is_primary"] is True
     assert rows_after[1]["is_primary"] is False
 
@@ -621,7 +706,7 @@ def test_onboarding_telegram_bind_chat_promotes_live_bot_binding() -> None:
         "/v1/onboarding/telegram/bind-chat",
         json={
             "chat_ref": "1354554303",
-            "bot_handle": "tibor_concierge_bot",
+            "bot_handle": "ea_concierge_bot",
             "bot_key": "default",
         },
     )
@@ -635,18 +720,18 @@ def test_onboarding_telegram_bind_chat_promotes_live_bot_binding() -> None:
     by_connector = {item.connector_name: item for item in bindings}
     assert str(by_connector["telegram_identity"].external_account_ref) == "1354554303"
     assert dict(by_connector["telegram_identity"].auth_metadata_json or {})["default_chat_ref"] == "1354554303"
-    assert str(by_connector["telegram_official_bot"].external_account_ref) == "tibor_concierge_bot"
+    assert str(by_connector["telegram_official_bot"].external_account_ref) == "ea_concierge_bot"
     assert dict(by_connector["telegram_official_bot"].auth_metadata_json or {})["default_chat_ref"] == "1354554303"
 
 
 def test_onboarding_status_reflects_fallback_telegram_binding(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("EA_DEFAULT_PRINCIPAL_ID", "local-user")
-    owner = _client(principal_id="cf-email:tibor.girschele@gmail.com")
+    monkeypatch.setenv("EA_DEFAULT_PRINCIPAL_ID", "principal-default")
+    owner = _client(principal_id="cf-email:principal.user@example.test")
     owner.app.state.container.tool_runtime.upsert_connector_binding(
-        principal_id="local-user",
+        principal_id="principal-default",
         connector_name="telegram_identity",
         external_account_ref="1354554303",
-        auth_metadata_json={"default_chat_ref": "1354554303", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        auth_metadata_json={"default_chat_ref": "1354554303", "bot_key": "default", "bot_handle": "ea_concierge_bot"},
         scope_json={"assistant_surfaces": ["dm"]},
         status="enabled",
     )
@@ -783,7 +868,7 @@ def test_telegram_ingest_secret_header_bypasses_global_api_token_auth(monkeypatc
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-prod-webhook")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     from app.api.app import create_app
 
     client = TestClient(create_app())
@@ -813,7 +898,7 @@ def test_telegram_ingest_auto_binds_unknown_chat_without_operator_auth(monkeypat
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-autobind")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     client = _client(principal_id="", operator=False)
 
     resp = client.post(
@@ -910,7 +995,7 @@ def test_telegram_ingest_sends_math_reply_for_plain_message(monkeypatch: pytest.
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-math")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-math")
     from app.api.routes import channels as channels_route
 
@@ -960,7 +1045,7 @@ def test_telegram_ingest_sends_plain_language_math_reply(monkeypatch: pytest.Mon
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-math-words")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-math-words")
     from app.api.routes import channels as channels_route
 
@@ -1010,7 +1095,7 @@ def test_telegram_ingest_accepts_raw_telegram_webhook_shape(monkeypatch: pytest.
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-raw")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-raw")
     from app.api.routes import channels as channels_route
 
@@ -1055,7 +1140,7 @@ def test_telegram_ingest_really_followup_uses_recent_context(monkeypatch: pytest
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-really")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-really")
     from app.api.routes import channels as channels_route
 
@@ -1110,7 +1195,7 @@ def test_telegram_ingest_answers_short_time_question(monkeypatch: pytest.MonkeyP
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-time")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-time")
     from app.api.routes import channels as channels_route
 
@@ -1152,7 +1237,7 @@ def test_telegram_ingest_answers_weather_tomorrow_question(monkeypatch: pytest.M
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-weather")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-weather")
     from app.api.routes import channels as channels_route
 
@@ -1214,7 +1299,7 @@ def test_telegram_ingest_repeats_previous_useful_reply_for_again(monkeypatch: py
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-again")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-again")
     from app.api.routes import channels as channels_route
 
@@ -1284,7 +1369,7 @@ def test_telegram_ingest_prefers_real_ea_for_ambiguous_followup(monkeypatch: pyt
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-real-followup")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-real-followup")
     from app.api.routes import channels as channels_route
 
@@ -1336,7 +1421,7 @@ def test_telegram_ingest_answers_capability_question_directly(monkeypatch: pytes
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-real-ea")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-real-ea")
     from app.api.routes import channels as channels_route
 
@@ -1381,7 +1466,7 @@ def test_telegram_ingest_answers_next_appointment_from_calendar_signal(monkeypat
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-calendar")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-calendar")
     from app.api.routes import channels as channels_route
 
@@ -1440,7 +1525,7 @@ def test_telegram_ingest_answers_focus_on_tomorrow_from_calendar_signal(monkeypa
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-focus")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-focus")
     from app.api.routes import channels as channels_route
     tomorrow_vienna = (datetime.now(ZoneInfo("Europe/Vienna")) + timedelta(days=1)).replace(
@@ -1809,6 +1894,89 @@ def test_telegram_async_worker_renders_video_reply_from_instruction_when_text_an
     assert sent and sent[0]["text"] == "I rendered and sent a short video reply here."
 
 
+def test_telegram_async_worker_does_not_claim_video_sent_without_message_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    from app.api.routes import channels as channels_route
+    from app.domain.models import ToolInvocationResult
+
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 125}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        sent.append(json.loads(request.data.decode("utf-8")))
+        return _FakeResponse()
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(channels_route, "_telegram_real_ea_reply_text", lambda **kwargs: "")
+    monkeypatch.setattr(channels_route, "_telegram_magicfit_video_fallback_available", lambda: False)
+    client = _client(principal_id="exec-telegram-video-render-no-message-ids", operator=False)
+    client.app.state.container.tool_runtime.upsert_connector_binding(
+        principal_id="exec-telegram-video-render-no-message-ids",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={},
+        auth_metadata_json={"mootion_movie_workflow_id": "wf-mootion-1"},
+        status="enabled",
+    )
+
+    def _fake_execute_invocation(request):  # noqa: ANN001
+        return ToolInvocationResult(
+            tool_name=request.tool_name,
+            action_kind=request.action_kind,
+            target_ref="mootion:test",
+            output_json={
+                "asset_url": "https://cdn.example/mootion/reply.mp4",
+                "telegram_delivery_json": {"status": "sent", "kind": "video"},
+            },
+            receipt_json={},
+        )
+
+    monkeypatch.setattr(client.app.state.container.tool_execution, "execute_invocation", _fake_execute_invocation)
+    channels_route._telegram_async_assistant_reply_worker(
+        container=client.app.state.container,
+        principal_id="exec-telegram-video-render-no-message-ids",
+        bot_config={"token": "telegram-token-video"},
+        chat_id="9992",
+        text="send me a short video back with the key points",
+        current_message_id="125",
+        async_payload={
+            "kind": "instructional_video",
+            "instruction_text": "send me a short video back with the key points",
+            "video_caption": "edit this and send a short video back",
+            "video_download_url": "https://api.telegram.org/file/bot/video/file-125.mp4",
+            "video_duration_seconds": 19,
+        },
+    )
+
+    assert sent
+    assert sent[0]["text"] != "I rendered and sent a short video reply here."
+    assert "video_delivery_message_ids_missing" in sent[0]["text"]
+    observations = list(
+        client.app.state.container.channel_runtime.list_recent_observations(
+            limit=20,
+            principal_id="exec-telegram-video-render-no-message-ids",
+        )
+    )
+    video_receipts = [row for row in observations if row.event_type == "telegram.video_delivery_receipt"]
+    assert video_receipts
+    receipt_payload = dict(video_receipts[0].payload or {})
+    assert receipt_payload["provider"] == "browseract.mootion_movie"
+    assert receipt_payload["status"] == "failed"
+    assert receipt_payload["error"] == "video_delivery_message_ids_missing"
+    assert receipt_payload["message_ids"] == []
+
+
 def test_telegram_async_worker_renders_video_reply_for_render_and_send_result_wording(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1970,7 +2138,7 @@ def test_telegram_async_worker_falls_back_to_magicfit_when_mootion_fails(
 ) -> None:
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_MAGICFIT_VIDEO_FALLBACK_ENABLED", "1")
-    monkeypatch.setenv("CHUMMER_EA_MAGICFIT_EMAIL", "the.girscheles@gmail.com")
+    monkeypatch.setenv("CHUMMER_EA_MAGICFIT_EMAIL", "magicfit.account@example.test")
     monkeypatch.setenv("CHUMMER_EA_MAGICFIT_PASSWORD", "secret-pass")
     from app.api.routes import channels as channels_route
     from types import SimpleNamespace
@@ -2050,7 +2218,7 @@ def test_telegram_async_worker_prefers_best_available_renderer_when_request_says
 ) -> None:
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_MAGICFIT_VIDEO_FALLBACK_ENABLED", "1")
-    monkeypatch.setenv("CHUMMER_EA_MAGICFIT_EMAIL", "the.girscheles@gmail.com")
+    monkeypatch.setenv("CHUMMER_EA_MAGICFIT_EMAIL", "magicfit.account@example.test")
     monkeypatch.setenv("CHUMMER_EA_MAGICFIT_PASSWORD", "secret-pass")
     from app.api.routes import channels as channels_route
 
@@ -2122,7 +2290,7 @@ def test_telegram_async_worker_prefers_best_available_renderer_when_request_says
     )
     assert invoked
     assert invoked[0]["tool_name"] == "browseract.mootion_movie"
-    assert fallback_calls == []
+    assert fallback_calls
     assert sent and sent[0]["text"] == "I rendered and sent a short video reply here."
 
 
@@ -2130,7 +2298,7 @@ def test_telegram_render_magicfit_video_reply_prefers_dockerized_playwright_runt
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("CHUMMER_EA_MAGICFIT_EMAIL", "the.girscheles@gmail.com")
+    monkeypatch.setenv("CHUMMER_EA_MAGICFIT_EMAIL", "magicfit.account@example.test")
     monkeypatch.setenv("CHUMMER_EA_MAGICFIT_PASSWORD", "secret-pass")
     monkeypatch.setenv("EA_TELEGRAM_MAGICFIT_RUNTIME_LANE_APPROVED", "1")
     pinned_image = "ea-runtime@sha256:" + ("0" * 64)
@@ -2170,7 +2338,7 @@ def test_telegram_render_magicfit_video_reply_prefers_dockerized_playwright_runt
     monkeypatch.setattr(
         channels_route,
         "send_telegram_video_for_principal",
-        lambda tool_runtime, principal_id, video_ref, caption: SimpleNamespace(
+        lambda tool_runtime, principal_id, video_ref, caption, **kwargs: SimpleNamespace(
             message_ids=["tg-video-11"],
             chat_id="10001",
         ),
@@ -2203,7 +2371,7 @@ def test_telegram_magicfit_fallback_requires_runtime_lane_approval(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setenv("EA_TELEGRAM_MAGICFIT_VIDEO_FALLBACK_ENABLED", "1")
-    monkeypatch.setenv("CHUMMER_EA_MAGICFIT_EMAIL", "the.girscheles@gmail.com")
+    monkeypatch.setenv("CHUMMER_EA_MAGICFIT_EMAIL", "magicfit.account@example.test")
     monkeypatch.setenv("CHUMMER_EA_MAGICFIT_PASSWORD", "secret-pass")
     monkeypatch.setenv("EA_TELEGRAM_MAGICFIT_DOCKER_IMAGE", "ea-runtime@sha256:" + ("1" * 64))
     from app.api.routes import channels as channels_route
@@ -2225,7 +2393,7 @@ def test_telegram_magicfit_fallback_rejects_unpinned_docker_image(
 ) -> None:
     monkeypatch.setenv("EA_TELEGRAM_MAGICFIT_VIDEO_FALLBACK_ENABLED", "1")
     monkeypatch.setenv("EA_TELEGRAM_MAGICFIT_RUNTIME_LANE_APPROVED", "1")
-    monkeypatch.setenv("CHUMMER_EA_MAGICFIT_EMAIL", "the.girscheles@gmail.com")
+    monkeypatch.setenv("CHUMMER_EA_MAGICFIT_EMAIL", "magicfit.account@example.test")
     monkeypatch.setenv("CHUMMER_EA_MAGICFIT_PASSWORD", "secret-pass")
     monkeypatch.setenv("EA_TELEGRAM_MAGICFIT_DOCKER_IMAGE", "ea-runtime:latest")
     from app.api.routes import channels as channels_route
@@ -2236,6 +2404,37 @@ def test_telegram_magicfit_fallback_rejects_unpinned_docker_image(
 
     assert channels_route._telegram_magicfit_docker_available() is False
     assert channels_route._telegram_magicfit_video_fallback_available() is False
+
+
+def test_telegram_magicfit_docker_repo_root_uses_env_without_docker_host_assumption(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import channels as channels_route
+
+    app_repo_root = tmp_path / "app"
+    host_repo_root = tmp_path / "host-repo"
+    monkeypatch.setattr(channels_route.product_service_module, "_repo_root", lambda: str(app_repo_root))
+    monkeypatch.delenv("EA_TELEGRAM_MAGICFIT_DOCKER_REPO_ROOT", raising=False)
+    monkeypatch.delenv("EA_HOST_REPO_ROOT", raising=False)
+
+    assert channels_route._telegram_magicfit_docker_repo_root() == app_repo_root
+
+    monkeypatch.setenv("EA_TELEGRAM_MAGICFIT_DOCKER_REPO_ROOT", str(host_repo_root))
+    assert channels_route._telegram_magicfit_docker_repo_root() == host_repo_root
+
+
+def test_telegram_magicfit_playwright_cache_default_is_user_home_not_operator_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import channels as channels_route
+
+    monkeypatch.delenv("EA_TELEGRAM_MAGICFIT_PLAYWRIGHT_BROWSERS_PATH", raising=False)
+    monkeypatch.delenv("PLAYWRIGHT_BROWSERS_HOST_PATH", raising=False)
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+
+    assert channels_route._telegram_magicfit_playwright_browsers_host_path() == tmp_path / ".cache" / "ms-playwright"
 
 
 def test_telegram_video_source_receipt_context_redacts_bot_token() -> None:
@@ -2259,7 +2458,7 @@ def test_telegram_render_magicfit_video_reply_surfaces_compacted_failure(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("CHUMMER_EA_MAGICFIT_EMAIL", "the.girscheles@gmail.com")
+    monkeypatch.setenv("CHUMMER_EA_MAGICFIT_EMAIL", "magicfit.account@example.test")
     monkeypatch.setenv("CHUMMER_EA_MAGICFIT_PASSWORD", "secret-pass")
     monkeypatch.setenv("EA_TELEGRAM_MAGICFIT_RUNTIME_LANE_APPROVED", "1")
     monkeypatch.setenv("EA_TELEGRAM_MAGICFIT_DOCKER_IMAGE", "ea-runtime@sha256:" + ("2" * 64))
@@ -2302,7 +2501,7 @@ def test_telegram_async_worker_prefers_local_source_video_edit_for_supported_req
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-local-source-video")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-local-source-video")
     from app.api.routes import channels as channels_route
 
@@ -2393,13 +2592,163 @@ def test_telegram_async_worker_prefers_local_source_video_edit_for_supported_req
     assert source_video["source_url_sha256"]
 
 
+def test_telegram_async_worker_does_not_claim_local_source_video_sent_without_message_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-local-source-video-no-message-ids")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-local-source-video-no-message-ids")
+    from app.api.routes import channels as channels_route
+
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 131}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        sent.append(json.loads(request.data.decode("utf-8")))
+        return _FakeResponse()
+
+    def _fake_local_reply(**kwargs):  # noqa: ANN001
+        return {"status": "sent", "provider": "local_source_video_fx", "message_ids": []}
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(channels_route, "_telegram_real_ea_reply_text", lambda **kwargs: "")
+    monkeypatch.setattr(channels_route, "_telegram_browseract_binding_available", lambda *args, **kwargs: False)
+    monkeypatch.setattr(channels_route, "_telegram_magicfit_video_fallback_available", lambda: False)
+    monkeypatch.setattr(channels_route, "_telegram_render_local_source_video_reply", _fake_local_reply)
+    client = _client(principal_id="exec-telegram-local-source-video-no-message-ids", operator=False)
+
+    wording = "Make the ring look like real flames and send it back here, photorealistic."
+    channels_route._telegram_async_assistant_reply_worker(
+        container=client.app.state.container,
+        principal_id="exec-telegram-local-source-video-no-message-ids",
+        bot_config={"token": "telegram-token-video"},
+        chat_id="9998",
+        text=wording,
+        current_message_id="131",
+        async_payload={
+            "kind": "instructional_video",
+            "instruction_text": wording,
+            "video_caption": wording,
+            "video_download_url": "https://api.telegram.org/file/bot/video/file-131.mp4",
+            "video_duration_seconds": 42,
+        },
+    )
+
+    assert sent
+    assert sent[0]["text"] != "I rendered and sent a short video reply here."
+    assert "video_delivery_message_ids_missing" in sent[0]["text"]
+    observations = list(
+        client.app.state.container.channel_runtime.list_recent_observations(
+            limit=20,
+            principal_id="exec-telegram-local-source-video-no-message-ids",
+        )
+    )
+    video_receipts = [row for row in observations if row.event_type == "telegram.video_delivery_receipt"]
+    assert video_receipts
+    receipt_payload = dict(video_receipts[0].payload or {})
+    assert receipt_payload["provider"] == "local_source_video_fx"
+    assert receipt_payload["status"] == "failed"
+    assert receipt_payload["error"] == "video_delivery_message_ids_missing"
+    assert receipt_payload["message_ids"] == []
+
+
+def test_telegram_async_worker_resolves_replied_video_file_id_before_local_source_edit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-local-source-video-file-id")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-local-source-video-file-id")
+    from app.api.routes import channels as channels_route
+
+    sent: list[dict[str, object]] = []
+    local_calls: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 51}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        sent.append(json.loads(request.data.decode("utf-8")))
+        return _FakeResponse()
+
+    def _fake_download_url(*, bot_token: str, file_id: str) -> str:
+        assert bot_token == "telegram-token-video"
+        assert file_id == "video-file-51"
+        return "https://api.telegram.org/file/bot<runtime>/video/file-51.mp4"
+
+    def _fake_local_reply(**kwargs):  # noqa: ANN001
+        local_calls.append(dict(kwargs))
+        return {"status": "sent", "provider": "local_source_video_fx", "message_ids": ["tg-video-local-file-id"]}
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(channels_route, "_telegram_file_download_url", _fake_download_url)
+    monkeypatch.setattr(channels_route, "_telegram_render_local_source_video_reply", _fake_local_reply)
+    client = _client(principal_id="exec-telegram-local-source-video-file-id", operator=False)
+
+    wording = "Make the ring look like real flames and send it back here, photorealistic."
+    channels_route._telegram_async_assistant_reply_worker(
+        container=client.app.state.container,
+        principal_id="exec-telegram-local-source-video-file-id",
+        bot_config={"token": "telegram-token-video"},
+        chat_id="9998",
+        text=wording,
+        current_message_id="51",
+        async_payload={
+            "kind": "instructional_video",
+            "instruction_text": wording,
+            "video_caption": wording,
+            "video_file_id": "video-file-51",
+            "video_download_url": "",
+            "video_duration_seconds": 42,
+        },
+    )
+
+    assert local_calls
+    local_payload = dict(local_calls[0].get("payload") or {})
+    assert local_payload["video_download_url"].endswith("/video/file-51.mp4")
+    assert local_payload["video_resolve_status"] == "ok"
+    assert sent and sent[0]["text"] == "I rendered and sent a short video reply here."
+    observations = list(
+        client.app.state.container.channel_runtime.list_recent_observations(
+            limit=20,
+            principal_id="exec-telegram-local-source-video-file-id",
+        )
+    )
+    video_receipts = [row for row in observations if row.event_type == "telegram.video_delivery_receipt"]
+    assert video_receipts
+    receipt_payload = dict(video_receipts[0].payload or {})
+    assert receipt_payload["provider"] == "local_source_video_fx"
+    assert receipt_payload["status"] == "sent"
+    assert receipt_payload["message_ids"] == ["tg-video-local-file-id"]
+    assert dict(receipt_payload["source_video"])["source_url_raw_stored"] is False
+
+
 def test_telegram_async_worker_prefers_local_source_video_edit_for_on_fire_request(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-local-source-video-on-fire")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-local-source-video-on-fire")
     from app.api.routes import channels as channels_route
 
@@ -2465,7 +2814,7 @@ def test_telegram_async_worker_uses_specialized_source_video_fallback_for_unsupp
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-source-video-unsupported")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-local-source-video")
     from app.api.routes import channels as channels_route
 
@@ -2518,7 +2867,7 @@ def test_telegram_async_worker_reports_no_external_lane_for_unsupported_source_e
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-source-video-no-external")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-local-source-video")
     from app.api.routes import channels as channels_route
 
@@ -2570,7 +2919,7 @@ def test_telegram_async_worker_reports_no_render_lane_when_no_source_and_no_exte
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-render-no-lane")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-local-source-video")
     from app.api.routes import channels as channels_route
 
@@ -2614,6 +2963,19 @@ def test_telegram_async_worker_reports_no_render_lane_when_no_source_and_no_exte
     )
     assert sent
     assert "no verified render lane is available right now" in sent[0]["text"].lower()
+    observations = list(
+        client.app.state.container.channel_runtime.list_recent_observations(
+            limit=20,
+            principal_id="exec-telegram-render-no-lane",
+        )
+    )
+    video_receipts = [row for row in observations if row.event_type == "telegram.video_delivery_receipt"]
+    assert video_receipts
+    receipt_payload = dict(video_receipts[0].payload or {})
+    assert receipt_payload["provider"] == "telegram_video_delivery_router"
+    assert receipt_payload["status"] == "failed"
+    assert receipt_payload["error"] == "source_video_unavailable"
+    assert dict(receipt_payload["source_video"])["source_url_raw_stored"] is False
 
 
 def test_telegram_render_request_carries_source_video_reference_packet(
@@ -2817,7 +3179,7 @@ def test_telegram_ingest_schedules_async_without_placeholder_reply(monkeypatch: 
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-async")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-async")
     from app.api.routes import channels as channels_route
 
@@ -3917,7 +4279,7 @@ def test_telegram_async_worker_sends_last_resort_reply_when_real_ea_reply_fails(
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-fallback")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-fallback")
     from app.api.routes import channels as channels_route
 
@@ -3956,7 +4318,7 @@ def test_telegram_async_worker_keeps_fallback_reply_free_of_stale_intent(monkeyp
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-fallback-intent")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-fallback-intent")
     from app.api.routes import channels as channels_route
 
@@ -3995,7 +4357,7 @@ def test_telegram_async_worker_sends_probe_fallback_when_real_ea_reply_empty(mon
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-probe-fallback")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-probe-fallback")
     from app.api.routes import channels as channels_route
     from types import SimpleNamespace
@@ -4037,7 +4399,7 @@ def test_telegram_ingest_answers_question_mark_probe_immediately(monkeypatch: py
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-question-probe")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-question-probe")
     from app.api.routes import channels as channels_route
 
@@ -4087,7 +4449,7 @@ def test_telegram_ingest_answers_google_photos_capability_request_from_grounded_
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-google-photos")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-google-photos")
     from app.api.routes import channels as channels_route
 
@@ -4236,7 +4598,7 @@ def test_telegram_ingest_replies_from_photo_analysis_instead_of_generic_blind_te
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-photo")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-photo")
     from app.api.routes import channels as channels_route
     from app.services import telegram_session_service
@@ -4559,7 +4921,7 @@ def test_telegram_text_reply_to_video_becomes_instructional_video_async(monkeypa
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-reply-video")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-reply-video")
     from app.api.routes import channels as channels_route
 
@@ -4577,8 +4939,8 @@ def test_telegram_text_reply_to_video_becomes_instructional_video_async(monkeypa
                 "message_id": 2853,
                 "date": 1781692768,
                 "text": "do it",
-                "chat": {"id": 1354554303, "type": "private", "first_name": "Tibor", "last_name": "Girschele"},
-                "from": {"id": 1354554303, "is_bot": False, "first_name": "Tibor", "last_name": "Girschele"},
+                "chat": {"id": 1354554303, "type": "private", "first_name": "Principal", "last_name": "User"},
+                "from": {"id": 1354554303, "is_bot": False, "first_name": "Principal", "last_name": "User"},
                 "reply_to_message": {
                     "message_id": 2850,
                     "date": 1781685455,
@@ -4598,7 +4960,7 @@ def test_telegram_text_reply_to_video_becomes_instructional_video_async(monkeypa
     assert scheduled
     async_payload = dict(scheduled[-1]["async_payload"] or {})
     assert async_payload["kind"] == "instructional_video"
-    assert async_payload["instruction_text"] == "do it"
+    assert async_payload["instruction_text"] == "render it photorealisticly and send me the result back here"
     assert async_payload["video_message_id"] == "2850"
     assert async_payload["video_file_id"] == "video-file-2850"
 
@@ -4609,7 +4971,7 @@ def test_telegram_text_reply_to_forwarded_video_becomes_instructional_video_asyn
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-reply-forwarded-video")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-reply-forwarded-video")
     from app.api.routes import channels as channels_route
 
@@ -4627,8 +4989,8 @@ def test_telegram_text_reply_to_forwarded_video_becomes_instructional_video_asyn
                 "message_id": 2855,
                 "date": 1781692800,
                 "text": "do it",
-                "chat": {"id": 1354554303, "type": "private", "first_name": "Tibor", "last_name": "Girschele"},
-                "from": {"id": 1354554303, "is_bot": False, "first_name": "Tibor", "last_name": "Girschele"},
+                "chat": {"id": 1354554303, "type": "private", "first_name": "Principal", "last_name": "User"},
+                "from": {"id": 1354554303, "is_bot": False, "first_name": "Principal", "last_name": "User"},
                 "reply_to_message": {
                     "message_id": 2850,
                     "date": 1781685455,
@@ -4659,7 +5021,7 @@ def test_telegram_plain_text_request_uses_recent_video_even_after_intervening_te
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-recent-video")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-recent-video")
     from app.api.routes import channels as channels_route
 
@@ -4684,8 +5046,8 @@ def test_telegram_plain_text_request_uses_recent_video_even_after_intervening_te
                     "file_name": "video_2026-06-17_10-37-03.mp4",
                     "mime_type": "video/mp4",
                 },
-                "chat": {"id": 1354554303, "type": "private", "first_name": "Tibor", "last_name": "Girschele"},
-                "from": {"id": 1354554303, "is_bot": False, "first_name": "Tibor", "last_name": "Girschele"},
+                "chat": {"id": 1354554303, "type": "private", "first_name": "Principal", "last_name": "User"},
+                "from": {"id": 1354554303, "is_bot": False, "first_name": "Principal", "last_name": "User"},
             }
         },
         headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
@@ -4699,8 +5061,8 @@ def test_telegram_plain_text_request_uses_recent_video_even_after_intervening_te
                 "message_id": 2853,
                 "date": 1781692768,
                 "text": "do it",
-                "chat": {"id": 1354554303, "type": "private", "first_name": "Tibor", "last_name": "Girschele"},
-                "from": {"id": 1354554303, "is_bot": False, "first_name": "Tibor", "last_name": "Girschele"},
+                "chat": {"id": 1354554303, "type": "private", "first_name": "Principal", "last_name": "User"},
+                "from": {"id": 1354554303, "is_bot": False, "first_name": "Principal", "last_name": "User"},
             }
         },
         headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
@@ -4714,8 +5076,8 @@ def test_telegram_plain_text_request_uses_recent_video_even_after_intervening_te
                 "message_id": 2856,
                 "date": 1781693248,
                 "text": "render it photorealisticly and send me the result back here",
-                "chat": {"id": 1354554303, "type": "private", "first_name": "Tibor", "last_name": "Girschele"},
-                "from": {"id": 1354554303, "is_bot": False, "first_name": "Tibor", "last_name": "Girschele"},
+                "chat": {"id": 1354554303, "type": "private", "first_name": "Principal", "last_name": "User"},
+                "from": {"id": 1354554303, "is_bot": False, "first_name": "Principal", "last_name": "User"},
             }
         },
         headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
@@ -4735,7 +5097,7 @@ def test_telegram_text_reply_to_bot_fallback_reuses_recent_video_payload(
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-reply-bot-fallback")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-reply-bot-fallback")
     from app.api.routes import channels as channels_route
 
@@ -4760,8 +5122,8 @@ def test_telegram_text_reply_to_bot_fallback_reuses_recent_video_payload(
                     "file_name": "video_2026-06-17_10-37-03.mp4",
                     "mime_type": "video/mp4",
                 },
-                "chat": {"id": 1354554303, "type": "private", "first_name": "Tibor", "last_name": "Girschele"},
-                "from": {"id": 1354554303, "is_bot": False, "first_name": "Tibor", "last_name": "Girschele"},
+                "chat": {"id": 1354554303, "type": "private", "first_name": "Principal", "last_name": "User"},
+                "from": {"id": 1354554303, "is_bot": False, "first_name": "Principal", "last_name": "User"},
             }
         },
         headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
@@ -4779,13 +5141,13 @@ def test_telegram_text_reply_to_bot_fallback_reuses_recent_video_payload(
                     "i want the ring the kids jump through to look like real flames, one time even a bit of clothes "
                     "could catch fire before it extingwishes fast. render it photorealisticly and send me the result back here"
                 ),
-                "chat": {"id": 1354554303, "type": "private", "first_name": "Tibor", "last_name": "Girschele"},
-                "from": {"id": 1354554303, "is_bot": False, "first_name": "Tibor", "last_name": "Girschele"},
+                "chat": {"id": 1354554303, "type": "private", "first_name": "Principal", "last_name": "User"},
+                "from": {"id": 1354554303, "is_bot": False, "first_name": "Principal", "last_name": "User"},
                 "reply_to_message": {
                     "message_id": 2865,
                     "date": 1781699999,
                     "text": "I captured the video, but I still need a clearer instruction or a spoken transcript from it.",
-                    "from": {"id": 8415291922, "is_bot": True, "username": "tibor_concierge_bot", "first_name": "Tibor's Concierge"},
+                    "from": {"id": 8415291922, "is_bot": True, "username": "ea_concierge_bot", "first_name": "EA Concierge"},
                 },
             }
         },
@@ -4803,7 +5165,7 @@ def test_telegram_ingest_deduped_voice_message_skips_retranscription(monkeypatch
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-deduped-voice")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-deduped-voice")
     from app.api.routes import channels as channels_route
 
@@ -4839,7 +5201,7 @@ def test_telegram_ingest_deduped_voice_message_skips_retranscription(monkeypatch
             self.token_status = "active"
             self.binding = type("Binding", (), {"status": "enabled"})()
             self.granted_scopes = [channels_route.google_oauth_service.GOOGLE_SCOPE_PHOTOS_PICKER]
-            self.google_email = "tibor.girschele@gmail.com"
+            self.google_email = "principal.user@example.test"
 
     monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
     monkeypatch.setattr(channels_route, "resolve_telegram_message_payload", _fake_resolve_message_payload)
@@ -4866,7 +5228,7 @@ def test_telegram_ingest_answers_done_from_recent_google_photos_context(monkeypa
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-google-photos-done")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-google-photos-done")
     from app.api.routes import channels as channels_route
 
@@ -4893,7 +5255,7 @@ def test_telegram_ingest_answers_done_from_recent_google_photos_context(monkeypa
             self.token_status = "active"
             self.binding = type("Binding", (), {"status": "enabled"})()
             self.granted_scopes = [channels_route.google_oauth_service.GOOGLE_SCOPE_PHOTOS_PICKER]
-            self.google_email = "tibor.girschele@gmail.com"
+            self.google_email = "principal.user@example.test"
 
     monkeypatch.setattr(channels_route.google_oauth_service, "list_google_accounts", lambda **kwargs: [_Account()])
     monkeypatch.setattr(
@@ -4956,7 +5318,7 @@ def test_telegram_ingest_suppresses_repeated_done_when_google_photos_state_uncha
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-google-photos-done-repeat")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-google-photos-done-repeat")
     from app.api.routes import channels as channels_route
 
@@ -4975,7 +5337,7 @@ def test_telegram_ingest_suppresses_repeated_done_when_google_photos_state_uncha
             self.token_status = "active"
             self.binding = type("Binding", (), {"status": "enabled"})()
             self.granted_scopes = [channels_route.google_oauth_service.GOOGLE_SCOPE_PHOTOS_PICKER]
-            self.google_email = "tibor.girschele@gmail.com"
+            self.google_email = "principal.user@example.test"
 
     monkeypatch.setattr(channels_route.urllib.request, "urlopen", lambda request, timeout=30: _FakeResponse())
     monkeypatch.setattr(channels_route.google_oauth_service, "list_google_accounts", lambda **kwargs: [_Account()])
@@ -5066,7 +5428,7 @@ def test_telegram_ingest_suppresses_repeated_again_when_google_photos_state_unch
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-google-photos-again-repeat")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-google-photos-again-repeat")
     from app.api.routes import channels as channels_route
 
@@ -5085,7 +5447,7 @@ def test_telegram_ingest_suppresses_repeated_again_when_google_photos_state_unch
             self.token_status = "active"
             self.binding = type("Binding", (), {"status": "enabled"})()
             self.granted_scopes = [channels_route.google_oauth_service.GOOGLE_SCOPE_PHOTOS_PICKER]
-            self.google_email = "tibor.girschele@gmail.com"
+            self.google_email = "principal.user@example.test"
 
     monkeypatch.setattr(channels_route.urllib.request, "urlopen", lambda request, timeout=30: _FakeResponse())
     monkeypatch.setattr(channels_route.google_oauth_service, "list_google_accounts", lambda **kwargs: [_Account()])
@@ -5159,7 +5521,7 @@ def test_telegram_ingest_reuses_google_photos_context_for_voice_message_placehol
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-google-photos-voice")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-google-photos-voice")
     from app.api.routes import channels as channels_route
 
@@ -5178,7 +5540,7 @@ def test_telegram_ingest_reuses_google_photos_context_for_voice_message_placehol
             self.token_status = "active"
             self.binding = type("Binding", (), {"status": "enabled"})()
             self.granted_scopes = [channels_route.google_oauth_service.GOOGLE_SCOPE_PHOTOS_PICKER]
-            self.google_email = "tibor.girschele@gmail.com"
+            self.google_email = "principal.user@example.test"
 
     monkeypatch.setattr(channels_route.urllib.request, "urlopen", lambda request, timeout=30: _FakeResponse())
     monkeypatch.setattr(channels_route.google_oauth_service, "list_google_accounts", lambda **kwargs: [_Account()])
@@ -5228,7 +5590,7 @@ def test_telegram_ingest_answers_start_picker_immediately(monkeypatch: pytest.Mo
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-google-photos-picker")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-google-photos-picker")
     from app.api.routes import channels as channels_route
 
@@ -5254,7 +5616,7 @@ def test_telegram_ingest_answers_start_picker_immediately(monkeypatch: pytest.Mo
             self.token_status = "active"
             self.binding = type("Binding", (), {"status": "enabled"})()
             self.granted_scopes = [channels_route.google_oauth_service.GOOGLE_SCOPE_PHOTOS_PICKER]
-            self.google_email = "tibor.girschele@gmail.com"
+            self.google_email = "principal.user@example.test"
 
     monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
     monkeypatch.setattr(channels_route.google_oauth_service, "list_google_accounts", lambda **kwargs: [_Account()])
@@ -5291,7 +5653,7 @@ def test_telegram_ingest_surfaces_google_photos_picker_forbidden(monkeypatch: py
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-google-photos-forbidden")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-google-photos-forbidden")
     from app.api.routes import channels as channels_route
 
@@ -5310,7 +5672,7 @@ def test_telegram_ingest_surfaces_google_photos_picker_forbidden(monkeypatch: py
             self.token_status = "active"
             self.binding = type("Binding", (), {"status": "enabled"})()
             self.granted_scopes = [channels_route.google_oauth_service.GOOGLE_SCOPE_PHOTOS_PICKER]
-            self.google_email = "tibor.girschele@gmail.com"
+            self.google_email = "principal.user@example.test"
 
     monkeypatch.setattr(channels_route.urllib.request, "urlopen", lambda request, timeout=30: _FakeResponse())
     monkeypatch.setattr(channels_route.google_oauth_service, "list_google_accounts", lambda **kwargs: [_Account()])
@@ -5350,7 +5712,7 @@ def test_telegram_ingest_surfaces_google_photos_picker_service_disabled(monkeypa
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-google-photos-service-disabled")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-google-photos-service-disabled")
     from app.api.routes import channels as channels_route
 
@@ -5369,7 +5731,7 @@ def test_telegram_ingest_surfaces_google_photos_picker_service_disabled(monkeypa
             self.token_status = "active"
             self.binding = type("Binding", (), {"status": "enabled"})()
             self.granted_scopes = [channels_route.google_oauth_service.GOOGLE_SCOPE_PHOTOS_PICKER]
-            self.google_email = "tibor.girschele@gmail.com"
+            self.google_email = "principal.user@example.test"
 
     monkeypatch.setattr(channels_route.urllib.request, "urlopen", lambda request, timeout=30: _FakeResponse())
     monkeypatch.setattr(channels_route.google_oauth_service, "list_google_accounts", lambda **kwargs: [_Account()])
@@ -5407,7 +5769,7 @@ def test_telegram_ingest_answers_meta_assistant_prompt_immediately(monkeypatch: 
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-meta")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-meta")
     from app.api.routes import channels as channels_route
 
@@ -5460,7 +5822,7 @@ def test_telegram_ingest_schedules_async_codex_reply_for_generic_plain_chat(monk
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-real-chat")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-real-chat")
     from app.api.routes import channels as channels_route
 
@@ -5512,7 +5874,7 @@ def test_scheduler_telegram_async_recovery_preserves_instructional_video_payload
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-recovery")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-recovery")
     monkeypatch.setitem(sys.modules, "uvicorn", SimpleNamespace(run=lambda *args, **kwargs: None))
 
@@ -5532,7 +5894,7 @@ def test_scheduler_telegram_async_recovery_preserves_instructional_video_payload
         prompt_text="render it photorealisticly and send me the result back here",
         current_message_id="recovery-video-1",
         bot_key="default",
-        bot_handle="tibor_concierge_bot",
+        bot_handle="ea_concierge_bot",
         async_payload={
             "kind": "instructional_video",
             "instruction_text": "render it photorealisticly and send me the result back here",
@@ -5546,7 +5908,7 @@ def test_scheduler_telegram_async_recovery_preserves_instructional_video_payload
         "_resolve_telegram_bot_config",
         lambda bot_key="": {
             "bot_key": bot_key or "default",
-            "handle": "tibor_concierge_bot",
+            "handle": "ea_concierge_bot",
             "token": "telegram-token-recovery",
         },
     )
@@ -5573,7 +5935,7 @@ def test_telegram_ingest_updates_property_alert_policy_from_plain_message(monkey
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "telegram-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-policy")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-policy")
     from app.api.routes import channels as channels_route
 
@@ -5634,7 +5996,7 @@ def test_telegram_ingest_falls_back_when_real_ea_reply_times_out(monkeypatch: py
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-timeout")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-timeout")
     monkeypatch.setenv("EA_TELEGRAM_RESPONSES_TIMEOUT_SECONDS", "1")
     from app.api.routes import channels as channels_route
@@ -5661,7 +6023,7 @@ def test_telegram_ingest_duplicate_update_does_not_send_duplicate_reply(monkeypa
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-dup")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-dup")
     from app.api.routes import channels as channels_route
 
@@ -5713,7 +6075,7 @@ def test_telegram_ingest_duplicate_update_retries_reply_after_transient_send_fai
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-retry")
-    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-retry")
     from app.api.routes import channels as channels_route
 
@@ -9111,8 +9473,8 @@ def test_public_tour_routes_embed_provider_ui_for_pure_360_when_origin_present(
                 "hosted_url": f"https://ea.example/tours/{slug}",
                 "scene_strategy": "pure_360_cube",
                 "scene_count": 1,
-                "principal_id": "cf-email:tibor.girschele@gmail.com",
-                "source_ref": "gmail-thread:elisabeth.girschele@gmail.com:test-fit-priority-1",
+                "principal_id": "cf-email:principal.user@example.test",
+                "source_ref": "gmail-thread:property.alerts@example.test:test-fit-priority-1",
                 "source_virtual_tour_origin": "https://360.kalandra.at/view/portal/id/VZ8P1",
                 "facts": {
                     "rooms": 3,
@@ -9219,9 +9581,9 @@ def test_public_tour_request_details_requires_authenticated_workspace(
                 "slug": slug,
                 "title": "Pioche Lecombe Pure 360",
                 "display_title": "Pioche Lecombe Pure 360",
-                "principal_id": "cf-email:tibor.girschele@gmail.com",
+                "principal_id": "cf-email:principal.user@example.test",
                 "property_url": "https://www.kalandra.at/objekt/14997053",
-                "source_ref": "gmail-thread:elisabeth.girschele@gmail.com:test-fit-priority-1",
+                "source_ref": "gmail-thread:property.alerts@example.test:test-fit-priority-1",
                 "variant_key": "layout_first",
                 "listing_url": "https://www.kalandra.at/objekt/14997053",
                 "scene_strategy": "pure_360_cube",
@@ -9276,7 +9638,7 @@ def test_public_tour_feedback_updates_learning_loop_and_live_assessment(
                 "hosted_url": f"https://ea.example/tours/{slug}",
                 "scene_strategy": "pure_360_cube",
                 "scene_count": 1,
-                "principal_id": "cf-email:tibor.girschele@gmail.com",
+                "principal_id": "cf-email:principal.user@example.test",
                 "source_virtual_tour_origin": "https://360.kalandra.at/view/portal/id/VZ8P1",
                 "facts": {
                     "postal_name": "Waehring",
@@ -9360,7 +9722,7 @@ def test_public_tour_feedback_reports_persistence_failure(
                 "hosted_url": f"https://ea.example/tours/{slug}",
                 "scene_strategy": "pure_360_cube",
                 "scene_count": 1,
-                "principal_id": "cf-email:tibor.girschele@gmail.com",
+                "principal_id": "cf-email:principal.user@example.test",
                 "source_virtual_tour_origin": "https://360.kalandra.at/view/portal/id/VZ8P1",
                 "facts": {"postal_name": "Waehring", "has_floorplan": True},
                 "scenes": [{"name": "Living room", "role": "pure_360", "asset_relpath": "scene.jpg", "cube_faces": {"f": "scene.jpg"}}],
@@ -9411,7 +9773,7 @@ def test_public_tour_feedback_rate_limit_ignores_untrusted_x_forwarded_for(
                 "hosted_url": f"https://ea.example/tours/{slug}",
                 "scene_strategy": "pure_360_cube",
                 "scene_count": 1,
-                "principal_id": "cf-email:tibor.girschele@gmail.com",
+                "principal_id": "cf-email:principal.user@example.test",
                 "source_virtual_tour_origin": "https://360.kalandra.at/view/portal/id/VZ8P1",
                 "facts": {"postal_name": "Waehring", "has_floorplan": True},
                 "scenes": [{"name": "Living room", "role": "pure_360", "asset_relpath": "scene.jpg", "cube_faces": {"f": "scene.jpg"}}],
@@ -9459,7 +9821,7 @@ def test_public_tour_feedback_rejects_invalid_payload_and_unknown_reasons(
                 "hosted_url": f"https://ea.example/tours/{slug}",
                 "scene_strategy": "pure_360_cube",
                 "scene_count": 1,
-                "principal_id": "cf-email:tibor.girschele@gmail.com",
+                "principal_id": "cf-email:principal.user@example.test",
                 "source_virtual_tour_origin": "https://360.kalandra.at/view/portal/id/guard",
                 "facts": {
                     "postal_name": "Waehring",
@@ -9553,7 +9915,7 @@ def test_public_tour_filter_update_requires_authenticated_workspace(
                 "hosted_url": f"https://ea.example/tours/{slug}",
                 "scene_strategy": "pure_360_cube",
                 "scene_count": 1,
-                "principal_id": "cf-email:tibor.girschele@gmail.com",
+                "principal_id": "cf-email:principal.user@example.test",
                 "source_virtual_tour_origin": "https://360.kalandra.at/view/portal/id/VZ8P1",
                 "facts": {
                     "postal_name": "1190 Wien",
@@ -9643,7 +10005,7 @@ def test_public_tour_filter_update_rejects_invalid_payload(
                 "hosted_url": f"https://ea.example/tours/{slug}",
                 "scene_strategy": "pure_360_cube",
                 "scene_count": 1,
-                "principal_id": "cf-email:tibor.girschele@gmail.com",
+                "principal_id": "cf-email:principal.user@example.test",
                 "source_virtual_tour_origin": "https://360.kalandra.at/view/portal/id/VZ8P1",
                 "facts": {
                     "postal_name": "1190 Wien",
@@ -9755,7 +10117,7 @@ def test_public_tour_renders_shortlist_compare_cards(
                 "hosted_url": f"https://ea.example/tours/{slug}",
                 "scene_strategy": "pure_360_cube",
                 "scene_count": 1,
-                "principal_id": "cf-email:tibor.girschele@gmail.com",
+                "principal_id": "cf-email:principal.user@example.test",
                 "source_virtual_tour_origin": "https://360.kalandra.at/view/portal/id/VZ8P1",
                 "facts": {
                     "postal_name": "1190 Wien",

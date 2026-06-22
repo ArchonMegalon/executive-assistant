@@ -39,8 +39,8 @@
 - [ ] `pytest -q tests/test_memorial_archive_registry_public.py tests/test_memorial_flagship_preflight.py tests/test_memorial_security_contracts.py tests/test_providers_api_contracts.py -k 'memorial'`
 - [ ] `.venv/bin/pytest -q tests/e2e/test_memorial_browser.py tests/e2e/test_memorial_flagship_exit_gates.py tests/e2e/test_memorial_flagship_operator_tools.py tests/e2e/test_memorial_showtime_cli.py`
 - [ ] `pytest -q tests/test_memorial_audio_probe_contracts.py tests/test_memorial_room_ready_contracts.py`
-- [ ] `/docker/EA/scripts/memorial_flagship_exit_gates.sh`
-- [ ] `python3 ea/scripts/memorial_demo_rehearsal.py manfred --base-url https://myexternalbrain.com --questions /docker/EA/examples/demo_questions.manfred.json --save-audio-dir /tmp`
-- [ ] `python3 ea/scripts/memorial_launch_snapshot.py manfred --base-url https://myexternalbrain.com --questions /docker/EA/examples/demo_questions.manfred.json --output /tmp/manfred_launch_snapshot.json`
-- [ ] `python3 ea/scripts/memorial_showtime.py --slug manfred --base-url https://myexternalbrain.com --questions /docker/EA/examples/demo_questions.manfred.json --output-dir /tmp/manfred_showtime --optional-exit-gates`
-- [ ] `python3 ea/scripts/memorial_room_ready.py --slug manfred --base-url https://myexternalbrain.com --questions /docker/EA/examples/demo_questions.manfred.json --output-dir /tmp/manfred_room_ready --optional-exit-gates`
+- [ ] `scripts/memorial_flagship_exit_gates.sh`
+- [ ] `python3 ea/scripts/memorial_demo_rehearsal.py manfred --base-url "${MEMORIAL_PUBLIC_ORIGIN:-https://memorial.example.test}" --questions examples/demo_questions.manfred.json --save-audio-dir /tmp`
+- [ ] `python3 ea/scripts/memorial_launch_snapshot.py manfred --base-url "${MEMORIAL_PUBLIC_ORIGIN:-https://memorial.example.test}" --questions examples/demo_questions.manfred.json --output /tmp/manfred_launch_snapshot.json`
+- [ ] `python3 ea/scripts/memorial_showtime.py --slug manfred --base-url "${MEMORIAL_PUBLIC_ORIGIN:-https://memorial.example.test}" --questions examples/demo_questions.manfred.json --output-dir /tmp/manfred_showtime --optional-exit-gates`
+- [ ] `python3 ea/scripts/memorial_room_ready.py --slug manfred --base-url "${MEMORIAL_PUBLIC_ORIGIN:-https://memorial.example.test}" --questions examples/demo_questions.manfred.json --output-dir /tmp/manfred_room_ready --optional-exit-gates`

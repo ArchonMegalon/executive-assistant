@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import mimetypes
+import os
 import shutil
 import subprocess
 from datetime import UTC, datetime
@@ -13,7 +14,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BUNDLE_ROOT = ROOT / "memorial_data" / "public_memorials"
-DEFAULT_PROOF_ROOT = Path("/docker/fleet/state/chummer6/avatar_presenter_provider")
+DEFAULT_PROOF_ROOT = Path(
+    os.environ.get("CHUMMER6_AVATAR_PROVIDER_ROOT")
+    or ROOT / ".codex-studio" / "published" / "avatar_presenter_provider"
+)
 ALLOWED_VIDEO_SUFFIXES = {".mp4", ".webm", ".mov"}
 ALLOWED_POSTER_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
 MIN_VIDEO_DURATION_SECONDS = 1.0

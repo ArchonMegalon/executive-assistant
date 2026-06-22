@@ -1,0 +1,2 @@
+file '/docker/EA/.codex-studio/published/audiobook_m4b_structure_probe/job/audio/001 - Opening Signal.wav'
+file '/docker/EA/.codex-studio/published/audiobook_m4b_structure_probe/job/audio/002 - Second Signal.wav'

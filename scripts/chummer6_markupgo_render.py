@@ -14,7 +14,11 @@ from pathlib import Path
 EA_ROOT = Path(__file__).resolve().parents[1]
 ENV_FILE = EA_ROOT / ".env"
 BASE_URL = "https://api.markupgo.com/api/v1/image/buffer"
-OVERRIDE_PATH = Path("/docker/fleet/state/chummer6/ea_overrides.json")
+MEDIA_STATE_ROOT = Path(
+    os.environ.get("CHUMMER6_MEDIA_STATE_ROOT")
+    or EA_ROOT / ".codex-studio" / "published" / "chummer6_media"
+)
+OVERRIDE_PATH = Path(os.environ.get("CHUMMER6_EA_OVERRIDES_PATH") or MEDIA_STATE_ROOT / "ea_overrides.json")
 
 
 def env_value(name: str) -> str:

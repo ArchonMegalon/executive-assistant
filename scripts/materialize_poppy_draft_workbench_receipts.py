@@ -4,14 +4,17 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT_DIR = ROOT / "ea/_completion/poppy"
+DEFAULT_POPPY_COMPLETION_DIR = Path(os.environ.get("POPPY_COMPLETION_DIR") or ROOT / "ea/_completion/poppy_ai")
 DEFAULT_SESSION_PROBE = Path(
-    "/docker/chummercomplete/.integrated/fleet/_completion/poppy_ai/POPPY_AI_PROVIDER_SESSION_PROBE.generated.json"
+    os.environ.get("POPPY_PROVIDER_SESSION_PROBE_PATH")
+    or DEFAULT_POPPY_COMPLETION_DIR / "POPPY_AI_PROVIDER_SESSION_PROBE.generated.json"
 )
 
 

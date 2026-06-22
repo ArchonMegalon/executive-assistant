@@ -175,7 +175,7 @@ CREATE TABLE IF NOT EXISTS approval_requests (
     approval_request_id SERIAL PRIMARY KEY,
     draft_id UUID NOT NULL DEFAULT gen_random_uuid(),
     tenant_key TEXT NOT NULL DEFAULT 'default',
-    principal_id TEXT NOT NULL DEFAULT 'local-user',
+    principal_id TEXT NOT NULL DEFAULT 'principal-default',
     request_status TEXT NOT NULL DEFAULT 'pending',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     decided_at TIMESTAMPTZ NULL
@@ -306,9 +306,10 @@ else
 fi
 set_env_value "EA_API_TOKEN" "smoke-postgres-token"
 set_env_value "EA_ALLOW_LOOPBACK_NO_AUTH" "1"
-set_env_value "EA_OPERATOR_PRINCIPAL_IDS" "exec-1"
+set_env_value "EA_OPERATOR_PRINCIPAL_ID" "principal-default"
 export EA_API_TOKEN="smoke-postgres-token"
 export EA_ALLOW_LOOPBACK_NO_AUTH="1"
+export EA_OPERATOR_PRINCIPAL_ID="principal-default"
 
 if [[ "${env_had_file}" == "1" ]]; then
   restore_api_env=1
@@ -373,8 +374,8 @@ fi
 echo "== smoke-postgres: api smoke =="
 container_api_token="$(docker exec "${API_CONTAINER}" /bin/sh -lc 'printenv EA_API_TOKEN' 2>/dev/null || true)"
 container_loopback_no_auth="$(docker exec "${API_CONTAINER}" /bin/sh -lc 'printenv EA_ALLOW_LOOPBACK_NO_AUTH' 2>/dev/null || true)"
-container_operator_principal="$(docker exec "${API_CONTAINER}" /bin/sh -lc 'printenv EA_OPERATOR_PRINCIPAL_IDS | tr "," "\n" | sed -n "1p"' 2>/dev/null || true)"
-container_operator_principal="${container_operator_principal:-${EA_OPERATOR_PRINCIPAL_ID:-exec-1}}"
+container_operator_principal="$(docker exec "${API_CONTAINER}" /bin/sh -lc 'printenv EA_OPERATOR_PRINCIPAL_ID' 2>/dev/null || true)"
+container_operator_principal="${container_operator_principal:-${EA_OPERATOR_PRINCIPAL_ID:-principal-default}}"
 if [[ "${container_loopback_no_auth}" != "1" ]]; then
   echo "expected ea-api smoke container to enable EA_ALLOW_LOOPBACK_NO_AUTH" >&2
   docker logs --tail 120 "${API_CONTAINER}" >&2 || true
@@ -388,7 +389,7 @@ for candidate_token in "${token_candidates[@]}"; do
   token_probe_code="$(curl -sS --connect-timeout 2 --max-time 5 -o /tmp/ea_smoke_token_probe.json -w '%{http_code}' \
     -H "Authorization: Bearer ${candidate_token}" \
     -H "X-EA-API-Token: ${candidate_token}" \
-    -H "X-EA-Principal-ID: exec-1" \
+    -H "X-EA-Principal-ID: principal-default" \
     "${BASE}/v1/memory/candidates?limit=1" || true)"
   if [[ "${token_probe_code}" == "200" ]]; then
     export EA_API_TOKEN="${candidate_token}"
@@ -399,7 +400,7 @@ smoke_api_output=""
 smoke_api_status=0
 for attempt in 1 2 3; do
   for _smoke_container_wait in $(seq 1 30); do
-    if docker exec "${API_CONTAINER}" /bin/sh -lc 'mkdir -p /docker /app/scripts && ln -sfn /app /docker/property && ln -sfn /app /docker/EA' >/dev/null 2>&1; then
+    if docker exec "${API_CONTAINER}" /bin/sh -lc 'mkdir -p /app/scripts' >/dev/null 2>&1; then
       break
     fi
     sleep 1
@@ -411,7 +412,7 @@ for attempt in 1 2 3; do
   smoke_api_output="$(docker exec \
     -e EA_API_TOKEN="${EA_API_TOKEN:-}" \
     -e EA_HOST_PORT="8090" \
-    -e EA_PRINCIPAL_ID="exec-1" \
+    -e EA_PRINCIPAL_ID="principal-default" \
     -e EA_OPERATOR_PRINCIPAL_ID="${container_operator_principal}" \
     "${API_CONTAINER}" bash /app/scripts/smoke_api.sh 2>&1)"
   smoke_api_status=$?

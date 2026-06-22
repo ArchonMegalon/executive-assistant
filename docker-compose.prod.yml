@@ -29,12 +29,9 @@ services:
       EA_PRIVATE_MEMORIAL_PROFILE_DIR: ${EA_PRIVATE_MEMORIAL_PROFILE_DIR:-/data/memorial_data/private_memorial_profiles}
       EA_API_TOKEN: ${EA_API_TOKEN:?set EA_API_TOKEN in .env for prod deployments}
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env for prod deployments}
-      EA_FASTESTVPN_COMPOSE_ROOT: /docker/EA
+      EA_FASTESTVPN_COMPOSE_ROOT: /app
       EA_FASTESTVPN_ON_DEMAND_ENABLED: ${EA_FASTESTVPN_ON_DEMAND_ENABLED:-1}
       EA_FASTESTVPN_AUTO_STOP_AFTER_REFRESH: ${EA_FASTESTVPN_AUTO_STOP_AFTER_REFRESH:-1}
-    volumes:
-      - .:/docker/EA:ro
-      - /var/run/docker.sock:/var/run/docker.sock
 
   ea-worker:
     environment:
@@ -43,13 +40,9 @@ services:
       EA_STORAGE_BACKEND: postgres
       EA_API_TOKEN: ${EA_API_TOKEN:?set EA_API_TOKEN in .env for prod deployments}
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env for prod deployments}
-      EA_FASTESTVPN_COMPOSE_ROOT: /docker/EA
+      EA_FASTESTVPN_COMPOSE_ROOT: /app
       EA_FASTESTVPN_ON_DEMAND_ENABLED: ${EA_FASTESTVPN_ON_DEMAND_ENABLED:-1}
       EA_FASTESTVPN_AUTO_STOP_AFTER_REFRESH: ${EA_FASTESTVPN_AUTO_STOP_AFTER_REFRESH:-1}
-    volumes:
-      - .:/docker/EA:ro
-      - /var/run/docker.sock:/var/run/docker.sock
-
   ea-scheduler:
     environment:
       EA_RUNTIME_MODE: prod
@@ -57,9 +50,6 @@ services:
       EA_STORAGE_BACKEND: postgres
       EA_API_TOKEN: ${EA_API_TOKEN:?set EA_API_TOKEN in .env for prod deployments}
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env for prod deployments}
-      EA_FASTESTVPN_COMPOSE_ROOT: /docker/EA
+      EA_FASTESTVPN_COMPOSE_ROOT: /app
       EA_FASTESTVPN_ON_DEMAND_ENABLED: ${EA_FASTESTVPN_ON_DEMAND_ENABLED:-1}
       EA_FASTESTVPN_AUTO_STOP_AFTER_REFRESH: ${EA_FASTESTVPN_AUTO_STOP_AFTER_REFRESH:-1}
-    volumes:
-      - .:/docker/EA:ro
-      - /var/run/docker.sock:/var/run/docker.sock

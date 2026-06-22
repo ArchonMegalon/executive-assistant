@@ -15,10 +15,10 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
 
-ROOT = Path("/docker/property")
+ROOT = Path(os.environ.get("PROPERTYQUARRY_ROOT") or Path(__file__).resolve().parents[1])
 ENV_FILES = [
     ROOT / ".env",
-    Path("/docker/chummercomplete/chummer.run-services/.env"),
+    Path(os.environ.get("EA_MAGICFIT_ENV_FILE") or ROOT / ".env.magicfit"),
 ]
 MAGICFIT_HOME_URL = "https://magicfit.pushowl.com/home"
 MAGICFIT_VIDEO_URL = "https://magicfit.pushowl.com/agents/generate?mode=video"

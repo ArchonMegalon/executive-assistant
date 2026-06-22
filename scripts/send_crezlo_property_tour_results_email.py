@@ -12,8 +12,8 @@ from pathlib import Path
 
 
 EMAILIT_API_BASE = "https://api.emailit.com/v2/emails"
-DEFAULT_SENDER_EMAIL = "sprachenzentrum@myexternalbrain.com"
-DEFAULT_SENDER_NAME = "Sprachenzentrum"
+DEFAULT_SENDER_EMAIL = "no-reply@example.test"
+DEFAULT_SENDER_NAME = "Executive Assistant"
 VARIANT_ORDER = {
     "layout_first": 0,
     "light_and_view": 1,

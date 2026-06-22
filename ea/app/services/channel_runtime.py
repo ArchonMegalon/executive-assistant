@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING
 
 from app.domain.models import DeliveryOutboxItem, ObservationEvent
 from app.repositories.delivery_outbox import DeliveryOutboxRepository, InMemoryDeliveryOutboxRepository
 from app.repositories.delivery_outbox_postgres import PostgresDeliveryOutboxRepository
 from app.repositories.observation import ObservationEventRepository, InMemoryObservationEventRepository
 from app.repositories.observation_postgres import PostgresObservationEventRepository
-from app.services.cognitive_load import CognitiveLoadService
-from app.services.policy import PolicyDecisionService
 from app.settings import Settings, ensure_storage_fallback_allowed, get_settings
+
+if TYPE_CHECKING:
+    from app.services.cognitive_load import CognitiveLoadService
+    from app.services.policy import PolicyDecisionService
 
 
 class ChannelRuntimeService:

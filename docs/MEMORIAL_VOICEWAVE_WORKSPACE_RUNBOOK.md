@@ -11,7 +11,7 @@ What this lane does:
 Command:
 
 ```bash
-cd /docker/EA
+cd "$EA_REPO_ROOT"
 python3 scripts/analyze_voicewave_workspace.py \
   --project-name "Manfred Memorial Voice" \
   --fit-keyword memorial \
@@ -35,7 +35,7 @@ Credential slots:
 Output:
 
 ```text
-/docker/fleet/state/chummer6/voicewave_provider/voicewave_workspace_analysis.generated.json
+.codex-studio/published/voicewave_provider/voicewave_workspace_analysis.generated.json
 ```
 
 Interpretation:

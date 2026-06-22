@@ -12,7 +12,7 @@ Use this lane after the generic provider check when you want to inspect a specif
 ## Run
 
 ```bash
-cd /docker/EA
+cd "$EA_REPO_ROOT"
 python3 scripts/analyze_nonverbia_custom_project.py \
   --project-name "Manfred Memorial" \
   --project-url "https://app.nonverbia.com/projects/your-project-id" \
@@ -24,15 +24,15 @@ python3 scripts/analyze_nonverbia_custom_project.py \
 Credential resolution order:
 
 - `NONVERBIA_LOGIN_EMAIL` / `NONVERBIA_LOGIN_PASSWORD`
-- `/docker/EA/ea/.env`
-- `/docker/EA/.env`
+- `ea/.env`
+- `.env`
 
 ## Output
 
 Writes:
 
 ```text
-/docker/fleet/state/chummer6/avatar_presenter_provider/nonverbia_custom_project_analysis.generated.json
+ea/_completion/avatar_presenter_provider/nonverbia_custom_project_analysis.generated.json
 ```
 
 Key fields:

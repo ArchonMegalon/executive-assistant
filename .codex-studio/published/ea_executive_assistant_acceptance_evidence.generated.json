@@ -1,0 +1,101 @@
+{
+  "acceptance_keys": {
+    "real_approved_action_audited": {
+      "accepted": false,
+      "actor_sha256": "",
+      "evidence_sha256": "",
+      "object_ref_sha256": "",
+      "raw_actor_exposed": false,
+      "raw_evidence_exposed": false,
+      "raw_object_ref_exposed": false,
+      "recorded_at": "",
+      "source_kind": "unknown",
+      "status": "missing_or_invalid"
+    },
+    "real_commitment_recovered_or_closed": {
+      "accepted": false,
+      "actor_sha256": "",
+      "evidence_sha256": "",
+      "object_ref_sha256": "",
+      "raw_actor_exposed": false,
+      "raw_evidence_exposed": false,
+      "raw_object_ref_exposed": false,
+      "recorded_at": "",
+      "source_kind": "unknown",
+      "status": "missing_or_invalid"
+    },
+    "real_daily_morning_brief_accepted": {
+      "accepted": false,
+      "actor_sha256": "",
+      "evidence_sha256": "",
+      "object_ref_sha256": "",
+      "raw_actor_exposed": false,
+      "raw_evidence_exposed": false,
+      "raw_object_ref_exposed": false,
+      "recorded_at": "",
+      "source_kind": "unknown",
+      "status": "missing_or_invalid"
+    },
+    "real_decision_cleared": {
+      "accepted": false,
+      "actor_sha256": "",
+      "evidence_sha256": "",
+      "object_ref_sha256": "",
+      "raw_actor_exposed": false,
+      "raw_evidence_exposed": false,
+      "raw_object_ref_exposed": false,
+      "recorded_at": "",
+      "source_kind": "unknown",
+      "status": "missing_or_invalid"
+    },
+    "real_provider_failure_recovered": {
+      "accepted": false,
+      "actor_sha256": "",
+      "evidence_sha256": "",
+      "object_ref_sha256": "",
+      "raw_actor_exposed": false,
+      "raw_evidence_exposed": false,
+      "raw_object_ref_exposed": false,
+      "recorded_at": "",
+      "source_kind": "unknown",
+      "status": "missing_or_invalid"
+    }
+  },
+  "accepted_keys": [],
+  "blocked_keys": [
+    "real_daily_morning_brief_accepted",
+    "real_decision_cleared",
+    "real_commitment_recovered_or_closed",
+    "real_approved_action_audited",
+    "real_provider_failure_recovered"
+  ],
+  "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
+  "generated_at": "2026-06-20T06:12:42Z",
+  "generated_by": "ea/scripts/materialize_executive_assistant_acceptance_evidence.py",
+  "goal_completion_claim_allowed": false,
+  "next_action": "collect_redacted_real_world_acceptance_evidence",
+  "privacy": {
+    "credential_values_exposed": false,
+    "raw_acceptance_text_exposed": false,
+    "raw_actor_identity_exposed": false,
+    "raw_object_reference_exposed": false,
+    "raw_private_context_exposed": false
+  },
+  "public_or_premium_claim_allowed": false,
+  "real_daily_use_verified": false,
+  "real_operator_acceptance_verified": false,
+  "real_principal_acceptance_verified": false,
+  "real_provider_recovery_verified": false,
+  "rejected_input_count": 0,
+  "remaining_external_proofs": [
+    "real daily morning brief acceptance",
+    "real decision cleared by the principal or operator",
+    "real commitment recovered or closed with an evidence receipt",
+    "real approved outbound action with audit trail",
+    "real provider failure recovered with operator-grade reason"
+  ],
+  "source_input": {
+    "provided": false
+  },
+  "status": "blocked_missing_real_world_acceptance_evidence"
+}

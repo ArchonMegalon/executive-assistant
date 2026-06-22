@@ -116,9 +116,14 @@ PROOF_PATH = ROOT / ".codex-studio" / "published" / "NEXT90_M118_EA_ORGANIZER_PA
 MATERIALIZER_PATH = ROOT / "scripts" / "materialize_next90_m118_ea_organizer_packets.py"
 HANDOFF_CLOSEOUT_PATH = ROOT / "docs" / "chummer_organizer_packets" / "SUCCESSOR_HANDOFF_CLOSEOUT.yaml"
 FEEDBACK_PROGRESS_PATH = ROOT / "feedback" / "2026-05-05-next90-m118-ea-organizer-followthrough-progress.md"
-QUEUE_STAGING_PATH = Path("/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
-DESIGN_QUEUE_STAGING_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
-SUCCESSOR_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml")
+DESIGN_PRODUCT_ROOT = Path(os.environ.get("CHUMMER6_DESIGN_PRODUCT_ROOT") or ROOT / ".codex-design/product")
+QUEUE_STAGING_PATH = Path(os.environ.get("EA_NEXT90_QUEUE_STAGING_PATH") or DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
+DESIGN_QUEUE_STAGING_PATH = Path(
+    os.environ.get("EA_NEXT90_DESIGN_QUEUE_STAGING_PATH") or DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
+)
+SUCCESSOR_REGISTRY_PATH = Path(
+    os.environ.get("EA_NEXT90_SUCCESSOR_REGISTRY_PATH") or DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml"
+)
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
@@ -320,7 +325,7 @@ def main() -> int:
     if authority.get("registry_work_task") != "118.3 status=complete owner=executive-assistant":
         missing.append("handoff canonical registry work task drifted")
     if [str(item) for item in authority.get("queue_proof_required_entries") or []] != [
-        f"/docker/EA/{entry}" if not entry.startswith(".codex-studio") else f"/docker/EA/{entry}"
+        (ROOT / entry).as_posix()
         for entry in PROOF_ARTIFACTS
     ] + [
         "python3 scripts/materialize_next90_m118_ea_organizer_packets.py exits 0",

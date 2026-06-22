@@ -71,6 +71,98 @@ def test_operator_summary_lists_ltd_release_gates() -> None:
     assert "memorial status:   make materialize-memorial-operator-status" in operator_summary
     assert "phrase bank:       make materialize-memorial-phrase-bank" in operator_summary
     assert "room gold clean:   make materialize-memorial-room-audio-gold-clean" in operator_summary
+    assert "ea quality:        make verify-executive-assistant-quality-readiness" in operator_summary
+    assert "signal packet:     make verify-whole-project-signal-to-decision-receipt" in operator_summary
+    assert "scope audit:       make verify-whole-project-scope-gap-audit" in operator_summary
+    assert "manfred realtime:  make verify-manfred-realtime-conversation-readiness" in operator_summary
+    assert "tg audio ready:    make verify-telegram-audiobook-live-readiness" in operator_summary
+    assert "tg audiobook live: make verify-telegram-audiobook-live-delivery-receipt" in operator_summary
+    assert "wa audio local:    make verify-whatsapp-audiobook-local-intake-proof" in operator_summary
+    assert "wa action ready:   make verify-whatsapp-web-action-processor-readiness" in operator_summary
+    assert "wa audio bundle:   make verify-whatsapp-audiobook-operator-proof-bundle" in operator_summary
+    assert "wa audiobook live: make verify-whatsapp-audiobook-live-delivery-receipt" in operator_summary
+    assert "wa share play:     make verify-whatsapp-audiobook-public-share-playback" in operator_summary
+    assert "goal posture:      make verify-continuous-improvement-goal-posture" in operator_summary
+    assert "tg video proof:    make materialize-telegram-video-delivery-receipts" in operator_summary
+    assert "tg live verify:    make verify-telegram-video-delivery-live-receipt" in operator_summary
+    assert "-- goal posture --" in operator_summary
+    assert "detect:" in operator_summary
+    assert "decide:" in operator_summary
+    assert "deliver:" in operator_summary
+    assert "recover:" in operator_summary
+    assert "prove:" in operator_summary
+
+
+def test_makefile_exposes_telegram_audiobook_live_delivery_receipt_targets() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+
+    assert "materialize-telegram-audiobook-live-readiness:" in makefile
+    assert "ea/scripts/materialize_telegram_audiobook_live_readiness.py" in makefile
+    assert "verify-telegram-audiobook-live-readiness:" in makefile
+    assert "ea/scripts/verify_telegram_audiobook_live_readiness.py" in makefile
+    assert "materialize-telegram-audiobook-live-delivery-receipt:" in makefile
+    assert "ea/scripts/materialize_telegram_audiobook_live_delivery_receipt.py" in makefile
+    assert "verify-telegram-audiobook-live-delivery-receipt:" in makefile
+    assert "materialize-whatsapp-audiobook-local-intake-proof:" in makefile
+    assert "ea/scripts/materialize_whatsapp_audiobook_local_intake_proof.py" in makefile
+    assert "verify-whatsapp-audiobook-local-intake-proof:" in makefile
+    assert "materialize-whatsapp-web-action-processor-readiness:" in makefile
+    assert "scripts/materialize_whatsapp_web_action_processor_readiness.py" in makefile
+    assert "verify-whatsapp-web-action-processor-readiness:" in makefile
+    assert "scripts/verify_whatsapp_web_action_processor_readiness.py" in makefile
+    assert "materialize-whatsapp-audiobook-operator-proof-bundle:" in makefile
+    assert "ea/scripts/materialize_whatsapp_audiobook_operator_proof_bundle.py" in makefile
+    assert "verify-whatsapp-audiobook-operator-proof-bundle:" in makefile
+    assert "ea/scripts/verify_whatsapp_audiobook_operator_proof_bundle.py" in makefile
+    assert "materialize-whatsapp-audiobook-live-delivery-receipt:" in makefile
+    assert "ea/scripts/materialize_whatsapp_audiobook_live_delivery_receipt.py" in makefile
+    assert "verify-whatsapp-audiobook-live-delivery-receipt:" in makefile
+    assert "ea/scripts/verify_whatsapp_audiobook_live_delivery_receipt.py" in makefile
+    assert "verify-whatsapp-audiobook-public-share-playback:" in makefile
+    assert "ea/scripts/verify_whatsapp_audiobook_public_share_playback.py" in makefile
+    assert "ea/scripts/verify_whatsapp_audiobook_public_share_playback.py --require-pass" in makefile
+
+
+def test_makefile_exposes_manfred_realtime_conversation_readiness_targets() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+
+    assert "materialize-manfred-realtime-conversation-readiness:" in makefile
+    assert "ea/scripts/materialize_manfred_realtime_conversation_readiness.py" in makefile
+    assert "verify-manfred-realtime-conversation-readiness:" in makefile
+    assert "ea/scripts/verify_manfred_realtime_conversation_readiness.py" in makefile
+
+
+def test_makefile_exposes_whole_project_scope_gap_audit_targets() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+
+    assert "materialize-executive-assistant-acceptance-evidence:" in makefile
+    assert "ea/scripts/materialize_executive_assistant_acceptance_evidence.py" in makefile
+    assert "verify-executive-assistant-acceptance-evidence:" in makefile
+    assert "ea/scripts/verify_executive_assistant_acceptance_evidence.py" in makefile
+    assert "materialize-executive-assistant-quality-readiness:" in makefile
+    assert "ea/scripts/materialize_executive_assistant_quality_readiness.py" in makefile
+    assert "verify-executive-assistant-quality-readiness:" in makefile
+    assert "ea/scripts/verify_executive_assistant_quality_readiness.py" in makefile
+    assert "materialize-whole-project-signal-to-decision-receipt:" in makefile
+    assert "ea/scripts/materialize_whole_project_signal_to_decision_receipt.py" in makefile
+    assert "verify-whole-project-signal-to-decision-receipt:" in makefile
+    assert "ea/scripts/verify_whole_project_signal_to_decision_receipt.py" in makefile
+    assert "materialize-whole-project-scope-gap-audit:" in makefile
+    assert "ea/scripts/materialize_whole_project_scope_gap_audit.py" in makefile
+    assert "verify-whole-project-scope-gap-audit:" in makefile
+    assert "ea/scripts/verify_whole_project_scope_gap_audit.py" in makefile
+
+
+def test_makefile_exposes_telegram_video_delivery_receipt_targets() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+
+    assert "materialize-telegram-video-delivery-operator-receipt:" in makefile
+    assert "scripts/materialize_telegram_video_delivery_receipt.py" in makefile
+    assert "materialize-telegram-video-delivery-live-receipt:" in makefile
+    assert "scripts/materialize_telegram_video_delivery_live_receipt.py" in makefile
+    assert "materialize-telegram-video-delivery-receipts:" in makefile
+    assert "verify-telegram-video-delivery-live-receipt:" in makefile
+    assert "--require-pass" in makefile
 
 
 def test_local_env_rotation_slots_and_gitignore_cover_browseract_and_onemin_keys() -> None:
@@ -322,11 +414,10 @@ def test_published_queue_overlay_stays_empty_for_materialized_uncovered_scope() 
 
 
 def test_role_aware_healthcheck_contract_covers_api_and_worker_roles() -> None:
-    dockerfile = (ROOT / "ea" / "Dockerfile").read_text(encoding="utf-8")
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
 
     assert "EA_ROLE" in dockerfile
-    assert "COPY scripts/willhaben_property_packet.py /app/scripts/willhaben_property_packet.py" in dockerfile
     assert 'role=${EA_ROLE:-api}; case \\"$role\\" in' in dockerfile
     assert "worker|scheduler)" in dockerfile
     assert "http://127.0.0.1:8090/health/live" in dockerfile
@@ -432,6 +523,11 @@ def test_operator_summary_prints_grounded_packet_guidance() -> None:
         text=True,
         check=True,
     )
+    assert "-- goal posture --" in result.stdout
+    assert "north star:" in result.stdout
+    assert "detect next:" in result.stdout
+    assert "recover next:" in result.stdout
+    assert "prove next:" in result.stdout
     assert "-- grounded packets --" in result.stdout
     assert "public help:" in result.stdout
     assert "support question:" in result.stdout
@@ -441,6 +537,16 @@ def test_operator_summary_prints_grounded_packet_guidance() -> None:
     assert "support/help:" in result.stdout
     assert "support fallout:" in result.stdout
     assert "guide freshness:" in result.stdout
+
+
+def test_operator_summary_docs_mention_goal_posture() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+
+    assert "detect`, `decide`, `deliver`, `recover`, and `prove` lenses" in readme
+    assert "materialize-continuous-improvement-goal-posture" in readme
+    assert "detect`, `decide`, `deliver`, `recover`, and `prove`" in runbook
+    assert "verify-continuous-improvement-goal-posture" in runbook
 
 
 def test_support_bundle_writes_grounding_summary() -> None:
@@ -651,7 +757,6 @@ def test_postgres_contract_script_help_and_wiring() -> None:
         text=True,
         check=True,
     )
-    workflow = (ROOT / ".github/workflows/smoke-runtime.yml").read_text(encoding="utf-8")
     smoke_help = (ROOT / "scripts/smoke_help.sh").read_text(encoding="utf-8")
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     script = (ROOT / "scripts/test_postgres_contracts.sh").read_text(encoding="utf-8")
@@ -659,7 +764,7 @@ def test_postgres_contract_script_help_and_wiring() -> None:
     assert "EA_TEST_POSTGRES_DB" in result.stdout
     assert "scripts/test_postgres_contracts.sh" in smoke_help
     assert "test-postgres-contracts:" in makefile
-    assert "bash scripts/test_postgres_contracts.sh" in workflow
+    assert "bash scripts/test_postgres_contracts.sh" in makefile
     assert "tests/test_postgres_contract_matrix_integration.py" in script
     assert "tests/test_generic_async_dependency_projection_contracts.py" in script
     assert "tests/test_memory_router_contracts.py" in script
@@ -713,6 +818,32 @@ def test_emailit_bootstrap_script_help_and_wiring() -> None:
     assert "scripts/bootstrap_emailit_propertyquarry.py" in runbook
 
 
+def test_whatsapp_web_action_processor_readiness_scripts_help_and_wiring() -> None:
+    materialize = subprocess.run(
+        ["python3", "scripts/materialize_whatsapp_web_action_processor_readiness.py", "--help"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    verify = subprocess.run(
+        ["python3", "scripts/verify_whatsapp_web_action_processor_readiness.py", "--help"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    smoke_help = (ROOT / "scripts/smoke_help.sh").read_text(encoding="utf-8")
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+
+    assert "Materialize the WhatsApp Web action processor readiness receipt." in materialize.stdout
+    assert "Verify the WhatsApp Web action processor readiness receipt." in verify.stdout
+    assert "scripts/materialize_whatsapp_web_action_processor_readiness.py" in smoke_help
+    assert "scripts/verify_whatsapp_web_action_processor_readiness.py" in smoke_help
+    assert "scripts/materialize_whatsapp_web_action_processor_readiness.py" in makefile
+    assert "scripts/verify_whatsapp_web_action_processor_readiness.py" in makefile
+
+
 def test_postgres_contract_and_fastestvpn_helpers_support_standalone_paths() -> None:
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
@@ -727,19 +858,25 @@ def test_postgres_contract_and_fastestvpn_helpers_support_standalone_paths() -> 
 
     assert "PROPERTYQUARRY_PROXY_POOL_NETWORK" in fastestvpn_script
     assert "PROPERTYQUARRY_FASTESTVPN_PROXY_IMAGE" in fastestvpn_script
-    assert 'root = Path("/docker/property/vpn/fastestvpn")' in fastestvpn_script
+    assert 'root = Path(os.environ.get("FASTESTVPN_CONFIG_ROOT") or Path.cwd() / "vpn" / "fastestvpn")' in fastestvpn_script
+    assert "/docker/property/vpn/fastestvpn" not in fastestvpn_script
     assert "/docker/EA/vpn/fastestvpn" not in fastestvpn_script
 
-    assert "/docker/property/scripts/release_v115_rag.sh prune_meta" in release_script
-    assert "/docker/property/scripts/release_v115_rag.sh prune_pycache" in release_script
-    assert "/docker/property/scripts/release_v115_rag.sh clean_rewrite_baseline" in release_script
+    assert "scripts/release_v115_rag.sh prune_meta" in release_script
+    assert "scripts/release_v115_rag.sh prune_pycache" in release_script
+    assert "scripts/release_v115_rag.sh clean_rewrite_baseline" in release_script
+    assert "/docker/" + "property/scripts/release_v115_rag.sh" not in release_script
+    assert "data-family-" + "girschele" not in release_script
+    assert "data-family-" not in release_script
+    assert "data-liz" not in release_script
+    assert "data-private" in release_script
 
-    assert "/docker/property/docker-compose.fastestvpn.yml" in runbook
-    assert "/docker/property/vpn/fastestvpn/README.md" in runbook
-    assert "/docker/property/scripts/bootstrap_fastestvpn_configs.sh" in runbook
-    assert "/docker/property/scripts/rotate_fastestvpn_proxy.sh" in runbook
-    assert "/docker/property/LTDs.md" in runbook
-    assert "/docker/property/SKILLS.md" in runbook
+    assert "[docker-compose.fastestvpn.yml](docker-compose.fastestvpn.yml)" in runbook
+    assert "`vpn/fastestvpn/`" in runbook
+    assert "`scripts/bootstrap_fastestvpn_configs.sh`" in runbook
+    assert "`scripts/rotate_fastestvpn_proxy.sh`" in runbook
+    assert "[LTDs.md](LTDs.md)" in runbook
+    assert "[SKILLS.md](SKILLS.md)" in runbook
 
 
 def test_postgres_smoke_exports_openapi_dependency_examples() -> None:
@@ -1499,13 +1636,15 @@ def test_ltd_discovery_api_refresh_runner_is_documented_and_guarded() -> None:
     assert capability["status"] == "released"
 
 
-def test_tibor_smoke_runner_uses_repo_rooted_ltd_and_rewrite_reset_contracts() -> None:
-    smoke_script = (ROOT / "scripts/smoke_api_tibor.sh").read_text(encoding="utf-8")
+def test_principal_smoke_runner_uses_repo_rooted_ltd_and_rewrite_reset_contracts() -> None:
+    smoke_script = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    smoke_wrapper = (ROOT / "scripts/smoke_api_principal.sh").read_text(encoding="utf-8")
 
     assert "reset_rewrite_contract()" in smoke_script
     assert "trap cleanup_smoke_contract_state EXIT" in smoke_script
     assert 'cp "${EA_ROOT}/LTDs.md"' in smoke_script
     assert 'bash "${EA_ROOT}/scripts/refresh_ltds_via_api.sh"' in smoke_script
+    assert "smoke_api.sh" in smoke_wrapper
 
 
 def test_artifact_evidence_pack_output_template_is_documented_and_guarded() -> None:
@@ -1885,11 +2024,11 @@ def test_artifact_principal_ownership_is_guarded_across_routes_and_smoke() -> No
     assert "principal_id: str" in plans_route
     assert "principal_id TEXT NOT NULL" in artifact_repo
     assert "WHERE a.session_id = es.session_id::text" in artifact_repo
-    assert 'loaded.principal_id == "exec-1"' in postgres_test
-    assert 'scoped_artifact[0].principal_id == "exec-1"' in rewrite_scope_test
-    assert 'payload["principal_id"] == "exec-1"' in rewrite_api_scope_test
-    assert 'body["artifacts"][0]["principal_id"] == "exec-1"' in smoke_test
-    assert 'fetched_artifact.json()["principal_id"] == "exec-1"' in smoke_test
+    assert 'loaded.principal_id == "principal-default"' in postgres_test
+    assert 'scoped_artifact[0].principal_id == "principal-default"' in rewrite_scope_test
+    assert 'payload["principal_id"] == "principal-default"' in rewrite_api_scope_test
+    assert 'body["artifacts"][0]["principal_id"] == "principal-default"' in smoke_test
+    assert 'fetched_artifact.json()["principal_id"] == "principal-default"' in smoke_test
     assert "first.get('principal_id','')" in smoke_script
     assert 'match="principal_id_required"' in (ROOT / "tests/test_tool_execution.py").read_text(encoding="utf-8")
 
@@ -2369,7 +2508,7 @@ def test_human_task_assignment_provenance_fields_are_documented_and_released() -
     assert "assigned_by_actor_id" in smoke_api
     assert "orchestrator:auto_preselected" in smoke_api
     assert 'task["assigned_by_actor_id"] == ""' in smoke_runtime
-    assert 'assigned.json()["assigned_by_actor_id"] == "exec-1"' in smoke_runtime
+    assert 'assigned.json()["assigned_by_actor_id"] == "principal-default"' in smoke_runtime
     assert 'review_task["assigned_by_actor_id"] == "orchestrator:auto_preselected"' in smoke_runtime
     assert 'assigned_by_actor_id="principal-1"' in postgres_matrix
     assert 'assigned_by_actor_id == "operator-1"' in postgres_matrix
@@ -2515,9 +2654,9 @@ def test_human_task_assignment_history_filters_are_documented_and_smoked() -> No
     assert "assigned_by_actor_id" in readme
     assert "assigned_operator_id" in runbook
     assert "assigned_by_actor_id" in runbook
-    assert "event_name=human_task_assigned&assigned_by_actor_id=exec-1" in smoke_api
+    assert "event_name=human_task_assigned&assigned_by_actor_id=principal-default" in smoke_api
     assert "event_name=human_task_returned&assigned_operator_id=operator-junior" in smoke_api
-    assert 'params={"limit": 10, "event_name": "human_task_assigned", "assigned_by_actor_id": "exec-1"}' in smoke_runtime
+    assert 'params={"limit": 10, "event_name": "human_task_assigned", "assigned_by_actor_id": "principal-default"}' in smoke_runtime
     assert 'params={"limit": 10, "event_name": "human_task_returned", "assigned_operator_id": "operator-junior"}' in smoke_runtime
     assert "/v1/human/tasks/{{human_task_id}}/assignment-history?limit=20&event_name=human_task_assigned&assigned_by_actor_id={{principal_id}}" in http_examples
     assert "Promoted the human-task assignment-history filters slice into a released milestone capability" in changelog
@@ -3459,7 +3598,7 @@ def test_postgres_contract_matrix_release_baseline_is_documented_and_guarded() -
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    workflow = (ROOT / ".github/workflows/smoke-runtime.yml").read_text(encoding="utf-8")
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     script = (ROOT / "scripts/test_postgres_contracts.sh").read_text(encoding="utf-8")
     postgres_matrix = (ROOT / "tests/test_postgres_contract_matrix_integration.py").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
@@ -3467,7 +3606,7 @@ def test_postgres_contract_matrix_release_baseline_is_documented_and_guarded() -
 
     assert "current matrix covers artifacts, channel runtime, approvals, policy decisions, and task contracts" in readme
     assert "Current `scripts/test_postgres_contracts.sh` coverage includes artifacts, channel runtime, approvals, policy decisions, and task contracts." in runbook
-    assert "bash scripts/test_postgres_contracts.sh" in workflow
+    assert "bash scripts/test_postgres_contracts.sh" in makefile
     assert "tests/test_postgres_contract_matrix_integration.py" in script
     assert "test_postgres_approvals_create_decide_and_list_history" in postgres_matrix
     assert "test_postgres_policy_decisions_append_and_filter_recent" in postgres_matrix

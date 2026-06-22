@@ -19,14 +19,40 @@ from browseract_ui_media import compose_slideshow_video, transcode_video_webm
 
 
 PLAYWRIGHT_IMAGE = os.environ.get("EA_UI_PLAYWRIGHT_IMAGE", "chummer-playwright:local").strip() or "chummer-playwright:local"
-OUTPUT_ROOT = Path(
-    os.environ.get("EA_UI_SERVICE_WORKER_OUTPUT_ROOT", "/mnt/pcloud/EA/browseract_ui_worker_outputs")
-).expanduser()
-SHARED_TEMP_ROOT = Path(
-    os.environ.get("EA_UI_SERVICE_SHARED_TEMP_ROOT", "/mnt/pcloud/EA/browseract_ui_worker_shared")
-).expanduser()
+ROOT = Path(__file__).resolve().parents[1]
+RUNTIME_ROOT = ROOT / ".runtime" / "browseract"
+OUTPUT_ROOT = Path(os.environ.get("EA_UI_SERVICE_WORKER_OUTPUT_ROOT") or RUNTIME_ROOT / "worker_outputs").expanduser()
+SHARED_TEMP_ROOT = Path(os.environ.get("EA_UI_SERVICE_SHARED_TEMP_ROOT") or RUNTIME_ROOT / "worker_shared").expanduser()
 DEFAULT_EMAIL = os.environ.get("EA_UI_SERVICE_LOGIN_EMAIL", "").strip()
 DEFAULT_PASSWORD = os.environ.get("EA_UI_SERVICE_LOGIN_PASSWORD", "").strip()
+
+
+def _mootion_cleanup_enabled() -> bool:
+    return str(os.environ.get("EA_MOOTION_MOVIE_CLEANUP_ENABLED") or "1").strip().lower() not in {"0", "false", "no", "off"}
+
+
+def cleanup_mootion_run_dir(*, run_dir: Path, asset_path: Path | None = None) -> dict[str, object]:
+    removable: list[Path] = []
+    removable.extend(sorted(run_dir.glob("storyboard-*")))
+    removable.append(run_dir / "storyboard-subtitles.srt")
+    removable.append(run_dir / "preview.png")
+    movie_mp4 = run_dir / "movie.mp4"
+    if asset_path is None or asset_path.resolve() != movie_mp4.resolve():
+        removable.append(movie_mp4)
+    removed_paths: list[str] = []
+    removed_bytes = 0
+    for path in removable:
+        if not path.exists() or path.is_dir():
+            continue
+        removed_bytes += int(path.stat().st_size or 0)
+        path.unlink(missing_ok=True)
+        removed_paths.append(path.name)
+    return {
+        "status": "cleaned" if removed_paths else "not_needed",
+        "removed_bytes": removed_bytes,
+        "removed_paths": removed_paths,
+        "run_dir": str(run_dir),
+    }
 
 
 def _load_packet(path: str | None) -> dict[str, object]:
@@ -602,6 +628,11 @@ def main() -> int:
                 "render_status": "project_ready" if "/project/" in str(browser_output.get("url") or "") else "partial",
             },
         }
+    if _mootion_cleanup_enabled():
+        result["cleanup"] = cleanup_mootion_run_dir(
+            run_dir=run_dir,
+            asset_path=Path(str(result.get("asset_path") or "")).expanduser(),
+        )
     print(json.dumps(result, ensure_ascii=False))
     return 0
 

@@ -7,7 +7,7 @@ runtime_env_candidates() {
   if command -v git >/dev/null 2>&1; then
     git_root="$(git -C "${PWD:-.}" rev-parse --show-toplevel 2>/dev/null || true)"
   fi
-  for path in "${CODEXEA_RUNTIME_EA_ENV_PATH:-}" "${FLEET_RUNTIME_EA_ENV_PATH:-}" "${PWD:-}/.env" "${git_root:+${git_root}/.env}" "/docker/fleet/runtime.ea.env" "/docker/fleet/runtime.env" "/docker/EA/.env.local" "/docker/EA/.env"; do
+  for path in "${CODEXEA_RUNTIME_EA_ENV_PATH:-}" "${FLEET_RUNTIME_EA_ENV_PATH:-}" "${PWD:-}/.env" "${git_root:+${git_root}/.env}" "${git_root:+${git_root}/.env.local}" "${HOME:-}/.config/ea/runtime.ea.env" "${HOME:-}/.config/ea/runtime.env"; do
     [ -n "${path}" ] || continue
     printf '%s\n' "${path}"
   done
@@ -134,7 +134,7 @@ CODEXEA_STOP_FILE="${CODEXEA_STOP_FILE:-${CODEXEA_STATE_DIR}/stop}"
 EA_BASE_URL="$(normalize_ea_base_url "${EA_MCP_BASE_URL:-${EA_BASE_URL:-http://127.0.0.1:8090}}")"
 EA_STATUS_URL="$(normalize_ea_base_url "${CODEXEA_STATUS_URL:-${EA_BASE_URL%/}/v1/codex/status}")"
 EA_PROFILES_URL="$(normalize_ea_base_url "${CODEXEA_PROFILES_URL:-${EA_BASE_URL%/}/v1/codex/profiles}")"
-ROUTE_HELPER="${CODEXEA_ROUTE_HELPER:-/docker/fleet/scripts/codexea_route.py}"
+ROUTE_HELPER="${CODEXEA_ROUTE_HELPER:-${CODEXEA_FLEET_ROOT:-${HOME}/.local/share/codexea/fleet}/scripts/codexea_route.py}"
 
 if [ ! -x "${REAL_CODEX}" ]; then
   REAL_CODEX="$(command -v codex || true)"

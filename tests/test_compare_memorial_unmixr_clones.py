@@ -8,7 +8,8 @@ from pathlib import Path
 from fastapi import HTTPException
 
 
-SCRIPT_PATH = Path("/docker/EA/ea/scripts/compare_memorial_unmixr_clones.py")
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT_PATH = ROOT / "ea" / "scripts" / "compare_memorial_unmixr_clones.py"
 
 
 def _load_module():

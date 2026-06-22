@@ -1,0 +1,637 @@
+{
+  "contract_name": "ea.memorial_stt_provider_benchmark",
+  "status": "blocked",
+  "scoring": {
+    "pass_rule": "usable transcript + required tokens present + token_f1 >= sample min + WER <= sample max",
+    "fixture_quality_rule": "ground-truth fixtures must be long enough to contain their expected transcript before provider accuracy is scored",
+    "known_bad_non_empty_text_is_not_enough": true,
+    "production_eligible_rule": "provider must pass every ground-truth benchmark sample and hostile variant",
+    "text_mode": "redacted",
+    "raw_transcript_fields": false,
+    "redacted_text_fields": true,
+    "redacted_receipt_rule": "Default receipts store transcript hashes, lengths, and token hashes instead of raw expected/actual text. Set EA_MEMORIAL_STT_BENCHMARK_TEXT_MODE=full or pass --text-mode full for operator-local raw transcript diagnostics."
+  },
+  "fixture_quality_status": "pass",
+  "fixture_quality_failed_codes": [],
+  "availability": {
+    "shadow_provider": "blipai",
+    "cartesia_configured": true,
+    "cartesia_default_credential_file_present": true,
+    "cartesia": {
+      "configured": true,
+      "credential_source": "default_credential_file",
+      "accepted_source_types": [
+        "direct_env",
+        "inline_json_env",
+        "credential_file_env",
+        "default_credential_file"
+      ],
+      "default_credential_files": [
+        {
+          "path": "config/cartesia.local.json",
+          "resolved_path": "config/cartesia.local.json",
+          "present": true,
+          "contains_key": true
+        }
+      ],
+      "operator_hint": ""
+    },
+    "onemin_key_count": 71,
+    "onemin_max_key_attempts": 4,
+    "provider_env": {
+      "files": [
+        ".env",
+        ".env.local"
+      ],
+      "loaded_count": 257,
+      "provider_families": {
+        "cartesia": true,
+        "onemin": true,
+        "blipai_shadow": true
+      }
+    }
+  },
+  "provider_ranking": [
+    {
+      "provider": "full_runtime",
+      "passed_samples": 4,
+      "sample_count": 6,
+      "scored_samples": 6,
+      "intent_correct_samples": 4,
+      "avg_token_f1": 0.7451,
+      "avg_wer": 0.2963,
+      "avg_latency_ms": 385.2,
+      "production_eligible": false
+    },
+    {
+      "provider": "onemin_sample",
+      "passed_samples": 2,
+      "sample_count": 6,
+      "scored_samples": 6,
+      "intent_correct_samples": 2,
+      "avg_token_f1": 0.6296,
+      "avg_wer": 0.3704,
+      "avg_latency_ms": 2543.0,
+      "production_eligible": false
+    },
+    {
+      "provider": "shadow",
+      "passed_samples": 0,
+      "sample_count": 6,
+      "scored_samples": 6,
+      "intent_correct_samples": 0,
+      "avg_token_f1": 0.0,
+      "avg_wer": 1.0,
+      "avg_latency_ms": 811.7,
+      "production_eligible": false
+    }
+  ],
+  "rows": [
+    {
+      "sample": "contact_opening",
+      "variant": "synthetic",
+      "fixture": "contact_opening_captured.wav",
+      "fixture_sha256": "a5589abeb9b81ab6fb991d280e285d3416ec1c29a92013bc5e47fee3d2198d88",
+      "fixture_quality": {
+        "status": "pass",
+        "failed_codes": [],
+        "audio_duration_seconds": 2.9,
+        "expected_min_duration_seconds": 2.24
+      },
+      "provenance": {
+        "origin": "Synthetic German speech generated through EA Unmixr TTS from the exact expected text after the previous captured fixture proved truncated.",
+        "speaker_consent": "synthetic_voice_provider_output_no_human_speaker",
+        "allowed_purpose": "memorial_stt_regression_and_provider_bakeoff",
+        "retention": "private_repo_synthetic_regression_fixture",
+        "synthetic": true,
+        "accent": "synthetic German voice"
+      },
+      "shadow": {
+        "status": "error",
+        "ms": 811.7,
+        "reason": "http_401",
+        "wer": 1.0,
+        "token_f1": 0.0,
+        "intent_correct": false,
+        "usable": false,
+        "passed": false,
+        "min_token_f1": 0.65,
+        "max_wer": 0.45,
+        "text_mode": "redacted",
+        "expected_text_chars": 48,
+        "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
+        "actual_text_chars": 0,
+        "actual_text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "required_token_count": 3,
+        "required_token_sha256": [
+          "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
+          "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
+          "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
+        ],
+        "text_redacted": true
+      },
+      "onemin_sample": {
+        "status": "ok",
+        "ms": 3188.3,
+        "wer": 0.0,
+        "token_f1": 1.0,
+        "intent_correct": true,
+        "usable": true,
+        "passed": true,
+        "min_token_f1": 0.65,
+        "max_wer": 0.45,
+        "text_mode": "redacted",
+        "expected_text_chars": 48,
+        "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
+        "actual_text_chars": 48,
+        "actual_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
+        "required_token_count": 3,
+        "required_token_sha256": [
+          "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
+          "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
+          "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
+        ],
+        "text_redacted": true
+      },
+      "full_runtime": {
+        "status": "transcribed",
+        "ms": 590.0,
+        "transcriber": "cartesia/ink-whisper+enhanced_wav",
+        "detail": "",
+        "wer": 0.0,
+        "token_f1": 1.0,
+        "intent_correct": true,
+        "usable": true,
+        "passed": true,
+        "min_token_f1": 0.65,
+        "max_wer": 0.45,
+        "text_mode": "redacted",
+        "expected_text_chars": 48,
+        "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
+        "actual_text_chars": 48,
+        "actual_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
+        "required_token_count": 3,
+        "required_token_sha256": [
+          "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
+          "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
+          "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
+        ],
+        "text_redacted": true
+      }
+    },
+    {
+      "sample": "contact_opening_hostile",
+      "variant": "hostile",
+      "fixture": "contact_opening_captured.wav",
+      "fixture_sha256": "a5589abeb9b81ab6fb991d280e285d3416ec1c29a92013bc5e47fee3d2198d88",
+      "fixture_quality": {
+        "status": "pass",
+        "failed_codes": [],
+        "audio_duration_seconds": 2.9,
+        "expected_min_duration_seconds": 2.24
+      },
+      "provenance": {
+        "origin": "Synthetic German speech generated through EA Unmixr TTS from the exact expected text after the previous captured fixture proved truncated.",
+        "speaker_consent": "synthetic_voice_provider_output_no_human_speaker",
+        "allowed_purpose": "memorial_stt_regression_and_provider_bakeoff",
+        "retention": "private_repo_synthetic_regression_fixture",
+        "synthetic": true,
+        "accent": "synthetic German voice"
+      },
+      "shadow": {
+        "status": null,
+        "ms": 0.0,
+        "reason": "provider_cooldown_active",
+        "wer": 1.0,
+        "token_f1": 0.0,
+        "intent_correct": false,
+        "usable": false,
+        "passed": false,
+        "min_token_f1": 0.65,
+        "max_wer": 0.45,
+        "text_mode": "redacted",
+        "expected_text_chars": 48,
+        "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
+        "actual_text_chars": 0,
+        "actual_text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "required_token_count": 3,
+        "required_token_sha256": [
+          "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
+          "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
+          "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
+        ],
+        "text_redacted": true
+      },
+      "onemin_sample": {
+        "status": "ok",
+        "ms": 3134.0,
+        "wer": 0.0,
+        "token_f1": 1.0,
+        "intent_correct": true,
+        "usable": true,
+        "passed": true,
+        "min_token_f1": 0.65,
+        "max_wer": 0.45,
+        "text_mode": "redacted",
+        "expected_text_chars": 48,
+        "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
+        "actual_text_chars": 48,
+        "actual_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
+        "required_token_count": 3,
+        "required_token_sha256": [
+          "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
+          "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
+          "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
+        ],
+        "text_redacted": true
+      },
+      "full_runtime": {
+        "status": "transcribed",
+        "ms": 523.5,
+        "transcriber": "cartesia/ink-whisper+enhanced_wav",
+        "detail": "",
+        "wer": 0.0,
+        "token_f1": 1.0,
+        "intent_correct": true,
+        "usable": true,
+        "passed": true,
+        "min_token_f1": 0.65,
+        "max_wer": 0.45,
+        "text_mode": "redacted",
+        "expected_text_chars": 48,
+        "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
+        "actual_text_chars": 48,
+        "actual_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
+        "required_token_count": 3,
+        "required_token_sha256": [
+          "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
+          "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
+          "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
+        ],
+        "text_redacted": true
+      }
+    },
+    {
+      "sample": "stt_retry",
+      "variant": "synthetic",
+      "fixture": "rescue_stt_retry_captured.wav",
+      "fixture_sha256": "844ffb440ad0dd2ee30f75ddef046c982f183f196009004ba0d28fece72c3d2d",
+      "fixture_quality": {
+        "status": "pass",
+        "failed_codes": [],
+        "audio_duration_seconds": 3.579,
+        "expected_min_duration_seconds": 2.52
+      },
+      "provenance": {
+        "origin": "Synthetic German speech generated through EA Unmixr TTS from the exact expected text after the previous captured fixture proved truncated.",
+        "speaker_consent": "synthetic_voice_provider_output_no_human_speaker",
+        "allowed_purpose": "memorial_stt_regression_and_provider_bakeoff",
+        "retention": "private_repo_synthetic_regression_fixture",
+        "synthetic": true,
+        "accent": "synthetic German voice"
+      },
+      "shadow": {
+        "status": null,
+        "ms": 0.0,
+        "reason": "provider_cooldown_active",
+        "wer": 1.0,
+        "token_f1": 0.0,
+        "intent_correct": false,
+        "usable": false,
+        "passed": false,
+        "min_token_f1": 0.55,
+        "max_wer": 0.55,
+        "text_mode": "redacted",
+        "expected_text_chars": 43,
+        "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+        "actual_text_chars": 0,
+        "actual_text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "required_token_count": 2,
+        "required_token_sha256": [
+          "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
+          "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
+        ],
+        "text_redacted": true
+      },
+      "onemin_sample": {
+        "status": "ok",
+        "ms": 2643.6,
+        "wer": 0.1111,
+        "token_f1": 0.8889,
+        "intent_correct": false,
+        "usable": true,
+        "passed": false,
+        "min_token_f1": 0.55,
+        "max_wer": 0.55,
+        "text_mode": "redacted",
+        "expected_text_chars": 43,
+        "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+        "actual_text_chars": 43,
+        "actual_text_sha256": "fa84ea621e8902472b29c592ce20469d3b3d31743c2bbd5a234e3dba145b969a",
+        "required_token_count": 2,
+        "required_token_sha256": [
+          "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
+          "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
+        ],
+        "text_redacted": true
+      },
+      "full_runtime": {
+        "status": "transcribed",
+        "ms": 324.0,
+        "transcriber": "cartesia/ink-whisper+enhanced_wav",
+        "detail": "",
+        "wer": 0.0,
+        "token_f1": 1.0,
+        "intent_correct": true,
+        "usable": true,
+        "passed": true,
+        "min_token_f1": 0.55,
+        "max_wer": 0.55,
+        "text_mode": "redacted",
+        "expected_text_chars": 43,
+        "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+        "actual_text_chars": 43,
+        "actual_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+        "required_token_count": 2,
+        "required_token_sha256": [
+          "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
+          "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
+        ],
+        "text_redacted": true
+      }
+    },
+    {
+      "sample": "stt_retry_hostile",
+      "variant": "hostile",
+      "fixture": "rescue_stt_retry_captured.wav",
+      "fixture_sha256": "844ffb440ad0dd2ee30f75ddef046c982f183f196009004ba0d28fece72c3d2d",
+      "fixture_quality": {
+        "status": "pass",
+        "failed_codes": [],
+        "audio_duration_seconds": 3.579,
+        "expected_min_duration_seconds": 2.52
+      },
+      "provenance": {
+        "origin": "Synthetic German speech generated through EA Unmixr TTS from the exact expected text after the previous captured fixture proved truncated.",
+        "speaker_consent": "synthetic_voice_provider_output_no_human_speaker",
+        "allowed_purpose": "memorial_stt_regression_and_provider_bakeoff",
+        "retention": "private_repo_synthetic_regression_fixture",
+        "synthetic": true,
+        "accent": "synthetic German voice"
+      },
+      "shadow": {
+        "status": null,
+        "ms": 0.0,
+        "reason": "provider_cooldown_active",
+        "wer": 1.0,
+        "token_f1": 0.0,
+        "intent_correct": false,
+        "usable": false,
+        "passed": false,
+        "min_token_f1": 0.55,
+        "max_wer": 0.55,
+        "text_mode": "redacted",
+        "expected_text_chars": 43,
+        "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+        "actual_text_chars": 0,
+        "actual_text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "required_token_count": 2,
+        "required_token_sha256": [
+          "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
+          "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
+        ],
+        "text_redacted": true
+      },
+      "onemin_sample": {
+        "status": "ok",
+        "ms": 2772.4,
+        "wer": 0.1111,
+        "token_f1": 0.8889,
+        "intent_correct": false,
+        "usable": true,
+        "passed": false,
+        "min_token_f1": 0.55,
+        "max_wer": 0.55,
+        "text_mode": "redacted",
+        "expected_text_chars": 43,
+        "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+        "actual_text_chars": 43,
+        "actual_text_sha256": "fa84ea621e8902472b29c592ce20469d3b3d31743c2bbd5a234e3dba145b969a",
+        "required_token_count": 2,
+        "required_token_sha256": [
+          "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
+          "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
+        ],
+        "text_redacted": true
+      },
+      "full_runtime": {
+        "status": "transcribed",
+        "ms": 302.0,
+        "transcriber": "cartesia/ink-whisper+enhanced_wav",
+        "detail": "",
+        "wer": 0.0,
+        "token_f1": 1.0,
+        "intent_correct": true,
+        "usable": true,
+        "passed": true,
+        "min_token_f1": 0.55,
+        "max_wer": 0.55,
+        "text_mode": "redacted",
+        "expected_text_chars": 43,
+        "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+        "actual_text_chars": 43,
+        "actual_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+        "required_token_count": 2,
+        "required_token_sha256": [
+          "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
+          "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
+        ],
+        "text_redacted": true
+      }
+    },
+    {
+      "sample": "real_room_retry_candidate",
+      "variant": "captured",
+      "fixture": "[pcloud_bundle]/082347_realtime_audio_turn_generic_fallback_answer_ecbb37fce864/input.wav",
+      "fixture_sha256": "58a71024b6d5c1b8912fdc6c1344735eea5babedca660559baea4aa6e6f22c1d",
+      "fixture_quality": {
+        "status": "pass",
+        "failed_codes": [],
+        "audio_duration_seconds": 2.64,
+        "expected_min_duration_seconds": 2.52
+      },
+      "provenance": {
+        "origin": "Captured Manfred memorial STT error bundle with operator-supplied ground-truth transcript.",
+        "speaker_consent": "operator_attested_for_private_stt_regression",
+        "allowed_purpose": "memorial_stt_regression_and_provider_bakeoff",
+        "retention": "pcloud_private_captured_regression_candidate",
+        "synthetic": false,
+        "accent": "Austrian German",
+        "external_bundle": true,
+        "bundle_root": "[pcloud_memorial_stt_errors]",
+        "bundle_id": "082347_realtime_audio_turn_generic_fallback_answer_ecbb37fce864"
+      },
+      "shadow": {
+        "status": null,
+        "ms": 0.0,
+        "reason": "provider_cooldown_active",
+        "wer": 1.0,
+        "token_f1": 0.0,
+        "intent_correct": false,
+        "usable": false,
+        "passed": false,
+        "min_token_f1": 0.55,
+        "max_wer": 0.55,
+        "text_mode": "redacted",
+        "expected_text_chars": 43,
+        "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+        "actual_text_chars": 0,
+        "actual_text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "required_token_count": 2,
+        "required_token_sha256": [
+          "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
+          "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
+        ],
+        "text_redacted": true
+      },
+      "onemin_sample": {
+        "status": "ok",
+        "ms": 2031.2,
+        "wer": 1.0,
+        "token_f1": 0.0,
+        "intent_correct": false,
+        "usable": true,
+        "passed": false,
+        "min_token_f1": 0.55,
+        "max_wer": 0.55,
+        "text_mode": "redacted",
+        "expected_text_chars": 43,
+        "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+        "actual_text_chars": 29,
+        "actual_text_sha256": "94b1cd4726fb188e8a9fa34cf50d9255bbf735552ed315465c8b003dd1335406",
+        "required_token_count": 2,
+        "required_token_sha256": [
+          "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
+          "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
+        ],
+        "text_redacted": true
+      },
+      "full_runtime": {
+        "status": "transcribed",
+        "ms": 303.1,
+        "transcriber": "cartesia/ink-whisper+enhanced_wav",
+        "detail": "",
+        "wer": 0.8889,
+        "token_f1": 0.2353,
+        "intent_correct": false,
+        "usable": true,
+        "passed": false,
+        "min_token_f1": 0.55,
+        "max_wer": 0.55,
+        "text_mode": "redacted",
+        "expected_text_chars": 43,
+        "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+        "actual_text_chars": 41,
+        "actual_text_sha256": "a511743c01cb653f8047435fbd4040eea735f825d01a84fbdb8ccb69a41ac413",
+        "required_token_count": 2,
+        "required_token_sha256": [
+          "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
+          "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
+        ],
+        "text_redacted": true
+      }
+    },
+    {
+      "sample": "real_room_retry_candidate_hostile",
+      "variant": "hostile",
+      "fixture": "[pcloud_bundle]/082347_realtime_audio_turn_generic_fallback_answer_ecbb37fce864/input.wav",
+      "fixture_sha256": "58a71024b6d5c1b8912fdc6c1344735eea5babedca660559baea4aa6e6f22c1d",
+      "fixture_quality": {
+        "status": "pass",
+        "failed_codes": [],
+        "audio_duration_seconds": 2.64,
+        "expected_min_duration_seconds": 2.52
+      },
+      "provenance": {
+        "origin": "Captured Manfred memorial STT error bundle with operator-supplied ground-truth transcript.",
+        "speaker_consent": "operator_attested_for_private_stt_regression",
+        "allowed_purpose": "memorial_stt_regression_and_provider_bakeoff",
+        "retention": "pcloud_private_captured_regression_candidate",
+        "synthetic": false,
+        "accent": "Austrian German",
+        "external_bundle": true,
+        "bundle_root": "[pcloud_memorial_stt_errors]",
+        "bundle_id": "082347_realtime_audio_turn_generic_fallback_answer_ecbb37fce864"
+      },
+      "shadow": {
+        "status": null,
+        "ms": 0.0,
+        "reason": "provider_cooldown_active",
+        "wer": 1.0,
+        "token_f1": 0.0,
+        "intent_correct": false,
+        "usable": false,
+        "passed": false,
+        "min_token_f1": 0.55,
+        "max_wer": 0.55,
+        "text_mode": "redacted",
+        "expected_text_chars": 43,
+        "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+        "actual_text_chars": 0,
+        "actual_text_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "required_token_count": 2,
+        "required_token_sha256": [
+          "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
+          "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
+        ],
+        "text_redacted": true
+      },
+      "onemin_sample": {
+        "status": "ok",
+        "ms": 1488.4,
+        "wer": 1.0,
+        "token_f1": 0.0,
+        "intent_correct": false,
+        "usable": true,
+        "passed": false,
+        "min_token_f1": 0.55,
+        "max_wer": 0.55,
+        "text_mode": "redacted",
+        "expected_text_chars": 43,
+        "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+        "actual_text_chars": 37,
+        "actual_text_sha256": "ec8217bd672e94efa6e4a8da99c94cc8f03783ed5651d9f0faf9da1f231cb300",
+        "required_token_count": 2,
+        "required_token_sha256": [
+          "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
+          "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
+        ],
+        "text_redacted": true
+      },
+      "full_runtime": {
+        "status": "transcribed",
+        "ms": 268.6,
+        "transcriber": "cartesia/ink-whisper+enhanced_wav",
+        "detail": "",
+        "wer": 0.8889,
+        "token_f1": 0.2353,
+        "intent_correct": false,
+        "usable": true,
+        "passed": false,
+        "min_token_f1": 0.55,
+        "max_wer": 0.55,
+        "text_mode": "redacted",
+        "expected_text_chars": 43,
+        "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+        "actual_text_chars": 32,
+        "actual_text_sha256": "9ac0b646066685b392747e439ddf5978660c8faee41b4e42bcf504a66ad26e1f",
+        "required_token_count": 2,
+        "required_token_sha256": [
+          "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",
+          "40413d6381dbcfd6c4480bc04a7ba1e0f89fda20c09d733ddc23e10568086cd1"
+        ],
+        "text_redacted": true
+      }
+    }
+  ]
+}

@@ -27,10 +27,9 @@ def _client(*, operator: bool = False) -> TestClient:
     os.environ["EA_ENABLE_PUBLIC_TOURS"] = "0"
     os.environ["PROPERTYQUARRY_DEFAULT_BRAND"] = "0"
     os.environ.pop("EA_LEDGER_BACKEND", None)
+    os.environ["EA_DEFAULT_PRINCIPAL_ID"] = "project-mode-runtime-check"
     if operator:
         os.environ["EA_API_TOKEN"] = "test-token"
-        os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
-        os.environ["EA_OPERATOR_PRINCIPAL_IDS"] = "project-mode-runtime-check"
     else:
         os.environ["EA_API_TOKEN"] = ""
         os.environ.pop("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER", None)
@@ -40,6 +39,15 @@ def _client(*, operator: bool = False) -> TestClient:
     client = TestClient(create_app())
     client.headers.update({"X-EA-Principal-ID": "project-mode-runtime-check"})
     if operator:
+        client.app.state.container.orchestrator.upsert_operator_profile(
+            principal_id="project-mode-runtime-check",
+            operator_id="operator-project-mode-runtime",
+            display_name="Project Mode Runtime Operator",
+            roles=("operator", "reviewer"),
+            trust_tier="trusted",
+            status="active",
+            notes="Seeded by verify_project_mode_runtime.",
+        )
         client.headers.update({"Authorization": "Bearer test-token"})
         client.headers.update({"X-EA-Operator-ID": "operator-project-mode-runtime"})
     return client

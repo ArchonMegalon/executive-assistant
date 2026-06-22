@@ -37,11 +37,22 @@ capability_slots:
   artifact_rendering:
     primary:
       - vidBoard
+      - Subscribr.ai
       - MarkupGo
       - PeekShot
       - Soundmadeseen
       - Taja
     boundary: approved_source_packet_only
+  support_video_library:
+    primary:
+      - vidBoard
+    boundary: approved_help_packet_only; pre_rendered_video_lookup; no live_user_video_generation_until_provider_api_and_privacy_proof_pass
+  creator_video_preproduction:
+    primary: Subscribr.ai
+    vendor_plan_tier: License Tier 7 / Scale 3
+    workspace_tier: Tier 4 until provider proof and source-bound roundtrip pass
+    contract: SUBSCRIBR_SCRIPT_FACTORY_PROVIDER_BOUNDARY.md
+    boundary: approved_source_packet_only; no repo credentials; no rules_truth; no_release_truth; no_private_campaign_truth; no_direct_publish; scripts, hooks, metadata, and thumbnail briefs return to Chummer-owned review before publication
   discovery_research:
     primary:
       - Icanpreneur
@@ -67,6 +78,7 @@ product_systems:
     tools:
       - ClickRank
       - NeuronWriter
+      - Subscribr.ai
       - Rybbit
       - Katteb
       - ProductLift
@@ -99,6 +111,7 @@ product_systems:
   artifact_factory:
     tools:
       - vidBoard
+      - Subscribr.ai
       - MarkupGo
       - PeekShot
       - Taja
@@ -136,6 +149,16 @@ product_systems:
       - Fleet
       - Product Governor
     contract: PRODUCT_ANALYTICS_AND_JOURNEY_PROOF_MODEL.md
+  instant_help_maintenance_system:
+    tools:
+      - Hub
+      - Answerly
+      - DocumentationAI
+      - vidBoard
+      - Dadan
+      - Fleet
+    contract: INSTANT_HELP_MAINTENANCE_MODEL.md
+    boundary: maintenance_support_only; not_horizon; no_lunacal_in_normal_chummer_help; no_provider_owned_rules_or_release_truth
 optional_purchase_watchlist:
   SendFox:
     fit: public_newsletter_digest_layer

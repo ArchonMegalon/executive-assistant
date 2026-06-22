@@ -2,8 +2,8 @@
 
 ## Explanation videos
 
-* [Watch the BLACK LEDGER 90-second deep dive](https://chummer.run/media/horizons/black-ledger-90s-deepdive.mp4) - MP4 with AAC audio. [Captions](https://chummer.run/media/horizons/black-ledger-90s-deepdive.vtt).
-* [Watch the BLACK LEDGER epic reel](https://chummer.run/media/horizons/black-ledger-epic-90s.mp4) - MP4 with AAC audio. [Captions](https://chummer.run/media/horizons/black-ledger-epic-90s.vtt).
+* [Watch the BLACK LEDGER 90-second deep dive](https://chummer.run/media/horizons/black-ledger-90s-deepdive.mp4). [Captions](https://chummer.run/media/horizons/black-ledger-90s-deepdive.vtt).
+* [Watch the BLACK LEDGER epic reel](https://chummer.run/media/horizons/black-ledger-epic-90s.mp4). [Captions](https://chummer.run/media/horizons/black-ledger-epic-90s.vtt).
 
 **BLACK LEDGER is Chummer’s living-world layer: a persistent Shadowrun power struggle where megacorps, factions, GMs, players, runners, organizers, creators, and community organizers all push on the same city — and the city pushes back.**
 

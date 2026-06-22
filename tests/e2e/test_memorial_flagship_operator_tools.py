@@ -24,6 +24,11 @@ Server = uvicorn.Server
 from app.api.app import create_app
 
 
+ROOT = Path(__file__).resolve().parents[2]
+APP_ROOT = ROOT / "ea"
+EXAMPLES_ROOT = ROOT / "examples"
+
+
 def _free_port() -> int:
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.bind(("127.0.0.1", 0))
@@ -264,7 +269,7 @@ def _tool_env(server: dict[str, object], tmp_path: Path) -> dict[str, str]:
     env = dict(os.environ)
     env["EA_PUBLIC_MEMORIAL_DIR"] = str(server["public_root"])
     env["EA_PRIVATE_MEMORIAL_PROFILE_DIR"] = str(server["private_root"])
-    env["PYTHONPATH"] = "/docker/EA/ea"
+    env["PYTHONPATH"] = str(APP_ROOT)
     tmpdir = tmp_path / "tmp"
     tmpdir.mkdir(exist_ok=True)
     env["TMPDIR"] = str(tmpdir)
@@ -278,12 +283,12 @@ def test_memorial_demo_rehearsal_cli_passes_and_saves_audio(
     base_url = str(memorial_operator_server["base_url"])
     env = _tool_env(memorial_operator_server, tmp_path)
     audio_dir = tmp_path / "audio"
-    questions_path = Path("/docker/EA/examples/demo_questions.manfred.json")
+    questions_path = EXAMPLES_ROOT / "demo_questions.manfred.json"
 
     result = subprocess.run(
         [
             sys.executable,
-            "/docker/EA/ea/scripts/memorial_demo_rehearsal.py",
+            str(APP_ROOT / "scripts" / "memorial_demo_rehearsal.py"),
             "manfred",
             "--base-url",
             base_url,
@@ -321,12 +326,12 @@ def test_memorial_launch_snapshot_cli_writes_green_snapshot(
     base_url = str(memorial_operator_server["base_url"])
     env = _tool_env(memorial_operator_server, tmp_path)
     output = tmp_path / "snapshot.json"
-    questions_path = Path("/docker/EA/examples/demo_questions.manfred.json")
+    questions_path = EXAMPLES_ROOT / "demo_questions.manfred.json"
 
     result = subprocess.run(
         [
             sys.executable,
-            "/docker/EA/ea/scripts/memorial_launch_snapshot.py",
+            str(APP_ROOT / "scripts" / "memorial_launch_snapshot.py"),
             "manfred",
             "--base-url",
             base_url,
@@ -367,12 +372,12 @@ def test_memorial_room_ready_cli_writes_room_and_audio_reports(
     base_url = str(memorial_operator_server["base_url"])
     env = _tool_env(memorial_operator_server, tmp_path)
     output_dir = tmp_path / "room-ready"
-    questions_path = Path("/docker/EA/examples/demo_questions.manfred.json")
+    questions_path = EXAMPLES_ROOT / "demo_questions.manfred.json"
 
     result = subprocess.run(
         [
             sys.executable,
-            "/docker/EA/ea/scripts/memorial_room_ready.py",
+            str(APP_ROOT / "scripts" / "memorial_room_ready.py"),
             "--slug",
             "manfred",
             "--base-url",

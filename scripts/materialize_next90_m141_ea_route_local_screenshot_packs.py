@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 import sys
@@ -18,28 +19,37 @@ from app.yaml_inputs import load_yaml_dict
 
 DOCS_ROOT = ROOT / "docs" / "chummer5a_parity_lab"
 
+
+def _env_path(name: str, default: Path) -> Path:
+    return Path(os.environ.get(name) or default)
+
+
+DESIGN_PRODUCT_ROOT = _env_path("CHUMMER6_DESIGN_PRODUCT_ROOT", ROOT / ".codex-design" / "product")
+CHUMMER_COMPLETION_ROOT = _env_path("EA_CHUMMER_CROSS_REPO_COMPLETION_ROOT", ROOT / "ea" / "_completion" / "chummer_cross_repo")
+FLEET_COMPLETION_ROOT = _env_path("EA_FLEET_COMPLETION_ROOT", ROOT / "ea" / "_completion" / "fleet")
+
 OUTPUT_PATH = DOCS_ROOT / "NEXT90_M141_ROUTE_LOCAL_SCREENSHOT_PACKS.generated.yaml"
 MARKDOWN_PATH = DOCS_ROOT / "NEXT90_M141_ROUTE_LOCAL_SCREENSHOT_PACKS.generated.md"
 COMPARE_PACKS_PATH = DOCS_ROOT / "compare_packs.yaml"
-CAPTURE_PACK_PATH = Path("/docker/fleet/docs/chummer5a-oracle/parity_lab_capture_pack.yaml")
-VETERAN_WORKFLOW_PACK_PATH = Path("/docker/fleet/docs/chummer5a-oracle/veteran_workflow_packs.yaml")
-SUCCESSOR_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml")
-DESIGN_QUEUE_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
-FLEET_QUEUE_PATH = Path("/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
-LOCAL_MIRROR_REGISTRY_PATH = ROOT / ".codex-design" / "product" / "NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml"
-LOCAL_MIRROR_QUEUE_PATH = ROOT / ".codex-design" / "product" / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
-NEXT90_GUIDE_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_GUIDE.md")
-PARITY_AUDIT_PATH = Path("/docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_UI_ELEMENT_PARITY_AUDIT.generated.json")
-UI_FLAGSHIP_GATE_PATH = Path("/docker/chummercomplete/chummer-presentation/.codex-studio/published/UI_FLAGSHIP_RELEASE_GATE.generated.json")
-VISUAL_GATE_PATH = Path("/docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_VISUAL_FAMILIARITY_EXIT_GATE.generated.json")
-WORKFLOW_GATE_PATH = Path("/docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_WORKFLOW_EXECUTION_GATE.generated.json")
-VETERAN_TASK_GATE_PATH = Path("/docker/chummercomplete/chummer-presentation/.codex-studio/published/VETERAN_TASK_TIME_EVIDENCE_GATE.generated.json")
-UI_DIRECT_PROOF_PATH = Path("/docker/chummercomplete/chummer6-ui/.codex-studio/published/NEXT90_M141_UI_DIRECT_IMPORT_ROUTE_PROOF.generated.json")
-IMPORT_CERT_PATH = Path("/docker/chummercomplete/chummer6-core/.codex-studio/published/IMPORT_PARITY_CERTIFICATION.generated.json")
-IMPORT_RECEIPTS_DOC_PATH = Path("/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.md")
-IMPORT_RECEIPTS_JSON_PATH = Path("/docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.generated.json")
-FLEET_GATE_PATH = Path("/docker/fleet/.codex-studio/published/NEXT90_M141_FLEET_IMPORT_ROUTE_CLOSEOUT_GATES.generated.json")
-FLAGSHIP_READINESS_PATH = Path("/docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json")
+CAPTURE_PACK_PATH = _env_path("EA_CHUMMER5A_CAPTURE_PACK_PATH", FLEET_COMPLETION_ROOT / "docs" / "chummer5a-oracle" / "parity_lab_capture_pack.yaml")
+VETERAN_WORKFLOW_PACK_PATH = _env_path("EA_CHUMMER5A_VETERAN_WORKFLOW_PACK_PATH", FLEET_COMPLETION_ROOT / "docs" / "chummer5a-oracle" / "veteran_workflow_packs.yaml")
+SUCCESSOR_REGISTRY_PATH = _env_path("EA_NEXT90_SUCCESSOR_REGISTRY_PATH", DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml")
+DESIGN_QUEUE_PATH = _env_path("EA_NEXT90_DESIGN_QUEUE_STAGING_PATH", DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
+FLEET_QUEUE_PATH = _env_path("EA_NEXT90_QUEUE_STAGING_PATH", DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
+LOCAL_MIRROR_REGISTRY_PATH = DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml"
+LOCAL_MIRROR_QUEUE_PATH = DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
+NEXT90_GUIDE_PATH = _env_path("EA_NEXT90_PRODUCT_ADVANCE_GUIDE_PATH", DESIGN_PRODUCT_ROOT / "NEXT_90_DAY_PRODUCT_ADVANCE_GUIDE.md")
+PARITY_AUDIT_PATH = _env_path("EA_CHUMMER5A_UI_ELEMENT_PARITY_AUDIT_PATH", CHUMMER_COMPLETION_ROOT / "chummer-presentation" / "CHUMMER5A_UI_ELEMENT_PARITY_AUDIT.generated.json")
+UI_FLAGSHIP_GATE_PATH = _env_path("EA_CHUMMER_UI_FLAGSHIP_GATE_PATH", CHUMMER_COMPLETION_ROOT / "chummer-presentation" / "UI_FLAGSHIP_RELEASE_GATE.generated.json")
+VISUAL_GATE_PATH = _env_path("EA_CHUMMER_DESKTOP_VISUAL_GATE_PATH", CHUMMER_COMPLETION_ROOT / "chummer-presentation" / "DESKTOP_VISUAL_FAMILIARITY_EXIT_GATE.generated.json")
+WORKFLOW_GATE_PATH = _env_path("EA_CHUMMER_DESKTOP_WORKFLOW_GATE_PATH", CHUMMER_COMPLETION_ROOT / "chummer-presentation" / "DESKTOP_WORKFLOW_EXECUTION_GATE.generated.json")
+VETERAN_TASK_GATE_PATH = _env_path("EA_CHUMMER_VETERAN_TASK_GATE_PATH", CHUMMER_COMPLETION_ROOT / "chummer-presentation" / "VETERAN_TASK_TIME_EVIDENCE_GATE.generated.json")
+UI_DIRECT_PROOF_PATH = _env_path("EA_CHUMMER_UI_DIRECT_IMPORT_PROOF_PATH", CHUMMER_COMPLETION_ROOT / "chummer6-ui" / "NEXT90_M141_UI_DIRECT_IMPORT_ROUTE_PROOF.generated.json")
+IMPORT_CERT_PATH = _env_path("EA_CHUMMER_IMPORT_CERT_PATH", CHUMMER_COMPLETION_ROOT / "chummer6-core" / "IMPORT_PARITY_CERTIFICATION.generated.json")
+IMPORT_RECEIPTS_DOC_PATH = _env_path("EA_CHUMMER_IMPORT_RECEIPTS_DOC_PATH", CHUMMER_COMPLETION_ROOT / "chummer-core-engine" / "NEXT90_M141_IMPORT_ROUTE_RECEIPTS.md")
+IMPORT_RECEIPTS_JSON_PATH = _env_path("EA_CHUMMER_IMPORT_RECEIPTS_JSON_PATH", CHUMMER_COMPLETION_ROOT / "chummer-core-engine" / "NEXT90_M141_IMPORT_ROUTE_RECEIPTS.generated.json")
+FLEET_GATE_PATH = _env_path("EA_NEXT90_M141_FLEET_GATE_PATH", FLEET_COMPLETION_ROOT / "NEXT90_M141_FLEET_IMPORT_ROUTE_CLOSEOUT_GATES.generated.json")
+FLAGSHIP_READINESS_PATH = _env_path("EA_FLAGSHIP_READINESS_PATH", FLEET_COMPLETION_ROOT / "FLAGSHIP_PRODUCT_READINESS.generated.json")
 
 PACKAGE_ID = "next90-m141-ea-compile-route-local-screenshot-packs-and-compare-packets-for-translator-x"
 TITLE = "Compile route-local screenshot packs and compare packets for translator, XML amendment, Hero Lab, and import-oracle proof without inventing parity."

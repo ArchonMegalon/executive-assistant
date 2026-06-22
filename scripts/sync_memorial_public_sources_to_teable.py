@@ -12,11 +12,9 @@ import urllib.request
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_MEMORIAL_PATH = ROOT / "memorial_data" / "public_memorials" / "manfred" / "memorial.json"
-DEFAULT_PRIVATE_PROFILE_PATH = ROOT / "memorial_data" / "private_memorial_profiles" / "manfred" / "llm_profile_notes.json"
+DEFAULT_MEMORIAL_SLUG = "manfred"
 DEFAULT_BASE_URL = "https://app.teable.ai"
 DEFAULT_TABLE_NAME = "memorial_source_signals"
-DEFAULT_TABLE_ID = "tblnD8Ue8GDfsuus1Ym"
 
 
 def _dotenv_value(name: str) -> str:
@@ -45,6 +43,27 @@ def _now_iso() -> str:
 
 def _configured_base_url() -> str:
     return str(os.environ.get("TEABLE_BASE_URL") or _dotenv_value("TEABLE_BASE_URL") or DEFAULT_BASE_URL).strip() or DEFAULT_BASE_URL
+
+
+def _default_memorial_slug() -> str:
+    return (
+        str(os.environ.get("EA_MEMORIAL_PUBLIC_SOURCE_SLUG") or os.environ.get("MEMORIAL_PUBLIC_SLUG") or "").strip()
+        or DEFAULT_MEMORIAL_SLUG
+    )
+
+
+def _default_memorial_path() -> Path:
+    configured = str(os.environ.get("EA_MEMORIAL_PUBLIC_SOURCE_JSON") or "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    return ROOT / "memorial_data" / "public_memorials" / _default_memorial_slug() / "memorial.json"
+
+
+def _default_private_profile_path() -> Path:
+    configured = str(os.environ.get("EA_MEMORIAL_PUBLIC_SOURCE_PRIVATE_PROFILE_JSON") or "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    return ROOT / "memorial_data" / "private_memorial_profiles" / _default_memorial_slug() / "llm_profile_notes.json"
 
 
 def _teable_request(*, method: str, path: str, api_key: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -96,7 +115,7 @@ def _table_config() -> dict[str, dict[str, Any]]:
 
 
 def _build_rows(*, memorial: dict[str, Any], private_profile: dict[str, Any]) -> list[dict[str, str]]:
-    slug = str(memorial.get("slug") or "manfred").strip() or "manfred"
+    slug = str(memorial.get("slug") or _default_memorial_slug()).strip() or _default_memorial_slug()
     rows: list[dict[str, str]] = []
     now = _now_iso()
     seen: set[str] = set()
@@ -175,8 +194,8 @@ def _existing_record_ids(*, api_key: str, table_id: str, key_field: str, field_k
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Sync curated memorial public-source signals into Teable.")
-    parser.add_argument("--memorial-json", default=str(DEFAULT_MEMORIAL_PATH))
-    parser.add_argument("--private-profile-json", default=str(DEFAULT_PRIVATE_PROFILE_PATH))
+    parser.add_argument("--memorial-json", default=str(_default_memorial_path()))
+    parser.add_argument("--private-profile-json", default=str(_default_private_profile_path()))
     parser.add_argument("--base-url", default=str(os.environ.get("TEABLE_BASE_URL") or _dotenv_value("TEABLE_BASE_URL") or DEFAULT_BASE_URL))
     parser.add_argument("--table-name", default=os.environ.get("EA_MEMORIAL_TEABLE_SOURCE_TABLE_NAME") or DEFAULT_TABLE_NAME)
     parser.add_argument("--table-id", default=os.environ.get("EA_MEMORIAL_TEABLE_SOURCE_TABLE_ID") or "")
@@ -190,7 +209,7 @@ def main() -> int:
     config = _table_config()
     table_name = str(args.table_name or "").strip() or DEFAULT_TABLE_NAME
     configured = dict(config.get(table_name) or {})
-    table_id = str(args.table_id or configured.get("table_id") or DEFAULT_TABLE_ID).strip()
+    table_id = str(args.table_id or configured.get("table_id") or "").strip()
     if not table_id:
         raise SystemExit("teable_table_id_missing")
     key_field = str(configured.get("key_field") or "projection_key").strip() or "projection_key"

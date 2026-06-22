@@ -6,7 +6,7 @@ PropertyQuarry is the standalone product runtime. The active release surface is 
 - `docker-compose.property.yml`
 - `ea/Dockerfile.property`
 - `config/`, `docs/`, `scripts/`, and `tests/` that are property-facing
-- `.github/workflows/smoke-runtime.yml`
+- local release gates invoked through `make property-release-gates`
 
 The extraction still carries inherited archives from the broader EA and Chummer work. These are not part of the PropertyQuarry runtime path and must not be referenced by the property compose file, hardened Dockerfile, or property release gates:
 

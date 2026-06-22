@@ -12,20 +12,24 @@ import time
 import uuid
 from pathlib import Path
 
+try:
+    from scripts.ui_service_worker_cleanup import cleanup_ui_service_run_dir, ui_service_worker_cleanup_enabled
+except ImportError:
+    from ui_service_worker_cleanup import cleanup_ui_service_run_dir, ui_service_worker_cleanup_enabled
+
 
 PLAYWRIGHT_IMAGE = os.environ.get("EA_UI_PLAYWRIGHT_IMAGE", "chummer-playwright:local").strip() or "chummer-playwright:local"
 DEFAULT_EMAIL = os.environ.get("EA_UI_SERVICE_LOGIN_EMAIL", "").strip()
 DEFAULT_PASSWORD = os.environ.get("EA_UI_SERVICE_LOGIN_PASSWORD", "").strip()
+ROOT = Path(__file__).resolve().parents[1]
+RUNTIME_ROOT = ROOT / ".runtime" / "browseract"
 
 
 def _resolve_worker_root(env_name: str, default_dir_name: str) -> Path:
     explicit = str(os.environ.get(env_name) or "").strip()
     if explicit:
         return Path(explicit).expanduser()
-    onedrive_root = Path("/mnt/onedrive/Attachments")
-    if onedrive_root.exists():
-        return onedrive_root / default_dir_name
-    return Path(f"/docker/fleet/state/{default_dir_name}").expanduser()
+    return (RUNTIME_ROOT / default_dir_name).expanduser()
 
 
 OUTPUT_ROOT = _resolve_worker_root("EA_UI_SERVICE_WORKER_OUTPUT_ROOT", "browseract_ui_worker_outputs")
@@ -1345,6 +1349,9 @@ def main() -> int:
         _standalone_html(packet=packet, spec=spec, browser_output=browser_output, screenshot_data_uri=screenshot_data_uri),
         encoding="utf-8",
     )
+    cleanup = {}
+    if ui_service_worker_cleanup_enabled():
+        cleanup = cleanup_ui_service_run_dir(run_dir=run_dir, asset_path=html_path)
     auth_handoff = _auth_handoff_state(browser_output)
     render_status = "completed"
     if browser_output.get("warnings"):
@@ -1372,11 +1379,13 @@ def main() -> int:
             "warnings": list(browser_output.get("warnings") or []),
             "auth_handoff": auth_handoff,
             "workflow_kind": str((((spec.get("meta") or {}).get("workflow_kind")) or browser_output.get("workflow_kind") or "")).strip(),
-            "screenshot_path": str(screenshot_path),
+            "screenshot_path": str(screenshot_path) if screenshot_path.exists() else "",
             "html_path": str(html_path),
             "render_status": render_status,
         },
     }
+    if cleanup:
+        response["cleanup"] = cleanup
     print(json.dumps(response, ensure_ascii=False))
     return 0
 

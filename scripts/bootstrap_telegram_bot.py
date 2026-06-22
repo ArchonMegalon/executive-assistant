@@ -122,7 +122,7 @@ def _telegram_api(method: str, payload: dict[str, object] | None = None, *, toke
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Bootstrap the EA Telegram bot webhook.")
-    parser.add_argument("--env-file", default="/docker/EA/.env", help="Optional dotenv file to load before bootstrapping.")
+    parser.add_argument("--env-file", default=str(Path(__file__).resolve().parents[1] / ".env"), help="Optional dotenv file to load before bootstrapping.")
     parser.add_argument("--bot-key", default="", help="Optional bot registry key to target.")
     parser.add_argument("--all-bots", action="store_true", help="Apply the action to every configured bot registry entry.")
     parser.add_argument("--set-webhook", action="store_true", help="Register the Telegram webhook.")

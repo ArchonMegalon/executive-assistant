@@ -1,0 +1,264 @@
+{
+  "acceptance_evidence": {
+    "accepted_keys": [],
+    "blocked_keys": [
+      "real_daily_morning_brief_accepted",
+      "real_decision_cleared",
+      "real_commitment_recovered_or_closed",
+      "real_approved_action_audited",
+      "real_provider_failure_recovered"
+    ],
+    "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
+    "privacy": {
+      "credential_values_exposed": false,
+      "raw_acceptance_text_exposed": false,
+      "raw_actor_identity_exposed": false,
+      "raw_object_reference_exposed": false,
+      "raw_private_context_exposed": false
+    },
+    "real_daily_use_verified": false,
+    "real_operator_acceptance_verified": false,
+    "real_principal_acceptance_verified": false,
+    "real_provider_recovery_verified": false,
+    "status": "blocked_missing_real_world_acceptance_evidence"
+  },
+  "acceptance_evidence_receipt": {
+    "bytes": 3288,
+    "exists": true,
+    "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
+    "sha256": "544d0c3a3d4e556a5fe578e19dba9cfb85722fe7e00681845dbdf0f6f8502b64"
+  },
+  "blocked_checks": [
+    "real_daily_morning_brief_accepted",
+    "real_decision_cleared",
+    "real_commitment_recovered_or_closed",
+    "real_approved_action_audited",
+    "real_provider_failure_recovered"
+  ],
+  "checklist": [
+    {
+      "key": "first_value_journey_source_ready",
+      "operator_action": "Restore the EA first-value journey canon.",
+      "status": "ready",
+      "verification_command": "make verify-executive-assistant-quality-readiness"
+    },
+    {
+      "key": "quality_metrics_source_ready",
+      "operator_action": "Restore EA metrics and SLO canon for first brief, review loop, approvals, commitments, and traceability.",
+      "status": "ready",
+      "verification_command": "make verify-executive-assistant-quality-readiness"
+    },
+    {
+      "key": "command_brief_local_ready",
+      "operator_action": "Repair the Today route so the seeded morning memo is actionable.",
+      "status": "ready",
+      "verification_command": "make verify-executive-assistant-quality-readiness"
+    },
+    {
+      "key": "decision_queue_local_ready",
+      "operator_action": "Repair the Queue route so decision and deadline pressure are visible.",
+      "status": "ready",
+      "verification_command": "make verify-executive-assistant-quality-readiness"
+    },
+    {
+      "key": "commitment_ledger_local_ready",
+      "operator_action": "Repair the commitments route so commitments, follow-ups, and handoffs remain visible.",
+      "status": "ready",
+      "verification_command": "make verify-executive-assistant-quality-readiness"
+    },
+    {
+      "key": "approved_action_review_local_ready",
+      "operator_action": "Repair the approvals lane so sensitive actions stay visibly review-gated.",
+      "status": "ready",
+      "verification_command": "make verify-executive-assistant-quality-readiness"
+    },
+    {
+      "key": "evidence_audit_trail_local_ready",
+      "operator_action": "Repair the audit trail so approvals, outbound work, and deployment posture can be reconstructed.",
+      "status": "ready",
+      "verification_command": "make verify-executive-assistant-quality-readiness"
+    },
+    {
+      "key": "support_recovery_local_ready",
+      "operator_action": "Repair the support and recovery route so failures have operator-grade recovery posture.",
+      "status": "ready",
+      "verification_command": "make verify-executive-assistant-quality-readiness"
+    },
+    {
+      "key": "operator_control_local_ready",
+      "operator_action": "Repair the operator control surface so next actions, handoffs, load, and runtime events are visible.",
+      "status": "ready",
+      "verification_command": "make verify-executive-assistant-quality-readiness"
+    },
+    {
+      "key": "goal_evidence_local_ready",
+      "operator_action": "Repair goal evidence visibility so active goals, external blockers, and claim limits are operator-visible.",
+      "status": "ready",
+      "verification_command": "make verify-executive-assistant-quality-readiness"
+    },
+    {
+      "key": "api_digest_local_ready",
+      "operator_action": "Repair diagnostics and channel-loop digests for memo, approvals, and operator state.",
+      "status": "ready",
+      "verification_command": "make verify-executive-assistant-quality-readiness"
+    },
+    {
+      "key": "boundary_posture_local_ready",
+      "operator_action": "Keep EA inside its boundary: no product truth, release authority, queue truth, prompt canon, or provider authority overclaim.",
+      "status": "ready",
+      "verification_command": "make verify-executive-assistant-quality-readiness"
+    },
+    {
+      "key": "real_daily_morning_brief_accepted",
+      "operator_action": "Collect real principal/operator acceptance that the morning brief was worth reading.",
+      "status": "blocked",
+      "verification_command": "make verify-executive-assistant-quality-readiness"
+    },
+    {
+      "key": "real_decision_cleared",
+      "operator_action": "Clear one real decision with owner, evidence, recommendation, approval state, and stale-by signal.",
+      "status": "blocked",
+      "verification_command": "make verify-executive-assistant-quality-readiness"
+    },
+    {
+      "key": "real_commitment_recovered_or_closed",
+      "operator_action": "Recover or close one real commitment with source, owner, due date, next action, and receipt.",
+      "status": "blocked",
+      "verification_command": "make verify-executive-assistant-quality-readiness"
+    },
+    {
+      "key": "real_approved_action_audited",
+      "operator_action": "Run one real approved outbound action through the proper adapter with a visible audit trail.",
+      "status": "blocked",
+      "verification_command": "make verify-executive-assistant-quality-readiness"
+    },
+    {
+      "key": "real_provider_failure_recovered",
+      "operator_action": "Capture one real provider failure with operator-grade reason, recovery step, and redacted debug evidence.",
+      "status": "blocked",
+      "verification_command": "make verify-executive-assistant-quality-readiness"
+    }
+  ],
+  "contract_name": "ea.executive_assistant_quality_readiness.v1",
+  "ea_is_product_truth": false,
+  "ea_owns_canonical_queue_truth": false,
+  "ea_owns_release_authority": false,
+  "external_acceptance_blockers": [
+    "real_daily_morning_brief_accepted",
+    "real_decision_cleared",
+    "real_commitment_recovered_or_closed",
+    "real_approved_action_audited",
+    "real_provider_failure_recovered"
+  ],
+  "generated_at": "2026-06-20T06:12:42Z",
+  "generated_by": "ea/scripts/materialize_executive_assistant_quality_readiness.py",
+  "goal_completion_claim_allowed": false,
+  "good_executive_assistant_claim_allowed": false,
+  "live_daily_use_verified": false,
+  "local_blockers": [],
+  "local_quality_evidence_ready": true,
+  "next_action": "Collect real principal/operator acceptance that the morning brief was worth reading.",
+  "operator_commands": [
+    "make verify-executive-assistant-quality-readiness",
+    "make verify-office-loop-goal-receipt",
+    "make verify-whole-project-scope-gap-audit"
+  ],
+  "privacy": {
+    "credential_values_exposed": false,
+    "env_values_exposed": false,
+    "raw_acceptance_actor_exposed": false,
+    "raw_acceptance_object_ref_exposed": false,
+    "raw_acceptance_text_exposed": false,
+    "raw_private_context_exposed": false,
+    "seeded_fixture_raw_private_context_exposed": false
+  },
+  "provider_telemetry_is_product_authority": false,
+  "public_or_premium_claim_allowed": false,
+  "quality_dimensions": {
+    "commitment_visibility": {
+      "status": "ready",
+      "success_condition": "at least one commitment or follow-up stays visible"
+    },
+    "morning_brief": {
+      "status": "ready",
+      "success_condition": "the user sees a morning brief worth reading"
+    },
+    "recovery_and_traceability": {
+      "status": "ready",
+      "success_condition": "provider and action failures produce an operator-grade recovery path"
+    },
+    "review_boundary": {
+      "status": "ready",
+      "success_condition": "nothing sends without review"
+    },
+    "review_loop": {
+      "status": "ready",
+      "success_condition": "at least one draft or decision is reviewable"
+    }
+  },
+  "ready_for_real_daily_use_review": true,
+  "real_operator_acceptance_verified": false,
+  "real_principal_acceptance_verified": false,
+  "real_provider_recovery_verified": false,
+  "remaining_external_proofs": [
+    "real daily morning brief acceptance",
+    "real decision cleared by the principal or operator",
+    "real commitment recovered or closed with an evidence receipt",
+    "real approved outbound action with audit trail",
+    "real provider failure recovered with operator-grade reason",
+    "real whole-project scope gap audit reviewed against the current product spine",
+    "real weekly signal-to-decision review accepted by the operator"
+  ],
+  "required_real_world_proof": [
+    "real daily morning brief acceptance",
+    "real decision cleared by the principal or operator",
+    "real commitment recovered or closed with an evidence receipt",
+    "real approved outbound action with audit trail",
+    "real provider failure recovered with operator-grade reason"
+  ],
+  "source_authority": {
+    "continuous_goal": {
+      "bytes": 17545,
+      "exists": true,
+      "path": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
+      "sha256": "1dc9a42d6d06be5c767371a0b48259551aa9834e7e36f14ca36b6c316ff363a6"
+    },
+    "ea_readme": {
+      "bytes": 1536,
+      "exists": true,
+      "path": ".codex-design/ea/README.md",
+      "sha256": "451dcd2ebbe629cfd0cd1fac44dcd779ee6521bb0c89aa5612316d46c0755dd4"
+    },
+    "first_value_journey": {
+      "bytes": 867,
+      "exists": true,
+      "path": ".codex-design/ea/FIRST_VALUE_JOURNEY.md",
+      "sha256": "ae4fda2fa2e270d691e9e74e61e8e1b56acc467575a61a3ceb908de6e7963a4a"
+    },
+    "implementation_scope": {
+      "bytes": 3632,
+      "exists": true,
+      "path": ".codex-design/repo/IMPLEMENTATION_SCOPE.md",
+      "sha256": "81235c00d6c0ac4b69978f4d0f192c6e29e1dd52eb72096b52cbac6caab77a6a"
+    },
+    "metrics_and_slos": {
+      "bytes": 1020,
+      "exists": true,
+      "path": ".codex-design/ea/METRICS_AND_SLOS.yaml",
+      "sha256": "ba3c3c2267b16504388ec5987d4dc6961d31a2712d977ecd3defdd4c72fe1504"
+    },
+    "review_context": {
+      "bytes": 1043,
+      "exists": true,
+      "path": ".codex-design/review/REVIEW_CONTEXT.md",
+      "sha256": "6cebbfeb7e5ee59f08dd087aaf27cd598680ef4324e7895ee2eb6cd5fce38520"
+    }
+  },
+  "source_receipt": {
+    "bytes": 75217,
+    "exists": true,
+    "path": ".codex-studio/published/ea_office_loop_goal.generated.json",
+    "sha256": "3166642b39c064ce310fd86aa430216343d8767193568e4c10188cb8ec728d69"
+  },
+  "status": "blocked_real_world_acceptance"
+}

@@ -1,0 +1,9 @@
+{
+  "contract_name": "ea.promo_video_fallback_storyboard.v1",
+  "faction_id": "ashline-circle",
+  "kind": "fallback_storyboard_poster_frame",
+  "on_screen_text": "Walk in ready",
+  "render_mode": "fallback_static_storyboard",
+  "title": "Black Ledger faction promo",
+  "visual": "Final static-motion frame: faction colors, a clean caption band, and a visible receipt tab beside the call to action."
+}

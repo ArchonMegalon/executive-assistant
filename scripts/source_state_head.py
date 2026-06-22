@@ -68,6 +68,47 @@ def resolve_source_tree_fingerprint(
     return digest.hexdigest()
 
 
+def source_worktree_metadata(
+    repo_root: Path,
+    *,
+    generated_only_prefixes: tuple[str, ...] = GENERATED_ONLY_PREFIXES,
+    dirty_path_limit: int = 40,
+) -> dict[str, object]:
+    raw_status = _git_stdout_raw(repo_root, "status", "--porcelain=v1", "--untracked-files=all")
+    source_entries: list[tuple[str, str]] = []
+    for line in raw_status.splitlines():
+        if not line.strip():
+            continue
+        status = (line[:2] or "").strip() or "changed"
+        raw_path = line[3:].strip() if len(line) > 3 else line.strip()
+        paths = _status_paths(raw_path)
+        source_paths = [
+            path
+            for path in paths
+            if path and not _is_generated_only_path(path, prefixes=generated_only_prefixes)
+        ]
+        if not source_paths:
+            continue
+        source_entries.append((status, source_paths[-1]))
+
+    digest = hashlib.sha256()
+    for status, path in sorted(source_entries, key=lambda item: (item[1], item[0])):
+        digest.update(status.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.encode("utf-8"))
+        digest.update(b"\0")
+
+    dirty_count = len(source_entries)
+    dirty_files = [path for _status, path in sorted(source_entries, key=lambda item: (item[1], item[0]))]
+    return {
+        "source_worktree_dirty": dirty_count > 0,
+        "source_dirty_count": dirty_count,
+        "source_dirty_files": dirty_files[: max(dirty_path_limit, 0)],
+        "source_dirty_omitted_count": max(dirty_count - max(dirty_path_limit, 0), 0),
+        "source_dirty_status_sha256": digest.hexdigest() if dirty_count else "",
+    }
+
+
 def _git_stdout(repo_root: Path, *args: str) -> str:
     try:
         proc = subprocess.run(
@@ -82,5 +123,25 @@ def _git_stdout(repo_root: Path, *args: str) -> str:
     return proc.stdout.strip()
 
 
+def _git_stdout_raw(repo_root: Path, *args: str) -> str:
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(repo_root), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except Exception:
+        return ""
+    return proc.stdout
+
+
 def _is_generated_only_path(path: str, *, prefixes: tuple[str, ...]) -> bool:
     return path in GENERATED_ONLY_EXACT or any(path.startswith(prefix) for prefix in prefixes)
+
+
+def _status_paths(raw_path: str) -> list[str]:
+    if " -> " in raw_path:
+        return [part.strip().strip('"') for part in raw_path.split(" -> ") if part.strip()]
+    return [raw_path.strip().strip('"')]

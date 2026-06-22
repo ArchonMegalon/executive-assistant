@@ -28,7 +28,7 @@ def test_rewrite_and_policy_audit_flow() -> None:
     payload = create.json()
     artifact_id = payload["artifact_id"]
     session_id = payload["execution_session_id"]
-    assert payload["principal_id"] == "exec-1"
+    assert payload["principal_id"] == "principal-default"
 
     session = client.get(f"/v1/rewrite/sessions/{session_id}")
     assert session.status_code == 200
@@ -97,7 +97,7 @@ def test_rewrite_and_policy_audit_flow() -> None:
     assert body["artifacts"][0]["artifact_id"] == payload["artifact_id"]
     assert body["artifacts"][0]["task_key"] == "rewrite_text"
     assert body["artifacts"][0]["deliverable_type"] == "rewrite_note"
-    assert body["artifacts"][0]["principal_id"] == "exec-1"
+    assert body["artifacts"][0]["principal_id"] == "principal-default"
     assert body["artifacts"][0]["mime_type"] == "text/plain"
     assert body["artifacts"][0]["preview_text"] == "smoke"
     assert body["artifacts"][0]["storage_handle"] == f"artifact://{artifact_id}"
@@ -112,7 +112,7 @@ def test_rewrite_and_policy_audit_flow() -> None:
     assert fetched_artifact.json()["artifact_id"] == artifact_id
     assert fetched_artifact.json()["execution_session_id"] == session_id
     assert fetched_artifact.json()["content"] == "smoke"
-    assert fetched_artifact.json()["principal_id"] == "exec-1"
+    assert fetched_artifact.json()["principal_id"] == "principal-default"
     assert fetched_artifact.json()["mime_type"] == "text/plain"
     assert fetched_artifact.json()["preview_text"] == "smoke"
     assert fetched_artifact.json()["storage_handle"] == f"artifact://{artifact_id}"
@@ -150,11 +150,11 @@ def test_rewrite_and_policy_audit_flow() -> None:
 
 
 def test_rewrite_routes_enforce_principal_scope() -> None:
-    client = _client(storage_backend="memory", principal_id="exec-1")
+    client = _client(storage_backend="memory", principal_id="principal-default")
 
     create = client.post(
         "/v1/rewrite/artifact",
-        json={"text": "principal scoped rewrite", "principal_id": "exec-1"},
+        json={"text": "principal scoped rewrite", "principal_id": "principal-default"},
     )
     assert create.status_code == 200
     artifact_id = create.json()["artifact_id"]
@@ -179,7 +179,7 @@ def test_rewrite_routes_enforce_principal_scope() -> None:
 
     create_mismatch = client.post(
         "/v1/rewrite/artifact",
-        headers=_headers(principal_id="exec-1"),
+        headers=_headers(principal_id="principal-default"),
         json={"text": "principal mismatch", "principal_id": "exec-2"},
     )
     assert create_mismatch.status_code == 403
@@ -229,7 +229,7 @@ def test_tool_execute_rejects_foreign_principal_payload_mismatch() -> None:
 
 
 def test_human_task_session_routes_enforce_session_principal_scope() -> None:
-    client = _client(storage_backend="memory", principal_id="exec-1")
+    client = _client(storage_backend="memory", principal_id="principal-default")
 
     create = client.post("/v1/rewrite/artifact", json={"text": "human task session scope"})
     assert create.status_code == 200
@@ -311,7 +311,7 @@ def test_rewrite_requires_approval_then_approve_flow() -> None:
 
     approve = client.post(
         f"/v1/policy/approvals/{approval_id}/approve",
-        json={"decided_by": "exec-1", "reason": "approved in test"},
+        json={"decided_by": "principal-default", "reason": "approved in test"},
     )
     assert approve.status_code == 200
     assert approve.json()["decision"] == "approved"
@@ -352,7 +352,7 @@ def test_rewrite_requires_approval_then_expire_flow() -> None:
 
     expired = client.post(
         f"/v1/policy/approvals/{approval_id}/expire",
-        json={"decided_by": "exec-1", "reason": "expired in test"},
+        json={"decided_by": "principal-default", "reason": "expired in test"},
     )
     assert expired.status_code == 200
     assert expired.json()["decision"] == "expired"
@@ -528,7 +528,7 @@ def test_human_task_flow_and_session_projection() -> None:
     assert assigned.json()["assigned_operator_id"] == operator_id
     assert assigned.json()["assignment_source"] == "recommended"
     assert assigned.json()["assigned_at"]
-    # Release guard anchor: assigned.json()["assigned_by_actor_id"] == "exec-1"
+    # Release guard anchor: assigned.json()["assigned_by_actor_id"] == "principal-default"
     assert assigned.json()["assigned_by_actor_id"] == principal_id
     assert assigned.json()["last_transition_event_name"] in {"human_task_assigned", ""}
     assert assigned.json()["last_transition_at"] in {None, ""} or bool(assigned.json()["last_transition_at"])
@@ -678,7 +678,7 @@ def test_human_task_flow_and_session_projection() -> None:
         f"/v1/human/tasks/{task_id}/assignment-history",
         params={"limit": 10, "event_name": "human_task_assigned", "assigned_by_actor_id": principal_id},
     )
-    # Release guard anchor: params={"limit": 10, "event_name": "human_task_assigned", "assigned_by_actor_id": "exec-1"}
+    # Release guard anchor: params={"limit": 10, "event_name": "human_task_assigned", "assigned_by_actor_id": "principal-default"}
     # operator guard anchor: assigned.json()["last_transition_event_name"] == "human_task_assigned"
     assert assigned_history.status_code == 200
     assert [row["assigned_operator_id"] for row in assigned_history.json()] == [
