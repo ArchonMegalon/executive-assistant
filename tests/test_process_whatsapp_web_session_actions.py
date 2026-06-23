@@ -364,6 +364,62 @@ def test_telegram_summary_waits_until_five_inbound_messages(tmp_path: Path) -> N
     assert sent == []
 
 
+def test_telegram_summary_reports_blocked_when_delivery_config_is_missing(tmp_path: Path) -> None:
+    module = _module()
+    messages = [_text_message(id=f"wamid.summary.blocked.{index}", body_text=f"msg {index}") for index in range(5)]
+    sent: list[dict[str, object]] = []
+
+    report = module.build_report(
+        _args(
+            tmp_path,
+            conversation_fallback_enabled=False,
+            telegram_summary_enabled=True,
+            telegram_summary_chat_id="",
+            telegram_summary_bot_token="",
+        ),
+        request_json=lambda **_: {"messages": messages, "ok": True},
+        send_telegram_message=lambda **kwargs: sent.append(dict(kwargs)) or {"status": "sent", "message_id": "79"},
+    )
+
+    assert report["status"] == "pass"
+    assert report["telegram_summary"]["status"] == "blocked"
+    assert report["telegram_summary"]["reason"] == "telegram_summary_not_configured"
+    assert report["telegram_summary"]["pending_message_count"] == 5
+    assert report["telegram_summary"]["missing_fields"] == [
+        "telegram_summary_bot_token",
+        "telegram_summary_chat_id",
+    ]
+    assert sent == []
+
+
+def test_telegram_summary_reports_blocked_when_delivery_config_is_missing_even_without_pending_batch(tmp_path: Path) -> None:
+    module = _module()
+    messages = []
+    sent: list[dict[str, object]] = []
+
+    report = module.build_report(
+        _args(
+            tmp_path,
+            conversation_fallback_enabled=False,
+            telegram_summary_enabled=True,
+            telegram_summary_chat_id="",
+            telegram_summary_bot_token="",
+        ),
+        request_json=lambda **_: {"messages": messages, "ok": True},
+        send_telegram_message=lambda **kwargs: sent.append(dict(kwargs)) or {"status": "sent", "message_id": "80"},
+    )
+
+    assert report["status"] == "pass"
+    assert report["telegram_summary"]["status"] == "blocked"
+    assert report["telegram_summary"]["reason"] == "telegram_summary_not_configured"
+    assert report["telegram_summary"]["pending_message_count"] == 0
+    assert report["telegram_summary"]["missing_fields"] == [
+        "telegram_summary_bot_token",
+        "telegram_summary_chat_id",
+    ]
+    assert sent == []
+
+
 def test_telegram_summary_sends_when_pending_messages_leave_current_fetch(tmp_path: Path) -> None:
     module = _module()
     first_messages = [

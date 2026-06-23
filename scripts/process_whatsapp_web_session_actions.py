@@ -1050,6 +1050,7 @@ def _telegram_summary_receipt(
     reason: str = "",
     include_reason: bool = False,
     pending_message_count: int | None = None,
+    missing_fields: list[str] | None = None,
 ) -> dict[str, object]:
     receipt: dict[str, object] = {
         "enabled": enabled,
@@ -1064,6 +1065,8 @@ def _telegram_summary_receipt(
         receipt["reason"] = reason
     if pending_message_count is not None:
         receipt["pending_message_count"] = pending_message_count
+    if missing_fields is not None:
+        receipt["missing_fields"] = missing_fields
     return receipt
 
 
@@ -1144,6 +1147,26 @@ def _maybe_send_telegram_summary(
             pending_message_count=len(pending_hashes),
             sent=0,
         )
+    bot_token = str(getattr(args, "telegram_summary_bot_token", "") or os.getenv("EA_TELEGRAM_BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
+    chat_id = _telegram_summary_chat_id(args)
+    if not bot_token or not chat_id:
+        missing_fields: list[str] = []
+        if not bot_token:
+            missing_fields.append("telegram_summary_bot_token")
+        if not chat_id:
+            missing_fields.append("telegram_summary_chat_id")
+        return _telegram_summary_receipt(
+            enabled=True,
+            status="blocked",
+            reason="telegram_summary_not_configured",
+            scope_label=scope_label,
+            allowed_heyy_ai_keys=allowed_heyy_ai_keys,
+            candidate_count=len(candidates),
+            new_message_count=new_count,
+            pending_message_count=len(pending_hashes),
+            sent=0,
+            missing_fields=missing_fields,
+        )
     if len(pending_hashes) < every:
         return _telegram_summary_receipt(
             enabled=True,
@@ -1171,21 +1194,6 @@ def _maybe_send_telegram_summary(
             enabled=True,
             status="waiting",
             reason="summary_messages_unavailable",
-            scope_label=scope_label,
-            allowed_heyy_ai_keys=allowed_heyy_ai_keys,
-            candidate_count=len(candidates),
-            new_message_count=new_count,
-            pending_message_count=len(pending_hashes),
-            sent=0,
-        )
-
-    bot_token = str(getattr(args, "telegram_summary_bot_token", "") or os.getenv("EA_TELEGRAM_BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
-    chat_id = _telegram_summary_chat_id(args)
-    if not bot_token or not chat_id:
-        return _telegram_summary_receipt(
-            enabled=True,
-            status="skipped",
-            reason="telegram_summary_not_configured",
             scope_label=scope_label,
             allowed_heyy_ai_keys=allowed_heyy_ai_keys,
             candidate_count=len(candidates),
