@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import errno
 import json
 import math
 import os
 from pathlib import Path
+import shutil
 import struct
 import wave
 import zipfile
@@ -6182,6 +6184,147 @@ def test_resume_due_audiobook_jobs_keeps_future_throttle_pending(monkeypatch, tm
 
     assert summary["attempted"] == 0
     assert summary["pending"] == 1
+    assert summary["skip_reasons"] == {}
+
+
+def test_resume_due_audiobook_jobs_reports_skip_reasons(monkeypatch, tmp_path: Path) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    jobs_root = tmp_path / "jobs"
+    waiting_dir = jobs_root / "job-waiting"
+    duplicate_dir = jobs_root / "job-duplicate"
+    imported_dir = jobs_root / "job-imported"
+    waiting_dir.mkdir(parents=True)
+    duplicate_dir.mkdir(parents=True)
+    imported_dir.mkdir(parents=True)
+
+    (waiting_dir / "job.json").write_text(
+        json.dumps(
+            {
+                "job_id": "job-waiting",
+                "status": "waiting_voice_selection",
+                "next_action": "choose_audiobook_voice",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (duplicate_dir / "job.json").write_text(
+        json.dumps(
+            {
+                "job_id": "job-duplicate",
+                "status": "superseded_duplicate",
+                "next_action": "none",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (imported_dir / "job.json").write_text(
+        json.dumps(
+            {
+                "job_id": "job-imported",
+                "status": "audiobookshelf_imported",
+                "audiobookshelf_import": {
+                    "status": "imported",
+                    "public_share": {
+                        "status": "public_share_ready",
+                        "absolute_url": "https://abs.example.com/share/skip-book",
+                        "telegram_followup_pending": False,
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(jobs_root))
+
+    summary = pipeline.resume_due_audiobook_jobs(notify_telegram=False)
+
+    assert summary["attempted"] == 0
+    assert summary["resumed"] == 0
+    assert summary["skipped"] == 3
+    assert summary["skip_reasons"] == {
+        "audiobookshelf_imported": 1,
+        "superseded_duplicate": 1,
+        "waiting_voice_selection": 1,
+    }
+    assert summary["completed_terminal"] == 0
+    assert summary["completed_terminal_reasons"] == {}
+
+
+def test_resume_due_audiobook_jobs_only_treats_accepted_playback_as_completed_terminal(monkeypatch, tmp_path: Path) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    jobs_root = tmp_path / "jobs"
+    rejected_dir = jobs_root / "job-rejected"
+    accepted_dir = jobs_root / "job-accepted"
+    waiting_dir = jobs_root / "job-waiting"
+    rejected_dir.mkdir(parents=True)
+    accepted_dir.mkdir(parents=True)
+    waiting_dir.mkdir(parents=True)
+
+    (rejected_dir / "job.json").write_text(
+        json.dumps(
+            {
+                "job_id": "job-rejected",
+                "status": "audiobookshelf_imported",
+                "next_action": "review_audiobook_playback_problem",
+                "audiobookshelf_import": {
+                    "status": "imported",
+                    "public_share": {
+                        "status": "public_share_ready",
+                        "absolute_url": "https://abs.example.com/share/rejected-book",
+                        "telegram_followup_pending": False,
+                        "whatsapp_followup_pending": False,
+                    },
+                },
+                "playback_acceptance": {"status": "rejected", "accepted": False},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (accepted_dir / "job.json").write_text(
+        json.dumps(
+            {
+                "job_id": "job-accepted",
+                "status": "audiobookshelf_imported",
+                "next_action": "playback_accepted",
+                "audiobookshelf_import": {
+                    "status": "imported",
+                    "public_share": {
+                        "status": "public_share_ready",
+                        "absolute_url": "https://abs.example.com/share/accepted-book",
+                        "telegram_followup_pending": False,
+                        "whatsapp_followup_pending": False,
+                    },
+                },
+                "playback_acceptance": {"status": "accepted", "accepted": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (waiting_dir / "job.json").write_text(
+        json.dumps(
+            {
+                "job_id": "job-waiting",
+                "status": "waiting_voice_selection",
+                "next_action": "choose_audiobook_voice",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(jobs_root))
+
+    summary = pipeline.resume_due_audiobook_jobs(notify_telegram=False)
+
+    assert summary["attempted"] == 0
+    assert summary["resumed"] == 0
+    assert summary["skipped"] == 2
+    assert summary["skip_reasons"] == {
+        "audiobookshelf_imported": 1,
+        "waiting_voice_selection": 1,
+    }
+    assert summary["completed_terminal"] == 1
+    assert summary["completed_terminal_reasons"] == {"playback_accepted": 1}
 
 
 def test_origin_dossier_text_job_uses_same_audiobook_pipeline(monkeypatch, tmp_path: Path) -> None:
@@ -6864,6 +7007,67 @@ def test_cleanup_audiobook_job_artifacts_removes_transient_render_files(tmp_path
     assert (job_dir / "job.json").exists()
 
 
+def test_cleanup_audiobook_job_artifacts_records_removal_errors_without_raising(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    job_dir = tmp_path / "job-cleanup-error"
+    (job_dir / "audio").mkdir(parents=True)
+    (job_dir / "audio" / "chapter.wav").write_text("audio", encoding="utf-8")
+    (job_dir / "job.json").write_text(
+        json.dumps(
+            {
+                "job_id": "job-cleanup-error",
+                "status": "audiobookshelf_imported",
+                "updated_at": "2026-06-20T10:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    real_remove = pipeline._audiobook_cleanup_remove_path
+
+    def _fail_audio(path: Path) -> int:
+        if path.name == "audio":
+            raise OSError("simulated_io_error")
+        return real_remove(path)
+
+    monkeypatch.setattr(pipeline, "_audiobook_cleanup_remove_path", _fail_audio)
+
+    result = pipeline.cleanup_audiobook_job_artifacts(
+        job_dir,
+        force=True,
+        now=datetime(2026, 6, 22, 12, 0, tzinfo=UTC),
+    )
+
+    assert result["status"] == "failed"
+    assert result["job_status"] == "audiobookshelf_imported"
+    assert result["removed_paths"] == []
+    assert result["removal_errors"] == [{"path": "audio", "error": "OSError"}]
+    assert (job_dir / "audio").exists()
+
+
+def test_cleanup_audiobook_job_artifacts_treats_disappearing_manifest_as_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    job_dir = tmp_path / "job-disappearing-manifest"
+    job_dir.mkdir()
+    monkeypatch.setattr(pipeline, "_load_job", lambda _job_dir: (_ for _ in ()).throw(FileNotFoundError("raced")))
+
+    result = pipeline.cleanup_audiobook_job_artifacts(
+        job_dir,
+        force=True,
+        now=datetime(2026, 6, 22, 12, 0, tzinfo=UTC),
+    )
+
+    assert result["status"] == "missing"
+    assert result["reason"] == "FileNotFoundError"
+    assert result["removed_paths"] == []
+
+
 def test_cleanup_finished_audiobook_jobs_prunes_stale_incoming_files(monkeypatch, tmp_path: Path) -> None:
     from app.services import audiobook_epub_pipeline as pipeline
 
@@ -6912,3 +7116,451 @@ def test_cleanup_finished_audiobook_jobs_prunes_staging_across_discovery_roots(m
     assert result["staging"]["status"] == "cleaned"
     assert result["staging"]["removed_files"] == 1
     assert not stale.exists()
+
+
+def test_cleanup_finished_audiobook_jobs_tolerates_disappearing_empty_staging_dirs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(tmp_path))
+    monkeypatch.setenv("EA_AUDIOBOOK_JOB_CLEANUP_STAGING_RETENTION_DAYS", "1")
+    incoming_parent = tmp_path / "_incoming"
+    empty_dir = incoming_parent / "20260620"
+    empty_dir.mkdir(parents=True)
+
+    real_rmdir = Path.rmdir
+
+    def _racing_rmdir(self: Path) -> None:
+        if self == empty_dir:
+            real_rmdir(self)
+            raise FileNotFoundError(self)
+        real_rmdir(self)
+
+    monkeypatch.setattr(Path, "rmdir", _racing_rmdir)
+
+    result = pipeline.cleanup_finished_audiobook_jobs(
+        force=True,
+        now=datetime(2026, 6, 22, 12, 0, tzinfo=UTC),
+    )
+
+    assert result["staging"]["status"] == "not_needed"
+
+
+def test_cleanup_finished_audiobook_jobs_observes_disconnected_staging_roots(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(tmp_path))
+    incoming_root = tmp_path / "_incoming"
+
+    real_is_dir = Path.is_dir
+
+    def _racing_is_dir(self: Path) -> bool:
+        if self == incoming_root:
+            raise OSError(errno.ENOTCONN, "Transport endpoint is not connected")
+        return real_is_dir(self)
+
+    monkeypatch.setattr(Path, "is_dir", _racing_is_dir)
+
+    result = pipeline.cleanup_finished_audiobook_jobs(
+        force=True,
+        now=datetime(2026, 6, 22, 12, 0, tzinfo=UTC),
+    )
+
+    assert result["status"] == "not_needed"
+    assert result["staging"]["status"] == "missing"
+    assert result["staging"]["skipped_paths"] == [
+        {"path": str(incoming_root), "reason": "OSError"},
+    ]
+
+
+def test_cleanup_finished_audiobook_jobs_contains_per_job_cleanup_exceptions(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(tmp_path))
+    job_dir = tmp_path / "job-cleanup-race"
+    job_dir.mkdir()
+    (job_dir / "job.json").write_text("{}", encoding="utf-8")
+
+    def _raise_cleanup(*_args, **_kwargs):
+        raise OSError("transient cleanup race")
+
+    monkeypatch.setattr(pipeline, "cleanup_audiobook_job_artifacts", _raise_cleanup)
+
+    result = pipeline.cleanup_finished_audiobook_jobs(
+        force=True,
+        now=datetime(2026, 6, 22, 12, 0, tzinfo=UTC),
+    )
+
+    assert result["status"] == "failed"
+    assert result["failed_jobs"] == 1
+    assert result["results"][0]["status"] == "failed"
+    assert result["results"][0]["reason"] == "OSError"
+
+
+def test_cleanup_finished_audiobook_jobs_prunes_superseded_duplicate_jobs(monkeypatch, tmp_path: Path) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(tmp_path))
+    shared_sha = "same-book-sha"
+
+    def _write_job(job_dir: Path, *, status: str, updated_at: str) -> None:
+        job_dir.mkdir(parents=True)
+        (job_dir / "job.json").write_text(
+            json.dumps(
+                {
+                    "job_id": job_dir.name,
+                    "status": status,
+                    "updated_at": updated_at,
+                    "source": {
+                        "kind": "epub",
+                        "source_sha256": shared_sha,
+                    },
+                    "metadata": {
+                        "title": "Duplicate Book",
+                        "author": "A. Writer",
+                        "source_sha256": shared_sha,
+                    },
+                    "storage": {"job_dir": str(job_dir)},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    stale_waiting = tmp_path / "job-stale-waiting"
+    stale_m4b = tmp_path / "job-stale-m4b"
+    current_imported = tmp_path / "job-current-imported"
+    _write_job(stale_waiting, status="waiting_voice_selection", updated_at="2026-06-20T00:00:00Z")
+    _write_job(stale_m4b, status="m4b_ready", updated_at="2026-06-21T00:00:00Z")
+    _write_job(current_imported, status="audiobookshelf_imported", updated_at="2026-06-22T00:00:00Z")
+
+    result = pipeline.cleanup_finished_audiobook_jobs(
+        force=True,
+        now=datetime(2026, 6, 23, 12, 0, tzinfo=UTC),
+    )
+
+    assert result["superseded"]["status"] == "cleaned"
+    assert result["superseded"]["cleaned_jobs"] == 2
+    assert stale_waiting.exists()
+    assert stale_m4b.exists()
+    assert current_imported.exists()
+    assert json.loads((stale_waiting / "job.json").read_text(encoding="utf-8"))["status"] == "superseded_duplicate"
+    assert json.loads((stale_m4b / "job.json").read_text(encoding="utf-8"))["status"] == "superseded_duplicate"
+    reasons = {row["reason"] for row in result["superseded"]["results"]}
+    assert "superseded_waiting_voice_selection_duplicate" in reasons
+    assert "superseded_m4b_ready_after_import" in reasons
+
+
+def test_cleanup_finished_audiobook_jobs_keeps_newer_m4b_ready_when_import_is_older(monkeypatch, tmp_path: Path) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(tmp_path))
+    shared_sha = "same-book-sha"
+
+    def _write_job(job_dir: Path, *, status: str, updated_at: str) -> None:
+        job_dir.mkdir(parents=True)
+        (job_dir / "job.json").write_text(
+            json.dumps(
+                {
+                    "job_id": job_dir.name,
+                    "status": status,
+                    "updated_at": updated_at,
+                    "source": {
+                        "kind": "epub",
+                        "source_sha256": shared_sha,
+                    },
+                    "metadata": {
+                        "title": "Duplicate Book",
+                        "author": "A. Writer",
+                        "source_sha256": shared_sha,
+                    },
+                    "storage": {"job_dir": str(job_dir)},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    older_imported = tmp_path / "job-older-imported"
+    newer_m4b = tmp_path / "job-newer-m4b"
+    _write_job(older_imported, status="audiobookshelf_imported", updated_at="2026-06-20T00:00:00Z")
+    _write_job(newer_m4b, status="m4b_ready", updated_at="2026-06-22T00:00:00Z")
+
+    result = pipeline.cleanup_finished_audiobook_jobs(
+        force=True,
+        now=datetime(2026, 6, 23, 12, 0, tzinfo=UTC),
+    )
+
+    assert result["superseded"]["status"] == "not_needed"
+    assert result["superseded"]["cleaned_jobs"] == 0
+    assert older_imported.exists()
+    assert newer_m4b.exists()
+
+
+def test_cleanup_finished_audiobook_jobs_prunes_older_imported_and_extracted_duplicates(
+    monkeypatch, tmp_path: Path
+) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(tmp_path))
+    shared_sha = "same-book-sha"
+
+    def _write_job(job_dir: Path, *, status: str, updated_at: str) -> None:
+        job_dir.mkdir(parents=True)
+        (job_dir / "job.json").write_text(
+            json.dumps(
+                {
+                    "job_id": job_dir.name,
+                    "status": status,
+                    "updated_at": updated_at,
+                    "next_action": "noop",
+                    "source": {
+                        "kind": "epub",
+                        "source_sha256": shared_sha,
+                    },
+                    "metadata": {
+                        "title": "Duplicate Book",
+                        "author": "A. Writer",
+                        "source_sha256": shared_sha,
+                    },
+                    "storage": {"job_dir": str(job_dir)},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    stale_extracted = tmp_path / "job-stale-extracted"
+    stale_imported = tmp_path / "job-stale-imported"
+    current_imported = tmp_path / "job-current-imported"
+    _write_job(stale_extracted, status="chapters_extracted", updated_at="2026-06-19T00:00:00Z")
+    _write_job(stale_imported, status="audiobookshelf_imported", updated_at="2026-06-20T00:00:00Z")
+    _write_job(current_imported, status="audiobookshelf_imported", updated_at="2026-06-22T00:00:00Z")
+
+    result = pipeline.cleanup_finished_audiobook_jobs(
+        force=True,
+        now=datetime(2026, 6, 23, 12, 0, tzinfo=UTC),
+    )
+
+    assert result["superseded"]["status"] == "cleaned"
+    assert result["superseded"]["cleaned_jobs"] == 2
+    assert json.loads((stale_extracted / "job.json").read_text(encoding="utf-8"))["status"] == "superseded_duplicate"
+    assert json.loads((stale_imported / "job.json").read_text(encoding="utf-8"))["status"] == "superseded_duplicate"
+    reasons = {row["reason"] for row in result["superseded"]["results"]}
+    assert "superseded_older_imported_duplicate" in reasons
+    assert "superseded_chapters_extracted_after_import" in reasons
+
+
+def test_cleanup_finished_audiobook_jobs_prunes_same_contact_resend_with_different_source_sha(
+    monkeypatch, tmp_path: Path
+) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(tmp_path))
+
+    def _write_job(
+        job_dir: Path,
+        *,
+        status: str,
+        updated_at: str,
+        source_sha: str,
+        sender_ref: str = "4368120864006",
+        chat_ref: str = "chat-ref-1",
+    ) -> None:
+        job_dir.mkdir(parents=True)
+        (job_dir / "job.json").write_text(
+            json.dumps(
+                {
+                    "job_id": job_dir.name,
+                    "status": status,
+                    "updated_at": updated_at,
+                    "source": {
+                        "kind": "epub",
+                        "source_sha256": source_sha,
+                    },
+                    "metadata": {
+                        "title": "Proof Book",
+                        "author": "A. Writer",
+                        "source_sha256": source_sha,
+                    },
+                    "totals": {
+                        "chapter_count": 2,
+                        "char_count": 115,
+                    },
+                    "whatsapp": {
+                        "sender_ref": sender_ref,
+                        "chat_ref": chat_ref,
+                    },
+                    "storage": {"job_dir": str(job_dir)},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    stale_waiting = tmp_path / "job-stale-waiting"
+    current_waiting = tmp_path / "job-current-waiting"
+    _write_job(
+        stale_waiting,
+        status="waiting_voice_selection",
+        updated_at="2026-06-20T00:00:00Z",
+        source_sha="old-proof-sha",
+    )
+    _write_job(
+        current_waiting,
+        status="waiting_voice_selection",
+        updated_at="2026-06-22T00:00:00Z",
+        source_sha="new-proof-sha",
+    )
+
+    result = pipeline.cleanup_finished_audiobook_jobs(
+        force=True,
+        now=datetime(2026, 6, 23, 12, 0, tzinfo=UTC),
+    )
+
+    assert result["superseded"]["status"] == "cleaned"
+    assert result["superseded"]["cleaned_jobs"] == 1
+    assert json.loads((stale_waiting / "job.json").read_text(encoding="utf-8"))["status"] == "superseded_duplicate"
+    assert json.loads((current_waiting / "job.json").read_text(encoding="utf-8"))["status"] == "waiting_voice_selection"
+    assert result["superseded"]["results"][0]["reason"] == "superseded_waiting_voice_selection_duplicate"
+
+
+def test_cleanup_finished_audiobook_jobs_keeps_same_title_different_contact_isolated(
+    monkeypatch, tmp_path: Path
+) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(tmp_path))
+
+    def _write_job(job_dir: Path, *, sender_ref: str, chat_ref: str, updated_at: str) -> None:
+        job_dir.mkdir(parents=True)
+        (job_dir / "job.json").write_text(
+            json.dumps(
+                {
+                    "job_id": job_dir.name,
+                    "status": "waiting_voice_selection",
+                    "updated_at": updated_at,
+                    "source": {
+                        "kind": "epub",
+                        "source_sha256": f"sha-{job_dir.name}",
+                    },
+                    "metadata": {
+                        "title": "Proof Book",
+                        "author": "A. Writer",
+                    },
+                    "totals": {
+                        "chapter_count": 2,
+                        "char_count": 115,
+                    },
+                    "whatsapp": {
+                        "sender_ref": sender_ref,
+                        "chat_ref": chat_ref,
+                    },
+                    "storage": {"job_dir": str(job_dir)},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    first_job = tmp_path / "job-first"
+    second_job = tmp_path / "job-second"
+    _write_job(first_job, sender_ref="4368120864006", chat_ref="chat-ref-1", updated_at="2026-06-20T00:00:00Z")
+    _write_job(second_job, sender_ref="4368120864999", chat_ref="chat-ref-2", updated_at="2026-06-22T00:00:00Z")
+
+    result = pipeline.cleanup_finished_audiobook_jobs(
+        force=True,
+        now=datetime(2026, 6, 23, 12, 0, tzinfo=UTC),
+    )
+
+    assert result["superseded"]["status"] == "not_needed"
+    assert result["superseded"]["cleaned_jobs"] == 0
+    assert json.loads((first_job / "job.json").read_text(encoding="utf-8"))["status"] == "waiting_voice_selection"
+    assert json.loads((second_job / "job.json").read_text(encoding="utf-8"))["status"] == "waiting_voice_selection"
+
+
+def test_cleanup_finished_audiobook_jobs_does_not_cascade_waiting_cleanup_after_superseded_duplicate(
+    monkeypatch, tmp_path: Path
+) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(tmp_path))
+
+    def _write_job(job_dir: Path, *, status: str, updated_at: str, source_sha: str) -> None:
+        job_dir.mkdir(parents=True)
+        (job_dir / "job.json").write_text(
+            json.dumps(
+                {
+                    "job_id": job_dir.name,
+                    "status": status,
+                    "updated_at": updated_at,
+                    "source": {
+                        "kind": "epub",
+                        "source_sha256": source_sha,
+                    },
+                    "metadata": {
+                        "title": "Proof Book",
+                        "author": "A. Writer",
+                        "source_sha256": source_sha,
+                    },
+                    "totals": {
+                        "chapter_count": 2,
+                        "char_count": 115,
+                    },
+                    "whatsapp": {
+                        "sender_ref": "4368120864006",
+                        "chat_ref": "chat-ref-1",
+                    },
+                    "storage": {"job_dir": str(job_dir)},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    already_superseded = tmp_path / "job-superseded"
+    current_waiting = tmp_path / "job-current-waiting"
+    _write_job(
+        already_superseded,
+        status="superseded_duplicate",
+        updated_at="2026-06-23T04:30:52Z",
+        source_sha="old-proof-sha",
+    )
+    _write_job(
+        current_waiting,
+        status="waiting_voice_selection",
+        updated_at="2026-06-22T18:18:07Z",
+        source_sha="new-proof-sha",
+    )
+
+    result = pipeline.cleanup_finished_audiobook_jobs(
+        force=True,
+        now=datetime(2026, 6, 23, 12, 0, tzinfo=UTC),
+    )
+
+    assert result["superseded"]["status"] == "not_needed"
+    assert result["superseded"]["cleaned_jobs"] == 0
+    assert json.loads((already_superseded / "job.json").read_text(encoding="utf-8"))["status"] == "superseded_duplicate"
+    assert json.loads((current_waiting / "job.json").read_text(encoding="utf-8"))["status"] == "waiting_voice_selection"
+
+
+def test_audiobook_cleanup_remove_path_tolerates_disappearing_files(monkeypatch, tmp_path: Path) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    target = tmp_path / "job-dir"
+    nested = target / "audio"
+    nested.mkdir(parents=True)
+    disappearing = nested / "concat.txt"
+    disappearing.write_text("gone soon", encoding="utf-8")
+
+    real_rmtree = shutil.rmtree
+
+    def _racing_rmtree(path: Path, *, onerror=None) -> None:
+        disappearing.unlink(missing_ok=True)
+        real_rmtree(path, onerror=onerror)
+
+    monkeypatch.setattr(shutil, "rmtree", _racing_rmtree)
+
+    removed_bytes = pipeline._audiobook_cleanup_remove_path(target)
+
+    assert removed_bytes >= 0
+    assert not target.exists()

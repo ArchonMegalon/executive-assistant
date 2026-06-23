@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import errno
 import hashlib
 import importlib
 import json
@@ -77,10 +78,80 @@ SUPPORTED_CALLBACK_PREFIXES = ("ab|", "ap|", "am|")
 SUPPORTED_BUTTON_KINDS = {"audiobook_voice", "audiobook_playback", "audiobook_voice_management"}
 SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._()\\[\\] -]+")
 AUDIOBOOK_STATUS_DONE_STATUSES = {"audiobookshelf_imported", "failed_m4b_merge"}
+AUDIOBOOK_CLEANUP_TRANSIENT_ERRNOS = {
+    errno.ENOENT,
+    errno.ENOTDIR,
+    getattr(errno, "ESTALE", errno.ENOENT),
+    getattr(errno, "ENOTCONN", errno.ENOENT),
+}
 
 
 def _env(name: str, default: str = "") -> str:
     return str(os.environ.get(name) or default).strip()
+
+
+def _cleanup_exception_summary(exc: BaseException) -> dict[str, object]:
+    if _audiobook_cleanup_exception_is_non_blocking(exc):
+        summary: dict[str, object] = {
+            "status": "skipped",
+            "reason": "transient_cleanup_exception",
+            "error": type(exc).__name__,
+            "non_blocking": True,
+            "observability": "cleanup_skipped_transient",
+        }
+        err_no = getattr(exc, "errno", None)
+        if err_no is not None:
+            summary["errno"] = int(err_no)
+        return summary
+    return {
+        "status": "failed",
+        "reason": type(exc).__name__,
+        "non_blocking": False,
+        "observability": "cleanup_failed",
+    }
+
+
+def _external_blockers_from_audiobook_summaries(
+    *,
+    cleanup_summary: dict[str, object],
+    resume_summary: dict[str, object],
+) -> list[dict[str, object]]:
+    blockers: list[dict[str, object]] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    def _append_mount_blocker(source: str, summary: dict[str, object]) -> None:
+        job_root = dict(summary.get("job_root") or {})
+        status = str(job_root.get("status") or "").strip()
+        path = str(job_root.get("path") or "").strip()
+        if status not in {"disconnected_mount", "stale_mount"} or not path:
+            return
+        reason = str(summary.get("reason") or status).strip() or status
+        key = (source, status, path)
+        if key in seen:
+            return
+        seen.add(key)
+        blocker: dict[str, object] = {
+            "kind": "audiobook_job_root_unavailable",
+            "source": source,
+            "status": status,
+            "path": path,
+            "reason": reason,
+            "external_dependency": True,
+        }
+        err_no = job_root.get("errno")
+        if err_no is not None:
+            try:
+                blocker["errno"] = int(err_no)
+            except (TypeError, ValueError):
+                pass
+        error_name = str(job_root.get("error") or "").strip()
+        if error_name:
+            blocker["error"] = error_name
+        blockers.append(blocker)
+
+    _append_mount_blocker("cleanup_summary", cleanup_summary)
+    _append_mount_blocker("resume_summary", resume_summary)
+    return blockers
 
 
 def _now_iso() -> str:
@@ -109,6 +180,17 @@ def _split_paths(value: object) -> list[Path]:
         if normalized:
             paths.append(Path(normalized).expanduser())
     return paths
+
+
+def _audiobook_cleanup_exception_is_non_blocking(exc: BaseException) -> bool:
+    if isinstance(exc, (FileNotFoundError, NotADirectoryError)):
+        return True
+    if isinstance(exc, OSError):
+        return getattr(exc, "errno", None) in AUDIOBOOK_CLEANUP_TRANSIENT_ERRNOS
+    if isinstance(exc, TypeError):
+        message = str(exc)
+        return "onexc" in message or "onerror" in message
+    return False
 
 
 def _audiobook_job_roots() -> list[Path]:
@@ -226,6 +308,49 @@ def _suppress_stale_callback_reply(
     return False, ""
 
 
+def _stale_callback_summary(*, actions: dict[str, Any], action_ids: list[str]) -> dict[str, object]:
+    summary: dict[str, object] = {
+        "action_count": 0,
+        "stale_count": 0,
+        "ignored_count": 0,
+        "reply_sent": 0,
+        "suppressed": 0,
+        "suppressed_by_age": 0,
+        "suppressed_duplicate": 0,
+        "reasons": {},
+        "suppressed_reasons": {},
+    }
+    reason_counts: dict[str, int] = {}
+    suppressed_reason_counts: dict[str, int] = {}
+    for action_id in action_ids:
+        row = actions.get(action_id)
+        if not isinstance(row, dict):
+            continue
+        summary["action_count"] = int(summary["action_count"]) + 1
+        status = str(row.get("status") or "").strip()
+        if status == "stale":
+            summary["stale_count"] = int(summary["stale_count"]) + 1
+        elif status == "ignored":
+            summary["ignored_count"] = int(summary["ignored_count"]) + 1
+        if bool(row.get("reply_sent")):
+            summary["reply_sent"] = int(summary["reply_sent"]) + 1
+        if bool(row.get("reply_suppressed")):
+            summary["suppressed"] = int(summary["suppressed"]) + 1
+        reason = str(row.get("reason") or "").strip()
+        if reason:
+            reason_counts[reason] = reason_counts.get(reason, 0) + 1
+        suppressed_reason = str(row.get("reply_suppressed_reason") or "").strip()
+        if suppressed_reason:
+            suppressed_reason_counts[suppressed_reason] = suppressed_reason_counts.get(suppressed_reason, 0) + 1
+            if suppressed_reason == "callback_reply_too_old":
+                summary["suppressed_by_age"] = int(summary["suppressed_by_age"]) + 1
+            elif suppressed_reason == "duplicate_stale_callback_notice":
+                summary["suppressed_duplicate"] = int(summary["suppressed_duplicate"]) + 1
+    summary["reasons"] = reason_counts
+    summary["suppressed_reasons"] = suppressed_reason_counts
+    return summary
+
+
 def _action_id(*, session_ref: str, message_id: str, callback_data: str) -> str:
     return _sha(f"{session_ref}:{message_id}:{callback_data}")
 
@@ -312,9 +437,15 @@ def _load_state(path: Path) -> dict[str, Any]:
 
 def _save_state(path: Path, state: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(f"{path.suffix}.tmp")
-    tmp_path.write_text(json.dumps(state, sort_keys=True), encoding="utf-8")
-    tmp_path.replace(path)
+    tmp_path = path.parent / f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
+    try:
+        tmp_path.write_text(json.dumps(state, sort_keys=True), encoding="utf-8")
+        tmp_path.replace(path)
+    finally:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def _message_callback_data(message: dict[str, Any]) -> str:
@@ -907,6 +1038,35 @@ def _telegram_summary_record_has_content(record: dict[str, Any]) -> bool:
     return bool(summary_text) and summary_text != "Text nicht gespeichert"
 
 
+def _telegram_summary_receipt(
+    *,
+    enabled: bool,
+    status: str,
+    scope_label: str,
+    allowed_heyy_ai_keys: list[str],
+    candidate_count: int,
+    new_message_count: int,
+    sent: int,
+    reason: str = "",
+    include_reason: bool = False,
+    pending_message_count: int | None = None,
+) -> dict[str, object]:
+    receipt: dict[str, object] = {
+        "enabled": enabled,
+        "status": status,
+        "scope_label": scope_label,
+        "allowed_heyy_ai_keys": allowed_heyy_ai_keys,
+        "candidate_count": candidate_count,
+        "new_message_count": new_message_count,
+        "sent": sent,
+    }
+    if reason or include_reason:
+        receipt["reason"] = reason
+    if pending_message_count is not None:
+        receipt["pending_message_count"] = pending_message_count
+    return receipt
+
+
 def _maybe_send_telegram_summary(
     *,
     args: argparse.Namespace,
@@ -916,12 +1076,23 @@ def _maybe_send_telegram_summary(
 ) -> dict[str, object]:
     enabled = bool(getattr(args, "telegram_summary_enabled", False))
     every = max(1, min(int(getattr(args, "telegram_summary_every", 5) or 5), 100))
+    allowed_heyy_ai_keys = sorted(_telegram_summary_allowed_heyy_ai_keys(args))
+    scope_label = _telegram_summary_scope_label(args)
     if not enabled:
-        return {"enabled": False, "status": "skipped", "reason": "disabled", "new_message_count": 0, "sent": 0}
+        return _telegram_summary_receipt(
+            enabled=False,
+            status="skipped",
+            reason="disabled",
+            scope_label=scope_label,
+            allowed_heyy_ai_keys=allowed_heyy_ai_keys,
+            candidate_count=0,
+            new_message_count=0,
+            sent=0,
+        )
 
     candidates = _iter_telegram_summary_candidates(
         messages,
-        allowed_heyy_ai_keys=_telegram_summary_allowed_heyy_ai_keys(args),
+        allowed_heyy_ai_keys=set(allowed_heyy_ai_keys),
     )
     summary = _telegram_summary_state(state)
     seen_hashes = [str(item) for item in list(summary.get("seen_message_hashes") or []) if str(item)]
@@ -963,21 +1134,27 @@ def _maybe_send_telegram_summary(
     summary["total_seen_count"] = int(summary.get("total_seen_count") or 0) + new_count
 
     if bool(getattr(args, "dry_run", False)):
-        return {
-            "enabled": True,
-            "status": "dry_run",
-            "new_message_count": new_count,
-            "pending_message_count": len(pending_hashes),
-            "sent": 0,
-        }
+        return _telegram_summary_receipt(
+            enabled=True,
+            status="dry_run",
+            scope_label=scope_label,
+            allowed_heyy_ai_keys=allowed_heyy_ai_keys,
+            candidate_count=len(candidates),
+            new_message_count=new_count,
+            pending_message_count=len(pending_hashes),
+            sent=0,
+        )
     if len(pending_hashes) < every:
-        return {
-            "enabled": True,
-            "status": "waiting",
-            "new_message_count": new_count,
-            "pending_message_count": len(pending_hashes),
-            "sent": 0,
-        }
+        return _telegram_summary_receipt(
+            enabled=True,
+            status="waiting",
+            scope_label=scope_label,
+            allowed_heyy_ai_keys=allowed_heyy_ai_keys,
+            candidate_count=len(candidates),
+            new_message_count=new_count,
+            pending_message_count=len(pending_hashes),
+            sent=0,
+        )
 
     batch_hashes = pending_hashes[:every]
     batch_messages = [
@@ -990,26 +1167,32 @@ def _maybe_send_telegram_summary(
     if len(batch_messages) < every:
         batch_messages = candidates[-every:]
     if len(batch_messages) < every:
-        return {
-            "enabled": True,
-            "status": "waiting",
-            "reason": "summary_messages_unavailable",
-            "new_message_count": new_count,
-            "pending_message_count": len(pending_hashes),
-            "sent": 0,
-        }
+        return _telegram_summary_receipt(
+            enabled=True,
+            status="waiting",
+            reason="summary_messages_unavailable",
+            scope_label=scope_label,
+            allowed_heyy_ai_keys=allowed_heyy_ai_keys,
+            candidate_count=len(candidates),
+            new_message_count=new_count,
+            pending_message_count=len(pending_hashes),
+            sent=0,
+        )
 
     bot_token = str(getattr(args, "telegram_summary_bot_token", "") or os.getenv("EA_TELEGRAM_BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
     chat_id = _telegram_summary_chat_id(args)
     if not bot_token or not chat_id:
-        return {
-            "enabled": True,
-            "status": "skipped",
-            "reason": "telegram_summary_not_configured",
-            "new_message_count": new_count,
-            "pending_message_count": len(pending_hashes),
-            "sent": 0,
-        }
+        return _telegram_summary_receipt(
+            enabled=True,
+            status="skipped",
+            reason="telegram_summary_not_configured",
+            scope_label=scope_label,
+            allowed_heyy_ai_keys=allowed_heyy_ai_keys,
+            candidate_count=len(candidates),
+            new_message_count=new_count,
+            pending_message_count=len(pending_hashes),
+            sent=0,
+        )
 
     result = send_telegram_message(
         bot_token=bot_token,
@@ -1017,7 +1200,7 @@ def _maybe_send_telegram_summary(
         text=_telegram_summary_text(
             session_ref=str(getattr(args, "session_ref", "") or DEFAULT_SESSION_REF),
             messages=batch_messages,
-            scope_label=_telegram_summary_scope_label(args),
+            scope_label=scope_label,
         ),
         timeout_seconds=float(getattr(args, "telegram_summary_timeout_seconds", 15.0) or 15.0),
     )
@@ -1034,14 +1217,18 @@ def _maybe_send_telegram_summary(
         summary["last_sent_message_count"] = every
         if str(result.get("message_id") or "").strip():
             summary["last_telegram_message_id_hash"] = _sha(result.get("message_id"))
-    return {
-        "enabled": True,
-        "status": str(result.get("status") or "failed"),
-        "reason": str(result.get("reason") or ""),
-        "new_message_count": new_count,
-        "pending_message_count": len(pending_hashes),
-        "sent": sent,
-    }
+    return _telegram_summary_receipt(
+        enabled=True,
+        status=str(result.get("status") or "failed"),
+        reason=str(result.get("reason") or ""),
+        scope_label=scope_label,
+        allowed_heyy_ai_keys=allowed_heyy_ai_keys,
+        candidate_count=len(candidates),
+        new_message_count=new_count,
+        pending_message_count=len(pending_hashes),
+        sent=sent,
+        include_reason=True,
+    )
 
 
 def _whatsapp_audiobook_status_intent(text: str) -> bool:
@@ -1075,6 +1262,11 @@ def _whatsapp_audiobook_status_intent(text: str) -> bool:
             "ready",
             "configured",
             "preflight",
+            "playback",
+            "play",
+            "working",
+            "not working",
+            "problem",
             "why",
             "voice sample",
             "voice samples",
@@ -1208,11 +1400,21 @@ def _whatsapp_voice_named_dismiss_choice(text: str) -> str:
     return ""
 
 
-def _pending_whatsapp_voice_label_choice(text: str, *, sender_digits: str = "", chat_ref: str = "") -> str:
+def _pending_whatsapp_voice_label_choice(
+    text: str,
+    *,
+    sender_digits: str = "",
+    chat_ref: str = "",
+    waiting_job_cache: dict[tuple[str, str], dict[str, object]] | None = None,
+) -> str:
     normalized = " ".join(_normalize_voice_command_text(text).split())
     if not normalized or len(normalized) > 80:
         return ""
-    job = _latest_waiting_whatsapp_voice_selection_job(sender_digits=sender_digits, chat_ref=chat_ref)
+    job = _latest_waiting_whatsapp_voice_selection_job(
+        sender_digits=sender_digits,
+        chat_ref=chat_ref,
+        waiting_job_cache=waiting_job_cache,
+    )
     if not job:
         return ""
     voice_selection = dict(dict(job.get("provider") or {}).get("voice_selection") or {})
@@ -1233,7 +1435,11 @@ def _pending_whatsapp_voice_label_choice(text: str, *, sender_digits: str = "", 
     return matches[0][1]
 
 
-def _is_audiobook_voice_text_message(message: dict[str, Any]) -> bool:
+def _is_audiobook_voice_text_message(
+    message: dict[str, Any],
+    *,
+    waiting_job_cache: dict[tuple[str, str], dict[str, object]] | None = None,
+) -> bool:
     if str(message.get("direction") or "").strip() != "inbound":
         return False
     if bool(message.get("from_me")):
@@ -1252,6 +1458,7 @@ def _is_audiobook_voice_text_message(message: dict[str, Any]) -> bool:
             _latest_waiting_whatsapp_voice_selection_job(
                 sender_digits=sender_digits,
                 chat_ref=chat_ref,
+                waiting_job_cache=waiting_job_cache,
             )
         )
     return bool(
@@ -1259,12 +1466,19 @@ def _is_audiobook_voice_text_message(message: dict[str, Any]) -> bool:
             text,
             sender_digits=sender_digits,
             chat_ref=chat_ref,
+            waiting_job_cache=waiting_job_cache,
         )
     )
 
 
 def _iter_audiobook_voice_text_candidates(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [message for message in messages if isinstance(message, dict) and _is_audiobook_voice_text_message(message)]
+    waiting_job_cache: dict[tuple[str, str], dict[str, object]] = {}
+    return [
+        message
+        for message in messages
+        if isinstance(message, dict)
+        and _is_audiobook_voice_text_message(message, waiting_job_cache=waiting_job_cache)
+    ]
 
 
 def _is_audiobook_status_message(message: dict[str, Any]) -> bool:
@@ -2618,19 +2832,30 @@ def _waiting_whatsapp_voice_selection_job_predicate(job: dict[str, object]) -> b
     )
 
 
-def _latest_waiting_whatsapp_voice_selection_job(*, sender_digits: str, chat_ref: str = "") -> dict[str, object]:
+def _latest_waiting_whatsapp_voice_selection_job(
+    *,
+    sender_digits: str,
+    chat_ref: str = "",
+    waiting_job_cache: dict[tuple[str, str], dict[str, object]] | None = None,
+) -> dict[str, object]:
     normalized_sender = "".join(ch for ch in str(sender_digits or "") if ch.isdigit())
+    normalized_chat_ref = str(chat_ref or "").strip()
+    cache_key = (normalized_sender, normalized_chat_ref)
+    if waiting_job_cache is not None and cache_key in waiting_job_cache:
+        return dict(waiting_job_cache[cache_key])
     job: dict[str, object] = {}
     if normalized_sender:
         job = _latest_whatsapp_audiobook_job(
             sender_digits=normalized_sender,
             predicate=_waiting_whatsapp_voice_selection_job_predicate,
         )
-    if not job and str(chat_ref or "").strip():
+    if not job and normalized_chat_ref:
         job = _latest_whatsapp_audiobook_job_for_chat_ref(
-            chat_ref=str(chat_ref or "").strip(),
+            chat_ref=normalized_chat_ref,
             predicate=_waiting_whatsapp_voice_selection_job_predicate,
         )
+    if waiting_job_cache is not None:
+        waiting_job_cache[cache_key] = dict(job)
     return job
 
 
@@ -3199,6 +3424,7 @@ def build_report(
     errors = 0
     status_counts: dict[str, int] = {}
     stale_notice_keys: set[str] = set()
+    callback_action_ids: list[str] = []
     now = _now_iso()
     telegram_summary = _maybe_send_telegram_summary(
         args=args,
@@ -3699,6 +3925,7 @@ def build_report(
             actions[action_id]["reason"] = reason
         _save_state(state_path, state)
         processed += 1
+        callback_action_ids.append(action_id)
 
         reply_text = str(result.get("reply_text") or "").strip()
         job = result.get("job") if isinstance(result.get("job"), dict) else {}
@@ -4098,6 +4325,22 @@ def build_report(
             errors += 1
             followup_summary = {"attempted": 0, "sent": 0, "errors": 1, "reason": type(exc).__name__}
 
+    cleanup_summary: dict[str, object] = {"status": "skipped"}
+    if bool(getattr(args, "dry_run", False)):
+        cleanup_summary = {"status": "dry_run"}
+    elif audiobook_epub_pipeline.audiobook_job_cleanup_enabled():
+        try:
+            cleanup_summary = dict(audiobook_epub_pipeline.cleanup_finished_audiobook_jobs(force=False))
+        except Exception as exc:
+            cleanup_summary = _cleanup_exception_summary(exc)
+            if not bool(cleanup_summary.get("non_blocking")):
+                errors += 1
+
+    stale_callback_summary = _stale_callback_summary(actions=actions, action_ids=callback_action_ids)
+    external_blockers = _external_blockers_from_audiobook_summaries(
+        cleanup_summary=cleanup_summary,
+        resume_summary=resume_summary,
+    )
     status = "pass" if errors == 0 else "partial"
     if not bool(args.dry_run):
         _record_conversation_fallback_run(
@@ -4139,7 +4382,10 @@ def build_report(
             "status": status,
             "status_candidate_count": len(status_candidates),
             "status_processed": status_processed,
+            "stale_callback_summary": stale_callback_summary,
             "telegram_summary": telegram_summary,
+            "cleanup_summary": cleanup_summary,
+            "external_blockers": external_blockers,
             "voice_text_candidate_count": len(voice_text_candidates),
             "voice_text_processed": voice_text_processed,
         }
@@ -4173,6 +4419,9 @@ def build_report(
         "telegram_summary": telegram_summary,
         "resume_summary": resume_summary,
         "followup_summary": followup_summary,
+        "cleanup_summary": cleanup_summary,
+        "external_blockers": external_blockers,
+        "stale_callback_summary": stale_callback_summary,
         "status_counts": status_counts,
         "state_file_present": bool(str(state_path)),
     }

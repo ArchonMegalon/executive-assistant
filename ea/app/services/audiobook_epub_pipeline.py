@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 import base64
+import errno
 import io
 import hmac
 from html import unescape
@@ -83,6 +84,12 @@ _SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9._()\\[\\] -]+")
 _PROVIDER_WAIT_RE = re.compile(r"(?:available|retry|try again)[^0-9]{0,40}(\d{2,})\s*seconds?", re.IGNORECASE)
 _VOICE_DISCOVERY_CACHE: dict[str, tuple[float, tuple["VoicePreset", ...]]] = {}
 _DOTENV_CACHE: dict[tuple[Path, ...], dict[str, str]] = {}
+_AUDIOBOOK_CLEANUP_MISSING_ERRNOS = {
+    errno.ENOENT,
+    errno.ENOTDIR,
+    getattr(errno, "ESTALE", errno.ENOENT),
+    getattr(errno, "ENOTCONN", errno.ENOENT),
+}
 
 
 @dataclass(frozen=True)
@@ -218,13 +225,32 @@ def _env_or_dotenv(name: str, default: str = "") -> str:
 
 
 def _storage_path_accessible(path: Path) -> bool:
+    return bool(_storage_path_probe(path).get("accessible"))
+
+
+def _storage_path_probe(path: Path) -> dict[str, object]:
+    target = Path(path)
     try:
-        if path.exists():
-            return True
-        parent = path.parent
-        return parent != path and parent.exists()
-    except OSError:
-        return False
+        if target.exists():
+            return {"path": str(target), "accessible": True, "status": "present"}
+        parent = target.parent
+        if parent != target and parent.exists():
+            return {"path": str(target), "accessible": True, "status": "parent_present"}
+        return {"path": str(target), "accessible": False, "status": "missing"}
+    except OSError as exc:
+        errno_value = getattr(exc, "errno", None)
+        status = "oserror"
+        if errno_value == getattr(errno, "ENOTCONN", None):
+            status = "disconnected_mount"
+        elif errno_value == getattr(errno, "ESTALE", None):
+            status = "stale_mount"
+        return {
+            "path": str(target),
+            "accessible": False,
+            "status": status,
+            "error": type(exc).__name__,
+            "errno": int(errno_value) if errno_value is not None else None,
+        }
 
 
 def _env_path_with_host_fallback(name: str, default: Path, *, host_fallback_name: str = "") -> Path:
@@ -365,7 +391,11 @@ def iter_audiobook_job_manifests(*, newest_first: bool = False) -> tuple[Path, .
     manifests: list[Path] = []
     seen: set[str] = set()
     for root in audiobook_job_discovery_roots():
-        for manifest_path in root.glob("*/job.json"):
+        try:
+            root_manifests = tuple(root.glob("*/job.json"))
+        except OSError:
+            continue
+        for manifest_path in root_manifests:
             try:
                 key = str(manifest_path.resolve())
             except Exception:
@@ -3001,15 +3031,85 @@ def _audiobook_job_last_updated_at(job: dict[str, object], *, fallback: datetime
     return fallback
 
 
+def _audiobook_cleanup_is_benign_filesystem_race(exc: BaseException) -> bool:
+    if isinstance(exc, (FileNotFoundError, NotADirectoryError)):
+        return True
+    if isinstance(exc, OSError):
+        return getattr(exc, "errno", None) in _AUDIOBOOK_CLEANUP_MISSING_ERRNOS
+    return False
+
+
+def _audiobook_cleanup_path_kind(path: Path) -> str:
+    try:
+        if not path.exists():
+            return "missing"
+        return "dir" if path.is_dir() else "file"
+    except OSError as exc:
+        if _audiobook_cleanup_is_benign_filesystem_race(exc):
+            return "missing"
+        raise
+
+
+def _audiobook_cleanup_relative_path(path: Path, root: Path) -> str:
+    try:
+        return str(path.relative_to(root))
+    except Exception:
+        return str(path)
+
+
 def _audiobook_cleanup_remove_path(path: Path) -> int:
-    if not path.exists():
+    path_kind = _audiobook_cleanup_path_kind(path)
+    if path_kind == "missing":
         return 0
-    if path.is_dir():
-        removed_bytes = sum(int(item.stat().st_size or 0) for item in path.rglob("*") if item.is_file())
-        shutil.rmtree(path)
+    if path_kind == "dir":
+        removed_bytes = 0
+        try:
+            path_items = tuple(path.rglob("*"))
+        except OSError as exc:
+            if _audiobook_cleanup_is_benign_filesystem_race(exc):
+                path_items = ()
+            else:
+                raise
+        for item in path_items:
+            try:
+                if not item.is_file():
+                    continue
+                removed_bytes += int(item.stat().st_size or 0)
+            except OSError as exc:
+                if _audiobook_cleanup_is_benign_filesystem_race(exc):
+                    continue
+                raise
+
+        def _ignore_missing_remove_error(function, remove_path, excinfo) -> None:
+            _ = function
+            _ = remove_path
+            exc = excinfo[1] if isinstance(excinfo, tuple) else excinfo
+            if _audiobook_cleanup_is_benign_filesystem_race(exc):
+                return
+            raise exc
+
+        try:
+            try:
+                shutil.rmtree(path, onerror=_ignore_missing_remove_error)
+            except TypeError as exc:
+                if "onerror" not in str(exc):
+                    raise
+                shutil.rmtree(path, onexc=_ignore_missing_remove_error)
+        except (OSError, TypeError) as exc:
+            if not _audiobook_cleanup_is_benign_filesystem_race(exc):
+                raise
         return removed_bytes
-    removed_bytes = int(path.stat().st_size or 0)
-    path.unlink(missing_ok=True)
+    try:
+        removed_bytes = int(path.stat().st_size or 0)
+    except OSError as exc:
+        if _audiobook_cleanup_is_benign_filesystem_race(exc):
+            return 0
+        raise
+    try:
+        path.unlink(missing_ok=True)
+    except OSError as exc:
+        if not _audiobook_cleanup_is_benign_filesystem_race(exc):
+            raise
     return removed_bytes
 
 
@@ -3020,11 +3120,39 @@ def cleanup_audiobook_job_artifacts(
     now: datetime | None = None,
 ) -> dict[str, object]:
     observed_at = now or datetime.now(UTC)
-    if not job_dir.is_dir():
+    try:
+        job_dir_missing = not job_dir.is_dir()
+    except OSError as exc:
+        if not _audiobook_cleanup_is_benign_filesystem_race(exc):
+            return {
+                "status": "failed",
+                "reason": type(exc).__name__,
+                "removed_bytes": 0,
+                "removed_paths": [],
+                "job_dir_name": job_dir.name,
+            }
+        job_dir_missing = True
+    if job_dir_missing:
         return {"status": "missing", "removed_bytes": 0, "removed_paths": [], "job_dir_name": job_dir.name}
     try:
         job = _load_job(job_dir)
     except Exception as exc:
+        if isinstance(exc, RuntimeError) and str(exc) == "audiobook_job_manifest_missing":
+            return {
+                "status": "missing",
+                "reason": "job_manifest_missing",
+                "removed_bytes": 0,
+                "removed_paths": [],
+                "job_dir_name": job_dir.name,
+            }
+        if _audiobook_cleanup_is_benign_filesystem_race(exc):
+            return {
+                "status": "missing",
+                "reason": type(exc).__name__,
+                "removed_bytes": 0,
+                "removed_paths": [],
+                "job_dir_name": job_dir.name,
+            }
         return {
             "status": "failed",
             "reason": type(exc).__name__,
@@ -3032,7 +3160,7 @@ def cleanup_audiobook_job_artifacts(
             "removed_paths": [],
             "job_dir_name": job_dir.name,
         }
-    status = str(job.get("status") or "").strip()
+    job_status = str(job.get("status") or "").strip()
     updated_at = _audiobook_job_last_updated_at(job)
     age_seconds = int((observed_at - updated_at).total_seconds()) if updated_at is not None else None
     if not force and age_seconds is not None and age_seconds < _audiobook_job_cleanup_min_age_seconds():
@@ -3046,11 +3174,19 @@ def cleanup_audiobook_job_artifacts(
         }
 
     removable_paths: list[Path] = []
-    if _audiobook_job_cleanup_remove_render_dirs() and status == "audiobookshelf_imported":
+    if _audiobook_job_cleanup_remove_render_dirs() and job_status == "audiobookshelf_imported":
         removable_paths.extend(job_dir / name for name in ("audio", "output", "m4b"))
         source_dir = job_dir / "source"
-        if source_dir.is_dir():
-            removable_paths.extend(item for item in source_dir.glob("*.converted.epub") if item.is_file())
+        if _audiobook_cleanup_path_kind(source_dir) == "dir":
+            try:
+                removable_paths.extend(
+                    item
+                    for item in source_dir.glob("*.converted.epub")
+                    if _audiobook_cleanup_path_kind(item) == "file"
+                )
+            except OSError as exc:
+                if not _audiobook_cleanup_is_benign_filesystem_race(exc):
+                    raise
     removable_paths.extend(
         [
             job_dir / "resume_state.json",
@@ -3060,73 +3196,428 @@ def cleanup_audiobook_job_artifacts(
             job_dir / "audio_publication_gate.json",
         ]
     )
-    removable_paths.extend(path for path in job_dir.rglob("*.partial") if path.is_file())
+    try:
+        removable_paths.extend(
+            path
+            for path in job_dir.rglob("*.partial")
+            if _audiobook_cleanup_path_kind(path) == "file"
+        )
+    except OSError as exc:
+        if not _audiobook_cleanup_is_benign_filesystem_race(exc):
+            raise
 
     removed_paths: list[str] = []
     removed_bytes = 0
+    removal_errors: list[dict[str, str]] = []
+    skipped_paths: list[dict[str, str]] = []
     seen: set[str] = set()
     for path in removable_paths:
         key = str(path)
-        if key in seen or not path.exists():
+        if key in seen:
             continue
         seen.add(key)
-        removed_bytes += _audiobook_cleanup_remove_path(path)
         try:
-            removed_paths.append(str(path.relative_to(job_dir)))
-        except Exception:
-            removed_paths.append(str(path))
-    return {
-        "status": "cleaned" if removed_paths else "not_needed",
+            path_kind = _audiobook_cleanup_path_kind(path)
+        except OSError as exc:
+            removal_errors.append(
+                {
+                    "path": _audiobook_cleanup_relative_path(path, job_dir),
+                    "error": type(exc).__name__,
+                }
+            )
+            continue
+        if path_kind == "missing":
+            skipped_paths.append(
+                {
+                    "path": _audiobook_cleanup_relative_path(path, job_dir),
+                    "reason": "missing_before_remove",
+                }
+            )
+            continue
+        try:
+            removed_bytes += _audiobook_cleanup_remove_path(path)
+        except Exception as exc:
+            if _audiobook_cleanup_is_benign_filesystem_race(exc):
+                skipped_paths.append(
+                    {
+                        "path": _audiobook_cleanup_relative_path(path, job_dir),
+                        "reason": type(exc).__name__,
+                    }
+                )
+                continue
+            removal_errors.append(
+                {
+                    "path": _audiobook_cleanup_relative_path(path, job_dir),
+                    "error": type(exc).__name__,
+                }
+            )
+            continue
+        removed_paths.append(_audiobook_cleanup_relative_path(path, job_dir))
+    result_status = "cleaned" if removed_paths else "failed" if removal_errors else "not_needed"
+    result = {
+        "status": result_status,
         "job_dir_name": job_dir.name,
-        "job_status": status,
+        "job_status": job_status,
         "age_seconds": age_seconds if age_seconds is not None else -1,
         "removed_bytes": removed_bytes,
         "removed_paths": removed_paths,
         "cleaned_at": observed_at.isoformat().replace("+00:00", "Z"),
     }
+    if removal_errors:
+        result["removal_errors"] = removal_errors
+    if skipped_paths:
+        result["skipped_paths"] = skipped_paths
+    return result
 
 
 def _cleanup_stale_audiobook_incoming_files(*, now: datetime | None = None) -> dict[str, object]:
     observed_at = now or datetime.now(UTC)
     incoming_roots = [root / "_incoming" for root in audiobook_job_discovery_roots()]
-    accessible_roots = [root for root in incoming_roots if root.is_dir()]
+    accessible_roots: list[Path] = []
+    skipped_paths: list[dict[str, str]] = []
+    for root in incoming_roots:
+        try:
+            if root.is_dir():
+                accessible_roots.append(root)
+        except OSError as exc:
+            item = {"path": str(root), "reason": type(exc).__name__}
+            if getattr(exc, "errno", None) is not None:
+                item["errno"] = int(exc.errno)
+            skipped_paths.append(item)
+            continue
     if not accessible_roots:
-        return {"status": "missing", "removed_files": 0, "removed_bytes": 0, "removed_paths": []}
+        result: dict[str, object] = {"status": "missing", "removed_files": 0, "removed_bytes": 0, "removed_paths": []}
+        if skipped_paths:
+            result["skipped_paths"] = skipped_paths
+        return result
     retention = timedelta(days=_audiobook_job_cleanup_prune_staging_days())
     removed_files = 0
     removed_bytes = 0
     removed_paths: list[str] = []
     for incoming_root in accessible_roots:
-        for path in sorted(incoming_root.rglob("*")):
-            if not path.is_file():
+        try:
+            stale_candidates = sorted(incoming_root.rglob("*"))
+        except OSError as exc:
+            if not _audiobook_cleanup_is_benign_filesystem_race(exc):
+                skipped_paths.append({"path": str(incoming_root), "reason": type(exc).__name__})
+            continue
+        for path in stale_candidates:
+            try:
+                if not path.is_file():
+                    continue
+            except OSError as exc:
+                if _audiobook_cleanup_is_benign_filesystem_race(exc):
+                    continue
+                skipped_paths.append({"path": str(path), "reason": type(exc).__name__})
                 continue
             try:
                 mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
-            except Exception:
+            except OSError as exc:
+                if _audiobook_cleanup_is_benign_filesystem_race(exc):
+                    continue
+                skipped_paths.append({"path": str(path), "reason": type(exc).__name__})
                 continue
             if observed_at - mtime < retention:
                 continue
-            removed_bytes += int(path.stat().st_size or 0)
-            path.unlink(missing_ok=True)
+            try:
+                removed_bytes += int(path.stat().st_size or 0)
+                path.unlink(missing_ok=True)
+            except OSError as exc:
+                if _audiobook_cleanup_is_benign_filesystem_race(exc):
+                    skipped_paths.append({"path": str(path), "reason": type(exc).__name__})
+                    continue
+                skipped_paths.append({"path": str(path), "reason": type(exc).__name__})
+                continue
             removed_files += 1
             try:
                 relative = str(path.relative_to(incoming_root))
             except Exception:
                 relative = str(path)
             removed_paths.append(f"{incoming_root}:{relative}")
-        for path in sorted(incoming_root.rglob("*"), reverse=True):
-            if path.is_dir():
+        try:
+            dir_candidates = sorted(incoming_root.rglob("*"), reverse=True)
+        except OSError as exc:
+            if not _audiobook_cleanup_is_benign_filesystem_race(exc):
+                skipped_paths.append({"path": str(incoming_root), "reason": type(exc).__name__})
+            continue
+        for path in dir_candidates:
+            try:
+                is_dir = path.is_dir()
+            except OSError as exc:
+                if not _audiobook_cleanup_is_benign_filesystem_race(exc):
+                    skipped_paths.append({"path": str(path), "reason": type(exc).__name__})
+                continue
+            if is_dir:
                 try:
                     next(path.iterdir())
                 except StopIteration:
-                    path.rmdir()
-                except Exception:
-                    pass
-    return {
+                    try:
+                        path.rmdir()
+                    except OSError as exc:
+                        if not _audiobook_cleanup_is_benign_filesystem_race(exc):
+                            skipped_paths.append({"path": str(path), "reason": type(exc).__name__})
+                except OSError as exc:
+                    if not _audiobook_cleanup_is_benign_filesystem_race(exc):
+                        skipped_paths.append({"path": str(path), "reason": type(exc).__name__})
+    result = {
         "status": "cleaned" if removed_files else "not_needed",
         "removed_files": removed_files,
         "removed_bytes": removed_bytes,
         "removed_paths": removed_paths,
+    }
+    if skipped_paths:
+        result["skipped_paths"] = skipped_paths
+    return result
+
+
+def _audiobook_job_contact_duplicate_identity(job: dict[str, object]) -> str:
+    source = dict(job.get("source") or {})
+    metadata = dict(job.get("metadata") or {})
+    source_kind = str(source.get("kind") or "").strip()
+    title = str(metadata.get("title") or job.get("title") or "").strip()
+    author = str(metadata.get("author") or "").strip()
+    totals = dict(job.get("totals") or {})
+    chapter_count = int(totals.get("chapter_count") or 0)
+    char_count = int(totals.get("char_count") or 0)
+    whatsapp = dict(job.get("whatsapp") or {})
+    sender_ref = str(whatsapp.get("sender_ref") or "").strip()
+    chat_ref = str(whatsapp.get("chat_ref") or "").strip()
+    if not (sender_ref or chat_ref):
+        return ""
+    if not (title or author):
+        return ""
+    if chapter_count <= 0 or char_count <= 0:
+        return ""
+    scoped_payload = "|".join(
+        (
+            sender_ref,
+            chat_ref,
+            title,
+            author,
+            str(chapter_count),
+            str(char_count),
+        )
+    )
+    return f"{source_kind}|contact-title-author-size:{_sha256_bytes(scoped_payload.encode('utf-8'))}"
+
+
+def _audiobook_job_duplicate_identities(job: dict[str, object]) -> list[str]:
+    source = dict(job.get("source") or {})
+    metadata = dict(job.get("metadata") or {})
+    source_kind = str(source.get("kind") or "").strip()
+    source_sha256 = (
+        str(source.get("source_sha256") or "").strip()
+        or str(metadata.get("source_sha256") or "").strip()
+    )
+    identities: list[str] = []
+    if source_sha256:
+        identities.append(f"{source_kind}|sha256:{source_sha256}")
+    contact_identity = _audiobook_job_contact_duplicate_identity(job)
+    if contact_identity and contact_identity not in identities:
+        identities.append(contact_identity)
+    if identities:
+        return identities
+    title = str(metadata.get("title") or job.get("title") or "").strip()
+    author = str(metadata.get("author") or "").strip()
+    if title or author:
+        return [f"{source_kind}|title-author:{_sha256_bytes(f'{title}|{author}'.encode('utf-8'))}"]
+    return []
+
+
+def _audiobook_job_duplicate_identity(job: dict[str, object]) -> str:
+    identities = _audiobook_job_duplicate_identities(job)
+    if identities:
+        return identities[0]
+    return ""
+
+
+def _cleanup_superseded_audiobook_job(
+    job_dir: Path,
+    *,
+    job: dict[str, object],
+    reason: str,
+    observed_at: datetime,
+) -> dict[str, object]:
+    removable_paths: list[Path] = [
+        job_dir / "audio",
+        job_dir / "output",
+        job_dir / "m4b",
+        job_dir / "chapters",
+        job_dir / "assets",
+        job_dir / "voice_audition",
+        job_dir / "source",
+        job_dir / "resume_state.json",
+        job_dir / "resume_result.json",
+        job_dir / "audiobookshelf_share_state.json",
+        job_dir / "resume_cover_backfill_result.json",
+        job_dir / "audio_publication_gate.json",
+    ]
+    try:
+        removable_paths.extend(
+            path
+            for path in job_dir.rglob("*.partial")
+            if _audiobook_cleanup_path_kind(path) == "file"
+        )
+    except OSError as exc:
+        if not _audiobook_cleanup_is_benign_filesystem_race(exc):
+            raise
+
+    removed_paths: list[str] = []
+    removed_bytes = 0
+    skipped_paths: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for path in removable_paths:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            if _audiobook_cleanup_path_kind(path) == "missing":
+                skipped_paths.append(
+                    {
+                        "path": _audiobook_cleanup_relative_path(path, job_dir),
+                        "reason": "missing_before_remove",
+                    }
+                )
+                continue
+            removed_bytes += _audiobook_cleanup_remove_path(path)
+        except Exception as exc:
+            if _audiobook_cleanup_is_benign_filesystem_race(exc):
+                skipped_paths.append(
+                    {
+                        "path": _audiobook_cleanup_relative_path(path, job_dir),
+                        "reason": type(exc).__name__,
+                    }
+                )
+                continue
+            raise
+        removed_paths.append(_audiobook_cleanup_relative_path(path, job_dir))
+
+    updated_job = dict(job)
+    updated_job["status"] = "superseded_duplicate"
+    updated_job["next_action"] = "none"
+    updated_job["blocking_reason"] = reason
+    updated_job["updated_at"] = observed_at.isoformat().replace("+00:00", "Z")
+    cleanup = dict(updated_job.get("cleanup") or {})
+    cleanup["superseded_duplicate"] = {
+        "reason": reason,
+        "cleaned_at": observed_at.isoformat().replace("+00:00", "Z"),
+        "removed_bytes": removed_bytes,
+        "removed_paths": removed_paths,
+    }
+    if skipped_paths:
+        cleanup["superseded_duplicate"]["skipped_paths"] = skipped_paths
+    updated_job["cleanup"] = cleanup
+    _write_job(job_dir, updated_job)
+
+    result = {
+        "status": "cleaned",
+        "job_dir_name": job_dir.name,
+        "job_status": str(job.get("status") or "").strip(),
+        "reason": reason,
+        "duplicate_identity": _audiobook_job_duplicate_identity(job),
+        "removed_bytes": removed_bytes,
+        "removed_paths": removed_paths,
+        "cleaned_at": observed_at.isoformat().replace("+00:00", "Z"),
+    }
+    if skipped_paths:
+        result["skipped_paths"] = skipped_paths
+    return result
+
+
+def _cleanup_superseded_audiobook_jobs(
+    manifests: list[Path],
+    *,
+    force: bool = False,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    observed_at = now or datetime.now(UTC)
+    groups: dict[str, list[tuple[datetime, Path, dict[str, object]]]] = {}
+    for manifest_path in manifests:
+        try:
+            job = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        identities = _audiobook_job_duplicate_identities(job)
+        if not identities:
+            continue
+        updated_at = _audiobook_job_last_updated_at(job) or observed_at
+        for identity in identities:
+            groups.setdefault(identity, []).append((updated_at, manifest_path.parent, job))
+
+    results: list[dict[str, object]] = []
+    removed_bytes = 0
+    removed_paths = 0
+    cleaned_jobs = 0
+    min_age_seconds = _audiobook_job_cleanup_min_age_seconds()
+    cleaned_job_dirs: set[str] = set()
+
+    for identity, rows in groups.items():
+        if len(rows) < 2:
+            continue
+        rows.sort(key=lambda row: (row[0], row[1].name), reverse=True)
+        newer_statuses: set[str] = set()
+        for index, (updated_at, job_dir, job) in enumerate(rows):
+            job_dir_key = str(job_dir)
+            if job_dir_key in cleaned_job_dirs:
+                continue
+            if index == 0:
+                newer_statuses.add(str(job.get("status") or "").strip())
+                continue
+            status = str(job.get("status") or "").strip()
+            if not force and (observed_at - updated_at).total_seconds() < min_age_seconds:
+                newer_statuses.add(status)
+                continue
+            reason = ""
+            if status == "waiting_voice_selection":
+                if any(candidate_status != "superseded_duplicate" for candidate_status in newer_statuses):
+                    reason = "superseded_waiting_voice_selection_duplicate"
+            elif status == "m4b_ready" and "audiobookshelf_imported" in newer_statuses:
+                reason = "superseded_m4b_ready_after_import"
+            elif status == "audiobookshelf_imported" and "audiobookshelf_imported" in newer_statuses:
+                reason = "superseded_older_imported_duplicate"
+            elif status == "chapters_extracted" and "audiobookshelf_imported" in newer_statuses:
+                reason = "superseded_chapters_extracted_after_import"
+            if not reason:
+                newer_statuses.add(status)
+                continue
+            try:
+                result = _cleanup_superseded_audiobook_job(
+                    job_dir,
+                    job=job,
+                    reason=reason,
+                    observed_at=observed_at,
+                )
+            except Exception as exc:
+                results.append(
+                    {
+                        "status": "failed",
+                        "job_dir_name": job_dir.name,
+                        "job_status": status,
+                        "reason": reason,
+                        "duplicate_identity": identity,
+                        "removed_bytes": 0,
+                        "removed_paths": [],
+                        "cleanup_error": type(exc).__name__,
+                        "cleaned_at": observed_at.isoformat().replace("+00:00", "Z"),
+                    }
+                )
+                newer_statuses.add(status)
+                continue
+            results.append(result)
+            if str(result.get("status") or "") == "cleaned":
+                cleaned_jobs += 1
+                cleaned_job_dirs.add(job_dir_key)
+            removed_bytes += int(result.get("removed_bytes") or 0)
+            removed_paths += len(list(result.get("removed_paths") or []))
+            newer_statuses.add(status)
+
+    return {
+        "status": "cleaned" if cleaned_jobs else "not_needed",
+        "cleaned_jobs": cleaned_jobs,
+        "removed_bytes": removed_bytes,
+        "removed_paths": removed_paths,
+        "results": results,
     }
 
 
@@ -3140,12 +3631,14 @@ def cleanup_finished_audiobook_jobs(
     roots = audiobook_job_discovery_roots()
     manifests = list(iter_audiobook_job_manifests())
     if not roots:
+        root_probe = _storage_path_probe(audiobook_jobs_root())
         return {
             "status": "missing",
             "cleaned_jobs": 0,
             "removed_bytes": 0,
             "removed_paths": 0,
             "results": [],
+            "job_root": root_probe,
             "staging": {"status": "missing", "removed_files": 0, "removed_bytes": 0, "removed_paths": []},
         }
     if limit is not None:
@@ -3154,22 +3647,71 @@ def cleanup_finished_audiobook_jobs(
     cleaned_jobs = 0
     removed_bytes = 0
     removed_paths = 0
+    failed_jobs = 0
+    skipped_jobs = 0
     for manifest_path in manifests:
-        result = cleanup_audiobook_job_artifacts(manifest_path.parent, force=force, now=observed_at)
+        try:
+            result = cleanup_audiobook_job_artifacts(manifest_path.parent, force=force, now=observed_at)
+        except Exception as exc:
+            result = {
+                "status": "failed",
+                "reason": type(exc).__name__,
+                "job_dir_name": manifest_path.parent.name,
+                "removed_bytes": 0,
+                "removed_paths": [],
+                "cleaned_at": observed_at.isoformat().replace("+00:00", "Z"),
+            }
         if str(result.get("status") or "") == "cleaned":
             cleaned_jobs += 1
             results.append(result)
+        elif str(result.get("status") or "") == "failed":
+            failed_jobs += 1
+            results.append(result)
+        elif str(result.get("status") or "") == "missing":
+            skipped_jobs += 1
         removed_bytes += int(result.get("removed_bytes") or 0)
         removed_paths += len(list(result.get("removed_paths") or []))
-    staging = _cleanup_stale_audiobook_incoming_files(now=observed_at)
+    try:
+        superseded = _cleanup_superseded_audiobook_jobs(manifests, force=force, now=observed_at)
+    except Exception as exc:
+        superseded = {
+            "status": "failed",
+            "cleaned_jobs": 0,
+            "removed_bytes": 0,
+            "removed_paths": 0,
+            "results": [],
+            "reason": type(exc).__name__,
+        }
+        failed_jobs += 1
+    cleaned_jobs += int(superseded.get("cleaned_jobs") or 0)
+    removed_bytes += int(superseded.get("removed_bytes") or 0)
+    removed_paths += int(superseded.get("removed_paths") or 0)
+    results.extend(list(superseded.get("results") or []))
+    try:
+        staging = _cleanup_stale_audiobook_incoming_files(now=observed_at)
+    except Exception as exc:
+        staging = {
+            "status": "failed",
+            "removed_files": 0,
+            "removed_bytes": 0,
+            "removed_paths": [],
+            "reason": type(exc).__name__,
+        }
+        failed_jobs += 1
     removed_bytes += int(staging.get("removed_bytes") or 0)
     removed_paths += len(list(staging.get("removed_paths") or []))
+    status = "cleaned" if cleaned_jobs or int(staging.get("removed_files") or 0) else "not_needed"
+    if failed_jobs:
+        status = "partial" if cleaned_jobs or int(staging.get("removed_files") or 0) else "failed"
     return {
-        "status": "cleaned" if cleaned_jobs or int(staging.get("removed_files") or 0) else "not_needed",
+        "status": status,
         "cleaned_jobs": cleaned_jobs,
+        "failed_jobs": failed_jobs,
+        "skipped_jobs": skipped_jobs,
         "removed_bytes": removed_bytes,
         "removed_paths": removed_paths,
         "results": results,
+        "superseded": superseded,
         "staging": staging,
     }
 
@@ -8273,6 +8815,31 @@ def _audiobook_job_retry_at(job: dict[str, object]) -> datetime | None:
     return _audiobook_job_throttle_retry_at(job) or _audiobook_job_external_tts_retry_at(job)
 
 
+def _audiobook_completed_terminal_reason(job: dict[str, object]) -> str:
+    status = str(job.get("status") or "").strip()
+    if status != "audiobookshelf_imported":
+        return ""
+    if _audiobook_public_share_followup_pending(job):
+        return ""
+    playback_acceptance = dict(job.get("playback_acceptance") or {})
+    playback_status = str(playback_acceptance.get("status") or "").strip()
+    if playback_status == "accepted":
+        return "playback_accepted"
+    return ""
+
+
+def _audiobook_resume_skip_reason(job: dict[str, object]) -> str:
+    completed_terminal_reason = _audiobook_completed_terminal_reason(job)
+    if completed_terminal_reason:
+        return completed_terminal_reason
+    status = str(job.get("status") or "").strip()
+    if status:
+        return status
+    if _audiobook_public_share_followup_pending(job):
+        return "public_share_followup_pending"
+    return "no_retry_due"
+
+
 def _audiobook_resume_priority(job: dict[str, object]) -> int:
     source_kind = _normalize_tag(dict(job.get("source") or {}).get("kind"))
     if source_kind in _priority_audiobook_source_kinds():
@@ -8361,7 +8928,8 @@ def resume_due_audiobook_jobs(
     max_jobs = limit if limit is not None else _env_int("EA_AUDIOBOOK_RESUME_DUE_LIMIT", 2, minimum=1, maximum=20)
     roots = audiobook_job_discovery_roots()
     effective_job_root = audiobook_jobs_root()
-    if not _storage_path_accessible(effective_job_root):
+    job_root_probe = _storage_path_probe(effective_job_root)
+    if not bool(job_root_probe.get("accessible")):
         return {
             "ran": True,
             "attempted": 0,
@@ -8374,6 +8942,7 @@ def resume_due_audiobook_jobs(
             "share_link_pending": 0,
             "share_link_notifications": [],
             "reason": "job_root_missing",
+            "job_root": job_root_probe,
         }
     manifests = list(iter_audiobook_job_manifests())
     if not roots:
@@ -8389,12 +8958,16 @@ def resume_due_audiobook_jobs(
             "share_link_pending": 0,
             "share_link_notifications": [],
             "reason": "job_root_missing",
+            "job_root": job_root_probe,
         }
     rows: list[tuple[int, datetime, Path, dict[str, object]]] = []
     share_rows: list[tuple[int, Path, dict[str, object]]] = []
     pending = 0
     share_link_pending = 0
     skipped = 0
+    skip_reasons: dict[str, int] = {}
+    completed_terminal = 0
+    completed_terminal_reasons: dict[str, int] = {}
     errors = 0
     for manifest_path in manifests:
         try:
@@ -8411,7 +8984,13 @@ def resume_due_audiobook_jobs(
                 else:
                     share_rows.append((_audiobook_resume_priority(job), job_dir, job))
             else:
-                skipped += 1
+                reason = _audiobook_resume_skip_reason(job)
+                if reason == "playback_accepted":
+                    completed_terminal += 1
+                    completed_terminal_reasons[reason] = int(completed_terminal_reasons.get(reason) or 0) + 1
+                else:
+                    skipped += 1
+                    skip_reasons[reason] = int(skip_reasons.get(reason) or 0) + 1
             continue
         if retry_at > observed_at:
             pending += 1
@@ -8557,6 +9136,9 @@ def resume_due_audiobook_jobs(
         "throttled": throttled,
         "pending": pending + max(len(rows) - max_jobs, 0),
         "skipped": skipped,
+        "skip_reasons": dict(sorted(skip_reasons.items())),
+        "completed_terminal": completed_terminal,
+        "completed_terminal_reasons": dict(sorted(completed_terminal_reasons.items())),
         "errors": errors,
         "notifications": notifications[:10],
         "share_link_attempted": share_link_attempted,

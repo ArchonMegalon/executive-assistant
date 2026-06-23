@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import errno
 import importlib.util
 import json
 import struct
 import sys
+import threading
 import wave
 import zipfile
 from argparse import Namespace
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -20,6 +23,11 @@ FUTURE_EXPIRY = 4102444800
 @pytest.fixture(autouse=True)
 def _disable_transcode_quality_gate_for_fake_media(monkeypatch):
     monkeypatch.setenv("EA_WHATSAPP_VOICE_SAMPLE_TRANSCODE_QUALITY_GATE_ENABLED", "0")
+
+
+@pytest.fixture(autouse=True)
+def _disable_audiobook_job_cleanup(monkeypatch):
+    monkeypatch.setenv("EA_AUDIOBOOK_JOB_CLEANUP_ENABLED", "0")
 
 
 def _module():
@@ -148,6 +156,31 @@ def test_send_reply_can_delegate_pacing_to_sidecar_route(tmp_path: Path) -> None
         "chat_ref": "chat-ref-1",
     }
     assert calls[0]["timeout"] == 30.0
+
+
+def test_save_state_uses_unique_temp_files_under_concurrent_writes(tmp_path: Path, monkeypatch) -> None:
+    module = _module()
+    state_path = tmp_path / "wa-actions.json"
+    original_write_text = Path.write_text
+    barrier = threading.Barrier(8)
+
+    def _delayed_write_text(self: Path, *args, **kwargs):
+        if self.parent == state_path.parent and self.name.startswith(f".{state_path.name}.") and self.name.endswith(".tmp"):
+            barrier.wait(timeout=2)
+        return original_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", _delayed_write_text)
+
+    def _write(index: int) -> None:
+        module._save_state(state_path, {"version": 1, "actions": {f"row-{index}": {"processed_at": "now"}}})
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(_write, range(8)))
+
+    saved = json.loads(state_path.read_text(encoding="utf-8"))
+    assert saved["version"] == 1
+    assert len(list(tmp_path.glob("*.tmp"))) == 0
+    assert len(list(tmp_path.glob(f".{state_path.name}.*.tmp"))) == 0
 
 
 def _write_minimal_epub(path: Path) -> None:
@@ -298,6 +331,9 @@ def test_telegram_summary_scope_label_is_configurable(tmp_path: Path) -> None:
 
     assert report["status"] == "pass"
     assert report["telegram_summary"]["status"] == "sent"
+    assert report["telegram_summary"]["scope_label"] == "Runner"
+    assert report["telegram_summary"]["allowed_heyy_ai_keys"] == ["custom_project_ai"]
+    assert report["telegram_summary"]["candidate_count"] == 5
     assert len(sent) == 1
     text = str(sent[0]["text"])
     assert "Runner-Zusammenfassung (5 neue Nachrichten)" in text
@@ -386,12 +422,12 @@ def test_telegram_summary_sends_when_pending_messages_leave_current_fetch(tmp_pa
     assert "fuenfte nachricht sichtbar" not in state_text
 
 
-def test_telegram_summary_ignores_non_herta_messages(tmp_path: Path) -> None:
+def test_telegram_summary_ignores_out_of_scope_messages(tmp_path: Path) -> None:
     module = _module()
     messages = [
         _text_message(
-            id=f"wamid.summary.nonherta.{index}",
-            body_text=f"nicht herta {index}",
+            id=f"wamid.summary.outofscope.{index}",
+            body_text=f"out of scope {index}",
             heyy_ai_key="executive_assistant",
             heyy_ai_name="Executive Assistant",
         )
@@ -413,6 +449,9 @@ def test_telegram_summary_ignores_non_herta_messages(tmp_path: Path) -> None:
 
     assert report["status"] == "pass"
     assert report["telegram_summary"]["status"] == "waiting"
+    assert report["telegram_summary"]["scope_label"] == "Herta"
+    assert report["telegram_summary"]["allowed_heyy_ai_keys"] == ["empathetic_slow_typing_old_lady"]
+    assert report["telegram_summary"]["candidate_count"] == 0
     assert report["telegram_summary"]["new_message_count"] == 0
     assert report["telegram_summary"]["pending_message_count"] == 0
     assert sent == []
@@ -423,6 +462,12 @@ def test_build_report_replies_to_executive_assistant_freeform_inbox_messages(
 ) -> None:
     module = _module()
     sent: list[dict[str, object]] = []
+    monkeypatch.setenv("EA_AUDIOBOOK_JOB_CLEANUP_ENABLED", "1")
+    monkeypatch.setattr(
+        module.audiobook_epub_pipeline,
+        "cleanup_finished_audiobook_jobs",
+        lambda force=False: {"status": "not_needed", "cleaned_jobs": 0},
+    )
 
     monkeypatch.setattr(
         module,
@@ -463,6 +508,7 @@ def test_build_report_replies_to_executive_assistant_freeform_inbox_messages(
     assert report["freeform_inbox_by_heyy_ai_key"] == {"executive_assistant": 1}
     assert report["freeform_reply_sent"] == 1
     assert report["reply_sent"] == 1
+    assert report["cleanup_summary"]["status"] == "not_needed"
     assert sent == [
         {
             "to": "40424366432273",
@@ -470,6 +516,152 @@ def test_build_report_replies_to_executive_assistant_freeform_inbox_messages(
             "chat_ref": "chat-ref-1",
         }
     ]
+
+
+@pytest.mark.parametrize(
+    "cleanup_exc,expected_error,expected_extra",
+    [
+        (FileNotFoundError("raced"), "FileNotFoundError", {}),
+        (
+            OSError(errno.ENOTCONN, "Transport endpoint is not connected"),
+            "OSError",
+            {"errno": errno.ENOTCONN},
+        ),
+        (
+            TypeError("rmtree() got an unexpected keyword argument 'onexc'"),
+            "TypeError",
+            {},
+        ),
+    ],
+)
+def test_cleanup_summary_transient_failures_are_observable_without_partial_status(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    cleanup_exc: BaseException,
+    expected_error: str,
+    expected_extra: dict[str, object],
+) -> None:
+    module = _module()
+    monkeypatch.setenv("EA_AUDIOBOOK_JOB_CLEANUP_ENABLED", "1")
+    monkeypatch.setattr(
+        module.audiobook_epub_pipeline,
+        "cleanup_finished_audiobook_jobs",
+        lambda force=False: (_ for _ in ()).throw(cleanup_exc),
+    )
+
+    def _request_json(**kwargs):
+        if kwargs.get("method") == "GET":
+            return {"messages": [], "ok": True}
+        return {"ok": True}
+
+    report = module.build_report(
+        _args(tmp_path, conversation_fallback_enabled=False),
+        request_json=_request_json,
+    )
+
+    assert report["status"] == "pass"
+    assert report["errors"] == 0
+    assert report["cleanup_summary"] == {
+        "status": "skipped",
+        "reason": "transient_cleanup_exception",
+        "error": expected_error,
+        "non_blocking": True,
+        "observability": "cleanup_skipped_transient",
+        **expected_extra,
+    }
+    assert report["external_blockers"] == []
+
+
+def test_build_report_surfaces_disconnected_audiobook_mount_as_external_blocker(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    monkeypatch.setenv("EA_AUDIOBOOK_JOB_CLEANUP_ENABLED", "1")
+    disconnected_probe = {
+        "accessible": False,
+        "errno": errno.ENOTCONN,
+        "error": "OSError",
+        "path": "/data/audiobooks/jobs",
+        "status": "disconnected_mount",
+    }
+    monkeypatch.setattr(
+        module.audiobook_epub_pipeline,
+        "cleanup_finished_audiobook_jobs",
+        lambda force=False: {
+            "status": "missing",
+            "job_root": dict(disconnected_probe),
+        },
+    )
+    monkeypatch.setattr(
+        module.audiobook_epub_pipeline,
+        "resume_due_audiobook_jobs",
+        lambda notify_telegram=False, limit=1: {
+            "ran": True,
+            "attempted": 0,
+            "resumed": 0,
+            "errors": 0,
+            "reason": "job_root_missing",
+            "job_root": dict(disconnected_probe),
+        },
+    )
+
+    report = module.build_report(
+        _args(tmp_path, conversation_fallback_enabled=False, audiobook_resume_due=True),
+        request_json=lambda **_: {"messages": [], "ok": True},
+    )
+
+    assert report["status"] == "pass"
+    assert report["errors"] == 0
+    assert report["external_blockers"] == [
+        {
+            "kind": "audiobook_job_root_unavailable",
+            "source": "cleanup_summary",
+            "status": "disconnected_mount",
+            "path": "/data/audiobooks/jobs",
+            "reason": "disconnected_mount",
+            "external_dependency": True,
+            "errno": errno.ENOTCONN,
+            "error": "OSError",
+        },
+        {
+            "kind": "audiobook_job_root_unavailable",
+            "source": "resume_summary",
+            "status": "disconnected_mount",
+            "path": "/data/audiobooks/jobs",
+            "reason": "job_root_missing",
+            "external_dependency": True,
+            "errno": errno.ENOTCONN,
+            "error": "OSError",
+        },
+    ]
+
+
+def test_build_report_dry_run_skips_cleanup_scan(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    monkeypatch.setenv("EA_AUDIOBOOK_JOB_CLEANUP_ENABLED", "1")
+    cleanup_called = {"value": False}
+
+    def _fail_if_called(force: bool = False):
+        cleanup_called["value"] = True
+        raise AssertionError("cleanup should be skipped during dry-run")
+
+    monkeypatch.setattr(
+        module.audiobook_epub_pipeline,
+        "cleanup_finished_audiobook_jobs",
+        _fail_if_called,
+    )
+
+    report = module.build_report(
+        _args(tmp_path, dry_run=True, conversation_fallback_enabled=False),
+        request_json=lambda **_: {"messages": [], "ok": True},
+    )
+
+    assert cleanup_called["value"] is False
+    assert report["cleanup_summary"] == {"status": "dry_run"}
 
 
 def test_build_report_ignores_voice_selection_text_without_pending_job(
@@ -2535,6 +2727,18 @@ def test_build_report_sends_reply_for_ignored_callback(monkeypatch, tmp_path: Pa
     assert action["status"] == "ignored"
     assert action["reason"] == "invalid_signature"
     assert action["reply_sent"] is True
+    assert report["stale_callback_summary"] == {
+        "action_count": 1,
+        "stale_count": 0,
+        "ignored_count": 1,
+        "reply_sent": 1,
+        "suppressed": 0,
+        "suppressed_by_age": 0,
+        "suppressed_duplicate": 0,
+        "reasons": {"invalid_signature": 1},
+        "suppressed_reasons": {},
+    }
+    assert state["last_run"]["stale_callback_summary"]["ignored_count"] == 1
 
 
 def test_build_report_suppresses_old_stale_callback_replies(monkeypatch, tmp_path: Path) -> None:
@@ -2584,6 +2788,17 @@ def test_build_report_suppresses_old_stale_callback_replies(monkeypatch, tmp_pat
     actions = list(dict(state["actions"]).values())
     assert len(actions) == 2
     assert {action["reply_suppressed_reason"] for action in actions} == {"callback_reply_too_old"}
+    assert report["stale_callback_summary"] == {
+        "action_count": 2,
+        "stale_count": 2,
+        "ignored_count": 0,
+        "reply_sent": 0,
+        "suppressed": 2,
+        "suppressed_by_age": 2,
+        "suppressed_duplicate": 0,
+        "reasons": {"stale_candidate_ignored": 2},
+        "suppressed_reasons": {"callback_reply_too_old": 2},
+    }
 
 
 def test_build_report_sends_only_one_recent_stale_callback_reply(monkeypatch, tmp_path: Path) -> None:
@@ -2634,6 +2849,17 @@ def test_build_report_sends_only_one_recent_stale_callback_reply(monkeypatch, tm
     suppressed = [action for action in dict(state["actions"]).values() if action.get("reply_suppressed")]
     assert len(suppressed) == 1
     assert suppressed[0]["reply_suppressed_reason"] == "duplicate_stale_callback_notice"
+    assert report["stale_callback_summary"] == {
+        "action_count": 2,
+        "stale_count": 2,
+        "ignored_count": 0,
+        "reply_sent": 1,
+        "suppressed": 1,
+        "suppressed_by_age": 0,
+        "suppressed_duplicate": 1,
+        "reasons": {"stale_candidate_ignored": 2},
+        "suppressed_reasons": {"duplicate_stale_callback_notice": 1},
+    }
 
 
 def test_build_report_retries_ignored_missing_secret_callback(tmp_path: Path) -> None:
@@ -2979,6 +3205,45 @@ def test_build_report_dismiss_named_text_sends_replacement_voice(monkeypatch, tm
     assert len(button_post) == 1
     assert len(reply_post) == 1
     assert dict(reply_post[0]["body"])["chat_ref"] == "chat-ref-1"
+
+
+def test_iter_audiobook_voice_text_candidates_caches_waiting_job_by_sender_and_chat(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    sender_calls: list[str] = []
+    chat_calls: list[str] = []
+
+    def _fake_latest_job(*, sender_digits: str, predicate) -> dict[str, object]:
+        sender_calls.append(sender_digits)
+        return {
+            "status": "waiting_voice_selection",
+            "provider": {
+                "voice_selection": {
+                    "status": "waiting_user_choice",
+                    "pending_batch": [
+                        {"label": "Florian", "preset_key": "voice-florian", "callback_token": "sample-token-florian"},
+                    ],
+                }
+            },
+        }
+
+    def _fake_latest_job_for_chat_ref(*, chat_ref: str, predicate) -> dict[str, object]:
+        chat_calls.append(chat_ref)
+        return {}
+
+    monkeypatch.setattr(module, "_latest_whatsapp_audiobook_job", _fake_latest_job)
+    monkeypatch.setattr(module, "_latest_whatsapp_audiobook_job_for_chat_ref", _fake_latest_job_for_chat_ref)
+
+    candidates = module._iter_audiobook_voice_text_candidates(
+        [
+            _text_message(id="wamid.voice.cache.1", body_text="Florian"),
+            _text_message(id="wamid.voice.cache.2", body_text="dismiss all"),
+            _text_message(id="wamid.voice.cache.3", body_text="Florian"),
+        ]
+    )
+
+    assert len(candidates) == 3
+    assert sender_calls == ["4368120864006"]
+    assert chat_calls == []
 
 
 def test_dismiss_all_pending_whatsapp_voice_samples_records_feedback_for_each_voice(monkeypatch, tmp_path: Path) -> None:
@@ -3764,6 +4029,79 @@ def test_build_report_resends_whatsapp_playback_buttons_from_status_text(monkeyp
     assert "Audiobook intake and voice samples are ready." in str(payload["text"])
     assert "reply with the voice name" in str(payload["text"])
     assert "'dismiss <voice>', or 'dismiss all'" in str(payload["text"])
+    assert "Latest Audiobookshelf delivery awaiting playback confirmation: Ready Book." in str(payload["text"])
+    assert payload["buttons"][0][0][0] == "Playback works"
+    assert payload["buttons"][0][1][0] == "Problem"
+    assert str(payload["buttons"][0][0][1]).startswith("ap|a|callback-token|")
+    assert str(payload["buttons"][0][1][1]).startswith("ap|r|callback-token|")
+    state = json.loads((tmp_path / "wa-actions.json").read_text(encoding="utf-8"))
+    serialized_state = json.dumps(state)
+    assert "4368120864006" not in serialized_state
+    assert "callback-token" not in serialized_state
+
+
+def test_build_report_resends_whatsapp_playback_buttons_from_playback_text(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    requests: list[dict[str, object]] = []
+    jobs_root = tmp_path / "jobs"
+    job_dir = jobs_root / "job-ready"
+    job_dir.mkdir(parents=True)
+    job = {
+        "job_id": "job-ready",
+        "status": "audiobookshelf_imported",
+        "updated_at": "2026-06-21T05:30:00Z",
+        "metadata": {"title": "Ready Book", "author": "A. Writer", "language": "en-US"},
+        "storage": {"job_dir": str(job_dir)},
+        "whatsapp": {"sender_ref": "4368120864006", "session_ref": "session-1"},
+        "audiobookshelf_import": {
+            "status": "imported",
+            "target_path": str(tmp_path / "Ready Book.m4b"),
+            "public_share": {
+                "status": "public_share_ready",
+                "absolute_url": "https://abs.example.com/share/ready-book",
+                "whatsapp_delivery": {"status": "sent", "message_id": "wamid.share.1"},
+                "playback_acceptance_callback": {
+                    "status": "ready",
+                    "token": "callback-token",
+                    "raw_token_exposed": False,
+                },
+            },
+        },
+    }
+    (job_dir / "job.json").write_text(json.dumps(job, indent=2, sort_keys=True), encoding="utf-8")
+
+    def _fake_request_json(**kwargs: object) -> dict[str, object]:
+        requests.append(dict(kwargs))
+        if kwargs["method"] == "GET":
+            return {"messages": [_text_message(body_text="audiobook playback")], "ok": True}
+        return {"ok": True, "message_id": "wamid.playback.reply"}
+
+    monkeypatch.setenv("EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET", "callback-secret")
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(jobs_root))
+    monkeypatch.setattr(module.audiobook_epub_pipeline, "audiobook_jobs_root", lambda: jobs_root)
+    monkeypatch.setattr(
+        module.audiobook_epub_pipeline,
+        "audiobook_runtime_preflight",
+        lambda: {
+            "provider": {"voice_catalog_count": 3, "voice_audition_min_candidates": 3, "api_key_slot_count": 1},
+            "access": {"audiobookshelf_public_share_enabled": True},
+            "failed_checks": [],
+            "warned_checks": [],
+        },
+    )
+
+    report = module.build_report(
+        _args(tmp_path),
+        request_json=_fake_request_json,
+    )
+
+    assert report["status"] == "pass"
+    assert report["status_candidate_count"] == 1
+    assert report["status_processed"] == 1
+    posts = [row for row in requests if row["method"] == "POST"]
+    assert len(posts) == 1
+    payload = dict(posts[0]["body"])
+    assert payload["chat_ref"] == "chat-ref-1"
     assert "Latest Audiobookshelf delivery awaiting playback confirmation: Ready Book." in str(payload["text"])
     assert payload["buttons"][0][0][0] == "Playback works"
     assert payload["buttons"][0][1][0] == "Problem"
