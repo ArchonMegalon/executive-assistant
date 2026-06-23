@@ -2901,6 +2901,19 @@ def _audiobook_voice_sample_delivery_summary(
             for item in receipts
             if str(item.get("token") or "").strip()
         ],
+        "samples": [
+            {
+                "token_sha256": _sha256_bytes(str(item.get("token") or "").encode("utf-8")),
+                "status": str(item.get("status") or "").strip(),
+                "media_message_id_sha256": str(item.get("media_message_id_sha256") or "").strip(),
+                "button_message_id_sha256": str(item.get("button_message_id_sha256") or "").strip(),
+                "button_count": int(item.get("button_count") or 0),
+                "buttons_fallback": bool(item.get("buttons_fallback")),
+                "control_kind": str(item.get("control_kind") or "").strip(),
+            }
+            for item in receipts
+            if str(item.get("token") or "").strip()
+        ],
         "updated_at": _now_iso(),
     }
 
@@ -3135,7 +3148,7 @@ def cleanup_audiobook_job_artifacts(
     if job_dir_missing:
         return {"status": "missing", "removed_bytes": 0, "removed_paths": [], "job_dir_name": job_dir.name}
     try:
-        job = _load_job(job_dir)
+        job, job_manifest_source = _load_cleanup_job(job_dir)
     except Exception as exc:
         if isinstance(exc, RuntimeError) and str(exc) == "audiobook_job_manifest_missing":
             return {
@@ -3258,6 +3271,7 @@ def cleanup_audiobook_job_artifacts(
         "status": result_status,
         "job_dir_name": job_dir.name,
         "job_status": job_status,
+        "job_manifest_source": job_manifest_source,
         "age_seconds": age_seconds if age_seconds is not None else -1,
         "removed_bytes": removed_bytes,
         "removed_paths": removed_paths,
@@ -4761,6 +4775,19 @@ def _load_job(job_dir: Path) -> dict[str, object]:
     if not path.is_file():
         raise RuntimeError("audiobook_job_manifest_missing")
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _load_cleanup_job(job_dir: Path) -> tuple[dict[str, object], str]:
+    try:
+        return _load_job(job_dir), "job.json"
+    except json.JSONDecodeError:
+        receipt_path = job_dir / "job_receipt.json"
+        if not receipt_path.is_file():
+            raise
+        loaded = json.loads(receipt_path.read_text(encoding="utf-8"))
+        if not isinstance(loaded, dict):
+            raise
+        return loaded, "job_receipt.json"
 
 
 def _write_job(job_dir: Path, payload: dict[str, object]) -> None:

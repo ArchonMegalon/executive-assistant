@@ -7068,6 +7068,41 @@ def test_cleanup_audiobook_job_artifacts_treats_disappearing_manifest_as_missing
     assert result["removed_paths"] == []
 
 
+def test_cleanup_audiobook_job_artifacts_falls_back_to_job_receipt_when_manifest_is_corrupt(tmp_path: Path) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    job_dir = tmp_path / "job-corrupt-manifest"
+    (job_dir / "audio").mkdir(parents=True)
+    (job_dir / "audio" / "chapter.wav").write_text("audio", encoding="utf-8")
+    (job_dir / "resume_state.json").write_text("{}", encoding="utf-8")
+    (job_dir / "job.json").write_text("", encoding="utf-8")
+    (job_dir / "job_receipt.json").write_text(
+        json.dumps(
+            {
+                "job_id": "job-corrupt-manifest",
+                "status": "audiobookshelf_imported",
+                "updated_at": "2026-06-20T10:00:00Z",
+                "storage": {"job_dir": str(job_dir)},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = pipeline.cleanup_audiobook_job_artifacts(
+        job_dir,
+        force=True,
+        now=datetime(2026, 6, 22, 12, 0, tzinfo=UTC),
+    )
+
+    assert result["status"] == "cleaned"
+    assert result["job_status"] == "audiobookshelf_imported"
+    assert result["job_manifest_source"] == "job_receipt.json"
+    assert not (job_dir / "audio").exists()
+    assert not (job_dir / "resume_state.json").exists()
+    assert (job_dir / "job_receipt.json").exists()
+    assert (job_dir / "job.json").exists()
+
+
 def test_cleanup_finished_audiobook_jobs_prunes_stale_incoming_files(monkeypatch, tmp_path: Path) -> None:
     from app.services import audiobook_epub_pipeline as pipeline
 
