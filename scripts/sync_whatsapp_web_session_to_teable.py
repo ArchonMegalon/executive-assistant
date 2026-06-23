@@ -80,6 +80,13 @@ EXECUTIVE_ASSISTANT_TYPING_DELAY_MS = 2800
 NON_CONVERSATION_MESSAGE_TYPES = {"notification_template", "e2e_notification"}
 
 
+class SessionApiUnavailable(RuntimeError):
+    def __init__(self, *, operation: str, detail: str) -> None:
+        super().__init__(detail)
+        self.operation = operation
+        self.detail = detail
+
+
 MESSAGE_FIELDS: list[dict[str, object]] = [
     {"name": "projection_id", "type": "singleLineText"},
     {"name": "session_ref", "type": "singleLineText"},
@@ -687,25 +694,53 @@ def _session_headers(token: str, header_name: str, header_prefix: str) -> dict[s
     return {header_name or "Authorization": f"{header_prefix}{token}".strip()}
 
 
+def _session_api_unavailable_from_exit(exc: BaseException) -> SessionApiUnavailable | None:
+    if not isinstance(exc, SystemExit):
+        return None
+    detail = str(exc)
+    lowered = detail.lower()
+    if detail.startswith("http_error:409:"):
+        return SessionApiUnavailable(operation="session_api_request", detail=detail)
+    if not detail.startswith("http_request_failed:"):
+        return None
+    if "connection refused" in lowered or "[errno 111]" in lowered:
+        return SessionApiUnavailable(operation="session_api_request", detail=detail)
+    if "timeout" in lowered or "timed out" in lowered:
+        return SessionApiUnavailable(operation="session_api_request", detail=detail)
+    return None
+
+
 def _session_get(args: argparse.Namespace, suffix: str) -> dict[str, Any]:
     session_ref = urllib.parse.quote(str(args.session_ref).strip(), safe="")
-    return _request_json(
-        method="GET",
-        url=f"{str(args.session_api_base_url).rstrip('/')}/sessions/{session_ref}/{suffix.lstrip('/')}",
-        headers=_session_headers(str(args.session_api_token), str(args.auth_header_name), str(args.auth_header_prefix)),
-        timeout=float(args.timeout_seconds),
-    )
+    try:
+        return _request_json(
+            method="GET",
+            url=f"{str(args.session_api_base_url).rstrip('/')}/sessions/{session_ref}/{suffix.lstrip('/')}",
+            headers=_session_headers(str(args.session_api_token), str(args.auth_header_name), str(args.auth_header_prefix)),
+            timeout=float(args.timeout_seconds),
+        )
+    except SystemExit as exc:
+        unavailable = _session_api_unavailable_from_exit(exc)
+        if unavailable is not None:
+            raise unavailable from exc
+        raise
 
 
 def _session_put(args: argparse.Namespace, suffix: str, body: dict[str, object]) -> dict[str, Any]:
     session_ref = urllib.parse.quote(str(args.session_ref).strip(), safe="")
-    return _request_json(
-        method="PUT",
-        url=f"{str(args.session_api_base_url).rstrip('/')}/sessions/{session_ref}/{suffix.lstrip('/')}",
-        headers=_session_headers(str(args.session_api_token), str(args.auth_header_name), str(args.auth_header_prefix)),
-        body=body,
-        timeout=float(args.timeout_seconds),
-    )
+    try:
+        return _request_json(
+            method="PUT",
+            url=f"{str(args.session_api_base_url).rstrip('/')}/sessions/{session_ref}/{suffix.lstrip('/')}",
+            headers=_session_headers(str(args.session_api_token), str(args.auth_header_name), str(args.auth_header_prefix)),
+            body=body,
+            timeout=float(args.timeout_seconds),
+        )
+    except SystemExit as exc:
+        unavailable = _session_api_unavailable_from_exit(exc)
+        if unavailable is not None:
+            raise unavailable from exc
+        raise
 
 
 def _table_id_from_base(*, base_url: str, api_key: str, base_id: str, table_name: str) -> str:
@@ -1291,6 +1326,27 @@ def _dedupe_route_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]
     return deduped
 
 
+def _sidecar_live_route_to_teable_row(route: dict[str, object]) -> dict[str, object]:
+    row = dict(route)
+    ai_key = str(row.pop("ai_key", "") or row.get("heyy_ai_key") or DEFAULT_HEYY_AI_KEY).strip()
+    ai_name = str(row.pop("ai_name", "") or row.get("heyy_ai_name") or ai_key or DEFAULT_HEYY_AI_NAME).strip()
+    row["heyy_ai_key"] = ai_key
+    row["heyy_ai_name"] = ai_name
+    return row
+
+
+def _route_rows_with_sidecar_live_projection(
+    route_rows: list[dict[str, object]],
+    sidecar_live_rows: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    if not sidecar_live_rows:
+        return _dedupe_route_rows(route_rows)
+    default_rows = [row for row in route_rows if str(row.get("route_key") or "").strip() == "default"]
+    non_default_rows = [row for row in route_rows if str(row.get("route_key") or "").strip() != "default"]
+    live_teable_rows = [_sidecar_live_route_to_teable_row(row) for row in sidecar_live_rows]
+    return _dedupe_route_rows([*default_rows, *live_teable_rows, *non_default_rows])
+
+
 def _route_row_for_sidecar_public_route(
     *,
     session_ref: str,
@@ -1365,6 +1421,10 @@ def _sidecar_live_route_rows(args: argparse.Namespace) -> list[dict[str, object]
         payload = _session_get(args, "heyy-ai-routes")
     except Exception:
         return []
+    return _sidecar_live_route_rows_from_payload(args, payload)
+
+
+def _sidecar_live_route_rows_from_payload(args: argparse.Namespace, payload: dict[str, object]) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     seen_inbound: set[str] = set()
     for item in payload.get("routes") or []:
@@ -1377,10 +1437,6 @@ def _sidecar_live_route_rows(args: argparse.Namespace) -> list[dict[str, object]
         rows.append(row)
         seen_inbound.add(inbound)
     return rows
-
-
-def _sidecar_herta_route_rows(args: argparse.Namespace) -> list[dict[str, object]]:
-    return _sidecar_live_route_rows(args)
 
 
 def _merge_sidecar_live_route_overrides(
@@ -1399,17 +1455,68 @@ def _merge_sidecar_live_route_overrides(
     return merged
 
 
-def _merge_sidecar_herta_route_overrides(
-    routes: list[dict[str, object]],
-    overrides: list[dict[str, object]],
-) -> list[dict[str, object]]:
-    return _merge_sidecar_live_route_overrides(routes, overrides)
+def _route_compare_payload(route: dict[str, object]) -> dict[str, object]:
+    return {
+        "route_key": str(route.get("route_key") or "").strip(),
+        "inbound_number_digits": str(route.get("inbound_number_digits") or "").strip(),
+        "ai_key": str(route.get("ai_key") or route.get("heyy_ai_key") or "").strip(),
+        "ai_name": str(route.get("ai_name") or route.get("heyy_ai_name") or "").strip(),
+        "behavior_prompt": str(route.get("behavior_prompt") or "").strip(),
+        "memory_notes": str(route.get("memory_notes") or "").strip(),
+        "pacing_hint": str(route.get("pacing_hint") or "").strip(),
+        "minimum_delay_seconds": _int_value(route.get("minimum_delay_seconds"), 0),
+        "pre_reply_delay_min_seconds": _int_value(route.get("pre_reply_delay_min_seconds"), 0),
+        "pre_reply_delay_max_seconds": _int_value(route.get("pre_reply_delay_max_seconds"), 0),
+        "quiet_hours_start_hour": _int_value(route.get("quiet_hours_start_hour"), 0),
+        "quiet_hours_end_hour": _int_value(route.get("quiet_hours_end_hour"), 0),
+        "typing_delay_ms": _int_value(route.get("typing_delay_ms"), 0),
+        "typing_delay_ms_per_character": _int_value(route.get("typing_delay_ms_per_character"), 0),
+        "typing_status_enabled": _bool_value(route.get("typing_status_enabled"), True),
+        "auto_reply_enabled": _bool_value(route.get("auto_reply_enabled"), False),
+        "reply_text": str(route.get("reply_text") or "").strip(),
+        "enabled": _bool_value(route.get("enabled"), True),
+        "session_ref": str(route.get("session_ref") or "").strip(),
+    }
+
+
+def _normalized_sidecar_routes_for_compare(routes: list[dict[str, object]]) -> list[dict[str, object]]:
+    normalized = [_route_compare_payload(dict(route)) for route in routes if isinstance(route, dict)]
+    return sorted(normalized, key=lambda row: (str(row.get("route_key") or ""), str(row.get("inbound_number_digits") or "")))
+
+
+def _route_compare_hash(routes: list[dict[str, object]]) -> str:
+    normalized = _normalized_sidecar_routes_for_compare(routes)
+    payload = json.dumps(normalized, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _preserve_sidecar_live_routes_enabled(args: argparse.Namespace) -> bool:
     if hasattr(args, "preserve_sidecar_live_routes"):
         return bool(getattr(args, "preserve_sidecar_live_routes"))
+    # Keep the legacy attribute name readable for older callers until they migrate.
     return bool(getattr(args, "preserve_sidecar_herta_routes", True))
+
+
+def _route_sync_state_file(args: argparse.Namespace) -> str:
+    return str(getattr(args, "conversation_page_state_file", "") or "").strip()
+
+
+def _stored_route_compare_hash(args: argparse.Namespace) -> str:
+    state_file = _route_sync_state_file(args)
+    if not state_file:
+        return ""
+    return str(_load_sync_state(state_file).get("route_compare_hash") or "").strip()
+
+
+def _store_route_compare_hash(args: argparse.Namespace, route_hash: str, route_count: int) -> None:
+    state_file = _route_sync_state_file(args)
+    if not state_file:
+        return
+    state = _load_sync_state(state_file)
+    state["route_compare_hash"] = str(route_hash or "").strip()
+    state["route_compare_count"] = _nonnegative_int(route_count, 0)
+    state["route_compare_updated_at"] = _now_iso()
+    _save_sync_state(state_file, state)
 
 
 def _load_route_import_sources_payload(*, raw_json: str = "", source_file: str = "") -> object:
@@ -1706,10 +1813,44 @@ def _route_rows_from_teable(*, base_url: str, api_key: str, route_table_id: str,
     return rows
 
 
-def _apply_routes_to_sidecar(args: argparse.Namespace, routes: list[dict[str, object]]) -> dict[str, Any]:
+def _apply_routes_to_sidecar(
+    args: argparse.Namespace,
+    routes: list[dict[str, object]],
+    sidecar_live_rows: list[dict[str, object]] | None = None,
+    current_session_routes: list[dict[str, object]] | None = None,
+) -> dict[str, Any]:
+    compare_routes = current_session_routes
     if _preserve_sidecar_live_routes_enabled(args):
-        routes = _merge_sidecar_live_route_overrides(routes, _sidecar_live_route_rows(args))
-    return _session_put(args, "heyy-ai-routes", {"routes": routes})
+        if compare_routes is None:
+            current_payload = _session_get(args, "heyy-ai-routes")
+            compare_routes = list(current_payload.get("routes") or []) if isinstance(current_payload, dict) else []
+            sidecar_live_rows = _sidecar_live_route_rows_from_payload(args, current_payload) if isinstance(current_payload, dict) else []
+        routes = _merge_sidecar_live_route_overrides(
+            routes,
+            sidecar_live_rows or [],
+        )
+    target_hash = _route_compare_hash(routes)
+    if compare_routes is None:
+        current_payload = _session_get(args, "heyy-ai-routes")
+        compare_routes = list(current_payload.get("routes") or []) if isinstance(current_payload, dict) else []
+    if _normalized_sidecar_routes_for_compare(compare_routes) == _normalized_sidecar_routes_for_compare(routes):
+        _store_route_compare_hash(args, target_hash, len(routes))
+        return {
+            "ok": True,
+            "route_count": len(routes),
+            "skipped_noop": True,
+        }
+    if _stored_route_compare_hash(args) == target_hash:
+        return {
+            "ok": True,
+            "route_count": len(routes),
+            "skipped_noop": True,
+            "skipped_reason": "stored_route_compare_hash_match",
+        }
+    result = _session_put(args, "heyy-ai-routes", {"routes": routes})
+    if bool(result.get("ok")):
+        _store_route_compare_hash(args, target_hash, len(routes))
+    return result
 
 
 def _route_reachability_rows_from_sidecar(args: argparse.Namespace, routes: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -1795,6 +1936,8 @@ def _message_rows_from_conversation_payload(
     synced_at: str,
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
+    scanned_message_count = 0
+    skipped_synthetic_notification_count = 0
     for conversation in payload.get("conversations") or []:
         if not isinstance(conversation, dict):
             continue
@@ -1803,8 +1946,10 @@ def _message_rows_from_conversation_payload(
         for message in conversation.get("messages") or []:
             if not isinstance(message, dict):
                 continue
+            scanned_message_count += 1
             message_type = str(message.get("type") or "").strip()
             if message_type in NON_CONVERSATION_MESSAGE_TYPES:
+                skipped_synthetic_notification_count += 1
                 continue
             body_text = str(message.get("body_text") or "").strip()
             row = {
@@ -1829,6 +1974,11 @@ def _message_rows_from_conversation_payload(
                 "ack_label": str(message.get("ack_label") or "").strip(),
             }
             rows.append(row)
+    payload["message_filter_summary"] = {
+        "scanned_message_count": scanned_message_count,
+        "persisted_message_count": len(rows),
+        "skipped_synthetic_notification_count": skipped_synthetic_notification_count,
+    }
     return rows
 
 
@@ -1847,6 +1997,11 @@ def _aggregate_conversation_payloads(payloads: list[dict[str, Any]], *, start_sk
             "conversation_pages": 0,
             "conversation_skip": start_skip,
             "conversation_total": 0,
+            "message_filter_summary": {
+                "scanned_message_count": 0,
+                "persisted_message_count": 0,
+                "skipped_synthetic_notification_count": 0,
+            },
             "next_conversation_skip": 0,
             "ok": True,
         }
@@ -1861,6 +2016,23 @@ def _aggregate_conversation_payloads(payloads: list[dict[str, Any]], *, start_sk
         "fetch_concurrency": final_payload.get("fetch_concurrency"),
         "fetch_timeout_ms": final_payload.get("fetch_timeout_ms"),
         "message_limit": final_payload.get("message_limit"),
+        "message_filter_summary": {
+            "scanned_message_count": sum(
+                _nonnegative_int(dict(payload.get("message_filter_summary") or {}).get("scanned_message_count"), 0)
+                for payload in payloads
+            ),
+            "persisted_message_count": sum(
+                _nonnegative_int(dict(payload.get("message_filter_summary") or {}).get("persisted_message_count"), 0)
+                for payload in payloads
+            ),
+            "skipped_synthetic_notification_count": sum(
+                _nonnegative_int(
+                    dict(payload.get("message_filter_summary") or {}).get("skipped_synthetic_notification_count"),
+                    0,
+                )
+                for payload in payloads
+            ),
+        },
         "next_conversation_skip": final_next_skip,
         "ok": all(bool(payload.get("ok", True)) for payload in payloads),
         "ready": final_payload.get("ready"),
@@ -2027,7 +2199,35 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--route-import-sources-json", default=_env("EA_WHATSAPP_WEB_ROUTE_IMPORT_SOURCES_JSON"))
     parser.add_argument("--route-import-sources-file", default=_env("EA_WHATSAPP_WEB_ROUTE_IMPORT_SOURCES_FILE"))
+    parser.add_argument(
+        "--tolerate-session-api-unavailable",
+        action=argparse.BooleanOptionalAction,
+        default=_bool_value(_env("EA_WHATSAPP_WEB_TEABLE_TOLERATE_SESSION_API_UNAVAILABLE", "1"), True),
+    )
     return parser.parse_args()
+
+
+def _session_api_waiting_receipt(
+    *,
+    args: argparse.Namespace,
+    exc: SessionApiUnavailable,
+    route_table_id: str = "",
+    persona_table_id: str = "",
+    message_table_id: str = "",
+) -> dict[str, object]:
+    return {
+        "status": "waiting",
+        "ok": True,
+        "ready": False,
+        "reason": "session_api_unavailable",
+        "session_api_operation": exc.operation,
+        "detail": exc.detail,
+        "session_ref": str(args.session_ref),
+        "route_table_id": route_table_id,
+        "persona_table_id": persona_table_id,
+        "message_table_id": message_table_id,
+        "waiting_at": _now_iso(),
+    }
 
 
 def main() -> int:
@@ -2048,6 +2248,7 @@ def main() -> int:
     persona_fields_created = 0
     message_fields_created = 0
     message_page_state: dict[str, object] = {}
+    message_payload: dict[str, object] = {}
     persona_count = 0
     persona_upsert = {"created": 0, "updated": 0, "total": 0}
     route_count = 0
@@ -2057,6 +2258,9 @@ def main() -> int:
     route_reachability_upsert = {"created": 0, "updated": 0, "total": 0}
     route_apply = {"ok": False, "route_count": 0}
     message_upsert = {"created": 0, "updated": 0, "total": 0}
+    sidecar_live_route_count = 0
+    route_rows_to_upsert_count = 0
+    preserved_live_route_count = 0
 
     if not args.skip_personas:
         persona_table_id, created_persona_table = _ensure_table(
@@ -2079,98 +2283,139 @@ def main() -> int:
             rows=persona_rows,
         )
 
-    if not args.skip_routes:
-        route_table_id, created_route_table = _ensure_table(
-            base_url=base_url,
-            api_key=api_key,
-            base_id=base_id,
-            table_id=str(args.route_table_id or "").strip(),
-            table_name=str(args.route_table_name),
-            fields=ROUTE_FIELDS,
-            create_missing=bool(args.create_missing_tables),
-        )
-        route_fields_created = _ensure_fields(base_url=base_url, api_key=api_key, table_id=route_table_id, fields=ROUTE_FIELDS)
-        route_cleanup = _cleanup_reachability_only_route_rows(
-            base_url=base_url,
-            api_key=api_key,
-            route_table_id=route_table_id,
-            session_ref=str(args.session_ref),
-        )
-        route_rows_to_upsert: list[dict[str, object]] = []
-        if args.refresh_default_route:
-            route_rows_to_upsert.append(_default_route_row(str(args.session_ref)))
-        explicit_route = _explicit_route_row(
-            session_ref=str(args.session_ref),
-            inbound_number_digits=str(args.map_inbound_number_digits or ""),
-            heyy_ai_key=str(args.map_heyy_ai_key or EXECUTIVE_ASSISTANT_KEY),
-            heyy_ai_name=str(args.map_heyy_ai_name or ""),
-        )
-        if explicit_route:
-            route_rows_to_upsert.append(explicit_route)
-        route_rows_to_upsert.extend(
-            _route_seed_rows(
+    try:
+        if not args.skip_routes:
+            route_table_id, created_route_table = _ensure_table(
+                base_url=base_url,
+                api_key=api_key,
+                base_id=base_id,
+                table_id=str(args.route_table_id or "").strip(),
+                table_name=str(args.route_table_name),
+                fields=ROUTE_FIELDS,
+                create_missing=bool(args.create_missing_tables),
+            )
+            route_fields_created = _ensure_fields(base_url=base_url, api_key=api_key, table_id=route_table_id, fields=ROUTE_FIELDS)
+            route_cleanup = _cleanup_reachability_only_route_rows(
+                base_url=base_url,
+                api_key=api_key,
+                route_table_id=route_table_id,
                 session_ref=str(args.session_ref),
-                raw_json=str(args.route_seeds_json or ""),
-                seed_file=str(args.route_seeds_file or ""),
             )
-        )
-        imported_route_rows = _route_import_source_rows(
-            base_url=base_url,
-            api_key=api_key,
-            base_id=base_id,
-            session_ref=str(args.session_ref),
-            raw_json=str(args.route_import_sources_json or ""),
-            source_file=str(args.route_import_sources_file or ""),
-        )
-        route_import_count = len(imported_route_rows)
-        route_rows_to_upsert.extend(imported_route_rows)
-        route_rows_to_upsert = _dedupe_route_rows(route_rows_to_upsert)
-        if route_rows_to_upsert:
-            route_upsert = _upsert_rows(
+            current_sidecar_payload = _session_get(args, "heyy-ai-routes")
+            current_session_routes = list(current_sidecar_payload.get("routes") or []) if isinstance(current_sidecar_payload, dict) else []
+            sidecar_live_rows = (
+                _sidecar_live_route_rows_from_payload(args, current_sidecar_payload)
+                if _preserve_sidecar_live_routes_enabled(args) and isinstance(current_sidecar_payload, dict)
+                else []
+            )
+            sidecar_live_route_count = len(sidecar_live_rows)
+            route_rows_to_upsert: list[dict[str, object]] = []
+            if args.refresh_default_route:
+                route_rows_to_upsert.append(_default_route_row(str(args.session_ref)))
+            explicit_route = _explicit_route_row(
+                session_ref=str(args.session_ref),
+                inbound_number_digits=str(args.map_inbound_number_digits or ""),
+                heyy_ai_key=str(args.map_heyy_ai_key or EXECUTIVE_ASSISTANT_KEY),
+                heyy_ai_name=str(args.map_heyy_ai_name or ""),
+            )
+            if explicit_route:
+                route_rows_to_upsert.append(explicit_route)
+            route_rows_to_upsert.extend(
+                _route_seed_rows(
+                    session_ref=str(args.session_ref),
+                    raw_json=str(args.route_seeds_json or ""),
+                    seed_file=str(args.route_seeds_file or ""),
+                )
+            )
+            imported_route_rows = _route_import_source_rows(
                 base_url=base_url,
                 api_key=api_key,
-                table_id=route_table_id,
-                key_field="route_key",
-                rows=route_rows_to_upsert,
+                base_id=base_id,
+                session_ref=str(args.session_ref),
+                raw_json=str(args.route_import_sources_json or ""),
+                source_file=str(args.route_import_sources_file or ""),
             )
-        routes = _route_rows_from_teable(base_url=base_url, api_key=api_key, route_table_id=route_table_id, session_ref=str(args.session_ref))
-        if not routes:
-            default_row = _default_route_row(str(args.session_ref))
-            route_upsert = _upsert_rows(base_url=base_url, api_key=api_key, table_id=route_table_id, key_field="route_key", rows=[default_row])
+            route_import_count = len(imported_route_rows)
+            route_rows_to_upsert.extend(imported_route_rows)
+            route_rows_to_upsert = _route_rows_with_sidecar_live_projection(route_rows_to_upsert, sidecar_live_rows)
+            route_rows_to_upsert_count = len(route_rows_to_upsert)
+            if sidecar_live_rows:
+                live_route_keys = {
+                    str(row.get("route_key") or "").strip()
+                    for row in sidecar_live_rows
+                    if str(row.get("route_key") or "").strip()
+                }
+                preserved_live_route_count = sum(
+                    1
+                    for row in route_rows_to_upsert
+                    if str(row.get("route_key") or "").strip() in live_route_keys
+                )
+            if route_rows_to_upsert:
+                route_upsert = _upsert_rows(
+                    base_url=base_url,
+                    api_key=api_key,
+                    table_id=route_table_id,
+                    key_field="route_key",
+                    rows=route_rows_to_upsert,
+                )
             routes = _route_rows_from_teable(base_url=base_url, api_key=api_key, route_table_id=route_table_id, session_ref=str(args.session_ref))
-        route_count = len(routes)
-        route_apply = _apply_routes_to_sidecar(args, routes)
-        reachability_rows = _route_reachability_rows_from_sidecar(args, routes)
-        if reachability_rows:
-            route_reachability_upsert = _upsert_rows(
+            if not routes:
+                default_row = _default_route_row(str(args.session_ref))
+                route_upsert = _upsert_rows(base_url=base_url, api_key=api_key, table_id=route_table_id, key_field="route_key", rows=[default_row])
+                routes = _route_rows_from_teable(base_url=base_url, api_key=api_key, route_table_id=route_table_id, session_ref=str(args.session_ref))
+            route_count = len(routes)
+            route_apply = _apply_routes_to_sidecar(
+                args,
+                routes,
+                sidecar_live_rows=sidecar_live_rows,
+                current_session_routes=current_session_routes,
+            )
+            reachability_rows = _route_reachability_rows_from_sidecar(args, routes)
+            if reachability_rows:
+                route_reachability_upsert = _upsert_rows(
+                    base_url=base_url,
+                    api_key=api_key,
+                    table_id=route_table_id,
+                    key_field="route_key",
+                    rows=reachability_rows,
+                )
+
+        if not args.skip_messages:
+            message_table_id, created_message_table = _ensure_table(
                 base_url=base_url,
                 api_key=api_key,
-                table_id=route_table_id,
-                key_field="route_key",
-                rows=reachability_rows,
+                base_id=base_id,
+                table_id=str(args.message_table_id or "").strip(),
+                table_name=str(args.message_table_name),
+                fields=MESSAGE_FIELDS,
+                create_missing=bool(args.create_missing_tables),
             )
-
-    if not args.skip_messages:
-        message_table_id, created_message_table = _ensure_table(
-            base_url=base_url,
-            api_key=api_key,
-            base_id=base_id,
-            table_id=str(args.message_table_id or "").strip(),
-            table_name=str(args.message_table_name),
-            fields=MESSAGE_FIELDS,
-            create_missing=bool(args.create_missing_tables),
+            message_fields_created = _ensure_fields(base_url=base_url, api_key=api_key, table_id=message_table_id, fields=MESSAGE_FIELDS)
+            rows, message_payload = _message_batches_from_sidecar(args)
+            message_upsert = _upsert_rows(
+                base_url=base_url,
+                api_key=api_key,
+                table_id=message_table_id,
+                key_field="projection_id",
+                rows=rows,
+                lookup_existing_by_keys=True,
+            )
+            message_page_state = _update_conversation_page_state(args=args, payload=message_payload, message_upsert=message_upsert)
+    except SessionApiUnavailable as exc:
+        if not bool(getattr(args, "tolerate_session_api_unavailable", True)):
+            raise
+        print(
+            json.dumps(
+                _session_api_waiting_receipt(
+                    args=args,
+                    exc=exc,
+                    route_table_id=route_table_id,
+                    persona_table_id=persona_table_id,
+                    message_table_id=message_table_id,
+                )
+            )
         )
-        message_fields_created = _ensure_fields(base_url=base_url, api_key=api_key, table_id=message_table_id, fields=MESSAGE_FIELDS)
-        rows, message_payload = _message_batches_from_sidecar(args)
-        message_upsert = _upsert_rows(
-            base_url=base_url,
-            api_key=api_key,
-            table_id=message_table_id,
-            key_field="projection_id",
-            rows=rows,
-            lookup_existing_by_keys=True,
-        )
-        message_page_state = _update_conversation_page_state(args=args, payload=message_payload, message_upsert=message_upsert)
+        return 0
 
     print(
         json.dumps(
@@ -2190,11 +2435,16 @@ def main() -> int:
                 "route_count": route_count,
                 "route_cleanup": route_cleanup,
                 "route_import_count": route_import_count,
+                "sidecar_live_route_count": sidecar_live_route_count,
+                "route_rows_to_upsert_count": route_rows_to_upsert_count,
+                "preserved_live_route_count": preserved_live_route_count,
                 "route_apply_ok": bool(route_apply.get("ok")),
+                "route_apply_count": _int_value(route_apply.get("route_count"), route_count),
                 "persona_upsert": persona_upsert,
                 "route_upsert": route_upsert,
                 "route_reachability_upsert": route_reachability_upsert,
                 "message_upsert": message_upsert,
+                "message_filter_summary": dict(message_payload.get("message_filter_summary") or {}),
                 "message_page_state": message_page_state,
             },
             sort_keys=True,

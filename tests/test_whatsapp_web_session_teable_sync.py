@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
+from types import SimpleNamespace
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -66,6 +68,36 @@ def test_teable_transient_http_statuses_include_request_timeout() -> None:
 
     assert 408 in module.TRANSIENT_HTTP_STATUS_CODES
     assert 502 in module.TRANSIENT_HTTP_STATUS_CODES
+
+
+def test_session_api_unavailable_from_exit_detects_connection_refused() -> None:
+    module = _module()
+
+    unavailable = module._session_api_unavailable_from_exit(
+        SystemExit("http_request_failed:URLError:<urlopen error [Errno 111] Connection refused>")
+    )
+
+    assert unavailable is not None
+    assert unavailable.operation == "session_api_request"
+    assert "Connection refused" in unavailable.detail
+
+
+def test_session_api_unavailable_from_exit_detects_startup_conflict() -> None:
+    module = _module()
+
+    unavailable = module._session_api_unavailable_from_exit(SystemExit("http_error:409:session_not_ready"))
+
+    assert unavailable is not None
+    assert unavailable.operation == "session_api_request"
+    assert unavailable.detail == "http_error:409:session_not_ready"
+
+
+def test_session_api_unavailable_from_exit_ignores_non_transient_http_errors() -> None:
+    module = _module()
+
+    unavailable = module._session_api_unavailable_from_exit(SystemExit("http_error:401:unauthorized"))
+
+    assert unavailable is None
 
 
 def test_default_route_row_applies_slow_typing_old_lady_behavior() -> None:
@@ -540,6 +572,69 @@ def test_message_rows_from_sidecar_skip_synthetic_notification_messages(monkeypa
     assert rows[0]["message_type"] == "chat"
 
 
+def test_message_batch_payload_reports_synthetic_notification_skips(monkeypatch) -> None:
+    module = _module()
+
+    def _fake_session_get(args, path: str):
+        return {
+            "conversation_count": 1,
+            "conversation_page_complete": True,
+            "conversation_skip": 0,
+            "conversation_total": 1,
+            "next_conversation_skip": 0,
+            "conversations": [
+                {
+                    "chat_ref": "chat-ref-1",
+                    "chat_id_kind": "c.us",
+                    "messages": [
+                        {
+                            "id": "wamid.notification.1",
+                            "direction": "outbound",
+                            "from_me": True,
+                            "type": "e2e_notification",
+                            "sender_digits": "4368120864006",
+                            "body_text": "27371826634995@lid",
+                        },
+                        {
+                            "id": "wamid.chat.1",
+                            "direction": "inbound",
+                            "sender_digits": "4368120864006",
+                            "body_text": "Hallo",
+                            "body_present": True,
+                            "type": "chat",
+                        },
+                    ],
+                }
+            ],
+        }
+
+    monkeypatch.setattr(module, "_session_get", _fake_session_get)
+
+    rows, payload = module._message_batches_from_sidecar(
+        type(
+            "Args",
+            (),
+            {
+                "conversation_take": 10,
+                "conversation_skip": 0,
+                "conversation_fetch_concurrency": 4,
+                "conversation_fetch_timeout_ms": 12000,
+                "disable_conversation_page_state": True,
+                "message_limit": 10,
+                "session_ref": "principal-wa-web",
+                "sync_all_conversations": False,
+            },
+        )()
+    )
+
+    assert len(rows) == 1
+    assert payload["message_filter_summary"] == {
+        "scanned_message_count": 2,
+        "persisted_message_count": 1,
+        "skipped_synthetic_notification_count": 1,
+    }
+
+
 def test_message_batches_from_sidecar_syncs_all_conversation_pages(monkeypatch) -> None:
     module = _module()
     requested_paths: list[str] = []
@@ -612,6 +707,11 @@ def test_message_batches_from_sidecar_syncs_all_conversation_pages(monkeypatch) 
     assert payload["conversation_total"] == 3
     assert payload["conversation_page_complete"] is True
     assert payload["next_conversation_skip"] == 0
+    assert payload["message_filter_summary"] == {
+        "scanned_message_count": 3,
+        "persisted_message_count": 3,
+        "skipped_synthetic_notification_count": 0,
+    }
 
 
 def test_load_env_file_ignores_unreadable_env_file(monkeypatch, tmp_path: Path) -> None:
@@ -1086,6 +1186,46 @@ def test_dedupe_route_rows_keeps_first_private_mapping() -> None:
     assert rows[0]["heyy_ai_name"] == "Executive Assistant"
 
 
+def test_sidecar_live_projection_wins_over_stale_teable_private_mapping(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_now_iso", lambda: "2026-06-22T08:00:00Z")
+    stale_teable_route = module._explicit_route_row(
+        session_ref="principal-wa-web",
+        inbound_number_digits="40424366432273",
+        heyy_ai_key="executive_assistant",
+        heyy_ai_name="Executive Assistant",
+    )
+    live_sidecar_route = module._route_row_for_sidecar_public_route(
+        session_ref="principal-wa-web",
+        route={
+            "route_key": "40424366432273",
+            "ai_key": "empathetic_slow_typing_old_lady",
+            "ai_name": "Herta (Heyy Lady)",
+            "pre_reply_delay_min_seconds": 0,
+            "pre_reply_delay_max_seconds": 0,
+            "quiet_hours_start_hour": 0,
+            "quiet_hours_end_hour": 0,
+            "typing_delay_ms": 6500,
+            "typing_delay_ms_per_character": 0,
+            "typing_status_enabled": True,
+        },
+    )
+
+    rows = module._route_rows_with_sidecar_live_projection(
+        [module._default_route_row("principal-wa-web"), stale_teable_route],
+        [live_sidecar_route],
+    )
+
+    assert len(rows) == 2
+    private_route = rows[1]
+    assert private_route["route_key"] == stale_teable_route["route_key"]
+    assert private_route["inbound_number_digits"] == "40424366432273"
+    assert private_route["heyy_ai_key"] == "empathetic_slow_typing_old_lady"
+    assert private_route["heyy_ai_name"] == "Herta (Heyy Lady)"
+    assert "ai_key" not in private_route
+    assert "ai_name" not in private_route
+
+
 def test_sidecar_live_route_rows_preserve_live_sender_route(monkeypatch) -> None:
     module = _module()
     monkeypatch.setattr(module, "_now_iso", lambda: "2026-06-22T08:00:00Z")
@@ -1120,6 +1260,14 @@ def test_sidecar_live_route_rows_preserve_live_sender_route(monkeypatch) -> None
     assert "Preserved live sidecar route" in str(row["notes"])
 
 
+def test_preserve_sidecar_live_routes_enabled_accepts_legacy_herta_flag() -> None:
+    module = _module()
+
+    args = type("Args", (), {"preserve_sidecar_herta_routes": False})()
+
+    assert module._preserve_sidecar_live_routes_enabled(args) is False
+
+
 def test_sidecar_live_test_route_clamps_per_character_delay(monkeypatch) -> None:
     module = _module()
     monkeypatch.setattr(module, "_now_iso", lambda: "2026-06-22T08:00:00Z")
@@ -1150,6 +1298,7 @@ def test_apply_routes_to_sidecar_keeps_live_override_over_teable_ea(monkeypatch)
     module = _module()
     args = type("Args", (), {"session_ref": "principal-wa-web", "preserve_sidecar_live_routes": True})()
     sent: dict[str, object] = {}
+    session_get_calls: list[str] = []
     teable_ea_route = module._explicit_route_row(
         session_ref="principal-wa-web",
         inbound_number_digits="40424366432273",
@@ -1158,6 +1307,7 @@ def test_apply_routes_to_sidecar_keeps_live_override_over_teable_ea(monkeypatch)
     )
 
     def _fake_session_get(_args, suffix: str) -> dict[str, object]:
+        session_get_calls.append(suffix)
         assert suffix == "heyy-ai-routes"
         return {
             "routes": [
@@ -1186,7 +1336,8 @@ def test_apply_routes_to_sidecar_keeps_live_override_over_teable_ea(monkeypatch)
 
     result = module._apply_routes_to_sidecar(args, [teable_ea_route])
 
-    assert result["ok"] is True
+    assert result == {"ok": True, "route_count": 1}
+    assert session_get_calls == ["heyy-ai-routes"]
     assert sent["suffix"] == "heyy-ai-routes"
     routes = sent["body"]["routes"]  # type: ignore[index]
     assert len(routes) == 1
@@ -1195,6 +1346,381 @@ def test_apply_routes_to_sidecar_keeps_live_override_over_teable_ea(monkeypatch)
     assert routes[0]["ai_name"] == "Herta (Heyy Lady)"
     assert routes[0]["quiet_hours_start_hour"] == 0
     assert routes[0]["quiet_hours_end_hour"] == 0
+
+
+def test_apply_routes_to_sidecar_reuses_prefetched_live_routes(monkeypatch) -> None:
+    module = _module()
+    args = type("Args", (), {"session_ref": "principal-wa-web", "preserve_sidecar_live_routes": True})()
+    teable_ea_route = module._explicit_route_row(
+        session_ref="principal-wa-web",
+        inbound_number_digits="40424366432273",
+        heyy_ai_key="executive_assistant",
+        heyy_ai_name="Executive Assistant",
+    )
+    live_sidecar_route = {
+        "route_key": teable_ea_route["route_key"],
+        "inbound_number_digits": "40424366432273",
+        "ai_key": "empathetic_slow_typing_old_lady",
+        "ai_name": "Herta (Heyy Lady)",
+    }
+
+    def _unexpected_session_get(_args, suffix: str) -> dict[str, object]:
+        raise AssertionError(f"unexpected session get: {suffix}")
+
+    def _unexpected_session_put(_args, suffix: str, body: dict[str, object]) -> dict[str, object]:
+        raise AssertionError(f"unexpected session put: {suffix} {body}")
+
+    monkeypatch.setattr(module, "_session_get", _unexpected_session_get)
+    monkeypatch.setattr(module, "_session_put", _unexpected_session_put)
+
+    result = module._apply_routes_to_sidecar(
+        args,
+        [teable_ea_route],
+        sidecar_live_rows=[live_sidecar_route],
+        current_session_routes=[live_sidecar_route],
+    )
+
+    assert result == {"ok": True, "route_count": 1, "skipped_noop": True}
+
+
+def test_apply_routes_to_sidecar_compares_full_current_route_set_when_preserving_live_overrides(monkeypatch) -> None:
+    module = _module()
+    args = type("Args", (), {"session_ref": "principal-wa-web", "preserve_sidecar_live_routes": True})()
+    sent: dict[str, object] = {}
+    live_sidecar_route = {
+        "route_key": "40424366432273",
+        "inbound_number_digits": "40424366432273",
+        "ai_key": "empathetic_slow_typing_old_lady",
+        "ai_name": "Herta (Heyy Lady)",
+    }
+    default_route = {
+        "route_key": "default",
+        "inbound_number_digits": "*",
+        "ai_key": "empathetic_slow_typing_old_lady",
+        "ai_name": "Herta (Heyy Lady)",
+    }
+
+    def _unexpected_session_get(_args, suffix: str) -> dict[str, object]:
+        raise AssertionError(f"unexpected session get: {suffix}")
+
+    def _fake_session_put(_args, suffix: str, body: dict[str, object]) -> dict[str, object]:
+        sent["suffix"] = suffix
+        sent["body"] = body
+        return {"ok": True, "route_count": len(body.get("routes") or [])}
+
+    monkeypatch.setattr(module, "_session_get", _unexpected_session_get)
+    monkeypatch.setattr(module, "_session_put", _fake_session_put)
+
+    result = module._apply_routes_to_sidecar(
+        args,
+        [default_route, {"route_key": "40424366432273", "inbound_number_digits": "40424366432273", "ai_key": "executive_assistant", "ai_name": "Executive Assistant"}],
+        sidecar_live_rows=[live_sidecar_route],
+        current_session_routes=[live_sidecar_route],
+    )
+
+    assert result == {"ok": True, "route_count": 2}
+    assert sent["suffix"] == "heyy-ai-routes"
+    assert sent["body"]["routes"] == [default_route, live_sidecar_route]  # type: ignore[index]
+
+
+def test_apply_routes_to_sidecar_skips_noop_put_when_live_routes_already_match(monkeypatch) -> None:
+    module = _module()
+    args = type("Args", (), {"session_ref": "principal-wa-web", "preserve_sidecar_live_routes": False})()
+    target_route = {
+        "route_key": "default",
+        "inbound_number_digits": "*",
+        "ai_key": "empathetic_slow_typing_old_lady",
+        "ai_name": "Herta (Heyy Lady)",
+        "behavior_prompt": "prompt",
+        "memory_notes": "memory",
+        "pacing_hint": "slow",
+        "minimum_delay_seconds": 0,
+        "pre_reply_delay_min_seconds": 60,
+        "pre_reply_delay_max_seconds": 900,
+        "quiet_hours_start_hour": 21,
+        "quiet_hours_end_hour": 6,
+        "typing_delay_ms": 6500,
+        "typing_delay_ms_per_character": 4000,
+        "typing_status_enabled": True,
+        "auto_reply_enabled": True,
+        "reply_text": "Na geh...",
+        "enabled": True,
+        "session_ref": "principal-wa-web",
+        "updated_at": "2026-06-23T12:00:00Z",
+        "notes": "projection noise",
+    }
+
+    def _fake_session_get(_args, suffix: str) -> dict[str, object]:
+        assert suffix == "heyy-ai-routes"
+        return {"routes": [dict(target_route)]}
+
+    def _unexpected_session_put(_args, suffix: str, body: dict[str, object]) -> dict[str, object]:
+        raise AssertionError(f"unexpected session put: {suffix} {body}")
+
+    monkeypatch.setattr(module, "_session_get", _fake_session_get)
+    monkeypatch.setattr(module, "_session_put", _unexpected_session_put)
+
+    result = module._apply_routes_to_sidecar(args, [{**target_route, "updated_at": "2026-06-23T13:00:00Z", "notes": "new noise"}])
+
+    assert result == {"ok": True, "route_count": 1, "skipped_noop": True}
+
+
+def test_apply_routes_to_sidecar_skips_noop_when_stored_hash_matches_redacted_public_routes(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    state_file = tmp_path / "sync-state.json"
+    args = type(
+        "Args",
+        (),
+        {
+            "session_ref": "principal-wa-web",
+            "preserve_sidecar_live_routes": False,
+            "conversation_page_state_file": str(state_file),
+        },
+    )()
+    target_route = {
+        "route_key": "default",
+        "inbound_number_digits": "*",
+        "ai_key": "empathetic_slow_typing_old_lady",
+        "ai_name": "Herta (Heyy Lady)",
+        "behavior_prompt": "prompt",
+        "memory_notes": "memory",
+        "pacing_hint": "slow",
+        "minimum_delay_seconds": 60,
+        "pre_reply_delay_min_seconds": 60,
+        "pre_reply_delay_max_seconds": 900,
+        "quiet_hours_start_hour": 21,
+        "quiet_hours_end_hour": 6,
+        "typing_delay_ms": 6500,
+        "typing_delay_ms_per_character": 4000,
+        "typing_status_enabled": True,
+        "auto_reply_enabled": True,
+        "reply_text": "Na geh...",
+        "enabled": True,
+        "session_ref": "principal-wa-web",
+    }
+    state_file.write_text(
+        json.dumps({"route_compare_hash": module._route_compare_hash([target_route])}, ensure_ascii=True),
+        encoding="utf-8",
+    )
+
+    def _fake_session_get(_args, suffix: str) -> dict[str, object]:
+        assert suffix == "heyy-ai-routes"
+        return {
+            "routes": [
+                {
+                    "route_key": "default",
+                    "ai_key": "empathetic_slow_typing_old_lady",
+                    "ai_name": "Herta (Heyy Lady)",
+                    "behavior_prompt_present": True,
+                    "memory_notes_present": True,
+                    "pacing_hint_present": True,
+                    "reply_text_present": True,
+                    "pre_reply_delay_min_seconds": 60,
+                    "pre_reply_delay_max_seconds": 900,
+                    "quiet_hours_start_hour": 21,
+                    "quiet_hours_end_hour": 6,
+                    "typing_delay_ms": 6500,
+                    "typing_delay_ms_per_character": 4000,
+                    "typing_status_enabled": True,
+                    "auto_reply_enabled": True,
+                }
+            ]
+        }
+
+    def _unexpected_session_put(_args, suffix: str, body: dict[str, object]) -> dict[str, object]:
+        raise AssertionError(f"unexpected session put: {suffix} {body}")
+
+    monkeypatch.setattr(module, "_session_get", _fake_session_get)
+    monkeypatch.setattr(module, "_session_put", _unexpected_session_put)
+
+    result = module._apply_routes_to_sidecar(args, [target_route])
+
+    assert result == {
+        "ok": True,
+        "route_count": 1,
+        "skipped_noop": True,
+        "skipped_reason": "stored_route_compare_hash_match",
+    }
+
+
+def test_main_projects_preserved_live_routes_into_teable_receipt(monkeypatch, capsys) -> None:
+    module = _module()
+    sidecar_live_route = {
+        "route_key": "40424366432273",
+        "inbound_number_digits": "40424366432273",
+        "ai_key": "empathetic_slow_typing_old_lady",
+        "ai_name": "Herta (Heyy Lady)",
+        "behavior_prompt": "live herta",
+        "memory_notes": "live memory",
+        "pacing_hint": "live pacing",
+        "minimum_delay_seconds": 0,
+        "pre_reply_delay_min_seconds": 0,
+        "pre_reply_delay_max_seconds": 0,
+        "quiet_hours_start_hour": 0,
+        "quiet_hours_end_hour": 0,
+        "typing_delay_ms": 6500,
+        "typing_delay_ms_per_character": 0,
+        "typing_status_enabled": True,
+        "auto_reply_enabled": True,
+        "reply_text": "Na geh...",
+        "enabled": True,
+        "session_ref": "principal-wa-web",
+        "updated_at": "2026-06-23T12:00:00Z",
+        "notes": "Preserved live sidecar route.",
+    }
+    upsert_calls: list[list[dict[str, object]]] = []
+
+    monkeypatch.setattr(
+        module,
+        "parse_args",
+        lambda: SimpleNamespace(
+            api_key="token",
+            base_url="http://teable.test",
+            base_id="base-1",
+            skip_personas=True,
+            skip_routes=False,
+            skip_messages=True,
+            route_table_id="tbl-routes",
+            route_table_name="ea_whatsapp_heyy_ai_routes",
+            persona_table_id="",
+            persona_table_name="ea_heyy_ai_personas",
+            message_table_id="",
+            message_table_name="ea_whatsapp_session_messages",
+            create_missing_tables=False,
+            session_ref="principal-wa-web",
+            refresh_default_route=True,
+            map_inbound_number_digits="",
+            map_heyy_ai_key="executive_assistant",
+            map_heyy_ai_name="",
+            route_seeds_json="",
+            route_seeds_file="",
+            route_import_sources_json="",
+            route_import_sources_file="",
+            preserve_sidecar_live_routes=True,
+        ),
+    )
+    monkeypatch.setattr(module, "_ensure_table", lambda **_: ("tbl-routes", False))
+    monkeypatch.setattr(module, "_ensure_fields", lambda **_: 0)
+    monkeypatch.setattr(module, "_cleanup_reachability_only_route_rows", lambda **_: {"disabled": 0, "failed": 0, "total": 0})
+    monkeypatch.setattr(module, "_session_get", lambda _args, suffix: {"routes": [dict(sidecar_live_route)]} if suffix == "heyy-ai-routes" else {})
+    monkeypatch.setattr(module, "_route_seed_rows", lambda **_: [])
+    monkeypatch.setattr(module, "_route_import_source_rows", lambda **_: [])
+    monkeypatch.setattr(module, "_route_reachability_rows_from_sidecar", lambda _args, _routes: [])
+
+    def _fake_upsert_rows(**kwargs):
+        upsert_calls.append(list(kwargs["rows"]))
+        return {"created": 2, "updated": 0, "total": len(kwargs["rows"])}
+
+    monkeypatch.setattr(module, "_upsert_rows", _fake_upsert_rows)
+    monkeypatch.setattr(
+        module,
+        "_route_rows_from_teable",
+        lambda **_: [
+            {
+                "route_key": "default",
+                "inbound_number_digits": "*",
+                "ai_key": "empathetic_slow_typing_old_lady",
+                "ai_name": "Herta (Heyy Lady)",
+            },
+                {
+                    "route_key": "40424366432273",
+                    "inbound_number_digits": "40424366432273",
+                    "ai_key": "empathetic_slow_typing_old_lady",
+                    "ai_name": "Herta (Heyy Lady)",
+                },
+        ],
+    )
+    monkeypatch.setattr(module, "_apply_routes_to_sidecar", lambda _args, routes, sidecar_live_rows=None, current_session_routes=None: {"ok": True})
+
+    assert module.main() == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "pass"
+    assert payload["route_count"] == 2
+    assert payload["route_apply_ok"] is True
+    assert payload["route_apply_count"] == 2
+    assert payload["sidecar_live_route_count"] == 1
+    assert payload["route_rows_to_upsert_count"] == 2
+    assert payload["preserved_live_route_count"] == 1
+    assert payload["route_upsert"] == {"created": 2, "updated": 0, "total": 2}
+    assert payload["message_filter_summary"] == {}
+    assert len(upsert_calls) == 1
+    assert upsert_calls[0][0]["route_key"] == "default"
+    assert str(upsert_calls[0][1]["route_key"]).startswith("inbound_")
+    assert upsert_calls[0][1]["heyy_ai_key"] == "empathetic_slow_typing_old_lady"
+    assert upsert_calls[0][1]["heyy_ai_name"] == "Herta (Heyy Lady)"
+    assert "ai_key" not in upsert_calls[0][1]
+    assert "ai_name" not in upsert_calls[0][1]
+
+
+def test_main_returns_waiting_when_session_api_is_temporarily_unavailable(monkeypatch, capsys) -> None:
+    module = _module()
+
+    monkeypatch.setattr(
+        module,
+        "parse_args",
+        lambda: SimpleNamespace(
+            api_key="token",
+            base_url="http://teable.test",
+            base_id="base-1",
+            skip_personas=False,
+            skip_routes=False,
+            skip_messages=False,
+            route_table_id="tbl-routes",
+            route_table_name="ea_whatsapp_heyy_ai_routes",
+            persona_table_id="tbl-personas",
+            persona_table_name="ea_heyy_ai_personas",
+            message_table_id="tbl-messages",
+            message_table_name="ea_whatsapp_session_messages",
+            create_missing_tables=False,
+            session_ref="principal-wa-web",
+            refresh_default_route=True,
+            map_inbound_number_digits="",
+            map_heyy_ai_key="executive_assistant",
+            map_heyy_ai_name="",
+            route_seeds_json="",
+            route_seeds_file="",
+            route_import_sources_json="",
+            route_import_sources_file="",
+            preserve_sidecar_live_routes=True,
+            tolerate_session_api_unavailable=True,
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "_ensure_table",
+        lambda **kwargs: (
+            kwargs["table_id"] or ("tbl-personas" if "persona" in kwargs["table_name"] else "tbl-routes"),
+            False,
+        ),
+    )
+    monkeypatch.setattr(module, "_ensure_fields", lambda **_: 0)
+    monkeypatch.setattr(module, "_persona_rows", lambda _session_ref: [{"persona_key": "executive_assistant"}])
+    monkeypatch.setattr(
+        module,
+        "_upsert_rows",
+        lambda **kwargs: {"created": 0, "updated": 0, "total": len(kwargs["rows"])},
+    )
+    monkeypatch.setattr(module, "_cleanup_reachability_only_route_rows", lambda **_: {"disabled": 0, "failed": 0, "total": 0})
+
+    def _raise_unavailable(_args, _suffix: str):
+        raise module.SessionApiUnavailable(
+            operation="session_api_request",
+            detail="http_request_failed:URLError:<urlopen error [Errno 111] Connection refused>",
+        )
+
+    monkeypatch.setattr(module, "_session_get", _raise_unavailable)
+
+    assert module.main() == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "waiting"
+    assert payload["ok"] is True
+    assert payload["reason"] == "session_api_unavailable"
+    assert payload["persona_table_id"] == "tbl-personas"
+    assert payload["route_table_id"] == "tbl-routes"
+    assert payload["message_table_id"] == ""
+    assert payload["session_api_operation"] == "session_api_request"
 
 
 def test_ensure_table_discovers_existing_table_from_supplied_base(monkeypatch) -> None:
