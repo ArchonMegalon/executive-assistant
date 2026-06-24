@@ -1,16 +1,68 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ORIGINAL_EA_API_TOKEN="${EA_API_TOKEN-}"
+ORIGINAL_EA_MCP_API_TOKEN="${EA_MCP_API_TOKEN-}"
+CODEXEA_ORIGINAL_CWD="${PWD:-$(pwd)}"
+CODEXEA_REPO_ROOT=""
+if command -v git >/dev/null 2>&1; then
+  CODEXEA_REPO_ROOT="$(git -C "${CODEXEA_ORIGINAL_CWD}" rev-parse --show-toplevel 2>/dev/null || true)"
+fi
+export CODEXEA_ORIGINAL_CWD
+export CODEXEA_REPO_ROOT
+
 runtime_env_candidates() {
   local git_root=""
   local path
+  local seen=""
+  local -a cwd_env_paths=()
+  local -a explicit_paths=()
+  for path in "${CODEXEA_RUNTIME_EA_ENV_PATH:-}" "${FLEET_RUNTIME_EA_ENV_PATH:-}"; do
+    [ -n "${path}" ] || continue
+    explicit_paths+=("${path}")
+  done
+  if [ "${#explicit_paths[@]}" -gt 0 ]; then
+    for path in "${explicit_paths[@]}"; do
+      case $'\n'"${seen}"$'\n' in
+        *$'\n'"${path}"$'\n'*)
+          continue
+          ;;
+      esac
+      printf '%s\n' "${path}"
+      seen="${seen}"$'\n'"${path}"
+    done
+  fi
   if command -v git >/dev/null 2>&1; then
     git_root="$(git -C "${PWD:-.}" rev-parse --show-toplevel 2>/dev/null || true)"
   fi
-  for path in "${CODEXEA_RUNTIME_EA_ENV_PATH:-}" "${FLEET_RUNTIME_EA_ENV_PATH:-}" "${PWD:-}/.env" "${git_root:+${git_root}/.env}" "${git_root:+${git_root}/.env.local}" "${HOME:-}/.config/ea/runtime.ea.env" "${HOME:-}/.config/ea/runtime.env"; do
+  if runtime_env_should_trust_cwd "${git_root}"; then
+    cwd_env_paths=("${PWD:-}/.env.local" "${PWD:-}/.env")
+  fi
+  for path in "${cwd_env_paths[@]}" "${git_root:+${git_root}/.env.local}" "${git_root:+${git_root}/.env}" /docker/EA/.env.local /docker/EA/.env "${HOME:-}/.config/ea/runtime.ea.env" "${HOME:-}/.config/ea/runtime.env"; do
     [ -n "${path}" ] || continue
+    case $'\n'"${seen}"$'\n' in
+      *$'\n'"${path}"$'\n'*)
+        continue
+        ;;
+    esac
     printf '%s\n' "${path}"
+    seen="${seen}"$'\n'"${path}"
   done
+}
+
+runtime_env_should_trust_cwd() {
+  local repo_root="${1:-}"
+  local cwd_real=""
+  local root_real=""
+  case "${CODEXEA_ALLOW_CWD_RUNTIME_ENV:-0}" in
+    1|true|TRUE|yes|YES|on|ON)
+      return 0
+      ;;
+  esac
+  [ -n "${repo_root}" ] || return 1
+  cwd_real="$(cd "${PWD:-.}" 2>/dev/null && pwd -P)" || return 1
+  root_real="$(cd "${repo_root}" 2>/dev/null && pwd -P)" || return 1
+  [ "${cwd_real}" = "${root_real}" ] || [[ "${cwd_real}" == "${root_real}/"* ]]
 }
 
 strip_wrapping_quotes() {
@@ -54,9 +106,61 @@ runtime_env_value() {
   return 1
 }
 
+apply_runtime_env_prefix_defaults() {
+  local prefix="${1:-}"
+  local path line key value
+  [ -n "${prefix}" ] || return 0
+  while IFS= read -r path; do
+    [ -f "${path}" ] || continue
+    while IFS= read -r line || [ -n "${line}" ]; do
+      line="${line%$'\r'}"
+      case "${line}" in
+        ''|\#*)
+          continue
+          ;;
+        export\ *)
+          line="${line#export }"
+          ;;
+      esac
+      case "${line}" in
+        *=*)
+          key="${line%%=*}"
+          value="${line#*=}"
+          ;;
+        *)
+          continue
+          ;;
+      esac
+      case "${key}" in
+        "${prefix}"*)
+          if [ -z "${!key:-}" ]; then
+            export "${key}=$(strip_wrapping_quotes "${value}")"
+          fi
+          ;;
+      esac
+    done < "${path}"
+  done < <(runtime_env_candidates)
+}
+
 apply_runtime_env_defaults() {
   local key value
-  for key in EA_MCP_BASE_URL EA_BASE_URL CODEXEA_STATUS_URL CODEXEA_PROFILES_URL EA_MCP_API_TOKEN EA_API_TOKEN EA_MCP_PRINCIPAL_ID EA_PRINCIPAL_ID; do
+  for key in \
+    EA_MCP_BASE_URL EA_BASE_URL CODEXEA_STATUS_URL CODEXEA_PROFILES_URL \
+    EA_MCP_API_TOKEN EA_API_TOKEN EA_MCP_PRINCIPAL_ID EA_PRINCIPAL_ID \
+    CODEXEA_NICE ONEMIN_DEFAULT_PASSWORD BROWSERACT_PASSWORD \
+    EA_GEMINI_VORTEX_COMMAND EA_GEMINI_VORTEX_MODEL EA_GEMINI_VORTEX_MODELS \
+    EA_GEMINI_VORTEX_SELECTION_MODE EA_GEMINI_VORTEX_TIMEOUT_SECONDS \
+    EA_RESPONSES_GEMINI_VORTEX_MODELS EA_RESPONSES_PROVIDER_ORDER EA_RESPONSES_HARD_PROVIDER_ORDER \
+    EA_RESPONSES_MAGICX_MODELS EA_RESPONSES_ONEMIN_MODELS EA_RESPONSES_ONEMIN_CODE_MODELS \
+    EA_RESPONSES_ONEMIN_FAST_CANDIDATE_MODELS EA_RESPONSES_ONEMIN_HARD_MODELS \
+    EA_RESPONSES_ONEMIN_HARD_FALLBACK_MODELS EA_RESPONSES_ONEMIN_RESCUE_MODELS \
+    EA_RESPONSES_ONEMIN_REVIEW_MODELS \
+    CODEXEA_MODEL CODEXEA_WORKER_MODEL CODEXEA_IMPLEMENT_MODEL CODEXEA_CONTROLLER_MODEL \
+    CODEXEA_CORE_MODEL CODEXEA_REPAIR_MODEL CODEXEA_EASY_MODEL CODEXEA_GROUNDWORK_MODEL \
+    CODEXEA_REVIEW_LIGHT_MODEL CODEXEA_JURY_MODEL CODEXEA_POST_AUDIT_MODEL \
+    CODEXEA_ONEMIN_TIMEOUT_SECONDS \
+    CODEXEA_ONEMIN_DISPLAY_MODEL CODEXEA_ONEMIN_METADATA_SOURCE_MODEL CODEXEA_SYNC_MODEL_METADATA \
+    CODEXEA_RESUME_INJECT_MODEL CODEXEA_USE_LIVE_PROFILE_MODELS CODEXEA_ALLOW_ENV_MODEL_OVERRIDE; do
     if [ -n "${!key:-}" ]; then
       continue
     fi
@@ -67,7 +171,77 @@ apply_runtime_env_defaults() {
   done
 }
 
+runtime_env_flag_truthy() {
+  case "${1:-}" in
+    1|true|TRUE|yes|YES|on|ON)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+apply_runtime_env_locked_model_overrides() {
+  local key value pinned_model allow_env_model_override
+  allow_env_model_override="${CODEXEA_ALLOW_ENV_MODEL_OVERRIDE:-0}"
+  value="$(runtime_env_value CODEXEA_ALLOW_ENV_MODEL_OVERRIDE || true)"
+  if [ -n "${value}" ]; then
+    allow_env_model_override="${value}"
+  fi
+  runtime_env_flag_truthy "${allow_env_model_override}" && return 0
+
+  for key in \
+    EA_GEMINI_VORTEX_MODEL EA_GEMINI_VORTEX_MODELS EA_RESPONSES_GEMINI_VORTEX_MODELS \
+    EA_RESPONSES_MAGICX_MODELS EA_RESPONSES_ONEMIN_MODELS EA_RESPONSES_ONEMIN_CODE_MODELS \
+    EA_RESPONSES_ONEMIN_FAST_CANDIDATE_MODELS EA_RESPONSES_ONEMIN_HARD_MODELS \
+    EA_RESPONSES_ONEMIN_HARD_FALLBACK_MODELS EA_RESPONSES_ONEMIN_RESCUE_MODELS \
+    EA_RESPONSES_ONEMIN_REVIEW_MODELS \
+    CODEXEA_WORKER_MODEL CODEXEA_IMPLEMENT_MODEL CODEXEA_CONTROLLER_MODEL CODEXEA_CORE_MODEL \
+    CODEXEA_REPAIR_MODEL CODEXEA_EASY_MODEL CODEXEA_GROUNDWORK_MODEL CODEXEA_REVIEW_LIGHT_MODEL \
+    CODEXEA_JURY_MODEL CODEXEA_POST_AUDIT_MODEL CODEXEA_RESUME_INJECT_MODEL \
+    CODEXEA_USE_LIVE_PROFILE_MODELS CODEXEA_MODEL; do
+    value="$(runtime_env_value "${key}" || true)"
+    if [ -n "${value}" ]; then
+      export "${key}=${value}"
+    fi
+  done
+
+  if ! runtime_env_value CODEXEA_MODEL >/dev/null 2>&1 && [ -n "${CODEXEA_MODEL:-}" ]; then
+    pinned_model="$(runtime_env_value CODEXEA_WORKER_MODEL || true)"
+    if [ -z "${pinned_model}" ]; then
+      pinned_model="$(runtime_env_value CODEXEA_IMPLEMENT_MODEL || true)"
+    fi
+    if [ -n "${pinned_model}" ]; then
+      unset CODEXEA_MODEL
+    fi
+  fi
+}
+
 apply_runtime_env_defaults
+apply_runtime_env_locked_model_overrides
+apply_runtime_env_prefix_defaults "ONEMIN_AI_API_KEY"
+
+show_onemin_help() {
+  cat <<'EOF'
+CodexEA credits / 1min.AI commands:
+  codexea credits
+  codexea onemin
+  codexea credits --summary-json
+  codexea credits --json
+
+Probe controls:
+  --probe-all
+  --probe-best-effort
+  --account-label NAME
+  --timeout-seconds N
+  --max-workers N
+  --probe-limit N
+  CODEXEA_ONEMIN_TIMEOUT_SECONDS=${CODEXEA_ONEMIN_TIMEOUT_SECONDS:-300}
+
+Use --json only when you explicitly need the full payload.
+EOF
+}
 
 runtime_env_prefers_managed_auth() {
   case "${CODEXEA_PREFER_RUNTIME_AUTH:-1}" in
@@ -82,21 +256,264 @@ runtime_env_prefers_managed_auth() {
 
 sync_runtime_auth_tokens() {
   local runtime_token=""
+  local current_mcp="${EA_MCP_API_TOKEN:-}"
+  local current_api="${EA_API_TOKEN:-}"
+  local chosen_token=""
   runtime_env_prefers_managed_auth || return 0
   runtime_token="$(runtime_env_value EA_MCP_API_TOKEN || true)"
   if [ -z "${runtime_token}" ]; then
     runtime_token="$(runtime_env_value EA_API_TOKEN || true)"
   fi
-  [ -n "${runtime_token}" ] || return 0
-  export EA_MCP_API_TOKEN="${runtime_token}"
-  export EA_API_TOKEN="${runtime_token}"
+  if [ -n "${ORIGINAL_EA_MCP_API_TOKEN:-}" ]; then
+    chosen_token="${ORIGINAL_EA_MCP_API_TOKEN}"
+  elif [ -n "${ORIGINAL_EA_API_TOKEN:-}" ]; then
+    chosen_token="${ORIGINAL_EA_API_TOKEN}"
+  elif [ -n "${runtime_token}" ]; then
+    chosen_token="${runtime_token}"
+  elif [ -n "${current_mcp}" ] || [ -n "${current_api}" ]; then
+    chosen_token="${current_mcp:-${current_api}}"
+  else
+    return 0
+  fi
+  export EA_MCP_API_TOKEN="${chosen_token}"
+  export EA_API_TOKEN="${chosen_token}"
+}
+
+apply_codexea_startup_niceness() {
+  local target="${CODEXEA_NICE:-3}"
+  case "${target}" in
+    ""|off|OFF|false|FALSE|no|NO|disabled|DISABLED)
+      return 0
+      ;;
+  esac
+  if ! [[ "${target}" =~ ^-?[0-9]+$ ]]; then
+    echo "Ignoring invalid CODEXEA_NICE=${target}; expected integer nice value or off" >&2
+    return 0
+  fi
+  if [ "${target}" -lt -20 ] || [ "${target}" -gt 19 ]; then
+    echo "Ignoring invalid CODEXEA_NICE=${target}; expected nice value between -20 and 19" >&2
+    return 0
+  fi
+  command -v renice >/dev/null 2>&1 || return 0
+  renice --priority "${target}" --pid "$$" >/dev/null 2>&1 || true
 }
 
 sync_runtime_auth_tokens
+apply_codexea_startup_niceness
+
+codexea_should_inject_model() {
+  local model_value="${1:-}"
+  case "${model_value}" in
+    ""|codex-default|local-default|config-default|default-config)
+      return 1
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+}
+
+codexea_should_sync_model_metadata() {
+  case "${CODEXEA_SYNC_MODEL_METADATA:-1}" in
+    0|false|FALSE|no|NO|off|OFF)
+      return 1
+      ;;
+    force|FORCE)
+      return 0
+      ;;
+  esac
+  if [ -n "${CODEXEA_REAL_CODEX:-}" ] && [ "${CODEXEA_REAL_CODEX}" != "/usr/bin/codex" ]; then
+    return 1
+  fi
+  return 0
+}
+
+sync_codexea_model_metadata() {
+  local display_model="${1:-}"
+  local source_model="${CODEXEA_ONEMIN_METADATA_SOURCE_MODEL:-gpt-5.5}"
+  local cache_path="${CODEXEA_MODELS_CACHE_PATH:-${HOME}/.codex/models_cache.json}"
+  [ -n "${display_model}" ] || return 0
+  [ "${display_model}" != "${source_model}" ] || return 0
+  [ "${display_model}" = "${CODEXEA_ONEMIN_DISPLAY_MODEL:-ChatGPT 5.5 (1min.ai)}" ] || return 0
+  codexea_should_sync_model_metadata || return 0
+  command -v python3 >/dev/null 2>&1 || return 0
+  [ -f "${cache_path}" ] || return 0
+  python3 - "${cache_path}" "${source_model}" "${display_model}" <<'PY' >/dev/null 2>&1 || true
+import json
+import os
+import tempfile
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1]).expanduser()
+source_slug = str(sys.argv[2] or "").strip()
+display_slug = str(sys.argv[3] or "").strip()
+if not source_slug or not display_slug:
+    raise SystemExit(0)
+
+try:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+except Exception:
+    raise SystemExit(0)
+models = payload.get("models") if isinstance(payload, dict) else None
+if not isinstance(models, list):
+    raise SystemExit(0)
+
+source = next((dict(item) for item in models if isinstance(item, dict) and item.get("slug") == source_slug), None)
+if source is None:
+    raise SystemExit(0)
+
+alias = dict(source)
+alias["slug"] = display_slug
+alias["display_name"] = display_slug
+alias["description"] = f"EA 1min.AI display alias for {source.get('display_name') or source_slug}."
+updated = [alias]
+updated.extend(
+    item
+    for item in models
+    if not (isinstance(item, dict) and item.get("slug") == display_slug)
+)
+payload["models"] = updated
+
+path.parent.mkdir(parents=True, exist_ok=True)
+fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=True, indent=2)
+        handle.write("\n")
+    os.chmod(tmp_name, 0o600)
+    os.replace(tmp_name, path)
+finally:
+    try:
+        os.unlink(tmp_name)
+    except FileNotFoundError:
+        pass
+PY
+}
+
+toml_quote_string() {
+  local value="${1:-}"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  printf '"%s"' "${value}"
+}
+
+codexea_model_catalog_json_value() {
+  local catalog_path="${CODEXEA_MODEL_CATALOG_JSON:-${CODEXEA_MODELS_CACHE_PATH:-${HOME}/.codex/models_cache.json}}"
+  case "${catalog_path}" in
+    ""|0|false|FALSE|no|NO|off|OFF)
+      return 1
+      ;;
+  esac
+  [ -f "${catalog_path}" ] || return 1
+  toml_quote_string "${catalog_path}"
+}
 
 host_resolves() {
   command -v getent >/dev/null 2>&1 || return 1
   getent hosts "${1}" >/dev/null 2>&1
+}
+
+append_unique_line() {
+  local value="${1:-}"
+  local current="${2:-}"
+  [ -n "${value}" ] || {
+    printf '%s' "${current}"
+    return 0
+  }
+  case $'\n'"${current}"$'\n' in
+    *$'\n'"${value}"$'\n'*)
+      printf '%s' "${current}"
+      ;;
+    *)
+      if [ -n "${current}" ]; then
+        printf '%s\n%s' "${current}" "${value}"
+      else
+        printf '%s' "${value}"
+      fi
+      ;;
+  esac
+}
+
+codexea_local_ea_probe_ok() {
+  local base_url="${1:-}"
+  local health_url=""
+  local live_url=""
+  [ -n "${base_url}" ] || return 1
+  command -v curl >/dev/null 2>&1 || return 1
+  live_url="${base_url%/}/health/live"
+  if curl -fsS --connect-timeout 1 --max-time 2 "${live_url}" >/dev/null 2>&1; then
+    return 0
+  fi
+  health_url="${base_url%/}/health"
+  curl -fsS --connect-timeout 1 --max-time 2 "${health_url}" >/dev/null 2>&1
+}
+
+codexea_local_ea_port_candidates() {
+  local ports=""
+  local port=""
+  local ss_port=""
+  local inspect_port=""
+  local raw_candidates=""
+
+  raw_candidates="${CODEXEA_LOCAL_EA_PORT_CANDIDATES:-}"
+  if [ -n "${raw_candidates}" ]; then
+    raw_candidates="${raw_candidates//,/ }"
+    for port in ${raw_candidates}; do
+      [[ "${port}" =~ ^[0-9]+$ ]] || continue
+      ports="$(append_unique_line "${port}" "${ports}")"
+    done
+  fi
+
+  for port in "${EA_HOST_PORT:-}" "${EA_PORT:-}" "$(runtime_env_value EA_HOST_PORT || true)" "$(runtime_env_value EA_PORT || true)"; do
+    [[ "${port}" =~ ^[0-9]+$ ]] || continue
+    ports="$(append_unique_line "${port}" "${ports}")"
+  done
+
+  if command -v docker >/dev/null 2>&1; then
+    inspect_port="$(docker inspect ea-api --format '{{range $bindings := (index .HostConfig.PortBindings "8090/tcp")}}{{(index $bindings 0).HostPort}}{{end}}' 2>/dev/null || true)"
+    if [[ "${inspect_port}" =~ ^[0-9]+$ ]]; then
+      ports="$(append_unique_line "${inspect_port}" "${ports}")"
+    fi
+  fi
+
+  if command -v ss >/dev/null 2>&1; then
+    while IFS= read -r ss_port; do
+      [[ "${ss_port}" =~ ^[0-9]+$ ]] || continue
+      ports="$(append_unique_line "${ss_port}" "${ports}")"
+    done < <(
+      ss -ltnH 2>/dev/null \
+        | awk '{split($4, parts, ":"); port=parts[length(parts)]; if (port ~ /^809[0-9]$/) print port}'
+    )
+  fi
+
+  ports="$(append_unique_line "8090" "${ports}")"
+  ports="$(append_unique_line "8097" "${ports}")"
+  printf '%s\n' "${ports}" | awk 'NF > 0'
+}
+
+codexea_resolve_local_ea_base_url() {
+  local candidate=""
+  while IFS= read -r candidate; do
+    [[ "${candidate}" =~ ^[0-9]+$ ]] || continue
+    if codexea_local_ea_probe_ok "http://127.0.0.1:${candidate}"; then
+      printf '%s' "http://127.0.0.1:${candidate}"
+      return 0
+    fi
+  done < <(codexea_local_ea_port_candidates)
+  return 1
+}
+
+codexea_is_local_ea_base_url() {
+  local base_url="${1:-}"
+  case "${base_url}" in
+    http://127.0.0.1:*|https://127.0.0.1:*|http://localhost:*|https://localhost:*|http://0.0.0.0:*|https://0.0.0.0:*|http://host.docker.internal:*|https://host.docker.internal:*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
 }
 
 normalize_ea_base_url() {
@@ -107,12 +524,28 @@ normalize_ea_base_url() {
   printf '%s' "${base_url}"
 }
 
+normalize_codexea_home() {
+  local fallback_home=""
+  if [ -n "${HOME:-}" ] && [ "${HOME}" != "/" ] && [ -d "${HOME}" ] && [ -w "${HOME}" ]; then
+    return 0
+  fi
+  fallback_home="${CODEXEA_FALLBACK_HOME:-/tmp/codexea-home-$(id -u)}"
+  mkdir -p "${fallback_home}"
+  export HOME="${fallback_home}"
+}
+
+normalize_codexea_home
+: "${XDG_CACHE_HOME:=${HOME}/.cache}"
+: "${XDG_CONFIG_HOME:=${HOME}/.config}"
+mkdir -p "${XDG_CACHE_HOME}" "${XDG_CONFIG_HOME}"
+export XDG_CACHE_HOME XDG_CONFIG_HOME
+
 REAL_CODEX="${CODEXEA_REAL_CODEX:-${CODEX_REAL_BIN:-/usr/bin/codex}}"
 WATCHDOG_BIN="${CODEXEA_WATCHDOG_BIN:-${HOME}/.local/bin/codexea-watchdog}"
 BOOTSTRAP_PROMPT_FILE="${CODEXEA_BOOTSTRAP_PROMPT_FILE:-${HOME}/.codex/prompts/ea_interactive_bootstrap.md}"
 JURY_BOOTSTRAP_PROMPT_FILE="${CODEXEA_JURY_BOOTSTRAP_PROMPT_FILE:-${BOOTSTRAP_PROMPT_FILE}}"
 CODEXEA_BASE_PROFILE="${CODEXEA_BASE_PROFILE:-}"
-CODEXEA_DEFAULT_LANE="${CODEXEA_DEFAULT_LANE:-core}"
+CODEXEA_DEFAULT_LANE="${CODEXEA_DEFAULT_LANE:-worker}"
 CODEXEA_MODE_OVERRIDE="${CODEXEA_MODE:-}"
 CODEXEA_ALLOW_EASY_MODE_OVERRIDE="${CODEXEA_ALLOW_EASY_MODE_OVERRIDE:-0}"
 CODEXEA_TRACE_STARTUP="${CODEXEA_TRACE_STARTUP:-1}"
@@ -131,23 +564,60 @@ CODEXEA_POST_AUDIT_ONLY_ON_DIFF="${CODEXEA_POST_AUDIT_ONLY_ON_DIFF:-1}"
 CODEXEA_POST_AUDIT_ONLY_ON_VERIFY="${CODEXEA_POST_AUDIT_ONLY_ON_VERIFY:-0}"
 CODEXEA_STATE_DIR="${CODEXEA_STATE_DIR:-${HOME}/.cache/codexea}"
 CODEXEA_STOP_FILE="${CODEXEA_STOP_FILE:-${CODEXEA_STATE_DIR}/stop}"
-EA_BASE_URL="$(normalize_ea_base_url "${EA_MCP_BASE_URL:-${EA_BASE_URL:-http://127.0.0.1:8090}}")"
+CODEXEA_LAUNCH_HISTORY_LIMIT="${CODEXEA_LAUNCH_HISTORY_LIMIT:-24}"
+CODEXEA_CONTRACT_ENABLED="${CODEXEA_CONTRACT_ENABLED:-1}"
+CODEXEA_CONTRACT_RUNTIME_MODE="${CODEXEA_CONTRACT_RUNTIME_MODE:-code_only}"
+CODEXEA_CONTRACT_MAX_RETRY_LOOPS="${CODEXEA_CONTRACT_MAX_RETRY_LOOPS:-2}"
+CODEXEA_ONEMIN_DISPLAY_MODEL="${CODEXEA_ONEMIN_DISPLAY_MODEL:-ChatGPT 5.5 (1min.ai)}"
+CODEXEA_IMPLEMENT_MODEL="${CODEXEA_IMPLEMENT_MODEL:-${CODEXEA_ONEMIN_DISPLAY_MODEL}}"
+CODEXEA_REVIEW_MODEL="${CODEXEA_REVIEW_MODEL:-claude-opus-4.8}"
+CODEXEA_CONTROLLER_MODEL="${CODEXEA_CONTROLLER_MODEL:-gpt-5.5}"
+CODEXEA_CONTROLLER_REASONING_EFFORT="${CODEXEA_CONTROLLER_REASONING_EFFORT:-medium}"
+CODEXEA_WORKER_REASONING_EFFORT="${CODEXEA_WORKER_REASONING_EFFORT:-high}"
+CODEXEA_DEBUG_REASONING_EFFORT="${CODEXEA_DEBUG_REASONING_EFFORT:-high}"
+export CODEXEA_ONEMIN_DISPLAY_MODEL CODEXEA_IMPLEMENT_MODEL CODEXEA_REVIEW_MODEL CODEXEA_CONTROLLER_MODEL
+export CODEXEA_CONTROLLER_REASONING_EFFORT CODEXEA_WORKER_REASONING_EFFORT CODEXEA_DEBUG_REASONING_EFFORT
+EA_BASE_URL_DEFAULT="http://127.0.0.1:8090"
+EA_BASE_URL_CANDIDATE="$(normalize_ea_base_url "${EA_MCP_BASE_URL:-${EA_BASE_URL:-${EA_BASE_URL_DEFAULT}}}")"
+if codexea_is_local_ea_base_url "${EA_BASE_URL_CANDIDATE}"; then
+  if ! codexea_local_ea_probe_ok "${EA_BASE_URL_CANDIDATE}"; then
+    EA_BASE_URL="$(codexea_resolve_local_ea_base_url || true)"
+  fi
+fi
+EA_BASE_URL="${EA_BASE_URL:-${EA_BASE_URL_CANDIDATE}}"
 EA_STATUS_URL="$(normalize_ea_base_url "${CODEXEA_STATUS_URL:-${EA_BASE_URL%/}/v1/codex/status}")"
 EA_PROFILES_URL="$(normalize_ea_base_url "${CODEXEA_PROFILES_URL:-${EA_BASE_URL%/}/v1/codex/profiles}")"
-ROUTE_HELPER="${CODEXEA_ROUTE_HELPER:-${CODEXEA_FLEET_ROOT:-${HOME}/.local/share/codexea/fleet}/scripts/codexea_route.py}"
+LOCAL_ROUTE_HELPER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/codexea_route.py"
+HOME_ROUTE_HELPER="${HOME}/.local/share/codexea/fleet/scripts/codexea_route.py"
+FLEET_ROUTE_HELPER="${CODEXEA_FLEET_ROOT:+${CODEXEA_FLEET_ROOT%/}/scripts/codexea_route.py}"
+DEFAULT_FLEET_ROUTE_HELPER="${FLEET_ROUTE_HELPER:-${HOME_ROUTE_HELPER}}"
 
-if [ ! -x "${REAL_CODEX}" ]; then
-  REAL_CODEX="$(command -v codex || true)"
-fi
+resolve_codexea_route_helper() {
+  local candidate=""
+  if [ -n "${CODEXEA_ROUTE_HELPER:-}" ]; then
+    printf '%s' "${CODEXEA_ROUTE_HELPER}"
+    return 0
+  fi
+  if [ -n "${FLEET_ROUTE_HELPER}" ] && [ -f "${FLEET_ROUTE_HELPER}" ]; then
+    printf '%s' "${FLEET_ROUTE_HELPER}"
+    return 0
+  fi
+  if [ -f "${LOCAL_ROUTE_HELPER}" ]; then
+    printf '%s' "${LOCAL_ROUTE_HELPER}"
+    return 0
+  fi
+  if [ -f "${HOME_ROUTE_HELPER}" ]; then
+    printf '%s' "${HOME_ROUTE_HELPER}"
+    return 0
+  fi
+  candidate="${DEFAULT_FLEET_ROUTE_HELPER}"
+  printf '%s' "${candidate}"
+}
 
-if [ -z "${REAL_CODEX}" ] || [ ! -x "${REAL_CODEX}" ]; then
-  echo "Missing codex launcher for EA shim" >&2
-  exit 1
-fi
-
-mkdir -p "${CODEXEA_STATE_DIR}"
+ROUTE_HELPER="$(resolve_codexea_route_helper)"
 
 if [ "$#" -eq 0 ] && [ "${CODEXEA_ENABLE_WATCHDOG}" != "0" ] && [ -z "${CODEXEA_WATCHDOG_ACTIVE:-}" ] && [ -x "${WATCHDOG_BIN}" ]; then
+  mkdir -p "${CODEXEA_STATE_DIR}"
   exec "${WATCHDOG_BIN}"
 fi
 
@@ -186,6 +656,10 @@ detect_primary_command() {
       --interactive|--oss|--full-auto|--dangerously-bypass-approvals-and-sandbox|--search|--no-alt-screen|-h|--help|-V|--version)
         i=$((i + 1))
         ;;
+      -)
+        printf '%s' "${args[$i]}"
+        return
+        ;;
       -*)
         i=$((i + 1))
         ;;
@@ -199,7 +673,7 @@ detect_primary_command() {
 
 is_codex_subcommand() {
   case "${1:-}" in
-    exec|review|login|logout|mcp|mcp-server|app-server|completion|sandbox|debug|apply|resume|fork|cloud|features|help)
+    exec|review|login|logout|mcp|mcp-server|app-server|completion|sandbox|debug|apply|resume|fork|cloud|features|help|inspect)
       return 0
       ;;
     *)
@@ -254,18 +728,33 @@ args_request_interactive_session() {
         i=$((i + 1))
         ;;
       --)
-        return 1
+        break
         ;;
       -*)
         i=$((i + 1))
         ;;
       *)
+        if [ "${saw_interactive}" -eq 1 ]; then
+          return 0
+        fi
         return 1
         ;;
     esac
   done
 
   [ "${saw_interactive}" -eq 1 ]
+}
+
+args_contains() {
+  local needle="${1:-}"
+  shift || true
+  local arg
+  for arg in "$@"; do
+    if [ "${arg}" = "${needle}" ]; then
+      return 0
+    fi
+  done
+  return 1
 }
 
 strip_interactive_request_flags() {
@@ -318,6 +807,152 @@ has_explicit_runtime_override() {
   return 1
 }
 
+codexea_recorded_model_for_resume_args() {
+  python3 - "$@" <<'PY'
+import gzip
+import json
+import os
+from pathlib import Path
+import sys
+
+args = sys.argv[1:]
+value_options = {
+    "-c",
+    "--config",
+    "--enable",
+    "--disable",
+    "-i",
+    "--image",
+    "-m",
+    "--model",
+    "--local-provider",
+    "-p",
+    "--profile",
+    "-s",
+    "--sandbox",
+    "-a",
+    "--ask-for-approval",
+    "-C",
+    "--cd",
+    "--add-dir",
+}
+flag_options = {
+    "--interactive",
+    "--oss",
+    "--full-auto",
+    "--dangerously-bypass-approvals-and-sandbox",
+    "--search",
+    "--no-alt-screen",
+    "-h",
+    "--help",
+    "-V",
+    "--version",
+}
+
+idx = None
+i = 0
+while i < len(args):
+    arg = args[i]
+    if arg == "--":
+        i += 1
+        idx = i if i < len(args) and args[i] == "resume" else None
+        break
+    if arg in value_options:
+        i += 2
+        continue
+    if arg in flag_options or arg.startswith("-"):
+        i += 1
+        continue
+    idx = i if arg == "resume" else None
+    break
+if idx is None:
+    raise SystemExit(1)
+
+session_id = ""
+use_last = False
+j = idx + 1
+while j < len(args):
+    arg = args[j]
+    if arg == "--last":
+        use_last = True
+        break
+    if arg == "--":
+        j += 1
+        continue
+    if arg.startswith("-"):
+        j += 1
+        continue
+    session_id = arg.strip()
+    break
+
+codex_home = Path(os.environ.get("CODEX_HOME") or os.path.expanduser("~/.codex"))
+sessions_root = codex_home / "sessions"
+if not sessions_root.is_dir():
+    raise SystemExit(1)
+
+paths: list[Path]
+if session_id:
+    paths = sorted(sessions_root.rglob(f"*{session_id}*.jsonl")) + sorted(sessions_root.rglob(f"*{session_id}*.jsonl.gz"))
+elif use_last:
+    paths = sorted(
+        list(sessions_root.rglob("*.jsonl")) + list(sessions_root.rglob("*.jsonl.gz")),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+else:
+    raise SystemExit(1)
+
+for path in paths:
+    opener = gzip.open if path.suffix == ".gz" else open
+    try:
+        with opener(path, "rt", encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                try:
+                    item = json.loads(line)
+                except Exception:
+                    continue
+                if item.get("type") != "turn_context":
+                    continue
+                payload = item.get("payload")
+                if not isinstance(payload, dict):
+                    continue
+                model = str(payload.get("model") or "").strip()
+                if model:
+                    print(model)
+                    raise SystemExit(0)
+    except OSError:
+        continue
+
+raise SystemExit(1)
+PY
+}
+
+has_explicit_launch_cwd() {
+  local -a args=("$@")
+  local i=0
+
+  while [ "${i}" -lt "${#args[@]}" ]; do
+    case "${args[$i]}" in
+      -C|--cd|--cd=*)
+        return 0
+        ;;
+      --)
+        return 1
+        ;;
+      -c|--config|--enable|--disable|-i|--image|-m|--model|--local-provider|-p|--profile|-s|--sandbox|-a|--ask-for-approval|--add-dir)
+        i=$((i + 2))
+        ;;
+      --interactive|--oss|--full-auto|--dangerously-bypass-approvals-and-sandbox|--search|--no-alt-screen|-h|--help|-V|--version)
+        i=$((i + 1))
+        ;;
+      *)
+        i=$((i + 1))
+        ;;
+    esac
+  done
+  return 1
+}
+
 build_base_profile_args() {
   [ "${MODE:-}" = "mcp" ] || return 0
   [ -n "${CODEXEA_BASE_PROFILE}" ] || return 0
@@ -325,11 +960,312 @@ build_base_profile_args() {
   printf '%s\0' -p "${CODEXEA_BASE_PROFILE}"
 }
 
-build_bootstrap_prompt() {
-  local prefix=""
+build_codexea_contract_payload() {
+  local lane="${1:-}"
+  local role="${2:-worker}"
+  local runtime_mode="${3:-${CODEXEA_CONTRACT_RUNTIME_MODE}}"
+  python3 - "${lane}" "${role}" "${runtime_mode}" <<'PY'
+import json
+import os
+import sys
 
-  if [ "${CODEXEA_BOOTSTRAP:-1}" != "0" ] && [ -r "${BOOTSTRAP_PROMPT_FILE}" ]; then
+lane = str(sys.argv[1] or "").strip()
+role = str(sys.argv[2] or "worker").strip()
+runtime_mode = str(sys.argv[3] or "code_only").strip()
+MAX_TEXT_LEN = 400
+MAX_LIST_ITEMS = 24
+MAX_LIST_ITEM_LEN = 240
+
+
+def clamp_text(value: str, *, limit: int = MAX_TEXT_LEN) -> str:
+    text = str(value or "").strip()
+    if len(text) <= limit:
+        return text
+    if limit <= 3:
+        return text[:limit]
+    return text[: limit - 3].rstrip() + "..."
+
+def split_lines(name: str) -> list[str]:
+    raw = str(os.environ.get(name) or "").strip()
+    if not raw:
+        return []
+    parts: list[str] = []
+    for chunk in raw.replace(";", "\n").splitlines():
+        item = clamp_text(chunk, limit=MAX_LIST_ITEM_LEN)
+        if item:
+            parts.append(item)
+    return parts[:MAX_LIST_ITEMS]
+
+objective = (
+    str(os.environ.get("CODEXEA_CONTRACT_OBJECTIVE") or "").strip()
+    or str(os.environ.get("CODEXEA_POST_AUDIT_OBJECTIVE") or "").strip()
+    or "Work the assigned coding slice, stay within owned scope, and return verification receipts."
+)
+
+payload = {
+    "objective": clamp_text(objective, limit=MAX_TEXT_LEN),
+    "lane": clamp_text(lane or "worker", limit=64),
+    "role": clamp_text(role, limit=64),
+    "runtime_mode": clamp_text(runtime_mode or "code_only", limit=64),
+    "launch_context": {
+        "repo_root": clamp_text(str(os.environ.get("CODEXEA_REPO_ROOT") or "").strip(), limit=240),
+        "original_caller_cwd": clamp_text(str(os.environ.get("CODEXEA_ORIGINAL_CWD") or "").strip(), limit=240),
+    },
+    "owned_files": split_lines("CODEXEA_CONTRACT_OWNED_FILES"),
+    "read_only_context": split_lines("CODEXEA_CONTRACT_READ_ONLY_CONTEXT"),
+    "forbidden_files": split_lines("CODEXEA_CONTRACT_FORBIDDEN_FILES"),
+    "acceptance_tests": split_lines("CODEXEA_CONTRACT_ACCEPTANCE_TESTS"),
+    "runtime_assumptions_allowed": str(os.environ.get("CODEXEA_CONTRACT_RUNTIME_ASSUMPTIONS_ALLOWED") or "false").strip().lower() in {"1", "true", "yes", "on"},
+    "stop_conditions": split_lines("CODEXEA_CONTRACT_STOP_CONDITIONS") or [
+        "Need runtime-mutating action outside the declared runtime mode",
+        "Need edits outside owned_files",
+        "Same root-cause failure repeated beyond max_retry_loops",
+    ],
+    "max_retry_loops": int(str(os.environ.get("CODEXEA_CONTRACT_MAX_RETRY_LOOPS") or "2").strip() or "2"),
+    "required_receipts": split_lines("CODEXEA_CONTRACT_REQUIRED_RECEIPTS") or [
+        "status",
+        "files_changed",
+        "tests_run",
+        "tests_passed",
+        "runtime_actions_taken",
+        "assumptions_made",
+        "genericity_findings",
+        "observability_notes",
+        "remaining_risks",
+        "needs_review",
+    ],
+    "review_model": clamp_text(str(os.environ.get("CODEXEA_REVIEW_MODEL") or "claude-opus-4.8").strip(), limit=80),
+    "implementation_model": clamp_text(str(os.environ.get("CODEXEA_IMPLEMENT_MODEL") or "gpt-5.5").strip(), limit=80),
+    "controller_mode": clamp_text(str(os.environ.get("CODEXEA_CONTROLLER_MODE") or "ooda_supervisor").strip() or "ooda_supervisor", limit=80),
+    "truncation": {
+        "max_text_len": MAX_TEXT_LEN,
+        "max_list_items": MAX_LIST_ITEMS,
+        "max_list_item_len": MAX_LIST_ITEM_LEN,
+    },
+}
+print(json.dumps(payload, ensure_ascii=True, indent=2))
+PY
+}
+
+build_codexea_contract_prompt() {
+  local lane="${1:-}"
+  local role="${2:-worker}"
+  local runtime_mode="${3:-${CODEXEA_CONTRACT_RUNTIME_MODE}}"
+  local payload=""
+  payload="$(build_codexea_contract_payload "${lane}" "${role}" "${runtime_mode}")"
+  cat <<EOF
+You are running under the CodexEA ${role} contract.
+
+Operating model:
+- CodexEA is the primary execution worker.
+- The external controller is supervising in OODA mode and will review your receipts.
+- Prefer implementation progress over planning chatter.
+- Stay within owned scope. Do not broaden the task on your own.
+
+Required behavior:
+- Work until the objective is either verified or a listed stop condition is hit.
+- Run acceptance tests when they exist.
+- After the first passing verification, do one brief hardening pass inside owned scope for genericity, observability, and reusable patterns.
+- Return explicit receipts covering status, files changed, tests, assumptions, and remaining risks.
+- Call out anything that is still over-specialized, hardcoded, weakly observed, or only partially generalized.
+- Escalate when the same root cause repeats beyond the retry limit.
+
+Contract payload:
+${payload}
+EOF
+}
+
+write_codexea_launch_receipt() {
+  local launch_kind="${1:-unknown}"
+  local target="${CODEXEA_STATE_DIR}/launch-latest.json"
+  local history_target="${CODEXEA_STATE_DIR}/launch-history.json"
+  local contract_payload=""
+
+  contract_payload="$(build_codexea_contract_payload "${EFFECTIVE_LANE:-${REQUESTED_LANE:-worker}}" "${CODEXEA_CONTRACT_ROLE:-worker}" "${CODEXEA_CONTRACT_RUNTIME_MODE}")"
+  CODEXEA_LAUNCH_CONTRACT_PAYLOAD="${contract_payload}" \
+  CODEXEA_LAUNCH_KIND="${launch_kind}" \
+  CODEXEA_LAUNCH_HISTORY_LIMIT="${CODEXEA_LAUNCH_HISTORY_LIMIT}" \
+  CODEXEA_LAUNCH_MODE="${MODE:-}" \
+  CODEXEA_LAUNCH_MODEL="${MODEL:-}" \
+  CODEXEA_LAUNCH_REASONING="${REASONING:-}" \
+  CODEXEA_LAUNCH_ARGC="${#CODEXEA_CMD[@]}" \
+  CODEXEA_LAUNCH_INTERACTIVE="${INTERACTIVE_SESSION_REQUEST:-0}" \
+  CODEXEA_LAUNCH_EXEC="${EXEC_SESSION_REQUEST:-0}" \
+  CODEXEA_LAUNCH_RESUME="${RESUME_SESSION_REQUEST:-0}" \
+  CODEXEA_LAUNCH_STDIN="${STDIN_EXEC_ARGV_REQUEST:-0}" \
+  CODEXEA_LAUNCH_EXPLICIT_CWD="$(
+    if has_explicit_launch_cwd "${ADJUSTED_ARGS[@]}"; then
+      printf '1'
+    else
+      printf '0'
+    fi
+  )" \
+  CODEXEA_LAUNCH_REPO_CWD_INJECTED="$(
+    if [ "${#CODEXEA_CWD_ARGS[@]}" -gt 0 ]; then
+      printf '1'
+    else
+      printf '0'
+    fi
+  )" \
+  python3 - "${target}" "${history_target}" <<'PY'
+import json
+import os
+import sys
+import fcntl
+from datetime import UTC, datetime
+from pathlib import Path
+from uuid import uuid4
+
+
+def truthy(name: str) -> bool:
+    return str(os.environ.get(name) or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def sensitive_env_values() -> set[str]:
+    markers = ("TOKEN", "API_KEY", "PASSWORD", "SECRET")
+    values: set[str] = set()
+    for key, value in os.environ.items():
+        if not value:
+            continue
+        normalized = key.upper()
+        if any(marker in normalized for marker in markers) and len(value) >= 8:
+            values.add(value)
+    return values
+
+
+def redact_secrets(value, secrets: set[str]):
+    if isinstance(value, str):
+        redacted = value
+        for secret in secrets:
+            redacted = redacted.replace(secret, "[REDACTED]")
+        return redacted
+    if isinstance(value, list):
+        return [redact_secrets(item, secrets) for item in value]
+    if isinstance(value, dict):
+        return {key: redact_secrets(item, secrets) for key, item in value.items()}
+    return value
+
+
+def positive_int(value: str, *, default: int, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(str(value or "").strip())
+    except ValueError:
+        parsed = default
+    return max(minimum, min(maximum, parsed))
+
+
+def private_atomic_write(path: Path, payload: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
+    tmp.chmod(0o600)
+    os.replace(tmp, path)
+    path.chmod(0o600)
+
+
+def existing_history_entries(path: Path) -> list[dict[str, object]]:
+    if not path.is_file():
+        return []
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    if isinstance(payload, dict):
+        entries = payload.get("entries")
+    else:
+        entries = payload
+    if not isinstance(entries, list):
+        return []
+    return [dict(item) for item in entries if isinstance(item, dict)]
+
+
+target = Path(sys.argv[1]).expanduser()
+history_target = Path(sys.argv[2]).expanduser()
+target.parent.mkdir(parents=True, exist_ok=True)
+contract = json.loads(os.environ.get("CODEXEA_LAUNCH_CONTRACT_PAYLOAD") or "{}")
+mode = str(os.environ.get("CODEXEA_LAUNCH_MODE") or "").strip()
+generated_at = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+receipt = {
+    "schema_version": 1,
+    "receipt_type": "codexea_launch",
+    "launch_id": uuid4().hex,
+    "generated_at": generated_at,
+    "launch_kind": str(os.environ.get("CODEXEA_LAUNCH_KIND") or "unknown").strip() or "unknown",
+    "lane": str(os.environ.get("CODEXEA_LANE") or contract.get("lane") or "").strip(),
+    "mode": mode,
+    "submode": str(os.environ.get("CODEXEA_SUBMODE") or "").strip(),
+    "provider": "ea" if mode == "responses" else ("mcp" if mode == "mcp" else "unknown"),
+    "model": str(os.environ.get("CODEXEA_LAUNCH_MODEL") or "").strip(),
+    "reasoning_effort": str(os.environ.get("CODEXEA_LAUNCH_REASONING") or "").strip(),
+    "launch_context": {
+        "repo_root": str(os.environ.get("CODEXEA_REPO_ROOT") or "").strip(),
+        "original_caller_cwd": str(os.environ.get("CODEXEA_ORIGINAL_CWD") or "").strip(),
+        "process_cwd": os.getcwd(),
+    },
+    "contract": contract,
+    "handoff": {
+        "argv_count": int(str(os.environ.get("CODEXEA_LAUNCH_ARGC") or "0") or "0"),
+        "interactive": truthy("CODEXEA_LAUNCH_INTERACTIVE"),
+        "exec": truthy("CODEXEA_LAUNCH_EXEC"),
+        "resume": truthy("CODEXEA_LAUNCH_RESUME"),
+        "stdin_prompt": truthy("CODEXEA_LAUNCH_STDIN"),
+        "explicit_launch_cwd": truthy("CODEXEA_LAUNCH_EXPLICIT_CWD"),
+        "repo_root_cd_injected": truthy("CODEXEA_LAUNCH_REPO_CWD_INJECTED"),
+    },
+    "privacy": {
+        "secrets_excluded": True,
+        "argv_redacted": True,
+        "env_redacted": True,
+        "auth_headers_redacted": True,
+        "sensitive_env_values_redacted": True,
+    },
+}
+receipt = redact_secrets(receipt, sensitive_env_values())
+history_limit = positive_int(
+    os.environ.get("CODEXEA_LAUNCH_HISTORY_LIMIT") or "",
+    default=24,
+    minimum=1,
+    maximum=200,
+)
+lock_path = history_target.with_name(f".{history_target.name}.lock")
+lock_path.parent.mkdir(parents=True, exist_ok=True)
+with lock_path.open("a+", encoding="utf-8") as lock_file:
+    lock_path.chmod(0o600)
+    fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+    history_entries = [receipt, *existing_history_entries(history_target)][:history_limit]
+    history = {
+        "schema_version": 1,
+        "receipt_type": "codexea_launch_history",
+        "updated_at": generated_at,
+        "retention": {
+            "max_entries": history_limit,
+            "order": "newest_first",
+        },
+        "entries": history_entries,
+    }
+    private_atomic_write(history_target, history)
+    private_atomic_write(target, receipt)
+PY
+}
+
+build_bootstrap_prompt() {
+  local include_interactive_wait="${1:-0}"
+  local include_contract="${2:-1}"
+  local prefix=""
+  local contract_prompt=""
+
+  if [ "${include_interactive_wait}" = "1" ] && [ "${CODEXEA_BOOTSTRAP:-1}" != "0" ] && [ -r "${BOOTSTRAP_PROMPT_FILE}" ]; then
     prefix="$(cat "${BOOTSTRAP_PROMPT_FILE}")"
+  fi
+
+  if [ "${include_contract}" = "1" ] && env_truthy "${CODEXEA_CONTRACT_ENABLED}"; then
+    contract_prompt="$(build_codexea_contract_prompt "${EFFECTIVE_LANE:-${REQUESTED_LANE:-worker}}" "${CODEXEA_CONTRACT_ROLE:-worker}" "${CODEXEA_CONTRACT_RUNTIME_MODE}")"
+  fi
+
+  if [ -n "${contract_prompt}" ] && [ -n "${prefix}" ]; then
+    prefix="${prefix}"$'\n\n'"${contract_prompt}"
+  elif [ -n "${contract_prompt}" ]; then
+    prefix="${contract_prompt}"
   fi
 
   printf '%s' "${prefix}"
@@ -351,6 +1287,10 @@ profile_by_lane = {
     "repair": "repair",
     "groundwork": "groundwork",
     "core": "core",
+    "worker": "core",
+    "live_safe": "core",
+    "controller": "audit",
+    "debug_hard": "audit",
     "jury": "audit",
     "survival": "survival",
 }
@@ -396,18 +1336,95 @@ raise SystemExit(1)
 PY
 }
 
+codexea_runtime_profile_for_lane() {
+  case "${1:-}" in
+    worker|live_safe|core)
+      printf '%s' "core"
+      ;;
+    controller|debug_hard|jury)
+      printf '%s' "audit"
+      ;;
+    review_light)
+      printf '%s' "review_light"
+      ;;
+    *)
+      printf '%s' "${1:-}"
+      ;;
+  esac
+}
+
+codexea_default_submode_for_mode() {
+  local lane="${1:-}"
+  local mode="${2:-}"
+  case "${mode}:${lane}" in
+    responses:worker|responses:live_safe)
+      printf '%s' "responses_core"
+      ;;
+    responses:controller|responses:debug_hard)
+      printf '%s' "responses_audit"
+      ;;
+    mcp:worker)
+      printf '%s' "mcp_worker"
+      ;;
+    mcp:controller)
+      printf '%s' "mcp_controller"
+      ;;
+    mcp:live_safe)
+      printf '%s' "mcp_live_safe"
+      ;;
+    mcp:debug_hard)
+      printf '%s' "mcp_debug_hard"
+      ;;
+    *)
+      printf '%s' "${mode}_${lane}"
+      ;;
+  esac
+}
+
+codexea_default_responses_model_for_lane() {
+  case "${1:-}" in
+    worker|live_safe)
+      printf '%s' "${CODEXEA_IMPLEMENT_MODEL:-gpt-5.5}"
+      ;;
+    controller|debug_hard|jury)
+      printf '%s' "${CODEXEA_JURY_MODEL:-ea-audit-jury}"
+      ;;
+    review_light)
+      printf '%s' "${CODEXEA_REVIEW_LIGHT_MODEL:-ea-review-light}"
+      ;;
+    easy)
+      printf '%s' "${CODEXEA_EASY_MODEL:-ea-gemini-flash}"
+      ;;
+    repair)
+      printf '%s' "${CODEXEA_REPAIR_MODEL:-ea-coder-fast}"
+      ;;
+    groundwork)
+      printf '%s' "${CODEXEA_GROUNDWORK_MODEL:-ea-groundwork-gemini}"
+      ;;
+    core)
+      printf '%s' "${CODEXEA_CORE_MODEL:-ea-coder-hard}"
+      ;;
+    survival)
+      printf '%s' "${CODEXEA_SURVIVAL_MODEL:-ea-coder-survival}"
+      ;;
+    *)
+      printf '%s' "${CODEXEA_IMPLEMENT_MODEL:-gpt-5.5}"
+      ;;
+  esac
+}
+
 inject_bootstrap_prompt() {
   local -a args=("$@")
   local i=0
   local idx=-1
   local prompt_prefix=""
 
-  if [ "$#" -gt 0 ] && ! args_request_interactive_session "$@"; then
+  if [ "$#" -gt 0 ] && args_request_interactive_session "$@"; then
     printf '%s\0' "${args[@]}"
     return
   fi
 
-  prompt_prefix="$(build_bootstrap_prompt)"
+  prompt_prefix="$(build_bootstrap_prompt 0 1)"
   if [ -z "${prompt_prefix}" ]; then
     printf '%s\0' "${args[@]}"
     return
@@ -449,7 +1466,7 @@ inject_bootstrap_prompt() {
     return
   fi
 
-  args[$idx]="${prompt_prefix}"$'\n\n'"${args[$idx]}"
+  args[idx]="${prompt_prefix}"$'\n\n'"${args[idx]}"
   printf '%s\0' "${args[@]}"
 }
 
@@ -463,6 +1480,127 @@ args_request_exec_session() {
   [ -n "${primary_command}" ] || return 1
   is_codex_subcommand "${primary_command}" && return 1
   return 0
+}
+
+args_request_resume_session() {
+  local primary_command=""
+
+  [ "$#" -gt 0 ] || return 1
+  primary_command="$(detect_primary_command "$@")"
+  [ "${primary_command}" = "resume" ]
+}
+
+codexea_compact_csv() {
+  local value="${1:-}"
+  value="${value//$'\n'/,}"
+  value="${value//[[:space:]]/}"
+  value="${value#,}"
+  value="${value%,}"
+  printf '%s' "${value}"
+}
+
+codexea_route_models_for_launch() {
+  local model="${1:-}"
+  local lane="${2:-}"
+  local mode="${3:-}"
+  local normalized=""
+  local gemini_models=""
+  local magicx_models=""
+  local onemin_fast_models=""
+  local onemin_hard_models=""
+  local onemin_rescue_models=""
+  local onemin_review_models=""
+
+  if [ "${mode}" != "responses" ]; then
+    if [ -n "${EA_MCP_MODEL:-}" ]; then
+      printf 'mcp:%s' "${EA_MCP_MODEL}"
+    fi
+    return 0
+  fi
+
+  normalized="$(printf '%s' "${model}" | tr '[:upper:]' '[:lower:]')"
+  gemini_models="$(codexea_compact_csv "${EA_RESPONSES_GEMINI_VORTEX_MODELS:-${EA_GEMINI_VORTEX_MODELS:-${EA_GEMINI_VORTEX_MODEL:-gemini-3.5-flash,gemini-3.1-flash-lite,gemini-3-flash}}}")"
+  magicx_models="$(codexea_compact_csv "${EA_RESPONSES_MAGICX_MODELS:-inception/mercury-coder,mistralai/codestral-2508,x-ai/grok-code-fast-1}")"
+  onemin_fast_models="$(codexea_compact_csv "${EA_RESPONSES_ONEMIN_FAST_CANDIDATE_MODELS:-${EA_RESPONSES_ONEMIN_CODE_MODELS:-${EA_RESPONSES_ONEMIN_MODELS:-gpt-5.5}}}")"
+  onemin_hard_models="$(codexea_compact_csv "${EA_RESPONSES_ONEMIN_HARD_MODELS:-gpt-5.5}")"
+  onemin_rescue_models="$(codexea_compact_csv "${EA_RESPONSES_ONEMIN_RESCUE_MODELS:-gpt-4o,gpt-4.1,deepseek-chat}")"
+  onemin_review_models="$(codexea_compact_csv "${EA_RESPONSES_ONEMIN_REVIEW_MODELS:-deepseek-chat,gpt-4.1-nano,gpt-4.1}")"
+
+  case "${normalized}" in
+    "chatgpt 5.5 (1min.ai)"|"chatgpt 5.5 (1min ai)"|"gpt 5.5 (1min.ai)"|"gpt 5.5 (1min ai)")
+      printf '1min.ai:gpt-5.5'
+      ;;
+    gpt-*|deepseek-chat)
+      printf '1min.ai:%s' "${model}"
+      ;;
+    ea-coder-fast|ea-repair-gemini|ea-overflow)
+      printf 'gemini_vortex:%s; magicx:%s; 1min.ai:%s' "${gemini_models}" "${magicx_models}" "${onemin_fast_models}"
+      ;;
+    ea-gemini-flash|gemini-*)
+      printf 'gemini_vortex:%s' "${gemini_models}"
+      ;;
+    ea-magicx-coder|inception/*|mistralai/*|x-ai/*)
+      printf 'magicx:%s' "${magicx_models}"
+      ;;
+    ea-onemin-coder)
+      printf '1min.ai:%s' "${onemin_fast_models}"
+      ;;
+    ea-coder-hard|ea-coder-hard-batch|ea-audit-jury|ea-audit)
+      printf '1min.ai:%s' "${onemin_hard_models}"
+      ;;
+    ea-coder-hard-rescue)
+      printf '1min.ai:%s' "${onemin_rescue_models}"
+      ;;
+    ea-review-light|ea-review|ea-critic)
+      printf '1min.ai:%s; gemini_vortex:%s' "${onemin_review_models}" "${gemini_models}"
+      ;;
+    ea-groundwork|ea-groundwork-gemini)
+      printf 'gemini_vortex:%s' "${gemini_models}"
+      ;;
+    ea-coder-survival)
+      printf '1min.ai:%s; gemini_vortex:%s; chatplayground' "${onemin_hard_models}" "${gemini_models}"
+      ;;
+    *)
+      case "${lane}" in
+        easy|repair|worker|live_safe)
+          printf 'gemini_vortex:%s; magicx:%s; 1min.ai:%s' "${gemini_models}" "${magicx_models}" "${onemin_fast_models}"
+          ;;
+        core|controller|debug_hard|jury)
+          printf '1min.ai:%s' "${onemin_hard_models}"
+          ;;
+        review_light)
+          printf '1min.ai:%s; gemini_vortex:%s' "${onemin_review_models}" "${gemini_models}"
+          ;;
+      esac
+      ;;
+  esac
+}
+
+codexea_model_stack_for_launch() {
+  local model="${1:-}"
+  local lane="${2:-}"
+  local mode="${3:-}"
+  local route_models=""
+  route_models="$(codexea_route_models_for_launch "${model}" "${lane}" "${mode}")"
+  if [ -n "${route_models}" ]; then
+    printf 'codex:%s | route:%s' "${model:-default-config}" "${route_models}"
+  else
+    printf 'codex:%s' "${model:-default-config}"
+  fi
+}
+
+args_end_with_stdin_prompt() {
+  [ "$#" -gt 0 ] || return 1
+  local -a args=("$@")
+  [ "${args[$((${#args[@]} - 1))]}" = "-" ]
+}
+
+args_explicit_exec_stdin_invocation() {
+  local primary_command=""
+  [ "$#" -gt 0 ] || return 1
+  primary_command="$(detect_primary_command "$@")"
+  [ "${primary_command}" = "exec" ] || return 1
+  args_end_with_stdin_prompt "$@"
 }
 
 wrap_prompt_invocation_with_exec() {
@@ -485,6 +1623,17 @@ wrap_prompt_invocation_with_exec() {
       --oss|--full-auto|--dangerously-bypass-approvals-and-sandbox|--search|--no-alt-screen|-h|--help|-V|--version)
         i=$((i + 1))
         ;;
+      -)
+        if [ "${i}" -gt 0 ]; then
+          printf '%s\0' "${args[@]:0:${i}}"
+        fi
+        printf '%s\0' exec
+        if [ "$((i + 1))" -lt "${#args[@]}" ]; then
+          printf '%s\0' "${args[@]:$((i + 1))}"
+        fi
+        printf '%s\0' -
+        return
+        ;;
       -*)
         i=$((i + 1))
         ;;
@@ -506,6 +1655,7 @@ emit_startup_trace() {
   local next_step="$1"
   local provider_label="unknown"
   local trace_model="${MODEL:-}"
+  local model_stack=""
   local trace_suffix=""
   env_truthy "${CODEXEA_TRACE_STARTUP}" || return 0
   case "${MODE:-}" in
@@ -522,12 +1672,14 @@ emit_startup_trace() {
       fi
       ;;
   esac
-  printf 'Trace: lane=%s provider=%s model=%s mode=%s%s next=%s\n' \
+  model_stack="${CODEXEA_MODEL_STACK:-$(codexea_model_stack_for_launch "${trace_model}" "${EFFECTIVE_LANE}" "${MODE}")}"
+  printf 'Trace: lane=%s provider=%s model=%s mode=%s%s models="%s" next=%s\n' \
     "${EFFECTIVE_LANE}" \
     "${provider_label}" \
     "${trace_model}" \
     "${MODE}" \
     "${trace_suffix}" \
+    "${model_stack}" \
     "${next_step}" >&2
 }
 
@@ -712,10 +1864,27 @@ emit_post_audit_request() {
   fi
 }
 
+show_startup_status_pending() {
+  local lane="${CODEXEA_STATUS_LAUNCH_LANE:-${EFFECTIVE_LANE:-unknown}}"
+  local provider="${CODEXEA_STATUS_LAUNCH_PROVIDER:-unknown}"
+  local model="${CODEXEA_STATUS_LAUNCH_MODEL:-unknown}"
+  local mode="${CODEXEA_STATUS_LAUNCH_MODE:-unknown}"
+  local models="${CODEXEA_STATUS_LAUNCH_MODELS:-${CODEXEA_MODEL_STACK:-}}"
+  printf 'CodexEA startup: lane %s | provider %s via 1min.AI manager | model %s | mode %s' \
+    "${lane}" "${provider}" "${model}" "${mode}"
+  if [ -n "${models}" ]; then
+    printf ' | models %s' "${models}"
+  fi
+  printf ' | status pending\n'
+}
+
 show_status() {
   local want_json=0
   local refresh=0
   local startup_compact=0
+  local compact_report=0
+  local full_report=0
+  local pretty_requested=0
   local watch_seconds=""
   local window="1h"
   while [ "$#" -gt 0 ]; do
@@ -723,8 +1892,23 @@ show_status() {
       --json)
         want_json=1
         ;;
+      --pretty)
+        pretty_requested=1
+        ;;
+      --compact)
+        compact_report=1
+        full_report=0
+        ;;
+      --full)
+        full_report=1
+        compact_report=0
+        ;;
       --startup)
         startup_compact=1
+        ;;
+      --help|-h)
+        show_status_help
+        return 0
         ;;
       --refresh)
         refresh=1
@@ -744,16 +1928,37 @@ show_status() {
     esac
     shift || true
   done
+  local connect_timeout="${CODEXEA_STATUS_CONNECT_TIMEOUT_SECONDS:-2}"
+  local max_time="${CODEXEA_STATUS_MAX_TIME_SECONDS:-30}"
+  if [ "${want_json}" -ne 1 ] && [ "${full_report}" -ne 1 ] && [ "${startup_compact}" -ne 1 ]; then
+    compact_report=1
+  fi
+  if [ "${startup_compact}" -eq 1 ]; then
+    connect_timeout="${CODEXEA_STARTUP_STATUS_CONNECT_TIMEOUT_SECONDS:-2}"
+    max_time="${CODEXEA_STARTUP_STATUS_MAX_TIME_SECONDS:-15}"
+    compact_report=1
+  fi
   local -a curl_args=(
     curl
     -fsS
-    --connect-timeout "${CODEXEA_STATUS_CONNECT_TIMEOUT_SECONDS:-2}"
-    --max-time "${CODEXEA_STATUS_MAX_TIME_SECONDS:-5}"
+    --connect-timeout "${connect_timeout}"
+    --max-time "${max_time}"
     -H "X-EA-Principal-ID: ${EA_MCP_PRINCIPAL_ID}"
   )
   local api_token="${EA_MCP_API_TOKEN:-${EA_API_TOKEN:-}}"
-  local status_url="${EA_STATUS_URL}?window=${window}&refresh=${refresh}"
+  local status_url="${EA_STATUS_URL}?window=${window}&refresh=${refresh}&compact=${compact_report}"
   local body=""
+  local body_source="status"
+  validate_status_json_body() {
+    local candidate_path="${1:-}"
+    [ -n "${candidate_path}" ] || return 1
+    command -v python3 >/dev/null 2>&1 || return 0
+    python3 - "${candidate_path}" <<'PY' >/dev/null 2>&1
+import json, sys
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    json.load(handle)
+PY
+  }
   if [ -n "${api_token}" ]; then
     curl_args+=(-H "Authorization: Bearer ${api_token}")
     curl_args+=(-H "X-EA-Api-Token: ${api_token}")
@@ -763,6 +1968,12 @@ show_status() {
     local -a watch_args=()
     if [ "${want_json}" -eq 1 ]; then
       watch_args+=(--json)
+    fi
+    if [ "${pretty_requested}" -eq 1 ]; then
+      watch_args+=(--pretty)
+    fi
+    if [ "${compact_report}" -eq 1 ]; then
+      watch_args+=(--compact)
     fi
     if [ "${refresh}" -eq 1 ]; then
       watch_args+=(--refresh)
@@ -776,6 +1987,10 @@ show_status() {
   fi
   if ! body="$("${curl_args[@]}" "${status_url}" 2>/dev/null)"; then
     body="$("${curl_args[@]}" "${EA_PROFILES_URL}" 2>/dev/null)" || {
+      if [ "${startup_compact}" -eq 1 ]; then
+        show_startup_status_pending
+        return 0
+      fi
       if [ -z "${api_token}" ]; then
         echo "EA status unavailable from ${status_url} and fallback ${EA_PROFILES_URL}; EA_MCP_API_TOKEN / EA_API_TOKEN is not configured" >&2
       else
@@ -783,15 +1998,35 @@ show_status() {
       fi
       return 1
     }
-  fi
-  if [ "${want_json}" -eq 1 ] || ! [ -t 1 ] || ! command -v python3 >/dev/null 2>&1; then
-    printf '%s\n' "${body}"
-    return
+    body_source="profiles"
   fi
   local body_file
   body_file="$(mktemp)"
   printf '%s' "${body}" > "${body_file}"
-  CODEXEA_STATUS_STARTUP_COMPACT="${startup_compact}" python3 - "${body_file}" <<'PY'
+  local force_pretty="${CODEXEA_FORCE_PRETTY_STATUS:-0}"
+  if [ "${want_json}" -eq 1 ]; then
+    if [ "${body_source}" = "status" ] && ! validate_status_json_body "${body_file}"; then
+      if body="$("${curl_args[@]}" "${EA_PROFILES_URL}" 2>/dev/null)"; then
+        body_source="profiles"
+        printf '%s' "${body}" > "${body_file}"
+      fi
+    fi
+    if validate_status_json_body "${body_file}"; then
+      cat "${body_file}"
+      rm -f "${body_file}"
+      return 0
+    fi
+    cat "${body_file}"
+    rm -f "${body_file}"
+    return 1
+  fi
+  if { [ "${startup_compact}" -ne 1 ] && [ "${pretty_requested}" -ne 1 ] && [ "${force_pretty}" != "1" ] && ! [ -t 1 ]; } || ! command -v python3 >/dev/null 2>&1; then
+    cat "${body_file}"
+    rm -f "${body_file}"
+    return 0
+  fi
+  render_status_body() {
+    CODEXEA_STATUS_STARTUP_COMPACT="${startup_compact}" CODEXEA_STATUS_PARSE_SILENT="${1:-0}" CODEXEA_STATUS_PARSE_SOURCE="${body_source}" python3 - "${body_file}" <<'PY'
 import json, os, sys
 
 def fmt(value):
@@ -807,7 +2042,20 @@ def line(parts, widths):
     return "  ".join(str(part).ljust(width) for part, width in zip(parts, widths))
 
 with open(sys.argv[1], "r", encoding="utf-8") as handle:
-    payload = json.load(handle)
+    raw_body = handle.read()
+try:
+    payload = json.loads(raw_body)
+except Exception:
+    if os.environ.get("CODEXEA_STATUS_PARSE_SILENT") != "1":
+        source = str(os.environ.get("CODEXEA_STATUS_PARSE_SOURCE") or "status").strip() or "status"
+        if source == "profiles":
+            print("CodexEA status parse failure: invalid JSON from EA profiles fallback.")
+        else:
+            print("CodexEA status parse failure: invalid JSON from EA status endpoint.")
+        text = str(raw_body or "").strip()
+        if text:
+            print(text)
+    sys.exit(42)
 workspace = os.path.basename(os.getcwd()) or os.getcwd()
 principal = os.environ.get("EA_MCP_PRINCIPAL_ID") or os.environ.get("EA_PRINCIPAL_ID") or "unknown"
 startup_compact = os.environ.get("CODEXEA_STATUS_STARTUP_COMPACT") == "1"
@@ -815,6 +2063,7 @@ launch_lane = str(os.environ.get("CODEXEA_STATUS_LAUNCH_LANE") or "").strip()
 launch_mode = str(os.environ.get("CODEXEA_STATUS_LAUNCH_MODE") or "").strip()
 launch_provider = str(os.environ.get("CODEXEA_STATUS_LAUNCH_PROVIDER") or "").strip()
 launch_model = str(os.environ.get("CODEXEA_STATUS_LAUNCH_MODEL") or "").strip()
+launch_models = str(os.environ.get("CODEXEA_STATUS_LAUNCH_MODELS") or os.environ.get("CODEXEA_MODEL_STACK") or "").strip()
 
 if startup_compact:
     if "providers_summary" in payload:
@@ -823,6 +2072,8 @@ if startup_compact:
         degraded = sum(1 for row in providers if row.get("state") == "degraded")
         cooldown = sum(1 for row in providers if row.get("state") == "cooldown")
         burn_1h = ((payload.get("fleet_burn") or {}).get("1h") or {}).get("provider_credits") or {}
+        hotspots = payload.get("onemin_aggregate") or {}
+        pressure_15m = str(hotspots.get("attempt_throttle_pressure_15m") or "").strip()
         route_summary = []
         if launch_lane:
             route_summary.append(f"lane {fmt(launch_lane)}")
@@ -832,10 +2083,17 @@ if startup_compact:
             route_summary.append(f"model {fmt(launch_model)}")
         if launch_mode:
             route_summary.append(f"mode {fmt(launch_mode)}")
+        if launch_models:
+            route_summary.append(f"models {fmt(launch_models)}")
         if route_summary:
             route_prefix = " | ".join(route_summary)
         else:
-            route_prefix = f"lane {fmt(payload.get('default_profile'))}->{fmt(payload.get('default_lane'))}"
+            default_profile = str(payload.get("default_profile") or "").strip()
+            default_lane = str(payload.get("default_lane") or "").strip()
+            if default_profile or default_lane:
+                route_prefix = f"lane {fmt(default_profile)}->{fmt(default_lane)}"
+            else:
+                route_prefix = f"workspace {workspace} | principal {principal}"
         print(
             "CodexEA startup:"
             f" {route_prefix}"
@@ -843,15 +2101,31 @@ if startup_compact:
             f" | degraded {degraded}"
             f" | cooldown {cooldown}"
             f" | 1h 1min burn {fmt(burn_1h.get('onemin'))} cr"
+            f"{f' | 1min pressure {pressure_15m}' if pressure_15m else ''}"
         )
     else:
         providers = ((payload.get("provider_health") or {}).get("providers") or {})
         ready = sum(1 for row in providers.values() if row.get("state") == "ready")
         degraded = sum(1 for row in providers.values() if row.get("state") == "degraded")
+        fallback_profiles = payload.get("profiles") or []
+        first_profile = fallback_profiles[0] if fallback_profiles else {}
+        fallback_lane = str(first_profile.get("lane") or payload.get("default_lane") or "").strip()
+        fallback_model = str(first_profile.get("model") or "").strip()
+        fallback_providers = ", ".join(first_profile.get("provider_hint_order") or [])
+        fallback_summary = []
+        if fallback_lane:
+            fallback_summary.append(f"lane {fmt(fallback_lane)}")
+        if fallback_model:
+            fallback_summary.append(f"model {fmt(fallback_model)}")
+        if fallback_providers:
+            fallback_summary.append(f"providers {fmt(fallback_providers)}")
+        if fallback_summary:
+            fallback_prefix = " | ".join(fallback_summary)
+        else:
+            fallback_prefix = f"workspace {workspace} | principal {principal}"
         print(
             "CodexEA startup:"
-            f" workspace {workspace}"
-            f" | principal {principal}"
+            f" {fallback_prefix}"
             f" | ready {ready}"
             f" | degraded {degraded}"
         )
@@ -903,10 +2177,16 @@ if "providers_summary" not in payload:
 
 provider_health = payload.get("provider_health") or {}
 providers = provider_health.get("providers") or {}
+is_compact_payload = bool((providers.get("_compact") or {}).get("state"))
+default_profile = str(payload.get("default_profile") or "").strip()
+default_lane = str(payload.get("default_lane") or "").strip()
 print("CodexEA / Fleet Status")
 print(f"Workspace: {workspace}")
 print(f"Principal: {principal}")
-print(f"Lane default: {fmt(payload.get('default_profile'))} -> {fmt(payload.get('default_lane'))}")
+if default_profile or default_lane:
+    print(f"Lane default: {fmt(default_profile)} -> {fmt(default_lane)}")
+else:
+    print("Lane default: workspace/principal fallback")
 print(f"EA status basis: {fmt(payload.get('status_basis'))}")
 print("")
 print("External providers")
@@ -939,6 +2219,47 @@ for key in ("1h", "24h", "7d"):
             summary.append(f"{lane_key} {fmt(lane_requests.get(lane_key))} req")
     print(f"{key}:   " + " | ".join(summary))
 print("")
+hotspots = payload.get("onemin_aggregate") or {}
+print("1min hotspots")
+print(f"Throttle pressure (15m): {fmt(hotspots.get('attempt_throttle_pressure_15m'))}")
+print(
+    "Peak parallel (15m):"
+    f" same-proxy {fmt(hotspots.get('attempt_peak_parallel_same_proxy_15m'))}"
+    f" | same-account {fmt(hotspots.get('attempt_peak_parallel_same_account_15m'))}"
+)
+busiest_hosts = hotspots.get("attempt_busiest_hosts_15m") or []
+if busiest_hosts:
+    host_summary = []
+    for item in busiest_hosts[:4]:
+        host_summary.append(f"{fmt(item.get('host_id'))} ({fmt(item.get('attempts'))})")
+    print("Busiest hosts (15m): " + ", ".join(host_summary))
+else:
+    print("Busiest hosts (15m): none")
+recent_by_host = hotspots.get("attempt_recent_by_host_15m") or {}
+if recent_by_host:
+    ranked_hosts = sorted(
+        recent_by_host.items(),
+        key=lambda item: (
+            -int((item[1] or {}).get("http_429_count") or 0),
+            -int((item[1] or {}).get("error_count") or 0),
+            -int((item[1] or {}).get("attempts") or 0),
+            item[0],
+        ),
+    )
+    top_host, top_host_stats = ranked_hosts[0]
+    print(
+        "Top host stats (15m):"
+        f" {fmt(top_host)}"
+        f" attempts={fmt((top_host_stats or {}).get('attempts'))}"
+        f" 429s={fmt((top_host_stats or {}).get('http_429_count'))}"
+        f" errors={fmt((top_host_stats or {}).get('error_count'))}"
+        f" timeouts={fmt((top_host_stats or {}).get('timeout_count'))}"
+    )
+else:
+    print("Top host stats (15m): none")
+print("")
+if is_compact_payload:
+    sys.exit(0)
 avoided = ((payload.get("avoided_credits") or {}).get("selected_window") or {})
 avoided_text = ((payload.get("avoided_credits") or {}).get("selected_window_text") or {})
 print("Savings")
@@ -970,20 +2291,542 @@ if billing:
     print(f"ETA incl. next top-up at 7d avg: {fmt(billing.get('days_remaining_including_next_topup_at_7d_avg'))}")
     print(f"Depletes before next top-up: {fmt(billing.get('depletes_before_next_topup'))}")
 PY
-  local python_status=$?
+  }
+  local python_status=0
+  if [ "${body_source}" = "status" ]; then
+    if render_status_body 1; then
+      python_status=0
+    else
+      python_status=$?
+    fi
+    if [ "${python_status}" -eq 42 ]; then
+      if body="$("${curl_args[@]}" "${EA_PROFILES_URL}" 2>/dev/null)"; then
+        body_source="profiles"
+        printf '%s' "${body}" > "${body_file}"
+      fi
+    fi
+  fi
+  if [ "${startup_compact}" -eq 1 ] && [ "${python_status}" -eq 42 ] && [ "${body_source}" = "status" ]; then
+    rm -f "${body_file}"
+    show_startup_status_pending
+    return 0
+  fi
+  if [ "${python_status}" -eq 0 ] && [ "${body_source}" = "status" ]; then
+    :
+  else
+    if render_status_body "$([ "${startup_compact}" -eq 1 ] && printf '1' || printf '0')"; then
+      python_status=0
+    else
+      python_status=$?
+    fi
+  fi
+  if [ "${startup_compact}" -eq 1 ] && [ "${python_status}" -eq 42 ]; then
+    rm -f "${body_file}"
+    show_startup_status_pending
+    return 0
+  fi
+  if [ "${python_status}" -eq 42 ]; then
+    python_status=1
+  fi
   rm -f "${body_file}"
   return "${python_status}"
+}
+
+show_launch_receipts() {
+  local view="${1:-latest}"
+  local limit="${CODEXEA_RECEIPT_LIMIT:-${CODEXEA_LAUNCH_HISTORY_LIMIT}}"
+
+  case "${view}" in
+    latest|history|list)
+      shift || true
+      ;;
+    --*)
+      view="latest"
+      ;;
+    "")
+      view="latest"
+      shift || true
+      ;;
+    *)
+      echo "Unknown receipt view: ${view} (expected: latest, history, or list)" >&2
+      return 2
+      ;;
+  esac
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --json)
+        ;;
+      --limit)
+        shift
+        limit="${1:-}"
+        ;;
+      --limit=*)
+        limit="${1#--limit=}"
+        ;;
+      *)
+        echo "Unknown receipt flag: $1" >&2
+        return 2
+        ;;
+    esac
+    shift || true
+  done
+
+  python3 - "${CODEXEA_STATE_DIR}" "${view}" "${limit}" <<'PY'
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
+
+def positive_int(value: str, *, default: int, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(str(value or "").strip())
+    except ValueError:
+        parsed = default
+    return max(minimum, min(maximum, parsed))
+
+
+def read_json(path: Path) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (OSError, json.JSONDecodeError) as exc:
+        return {"read_error": str(exc)}
+
+
+def history_entries(payload: Any) -> list[dict[str, Any]]:
+    if isinstance(payload, dict):
+        raw_entries = payload.get("entries")
+    else:
+        raw_entries = payload
+    if not isinstance(raw_entries, list):
+        return []
+    return [dict(item) for item in raw_entries if isinstance(item, dict)]
+
+
+def receipt_summary(receipt: dict[str, Any]) -> dict[str, Any]:
+    contract = receipt.get("contract") if isinstance(receipt.get("contract"), dict) else {}
+    return {
+        "launch_id": receipt.get("launch_id"),
+        "generated_at": receipt.get("generated_at"),
+        "launch_kind": receipt.get("launch_kind"),
+        "lane": receipt.get("lane"),
+        "mode": receipt.get("mode"),
+        "submode": receipt.get("submode"),
+        "provider": receipt.get("provider"),
+        "model": receipt.get("model"),
+        "reasoning_effort": receipt.get("reasoning_effort"),
+        "objective": contract.get("objective"),
+        "owned_files": contract.get("owned_files") if isinstance(contract.get("owned_files"), list) else [],
+        "acceptance_tests": contract.get("acceptance_tests") if isinstance(contract.get("acceptance_tests"), list) else [],
+    }
+
+
+state_dir = Path(sys.argv[1]).expanduser()
+view = str(sys.argv[2] or "latest").strip() or "latest"
+limit = positive_int(sys.argv[3] if len(sys.argv) > 3 else "", default=24, minimum=1, maximum=200)
+latest_path = state_dir / "launch-latest.json"
+history_path = state_dir / "launch-history.json"
+
+if view == "latest":
+    receipt = read_json(latest_path)
+    payload = {
+        "schema_version": 1,
+        "receipt_type": "codexea_launch_receipt_read",
+        "source": "latest",
+        "state_dir": str(state_dir),
+        "path": str(latest_path),
+        "exists": isinstance(receipt, dict) and "read_error" not in receipt,
+        "receipt": receipt if isinstance(receipt, dict) and "read_error" not in receipt else None,
+    }
+    if isinstance(receipt, dict) and "read_error" in receipt:
+        payload["error"] = receipt["read_error"]
+    print(json.dumps(payload, ensure_ascii=True, indent=2))
+    raise SystemExit(0)
+
+history = read_json(history_path)
+entries = history_entries(history)[:limit]
+retention = history.get("retention") if isinstance(history, dict) and isinstance(history.get("retention"), dict) else {}
+
+if view == "history":
+    payload = {
+        "schema_version": 1,
+        "receipt_type": "codexea_launch_history_read",
+        "source": "history",
+        "state_dir": str(state_dir),
+        "path": str(history_path),
+        "exists": isinstance(history, dict) and "read_error" not in history,
+        "limit": limit,
+        "count": len(entries),
+        "retention": retention,
+        "entries": entries,
+    }
+elif view == "list":
+    payload = {
+        "schema_version": 1,
+        "receipt_type": "codexea_launch_history_list",
+        "source": "history",
+        "state_dir": str(state_dir),
+        "path": str(history_path),
+        "exists": isinstance(history, dict) and "read_error" not in history,
+        "limit": limit,
+        "count": len(entries),
+        "retention": retention,
+        "entries": [receipt_summary(entry) for entry in entries],
+    }
+else:
+    raise SystemExit(2)
+
+if isinstance(history, dict) and "read_error" in history:
+    payload["error"] = history["read_error"]
+print(json.dumps(payload, ensure_ascii=True, indent=2))
+PY
+}
+
+show_codexea_inspect() {
+  local limit="${CODEXEA_INSPECT_HISTORY_LIMIT:-${CODEXEA_RECEIPT_LIMIT:-${CODEXEA_LAUNCH_HISTORY_LIMIT}}}"
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --json)
+        ;;
+      --limit)
+        shift
+        limit="${1:-}"
+        ;;
+      --limit=*)
+        limit="${1#--limit=}"
+        ;;
+      *)
+        echo "Unknown inspect flag: $1" >&2
+        return 2
+        ;;
+    esac
+    shift || true
+  done
+
+  python3 - "${CODEXEA_STATE_DIR}" "${limit}" <<'PY'
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
+
+MAX_TEXT_LEN = 400
+MAX_LIST_ITEMS = 24
+MAX_LIST_ITEM_LEN = 240
+RECEIPT_SUMMARY_FIELDS = [
+    "launch_id",
+    "generated_at",
+    "launch_kind",
+    "lane",
+    "mode",
+    "submode",
+    "provider",
+    "model",
+    "reasoning_effort",
+    "objective",
+    "owned_files",
+    "acceptance_tests",
+]
+TRUNCATION_APPLIES_TO = [
+    "launch_history_summary.entries[].objective",
+    "launch_history_summary.entries[].owned_files[]",
+    "launch_history_summary.entries[].acceptance_tests[]",
+    "post_audit_request.request.model",
+    "post_audit_request.request.metadata.codexea_lane",
+    "post_audit_request.request.metadata.codexea_submode",
+    "post_audit_request.request.metadata.codexea_git_root",
+    "post_audit_request.request.review_packet.objective",
+    "post_audit_request.request.review_packet.changed_files[]",
+    "post_audit_request.request.review_packet.verification.commands[]",
+    "post_audit_request.request.review_packet.verification.notes[]",
+    "post_audit_request.request.review_packet.warnings[]",
+    "post_audit_request.request.review_packet.final_claim",
+]
+
+
+def positive_int(value: str, *, default: int, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(str(value or "").strip())
+    except ValueError:
+        parsed = default
+    return max(minimum, min(maximum, parsed))
+
+
+def clamp_text(value: Any, *, limit: int = MAX_TEXT_LEN) -> str:
+    text = str(value or "").strip()
+    if len(text) <= limit:
+        return text
+    if limit <= 3:
+        return text[:limit]
+    return text[: limit - 3].rstrip() + "..."
+
+
+def clamp_list(value: Any, *, max_items: int = MAX_LIST_ITEMS, item_limit: int = MAX_LIST_ITEM_LEN) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    items: list[str] = []
+    for item in value:
+        text = clamp_text(item, limit=item_limit)
+        if text:
+            items.append(text)
+        if len(items) >= max_items:
+            break
+    return items
+
+
+def read_json(path: Path) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (OSError, json.JSONDecodeError) as exc:
+        return {"read_error": str(exc)}
+
+
+def valid_payload(value: Any) -> bool:
+    return isinstance(value, dict) and "read_error" not in value
+
+
+def history_entries(payload: Any) -> list[dict[str, Any]]:
+    if isinstance(payload, dict):
+        raw_entries = payload.get("entries")
+    else:
+        raw_entries = payload
+    if not isinstance(raw_entries, list):
+        return []
+    return [dict(item) for item in raw_entries if isinstance(item, dict)]
+
+
+def receipt_summary(receipt: dict[str, Any]) -> dict[str, Any]:
+    contract = receipt.get("contract") if isinstance(receipt.get("contract"), dict) else {}
+    return {
+        "launch_id": receipt.get("launch_id"),
+        "generated_at": receipt.get("generated_at"),
+        "launch_kind": receipt.get("launch_kind"),
+        "lane": receipt.get("lane"),
+        "mode": receipt.get("mode"),
+        "submode": receipt.get("submode"),
+        "provider": receipt.get("provider"),
+        "model": receipt.get("model"),
+        "reasoning_effort": receipt.get("reasoning_effort"),
+        "objective": clamp_text(contract.get("objective")),
+        "owned_files": clamp_list(contract.get("owned_files")),
+        "acceptance_tests": clamp_list(contract.get("acceptance_tests")),
+    }
+
+
+def post_audit_summary(request: dict[str, Any]) -> dict[str, Any]:
+    metadata = request.get("metadata") if isinstance(request.get("metadata"), dict) else {}
+    packet = (
+        metadata.get("codexea_review_packet")
+        if isinstance(metadata.get("codexea_review_packet"), dict)
+        else {}
+    )
+    verification = (
+        packet.get("verification") if isinstance(packet.get("verification"), dict) else {}
+    )
+    input_text = request.get("input")
+    diff_summary = packet.get("diff_summary")
+    return {
+        "model": clamp_text(request.get("model"), limit=80),
+        "has_input": isinstance(input_text, str) and bool(input_text),
+        "input_chars": len(input_text) if isinstance(input_text, str) else 0,
+        "metadata": {
+            "codexea_post_audit": metadata.get("codexea_post_audit"),
+            "codexea_lane": clamp_text(metadata.get("codexea_lane"), limit=64),
+            "codexea_submode": clamp_text(metadata.get("codexea_submode"), limit=80),
+            "codexea_git_root": clamp_text(metadata.get("codexea_git_root"), limit=240),
+        },
+        "review_packet": {
+            "objective": clamp_text(packet.get("objective")),
+            "changed_files": clamp_list(packet.get("changed_files")),
+            "diff_summary_chars": len(diff_summary) if isinstance(diff_summary, str) else 0,
+            "verification": {
+                "commands": clamp_list(verification.get("commands")),
+                "passed": verification.get("passed"),
+                "session_exit_code": verification.get("session_exit_code"),
+                "notes": clamp_list(verification.get("notes")),
+            },
+            "warnings": clamp_list(packet.get("warnings")),
+            "final_claim": clamp_text(packet.get("final_claim")),
+        },
+    }
+
+
+state_dir = Path(sys.argv[1]).expanduser()
+limit = positive_int(sys.argv[2] if len(sys.argv) > 2 else "", default=24, minimum=1, maximum=MAX_LIST_ITEMS)
+latest_path = state_dir / "launch-latest.json"
+history_path = state_dir / "launch-history.json"
+post_audit_path = state_dir / "post-audit-latest.json"
+
+latest = read_json(latest_path)
+history = read_json(history_path)
+post_audit = read_json(post_audit_path)
+entries = history_entries(history)[:limit]
+retention = history.get("retention") if isinstance(history, dict) and isinstance(history.get("retention"), dict) else {}
+
+payload = {
+    "schema_version": 1,
+    "receipt_type": "codexea_inspect",
+    "source": "local_state",
+    "state_dir": str(state_dir),
+    "truncation": {
+        "max_text_len": MAX_TEXT_LEN,
+        "max_list_items": MAX_LIST_ITEMS,
+        "max_list_item_len": MAX_LIST_ITEM_LEN,
+        "indicator": "ellipsis_suffix",
+        "applies_to": TRUNCATION_APPLIES_TO,
+    },
+    "summary_shape": {
+        "launch_latest": {
+            "shape": "full_receipt",
+            "truncated": False,
+        },
+        "launch_history_summary": {
+            "shape": "bounded_receipt_summaries",
+            "entry_fields": RECEIPT_SUMMARY_FIELDS,
+            "full_contract_included": False,
+            "truncated": True,
+        },
+        "post_audit_request": {
+            "shape": "bounded_request_summary",
+            "input_included": False,
+            "review_packet_diff_summary_included": False,
+            "truncated": True,
+        },
+    },
+    "launch_latest": {
+        "source": "latest",
+        "path": str(latest_path),
+        "exists": valid_payload(latest),
+        "receipt": latest if valid_payload(latest) else None,
+    },
+    "launch_history_summary": {
+        "source": "history",
+        "path": str(history_path),
+        "exists": valid_payload(history),
+        "limit": limit,
+        "count": len(entries),
+        "retention": retention,
+        "entries": [receipt_summary(entry) for entry in entries],
+    },
+    "post_audit_request": {
+        "source": "latest",
+        "path": str(post_audit_path),
+        "exists": valid_payload(post_audit),
+        "request": post_audit_summary(post_audit) if valid_payload(post_audit) else None,
+    },
+}
+if isinstance(latest, dict) and "read_error" in latest:
+    payload["launch_latest"]["error"] = latest["read_error"]
+if isinstance(history, dict) and "read_error" in history:
+    payload["launch_history_summary"]["error"] = history["read_error"]
+if isinstance(post_audit, dict) and "read_error" in post_audit:
+    payload["post_audit_request"]["error"] = post_audit["read_error"]
+print(json.dumps(payload, ensure_ascii=True, indent=2))
+PY
+}
+
+show_codexea_local_help() {
+  cat <<'EOF'
+CodexEA local control-plane commands:
+  codexea local inspect [--limit N] [--json]
+      Read local launch receipt, bounded launch history, and post-audit state.
+
+  codexea local receipts latest [--json]
+      Read the latest launch receipt.
+
+  codexea local receipts history [--limit N] [--json]
+      Read full launch receipt history entries.
+
+  codexea local receipts list [--limit N] [--json]
+      Read bounded launch receipt summaries.
+
+Aliases:
+  codexea control ...
+  codexea control-plane ...
+  codexea receipt|receipts|launch-receipt|launch-receipts ...
+
+Note:
+  codexea inspect is reserved for the upstream Codex inspect command.
+  Use codexea local inspect for shim-local read-only state.
+EOF
+}
+
+show_status_help() {
+  cat <<'EOF'
+CodexEA status commands:
+  codexea status [--window 1h|24h|7d] [--refresh] [--watch SEC]
+      Read the compact CodexEA status payload. Human output is pretty on a TTY.
+
+  codexea status --compact [--pretty]
+      Read the compact status payload with the fast 1min hotspot summary.
+      Use --pretty to force human formatting even when stdout is not a TTY.
+
+  codexea status --full [--pretty]
+      Read the full status payload with savings and top-up sections.
+
+  codexea status --startup
+      Print the single-line startup summary using the compact status path.
+
+Flags:
+  --compact   Request the compact /v1/codex/status payload.
+  --full      Request the full /v1/codex/status payload.
+  --pretty    Force the human-readable formatter even in non-interactive runs.
+  --json      Print raw JSON instead of the human-readable formatter.
+EOF
 }
 
 REQUESTED_LANE="${CODEXEA_DEFAULT_LANE}"
 LANE_WAS_EXPLICIT=0
 case "${1:-}" in
-  easy|repair|groundwork|core|jury|review_light|auto|survival)
+  easy|repair|groundwork|core|jury|review_light|auto|survival|worker|controller|live_safe|debug_hard)
     REQUESTED_LANE="$1"
     LANE_WAS_EXPLICIT=1
     shift
     ;;
+  contract)
+    shift
+    CONTRACT_LANE="${1:-${CODEXEA_DEFAULT_LANE}}"
+    case "${CONTRACT_LANE}" in
+      easy|repair|groundwork|core|jury|review_light|auto|survival|worker|controller|live_safe|debug_hard)
+        ;;
+      *)
+        CONTRACT_LANE="${CODEXEA_DEFAULT_LANE}"
+        ;;
+    esac
+    build_codexea_contract_payload "${CONTRACT_LANE}" "${CODEXEA_CONTRACT_ROLE:-worker}" "${CODEXEA_CONTRACT_RUNTIME_MODE}"
+    exit 0
+    ;;
+  local|control|control-plane)
+    shift
+    case "${1:-inspect}" in
+      help|--help|-h)
+        show_codexea_local_help
+        exit 0
+        ;;
+      inspect)
+        shift || true
+        show_codexea_inspect "$@"
+        exit 0
+        ;;
+      receipt|receipts|launch-receipt|launch-receipts)
+        shift || true
+        show_launch_receipts "$@"
+        exit 0
+        ;;
+      *)
+        echo "Unknown local control-plane command: ${1:-} (expected: inspect, receipts, or help)" >&2
+        exit 2
+        ;;
+    esac
+    ;;
   stop)
+    mkdir -p "$(dirname "${CODEXEA_STOP_FILE}")"
     touch "${CODEXEA_STOP_FILE}"
     echo "codexea stop latch set at ${CODEXEA_STOP_FILE}"
     exit 0
@@ -993,19 +2836,39 @@ case "${1:-}" in
     show_status "$@"
     exit 0
     ;;
+  eta)
+    shift
+    show_status "$@"
+    exit 0
+    ;;
+  receipt|receipts|launch-receipt|launch-receipts)
+    shift
+    show_launch_receipts "$@"
+    exit 0
+    ;;
   credits|onemin)
     shift
+    if args_contains "--help" "$@" || args_contains "-h" "$@"; then
+      show_onemin_help
+      exit 0
+    fi
     if [ -f "${ROUTE_HELPER}" ]; then
       ROUTE_ARGS=(--onemin-aggregate)
-      if [ "${CODEXEA_CREDITS_PROBE_ALL:-1}" != "0" ]; then
+      if args_contains "--probe-all" "$@"; then
+        :
+      elif args_contains "--probe-best-effort" "$@"; then
+        :
+      elif [ "${CODEXEA_CREDITS_PROBE_ALL:-0}" != "0" ]; then
         ROUTE_ARGS+=(--probe-all)
+      elif [ "${CODEXEA_CREDITS_PROBE_ALL:-0}" = "0" ] && [ "${CODEXEA_CREDITS_PROBE_BEST_EFFORT:-1}" != "0" ]; then
+        ROUTE_ARGS+=(--probe-best-effort)
       fi
       if [ "${CODEXEA_CREDITS_INCLUDE_BILLING}" != "0" ]; then
         ROUTE_ARGS+=(--billing)
       fi
       exec python3 "${ROUTE_HELPER}" "${ROUTE_ARGS[@]}" "$@"
     fi
-    echo "Missing CodexEA route helper for live 1min aggregate output" >&2
+    echo "Missing CodexEA route helper for live 1min aggregate output: ${ROUTE_HELPER}" >&2
     exit 1
     ;;
 esac
@@ -1038,16 +2901,22 @@ if [ "$#" -gt 0 ] && [ -f "${ROUTE_HELPER}" ] && ! args_request_interactive_sess
   fi
 fi
 
+if [ ! -x "${REAL_CODEX}" ]; then
+  REAL_CODEX="$(command -v codex || true)"
+fi
+
+if [ -z "${REAL_CODEX}" ] || [ ! -x "${REAL_CODEX}" ]; then
+  echo "Missing codex launcher for EA shim" >&2
+  exit 1
+fi
+
 EFFECTIVE_LANE="${REQUESTED_LANE}"
 EFFECTIVE_SUBMODE=""
 POST_AUDIT_THIS_RUN=0
 if [ "${EFFECTIVE_LANE}" = "auto" ] || [ "${EFFECTIVE_LANE}" = "easy" ]; then
   EFFECTIVE_LANE="easy"
   EFFECTIVE_SUBMODE="mcp"
-  EFFECTIVE_REASON="mcp_easy_locked"
   POST_AUDIT_THIS_RUN=1
-else
-  EFFECTIVE_REASON="explicit_lane_requested"
 fi
 
 if [ "${EFFECTIVE_LANE}" = "easy" ] && has_explicit_runtime_override "$@"; then
@@ -1075,6 +2944,35 @@ MODE=""
 MODEL=""
 REASONING=""
 case "${EFFECTIVE_LANE}" in
+  worker)
+    MODE="${CODEXEA_MODE_OVERRIDE:-${CODEXEA_WORKER_MODE:-responses}}"
+    MODEL="${CODEXEA_MODEL:-${CODEXEA_WORKER_MODEL:-${CODEXEA_IMPLEMENT_MODEL}}}"
+    REASONING="${CODEXEA_REASONING_EFFORT:-${CODEXEA_WORKER_REASONING_EFFORT}}"
+    EFFECTIVE_SUBMODE="${EFFECTIVE_SUBMODE:-$(codexea_default_submode_for_mode "${EFFECTIVE_LANE}" "${MODE}")}"
+    export CODEXEA_CONTRACT_ROLE="${CODEXEA_CONTRACT_ROLE:-worker}"
+    ;;
+  controller)
+    MODE="${CODEXEA_MODE_OVERRIDE:-${CODEXEA_CONTROLLER_MODE_LANE:-responses}}"
+    MODEL="${CODEXEA_MODEL:-${CODEXEA_CONTROLLER_MODEL}}"
+    REASONING="${CODEXEA_REASONING_EFFORT:-${CODEXEA_CONTROLLER_REASONING_EFFORT}}"
+    EFFECTIVE_SUBMODE="${EFFECTIVE_SUBMODE:-$(codexea_default_submode_for_mode "${EFFECTIVE_LANE}" "${MODE}")}"
+    export CODEXEA_CONTRACT_ROLE="${CODEXEA_CONTRACT_ROLE:-controller}"
+    ;;
+  live_safe)
+    MODE="${CODEXEA_MODE_OVERRIDE:-${CODEXEA_LIVE_SAFE_MODE:-responses}}"
+    MODEL="${CODEXEA_MODEL:-${CODEXEA_LIVE_SAFE_MODEL:-${CODEXEA_IMPLEMENT_MODEL}}}"
+    REASONING="${CODEXEA_REASONING_EFFORT:-${CODEXEA_WORKER_REASONING_EFFORT}}"
+    EFFECTIVE_SUBMODE="${EFFECTIVE_SUBMODE:-$(codexea_default_submode_for_mode "${EFFECTIVE_LANE}" "${MODE}")}"
+    export CODEXEA_CONTRACT_ROLE="${CODEXEA_CONTRACT_ROLE:-worker}"
+    export CODEXEA_CONTRACT_RUNTIME_MODE="live_safe"
+    ;;
+  debug_hard)
+    MODE="${CODEXEA_MODE_OVERRIDE:-${CODEXEA_DEBUG_HARD_MODE:-responses}}"
+    MODEL="${CODEXEA_MODEL:-${CODEXEA_DEBUG_HARD_MODEL:-ea-audit-jury}}"
+    REASONING="${CODEXEA_REASONING_EFFORT:-${CODEXEA_DEBUG_REASONING_EFFORT}}"
+    EFFECTIVE_SUBMODE="${EFFECTIVE_SUBMODE:-$(codexea_default_submode_for_mode "${EFFECTIVE_LANE}" "${MODE}")}"
+    export CODEXEA_CONTRACT_ROLE="${CODEXEA_CONTRACT_ROLE:-worker}"
+    ;;
   easy)
     EFFECTIVE_SUBMODE="${EFFECTIVE_SUBMODE:-${CODEXEA_EASY_SUBMODE:-mcp}}"
     case "${EFFECTIVE_SUBMODE}" in
@@ -1087,7 +2985,7 @@ case "${EFFECTIVE_LANE}" in
         MODE="mcp"
         MODEL="${CODEXEA_MODEL:-${CODEXEA_EASY_MODEL:-}}"
         REASONING="${CODEXEA_REASONING_EFFORT:-${CODEXEA_EASY_REASONING_EFFORT:-low}}"
-        export EA_MCP_MODEL="${EA_MCP_MODEL:-${CODEXEA_EASY_MCP_MODEL:-gemini-2.5-flash}}"
+        export EA_MCP_MODEL="${EA_MCP_MODEL:-${CODEXEA_EASY_MCP_MODEL:-gemini-3.5-flash}}"
         ;;
       *)
         echo "Unsupported CODEXEA easy submode: ${EFFECTIVE_SUBMODE} (expected: responses_easy, responses_fast, responses, or mcp)" >&2
@@ -1133,37 +3031,66 @@ case "${EFFECTIVE_LANE}" in
     EFFECTIVE_SUBMODE="${EFFECTIVE_SUBMODE:-responses_survival}"
     ;;
   *)
-    echo "Unsupported CODEXEA lane: ${EFFECTIVE_LANE} (expected: easy, repair, groundwork, core, jury, review_light, auto, survival)" >&2
+    echo "Unsupported CODEXEA lane: ${EFFECTIVE_LANE} (expected: easy, repair, groundwork, core, jury, review_light, auto, survival, worker, controller, live_safe, debug_hard)" >&2
     exit 2
     ;;
 esac
 
-if [ "${MODE}" = "responses" ]; then
-  LIVE_PROFILE_MODEL="$(live_profile_model_for_lane "${EFFECTIVE_LANE}" 2>/dev/null || true)"
-  if [ -n "${LIVE_PROFILE_MODEL}" ]; then
-    MODEL="${LIVE_PROFILE_MODEL}"
-    case "${EFFECTIVE_LANE}" in
-      easy|repair)
-        EFFECTIVE_SUBMODE="responses_fast"
-        ;;
-      groundwork)
-        EFFECTIVE_SUBMODE="responses_groundwork"
-        ;;
-      core)
-        EFFECTIVE_SUBMODE="responses_core"
-        ;;
-      jury)
-        EFFECTIVE_SUBMODE="responses_audit"
-        ;;
-      review_light)
-        EFFECTIVE_SUBMODE="responses_review_light"
-        ;;
-      survival)
-        EFFECTIVE_SUBMODE="responses_survival"
-        ;;
-    esac
+RESUME_MODEL_PRESERVE=0
+RESUME_RECORDED_MODEL=""
+SKIP_MODEL_INJECTION=0
+if args_request_resume_session "$@" && ! has_explicit_runtime_override "$@" && ! env_truthy "${CODEXEA_RESUME_INJECT_MODEL:-0}"; then
+  RESUME_MODEL_PRESERVE=1
+  RESUME_RECORDED_MODEL="$(codexea_recorded_model_for_resume_args "$@" 2>/dev/null || true)"
+  if [ -z "${RESUME_RECORDED_MODEL}" ]; then
+    SKIP_MODEL_INJECTION=1
   fi
 fi
+
+if [ "${MODE}" = "responses" ]; then
+  if [ "${RESUME_MODEL_PRESERVE}" -eq 1 ] && [ -n "${RESUME_RECORDED_MODEL}" ]; then
+    MODEL="${RESUME_RECORDED_MODEL}"
+  else
+    if ! codexea_should_inject_model "${MODEL}"; then
+      MODEL="$(codexea_default_responses_model_for_lane "${EFFECTIVE_LANE}")"
+    fi
+    if [ "${RESUME_MODEL_PRESERVE}" -eq 0 ]; then
+      LIVE_PROFILE_MODEL="$(live_profile_model_for_lane "${EFFECTIVE_LANE}" 2>/dev/null || true)"
+      if [ -n "${LIVE_PROFILE_MODEL}" ]; then
+        MODEL="${LIVE_PROFILE_MODEL}"
+        case "${EFFECTIVE_LANE}" in
+          easy|repair)
+            EFFECTIVE_SUBMODE="responses_fast"
+            ;;
+          groundwork)
+            EFFECTIVE_SUBMODE="responses_groundwork"
+            ;;
+          core)
+            EFFECTIVE_SUBMODE="responses_core"
+            ;;
+          worker|live_safe)
+            EFFECTIVE_SUBMODE="responses_core"
+            ;;
+          jury)
+            EFFECTIVE_SUBMODE="responses_audit"
+            ;;
+          controller|debug_hard)
+            EFFECTIVE_SUBMODE="responses_audit"
+            ;;
+          review_light)
+            EFFECTIVE_SUBMODE="responses_review_light"
+            ;;
+          survival)
+            EFFECTIVE_SUBMODE="responses_survival"
+            ;;
+        esac
+      fi
+    fi
+  fi
+fi
+
+CODEXEA_MODEL_STACK="$(codexea_model_stack_for_launch "${MODEL}" "${EFFECTIVE_LANE}" "${MODE}")"
+export CODEXEA_MODEL_STACK
 
 if [ "${WANT_STARTUP_STATUS}" = "1" ]; then
   STATUS_PROVIDER="mcp"
@@ -1174,15 +3101,19 @@ if [ "${WANT_STARTUP_STATUS}" = "1" ]; then
   CODEXEA_STATUS_LAUNCH_MODE="${MODE}" \
   CODEXEA_STATUS_LAUNCH_PROVIDER="${STATUS_PROVIDER}" \
   CODEXEA_STATUS_LAUNCH_MODEL="${MODEL}" \
+  CODEXEA_STATUS_LAUNCH_MODELS="${CODEXEA_MODEL_STACK}" \
   show_status --startup --refresh || true
   printf '\n'
 fi
+
+sync_codexea_model_metadata "${MODEL}"
 
 export CODEXEA_LANE="${EFFECTIVE_LANE}"
 export CODEXEA_SUBMODE="${EFFECTIVE_SUBMODE}"
 EA_DEFAULT_ARGS=()
 BASE_PROFILE_ARGS=()
 INTERACTIVE_ARGS=()
+CODEXEA_CWD_ARGS=()
 
 if [ "${CODEXEA_NO_ALT_SCREEN}" != "0" ]; then
   INTERACTIVE_ARGS+=(--no-alt-screen)
@@ -1190,16 +3121,14 @@ fi
 
 case "${MODE}" in
   mcp)
-    if [ -n "${MODEL}" ]; then
+    if [ "${SKIP_MODEL_INJECTION}" -ne 1 ] && codexea_should_inject_model "${MODEL}"; then
       EA_DEFAULT_ARGS+=(-c "model=\"${MODEL}\"")
     fi
     ;;
   responses)
     EA_AUTH_TOKEN="${EA_API_TOKEN:-${EA_MCP_API_TOKEN:-}}"
-    EA_CODEX_PROFILE="${EFFECTIVE_LANE}"
-    if [ "${EA_CODEX_PROFILE}" = "jury" ]; then
-      EA_CODEX_PROFILE="audit"
-    fi
+    EA_CODEX_PROFILE="$(codexea_runtime_profile_for_lane "${EFFECTIVE_LANE}")"
+    EA_MODEL_CATALOG_JSON="$(codexea_model_catalog_json_value || true)"
     EA_HEADERS="{\"X-EA-Principal-ID\"=\"${EA_PRINCIPAL_ID}\",\"X-EA-Codex-Profile\"=\"${EA_CODEX_PROFILE}\""
     if [ -n "${EA_ONEMIN_ACCOUNT_ALIAS:-}" ]; then
       EA_HEADERS="${EA_HEADERS},\"X-EA-Onemin-Account-Alias\"=\"${EA_ONEMIN_ACCOUNT_ALIAS}\""
@@ -1213,7 +3142,6 @@ case "${MODE}" in
     EA_HEADERS="${EA_HEADERS}}"
     EA_DEFAULT_ARGS+=(
       -c 'model_provider="ea"'
-      -c "model=\"${MODEL}\""
       -c 'model_providers.ea.name="Executive Assistant"'
       -c "model_providers.ea.base_url=\"${EA_BASE_URL%/}/v1\""
       -c 'model_providers.ea.wire_api="responses"'
@@ -1221,6 +3149,12 @@ case "${MODE}" in
       -c 'model_providers.ea.stream_idle_timeout_ms=300000'
       -c 'model_providers.ea.stream_max_retries=5'
     )
+    if [ -n "${EA_MODEL_CATALOG_JSON}" ]; then
+      EA_DEFAULT_ARGS+=(-c "model_catalog_json=${EA_MODEL_CATALOG_JSON}")
+    fi
+    if [ "${SKIP_MODEL_INJECTION}" -ne 1 ] && codexea_should_inject_model "${MODEL}"; then
+      EA_DEFAULT_ARGS+=(-c "model=\"${MODEL}\"")
+    fi
     ;;
   *)
     echo "Unsupported CODEXEA mode: ${MODE} (expected: mcp or responses)" >&2
@@ -1237,6 +3171,9 @@ mapfile -d '' ADJUSTED_ARGS < <(inject_bootstrap_prompt "$@")
 if [ "${#ADJUSTED_ARGS[@]}" -eq 1 ] && [ -z "${ADJUSTED_ARGS[0]}" ]; then
   ADJUSTED_ARGS=()
 fi
+if [ -n "${CODEXEA_REPO_ROOT}" ] && [ "${CODEXEA_ORIGINAL_CWD}" != "${CODEXEA_REPO_ROOT}" ] && ! has_explicit_launch_cwd "${ADJUSTED_ARGS[@]}"; then
+  CODEXEA_CWD_ARGS=(-C "${CODEXEA_REPO_ROOT}")
+fi
 INTERACTIVE_SESSION_REQUEST=0
 if [ "${#ADJUSTED_ARGS[@]}" -eq 0 ] || args_request_interactive_session "${ADJUSTED_ARGS[@]}"; then
   INTERACTIVE_SESSION_REQUEST=1
@@ -1248,6 +3185,14 @@ if args_request_exec_session "${ADJUSTED_ARGS[@]}"; then
 else
   EXEC_SESSION_ARGS=()
 fi
+RESUME_SESSION_REQUEST=0
+if args_request_resume_session "${ADJUSTED_ARGS[@]}"; then
+  RESUME_SESSION_REQUEST=1
+fi
+STDIN_EXEC_ARGV_REQUEST=0
+if { [ "${EXEC_SESSION_REQUEST}" -eq 1 ] && args_end_with_stdin_prompt "${EXEC_SESSION_ARGS[@]}"; } || args_explicit_exec_stdin_invocation "${ADJUSTED_ARGS[@]}"; then
+  STDIN_EXEC_ARGV_REQUEST=1
+fi
 INTERACTIVE_SESSION_WITH_FLAGS=0
 if [ "${#ADJUSTED_ARGS[@]}" -gt 0 ] && args_request_interactive_session "${ADJUSTED_ARGS[@]}"; then
   INTERACTIVE_SESSION_WITH_FLAGS=1
@@ -1255,9 +3200,13 @@ if [ "${#ADJUSTED_ARGS[@]}" -gt 0 ] && args_request_interactive_session "${ADJUS
 else
   INTERACTIVE_SESSION_ARGS=()
 fi
+INTERACTIVE_BOOTSTRAP_PROMPT=""
+if [ "${INTERACTIVE_SESSION_REQUEST}" -eq 1 ]; then
+  INTERACTIVE_BOOTSTRAP_PROMPT="$(build_bootstrap_prompt 1 0)"
+fi
 
 if [ "${#ADJUSTED_ARGS[@]}" -eq 0 ] && [ -n "${CODEXEA_WATCHDOG_ACTIVE:-}" ] && { [ -n "${CODEXEA_WATCHDOG_RESUME_SESSION_ID:-}" ] || [ -n "${CODEXEA_WATCHDOG_RESUME_PROMPT+x}" ]; }; then
-  CODEXEA_CMD=("${REAL_CODEX}" "${INTERACTIVE_ARGS[@]}" "${BASE_PROFILE_ARGS[@]}" "${EA_DEFAULT_ARGS[@]}")
+  CODEXEA_CMD=("${REAL_CODEX}" "${CODEXEA_CWD_ARGS[@]}" "${INTERACTIVE_ARGS[@]}" "${BASE_PROFILE_ARGS[@]}" "${EA_DEFAULT_ARGS[@]}")
   if [ -n "${CODEXEA_WATCHDOG_RESUME_SESSION_ID:-}" ]; then
     if [ -n "${CODEXEA_WATCHDOG_RESUME_PROMPT}" ]; then
       CODEXEA_CMD+=(resume "${CODEXEA_WATCHDOG_RESUME_SESSION_ID}" "${CODEXEA_WATCHDOG_RESUME_PROMPT}")
@@ -1270,26 +3219,45 @@ if [ "${#ADJUSTED_ARGS[@]}" -eq 0 ] && [ -n "${CODEXEA_WATCHDOG_ACTIVE:-}" ] && 
     CODEXEA_CMD+=(resume --last)
   fi
 elif [ "${#ADJUSTED_ARGS[@]}" -eq 0 ] && [ -n "${CODEXEA_WATCHDOG_ACTIVE:-}" ]; then
-  CODEXEA_CMD=("${REAL_CODEX}" "${INTERACTIVE_ARGS[@]}" "${BASE_PROFILE_ARGS[@]}" "${EA_DEFAULT_ARGS[@]}")
+  CODEXEA_CMD=("${REAL_CODEX}" "${CODEXEA_CWD_ARGS[@]}" "${INTERACTIVE_ARGS[@]}" "${BASE_PROFILE_ARGS[@]}" "${EA_DEFAULT_ARGS[@]}")
   if [ -n "${CODEXEA_STARTUP_PROMPT}" ]; then
     CODEXEA_CMD+=("${CODEXEA_STARTUP_PROMPT}")
   fi
 elif [ "${INTERACTIVE_SESSION_WITH_FLAGS}" -eq 1 ]; then
-  CODEXEA_CMD=("${REAL_CODEX}" "${INTERACTIVE_ARGS[@]}" "${BASE_PROFILE_ARGS[@]}" "${EA_DEFAULT_ARGS[@]}" "${INTERACTIVE_SESSION_ARGS[@]}")
+  CODEXEA_CMD=("${REAL_CODEX}" "${CODEXEA_CWD_ARGS[@]}" "${INTERACTIVE_ARGS[@]}" "${BASE_PROFILE_ARGS[@]}" "${EA_DEFAULT_ARGS[@]}" "${INTERACTIVE_SESSION_ARGS[@]}")
+  if [ -n "${INTERACTIVE_BOOTSTRAP_PROMPT}" ]; then
+    CODEXEA_CMD+=("${INTERACTIVE_BOOTSTRAP_PROMPT}")
+  fi
 elif [ "${INTERACTIVE_SESSION_REQUEST}" -eq 1 ] && [ "${#ADJUSTED_ARGS[@]}" -gt 0 ]; then
-  CODEXEA_CMD=("${REAL_CODEX}" "${INTERACTIVE_ARGS[@]}" "${BASE_PROFILE_ARGS[@]}" "${EA_DEFAULT_ARGS[@]}" "${ADJUSTED_ARGS[@]}")
+  CODEXEA_CMD=("${REAL_CODEX}" "${CODEXEA_CWD_ARGS[@]}" "${INTERACTIVE_ARGS[@]}" "${BASE_PROFILE_ARGS[@]}" "${EA_DEFAULT_ARGS[@]}" "${ADJUSTED_ARGS[@]}")
+elif [ "${RESUME_SESSION_REQUEST}" -eq 1 ]; then
+  CODEXEA_CMD=("${REAL_CODEX}" "${CODEXEA_CWD_ARGS[@]}" "${INTERACTIVE_ARGS[@]}" "${BASE_PROFILE_ARGS[@]}" "${EA_DEFAULT_ARGS[@]}" "${ADJUSTED_ARGS[@]}")
+elif [ "${STDIN_EXEC_ARGV_REQUEST}" -eq 1 ] && [ "${EXEC_SESSION_REQUEST}" -eq 1 ]; then
+  CODEXEA_CMD=("${REAL_CODEX}" "${CODEXEA_CWD_ARGS[@]}" "${BASE_PROFILE_ARGS[@]}" "${EA_DEFAULT_ARGS[@]}" "${EXEC_SESSION_ARGS[@]}")
+  if [ -z "${CODEXEA_POST_AUDIT_OBJECTIVE:-}" ]; then
+    export CODEXEA_POST_AUDIT_OBJECTIVE="${ADJUSTED_ARGS[*]}"
+  fi
+elif [ "${STDIN_EXEC_ARGV_REQUEST}" -eq 1 ]; then
+  CODEXEA_CMD=("${REAL_CODEX}" "${CODEXEA_CWD_ARGS[@]}" "${BASE_PROFILE_ARGS[@]}" "${EA_DEFAULT_ARGS[@]}" "${ADJUSTED_ARGS[@]}")
+  if [ -z "${CODEXEA_POST_AUDIT_OBJECTIVE:-}" ]; then
+    export CODEXEA_POST_AUDIT_OBJECTIVE="${ADJUSTED_ARGS[*]}"
+  fi
 elif [ "${EXEC_SESSION_REQUEST}" -eq 1 ]; then
-  CODEXEA_CMD=("${REAL_CODEX}" "${BASE_PROFILE_ARGS[@]}" "${EA_DEFAULT_ARGS[@]}" "${EXEC_SESSION_ARGS[@]}")
+  CODEXEA_CMD=("${REAL_CODEX}" "${CODEXEA_CWD_ARGS[@]}" "${BASE_PROFILE_ARGS[@]}" "${EA_DEFAULT_ARGS[@]}" "${EXEC_SESSION_ARGS[@]}")
   if [ "${#ADJUSTED_ARGS[@]}" -gt 0 ] && [ -z "${CODEXEA_POST_AUDIT_OBJECTIVE:-}" ]; then
     export CODEXEA_POST_AUDIT_OBJECTIVE="${ADJUSTED_ARGS[*]}"
   fi
 elif [ "${#ADJUSTED_ARGS[@]}" -eq 0 ] && [ "${CODEXEA_BOOTSTRAP:-1}" != "0" ] && [ -r "${BOOTSTRAP_PROMPT_FILE}" ]; then
-  CODEXEA_CMD=("${REAL_CODEX}" "${INTERACTIVE_ARGS[@]}" "${BASE_PROFILE_ARGS[@]}" "${EA_DEFAULT_ARGS[@]}")
+  CODEXEA_CMD=("${REAL_CODEX}" "${CODEXEA_CWD_ARGS[@]}" "${INTERACTIVE_ARGS[@]}" "${BASE_PROFILE_ARGS[@]}" "${EA_DEFAULT_ARGS[@]}")
+  if [ -n "${INTERACTIVE_BOOTSTRAP_PROMPT}" ]; then
+    CODEXEA_CMD+=("${INTERACTIVE_BOOTSTRAP_PROMPT}")
+  fi
   if [ -z "${CODEXEA_POST_AUDIT_OBJECTIVE:-}" ]; then
-    export CODEXEA_POST_AUDIT_OBJECTIVE="Interactive CodexEA session in $(pwd)."
+    CODEXEA_POST_AUDIT_OBJECTIVE="Interactive CodexEA session in $(pwd)."
+    export CODEXEA_POST_AUDIT_OBJECTIVE
   fi
 else
-  CODEXEA_CMD=("${REAL_CODEX}" "${BASE_PROFILE_ARGS[@]}" "${EA_DEFAULT_ARGS[@]}" "${ADJUSTED_ARGS[@]}")
+  CODEXEA_CMD=("${REAL_CODEX}" "${CODEXEA_CWD_ARGS[@]}" "${BASE_PROFILE_ARGS[@]}" "${EA_DEFAULT_ARGS[@]}" "${ADJUSTED_ARGS[@]}")
   if [ "${#ADJUSTED_ARGS[@]}" -gt 0 ] && [ -z "${CODEXEA_POST_AUDIT_OBJECTIVE:-}" ]; then
     export CODEXEA_POST_AUDIT_OBJECTIVE="${ADJUSTED_ARGS[*]}"
   fi
@@ -1306,6 +3274,18 @@ emit_startup_trace "$(
     printf '%s' "start_prompt_session"
   fi
 )"
+
+LAUNCH_KIND="direct"
+if [ "${RESUME_SESSION_REQUEST}" -eq 1 ]; then
+  LAUNCH_KIND="resume"
+elif [ "${STDIN_EXEC_ARGV_REQUEST}" -eq 1 ]; then
+  LAUNCH_KIND="stdin_exec"
+elif [ "${EXEC_SESSION_REQUEST}" -eq 1 ]; then
+  LAUNCH_KIND="exec"
+elif [ "${INTERACTIVE_SESSION_REQUEST}" -eq 1 ]; then
+  LAUNCH_KIND="interactive"
+fi
+write_codexea_launch_receipt "${LAUNCH_KIND}"
 
 if [ "${POST_AUDIT_THIS_RUN}" -eq 1 ] && capture_post_audit_context; then
   set +e
