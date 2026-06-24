@@ -1,0 +1,18 @@
+# Workspaces And Identity
+
+An Executive Assistant workspace binds one executive identity to one controlled operating context. The workspace is the boundary for connected providers, delivery channels, approval rules, and retention settings.
+
+## Roles
+
+- Executive: owns the account, connected providers, decisions, and approvals.
+- Operator: helps review briefs, queue items, and setup posture when explicitly allowed.
+- System: prepares structured briefs and draft actions within the configured permissions.
+
+## Identity model
+
+Registration starts with email verification. Provider connections are attached only after the user confirms the provider flow. A workspace should not share provider connections across unrelated executives.
+
+## Access hygiene
+
+Use separate accounts for testing and production. Revoke provider access if a device, email account, or channel binding is no longer trusted.
+

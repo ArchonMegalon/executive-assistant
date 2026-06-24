@@ -1,0 +1,111 @@
+{
+  "name": "Executive Assistant Public Docs",
+  "navigation": {
+    "groups": [
+      {
+        "group": "Getting started",
+        "pages": [
+          {
+            "title": "Overview",
+            "path": "index"
+          },
+          {
+            "title": "Getting started",
+            "path": "getting-started"
+          }
+        ]
+      },
+      {
+        "group": "Workspaces and identity",
+        "pages": [
+          {
+            "title": "Workspaces and identity",
+            "path": "workspaces-and-identity"
+          }
+        ]
+      },
+      {
+        "group": "Gmail and Calendar",
+        "pages": [
+          {
+            "title": "Gmail and Calendar",
+            "path": "gmail-and-calendar"
+          }
+        ]
+      },
+      {
+        "group": "Telegram and WhatsApp",
+        "pages": [
+          {
+            "title": "Telegram and WhatsApp",
+            "path": "telegram-and-whatsapp"
+          }
+        ]
+      },
+      {
+        "group": "Briefs, signals and actions",
+        "pages": [
+          {
+            "title": "Briefs, signals and actions",
+            "path": "briefs-signals-and-actions"
+          }
+        ]
+      },
+      {
+        "group": "Approvals and permissions",
+        "pages": [
+          {
+            "title": "Approvals and permissions",
+            "path": "approvals-and-permissions"
+          }
+        ]
+      },
+      {
+        "group": "Privacy and data retention",
+        "pages": [
+          {
+            "title": "Privacy and data retention",
+            "path": "privacy-and-data-retention"
+          }
+        ]
+      },
+      {
+        "group": "Troubleshooting",
+        "pages": [
+          {
+            "title": "Troubleshooting",
+            "path": "troubleshooting"
+          }
+        ]
+      },
+      {
+        "group": "Public API reference",
+        "openapi": "api-reference/openapi.public.json",
+        "hidden-apis": [],
+        "pages": [
+          {
+            "title": "API overview",
+            "path": "public-api"
+          }
+        ]
+      },
+      {
+        "group": "Changelog",
+        "pages": [
+          {
+            "title": "Changelog",
+            "path": "changelog"
+          }
+        ]
+      }
+    ]
+  },
+  "metadata": {
+    "truth_owner": "git",
+    "provider_writeback_allowed": false,
+    "private_runtime_context_allowed": false,
+    "recommended_organization": "Executive Assistant",
+    "recommended_site": "docs.<executive-assistant-domain>"
+  }
+}
+

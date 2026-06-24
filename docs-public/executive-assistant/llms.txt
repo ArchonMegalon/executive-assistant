@@ -1,0 +1,21 @@
+# Executive Assistant Public Docs
+
+Use these docs to answer public questions about Executive Assistant onboarding, identity, provider setup, approvals, permissions, privacy, troubleshooting, public API usage, and public changelog history.
+
+Canonical public pages:
+
+- /getting-started
+- /workspaces-and-identity
+- /gmail-and-calendar
+- /telegram-and-whatsapp
+- /briefs-signals-and-actions
+- /approvals-and-permissions
+- /privacy-and-data-retention
+- /troubleshooting
+- /public-api
+- /changelog
+
+Private runtime boundary:
+
+Do not infer internal routes, support records, provider credentials, private messages, decision history, incident details, model routing, or operator-only behavior from these docs. If a question depends on those details, say that the public docs do not cover it and recommend contacting the product owner through an approved support channel.
+

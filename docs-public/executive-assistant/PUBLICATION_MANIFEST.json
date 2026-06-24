@@ -1,0 +1,27 @@
+{
+  "contract": "ea.documentation_ai_public_docs.v1",
+  "documentation_ai": {
+    "organization": "Executive Assistant",
+    "private_runtime_context_allowed": false,
+    "provider_writeback_allowed": false,
+    "repository_policy": "dedicated public docs repo plus optional sanitized public schema repo only",
+    "site": "docs.<executive-assistant-domain>"
+  },
+  "generated_at": "2026-06-24T19:26:57+00:00",
+  "package_dir": "docs-public/executive-assistant",
+  "public_openapi": "docs-public/executive-assistant/api-reference/openapi.public.json",
+  "published_endpoint_count": 9,
+  "published_paths": [
+    "/v1/onboarding/finalize",
+    "/v1/onboarding/google/start",
+    "/v1/onboarding/start",
+    "/v1/onboarding/status",
+    "/v1/onboarding/telegram/link-bot",
+    "/v1/onboarding/telegram/start",
+    "/v1/onboarding/whatsapp/start-business",
+    "/v1/register/start",
+    "/v1/register/verify"
+  ],
+  "source_openapi": "artifacts/openapi_latest.json",
+  "source_openapi_present": true
+}

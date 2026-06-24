@@ -1,0 +1,601 @@
+{
+  "components": {
+    "schemas": {
+      "PublicRequest": {
+        "additionalProperties": true,
+        "properties": {
+          "client_ref": {
+            "description": "Caller-owned reference for logs and retries.",
+            "type": "string"
+          },
+          "idempotency_key": {
+            "description": "Unique key used to make retries safe.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "PublicResult": {
+        "additionalProperties": false,
+        "properties": {
+          "next_step": {
+            "description": "Next user action, if the flow needs one.",
+            "type": "string"
+          },
+          "request_id": {
+            "description": "Support reference for this request.",
+            "type": "string"
+          },
+          "status": {
+            "description": "Human-readable result state.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "BearerAuth": {
+        "bearerFormat": "JWT",
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "A deliberately small public API surface for onboarding and channel setup. Internal action queues, provider repair tools, CodexEA routes, memory, and operator endpoints are not published.",
+    "title": "Executive Assistant Public API",
+    "version": "public-preview"
+  },
+  "openapi": "3.0.3",
+  "paths": {
+    "/v1/onboarding/finalize": {
+      "post": {
+        "description": "Finish the onboarding checklist once identity, provider, and approval requirements are complete.",
+        "operationId": "finalizeOnboarding",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "examples": {
+                "minimal": {
+                  "summary": "Minimal request",
+                  "value": {
+                    "client_ref": "public-docs-example",
+                    "idempotency_key": "replace-with-your-key"
+                  }
+                }
+              },
+              "schema": {
+                "$ref": "#/components/schemas/PublicRequest"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicResult"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicResult"
+                }
+              }
+            },
+            "description": "Queued or waiting for user action"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          }
+        },
+        "summary": "Finalize onboarding",
+        "tags": [
+          "Onboarding"
+        ]
+      }
+    },
+    "/v1/onboarding/google/start": {
+      "post": {
+        "description": "Begin the Gmail and Calendar connection flow through a provider-hosted OAuth redirect.",
+        "operationId": "startGoogleOAuth",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "examples": {
+                "minimal": {
+                  "summary": "Minimal request",
+                  "value": {
+                    "client_ref": "public-docs-example",
+                    "idempotency_key": "replace-with-your-key"
+                  }
+                }
+              },
+              "schema": {
+                "$ref": "#/components/schemas/PublicRequest"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicResult"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicResult"
+                }
+              }
+            },
+            "description": "Queued or waiting for user action"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          }
+        },
+        "summary": "Start Google OAuth",
+        "tags": [
+          "Provider Connections"
+        ]
+      }
+    },
+    "/v1/onboarding/start": {
+      "post": {
+        "description": "Create an onboarding session for an authenticated user.",
+        "operationId": "startOnboarding",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "examples": {
+                "minimal": {
+                  "summary": "Minimal request",
+                  "value": {
+                    "client_ref": "public-docs-example",
+                    "idempotency_key": "replace-with-your-key"
+                  }
+                }
+              },
+              "schema": {
+                "$ref": "#/components/schemas/PublicRequest"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicResult"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicResult"
+                }
+              }
+            },
+            "description": "Queued or waiting for user action"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          }
+        },
+        "summary": "Start onboarding",
+        "tags": [
+          "Onboarding"
+        ]
+      }
+    },
+    "/v1/onboarding/status": {
+      "get": {
+        "description": "Read the current onboarding checklist without exposing provider credentials.",
+        "operationId": "getOnboardingStatus",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicResult"
+                }
+              }
+            },
+            "description": "Current state"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicResult"
+                }
+              }
+            },
+            "description": "Queued or waiting for user action"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          }
+        },
+        "summary": "Get onboarding status",
+        "tags": [
+          "Onboarding"
+        ]
+      }
+    },
+    "/v1/onboarding/telegram/link-bot": {
+      "post": {
+        "description": "Attach a Telegram bot conversation to the onboarding session after user confirmation.",
+        "operationId": "linkTelegramBot",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "examples": {
+                "minimal": {
+                  "summary": "Minimal request",
+                  "value": {
+                    "client_ref": "public-docs-example",
+                    "idempotency_key": "replace-with-your-key"
+                  }
+                }
+              },
+              "schema": {
+                "$ref": "#/components/schemas/PublicRequest"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicResult"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicResult"
+                }
+              }
+            },
+            "description": "Queued or waiting for user action"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          }
+        },
+        "summary": "Link Telegram bot",
+        "tags": [
+          "Delivery Channels"
+        ]
+      }
+    },
+    "/v1/onboarding/telegram/start": {
+      "post": {
+        "description": "Begin Telegram channel setup and return the next safe linking instruction.",
+        "operationId": "startTelegramSetup",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "examples": {
+                "minimal": {
+                  "summary": "Minimal request",
+                  "value": {
+                    "client_ref": "public-docs-example",
+                    "idempotency_key": "replace-with-your-key"
+                  }
+                }
+              },
+              "schema": {
+                "$ref": "#/components/schemas/PublicRequest"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicResult"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicResult"
+                }
+              }
+            },
+            "description": "Queued or waiting for user action"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          }
+        },
+        "summary": "Start Telegram setup",
+        "tags": [
+          "Delivery Channels"
+        ]
+      }
+    },
+    "/v1/onboarding/whatsapp/start-business": {
+      "post": {
+        "description": "Create a WhatsApp Business setup step for approved notification delivery.",
+        "operationId": "startWhatsAppBusinessSetup",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "examples": {
+                "minimal": {
+                  "summary": "Minimal request",
+                  "value": {
+                    "client_ref": "public-docs-example",
+                    "idempotency_key": "replace-with-your-key"
+                  }
+                }
+              },
+              "schema": {
+                "$ref": "#/components/schemas/PublicRequest"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicResult"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicResult"
+                }
+              }
+            },
+            "description": "Queued or waiting for user action"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          }
+        },
+        "summary": "Start WhatsApp Business setup",
+        "tags": [
+          "Delivery Channels"
+        ]
+      }
+    },
+    "/v1/register/start": {
+      "post": {
+        "description": "Create the first short-lived registration challenge for a new Executive Assistant user.",
+        "operationId": "startRegistration",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "examples": {
+                "minimal": {
+                  "summary": "Minimal request",
+                  "value": {
+                    "client_ref": "public-docs-example",
+                    "idempotency_key": "replace-with-your-key"
+                  }
+                }
+              },
+              "schema": {
+                "$ref": "#/components/schemas/PublicRequest"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicResult"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicResult"
+                }
+              }
+            },
+            "description": "Queued or waiting for user action"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          }
+        },
+        "summary": "Start registration",
+        "tags": [
+          "Registration"
+        ]
+      }
+    },
+    "/v1/register/verify": {
+      "post": {
+        "description": "Complete the registration challenge and return the next onboarding step.",
+        "operationId": "verifyRegistration",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "examples": {
+                "minimal": {
+                  "summary": "Minimal request",
+                  "value": {
+                    "client_ref": "public-docs-example",
+                    "idempotency_key": "replace-with-your-key"
+                  }
+                }
+              },
+              "schema": {
+                "$ref": "#/components/schemas/PublicRequest"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicResult"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicResult"
+                }
+              }
+            },
+            "description": "Queued or waiting for user action"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          }
+        },
+        "summary": "Verify registration",
+        "tags": [
+          "Registration"
+        ]
+      }
+    }
+  },
+  "security": [
+    {
+      "BearerAuth": []
+    }
+  ],
+  "servers": [
+    {
+      "url": "https://api.executive-assistant.example"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Registration"
+    },
+    {
+      "name": "Onboarding"
+    },
+    {
+      "name": "Provider Connections"
+    },
+    {
+      "name": "Delivery Channels"
+    }
+  ]
+}

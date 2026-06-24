@@ -1,0 +1,32 @@
+# Public API
+
+The public API reference is intentionally small. It covers registration, onboarding, Google setup, Telegram setup, WhatsApp setup, and onboarding finalization.
+
+## Published scope
+
+The public OpenAPI file is:
+
+```text
+api-reference/openapi.public.json
+```
+
+It is generated from an allowlist, not copied wholesale from the private runtime OpenAPI export.
+
+## Excluded scope
+
+Internal action queues, memory stores, provider repair tools, model routes, operator tooling, runtime telemetry, and private webhooks are excluded from the public API reference.
+
+## Regeneration
+
+Run the materializer after exporting a fresh runtime OpenAPI snapshot:
+
+```bash
+python3 scripts/materialize_documentation_ai_public_docs.py --require-source
+```
+
+Then run the verifier before publishing:
+
+```bash
+python3 scripts/verify_documentation_ai_public_docs.py
+```
+
