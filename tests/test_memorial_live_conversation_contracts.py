@@ -107,15 +107,15 @@ def _stt_error_bundles(root: Path) -> list[Path]:
 
 
 def _captured_contact_opening_wav_bytes() -> bytes:
-    return MEMORIAL_FIXTURE_ROOT / "contact_opening_captured.wav".read_bytes()
+    return (MEMORIAL_FIXTURE_ROOT / "contact_opening_captured.wav").read_bytes()
 
 
 def _captured_stt_retry_wav_bytes() -> bytes:
-    return MEMORIAL_FIXTURE_ROOT / "rescue_stt_retry_captured.wav".read_bytes()
+    return (MEMORIAL_FIXTURE_ROOT / "rescue_stt_retry_captured.wav").read_bytes()
 
 
 def _captured_technical_retry_wav_bytes() -> bytes:
-    return MEMORIAL_FIXTURE_ROOT / "rescue_technical_retry_captured.wav".read_bytes()
+    return (MEMORIAL_FIXTURE_ROOT / "rescue_technical_retry_captured.wav").read_bytes()
 
 
 def _wav_pcm16_samples(payload: bytes) -> tuple[int, list[int]]:
@@ -1972,6 +1972,10 @@ def test_memorial_whatsapp_draft_queues_draft_only_delivery_for_principal(
     )
 
     assert response.status_code == 200
+    assert response.headers.get("Cache-Control") == "no-store"
+    assert response.headers.get("Referrer-Policy") == "no-referrer"
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
+    assert response.headers.get("X-Robots-Tag") == "noindex, nofollow"
     body = response.json()
     assert body["status"] == "queued"
     assert body["delivery_mode"] == "queued"
@@ -1993,6 +1997,50 @@ def test_memorial_whatsapp_draft_queues_draft_only_delivery_for_principal(
     )
 
 
+def test_memorial_whatsapp_draft_missing_recipient_uses_memorial_error_response(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    client = _client(principal_id="exec-memorial-whatsapp-draft-missing-recipient")
+
+    response = client.post(
+        f"/memorials/{slug}/whatsapp-draft",
+        json={"question": "Schreib Tibor eine kurze liebe Nachricht."},
+    )
+
+    assert response.status_code == 400
+    assert response.headers.get("Cache-Control") == "no-store"
+    assert response.headers.get("Referrer-Policy") == "no-referrer"
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
+    assert response.headers.get("X-Robots-Tag") == "noindex, nofollow"
+    assert response.json()["error"]["code"] == "recipient_required"
+
+
+def test_memorial_whatsapp_draft_unknown_binding_uses_memorial_error_response(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    client = _client(principal_id="exec-memorial-whatsapp-draft-bad-binding")
+
+    response = client.post(
+        f"/memorials/{slug}/whatsapp-draft",
+        json={
+            "recipient": "+15550101223",
+            "question": "Schreib Tibor eine kurze liebe Nachricht.",
+            "binding_id": "missing-binding",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.headers.get("Cache-Control") == "no-store"
+    assert response.headers.get("Referrer-Policy") == "no-referrer"
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
+    assert response.headers.get("X-Robots-Tag") == "noindex, nofollow"
+    assert response.json()["error"]["code"] == "whatsapp_binding_not_found"
+
+
 def test_memorial_chat_current_weather_short_circuits_to_present_world_answer(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -2012,6 +2060,10 @@ def test_memorial_chat_current_weather_short_circuits_to_present_world_answer(
     response = client.post(f"/memorials/{slug}/chat", json={"question": "Welches Wetter haben wir heute?"})
 
     assert response.status_code == 200
+    assert response.headers.get("Cache-Control") == "no-store"
+    assert response.headers.get("Referrer-Policy") == "no-referrer"
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
+    assert response.headers.get("X-Robots-Tag") == "noindex, nofollow"
     body = response.json()
     assert called["generate_text"] == 0
     assert body["sources"] == []
@@ -3428,6 +3480,104 @@ def test_memorial_speech_synthesize_rejects_empty_tts_audio(
     assert "tts_audio_missing" in response.text
 
 
+def test_memorial_speech_synthesize_falls_back_to_local_tts_when_unmixr_slots_cool_down(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
+            "tts_plugin_voice_id": "manfred-unmixr-test",
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-06T08:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+    monkeypatch.setenv("UNMIXR_API_KEY", "unit-test-unmixr-key")
+    monkeypatch.setenv("EA_MEMORIAL_REHEARSAL_TTS_FALLBACK_ENABLED", "1")
+    output_audio = _generated_wav_bytes(textish_seed="Ich antworte ruhig.")
+    piper_calls: list[dict[str, object]] = []
+
+    def _raise_cooldown(**kwargs):
+        raise public_memorials.HTTPException(status_code=429, detail="unmixr_slots_cooling_down:600")
+
+    monkeypatch.setattr(public_memorials, "unmixr_synthesize_request", _raise_cooldown)
+    monkeypatch.setattr(
+        public_memorials,
+        "piper_fast_synthesize_request",
+        lambda **kwargs: piper_calls.append(kwargs) or (output_audio, "audio/wav"),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_pad_speech_audio_lead_in",
+        lambda *, payload, content_type, silence_ms, tail_silence_ms, extra_filters: (payload, content_type),
+    )
+
+    client = _client(principal_id="exec-memorial-synthesize-tts-fallback")
+    response = client.post(f"/memorials/{slug}/speech-synthesize", json={"text": "Ich antworte ruhig."})
+
+    assert response.status_code == 200
+    assert response.headers["X-Memorial-TTS-Plugin"] == public_memorials.PIPER_FAST_TTS_PLUGIN_ID
+    assert response.headers["X-Memorial-TTS-Fallback"] == "unmixr_cooldown"
+    assert response.content == output_audio
+    assert piper_calls
+
+
+def test_memorial_speech_synthesize_keeps_unmixr_cooldown_fail_closed_when_fallback_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
+            "tts_plugin_voice_id": "manfred-unmixr-test",
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-06T08:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+    monkeypatch.setenv("UNMIXR_API_KEY", "unit-test-unmixr-key")
+    monkeypatch.setenv("EA_MEMORIAL_REHEARSAL_TTS_FALLBACK_ENABLED", "0")
+    piper_calls: list[dict[str, object]] = []
+
+    def _raise_cooldown(**kwargs):
+        raise public_memorials.HTTPException(status_code=429, detail="unmixr_slots_cooling_down:600")
+
+    monkeypatch.setattr(public_memorials, "unmixr_synthesize_request", _raise_cooldown)
+    monkeypatch.setattr(
+        public_memorials,
+        "piper_fast_synthesize_request",
+        lambda **kwargs: piper_calls.append(kwargs) or (_generated_wav_bytes(textish_seed="fallback"), "audio/wav"),
+    )
+
+    client = _client(principal_id="exec-memorial-synthesize-tts-no-fallback")
+    response = client.post(f"/memorials/{slug}/speech-synthesize", json={"text": "Ich antworte ruhig."})
+
+    assert response.status_code == 429
+    assert "unmixr_slots_cooling_down" in response.text
+    assert piper_calls == []
+
+
 def test_memorial_voice_config_resolves_committed_voice_id_placeholders_from_env(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -3765,6 +3915,50 @@ def test_memorial_conversation_turn_empty_tts_is_degraded_not_spoken_success(
     assert body["spoken_turn"] is False
     assert body["audio_base64"] == ""
     assert "nicht sauber hörbar" in body["answer"].lower()
+
+
+def test_memorial_conversation_turn_non_rescued_http_exception_uses_memorial_error_response(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+    from app.api.routes import public_memorial_turn_support
+
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
+            "tts_plugin_voice_id": "voice-123",
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-06T08:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+
+    def _raise_timeout(**kwargs):
+        raise public_memorials.HTTPException(status_code=504, detail="tts_timeout")
+
+    monkeypatch.setattr(public_memorial_turn_support, "build_public_memorial_turn", _raise_timeout)
+
+    client = _client(principal_id="exec-memorial-live-turn-error-envelope")
+    response = client.post(
+        f"/memorials/{slug}/conversation-turn",
+        content=_captured_contact_opening_wav_bytes(),
+        headers={"content-type": "audio/wav"},
+    )
+
+    assert response.status_code == 504
+    assert response.headers["Cache-Control"] == "no-store"
+    assert response.headers["Referrer-Policy"] == "no-referrer"
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.json()["error"]["code"] == "tts_timeout"
 
 
 def test_memorial_conversation_turn_supports_voicewave_clone(
@@ -5258,6 +5452,30 @@ def test_memorial_warmup_route_enforces_rate_limit(
     assert seen == ["warmup"]
 
 
+def test_memorial_warmup_route_rate_limit_uses_memorial_error_response(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_enforce_public_memorial_rate_limit",
+        lambda *args, **kwargs: (_ for _ in ()).throw(public_memorials.HTTPException(status_code=429, detail="memorial_rate_limited")),
+    )
+
+    client = _client(principal_id="exec-memorial-warmup-rate-error")
+    response = client.post(f"/memorials/{slug}/warmup", json={"reason": "page_load"})
+
+    assert response.status_code == 429
+    assert response.headers.get("Cache-Control") == "no-store"
+    assert response.headers.get("Referrer-Policy") == "no-referrer"
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
+    assert response.headers.get("X-Robots-Tag") == "noindex, nofollow"
+    assert response.json()["error"]["code"] == "memorial_rate_limited"
+
+
 def test_memorial_warmup_status_route_reports_snapshot_state(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -5287,6 +5505,10 @@ def test_memorial_warmup_status_route_reports_snapshot_state(
     response = client.get(f"/memorials/{slug}/warmup-status")
 
     assert response.status_code == 200
+    assert response.headers.get("Cache-Control") == "no-store"
+    assert response.headers.get("Referrer-Policy") == "no-referrer"
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
+    assert response.headers.get("X-Robots-Tag") == "noindex, nofollow"
     assert response.json() == {
         "slug": slug,
         "status": "warm_recent",
@@ -5301,7 +5523,95 @@ def test_memorial_warmup_status_route_reports_snapshot_state(
         "voice_errors": [],
         "voice_required": True,
         "ttl_seconds": 600,
+        "ready": True,
+        "spoken_voice_ready": True,
+        "realtime_ready": False,
+        "degraded_reasons": ["realtime_backend_unavailable"],
     }
+
+
+def test_memorial_warmup_status_missing_slug_uses_memorial_error_response(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(tmp_path / "public"))
+    _patch_memorial_runtime_roots(tmp_path)
+
+    client = _client(principal_id="exec-memorial-warmup-status-missing")
+    response = client.get("/memorials/not-found/warmup-status")
+
+    assert response.status_code == 404
+    assert response.headers.get("Cache-Control") == "no-store"
+    assert response.headers.get("Referrer-Policy") == "no-referrer"
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
+    assert response.headers.get("X-Robots-Tag") == "noindex, nofollow"
+    assert response.json()["error"]["code"] == "memorial_not_found"
+
+
+def test_memorial_readiness_route_reports_degraded_runtime_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_runtime_readiness",
+        lambda readiness_slug: {
+            "slug": readiness_slug,
+            "status": "degraded_realtime",
+            "surface_ready": True,
+            "spoken_voice_ready": True,
+            "realtime_ready": False,
+            "ready": True,
+            "degraded_reasons": ["realtime_backend_unavailable"],
+            "warmup": {"warm": True},
+            "surface_probe": {"slug": readiness_slug, "person_name": "Manfred Hoza"},
+            "voice": {
+                "tts_plugin": "unmixr",
+                "tts_plugin_enabled": True,
+                "voice_profile_ready": True,
+            },
+            "models": {
+                "conversation_model": "gpt-5.4",
+                "realtime_backend": "",
+            },
+            "operator_write_configured": False,
+        },
+    )
+
+    client = _client(principal_id="exec-memorial-readiness")
+    response = client.get(f"/memorials/{slug}/readiness")
+
+    assert response.status_code == 200
+    assert response.headers.get("Cache-Control") == "no-store"
+    assert response.headers.get("Referrer-Policy") == "no-referrer"
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
+    assert response.json()["status"] == "degraded_realtime"
+    assert response.json()["ready"] is True
+    assert response.json()["realtime_ready"] is False
+    assert response.json()["degraded_reasons"] == ["realtime_backend_unavailable"]
+
+
+def test_memorial_readiness_missing_slug_uses_memorial_error_response(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(tmp_path / "public"))
+    _patch_memorial_runtime_roots(tmp_path)
+
+    client = _client(principal_id="exec-memorial-readiness-missing")
+    response = client.get("/memorials/not-found/readiness")
+
+    assert response.status_code == 404
+    assert response.headers.get("Cache-Control") == "no-store"
+    assert response.headers.get("Referrer-Policy") == "no-referrer"
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
+    assert response.headers.get("X-Robots-Tag") == "noindex, nofollow"
+    assert response.json()["error"]["code"] == "memorial_not_found"
 
 
 def test_memorial_playback_telemetry_route_accepts_client_signal(
@@ -5328,6 +5638,10 @@ def test_memorial_playback_telemetry_route_accepts_client_signal(
     )
 
     assert response.status_code == 202
+    assert response.headers.get("Cache-Control") == "no-store"
+    assert response.headers.get("Referrer-Policy") == "no-referrer"
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
+    assert response.headers.get("X-Robots-Tag") == "noindex, nofollow"
     assert response.json() == {"status": "accepted"}
 
 
@@ -5350,6 +5664,30 @@ def test_memorial_playback_telemetry_route_enforces_rate_limit(
 
     assert response.status_code == 202
     assert seen == ["playback_telemetry"]
+
+
+def test_memorial_playback_telemetry_rate_limit_uses_memorial_error_response(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_enforce_public_memorial_rate_limit",
+        lambda *args, **kwargs: (_ for _ in ()).throw(public_memorials.HTTPException(status_code=429, detail="memorial_rate_limited")),
+    )
+
+    client = _client(principal_id="exec-memorial-playback-telemetry-rate-error")
+    response = client.post(f"/memorials/{slug}/playback-telemetry", json={"event": "fallback"})
+
+    assert response.status_code == 429
+    assert response.headers.get("Cache-Control") == "no-store"
+    assert response.headers.get("Referrer-Policy") == "no-referrer"
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
+    assert response.headers.get("X-Robots-Tag") == "noindex, nofollow"
+    assert response.json()["error"]["code"] == "memorial_rate_limited"
 
 
 def test_memorial_voice_clone_route_is_disabled_without_operator_surface_flag(
@@ -5574,6 +5912,9 @@ def test_memorial_speech_transcribe_route_logs_timing_metadata(
     )
 
     assert response.status_code == 200
+    assert response.headers.get("Cache-Control") == "no-store"
+    assert response.headers.get("Referrer-Policy") == "no-referrer"
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
     body = response.json()
     assert body["transcript_text"] == "Hallo Manfred, kannst du jetzt mit mir sprechen?"
     assert body["transcript_effective_text"] == "Hallo Manfred, kannst du jetzt mit mir sprechen?"
@@ -5611,10 +5952,165 @@ def test_memorial_speech_transcribe_route_exposes_original_and_effective_transcr
     )
 
     assert response.status_code == 200
+    assert response.headers.get("Cache-Control") == "no-store"
+    assert response.headers.get("Referrer-Policy") == "no-referrer"
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
     body = response.json()
     assert body["transcript_text"] == "Wie ist das Wetter heute?"
     assert body["transcript_effective_text"] == "Wie ist das Wetter heute?"
     assert body["transcript_original_text"] == "wie ist wetter heute in wien"
+
+
+def test_memorial_speech_transcribe_oversized_audio_uses_memorial_error_response(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    client = _client(principal_id="exec-memorial-speech-transcribe-too-large")
+    oversized = b"x" * (public_memorials._MAX_SPEECH_UPLOAD_BYTES + 1)
+
+    response = client.post(
+        f"/memorials/{slug}/speech-transcribe",
+        content=oversized,
+        headers={"content-type": "audio/wav"},
+    )
+
+    assert response.status_code == 413
+    assert response.headers.get("Cache-Control") == "no-store"
+    assert response.headers.get("Referrer-Policy") == "no-referrer"
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
+    assert response.json()["error"]["code"] == "audio_too_large"
+
+
+def test_memorial_speech_transcribe_missing_slug_uses_memorial_error_response(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(tmp_path / "public"))
+    _patch_memorial_runtime_roots(tmp_path)
+
+    client = _client(principal_id="exec-memorial-speech-transcribe-missing")
+    response = client.post("/memorials/not-found/speech-transcribe", content=b"audio")
+
+    assert response.status_code == 404
+    assert response.headers.get("Cache-Control") == "no-store"
+    assert response.headers.get("Referrer-Policy") == "no-referrer"
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
+    assert response.headers.get("X-Robots-Tag") == "noindex, nofollow"
+    assert response.json()["error"]["code"] == "memorial_not_found"
+
+
+def test_memorial_speech_synthesize_help_missing_slug_uses_memorial_error_response(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(tmp_path / "public"))
+    _patch_memorial_runtime_roots(tmp_path)
+
+    client = _client(principal_id="exec-memorial-speech-help-missing")
+    response = client.get("/memorials/not-found/speech-synthesize")
+
+    assert response.status_code == 404
+    assert response.headers.get("Cache-Control") == "no-store"
+    assert response.headers.get("Referrer-Policy") == "no-referrer"
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
+    assert response.headers.get("X-Robots-Tag") == "noindex, nofollow"
+    assert response.json()["error"]["code"] == "memorial_not_found"
+
+
+def test_memorial_speech_synthesize_missing_slug_uses_memorial_error_response(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(tmp_path / "public"))
+    _patch_memorial_runtime_roots(tmp_path)
+
+    client = _client(principal_id="exec-memorial-speech-synthesize-missing")
+    response = client.post("/memorials/not-found/speech-synthesize", json={"text": "Hallo"})
+
+    assert response.status_code == 404
+    assert response.headers.get("Cache-Control") == "no-store"
+    assert response.headers.get("Referrer-Policy") == "no-referrer"
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
+    assert response.headers.get("X-Robots-Tag") == "noindex, nofollow"
+    assert response.json()["error"]["code"] == "memorial_not_found"
+
+
+def test_memorial_conversation_turn_missing_slug_uses_memorial_error_response(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(tmp_path / "public"))
+    _patch_memorial_runtime_roots(tmp_path)
+
+    client = _client(principal_id="exec-memorial-conversation-turn-missing")
+    response = client.post("/memorials/not-found/conversation-turn", content=b"audio")
+
+    assert response.status_code == 404
+    assert response.headers.get("Cache-Control") == "no-store"
+    assert response.headers.get("Referrer-Policy") == "no-referrer"
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
+    assert response.headers.get("X-Robots-Tag") == "noindex, nofollow"
+    assert response.json()["error"]["code"] == "memorial_not_found"
+
+
+def test_memorial_conversation_turn_success_uses_noindex_headers(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorial_turn_support
+    from app.api.routes import public_memorials
+
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.OPENVOICE_TTS_PLUGIN_ID,
+            "tts_plugin_voice_id": "manfred-openvoice-test",
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-06T08:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+
+    class _StubTurn:
+        def as_public_payload(self) -> dict[str, object]:
+            return {
+                "answer": "Ja, ich bin da.",
+                "transcript_text": "Hallo Manfred",
+                "audio_content_type": "audio/wav",
+                "audio_base64": base64.b64encode(b"RIFFstub").decode("ascii"),
+                "spoken_turn": True,
+                "tts_plugin": public_memorials.OPENVOICE_TTS_PLUGIN_ID,
+            }
+
+    monkeypatch.setattr(public_memorial_turn_support, "build_public_memorial_turn", lambda **kwargs: _StubTurn())
+
+    client = _client(principal_id="exec-memorial-conversation-turn-headers")
+    response = client.post(
+        f"/memorials/{slug}/conversation-turn",
+        content=_generated_wav_bytes(textish_seed="Hallo Manfred"),
+        headers={"content-type": "audio/wav"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers.get("Cache-Control") == "no-store"
+    assert response.headers.get("Referrer-Policy") == "no-referrer"
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
+    assert response.headers.get("X-Robots-Tag") == "noindex, nofollow"
+    assert response.json()["answer"] == "Ja, ich bin da."
 
 
 def test_memorial_speech_transcribe_logs_stt_failures_to_private_bundle(
@@ -6145,7 +6641,47 @@ def test_memorial_gemini_live_fails_closed_without_server_key(
     )
 
     assert response.status_code == 503
+    assert response.headers.get("Cache-Control") == "no-store"
+    assert response.headers.get("Referrer-Policy") == "no-referrer"
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
     assert response.json()["error"]["code"] == "gemini_live_unavailable"
+
+
+def test_memorial_gemini_live_webrtc_requires_voice_consent(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    private_root = tmp_path / "private"
+    _write_private_voice(
+        private_root,
+        slug,
+        {
+            "tts_plugin": "voicewave_clone",
+            "tts_plugin_voice_id": "Manfred Hoza Memorial",
+            "voice_consent": {
+                "status": "pending",
+                "scope": [],
+                "authorized_by": "",
+                "authorized_at": "",
+                "source_assets_reviewed": False,
+                "revoked": False,
+            },
+        },
+    )
+
+    client = _client(principal_id="exec-memorial-live-gemini-no-consent")
+    response = client.post(
+        f"/memorials/{slug}/realtime/webrtc",
+        content="v=0\r\n",
+        headers={"content-type": "application/sdp"},
+    )
+
+    assert response.status_code == 403
+    assert response.headers.get("Cache-Control") == "no-store"
+    assert response.headers.get("Referrer-Policy") == "no-referrer"
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
+    assert response.json()["error"]["code"] == "voice_consent_required"
 
 
 def test_memorial_full_realtime_client_uses_funeral_safe_pause_threshold() -> None:
@@ -6176,6 +6712,9 @@ def test_memorial_gemini_live_uses_websocket_pcm_not_webrtc_sdp(
     )
 
     assert response.status_code == 410
+    assert response.headers.get("Cache-Control") == "no-store"
+    assert response.headers.get("Referrer-Policy") == "no-referrer"
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
     assert response.json()["error"]["code"] == "gemini_live_uses_websocket_pcm"
     setup = public_memorials._build_memorial_gemini_live_setup(slug=slug)
     assert setup["setup"]["model"] == "models/gemini-live-test"

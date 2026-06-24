@@ -32,7 +32,7 @@ def test_run_api_uses_main_asgi_target(monkeypatch: pytest.MonkeyPatch) -> None:
     assert calls[0][0] == ("app.main:app",)
 
 
-def test_run_openvoice_uses_main_asgi_target(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_openvoice_uses_openvoice_asgi_target(monkeypatch: pytest.MonkeyPatch) -> None:
     runner = _load_runner_module(monkeypatch)
     calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
 
@@ -48,7 +48,7 @@ def test_run_openvoice_uses_main_asgi_target(monkeypatch: pytest.MonkeyPatch) ->
     runner._run_openvoice()
 
     assert calls
-    assert calls[0][0] == ("app.main:app",)
+    assert calls[0][0] == ("app.openvoice_app:app",)
     assert calls[0][1]["host"] == "127.0.0.1"
     assert calls[0][1]["port"] == 9123
     assert calls[0][1]["log_level"] == "warning"

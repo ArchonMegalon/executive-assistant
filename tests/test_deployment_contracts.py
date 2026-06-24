@@ -322,7 +322,89 @@ def test_memorial_override_restores_memorial_runtime_contract() -> None:
     assert any(item.startswith("EA_ENABLE_PUBLIC_MEMORIALS=") for item in environment)
     assert any(item.startswith("EA_PUBLIC_MEMORIAL_DIR=") for item in environment)
     assert any(item.startswith("EA_PRIVATE_MEMORIAL_PROFILE_DIR=") for item in environment)
-    assert any("/data/memorial_data" in item for item in volumes)
+    assert "${EA_MEMORIAL_DATA_HOST_PATH:-./memorial_data}:/data/memorial_data:ro" in volumes
+    assert "ea_memorial_data" not in set(str(name) for name in (compose.get("volumes") or {}).keys())
+
+
+def test_memorial_runtime_overlay_verifier_passes_for_mounted_runtime() -> None:
+    module = _load_script("verify_memorial_runtime_overlay")
+
+    result = module.verify_memorial_runtime_overlay(
+        base_url="http://ea.test",
+        fetch_json=lambda url: {
+            "status": "live",
+            "public_surface_flags": {"public_memorials_enabled": "true"},
+            "memorial_runtime": {
+                "state": "mounted",
+                "configured_enabled": True,
+                "route_mounted": True,
+                "healthcheck_slug": "manfred",
+                "route_path": "/memorials/{slug}",
+                "next_action": "",
+            },
+        },
+    )
+
+    assert result["status"] == "pass"
+    assert result["issues"] == []
+    assert result["memorial_runtime"]["state"] == "mounted"
+    assert result["memorial_runtime"]["healthcheck_slug"] == "manfred"
+
+
+def test_memorial_runtime_overlay_verifier_fails_closed_for_disabled_base_stack() -> None:
+    module = _load_script("verify_memorial_runtime_overlay")
+
+    result = module.verify_memorial_runtime_overlay(
+        base_url="http://ea.test",
+        fetch_json=lambda url: {
+            "status": "live",
+            "public_surface_flags": {"public_memorials_enabled": "false"},
+            "memorial_runtime": {
+                "state": "disabled",
+                "configured_enabled": False,
+                "route_mounted": False,
+                "healthcheck_slug": "",
+                "route_path": "/memorials/{slug}",
+                "next_action": "start_runtime_with_memorial_overlay",
+            },
+        },
+    )
+
+    assert result["status"] == "fail"
+    assert "memorial_runtime_not_enabled" in result["issues"]
+    assert "memorial_route_not_mounted" in result["issues"]
+    assert "memorial_runtime_state_not_mounted:disabled" in result["issues"]
+    assert result["next_action"] == "start_runtime_with_memorial_overlay"
+
+
+def test_memorial_runtime_overlay_verifier_uses_container_loopback_fallback(monkeypatch) -> None:
+    module = _load_script("verify_memorial_runtime_overlay")
+
+    monkeypatch.setattr(
+        module,
+        "_fetch_container_health_live",
+        lambda: {
+            "status": "live",
+            "public_surface_flags": {"public_memorials_enabled": "true"},
+            "memorial_runtime": {
+                "state": "mounted",
+                "configured_enabled": True,
+                "route_mounted": True,
+                "healthcheck_slug": "manfred",
+                "route_path": "/memorials/{slug}",
+                "next_action": "",
+            },
+        },
+    )
+
+    result = module.verify_memorial_runtime_overlay(
+        base_url="http://localhost:8090",
+        fetch_json=lambda url: {"status": "live"},
+    )
+
+    assert result["status"] == "pass"
+    assert result["source"] == "container_loopback_fallback"
+    assert result["memorial_runtime"]["state"] == "mounted"
 
 
 def test_provider_lab_override_restores_operator_media_lanes() -> None:
@@ -1224,6 +1306,40 @@ def test_release_authority_verifier_rejects_local_deployment_and_dirty_worktree(
 
     assert "deployment_id_local_fallback" in issues
     assert "dirty_worktree" in issues
+    assert "deploy_context_commit_mismatch" not in issues
+
+
+def test_release_authority_verifier_does_not_report_stale_deploy_context_for_local_fallback_deployment() -> None:
+    module = _load_script("verify_release_authority")
+    release_manifest = {
+        "contract_name": "ea.release_manifest.v1",
+        "repository": "EA",
+        "branch": "main",
+        "tracking_branch": "origin/main",
+        "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "deploy_context_generated_at": "2026-06-22T18:42:00Z",
+        "deploy_context_branch": "main",
+        "deploy_context_tracking_branch": "origin/main",
+        "deploy_context_commit_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "deployment_id": "local-20260622T000000Z-aaaaaaaaaaaa",
+        "deployment_id_source": "local_fallback",
+        "public_origin": "https://ea.example.test",
+        "public_origin_source": "EA_PUBLIC_APP_BASE_URL",
+        "git_remote_origin": "https://github.com/ArchonMegalon/executive-assistant.git",
+        "release_label": "local-20260622T000000Z-aaaaaaaaaaaa",
+        "project_mode": "EA_CORE",
+        "enabled_project_modes": ["EA_CORE"],
+        "compose_files": ["docker-compose.yml", "docker-compose.prod.yml"],
+        "artifact_set": [".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json"],
+        "dirty_worktree": False,
+    }
+    project_modes = {"modes": [{"key": "EA_CORE"}]}
+
+    issues = module.validate_release_authority(release_manifest=release_manifest, project_modes=project_modes)
+
+    assert "deployment_id_local_fallback" in issues
+    assert "deploy_context_commit_mismatch" not in issues
+    assert module._derive_authority_posture(issues) == "local_only_deploy_id"
 
 
 def test_release_authority_verifier_allows_generated_only_dirty_worktree() -> None:
@@ -1415,6 +1531,10 @@ def test_deploy_script_materializes_release_manifest_after_health() -> None:
     assert 'require_valid_prod_auth "${api_token_value}" "${cf_access_team_domain}" "${cf_access_aud}"' in deploy
     assert 'require_non_placeholder_secret() {' in deploy
     assert 'require_non_placeholder_secret "EA_SIGNING_SECRET" "${signing_secret_value}"' in deploy
+    assert 'ensure_runtime_readable_file_projection() {' in deploy
+    assert 'ensure_runtime_readable_file_projection "ONEMIN_DIRECT_API_KEYS_JSON_FILE"' in deploy
+    assert 'setfacl -m u:10001:r "${resolved_path}"' in deploy
+    assert 'chmod a+r,go-w "${resolved_path}"' in deploy
     assert "Refusing to deploy without production auth." in deploy
     assert "EA_API_TOKEN=<real-token>" in deploy
     assert "EA_CF_ACCESS_TEAM_DOMAIN=<team>.cloudflareaccess.com" in deploy

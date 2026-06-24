@@ -9,7 +9,4 @@ services:
       - EA_PRIVATE_MEMORIAL_PROFILE_DIR=${EA_PRIVATE_MEMORIAL_PROFILE_DIR:-/data/memorial_data/private_memorial_profiles}
       - EA_MEMORIAL_LIVE_TTS_PLUGIN=${EA_MEMORIAL_LIVE_TTS_PLUGIN:-unmixr_clone}
     volumes:
-      - ea_memorial_data:/data/memorial_data:ro
-
-volumes:
-  ea_memorial_data: {}
+      - ${EA_MEMORIAL_DATA_HOST_PATH:-./memorial_data}:/data/memorial_data:ro

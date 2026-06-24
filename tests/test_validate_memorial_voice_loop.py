@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import Path
+import urllib.error
 
 
 def _generated_wav(seed: bytes) -> bytes:
@@ -101,14 +103,46 @@ def test_validate_memorial_voice_loop_passes_with_stubbed_endpoints(tmp_path: Pa
         output_dir=tmp_path,
         direct_text="Worum geht es?",
         conversation_question="Hallo Manfred, kannst du direkt mit mir reden?",
+        direct_min_f1=0.92,
+        conversation_min_f1=0.90,
     )
 
     assert report.status == "pass"
     assert report.artifacts["direct_tts_audio"].endswith("manfred-direct-tts.wav")
     assert report.artifacts["conversation_turn_audio"].endswith("manfred-conversation-turn-answer.wav")
+    assert report.metrics["direct_tts_f1"] == 1.0
+    assert report.metrics["conversation_turn_audio_f1"] == 1.0
     assert any(item.code == "direct_tts_similarity_ok" for item in report.checks)
     assert any(item.code == "present_world_route_ok" for item in report.checks)
     assert any(item.code == "conversation_turn_audio_similarity_ok" for item in report.checks)
+
+
+def test_validate_memorial_voice_loop_reports_synthesize_http_failure(tmp_path: Path, monkeypatch) -> None:
+    import scripts.validate_memorial_voice_loop as validator
+
+    def fail_synthesize(*args, **kwargs):
+        raise urllib.error.HTTPError(
+            "https://example.test/memorials/manfred/speech-synthesize",
+            502,
+            "Bad Gateway",
+            hdrs={},
+            fp=BytesIO(b"upstream failed"),
+        )
+
+    monkeypatch.setattr(validator, "_post_json_binary_response", fail_synthesize)
+
+    report = validator.validate_memorial_voice_loop(
+        slug="manfred",
+        base_url="https://example.test",
+        output_dir=tmp_path,
+        direct_text="Worum geht es?",
+        conversation_question="Hallo Manfred, kannst du direkt mit mir reden?",
+        require_stt=True,
+    )
+
+    assert report.status == "fail"
+    failure = next(item for item in report.checks if item.code == "speech_synthesize_request_failed")
+    assert failure.detail["http_status"] == 502
 
 
 def test_validate_memorial_voice_loop_rejects_present_world_search_sources(tmp_path: Path, monkeypatch) -> None:

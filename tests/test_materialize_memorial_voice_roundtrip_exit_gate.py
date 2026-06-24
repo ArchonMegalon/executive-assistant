@@ -3,6 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 
 
+def test_materialize_memorial_voice_roundtrip_has_validator_dependency() -> None:
+    import scripts.materialize_memorial_voice_roundtrip_exit_gate as materializer
+
+    assert hasattr(materializer.voice_loop, "validate_memorial_voice_loop")
+    assert materializer.voice_loop.validate_memorial_voice_loop.__module__ == "scripts.validate_memorial_voice_loop"
+
+
 def test_materialize_memorial_voice_roundtrip_exit_gate_fails_gold_latency(monkeypatch, tmp_path: Path) -> None:
     import scripts.materialize_memorial_voice_roundtrip_exit_gate as materializer
 
