@@ -28,6 +28,10 @@ verifier = _load_script(
     ROOT / "scripts" / "verify_documentation_ai_public_docs.py",
     "verify_documentation_ai_public_docs",
 )
+deployment = _load_script(
+    ROOT / "scripts" / "verify_documentation_ai_deployment_readiness.py",
+    "verify_documentation_ai_deployment_readiness",
+)
 
 
 def _source_openapi(*, omit_first: bool = False) -> dict[str, object]:
@@ -87,7 +91,79 @@ def test_documentation_ai_public_docs_are_part_of_docs_verify_gate() -> None:
 
     assert "documentation-ai-public-openapi" in makefile.splitlines()[0]
     assert "verify-documentation-ai-public-docs" in makefile.splitlines()[0]
+    assert "materialize-documentation-ai-deployment-readiness" in makefile.splitlines()[0]
+    assert "verify-documentation-ai-deployment-readiness" in makefile.splitlines()[0]
     assert "docs-verify: verify-release-assets verify-documentation-ai-public-docs" in makefile
+
+
+def test_deployment_readiness_blocks_missing_external_configuration() -> None:
+    receipt = deployment.build_deployment_readiness(
+        env={},
+        package_dir=ROOT / "docs-public" / "executive-assistant",
+        git_head="abc123",
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["git_publication_ready"] is True
+    assert {
+        "documentation_ai_org_not_configured",
+        "site_url_not_configured",
+        "context_repositories_not_configured",
+        "custom_domain_not_verified",
+        "ssl_not_active",
+        "site_not_published",
+        "published_git_head_not_recorded",
+    } <= set(receipt["blocking_reasons"])
+
+
+def test_deployment_readiness_passes_with_external_receipts() -> None:
+    env = {
+        "DOCUMENTATION_AI_EA_ORG": "Executive Assistant",
+        "DOCUMENTATION_AI_EA_SITE_URL": "https://docs.ea-public.invalid",
+        "DOCUMENTATION_AI_EA_CONTEXT_REPOS": "executive-assistant-docs-public,executive-assistant-openapi-public",
+        "DOCUMENTATION_AI_EA_CUSTOM_DOMAIN_STATUS": "verified",
+        "DOCUMENTATION_AI_EA_SSL_STATUS": "active",
+        "DOCUMENTATION_AI_EA_PUBLISH_STATUS": "published",
+        "DOCUMENTATION_AI_EA_PUBLISHED_GIT_HEAD": "abc123",
+        "DOCUMENTATION_AI_EA_PROVIDER_WRITEBACK": "false",
+    }
+
+    receipt = deployment.build_deployment_readiness(
+        env=env,
+        package_dir=ROOT / "docs-public" / "executive-assistant",
+        git_head="abc123",
+    )
+
+    assert receipt["status"] == "deployed"
+    assert receipt["external_deployment_ready"] is True
+    assert receipt["blocking_reasons"] == []
+
+
+def test_deployment_readiness_rejects_placeholder_domain_and_private_context_repo() -> None:
+    env = {
+        "DOCUMENTATION_AI_EA_ORG": "Executive Assistant",
+        "DOCUMENTATION_AI_EA_SITE_URL": "https://docs.<executive-assistant-domain>",
+        "DOCUMENTATION_AI_EA_CONTEXT_REPOS": "ArchonMegalon/executive-assistant",
+        "DOCUMENTATION_AI_EA_CUSTOM_DOMAIN_STATUS": "verified",
+        "DOCUMENTATION_AI_EA_SSL_STATUS": "active",
+        "DOCUMENTATION_AI_EA_PUBLISH_STATUS": "published",
+        "DOCUMENTATION_AI_EA_PUBLISHED_GIT_HEAD": "abc123",
+        "DOCUMENTATION_AI_EA_PROVIDER_WRITEBACK": "true",
+    }
+
+    receipt = deployment.build_deployment_readiness(
+        env=env,
+        package_dir=ROOT / "docs-public" / "executive-assistant",
+        git_head="abc123",
+    )
+
+    assert receipt["status"] == "blocked"
+    assert {
+        "site_url_not_public_https",
+        "private_runtime_repository_connected",
+        "public_docs_repository_not_configured",
+        "provider_writeback_enabled",
+    } <= set(receipt["blocking_reasons"])
 
 
 def test_verifier_rejects_internal_route_exposure(tmp_path: Path) -> None:

@@ -54,9 +54,28 @@ Verify the public package before publishing or syncing:
 python3 scripts/verify_documentation_ai_public_docs.py
 ```
 
+Write a deployment readiness receipt without failing on missing external configuration:
+
+```bash
+make materialize-documentation-ai-deployment-readiness
+```
+
+Require a real Documentation.AI deployment proof:
+
+```bash
+# Replace every <...> value with the live Documentation.AI project receipt.
+DOCUMENTATION_AI_EA_ORG="Executive Assistant" \
+DOCUMENTATION_AI_EA_SITE_URL="https://<real-docs-domain>" \
+DOCUMENTATION_AI_EA_CONTEXT_REPOS="<public-docs-repo>,<optional-public-schema-repo>" \
+DOCUMENTATION_AI_EA_CUSTOM_DOMAIN_STATUS="verified" \
+DOCUMENTATION_AI_EA_SSL_STATUS="active" \
+DOCUMENTATION_AI_EA_PUBLISH_STATUS="published" \
+DOCUMENTATION_AI_EA_PUBLISHED_GIT_HEAD="$(git rev-parse HEAD)" \
+make verify-documentation-ai-deployment-readiness
+```
+
 Run the focused test suite:
 
 ```bash
 PYTHONPATH=ea python3 -m pytest -q tests/test_documentation_ai_public_docs.py
 ```
-
