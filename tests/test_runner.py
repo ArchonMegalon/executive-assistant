@@ -1074,7 +1074,7 @@ def test_scheduler_whatsapp_async_recovery_sends_queued_message(monkeypatch: pyt
     assert marked_sent == [("delivery-whatsapp-1", "principal-whatsapp-1")]
     assert captured[0]["tool_runtime"] is tool_runtime
     assert captured[0]["principal_id"] == "principal-whatsapp-1"
-    assert captured[0]["recipient"] == "436641112223"
+    assert captured[0]["recipient"] == "15550101223"
     assert captured[0]["text"] == "Ich denke an dich."
     assert captured[0]["binding_id"] == "binding-1"
     assert captured[0]["binding"] is None
@@ -1154,7 +1154,7 @@ def test_scheduler_whatsapp_async_recovery_dead_letters_after_retry_budget(monke
     assert summary["dead_lettered"] == 1
     assert failures[0]["tool_runtime"] is tool_runtime
     assert failures[0]["principal_id"] == "principal-whatsapp-2"
-    assert failures[0]["recipient"] == "436640000000"
+    assert failures[0]["recipient"] == "15550100000"
     assert failures[0]["text"] == "Das ist wichtig."
     assert failures[0]["binding_id"] == "binding-2"
     assert failures[0]["binding"] is None

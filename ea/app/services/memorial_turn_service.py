@@ -68,6 +68,10 @@ def build_public_memorial_turn(*, runtime: MemorialTurnRuntime, request: Memoria
         request=request,
         answer_plan=answer_plan,
     )
+    if not bytes(rendered_audio.payload or b""):
+        raise HTTPException(status_code=502, detail="tts_audio_missing")
+    if not runtime.text(rendered_audio.content_type, "").strip().lower().startswith("audio/"):
+        raise HTTPException(status_code=502, detail="tts_content_type_invalid")
     response_payload = dict(answer_plan.answer_payload)
     response_payload["transcript_text"] = transcription.transcript_text
     response_payload["transcript_effective_text"] = transcription.transcript_effective_text

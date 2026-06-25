@@ -59,6 +59,7 @@ VOLATILE_KEYS = {
     "source_tree_fingerprint",
     "state_age_seconds",
     "state_updated_at",
+    "sidecar_last_qr_at",
 }
 
 

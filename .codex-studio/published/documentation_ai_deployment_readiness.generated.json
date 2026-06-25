@@ -1,0 +1,32 @@
+{
+  "blocking_reasons": [
+    "documentation_ai_org_not_configured",
+    "site_url_not_configured",
+    "context_repositories_not_configured",
+    "custom_domain_not_verified",
+    "ssl_not_active",
+    "site_not_published",
+    "published_git_head_not_recorded"
+  ],
+  "contract": "ea.documentation_ai_deployment_readiness.v1",
+  "documentation_ai": {
+    "configured_org": "",
+    "context_repositories": [],
+    "custom_domain_status": "",
+    "expected_org": "Executive Assistant",
+    "provider_writeback_enabled": false,
+    "publish_status": "",
+    "site_url": "",
+    "ssl_status": ""
+  },
+  "external_deployment_ready": false,
+  "generated_at": "2026-06-25T16:29:25+00:00",
+  "git": {
+    "published_head": "",
+    "published_head_matches_source": false,
+    "source_head": "888731d82406012660edcf2852b472de84d8b76c"
+  },
+  "git_publication_ready": true,
+  "public_docs_failures": [],
+  "status": "blocked"
+}

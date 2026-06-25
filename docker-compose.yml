@@ -569,7 +569,6 @@ services:
 
 volumes:
   ea_artifacts: {}
-  ea_openvoice_data: {}
   ea_pgdata: {}
   ea_proactive_ooda_state: {}
   ea_telegram_teable_sync: {}

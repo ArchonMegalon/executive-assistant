@@ -43,7 +43,6 @@ def test_base_compose_keeps_core_runtime_ports_loopback_only() -> None:
     expected = {
         "ea-api": "127.0.0.1:${EA_HOST_PORT:-8090}:8090",
         "ea-responses-proxy": "127.0.0.1:${EA_RESPONSES_PROXY_HOST_PORT:-8092}:8091",
-        "ea-openvoice": "127.0.0.1:${OPENVOICE_HOST_PORT:-8093}:8093",
     }
     for service_name, port_mapping in expected.items():
         service = services.get(service_name) or {}
@@ -84,7 +83,6 @@ def test_base_compose_applies_auxiliary_runtime_privilege_limits() -> None:
     compose = _load_yaml(ROOT / "docker-compose.yml")
     services = compose.get("services") or {}
     expected = {
-        "ea-openvoice": {"pids_limit": 512, "mem_limit": "8g", "mem_reservation": "2g"},
         "ea-teable-relay": {"pids_limit": 256, "mem_limit": "512m", "mem_reservation": "128m"},
         "ea-proactive-ooda": {"pids_limit": 256, "mem_limit": "512m", "mem_reservation": "128m"},
         "ea-telegram-teable-sync": {"pids_limit": 256, "mem_limit": "512m", "mem_reservation": "128m"},
@@ -192,9 +190,24 @@ def test_property_compose_keeps_api_loopback_only_and_applies_runtime_limits() -
 def test_prod_compose_does_not_widen_core_runtime_port_exposure() -> None:
     compose = _load_yaml(ROOT / "docker-compose.prod.yml")
     services = compose.get("services") or {}
-    for service_name in ("ea-api", "ea-responses-proxy", "ea-openvoice", "ea-worker", "ea-scheduler"):
+    for service_name in ("ea-api", "ea-responses-proxy", "ea-worker", "ea-scheduler"):
         service = services.get(service_name) or {}
         assert "ports" not in service, service_name
+
+
+def test_compose_does_not_ship_openvoice_tts_sidecar() -> None:
+    base = (ROOT / "docker-compose.yml").read_text(encoding="utf-8").lower()
+    prod = (ROOT / "docker-compose.prod.yml").read_text(encoding="utf-8").lower()
+    rendered = "\n".join((base, prod))
+
+    for token in (
+        "ea-openvoice",
+        "dockerfile.openvoice",
+        "requirements-openvoice.txt",
+        "ea_role=openvoice",
+        "openvoice_base_url",
+    ):
+        assert token not in rendered
 
 
 def test_prod_compose_does_not_restore_memorial_runtime_contract() -> None:
@@ -209,11 +222,11 @@ def test_prod_compose_does_not_restore_memorial_runtime_contract() -> None:
         "EA_HEALTHCHECK_MEMORIAL_SLUG",
         "EA_PUBLIC_MEMORIAL_RATE_BACKEND",
         "EA_PUBLIC_MEMORIAL_REDIS_URL",
-        "EA_PUBLIC_MEMORIAL_DIR",
-        "EA_PRIVATE_MEMORIAL_PROFILE_DIR",
         "EA_MEMORIAL_LIVE_TTS_PLUGIN",
     ):
         assert token not in rendered
+    assert "EA_PUBLIC_MEMORIAL_DIR" in rendered
+    assert "EA_PRIVATE_MEMORIAL_PROFILE_DIR" in rendered
     assert "/data/memorial_data" not in rendered
 
 
@@ -249,7 +262,7 @@ def test_host_tools_override_carries_explicit_host_docker_access() -> None:
     services = compose.get("services") or {}
     proxy = services.get("ea-docker-socket-proxy") or {}
     proxy_volumes = [str(item) for item in list(proxy.get("volumes") or [])]
-    assert proxy.get("image") == "tecnativa/docker-socket-proxy:0.3.0"
+    assert str(proxy.get("image", "")).startswith("tecnativa/docker-socket-proxy:0.3.0@sha256:")
     assert "/var/run/docker.sock:/var/run/docker.sock:ro" in proxy_volumes
     assert proxy.get("read_only") is True
     assert proxy.get("mem_limit") == "256m"
@@ -300,7 +313,7 @@ def test_fastestvpn_override_mounts_only_runtime_compose_inputs() -> None:
     services = compose.get("services") or {}
     proxy = services.get("ea-docker-socket-proxy") or {}
     proxy_volumes = [str(item) for item in list(proxy.get("volumes") or [])]
-    assert proxy.get("image") == "tecnativa/docker-socket-proxy:0.3.0"
+    assert str(proxy.get("image", "")).startswith("tecnativa/docker-socket-proxy:0.3.0@sha256:")
     assert "/var/run/docker.sock:/var/run/docker.sock:ro" in proxy_volumes
     assert proxy.get("read_only") is True
     assert proxy.get("mem_limit") == "256m"
@@ -440,9 +453,11 @@ def test_provider_lab_override_restores_operator_media_lanes() -> None:
             assert token in rendered, f"{service_name} missing {token}"
 
 
-def test_release_manifest_materializer_emits_authority_fields(tmp_path: Path) -> None:
+def test_release_manifest_materializer_emits_authority_fields(monkeypatch: object, tmp_path: Path) -> None:
     module = _load_script("materialize_release_manifest")
     output_path = tmp_path / "release_manifest.generated.json"
+    monkeypatch.setenv("EA_DEPLOY_PRIMARY_MODE", "EA_CORE")
+    monkeypatch.setenv("EA_DEPLOY_ENABLED_MODES", "EA_CORE")
 
     manifest = module.build_manifest(output_path=output_path, generated_at="2026-06-22T18:40:00Z")
 
@@ -1574,9 +1589,9 @@ def test_deploy_script_materializes_release_manifest_after_health() -> None:
     assert 'export EA_DEPLOYMENT_ID="deploy-$(date -u +%Y%m%dT%H%M%SZ)-${deploy_commit_fragment}"' in deploy
     assert 'EA_DEPLOY_COMPOSE_FILES="${compose_files_csv}" \\' in deploy
     assert 'EA_DEPLOY_COMPOSE_OVERRIDES="${compose_overrides_csv}" \\' in deploy
-    assert 'EA_DEPLOY_BRANCH="${deploy_branch}" \\' in deploy
-    assert 'EA_DEPLOY_TRACKING_BRANCH="${deploy_tracking_branch}" \\' in deploy
-    assert 'EA_DEPLOY_COMMIT_SHA="${deploy_commit_sha}" \\' in deploy
+    assert 'export EA_DEPLOY_BRANCH="${deploy_branch}"' in deploy
+    assert 'export EA_DEPLOY_TRACKING_BRANCH="${deploy_tracking_branch}"' in deploy
+    assert 'export EA_DEPLOY_COMMIT_SHA="${deploy_commit_sha}"' in deploy
     assert '"${PYTHON_BIN}" "${APP_ROOT}/scripts/materialize_deploy_context.py" --output "${DEPLOY_CONTEXT_PATH}" >/dev/null' in deploy
     assert '"${PYTHON_BIN}" "${APP_ROOT}/scripts/materialize_release_manifest.py" --output "${RELEASE_MANIFEST_PATH}" >/dev/null' in deploy
     assert '"${PYTHON_BIN}" "${APP_ROOT}/scripts/materialize_release_authority_status.py" \\' in deploy

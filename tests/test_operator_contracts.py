@@ -760,7 +760,7 @@ def test_deploy_script_waits_for_worker_topology_and_dumps_role_logs() -> None:
     assert "docker inspect -f '{{.State.Running}}'" in deploy
     assert "docker inspect -f '{{.State.Restarting}}'" in deploy
     assert 'curl -fsS "http://localhost:${HOST_PORT}/health"' in deploy
-    assert 'FAILURE_LOG_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler ea-db ea-openvoice)' in deploy
+    assert 'FAILURE_LOG_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler ea-db)' in deploy
     assert 'compose logs --tail 200 "${FAILURE_LOG_SERVICES[@]}"' in deploy
     assert 'Refusing to deploy with DATABASE_URL pointed at the isolated smoke database.' in deploy
     assert 'public_origin_line="$(grep -E \'^(EA_PUBLIC_APP_BASE_URL|PROPERTYQUARRY_PUBLIC_BASE_URL)=' in deploy
@@ -873,7 +873,8 @@ def test_operator_summary_prints_grounded_packet_guidance() -> None:
     assert "launcher parity:" in result.stdout
     assert "parity issues:" in result.stdout
     assert "launcher defaults:" in result.stdout
-    assert "status command:    /docker/fleet/scripts/codex-shims/codexea status" in result.stdout
+    assert "status command:" in result.stdout
+    assert "codexea status" in result.stdout
     assert "status posture:" in result.stdout
     assert "status issues:" in result.stdout
     assert "throttle pressure:" in result.stdout

@@ -88,6 +88,28 @@ def test_generated_release_artifact_normalizer_ignores_evidence_head_provenance_
     assert module._normalize(before) == module._normalize(after)
 
 
+def test_generated_release_artifact_normalizer_ignores_live_whatsapp_qr_timestamps() -> None:
+    module = _load_module()
+    before = {
+        "status": "blocked",
+        "reason": "sidecar_not_ready",
+        "sidecar_last_qr_at": "2026-06-25T16:30:10.325Z",
+        "sidecar_qr_age_seconds": 0,
+        "state_updated_at": "2026-06-25T16:30:06Z",
+        "state_age_seconds": 4,
+    }
+    after = {
+        "status": "blocked",
+        "reason": "sidecar_not_ready",
+        "sidecar_last_qr_at": "2026-06-25T16:30:50.328Z",
+        "sidecar_qr_age_seconds": 39,
+        "state_updated_at": "2026-06-25T16:31:27Z",
+        "state_age_seconds": 2,
+    }
+
+    assert module._normalize(before) == module._normalize(after)
+
+
 def test_generated_release_artifact_normalizer_preserves_semantic_status_drift() -> None:
     module = _load_module()
 
