@@ -9633,6 +9633,7 @@ def codex_status_report(
         "basis_counts": billing_basis_counts,
         **billing_runway,
     }
+    providers_summary_payload = [] if principal_scoped else providers_summary
     return {
         "generated_at": now,
         "window": str(window or "1h"),
@@ -9641,8 +9642,8 @@ def codex_status_report(
         "default_lane": "" if principal_scoped else provider_health.get("provider_config", {}).get("default_lane"),
         "provider_health": {} if principal_scoped else provider_health,
         "jury_service": {} if principal_scoped else dict(provider_health.get("jury_service") or {}),
-        "providers_summary": providers_summary,
-        "onemin_aggregate": onemin_aggregate,
+        "providers_summary": providers_summary_payload,
+        "onemin_aggregate": {} if principal_scoped else onemin_aggregate,
         "onemin_billing_aggregate": {} if principal_scoped else onemin_billing_aggregate,
         "fleet_burn": {
             "1h": burn_1h_summary,

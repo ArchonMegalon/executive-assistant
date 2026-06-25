@@ -436,15 +436,25 @@ class RequestContext:
 
 
 def authenticated_principal_override_allowed(request: Request) -> bool:
-    runtime_mode = os.environ.get("EA_RUNTIME_MODE")
-    app = None
+    runtime_mode: object = os.environ.get("EA_RUNTIME_MODE")
+    app = getattr(request, "app", None)
     scope = getattr(request, "scope", None)
     if isinstance(scope, dict):
-        app = scope.get("app")
+        app = scope.get("app") or app
     state = getattr(app, "state", None)
-    container = getattr(state, "container", None)
+    container = getattr(state, "container", None) if state is not None else None
+    if container is None:
+        state = getattr(request, "app", None)
+        if state is not None:
+            container = getattr(state, "container", None) or state
     if container is not None:
-        runtime_mode = getattr(getattr(container, "settings", None), "runtime_mode", runtime_mode)
+        settings = getattr(container, "settings", None)
+        runtime_settings = getattr(settings, "runtime", None) if settings is not None else None
+        runtime_mode = (
+            getattr(runtime_settings, "mode", None)
+            or getattr(settings, "runtime_mode", None)
+            or runtime_mode
+        )
     if is_prod_mode(runtime_mode):
         return False
     if not _is_loopback_host(_client_host(request)):

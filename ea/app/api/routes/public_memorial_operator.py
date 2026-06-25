@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import concurrent.futures
 import html
 import json
 import os
@@ -81,6 +82,7 @@ _PUBLIC_MEMORIAL_OPERATOR_RATE_BUCKET = "operator_route_write"
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _RELEASE_AUTHORITY_STATUS_PATH = _REPO_ROOT / ".codex-studio" / "published" / "release_authority_status.generated.json"
 _RELEASE_MANIFEST_PATH = _REPO_ROOT / ".codex-studio" / "published" / "release_manifest.generated.json"
+_MEMORIAL_ROUTE_PROBE_TIMEOUT_SECONDS = 3.0
 
 
 def _enforce_operator_mutation_limits(
@@ -306,6 +308,47 @@ def _probe_url(url: str, *, timeout_seconds: float = 5.0) -> dict[str, object]:
         }
 
 
+def _probe_urls(urls: list[str], *, timeout_seconds: float = 5.0) -> dict[str, dict[str, object]]:
+    candidates = [str(url or "").strip() for url in urls]
+    candidates = [url for url in candidates if url]
+    if not candidates:
+        return {}
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=min(4, len(candidates)))
+    futures = {
+        executor.submit(_probe_url, url, timeout_seconds=timeout_seconds): url for url in candidates
+    }
+    results: dict[str, dict[str, object]] = {}
+    try:
+        completed, _pending = concurrent.futures.wait(
+            set(futures.keys()), timeout=timeout_seconds, return_when=concurrent.futures.ALL_COMPLETED
+        )
+        for future in completed:
+            url = futures[future]
+            try:
+                result = future.result(timeout=0)
+            except Exception as exc:  # pragma: no cover - extreme executor failure path
+                result = {
+                    "url": url,
+                    "status_code": 0,
+                    "status": "blocked",
+                    "detail": f"{type(exc).__name__}:{exc}"[:160],
+                }
+            results[url] = result
+        for future, url in futures.items():
+            if url not in results:
+                results[url] = {
+                    "url": url,
+                    "status_code": 0,
+                    "status": "timeout",
+                    "detail": "probe_timeout",
+                }
+        return results
+    finally:
+        for future in futures:
+            future.cancel()
+        executor.shutdown(wait=False, cancel_futures=True)
+
+
 def _route_probe_next_action(*, local_probe: dict[str, object], public_probe: dict[str, object], public_origin: str) -> str:
     public_detail = str(public_probe.get("detail") or "").lower()
     public_status_code = int(public_probe.get("status_code") or 0)
@@ -328,8 +371,16 @@ def _memorial_route_probe(slug: str) -> dict[str, object]:
     local_port = str(os.getenv("EA_PORT") or "8090").strip() or "8090"
     local_url = f"http://127.0.0.1:{local_port}/memorials/{_safe_slug(slug)}"
     public_url = f"{public_origin}/memorials/{_safe_slug(slug)}" if public_origin else ""
-    local_probe = _probe_url(local_url)
-    public_probe = _probe_url(public_url) if public_url else {"url": "", "status_code": 0, "status": "missing", "detail": "public_origin_missing"}
+    probe_targets = [local_url]
+    if public_url:
+        probe_targets.append(public_url)
+    probe_results = _probe_urls(probe_targets, timeout_seconds=_MEMORIAL_ROUTE_PROBE_TIMEOUT_SECONDS)
+    local_probe = probe_results.get(local_url) or _probe_url(local_url)
+    public_probe = (
+        probe_results.get(public_url)
+        if public_url
+        else {"url": "", "status_code": 0, "status": "missing", "detail": "public_origin_missing"}
+    )
     return {
         "configured_public_origin": public_origin,
         "public_origin_source": public_origin_source,

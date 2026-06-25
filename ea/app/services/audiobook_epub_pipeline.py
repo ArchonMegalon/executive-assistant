@@ -295,6 +295,10 @@ def _unmixr_max_segments_per_run() -> int:
     return _env_int("EA_AUDIOBOOK_UNMIXR_MAX_SEGMENTS_PER_RUN", 20, minimum=0, maximum=500)
 
 
+def _audiobook_cinematic_narration() -> bool:
+    return _env_bool("EA_AUDIOBOOK_CINEMATIC_NARRATION", True)
+
+
 def _unmixr_pacing_wait_seconds() -> int:
     return _env_int("EA_AUDIOBOOK_UNMIXR_PACING_WAIT_SECONDS", 1800, minimum=60, maximum=86400)
 
@@ -4630,10 +4634,102 @@ def render_unmixr_chapter_audio(*, job_dir: Path, chapters: tuple[EpubChapter, .
             )
             continue
         source_text = (job_dir / "chapters" / chapter.text_path).read_text(encoding="utf-8")
-        segment_rows = _chapter_text_segment_rows(source_text, max_chars=max_chars)
+        normalized_source_text = str(source_text or "").strip()
+        if not normalized_source_text:
+            rendered.append({"chapter": chapter.index, "status": "skipped_empty"})
+            continue
+
+        if _audiobook_cinematic_narration():
+            if bool(pacing_policy.get("enabled")) and segments_rendered_this_run >= int(pacing_policy.get("max_segments_per_run") or 0):
+                wait_seconds = int(pacing_policy.get("wait_seconds") or 0)
+                return {
+                    "status": "provider_pacing_wait",
+                    "reason": "unmixr_segment_pacing_limit",
+                    "provider": "unmixr",
+                    "provider_wait_seconds": wait_seconds,
+                    "provider_retry_after": (datetime.now(UTC) + timedelta(seconds=wait_seconds)).isoformat().replace("+00:00", "Z"),
+                    "chapter_index": chapter.index,
+                    "segment_index": 1,
+                    "segment_count": 1,
+                    "segments_rendered_this_run": segments_rendered_this_run,
+                    "pacing": pacing_policy,
+                    "voice_selection": dict(voice_selection.get("public") or {}),
+                }
+            try:
+                audio_bytes, content_type, segment_retry_errors = _synthesize_unmixr_with_retries(
+                    text=source_text,
+                    voice_id=voice_id,
+                    lang=render_language,
+                    speaking_rate=unmixr_speaking_rate(),
+                    speaking_pitch=unmixr_speaking_pitch(),
+                    speaking_volume=unmixr_speaking_volume(),
+                )
+            except Exception as exc:
+                detail = _exception_detail(exc)
+                if _provider_wait_seconds_from_text(detail):
+                    wait_seconds = _provider_wait_seconds_from_text(detail)
+                    return {
+                        "status": "provider_throttled",
+                        "reason": detail,
+                        "provider": "unmixr",
+                        "provider_wait_seconds": wait_seconds,
+                        "provider_retry_after": (datetime.now(UTC) + timedelta(seconds=wait_seconds))
+                        .isoformat()
+                        .replace("+00:00", "Z"),
+                        "chapter_index": chapter.index,
+                        "segment_index": 1,
+                        "segment_count": 1,
+                        "voice_selection": dict(voice_selection.get("public") or {}),
+                    }
+                if _provider_balance_blocker(detail):
+                    return {
+                        "status": "blocked",
+                        "reason": detail or "unmixr_tts_failed",
+                        "provider": "unmixr",
+                        "chapter_index": chapter.index,
+                        "segment_index": 1,
+                        "segment_count": 1,
+                        "voice_selection": dict(voice_selection.get("public") or {}),
+                        "replacement_voice_required": True,
+                    }
+                return {
+                    "status": "blocked",
+                    "reason": detail or "unmixr_tts_failed",
+                    "provider": "unmixr",
+                    "chapter_index": chapter.index,
+                    "segment_index": 1,
+                    "segment_count": 1,
+                    "voice_selection": dict(voice_selection.get("public") or {}),
+                    "replacement_voice_required": False,
+                }
+            else:
+                rendered_segment = _write_provider_audio_file(
+                    audio_bytes=audio_bytes,
+                    content_type=content_type,
+                    target_wav=target,
+                )
+                segments_rendered_this_run += 1
+                rendered.append(
+                    {
+                        "chapter": chapter.index,
+                        "status": "rendered",
+                        "path": rendered_segment.name,
+                        "segment_count": 1,
+                        "paragraph_pause_count": 0,
+                        "paragraph_pause_seconds": 0.0,
+                        "content_types": [content_type],
+                        "retry_errors": segment_retry_errors,
+                        "audio_quality": _rendered_audio_quality_report(rendered_segment),
+                        "segment_audio_quality": [_rendered_audio_quality_report(rendered_segment)],
+                    }
+                )
+                continue
+
+        segment_rows = _chapter_text_segment_rows(normalized_source_text, max_chars=max_chars)
         if not segment_rows:
             rendered.append({"chapter": chapter.index, "status": "skipped_empty"})
             continue
+
         segment_paths: list[Path] = []
         merge_paths: list[Path] = []
         content_types: list[str] = []
@@ -4713,7 +4809,7 @@ def render_unmixr_chapter_audio(*, job_dir: Path, chapters: tuple[EpubChapter, .
                         .replace("+00:00", "Z"),
                         "chapter_index": chapter.index,
                         "segment_index": segment_index,
-                        "segment_count": len(segment_rows),
+                        "segment_count": 1,
                         "voice_selection": dict(voice_selection.get("public") or {}),
                     }
                 if _provider_balance_blocker(detail):

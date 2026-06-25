@@ -8,6 +8,7 @@ import os
 import subprocess
 import tempfile
 import unittest
+import time
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -24,6 +25,7 @@ from app.api.routes import landing_channel
 from app.api.routes import landing_browser
 from app.api.routes import providers as providers_route
 from app.api.routes import responses as responses_route
+from app.api.routes import public_memorial_operator
 from app.services import responses_upstream
 from app.services import provider_registry
 from app.services import public_clickrank
@@ -165,6 +167,66 @@ class HardeningTests(unittest.TestCase):
         )
         with patch.dict(os.environ, {"PROPERTYQUARRY_TRUST_X_FORWARDED_HOST": "1"}, clear=False):
             self.assertTrue(landing_browser._workspace_session_cookie_kwargs(request)["secure"])
+
+    def test_memorial_route_probe_collects_fast_and_failed_probes(self) -> None:
+        def probe(url: str, timeout_seconds: float = 5.0) -> dict[str, object]:
+            return {
+                "url": url,
+                "status_code": 200 if "fast" in url else 404,
+                "status": "pass" if "fast" in url else "not_found",
+                "detail": "",
+            }
+
+        with patch.object(public_memorial_operator, "_probe_url", side_effect=probe):
+            result = public_memorial_operator._probe_urls(
+                ["http://example.test/fast", "http://example.test/fail"],
+                timeout_seconds=0.5,
+            )
+
+        self.assertEqual(
+            result["http://example.test/fast"],
+            {
+                "url": "http://example.test/fast",
+                "status_code": 200,
+                "status": "pass",
+                "detail": "",
+            },
+        )
+        self.assertEqual(
+            result["http://example.test/fail"],
+            {
+                "url": "http://example.test/fail",
+                "status_code": 404,
+                "status": "not_found",
+                "detail": "",
+            },
+        )
+
+    def test_memorial_route_probe_times_out_without_failing(self) -> None:
+        start = time.perf_counter()
+
+        def probe(url: str, timeout_seconds: float = 5.0) -> dict[str, object]:
+            if "slow" in url:
+                time.sleep(1.0)
+            return {
+                "url": url,
+                "status_code": 200 if "fast" in url else 404,
+                "status": "pass" if "fast" in url else "not_found",
+                "detail": "",
+            }
+
+        with patch.object(public_memorial_operator, "_probe_url", side_effect=probe):
+            result = public_memorial_operator._probe_urls(
+                ["http://example.test/fast", "http://example.test/slow"],
+                timeout_seconds=0.05,
+            )
+
+        self.assertLess(time.perf_counter() - start, 0.8)
+        self.assertIn("http://example.test/fast", result)
+        self.assertEqual(result["http://example.test/fast"]["status_code"], 200)
+        self.assertIn("http://example.test/slow", result)
+        self.assertEqual(result["http://example.test/slow"]["status"], "timeout")
+        self.assertEqual(result["http://example.test/slow"]["detail"], "probe_timeout")
 
     def test_validate_startup_settings_rejects_prod_principal_override_flags(self) -> None:
         settings = _base_settings(mode="prod")
