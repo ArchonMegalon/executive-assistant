@@ -92,17 +92,17 @@ def test_compose_override_declares_whatsapp_web_session_sidecar() -> None:
     assert "EA_WHATSAPP_WEB_ACTION_STATE_STALE_SECONDS=${EA_WHATSAPP_WEB_ACTION_STATE_STALE_SECONDS:-600}" in compose
     assert "WA_WEB_AUTOREPLY_ENABLED=${EA_WHATSAPP_WEB_AUTOREPLY_ENABLED:-0}" in compose
     assert "WA_WEB_AUTOREPLY_TEXT=${EA_WHATSAPP_WEB_AUTOREPLY_TEXT:-Na geh... ich bin die Herta." in compose
-    assert "zurück" in compose
+    assert "Schreib mir bitte kurz" in compose
     assert "WA_WEB_AUTOREPLY_ALLOWED_RECIPIENTS=${EA_WHATSAPP_WEB_AUTOREPLY_ALLOWED_RECIPIENTS:-}" in compose
     assert "WA_WEB_DEFAULT_HEYY_AI_KEY=${EA_WHATSAPP_WEB_DEFAULT_HEYY_AI_KEY:-empathetic_slow_typing_old_lady}" in compose
     assert "WA_WEB_DEFAULT_HEYY_AI_NAME=${EA_WHATSAPP_WEB_DEFAULT_HEYY_AI_NAME:-Herta (Heyy Lady)}" in compose
     assert "WA_WEB_HEYY_AI_TYPING_DELAY_MS=${EA_WHATSAPP_WEB_HEYY_AI_TYPING_DELAY_MS:-6500}" in compose
     assert "WA_WEB_HEYY_AI_MAX_TYPING_DELAY_MS=${EA_WHATSAPP_WEB_HEYY_AI_MAX_TYPING_DELAY_MS:-3600000}" in compose
-    assert "WA_WEB_HEYY_AI_PRE_REPLY_DELAY_MIN_SECONDS=${EA_WHATSAPP_WEB_HEYY_AI_PRE_REPLY_DELAY_MIN_SECONDS:-60}" in compose
-    assert "WA_WEB_HEYY_AI_PRE_REPLY_DELAY_MAX_SECONDS=${EA_WHATSAPP_WEB_HEYY_AI_PRE_REPLY_DELAY_MAX_SECONDS:-900}" in compose
+    assert "WA_WEB_HEYY_AI_PRE_REPLY_DELAY_MIN_SECONDS=${EA_WHATSAPP_WEB_HEYY_AI_PRE_REPLY_DELAY_MIN_SECONDS:-180}" in compose
+    assert "WA_WEB_HEYY_AI_PRE_REPLY_DELAY_MAX_SECONDS=${EA_WHATSAPP_WEB_HEYY_AI_PRE_REPLY_DELAY_MAX_SECONDS:-1800}" in compose
     assert "WA_WEB_HEYY_AI_QUIET_HOURS_START_HOUR=${EA_WHATSAPP_WEB_HEYY_AI_QUIET_HOURS_START_HOUR:-21}" in compose
     assert "WA_WEB_HEYY_AI_QUIET_HOURS_END_HOUR=${EA_WHATSAPP_WEB_HEYY_AI_QUIET_HOURS_END_HOUR:-6}" in compose
-    assert "WA_WEB_HEYY_AI_TYPING_DELAY_MS_PER_CHARACTER=${EA_WHATSAPP_WEB_HEYY_AI_TYPING_DELAY_MS_PER_CHARACTER:-4000}" in compose
+    assert "WA_WEB_HEYY_AI_TYPING_DELAY_MS_PER_CHARACTER=${EA_WHATSAPP_WEB_HEYY_AI_TYPING_DELAY_MS_PER_CHARACTER:-8000}" in compose
     assert "WA_WEB_HEYY_AI_TYPING_STATUS_ENABLED=${EA_WHATSAPP_WEB_HEYY_AI_TYPING_STATUS_ENABLED:-1}" in compose
     assert "WA_WEB_CONVERSATION_FETCH_TIMEOUT_MS=${EA_WHATSAPP_WEB_CONVERSATION_FETCH_TIMEOUT_MS:-15000}" in compose
     assert "WA_WEB_CONVERSATION_FETCH_CONCURRENCY=${EA_WHATSAPP_WEB_CONVERSATION_FETCH_CONCURRENCY:-6}" in compose
@@ -232,11 +232,25 @@ def test_sidecar_http_contract_matches_ea_delivery_adapter() -> None:
     assert "resolution_method" in server
     assert 'app.get("/sessions/:sessionRef/heyy-ai-routes"' in server
     assert 'app.put("/sessions/:sessionRef/heyy-ai-routes"' in server
+    assert "include_details" in server
+    assert "publicHeyyAiRoutes({ includeDetails })" in server
     assert "route_map_persisted" in server
     assert "last_route_map_persist_at" in server
+    assert "last_outbox_persist_at" in server
     assert "heyy_ai_route_map_state_file_present" in server
+    assert "OUTBOX_STATE_FILE" in server
+    assert "loadPersistedOutboxState(OUTBOX_STATE_FILE)" in server
+    assert "persistOutboxState()" in server
     assert 'app.get("/sessions/:sessionRef/conversations"' in server
     assert "heyy_ai_name" in server
+    assert "function recordedOutboundPersonaFrom(message, fallbackChatRef = \"\")" in server
+    assert "function routeHintDigitsFromChatRef(chatRef)" in server
+    assert "function rememberChatRouteHint(chatRef, routeHintDigits)" in server
+    assert "function heyyAiRouteForInboundMessage(message, fallbackChatRef = \"\")" in server
+    assert "String(recorded.heyy_ai_key || \"\").trim() === messageId" not in server
+    assert "String(recorded.id || \"\").trim() === messageId" in server
+    assert "recordedOutboundPersonaFrom(message, chatRef)" in server
+    assert "heyyAiRouteForInboundMessage(message, chatRef)" in server
     assert "routeWithOutboundPersonaOverride(route, body = {})" in server
     assert 'requestTextValue(body, ["heyy_ai_key", "ai_key", "persona_key"])' in server
     assert "const outboundRouteBase = routeWithOutboundPersonaOverride(route, req.body || {})" in server
@@ -343,11 +357,11 @@ def test_sidecar_http_contract_matches_ea_delivery_adapter() -> None:
 def test_old_lady_auto_reply_waits_before_typing_and_respects_quiet_hours() -> None:
     server = (ROOT / "whatsapp-web-session" / "server.js").read_text(encoding="utf-8")
 
-    assert 'WA_WEB_HEYY_AI_PRE_REPLY_DELAY_MIN_SECONDS || "60"' in server
-    assert 'WA_WEB_HEYY_AI_PRE_REPLY_DELAY_MAX_SECONDS || "900"' in server
+    assert 'WA_WEB_HEYY_AI_PRE_REPLY_DELAY_MIN_SECONDS || "180"' in server
+    assert 'WA_WEB_HEYY_AI_PRE_REPLY_DELAY_MAX_SECONDS || "1800"' in server
     assert 'WA_WEB_HEYY_AI_QUIET_HOURS_START_HOUR || "21"' in server
     assert 'WA_WEB_HEYY_AI_QUIET_HOURS_END_HOUR || "6"' in server
-    assert 'WA_WEB_HEYY_AI_TYPING_DELAY_MS_PER_CHARACTER || "4000"' in server
+    assert 'WA_WEB_HEYY_AI_TYPING_DELAY_MS_PER_CHARACTER || "8000"' in server
     assert "Math.random() * (upperSeconds - minSeconds + 1)" in server
 
     quiet_check = server.index("if (routeQuietHoursActive(route))")
@@ -427,11 +441,38 @@ def test_old_lady_auto_reply_builds_contextual_herta_text_instead_of_repeating_r
     assert "danke|schön|schoen|schon|passt|ok|okay|gut|super|lieb" in server
     assert "bank|geld|konto|überweis|uberweis|ueberweis|tan|pin|passwort|password|code|paypal|karte|zahlen|bezahl" in server
     assert "wer bist|bist du|herta|mama|omi|oma|mutter|sabine|sabi" in server
-    assert "Gern, mein Lieber. Ich hab es gesehen. Ich brauch nur einen Moment, ja?" in server
-    assert "Na, Bank mach ich hier nicht." in server
+    assert "andere nummer|anderen nummer|andern nummer|von einer anderen nummer|falsche nummer" in server
+    assert "seligen Franz" in server
+    assert "Display ganz hinüber" in server
+    assert "Schatzi" in server
+    assert "mein Herz" in server
+    assert "Du Liebe" in server
+    assert "does not complain about typing, reading, or a small display unless directly asked why she is slow" in server
+    assert "Gern, mein Lieber. Ich hab es gesehen." in server
+    assert "Bank mach ich hier nicht." in server
+    assert "Goldstück" in server
+    assert "Liebling" in server
     assert "daß" in server
     assert "muß" in server
     assert "bißchen" in server
+
+
+def test_old_lady_route_map_normalization_upgrades_legacy_default_pacing_values() -> None:
+    server = (ROOT / "whatsapp-web-session" / "server.js").read_text(encoding="utf-8")
+
+    normalize = server.index("function normalizeHeyyAiRouteMap(loaded)")
+    legacy = server.index("const legacyDefaultOldLadyPacing = aiKey === DEFAULT_HEYY_AI_KEY", normalize)
+    upgraded_min = server.index("const upgradedPreReplyDelayMin = legacyDefaultOldLadyPacing", legacy)
+    upgraded_max = server.index("const upgradedPreReplyDelayMax = legacyDefaultOldLadyPacing", upgraded_min)
+    upgraded_per_char = server.index("const upgradedTypingDelayPerCharacter = legacyDefaultOldLadyPacing", upgraded_max)
+
+    assert normalize < legacy < upgraded_min < upgraded_max < upgraded_per_char
+    assert "=== 60" in server
+    assert "=== 900" in server
+    assert "=== 4000" in server
+    assert "pacingDefaults.pre_reply_delay_min_seconds" in server
+    assert "pacingDefaults.pre_reply_delay_max_seconds" in server
+    assert "pacingDefaults.typing_delay_ms_per_character" in server
 
 
 def test_old_lady_outbound_send_uses_same_wait_and_quiet_hours_before_typing() -> None:
@@ -485,6 +526,105 @@ def test_outbound_heyy_ai_override_uses_old_lady_defaults_without_persisting_rou
     assert "persistHeyyAiRouteMap" not in endpoint_body
 
 
+def test_conversation_readback_rehydrates_outbound_persona_from_sidecar_outbox() -> None:
+    server = (ROOT / "whatsapp-web-session" / "server.js").read_text(encoding="utf-8")
+
+    helper = server.index('function recordedOutboundPersonaFrom(message, fallbackChatRef = "")')
+    outbound_gate = server.index("if (!(message && message.fromMe))", helper)
+    message_id = server.index("const messageId = messageIdFrom(message)", outbound_gate)
+    outbox_loop = server.index("for (let index = state.outbox.length - 1; index >= 0; index -= 1)", message_id)
+    outbox_id_match = server.index('String(recorded.id || "").trim() === messageId', outbox_loop)
+    body_fallback = server.index('String(recorded.body_text || "").trim() === body', outbox_id_match)
+    hint_digits = server.index("const hintedDigits = routeHintDigitsFromChatRef(chatRef)", body_fallback)
+    hint_route = server.index("const hintedRoute = heyyAiRouteForSenderDigits(hintedDigits)", hint_digits)
+    recipient_digits = server.index("const recipientDigits = normalizeRecipient(String(chatId || \"\").split(\"@\", 1)[0]);", message_id)
+    recipient_route = server.index("const recipientRoute = heyyAiRouteForSenderDigits(recipientDigits);", hint_route)
+    helper_fallback = server.index('return { ai_key: "", ai_name: "", matched: false };', recipient_route)
+    sanitizer = server.index("function sanitizedMessageFrom(message, fallbackChatRef = \"\")", helper_fallback)
+    route_rehydrate = server.index("recordedOutboundPersonaFrom(message, chatRef)", sanitizer)
+
+    assert helper < outbound_gate < message_id < recipient_digits < outbox_loop < outbox_id_match < body_fallback < hint_digits < hint_route < recipient_route < helper_fallback < sanitizer < route_rehydrate
+
+
+def test_outbox_persona_state_is_persisted_for_restart_safe_readback() -> None:
+    server = (ROOT / "whatsapp-web-session" / "server.js").read_text(encoding="utf-8")
+
+    outbox_file = server.index("const OUTBOX_STATE_FILE = (")
+    initial_outbox = server.index("const INITIAL_OUTBOX_STATE = loadPersistedOutboxState(OUTBOX_STATE_FILE);", outbox_file)
+    state_chat_ref_map = server.index("chatRefMap: INITIAL_OUTBOX_STATE.chat_ref_map || {},", initial_outbox)
+    state_outbox = server.index("outbox: INITIAL_OUTBOX_STATE.messages,", state_chat_ref_map)
+    load_helper = server.index("function loadPersistedOutboxState(filePath)", state_outbox)
+    load_chat_ref_map = server.index("const chatRefMap = loaded && loaded.chat_ref_map && typeof loaded.chat_ref_map === \"object\" && !Array.isArray(loaded.chat_ref_map)", load_helper)
+    persist_helper = server.index("function persistOutboxState()", load_helper)
+    persist_chat_ref_map = server.index("chat_ref_map: state.chatRefMap && typeof state.chatRefMap === \"object\" ? state.chatRefMap : {},", persist_helper)
+    record_outbound = server.index("function recordOutboundMessage(", persist_helper)
+    record_route_hint = server.index("route_hint_digits: String(resolved && (resolved.route_hint_digits || resolved.recipient_digits || resolved.route_key_hint)", record_outbound)
+    persist_after_send = server.index("persistOutboxState();", record_outbound)
+    update_ack = server.index("function updateOutboundAck(message, ack)", persist_after_send)
+    persist_after_ack = server.index("persistOutboxState();", update_ack)
+
+    assert outbox_file < initial_outbox < state_chat_ref_map < state_outbox < load_helper < load_chat_ref_map < persist_helper < persist_chat_ref_map < record_outbound < record_route_hint < persist_after_send < update_ack < persist_after_ack
+
+
+def test_self_chat_inbound_can_reuse_chat_route_hint_instead_of_account_digits_route() -> None:
+    server = (ROOT / "whatsapp-web-session" / "server.js").read_text(encoding="utf-8")
+
+    hint_reader = server.index("function routeHintDigitsFromChatRef(chatRef)")
+    hint_writer = server.index("function rememberChatRouteHint(chatRef, routeHintDigits)", hint_reader)
+    inbound_helper = server.index('function heyyAiRouteForInboundMessage(message, fallbackChatRef = "")', hint_writer)
+    chat_ref = server.index('const chatRef = chatRefFromChatId(chatId) || String(fallbackChatRef || "").trim()', inbound_helper)
+    hinted_digits = server.index("const hintedDigits = routeHintDigitsFromChatRef(chatRef)", chat_ref)
+    hinted_route = server.index("const hintedRoute = heyyAiRouteForSenderDigits(hintedDigits)", hinted_digits)
+    account_digits = server.index("const accountDigits = currentAccountDigits();", hinted_route)
+    self_chat = server.index("const senderLooksLikeCurrentAccount = Boolean(senderDigits && accountDigits && senderDigits === accountDigits);", account_digits)
+    hinted_return = server.index("return hintedRoute;", self_chat)
+    helper_return = server.index("return senderRoute;", hinted_return)
+
+    record_outbound = server.index("function recordOutboundMessage(")
+    hint_persist = server.index("rememberChatRouteHint(", record_outbound)
+    inbound_record = server.index("function recordInboundMessage(message)", hint_persist)
+    inbound_route = server.index("const route = heyyAiRouteForInboundMessage(message, chatRef);", inbound_record)
+    sanitized = server.index("function sanitizedMessageFrom(message, fallbackChatRef = \"\")")
+    sanitized_route = server.index("heyyAiRouteForInboundMessage(message, chatRef)", sanitized)
+
+    send_endpoint = server.index('app.post("/sessions/:sessionRef/messages"')
+    send_result = server.index("const result = await withTimeout(", send_endpoint)
+    send_hint = server.index("resolved.route_key_hint = recipient;", send_result)
+
+    assert hint_reader < hint_writer < inbound_helper < chat_ref < hinted_digits < hinted_route < account_digits < self_chat < hinted_return < helper_return
+    assert sanitized < sanitized_route
+    assert record_outbound < hint_persist < inbound_record < inbound_route
+    assert send_endpoint < send_result < send_hint
+
+
+def test_private_route_hints_are_seeded_when_session_is_ready_and_routes_change() -> None:
+    server = (ROOT / "whatsapp-web-session" / "server.js").read_text(encoding="utf-8")
+
+    seed_helper = server.index("async function seedChatRouteHintsFromPrivateRoutes()")
+    route_keys = server.index("for (const routeKey of Object.keys(state.heyyAiRouteMap || {}))", seed_helper)
+    resolve_route = server.index("const resolved = await resolveRecipientChat(normalizedRouteKey);", route_keys)
+    remember_hint = server.index("rememberChatRouteHint(resolved.chat_ref, normalizedRouteKey);", resolve_route)
+    persist_after_seed = server.index("persistOutboxState();", remember_hint)
+    ready_handler = server.index('client.on("ready", () => {', persist_after_seed)
+    ready_seed = server.index("seedChatRouteHintsFromPrivateRoutes()", ready_handler)
+    routes_put = server.index('app.put("/sessions/:sessionRef/heyy-ai-routes"', ready_seed)
+    put_seed = server.index("seedSummary = await seedChatRouteHintsFromPrivateRoutes();", routes_put)
+
+    assert seed_helper < route_keys < resolve_route < remember_hint < persist_after_seed < ready_handler < ready_seed < routes_put < put_seed
+    assert "route_hint_seeded: seedSummary.seeded" in server
+
+
+def test_chat_ref_from_chat_id_preserves_existing_route_hint_metadata() -> None:
+    server = (ROOT / "whatsapp-web-session" / "server.js").read_text(encoding="utf-8")
+
+    helper = server.index("function chatRefFromChatId(chatId)")
+    existing = server.index("const existing = state.chatRefMap[chatRef] && typeof state.chatRefMap[chatRef] === \"object\"", helper)
+    merge = server.index("...existing,", existing)
+    route_hint_reader = server.index("function routeHintDigitsFromChatRef(chatRef)", merge)
+
+    assert helper < existing < merge < route_hint_reader
+
+
 def test_outbound_request_can_override_pacing_without_persona_override() -> None:
     server = (ROOT / "whatsapp-web-session" / "server.js").read_text(encoding="utf-8")
 
@@ -513,7 +653,7 @@ def test_explicit_old_lady_route_can_keep_fast_zero_pacing() -> None:
     route_lookup = server.index("function heyyAiRouteForSenderDigits(senderDigits)", normalized_allow_zero)
     matched = server.index("const matched = Boolean(normalized && state.heyyAiRouteMap[normalized])", route_lookup)
     route_allow_zero = server.index("{ allow_zero: matched }", matched)
-    public_routes = server.index("function publicHeyyAiRoutes()", route_allow_zero)
+    public_routes = server.index("function publicHeyyAiRoutes(options = {})", route_allow_zero)
     public_allow_zero = server.index('const allowZeroPacing = routeKey !== "*"', public_routes)
     public_route_allow_zero = server.index("{ allow_zero: allowZeroPacing }", public_allow_zero)
 
@@ -521,6 +661,16 @@ def test_explicit_old_lady_route_can_keep_fast_zero_pacing() -> None:
     assert route_lookup < matched < route_allow_zero < public_routes
     assert public_routes < public_allow_zero < public_route_allow_zero
     assert "const allowZero = Boolean(options && options.allow_zero)" in server
+
+
+def test_herta_number_change_branch_precedes_generic_greeting_branch() -> None:
+    server = (ROOT / "whatsapp-web-session" / "server.js").read_text(encoding="utf-8")
+
+    herta = server.index("function hertaReplyTextForMessage(message, fallbackText = \"\")")
+    number_branch = server.index("(neue nummer|neuen nummer|neuer nummer|andere nummer|anderen nummer|andern nummer|von einer anderen nummer|falsche nummer|anderes handy|anderen handy|andern handy|display|handy kaputt|display kaputt)", herta)
+    greeting_branch = server.index("(hallo|servus|morgen|abend|gruß|gruss|grüß|gruess|hi|hey)", herta)
+
+    assert number_branch < greeting_branch
 
 
 def test_channels_wire_audiobook_voice_buttons_to_whatsapp_router() -> None:
@@ -565,12 +715,12 @@ def test_env_example_points_binding_at_optional_sidecar_but_keeps_it_staged() ->
     assert env["EA_WHATSAPP_WEB_TG_SUMMARY_TIMEOUT_SECONDS"] == "15"
     assert env["EA_WHATSAPP_WEB_ACTION_REPLY_HEYY_AI_KEY"] == "empathetic_slow_typing_old_lady"
     assert env["EA_WHATSAPP_WEB_ACTION_REPLY_HEYY_AI_NAME"] == "Herta (Heyy Lady)"
-    assert env["EA_WHATSAPP_WEB_ACTION_REPLY_PRE_REPLY_DELAY_MIN_SECONDS"] == "60"
-    assert env["EA_WHATSAPP_WEB_ACTION_REPLY_PRE_REPLY_DELAY_MAX_SECONDS"] == "900"
+    assert env["EA_WHATSAPP_WEB_ACTION_REPLY_PRE_REPLY_DELAY_MIN_SECONDS"] == "180"
+    assert env["EA_WHATSAPP_WEB_ACTION_REPLY_PRE_REPLY_DELAY_MAX_SECONDS"] == "1800"
     assert env["EA_WHATSAPP_WEB_ACTION_REPLY_QUIET_HOURS_START_HOUR"] == "21"
     assert env["EA_WHATSAPP_WEB_ACTION_REPLY_QUIET_HOURS_END_HOUR"] == "6"
     assert env["EA_WHATSAPP_WEB_ACTION_REPLY_TYPING_DELAY_MS"] == "6500"
-    assert env["EA_WHATSAPP_WEB_ACTION_REPLY_TYPING_DELAY_MS_PER_CHARACTER"] == "4000"
+    assert env["EA_WHATSAPP_WEB_ACTION_REPLY_TYPING_DELAY_MS_PER_CHARACTER"] == "8000"
     assert env["EA_WHATSAPP_WEB_ACTION_REPLY_TYPING_STATUS_ENABLED"] == "1"
     assert env["EA_WHATSAPP_WEB_JSON_LIMIT"] == "48mb"
     assert env["EA_WHATSAPP_AUDIOBOOK_RESUME_DUE"] == "1"
@@ -597,16 +747,16 @@ def test_env_example_points_binding_at_optional_sidecar_but_keeps_it_staged() ->
     assert env["EA_WHATSAPP_WEB_TEABLE_SYNC_STALE_SECONDS"] == "600"
     assert env["EA_WHATSAPP_WEB_AUTOREPLY_ENABLED"] == "0"
     assert env["EA_WHATSAPP_WEB_AUTOREPLY_TEXT"].startswith("Na geh... ich bin die Herta.")
-    assert "zurück" in env["EA_WHATSAPP_WEB_AUTOREPLY_TEXT"]
+    assert "Schreib mir bitte kurz" in env["EA_WHATSAPP_WEB_AUTOREPLY_TEXT"]
     assert env["EA_WHATSAPP_WEB_DEFAULT_HEYY_AI_KEY"] == "empathetic_slow_typing_old_lady"
     assert env["EA_WHATSAPP_WEB_DEFAULT_HEYY_AI_NAME"] == "Herta (Heyy Lady)"
     assert env["EA_WHATSAPP_WEB_HEYY_AI_TYPING_DELAY_MS"] == "6500"
     assert env["EA_WHATSAPP_WEB_HEYY_AI_MAX_TYPING_DELAY_MS"] == "3600000"
-    assert env["EA_WHATSAPP_WEB_HEYY_AI_PRE_REPLY_DELAY_MIN_SECONDS"] == "60"
-    assert env["EA_WHATSAPP_WEB_HEYY_AI_PRE_REPLY_DELAY_MAX_SECONDS"] == "900"
+    assert env["EA_WHATSAPP_WEB_HEYY_AI_PRE_REPLY_DELAY_MIN_SECONDS"] == "180"
+    assert env["EA_WHATSAPP_WEB_HEYY_AI_PRE_REPLY_DELAY_MAX_SECONDS"] == "1800"
     assert env["EA_WHATSAPP_WEB_HEYY_AI_QUIET_HOURS_START_HOUR"] == "21"
     assert env["EA_WHATSAPP_WEB_HEYY_AI_QUIET_HOURS_END_HOUR"] == "6"
-    assert env["EA_WHATSAPP_WEB_HEYY_AI_TYPING_DELAY_MS_PER_CHARACTER"] == "4000"
+    assert env["EA_WHATSAPP_WEB_HEYY_AI_TYPING_DELAY_MS_PER_CHARACTER"] == "8000"
     assert env["EA_WHATSAPP_WEB_HEYY_AI_TYPING_STATUS_ENABLED"] == "1"
     assert env["EA_WHATSAPP_WEB_INBOX_LIMIT"] == "100"
     assert env["EA_WHATSAPP_WEB_STORE_MESSAGE_TEXT"] == "1"

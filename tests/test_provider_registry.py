@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 import pytest
 
 from app.domain.models import PlanValidationError, SkillContract
@@ -309,6 +310,22 @@ def test_provider_registry_onemin_secret_rotation_includes_json_manifest_slots(
         "ONEMIN_AI_API_KEY_FALLBACK_55",
         "ONEMIN_AI_API_KEY_FALLBACK_56",
     ]
+
+
+def test_provider_registry_onemin_manifest_config_path_uses_config_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_root = tmp_path / "config"
+    config_root.mkdir()
+    manifest = config_root / "onemin_api_keys.local.json"
+    manifest.write_text("[]", encoding="utf-8")
+    monkeypatch.setenv("EA_CONFIG_ROOT", config_root.as_posix())
+    monkeypatch.setenv("ONEMIN_DIRECT_API_KEYS_JSON_FILE", "/config/onemin_api_keys.local.json")
+
+    from app.services import provider_registry
+
+    assert provider_registry._onemin_manifest_path() == manifest
 
 
 def test_provider_registry_exposes_executable_onemin_specialist_binding(

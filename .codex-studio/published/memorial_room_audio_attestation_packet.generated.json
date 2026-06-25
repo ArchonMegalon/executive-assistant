@@ -1,18 +1,19 @@
 {
   "contract_name": "ea.memorial_room_audio_attestation_packet",
-  "generated_at": "2026-06-18T23:52:36Z",
+  "generated_at": "2026-06-25T12:12:04Z",
   "generated_by": "scripts/materialize_memorial_room_audio_attestation_packet.py",
   "status": "ready",
-  "source_git_head": "8e6c434f4b8e7f1e1c87e1c6b3fdc566915cc85c",
+  "source_git_head": "3baf9da91e753fbf06f521452b9df15b9d609c48",
   "slug": "manfred",
-  "base_url": "https://myexternalbrain.com",
+  "base_url": "https://memorial.example.test",
   "proof_target": ".codex-studio/published/memorial_room_audio_public_origin.generated.json",
   "claim": "Manfred premium spoken conversation requires a real public-origin room test, not a CI assertion.",
   "manual_only": true,
   "ci_must_not_auto_assert": true,
   "operator_command": "make materialize-memorial-room-audio-gold-clean",
+  "receipt_command_template": "MEMORIAL_PUBLIC_ORIGIN=<public-origin> MEMORIAL_ROOM_REVIEWER=<actual-listener> MEMORIAL_ROOM_DEVICE_LABEL=<device-browser-public-path> MEMORIAL_ROOM_SPEAKER_LABEL=<speaker-or-output-route> MEMORIAL_ROOM_LABEL=<actual-room> MEMORIAL_ROOM_NOTES=<plain-language-observations> MEMORIAL_ROOM_ATTESTATION_ID=<signed-room-review-id> MEMORIAL_ROOM_ATTESTATION_SIGNED_AT=<YYYY-MM-DDTHH:MM:SSZ> make materialize-memorial-room-audio-gold-clean",
   "required_env": {
-    "MEMORIAL_PUBLIC_ORIGIN": "https://myexternalbrain.com",
+    "MEMORIAL_PUBLIC_ORIGIN": "https://memorial.example.test",
     "MEMORIAL_PUBLIC_SLUG": "manfred",
     "MEMORIAL_ROOM_REVIEWER": "actual listener/operator name",
     "MEMORIAL_ROOM_DEVICE_LABEL": "exact device, browser, and public-origin path",
@@ -23,43 +24,71 @@
     "MEMORIAL_ROOM_ATTESTATION_SIGNED_AT": "YYYY-MM-DDTHH:MM:SSZ",
     "MEMORIAL_ROOM_ATTESTATION_SOURCE": "operator_room_review"
   },
+  "required_cli_flags": [
+    "--actual-device-checked",
+    "--actual-speaker-checked",
+    "--first-syllable-not-clipped",
+    "--intelligibility-confirmed",
+    "--answer-text-fallback-visible",
+    "--no-internet-search-confirmed",
+    "--normal-spoken-turn-confirmed",
+    "--interruption-behavior-confirmed",
+    "--retry-path-confirmed"
+  ],
   "required_checks": [
     {
       "id": "actual_device_checked",
-      "description": "The tester used the actual public-origin device/browser path, not a simulated CI playback."
+      "description": "The tester used the actual public-origin device/browser path, not a simulated CI playback.",
+      "cli_flag": "--actual-device-checked"
     },
     {
       "id": "actual_speaker_checked",
-      "description": "The tester heard the response through the intended output speaker/headphones."
+      "description": "The tester heard the response through the intended output speaker/headphones.",
+      "cli_flag": "--actual-speaker-checked"
     },
     {
       "id": "first_syllable_not_clipped",
-      "description": "The first audible syllable was present and not clipped by playback startup."
+      "description": "The first audible syllable was present and not clipped by playback startup.",
+      "cli_flag": "--first-syllable-not-clipped"
     },
     {
       "id": "intelligibility_confirmed",
-      "description": "The spoken answer was understandable in the room without reading the fallback text."
+      "description": "The spoken answer was understandable in the room without reading the fallback text.",
+      "cli_flag": "--intelligibility-confirmed"
     },
     {
       "id": "answer_text_fallback_visible",
-      "description": "Fallback transcript text remained visible for accessibility and recovery."
+      "description": "Fallback transcript text remained visible for accessibility and recovery.",
+      "cli_flag": "--answer-text-fallback-visible"
     },
     {
       "id": "no_internet_search_confirmed",
-      "description": "The memorial answer did not use internet search as Manfred."
+      "description": "The memorial answer did not use internet search as Manfred.",
+      "cli_flag": "--no-internet-search-confirmed"
     },
     {
       "id": "normal_spoken_turn_confirmed",
-      "description": "A normal spoken question completed as microphone capture, STT, answer, TTS, and playback."
+      "description": "A normal spoken question completed as microphone capture, STT, answer, TTS, and playback.",
+      "cli_flag": "--normal-spoken-turn-confirmed"
     },
     {
       "id": "interruption_behavior_confirmed",
-      "description": "Intentional interruption or barge-in behavior was observed and was not harsh or confusing."
+      "description": "Intentional interruption or barge-in behavior was observed and was not harsh or confusing.",
+      "cli_flag": "--interruption-behavior-confirmed"
     },
     {
       "id": "retry_path_confirmed",
-      "description": "The tester observed a clear retry/recovery path after an acoustic or turn-taking problem."
+      "description": "The tester observed a clear retry/recovery path after an acoustic or turn-taking problem.",
+      "cli_flag": "--retry-path-confirmed"
     }
+  ],
+  "operator_steps": [
+    "Open https://memorial.example.test/memorials/manfred and https://memorial.example.test/memorials/manfred.json from the real public path.",
+    "Ask at least one normal spoken question and wait for microphone capture, STT, answer generation, TTS, and audible playback.",
+    "Confirm every required check manually; if a check is uncertain, do not set its flag.",
+    "Use non-generic reviewer, room, device, speaker, and notes values; generic labels intentionally keep the receipt blocked.",
+    "Set MEMORIAL_ROOM_ATTESTATION_ID and MEMORIAL_ROOM_ATTESTATION_SIGNED_AT from the signed operator review before recording the clean receipt.",
+    "Run the clean materializer from a clean source tree; dirty source intentionally blocks final room-audio gold."
   ],
   "conversation_prompts": [
     "Kannst du mir kurz antworten?",

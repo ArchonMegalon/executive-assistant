@@ -18,6 +18,11 @@ def public_memorial_warmup_status(slug: str) -> JSONResponse:
     return shared.public_memorial_warmup_status(slug=slug)
 
 
+@router.get("/memorials/{slug}/readiness")
+def public_memorial_readiness(slug: str) -> JSONResponse:
+    return shared.public_memorial_readiness(slug=slug)
+
+
 @router.get("/memorials/{slug}/video-meeting/status")
 def public_memorial_video_meeting_status(slug: str) -> JSONResponse:
     return shared.public_memorial_video_meeting_status(slug=slug)

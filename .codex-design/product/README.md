@@ -15,7 +15,7 @@ Use `journeys/README.md` when the question is "what does the user actually do en
 Use `GOLDEN_JOURNEY_RELEASE_GATES.yaml` when the question is "which journeys must every release wave prove?"
 Use `PRODUCT_SPINE.yaml` when the question is "which core loop, surface, truth domain, Horizon lane, or provider-adapter rule owns this?"
 Use `PRODUCT_SPINE_REDESIGN.md` when the question is "why is the product organized around build, run, remember, explain, and publish?"
-Use `FINAL_GOLD_GRAPH.generated.json` when the question is "which current whole-product graph is allowed to claim gold?"
+Use `FINAL_GOLD_GRAPH.generated.json` when the question is "what is the current whole-product release posture?"
 Use `JOURNEY_GATES.generated.json` when the question is "what lived journey truth is the fleet publishing right now?"
 Use `HUMAN_ONLY_RELEASE_BOUNDARIES.generated.md` when the question is "what still needs an actual person instead of more automation?"
 Use `METRICS_AND_SLOS.yaml` when the question is "what counts as good enough to ship?"

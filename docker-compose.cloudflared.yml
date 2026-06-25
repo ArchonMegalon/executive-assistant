@@ -1,11 +1,18 @@
 services:
   ea-cloudflared:
-    image: cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared:latest@sha256:6d91c121b803126f7a5344005d17a9324788fc09d305b6e2560ec6040a7ae283
     container_name: externalbrain-cloudflared
     restart: unless-stopped
+    mem_limit: 256m
+    mem_reservation: 64m
+    pids_limit: 128
     command: tunnel run
+    cap_drop:
+      - ALL
     environment:
       - TUNNEL_TOKEN=${EA_CF_TUNNEL_TOKEN}
+    security_opt:
+      - no-new-privileges:true
     networks:
       - default
       - property_default

@@ -20,7 +20,7 @@ def test_release_materialization_service_runs_expected_scripts_in_order(monkeypa
     release_materialization_service.materialize_release_assets(python_bin="/tmp/python")
 
     assert calls[0] == ("/tmp/python", "ea_browser_workflow_proof", ("scripts/materialize_ea_browser_workflow_proof.py",), None)
-    assert calls[-1] == ("/tmp/python", "release_manifest", ("scripts/materialize_release_manifest.py",), None)
+    assert calls[-1] == ("/tmp/python", "release_authority_status", ("scripts/materialize_release_authority_status.py",), None)
     assert any(
         name == "whole_project_gold_map" and command == ("scripts/materialize_whole_project_gold_map.py",) and env == {"PYTHONPATH": "ea"}
         for _, name, command, env in calls
@@ -55,6 +55,12 @@ def test_release_materialization_service_runs_expected_scripts_in_order(monkeypa
         and env is None
         for _, name, command, env in calls
     )
+    assert any(
+        name == "deploy_context"
+        and command == ("scripts/materialize_deploy_context.py",)
+        and env is None
+        for _, name, command, env in calls
+    )
     names = [name for _, name, _, _ in calls]
     assert names.index("telegram_video_delivery_receipt") < names.index("telegram_video_delivery_live_receipt")
     assert names.index("telegram_video_delivery_live_receipt") < names.index("whole_project_gold_map")
@@ -65,7 +71,9 @@ def test_release_materialization_service_runs_expected_scripts_in_order(monkeypa
     assert names.index("whole_project_gold_map") < names.index("continuous_improvement_goal_posture")
     assert names.index("memorial_stt_provider_benchmark") < names.index("memorial_operator_status")
     assert names.index("memorial_operator_status") < names.index("runtime_dependency_evidence")
-    assert names.index("runtime_dependency_evidence") < names.index("release_manifest")
+    assert names.index("runtime_dependency_evidence") < names.index("deploy_context")
+    assert names.index("deploy_context") < names.index("release_manifest")
+    assert names.index("release_manifest") < names.index("release_authority_status")
 
 
 def test_materialize_release_bundle_help_resolves_service_import() -> None:

@@ -124,3 +124,58 @@ def test_sync_onemin_owner_ledger_merges_json_manifest_slots(tmp_path: Path) -> 
     assert payload["slots"][1]["secret_sha256"] == hashlib.sha256(b"json-secret-55").hexdigest()
     assert payload["slots"][2]["account_name"] == "ONEMIN_AI_API_KEY_FALLBACK_56"
     assert payload["slots"][2]["owner_email"] == "owner56@example.com"
+
+
+def test_sync_onemin_owner_ledger_assigns_six_generic_manifest_accounts(tmp_path: Path) -> None:
+    dotenv_path = tmp_path / ".env"
+    ledger_path = tmp_path / "onemin_slot_owners.json"
+    manifest_path = tmp_path / "onemin_api_keys.local.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "accounts": [
+                    {"key": f"json-secret-{index}", "owner_email": f"owner{index}@example.com"}
+                    for index in range(1, 7)
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    dotenv_path.write_text(f"ONEMIN_DIRECT_API_KEYS_JSON_FILE={manifest_path}\n", encoding="utf-8")
+    ledger_path.write_text(json.dumps({"slots": []}), encoding="utf-8")
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--dotenv",
+            str(dotenv_path),
+            "--ledger",
+            str(ledger_path),
+            "--write",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(ledger_path.read_text(encoding="utf-8"))
+    assert [slot["slot"] for slot in payload["slots"]] == [
+        "fallback_1",
+        "fallback_2",
+        "fallback_3",
+        "fallback_4",
+        "fallback_5",
+        "fallback_6",
+    ]
+    assert [slot["account_name"] for slot in payload["slots"]] == [
+        "ONEMIN_AI_API_KEY_FALLBACK_1",
+        "ONEMIN_AI_API_KEY_FALLBACK_2",
+        "ONEMIN_AI_API_KEY_FALLBACK_3",
+        "ONEMIN_AI_API_KEY_FALLBACK_4",
+        "ONEMIN_AI_API_KEY_FALLBACK_5",
+        "ONEMIN_AI_API_KEY_FALLBACK_6",
+    ]
+    assert payload["slots"][5]["owner_email"] == "owner6@example.com"
+    assert payload["slots"][5]["secret_sha256"] == hashlib.sha256(b"json-secret-6").hexdigest()

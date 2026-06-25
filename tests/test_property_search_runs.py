@@ -8,10 +8,16 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+import app.api.routes.landing_setup as landing_setup_route
+import app.api.routes.public_results as public_results_route
+import app.api.routes.public_tours as public_tours_route
 import app.product.service as product_service
 from app.product.service import ProductService
 from app.product.service import _property_alert_personal_fit_snapshot, _property_candidate_matches_requested_location, _property_search_location_hints
 from app.services.property_billing import property_commercial_snapshot
+from app.services.public_artifact_paths import public_result_dir, public_tour_dir
+from app.services.public_urls import ea_public_app_base_url, propertyquarry_public_base_url, propertyquarry_public_tour_base_url
+from app.services.tool_execution_browseract_adapter import BrowserActToolAdapter
 from tests.product_test_helpers import build_property_client, seed_product_state, start_workspace
 
 
@@ -60,6 +66,44 @@ def test_propertyquarry_public_urls_do_not_inherit_external_brain_defaults(monke
 
     assert product_service._property_public_app_base_url() == "https://propertyquarry.com"
     assert product_service._property_public_tour_base_url() == "https://propertyquarry.com/tours"
+    assert propertyquarry_public_base_url() == "https://propertyquarry.com"
+    assert propertyquarry_public_tour_base_url() == "https://propertyquarry.com/tours"
+    assert ea_public_app_base_url() == "https://myexternalbrain.com"
+    assert landing_setup_route._propertyquarry_public_base_url() == "https://propertyquarry.com"
+
+
+def test_propertyquarry_public_urls_honor_property_specific_overrides(monkeypatch) -> None:
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://assistant.example.test")
+    monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_BASE_URL", "https://property.example.test/")
+    monkeypatch.delenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL", raising=False)
+
+    assert propertyquarry_public_base_url() == "https://property.example.test"
+    assert propertyquarry_public_tour_base_url() == "https://property.example.test/tours"
+    assert landing_setup_route._propertyquarry_public_base_url() == "https://property.example.test"
+
+    monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL", "https://tours.example.test/")
+
+    assert propertyquarry_public_tour_base_url() == "https://tours.example.test"
+
+
+def test_public_result_and_tour_artifacts_default_to_repo_local_completion(monkeypatch) -> None:
+    monkeypatch.delenv("EA_PUBLIC_RESULT_DIR", raising=False)
+    monkeypatch.delenv("EA_PUBLIC_TOUR_DIR", raising=False)
+
+    assert public_result_dir().as_posix().endswith("/ea/_completion/public_browseract_results")
+    assert public_tour_dir().as_posix().endswith("/ea/_completion/public_property_tours")
+    assert public_results_route._result_dir() == public_result_dir()
+    assert public_tours_route._tour_dir() == public_tour_dir()
+    assert BrowserActToolAdapter._crezlo_public_tour_dir() == public_tour_dir()
+    assert "/docker/fleet" not in public_result_dir().as_posix()
+    assert "/docker/fleet" not in public_tour_dir().as_posix()
+
+    monkeypatch.setenv("EA_PUBLIC_RESULT_DIR", "/tmp/public-results")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", "/tmp/public-tours")
+
+    assert public_results_route._result_dir().as_posix() == "/tmp/public-results"
+    assert public_tours_route._tour_dir().as_posix() == "/tmp/public-tours"
+    assert BrowserActToolAdapter._crezlo_public_tour_dir().as_posix() == "/tmp/public-tours"
 
 
 def test_property_search_location_matching_prefers_requested_districts() -> None:

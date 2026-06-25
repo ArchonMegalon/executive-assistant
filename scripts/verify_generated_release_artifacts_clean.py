@@ -25,7 +25,6 @@ GENERATED_ARTIFACTS = (
 )
 MATERIALIZER_COMMANDS = (
     ("scripts/materialize_ea_flagship_release_gate.py",),
-    ("scripts/materialize_memorial_operator_status.py",),
     ("scripts/materialize_memorial_phrase_bank.py",),
     ("scripts/materialize_project_mode_manifests.py",),
     ("scripts/materialize_weekly_product_pulse.py",),
@@ -35,6 +34,7 @@ MATERIALIZER_COMMANDS = (
     ("scripts/materialize_ea_browser_workflow_proof.py",),
     ("scripts/materialize_continuous_improvement_goal_posture.py",),
     ("scripts/materialize_telegram_video_delivery_receipt.py",),
+    ("scripts/materialize_memorial_operator_status.py",),
 )
 VOLATILE_KEYS = {
     "generated_at",

@@ -15,6 +15,7 @@ from app.container import AppContainer
 from app.product.service import build_product_service
 from app.services import google_oauth as google_oauth_service
 from app.services.public_branding import request_brand
+from app.services.public_request import public_base_url
 
 router = APIRouter(tags=["landing"])
 
@@ -93,24 +94,11 @@ def _google_connect_email_href(*, recipient_email: str, return_to: str = "/app/s
 
 
 def _public_app_base_url(request: Request) -> str:
-    forwarded = str(request.headers.get("x-forwarded-host") or "").strip().lower().rstrip(".")
-    request_host = str(request.url.hostname or "").strip().lower().rstrip(".")
-    forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").strip() or request.url.scheme
-    effective_host = forwarded or request_host
-    if effective_host in {"propertyquarry.com", "www.propertyquarry.com"}:
-        host = forwarded or request_host
-        return f"https://{host}"
-    explicit = str(os.environ.get("EA_PUBLIC_APP_BASE_URL") or "").strip().rstrip("/")
-    if explicit:
-        return explicit
-    redirect_uri = str(os.environ.get("EA_GOOGLE_OAUTH_REDIRECT_URI") or "").strip()
-    if redirect_uri:
-        parsed = urllib.parse.urlparse(redirect_uri)
-        if parsed.scheme and parsed.netloc:
-            return f"{parsed.scheme}://{parsed.netloc}"
-    if forwarded:
-        return f"{forwarded_proto}://{forwarded}"
-    return str(request.base_url).rstrip("/")
+    return public_base_url(
+        request,
+        explicit_base_url=str(os.environ.get("EA_PUBLIC_APP_BASE_URL") or ""),
+        redirect_uri=str(os.environ.get("EA_GOOGLE_OAUTH_REDIRECT_URI") or ""),
+    )
 
 
 def _google_account_status_detail(raw_status: str) -> str:
@@ -1349,6 +1337,7 @@ def settings_trust_detail(
     provider_posture = dict(trust.get("provider_posture") or {})
     reliability = dict(trust.get("reliability") or {})
     release_authority = dict(trust.get("release_authority") or {})
+    runtime_supply_chain = dict(trust.get("runtime_supply_chain") or {})
     public_help_grounding = dict(trust.get("public_help_grounding") or {})
     recent_events = [dict(item) for item in (trust.get("recent_events") or [])]
     return _render_console_object_detail(
@@ -1379,6 +1368,7 @@ def settings_trust_detail(
             _object_detail_row("Access reliability", str(reliability.get("access") or "watch"), "Runtime"),
             _object_detail_row("Sync reliability", str(reliability.get("sync") or "watch"), "Runtime"),
             _object_detail_row("Release authority", str(release_authority.get("summary") or "Release authority not recorded."), "Release"),
+            _object_detail_row("Runtime supply chain", str(runtime_supply_chain.get("summary") or "Runtime supply chain not recorded."), "Release"),
         ],
         object_sections=[
             {
@@ -1405,6 +1395,25 @@ def settings_trust_detail(
                 ],
             },
             {
+                "eyebrow": "Supply chain",
+                "title": "What runtime build trust is anchored to",
+                "items": [
+                    _object_detail_row("Runtime supply chain", str(runtime_supply_chain.get("summary") or "Runtime supply chain not recorded."), "Release"),
+                    _object_detail_row("Supply-chain state", str(runtime_supply_chain.get("state") or "watch").replace("_", " "), "Release"),
+                    _object_detail_row("Supply-chain next action", str(runtime_supply_chain.get("next_action") or "No runtime supply-chain action recorded."), "Release"),
+                    _object_detail_row(
+                        "Checked inputs",
+                        ", ".join(str(value) for value in list(dict(runtime_supply_chain.get("checked") or {}).values())[:4]) or "Not recorded",
+                        "Release",
+                    ),
+                    _object_detail_row(
+                        "Supply-chain issues",
+                        ", ".join(str(value) for value in list(runtime_supply_chain.get("issues") or [])[:6]) or "none",
+                        "Release",
+                    ),
+                ],
+            },
+            {
                 "eyebrow": "Release authority",
                 "title": "What release trust is anchored to",
                 "items": [
@@ -1414,10 +1423,23 @@ def settings_trust_detail(
                     _object_detail_row("Release label", str(release_authority.get("release_label") or "Not recorded"), "Release"),
                     _object_detail_row("Deployment ID", str(release_authority.get("deployment_id") or "Not recorded"), "Release"),
                     _object_detail_row("Deployment source", str(release_authority.get("deployment_id_source") or "Not recorded").replace("_", " "), "Release"),
+                    _object_detail_row("Deploy context at", str(release_authority.get("deploy_context_generated_at") or "Not recorded"), "Release"),
+                    _object_detail_row(
+                        "Deploy context ref",
+                        (
+                            f"{str(release_authority.get('deploy_context_branch') or '').strip()}@"
+                            f"{str(release_authority.get('deploy_context_tracking_branch') or '').strip()}"
+                        ).strip("@")
+                        or "Not recorded",
+                        "Release",
+                    ),
+                    _object_detail_row("Deploy context commit", str(release_authority.get("deploy_context_commit_sha") or "Not recorded")[:12] or "Not recorded", "Release"),
                     _object_detail_row("Release branch", str(release_authority.get("branch") or "Not recorded"), "Release"),
                     _object_detail_row("Tracking branch", str(release_authority.get("tracking_branch") or "Not recorded"), "Release"),
                     _object_detail_row("Release commit", str(release_authority.get("commit_sha") or "Not recorded")[:12] or "Not recorded", "Release"),
                     _object_detail_row("Worktree", "dirty" if bool(release_authority.get("dirty_worktree")) else "clean", "Release"),
+                    _object_detail_row("Source worktree", "dirty" if bool(release_authority.get("source_worktree_dirty")) else "clean", "Release"),
+                    _object_detail_row("Source dirty count", str(release_authority.get("source_dirty_count") or 0), "Release"),
                     _object_detail_row("Public origin", str(release_authority.get("public_origin") or "Not recorded"), "Release"),
                     _object_detail_row("Origin source", str(release_authority.get("public_origin_source") or "Not recorded").replace("_", " "), "Release"),
                     _object_detail_row("Authority basis", str(release_authority.get("authority_basis") or "Not recorded"), "Release"),

@@ -1,13 +1,20 @@
 {
   "checks": {
     "historical_public_share_playback_proven": true,
+    "human_playback_acceptance_status_explicit": true,
     "live_action_processor_no_runtime_errors": true,
     "live_action_processor_ran": true,
     "live_action_processor_ready": true,
+    "live_delivery_claim_scope_explicit": true,
+    "live_delivery_semantics_from_live_receipt_or_explicit_nonpass_default": true,
+    "live_goal_completion_claim_disallowed": true,
+    "live_processor_button_callbacks_drained": true,
     "live_processor_runtime_alignment_evaluated": true,
+    "live_processor_voice_text_drained": true,
     "live_public_share_playback_verified_or_not_required": true,
     "live_receipt_has_explicit_next_action": true,
     "live_receipt_materialized": true,
+    "live_sidecar_button_callbacks_visible_to_processor_semantics": true,
     "live_sidecar_inbox_accessible": true,
     "live_voice_selection_shadow_passed_or_not_required": true,
     "live_voice_selection_text_fallback_ready_or_not_required": true,
@@ -15,26 +22,61 @@
     "local_proof_player_http_route_passed": true,
     "local_proof_player_probe_passed": true,
     "local_proof_selects_voice_and_sends_share": true,
-    "local_proof_waits_for_voice_choice": true
+    "local_proof_waits_for_voice_choice": true,
+    "machine_delivery_does_not_imply_human_acceptance": true,
+    "rejected_playback_feedback_hashed_or_not_operator_grade": true
   },
   "claim": "This bundle combines local WhatsApp EPUB intake proof, live WhatsApp action processor readiness, and the live WhatsApp audiobook delivery receipt. It separates implementation proof from live delivery proof.",
   "contract_name": "ea.whatsapp_audiobook_operator_proof_bundle.v1",
-  "generated_at": "2026-06-22T19:12:38.636297Z",
+  "generated_at": "2026-06-23T14:03:42.950412Z",
   "generated_by": "ea/scripts/materialize_whatsapp_audiobook_operator_proof_bundle.py",
   "live_delivery": {
-    "candidate_count": 19,
+    "candidate_count": 2,
     "failed_codes": [],
+    "fresh_live_job_receipt_proven": true,
+    "goal_completion_claim_allowed": false,
     "historical_evidence_present": true,
     "historical_live_path_proven": true,
+    "historical_or_shadow_proof_only": false,
+    "human_playback_acceptance_claim_allowed": false,
+    "human_playback_acceptance_evidence": {
+      "accepted": false,
+      "claim_allowed": false,
+      "evidence_grade": "operator",
+      "feedback_sha256_present": true,
+      "feedback_sha256_required": true,
+      "feedback_sha256_valid": true,
+      "next_action": "review_audiobook_playback_problem",
+      "operator_grade": true,
+      "rejected": true,
+      "rejected_claim_observed": true,
+      "source_present": true,
+      "status": "rejected",
+      "whatsapp_sourced": true
+    },
     "live_delivery_claim_allowed": true,
-    "next_action": "capture_real_user_playback_acceptance_or_close_operator_loop",
-    "non_whatsapp_job_count": 10,
-    "observed_job_count": 29,
+    "live_delivery_claim_scope": "machine_playable_delivery_only",
+    "machine_playback_e2e_verified": true,
+    "next_action": "review_audiobook_playback_problem",
+    "non_whatsapp_job_count": 5,
+    "observed_job_count": 7,
+    "proof_freshness": {
+      "fresh_live_job_receipt_passed": true,
+      "fresh_live_job_receipt_present": true,
+      "historical_evidence_present": true,
+      "historical_live_path_proven": true,
+      "shadow_voice_selection_only": false
+    },
+    "proof_semantics": {
+      "human_acceptance_evidence": "rejected",
+      "live_delivery_claim_scope": "machine_playable_delivery_only",
+      "machine_playable_delivery_does_not_imply_human_acceptance": true,
+      "machine_playable_delivery_evidence": "fresh_job_receipt_and_machine_playback_e2e"
+    },
+    "real_user_playback_acceptance_verified": false,
     "stage_counts": {
       "delivered_playable": 1,
-      "failed_needs_inspection": 1,
-      "render_or_import_pending": 1,
-      "waiting_voice_choice": 16
+      "render_or_import_pending": 1
     },
     "status": "pass"
   },
@@ -58,6 +100,7 @@
     },
     "conversation_fallback_attempted": false,
     "conversation_fallback_epub_candidate_count": 0,
+    "effective_button_callback_candidate_count": 0,
     "epub_candidate_count": 0,
     "epub_processed": 0,
     "errors": 0,
@@ -67,8 +110,8 @@
       "errors": 0,
       "sent": 0
     },
-    "inbox_message_count": 1,
-    "message_count": 1,
+    "inbox_message_count": 0,
+    "message_count": 0,
     "processed": 0,
     "ran": true,
     "reply_sent": 0,
@@ -77,11 +120,14 @@
       "ran": false
     },
     "share_link_sent": 0,
+    "sidecar_actionable_button_candidate_count": 0,
     "skipped_processed": 0,
     "status": "pass",
     "status_candidate_count": 0,
     "status_processed": 0,
-    "voice_sample_sent": 0
+    "voice_sample_sent": 0,
+    "voice_text_candidate_count": 0,
+    "voice_text_processed": 0
   },
   "live_readiness": {
     "action_processor_enabled": true,
@@ -93,19 +139,24 @@
     "status": "ready"
   },
   "live_sidecar_inbox": {
+    "actionable_button_candidate_count": 0,
     "attempted": true,
+    "direct_button_callback_candidate_count": 0,
     "epub_media_candidate_count": 0,
-    "inbound_message_count": 1,
-    "inbox_count": 1,
-    "latest_message_timestamp_present": true,
+    "inbound_message_count": 0,
+    "inbox_count": 0,
+    "latest_message_timestamp_present": false,
     "media_message_count": 0,
-    "message_count": 1,
+    "message_count": 0,
     "messages_accessible": true,
+    "poll_vote_candidate_count": 0,
     "raw_media_url_exposed": false,
     "raw_message_ids_exposed": false,
     "raw_sender_exposed": false,
     "raw_text_exposed": false,
     "selected_button_candidate_count": 0,
+    "selected_button_context_fallback_candidate_count": 0,
+    "selected_button_label_fallback_candidate_count": 0,
     "session_api_host_kind": "loopback",
     "session_ready": true,
     "session_status": "ready",
@@ -114,39 +165,36 @@
   },
   "live_voice_selection_shadow": {
     "candidate": {
-      "next_action": "choose_audiobook_voice",
-      "pending_voice_count": 3,
-      "status": "waiting_voice_selection",
-      "voice_sample_delivery_status": "sent"
+      "next_action": "",
+      "pending_voice_count": 0,
+      "status": "",
+      "voice_sample_delivery_status": ""
     },
     "checks": {
-      "live_job_unchanged": true,
-      "shadow_callback_applied": true,
-      "shadow_pending_batch_cleared": true,
-      "shadow_raw_voice_ids_not_exposed": true,
-      "shadow_reached_render_action": true,
-      "shadow_text_fallback_ready": true,
-      "voice_sample_delivery_sent": true,
-      "waiting_voice_selection_job_found": true
+      "live_job_unchanged": false,
+      "shadow_callback_applied": false,
+      "shadow_reached_render_action": false,
+      "shadow_text_fallback_ready": false,
+      "waiting_voice_selection_job_found": false
     },
-    "live_job_unchanged": true,
-    "reason": "",
+    "live_job_unchanged": false,
+    "reason": "waiting_whatsapp_voice_selection_job_not_found",
     "shadow": {
-      "callback_status": "applied",
+      "callback_status": "",
       "pending_voice_count_after": 0,
-      "selected_label_present": true,
-      "shadow_next_action": "render_chapter_audio",
-      "shadow_status": "voice_selected",
-      "status": "pass"
+      "selected_label_present": false,
+      "shadow_next_action": "",
+      "shadow_status": "",
+      "status": ""
     },
-    "status": "pass",
+    "status": "waiting",
     "text_fallback": {
-      "bare_voice_choice_resolved": true,
-      "dismiss_all_action": "dismiss_all",
-      "dismiss_named_action": "dismiss_named",
-      "fallback_prompt_mentions_text_commands": true,
-      "status": "pass",
-      "use_named_action": "use_named"
+      "bare_voice_choice_resolved": false,
+      "dismiss_all_action": "",
+      "dismiss_named_action": "",
+      "fallback_prompt_mentions_text_commands": false,
+      "status": "",
+      "use_named_action": ""
     }
   },
   "local_intake": {
@@ -156,7 +204,7 @@
     "delivery_stage_next_action": "finish_user_selected_voice_audiobook_before_sending_whatsapp_public_share_link",
     "next_action": "choose_whatsapp_audiobook_voice_sample",
     "player_http_probe": {
-      "download_bytes": 29826,
+      "download_bytes": 30581,
       "download_content_type": "audio/mp4",
       "download_status_code": 200,
       "metadata_status_code": 200,
@@ -182,6 +230,12 @@
     "raw_whatsapp_message_id_exposed": false,
     "raw_whatsapp_sender_exposed": false
   },
+  "proof_semantics": {
+    "human_acceptance_evidence": "rejected",
+    "live_delivery_claim_scope": "machine_playable_delivery_only",
+    "machine_playable_delivery_does_not_imply_human_acceptance": true,
+    "machine_playable_delivery_evidence": "fresh_job_receipt_and_machine_playback_e2e"
+  },
   "public_share_playback": {
     "attempted": 1,
     "failed": 0,
@@ -189,7 +243,7 @@
     "passed": 1,
     "status": "pass"
   },
-  "recommended_action": "capture_real_user_playback_acceptance_or_close_operator_loop",
+  "recommended_action": "review_audiobook_playback_problem",
   "runtime_alignment": {
     "evaluated": true,
     "processor_session_api_host_kind": "internal_service",

@@ -3,6 +3,17 @@ from __future__ import annotations
 from pathlib import Path
 
 
+def test_memorial_archive_defaults_are_repo_local_or_env_driven() -> None:
+    source = (Path(__file__).resolve().parents[1] / "ea" / "app" / "services" / "memorial_archive_registry.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "EA_MEMORIAL_ARCHIVE_ROOT" in source
+    assert "EA_PUBLIC_MEMORIAL_ROOT" in source
+    assert '_repo_root() / "memorial_archive"' in source
+    assert "/docker/" + "EA/memorial_archive" not in source
+
+
 def test_public_registry_filters_non_public_publications() -> None:
     from app.services.memorial_archive_registry import public_registry_payload
 

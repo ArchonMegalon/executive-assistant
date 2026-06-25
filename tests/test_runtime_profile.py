@@ -9,7 +9,6 @@ from starlette.requests import Request
 
 from app.api.dependencies import (
     RequestContext,
-    browser_principal_override_allowed,
     get_request_context,
     resolve_principal_id,
 )
@@ -53,6 +52,7 @@ def _clear_env() -> None:
         "EA_CF_ACCESS_TEAM_DOMAIN",
         "EA_CF_ACCESS_AUD",
         "EA_CF_ACCESS_CERTS_URL",
+        "EA_ENABLE_LEGACY_RUNTIME_SURFACES",
     ):
         os.environ.pop(key, None)
 
@@ -84,6 +84,7 @@ def _isolated_env() -> None:
         "EA_CF_ACCESS_TEAM_DOMAIN": os.environ.get("EA_CF_ACCESS_TEAM_DOMAIN"),
         "EA_CF_ACCESS_AUD": os.environ.get("EA_CF_ACCESS_AUD"),
         "EA_CF_ACCESS_CERTS_URL": os.environ.get("EA_CF_ACCESS_CERTS_URL"),
+        "EA_ENABLE_LEGACY_RUNTIME_SURFACES": os.environ.get("EA_ENABLE_LEGACY_RUNTIME_SURFACES"),
     }
     _clear_env()
     try:
@@ -96,7 +97,7 @@ def _isolated_env() -> None:
                 os.environ[key] = value
 
 
-def _request(headers: dict[str, str] | None = None) -> Request:
+def _request(headers: dict[str, str] | None = None, *, client_host: str = "127.0.0.1") -> Request:
     raw_headers = [
         (key.lower().encode("latin-1"), value.encode("latin-1"))
         for key, value in (headers or {}).items()
@@ -107,7 +108,7 @@ def _request(headers: dict[str, str] | None = None) -> Request:
             "method": "GET",
             "path": "/context",
             "headers": raw_headers,
-            "client": ("127.0.0.1", 49152),
+            "client": (client_host, 49152),
         }
     )
 
@@ -174,6 +175,27 @@ def test_runtime_profile_non_prod_token_auth_still_allows_caller_header_or_defau
     assert profile.caller_principal_header_allowed is True
 
 
+def test_non_prod_defaults_legacy_runtime_surfaces_enabled() -> None:
+    _clear_env()
+
+    settings = get_settings()
+
+    assert settings.legacy_runtime_surfaces_enabled is True
+
+
+def test_prod_defaults_legacy_runtime_surfaces_disabled() -> None:
+    _clear_env()
+    os.environ["EA_RUNTIME_MODE"] = "prod"
+    os.environ["EA_API_TOKEN"] = "real-api-token"
+    os.environ["EA_SIGNING_SECRET"] = "real-signing-secret"
+    os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
+    os.environ["EA_PUBLIC_APP_BASE_URL"] = "https://assistant.example.test"
+
+    settings = get_settings()
+
+    assert settings.legacy_runtime_surfaces_enabled is False
+
+
 def test_prod_requires_database_url() -> None:
     _clear_env()
     os.environ["EA_RUNTIME_MODE"] = "prod"
@@ -214,6 +236,28 @@ def test_prod_allows_workspace_access_token_binding_from_public_origin() -> None
     profile = validate_startup_settings(get_settings())
 
     assert profile.mode == "prod"
+
+
+def test_prod_rejects_placeholder_workspace_access_token_binding_from_public_origin() -> None:
+    _clear_env()
+    os.environ["EA_RUNTIME_MODE"] = "prod"
+    os.environ["EA_API_TOKEN"] = "real-api-token"
+    os.environ["EA_SIGNING_SECRET"] = "real-signing-secret"
+    os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
+    os.environ["EA_PUBLIC_APP_BASE_URL"] = "https://example.test"
+    with pytest.raises(RuntimeError, match="placeholder workspace access token binding origin/issuer"):
+        validate_startup_settings(get_settings())
+
+
+def test_prod_rejects_placeholder_workspace_access_token_issuer() -> None:
+    _clear_env()
+    os.environ["EA_RUNTIME_MODE"] = "prod"
+    os.environ["EA_API_TOKEN"] = "real-api-token"
+    os.environ["EA_SIGNING_SECRET"] = "real-signing-secret"
+    os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
+    os.environ["EA_WORKSPACE_ACCESS_TOKEN_ISSUER"] = "https://example.test"
+    with pytest.raises(RuntimeError, match="placeholder workspace access token binding origin/issuer"):
+        validate_startup_settings(get_settings())
 
 
 def test_prod_rejects_placeholder_workspace_access_token_audience() -> None:
@@ -257,6 +301,58 @@ def test_prod_rejects_placeholder_signing_secret() -> None:
     os.environ["EA_SIGNING_SECRET"] = "signing-secret"
     os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
     with pytest.raises(RuntimeError, match="placeholder EA_SIGNING_SECRET"):
+        validate_startup_settings(get_settings())
+
+
+def test_prod_allows_cloudflare_access_auth_without_api_token() -> None:
+    _clear_env()
+    os.environ["EA_RUNTIME_MODE"] = "prod"
+    os.environ["EA_SIGNING_SECRET"] = "real-signing-secret"
+    os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
+    os.environ["EA_PUBLIC_APP_BASE_URL"] = "https://assistant.example.test"
+    os.environ["EA_CF_ACCESS_TEAM_DOMAIN"] = "girschele.cloudflareaccess.com"
+    os.environ["EA_CF_ACCESS_AUD"] = "aud-123"
+
+    profile = validate_startup_settings(get_settings())
+
+    assert profile.mode == "prod"
+    assert profile.auth_mode == "access"
+
+
+def test_prod_rejects_placeholder_cloudflare_access_team_domain() -> None:
+    _clear_env()
+    os.environ["EA_RUNTIME_MODE"] = "prod"
+    os.environ["EA_SIGNING_SECRET"] = "real-signing-secret"
+    os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
+    os.environ["EA_PUBLIC_APP_BASE_URL"] = "https://assistant.example.test"
+    os.environ["EA_CF_ACCESS_TEAM_DOMAIN"] = "example.test"
+    os.environ["EA_CF_ACCESS_AUD"] = "aud-123"
+    with pytest.raises(RuntimeError, match="placeholder EA_CF_ACCESS_TEAM_DOMAIN"):
+        validate_startup_settings(get_settings())
+
+
+def test_prod_rejects_placeholder_cloudflare_access_audience() -> None:
+    _clear_env()
+    os.environ["EA_RUNTIME_MODE"] = "prod"
+    os.environ["EA_SIGNING_SECRET"] = "real-signing-secret"
+    os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
+    os.environ["EA_PUBLIC_APP_BASE_URL"] = "https://assistant.example.test"
+    os.environ["EA_CF_ACCESS_TEAM_DOMAIN"] = "girschele.cloudflareaccess.com"
+    os.environ["EA_CF_ACCESS_AUD"] = "replace-me"
+    with pytest.raises(RuntimeError, match="placeholder EA_CF_ACCESS_AUD"):
+        validate_startup_settings(get_settings())
+
+
+def test_prod_rejects_placeholder_cloudflare_access_certs_url() -> None:
+    _clear_env()
+    os.environ["EA_RUNTIME_MODE"] = "prod"
+    os.environ["EA_SIGNING_SECRET"] = "real-signing-secret"
+    os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
+    os.environ["EA_PUBLIC_APP_BASE_URL"] = "https://assistant.example.test"
+    os.environ["EA_CF_ACCESS_TEAM_DOMAIN"] = "girschele.cloudflareaccess.com"
+    os.environ["EA_CF_ACCESS_AUD"] = "aud-123"
+    os.environ["EA_CF_ACCESS_CERTS_URL"] = "https://example.test/cdn-cgi/access/certs"
+    with pytest.raises(RuntimeError, match="placeholder EA_CF_ACCESS_CERTS_URL"):
         validate_startup_settings(get_settings())
 
 
@@ -354,6 +450,23 @@ def test_runtime_profile_non_prod_token_auth_matches_request_context_contract() 
     assert header_context.principal_id == "caller-1"
 
 
+def test_authenticated_principal_override_rejected_for_non_loopback_request() -> None:
+    _clear_env()
+    os.environ["EA_API_TOKEN"] = "secret-token"
+    os.environ["EA_DEFAULT_PRINCIPAL_ID"] = "ops-fallback"
+    os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
+    container, _ = _container_for_current_settings()
+
+    header_context = get_request_context(
+        _request(
+            headers={"Authorization": "Bearer secret-token", "X-EA-Principal-ID": "caller-1"},
+            client_host="198.51.100.42",
+        ),
+        container=container,
+    )
+    assert header_context.principal_id == "ops-fallback"
+
+
 def test_loopback_no_auth_preserves_token_auth_principal_contract() -> None:
     _clear_env()
     os.environ["EA_API_TOKEN"] = "secret-token"
@@ -376,6 +489,41 @@ def test_loopback_no_auth_preserves_token_auth_principal_contract() -> None:
     assert loopback_context.principal_id == "caller-2"
     assert loopback_context.auth_source == "loopback_no_auth"
     assert loopback_context.authenticated is True
+    assert loopback_context.operator_id == ""
+    assert loopback_context.operator_authorized is False
+
+
+def test_loopback_no_auth_uses_active_operator_profile_for_operator_context() -> None:
+    _clear_env()
+    os.environ["EA_ALLOW_LOOPBACK_NO_AUTH"] = "1"
+    os.environ["EA_DEFAULT_PRINCIPAL_ID"] = "ops-fallback"
+    settings = get_settings()
+    profile = resolve_runtime_profile(settings)
+    operator_profile = SimpleNamespace(
+        operator_id="operator-1",
+        principal_id="ops-fallback",
+        roles=("operator", "reviewer"),
+        status="active",
+    )
+    container = SimpleNamespace(
+        settings=settings,
+        runtime_profile=profile,
+        channel_runtime=SimpleNamespace(list_recent_observations=lambda **kwargs: []),
+        orchestrator=SimpleNamespace(
+            fetch_operator_profile=lambda operator_id, principal_id: operator_profile
+            if operator_id == "operator-1" and principal_id == "ops-fallback"
+            else None,
+            list_operator_profiles=lambda principal_id, status="active", limit=25: [operator_profile],
+        ),
+    )
+
+    context = get_request_context(
+        _request(headers={"X-EA-Principal-ID": "ops-fallback"}),
+        container=container,
+    )
+    assert context.auth_source == "loopback_no_auth"
+    assert context.operator_id == "operator-1"
+    assert context.operator_authorized is True
 
 
 def test_authenticated_request_requires_active_operator_profile_for_operator_context() -> None:
@@ -466,13 +614,6 @@ def test_prod_ignores_authenticated_principal_override_even_when_flagged() -> No
             _request(headers={"Authorization": "Bearer real-api-token", "X-EA-Principal-ID": "ops-1"}),
             container=container,
         )
-
-
-def test_prod_disables_browser_principal_override_even_when_flagged() -> None:
-    _clear_env()
-    os.environ["EA_RUNTIME_MODE"] = "prod"
-    os.environ["EA_TRUST_BROWSER_PRINCIPAL_OVERRIDE"] = "1"
-    assert browser_principal_override_allowed() is False
 
 
 def test_workspace_session_rejects_forged_jti_even_with_valid_signature() -> None:

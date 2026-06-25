@@ -24,6 +24,7 @@ from app.services.tool_execution_comfyui_module import ComfyUIToolExecutionModul
 from app.services.tool_execution_teable_module import TeableToolExecutionModule
 from app.services.telegram_delivery import (
     resolve_primary_telegram_binding,
+    record_telegram_video_delivery_receipt,
     send_telegram_audio_for_principal,
     send_telegram_document_for_principal,
     send_telegram_video_for_principal,
@@ -44,6 +45,7 @@ class ToolExecutionService:
         provider_registry: ProviderRegistryService | None = None,
     ) -> None:
         self._tool_runtime = tool_runtime
+        self._channel_runtime = channel_runtime
         self._provider_registry = provider_registry or ProviderRegistryService()
         self._handlers: dict[str, ToolExecutionHandler] = {}
         self._connector_dispatch_module = ConnectorDispatchToolExecutionModule(
@@ -215,6 +217,35 @@ class ToolExecutionService:
                 return True
         return False
 
+    @staticmethod
+    def _extract_video_probe_ref(output_json: dict[str, object]) -> str:
+        structured = dict(output_json.get("structured_output_json") or {})
+        for key in ("audio_probe_ref", "audio_probe", "probe_audio_ref"):
+            value = str(output_json.get(key) or structured.get(key) or "").strip()
+            if value:
+                return value
+        return ""
+
+    @staticmethod
+    def _extract_video_title(output_json: dict[str, object]) -> str:
+        structured = dict(output_json.get("structured_output_json") or {})
+        return (
+            str(output_json.get("result_title") or "").strip()
+            or str(structured.get("result_title") or "").strip()
+            or str(output_json.get("title") or "").strip()
+            or str(structured.get("title") or "").strip()
+            or "Rendered video"
+        )
+
+    @staticmethod
+    def _extract_video_language(output_json: dict[str, object]) -> str:
+        structured = dict(output_json.get("structured_output_json") or {})
+        for key in ("language", "language_code", "locale"):
+            value = str(output_json.get(key) or structured.get(key) or "").strip().split("-", 1)[0].strip().lower()
+            if value:
+                return value
+        return "de"
+
     def _maybe_send_generated_video_to_telegram(
         self,
         *,
@@ -256,6 +287,7 @@ class ToolExecutionService:
             )
             if part
         )
+        audio_probe_ref = self._extract_video_probe_ref(output_json=output_json)
         delivery_json = dict(output_json.get("telegram_delivery_json") or {})
         try:
             if media_kind == "video":
@@ -263,6 +295,9 @@ class ToolExecutionService:
                     self._tool_runtime,
                     principal_id=principal_id,
                     video_ref=media_ref,
+                    audio_probe_ref=audio_probe_ref,
+                    fallback_audio_text=self._extract_video_title(output_json=output_json),
+                    fallback_audio_language=self._extract_video_language(output_json=output_json),
                     caption=caption,
                 )
             elif media_kind == "audio":
@@ -297,6 +332,52 @@ class ToolExecutionService:
                     "media_ref": media_ref,
                 }
             )
+        if media_kind == "video":
+            if self._channel_runtime is not None:
+                record_telegram_video_delivery_receipt(
+                    self._channel_runtime,
+                    principal_id=principal_id,
+                    chat_id=str(delivery_json.get("chat_id") or "").strip(),
+                    source_message_id=str((request.payload_json or {}).get("current_message_id") or "").strip(),
+                    provider=result.tool_name or "tool_execution_video",
+                    status=str(delivery_json.get("status") or "failed").strip().lower(),
+                    source_payload=dict(request.payload_json or {}),
+                    message_ids=delivery_json.get("message_ids") or (),
+                    error=str(delivery_json.get("error") or ""),
+                    sidecar={
+                        "result_title": self._extract_video_title(output_json=output_json),
+                        "audio_probe_ref": audio_probe_ref,
+                        "media_ref": media_ref,
+                        "render_status": str(render_status or ""),
+                    },
+                )
+            if str(audio_probe_ref or "").strip():
+                try:
+                    from app.product import service as product_service
+
+                    if product_service._pocket_audio_fallback_available():
+                        transcript = product_service._pocket_retranscribe_from_audio_url(
+                            recording_id=str(
+                                output_json.get("recording_id")
+                                or dict(output_json.get("structured_output_json") or {}).get("recording_id")
+                                or ""
+                            ).strip(),
+                            title=self._extract_video_title(output_json=output_json),
+                            language=self._extract_video_language(output_json=output_json),
+                            audio_download_url=audio_probe_ref,
+                        )
+                        if not transcript:
+                            delivery_json["video_transcript_status"] = "not_configured"
+                        else:
+                            delivery_json["video_transcript_status"] = "ok"
+                            delivery_json["video_transcript_segment_count"] = int(transcript.get("transcript_segment_count") or 0)
+                            delivery_json["video_transcript_metadata"] = dict(transcript.get("transcript_metadata") or {})
+                    else:
+                        delivery_json["video_transcript_status"] = "disabled"
+                    delivery_json["video_transcript_source"] = "audio_probe"
+                except Exception as exc:
+                    delivery_json["video_transcript_status"] = "failed"
+                    delivery_json["video_transcript_status_reason"] = str(exc or "").strip()
         output_json["telegram_delivery_json"] = delivery_json
         receipt_json = dict(result.receipt_json or {})
         receipt_json["telegram_delivery_json"] = dict(delivery_json)

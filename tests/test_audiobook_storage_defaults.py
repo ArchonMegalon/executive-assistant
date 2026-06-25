@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import importlib.util
 from pathlib import Path
 import sys
@@ -163,7 +164,17 @@ def test_resume_due_audiobook_jobs_returns_job_root_missing_for_disconnected_mou
 
     broken_root = Path("/mnt/pcloud/EA/audiobook_jobs")
     monkeypatch.setattr(module, "audiobook_jobs_root", lambda: broken_root)
-    monkeypatch.setattr(module, "_storage_path_accessible", lambda path: False if Path(path) == broken_root else True)
+    monkeypatch.setattr(
+        module,
+        "_storage_path_probe",
+        lambda path: {
+            "path": str(path),
+            "accessible": False if Path(path) == broken_root else True,
+            "status": "disconnected_mount" if Path(path) == broken_root else "present",
+            "error": "OSError" if Path(path) == broken_root else None,
+            "errno": errno.ENOTCONN if Path(path) == broken_root else None,
+        },
+    )
 
     summary = module.resume_due_audiobook_jobs(notify_telegram=False)
 
@@ -171,3 +182,45 @@ def test_resume_due_audiobook_jobs_returns_job_root_missing_for_disconnected_mou
     assert summary["attempted"] == 0
     assert summary["errors"] == 0
     assert summary["reason"] == "job_root_missing"
+    assert summary["job_root"] == {
+        "path": str(broken_root),
+        "accessible": False,
+        "status": "disconnected_mount",
+        "error": "OSError",
+        "errno": errno.ENOTCONN,
+    }
+
+
+def test_cleanup_finished_audiobook_jobs_reports_disconnected_job_root(monkeypatch) -> None:
+    module_path = ROOT / "ea" / "app" / "services" / "audiobook_epub_pipeline.py"
+    spec = importlib.util.spec_from_file_location("audiobook_epub_pipeline_cleanup_missing_root_test", module_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    broken_root = Path("/mnt/pcloud/EA/audiobook_jobs")
+    monkeypatch.setattr(module, "audiobook_jobs_root", lambda: broken_root)
+    monkeypatch.setattr(module, "audiobook_job_discovery_roots", lambda: ())
+    monkeypatch.setattr(
+        module,
+        "_storage_path_probe",
+        lambda path: {
+            "path": str(path),
+            "accessible": False,
+            "status": "disconnected_mount",
+            "error": "OSError",
+            "errno": errno.ENOTCONN,
+        },
+    )
+
+    summary = module.cleanup_finished_audiobook_jobs()
+
+    assert summary["status"] == "missing"
+    assert summary["job_root"] == {
+        "path": str(broken_root),
+        "accessible": False,
+        "status": "disconnected_mount",
+        "error": "OSError",
+        "errno": errno.ENOTCONN,
+    }

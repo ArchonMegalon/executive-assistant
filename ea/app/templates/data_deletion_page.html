@@ -1,0 +1,88 @@
+{% extends "base_public.html" %}
+{% block content %}
+<style>
+  .deletion-hero,
+  .deletion-card,
+  .deletion-step,
+  .deletion-note {
+    padding: 18px;
+  }
+  .deletion-grid,
+  .deletion-steps,
+  .deletion-notes {
+    display: grid;
+    gap: 14px;
+  }
+  .deletion-grid,
+  .deletion-notes {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .deletion-card,
+  .deletion-step,
+  .deletion-note {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.02);
+  }
+  .deletion-step strong,
+  .deletion-note strong {
+    display: block;
+    margin-bottom: 6px;
+  }
+  @media (max-width: 1080px) {
+    .deletion-grid,
+    .deletion-notes {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<section class="section panel deletion-hero">
+  <div class="kicker">Data deletion</div>
+  <h1>{% if brand.key == 'ea' %}Request deletion of your Executive Assistant data.{% else %}Request deletion of your PropertyQuarry data.{% endif %}</h1>
+  <p class="lead">{% if brand.key == 'ea' %}Use a clear written request so the workspace, linked channels, and any exported delivery artifacts can be reviewed and removed in the right order.{% else %}Use a clear written request so the workspace, shortlist state, and any linked provider artifacts can be reviewed and removed in the right order.{% endif %}</p>
+</section>
+
+<section class="section deletion-grid">
+  <section class="deletion-card">
+    <strong>Data deletion request</strong>
+    <p class="copy">Send the request from the same email address you used for the workspace when possible. Include the workspace name, the region, and any channels that should be removed together.</p>
+    <p class="copy"><a href="mailto:{{ deletion_contact_email }}?subject={{ deletion_mailto_subject | urlencode }}">{{ deletion_contact_email }}</a></p>
+  </section>
+  <section class="deletion-card">
+    <strong>What to include</strong>
+    <ul class="muted-list">
+      {% for item in deletion_request_items %}
+      <li>{{ item }}</li>
+      {% endfor %}
+    </ul>
+  </section>
+</section>
+
+<section class="section">
+  <div class="section-head">
+    <div>
+      <div class="kicker">Process</div>
+      <h2>What happens after the request arrives</h2>
+    </div>
+    <p>The goal is to delete the right workspace cleanly instead of removing the wrong records quickly.</p>
+  </div>
+  <div class="deletion-steps">
+    {% for step in deletion_steps %}
+    <section class="deletion-step">
+      <strong>{{ step.title }}</strong>
+      <p class="copy">{{ step.body }}</p>
+    </section>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="section deletion-notes">
+  {% for note in deletion_notes %}
+  <section class="deletion-note">
+    <strong>{{ note.title }}</strong>
+    <p class="copy">{{ note.body }}</p>
+  </section>
+  {% endfor %}
+</section>
+{% endblock %}

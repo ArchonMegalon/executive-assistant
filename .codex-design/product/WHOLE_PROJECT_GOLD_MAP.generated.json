@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.whole_project_gold_map",
-  "generated_at": "2026-06-22T15:38:26Z",
+  "generated_at": "2026-06-25T16:18:06Z",
   "generated_by": "scripts/materialize_whole_project_gold_map.py",
-  "source_git_head": "8e6c434f4b8e7f1e1c87e1c6b3fdc566915cc85c",
+  "source_git_head": "a36f2efbf30ff0da35ebf1ee0d8c140cd3579829",
   "head_semantics": "source_state",
   "head_semantics_note": "source_git_head records the proved source state. Generated-only artifact commits may advance repository HEAD without changing the source state that the receipts prove.",
   "output_path": ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
@@ -10,7 +10,7 @@
   "gold_claim_allowed": false,
   "claim_scope": "whole_project_plane_set",
   "claim_scope_label": "Whole-project gold is blocked unless every listed plane, including memorial public-origin experience, is proven.",
-  "operator_summary": "EA release control is green, but whole-project gold is blocked by unproven external or public-origin planes.",
+  "operator_summary": "EA release control or required supporting receipts are blocked.",
   "rules": [
     "EA flagship readiness does not imply whole Chummer project readiness.",
     "Unknown external planes block whole-project gold claims.",
@@ -23,6 +23,7 @@
     "Memorial public-origin gold requires the public voice roundtrip receipt, public browser realtime receipt, and public room-audio receipt."
   ],
   "blocking_planes": [
+    "ea_release_control",
     "design_surface",
     "chummer_core_rules",
     "chummer_desktop_ui",
@@ -38,14 +39,19 @@
       "key": "ea_release_control",
       "title": "Executive Assistant Release Control",
       "owner_repo": "EA",
-      "status": "pass",
+      "status": "blocked",
       "claim": "EA core workspace and release-control proof are green only when the EA receipt, weekly pulse, and browser workflow proof are green.",
       "evidence": [
         ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
         ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
         ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json"
       ],
-      "missing_evidence": [],
+      "missing_evidence": [
+        ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json is not pass",
+        "weekly release_health=blocked: The EA flagship receipt is blocked by the current browser workflow proof or release evidence.",
+        "weekly flagship_readiness=blocked: Browser workflow proof is currently blocked, so the flagship receipt cannot support wider release claims.",
+        "weekly launch_readiness: Hold launch expansion pending browser execution proof and cross-host journey coverage."
+      ],
       "design_notes": []
     },
     {
@@ -186,7 +192,8 @@
       "design_notes": [
         "Public copy must not collapse this into a generic gold claim.",
         "public_origin_gold_status=blocked",
-        "public-origin room/device audio intelligibility receipt with manual attestation"
+        "public-origin room/device audio intelligibility receipt with manual attestation",
+        "public memorial page or manifest not found at configured public origin"
       ]
     },
     {
@@ -198,14 +205,22 @@
       "evidence": [
         ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
         ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
-        ".codex-studio/published/memorial_room_audio_public_origin.generated.json"
+        ".codex-studio/published/memorial_room_audio_public_origin.generated.json",
+        ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json"
       ],
       "missing_evidence": [
-        "public-origin room/device audio intelligibility receipt with manual attestation"
+        "public-origin room/device audio intelligibility receipt with manual attestation",
+        "public memorial page or manifest not found at configured public origin"
       ],
       "design_notes": [
         "Guest-facing copy must never say simply gold while this plane is blocked.",
-        "Use: Memorial public-origin gold: blocked."
+        "Use: Memorial public-origin gold: blocked.",
+        "public_runtime_mode=pass",
+        "public_runtime_reason=memorial_runtime_declared",
+        "public_runtime_next_action=maintain_memorial_public_runtime",
+        "public_origin_access=blocked",
+        "public_origin_access_reason=public_origin_memorial_not_found",
+        "public_origin_access_next_action=republish_public_memorial_bundle_or_fix_slug"
       ]
     },
     {
@@ -330,6 +345,11 @@
     "contract_backed_check_count": 14
   },
   "required_next_receipts": [
+    "memorial public-origin access next action: republish_public_memorial_bundle_or_fix_slug",
+    ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json is not pass",
+    "weekly release_health=blocked: The EA flagship receipt is blocked by the current browser workflow proof or release evidence.",
+    "weekly flagship_readiness=blocked: Browser workflow proof is currently blocked, so the flagship receipt cannot support wider release claims.",
+    "weekly launch_readiness: Hold launch expansion pending browser execution proof and cross-host journey coverage.",
     "canonical Chummer product/UI design review receipt from the owning design repo",
     "public/human-facing Chummer documentation humanization review receipt",
     "desktop/public surface visual polish acceptance receipt from the owning UI repo",
@@ -350,6 +370,7 @@
     "live_observation_missing",
     "video_sent_text_ack_without_delivery_receipt",
     "public-origin room/device audio intelligibility receipt with manual attestation",
+    "public memorial page or manifest not found at configured public origin",
     "LTD provider lane check pending: fliplink_document_portal:first_publication_receipt",
     "LTD provider lane check pending: hedy_meeting_evidence:hedy_provider_capability",
     "LTD provider lane check pending: markupgo_fliplink_premium_delivery:markupgo_provider_proof",

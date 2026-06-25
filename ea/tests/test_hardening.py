@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 from dataclasses import replace
@@ -21,7 +22,10 @@ from app.api.app import create_app
 from app.api.routes import landing_access_support
 from app.api.routes import landing_channel
 from app.api.routes import landing_browser
+from app.api.routes import providers as providers_route
+from app.api.routes import responses as responses_route
 from app.services import responses_upstream
+from app.services import provider_registry
 from app.services import public_clickrank
 from app.services import public_rybbit
 from app.services import tool_execution_gemini_vortex_adapter as gemini_vortex_adapter
@@ -564,6 +568,169 @@ class HardeningTests(unittest.TestCase):
             self.assertEqual(responses_upstream._onemin_key_names(), ("key-0", "key-1", "key-2"))
             self.assertEqual(responses_upstream._onemin_active_keys(), ("key-0", "key-1", "key-2"))
 
+    def test_onemin_selector_discovers_six_indexed_accounts_without_legacy_primary(self) -> None:
+        env = {f"EA_RESPONSES_ONEMIN_API_KEY_{index}": f"key-{index}" for index in range(1, 7)}
+        with patch.dict(os.environ, env, clear=True):
+            self.assertEqual(
+                responses_upstream._onemin_secret_env_names(),
+                tuple(f"EA_RESPONSES_ONEMIN_API_KEY_{index}" for index in range(1, 7)),
+            )
+            self.assertEqual(
+                responses_upstream._onemin_key_names(),
+                tuple(f"key-{index}" for index in range(1, 7)),
+            )
+            self.assertEqual(responses_upstream._onemin_active_keys(), tuple(f"key-{index}" for index in range(1, 7)))
+            self.assertEqual(
+                responses_upstream._onemin_key_slot("key-1", key_names=responses_upstream._onemin_key_names()),
+                "primary",
+            )
+            self.assertEqual(
+                responses_upstream._onemin_key_slot("key-6", key_names=responses_upstream._onemin_key_names()),
+                "fallback_5",
+            )
+
+    def test_onemin_selector_applies_slots_to_indexed_accounts(self) -> None:
+        env = {
+            **{f"EA_RESPONSES_ONEMIN_API_KEY_{index}": f"key-{index}" for index in range(1, 7)},
+            "EA_RESPONSES_ONEMIN_ACTIVE_SLOTS": "primary,fallback_5",
+            "EA_RESPONSES_ONEMIN_RESERVE_SLOTS": "fallback_1,fallback_2,fallback_3,fallback_4",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            self.assertEqual(responses_upstream._onemin_active_keys(), ("key-1", "key-6"))
+            self.assertEqual(responses_upstream._onemin_reserve_keys(), ("key-2", "key-3", "key-4", "key-5"))
+            self.assertEqual(
+                responses_upstream._ordered_onemin_keys_allow_reserve(False),
+                ("key-1", "key-6"),
+            )
+            self.assertEqual(
+                responses_upstream._ordered_onemin_keys_allow_reserve(True),
+                tuple(f"key-{index}" for index in range(1, 7)),
+            )
+
+    def test_onemin_selector_supports_generic_all_and_ranges(self) -> None:
+        env = {
+            **{f"EA_RESPONSES_ONEMIN_API_KEY_{index}": f"key-{index}" for index in range(1, 12)},
+            "EA_RESPONSES_ONEMIN_ACTIVE_SLOTS": "all",
+            "EA_RESPONSES_ONEMIN_RESERVE_SLOTS": "none",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            self.assertEqual(responses_upstream._onemin_active_keys(), tuple(f"key-{index}" for index in range(1, 12)))
+            self.assertEqual(responses_upstream._onemin_reserve_keys(), ())
+
+        env = {
+            **{f"EA_RESPONSES_ONEMIN_API_KEY_{index}": f"key-{index}" for index in range(1, 12)},
+            "EA_RESPONSES_ONEMIN_ACTIVE_SLOTS": "primary,fallback_1..fallback_5",
+            "EA_RESPONSES_ONEMIN_RESERVE_SLOTS": "fallback_6:fallback_10",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            self.assertEqual(responses_upstream._onemin_active_keys(), tuple(f"key-{index}" for index in range(1, 7)))
+            self.assertEqual(responses_upstream._onemin_reserve_keys(), tuple(f"key-{index}" for index in range(7, 12)))
+
+    def test_provider_registry_discovers_indexed_onemin_accounts(self) -> None:
+        env = {f"EA_RESPONSES_ONEMIN_API_KEY_{index}": f"key-{index}" for index in range(1, 7)}
+        with patch.dict(os.environ, env, clear=True):
+            self.assertEqual(
+                provider_registry._onemin_secret_env_names(),
+                tuple(f"EA_RESPONSES_ONEMIN_API_KEY_{index}" for index in range(1, 7)),
+            )
+
+    def test_provider_health_fallback_uses_generic_indexed_onemin_selector(self) -> None:
+        env = {f"EA_RESPONSES_ONEMIN_API_KEY_{index}": f"key-{index}" for index in range(1, 7)}
+        with patch.dict(os.environ, env, clear=True):
+            snapshot = responses_route._minimal_provider_health_snapshot(
+                lightweight=True,
+                reason="unit_test",
+            )
+
+        slots = snapshot["providers"]["onemin"]["slots"]
+        self.assertEqual(snapshot["providers"]["onemin"]["configured_slots"], 6)
+        self.assertEqual(
+            [slot["account_name"] for slot in slots],
+            [f"EA_RESPONSES_ONEMIN_API_KEY_{index}" for index in range(1, 7)],
+        )
+        self.assertEqual([slot["slot"] for slot in slots], ["primary", "fallback_1", "fallback_2", "fallback_3", "fallback_4", "fallback_5"])
+
+    def test_provider_onemin_slot_names_support_indexed_account_labels(self) -> None:
+        self.assertEqual(providers_route._onemin_slot_name_for_account_label("EA_RESPONSES_ONEMIN_API_KEY"), "primary")
+        self.assertEqual(providers_route._onemin_slot_name_for_account_label("EA_RESPONSES_ONEMIN_API_KEY_1"), "primary")
+        self.assertEqual(providers_route._onemin_slot_name_for_account_label("EA_RESPONSES_ONEMIN_API_KEY_6"), "fallback_5")
+        self.assertEqual(providers_route._onemin_slot_name_for_account_label("ONEMIN_API_KEY_6"), "fallback_5")
+
+    def test_provider_onemin_binding_resolution_accepts_indexed_external_refs(self) -> None:
+        binding = SimpleNamespace(
+            auth_metadata_json={"trusted_onemin_mapping": True},
+            external_account_ref="EA_RESPONSES_ONEMIN_API_KEY_6",
+        )
+        self.assertEqual(providers_route._resolve_onemin_account_labels(binding), ("EA_RESPONSES_ONEMIN_API_KEY_6",))
+
+    def test_provider_health_env_signature_tracks_indexed_onemin_keys(self) -> None:
+        base_env = {f"EA_RESPONSES_ONEMIN_API_KEY_{index}": f"key-{index}" for index in range(1, 7)}
+        with patch.dict(os.environ, base_env, clear=True):
+            first_signature = responses_route._provider_health_env_signature()
+        updated_env = dict(base_env)
+        updated_env["EA_RESPONSES_ONEMIN_API_KEY_6"] = "key-6-rotated"
+        with patch.dict(os.environ, updated_env, clear=True):
+            second_signature = responses_route._provider_health_env_signature()
+
+        self.assertNotEqual(first_signature, second_signature)
+
+    def test_onemin_shell_resolver_discovers_six_indexed_accounts_from_env_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_file = Path(tmpdir) / ".env"
+            env_file.write_text(
+                "\n".join(
+                    [
+                        "# six account rotation should not require hardcoded fallbacks",
+                        *(f"EA_RESPONSES_ONEMIN_API_KEY_{index}='key-{index}'" for index in range(1, 7)),
+                        "ONEMIN_AI_API_KEY_FALLBACK_99=key-6",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            env = {
+                "PATH": os.environ.get("PATH", ""),
+                "EA_ENV_FILE": str(env_file),
+            }
+            all_keys = subprocess.run(
+                ["bash", "../scripts/resolve_onemin_ai_key.sh", "--all"],
+                cwd=Path(__file__).resolve().parents[1],
+                env=env,
+                text=True,
+                check=True,
+                capture_output=True,
+            )
+            self.assertEqual(all_keys.stdout.splitlines(), [f"key-{index}" for index in range(1, 7)])
+
+            next_key = subprocess.run(
+                ["bash", "../scripts/resolve_onemin_ai_key.sh", "--next", "key-5"],
+                cwd=Path(__file__).resolve().parents[1],
+                env=env,
+                text=True,
+                check=True,
+                capture_output=True,
+            )
+            self.assertEqual(next_key.stdout.strip(), "key-6")
+
+    def test_provider_registry_discovers_onemin_slot_ranges(self) -> None:
+        env = {
+            "ONEMIN_AI_API_KEY": "key-0",
+            "EA_RESPONSES_ONEMIN_ACTIVE_SLOTS": "primary,fallback_2..fallback_4",
+            "EA_RESPONSES_ONEMIN_RESERVE_SLOTS": "fallback_8:fallback_9",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            self.assertEqual(
+                provider_registry._onemin_secret_env_names(),
+                (
+                    "ONEMIN_AI_API_KEY",
+                    "ONEMIN_AI_API_KEY_FALLBACK_2",
+                    "ONEMIN_AI_API_KEY_FALLBACK_3",
+                    "ONEMIN_AI_API_KEY_FALLBACK_4",
+                    "ONEMIN_AI_API_KEY_FALLBACK_8",
+                    "ONEMIN_AI_API_KEY_FALLBACK_9",
+                ),
+            )
+
     def test_onemin_json_attempt_wrapper_records_live_success_and_drains_inflight(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir, patch.dict(
             os.environ,
@@ -678,6 +845,85 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("onemin_attempt_telemetry", report)
         self.assertEqual(report["onemin_attempt_telemetry"]["selected_window"]["attempt_count"], 1)
         self.assertEqual(report["onemin_attempt_telemetry"]["selected_window"]["success_count"], 1)
+
+    def test_codex_status_report_keeps_redacted_provider_capacity_counts(self) -> None:
+        provider_health = {
+            "providers": {
+                "onemin": {
+                    "configured_slots": 6,
+                    "live_dispatchable_slot_count": 2,
+                    "slots": [
+                        {"account_name": "secret-primary", "state": "ready", "slot_role": "active"},
+                        {"account_name": "secret-fallback-1", "state": "ready", "slot_role": "active"},
+                        {"account_name": "secret-fallback-2", "state": "degraded", "slot_role": "reserve"},
+                        {"account_name": "secret-fallback-3", "state": "unknown", "slot_role": "reserve"},
+                        {"account_name": "secret-fallback-4", "state": "unknown", "slot_role": "reserve"},
+                        {"account_name": "secret-fallback-5", "state": "unknown", "slot_role": "reserve"},
+                    ],
+                }
+            },
+            "provider_config": {
+                "onemin_accounts": ["secret-primary", "secret-fallback-1", "secret-fallback-2"],
+                "onemin_active_accounts": ["secret-primary", "secret-fallback-1"],
+                "onemin_reserve_accounts": ["secret-fallback-2"],
+            },
+            "jury_service": {},
+        }
+
+        report = responses_upstream.codex_status_report(
+            window="1h",
+            principal_id="principal-2",
+            provider_health=provider_health,
+        )
+
+        self.assertEqual(report["provider_health"], {})
+        self.assertEqual(report["providers_summary"], [])
+        self.assertEqual(report["onemin_aggregate"], {})
+        self.assertEqual(report["provider_capacity"]["redaction"], "counts_only")
+        self.assertEqual(report["provider_capacity"]["onemin"]["configured_slots"], 6)
+        self.assertEqual(report["provider_capacity"]["onemin"]["ready_slots"], 2)
+        self.assertEqual(report["provider_capacity"]["onemin"]["degraded_slots"], 1)
+        self.assertEqual(report["provider_capacity"]["onemin"]["unknown_slots"], 3)
+        self.assertEqual(report["provider_capacity"]["onemin"]["configured_accounts"], 3)
+        self.assertEqual(report["provider_capacity"]["onemin"]["active_accounts"], 2)
+        self.assertEqual(report["provider_capacity"]["onemin"]["reserve_accounts"], 1)
+        self.assertNotIn("secret-primary", str(report["provider_capacity"]))
+
+    def test_compact_codex_status_report_keeps_redacted_provider_capacity_counts(self) -> None:
+        provider_health = {
+            "providers": {
+                "onemin": {
+                    "configured_slots": 3,
+                    "live_ready_slot_count": 1,
+                    "slots": [
+                        {"account_name": "secret-primary", "state": "ready", "slot_role": "active"},
+                        {"account_name": "secret-fallback-1", "state": "unknown", "slot_role": "active"},
+                        {"account_name": "secret-fallback-2", "state": "unknown", "slot_role": "reserve"},
+                    ],
+                }
+            },
+            "provider_config": {
+                "onemin_accounts": ["secret-primary", "secret-fallback-1", "secret-fallback-2"],
+                "onemin_active_accounts": ["secret-primary", "secret-fallback-1"],
+                "onemin_reserve_accounts": ["secret-fallback-2"],
+            },
+            "jury_service": {},
+        }
+
+        report = responses_upstream.codex_status_report(
+            window="1h",
+            principal_id="principal-2",
+            provider_health=provider_health,
+            compact=True,
+        )
+
+        self.assertEqual(report["provider_health"], {"providers": {"_compact": {"state": "ready"}}})
+        self.assertEqual(report["providers_summary"], [])
+        self.assertEqual(report["provider_capacity"]["onemin"]["configured_slots"], 3)
+        self.assertEqual(report["provider_capacity"]["onemin"]["ready_slots"], 1)
+        self.assertEqual(report["provider_capacity"]["onemin"]["unknown_slots"], 2)
+        self.assertEqual(report["provider_capacity"]["onemin"]["active_accounts"], 2)
+        self.assertNotIn("secret-primary", str(report["provider_capacity"]))
 
 
 if __name__ == "__main__":

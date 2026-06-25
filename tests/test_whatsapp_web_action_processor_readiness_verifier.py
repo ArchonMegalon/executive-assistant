@@ -33,6 +33,7 @@ def test_whatsapp_web_action_processor_readiness_verifier_accepts_ready_receipt(
         state_fresh=True,
         rules=[
             "A ready runtime receipt does not prove a live audiobook delivery happened.",
+            "Ready runtime means WhatsApp can process both button callbacks and degraded text controls for audiobook voice selection when the upstream transport preserves those messages.",
             "A blocked runtime receipt means the WhatsApp action processor cannot be trusted for fresh live EPUB evidence yet.",
             "Live delivery still requires a fresh WhatsApp job receipt plus public-share delivery and playback evidence.",
         ],
@@ -63,6 +64,7 @@ def test_whatsapp_web_action_processor_readiness_verifier_rejects_invalid_ready_
         state_fresh=True,
         rules=[
             "A ready runtime receipt does not prove a live audiobook delivery happened.",
+            "Ready runtime means WhatsApp can process both button callbacks and degraded text controls for audiobook voice selection when the upstream transport preserves those messages.",
             "A blocked runtime receipt means the WhatsApp action processor cannot be trusted for fresh live EPUB evidence yet.",
             "Live delivery still requires a fresh WhatsApp job receipt plus public-share delivery and playback evidence.",
         ],
@@ -96,6 +98,7 @@ def test_whatsapp_web_action_processor_readiness_verifier_rejects_missing_source
         state_fresh=True,
         rules=[
             "A ready runtime receipt does not prove a live audiobook delivery happened.",
+            "Ready runtime means WhatsApp can process both button callbacks and degraded text controls for audiobook voice selection when the upstream transport preserves those messages.",
             "A blocked runtime receipt means the WhatsApp action processor cannot be trusted for fresh live EPUB evidence yet.",
             "Live delivery still requires a fresh WhatsApp job receipt plus public-share delivery and playback evidence.",
         ],

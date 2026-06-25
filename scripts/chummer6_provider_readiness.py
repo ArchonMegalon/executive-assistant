@@ -312,7 +312,7 @@ def provider_state(name: str) -> dict[str, object]:
             "adapters": adapters,
             "detail": detail,
             "command": command_name,
-            "model": env_value("EA_GEMINI_VORTEX_MODEL") or "gemini-2.5-flash",
+            "model": env_value("EA_GEMINI_VORTEX_MODEL") or "gemini-3.5-flash",
         }
     if name == "browseract":
         available = bool(raw_keys)

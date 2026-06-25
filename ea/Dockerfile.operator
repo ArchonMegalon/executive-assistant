@@ -34,12 +34,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxrandr2 \
     libxrender1 \
     libxshmfence1 && \
-    curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-29.3.0.tgz -o /tmp/docker.tgz && \
-    tar -xzf /tmp/docker.tgz -C /tmp && \
-    mv /tmp/docker/docker /usr/local/bin/docker && \
-    chmod +x /usr/local/bin/docker && \
     rm -rf /var/lib/apt/lists/* && \
-    rm -rf /tmp/docker /tmp/docker.tgz && \
     adduser --system --uid 10001 --group ea
 
 WORKDIR /app
@@ -60,7 +55,6 @@ RUN set -eu; \
     fi; \
     cp "$APP_SRC/requirements.txt" /app/requirements.txt; \
     if [ -f "$APP_SRC/requirements.lock" ]; then cp "$APP_SRC/requirements.lock" /app/requirements.lock; fi; \
-    if [ -f "$APP_SRC/requirements-openvoice.txt" ]; then cp "$APP_SRC/requirements-openvoice.txt" /app/requirements-openvoice.txt; fi; \
     cp -r "$APP_SRC/app" /app/; \
     cp "$APP_SRC/docker-entrypoint.sh" /usr/local/bin/docker-entrypoint.sh; \
     if [ -d "$APP_SRC/_completion" ]; then \
@@ -103,7 +97,7 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh && \
 
 USER ea
 HEALTHCHECK --interval=30s --timeout=15s --start-period=30s --retries=5 \
-  CMD ["/bin/sh", "-ec", "role=${EA_ROLE:-api}; case \"$role\" in worker|scheduler) exit 0 ;; openvoice) port=${OPENVOICE_PORT:-8093}; curl -fsS --connect-timeout 2 --max-time 10 http://127.0.0.1:${port}/health/live >/dev/null ;; *) curl -fsS --connect-timeout 2 --max-time 10 http://127.0.0.1:8090/health/live >/dev/null ;; esac"]
+  CMD ["/bin/sh", "-ec", "role=${EA_ROLE:-api}; case \"$role\" in worker|scheduler) exit 0 ;; *) curl -fsS --connect-timeout 2 --max-time 10 http://127.0.0.1:8090/health/live >/dev/null ;; esac"]
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["python", "-m", "app.runner"]

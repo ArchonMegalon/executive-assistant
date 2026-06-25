@@ -25,7 +25,10 @@ from app.api.dependencies import get_container
 from app.api.routes.landing_public_support import _anonymous_onboarding_status, _public_context, templates as public_templates
 from app.container import AppContainer
 from app.product.service import _property_feedback_reason_map, build_product_service
+from app.services.public_artifact_paths import public_tour_dir
 from app.services.public_clickrank import clickrank_head_snippet, request_hostname
+from app.services.public_request import trust_forwarded_ip
+from app.services.public_rybbit import request_hostname as rybbit_request_hostname
 from app.services.public_rybbit import rybbit_head_snippet
 
 router = APIRouter(tags=["public-tours"])
@@ -57,7 +60,7 @@ def _fact_value_is_weak(value: object) -> bool:
 
 
 def _tour_dir() -> Path:
-    return Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+    return public_tour_dir()
 
 
 def _resolved_tour_root() -> Path:
@@ -1244,16 +1247,11 @@ def _safe_public_tour_ip(value: object) -> str:
         return ""
 
 
-def _public_tour_trust_x_forwarded_for() -> bool:
-    raw = str(os.environ.get("PROPERTYQUARRY_TRUST_X_FORWARDED_FOR") or "").strip().lower()
-    return raw in {"1", "true", "yes", "on", "y"}
-
-
 def _public_tour_client_identity(request: Request) -> str:
     cf_ip = _safe_public_tour_ip(request.headers.get("cf-connecting-ip"))
-    if cf_ip and str(request.headers.get("cf-ray") or "").strip():
+    if trust_forwarded_ip() and cf_ip and str(request.headers.get("cf-ray") or "").strip():
         return f"cf:{cf_ip}"
-    if _public_tour_trust_x_forwarded_for():
+    if trust_forwarded_ip():
         for part in str(request.headers.get("x-forwarded-for") or "").split(","):
             forwarded_ip = _safe_public_tour_ip(part)
             if forwarded_ip:
@@ -2032,7 +2030,7 @@ def _public_tour_host_brand_label(hostname: str, *, fallback: str = "this domain
     return str(fallback or "this domain").strip() or "this domain"
 
 
-def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
+def _tour_html(payload: dict[str, object], *, hostname: str = "", rybbit_hostname: str = "") -> str:
     scenes = [dict(row) for row in (payload.get("scenes") or []) if isinstance(row, dict)]
     if not scenes:
         raise HTTPException(status_code=500, detail="tour_scenes_missing")
@@ -4488,7 +4486,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         '</section>'
     )
     clickrank_html = clickrank_head_snippet(hostname)
-    rybbit_html = rybbit_head_snippet(hostname)
+    rybbit_html = rybbit_head_snippet(rybbit_hostname or hostname)
     return f"""<!doctype html>
 <html lang="de">
   <head>
@@ -5196,6 +5194,7 @@ def public_tour_page(
     container: AppContainer = Depends(get_container),
 ) -> HTMLResponse:
     hostname = request_hostname(request)
+    rybbit_hostname = rybbit_request_hostname(request)
     try:
         payload = _load_tour(slug)
         _require_public_tour_viewable(payload)
@@ -5228,7 +5227,10 @@ def public_tour_page(
         rendered_payload["_feedback_suggestions"] = dict(feedback_context.get("feedback_suggestions") or {})
         rendered_payload["_learning_summary"] = dict(feedback_context.get("learning_summary") or {})
         rendered_payload["_shortlist_compare"] = dict(shortlist_compare or {})
-        return HTMLResponse(_tour_html(rendered_payload, hostname=hostname), headers=_public_tour_security_headers())
+        return HTMLResponse(
+            _tour_html(rendered_payload, hostname=hostname, rybbit_hostname=rybbit_hostname),
+            headers=_public_tour_security_headers(),
+        )
     except HTTPException as exc:
         detail = str(exc.detail or "").strip().lower()
         if exc.status_code == 404 and detail == "tour_disabled_fallback":

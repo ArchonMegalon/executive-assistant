@@ -3,13 +3,14 @@ from __future__ import annotations
 import html
 import json
 import mimetypes
-import os
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from app.services.public_clickrank import clickrank_head_snippet, request_hostname
+from app.services.public_artifact_paths import public_result_dir
+from app.services.public_rybbit import request_hostname as rybbit_request_hostname
 from app.services.public_rybbit import rybbit_head_snippet
 from app.services.public_surface_limits import enforce_public_surface_rate_limit, public_surface_client_key
 
@@ -36,7 +37,7 @@ def _enforce_public_result_rate_limit(request: Request, *, bucket: str, slug: st
 
 
 def _result_dir() -> Path:
-    return Path(str(os.getenv("EA_PUBLIC_RESULT_DIR") or "/docker/fleet/state/public_browseract_results")).expanduser()
+    return public_result_dir()
 
 
 def _result_base_dir(slug: str) -> Path:
@@ -103,7 +104,7 @@ def _viewer_kind(payload: dict[str, object]) -> str:
     return "text"
 
 
-def _result_html(payload: dict[str, object], *, hostname: str = "") -> str:
+def _result_html(payload: dict[str, object], *, hostname: str = "", rybbit_hostname: str = "") -> str:
     title = html.escape(_maybe_text(payload.get("title")) or _maybe_text(payload.get("result_title")) or "EA Result")
     service = html.escape(_maybe_text(payload.get("service_key")) or _maybe_text(payload.get("service_name")) or "browseract")
     summary = html.escape(_maybe_text(payload.get("summary")) or _maybe_text(payload.get("normalized_text")))
@@ -114,7 +115,7 @@ def _result_html(payload: dict[str, object], *, hostname: str = "") -> str:
     asset_relpath = _maybe_text(payload.get("asset_relpath"))
     asset_href = f"/results/files/{html.escape(slug)}/{html.escape(asset_relpath)}" if slug and asset_relpath else ""
     clickrank_html = clickrank_head_snippet(hostname)
-    rybbit_html = rybbit_head_snippet(hostname)
+    rybbit_html = rybbit_head_snippet(rybbit_hostname or hostname)
     hosted_url = _maybe_text(payload.get("hosted_url")) or _maybe_text(payload.get("public_url"))
     vendor_public_url = _maybe_text(payload.get("crezlo_public_url"))
     source_links = [
@@ -257,4 +258,11 @@ def public_result_file(slug: str, asset_path: str, request: Request) -> FileResp
 @router.get("/results/{slug}", response_class=HTMLResponse)
 def public_result_page(slug: str, request: Request) -> HTMLResponse:
     _enforce_public_result_rate_limit(request, bucket="page", slug=slug)
-    return HTMLResponse(_result_html(_load_manifest(slug), hostname=request_hostname(request)), headers={"Cache-Control": "no-store"})
+    return HTMLResponse(
+        _result_html(
+            _load_manifest(slug),
+            hostname=request_hostname(request),
+            rybbit_hostname=rybbit_request_hostname(request),
+        ),
+        headers={"Cache-Control": "no-store"},
+    )

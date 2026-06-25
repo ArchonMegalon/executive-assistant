@@ -235,10 +235,16 @@ def app_channel_action(
             status_code=404,
         )
     workspace_session = _workspace_session_payload(request, container)
+    authenticated_context: RequestContext | None = None
+    try:
+        authenticated_context = get_request_context(request, container, access_identity)
+    except HTTPException:
+        authenticated_context = None
+    actor_context = authenticated_context or RequestContext(principal_id="", authenticated=False)
     trusted_browser = (
         access_identity is not None
-        or bool(str(request.headers.get("X-EA-Principal-ID") or "").strip())
         or workspace_session is not None
+        or bool(authenticated_context and authenticated_context.authenticated)
     )
     if request.method == "HEAD":
         return _render_channel_action_confirmation(request, token=token, preview=preview)
@@ -246,10 +252,11 @@ def app_channel_action(
         return _render_channel_action_confirmation(request, token=token, preview=preview)
     actor = str(
         getattr(access_identity, "email", "")
+        or str(actor_context.access_email or "").strip().lower()
+        or str(actor_context.operator_id or "").strip()
+        or str(actor_context.principal_id or "").strip()
         or str((workspace_session or {}).get("email") or "").strip().lower()
         or str((workspace_session or {}).get("principal_id") or "").strip()
-        or request.headers.get("X-EA-Operator-ID")
-        or request.headers.get("X-EA-Principal-ID")
         or "channel_link"
     ).strip() or "channel_link"
     preferred_operator_id = str((workspace_session or {}).get("operator_id") or "").strip()

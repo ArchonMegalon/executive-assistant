@@ -25,8 +25,18 @@ from app.services.browseract_ui_service_catalog import (
     browseract_ui_service_by_tool,
 )
 from app.services.browseract_ui_template_catalog import browseract_ui_template_spec
+from app.services.public_artifact_paths import public_tour_dir
+from app.services.public_urls import propertyquarry_public_tour_base_url
 from app.services.tool_execution_common import ToolExecutionError
 from app.services.tool_execution_connector_dispatch_adapter import ConnectorDispatchToolAdapter
+
+
+def _repo_root() -> Path:
+    current = Path(__file__).resolve()
+    for parent in current.parents:
+        if (parent / ".git").is_dir() or (parent / ".codex-design").is_dir():
+            return parent
+    return current.parents[3]
 
 
 def _extract_textish(value: object) -> str:
@@ -350,7 +360,7 @@ class BrowserActToolAdapter:
             str(
                 Path(
                     os.getenv("EA_UI_SERVICE_WORKER_OUTPUT_ROOT")
-                    or "/mnt/pcloud/EA/browseract_ui_worker_outputs"
+                    or (_repo_root() / ".runtime" / "browseract_ui_worker_outputs")
                 ).expanduser()
             ),
         )
@@ -359,7 +369,7 @@ class BrowserActToolAdapter:
             str(
                 Path(
                     os.getenv("EA_UI_SERVICE_SHARED_TEMP_ROOT")
-                    or "/mnt/pcloud/EA/browseract_ui_worker_shared"
+                    or (_repo_root() / ".runtime" / "browseract_ui_worker_shared")
                 ).expanduser()
             ),
         )
@@ -2797,9 +2807,6 @@ class BrowserActToolAdapter:
         filename = worker_name or filename_map.get(normalized, "")
         if not filename:
             return Path("")
-        docker_candidate = Path("/docker/EA/scripts") / filename
-        if docker_candidate.exists():
-            return docker_candidate
         resolved = Path(__file__).resolve()
         for parent in resolved.parents:
             candidate = parent / "scripts" / filename
@@ -2812,9 +2819,6 @@ class BrowserActToolAdapter:
         explicit = str(os.getenv("EA_PUBLIC_RESULT_PUBLISHER") or "").strip()
         if explicit:
             return Path(explicit).expanduser()
-        docker_candidate = Path("/docker/EA/scripts/publish_browseract_ui_results.py")
-        if docker_candidate.exists():
-            return docker_candidate
         resolved = Path(__file__).resolve()
         for parent in resolved.parents:
             candidate = parent / "scripts" / "publish_browseract_ui_results.py"
@@ -2911,13 +2915,14 @@ class BrowserActToolAdapter:
 
     @staticmethod
     def _crezlo_public_tour_dir() -> Path:
-        return Path(
-            str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")
-        ).expanduser()
+        return public_tour_dir()
 
     @staticmethod
     def _crezlo_public_tour_base_url() -> str:
-        return str(os.getenv("EA_PUBLIC_TOUR_BASE_URL") or "https://myexternalbrain.com/tours").strip().rstrip("/")
+        explicit = str(os.getenv("EA_PUBLIC_TOUR_BASE_URL") or "").strip().rstrip("/")
+        if explicit:
+            return explicit
+        return propertyquarry_public_tour_base_url()
 
     @staticmethod
     def _crezlo_public_tour_slug(

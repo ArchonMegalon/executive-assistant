@@ -3,19 +3,30 @@ set -euo pipefail
 
 EA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${EA_ROOT}"
+PYTHON_BIN="${PYTHON_BIN:-}"
+if [[ -z "${PYTHON_BIN}" ]]; then
+  if [[ -x "${EA_ROOT}/.venv/bin/python" ]]; then
+    PYTHON_BIN="${EA_ROOT}/.venv/bin/python"
+  else
+    PYTHON_BIN="python3"
+  fi
+fi
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   cat <<'EOF'
 Usage:
   bash scripts/verify_release_assets.sh
 
-Validates presence of required runtime docs, scripts, and schema files.
-Exits non-zero when any required asset is missing.
+Refreshes then validates the EA release bundle: required docs/artifacts exist and
+release gates such as design-mirror, deploy-context, release-authority,
+authoritative live runtime release posture, and runtime supply-chain
+verification still pass. Exits non-zero on drift.
 EOF
   exit 0
 fi
 
 missing=0
+PYTHONPATH=ea "${PYTHON_BIN}" scripts/materialize_release_bundle.py --python-bin "${PYTHON_BIN}" >/dev/null
 
 SMOKE_RUNTIME_GUARD_FILES=(
   "tests/smoke_runtime_api.py"
@@ -54,6 +65,7 @@ required_files=(
   ".codex-design/product/SHOW_SURFACE_MANIFEST.generated.json"
   ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json"
   ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json"
+  ".codex-studio/published/release_authority_status.generated.json"
   ".codex-studio/published/telegram_video_delivery_operator.generated.json"
   ".codex-studio/published/telegram_video_delivery_live.generated.json"
   ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"
@@ -90,11 +102,17 @@ required_files=(
   "scripts/materialize_memorial_phrase_bank.py"
   "scripts/materialize_memorial_operator_status.py"
   "scripts/materialize_memorial_voice_roundtrip_exit_gate.py"
+  "scripts/materialize_deploy_context.py"
+  "scripts/verify_deploy_context.py"
   "scripts/verify_memorial_voice_stability_gate.py"
   "scripts/materialize_project_mode_manifests.py"
   "scripts/verify_project_mode_manifests.py"
   "scripts/verify_project_mode_runtime.py"
   "scripts/verify_release_authority.py"
+  "scripts/materialize_release_authority_status.py"
+  "scripts/verify_runtime_supply_chain.py"
+  "scripts/materialize_runtime_dependency_evidence.py"
+  "scripts/verify_runtime_dependency_evidence.py"
   "scripts/materialize_whole_project_gold_map.py"
   "scripts/materialize_teable_env_recovery_readiness.py"
   "scripts/materialize_whatsapp_web_action_processor_readiness.py"
@@ -156,7 +174,7 @@ if [[ -f "${f}" ]]; then
   fi
 done
 
-if python3 scripts/verify_design_mirror_bundle.py >/tmp/ea_design_mirror_verify.out 2>/tmp/ea_design_mirror_verify.err; then
+if "${PYTHON_BIN}" scripts/verify_design_mirror_bundle.py >/tmp/ea_design_mirror_verify.out 2>/tmp/ea_design_mirror_verify.err; then
   echo "ok: bounded design mirror bundle parity"
 else
   cat /tmp/ea_design_mirror_verify.out
@@ -165,7 +183,7 @@ else
   missing=1
 fi
 
-if python3 scripts/verify_full_design_mirror_parity.py >/tmp/ea_design_mirror_full_verify.out 2>/tmp/ea_design_mirror_full_verify.err; then
+if "${PYTHON_BIN}" scripts/verify_full_design_mirror_parity.py >/tmp/ea_design_mirror_full_verify.out 2>/tmp/ea_design_mirror_full_verify.err; then
   echo "ok: full design mirror parity"
 else
   cat /tmp/ea_design_mirror_full_verify.out
@@ -174,12 +192,39 @@ else
   missing=1
 fi
 
-if python3 scripts/verify_release_authority.py >/tmp/ea_release_authority_verify.out 2>/tmp/ea_release_authority_verify.err; then
+if "${PYTHON_BIN}" scripts/verify_release_authority.py >/tmp/ea_release_authority_verify.out 2>/tmp/ea_release_authority_verify.err; then
   echo "ok: release authority gate"
 else
   cat /tmp/ea_release_authority_verify.out
   cat /tmp/ea_release_authority_verify.err >&2
   echo "missing: release authority gate" >&2
+  missing=1
+fi
+
+if "${PYTHON_BIN}" scripts/verify_deploy_context.py >/tmp/ea_deploy_context_verify.out 2>/tmp/ea_deploy_context_verify.err; then
+  echo "ok: deploy context gate"
+else
+  cat /tmp/ea_deploy_context_verify.out
+  cat /tmp/ea_deploy_context_verify.err >&2
+  echo "missing: deploy context gate" >&2
+  missing=1
+fi
+
+if "${PYTHON_BIN}" scripts/verify_release_authority_runtime.py --pretty --require-authoritative >/tmp/ea_release_runtime_authoritative_verify.out 2>/tmp/ea_release_runtime_authoritative_verify.err; then
+  echo "ok: authoritative live runtime release gate"
+else
+  cat /tmp/ea_release_runtime_authoritative_verify.out
+  cat /tmp/ea_release_runtime_authoritative_verify.err >&2
+  echo "missing: authoritative live runtime release gate" >&2
+  missing=1
+fi
+
+if "${PYTHON_BIN}" scripts/verify_runtime_supply_chain.py >/tmp/ea_runtime_supply_chain_verify.out 2>/tmp/ea_runtime_supply_chain_verify.err; then
+  echo "ok: runtime supply-chain gate"
+else
+  cat /tmp/ea_runtime_supply_chain_verify.out
+  cat /tmp/ea_runtime_supply_chain_verify.err >&2
+  echo "missing: runtime supply-chain gate" >&2
   missing=1
 fi
 
@@ -336,7 +381,7 @@ else
   missing=1
 fi
 
-if python3 scripts/verify_generated_release_artifacts_clean.py >/tmp/ea_generated_release_artifacts_clean.out 2>/tmp/ea_generated_release_artifacts_clean.err
+if "${PYTHON_BIN}" scripts/verify_generated_release_artifacts_clean.py >/tmp/ea_generated_release_artifacts_clean.out 2>/tmp/ea_generated_release_artifacts_clean.err
 then
   echo "ok: generated release artifacts stay semantically aligned after materialization"
 else
@@ -688,6 +733,13 @@ else
   missing=1
 fi
 
+if grep -Fq "make verify-runtime-supply-chain" "README.md"; then
+  echo "ok: README runtime supply-chain reference"
+else
+  echo "missing: README runtime supply-chain reference" >&2
+  missing=1
+fi
+
 if grep -Fq "smoke, readiness, CI parity, release/support, and task-archive shortcuts" "README.md"; then
   echo "ok: README operator summary shortcut note"
 else
@@ -858,6 +910,13 @@ else
   missing=1
 fi
 
+if grep -Fq "make verify-runtime-supply-chain" "RUNBOOK.md"; then
+  echo "ok: RUNBOOK runtime supply-chain reference"
+else
+  echo "missing: RUNBOOK runtime supply-chain reference" >&2
+  missing=1
+fi
+
 if grep -Fq '  - `make verify-flagship-release-readiness`' "RUNBOOK.md" && \
    grep -Fq '  - `make verify-whole-project-gold-map`' "RUNBOOK.md" && \
    grep -Fq '  - `make verify-generated-release-artifacts-clean`' "RUNBOOK.md"; then
@@ -916,7 +975,7 @@ else
   missing=1
 fi
 
-if grep -Fq 'RELEASE_CHECKLIST.md` now includes explicit EA flagship truth-plane and release-readiness preflight lines to validate the browser proof, release gate seed, weekly pulse, and Fleet journey gate.' "RUNBOOK.md"; then
+if grep -Fq 'RELEASE_CHECKLIST.md` now includes explicit EA flagship truth-plane, release-authority, and release-readiness preflight lines to validate the browser proof, release gate seed, weekly pulse, Fleet journey gate, and deploy truth.' "RUNBOOK.md"; then
   echo "ok: RUNBOOK EA truth-plane linkage note"
 else
   echo "missing: RUNBOOK EA truth-plane linkage note" >&2
@@ -948,6 +1007,13 @@ if grep -Fq "make release-preflight" "RELEASE_CHECKLIST.md"; then
   echo "ok: RELEASE_CHECKLIST release-preflight line"
 else
   echo "missing: RELEASE_CHECKLIST release-preflight line" >&2
+  missing=1
+fi
+
+if grep -Fq "runtime supply-chain" "RELEASE_CHECKLIST.md"; then
+  echo "ok: RELEASE_CHECKLIST runtime supply-chain note"
+else
+  echo "missing: RELEASE_CHECKLIST runtime supply-chain note" >&2
   missing=1
 fi
 
@@ -1018,6 +1084,13 @@ if grep -Fq "make release-preflight" "CHANGELOG.md"; then
   echo "ok: CHANGELOG release-preflight note"
 else
   echo "missing: CHANGELOG release-preflight note" >&2
+  missing=1
+fi
+
+if grep -Fq "make verify-runtime-supply-chain" "CHANGELOG.md"; then
+  echo "ok: CHANGELOG runtime supply-chain note"
+else
+  echo "missing: CHANGELOG runtime supply-chain note" >&2
   missing=1
 fi
 
@@ -1201,7 +1274,7 @@ else
   missing=1
 fi
 
-if grep -Fq "ci-gates:" "Makefile" && grep -Fq "release-preflight:" "Makefile"; then
+if grep -Fq "ci-gates:" "Makefile" && grep -Fq "release-preflight:" "Makefile" && grep -Fq "verify-runtime-supply-chain" "Makefile"; then
   echo "ok: local gate bundle uses Makefile release gates"
 else
   echo "missing: local gate bundle Makefile release gates" >&2
@@ -1244,6 +1317,7 @@ if grep -Fq "make smoke-postgres-legacy" "scripts/operator_summary.sh" && \
    grep -Fq "make all-local" "scripts/operator_summary.sh" && \
    grep -Fq "make ci-gates-postgres-legacy" "scripts/operator_summary.sh" && \
    grep -Fq "make provider-readiness" "scripts/operator_summary.sh" && \
+   grep -Fq "make verify-runtime-supply-chain" "scripts/operator_summary.sh" && \
    grep -Fq "make verify-flagship-release-readiness" "scripts/operator_summary.sh" && \
    grep -Fq "make verify-whole-project-gold-map" "scripts/operator_summary.sh" && \
    grep -Fq "make materialize-memorial-operator-status" "scripts/operator_summary.sh" && \

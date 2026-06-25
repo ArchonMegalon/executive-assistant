@@ -29,6 +29,17 @@ def _derive_authority_posture(issues: list[str]) -> str:
         return "missing_manifest"
     if {"public_origin_missing", "public_origin_source_missing", "public_origin_not_runtime_origin"} & issue_set:
         return "missing_public_origin"
+    if {
+        "deploy_context_missing",
+        "deploy_context_generated_at_missing",
+        "deploy_context_branch_missing",
+        "deploy_context_tracking_branch_missing",
+        "deploy_context_commit_missing",
+        "deploy_context_branch_mismatch",
+        "deploy_context_commit_mismatch",
+        "deploy_context_tracking_branch_mismatch",
+    } & issue_set:
+        return "stale_deploy_context"
     if "deployment_id_local_fallback" in issue_set:
         return "local_only_deploy_id"
     if "dirty_worktree" in issue_set:
@@ -66,6 +77,10 @@ def validate_release_authority(
     public_origin_source = str(release_manifest.get("public_origin_source") or "").strip()
     git_remote_origin = str(release_manifest.get("git_remote_origin") or "").strip()
     release_label = str(release_manifest.get("release_label") or "").strip()
+    deploy_context_generated_at = str(release_manifest.get("deploy_context_generated_at") or "").strip()
+    deploy_context_branch = str(release_manifest.get("deploy_context_branch") or "").strip()
+    deploy_context_tracking_branch = str(release_manifest.get("deploy_context_tracking_branch") or "").strip()
+    deploy_context_commit_sha = str(release_manifest.get("deploy_context_commit_sha") or "").strip()
     project_mode = _normalize_mode(str(release_manifest.get("project_mode") or ""))
     enabled_project_modes = [
         _normalize_mode(str(item))
@@ -75,6 +90,7 @@ def validate_release_authority(
     compose_files = [str(item).strip() for item in list(release_manifest.get("compose_files") or []) if str(item).strip()]
     artifact_set = [str(item).strip() for item in list(release_manifest.get("artifact_set") or []) if str(item).strip()]
     dirty_worktree = bool(release_manifest.get("dirty_worktree"))
+    source_worktree_dirty = bool(release_manifest.get("source_worktree_dirty", dirty_worktree))
 
     declared_modes = {
         _normalize_mode(str(item.get("key") or ""))
@@ -115,7 +131,27 @@ def validate_release_authority(
         issues.append("enabled_project_modes_not_declared")
     if require_explicit_deployment and (deployment_id_source == "local_fallback" or deployment_id.startswith("local-")):
         issues.append("deployment_id_local_fallback")
-    if require_clean_worktree and dirty_worktree:
+    if require_explicit_deployment and deployment_id and "deployment_id_local_fallback" not in issues:
+        if not any((deploy_context_generated_at, deploy_context_branch, deploy_context_tracking_branch, deploy_context_commit_sha)):
+            issues.append("deploy_context_missing")
+        else:
+            if not deploy_context_generated_at:
+                issues.append("deploy_context_generated_at_missing")
+            if not deploy_context_branch:
+                issues.append("deploy_context_branch_missing")
+            if require_tracking_branch and not deploy_context_tracking_branch:
+                issues.append("deploy_context_tracking_branch_missing")
+            if not deploy_context_commit_sha:
+                issues.append("deploy_context_commit_missing")
+    local_only_deployment = deployment_id_source == "local_fallback" or deployment_id.startswith("local-")
+    if not local_only_deployment:
+        if deploy_context_branch and branch and deploy_context_branch != branch:
+            issues.append("deploy_context_branch_mismatch")
+        if deploy_context_commit_sha and commit_sha and deploy_context_commit_sha != commit_sha:
+            issues.append("deploy_context_commit_mismatch")
+        if deploy_context_tracking_branch and tracking_branch and deploy_context_tracking_branch != tracking_branch:
+            issues.append("deploy_context_tracking_branch_mismatch")
+    if require_clean_worktree and source_worktree_dirty:
         issues.append("dirty_worktree")
     return issues
 
@@ -150,6 +186,36 @@ def main() -> int:
         "issues": issues,
         "manifest_path": str(args.release_manifest),
         "project_modes_path": str(args.project_modes),
+        "repository": str(release_manifest.get("repository") or "").strip(),
+        "branch": str(release_manifest.get("branch") or "").strip(),
+        "tracking_branch": str(release_manifest.get("tracking_branch") or "").strip(),
+        "commit_sha": str(release_manifest.get("commit_sha") or "").strip(),
+        "deployment_id": str(release_manifest.get("deployment_id") or "").strip(),
+        "deployment_id_source": str(release_manifest.get("deployment_id_source") or "").strip(),
+        "public_origin": str(release_manifest.get("public_origin") or "").strip(),
+        "public_origin_source": str(release_manifest.get("public_origin_source") or "").strip(),
+        "deploy_context_generated_at": str(release_manifest.get("deploy_context_generated_at") or "").strip(),
+        "deploy_context_branch": str(release_manifest.get("deploy_context_branch") or "").strip(),
+        "deploy_context_tracking_branch": str(release_manifest.get("deploy_context_tracking_branch") or "").strip(),
+        "deploy_context_commit_sha": str(release_manifest.get("deploy_context_commit_sha") or "").strip(),
+        "project_mode": _normalize_mode(str(release_manifest.get("project_mode") or "")),
+        "enabled_project_modes": [
+            _normalize_mode(str(item))
+            for item in list(release_manifest.get("enabled_project_modes") or [])
+            if _normalize_mode(str(item))
+        ],
+        "compose_files": [str(item).strip() for item in list(release_manifest.get("compose_files") or []) if str(item).strip()],
+        "compose_overrides": [str(item).strip() for item in list(release_manifest.get("compose_overrides") or []) if str(item).strip()],
+        "dirty_worktree": bool(release_manifest.get("dirty_worktree")),
+        "source_worktree_dirty": bool(release_manifest.get("source_worktree_dirty", release_manifest.get("dirty_worktree"))),
+        "source_dirty_count": int(release_manifest.get("source_dirty_count") or 0),
+        "source_dirty_files": [
+            str(item).strip()
+            for item in list(release_manifest.get("source_dirty_files") or [])
+            if str(item).strip()
+        ],
+        "source_dirty_omitted_count": int(release_manifest.get("source_dirty_omitted_count") or 0),
+        "source_dirty_status_sha256": str(release_manifest.get("source_dirty_status_sha256") or "").strip(),
     }
     if args.pretty:
         print(json.dumps(payload, indent=2, sort_keys=True))

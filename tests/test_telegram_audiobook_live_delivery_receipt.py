@@ -6,6 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType
+import hashlib
 
 
 def _load_script(name: str) -> ModuleType:
@@ -29,6 +30,7 @@ def _job_receipt(
     render_status: str = "already_rendered",
     voice_selected_by_user: bool = False,
     replacement_choice_pending: bool = False,
+    origin_edition_delivery: bool = False,
 ) -> dict[str, object]:
     voice_selection = (
         {
@@ -52,7 +54,7 @@ def _job_receipt(
             },
         }
     )
-    return {
+    receipt = {
         "contract_name": "ea.telegram_epub_audiobook_job_receipt.v1",
         "status": status,
         "observed_at": "2026-06-19T21:00:00Z",
@@ -156,6 +158,25 @@ def _job_receipt(
             "private_job_path_exposed": False,
         },
     }
+    if origin_edition_delivery:
+        receipt["origin_edition_delivery"] = {
+            "status": "sent",
+            "project_id": "origin-live-gold",
+            "origin_namespace": "origin.chummer.run/Varga/Mira/Kestrel",
+            "telegram_delivery_status": "sent",
+            "telegram_message_id_present": True,
+            "links": {
+                "read": "https://chummer.run/account/work/origin-dossiers/origin-live-gold/read",
+                "listen": "https://chummer.run/account/work/origin-dossiers/origin-live-gold/listen",
+                "watch": "https://chummer.run/account/work/origin-dossiers/origin-live-gold/video",
+                "open_in_chummer": "https://chummer.run/account/work/origin-dossiers/origin-live-gold",
+            },
+        }
+    return receipt
+
+
+def _sha256(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def test_live_telegram_audiobook_delivery_receipt_passes_with_redacted_job_receipt(tmp_path: Path) -> None:
@@ -216,6 +237,35 @@ def test_live_telegram_audiobook_delivery_receipt_surfaces_playback_acceptance(
     assert selected["playback_acceptance_source"] == "telegram"
     assert selected["playback_acceptance_feedback_sha256"] == "f" * 64
     assert receipt["privacy"]["playback_acceptance_feedback_hashed"] is True
+
+
+def test_live_telegram_audiobook_delivery_receipt_surfaces_origin_link_bundle_without_raw_urls(
+    tmp_path: Path,
+) -> None:
+    module = _load_script("materialize_telegram_audiobook_live_delivery_receipt")
+
+    receipt = module.build_receipt(
+        output_path=tmp_path / "origin-links.generated.json",
+        job_receipts=[_job_receipt(origin_edition_delivery=True)],
+        generated_at="2026-06-19T21:20:00Z",
+    )
+
+    assert receipt["status"] == "pass"
+    bundle = receipt["selected_delivery"]["origin_edition_link_bundle"]
+    assert bundle["status"] == "sent"
+    assert bundle["project_id"] == "origin-live-gold"
+    assert bundle["telegram_delivery_status"] == "sent"
+    assert bundle["telegram_message_id_present"] is True
+    assert bundle["all_required_links_present"] is True
+    assert bundle["raw_urls_exposed"] is False
+    assert bundle["read_url_sha256"] == _sha256("https://chummer.run/account/work/origin-dossiers/origin-live-gold/read")
+    assert bundle["listen_url_sha256"] == _sha256("https://chummer.run/account/work/origin-dossiers/origin-live-gold/listen")
+    assert bundle["watch_url_sha256"] == _sha256("https://chummer.run/account/work/origin-dossiers/origin-live-gold/video")
+    assert bundle["open_in_chummer_url_sha256"] == _sha256("https://chummer.run/account/work/origin-dossiers/origin-live-gold")
+    serialized = json.dumps(receipt, sort_keys=True)
+    assert "https://chummer.run/account/work/origin-dossiers/origin-live-gold/read" not in serialized
+    assert "https://chummer.run/account/work/origin-dossiers/origin-live-gold/listen" not in serialized
+    assert "https://chummer.run/account/work/origin-dossiers/origin-live-gold/video" not in serialized
 
 
 def test_live_telegram_audiobook_delivery_receipt_blocks_default_voice_when_user_selected_job_pending(

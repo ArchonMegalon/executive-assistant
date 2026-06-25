@@ -135,7 +135,7 @@ def test_send_whatsapp_web_session_text_can_override_heyy_ai_persona(monkeypatch
     assert payload["heyy_ai_name"] == "Herta (Heyy Lady)"
     assert payload["metadata"]["heyy_ai_key"] == "empathetic_slow_typing_old_lady"
     assert payload["metadata"]["heyy_ai_name"] == "Herta (Heyy Lady)"
-    assert captured["timeout"] >= 900 + (len("Herta reach-out test") * 4) + 30
+    assert captured["timeout"] >= 1800 + (len("Herta reach-out test") * 8) + 30
 
 
 def test_send_whatsapp_web_session_text_rejects_overlong_button_callback(monkeypatch: pytest.MonkeyPatch) -> None:

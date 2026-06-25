@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from app.api.routes.public_memorials import (
-    OPENVOICE_TTS_PLUGIN_ID,
     UNMIXR_TTS_PLUGIN_ID,
     _TTS_MAX_CLONE_FILES,
     _collect_memorial_public_audio_paths,
@@ -16,7 +15,6 @@ from app.api.routes.public_memorials import (
     _memorial_operator_status_path,
     _memorial_phrase_bank_path,
     _normalize_voice_build_payload,
-    _openvoice_clone_from_memorial,
     _payload_with_slug,
     _personal_memory_public_status,
     _profile_clip_assets_for_memorial,
@@ -45,12 +43,10 @@ from app.api.routes.public_memorials import (
     _voice_ab_variant_choice,
     build_memorial_voice_profile,
     load_memorial_voice_profile,
-    openvoice_clone_request,
     unmixr_clone_request,
 )
 
 __all__ = [
-    "OPENVOICE_TTS_PLUGIN_ID",
     "UNMIXR_TTS_PLUGIN_ID",
     "_TTS_MAX_CLONE_FILES",
     "_collect_memorial_public_audio_paths",
@@ -65,7 +61,6 @@ __all__ = [
     "_memorial_operator_status_path",
     "_memorial_phrase_bank_path",
     "_normalize_voice_build_payload",
-    "_openvoice_clone_from_memorial",
     "_payload_with_slug",
     "_personal_memory_public_status",
     "_profile_clip_assets_for_memorial",
@@ -94,6 +89,5 @@ __all__ = [
     "_voice_ab_variant_choice",
     "build_memorial_voice_profile",
     "load_memorial_voice_profile",
-    "openvoice_clone_request",
     "unmixr_clone_request",
 ]

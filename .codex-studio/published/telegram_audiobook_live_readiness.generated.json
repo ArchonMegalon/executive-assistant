@@ -30,11 +30,12 @@
       {
         "env_values_exposed": false,
         "env_var_names": [
+          "EA_AUDIOBOOK_DURABLE_STORAGE_ROOT",
           "EA_AUDIOBOOKSHELF_IMPORT_ROOT",
-          "EA_AUDIOBOOK_ALLOW_NON_PCLOUD_STORAGE"
+          "EA_AUDIOBOOK_ALLOW_NON_DURABLE_STORAGE"
         ],
-        "key": "audiobookshelf_import_root_pcloud",
-        "operator_action": "Point the Audiobookshelf import root at pCloud-backed audiobook storage.",
+        "key": "audiobookshelf_import_root_durable",
+        "operator_action": "Point the Audiobookshelf import root at configured durable audiobook storage.",
         "status": "ready",
         "verification_command": "make verify-telegram-audiobook-live-readiness"
       },
@@ -108,7 +109,7 @@
     "status": "ready"
   },
   "delivery_blockers": [],
-  "generated_at": "2026-06-21T07:07:06.921538Z",
+  "generated_at": "2026-06-24T23:21:46.191055Z",
   "goal_completion_claim_allowed": false,
   "live_delivery_claim_allowed": false,
   "next_action": "run_real_telegram_epub_audiobook_delivery_test",
@@ -119,11 +120,14 @@
     "make verify-active-media-ltd-goal-bundle"
   ],
   "preflight_failed_checks": [],
-  "preflight_status": "pass",
-  "preflight_warned_checks": [],
+  "preflight_status": "warn",
+  "preflight_warned_checks": [
+    "player_access_base_url_present",
+    "unmixr_bulk_pacing_configured"
+  ],
   "privacy": {
     "env_values_exposed": false,
-    "preflight_contract_sha256": "b8c20206b7a50d5db4fa512fceac5ed52ef6cd97a9abd56708226bdc4edb8297",
+    "preflight_contract_sha256": "f9fad9ff7bdedcc7f76fd31c4ceb8e63a405c9e3705e982bce59c25c649a8bcf",
     "raw_provider_voice_ids_exposed": false,
     "raw_public_share_url_included": false,
     "raw_storage_paths_included": false,
@@ -132,7 +136,7 @@
   "public_share_delivery_prereqs_ready": true,
   "real_user_playback_acceptance_verified": false,
   "required_live_proof_after_readiness": [
-    "real Telegram EPUB upload",
+    "real Telegram audiobook source upload",
     "three Telegram voice samples delivered with Use this/Dismiss controls",
     "operator-selected voice callback applied",
     "M4B rendered and imported into Audiobookshelf",
@@ -151,21 +155,23 @@
       {
         "env_values_exposed": false,
         "env_var_names": [
+          "EA_TELEGRAM_AUDIOBOOK_ENABLED",
           "EA_TELEGRAM_AUDIOBOOK_EPUB_ENABLED"
         ],
-        "key": "telegram_epub_enabled",
-        "operator_action": "Enable Telegram EPUB intake for the audiobook bot.",
+        "key": "telegram_audiobook_enabled",
+        "operator_action": "Enable Telegram audiobook intake.",
         "status": "ready",
         "verification_command": "make verify-telegram-audiobook-live-readiness"
       },
       {
         "env_values_exposed": false,
         "env_var_names": [
+          "EA_AUDIOBOOK_DURABLE_STORAGE_ROOT",
           "EA_AUDIOBOOK_JOBS_ROOT",
-          "EA_AUDIOBOOK_ALLOW_NON_PCLOUD_STORAGE"
+          "EA_AUDIOBOOK_ALLOW_NON_DURABLE_STORAGE"
         ],
-        "key": "jobs_root_pcloud",
-        "operator_action": "Mount pCloud and point the audiobook job root at pCloud-backed storage.",
+        "key": "jobs_root_durable",
+        "operator_action": "Point the audiobook job root at configured durable audiobook storage.",
         "status": "ready",
         "verification_command": "make verify-telegram-audiobook-live-readiness"
       },
@@ -185,7 +191,7 @@
           "EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED"
         ],
         "key": "external_tts_enabled",
-        "operator_action": "Approve raw owned EPUB text leaving EA for governed external audiobook TTS.",
+        "operator_action": "Approve raw owned audiobook source text leaving EA for governed external audiobook TTS.",
         "status": "ready",
         "verification_command": "make verify-telegram-audiobook-live-readiness"
       },
@@ -233,7 +239,7 @@
         "env_var_names": [
           "UNMIXR_API_KEY",
           "UNMIXR_API_KEY_FALLBACK_1",
-          "UNMIXR_API_KEY_FALLBACK_2"
+          "UNMIXR_API_KEYS"
         ],
         "key": "unmixr_api_key_slot_present",
         "operator_action": "Configure at least one owned Unmixr API-key slot for sample and chapter rendering.",
@@ -243,7 +249,7 @@
     ],
     "status": "ready",
     "voice_audition_min_candidates": 3,
-    "voice_catalog_count": 30,
+    "voice_catalog_count": 292,
     "voice_discovery_enabled": true,
     "voice_discovery_target_count": 30
   }

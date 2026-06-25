@@ -7,9 +7,9 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException, Request
 
-from app.api.dependencies import browser_principal_override_allowed
 from app.container import AppContainer
 from app.services.cloudflare_access import CloudflareAccessIdentity
+from app.services.public_request import trust_forwarded_host
 
 
 def _expected_api_token(container: AppContainer) -> str:
@@ -54,10 +54,11 @@ def _first_forwarded_https_or_first_token(raw: str) -> str:
 
 
 def _browser_request_uses_secure_scheme(request: Request) -> bool:
-    forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").strip().lower()
-    normalized = _first_forwarded_https_or_first_token(forwarded_proto)
-    if normalized:
-        return normalized in {"https", "wss"}
+    if trust_forwarded_host():
+        forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").strip().lower()
+        normalized = _first_forwarded_https_or_first_token(forwarded_proto)
+        if normalized:
+            return normalized in {"https", "wss"}
     return str(request.url.scheme or "").strip().lower() == "https"
 
 
@@ -100,15 +101,9 @@ def _shared_browser_fields(
         <input type=\"hidden\" name=\"principal_id\" value=\"{html.escape(principal_id)}\">
         {token_field}
         """
-    if not browser_principal_override_allowed():
-        return f"""
-        {token_field}
-        <p class=\"helper-note\">This browser can only finish setup for the default workspace on this deployment. Switching workspaces from the browser is disabled here.</p>
-        """
     return f"""
-    <label for=\"principal_id\">Workspace ID (advanced)</label>
-    <input id=\"principal_id\" name=\"principal_id\" value=\"{html.escape(principal_id)}\" required>
     {token_field}
+    <p class=\"helper-note\">This browser can only finish setup for the default workspace on this deployment.</p>
     """
 
 
@@ -130,8 +125,6 @@ def _browser_form_context(
         return access_identity.principal_id
     default_principal = _default_principal_id(container)
     requested = _form_value(form_data, "principal_id", "")
-    if browser_principal_override_allowed():
-        return requested or default_principal
     if requested and requested != default_principal:
         raise HTTPException(status_code=403, detail="principal_override_not_allowed")
     return default_principal

@@ -4,7 +4,10 @@ import html
 import ipaddress
 import json
 import os
+from typing import Any
 from urllib.parse import urlparse
+
+from app.services.public_request import request_hostname as _public_request_hostname
 
 
 _RYBBIT_HOST_CONFIG = {
@@ -57,6 +60,10 @@ def rybbit_site_id_for_hostname(hostname: str | None) -> str:
         return ""
     env_name, fallback = config
     return str(os.getenv(env_name) or fallback).strip()
+
+
+def request_hostname(request: Any) -> str:
+    return _public_request_hostname(request)
 
 
 def _script_attr(name: str, value: str) -> str:

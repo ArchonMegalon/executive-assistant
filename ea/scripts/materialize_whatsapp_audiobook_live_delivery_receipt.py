@@ -5,7 +5,9 @@ from datetime import UTC, datetime
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
+import subprocess
 import sys
 from urllib.parse import urlparse
 
@@ -17,11 +19,14 @@ DEFAULT_LOCAL_INTAKE_PROOF = ROOT / ".codex-studio" / "published" / "whatsapp_au
 DEFAULT_PUBLIC_SHARE_PLAYBACK = ROOT / ".codex-studio" / "published" / "whatsapp_audiobook_public_share_playback.generated.json"
 DEFAULT_OPERATOR_PROOF_BUNDLE = ROOT / ".codex-studio" / "published" / "whatsapp_audiobook_operator_proof_bundle.generated.json"
 DEFAULT_READINESS_RECEIPT = ROOT / ".codex-studio" / "published" / "whatsapp_web_action_processor_readiness.generated.json"
+DEFAULT_RUNTIME_CONTAINER = "ea-api"
 CONTRACT_NAME = "ea.whatsapp_audiobook_live_delivery_receipt.v1"
 
 
 if str(EA_ROOT) not in sys.path:
     sys.path.insert(0, str(EA_ROOT))
+
+from app.services.audiobook_epub_pipeline import audiobook_runtime_preflight
 
 
 def _now_iso() -> str:
@@ -64,6 +69,38 @@ def _load_module(*, name: str, path: Path):
     return module
 
 
+def _runtime_container_name() -> str:
+    return str(os.environ.get("EA_RUNTIME_CONTAINER") or DEFAULT_RUNTIME_CONTAINER).strip()
+
+
+def _runtime_container_preflight() -> dict[str, object]:
+    container = _runtime_container_name()
+    if not container:
+        return {}
+    code = (
+        "import json\n"
+        "from app.services.audiobook_epub_pipeline import audiobook_runtime_preflight\n"
+        "print(json.dumps(audiobook_runtime_preflight(), sort_keys=True))\n"
+    )
+    try:
+        proc = subprocess.run(
+            ["docker", "exec", container, "python3", "-c", code],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=20,
+        )
+    except Exception:
+        return {}
+    if proc.returncode != 0:
+        return {}
+    try:
+        payload = json.loads(str(proc.stdout or "").strip())
+    except Exception:
+        return {}
+    return dict(payload) if isinstance(payload, dict) else {}
+
+
 def _public_share_ready(status: object) -> bool:
     return str(status or "").strip().lower() in {
         "public_share_ready",
@@ -90,6 +127,31 @@ def _machine_playback_verified(import_section: dict[str, object]) -> bool:
         and duration > 0
         and not media_error
     )
+
+
+def _m4b_output_verified(
+    *,
+    assembly: dict[str, object],
+    imported: dict[str, object],
+    audio_publication_gate: dict[str, object],
+) -> bool:
+    if assembly.get("output_file_ready") is True:
+        return True
+    return (
+        str(imported.get("status") or "").strip() == "imported"
+        and imported.get("target_file_ready") is True
+        and str(imported.get("target_file_sha256") or "").strip()
+    )
+
+
+def _chapter_metadata_verified(
+    *,
+    assembly: dict[str, object],
+    audio_publication_gate: dict[str, object],
+) -> bool:
+    if assembly.get("chapter_metadata_embedded") is True:
+        return True
+    return int(audio_publication_gate.get("chapters") or 0) > 0
 
 
 def _voice_selection(job: dict[str, object]) -> dict[str, object]:
@@ -136,6 +198,49 @@ def _whatsapp_playback_acceptance_verified(playback: dict[str, object]) -> bool:
         and str(playback.get("status") or "").strip() == "accepted"
         and str(playback.get("source") or "").strip().startswith("whatsapp")
     )
+
+
+def _playback_acceptance_evidence(candidate: dict[str, object]) -> dict[str, object]:
+    status = str(candidate.get("playback_acceptance_status") or "").strip().lower()
+    source = str(candidate.get("playback_acceptance_source") or "").strip().lower()
+    feedback_sha256 = str(candidate.get("playback_acceptance_feedback_sha256") or "").strip()
+    whatsapp_sourced = source.startswith("whatsapp")
+    accepted = bool(candidate.get("playback_acceptance_verified"))
+    rejected_claim_observed = status == "rejected" and whatsapp_sourced
+    feedback_sha256_present = bool(feedback_sha256)
+    feedback_sha256_valid = _is_sha256(feedback_sha256)
+    operator_grade_rejected = rejected_claim_observed and feedback_sha256_valid
+    if accepted:
+        evidence_status = "accepted"
+        next_action = "close_operator_loop"
+        evidence_grade = "operator"
+    elif operator_grade_rejected:
+        evidence_status = "rejected"
+        next_action = "review_audiobook_playback_problem"
+        evidence_grade = "operator"
+    elif rejected_claim_observed:
+        evidence_status = "not_human_verified"
+        next_action = "capture_hashed_audiobook_playback_problem_feedback"
+        evidence_grade = "insufficient_feedback_hash"
+    else:
+        evidence_status = "not_human_verified"
+        next_action = "capture_real_user_playback_acceptance_or_close_operator_loop"
+        evidence_grade = "not_operator_evidence"
+    return {
+        "status": evidence_status,
+        "accepted": accepted,
+        "rejected": operator_grade_rejected,
+        "rejected_claim_observed": rejected_claim_observed,
+        "whatsapp_sourced": whatsapp_sourced,
+        "source_present": bool(source),
+        "feedback_sha256_present": feedback_sha256_present,
+        "feedback_sha256_valid": feedback_sha256_valid,
+        "feedback_sha256_required": rejected_claim_observed,
+        "operator_grade": accepted or operator_grade_rejected,
+        "evidence_grade": evidence_grade,
+        "claim_allowed": accepted,
+        "next_action": next_action,
+    }
 
 
 def _is_whatsapp_job(job: dict[str, object]) -> bool:
@@ -189,6 +294,7 @@ def _candidate(job: dict[str, object]) -> dict[str, object]:
     playback = _as_dict(job.get("playback_acceptance"))
     render = _as_dict(job.get("render"))
     scheduler = _as_dict(job.get("scheduler_resume"))
+    audio_publication_gate = _as_dict(job.get("audio_publication_gate"))
     title = str(metadata.get("title") or "").strip()
     author = str(metadata.get("author") or "").strip()
     public_url = str(imported.get("public_share_url") or "").strip()
@@ -197,15 +303,23 @@ def _candidate(job: dict[str, object]) -> dict[str, object]:
 
     if str(job.get("status") or "").strip() != "audiobookshelf_imported":
         failed_codes.append("job_not_audiobookshelf_imported")
-    if assembly.get("output_file_ready") is not True:
+    if not _m4b_output_verified(
+        assembly=assembly,
+        imported=imported,
+        audio_publication_gate=audio_publication_gate,
+    ):
         failed_codes.append("m4b_output_file_not_ready")
-    if assembly.get("chapter_metadata_embedded") is not True:
+    if not _chapter_metadata_verified(
+        assembly=assembly,
+        audio_publication_gate=audio_publication_gate,
+    ):
         failed_codes.append("m4b_chapter_metadata_not_embedded")
     if str(imported.get("status") or "").strip() != "imported":
         failed_codes.append("audiobookshelf_import_not_imported")
     if imported.get("target_file_ready") is not True:
         failed_codes.append("audiobookshelf_target_file_not_ready")
-    if str(imported.get("player_scoped_reference_status") or "").strip() != "signed_reference_ready":
+    player_reference_status = str(imported.get("player_scoped_reference_status") or "").strip()
+    if player_reference_status != "signed_reference_ready" and not _machine_playback_verified(imported):
         failed_codes.append("player_scoped_reference_not_ready")
     if not _public_share_ready(imported.get("public_share_status")):
         failed_codes.append("audiobookshelf_public_share_not_ready")
@@ -263,13 +377,21 @@ def _candidate(job: dict[str, object]) -> dict[str, object]:
         "machine_playback_e2e_verified": _machine_playback_verified(imported),
         "machine_playback_e2e_status": str(imported.get("public_share_playback_e2e_status") or ""),
         "machine_playback_e2e_browser": str(imported.get("public_share_playback_e2e_browser") or ""),
+        "machine_playback_e2e_reason": str(imported.get("public_share_playback_e2e_reason") or ""),
+        "machine_playback_e2e_page_response_status": int(imported.get("public_share_playback_e2e_page_response_status") or 0),
         "machine_playback_e2e_track_response_status": int(imported.get("public_share_playback_e2e_track_response_status") or 0),
         "machine_playback_e2e_track_content_type": str(imported.get("public_share_playback_e2e_track_content_type") or ""),
+        "machine_playback_e2e_track_response_resource_type": str(
+            imported.get("public_share_playback_e2e_track_response_resource_type") or ""
+        ),
         "machine_playback_e2e_duration_seconds": float(imported.get("public_share_playback_e2e_duration_seconds") or 0),
         "machine_playback_e2e_current_time_after_play_seconds": float(
             imported.get("public_share_playback_e2e_current_time_after_play_seconds") or 0
         ),
         "machine_playback_e2e_media_error_present": bool(imported.get("public_share_playback_e2e_media_error_present")),
+        "machine_playback_e2e_media_error_code": int(imported.get("public_share_playback_e2e_media_error_code") or 0),
+        "player_scoped_reference_status": player_reference_status,
+        "player_scoped_reference_ready": player_reference_status == "signed_reference_ready",
         "playback_acceptance_verified": _whatsapp_playback_acceptance_verified(playback),
         "playback_acceptance_status": str(playback.get("status") or ""),
         "playback_acceptance_source": str(playback.get("source") or ""),
@@ -364,6 +486,10 @@ def _failed_candidate_public(candidate: dict[str, object]) -> dict[str, object]:
         "whatsapp_delivery_status": candidate["whatsapp_delivery_status"],
         "failed_codes": list(candidate["failed_codes"]),
     }
+
+
+def _live_pass_next_action(candidate: dict[str, object]) -> str:
+    return str(_playback_acceptance_evidence(candidate).get("next_action") or "")
 
 
 def _candidate_stage(candidate: dict[str, object]) -> str:
@@ -585,6 +711,57 @@ def _resolve_runtime_readiness_receipt() -> dict[str, object]:
         return {}
 
 
+def _audiobook_runtime_readiness_summary() -> dict[str, object]:
+    try:
+        receipt = _runtime_container_preflight() or dict(audiobook_runtime_preflight())
+    except Exception as exc:
+        return {
+            "receipt_present": False,
+            "ready_for_live_intake": False,
+            "status": "error",
+            "reason": f"audiobook_runtime_preflight_failed:{type(exc).__name__}",
+            "sample_blockers": ["audiobook_runtime_preflight_failed"],
+            "voice_catalog_count": 0,
+            "api_key_slot_count": 0,
+            "unmixr_auto_render_enabled": False,
+        }
+    checks = {
+        str(item.get("key") or "").strip(): str(item.get("status") or "").strip()
+        for item in list(receipt.get("checks") or [])
+        if isinstance(item, dict) and str(item.get("key") or "").strip()
+    }
+    sample_blockers = [
+        key
+        for key in (
+            "telegram_audiobook_enabled",
+            "jobs_root_durable",
+            "jobs_root_writable",
+            "external_tts_enabled",
+            "unmixr_auto_render_enabled",
+            "voice_catalog_configured",
+        )
+        if checks.get(key) == "fail"
+    ]
+    provider = _as_dict(receipt.get("provider"))
+    voice_catalog_count = int(provider.get("voice_catalog_count") or 0)
+    min_candidates = int(provider.get("voice_audition_min_candidates") or 3)
+    if voice_catalog_count < min_candidates:
+        sample_blockers.append("voice_catalog_audition_ready")
+    if int(provider.get("api_key_slot_count") or 0) <= 0:
+        sample_blockers.append("unmixr_api_key_slot_present")
+    sample_blockers = _dedupe(sample_blockers)
+    return {
+        "receipt_present": True,
+        "ready_for_live_intake": not sample_blockers,
+        "status": str(receipt.get("status") or "").strip(),
+        "reason": "" if not sample_blockers else ", ".join(sample_blockers),
+        "sample_blockers": sample_blockers,
+        "voice_catalog_count": voice_catalog_count,
+        "api_key_slot_count": int(provider.get("api_key_slot_count") or 0),
+        "unmixr_auto_render_enabled": bool(provider.get("unmixr_auto_render_enabled")),
+    }
+
+
 def build_receipt(
     *,
     output_path: Path = DEFAULT_OUTPUT,
@@ -630,6 +807,27 @@ def build_receipt(
     machine_verified = bool(selected.get("machine_playback_e2e_verified")) if selected else any(
         bool(candidate.get("machine_playback_e2e_verified")) for candidate in candidates
     )
+    human_acceptance_evidence = _playback_acceptance_evidence(selected) if selected else {
+        "status": "not_human_verified",
+        "accepted": False,
+        "rejected": False,
+        "rejected_claim_observed": False,
+        "whatsapp_sourced": False,
+        "source_present": False,
+        "feedback_sha256_present": False,
+        "feedback_sha256_valid": False,
+        "feedback_sha256_required": False,
+        "operator_grade": False,
+        "evidence_grade": "not_operator_evidence",
+        "claim_allowed": False,
+        "next_action": "capture_real_user_playback_acceptance_or_close_operator_loop",
+    }
+    claim_scope = (
+        "machine_playable_delivery_and_human_accepted"
+        if live_pass and bool(human_acceptance_evidence.get("claim_allowed"))
+        else ("machine_playable_delivery_only" if live_pass else "none")
+    )
+    playback_acceptance_feedback_hashed = bool(human_acceptance_evidence.get("feedback_sha256_valid"))
     if not candidates:
         failed_codes.insert(0, "whatsapp_audiobook_job_missing")
     if not valid_candidates and "valid_live_audiobook_delivery_missing" not in failed_codes:
@@ -638,9 +836,12 @@ def build_receipt(
     stage_counts = dict(stage_summary.get("counts") or {})
     historical = _historical_evidence(historical_receipts)
     runtime_readiness = _runtime_readiness_summary(readiness_receipt)
+    audiobook_runtime = _audiobook_runtime_readiness_summary()
     voice_selection_text_fallback_ready = _voice_selection_text_fallback_ready(historical)
     if not candidates and bool(historical.get("present")):
         failed_codes.append("fresh_live_whatsapp_job_receipt_missing")
+    if not live_pass and not bool(audiobook_runtime.get("ready_for_live_intake")):
+        failed_codes.append("audiobook_runtime_not_ready")
     failed_codes = _dedupe(failed_codes)
     waiting_voice_choice = bool(
         stage_counts.get("waiting_voice_choice") or stage_counts.get("waiting_replacement_voice_choice")
@@ -651,6 +852,7 @@ def build_receipt(
         and not candidates
         and bool(historical.get("historical_live_path_proven"))
         and bool(runtime_readiness.get("ready"))
+        and bool(audiobook_runtime.get("ready_for_live_intake"))
     )
     receipt_status = "pass" if live_pass else (
         "waiting_voice_choice"
@@ -671,12 +873,31 @@ def build_receipt(
         "limit": limit,
         "claim": (
             "WhatsApp EPUB audiobook delivery has live proof only when a sanitized job receipt shows the M4B is ready, "
-            "Audiobookshelf imported and public-shared it, WhatsApp sent the public share link, and machine playback works."
+            "Audiobookshelf imported and public-shared it, WhatsApp sent the public share link, and machine playback works. "
+            "Human playback acceptance is a separate claim and is not implied by machine-playable delivery."
         ),
         "status": receipt_status,
         "live_delivery_claim_allowed": live_pass,
+        "live_delivery_claim_scope": claim_scope,
+        "fresh_live_job_receipt_proven": live_pass,
+        "historical_or_shadow_proof_only": (not bool(candidates)) and bool(historical.get("present")),
+        "proof_freshness": {
+            "fresh_live_job_receipt_present": bool(candidates),
+            "fresh_live_job_receipt_passed": live_pass,
+            "historical_evidence_present": bool(historical.get("present")),
+            "historical_live_path_proven": bool(historical.get("historical_live_path_proven")),
+            "shadow_voice_selection_only": False,
+        },
         "machine_playback_e2e_verified": machine_verified,
         "real_user_playback_acceptance_verified": real_user_accepted,
+        "human_playback_acceptance_claim_allowed": bool(human_acceptance_evidence.get("claim_allowed")),
+        "human_playback_acceptance_evidence": human_acceptance_evidence,
+        "proof_semantics": {
+            "machine_playable_delivery_evidence": "fresh_job_receipt_and_machine_playback_e2e" if live_pass else "not_proven",
+            "human_acceptance_evidence": str(human_acceptance_evidence.get("status") or "not_human_verified"),
+            "live_delivery_claim_scope": claim_scope,
+            "machine_playable_delivery_does_not_imply_human_acceptance": True,
+        },
         "goal_completion_claim_allowed": False,
         "observed_job_count": len(observed_jobs),
         "non_whatsapp_job_count": len(observed_jobs) - len(jobs),
@@ -685,13 +906,17 @@ def build_receipt(
         "stage_summary": stage_summary,
         "failed_codes": [] if live_pass else failed_codes,
         "blocking_reason": "" if live_pass else ", ".join(failed_codes),
-        "next_action": "capture_real_user_playback_acceptance_or_close_operator_loop"
-        if live_pass
-        else _next_action(
+        "next_action": _live_pass_next_action(selected)
+        if live_pass and selected
+        else (
+            "capture_real_user_playback_acceptance_or_close_operator_loop"
+            if live_pass
+            else _next_action(
             failed_codes=failed_codes,
             pending=pending,
             stage_counts=stage_counts,
             historical_evidence=historical,
+            )
         ),
         "selected_delivery": _candidate_public(selected) if selected else {},
         "failed_candidates": [_failed_candidate_public(candidate) for candidate in candidates if candidate.get("failed_codes")],
@@ -708,6 +933,7 @@ def build_receipt(
         "voice_selection_text_fallback_ready": voice_selection_text_fallback_ready if waiting_voice_choice else False,
         "historical_evidence": historical,
         "runtime_readiness": runtime_readiness,
+        "audiobook_runtime": audiobook_runtime,
         "load_errors": [],
         "privacy": {
             "raw_job_receipts_persisted": False,
@@ -715,7 +941,7 @@ def build_receipt(
             "authors_redacted_to_sha256": True,
             "public_share_urls_redacted_to_host": True,
             "machine_playback_e2e_url_redacted": True,
-            "playback_acceptance_feedback_hashed": real_user_accepted,
+            "playback_acceptance_feedback_hashed": playback_acceptance_feedback_hashed,
             "whatsapp_message_ids_hashed": True,
             "whatsapp_sender_refs_hashed": True,
             "voice_labels_hashed": True,

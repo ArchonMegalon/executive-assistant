@@ -144,7 +144,7 @@ def test_telegram_audiobook_live_readiness_can_use_runtime_container_preflight(t
     receipt_path = tmp_path / "container-live-readiness.generated.json"
     runtime_preflight = {
         "contract_name": "ea.telegram_epub_audiobook_runtime_preflight.v1",
-        "status": "pass",
+        "status": "warn",
         "checks": [
             {"key": "telegram_epub_enabled", "status": "pass"},
             {"key": "jobs_root_durable", "status": "pass"},
@@ -158,11 +158,11 @@ def test_telegram_audiobook_live_readiness_can_use_runtime_container_preflight(t
             {"key": "audiobookshelf_import_root_writable", "status": "pass"},
             {"key": "audiobookshelf_public_share_configured", "status": "pass"},
             {"key": "player_access_signing_secret_present", "status": "pass"},
-            {"key": "player_access_base_url_present", "status": "pass"},
+            {"key": "player_access_base_url_present", "status": "warn"},
             {"key": "scheduler_resume_enabled", "status": "pass"},
         ],
         "failed_checks": [],
-        "warned_checks": [],
+        "warned_checks": ["player_access_base_url_present"],
         "provider": {
             "api_key_slot_count": 3,
             "voice_catalog_count": 30,
@@ -177,7 +177,7 @@ def test_telegram_audiobook_live_readiness_can_use_runtime_container_preflight(t
             "audiobookshelf_public_share_enabled": True,
             "audiobookshelf_public_share_configured": True,
             "player_access_signing_secret_present": True,
-            "player_access_base_url_present": True,
+            "player_access_base_url_present": False,
             "tokens_exposed": False,
         },
         "assembly": {"m4b_assembly_available": True},
@@ -198,9 +198,13 @@ def test_telegram_audiobook_live_readiness_can_use_runtime_container_preflight(t
     assert receipt["observation_source"] == "runtime_container"
     assert receipt["runtime_container"] == "ea-api"
     assert receipt["status"] == "ready_for_live_epub_delivery_test"
+    assert receipt["preflight_status"] == "warn"
+    assert receipt["preflight_warned_checks"] == ["player_access_base_url_present"]
     assert receipt["voice_sample_prereqs_ready"] is True
     assert receipt["public_share_delivery_prereqs_ready"] is True
     assert receipt["can_run_live_epub_delivery_test"] is True
+    assert receipt["delivery_blockers"] == []
+    assert _item_by_key(receipt["delivery"], "player_access_base_url_present")["status"] == "ready"
     assert receipt["live_delivery_claim_allowed"] is False
     assert receipt["voice_samples"]["api_key_slot_count"] == 3
     assert receipt["voice_samples"]["voice_catalog_count"] == 30

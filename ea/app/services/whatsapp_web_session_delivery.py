@@ -43,8 +43,8 @@ def _retry_backoff_seconds() -> float:
 
 
 def _old_lady_request_timeout_seconds(text: str) -> float:
-    max_pre_reply_seconds = _env_int("EA_WHATSAPP_WEB_HEYY_AI_PRE_REPLY_DELAY_MAX_SECONDS", 900)
-    typing_ms_per_character = _env_int("EA_WHATSAPP_WEB_HEYY_AI_TYPING_DELAY_MS_PER_CHARACTER", 4000)
+    max_pre_reply_seconds = _env_int("EA_WHATSAPP_WEB_HEYY_AI_PRE_REPLY_DELAY_MAX_SECONDS", 1800)
+    typing_ms_per_character = _env_int("EA_WHATSAPP_WEB_HEYY_AI_TYPING_DELAY_MS_PER_CHARACTER", 8000)
     margin_seconds = _env_float("EA_WHATSAPP_WEB_SESSION_LONG_REQUEST_MARGIN_SECONDS", 30.0)
     typing_seconds = (len(str(text or "")) * typing_ms_per_character) / 1000.0
     return max_pre_reply_seconds + typing_seconds + margin_seconds

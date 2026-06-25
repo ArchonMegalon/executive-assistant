@@ -11,6 +11,11 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+try:
+    from scripts.source_state_head import source_worktree_metadata
+except ModuleNotFoundError:  # pragma: no cover - direct script path fallback
+    from source_state_head import source_worktree_metadata
+
 
 ROOT = Path(__file__).resolve().parents[1]
 REPO_URL = ROOT.resolve().as_posix()
@@ -38,6 +43,29 @@ def _run(cmd: list[str], *, cwd: Path, env: dict[str, str] | None = None) -> Non
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout or "").strip()
         raise SystemExit(f"command_failed:{' '.join(cmd)}:{detail[:800]}")
+
+
+def _resolve_python_bin(value: str) -> str:
+    configured = str(value or "").strip() or "python3"
+    if os.path.isabs(configured):
+        return configured
+    if "/" in configured:
+        return str(ROOT / configured)
+    return shutil.which(configured) or configured
+
+
+def _assert_source_worktree_clean() -> dict[str, object]:
+    metadata = dict(source_worktree_metadata(ROOT))
+    if not bool(metadata.get("source_worktree_dirty")):
+        return metadata
+    files = [str(item) for item in (metadata.get("source_dirty_files") or []) if str(item).strip()]
+    omitted = int(metadata.get("source_dirty_omitted_count") or 0)
+    file_summary = ",".join(files[:8])
+    raise SystemExit(
+        "source_worktree_dirty:commit_or_stash_source_changes_before_clean_receipts:"
+        f"count={int(metadata.get('source_dirty_count') or 0)}:"
+        f"files={file_summary}:omitted={omitted}"
+    )
 
 
 def _http_status(url: str) -> tuple[int, str]:
@@ -231,8 +259,9 @@ def main() -> int:
     parser.add_argument("--meaningful-browser-first-answer-ms", type=float, default=8000.0)
     parser.add_argument("--meaningful-prompt", default="Was war dir bei Gerechtigkeit wichtig?")
     args = parser.parse_args()
-    args.python_bin = str((ROOT / args.python_bin)) if not os.path.isabs(args.python_bin) else args.python_bin
+    args.python_bin = _resolve_python_bin(args.python_bin)
 
+    source_worktree = _assert_source_worktree_clean()
     _preflight_public_origin(base_url=args.base_url, slug=args.slug)
 
     clone_env = os.environ.copy()
@@ -259,6 +288,7 @@ def main() -> int:
         "public_voice_receipt": ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
         "public_browser_receipt": ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
         "public_meaningful_browser_receipt": ".codex-studio/published/memorial_realtime_browser_meaningful_public_origin.generated.json",
+        "source_worktree": source_worktree,
     }
     print(json.dumps(payload, ensure_ascii=False))
     return 0

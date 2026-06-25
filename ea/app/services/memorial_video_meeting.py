@@ -7,6 +7,7 @@ import requests
 
 
 SUPPORTED_PROVIDERS = ("tavus", "did")
+CONTRACT_NAME = "ea.memorial_video_meeting_ltd_integration.v1"
 
 
 def provider_label(provider_key: str) -> str:
@@ -46,7 +47,8 @@ def _tavus_ready_for_live_session() -> bool:
 def public_video_meeting_payload(*, slug: str, person_name: str) -> dict[str, object]:
     provider_key, provider_configured = configured_provider()
     provider_name = provider_label(provider_key)
-    if provider_key == "tavus" and provider_configured and _tavus_ready_for_live_session():
+    provider_session_creation_allowed = bool(provider_key == "tavus" and provider_configured and _tavus_ready_for_live_session())
+    if provider_session_creation_allowed:
         integration_state = "provider_live_session_ready"
         detail = "Tavus ist für echte serverseitige Session-Erzeugung vorbereitet."
         next_action = "create_provider_session"
@@ -69,10 +71,15 @@ def public_video_meeting_payload(*, slug: str, person_name: str) -> dict[str, ob
         detail = "Live-Avatar noch nicht freigegeben. Der Video Call läuft weiter über Portrait und Stimme."
         next_action = "fallback_to_portrait_voice"
     return {
+        "contract_name": CONTRACT_NAME,
         "enabled": False,
         "integration_state": integration_state,
         "provider_key": provider_key if provider_configured else "",
         "provider_label": provider_name if provider_configured else "",
+        "provider_truth_allowed": False,
+        "provider_session_creation_allowed": provider_session_creation_allowed,
+        "live_provider_runtime_verified": False,
+        "gold_claim_allowed": False,
         "title": f"Video Call mit {person_name}",
         "detail": detail,
         "camera_optional": True,
@@ -146,6 +153,12 @@ def create_video_meeting_session(
         "fallback_mode": str(payload.get("fallback_mode") or "portrait_voice"),
         "detail": str(payload.get("detail") or ""),
         "next_action": str(payload.get("next_action") or "fallback_to_portrait_voice"),
+        "contract_name": str(payload.get("contract_name") or CONTRACT_NAME),
+        "provider_truth_allowed": bool(payload.get("provider_truth_allowed") is True),
+        "provider_session_creation_allowed": bool(payload.get("provider_session_creation_allowed") is True),
+        "provider_session_created": False,
+        "live_provider_runtime_verified": False,
+        "gold_claim_allowed": False,
         "client": {
             "camera_requested": bool(camera_requested),
             "personal_memory_enabled": bool(personal_memory_enabled),
@@ -197,6 +210,7 @@ def create_video_meeting_session(
     response_payload["provider_label"] = "Tavus"
     response_payload["integration_state"] = "provider_live_session_created"
     response_payload["next_action"] = "join_provider_session"
+    response_payload["provider_session_created"] = True
     response_payload["provider_session"] = {
         "conversation_id": str(provider_payload.get("conversation_id") or "").strip(),
         "conversation_url": str(provider_payload.get("conversation_url") or "").strip(),

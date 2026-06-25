@@ -14,6 +14,11 @@ async def public_memorial_chat_help(slug: str) -> JSONResponse:
     return await support.public_memorial_chat_help(slug=slug)
 
 
+@router.get("/memorials/{slug}/chatlab/status")
+async def public_memorial_chatlab_status(slug: str) -> JSONResponse:
+    return await support.public_memorial_chatlab_status(slug=slug)
+
+
 @router.get("/memorials/{slug}/personal-memory")
 async def public_memorial_personal_memory_status(slug: str, request: Request) -> JSONResponse:
     return await support.public_memorial_personal_memory_status(slug=slug, request=request)

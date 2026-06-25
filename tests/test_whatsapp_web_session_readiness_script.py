@@ -45,6 +45,173 @@ def _binding(**overrides: object) -> dict[str, object]:
     return values
 
 
+def test_parse_args_loads_repo_env_defaults_when_shell_env_is_empty(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "\n".join(
+            [
+                "DATABASE_URL=postgresql://repo-env.invalid/ea",
+                "EA_WHATSAPP_WEB_DEFAULT_BINDING_ID=repo-wa-binding",
+                "EA_WHATSAPP_DEFAULT_PRINCIPAL_ID=repo-principal",
+                "EA_DEFAULT_PRINCIPAL_ID=repo-wide-principal",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    for name in (
+        "DATABASE_URL",
+        "EA_WHATSAPP_WEB_DEFAULT_BINDING_ID",
+        "EA_WHATSAPP_WEB_DEFAULT_PRINCIPAL_ID",
+        "EA_WHATSAPP_DEFAULT_PRINCIPAL_ID",
+        "EA_DEFAULT_PRINCIPAL_ID",
+        "EA_WHATSAPP_WEB_READINESS_BINDING_JSON",
+    ):
+        monkeypatch.setenv(name, "")
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    monkeypatch.setattr(sys, "argv", ["check_whatsapp_web_session_readiness.py"])
+
+    args = module.parse_args()
+
+    assert args.database_url == "postgresql://repo-env.invalid/ea"
+    assert args.binding_id == "repo-wa-binding"
+    assert args.principal_id == "repo-principal"
+
+
+def test_parse_args_uses_repo_wide_principal_before_literal_default(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    (tmp_path / ".env").write_text(
+        "\n".join(
+            [
+                "DATABASE_URL=postgresql://repo-env.invalid/ea",
+                "EA_WHATSAPP_WEB_DEFAULT_BINDING_ID=repo-wa-binding",
+                "EA_DEFAULT_PRINCIPAL_ID=repo-wide-principal",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    for name in (
+        "DATABASE_URL",
+        "EA_WHATSAPP_WEB_DEFAULT_BINDING_ID",
+        "EA_WHATSAPP_WEB_DEFAULT_PRINCIPAL_ID",
+        "EA_WHATSAPP_DEFAULT_PRINCIPAL_ID",
+        "EA_DEFAULT_PRINCIPAL_ID",
+        "EA_WHATSAPP_WEB_READINESS_BINDING_JSON",
+    ):
+        monkeypatch.setenv(name, "")
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    monkeypatch.setattr(sys, "argv", ["check_whatsapp_web_session_readiness.py"])
+
+    args = module.parse_args()
+
+    assert args.database_url == "postgresql://repo-env.invalid/ea"
+    assert args.binding_id == "repo-wa-binding"
+    assert args.principal_id == "repo-wide-principal"
+
+
+def test_parse_args_uses_shell_repo_wide_principal_before_literal_default(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    (tmp_path / ".env").write_text("", encoding="utf-8")
+    for name in (
+        "EA_WHATSAPP_WEB_DEFAULT_PRINCIPAL_ID",
+        "EA_WHATSAPP_DEFAULT_PRINCIPAL_ID",
+        "EA_WHATSAPP_WEB_READINESS_BINDING_JSON",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("EA_DEFAULT_PRINCIPAL_ID", "shell-wide-principal")
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    monkeypatch.setattr(sys, "argv", ["check_whatsapp_web_session_readiness.py"])
+
+    args = module.parse_args()
+
+    assert args.principal_id == "shell-wide-principal"
+
+
+def test_parse_args_uses_literal_principal_only_after_env_chain(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    (tmp_path / ".env").write_text("", encoding="utf-8")
+    for name in (
+        "EA_WHATSAPP_WEB_DEFAULT_PRINCIPAL_ID",
+        "EA_WHATSAPP_DEFAULT_PRINCIPAL_ID",
+        "EA_DEFAULT_PRINCIPAL_ID",
+        "EA_WHATSAPP_WEB_READINESS_BINDING_JSON",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    monkeypatch.setattr(sys, "argv", ["check_whatsapp_web_session_readiness.py"])
+
+    args = module.parse_args()
+
+    assert args.principal_id == "principal-default"
+
+
+def test_parse_args_prefers_shell_env_over_repo_env_defaults(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    (tmp_path / ".env").write_text(
+        "\n".join(
+            [
+                "DATABASE_URL=postgresql://repo-env.invalid/ea",
+                "EA_WHATSAPP_WEB_DEFAULT_BINDING_ID=repo-wa-binding",
+                "EA_WHATSAPP_WEB_DEFAULT_PRINCIPAL_ID=repo-principal",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://shell-env.invalid/ea")
+    monkeypatch.setenv("EA_WHATSAPP_WEB_DEFAULT_BINDING_ID", "shell-wa-binding")
+    monkeypatch.setenv("EA_WHATSAPP_WEB_DEFAULT_PRINCIPAL_ID", "shell-principal")
+    monkeypatch.setattr(sys, "argv", ["check_whatsapp_web_session_readiness.py"])
+
+    args = module.parse_args()
+
+    assert args.database_url == "postgresql://shell-env.invalid/ea"
+    assert args.binding_id == "shell-wa-binding"
+    assert args.principal_id == "shell-principal"
+
+
+def test_parse_args_cli_values_override_repo_env_defaults(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    (tmp_path / ".env").write_text(
+        "\n".join(
+            [
+                "DATABASE_URL=postgresql://repo-env.invalid/ea",
+                "EA_WHATSAPP_WEB_DEFAULT_BINDING_ID=repo-wa-binding",
+                "EA_WHATSAPP_DEFAULT_PRINCIPAL_ID=repo-principal",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    for name in (
+        "DATABASE_URL",
+        "EA_WHATSAPP_WEB_DEFAULT_BINDING_ID",
+        "EA_WHATSAPP_WEB_DEFAULT_PRINCIPAL_ID",
+        "EA_WHATSAPP_DEFAULT_PRINCIPAL_ID",
+        "EA_DEFAULT_PRINCIPAL_ID",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "check_whatsapp_web_session_readiness.py",
+            "--database-url",
+            "postgresql://cli.invalid/ea",
+            "--binding-id",
+            "cli-wa-binding",
+            "--principal-id",
+            "cli-principal",
+        ],
+    )
+
+    args = module.parse_args()
+
+    assert args.database_url == "postgresql://cli.invalid/ea"
+    assert args.binding_id == "cli-wa-binding"
+    assert args.principal_id == "cli-principal"
+
+
 def test_build_report_returns_sanitized_ready_result(tmp_path: Path) -> None:
     module = _module()
     binding_file = tmp_path / "binding.json"

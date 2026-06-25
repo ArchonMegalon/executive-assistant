@@ -505,6 +505,54 @@ def test_existing_chapter_wavs_merge_with_ffmpeg_fallback_and_import(monkeypatch
     assert "player_audiobook_not_found" in missing_response.text
 
 
+def test_single_chapter_ffmpeg_m4b_merge_uses_direct_audio_input(monkeypatch, tmp_path: Path) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    monkeypatch.setenv("EA_AUDIOBOOK_GENERATE_FALLBACK_COVER", "0")
+    monkeypatch.setenv("EA_AUDIOBOOK_M4B_SAMPLE_RATE", "44100")
+    monkeypatch.setenv("EA_AUDIOBOOK_M4B_CHANNELS", "1")
+
+    job_dir = tmp_path / "job"
+    audio_dir = job_dir / "audio"
+    output_file = job_dir / "output" / "book.m4b"
+    audio_dir.mkdir(parents=True)
+    output_file.parent.mkdir(parents=True)
+    _write_tone_wav(audio_dir / "001 - Opening.wav", sample_rate=192000)
+
+    metadata = pipeline.EpubMetadata(
+        title="Single Chapter",
+        author="A. Writer",
+        language="en-US",
+        source_filename="single.epub",
+        source_sha256="source-sha",
+    )
+    chapter = pipeline.EpubChapter(
+        index=1,
+        title="Opening",
+        source_href="story:1",
+        text_path="001 - Opening.txt",
+        audio_filename="001 - Opening.wav",
+        char_count=12,
+        sha256="chapter-sha",
+    )
+
+    result = pipeline._merge_m4b_with_ffmpeg(
+        job_dir=job_dir,
+        metadata=metadata,
+        chapters=(chapter,),
+        output_file=output_file,
+    )
+
+    assert result["status"] == "m4b_ready"
+    assert result["provider"] == "ffmpeg"
+    assert result["normalized_audio_count"] == 1
+    assert result["command"][:3] == [pipeline._ffmpeg_bin(), "-y", "-i"]
+    assert "-f" not in result["command"]
+    assert "concat" not in result["command"]
+    assert "-map_chapters" in result["command"]
+    assert output_file.is_file()
+
+
 def test_player_scoped_audiobook_reference_fails_closed_on_publication_gate(
     monkeypatch,
     tmp_path: Path,
@@ -2248,10 +2296,74 @@ def test_audiobook_playback_acceptance_is_redacted_in_job_receipt(
     assert playback["audiobookshelf_target_file_sha256"]
     assert playback["telegram_public_share_message_id_sha256"]
     assert playback["raw_feedback_exposed"] is False
-    assert playback["raw_message_id_exposed"] is False
+    assert receipt["updated_at"]
+    assert receipt["next_action"] == "playback_accepted"
+
+
+def test_rejected_playback_review_action_is_exposed_in_job_receipt(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from app.services.audiobook_epub_pipeline import (
+        build_audiobook_job_receipt,
+        record_audiobook_playback_acceptance,
+    )
+
+    jobs_root = tmp_path / "jobs"
+    job_dir = jobs_root / "job-playback-review"
+    job_dir.mkdir(parents=True)
+    import_root = tmp_path / "audiobookshelf"
+    target_path = import_root / "A. Writer" / "Review Book" / "Review Book.m4b"
+    target_path.parent.mkdir(parents=True)
+    target_path.write_bytes(b"fake m4b")
+    monkeypatch.setenv("EA_AUDIOBOOK_ALLOW_NON_DURABLE_STORAGE", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(jobs_root))
+    monkeypatch.setenv("EA_AUDIOBOOKSHELF_IMPORT_ROOT", str(import_root))
+    job = {
+        "job_id": "job-playback-review",
+        "status": "audiobookshelf_imported",
+        "metadata": {"title": "Review Book", "author": "A. Writer", "language": "en-US"},
+        "storage": {"job_dir": str(job_dir)},
+        "whatsapp": {
+            "sender_ref": "4368120864006",
+            "session_ref": "session-1",
+            "public_share_delivery": {"status": "sent", "message_id": "wamid.share.1"},
+        },
+        "merge_result": {"status": "m4b_ready", "output_file": str(target_path), "chapter_count": 2},
+        "audiobookshelf_import": {
+            "status": "imported",
+            "target_path": str(target_path),
+            "public_share": {
+                "status": "public_share_ready",
+                "absolute_url": "https://abs.example.com/share/review-book",
+                "slug_sha256": "c" * 64,
+                "whatsapp_delivery": {"status": "sent", "message_id": "wamid.share.1"},
+                "token_exposed": False,
+                "raw_library_path_exposed": False,
+            },
+        },
+    }
+    (job_dir / "job.json").write_text(json.dumps(job, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    updated = record_audiobook_playback_acceptance(
+        job_dir=job_dir,
+        accepted=False,
+        source="whatsapp_button_recovered",
+        message_id="wamid.playback.1",
+        feedback="whatsapp_button_playback_rejected",
+    )
+
+    assert updated["next_action"] == "review_audiobook_playback_problem"
+    receipt = build_audiobook_job_receipt(job_dir=job_dir)
+    assert receipt["status"] == "audiobookshelf_imported"
+    assert receipt["next_action"] == "review_audiobook_playback_problem"
+    assert receipt["updated_at"]
+    assert receipt["playback_acceptance"]["status"] == "rejected"
+    assert receipt["playback_acceptance"]["source"] == "whatsapp_button_recovered"
+    assert receipt["playback_acceptance"]["raw_message_id_exposed"] is False
     rendered = json.dumps(receipt, sort_keys=True)
-    assert "Played the full sample" not in rendered
-    assert '"message_id": "202"' not in rendered
+    assert "whatsapp_button_playback_rejected" not in rendered
+    assert "wamid.playback.1" not in rendered
 
 
 def test_telegram_playback_acceptance_callback_records_redacted_receipt(
@@ -4787,6 +4899,62 @@ def test_audiobook_runtime_preflight_passes_with_ffmpeg_fallback_without_secret_
     assert str(tmp_path) not in rendered
 
 
+def test_audiobook_runtime_preflight_keeps_optional_player_access_base_url_and_bulk_pacing_as_warnings(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    monkeypatch.setenv("EA_AUDIOBOOK_ALLOW_NON_DURABLE_STORAGE", "1")
+    monkeypatch.setenv("EA_TELEGRAM_AUDIOBOOK_EPUB_ENABLED", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(tmp_path / "jobs"))
+    monkeypatch.setenv("EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_AUTO_RENDER", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_MAX_SEGMENTS_PER_RUN", "0")
+    monkeypatch.setenv("EA_AUDIOBOOK_DEFAULT_VOICE_LABEL", "German narrator")
+    monkeypatch.setenv("EA_AUDIOBOOK_DEFAULT_VOICE_LANGUAGE", "de")
+    monkeypatch.setenv("EA_AUDIOBOOK_DEFAULT_VOICE_TAGS", "audiobook,narration,german,clear")
+    monkeypatch.setenv("UNMIXR_API_KEY", "raw-primary-unmixr-key")
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+        json.dumps(
+            [
+                {"voice_id": f"voice-preflight-{index}", "label": f"Voice {index}", "language": "de", "tags": ["audiobook", "narration", "german"]}
+                for index in range(1, 4)
+            ]
+        ),
+    )
+    monkeypatch.setenv("EA_AUDIOBOOK_M4B_AUTO_MERGE", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_FFMPEG_M4B_FALLBACK", "1")
+    monkeypatch.setenv("EA_AUDIOBOOKSHELF_AUTO_IMPORT", "1")
+    monkeypatch.setenv("EA_AUDIOBOOKSHELF_PUBLIC_SHARE_ENABLED", "1")
+    monkeypatch.setenv("EA_AUDIOBOOKSHELF_IMPORT_ROOT", str(tmp_path / "audiobookshelf"))
+    monkeypatch.setenv("EA_AUDIOBOOKSHELF_API_BASE_URL", "https://abs.internal")
+    monkeypatch.setenv("EA_AUDIOBOOKSHELF_PUBLIC_BASE_URL", "https://abs.example.com")
+    monkeypatch.setenv("EA_AUDIOBOOKSHELF_API_TOKEN", "fake-abs-token")
+    monkeypatch.setenv("EA_AUDIOBOOKSHELF_LIBRARY_ID", "library-1")
+    monkeypatch.setenv("EA_AUDIOBOOK_ACCESS_SIGNING_SECRET", "raw-signing-secret")
+    monkeypatch.delenv("EA_AUDIOBOOK_PLAYER_ACCESS_BASE_URL", raising=False)
+
+    def fake_which(binary: str) -> str | None:
+        if binary in {"ffmpeg", "ffprobe"}:
+            return f"/usr/bin/{binary}"
+        return None
+
+    monkeypatch.setattr(pipeline.shutil, "which", fake_which)
+
+    receipt = pipeline.audiobook_runtime_preflight()
+
+    assert receipt["status"] == "warn"
+    assert receipt["failed_checks"] == []
+    assert sorted(receipt["warned_checks"]) == [
+        "player_access_base_url_present",
+        "unmixr_bulk_pacing_configured",
+    ]
+    assert receipt["access"]["player_access_base_url_present"] is False
+    assert receipt["provider"]["bulk_pacing"]["max_segments_per_run"] == 0
+
+
 def test_unmixr_short_tts_uses_fallback_api_key_after_throttle(monkeypatch, tmp_path: Path) -> None:
     from app.services import memorial_openvoice
 
@@ -6241,12 +6409,13 @@ def test_resume_due_audiobook_jobs_reports_skip_reasons(monkeypatch, tmp_path: P
 
     assert summary["attempted"] == 0
     assert summary["resumed"] == 0
-    assert summary["skipped"] == 3
+    assert summary["skipped"] == 2
     assert summary["skip_reasons"] == {
         "audiobookshelf_imported": 1,
-        "superseded_duplicate": 1,
         "waiting_voice_selection": 1,
     }
+    assert summary["ignored_terminal"] == 1
+    assert summary["ignored_terminal_reasons"] == {"superseded_duplicate": 1}
     assert summary["completed_terminal"] == 0
     assert summary["completed_terminal_reasons"] == {}
 
@@ -6318,13 +6487,58 @@ def test_resume_due_audiobook_jobs_only_treats_accepted_playback_as_completed_te
 
     assert summary["attempted"] == 0
     assert summary["resumed"] == 0
-    assert summary["skipped"] == 2
-    assert summary["skip_reasons"] == {
-        "audiobookshelf_imported": 1,
-        "waiting_voice_selection": 1,
-    }
+    assert summary["skipped"] == 1
+    assert summary["skip_reasons"] == {"waiting_voice_selection": 1}
+    assert summary["ignored_terminal"] == 0
+    assert summary["ignored_terminal_reasons"] == {}
+    assert summary["operator_review_pending"] == 1
+    assert summary["operator_review_reasons"] == {"review_audiobook_playback_problem": 1}
     assert summary["completed_terminal"] == 1
     assert summary["completed_terminal_reasons"] == {"playback_accepted": 1}
+
+
+def test_resume_due_audiobook_jobs_ignores_stale_recovered_rejection_after_machine_pass(monkeypatch, tmp_path: Path) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    jobs_root = tmp_path / "jobs"
+    rejected_dir = jobs_root / "job-rejected"
+    rejected_dir.mkdir(parents=True)
+
+    (rejected_dir / "job.json").write_text(
+        json.dumps(
+            {
+                "job_id": "job-rejected",
+                "status": "audiobookshelf_imported",
+                "next_action": "review_audiobook_playback_problem",
+                "audiobookshelf_import": {
+                    "status": "imported",
+                    "public_share": {
+                        "status": "public_share_ready",
+                        "absolute_url": "https://abs.example.com/share/rejected-book",
+                        "telegram_followup_pending": False,
+                        "whatsapp_followup_pending": False,
+                        "playback_e2e": {
+                            "status": "pass",
+                            "checked_at": "2026-06-23T12:32:14Z",
+                        },
+                    },
+                },
+                "playback_acceptance": {
+                    "status": "rejected",
+                    "accepted": False,
+                    "source": "whatsapp_button_recovered",
+                    "recorded_at": "2026-06-22T15:57:46Z",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(jobs_root))
+
+    summary = pipeline.resume_due_audiobook_jobs(notify_telegram=False)
+
+    assert summary["operator_review_pending"] == 0
+    assert summary["operator_review_reasons"] == {}
 
 
 def test_origin_dossier_text_job_uses_same_audiobook_pipeline(monkeypatch, tmp_path: Path) -> None:
@@ -6336,6 +6550,8 @@ def test_origin_dossier_text_job_uses_same_audiobook_pipeline(monkeypatch, tmp_p
     monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_AUTO_RENDER", "0")
     monkeypatch.setenv("EA_M4B_TOOL_BIN", "definitely-missing-m4b-tool")
     monkeypatch.setenv("UNMIXR_VOICE_ID", "default-secret-voice")
+    cover = tmp_path / "cover.jpg"
+    cover.write_bytes(b"cover bytes")
 
     job = create_origin_dossier_audiobook_job(
         origin_story_text="The runner owes a clinic and carries the debt into every job.",
@@ -6344,6 +6560,7 @@ def test_origin_dossier_text_job_uses_same_audiobook_pipeline(monkeypatch, tmp_p
         dossier_id="dossier-1",
         player_id="player-1",
         runner_id="runner-1",
+        cover_image_path=cover,
     )
 
     assert job["status"] == "blocked_external_tts"
@@ -6352,6 +6569,9 @@ def test_origin_dossier_text_job_uses_same_audiobook_pipeline(monkeypatch, tmp_p
     assert job["source"]["runner_id"] == "runner-1"
     assert job["provider"]["voice_selection"]["selected"]["label"] == "Configured audio voice"
     assert "default-secret-voice" not in json.dumps(job)
+    cover_path = Path(job["metadata"]["cover_image_path"])
+    assert cover_path.name == "cover.jpg"
+    assert cover_path.read_bytes() == b"cover bytes"
     receipt = build_audiobook_job_receipt(job_dir=Path(job["storage"]["job_dir"]))
     assert receipt["source"]["priority_for_resume"] is True
     assert receipt["scheduler_resume"]["priority_label"] == "priority_small_narration"
@@ -7207,7 +7427,7 @@ def test_cleanup_finished_audiobook_jobs_observes_disconnected_staging_roots(
     assert result["status"] == "not_needed"
     assert result["staging"]["status"] == "missing"
     assert result["staging"]["skipped_paths"] == [
-        {"path": str(incoming_root), "reason": "OSError"},
+        {"path": str(incoming_root), "reason": "OSError", "errno": errno.ENOTCONN},
     ]
 
 
@@ -7467,6 +7687,7 @@ def test_cleanup_finished_audiobook_jobs_keeps_same_title_different_contact_isol
     from app.services import audiobook_epub_pipeline as pipeline
 
     monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(tmp_path))
+    shared_sha = "same-source-different-contact-sha"
 
     def _write_job(job_dir: Path, *, sender_ref: str, chat_ref: str, updated_at: str) -> None:
         job_dir.mkdir(parents=True)
@@ -7478,11 +7699,12 @@ def test_cleanup_finished_audiobook_jobs_keeps_same_title_different_contact_isol
                     "updated_at": updated_at,
                     "source": {
                         "kind": "epub",
-                        "source_sha256": f"sha-{job_dir.name}",
+                        "source_sha256": shared_sha,
                     },
                     "metadata": {
                         "title": "Proof Book",
                         "author": "A. Writer",
+                        "source_sha256": shared_sha,
                     },
                     "totals": {
                         "chapter_count": 2,

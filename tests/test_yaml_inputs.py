@@ -37,3 +37,18 @@ items:
         "/tmp/example commit abc tightens src, tests, docs, and scripts.",
         "/tmp/example commit def fail-closes stale queue proof anchors.",
     ]
+
+
+def test_load_yaml_dict_uses_configured_successor_queue_source_path(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    queue_path = tmp_path / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
+    design_path = tmp_path / "design" / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
+    queue_path.write_text("mode: append\nitems: []\n", encoding="utf-8")
+    monkeypatch.setenv("EA_FLEET_SUCCESSOR_QUEUE_PATH", queue_path.as_posix())
+    monkeypatch.setenv("EA_DESIGN_SUCCESSOR_QUEUE_PATH", design_path.as_posix())
+
+    payload = load_yaml_dict(queue_path)
+
+    assert payload["source_design_queue_path"] == design_path.as_posix()

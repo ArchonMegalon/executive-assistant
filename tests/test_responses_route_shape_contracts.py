@@ -165,9 +165,12 @@ def test_responses_codex_profile_routes_share_profiled_helper() -> None:
     assert "local_unblock_failed" in local_unblock_runtime_source
     assert "def build_tool_shim_staged_first_command_max_output_tokens(" in local_fleet_runtime_source
     assert "def build_tool_shim_direct_local_fleet_command(" in local_fleet_runtime_source
+    assert "def build_tool_shim_direct_local_workspace_command(" in local_fleet_runtime_source
     assert "remaining_not_started_milestones" in local_fleet_runtime_source
     assert "active_runs_count" in local_fleet_runtime_source
     assert "eta_human" in local_fleet_runtime_source
+    assert "git branch --show-current" in local_fleet_runtime_source
+    assert "git status --short 2>/dev/null | wc -l | tr -d ' '" in local_fleet_runtime_source
     assert "def tool_shim_has_tool_history(" in staged_prompt_runtime_source
     assert "def tool_shim_direct_file_read_command(" in staged_prompt_runtime_source
     assert "def tool_shim_looks_like_shell_command(" in staged_prompt_runtime_source
@@ -453,6 +456,7 @@ def test_responses_provider_health_and_profiles_routes_use_shared_helpers() -> N
     assert "_tool_shim_local_unblock_final_text = tool_shim_local_unblock_final_text" in source
     assert "_tool_shim_staged_first_command_max_output_tokens = build_tool_shim_staged_first_command_max_output_tokens(" in source
     assert "_tool_shim_direct_local_fleet_command = build_tool_shim_direct_local_fleet_command(" in source
+    assert "_tool_shim_direct_local_workspace_command = build_tool_shim_direct_local_workspace_command(" in source
     assert "_tool_shim_has_tool_history = tool_shim_has_tool_history" in source
     assert "_tool_shim_staged_commands = build_tool_shim_staged_commands(" in source
     assert "_tool_shim_direct_file_read_command = tool_shim_direct_file_read_command" in source

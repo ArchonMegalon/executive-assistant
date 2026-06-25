@@ -74,6 +74,9 @@ def build_public_memorial_turn(*, runtime: MemorialTurnRuntime, request: Memoria
     response_payload["transcript_original_text"] = transcription.transcript_original_text
     response_payload["audio_content_type"] = rendered_audio.content_type
     response_payload["audio_base64"] = base64.b64encode(rendered_audio.payload).decode("ascii")
+    response_payload["audio_unavailable"] = False
+    response_payload["voice_delivery_status"] = "spoken_audio_ready"
+    response_payload["spoken_turn"] = True
     response_payload["tts_plugin"] = rendered_audio.tts_plugin
     response_payload["tts_fast_path"] = rendered_audio.tts_fast_path
     _log_turn_issue_if_needed(
@@ -205,7 +208,7 @@ def _render_turn_audio(
         voice_profile_ready=bool(base_config.get("voice_profile_ready")),
     )
     selected_plugin, selected_option = runtime.resolve_server_tts_plugin(payload=merged_config, options=tts_options)
-    visible_answer = runtime.compact_memorial_realtime_answer(answer_plan.answer_payload.get("answer"))
+    visible_answer = runtime.text(answer_plan.answer_payload.get("answer"), "")
     answer_plan.answer_payload["answer"] = visible_answer
     answer_audio_text = runtime.normalize_tts_text(answer_plan.answer_payload.get("answer_audio_text") or visible_answer)
     if not answer_audio_text:
@@ -233,6 +236,10 @@ def _render_turn_audio(
         lead_in_ms=0,
         tail_silence_ms=0,
     )
+    if not bytes(audio or b""):
+        raise HTTPException(status_code=502, detail="tts_audio_missing")
+    if not runtime.text(audio_content_type, "").strip().lower().startswith("audio/"):
+        raise HTTPException(status_code=502, detail="tts_content_type_invalid")
     tts_ms = (time.perf_counter() - tts_started) * 1000.0
     pad_started = time.perf_counter()
     audio, audio_content_type = runtime.pad_speech_audio_lead_in(

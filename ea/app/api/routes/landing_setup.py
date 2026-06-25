@@ -21,6 +21,8 @@ from app.api.routes.landing_view_models import humanize as _humanize
 from app.container import AppContainer
 from app.product.service import build_product_service
 from app.services.public_branding import request_brand
+from app.services.public_request import public_base_url
+from app.services.public_urls import propertyquarry_public_base_url
 from app.services.google_oauth import (
     browser_google_oauth_redirect_uri,
     complete_google_oauth_callback,
@@ -33,29 +35,15 @@ router = APIRouter(tags=["landing"])
 
 
 def _propertyquarry_public_base_url() -> str:
-    return str(os.environ.get("PROPERTYQUARRY_PUBLIC_BASE_URL") or "https://propertyquarry.com").strip().rstrip("/")
+    return propertyquarry_public_base_url()
 
 
 def _public_app_base_url(request: Request) -> str:
-    forwarded = str(request.headers.get("x-forwarded-host") or "").strip().lower().rstrip(".")
-    request_host = str(request.url.hostname or "").strip().lower().rstrip(".")
-    forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").strip() or request.url.scheme
-    effective_host = forwarded or request_host
-    if effective_host in {"propertyquarry.com", "www.propertyquarry.com"}:
-        if forwarded:
-            return f"{forwarded_proto}://{forwarded}"
-        return str(request.base_url).rstrip("/")
-    explicit = str(os.environ.get("EA_PUBLIC_APP_BASE_URL") or "").strip().rstrip("/")
-    if explicit:
-        return explicit
-    redirect_uri = str(os.environ.get("EA_GOOGLE_OAUTH_REDIRECT_URI") or "").strip()
-    if redirect_uri:
-        parsed = urllib.parse.urlparse(redirect_uri)
-        if parsed.scheme and parsed.netloc:
-            return f"{parsed.scheme}://{parsed.netloc}"
-    if forwarded:
-        return f"{forwarded_proto}://{forwarded}"
-    return str(request.base_url).rstrip("/")
+    return public_base_url(
+        request,
+        explicit_base_url=str(os.environ.get("EA_PUBLIC_APP_BASE_URL") or ""),
+        redirect_uri=str(os.environ.get("EA_GOOGLE_OAUTH_REDIRECT_URI") or ""),
+    )
 
 
 def _append_query_value(path: str, **values: str) -> str:
@@ -518,4 +506,5 @@ def google_oauth_browser_callback(
         sync_result=sync_result,
         sync_detail=_google_sync_detail(sync_result),
         register_signal_payload=register_signal_payload,
+        propertyquarry_register_ready_url=f"{_propertyquarry_public_base_url()}/register?ready=1",
     )

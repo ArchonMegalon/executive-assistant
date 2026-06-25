@@ -17,18 +17,13 @@ def test_tts_plugin_options_exclude_openvoice() -> None:
         text=lambda value, fallback="": str(value or fallback),
         browser_speech_tts_plugin_id="browser_speech_synthesis",
         unmixr_tts_plugin_id=public_memorials.UNMIXR_TTS_PLUGIN_ID,
-        openvoice_tts_plugin_id=public_memorials.OPENVOICE_TTS_PLUGIN_ID,
-        piper_fast_plugin_option=lambda: {"tts_plugin": public_memorials.PIPER_FAST_TTS_PLUGIN_ID, "tts_plugin_enabled": True},
         unmixr_plugin_option=lambda **kwargs: {"tts_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID, "tts_plugin_enabled": True, **kwargs},
         voicewave_plugin_option=lambda **kwargs: {"tts_plugin": public_memorials.VOICEWAVE_TTS_PLUGIN_ID, "tts_plugin_enabled": True, **kwargs},
-        openvoice_plugin_option=lambda **kwargs: {"tts_plugin": public_memorials.OPENVOICE_TTS_PLUGIN_ID, "tts_plugin_enabled": True, **kwargs},
         unmixr_memorial_voice_id=lambda: "unmixr-voice",
-        openvoice_memorial_voice_id=lambda: "openvoice-voice",
         voicewave_memorial_voice_label=lambda: "voicewave-voice",
     )
 
     assert {str(option.get("tts_plugin")) for option in options} == {
-        public_memorials.PIPER_FAST_TTS_PLUGIN_ID,
         "browser_speech_synthesis",
         public_memorials.UNMIXR_TTS_PLUGIN_ID,
         public_memorials.VOICEWAVE_TTS_PLUGIN_ID,
@@ -49,11 +44,7 @@ def test_voice_ab_auto_build_challenger_does_not_fallback_to_openvoice(monkeypat
         "unmixr_clone_request",
         lambda **kwargs: (_ for _ in ()).throw(HTTPException(status_code=429, detail="Reached the limit")),
     )
-    monkeypatch.setattr(
-        public_memorials,
-        "openvoice_clone_request",
-        lambda **kwargs: (_ for _ in ()).throw(AssertionError("openvoice fallback must not run")),
-    )
+    assert not hasattr(public_memorials, "openvoice_clone_request")
 
     challenger = public_memorials._voice_ab_auto_build_challenger("manfred", excluded_voice_ids=set())
 

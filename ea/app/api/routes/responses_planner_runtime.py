@@ -52,6 +52,32 @@ def tool_shim_transcript_part_max_chars() -> int:
         return 1200
 
 
+def _tool_shim_stable_planner_model() -> str:
+    return "onemin:gpt-4.1-nano"
+
+
+def _tool_shim_sanitize_planner_override(configured_model: str) -> str:
+    configured = str(configured_model or "").strip()
+    if not configured:
+        return ""
+    strict = str(os.environ.get("EA_TOOL_SHIM_PLANNER_MODEL_STRICT") or "").strip().lower()
+    if strict in {"1", "true", "yes", "on"}:
+        return configured
+    normalized = configured.lower()
+    if (
+        normalized.startswith("gemini")
+        or normalized.startswith("gemini_vortex:")
+        or normalized in {
+            "ea-coder-fast",
+            "ea-gemini-flash",
+            "ea-groundwork-gemini",
+            "ea-repair-gemini",
+        }
+    ):
+        return _tool_shim_stable_planner_model()
+    return configured
+
+
 def build_tool_shim_planner_model(
     *,
     fast_public_model: str,
@@ -69,7 +95,8 @@ def build_tool_shim_planner_model(
     is_package_work_prompt: Callable[[str], bool],
 ) -> Callable[..., str]:
     def tool_shim_planner_model(model: str, *, prompt: str | None = None) -> str:
-        configured = str(os.environ.get("EA_TOOL_SHIM_PLANNER_MODEL") or "").strip()
+        stable_planner = _tool_shim_stable_planner_model()
+        configured = _tool_shim_sanitize_planner_override(os.environ.get("EA_TOOL_SHIM_PLANNER_MODEL") or "")
         if configured:
             return configured
         normalized_prompt = str(prompt or "").strip()
@@ -81,33 +108,43 @@ def build_tool_shim_planner_model(
             or is_operator_readiness_remedy_prompt(normalized_prompt)
             or is_package_work_prompt(normalized_prompt)
         ):
-            fast_planner = str(fast_public_model or "").strip() or "ea-coder-fast"
-            if fast_planner:
-                return fast_planner
+            return stable_planner
         normalized = str(model or "").strip().lower()
         if not normalized:
-            return "onemin:gpt-4.1-nano"
-        managed_lane_models = {
-            str(hard_batch_public_model or "").strip().lower(): str(hard_batch_public_model or "").strip(),
-            str(hard_rescue_public_model or "").strip().lower(): str(hard_rescue_public_model or "").strip(),
-            str(review_light_public_model or "").strip().lower(): str(review_light_public_model or "").strip(),
-            str(groundwork_public_model or "").strip().lower(): str(groundwork_public_model or "").strip(),
-            str(survival_public_model or "").strip().lower(): str(survival_public_model or "").strip(),
-            "ea-coder-hard": "ea-coder-hard",
-            "ea-coder-hard-batch": str(hard_batch_public_model or "").strip() or "ea-coder-hard-batch",
-            "ea-coder-hard-rescue": str(hard_rescue_public_model or "").strip() or "ea-coder-hard-rescue",
-            "ea-audit-jury": "ea-audit-jury",
-            "ea-review-light": str(review_light_public_model or "").strip() or "ea-review-light",
-            "ea-groundwork-gemini": str(groundwork_public_model or "").strip() or "ea-groundwork-gemini",
-            "ea-coder-survival": str(survival_public_model or "").strip() or "ea-coder-survival",
+            return stable_planner
+        known_planner_families = {
+            str(fast_public_model or "").strip().lower(),
+            str(hard_batch_public_model or "").strip().lower(),
+            str(hard_rescue_public_model or "").strip().lower(),
+            str(review_light_public_model or "").strip().lower(),
+            str(groundwork_public_model or "").strip().lower(),
+            str(survival_public_model or "").strip().lower(),
+            str(onemin_public_model or "").strip().lower(),
+            "ea-coder-hard",
+            "ea-audit-jury",
+            "ea-coder-best",
+            "ea-overflow",
+            "ea-review",
+            "ea-critic",
+            "ea-onemin-coder",
+            "ea-magicx-coder",
+            "deepseek-chat",
+            "gpt-5.4",
+            "gpt-5.5",
+            "gpt-4.1",
+            "gpt-4.1-nano",
+            "gpt-4o",
         }
-        managed_match = str(managed_lane_models.get(normalized) or "").strip()
-        if managed_match:
-            return managed_match
-        if normalized == str(onemin_public_model or "").strip().lower() or normalized.startswith("onemin:"):
-            return "onemin:gpt-4.1-nano"
-        if normalized.startswith("ea-"):
-            return "onemin:gpt-4.1-nano"
+        if (
+            normalized in known_planner_families
+            or normalized.startswith("ea-")
+            or normalized.startswith("onemin:")
+            or normalized.startswith("gpt-")
+            or normalized.startswith("gemini")
+            or normalized.startswith("gemini_vortex:")
+            or normalized.startswith("deepseek")
+        ):
+            return stable_planner
         return model
 
     tool_shim_planner_model.__name__ = "tool_shim_planner_model"
@@ -133,6 +170,7 @@ def build_tool_shim_planner_deadline_monotonic(
     is_operator_gap_fix_prompt: Callable[[str], bool],
     is_operator_gap_audit_prompt: Callable[[str], bool],
     is_operator_readiness_remedy_prompt: Callable[[str], bool],
+    looks_like_lightweight_ops_query: Callable[[str], tuple[bool, object]],
 ) -> Callable[..., float | None]:
     def _configured_default_budget_seconds() -> float:
         raw = str(os.environ.get("EA_TOOL_SHIM_PLANNER_DEADLINE_SECONDS_DEFAULT") or "").strip()
@@ -142,6 +180,15 @@ def build_tool_shim_planner_deadline_monotonic(
             return max(0.0, min(600.0, float(raw)))
         except Exception:
             return 0.0
+
+    def _configured_budget_seconds(env_name: str, default: float) -> float:
+        raw = str(os.environ.get(env_name) or "").strip()
+        if not raw:
+            return default
+        try:
+            return max(0.0, min(900.0, float(raw)))
+        except Exception:
+            return default
 
     def tool_shim_planner_deadline_monotonic(
         request_deadline_monotonic: float | None,
@@ -155,7 +202,10 @@ def build_tool_shim_planner_deadline_monotonic(
             return request_deadline_monotonic
         deadline_budget_seconds = 0.0
         if is_package_work_prompt(normalized_prompt):
-            deadline_budget_seconds = 75.0
+            deadline_budget_seconds = _configured_budget_seconds(
+                "EA_TOOL_SHIM_PLANNER_DEADLINE_SECONDS_PACKAGE",
+                45.0,
+            )
         elif (
             is_staged_local_orientation_prompt(normalized_prompt)
             or is_operator_fleet_unblock_prompt(normalized_prompt)
@@ -163,7 +213,15 @@ def build_tool_shim_planner_deadline_monotonic(
             or is_operator_gap_audit_prompt(normalized_prompt)
             or is_operator_readiness_remedy_prompt(normalized_prompt)
         ):
-            deadline_budget_seconds = 30.0
+            deadline_budget_seconds = _configured_budget_seconds(
+                "EA_TOOL_SHIM_PLANNER_DEADLINE_SECONDS_OPERATOR",
+                20.0,
+            )
+        elif looks_like_lightweight_ops_query(normalized_prompt)[0]:
+            deadline_budget_seconds = _configured_budget_seconds(
+                "EA_TOOL_SHIM_PLANNER_DEADLINE_SECONDS_LIGHTWEIGHT",
+                12.0,
+            )
         else:
             deadline_budget_seconds = _configured_default_budget_seconds()
         if deadline_budget_seconds <= 0:

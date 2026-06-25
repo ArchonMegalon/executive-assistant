@@ -156,6 +156,7 @@ def test_source_worktree_metadata_reports_source_dirty_without_generated_noise(
             [
                 " M .codex-design/product/PROJECT_MODES.generated.json",
                 " M .codex-studio/published/memorial_stt_provider_benchmark.generated.json",
+                "?? ea/.runtime/voice-preview/sample.wav",
                 " M app/api/routes/public_memorials.py",
                 "?? scripts/source_state_head.py",
                 "R  old_service.py -> app/services/new_service.py",

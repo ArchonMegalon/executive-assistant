@@ -26,7 +26,7 @@ def app_shell(
 
 
 @router.get("/admin", response_class=HTMLResponse)
-def admin_root() -> RedirectResponse:
+def admin_root(_: None = Depends(deps.require_operator_context)) -> RedirectResponse:
     return support.admin_root()
 
 

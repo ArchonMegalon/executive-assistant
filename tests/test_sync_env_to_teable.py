@@ -377,6 +377,29 @@ def test_audit_compose_required_env_coverage_fails_missing_required_env(
     assert result["missing_required_compose_env"] == ["EA_REQUIRED"]
 
 
+def test_audit_compose_required_env_coverage_ignores_shell_local_variables(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    root_env = tmp_path / ".env"
+    local_env = tmp_path / ".env.local"
+    service_env = tmp_path / "ea" / ".env"
+    service_env.parent.mkdir()
+    root_env.write_text("EA_API_TOKEN=root-token\n", encoding="utf-8")
+    local_env.write_text("EA_REQUIRED=done\n", encoding="utf-8")
+    service_env.write_text("", encoding="utf-8")
+    (tmp_path / "docker-compose.yml").write_text(
+        "services:\n  api:\n    command: |\n      - code=0;\n      - if [ \"$${code}\" -ne 0 ]; then echo $${code}; fi\n      - port=8090;\n      - curl http://127.0.0.1:$${port}/health;\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    monkeypatch.setattr(module, "DEFAULT_ENV_FILES", (root_env, local_env, service_env))
+
+    result = module.audit_compose_required_env_coverage(env_files=(root_env, local_env, service_env))
+
+    assert result["status"] == "pass"
+    assert result["missing_required_compose_env"] == []
+
+
 def test_restore_env_file_writes_teable_values_without_leaking_other_scopes(monkeypatch, tmp_path: Path) -> None:
     module = _module()
     output = tmp_path / ".env"

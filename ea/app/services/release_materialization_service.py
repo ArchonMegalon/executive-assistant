@@ -84,8 +84,16 @@ def _steps() -> tuple[ReleaseMaterializerStep, ...]:
             command=("scripts/materialize_runtime_dependency_evidence.py",),
         ),
         ReleaseMaterializerStep(
+            name="deploy_context",
+            command=("scripts/materialize_deploy_context.py",),
+        ),
+        ReleaseMaterializerStep(
             name="release_manifest",
             command=("scripts/materialize_release_manifest.py",),
+        ),
+        ReleaseMaterializerStep(
+            name="release_authority_status",
+            command=("scripts/materialize_release_authority_status.py",),
         ),
     )
 

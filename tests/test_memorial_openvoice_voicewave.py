@@ -235,6 +235,15 @@ def test_unmixr_smart_selector_accepts_successful_audio_url_with_credit_usage(
     assert state["slots"]["UNMIXR_API_KEY"]["last_status"] == "ok"
 
 
+def test_unmixr_language_preserves_provider_locale_casing(monkeypatch) -> None:
+    monkeypatch.setenv("UNMIXR_LANGUAGE", "en_US")
+
+    assert memorial_openvoice.unmixr_language("en-us") == "en-US"
+    assert memorial_openvoice.unmixr_language("en_US") == "en-US"
+    assert memorial_openvoice.unmixr_language("") == "en-US"
+    assert memorial_openvoice.unmixr_language("de-DE") == "de"
+
+
 def test_voicewave_runtime_script_path_prefers_existing_container_path(monkeypatch) -> None:
     first_path = Path("/workspace/ea/scripts/voicewave_memorial_voice.py")
     container_path = Path("/app/scripts/voicewave_memorial_voice.py")

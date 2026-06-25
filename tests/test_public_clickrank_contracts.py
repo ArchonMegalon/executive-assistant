@@ -9,6 +9,7 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
 from app.services.public_clickrank import clickrank_head_snippet, clickrank_site_id_for_hostname, request_hostname
+from app.services.public_surface_limits import public_surface_client_key
 
 
 _MYEXTERNALBRAIN_SITE_ID = "33ff8f39-6213-4903-99d7-81048b5b3e1f"
@@ -36,7 +37,10 @@ def _client(*, principal_id: str = "exec-clickrank-contract", clickrank_enabled:
     return client
 
 
-def test_request_hostname_prefers_forwarded_host_over_host_and_url_host() -> None:
+def test_request_hostname_prefers_forwarded_host_over_host_and_url_host(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_TRUST_X_FORWARDED_HOST", "1")
     request = SimpleNamespace(
         headers={
             "x-forwarded-host": "myexternalbrain.com",
@@ -46,6 +50,21 @@ def test_request_hostname_prefers_forwarded_host_over_host_and_url_host() -> Non
     )
 
     assert request_hostname(request) == "myexternalbrain.com"
+
+
+def test_request_hostname_ignores_forwarded_host_without_explicit_trust(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_TRUST_X_FORWARDED_HOST", "0")
+    request = SimpleNamespace(
+        headers={
+            "x-forwarded-host": "myexternalbrain.com",
+            "host": "internal-ea-host:443",
+        },
+        url=SimpleNamespace(hostname="internal-ea-host"),
+    )
+
+    assert request_hostname(request) == "internal-ea-host"
 
 
 def test_request_hostname_uses_public_base_host_for_proxied_opaque_origin(
@@ -76,6 +95,38 @@ def test_request_hostname_keeps_unknown_public_host_for_proxied_request(
     )
 
     assert request_hostname(request) == "propertyquarry.com"
+
+
+def test_public_surface_client_key_ignores_forwarded_ip_without_explicit_trust(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_TRUST_X_FORWARDED_FOR", "0")
+
+    key = public_surface_client_key(
+        headers={
+            "cf-connecting-ip": "198.51.100.42",
+            "x-forwarded-for": "198.51.100.99",
+        },
+        client_host="127.0.0.1",
+    )
+
+    assert key == "ip:127001"
+
+
+def test_public_surface_client_key_uses_forwarded_ip_when_explicitly_trusted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_TRUST_X_FORWARDED_FOR", "1")
+
+    key = public_surface_client_key(
+        headers={
+            "cf-connecting-ip": "198.51.100.42",
+            "x-forwarded-for": "198.51.100.99",
+        },
+        client_host="127.0.0.1",
+    )
+
+    assert key == "ip:1985110042"
 
 
 def test_clickrank_site_id_for_hostname_uses_env_override(monkeypatch: pytest.MonkeyPatch) -> None:

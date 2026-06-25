@@ -39,8 +39,23 @@ _ONEMIN_DIRECT_API_RETRY_AFTER_RE = re.compile(
     r'"retryAfter"\s*:\s*(\d+)|after\s+(\d+)\s+seconds',
     re.IGNORECASE,
 )
-_MEDIA_CHALLENGER_LEDGER_PATH = Path(os.getenv("EA_MEDIA_CHALLENGER_LEDGER_PATH", "/docker/fleet/state/chummer6/ea_challenger_ledger.json"))
-_MEDIA_PROVIDER_SCHEDULER_PATH = Path(os.getenv("EA_MEDIA_PROVIDER_SCHEDULER_PATH", "/docker/fleet/state/chummer6/ea_provider_scheduler.json"))
+def _repo_root() -> Path:
+    current = Path(__file__).resolve()
+    for parent in current.parents:
+        if (parent / ".git").is_dir() or (parent / ".codex-design").is_dir():
+            return parent
+    return current.parents[4]
+
+
+def _provider_state_path(env_name: str, filename: str) -> Path:
+    configured = str(os.getenv(env_name) or "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    return _repo_root() / ".runtime" / "provider-state" / filename
+
+
+_MEDIA_CHALLENGER_LEDGER_PATH = _provider_state_path("EA_MEDIA_CHALLENGER_LEDGER_PATH", "ea_challenger_ledger.json")
+_MEDIA_PROVIDER_SCHEDULER_PATH = _provider_state_path("EA_MEDIA_PROVIDER_SCHEDULER_PATH", "ea_provider_scheduler.json")
 
 
 class ProviderBindingIn(BaseModel):
@@ -511,8 +526,11 @@ def probe_all_onemin(
     return result
 
 
-_ONEMIN_SLOT_ENV_RE = re.compile(r"^ONEMIN_AI_API_KEY(?:_FALLBACK_\d+)?$")
+_ONEMIN_SLOT_ENV_RE = re.compile(
+    r"^(?:ONEMIN_AI_API_KEY(?:_FALLBACK_\d+)?|(?:EA_RESPONSES_)?ONEMIN(?:_AI)?_API_KEY(?:_\d+)?)$"
+)
 _ONEMIN_ACCOUNT_LABEL_FALLBACK_RE = re.compile(r"^ONEMIN_AI_API_KEY_FALLBACK_(\d+)$")
+_ONEMIN_ACCOUNT_LABEL_INDEXED_RE = re.compile(r"^(?:EA_RESPONSES_)?ONEMIN(?:_AI)?_API_KEY_(\d+)$")
 
 
 def _resolve_onemin_snapshot_scope(
@@ -540,8 +558,12 @@ def _resolve_onemin_snapshot_scope(
 
 def _onemin_slot_name_for_account_label(account_label: str) -> str:
     normalized = str(account_label or "").strip()
-    if normalized == "ONEMIN_AI_API_KEY":
+    if normalized in {"ONEMIN_AI_API_KEY", "EA_RESPONSES_ONEMIN_API_KEY"}:
         return "primary"
+    indexed_match = _ONEMIN_ACCOUNT_LABEL_INDEXED_RE.fullmatch(normalized)
+    if indexed_match is not None:
+        index = int(indexed_match.group(1))
+        return "primary" if index <= 1 else f"fallback_{index - 1}"
     match = _ONEMIN_ACCOUNT_LABEL_FALLBACK_RE.fullmatch(normalized)
     if match is not None:
         return f"fallback_{int(match.group(1))}"
@@ -1444,8 +1466,10 @@ def _onemin_browseract_proxy_rotation_retry_parallelism() -> int:
 
 
 def _fastestvpn_rotate_script_path() -> Path:
-    configured = str(upstream._env("EA_FASTESTVPN_ROTATE_SCRIPT") or "/docker/EA/scripts/rotate_fastestvpn_proxy.sh").strip()  # type: ignore[attr-defined]
-    return Path(configured or "/docker/EA/scripts/rotate_fastestvpn_proxy.sh")
+    configured = str(upstream._env("EA_FASTESTVPN_ROTATE_SCRIPT") or "").strip()  # type: ignore[attr-defined]
+    if configured:
+        return Path(configured).expanduser()
+    return _repo_root() / "scripts" / "rotate_fastestvpn_proxy.sh"
 
 
 def _job_uses_fastestvpn_proxy(job: dict[str, object]) -> bool:
@@ -1469,8 +1493,10 @@ def _job_fastestvpn_service_name(job: dict[str, object]) -> str:
 
 
 def _fastestvpn_compose_root() -> Path:
-    configured = str(upstream._env("EA_FASTESTVPN_COMPOSE_ROOT") or "/docker/EA").strip()  # type: ignore[attr-defined]
-    return Path(configured or "/docker/EA")
+    configured = str(upstream._env("EA_FASTESTVPN_COMPOSE_ROOT") or "").strip()  # type: ignore[attr-defined]
+    if configured:
+        return Path(configured).expanduser()
+    return _repo_root()
 
 
 def _fastestvpn_compose_command() -> list[str] | None:

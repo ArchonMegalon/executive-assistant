@@ -44,6 +44,15 @@ def test_browseract_template_worker_defaults_are_repo_local() -> None:
     assert "EA_UI_SERVICE_SHARED_TEMP_ROOT" in source
 
 
+def test_browseract_tool_adapter_worker_defaults_are_repo_local() -> None:
+    source = (ROOT / "ea" / "app" / "services" / "tool_execution_browseract_adapter.py").read_text(encoding="utf-8")
+
+    assert "/mnt/" + "pcloud" not in source
+    assert "/docker/" + "EA/scripts" not in source
+    assert '"browseract_ui_worker_outputs"' in source
+    assert '"browseract_ui_worker_shared"' in source
+
+
 def test_browseract_content_generator_uses_generic_default_principal() -> None:
     source = (ROOT / "scripts" / "generate_browseract_content_templates.py").read_text(encoding="utf-8")
 

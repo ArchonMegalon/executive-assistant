@@ -18,7 +18,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable
 
@@ -39,16 +39,19 @@ DEFAULT_ACTION_REPLY_HEYY_AI_KEY = "empathetic_slow_typing_old_lady"
 DEFAULT_ACTION_REPLY_HEYY_AI_NAME = "Herta (Heyy Lady)"
 DEFAULT_TELEGRAM_SUMMARY_HEYY_AI_KEYS = DEFAULT_ACTION_REPLY_HEYY_AI_KEY
 DEFAULT_TELEGRAM_SUMMARY_SCOPE_LABEL = "Herta"
-DEFAULT_ACTION_REPLY_PRE_REPLY_DELAY_MIN_SECONDS = 60
-DEFAULT_ACTION_REPLY_PRE_REPLY_DELAY_MAX_SECONDS = 900
+DEFAULT_ACTION_REPLY_PRE_REPLY_DELAY_MIN_SECONDS = 180
+DEFAULT_ACTION_REPLY_PRE_REPLY_DELAY_MAX_SECONDS = 1800
 DEFAULT_ACTION_REPLY_TYPING_DELAY_MS = 6500
-DEFAULT_ACTION_REPLY_TYPING_DELAY_MS_PER_CHARACTER = 4000
+DEFAULT_ACTION_REPLY_TYPING_DELAY_MS_PER_CHARACTER = 8000
 DEFAULT_ACTION_REPLY_QUIET_HOURS_START_HOUR = 21
 DEFAULT_ACTION_REPLY_QUIET_HOURS_END_HOUR = 6
 DEFAULT_STALE_CALLBACK_REPLY_MAX_AGE_SECONDS = 900
 DEFAULT_CONVERSATION_FALLBACK_NOOP_COOLDOWN_SECONDS = 60
 DEFAULT_CONVERSATION_FALLBACK_NOOP_MAX_COOLDOWN_SECONDS = 300
-DEFAULT_FREEFORM_EXECUTIVE_ASSISTANT_REPLY = "I got that. I am checking it now."
+DEFAULT_FREEFORM_EXECUTIVE_ASSISTANT_REPLY = ""
+DEFAULT_FREEFORM_CONVERSATION_FALLBACK_MAX_AGE_SECONDS = 21_600
+DEFAULT_FREEFORM_STATE_STALE_SECONDS = 900
+DEFAULT_FREEFORM_STATE_MAX_ENTRIES = 256
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -392,6 +395,9 @@ def _request_json(
     except urllib.error.HTTPError as exc:
         details = exc.read().decode("utf-8", errors="ignore")
         raise RuntimeError(f"http_{exc.code}:{details[:160]}") from exc
+    except urllib.error.URLError as exc:
+        reason = str(exc.reason).strip() or type(exc.reason).__name__
+        raise RuntimeError(f"url_error:{reason[:160]}") from exc
     return json.loads(raw or "{}")
 
 
@@ -415,6 +421,88 @@ def _request_bytes(
     except urllib.error.HTTPError as exc:
         details = exc.read().decode("utf-8", errors="ignore")
         raise RuntimeError(f"http_{exc.code}:{details[:160]}") from exc
+    except urllib.error.URLError as exc:
+        reason = str(exc.reason).strip() or type(exc.reason).__name__
+        raise RuntimeError(f"url_error:{reason[:160]}") from exc
+
+
+def _session_api_wait_reason(exc: BaseException) -> str:
+    reason = str(exc).strip() or type(exc).__name__
+    lowered = reason.lower()
+    if reason.startswith("http_409:") and "session_not_ready" in lowered:
+        return "session_not_ready"
+    if reason.startswith("url_error:"):
+        if "temporary failure in name resolution" in lowered or "name or service not known" in lowered:
+            return "session_api_name_resolution_failed"
+        if "connection refused" in lowered or "[errno 111]" in lowered:
+            return "session_api_connection_refused"
+        if "timed out" in lowered or "timeout" in lowered:
+            return "session_api_timeout"
+    return ""
+
+
+def _waiting_report(*, session_ref: str, state_path: Path, reason: str) -> dict[str, object]:
+    telegram_summary = {
+        "candidate_count": 0,
+        "enabled": False,
+        "new_message_count": 0,
+        "pending_message_count": 0,
+        "sent": 0,
+        "status": "waiting",
+    }
+    return {
+        "status": "waiting",
+        "session_ref": session_ref,
+        "message_count": 0,
+        "inbox_message_count": 0,
+        "inbound_message_count": 0,
+        "freeform_inbox_message_count": 0,
+        "freeform_inbox_by_heyy_ai_key": {},
+        "freeform_reply_sent": 0,
+        "conversation_fallback": _conversation_fallback_summary(attempted=False, status="waiting", reason=reason),
+        "candidate_count": 0,
+        "audiobook_source_candidate_count": 0,
+        "epub_candidate_count": 0,
+        "voice_text_candidate_count": 0,
+        "status_candidate_count": 0,
+        "processed": 0,
+        "epub_processed": 0,
+        "voice_text_processed": 0,
+        "status_processed": 0,
+        "skipped_processed": 0,
+        "reply_sent": 0,
+        "voice_sample_sent": 0,
+        "share_link_sent": 0,
+        "errors": 0,
+        "telegram_summary": telegram_summary,
+        "resume_summary": {"ran": False},
+        "followup_summary": {"attempted": 0, "blocked": 0, "blocked_reasons": {}, "errors": 0, "sent": 0},
+        "cleanup_summary": {
+            "status": "not_needed",
+            "cleaned_jobs": 0,
+            "failed_jobs": 0,
+            "removed_bytes": 0,
+            "removed_paths": 0,
+            "results": [],
+            "skipped_jobs": 0,
+            "staging": {"status": "not_needed", "removed_bytes": 0, "removed_files": 0, "removed_paths": []},
+            "superseded": {"status": "not_needed", "cleaned_jobs": 0, "removed_bytes": 0, "removed_paths": 0, "results": []},
+        },
+        "external_blockers": [],
+        "stale_callback_summary": {
+            "action_count": 0,
+            "ignored_count": 0,
+            "reasons": {},
+            "reply_sent": 0,
+            "stale_count": 0,
+            "suppressed": 0,
+            "suppressed_by_age": 0,
+            "suppressed_duplicate": 0,
+            "suppressed_reasons": {},
+        },
+        "status_counts": {},
+        "state_file_present": state_path.exists() if str(state_path) else False,
+    }
 
 
 def _load_state(path: Path) -> dict[str, Any]:
@@ -490,6 +578,17 @@ def _fallback_callback_from_selected_button_label(message: dict[str, Any]) -> st
         return ""
     voice_selection = dict(dict(job.get("provider") or {}).get("voice_selection") or {})
     pending_batch = [row for row in list(voice_selection.get("pending_batch") or []) if isinstance(row, dict)]
+    generic_use_labels = {"use this", "use", "use this voice"}
+    generic_dismiss_labels = {"dismiss", "dismiss this", "dismiss voice", "dismiss this voice"}
+    if normalized_label in generic_use_labels | generic_dismiss_labels:
+        token = _voice_sample_token_for_selected_button_message(message=message, job=job)
+        if token:
+            return whatsapp_inbound_actions.encode_whatsapp_audiobook_voice_callback(
+                action="u" if normalized_label in generic_use_labels else "d",
+                token=token,
+                sender_ref=sender_digits,
+                expires_at=_fallback_callback_expiry_for_message(message),
+            )
     for row in pending_batch:
         if not isinstance(row, dict):
             continue
@@ -515,8 +614,6 @@ def _fallback_callback_from_selected_button_label(message: dict[str, Any]) -> st
         token = str(dict(pending_batch[0]).get("callback_token") or "").strip()
         if not token:
             return ""
-        generic_use_labels = {"use this", "use", "use this voice"}
-        generic_dismiss_labels = {"dismiss", "dismiss this", "dismiss voice", "dismiss this voice"}
         if normalized_label in generic_use_labels:
             return whatsapp_inbound_actions.encode_whatsapp_audiobook_voice_callback(
                 action="u",
@@ -531,6 +628,63 @@ def _fallback_callback_from_selected_button_label(message: dict[str, Any]) -> st
                 sender_ref=sender_digits,
                 expires_at=_fallback_callback_expiry_for_message(message),
             )
+    return ""
+
+
+def _message_related_message_ids(message: dict[str, Any]) -> list[str]:
+    values: list[str] = []
+    for key in (
+        "selected_button_message_id",
+        "selected_button_parent_id",
+        "selected_button_context_id",
+        "button_message_id",
+        "poll_message_id",
+        "quoted_message_id",
+        "context_message_id",
+        "context_id",
+        "parent_message_id",
+        "reply_to_message_id",
+    ):
+        value = str(message.get(key) or "").strip()
+        if value and value not in values:
+            values.append(value)
+    context = message.get("context")
+    if isinstance(context, dict):
+        for key in ("id", "message_id", "quoted_message_id", "parent_message_id"):
+            value = str(context.get(key) or "").strip()
+            if value and value not in values:
+                values.append(value)
+    return values
+
+
+def _voice_sample_token_for_selected_button_message(*, message: dict[str, Any], job: dict[str, object]) -> str:
+    related_hashes = {_sha(value) for value in _message_related_message_ids(message) if value}
+    if not related_hashes:
+        return ""
+    delivery = dict(dict(job.get("whatsapp") or {}).get("voice_sample_delivery") or {})
+    if not delivery:
+        delivery = dict(dict(job.get("telegram") or {}).get("voice_sample_delivery") or {})
+    rows = [row for row in list(delivery.get("samples") or []) if isinstance(row, dict)]
+    if not rows:
+        return ""
+    matched_token_hashes = {
+        str(row.get("token_sha256") or "").strip()
+        for row in rows
+        if (
+            str(row.get("button_message_id_sha256") or "").strip() in related_hashes
+            or str(row.get("media_message_id_sha256") or "").strip() in related_hashes
+        )
+        and str(row.get("token_sha256") or "").strip()
+    }
+    if not matched_token_hashes:
+        return ""
+    voice_selection = dict(dict(job.get("provider") or {}).get("voice_selection") or {})
+    for row in list(voice_selection.get("pending_batch") or []):
+        if not isinstance(row, dict):
+            continue
+        token = str(row.get("callback_token") or "").strip()
+        if token and hashlib.sha256(token.encode("utf-8")).hexdigest() in matched_token_hashes:
+            return token
     return ""
 
 
@@ -626,6 +780,8 @@ def _whatsapp_sender_ref_for_callback(*, callback_data: str, chat_ref: str = "")
         sender_ref = _whatsapp_sender_ref_digits(job)
         if sender_ref:
             return sender_ref
+    if callback_kind == "ap" and normalized_chat_ref:
+        return _whatsapp_sender_ref_for_chat_ref(normalized_chat_ref)
     return ""
 
 
@@ -736,8 +892,41 @@ def _telegram_summary_allowed_heyy_ai_keys(args: argparse.Namespace) -> set[str]
     return _normalized_heyy_ai_keys(configured) or _normalized_heyy_ai_keys(DEFAULT_TELEGRAM_SUMMARY_HEYY_AI_KEYS)
 
 
+def _summary_scope_label_from_heyy_ai_name(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    text = re.sub(r"\s*\([^)]*\)\s*$", "", text).strip()
+    return text
+
+
+def _humanized_heyy_ai_key(value: object) -> str:
+    key = str(value or "").strip().lower()
+    if not key:
+        return ""
+    for suffix in ("_heyy_ai", "_assistant", "_persona", "_ai"):
+        if key.endswith(suffix):
+            key = key[: -len(suffix)]
+            break
+    words = [part for part in key.replace("-", "_").split("_") if part]
+    return " ".join(word.capitalize() for word in words[:3]).strip()
+
+
 def _telegram_summary_scope_label(args: argparse.Namespace) -> str:
-    return str(getattr(args, "telegram_summary_scope_label", "") or DEFAULT_TELEGRAM_SUMMARY_SCOPE_LABEL).strip()
+    explicit = str(getattr(args, "telegram_summary_scope_label", "") or "").strip()
+    if explicit:
+        return explicit
+    allowed = sorted(_telegram_summary_allowed_heyy_ai_keys(args))
+    reply_key = str(getattr(args, "reply_heyy_ai_key", "") or "").strip().lower()
+    if len(allowed) == 1 and reply_key and allowed[0] == reply_key:
+        from_name = _summary_scope_label_from_heyy_ai_name(getattr(args, "reply_heyy_ai_name", ""))
+        if from_name:
+            return from_name
+    if allowed:
+        derived = _humanized_heyy_ai_key(allowed[0])
+        if derived:
+            return derived
+    return DEFAULT_TELEGRAM_SUMMARY_SCOPE_LABEL
 
 
 def _iter_telegram_summary_candidates(
@@ -769,6 +958,15 @@ def _is_freeform_inbox_message(message: dict[str, Any]) -> bool:
         return False
     if bool(message.get("from_me")):
         return False
+    if bool(message.get("conversation_is_group")):
+        return False
+    if str(message.get("conversation_source") or "").strip() == "fallback":
+        try:
+            unread_count = int(message.get("conversation_unread_count") or 0)
+        except (TypeError, ValueError):
+            unread_count = 0
+        if unread_count <= 0:
+            return False
     if bool(message.get("selected_button_id_present")) or bool(_message_callback_data(message)):
         return False
     if _is_audiobook_source_media_message(message):
@@ -782,7 +980,22 @@ def _is_freeform_inbox_message(message: dict[str, Any]) -> bool:
     return _message_has_summary_content(message)
 
 
-def _inbox_observability_summary(messages: list[dict[str, Any]]) -> dict[str, object]:
+def _freeform_message_allowed_for_recovery(message: dict[str, Any], *, args: argparse.Namespace) -> bool:
+    if not _is_freeform_inbox_message(message):
+        return False
+    if str(message.get("conversation_source") or "").strip() != "fallback":
+        return True
+    max_age_seconds = _freeform_conversation_fallback_max_age_seconds(args)
+    if max_age_seconds <= 0:
+        return True
+    message_time = _message_datetime(message)
+    if message_time is None:
+        return False
+    age_seconds = (datetime.now(UTC) - message_time).total_seconds()
+    return age_seconds <= max_age_seconds
+
+
+def _inbox_observability_summary(messages: list[dict[str, Any]], *, args: argparse.Namespace) -> dict[str, object]:
     inbound_messages = [
         message
         for message in messages
@@ -791,13 +1004,14 @@ def _inbox_observability_summary(messages: list[dict[str, Any]]) -> dict[str, ob
         and not bool(message.get("from_me"))
     ]
     freeform_messages = [message for message in inbound_messages if _is_freeform_inbox_message(message)]
+    recoverable_messages = [message for message in freeform_messages if _freeform_message_allowed_for_recovery(message, args=args)]
     freeform_by_heyy_ai_key: dict[str, int] = {}
-    for message in freeform_messages:
+    for message in recoverable_messages:
         key = _message_heyy_ai_key(message).strip() or "unrouted"
         freeform_by_heyy_ai_key[key] = freeform_by_heyy_ai_key.get(key, 0) + 1
     return {
         "inbound_message_count": len(inbound_messages),
-        "freeform_message_count": len(freeform_messages),
+        "freeform_message_count": len(recoverable_messages),
         "freeform_by_heyy_ai_key": freeform_by_heyy_ai_key,
     }
 
@@ -808,6 +1022,86 @@ def _freeform_state(state: dict[str, Any]) -> dict[str, Any]:
         return current
     state["freeform"] = {}
     return state["freeform"]
+
+
+def _freeform_state_stale_seconds(args: argparse.Namespace) -> int:
+    value = getattr(args, "freeform_state_stale_seconds", None)
+    if value is None:
+        value = _env(
+            "EA_WHATSAPP_WEB_FREEFORM_STATE_STALE_SECONDS",
+            str(DEFAULT_FREEFORM_STATE_STALE_SECONDS),
+        )
+    return _bounded_int(
+        value,
+        DEFAULT_FREEFORM_STATE_STALE_SECONDS,
+        minimum=0,
+        maximum=86_400 * 90,
+    )
+
+
+def _freeform_state_max_entries(args: argparse.Namespace) -> int:
+    value = getattr(args, "freeform_state_max_entries", None)
+    if value is None:
+        value = _env(
+            "EA_WHATSAPP_WEB_FREEFORM_STATE_MAX_ENTRIES",
+            str(DEFAULT_FREEFORM_STATE_MAX_ENTRIES),
+        )
+    return _bounded_int(
+        value,
+        DEFAULT_FREEFORM_STATE_MAX_ENTRIES,
+        minimum=0,
+        maximum=10_000,
+    )
+
+
+def _freeform_state_entry_datetime(entry: object) -> datetime | None:
+    if not isinstance(entry, dict):
+        return None
+    raw = str(entry.get("processed_at") or "").strip()
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone(UTC)
+    except Exception:
+        return None
+
+
+def _freeform_state_entry_terminal(entry: object) -> bool:
+    if not isinstance(entry, dict):
+        return False
+    if bool(entry.get("reply_sent")):
+        return True
+    status = str(entry.get("status") or "").strip().lower()
+    return status in {"failed", "ignored", "replied", "skipped"}
+
+
+def _prune_freeform_state(state: dict[str, Any], *, args: argparse.Namespace) -> bool:
+    freeform = _freeform_state(state)
+    if not freeform:
+        return False
+    changed = False
+    stale_seconds = _freeform_state_stale_seconds(args)
+    now_dt = datetime.now(UTC)
+    if stale_seconds > 0:
+        stale_before = now_dt - timedelta(seconds=stale_seconds)
+        for message_id, entry in list(freeform.items()):
+            entry_dt = _freeform_state_entry_datetime(entry)
+            if entry_dt is None or entry_dt > stale_before:
+                continue
+            if _freeform_state_entry_terminal(entry):
+                freeform.pop(message_id, None)
+                changed = True
+    max_entries = _freeform_state_max_entries(args)
+    if max_entries > 0 and len(freeform) > max_entries:
+        ranked: list[tuple[datetime, str]] = []
+        for message_id, entry in list(freeform.items()):
+            ranked.append((_freeform_state_entry_datetime(entry) or datetime.fromtimestamp(0, tz=UTC), message_id))
+        ranked.sort()
+        overflow = len(freeform) - max_entries
+        for _, message_id in ranked[:overflow]:
+            freeform.pop(message_id, None)
+            changed = True
+    return changed
 
 
 def _executive_assistant_freeform_enabled(args: argparse.Namespace) -> bool:
@@ -830,6 +1124,21 @@ def _executive_assistant_freeform_timeout_seconds() -> float:
         8.0,
         minimum=1.0,
         maximum=30.0,
+    )
+
+
+def _freeform_conversation_fallback_max_age_seconds(args: argparse.Namespace) -> int:
+    value = getattr(args, "freeform_conversation_fallback_max_age_seconds", None)
+    if value is None:
+        value = _env(
+            "EA_WHATSAPP_WEB_FREEFORM_CONVERSATION_FALLBACK_MAX_AGE_SECONDS",
+            str(DEFAULT_FREEFORM_CONVERSATION_FALLBACK_MAX_AGE_SECONDS),
+        )
+    return _bounded_int(
+        value,
+        DEFAULT_FREEFORM_CONVERSATION_FALLBACK_MAX_AGE_SECONDS,
+        minimum=0,
+        maximum=86_400 * 14,
     )
 
 
@@ -885,13 +1194,145 @@ def _executive_assistant_freeform_reply_text(
             return real_reply
     except Exception:
         pass
-    return str(
-        _env(
-            "EA_WHATSAPP_WEB_FREEFORM_EXECUTIVE_ASSISTANT_FALLBACK_REPLY",
-            DEFAULT_FREEFORM_EXECUTIVE_ASSISTANT_REPLY,
+    return str(_env("EA_WHATSAPP_WEB_FREEFORM_EXECUTIVE_ASSISTANT_FALLBACK_REPLY", "")).strip()
+
+
+def _load_heyy_ai_routes(
+    *,
+    request_json: Callable[..., dict[str, Any]],
+    args: argparse.Namespace,
+    base_url: str,
+    session_ref: str,
+) -> list[dict[str, Any]]:
+    url = (
+        f"{base_url}/sessions/{urllib.parse.quote(session_ref)}/heyy-ai-routes"
+        f"?include_details=1"
+    )
+    try:
+        payload = request_json(
+            method="GET",
+            url=url,
+            token=str(args.session_api_token or ""),
+            auth_header_name=str(args.auth_header_name or "Authorization"),
+            auth_header_prefix=str(args.auth_header_prefix if args.auth_header_prefix is not None else "Bearer "),
+            timeout=float(args.timeout_seconds),
         )
-        or DEFAULT_FREEFORM_EXECUTIVE_ASSISTANT_REPLY
-    ).strip()
+    except Exception:
+        return []
+    return [row for row in list(payload.get("routes") or []) if isinstance(row, dict)]
+
+
+def _auto_reply_routes_by_ai_key(routes: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    mapped: dict[str, dict[str, Any]] = {}
+    for route in routes:
+        ai_key = str(route.get("ai_key") or "").strip().lower()
+        if not ai_key or not bool(route.get("auto_reply_enabled")):
+            continue
+        mapped[ai_key] = route
+    return mapped
+
+
+def _auto_reply_route_for_message(
+    *,
+    message: dict[str, Any],
+    messages: list[dict[str, Any]],
+    auto_reply_routes: dict[str, dict[str, Any]],
+    default_ai_key: str = "",
+) -> dict[str, Any]:
+    explicit_key = _message_heyy_ai_key(message).strip().lower()
+    if explicit_key and explicit_key in auto_reply_routes:
+        return dict(auto_reply_routes[explicit_key])
+    chat_ref = _message_chat_ref(message)
+    if chat_ref:
+        same_chat = [row for row in messages if isinstance(row, dict) and _message_chat_ref(row) == chat_ref]
+        same_chat.sort(key=lambda row: (_message_datetime(row) or datetime.fromtimestamp(0, tz=UTC), str(row.get("id") or "")))
+        for row in reversed(same_chat):
+            candidate_key = _message_heyy_ai_key(row).strip().lower()
+            if candidate_key and candidate_key in auto_reply_routes:
+                return dict(auto_reply_routes[candidate_key])
+    fallback_key = str(default_ai_key or "").strip().lower()
+    if fallback_key and fallback_key in auto_reply_routes:
+        return dict(auto_reply_routes[fallback_key])
+    return {}
+
+
+def _normalized_herta_inbound_text(text: object) -> str:
+    return " ".join(str(text or "").lower().split()).strip()
+
+
+def _pick_herta_reply_variant(message: dict[str, Any], inbound_text: str, variants: list[str]) -> str:
+    choices = [str(value or "").strip() for value in variants if str(value or "").strip()]
+    if not choices:
+        return ""
+    material = "|".join(
+        [
+            str(message.get("chat_ref") or "").strip(),
+            str(message.get("id") or "").strip(),
+            str(message.get("sender_digits") or "").strip(),
+            str(inbound_text or "").strip(),
+        ]
+    )
+    digest = hashlib.sha256(material.encode("utf-8")).hexdigest()
+    index = int(digest[:8], 16) % len(choices)
+    return choices[index]
+
+
+def _herta_auto_reply_text(message: dict[str, Any], fallback_text: str = "") -> str:
+    inbound_text = _message_body_text(message)
+    normalized = _normalized_herta_inbound_text(inbound_text)
+    fallback = str(fallback_text or _env("EA_WHATSAPP_WEB_AUTOREPLY_TEXT", "")).strip()
+    if not normalized:
+        return fallback
+    if re.search(r"(bank|geld|konto|überweis|uberweis|ueberweis|tan|pin|passwort|password|code|paypal|karte|zahlen|bezahl)", normalized):
+        return _pick_herta_reply_variant(message, inbound_text, [
+            "Na, Schatzi, Bank mach ich hier nicht. Da ruf ich lieber die alte Nummer an, sonst wird mir ganz schwindlig.",
+            "Geld und Codes schreib ich da nicht rein, mein Herz. Ich such lieber die Nummer von früher und frag dort nach.",
+        ])
+    if re.search(r"(danke|schön|schoen|schon|passt|ok|okay|gut|super|lieb)", normalized) or len(normalized) <= 4:
+        return _pick_herta_reply_variant(message, inbound_text, [
+            "Gern, mein Lieber. Ich hab es gesehen.",
+            "Schön, Schatzi. Ich bin da.",
+            "Ja, paßt, mein Herz.",
+        ])
+    if re.search(r"(neue nummer|neuen nummer|neuer nummer|andere nummer|anderen nummer|andern nummer|von einer anderen nummer|falsche nummer|anderes handy|anderen handy|andern handy|display|handy kaputt|display kaputt)", normalized):
+        return _pick_herta_reply_variant(message, inbound_text, [
+            "Ach, mein Kind, ich schreib Dir heut vom Handy vom seligen Franz zurück. Bei meinem ist das Display ganz hinüber, ich erkenn ja fast nichts mehr.",
+            "Ich hab mein eigenes Handy kaum lesen können, Schatzi, das Display ist kaputt. Darum nehm ich grad noch das alte Telefon vom Franz.",
+            "Nicht erschrecken, mein Herz, ich bin schon ich. Mein Bildschirm ist wieder hin, und deshalb schreib ich Dir grad vom Handy vom seligen Franz.",
+        ])
+    if re.search(r"(hallo|servus|morgen|abend|gruß|gruss|grüß|gruess|hi|hey)", normalized):
+        return _pick_herta_reply_variant(message, inbound_text, [
+            "Servus, ich bin da.",
+            "Hallo, Schatzi. Ich les mit.",
+            "Ja, ich bin da, Du Liebe.",
+        ])
+    if re.search(r"(schnell|langsam|warum|wieso|antwort|tippt|typing|nochmal|noch mal)", normalized):
+        return _pick_herta_reply_variant(message, inbound_text, [
+            "Ja ja, langsam, Schatzi. Ich brauch ein bißchen.",
+            "Nicht hudeln bitte, mein Lieber. Schreib kurz, dann komm ich mit.",
+            "Ich bin nicht weg, mein Herz. Ich tipp nur langsam.",
+        ])
+    if re.search(r"(wer bist|bist du|herta|mama|omi|oma|mutter|sabine|sabi)", normalized):
+        return _pick_herta_reply_variant(message, inbound_text, [
+            "Ich bin die Herta. Aber bei neuen Nummern frag ich lieber erst nach. Was soll denn Sabi wissen?",
+            "Na, Herta bin ich, Schatzi. Wenn du wirklich von der Familie bist, sag mir bitte etwas Harmloses von früher.",
+            "Ich glaub schon, daß ich die Herta bin, mein Herz. Aber bei so Nachrichten bin ich vorsichtig, gell.",
+        ])
+    return _pick_herta_reply_variant(message, inbound_text, [
+        "Ich hab es gelesen, Schatzi. Schreib mir bitte kurz.",
+        "Moment, mein Lieber. Ich schau es an.",
+        "Na geh, mein Herz. Ich meld mich gleich.",
+        "Ich hab dich schon gelesen, Du Liebe. Einen Moment.",
+    ])
+
+
+def _auto_reply_freeform_reply_text(route: dict[str, Any], *, message: dict[str, Any]) -> str:
+    reply_text = str(route.get("reply_text") or "").strip()
+    if str(route.get("ai_key") or "").strip() == DEFAULT_ACTION_REPLY_HEYY_AI_KEY:
+        return _herta_auto_reply_text(message, reply_text)
+    if reply_text:
+        return reply_text
+    return str(_env("EA_WHATSAPP_WEB_AUTOREPLY_TEXT", "")).strip()
 
 
 def _mask_sender_digits(value: object) -> str:
@@ -1019,6 +1460,7 @@ def _telegram_summary_state(state: dict[str, Any]) -> dict[str, Any]:
 def _telegram_summary_record(message_hash: str, message: dict[str, Any]) -> dict[str, str]:
     return {
         "message_hash": str(message_hash or "").strip(),
+        "heyy_ai_key": _message_heyy_ai_key(message).lower(),
         "message_timestamp": _message_timestamp(message),
         "summary_text": _message_summary_snippet(message),
         "summary_sender_mask": _message_summary_sender_mask(message),
@@ -1036,6 +1478,13 @@ def _message_from_telegram_summary_record(record: dict[str, Any]) -> dict[str, A
 def _telegram_summary_record_has_content(record: dict[str, Any]) -> bool:
     summary_text = str(record.get("summary_text") or "").strip()
     return bool(summary_text) and summary_text != "Text nicht gespeichert"
+
+
+def _telegram_summary_record_in_scope(record: dict[str, Any], *, allowed_heyy_ai_keys: set[str]) -> bool:
+    record_key = str(record.get("heyy_ai_key") or "").strip().lower()
+    if not record_key:
+        return False
+    return record_key in allowed_heyy_ai_keys
 
 
 def _telegram_summary_receipt(
@@ -1127,6 +1576,10 @@ def _maybe_send_telegram_summary(
             if message_hash in by_hash
             or (
                 message_hash in pending_records_by_hash
+                and _telegram_summary_record_in_scope(
+                    pending_records_by_hash[message_hash],
+                    allowed_heyy_ai_keys=set(allowed_heyy_ai_keys),
+                )
                 and _telegram_summary_record_has_content(pending_records_by_hash[message_hash])
             )
         ]
@@ -1166,6 +1619,17 @@ def _maybe_send_telegram_summary(
             pending_message_count=len(pending_hashes),
             sent=0,
             missing_fields=missing_fields,
+        )
+    if not pending_hashes:
+        return _telegram_summary_receipt(
+            enabled=True,
+            status="idle",
+            scope_label=scope_label,
+            allowed_heyy_ai_keys=allowed_heyy_ai_keys,
+            candidate_count=len(candidates),
+            new_message_count=new_count,
+            pending_message_count=0,
+            sent=0,
         )
     if len(pending_hashes) < every:
         return _telegram_summary_receipt(
@@ -1540,9 +2004,15 @@ def _flatten_conversation_messages(payload: dict[str, Any]) -> list[dict[str, An
     for conversation in list(payload.get("conversations") or []):
         if not isinstance(conversation, dict):
             continue
+        is_group = bool(conversation.get("is_group"))
+        unread_count = int(conversation.get("unread_count") or 0)
         for message in list(conversation.get("messages") or []):
             if isinstance(message, dict):
-                messages.append(message)
+                row = dict(message)
+                row.setdefault("conversation_source", "fallback")
+                row.setdefault("conversation_is_group", is_group)
+                row.setdefault("conversation_unread_count", unread_count)
+                messages.append(row)
     return messages
 
 
@@ -1768,6 +2238,9 @@ def _load_conversation_fallback_messages(
             timeout=float(args.timeout_seconds),
         )
     except Exception as exc:
+        wait_reason = _session_api_wait_reason(exc)
+        if wait_reason:
+            return [], _conversation_fallback_summary(attempted=True, status="waiting", reason=wait_reason)
         return [], _conversation_fallback_summary(attempted=True, status="failed", reason=type(exc).__name__)
     messages = _flatten_conversation_messages(payload)
     candidate_counts = _actionable_candidate_counts(messages)
@@ -1856,6 +2329,8 @@ def _voice_sample_delivery_summary(sample_receipts: list[dict[str, object]]) -> 
         if expected_count and sent_count >= expected_count
         else "partial"
         if sent_count
+        else "skipped"
+        if expected_count and skipped_count >= expected_count
         else "failed"
         if expected_count
         else "not_attempted"
@@ -1874,7 +2349,46 @@ def _voice_sample_delivery_summary(sample_receipts: list[dict[str, object]]) -> 
             for item in receipts
             if str(item.get("token") or "").strip()
         ],
+        "samples": [
+            {
+                "token_sha256": hashlib.sha256(str(item.get("token") or "").encode("utf-8")).hexdigest(),
+                "status": str(item.get("status") or "").strip(),
+                "media_message_id_sha256": str(item.get("media_message_id_sha256") or "").strip(),
+                "button_message_id_sha256": str(item.get("button_message_id_sha256") or "").strip(),
+                "button_count": int(item.get("button_count") or 0),
+                "buttons_fallback": bool(item.get("buttons_fallback")),
+                "control_kind": str(item.get("control_kind") or "").strip(),
+            }
+            for item in receipts
+            if str(item.get("token") or "").strip()
+        ],
         "updated_at": _now_iso(),
+    }
+
+
+def _voice_sample_delivery_action_fields(
+    prefix: str,
+    sample_receipts: list[dict[str, object]],
+) -> dict[str, object]:
+    return _voice_sample_delivery_summary_action_fields(
+        prefix=prefix,
+        summary=_voice_sample_delivery_summary(sample_receipts),
+    )
+
+
+def _voice_sample_delivery_summary_action_fields(
+    *,
+    prefix: str,
+    summary: dict[str, object],
+) -> dict[str, object]:
+    safe_prefix = str(prefix or "voice_sample").strip()
+    return {
+        f"{safe_prefix}_delivery_status": str(summary.get("status") or "").strip(),
+        f"{safe_prefix}_attempted": int(summary.get("attempted_count") or 0),
+        f"{safe_prefix}_sent": int(summary.get("sent_count") or 0),
+        f"{safe_prefix}_failed": int(summary.get("failed_count") or 0),
+        f"{safe_prefix}_skipped": int(summary.get("skipped_count") or 0),
+        f"{safe_prefix}_delivery_reason": str(summary.get("reason") or "").strip(),
     }
 
 
@@ -1960,6 +2474,7 @@ def _send_reply(
     text: str,
     buttons: list[list[tuple[str, str]]] | None = None,
     chat_ref: str = "",
+    persona_payload: dict[str, object] | None = None,
 ) -> dict[str, Any]:
     base_url = str(args.session_api_base_url or DEFAULT_SESSION_API_BASE_URL).strip().rstrip("/")
     session_ref = str(args.session_ref or DEFAULT_SESSION_REF).strip()
@@ -1970,6 +2485,8 @@ def _send_reply(
         "text": text,
         **pacing_payload,
     }
+    if persona_payload:
+        payload.update({str(key): value for key, value in persona_payload.items() if str(key).strip()})
     if buttons:
         payload["buttons"] = buttons
     if str(chat_ref or "").strip():
@@ -1993,6 +2510,7 @@ def _send_media(
     media_path: Path,
     text: str = "",
     chat_ref: str = "",
+    persona_payload: dict[str, object] | None = None,
 ) -> dict[str, Any]:
     base_url = str(args.session_api_base_url or DEFAULT_SESSION_API_BASE_URL).strip().rstrip("/")
     session_ref = str(args.session_ref or DEFAULT_SESSION_REF).strip()
@@ -2007,6 +2525,8 @@ def _send_media(
         "media_mimetype": mime_type,
         **pacing_payload,
     }
+    if persona_payload:
+        payload.update({str(key): value for key, value in persona_payload.items() if str(key).strip()})
     if str(chat_ref or "").strip():
         payload["chat_ref"] = str(chat_ref or "").strip()
     return request_json(
@@ -2373,10 +2893,10 @@ def _send_whatsapp_replacement_voice_samples(
     args: argparse.Namespace,
     recipient_digits: str,
     job: dict[str, object],
-) -> tuple[dict[str, object], int]:
+) -> tuple[dict[str, object], int, dict[str, object]]:
     replacement_keys = _extract_audiobook_voice_replacement_keys(job)
     if not replacement_keys:
-        return job, 0
+        return job, 0, _voice_sample_delivery_summary([])
     sample_job = _audiobook_voice_sample_subset(job, replacement_keys)
     sample_receipts = _send_whatsapp_voice_samples(
         request_json=request_json,
@@ -2384,6 +2904,7 @@ def _send_whatsapp_replacement_voice_samples(
         recipient_digits=recipient_digits,
         job=sample_job,
     )
+    delivery_summary = _voice_sample_delivery_summary(sample_receipts)
     if sample_receipts:
         job = audiobook_epub_pipeline.record_audiobook_voice_sample_delivery(
             job=job,
@@ -2391,7 +2912,7 @@ def _send_whatsapp_replacement_voice_samples(
         )
         job = _record_whatsapp_voice_sample_delivery(job=job, sample_receipts=sample_receipts)
     sent_count = sum(1 for item in sample_receipts if str(dict(item).get("status") or "") == "sent")
-    return job, sent_count
+    return job, sent_count, delivery_summary
 
 
 def _restore_language_matched_whatsapp_voice_samples(job: dict[str, object], *, limit: int = 3) -> tuple[dict[str, object], int]:
@@ -2714,6 +3235,18 @@ def _public_share_url(job: dict[str, object]) -> str:
     return str(share.get("absolute_url") or "").strip()
 
 
+def _whatsapp_public_share_delivery(job: dict[str, object]) -> dict[str, object]:
+    whatsapp = dict(job.get("whatsapp") or {})
+    delivery = dict(whatsapp.get("public_share_delivery") or {})
+    if delivery:
+        return delivery
+    return dict(_public_share(job).get("whatsapp_delivery") or {})
+
+
+def _whatsapp_public_share_dedupe_key(job: dict[str, object]) -> str:
+    return _public_share_url(job)
+
+
 def _public_share_reply_text(job: dict[str, object]) -> str:
     metadata = dict(job.get("metadata") or {})
     title = str(metadata.get("title") or metadata.get("source_filename") or "the audiobook").strip()
@@ -2721,6 +3254,30 @@ def _public_share_reply_text(job: dict[str, object]) -> str:
     if url:
         return f"Audiobookshelf finished scanning {title}. Public share link: {url}."
     return _whatsapp_epub_reply_text(job)
+
+
+def _public_share_persona_payload(job: dict[str, object]) -> dict[str, object]:
+    voice_selection = dict(dict(job.get("provider") or {}).get("voice_selection") or {})
+    selected = dict(voice_selection.get("selected") or {})
+    label = str(selected.get("label") or "").strip()
+    if not label:
+        return {}
+    selected_key = str(voice_selection.get("selected_candidate_key") or label).strip().lower()
+    normalized_key = re.sub(r"[^a-z0-9]+", "_", selected_key).strip("_")
+    if not normalized_key:
+        normalized_key = "selected_voice"
+    return {
+        "heyy_ai_key": f"audiobook_voice_{normalized_key}",
+        "heyy_ai_name": label,
+    }
+
+
+def _whatsapp_public_share_followup_actionable(job: dict[str, object]) -> bool:
+    return str(job.get("status") or "").strip() == "audiobookshelf_imported"
+
+
+def _whatsapp_public_share_delivery_status_recoverable(status: object) -> bool:
+    return str(status or "").strip().lower() in {"sent", "delivered", "read", "ok", "success"}
 
 
 def _playback_buttons(job: dict[str, object], recipient_digits: str) -> list[list[tuple[str, str]]]:
@@ -2760,6 +3317,32 @@ def _whatsapp_sender_ref_digits(job: dict[str, object]) -> str:
 def _whatsapp_chat_ref(job: dict[str, object]) -> str:
     whatsapp = dict(job.get("whatsapp") or {})
     return str(whatsapp.get("chat_ref") or "").strip()
+
+
+def _whatsapp_session_ref(job: dict[str, object]) -> str:
+    whatsapp = dict(job.get("whatsapp") or {})
+    return str(whatsapp.get("session_ref") or "").strip()
+
+
+def _whatsapp_public_share_delivery_target(
+    job: dict[str, object],
+    *,
+    session_ref: str,
+) -> dict[str, str]:
+    recipient_digits = _whatsapp_sender_ref_digits(job)
+    if not recipient_digits:
+        return {"status": "blocked", "reason": "missing_sender_ref"}
+    chat_ref = _whatsapp_chat_ref(job)
+    if not chat_ref:
+        return {"status": "blocked", "reason": "missing_chat_ref"}
+    job_session_ref = _whatsapp_session_ref(job)
+    if job_session_ref and session_ref and job_session_ref != session_ref:
+        return {"status": "blocked", "reason": "session_ref_mismatch"}
+    return {
+        "status": "ready",
+        "recipient_digits": recipient_digits,
+        "chat_ref": chat_ref,
+    }
 
 
 def _latest_whatsapp_audiobook_job(
@@ -2818,6 +3401,28 @@ def _latest_whatsapp_audiobook_job_for_chat_ref(
     return dict(candidates[0][2])
 
 
+def _latest_whatsapp_audiobook_job_for_chat_ref_with_sender_ref(
+    *,
+    chat_ref: str,
+    predicate: Callable[[dict[str, object]], bool],
+) -> dict[str, object]:
+    normalized_chat_ref = str(chat_ref or "").strip()
+    if not normalized_chat_ref:
+        return {}
+    for manifest_path in _iter_audiobook_job_manifests(newest_first=True):
+        job = _read_job_manifest(manifest_path)
+        if not job:
+            continue
+        if _whatsapp_chat_ref(job) != normalized_chat_ref:
+            continue
+        if not _whatsapp_sender_ref_digits(job):
+            continue
+        if not predicate(job):
+            continue
+        return job
+    return {}
+
+
 def _latest_active_whatsapp_audiobook_job(sender_digits: str) -> dict[str, object]:
     return _latest_whatsapp_audiobook_job(
         sender_digits=sender_digits,
@@ -2830,6 +3435,35 @@ def _latest_active_whatsapp_audiobook_job_for_chat_ref(chat_ref: str) -> dict[st
         chat_ref=chat_ref,
         predicate=lambda job: str(job.get("status") or "").strip() not in AUDIOBOOK_STATUS_DONE_STATUSES,
     )
+
+
+def _latest_active_whatsapp_audiobook_job_for_sender(
+    *,
+    sender_digits: str,
+    chat_ref: str = "",
+) -> dict[str, object]:
+    normalized_sender = "".join(ch for ch in str(sender_digits or "") if ch.isdigit())
+    normalized_chat_ref = str(chat_ref or "").strip()
+    job: dict[str, object] = {}
+    if normalized_sender and normalized_chat_ref:
+        job = _latest_whatsapp_audiobook_job(
+            sender_digits=normalized_sender,
+            predicate=lambda candidate: (
+                str(candidate.get("status") or "").strip() not in AUDIOBOOK_STATUS_DONE_STATUSES
+                and _whatsapp_chat_ref(candidate) == normalized_chat_ref
+            ),
+        )
+    if not job and normalized_sender:
+        job = _latest_whatsapp_audiobook_job(
+            sender_digits=normalized_sender,
+            predicate=lambda candidate: (
+                str(candidate.get("status") or "").strip() not in AUDIOBOOK_STATUS_DONE_STATUSES
+                and (not normalized_chat_ref or not _whatsapp_chat_ref(candidate))
+            ),
+        )
+    if not job and normalized_chat_ref:
+        job = _latest_active_whatsapp_audiobook_job_for_chat_ref(normalized_chat_ref)
+    return job
 
 
 def _waiting_whatsapp_voice_selection_job_predicate(job: dict[str, object]) -> bool:
@@ -2852,10 +3486,21 @@ def _latest_waiting_whatsapp_voice_selection_job(
     if waiting_job_cache is not None and cache_key in waiting_job_cache:
         return dict(waiting_job_cache[cache_key])
     job: dict[str, object] = {}
-    if normalized_sender:
+    if normalized_sender and normalized_chat_ref:
         job = _latest_whatsapp_audiobook_job(
             sender_digits=normalized_sender,
-            predicate=_waiting_whatsapp_voice_selection_job_predicate,
+            predicate=lambda candidate: (
+                _waiting_whatsapp_voice_selection_job_predicate(candidate)
+                and _whatsapp_chat_ref(candidate) == normalized_chat_ref
+            ),
+        )
+    if not job and normalized_sender:
+        job = _latest_whatsapp_audiobook_job(
+            sender_digits=normalized_sender,
+            predicate=lambda candidate: (
+                _waiting_whatsapp_voice_selection_job_predicate(candidate)
+                and (not normalized_chat_ref or not _whatsapp_chat_ref(candidate))
+            ),
         )
     if not job and normalized_chat_ref:
         job = _latest_whatsapp_audiobook_job_for_chat_ref(
@@ -2868,9 +3513,12 @@ def _latest_waiting_whatsapp_voice_selection_job(
 
 
 def _whatsapp_sender_ref_for_chat_ref(chat_ref: str) -> str:
-    job = _latest_active_whatsapp_audiobook_job_for_chat_ref(chat_ref)
+    job = _latest_whatsapp_audiobook_job_for_chat_ref_with_sender_ref(
+        chat_ref=chat_ref,
+        predicate=lambda job: str(job.get("status") or "").strip() not in AUDIOBOOK_STATUS_DONE_STATUSES,
+    )
     if not job:
-        job = _latest_whatsapp_audiobook_job_for_chat_ref(chat_ref=chat_ref, predicate=lambda _job: True)
+        job = _latest_whatsapp_audiobook_job_for_chat_ref_with_sender_ref(chat_ref=chat_ref, predicate=lambda _job: True)
     return _whatsapp_sender_ref_digits(job) if job else ""
 
 
@@ -2903,9 +3551,7 @@ def _whatsapp_audiobook_check_label(check_key: str) -> str:
 
 
 def _whatsapp_active_audiobook_status_reply_text(*, sender_digits: str, chat_ref: str = "") -> str:
-    job = _latest_active_whatsapp_audiobook_job(sender_digits) if sender_digits else {}
-    if not job and str(chat_ref or "").strip():
-        job = _latest_active_whatsapp_audiobook_job_for_chat_ref(chat_ref)
+    job = _latest_active_whatsapp_audiobook_job_for_sender(sender_digits=sender_digits, chat_ref=chat_ref) if sender_digits or chat_ref else {}
     if not job:
         return ""
     metadata = dict(job.get("metadata") or {})
@@ -2942,6 +3588,12 @@ def _whatsapp_audiobook_runtime_status_reply_text(text: str, *, sender_digits: s
     active_job_reply = _whatsapp_active_audiobook_status_reply_text(sender_digits=sender_digits, chat_ref=chat_ref)
     if active_job_reply:
         return active_job_reply
+    playback_problem_note = _latest_whatsapp_audiobook_playback_problem_note_for_sender(
+        sender_digits=sender_digits,
+        chat_ref=chat_ref,
+    )
+    if playback_problem_note:
+        return playback_problem_note
     receipt = audiobook_epub_pipeline.audiobook_runtime_preflight()
     provider = dict(receipt.get("provider") or {})
     access = dict(receipt.get("access") or {})
@@ -2968,8 +3620,6 @@ def _whatsapp_audiobook_runtime_status_reply_text(text: str, *, sender_digits: s
     completion_blockers = [
         key
         for key in (
-            "player_access_signing_secret_present",
-            "player_access_base_url_present",
             "audiobookshelf_import_root_durable",
             "audiobookshelf_import_root_writable",
             "audiobookshelf_public_share_configured",
@@ -3010,7 +3660,7 @@ def _maybe_resend_whatsapp_voice_samples(
 ) -> tuple[str, int]:
     if not _whatsapp_voice_sample_resend_intent(text):
         return "", 0
-    job = _latest_active_whatsapp_audiobook_job(recipient_digits)
+    job = _latest_active_whatsapp_audiobook_job_for_sender(sender_digits=recipient_digits, chat_ref=chat_ref)
     if not job:
         return "", 0
     if str(chat_ref or "").strip() and not _whatsapp_chat_ref(job):
@@ -3038,18 +3688,42 @@ def _maybe_resend_whatsapp_voice_samples(
     return "I found the pending audiobook voice choice, but no sample audio is available to resend yet.", 0
 
 
-def _latest_whatsapp_audiobook_playback_buttons_for_sender(sender_digits: str) -> tuple[str, list[list[tuple[str, str]]]]:
+def _latest_whatsapp_audiobook_playback_buttons_for_sender(
+    sender_digits: str,
+    *,
+    chat_ref: str = "",
+) -> tuple[str, list[list[tuple[str, str]]]]:
+    normalized_chat_ref = str(chat_ref or "").strip()
+
     def _predicate(job: dict[str, object]) -> bool:
         public_share = _public_share(job)
         delivery = dict(public_share.get("whatsapp_delivery") or {})
         playback = dict(job.get("playback_acceptance") or {})
+        playback_status = str(playback.get("status") or "").strip()
         return (
-            str(public_share.get("status") or "").strip() == "public_share_ready"
-            and str(delivery.get("status") or "").strip() == "sent"
-            and str(playback.get("status") or "").strip() != "accepted"
+            _whatsapp_public_share_followup_actionable(job)
+            and str(public_share.get("status") or "").strip() == "public_share_ready"
+            and _whatsapp_public_share_delivery_status_recoverable(delivery.get("status"))
+            and playback_status in {"", "not_recorded"}
         )
 
-    job = _latest_whatsapp_audiobook_job(sender_digits=sender_digits, predicate=_predicate)
+    job: dict[str, object] = {}
+    if normalized_chat_ref:
+        job = _latest_whatsapp_audiobook_job(
+            sender_digits=sender_digits,
+            predicate=lambda candidate: (
+                _predicate(candidate)
+                and _whatsapp_chat_ref(candidate) == normalized_chat_ref
+            ),
+        )
+    if not job:
+        job = _latest_whatsapp_audiobook_job(
+            sender_digits=sender_digits,
+            predicate=lambda candidate: (
+                _predicate(candidate)
+                and (not normalized_chat_ref or not _whatsapp_chat_ref(candidate))
+            ),
+        )
     if not job:
         return "", []
     updated_job = audiobook_epub_pipeline.ensure_audiobook_playback_acceptance_callback(job)
@@ -3059,6 +3733,48 @@ def _latest_whatsapp_audiobook_playback_buttons_for_sender(sender_digits: str) -
     metadata = dict(updated_job.get("metadata") or {})
     title = str(metadata.get("title") or metadata.get("source_filename") or "the latest audiobook").strip()
     return title, buttons
+
+
+def _latest_whatsapp_audiobook_playback_problem_note_for_sender(
+    sender_digits: str,
+    *,
+    chat_ref: str = "",
+) -> str:
+    normalized_chat_ref = str(chat_ref or "").strip()
+
+    def _predicate(job: dict[str, object]) -> bool:
+        public_share = _public_share(job)
+        delivery = dict(public_share.get("whatsapp_delivery") or {})
+        playback = dict(job.get("playback_acceptance") or {})
+        return (
+            _whatsapp_public_share_followup_actionable(job)
+            and str(public_share.get("status") or "").strip() == "public_share_ready"
+            and _whatsapp_public_share_delivery_status_recoverable(delivery.get("status"))
+            and str(playback.get("status") or "").strip() == "rejected"
+        )
+
+    job: dict[str, object] = {}
+    if normalized_chat_ref:
+        job = _latest_whatsapp_audiobook_job(
+            sender_digits=sender_digits,
+            predicate=lambda candidate: (
+                _predicate(candidate)
+                and _whatsapp_chat_ref(candidate) == normalized_chat_ref
+            ),
+        )
+    if not job:
+        job = _latest_whatsapp_audiobook_job(
+            sender_digits=sender_digits,
+            predicate=lambda candidate: (
+                _predicate(candidate)
+                and (not normalized_chat_ref or not _whatsapp_chat_ref(candidate))
+            ),
+        )
+    if not job:
+        return ""
+    metadata = dict(job.get("metadata") or {})
+    title = str(metadata.get("title") or metadata.get("source_filename") or "the latest audiobook").strip()
+    return f"Audiobook status for {title}: I already recorded a playback problem for the latest Audiobookshelf delivery and marked it for review."
 
 
 def _record_whatsapp_public_share_delivery(
@@ -3109,6 +3825,7 @@ def _send_public_share_if_ready(
             text=_public_share_reply_text(job),
             buttons=_playback_buttons(job, recipient_digits) if inline_buttons_enabled else None,
             chat_ref=chat_ref,
+            persona_payload=_public_share_persona_payload(job),
         )
     except Exception as exc:
         notification = {"status": "failed", "reason": type(exc).__name__}
@@ -3307,13 +4024,31 @@ def _deliver_ready_whatsapp_share_links(
     args: argparse.Namespace,
     limit: int | None = None,
 ) -> dict[str, object]:
-    manifest_paths = _iter_audiobook_job_manifests()
+    manifest_paths = _iter_audiobook_job_manifests(newest_first=True)
     if not manifest_paths:
-        return {"attempted": 0, "sent": 0, "errors": 0}
+        return {"attempted": 0, "sent": 0, "errors": 0, "blocked": 0, "blocked_reasons": {}}
     attempted = 0
     sent = 0
     errors = 0
+    blocked = 0
+    blocked_reasons: dict[str, int] = {}
     max_jobs = max(1, int(limit or getattr(args, "audiobook_followup_limit", 3) or 3))
+    session_ref = str(getattr(args, "session_ref", "") or DEFAULT_SESSION_REF).strip()
+    delivered_share_keys: set[str] = set()
+    seen_pending_share_keys: set[str] = set()
+    for manifest_path in manifest_paths:
+        try:
+            delivered_job = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(delivered_job, dict):
+            continue
+        share_key = _whatsapp_public_share_dedupe_key(delivered_job)
+        if not share_key:
+            continue
+        delivered_status = str(_whatsapp_public_share_delivery(delivered_job).get("status") or "").strip()
+        if delivered_status == "sent":
+            delivered_share_keys.add(share_key)
     for manifest_path in manifest_paths:
         if attempted >= max_jobs:
             break
@@ -3324,28 +4059,46 @@ def _deliver_ready_whatsapp_share_links(
             continue
         if not isinstance(job, dict):
             continue
-        whatsapp = dict(job.get("whatsapp") or {})
-        recipient_digits = "".join(ch for ch in str(whatsapp.get("sender_ref") or "") if ch.isdigit())
-        if not recipient_digits or not _public_share_url(job):
+        if not _whatsapp_public_share_followup_actionable(job):
             continue
-        delivery = dict(whatsapp.get("public_share_delivery") or {})
-        share_delivery = dict(_public_share(job).get("whatsapp_delivery") or {})
-        if str(delivery.get("status") or "").strip() == "sent":
+        share_key = _whatsapp_public_share_dedupe_key(job)
+        if not share_key:
             continue
-        if str(share_delivery.get("status") or "").strip() == "sent":
+        delivery = _whatsapp_public_share_delivery(job)
+        delivery_status = str(delivery.get("status") or "").strip()
+        if delivery_status == "sent":
+            delivered_share_keys.add(share_key)
+            continue
+        if share_key in delivered_share_keys:
+            continue
+        if share_key in seen_pending_share_keys:
+            continue
+        seen_pending_share_keys.add(share_key)
+        delivery_target = _whatsapp_public_share_delivery_target(job, session_ref=session_ref)
+        if str(delivery_target.get("status") or "").strip() != "ready":
+            blocked += 1
+            reason = str(delivery_target.get("reason") or "blocked").strip() or "blocked"
+            blocked_reasons[reason] = int(blocked_reasons.get(reason) or 0) + 1
             continue
         attempted += 1
         notification = _send_public_share_if_ready(
             request_json=request_json,
             args=args,
-            recipient_digits=recipient_digits,
+            recipient_digits=str(delivery_target.get("recipient_digits") or "").strip(),
             job=job,
         )
         if str(notification.get("status") or "").strip() == "sent":
             sent += 1
+            delivered_share_keys.add(share_key)
         else:
             errors += 1
-    return {"attempted": attempted, "sent": sent, "errors": errors}
+    return {
+        "attempted": attempted,
+        "sent": sent,
+        "errors": errors,
+        "blocked": blocked,
+        "blocked_reasons": blocked_reasons,
+    }
 
 
 def build_report(
@@ -3369,18 +4122,24 @@ def build_report(
         f"{base_url}/sessions/{urllib.parse.quote(session_ref)}/messages"
         f"?take={max(1, min(int(args.take), 1000))}"
     )
-    payload = request_json(
-        method="GET",
-        url=messages_url,
-        token=str(args.session_api_token or ""),
-        auth_header_name=str(args.auth_header_name or "Authorization"),
-        auth_header_prefix=str(args.auth_header_prefix if args.auth_header_prefix is not None else "Bearer "),
-        timeout=float(args.timeout_seconds),
-    )
+    try:
+        payload = request_json(
+            method="GET",
+            url=messages_url,
+            token=str(args.session_api_token or ""),
+            auth_header_name=str(args.auth_header_name or "Authorization"),
+            auth_header_prefix=str(args.auth_header_prefix if args.auth_header_prefix is not None else "Bearer "),
+            timeout=float(args.timeout_seconds),
+        )
+    except Exception as exc:
+        wait_reason = _session_api_wait_reason(exc)
+        if wait_reason:
+            return _waiting_report(session_ref=session_ref, state_path=state_path, reason=wait_reason)
+        raise
     messages = [message for message in payload.get("messages") or [] if isinstance(message, dict)]
     telegram_summary_messages = list(messages)
     inbox_message_count = len(messages)
-    inbox_observability = _inbox_observability_summary(messages)
+    inbox_observability = _inbox_observability_summary(messages, args=args)
     candidates = _iter_action_candidates(messages)
     audiobook_source_candidates = _iter_audiobook_source_candidates(messages)
     placeholder_candidates = _iter_empty_placeholder_candidates(messages)
@@ -3413,6 +4172,7 @@ def build_report(
             )
             if fallback_messages:
                 messages = _merge_messages(messages, fallback_messages)
+                inbox_observability = _inbox_observability_summary(messages, args=args)
                 candidates = _iter_action_candidates(messages)
                 audiobook_source_candidates = _iter_audiobook_source_candidates(messages)
                 placeholder_candidates = _iter_empty_placeholder_candidates(messages)
@@ -3755,6 +4515,7 @@ def build_report(
                             sample_receipts=sample_receipts,
                         )
                         job = _record_whatsapp_voice_sample_delivery(job=job, sample_receipts=sample_receipts)
+                    actions[action_id].update(_voice_sample_delivery_action_fields("replacement_sample", sample_receipts))
                     sent_count = sum(
                         1 for item in sample_receipts if str(dict(item).get("status") or "").strip() == "sent"
                     )
@@ -3820,14 +4581,19 @@ def build_report(
                     job = _dismiss_named_whatsapp_voice_sample(job, text)
                     replacement_keys = _extract_audiobook_voice_replacement_keys(job)
                     if replacement_keys:
-                        job, sent_count = _send_whatsapp_replacement_voice_samples(
+                        job, sent_count, delivery_summary = _send_whatsapp_replacement_voice_samples(
                             request_json=request_json,
                             args=args,
                             recipient_digits=sender_digits,
                             job=job,
                         )
                         voice_sample_sent += sent_count
-                        actions[action_id]["replacement_sample_sent"] = sent_count
+                        actions[action_id].update(
+                            _voice_sample_delivery_summary_action_fields(
+                                prefix="replacement_sample",
+                                summary=delivery_summary,
+                            )
+                        )
                         if sent_count:
                             sample_word = "sample" if sent_count == 1 else "samples"
                             reply_text = f"Dismissed {dismissed_label}. I sent {sent_count} replacement audiobook voice {sample_word}."
@@ -3918,7 +4684,6 @@ def build_report(
             errors += 1
 
         status = str(result.get("status") or "unknown").strip() or "unknown"
-        status_counts[status] = status_counts.get(status, 0) + 1
         result_kind = str(result.get("kind") or message.get("selected_button_kind") or "").strip()
         actions[action_id] = {
             "callback_hash": _sha(callback_data),
@@ -3975,6 +4740,7 @@ def build_report(
                                 sample_receipts=sample_receipts,
                             )
                             job = _record_whatsapp_voice_sample_delivery(job=job, sample_receipts=sample_receipts)
+                        actions[action_id].update(_voice_sample_delivery_action_fields("replacement_sample", sample_receipts))
                         sent_count = sum(
                             1 for item in sample_receipts if str(dict(item).get("status") or "").strip() == "sent"
                         )
@@ -4001,6 +4767,7 @@ def build_report(
                             sample_receipts=sample_receipts,
                         )
                         job = _record_whatsapp_voice_sample_delivery(job=job, sample_receipts=sample_receipts)
+                    actions[action_id].update(_voice_sample_delivery_action_fields("replacement_sample", sample_receipts))
                     sent_count = sum(
                         1 for item in sample_receipts if str(dict(item).get("status") or "").strip() == "sent"
                     )
@@ -4063,14 +4830,19 @@ def build_report(
             if action == "dismiss":
                 replacement_keys = _extract_audiobook_voice_replacement_keys(job)
                 if replacement_keys:
-                    job, sent_count = _send_whatsapp_replacement_voice_samples(
+                    job, sent_count, delivery_summary = _send_whatsapp_replacement_voice_samples(
                         request_json=request_json,
                         args=args,
                         recipient_digits=sender_digits,
                         job=job,
                     )
                     voice_sample_sent += sent_count
-                    actions[action_id]["replacement_sample_sent"] = sent_count
+                    actions[action_id].update(
+                        _voice_sample_delivery_summary_action_fields(
+                            prefix="replacement_sample",
+                            summary=delivery_summary,
+                        )
+                    )
                     if sent_count:
                         sample_word = "sample" if sent_count == 1 else "samples"
                         reply_text = f"Dismissed. I sent {sent_count} replacement audiobook voice {sample_word}."
@@ -4094,14 +4866,19 @@ def build_report(
                     and str(voice_selection.get("reason") or "").strip() == "selected_voice_provider_balance_blocked"
                     and _extract_audiobook_voice_replacement_keys(job)
                 ):
-                    job, sent_count = _send_whatsapp_replacement_voice_samples(
+                    job, sent_count, delivery_summary = _send_whatsapp_replacement_voice_samples(
                         request_json=request_json,
                         args=args,
                         recipient_digits=sender_digits,
                         job=job,
                     )
                     voice_sample_sent += sent_count
-                    actions[action_id]["replacement_sample_sent"] = sent_count
+                    actions[action_id].update(
+                        _voice_sample_delivery_summary_action_fields(
+                            prefix="replacement_sample",
+                            summary=delivery_summary,
+                        )
+                    )
                     if sent_count:
                         sample_word = "sample" if sent_count == 1 else "samples"
                         reply_text = (
@@ -4168,7 +4945,9 @@ def build_report(
             except Exception as exc:
                 errors += 1
                 actions[action_id]["reply_error"] = type(exc).__name__
-            _save_state(state_path, state)
+        actions[action_id]["status"] = status
+        status_counts[status] = status_counts.get(status, 0) + 1
+        _save_state(state_path, state)
 
     for message in status_candidates:
         message_id = str(message.get("id") or "").strip()
@@ -4210,7 +4989,10 @@ def build_report(
                 actions[action_id]["resent_voice_sample_count"] = resent_count
             if resend_line:
                 reply_text = f"{reply_text}\n\n{resend_line}".strip()
-            title, playback_buttons = _latest_whatsapp_audiobook_playback_buttons_for_sender(sender_digits)
+            title, playback_buttons = _latest_whatsapp_audiobook_playback_buttons_for_sender(
+                sender_digits,
+                chat_ref=chat_ref,
+            )
             if playback_buttons:
                 reply_text = (
                     f"{reply_text}\n\n"
@@ -4237,48 +5019,99 @@ def build_report(
         _save_state(state_path, state)
 
     freeform_state = _freeform_state(state)
-    for message in messages:
-        if not _is_freeform_inbox_message(message):
-            continue
-        if _message_heyy_ai_key(message).strip() != "executive_assistant":
-            continue
-        if not _executive_assistant_freeform_enabled(args):
-            continue
+    if _prune_freeform_state(state, args=args):
+        freeform_state = _freeform_state(state)
+        _save_state(state_path, state)
+    freeform_recovery_messages = [
+        message
+        for message in messages
+        if isinstance(message, dict) and _freeform_message_allowed_for_recovery(message, args=args)
+    ]
+    auto_reply_routes: dict[str, dict[str, Any]] = {}
+    if freeform_recovery_messages:
+        heyy_ai_routes = _load_heyy_ai_routes(
+            request_json=request_json,
+            args=args,
+            base_url=base_url,
+            session_ref=session_ref,
+        )
+        auto_reply_routes = _auto_reply_routes_by_ai_key(heyy_ai_routes)
+    for message in freeform_recovery_messages:
         message_id = str(message.get("id") or "").strip()
         if not message_id:
             continue
         existing_freeform = freeform_state.get(message_id)
-        if isinstance(existing_freeform, dict) and bool(existing_freeform.get("reply_sent")):
+        if _freeform_state_entry_terminal(existing_freeform):
             continue
         sender_digits = _message_sender_digits(message) or _whatsapp_sender_ref_for_chat_ref(_message_chat_ref(message))
         if not sender_digits:
             freeform_state[message_id] = {
                 "processed_at": now,
                 "reply_sent": False,
-                "status": "failed",
+                "status": "ignored",
                 "reason": "sender_ref_unresolved",
             }
             _save_state(state_path, state)
             continue
         chat_ref = _message_chat_ref(message)
-        reply_text = _executive_assistant_freeform_reply_text(args=args, message=message)
+        heyy_ai_key = _message_heyy_ai_key(message).strip().lower()
+        reply_args = None
+        reply_text = ""
+        reply_source = ""
+        if heyy_ai_key == "executive_assistant":
+            auto_reply_route = _auto_reply_route_for_message(
+                message=message,
+                messages=messages,
+                auto_reply_routes=auto_reply_routes,
+                default_ai_key=str(getattr(args, "reply_heyy_ai_key", "") or ""),
+            )
+            if auto_reply_route:
+                reply_text = _auto_reply_freeform_reply_text(auto_reply_route, message=message)
+                reply_source = "auto_reply_route"
+                reply_args = _freeform_reply_args(
+                    args,
+                    heyy_ai_key=str(auto_reply_route.get("ai_key") or ""),
+                    heyy_ai_name=str(auto_reply_route.get("ai_name") or ""),
+                )
+            elif _executive_assistant_freeform_enabled(args):
+                reply_text = _executive_assistant_freeform_reply_text(args=args, message=message)
+                reply_source = "executive_assistant"
+                reply_args = _freeform_reply_args(
+                    args,
+                    heyy_ai_key="executive_assistant",
+                    heyy_ai_name="Executive Assistant",
+                )
+        else:
+            auto_reply_route = _auto_reply_route_for_message(
+                message=message,
+                messages=messages,
+                auto_reply_routes=auto_reply_routes,
+                default_ai_key="",
+            )
+            if auto_reply_route:
+                reply_text = _auto_reply_freeform_reply_text(auto_reply_route, message=message)
+                reply_source = "auto_reply_route"
+                reply_args = _freeform_reply_args(
+                    args,
+                    heyy_ai_key=str(auto_reply_route.get("ai_key") or ""),
+                    heyy_ai_name=str(auto_reply_route.get("ai_name") or ""),
+                )
+        if reply_args is None:
+            continue
         if not reply_text:
             freeform_state[message_id] = {
                 "processed_at": now,
                 "reply_sent": False,
                 "status": "skipped",
                 "reason": "reply_text_empty",
+                "reply_source": reply_source,
             }
             _save_state(state_path, state)
             continue
         try:
             send_result = _send_reply(
                 request_json=request_json,
-                args=_freeform_reply_args(
-                    args,
-                    heyy_ai_key="executive_assistant",
-                    heyy_ai_name="Executive Assistant",
-                ),
+                args=reply_args,
                 recipient_digits=sender_digits,
                 text=reply_text,
                 chat_ref=chat_ref,
@@ -4289,6 +5122,7 @@ def build_report(
                 "reply_message_hash": _sha(send_result.get("message_id") or send_result.get("id") or ""),
                 "reply_sent": reply_sent_ok,
                 "reply_text_hash": _sha(reply_text),
+                "reply_source": reply_source,
                 "status": "replied" if reply_sent_ok else "failed",
             }
             if reply_sent_ok:
@@ -4299,6 +5133,7 @@ def build_report(
             freeform_state[message_id] = {
                 "processed_at": now,
                 "reply_sent": False,
+                "reply_source": reply_source,
                 "status": "failed",
                 "reason": type(exc).__name__,
             }
@@ -4431,7 +5266,7 @@ def build_report(
         "external_blockers": external_blockers,
         "stale_callback_summary": stale_callback_summary,
         "status_counts": status_counts,
-        "state_file_present": bool(str(state_path)),
+        "state_file_present": state_path.exists() if str(state_path) else False,
     }
 
 
@@ -4521,7 +5356,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--telegram-summary-scope-label",
-        default=_env("EA_WHATSAPP_WEB_TG_SUMMARY_SCOPE_LABEL", DEFAULT_TELEGRAM_SUMMARY_SCOPE_LABEL),
+        default=_env("EA_WHATSAPP_WEB_TG_SUMMARY_SCOPE_LABEL", ""),
     )
     parser.add_argument(
         "--reply-heyy-ai-key",
@@ -4605,6 +5440,39 @@ def parse_args() -> argparse.Namespace:
         default=_env("EA_WHATSAPP_WEB_ACTION_REPLY_USE_SIDECAR_ROUTE_PACING", "0").lower() in {"1", "true", "yes", "on"},
     )
     parser.add_argument(
+        "--freeform-conversation-fallback-max-age-seconds",
+        type=int,
+        default=int(
+            _env(
+                "EA_WHATSAPP_WEB_FREEFORM_CONVERSATION_FALLBACK_MAX_AGE_SECONDS",
+                str(DEFAULT_FREEFORM_CONVERSATION_FALLBACK_MAX_AGE_SECONDS),
+            )
+            or str(DEFAULT_FREEFORM_CONVERSATION_FALLBACK_MAX_AGE_SECONDS)
+        ),
+    )
+    parser.add_argument(
+        "--freeform-state-stale-seconds",
+        type=int,
+        default=int(
+            _env(
+                "EA_WHATSAPP_WEB_FREEFORM_STATE_STALE_SECONDS",
+                str(DEFAULT_FREEFORM_STATE_STALE_SECONDS),
+            )
+            or str(DEFAULT_FREEFORM_STATE_STALE_SECONDS)
+        ),
+    )
+    parser.add_argument(
+        "--freeform-state-max-entries",
+        type=int,
+        default=int(
+            _env(
+                "EA_WHATSAPP_WEB_FREEFORM_STATE_MAX_ENTRIES",
+                str(DEFAULT_FREEFORM_STATE_MAX_ENTRIES),
+            )
+            or str(DEFAULT_FREEFORM_STATE_MAX_ENTRIES)
+        ),
+    )
+    parser.add_argument(
         "--principal-id",
         default=_env(
             "EA_WHATSAPP_WEB_DEFAULT_PRINCIPAL_ID",
@@ -4654,7 +5522,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     report = build_report(parse_args())
     print(json.dumps(report, sort_keys=True))
-    return 0 if str(report.get("status") or "") == "pass" else 2
+    return 0 if str(report.get("status") or "") in {"pass", "waiting"} else 2
 
 
 if __name__ == "__main__":

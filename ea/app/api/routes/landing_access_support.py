@@ -2,11 +2,17 @@ from __future__ import annotations
 
 import urllib.parse
 
-from fastapi import Depends, Request
+from fastapi import Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from markupsafe import Markup
 
-from app.api.dependencies import get_cloudflare_access_identity, get_container
+from app.api.dependencies import (
+    RequestContext,
+    _workspace_session_payload,
+    get_cloudflare_access_identity,
+    get_container,
+    get_request_context,
+)
 from app.api.routes.landing_browser import _form_value, _normalize_browser_return_to, _shared_browser_fields, _workspace_session_cookie_kwargs
 from app.api.routes.landing_content import SIGN_IN_NOTES
 from app.api.routes.landing_public_support import (
@@ -23,6 +29,33 @@ from app.services.cloudflare_access import CloudflareAccessIdentity
 from app.services.google_oauth import browser_google_oauth_redirect_uri, build_google_oauth_start
 from app.services.public_branding import request_brand
 from app.services.registration_email import email_delivery_enabled
+
+
+def _trusted_public_actor(
+    *,
+    request: Request,
+    container: AppContainer,
+    access_identity: CloudflareAccessIdentity | None,
+    default_actor: str,
+) -> str:
+    workspace_session = _workspace_session_payload(request, container)
+    authenticated_context: RequestContext | None = None
+    try:
+        authenticated_context = get_request_context(request, container, access_identity)
+    except HTTPException:
+        authenticated_context = None
+    actor_context = authenticated_context or RequestContext(principal_id="", authenticated=False)
+    actor = str(
+        getattr(access_identity, "email", "")
+        or str(actor_context.access_email or "").strip().lower()
+        or str(actor_context.operator_id or "").strip()
+        or str(actor_context.principal_id or "").strip()
+        or str((workspace_session or {}).get("email") or "").strip().lower()
+        or str((workspace_session or {}).get("operator_id") or "").strip()
+        or str((workspace_session or {}).get("principal_id") or "").strip()
+        or default_actor
+    ).strip()
+    return actor or default_actor
 
 
 def sign_in_page(
@@ -196,7 +229,16 @@ def workspace_invite_preview(
 def workspace_access_session(token: str, request: Request, container: AppContainer = Depends(get_container)):
     product = build_product_service(container)
     brand = request_brand(request)
-    actor = str(request.headers.get("X-EA-Operator-ID") or request.headers.get("X-EA-Principal-ID") or "").strip()
+    try:
+        access_identity = get_cloudflare_access_identity(request, container)
+    except HTTPException:
+        access_identity = None
+    actor = _trusted_public_actor(
+        request=request,
+        container=container,
+        access_identity=access_identity,
+        default_actor="workspace_access",
+    )
     session = product.open_workspace_access_session(token=token, actor=actor)
     if session is None:
         return _render_secure_link_page(
@@ -233,7 +275,12 @@ def workspace_invite_accept(
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
     product = build_product_service(container)
-    actor = str(getattr(access_identity, "email", "") or request.headers.get("X-EA-Operator-ID") or request.headers.get("X-EA-Principal-ID") or "workspace_invite").strip() or "workspace_invite"
+    actor = _trusted_public_actor(
+        request=request,
+        container=container,
+        access_identity=access_identity,
+        default_actor="workspace_invite",
+    )
     try:
         invite = product.accept_workspace_invitation(token=token, accepted_by=actor)
     except ValueError as exc:

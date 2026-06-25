@@ -1,0 +1,24 @@
+# Troubleshooting
+
+Most setup issues come from identity mismatch, provider consent, channel binding, or stale browser sessions.
+
+## Registration
+
+If registration does not complete, verify that the email address is correct, the link has not expired, and the browser is not blocking the sign-in flow.
+
+## Google connection
+
+If Gmail or Calendar connection fails, sign out of unrelated Google profiles, retry the OAuth flow, and confirm the requested scopes match the enabled features.
+
+## Telegram
+
+If Telegram does not link, restart the bot flow from the intended chat and confirm that the chat is not a forwarded or archived conversation.
+
+## WhatsApp
+
+If WhatsApp setup stalls, confirm that the intended phone number and business setup path are being used. Do not copy setup codes into untrusted chats.
+
+## Approvals
+
+If an action appears stuck, check whether it is waiting for approval, missing provider permission, or blocked by a delivery channel issue.
+

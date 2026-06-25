@@ -20,6 +20,30 @@ def _jsonable_field_value(value: object) -> object:
     return str(value)
 
 
+def _fallback_table_sync_config() -> dict[str, dict[str, object]]:
+    fallback_entries = {
+        "environment_secret_backup": ["EA_ENV_TEABLE_TABLE_ID", "EA_ENV_TEABLE_TABLE_NAME"],
+        "ltd_inventory_snapshot": ["EA_LTD_INVENTORY_TABLE_ID", "EA_LTDS_INVENTORY_TABLE_ID"],
+        "ltd_discovery_snapshot": ["EA_LTD_DISCOVERY_TABLE_ID", "EA_LTDS_DISCOVERY_TABLE_ID"],
+    }
+    config: dict[str, dict[str, object]] = {}
+    for table_name, env_names in fallback_entries.items():
+        table_id = ""
+        for env_name in env_names:
+            candidate = str(os.environ.get(env_name) or "").strip()
+            if candidate:
+                table_id = candidate
+                break
+        if not table_id:
+            continue
+        config[table_name] = {
+            "table_id": table_id,
+            "key_field": "projection_id",
+            "field_key_type": "name",
+        }
+    return config
+
+
 class TeableToolAdapter:
     def _api_key(self) -> str:
         return str(os.environ.get("TEABLE_API_KEY") or "").strip()
@@ -33,16 +57,32 @@ class TeableToolAdapter:
         if not isinstance(raw, dict) or not raw:
             env_raw = str(os.environ.get("TEABLE_TABLE_SYNC_CONFIG_JSON") or "").strip()
             if not env_raw:
-                raise ToolExecutionError("teable_table_sync_config_missing")
-            try:
-                raw = json.loads(env_raw)
-            except Exception as exc:
-                raise ToolExecutionError("teable_table_sync_config_invalid") from exc
-        config = {
-            str(table_name or "").strip(): dict(table_value or {})
-            for table_name, table_value in dict(raw or {}).items()
-            if str(table_name or "").strip()
-        }
+                config = _fallback_table_sync_config()
+                if not config:
+                    raise ToolExecutionError("teable_table_sync_config_missing")
+                raw = dict(config)
+            else:
+                try:
+                    raw = json.loads(env_raw)
+                except Exception as exc:
+                    raise ToolExecutionError("teable_table_sync_config_invalid") from exc
+        if not isinstance(raw, dict):
+            raise ToolExecutionError("teable_table_sync_config_invalid")
+        config: dict[str, dict[str, Any]] = {}
+        for table_name, table_value in dict(raw).items():
+            normalized_table_name = str(table_name or "").strip()
+            if not normalized_table_name:
+                continue
+            if not isinstance(table_value, dict):
+                if table_value is None:
+                    table_value = {}
+                else:
+                    raise ToolExecutionError("teable_table_sync_config_invalid")
+            config[normalized_table_name] = dict(table_value)
+        fallback_config = _fallback_table_sync_config()
+        for table_name, table_value in fallback_config.items():
+            if str(table_name or "").strip() and table_name not in config:
+                config[table_name] = dict(table_value)
         if not config:
             raise ToolExecutionError("teable_table_sync_config_invalid")
         return config

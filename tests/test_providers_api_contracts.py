@@ -6778,6 +6778,22 @@ def test_fastestvpn_service_provision_uses_no_build_startup(
     ]
 
 
+def test_provider_route_runtime_defaults_are_repo_local(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from app.api.routes import providers as providers_route
+
+    repo_root = tmp_path / "repo"
+    (repo_root / "scripts").mkdir(parents=True)
+    monkeypatch.setattr(providers_route, "_repo_root", lambda: repo_root)
+    monkeypatch.delenv("EA_FASTESTVPN_ROTATE_SCRIPT", raising=False)
+    monkeypatch.delenv("EA_FASTESTVPN_COMPOSE_ROOT", raising=False)
+
+    assert providers_route._provider_state_path("EA_MEDIA_CHALLENGER_LEDGER_PATH", "ledger.json") == (
+        repo_root / ".runtime" / "provider-state" / "ledger.json"
+    )
+    assert providers_route._fastestvpn_rotate_script_path() == repo_root / "scripts" / "rotate_fastestvpn_proxy.sh"
+    assert providers_route._fastestvpn_compose_root() == repo_root
+
+
 def test_onemin_billing_refresh_prefers_binding_browser_proxy_settings_over_env_defaults(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -11067,7 +11083,10 @@ def test_public_memorial_voice_profile_routes_support_config_and_build(monkeypat
     monkeypatch.setattr(memorial_voice_profile, "_compute_audio_signature", _fake_compute_signature)
 
     client = _client(principal_id="exec-public-memorial-voice-profile")
-    config = client.get(f"/memorials/{slug}/voice-config")
+    config = client.get(
+        f"/memorials/{slug}/voice-config",
+        headers={"x-memorial-write-token": write_token},
+    )
     assert config.status_code == 200
     initial_config = config.json()
     assert initial_config["voice_label"] == "Austauschbare synthetische Stimme"

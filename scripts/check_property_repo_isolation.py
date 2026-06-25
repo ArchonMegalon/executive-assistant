@@ -53,11 +53,11 @@ def _read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 
-def _makefile_deploy_uses_property_compose(makefile: str) -> bool:
-    match = re.search(r"^deploy:\n(?P<body>(?:\t.*\n)+)", makefile, flags=re.MULTILINE)
+def _make_target_body(makefile: str, target: str) -> str:
+    match = re.search(rf"^{re.escape(target)}:\n(?P<body>(?:\t.*\n)+)", makefile, flags=re.MULTILINE)
     if not match:
-        return False
-    return "docker-compose.property.yml" in match.group("body")
+        return ""
+    return match.group("body")
 
 
 def main() -> int:
@@ -92,8 +92,12 @@ def main() -> int:
                 failures.append(f"{path} references inherited/non-property runtime token {token!r}")
 
     makefile = _read("Makefile")
-    if not _makefile_deploy_uses_property_compose(makefile):
-        failures.append("Makefile deploy target must use docker-compose.property.yml")
+    deploy_body = _make_target_body(makefile, "deploy")
+    if "Refusing ambiguous deploy" not in deploy_body:
+        failures.append("Makefile deploy target must fail closed and require an explicit product deploy target")
+    property_deploy_body = _make_target_body(makefile, "deploy-property")
+    if "docker-compose.property.yml" not in property_deploy_body:
+        failures.append("Makefile deploy-property target must use docker-compose.property.yml")
     if "PROPERTYQUARRY_USE_LEGACY_STACK=1 bash scripts/deploy.sh" not in makefile:
         failures.append("Makefile must keep legacy EA deploy behind PROPERTYQUARRY_USE_LEGACY_STACK=1")
 

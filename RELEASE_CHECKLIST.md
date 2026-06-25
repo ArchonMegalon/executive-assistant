@@ -10,10 +10,11 @@
 - [ ] `.codex-design/ea/START_HERE.md` and the linked EA canon docs still match the shipped public/app surface.
 - [ ] `EA_FLAGSHIP_TRUTH_PLANE.md`, `EA_FLAGSHIP_RELEASE_GATE.json`, and `EA_FLAGSHIP_RELEASE_GATE.generated.json` agree with the browser workflow proof.
 - [ ] `make verify-release-authority` passes, confirming the release manifest points at a real runtime origin, carries an explicit deployment id, records compose topology, and is not being claimed from a dirty local worktree.
+- [ ] `curl -fsS http://localhost:${EA_HOST_PORT:-8090}/health/release-authority` returns the deployed release-authority posture and gate payload expected for this rollout.
 - [ ] `make verify-flagship-release-readiness` passes, confirming the weekly pulse, browser proof, flagship receipt, and Fleet journey gate are all clear for wider release claims.
 - [ ] `make verify-whole-project-gold-map` passes, confirming EA readiness is not being overclaimed as whole-Chummer gold and that memorial voice/realtime remains separately blocked until its own receipt exists.
 - [ ] Product boundary reviewed: non-core public utility routes are disabled unless intentionally required (`EA_ENABLE_PUBLIC_RESULTS`, `EA_ENABLE_PUBLIC_TOURS`).
-- [ ] CI smoke workflow is green.
+- [ ] Local release gate bundle is green (`make ci-gates`, `make release-preflight`, and any required Postgres parity run).
 - [ ] CI gate bundle (`make smoke-help`, `make ci-local`, runtime smoke API tests, `make verify-release-assets`) is green.
 - [ ] Optional local parity run completed: `make ci-gates`.
 - [ ] Optional local parity run including Postgres smoke completed: `make ci-gates-postgres`.
@@ -40,7 +41,7 @@
 
 ## Smoke
 
-- [ ] Optional one-command release bundle: `make release-preflight` (includes release-authority and flagship release-readiness verification)
+- [ ] Optional one-command release bundle: `make release-preflight` (includes runtime supply-chain, release-authority, and flagship release-readiness verification)
 - [ ] `make release-smoke`
 - [ ] The core workspace proves one real memo -> queue -> draft/approval -> follow-up loop on durable product objects.
 - [ ] Browser surface contract tests confirm no product-surface links to experimental routes in product mode.

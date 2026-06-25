@@ -670,22 +670,35 @@ SPACING_REPAIR_WORDS = {
     "before",
     "black",
     "box",
+    "brief",
     "but",
     "by",
     "calculated",
     "can",
     "campaign",
+    "car",
     "characters",
+    "chirp",
+    "chrome",
     "copy",
+    "crackling",
+    "creature",
+    "device",
     "designed",
+    "disinfectant",
     "do",
     "does",
     "don't",
+    "down",
     "everything",
+    "firing",
     "for",
     "forward",
+    "frames",
     "from",
+    "funny",
     "gamemasters",
+    "gun",
     "gms",
     "great",
     "have",
@@ -694,19 +707,27 @@ SPACING_REPAIR_WORDS = {
     "how",
     "i",
     "if",
+    "important",
     "in",
+    "inside",
+    "inspected",
     "into",
     "is",
     "it",
     "it's",
+    "just",
     "keep",
     "keeps",
     "local",
     "look",
     "math",
+    "mention",
     "more",
+    "moment",
     "moving",
     "mysterious",
+    "never",
+    "now",
     "not",
     "of",
     "on",
@@ -714,10 +735,13 @@ SPACING_REPAIR_WORDS = {
     "or",
     "organized",
     "out",
+    "pitched",
     "players",
     "plus",
     "prepare",
+    "procedure",
     "provides",
+    "pulled",
     "really",
     "receipts",
     "references",
@@ -726,10 +750,13 @@ SPACING_REPAIR_WORDS = {
     "results",
     "rules",
     "see",
+    "seeping",
     "sessions",
     "shadowrun",
     "so",
     "some",
+    "something",
+    "sometimes",
     "stays",
     "that",
     "the",
@@ -744,6 +771,7 @@ SPACING_REPAIR_WORDS = {
     "track",
     "transparent",
     "trustworthy",
+    "valuable",
     "trying",
     "understand",
     "up",
@@ -760,6 +788,7 @@ SPACING_REPAIR_WORDS = {
     "what",
     "what's",
     "workspace",
+    "would",
     "you",
     "you're",
     "your",
@@ -767,6 +796,8 @@ SPACING_REPAIR_WORDS = {
 SPACING_REPAIR_SHORT_WORDS = {
     "a",
     "i",
+    "d",
+    "s",
     "an",
     "as",
     "at",
@@ -797,6 +828,61 @@ def _is_noise_candidate(value: str) -> bool:
 
 def _spacing_repair_lexicon(original_text: str) -> set[str]:
     lexicon = set(SPACING_REPAIR_WORDS)
+    lexicon.update(
+        {
+            "became",
+            "blood",
+            "curses",
+            "acted",
+            "attention",
+            "before",
+            "blinded",
+            "cameras",
+            "echoed",
+            "flooded",
+            "foreign",
+            "frustrated",
+            "gave",
+            "grabbed",
+            "had",
+            "hauling",
+            "her",
+            "herself",
+            "high",
+            "hesitate",
+            "installing",
+            "its",
+            "knew",
+            "managed",
+            "memories",
+            "mind",
+            "momentarily",
+            "only",
+            "own",
+            "pay",
+            "quickly",
+            "read",
+            "reacted",
+            "seemed",
+            "set",
+            "she",
+            "slammed",
+            "starting",
+            "t",
+            "targeted",
+            "think",
+            "thing",
+            "tiny",
+            "told",
+            "used",
+            "wasn",
+            "voice",
+            "huge",
+            "words",
+            "rules",
+            "yelling",
+        }
+    )
     for token in re.findall(r"[A-Za-z][A-Za-z']+", str(original_text or "").lower()):
         lexicon.add(token)
     return lexicon
@@ -841,11 +927,61 @@ def _repair_spacing_artifacts(text: str, original_text: str) -> str:
     if not repaired:
         return repaired
     repaired = re.sub(r"(?<=[,;:!?])(?=[A-Za-z0-9])", " ", repaired)
+    repaired = re.sub(r"(?<=[.!?])(?=[A-Z])", " ", repaired)
     repaired = re.sub(r'([A-Za-z0-9]["”])(?=[A-Za-z])', r"\1 ", repaired)
+    repaired = re.sub(r"(?i)(['’][dsmt])(?=[A-Za-z])", r"\1 ", repaired)
+    repaired = re.sub(
+        r"\bifshetoldherselfitwasn(['’]t)\b",
+        r"if she told herself it wasn\1",
+        repaired,
+        flags=re.IGNORECASE,
+    )
     repaired = re.sub(r"\s+", " ", repaired).strip()
     lexicon = _spacing_repair_lexicon(original_text)
     repaired = SPACING_REPAIR_TOKEN_RE.sub(lambda match: _split_spacing_artifact_token(match.group(0), lexicon), repaired)
     return re.sub(r"\s+", " ", repaired).strip()
+
+
+SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+
+
+def _content_overlap_ratio(left: str, right: str) -> float:
+    left_tokens = _token_set(left)
+    if not left_tokens:
+        return 0.0
+    return len(left_tokens & _token_set(right)) / max(1, len(left_tokens))
+
+
+def length_normalize_provider_output(text: str, original_text: str, *, max_ratio: float = 1.45) -> str:
+    """Trim only provider-added low-overlap sentences; never synthesize replacement prose."""
+    repaired = _repair_spacing_artifacts(text, original_text)
+    source_words = max(1, word_count(original_text))
+    if word_count(repaired) / source_words <= max_ratio:
+        return repaired
+    sentences = [sentence.strip() for sentence in SENTENCE_SPLIT_RE.split(repaired) if sentence.strip()]
+    if len(sentences) <= 1:
+        return repaired
+    source_tokens = _token_set(original_text)
+    removable: list[tuple[float, int, int]] = []
+    for index, sentence in enumerate(sentences):
+        sentence_words = word_count(sentence)
+        if sentence_words < 8:
+            continue
+        sentence_tokens = _token_set(sentence)
+        overlap = len(sentence_tokens & source_tokens) / max(1, len(sentence_tokens))
+        anchor_hits = sum(1 for anchor in ("Kestrel", "Vela", "Cale", "Mako", "ledger", "reflex booster") if anchor.lower() in sentence.lower())
+        if anchor_hits:
+            continue
+        removable.append((overlap, -sentence_words, index))
+    kept = set(range(len(sentences)))
+    for _overlap, _neg_words, index in sorted(removable):
+        if word_count(" ".join(sentences[i] for i in sorted(kept - {index}))) / source_words < 0.72:
+            continue
+        kept.remove(index)
+        candidate = " ".join(sentences[i] for i in sorted(kept))
+        if word_count(candidate) / source_words <= max_ratio:
+            return candidate.strip()
+    return " ".join(sentences[i] for i in sorted(kept)).strip()
 
 
 def extract_humanized_text(body: dict[str, object], original_text: str) -> str:

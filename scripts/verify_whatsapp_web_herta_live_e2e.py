@@ -6,6 +6,7 @@ import json
 import os
 import re
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
@@ -21,12 +22,12 @@ DEFAULT_PROMPT = (
     'Mei, ich prüf noch einmal den Herta-Weg. Schreib mir bitte "paßt live", '
     "dann antworte ich langsam als Herta. - Herta"
 )
-DEFAULT_HERTA_PRE_REPLY_DELAY_MIN_SECONDS = 60
-DEFAULT_HERTA_PRE_REPLY_DELAY_MAX_SECONDS = 900
+DEFAULT_HERTA_PRE_REPLY_DELAY_MIN_SECONDS = 180
+DEFAULT_HERTA_PRE_REPLY_DELAY_MAX_SECONDS = 1800
 DEFAULT_HERTA_QUIET_HOURS_START_HOUR = 21
 DEFAULT_HERTA_QUIET_HOURS_END_HOUR = 6
 DEFAULT_HERTA_TYPING_DELAY_MS = 6500
-DEFAULT_HERTA_TYPING_DELAY_MS_PER_CHARACTER = 4000
+DEFAULT_HERTA_TYPING_DELAY_MS_PER_CHARACTER = 8000
 
 
 def _env(name: str, default: str = "") -> str:
@@ -82,10 +83,97 @@ def _sidecar_url(base_url: str, session_ref: str, suffix: str) -> str:
     return f"{base}/sessions/{session}/{suffix.lstrip('/')}"
 
 
+def _healthz_url(base_url: str) -> str:
+    return f"{str(base_url or DEFAULT_SESSION_API_BASE_URL).rstrip('/')}/healthz"
+
+
 def _get_json(*, base_url: str, session_ref: str, suffix: str, timeout_seconds: float) -> dict[str, Any]:
     with urllib.request.urlopen(_sidecar_url(base_url, session_ref, suffix), timeout=timeout_seconds) as response:
         payload = json.loads(response.read().decode("utf-8"))
     return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _get_healthz_json(*, base_url: str, timeout_seconds: float) -> dict[str, Any]:
+    with urllib.request.urlopen(_healthz_url(base_url), timeout=timeout_seconds) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _error_payload(exc: Exception) -> dict[str, object]:
+    if isinstance(exc, urllib.error.HTTPError):
+        try:
+            payload = json.loads(exc.read().decode("utf-8") or "{}")
+        except Exception:
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        payload.setdefault("ok", False)
+        payload.setdefault("reason", f"http_{exc.code}")
+        payload["http_status"] = exc.code
+        return payload
+    return {"ok": False, "reason": type(exc).__name__, "error": str(exc)}
+
+
+def sidecar_health_payload(*, base_url: str, timeout_seconds: float) -> dict[str, object]:
+    try:
+        return _get_healthz_json(base_url=base_url, timeout_seconds=timeout_seconds)
+    except Exception as exc:
+        return _error_payload(exc)
+
+
+def sidecar_blocked_report(
+    *,
+    error_payload: dict[str, object],
+    sent: dict[str, Any],
+    session: dict[str, object],
+    wait_seconds: float,
+) -> dict[str, object]:
+    reason = str(error_payload.get("reason") or "sidecar_request_failed").strip()
+    return {
+        **session,
+        "failure_count": 1,
+        "failures": [
+            {
+                "http_status": error_payload.get("http_status"),
+                "reason": reason,
+                "status": error_payload.get("status"),
+            }
+        ],
+        "http_status": error_payload.get("http_status"),
+        "ok": False,
+        "reason": reason,
+        "sent": sent,
+        "sidecar_error": error_payload,
+        "status": error_payload.get("status"),
+        "wait_seconds": wait_seconds,
+    }
+
+
+def resolve_session_ref(
+    *,
+    base_url: str,
+    configured_session_ref: str,
+    timeout_seconds: float,
+) -> dict[str, object]:
+    configured = str(configured_session_ref or DEFAULT_SESSION_REF).strip() or DEFAULT_SESSION_REF
+    health = sidecar_health_payload(base_url=base_url, timeout_seconds=timeout_seconds)
+    health_ref = str(health.get("session_ref") or "").strip()
+    if health_ref:
+        return {
+            "configured_session_ref": configured,
+            "session_ref": health_ref,
+            "session_ref_source": "sidecar_healthz",
+            "sidecar_health_ok": bool(health.get("ok", True)),
+            "sidecar_health_status": str(health.get("status") or "").strip(),
+        }
+    return {
+        "configured_session_ref": configured,
+        "session_ref": configured,
+        "session_ref_source": "configured",
+        "sidecar_health_ok": bool(health.get("ok")),
+        "sidecar_health_reason": str(health.get("reason") or "").strip(),
+        "sidecar_health_status": str(health.get("status") or "").strip(),
+    }
 
 
 def _post_json(
@@ -276,9 +364,9 @@ def verify_snapshot(
     }
 
 
-def fetch_snapshot(args: argparse.Namespace) -> dict[str, dict[str, Any]]:
+def fetch_snapshot(args: argparse.Namespace, *, session_ref: str = "") -> dict[str, dict[str, Any]]:
     base_url = str(args.session_api_base_url or DEFAULT_SESSION_API_BASE_URL).strip()
-    session_ref = str(args.session_ref or DEFAULT_SESSION_REF).strip()
+    effective_session_ref = str(session_ref or args.session_ref or DEFAULT_SESSION_REF).strip()
     timeout_seconds = float(args.request_timeout_seconds)
     conversation_suffix = (
         f"conversations?take={max(1, int(args.conversation_take))}"
@@ -286,15 +374,15 @@ def fetch_snapshot(args: argparse.Namespace) -> dict[str, dict[str, Any]]:
         f"&fetch_timeout_ms={max(1000, int(args.conversation_fetch_timeout_ms))}"
     )
     return {
-        "status": _get_json(base_url=base_url, session_ref=session_ref, suffix="status", timeout_seconds=timeout_seconds),
-        "routes": _get_json(base_url=base_url, session_ref=session_ref, suffix="heyy-ai-routes", timeout_seconds=timeout_seconds),
-        "inbox": _get_json(base_url=base_url, session_ref=session_ref, suffix="messages?take=100", timeout_seconds=timeout_seconds),
-        "outbox": _get_json(base_url=base_url, session_ref=session_ref, suffix="outbox?take=100", timeout_seconds=timeout_seconds),
-        "conversations": _get_json(base_url=base_url, session_ref=session_ref, suffix=conversation_suffix, timeout_seconds=timeout_seconds),
+        "status": _get_json(base_url=base_url, session_ref=effective_session_ref, suffix="status", timeout_seconds=timeout_seconds),
+        "routes": _get_json(base_url=base_url, session_ref=effective_session_ref, suffix="heyy-ai-routes", timeout_seconds=timeout_seconds),
+        "inbox": _get_json(base_url=base_url, session_ref=effective_session_ref, suffix="messages?take=100", timeout_seconds=timeout_seconds),
+        "outbox": _get_json(base_url=base_url, session_ref=effective_session_ref, suffix="outbox?take=100", timeout_seconds=timeout_seconds),
+        "conversations": _get_json(base_url=base_url, session_ref=effective_session_ref, suffix=conversation_suffix, timeout_seconds=timeout_seconds),
     }
 
 
-def send_prompt(args: argparse.Namespace) -> dict[str, Any]:
+def send_prompt(args: argparse.Namespace, *, session_ref: str = "") -> dict[str, Any]:
     body = {
         "heyy_ai_key": str(args.expected_ai_key or DEFAULT_HERTA_AI_KEY),
         "heyy_ai_name": DEFAULT_HERTA_AI_NAME,
@@ -310,7 +398,7 @@ def send_prompt(args: argparse.Namespace) -> dict[str, Any]:
     }
     return _post_json(
         base_url=str(args.session_api_base_url or DEFAULT_SESSION_API_BASE_URL).strip(),
-        session_ref=str(args.session_ref or DEFAULT_SESSION_REF).strip(),
+        session_ref=str(session_ref or args.session_ref or DEFAULT_SESSION_REF).strip(),
         suffix="messages",
         body=body,
         timeout_seconds=float(args.send_timeout_seconds),
@@ -318,20 +406,44 @@ def send_prompt(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def run(args: argparse.Namespace) -> dict[str, object]:
+    base_url = str(args.session_api_base_url or DEFAULT_SESSION_API_BASE_URL).strip()
+    session = resolve_session_ref(
+        base_url=base_url,
+        configured_session_ref=str(args.session_ref or DEFAULT_SESSION_REF).strip(),
+        timeout_seconds=float(args.request_timeout_seconds),
+    )
+    session_ref = str(session.get("session_ref") or DEFAULT_SESSION_REF).strip()
     cutoff = _parse_iso(args.since)
     sent: dict[str, Any] = {}
+    wait_seconds = max(0.0, float(args.wait_seconds))
     if args.send:
         if not str(args.recipient or "").strip():
             return {"ok": False, "reason": "recipient_required"}
         cutoff = _parse_iso(_iso_now())
-        sent = send_prompt(args)
+        try:
+            sent = send_prompt(args, session_ref=session_ref)
+        except Exception as exc:
+            return sidecar_blocked_report(
+                error_payload=_error_payload(exc),
+                sent=sent,
+                session=session,
+                wait_seconds=wait_seconds,
+            )
     elif cutoff is None:
         cutoff = _parse_iso(_iso_now())
 
-    deadline = time.monotonic() + max(0.0, float(args.wait_seconds))
+    deadline = time.monotonic() + wait_seconds
     report: dict[str, object] = {}
     while True:
-        snapshot = fetch_snapshot(args)
+        try:
+            snapshot = fetch_snapshot(args, session_ref=session_ref)
+        except Exception as exc:
+            return sidecar_blocked_report(
+                error_payload=_error_payload(exc),
+                sent=sent,
+                session=session,
+                wait_seconds=wait_seconds,
+            )
         report = verify_snapshot(
             status_payload=snapshot["status"],
             routes_payload=snapshot["routes"],
@@ -345,8 +457,9 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             body_contains=str(args.body_contains or ""),
             require_auto_reply=not bool(args.no_require_auto_reply),
         )
+        report.update(session)
         report["sent"] = sent
-        report["wait_seconds"] = max(0.0, float(args.wait_seconds))
+        report["wait_seconds"] = wait_seconds
         if bool(report.get("ok")) or time.monotonic() >= deadline:
             return report
         time.sleep(max(1.0, float(args.poll_interval_seconds)))

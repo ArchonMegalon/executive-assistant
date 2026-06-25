@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import time
 import urllib.error
 import urllib.parse
@@ -19,38 +20,44 @@ DEFAULT_TEABLE_BASE_URL = "https://app.teable.ai"
 DEFAULT_MESSAGE_TABLE_NAME = "ea_whatsapp_session_messages"
 DEFAULT_PERSONA_TABLE_NAME = "ea_heyy_ai_personas"
 DEFAULT_ROUTE_TABLE_NAME = "ea_whatsapp_heyy_ai_routes"
+DEFAULT_AUDIOBOOK_TABLE_NAME = "ea_whatsapp_audiobook_jobs"
 DEFAULT_SESSION_API_BASE_URL = "http://127.0.0.1:8098"
 DEFAULT_SESSION_REF = "default-wa-web"
 DEFAULT_SYNC_STATE_FILE = "/data/whatsapp-teable-sync/state.json"
+DEFAULT_AUDIOBOOK_JOBS_ROOT = "/mnt/pcloud/EA/audiobook_jobs"
 DEFAULT_HEYY_AI_KEY = "empathetic_slow_typing_old_lady"
 DEFAULT_HEYY_AI_NAME = "Herta (Heyy Lady)"
 DEFAULT_REPLY_TEXT = (
-    "Na geh... ich bin die Herta. Ich tipp langsam, die Brille ist wieder weg. "
-    "Ich glaub ich erinnere mich: Sabi, die 62er-Bim und der gelbe Regenmantel. "
-    "Schreib mir bitte noch einmal langsam, ich scroll gleich zurück."
+    "Na geh... ich bin die Herta. Schreib mir bitte kurz, ich bin beim Tippen langsam."
 )
 DEFAULT_BEHAVIOR_PROMPT = (
-    "Warm elderly Viennese lady. Empathetic, slow-typing, confused by apps and banking, "
-    "mixes up harmless names, places, and dates, asks verification questions, never completes "
-    "payments, and never shares real financial, identity, password, PIN, TAN, OTP, or address data. "
-    "In German replies, use real umlauts and older pre-reform spelling such as daß, muß, and bißchen; "
-    "avoid ae/oe/ue substitutions."
+    "Warm elderly Viennese lady. Empathetic, cautious, and brief. She writes in short WhatsApp-sized "
+    "messages, does not ramble, and does not complain about typing, reading, or a small display unless "
+    "directly asked why she is slow. She is confused by apps and banking, types very slowly, mixes up "
+    "harmless memories, asks verification questions, and never shares real financial, identity, password, "
+    "PIN, TAN, OTP, or address data. Address loved ones naturally with varied old-lady terms such as "
+    "mein Kind, Schatzi, mein Lieber, mein Herz, Du Liebe, Goldstück, or Liebling instead of repeating "
+    "one stock phrase. In German replies, use real umlauts and older pre-reform spelling such as daß, "
+    "muß, and bißchen; avoid ae/oe/ue substitutions."
 )
 DEFAULT_MEMORY_NOTES = (
     "Fictional memory card: Herta from Vienna; daughter Sabine/Sabi/Bine; tram 62 red school bag; "
-    "yellow raincoat; budgie Peppi; neighbor cat Mitzi; Marillenknödel confusion; glasses often missing."
+    "yellow raincoat; budgie Peppi; neighbor cat Mitzi; Marillenknödel confusion; glasses often missing; "
+    "if asked about another number, she says she borrowed her late husband's phone because her own display is broken."
 )
 DEFAULT_PACING_HINT = (
-    "Wait a random 1-15 minutes before typing, never answer between 21:00 and 06:00 local time, "
-    "then type slowly at four seconds per character before sending one hesitant message."
+    "Wait a random 3-30 minutes before typing, never answer between 21:00 and 06:00 local time, "
+    "then type very slowly at eight seconds per character before sending one short, hesitant message."
 )
 DEFAULT_MINIMUM_DELAY_SECONDS = 60
 DEFAULT_TYPING_DELAY_MS = 6500
-DEFAULT_PRE_REPLY_DELAY_MIN_SECONDS = 60
-DEFAULT_PRE_REPLY_DELAY_MAX_SECONDS = 900
+DEFAULT_PRE_REPLY_DELAY_MIN_SECONDS = 180
+DEFAULT_PRE_REPLY_DELAY_MAX_SECONDS = 1800
 DEFAULT_QUIET_HOURS_START_HOUR = 21
 DEFAULT_QUIET_HOURS_END_HOUR = 6
-DEFAULT_TYPING_DELAY_MS_PER_CHARACTER = 4000
+DEFAULT_TYPING_DELAY_MS_PER_CHARACTER = 8000
+DEFAULT_TEABLE_REQUEST_TIMEOUT_SECONDS = 20.0
+DEFAULT_TEABLE_REQUEST_ATTEMPTS = 2
 TRANSIENT_HTTP_STATUS_CODES = {408, 429, 500, 502, 503, 504}
 KEY_LOOKUP_BATCH_SIZE = 20
 CREATE_RECORD_BATCH_SIZE = 20
@@ -78,6 +85,7 @@ EXECUTIVE_ASSISTANT_REPLY_TEXT = (
 )
 EXECUTIVE_ASSISTANT_TYPING_DELAY_MS = 2800
 NON_CONVERSATION_MESSAGE_TYPES = {"notification_template", "e2e_notification"}
+SYNTHETIC_NOTIFICATION_BODY_RE = re.compile(r"^[0-9A-Za-z_.-]+@(lid|c\.us)$")
 
 
 class SessionApiUnavailable(RuntimeError):
@@ -96,6 +104,7 @@ MESSAGE_FIELDS: list[dict[str, object]] = [
     {"name": "sender_digits", "type": "singleLineText"},
     {"name": "heyy_ai_key", "type": "singleLineText"},
     {"name": "heyy_ai_name", "type": "singleLineText"},
+    {"name": "heyy_ai_route_matched", "type": "checkbox"},
     {"name": "body_text", "type": "longText"},
     {"name": "body_present", "type": "checkbox"},
     {"name": "message_type", "type": "singleLineText"},
@@ -167,6 +176,35 @@ PERSONA_FIELDS: list[dict[str, object]] = [
     {"name": "session_ref", "type": "singleLineText"},
     {"name": "updated_at", "type": "singleLineText"},
     {"name": "notes", "type": "longText"},
+]
+
+AUDIOBOOK_FIELDS: list[dict[str, object]] = [
+    {"name": "projection_id", "type": "singleLineText"},
+    {"name": "job_id", "type": "singleLineText"},
+    {"name": "job_dir_name", "type": "singleLineText"},
+    {"name": "job_status", "type": "singleLineText"},
+    {"name": "next_action", "type": "singleLineText"},
+    {"name": "updated_at", "type": "singleLineText"},
+    {"name": "observed_at", "type": "singleLineText"},
+    {"name": "title", "type": "singleLineText"},
+    {"name": "author", "type": "singleLineText"},
+    {"name": "source_kind", "type": "singleLineText"},
+    {"name": "source_filename", "type": "singleLineText"},
+    {"name": "public_share_status", "type": "singleLineText"},
+    {"name": "public_share_whatsapp_delivery_status", "type": "singleLineText"},
+    {"name": "public_share_whatsapp_followup_pending", "type": "checkbox"},
+    {"name": "playback_status", "type": "singleLineText"},
+    {"name": "playback_source", "type": "singleLineText"},
+    {"name": "selected_voice_label", "type": "singleLineText"},
+    {"name": "selected_voice_language", "type": "singleLineText"},
+    {"name": "voice_selection_status", "type": "singleLineText"},
+    {"name": "voice_selected_at", "type": "singleLineText"},
+    {"name": "sender_bound", "type": "checkbox"},
+    {"name": "session_bound", "type": "checkbox"},
+    {"name": "operator_review_pending", "type": "checkbox"},
+    {"name": "scheduler_next_action", "type": "singleLineText"},
+    {"name": "whatsapp_source", "type": "singleLineText"},
+    {"name": "synced_at", "type": "singleLineText"},
 ]
 
 
@@ -470,6 +508,24 @@ def _env(name: str, default: str = "") -> str:
     return str(os.environ.get(name) or default).strip()
 
 
+def _teable_request_timeout_seconds() -> float:
+    raw = _env("EA_WHATSAPP_WEB_TEABLE_REQUEST_TIMEOUT_SECONDS", str(DEFAULT_TEABLE_REQUEST_TIMEOUT_SECONDS))
+    try:
+        value = float(raw)
+    except Exception:
+        value = float(DEFAULT_TEABLE_REQUEST_TIMEOUT_SECONDS)
+    return max(1.0, min(value, 120.0))
+
+
+def _teable_request_attempts() -> int:
+    raw = _env("EA_WHATSAPP_WEB_TEABLE_REQUEST_ATTEMPTS", str(DEFAULT_TEABLE_REQUEST_ATTEMPTS))
+    try:
+        value = int(raw)
+    except Exception:
+        value = int(DEFAULT_TEABLE_REQUEST_ATTEMPTS)
+    return max(1, min(value, 5))
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
@@ -538,8 +594,11 @@ def _save_sync_state(path_value: object, state: dict[str, Any]) -> None:
     if not raw_path:
         return
     path = Path(raw_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state, ensure_ascii=True, sort_keys=True) + "\n", encoding="utf-8")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(state, ensure_ascii=True, sort_keys=True) + "\n", encoding="utf-8")
+    except OSError:
+        return
 
 
 def _conversation_skip_from_args(args: argparse.Namespace) -> int:
@@ -576,6 +635,20 @@ def _completed_refresh_conversation_take(args: argparse.Namespace) -> int:
     configured = _env("EA_WHATSAPP_WEB_TEABLE_COMPLETED_REFRESH_CONVERSATION_TAKE", "")
     default_take = min(max(1, _int_value(getattr(args, "conversation_take", 25), 25)), 5)
     return max(1, _int_value(configured, default_take))
+
+
+def _effective_conversation_take(args: argparse.Namespace, *, completed_refresh: bool) -> int:
+    configured_take = (
+        _completed_refresh_conversation_take(args)
+        if completed_refresh
+        else max(1, _int_value(getattr(args, "conversation_take", 25), 25))
+    )
+    message_limit = max(1, _int_value(getattr(args, "message_limit", 100), 100))
+    max_message_rows = _nonnegative_int(getattr(args, "max_message_rows_per_run", 0), 0)
+    if max_message_rows <= 0:
+        return configured_take
+    budgeted_take = max(1, max_message_rows // message_limit)
+    return max(1, min(configured_take, budgeted_take))
 
 
 def _update_conversation_page_state(
@@ -679,12 +752,24 @@ def _request_json(
 
 
 def _teable_request(*, method: str, base_url: str, api_key: str, path: str, body: dict[str, object] | None = None) -> Any:
+    origin = "https://app.teable.ai"
     return _request_json(
         method=method,
         url=f"{base_url.rstrip('/')}{path}",
-        headers={"Authorization": f"Bearer {api_key}"},
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Origin": origin,
+            "Referer": f"{origin}/",
+            "User-Agent": (
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+            ),
+        },
         body=body,
-        timeout=45,
+        timeout=_teable_request_timeout_seconds(),
+        attempts=_teable_request_attempts(),
     )
 
 
@@ -701,12 +786,41 @@ def _session_api_unavailable_from_exit(exc: BaseException) -> SessionApiUnavaila
     lowered = detail.lower()
     if detail.startswith("http_error:409:"):
         return SessionApiUnavailable(operation="session_api_request", detail=detail)
+    if detail.startswith("http_error:502:") and "conversations_failed" in lowered:
+        return SessionApiUnavailable(operation="session_api_request", detail=detail)
+    if detail.startswith("http_error:503:") or detail.startswith("http_error:504:"):
+        return SessionApiUnavailable(operation="session_api_request", detail=detail)
     if not detail.startswith("http_request_failed:"):
         return None
     if "connection refused" in lowered or "[errno 111]" in lowered:
         return SessionApiUnavailable(operation="session_api_request", detail=detail)
     if "timeout" in lowered or "timed out" in lowered:
         return SessionApiUnavailable(operation="session_api_request", detail=detail)
+    return None
+
+
+def _teable_api_unavailable_from_exit(exc: BaseException) -> SessionApiUnavailable | None:
+    if not isinstance(exc, SystemExit):
+        return None
+    detail = str(exc)
+    lowered = detail.lower()
+    if detail.startswith("http_error:"):
+        code_part = detail.split(":", 2)[1]
+        if code_part.isdigit():
+            code = int(code_part)
+            if code in TRANSIENT_HTTP_STATUS_CODES:
+                return SessionApiUnavailable(operation="teable_api_request", detail=detail)
+        return None
+    if not detail.startswith("http_request_failed:"):
+        return None
+    if "connection refused" in lowered or "[errno 111]" in lowered:
+        return SessionApiUnavailable(operation="teable_api_request", detail=detail)
+    if "name or service not known" in lowered or "[errno -2]" in lowered or "temporary failure in name resolution" in lowered:
+        return SessionApiUnavailable(operation="teable_api_request", detail=detail)
+    if "timed out" in lowered or "timeout" in lowered:
+        return SessionApiUnavailable(operation="teable_api_request", detail=detail)
+    if "network is unreachable" in lowered or "host is unreachable" in lowered or "failed to resolve" in lowered:
+        return SessionApiUnavailable(operation="teable_api_request", detail=detail)
     return None
 
 
@@ -1074,6 +1188,174 @@ def _upsert_rows(
         )
         created += len(result.get("records") or chunk)
     return {"created": created, "updated": updated, "total": len(rows)}
+
+
+def _delete_record(*, base_url: str, api_key: str, table_id: str, record_id: str) -> bool:
+    try:
+        _teable_request(
+            method="DELETE",
+            base_url=base_url,
+            api_key=api_key,
+            path=f"/api/table/{urllib.parse.quote(table_id)}/record/{urllib.parse.quote(record_id)}",
+        )
+        return True
+    except SystemExit as exc:
+        detail = str(exc)
+        if detail.startswith("http_error:501:") or "Unsupported method ('DELETE')" in detail:
+            return False
+        raise
+
+
+def _cleanup_rows_missing_key(
+    *,
+    base_url: str,
+    api_key: str,
+    table_id: str,
+    key_field: str,
+    projection: list[str] | None = None,
+) -> dict[str, int]:
+    records = _list_records(
+        base_url=base_url,
+        api_key=api_key,
+        table_id=table_id,
+        projection=projection or [key_field],
+    )
+    deleted = 0
+    failed = 0
+    for record in records:
+        fields = dict(record.get("fields") or {})
+        key_value = str(fields.get(key_field) or "").strip()
+        if key_value:
+            continue
+        if any(str(value or "").strip() for value in fields.values()):
+            continue
+        record_id = str(record.get("id") or "").strip()
+        if not record_id:
+            failed += 1
+            continue
+        try:
+            if _delete_record(base_url=base_url, api_key=api_key, table_id=table_id, record_id=record_id):
+                deleted += 1
+            else:
+                failed += 1
+        except Exception:
+            failed += 1
+    return {"deleted": deleted, "failed": failed, "total": deleted + failed}
+
+
+def _cleanup_projectionless_rows(*, base_url: str, api_key: str, table_id: str) -> dict[str, int]:
+    return _cleanup_rows_missing_key(
+        base_url=base_url,
+        api_key=api_key,
+        table_id=table_id,
+        key_field="projection_id",
+        projection=["projection_id"],
+    )
+
+
+def _cleanup_persona_rows(*, base_url: str, api_key: str, persona_table_id: str) -> dict[str, int]:
+    return _cleanup_rows_missing_key(
+        base_url=base_url,
+        api_key=api_key,
+        table_id=persona_table_id,
+        key_field="persona_key",
+        projection=["persona_key"],
+    )
+
+
+def _cleanup_route_rows(*, base_url: str, api_key: str, route_table_id: str) -> dict[str, int]:
+    return _cleanup_rows_missing_key(
+        base_url=base_url,
+        api_key=api_key,
+        table_id=route_table_id,
+        key_field="route_key",
+        projection=["route_key"],
+    )
+
+
+def _cleanup_stale_route_rows(
+    *,
+    base_url: str,
+    api_key: str,
+    route_table_id: str,
+    session_ref: str,
+) -> dict[str, int]:
+    records = _list_records(
+        base_url=base_url,
+        api_key=api_key,
+        table_id=route_table_id,
+        projection=["route_key", "session_ref"],
+    )
+    deleted = 0
+    failed = 0
+    normalized_session_ref = str(session_ref or "").strip()
+    for record in records:
+        fields = dict(record.get("fields") or {})
+        route_key = str(fields.get("route_key") or "").strip()
+        row_session_ref = str(fields.get("session_ref") or "").strip()
+        should_delete = False
+        if route_key.startswith("disabled_reachability_"):
+            should_delete = True
+        elif row_session_ref and normalized_session_ref and row_session_ref != normalized_session_ref:
+            should_delete = True
+        if not should_delete:
+            continue
+        record_id = str(record.get("id") or "").strip()
+        if not record_id:
+            failed += 1
+            continue
+        try:
+            if _delete_record(base_url=base_url, api_key=api_key, table_id=route_table_id, record_id=record_id):
+                deleted += 1
+            else:
+                failed += 1
+        except Exception:
+            failed += 1
+    return {"deleted": deleted, "failed": failed, "total": deleted + failed}
+
+
+def _cleanup_projectionless_audiobook_rows(*, base_url: str, api_key: str, audiobook_table_id: str) -> dict[str, int]:
+    return _cleanup_rows_missing_key(
+        base_url=base_url,
+        api_key=api_key,
+        table_id=audiobook_table_id,
+        key_field="projection_id",
+        projection=["projection_id", "job_id"],
+    )
+
+
+def _cleanup_stale_audiobook_rows(
+    *,
+    base_url: str,
+    api_key: str,
+    audiobook_table_id: str,
+    current_projection_ids: set[str],
+) -> dict[str, int]:
+    records = _list_records(
+        base_url=base_url,
+        api_key=api_key,
+        table_id=audiobook_table_id,
+        projection=["projection_id", "job_id"],
+    )
+    deleted = 0
+    failed = 0
+    for record in records:
+        fields = dict(record.get("fields") or {})
+        projection_id = str(fields.get("projection_id") or fields.get("job_id") or "").strip()
+        if not projection_id or projection_id in current_projection_ids:
+            continue
+        record_id = str(record.get("id") or "").strip()
+        if not record_id:
+            failed += 1
+            continue
+        try:
+            if _delete_record(base_url=base_url, api_key=api_key, table_id=audiobook_table_id, record_id=record_id):
+                deleted += 1
+            else:
+                failed += 1
+        except Exception:
+            failed += 1
+    return {"deleted": deleted, "failed": failed, "total": deleted + failed}
 
 
 def _disable_route_record(*, base_url: str, api_key: str, table_id: str, record_id: str) -> None:
@@ -1739,6 +2021,115 @@ def _persona_rows(session_ref: str) -> list[dict[str, object]]:
     return rows
 
 
+def _audiobook_job_dirs(root: str) -> list[Path]:
+    base = Path(str(root or "").strip())
+    if not str(base):
+        return []
+    try:
+        return sorted([path for path in base.iterdir() if path.is_dir()])
+    except OSError:
+        return []
+
+
+def _load_json_file(path: Path) -> dict[str, object]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _receipt_is_whatsapp_audiobook(receipt: dict[str, object]) -> bool:
+    whatsapp = dict(receipt.get("whatsapp") or {})
+    if whatsapp:
+        if _bool_value(whatsapp.get("sender_bound"), False) or _bool_value(whatsapp.get("session_bound"), False):
+            return True
+        if str(whatsapp.get("source") or "").strip() == "whatsapp_web_session":
+            return True
+    if str(receipt.get("public_share_whatsapp_delivery_status") or "").strip():
+        return True
+    if str(dict(receipt.get("playback_acceptance") or {}).get("source") or "").strip().startswith("whatsapp"):
+        return True
+    return False
+
+
+def _audiobook_job_row_from_receipt(receipt: dict[str, object]) -> dict[str, object]:
+    if not _receipt_is_whatsapp_audiobook(receipt):
+        return {}
+    metadata = dict(receipt.get("metadata") or {})
+    source = dict(receipt.get("source") or {})
+    playback = dict(receipt.get("playback_acceptance") or {})
+    import_root = dict(receipt.get("audiobookshelf_import") or {})
+    selection_root = dict(dict(receipt.get("render") or {}).get("voice_selection") or {})
+    selected_voice = dict(selection_root.get("selected") or {})
+    whatsapp = dict(receipt.get("whatsapp") or {})
+    scheduler = dict(receipt.get("scheduler_resume") or {})
+    job_id = str(receipt.get("job_id") or "").strip()
+    if not job_id:
+        return {}
+    next_action = str(receipt.get("next_action") or "").strip()
+    return {
+        "projection_id": job_id,
+        "job_id": job_id,
+        "job_dir_name": str(receipt.get("job_dir_name") or "").strip(),
+        "job_status": str(receipt.get("status") or "").strip(),
+        "next_action": next_action,
+        "updated_at": str(receipt.get("updated_at") or "").strip(),
+        "observed_at": str(receipt.get("observed_at") or "").strip(),
+        "title": str(metadata.get("title") or "").strip(),
+        "author": str(metadata.get("author") or "").strip(),
+        "source_kind": str(source.get("kind") or "").strip(),
+        "source_filename": str(source.get("source_filename") or "").strip(),
+        "public_share_status": str(receipt.get("public_share_status") or import_root.get("public_share_status") or "").strip(),
+        "public_share_whatsapp_delivery_status": str(
+            receipt.get("public_share_whatsapp_delivery_status")
+            or import_root.get("public_share_whatsapp_delivery_status")
+            or ""
+        ).strip(),
+        "public_share_whatsapp_followup_pending": _bool_value(
+            receipt.get("public_share_whatsapp_followup_pending"),
+            _bool_value(import_root.get("public_share_whatsapp_followup_pending"), False),
+        ),
+        "playback_status": str(playback.get("status") or "").strip(),
+        "playback_source": str(playback.get("source") or "").strip(),
+        "selected_voice_label": str(selected_voice.get("label") or "").strip(),
+        "selected_voice_language": str(selected_voice.get("language") or "").strip(),
+        "voice_selection_status": str(selection_root.get("status") or "").strip(),
+        "voice_selected_at": str(selection_root.get("selected_at") or "").strip(),
+        "sender_bound": _bool_value(whatsapp.get("sender_bound"), False),
+        "session_bound": _bool_value(whatsapp.get("session_bound"), False),
+        "operator_review_pending": next_action == "review_audiobook_playback_problem",
+        "scheduler_next_action": str(scheduler.get("next_action") or "").strip(),
+        "whatsapp_source": str(whatsapp.get("source") or "").strip(),
+        "synced_at": _now_iso(),
+    }
+
+
+def _audiobook_job_rows_from_receipts(audiobook_jobs_root: str) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    seen_projection_ids: set[str] = set()
+    for job_dir in _audiobook_job_dirs(audiobook_jobs_root):
+        receipt = _load_json_file(job_dir / "job_receipt.json")
+        row = _audiobook_job_row_from_receipt(receipt)
+        projection_id = str(row.get("projection_id") or "").strip()
+        if not projection_id or projection_id in seen_projection_ids:
+            continue
+        rows.append(row)
+        seen_projection_ids.add(projection_id)
+    return rows
+
+
+def _audiobook_jobs_root_accessible(audiobook_jobs_root: str) -> bool:
+    raw_root = str(audiobook_jobs_root or "").strip()
+    if not raw_root:
+        return False
+    base = Path(raw_root)
+    try:
+        return base.is_dir()
+    except OSError:
+        return False
+
+
 def _route_rows_from_teable(*, base_url: str, api_key: str, route_table_id: str, session_ref: str) -> list[dict[str, object]]:
     records = _list_records(base_url=base_url, api_key=api_key, table_id=route_table_id)
     rows: list[dict[str, object]] = []
@@ -1911,6 +2302,43 @@ def _message_selected_button_hash(message: dict[str, Any]) -> str:
     return hashlib.sha256(selected_button_id.encode("utf-8")).hexdigest()[:24]
 
 
+def _message_heyy_ai_projection(message: dict[str, Any]) -> tuple[str, str, bool]:
+    matched = _bool_value(message.get("heyy_ai_route_matched"), False)
+    if not matched:
+        return "", "", False
+    return (
+        str(message.get("heyy_ai_key") or "").strip(),
+        str(message.get("heyy_ai_name") or "").strip(),
+        True,
+    )
+
+
+def _message_has_persistable_content(message: dict[str, Any]) -> bool:
+    body_text = str(message.get("body_text") or "").strip()
+    if body_text:
+        if SYNTHETIC_NOTIFICATION_BODY_RE.fullmatch(body_text):
+            return False
+        return True
+    if bool(message.get("body_present")):
+        return True
+    if bool(message.get("media_present")):
+        return True
+    if str(message.get("media_filename") or "").strip():
+        return True
+    if bool(message.get("selected_button_id_present")):
+        return True
+    if str(message.get("selected_button_id") or "").strip():
+        return True
+    return False
+
+
+def _message_is_synthetic_notification(message: dict[str, Any]) -> bool:
+    message_type = str(message.get("type") or "").strip()
+    if message_type not in NON_CONVERSATION_MESSAGE_TYPES:
+        return False
+    return not _message_has_persistable_content(message)
+
+
 def _conversation_query_suffix(
     args: argparse.Namespace,
     *,
@@ -1948,10 +2376,11 @@ def _message_rows_from_conversation_payload(
                 continue
             scanned_message_count += 1
             message_type = str(message.get("type") or "").strip()
-            if message_type in NON_CONVERSATION_MESSAGE_TYPES:
+            if _message_is_synthetic_notification(message):
                 skipped_synthetic_notification_count += 1
                 continue
             body_text = str(message.get("body_text") or "").strip()
+            heyy_ai_key, heyy_ai_name, heyy_ai_route_matched = _message_heyy_ai_projection(message)
             row = {
                 "projection_id": _message_projection_id(session_ref=str(args.session_ref), message=message),
                 "session_ref": str(args.session_ref),
@@ -1959,8 +2388,9 @@ def _message_rows_from_conversation_payload(
                 "message_id": str(message.get("id") or "").strip(),
                 "direction": str(message.get("direction") or "").strip(),
                 "sender_digits": str(message.get("sender_digits") or "").strip(),
-                "heyy_ai_key": str(message.get("heyy_ai_key") or "").strip(),
-                "heyy_ai_name": str(message.get("heyy_ai_name") or "").strip(),
+                "heyy_ai_key": heyy_ai_key,
+                "heyy_ai_name": heyy_ai_name,
+                "heyy_ai_route_matched": heyy_ai_route_matched,
                 "body_text": body_text,
                 "body_present": bool(message.get("body_present") or body_text),
                 "message_type": message_type,
@@ -2013,8 +2443,10 @@ def _aggregate_conversation_payloads(payloads: list[dict[str, Any]], *, start_sk
         "conversation_pages": len(payloads),
         "conversation_skip": start_skip,
         "conversation_total": max(_nonnegative_int(payload.get("conversation_total"), 0) for payload in payloads),
+        "effective_conversation_take": _nonnegative_int(final_payload.get("effective_conversation_take"), 0),
         "fetch_concurrency": final_payload.get("fetch_concurrency"),
         "fetch_timeout_ms": final_payload.get("fetch_timeout_ms"),
+        "max_message_rows_per_run": _nonnegative_int(final_payload.get("max_message_rows_per_run"), 0),
         "message_limit": final_payload.get("message_limit"),
         "message_filter_summary": {
             "scanned_message_count": sum(
@@ -2053,7 +2485,7 @@ def _message_batches_from_sidecar(args: argparse.Namespace) -> tuple[list[dict[s
         and start_skip == 0
         and _conversation_state_completed(args)
     )
-    conversation_take = _completed_refresh_conversation_take(args) if completed_refresh else int(args.conversation_take)
+    conversation_take = _effective_conversation_take(args, completed_refresh=completed_refresh)
     max_pages = max(1, min(_int_value(getattr(args, "conversation_max_pages", 50), 50), 1000))
     if completed_refresh:
         max_pages = 1
@@ -2072,8 +2504,10 @@ def _message_batches_from_sidecar(args: argparse.Namespace) -> tuple[list[dict[s
                 conversation_take=conversation_take,
             ),
         )
+        payload = dict(payload)
+        payload["effective_conversation_take"] = conversation_take
+        payload["max_message_rows_per_run"] = _nonnegative_int(getattr(args, "max_message_rows_per_run", 0), 0)
         if completed_refresh:
-            payload = dict(payload)
             payload["completed_refresh"] = True
         payloads.append(payload)
         for row in _message_rows_from_conversation_payload(args=args, payload=payload, synced_at=synced_at):
@@ -2108,9 +2542,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--message-table-id", default=_env("EA_WHATSAPP_WEB_MESSAGES_TEABLE_TABLE_ID"))
     parser.add_argument("--persona-table-id", default=_env("EA_HEYY_AI_PERSONAS_TEABLE_TABLE_ID"))
     parser.add_argument("--route-table-id", default=_env("EA_WHATSAPP_WEB_ROUTES_TEABLE_TABLE_ID"))
+    parser.add_argument("--audiobook-table-id", default=_env("EA_WHATSAPP_WEB_AUDIOBOOK_JOBS_TEABLE_TABLE_ID"))
     parser.add_argument("--message-table-name", default=_env("EA_WHATSAPP_WEB_MESSAGES_TEABLE_TABLE_NAME", DEFAULT_MESSAGE_TABLE_NAME))
     parser.add_argument("--persona-table-name", default=_env("EA_HEYY_AI_PERSONAS_TEABLE_TABLE_NAME", DEFAULT_PERSONA_TABLE_NAME))
     parser.add_argument("--route-table-name", default=_env("EA_WHATSAPP_WEB_ROUTES_TEABLE_TABLE_NAME", DEFAULT_ROUTE_TABLE_NAME))
+    parser.add_argument("--audiobook-table-name", default=_env("EA_WHATSAPP_WEB_AUDIOBOOK_JOBS_TEABLE_TABLE_NAME", DEFAULT_AUDIOBOOK_TABLE_NAME))
+    parser.add_argument("--audiobook-jobs-root", default=_env("EA_AUDIOBOOK_JOBS_ROOT", DEFAULT_AUDIOBOOK_JOBS_ROOT))
     parser.add_argument("--create-missing-tables", action="store_true", default=True)
     parser.add_argument("--no-create-missing-tables", action="store_false", dest="create_missing_tables")
     parser.add_argument("--session-api-base-url", default=_env("EA_WHATSAPP_WEB_SESSION_API_BASE_URL", DEFAULT_SESSION_API_BASE_URL))
@@ -2121,6 +2558,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--conversation-take", type=int, default=int(_env("EA_WHATSAPP_WEB_TEABLE_CONVERSATION_TAKE", "100") or "100"))
     parser.add_argument("--conversation-skip", type=int, default=_optional_int_env("EA_WHATSAPP_WEB_TEABLE_CONVERSATION_SKIP"))
     parser.add_argument("--message-limit", type=int, default=int(_env("EA_WHATSAPP_WEB_TEABLE_MESSAGE_LIMIT", "100") or "100"))
+    parser.add_argument(
+        "--max-message-rows-per-run",
+        type=int,
+        default=int(_env("EA_WHATSAPP_WEB_TEABLE_MAX_MESSAGE_ROWS_PER_RUN", "0") or "0"),
+    )
     parser.add_argument(
         "--sync-all-conversations",
         action=argparse.BooleanOptionalAction,
@@ -2161,6 +2603,11 @@ def parse_args() -> argparse.Namespace:
         "--skip-routes",
         action="store_true",
         default=_bool_value(_env("EA_WHATSAPP_WEB_TEABLE_SKIP_ROUTES", "0"), False),
+    )
+    parser.add_argument(
+        "--skip-audiobook-jobs",
+        action="store_true",
+        default=_bool_value(_env("EA_WHATSAPP_WEB_TEABLE_SKIP_AUDIOBOOK_JOBS", "0"), False),
     )
     parser.add_argument("--refresh-default-route", action="store_true", default=True)
     parser.add_argument("--no-refresh-default-route", action="store_false", dest="refresh_default_route")
@@ -2214,20 +2661,40 @@ def _session_api_waiting_receipt(
     route_table_id: str = "",
     persona_table_id: str = "",
     message_table_id: str = "",
+    audiobook_table_id: str = "",
 ) -> dict[str, object]:
+    reason = f"{exc.operation.replace('_request', '')}_unavailable"
+    waiting_at = _now_iso()
     return {
         "status": "waiting",
         "ok": True,
         "ready": False,
-        "reason": "session_api_unavailable",
+        "reason": reason,
         "session_api_operation": exc.operation,
         "detail": exc.detail,
         "session_ref": str(args.session_ref),
         "route_table_id": route_table_id,
         "persona_table_id": persona_table_id,
         "message_table_id": message_table_id,
-        "waiting_at": _now_iso(),
+        "audiobook_table_id": audiobook_table_id,
+        "waiting_at": waiting_at,
+        "updated_at": waiting_at,
     }
+
+
+def _record_waiting_sync_state(args: argparse.Namespace, receipt: dict[str, object]) -> None:
+    if bool(getattr(args, "disable_conversation_page_state", False)):
+        return
+    state_file = str(getattr(args, "conversation_page_state_file", "") or "").strip()
+    if not state_file:
+        return
+    state = _load_sync_state(state_file)
+    state.update(receipt)
+    state["session_ref"] = str(getattr(args, "session_ref", "") or receipt.get("session_ref") or "").strip()
+    state.setdefault("conversation_count", _nonnegative_int(state.get("conversation_count"), 0))
+    state.setdefault("conversation_total", _nonnegative_int(state.get("conversation_total"), 0))
+    state.setdefault("next_conversation_skip", _nonnegative_int(state.get("next_conversation_skip"), 0))
+    _save_sync_state(state_file, state)
 
 
 def main() -> int:
@@ -2241,23 +2708,34 @@ def main() -> int:
     route_table_id = ""
     persona_table_id = ""
     message_table_id = ""
+    audiobook_table_id = ""
     created_route_table = False
     created_persona_table = False
     created_message_table = False
+    created_audiobook_table = False
     route_fields_created = 0
     persona_fields_created = 0
     message_fields_created = 0
+    audiobook_fields_created = 0
     message_page_state: dict[str, object] = {}
     message_payload: dict[str, object] = {}
     persona_count = 0
     persona_upsert = {"created": 0, "updated": 0, "total": 0}
+    persona_cleanup = {"deleted": 0, "failed": 0, "total": 0}
     route_count = 0
     route_cleanup = {"disabled": 0, "failed": 0, "total": 0}
+    route_projection_cleanup = {"deleted": 0, "failed": 0, "total": 0}
+    route_stale_cleanup = {"deleted": 0, "failed": 0, "total": 0}
     route_import_count = 0
     route_upsert = {"created": 0, "updated": 0, "total": 0}
     route_reachability_upsert = {"created": 0, "updated": 0, "total": 0}
     route_apply = {"ok": False, "route_count": 0}
     message_upsert = {"created": 0, "updated": 0, "total": 0}
+    message_cleanup = {"deleted": 0, "failed": 0, "total": 0}
+    audiobook_upsert = {"created": 0, "updated": 0, "total": 0}
+    audiobook_job_count = 0
+    audiobook_cleanup = {"deleted": 0, "failed": 0, "total": 0}
+    current_sidecar_route_count = 0
     sidecar_live_route_count = 0
     route_rows_to_upsert_count = 0
     preserved_live_route_count = 0
@@ -2273,6 +2751,7 @@ def main() -> int:
             create_missing=bool(args.create_missing_tables),
         )
         persona_fields_created = _ensure_fields(base_url=base_url, api_key=api_key, table_id=persona_table_id, fields=PERSONA_FIELDS)
+        persona_cleanup = _cleanup_persona_rows(base_url=base_url, api_key=api_key, persona_table_id=persona_table_id)
         persona_rows = _persona_rows(str(args.session_ref))
         persona_count = len(persona_rows)
         persona_upsert = _upsert_rows(
@@ -2295,6 +2774,13 @@ def main() -> int:
                 create_missing=bool(args.create_missing_tables),
             )
             route_fields_created = _ensure_fields(base_url=base_url, api_key=api_key, table_id=route_table_id, fields=ROUTE_FIELDS)
+            route_projection_cleanup = _cleanup_route_rows(base_url=base_url, api_key=api_key, route_table_id=route_table_id)
+            route_stale_cleanup = _cleanup_stale_route_rows(
+                base_url=base_url,
+                api_key=api_key,
+                route_table_id=route_table_id,
+                session_ref=str(args.session_ref),
+            )
             route_cleanup = _cleanup_reachability_only_route_rows(
                 base_url=base_url,
                 api_key=api_key,
@@ -2303,6 +2789,7 @@ def main() -> int:
             )
             current_sidecar_payload = _session_get(args, "heyy-ai-routes")
             current_session_routes = list(current_sidecar_payload.get("routes") or []) if isinstance(current_sidecar_payload, dict) else []
+            current_sidecar_route_count = len(current_session_routes)
             sidecar_live_rows = (
                 _sidecar_live_route_rows_from_payload(args, current_sidecar_payload)
                 if _preserve_sidecar_live_routes_enabled(args) and isinstance(current_sidecar_payload, dict)
@@ -2391,6 +2878,7 @@ def main() -> int:
                 create_missing=bool(args.create_missing_tables),
             )
             message_fields_created = _ensure_fields(base_url=base_url, api_key=api_key, table_id=message_table_id, fields=MESSAGE_FIELDS)
+            message_cleanup = _cleanup_projectionless_rows(base_url=base_url, api_key=api_key, table_id=message_table_id)
             rows, message_payload = _message_batches_from_sidecar(args)
             message_upsert = _upsert_rows(
                 base_url=base_url,
@@ -2401,18 +2889,91 @@ def main() -> int:
                 lookup_existing_by_keys=True,
             )
             message_page_state = _update_conversation_page_state(args=args, payload=message_payload, message_upsert=message_upsert)
+
+        if not bool(getattr(args, "skip_audiobook_jobs", False)):
+            audiobook_jobs_root = str(getattr(args, "audiobook_jobs_root", DEFAULT_AUDIOBOOK_JOBS_ROOT) or "")
+            audiobook_table_id, created_audiobook_table = _ensure_table(
+                base_url=base_url,
+                api_key=api_key,
+                base_id=base_id,
+                table_id=str(getattr(args, "audiobook_table_id", "") or "").strip(),
+                table_name=str(getattr(args, "audiobook_table_name", DEFAULT_AUDIOBOOK_TABLE_NAME)),
+                fields=AUDIOBOOK_FIELDS,
+                create_missing=bool(args.create_missing_tables),
+            )
+            audiobook_fields_created = _ensure_fields(
+                base_url=base_url,
+                api_key=api_key,
+                table_id=audiobook_table_id,
+                fields=AUDIOBOOK_FIELDS,
+            )
+            audiobook_cleanup = _cleanup_projectionless_audiobook_rows(
+                base_url=base_url,
+                api_key=api_key,
+                audiobook_table_id=audiobook_table_id,
+            )
+            audiobook_rows = _audiobook_job_rows_from_receipts(audiobook_jobs_root)
+            if _audiobook_jobs_root_accessible(audiobook_jobs_root):
+                stale_audiobook_cleanup = _cleanup_stale_audiobook_rows(
+                    base_url=base_url,
+                    api_key=api_key,
+                    audiobook_table_id=audiobook_table_id,
+                    current_projection_ids={
+                        str(row.get("projection_id") or "").strip()
+                        for row in audiobook_rows
+                        if str(row.get("projection_id") or "").strip()
+                    },
+                )
+                audiobook_cleanup = {
+                    "deleted": int(audiobook_cleanup.get("deleted") or 0) + int(stale_audiobook_cleanup.get("deleted") or 0),
+                    "failed": int(audiobook_cleanup.get("failed") or 0) + int(stale_audiobook_cleanup.get("failed") or 0),
+                    "total": int(audiobook_cleanup.get("total") or 0) + int(stale_audiobook_cleanup.get("total") or 0),
+                }
+            audiobook_job_count = len(audiobook_rows)
+            audiobook_upsert = _upsert_rows(
+                base_url=base_url,
+                api_key=api_key,
+                table_id=audiobook_table_id,
+                key_field="projection_id",
+                rows=audiobook_rows,
+                lookup_existing_by_keys=True,
+            )
     except SessionApiUnavailable as exc:
         if not bool(getattr(args, "tolerate_session_api_unavailable", True)):
             raise
+        receipt = _session_api_waiting_receipt(
+            args=args,
+            exc=exc,
+            route_table_id=route_table_id,
+            persona_table_id=persona_table_id,
+            message_table_id=message_table_id,
+            audiobook_table_id=audiobook_table_id,
+        )
+        _record_waiting_sync_state(args, receipt)
         print(
             json.dumps(
-                _session_api_waiting_receipt(
-                    args=args,
-                    exc=exc,
-                    route_table_id=route_table_id,
-                    persona_table_id=persona_table_id,
-                    message_table_id=message_table_id,
-                )
+                receipt
+            )
+        )
+        return 0
+    except SystemExit as exc:
+        unavailable = _session_api_unavailable_from_exit(exc)
+        if unavailable is None:
+            unavailable = _teable_api_unavailable_from_exit(exc)
+        if unavailable is None or not bool(getattr(args, "tolerate_session_api_unavailable", True)):
+            raise
+        receipt = _session_api_waiting_receipt(
+            args=args,
+            exc=unavailable,
+            route_table_id=route_table_id,
+            persona_table_id=persona_table_id,
+            message_table_id=message_table_id,
+            audiobook_table_id=audiobook_table_id,
+        )
+        _record_waiting_sync_state(args, receipt)
+        print(
+            json.dumps(
+                receipt
             )
         )
         return 0
@@ -2425,25 +2986,36 @@ def main() -> int:
                 "route_table_id": route_table_id,
                 "persona_table_id": persona_table_id,
                 "message_table_id": message_table_id,
+                "audiobook_table_id": audiobook_table_id,
                 "created_route_table": created_route_table,
                 "created_persona_table": created_persona_table,
                 "created_message_table": created_message_table,
+                "created_audiobook_table": created_audiobook_table,
                 "route_fields_created": route_fields_created,
                 "persona_fields_created": persona_fields_created,
                 "message_fields_created": message_fields_created,
+                "audiobook_fields_created": audiobook_fields_created,
                 "persona_count": persona_count,
+                "persona_cleanup": persona_cleanup,
                 "route_count": route_count,
+                "audiobook_job_count": audiobook_job_count,
+                "message_cleanup": message_cleanup,
+                "route_projection_cleanup": route_projection_cleanup,
+                "audiobook_cleanup": audiobook_cleanup,
                 "route_cleanup": route_cleanup,
                 "route_import_count": route_import_count,
+                "current_sidecar_route_count": current_sidecar_route_count,
                 "sidecar_live_route_count": sidecar_live_route_count,
                 "route_rows_to_upsert_count": route_rows_to_upsert_count,
                 "preserved_live_route_count": preserved_live_route_count,
+                "route_stale_cleanup": route_stale_cleanup,
                 "route_apply_ok": bool(route_apply.get("ok")),
                 "route_apply_count": _int_value(route_apply.get("route_count"), route_count),
                 "persona_upsert": persona_upsert,
                 "route_upsert": route_upsert,
                 "route_reachability_upsert": route_reachability_upsert,
                 "message_upsert": message_upsert,
+                "audiobook_upsert": audiobook_upsert,
                 "message_filter_summary": dict(message_payload.get("message_filter_summary") or {}),
                 "message_page_state": message_page_state,
             },

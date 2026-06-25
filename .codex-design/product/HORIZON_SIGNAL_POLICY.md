@@ -30,6 +30,7 @@ Sponsoring temporary premium work does not create canonical product truth by its
 
 * `MetaSurvey` is the primary broad structured collection lane.
 * `ProductLift` is the primary public idea, vote, and roadmap-projection lane.
+* `/participate` should visually follow a ProductLift-style public board model while rendering ProductLift-backed signal data through first-party Chummer routes and chrome.
 * `Icanpreneur` is the primary adaptive interview lane for governed discovery.
 * `FacePop`, `Deftform`, and `Lunacal` may recruit, pre-screen, and schedule, but they may not become horizon truth or backlog ownership.
 * `ApproveThis` is the editorial approval bridge for curated intake decisions.

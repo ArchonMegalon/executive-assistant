@@ -204,6 +204,10 @@ Required posture:
 * The package name, desktop file, MIME registration, and update behavior match the Linux desktop lane.
 * The AUR package is listed on `/downloads` only after install and update smoke proof exists on an Arch-based environment.
 
+The Linux source-build lane is separate from the public binary lane. It stays documented through `Chummer6/SOURCE_BUILD_LINUX.md` and governed by `maintenance/LINUX_SOURCE_BUILD_PATH.md`; it must not become a second public binary authority.
+
+Before a publishable Windows/Linux release is accepted, the Linux source-build lane must also clear the fresh-container gate in `Chummer6/scripts/verify_linux_source_build_docker_gate.sh`. The checked-in release wrapper at `Chummer6/scripts/release/verify_guide_convergence.sh` must call that gate before it runs the public-guide convergence verifier. That gate must start from a new slim Debian container, install only the host prerequisites needed inside that container, run the checked-in audit wrapper, then run the checked-in full source-build script to completion, and emit `Chummer6/.guide-internal/receipts/LINUX_SOURCE_BUILD_DOCKER_GATE.generated.json` as durable release evidence. After the guide convergence step succeeds, the same wrapper must materialize `Chummer6/.guide-internal/receipts/INSTALLER_UPDATE_TRUTH.generated.json` so installer-first policy, update-mode truth, and the source-build `notify` default stay machine-checkable. The wrapper must then materialize `Chummer6/.guide-internal/receipts/RELEASE_VERIFICATION_CONVERGENCE.generated.json` so the release lane has one combined record tying the Linux gate, installer/update truth, and generated release packet together. A publish lane that skips these records is incomplete.
+
 ## Canonical release-manifest rule
 
 Every promoted desktop release head must have one canonical release manifest.

@@ -8,24 +8,40 @@ import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 EA_DIR = ROOT / "ea"
 EA_SCRIPTS = EA_DIR / "scripts"
+ROOT_SCRIPTS = ROOT / "scripts"
 DEFAULT_OUTPUT = ROOT / ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json"
 
-if str(EA_SCRIPTS) not in sys.path:
-    sys.path.insert(0, str(EA_SCRIPTS))
-if str(EA_DIR) not in sys.path:
-    sys.path.insert(0, str(EA_DIR))
+for import_root in (EA_SCRIPTS, EA_DIR, ROOT_SCRIPTS, ROOT):
+    import_root_text = str(import_root)
+    if import_root_text in sys.path:
+        sys.path.remove(import_root_text)
+for import_root in (EA_SCRIPTS, EA_DIR, ROOT_SCRIPTS, ROOT):
+    sys.path.insert(0, str(import_root))
 
 try:
     from scripts.source_state_head import resolve_source_state_head
 except ModuleNotFoundError:  # pragma: no cover - script execution path
     from source_state_head import resolve_source_state_head
 
-import validate_memorial_voice_loop as voice_loop  # noqa: E402
+try:
+    import scripts.validate_memorial_voice_loop as voice_loop  # noqa: E402
+except ModuleNotFoundError:  # pragma: no cover - script execution path
+    try:
+        import validate_memorial_voice_loop as voice_loop  # type: ignore[no-redef]  # noqa: E402
+    except ModuleNotFoundError:  # pragma: no cover - missing optional validator module
+        def _missing_validate_memorial_voice_loop(**_kwargs: Any) -> Any:
+            raise ModuleNotFoundError(
+                "validate_memorial_voice_loop module is not present; provide scripts.validate_memorial_voice_loop "
+                "or monkeypatch voice_loop.validate_memorial_voice_loop in tests."
+            )
+
+        voice_loop = SimpleNamespace(validate_memorial_voice_loop=_missing_validate_memorial_voice_loop)
 
 
 def _utc_now() -> str:

@@ -375,8 +375,92 @@ def _route_source_sort_key(row: dict[str, object]) -> tuple[int, int, str]:
     if account_name.startswith(prefix):
         suffix = account_name[len(prefix):]
         if suffix.isdigit():
-            return (1, -int(suffix), account_name)
+            return (1, int(suffix), account_name)
     return (2, 0, account_name)
+
+
+def _fallback_number_from_slot(raw: object) -> int | None:
+    normalized = str(raw or "").strip()
+    env_prefix = "ONEMIN_AI_API_KEY_FALLBACK_"
+    if normalized.startswith(env_prefix):
+        suffix = normalized[len(env_prefix):]
+        if suffix.isdigit() and int(suffix) >= 1:
+            return int(suffix)
+    match = re.fullmatch(r"fallback_?(\d+)", normalized.lower().replace(" ", "_").replace("-", "_"))
+    if match is None:
+        return None
+    try:
+        number = int(match.group(1))
+    except Exception:
+        return None
+    return number if number >= 1 else None
+
+
+def _normalize_manifest_account_rows(payload: object) -> list[dict[str, object]]:
+    if isinstance(payload, dict):
+        if isinstance(payload.get("slots"), list):
+            items = payload.get("slots") or []
+        elif isinstance(payload.get("keys"), list):
+            items = payload.get("keys") or []
+        elif isinstance(payload.get("accounts"), list):
+            items = payload.get("accounts") or []
+        else:
+            items = []
+    elif isinstance(payload, list):
+        items = payload
+    else:
+        items = []
+
+    rows: list[dict[str, object]] = []
+    seen_account_names: set[str] = set()
+    next_fallback = 1
+    for item in items:
+        slot = ""
+        account_name = ""
+        owner_email = ""
+        owner_name = ""
+        if isinstance(item, str):
+            # String manifests are secret-only pools. They still need stable probe labels.
+            if not str(item or "").strip():
+                continue
+        elif isinstance(item, dict):
+            slot = str(item.get("slot") or item.get("slot_name") or "").strip()
+            account_name = str(item.get("account_name") or item.get("name") or "").strip()
+            owner_email = str(item.get("owner_email") or item.get("email") or "").strip()
+            owner_name = str(item.get("owner_name") or item.get("display_name") or "").strip()
+        else:
+            continue
+
+        slot_number = _fallback_number_from_slot(slot) or _fallback_number_from_slot(account_name)
+        if not account_name:
+            if slot.lower() == "primary":
+                account_name = "ONEMIN_AI_API_KEY"
+            elif slot_number is not None:
+                account_name = f"ONEMIN_AI_API_KEY_FALLBACK_{slot_number}"
+            else:
+                while f"ONEMIN_AI_API_KEY_FALLBACK_{next_fallback}" in seen_account_names:
+                    next_fallback += 1
+                account_name = f"ONEMIN_AI_API_KEY_FALLBACK_{next_fallback}"
+                next_fallback += 1
+
+        if account_name in seen_account_names:
+            continue
+        seen_account_names.add(account_name)
+
+        normalized_slot = "primary" if account_name == "ONEMIN_AI_API_KEY" else ""
+        if not normalized_slot:
+            derived_number = _fallback_number_from_slot(slot) or _fallback_number_from_slot(account_name)
+            normalized_slot = f"fallback_{derived_number}" if derived_number is not None else account_name.lower()
+        rows.append(
+            {
+                "slot": normalized_slot,
+                "account_name": account_name,
+                "owner_email": owner_email,
+                "owner_name": owner_name,
+            }
+        )
+    rows.sort(key=_route_source_sort_key)
+    return rows
 
 
 def _load_onemin_account_rows() -> list[dict[str, object]]:
@@ -387,26 +471,8 @@ def _load_onemin_account_rows() -> list[dict[str, object]]:
             payload = json.loads(candidate.read_text(encoding="utf-8"))
         except Exception:
             continue
-        rows = payload.get("slots") if isinstance(payload, dict) else None
-        if not isinstance(rows, list):
-            continue
-        normalized: list[dict[str, object]] = []
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            account_name = str(row.get("account_name") or "").strip()
-            if not account_name:
-                continue
-            normalized.append(
-                {
-                    "slot": str(row.get("slot") or "").strip(),
-                    "account_name": account_name,
-                    "owner_email": str(row.get("owner_email") or "").strip(),
-                    "owner_name": str(row.get("owner_name") or "").strip(),
-                }
-            )
+        normalized = _normalize_manifest_account_rows(payload)
         if normalized:
-            normalized.sort(key=_route_source_sort_key)
             return normalized
     return []
 

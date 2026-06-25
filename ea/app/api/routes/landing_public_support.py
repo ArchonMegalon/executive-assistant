@@ -19,11 +19,13 @@ from app.product.commercial import workspace_plan_for_mode
 from app.services.cloudflare_access import CloudflareAccessIdentity
 from app.services.public_branding import request_brand
 from app.services.public_clickrank import clickrank_head_snippet as _clickrank_head_snippet, request_hostname as _request_hostname
+from app.services.public_request import public_base_url
+from app.services.public_rybbit import request_hostname as _rybbit_request_hostname
 from app.services.public_rybbit import rybbit_head_snippet as _rybbit_head_snippet
 
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[2] / "templates"))
 templates.env.globals["clickrank_head_snippet"] = lambda request=None: Markup(_clickrank_head_snippet(_request_hostname(request)))
-templates.env.globals["rybbit_head_snippet"] = lambda request=None: Markup(_rybbit_head_snippet(_request_hostname(request)))
+templates.env.globals["rybbit_head_snippet"] = lambda request=None: Markup(_rybbit_head_snippet(_rybbit_request_hostname(request)))
 
 
 def _principal_for_page(
@@ -67,23 +69,11 @@ def _load_status(
 
 
 def _public_app_base_url(request: Request) -> str:
-    forwarded = str(request.headers.get("x-forwarded-host") or "").strip().lower().rstrip(".")
-    request_host = str(request.url.hostname or "").strip().lower().rstrip(".")
-    forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").strip() or request.url.scheme
-    effective_host = forwarded or request_host
-    if effective_host in {"propertyquarry.com", "www.propertyquarry.com"}:
-        host = forwarded or request_host
-        return f"https://{host}"
     from os import environ
-
-    explicit = str(environ.get("EA_PUBLIC_APP_BASE_URL") or "").strip().rstrip("/")
-    if explicit:
-        return explicit
-    if forwarded:
-        forwarded_proto = _first_forwarded_https_or_first_token(forwarded_proto)
-    if forwarded:
-        return f"{forwarded_proto}://{forwarded}"
-    return str(request.base_url).rstrip("/")
+    return public_base_url(
+        request,
+        explicit_base_url=str(environ.get("EA_PUBLIC_APP_BASE_URL") or ""),
+    )
 
 
 def _first_forwarded_https_or_first_token(raw: str) -> str:
@@ -459,4 +449,3 @@ def _render_secure_link_page(
     response.status_code = status_code
     response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
     return response
-

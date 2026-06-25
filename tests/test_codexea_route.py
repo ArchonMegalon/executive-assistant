@@ -147,6 +147,103 @@ def test_load_onemin_account_rows_uses_source_root_env(monkeypatch, tmp_path: Pa
     ]
 
 
+def test_load_onemin_account_rows_sorts_generic_pool_ascending(monkeypatch, tmp_path: Path) -> None:
+    module = _load_module()
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    (config_dir / "onemin_api_keys.local.json").write_text(
+        json.dumps(
+            {
+                "slots": [
+                    {"account_name": "ONEMIN_AI_API_KEY_FALLBACK_6", "owner_email": "six@example.com"},
+                    {"account_name": "ONEMIN_AI_API_KEY_FALLBACK_2", "owner_email": "two@example.com"},
+                    {"account_name": "ONEMIN_AI_API_KEY", "owner_email": "primary@example.com"},
+                    {"account_name": "ONEMIN_AI_API_KEY_FALLBACK_1", "owner_email": "one@example.com"},
+                    {"account_name": "ONEMIN_AI_API_KEY_FALLBACK_5", "owner_email": "five@example.com"},
+                    {"account_name": "ONEMIN_AI_API_KEY_FALLBACK_4", "owner_email": "four@example.com"},
+                    {"account_name": "ONEMIN_AI_API_KEY_FALLBACK_3", "owner_email": "three@example.com"},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CODEXEA_SOURCE_ROOT", str(tmp_path))
+    monkeypatch.delenv("CODEXEA_ONEMIN_LEDGER_PATHS", raising=False)
+
+    rows = module._load_onemin_account_rows()
+
+    assert [row["account_name"] for row in rows] == [
+        "ONEMIN_AI_API_KEY",
+        "ONEMIN_AI_API_KEY_FALLBACK_1",
+        "ONEMIN_AI_API_KEY_FALLBACK_2",
+        "ONEMIN_AI_API_KEY_FALLBACK_3",
+        "ONEMIN_AI_API_KEY_FALLBACK_4",
+        "ONEMIN_AI_API_KEY_FALLBACK_5",
+        "ONEMIN_AI_API_KEY_FALLBACK_6",
+    ]
+
+
+def test_load_onemin_account_rows_derives_six_generic_accounts_manifest(monkeypatch, tmp_path: Path) -> None:
+    module = _load_module()
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    (config_dir / "onemin_api_keys.local.json").write_text(
+        json.dumps(
+            {
+                "accounts": [
+                    {"key": f"secret-{index}", "owner_email": f"owner{index}@example.com"}
+                    for index in range(1, 7)
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CODEXEA_SOURCE_ROOT", str(tmp_path))
+    monkeypatch.delenv("CODEXEA_ONEMIN_LEDGER_PATHS", raising=False)
+
+    rows = module._load_onemin_account_rows()
+
+    assert [row["slot"] for row in rows] == [
+        "fallback_1",
+        "fallback_2",
+        "fallback_3",
+        "fallback_4",
+        "fallback_5",
+        "fallback_6",
+    ]
+    assert [row["account_name"] for row in rows] == [
+        "ONEMIN_AI_API_KEY_FALLBACK_1",
+        "ONEMIN_AI_API_KEY_FALLBACK_2",
+        "ONEMIN_AI_API_KEY_FALLBACK_3",
+        "ONEMIN_AI_API_KEY_FALLBACK_4",
+        "ONEMIN_AI_API_KEY_FALLBACK_5",
+        "ONEMIN_AI_API_KEY_FALLBACK_6",
+    ]
+    assert rows[5]["owner_email"] == "owner6@example.com"
+    assert "key" not in rows[0]
+
+
+def test_load_onemin_account_rows_accepts_string_key_pool_without_leaking_keys(monkeypatch, tmp_path: Path) -> None:
+    module = _load_module()
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    (config_dir / "onemin_api_keys.local.json").write_text(
+        json.dumps({"keys": ["secret-1", "secret-2", "secret-3"]}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CODEXEA_SOURCE_ROOT", str(tmp_path))
+    monkeypatch.delenv("CODEXEA_ONEMIN_LEDGER_PATHS", raising=False)
+
+    rows = module._load_onemin_account_rows()
+
+    assert [row["account_name"] for row in rows] == [
+        "ONEMIN_AI_API_KEY_FALLBACK_1",
+        "ONEMIN_AI_API_KEY_FALLBACK_2",
+        "ONEMIN_AI_API_KEY_FALLBACK_3",
+    ]
+    assert all("secret" not in json.dumps(row) for row in rows)
+
+
 def test_retry_after_parser_recognizes_429_payloads() -> None:
     module = _load_module()
 

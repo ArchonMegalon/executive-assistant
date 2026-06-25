@@ -252,9 +252,15 @@ def test_admin_surfaces_render_live_runtime_state() -> None:
     assert "Release authority" in diagnostics.text
     assert "Authority posture" in diagnostics.text
     assert "Release next action" in diagnostics.text
+    assert "Runtime supply chain" in diagnostics.text
+    assert "Supply-chain next action" in diagnostics.text
+    assert "Supply-chain issues" in diagnostics.text
     assert "Release label" in diagnostics.text
     assert "Deployment ID" in diagnostics.text
     assert "Deployment source" in diagnostics.text
+    assert "Deploy context at" in diagnostics.text
+    assert "Deploy context ref" in diagnostics.text
+    assert "Deploy context commit" in diagnostics.text
     assert "Release branch" in diagnostics.text
     assert "Tracking branch" in diagnostics.text
     assert "Release commit" in diagnostics.text
@@ -872,3 +878,16 @@ def test_admin_loopback_surface_defaults_to_first_operator_for_handoff_actions(m
     assert operators_after_claim.status_code == 200
     assert "Prepare board follow-up handoff" in operators_after_claim.text
     assert "Complete" in operators_after_claim.text
+
+
+def test_admin_loopback_surface_requires_operator_profile_for_operator_access(monkeypatch: pytest.MonkeyPatch) -> None:
+    principal_id = "exec-admin-loopback-denied"
+    monkeypatch.setenv("EA_ALLOW_LOOPBACK_NO_AUTH", "1")
+    monkeypatch.setenv("EA_DEFAULT_PRINCIPAL_ID", principal_id)
+
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="executive_ops")
+
+    response = client.get("/admin/providers")
+
+    assert response.status_code == 403

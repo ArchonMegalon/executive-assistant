@@ -14,10 +14,20 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT_DIR = ROOT / "ea" / "_completion" / "public_browseract_results"
-DEFAULT_PUBLIC_BASE_URL = str(
-    os.environ.get("EA_PUBLIC_TOUR_BASE_URL")
-    or f"{str(os.environ.get('EA_PUBLIC_APP_BASE_URL') or 'http://localhost:8090').strip().rstrip('/')}/tours"
-).strip().rstrip("/")
+
+
+def _default_public_base_url() -> str:
+    explicit = str(os.environ.get("EA_PUBLIC_TOUR_BASE_URL") or "").strip().rstrip("/")
+    if explicit:
+        return explicit
+    property_tours = str(os.environ.get("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL") or "").strip().rstrip("/")
+    if property_tours:
+        return property_tours
+    property_base = str(os.environ.get("PROPERTYQUARRY_PUBLIC_BASE_URL") or "https://propertyquarry.com").strip().rstrip("/")
+    return f"{property_base}/tours"
+
+
+DEFAULT_PUBLIC_BASE_URL = _default_public_base_url()
 
 
 def slugify(value: str) -> str:

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 EA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ENV_FILE="${EA_ROOT}/.env"
+ENV_FILE="${EA_ENV_FILE:-${EA_ROOT}/.env}"
 
 usage() {
   cat <<'EOF'
@@ -11,9 +11,10 @@ Usage:
   bash scripts/resolve_onemin_ai_key.sh --next CURRENT_KEY
 
 Resolution order:
-  1. ONEMIN_AI_API_KEY
-  2. ONEMIN_AI_API_KEY_FALLBACK_<n> in ascending numeric order
-  3. ONEMIN_DIRECT_API_KEYS_JSON / ONEMIN_DIRECT_API_KEYS_JSON_FILE entries
+  1. ONEMIN_AI_API_KEY, EA_RESPONSES_ONEMIN_API_KEY, or indexed slot 1
+  2. EA_RESPONSES_ONEMIN_API_KEY_<n> in ascending numeric order
+  3. ONEMIN_AI_API_KEY_FALLBACK_<n> in ascending numeric order
+  4. ONEMIN_DIRECT_API_KEYS_JSON / ONEMIN_DIRECT_API_KEYS_JSON_FILE entries
 
 The script loads values from the current shell first and then from .env when present.
 Default output is the first non-empty key.
@@ -44,9 +45,12 @@ read_env_value() {
 
 ordered_key_names() {
   printf '%s\n' "ONEMIN_AI_API_KEY"
+  printf '%s\n' "EA_RESPONSES_ONEMIN_API_KEY"
   {
+    compgen -A variable -- "EA_RESPONSES_ONEMIN_API_KEY_" || true
     compgen -A variable -- "ONEMIN_AI_API_KEY_FALLBACK_" || true
     if [[ -f "${ENV_FILE}" ]]; then
+      sed -n 's/^\(EA_RESPONSES_ONEMIN_API_KEY_[0-9][0-9]*\)=.*/\1/p' "${ENV_FILE}"
       sed -n 's/^\(ONEMIN_AI_API_KEY_FALLBACK_[0-9][0-9]*\)=.*/\1/p' "${ENV_FILE}"
     fi
   } | awk 'NF { print }' | sort -Vu
@@ -88,6 +92,26 @@ def env_value(name: str) -> str:
     return strip_optional_quotes(value)
 
 fallback_re = re.compile(r"^ONEMIN_AI_API_KEY_FALLBACK_(\d+)$")
+indexed_re = re.compile(r"^(?:EA_RESPONSES_)?ONEMIN(?:_AI)?_API_KEY_(\d+)$")
+fallback_slot_re = re.compile(r"^fallback_?(\d+)$")
+
+def fallback_slot_number(raw: object) -> int | None:
+    normalized = str(raw or "").strip()
+    env_match = fallback_re.match(normalized)
+    if env_match is not None:
+        try:
+            number = int(env_match.group(1))
+        except Exception:
+            return None
+        return number if number >= 1 else None
+    match = fallback_slot_re.match(normalized.lower().replace(" ", "_").replace("-", "_"))
+    if match is None:
+        return None
+    try:
+        number = int(match.group(1))
+    except Exception:
+        return None
+    return number if number >= 1 else None
 
 def manifest_payload():
     inline = env_value("ONEMIN_DIRECT_API_KEYS_JSON")
@@ -172,9 +196,9 @@ def manifest_entries():
             if lowered_slot == "primary":
                 normalized = "ONEMIN_AI_API_KEY"
             else:
-                match = re.fullmatch(r"fallback_?(\d+)", lowered_slot)
-                if match is not None:
-                    normalized = f"ONEMIN_AI_API_KEY_FALLBACK_{int(match.group(1))}"
+                slot_number = fallback_slot_number(lowered_slot)
+                if slot_number is not None:
+                    normalized = f"ONEMIN_AI_API_KEY_FALLBACK_{slot_number}"
                 else:
                     normalized = f"ONEMIN_AI_API_KEY_FALLBACK_{next_fallback}"
                     next_fallback += 1
@@ -183,25 +207,47 @@ def manifest_entries():
 
 names: list[str] = []
 seen_names: set[str] = set()
-names.append("ONEMIN_AI_API_KEY")
-seen_names.add("ONEMIN_AI_API_KEY")
+indexed_names: dict[int, str] = {}
 fallback_numbers: set[int] = set()
 for name in list(os.environ) + list(dotenv_values):
-    match = fallback_re.match(str(name or "").strip())
-    if match is None:
+    cleaned = str(name or "").strip()
+    fallback_match = fallback_re.match(cleaned)
+    indexed_match = indexed_re.match(cleaned)
+    if fallback_match is None and indexed_match is None:
         continue
     try:
-        fallback_numbers.add(int(match.group(1)))
+        if fallback_match is not None:
+            fallback_numbers.add(int(fallback_match.group(1)))
+        elif indexed_match is not None:
+            index = int(indexed_match.group(1))
+            if index >= 1:
+                indexed_names[index] = cleaned
     except Exception:
         continue
+
+primary_name = "ONEMIN_AI_API_KEY"
+if not env_value(primary_name):
+    for candidate in ("EA_RESPONSES_ONEMIN_API_KEY", indexed_names.get(1, "")):
+        cleaned = str(candidate or "").strip()
+        if cleaned and env_value(cleaned):
+            primary_name = cleaned
+            break
+names.append(primary_name)
+seen_names.add(primary_name)
+for index in sorted(indexed_names):
+    if index <= 1 and indexed_names[index] == primary_name:
+        continue
+    candidate = indexed_names[index]
+    if candidate not in seen_names:
+        names.append(candidate)
+        seen_names.add(candidate)
 manifest_by_slot: dict[int, str] = {}
 trailing_names: list[str] = []
 for account_name, _key in manifest_entries():
     if account_name == "ONEMIN_AI_API_KEY":
         continue
-    match = fallback_re.match(account_name)
-    if match is not None:
-        number = int(match.group(1))
+    number = fallback_slot_number(account_name)
+    if number is not None:
         fallback_numbers.add(number)
         manifest_by_slot[number] = account_name
     else:

@@ -23,7 +23,9 @@ The paying-customer product is intentionally narrow:
 - approvals and auditability
 
 Default product mode is `EA_CORE`: the executive office loop. Memorial, provider lab, Chummer release control, and property are separate project modes, not implied EA-core product scope. See [PRODUCT_BOUNDARY.md](PRODUCT_BOUNDARY.md), `.codex-design/product/PROJECT_MODES.generated.json`, and `.codex-design/product/SHOW_SURFACE_MANIFEST.generated.json`.
+For a live memorial runtime, run `make verify-memorial-deploy-readiness` first, then `make deploy-ea-memorial`; that path layers `docker-compose.memorial.yml`, sets the primary deploy mode to `MEMORIAL`, and keeps the deploy/runtime receipts aligned with what is actually mounted.
 Default product mode does not mount experimental public utility routes such as `/results/*`, `/tours/*`, or `/memorials/*`. Those surfaces must be explicitly enabled for their own project mode and are not part of the core product story.
+In `prod`, legacy authenticated runtime surfaces such as `/v1/memory/*`, `/v1/rewrite/*`, `/v1/channels/*`, and `/v1/responses*` are also off by default unless `EA_ENABLE_LEGACY_RUNTIME_SURFACES=1` is set deliberately.
 
 ## Run It
 
@@ -46,8 +48,12 @@ make deploy-property   # PropertyQuarry isolated compose stack
 ```
 
 The plain `make deploy` target is intentionally non-operational. Use `make deploy-ea-prod` or `make deploy-property` so an EA deploy cannot accidentally start the property stack.
+`docker-compose.property.yml` follows the same default host posture as EA core: the API bind is loopback-only, and the property API/scheduler/database services are constrained with dropped capabilities, `no-new-privileges`, and bounded memory/PID limits.
 
-Production startup now fails closed unless workspace-access token binding is anchored to a real public origin or explicit issuer. Set `EA_PUBLIC_APP_BASE_URL` or `EA_WORKSPACE_ACCESS_TOKEN_ISSUER`, and keep `EA_WORKSPACE_ACCESS_TOKEN_AUDIENCE` plus `EA_WORKSPACE_ACCESS_TOKEN_KEY_VERSION` explicit in `.env` for durable cookie/session verification.
+GitHub Actions workflows are intentionally not tracked in this repo. The enforced replacement is the local gate surface in `Makefile`: `make ci-gates`, `make ci-gates-postgres`, `make ci-gates-postgres-legacy`, and `make release-preflight`.
+
+Production startup now fails closed unless workspace-access token binding is anchored to a real public origin or explicit issuer. Set `EA_PUBLIC_APP_BASE_URL` or `EA_WORKSPACE_ACCESS_TOKEN_ISSUER`, and keep `EA_WORKSPACE_ACCESS_TOKEN_AUDIENCE` plus `EA_WORKSPACE_ACCESS_TOKEN_KEY_VERSION` explicit in `.env` for durable cookie/session verification. In `prod`, placeholder or loopback binding origins such as `https://example.test`, `https://property.example.test`, or `http://localhost` are rejected.
+`scripts/deploy.sh` now enforces the same rule before container startup: in `prod` it requires real production auth (`EA_API_TOKEN` or Cloudflare Access via `EA_CF_ACCESS_TEAM_DOMAIN` + `EA_CF_ACCESS_AUD`), requires a real `EA_SIGNING_SECRET`, refuses placeholder/loopback token-binding origins, and refuses missing or placeholder workspace token audience/key-version metadata.
 
 The base compose profile now keeps host-mounted Docker and `/docker` access off by default. Add the host-tools override only for workflows that need host repo access or operator Docker control:
 
@@ -55,13 +61,26 @@ The base compose profile now keeps host-mounted Docker and `/docker` access off 
 bash scripts/deploy.sh --compose-override docker-compose.host-tools.yml
 ```
 
-That override does not hand the raw host socket to the runtime containers. It adds `ea-docker-socket-proxy`, mounts `/var/run/docker.sock` read-only only into that sidecar, points the operator services at `DOCKER_HOST=tcp://ea-docker-socket-proxy:2375`, and keeps `/docker` mounted only on the operator image/profile.
+That override does not hand the raw host socket to the runtime containers. It adds `ea-docker-socket-proxy`, mounts `/var/run/docker.sock` read-only only into that sidecar, constrains the sidecar itself with dropped capabilities, `no-new-privileges`, read-only rootfs, and bounded memory/PID limits, points the operator services at `DOCKER_HOST=tcp://ea-docker-socket-proxy:2375`, runs the operator image as its default non-root user, keeps `/docker` mounted read-only only on the operator image/profile, drops all ambient Linux capabilities, and applies bounded memory/PID limits plus `no-new-privileges` and read-only rootfs defaults to the operator services.
+The base EA core compose also keeps its published ports loopback-only (`127.0.0.1:*`) and the prod override does not widen them. Public exposure is expected to go through an explicit ingress layer such as Cloudflare Tunnel, not a broad host-port bind.
 
 To expose the stack through Cloudflare Tunnel, layer the tunnel override explicitly and set `EA_CF_TUNNEL_TOKEN` in your local `.env` first:
 
 ```bash
 bash scripts/deploy.sh --compose-override docker-compose.cloudflared.yml
 ```
+
+That tunnel sidecar is digest-pinned and constrained with dropped capabilities, `no-new-privileges`, and bounded memory/PID limits so public ingress does not bypass the runtime hardening posture.
+
+Keep `PROPERTYQUARRY_TRUST_X_FORWARDED_HOST=0` unless the runtime is actually behind a trusted ingress that rewrites `X-Forwarded-Host`. Public canonicals, callback origins, and public-route host resolution now ignore forwarded-host headers by default.
+
+`EA_ALLOW_LOOPBACK_NO_AUTH=1` is also fail-open only for local principal access. It no longer grants operator scope by itself; admin/operator surfaces still require an active operator profile for that principal.
+
+`EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER=1` is now limited to loopback-local requests as well. It remains a local dev/test escape hatch, not a remote bearer-token impersonation feature.
+
+Browser setup no longer supports caller-supplied principal switching at all when there is no bound access identity. The browser completes setup only for the deployment default workspace or the verified access-identity workspace.
+
+`PROPERTYQUARRY_TRUST_X_FORWARDED_FOR=1` is also explicit now. Public rate-limit identity and other public IP-derived helpers use direct client host by default and only trust forwarded IP headers behind a deliberate ingress setup.
 
 ## Teable Environment Recovery
 
@@ -194,12 +213,20 @@ Then open `http://localhost:8090/health`.
 - `make verify-ltd-provider-lanes` runs the governed provider-lane verifier.
 - `make ltd-release-gates` runs all LTD release verifiers together.
 - Optional FastestVPN sidecar support is available in [docker-compose.fastestvpn.yml](docker-compose.fastestvpn.yml). Put FastestVPN `*.ovpn` files under [vpn/fastestvpn/README.md](vpn/fastestvpn/README.md), or fetch them with [bootstrap_fastestvpn_configs.sh](scripts/bootstrap_fastestvpn_configs.sh), then start `ea-fastestvpn-proxy` with the main EA services so BrowserAct login traffic goes out through a local rotating HTTP proxy. If you deploy through `scripts/deploy.sh`, keep the overlay explicit with `EA_ENABLE_FASTESTVPN=1`.
-- The FastestVPN overlay also uses `ea-docker-socket-proxy` instead of a raw runtime socket mount, and the runtime services mount only `docker-compose.yml`, `docker-compose.fastestvpn.yml`, and `vpn/fastestvpn/` rather than the whole repository.
+- The FastestVPN overlay also uses `ea-docker-socket-proxy` instead of a raw runtime socket mount, constrains that sidecar with dropped capabilities, `no-new-privileges`, read-only rootfs, and bounded memory/PID limits, mounts only `docker-compose.yml`, `docker-compose.fastestvpn.yml`, and `vpn/fastestvpn/` rather than the whole repository, and applies the same non-root, read-only-rootfs, dropped-capability, `no-new-privileges`, and bounded memory/PID operator constraints as the host-tools profile.
 
 ## Operator Shortcuts
 
-- `make verify-release-assets`: materialize and verify the EA flagship receipts, whole-project gold map, bounded design-mirror bundle, and release-authority gate
+- `make materialize-release-assets`: run the full release-truth bundle in order, including deploy context, release manifest, and release-authority status
+- `make materialize-release-manifest`: regenerate `.codex-studio/published/release_manifest.generated.json` after refreshing deploy context
+- `make verify-release-assets`: materialize and verify the EA flagship receipts, whole-project gold map, bounded design-mirror bundle, release-authority gate, and authoritative live runtime release posture
 - `make verify-release-authority`: fail closed unless the release manifest records a runtime public origin, explicit deployment id, clean worktree, and compose topology strong enough for a shipping claim
+- `make materialize-release-authority-status`: refresh deploy context, regenerate the release manifest, then write `.codex-studio/published/release_authority_status.generated.json`
+- `make materialize-deploy-context`: write the deploy-context artifact consumed by release-manifest materialization; it records the authoritative release tuple for the deploy attempt: repository, branch, tracking branch, commit, deployment id, public origin, release label, project mode, and compose topology
+- `make verify-deploy-context`: verify the deploy-context artifact before trusting release-manifest inputs
+- `make verify-release-authority-runtime`: compare live `/version` and `/health/release-authority` responses against the published release-authority status artifact
+- `make verify-release-authority-runtime-authoritative`: fail unless the runtime is internally consistent and the nested release/deploy gates both pass with `clear` / `authoritative_runtime`
+- `make release-authority-probe`: fetch the live `/health/release-authority` payload from the local runtime and print the operator summary
 - `make materialize-memorial-phrase-bank`: regenerate the approved Manfred memorial phrase bank artifact
 - `make materialize-memorial-operator-status`: regenerate the operator-readable memorial local/public-gold status artifact
 - `make materialize-memorial-room-audio-gold-clean`: record the manual room/device proof from a clean clone and copy the refreshed memorial gold artifacts back into the repo
@@ -209,7 +236,8 @@ Then open `http://localhost:8090/health`.
 ## Runtime Spine
 
 - `app.main` exposes a FastAPI app
-- `/health`, `/health/live`, `/health/ready`, `/version` provide liveness/readiness/version probes
+- `/health`, `/health/live`, `/health/ready`, `/version`, and `/health/release-authority` provide liveness/readiness/version/release-authority probes
+- `/version` now also exposes `release_authority_state`, `release_authority_posture`, and `release_authority_source` so operators can see whether the compact runtime probe is reading the published release-authority artifact or falling back to manifest recomputation.
 - Codex provider compatibility façade:
   - `GET /v1/models`
   - `POST /v1/responses`
@@ -228,11 +256,12 @@ Then open `http://localhost:8090/health`.
   - stream mode via `Accept: text/event-stream`
   - survival mode is intentionally non-streaming in v1; create returns an `in_progress` response object and clients poll `GET /v1/responses/{response_id}` until completion
   - `GET /v1/models` returns the public EA aliases plus the currently configured upstream model IDs so Codex can target concrete provider backends when needed.
+  - `EA_RESPONSES_PROVIDER_ORDER`, `EA_RESPONSES_CHEAP_PROVIDER_ORDER`, and `EA_RESPONSES_HARD_PROVIDER_ORDER` tune normal, fast/cheap, and hard lane provider order without patching the router; provider aliases such as `1min` and `magicx` normalize to the runtime keys.
   - `GET /v1/responses/_provider_health` and `GET /v1/codex/profiles` expose account-name attribution, owner-ledger metadata matched by hash or stable slot/account identifiers, latest explicit probe result, observed `remaining_credits` / `required_credits`, per-slot `observed_consumed_credits` / `observed_success_count`, aggregate `estimated_remaining_credits_total` / `remaining_percent_of_max`, rolling `estimated_burn_credits_per_hour` / `estimated_hours_remaining_at_current_pace`, and deleted-key quarantine state without returning raw API secrets.
   - `python3 scripts/sync_onemin_owner_ledger.py --write` refreshes `config/onemin_slot_owners.json` from the current `ONEMIN_AI_API_KEY*` values plus any `ONEMIN_DIRECT_API_KEYS_JSON(_FILE)` manifest entries while preserving the existing owner roster metadata by slot/account.
   - The template-backed 1min BrowserAct login lanes can now read a generic rotating proxy from `EA_UI_BROWSER_PROXY_SERVER`, `EA_UI_BROWSER_PROXY_USERNAME`, `EA_UI_BROWSER_PROXY_PASSWORD`, and `EA_UI_BROWSER_PROXY_BYPASS`, and `ONEMIN_BROWSERACT_MAX_ACCOUNTS_PER_REFRESH` / `EA_ONEMIN_BILLING_REFRESH_MIN_INTERVAL_SECONDS` control whether one refresh cycle can sweep the full configured slot set without the old per-minute cadence gate.
   - [rotate_fastestvpn_proxy.sh](scripts/rotate_fastestvpn_proxy.sh) recreates the FastestVPN sidecar plus EA services with `docker compose up -d --no-build --force-recreate --no-deps` so BrowserAct can pick up a fresh FastestVPN exit profile before a broad 1min sweep without rebuilding the EA runtime.
-  - `GET /v1/models` includes the Gemini Vortex-backed `ea-gemini-flash` public alias, the groundwork aliases `ea-groundwork-gemini` and `ea-groundwork`, plus the concrete `gemini-2.5-flash` model id when that backend is configured.
+  - `GET /v1/models` includes the Gemini Vortex-backed `ea-gemini-flash` public alias, the groundwork aliases `ea-groundwork-gemini` and `ea-groundwork`, plus the concrete `gemini-3.5-flash` model id when that backend is configured.
   - the survival lane reduces the request locally first, then tries Gemini Vortex, then BrowserAct Gemini web, and only then a single-role ChatPlayground tie-break
   - UI-backed survival backends are challenge-aware: Cloudflare/Turnstile/human-verification or session-expiry responses put that backend on cooldown and survival falls through to the next backend instead of trying to automate the challenge
 
@@ -552,6 +581,9 @@ Endpoint/version/OpenAPI helper scripts also expose `--help` and are included in
 `make operator-help` also includes the hard-exit and LTD verifier scripts, so the release-gate lane uses the same help surface as deploy and smoke.
 Support bundle export is available via `scripts/support_bundle.sh` or `make support-bundle`.
 Support bundles apply baseline redaction for common secret/token/password patterns.
+Support bundles always include redacted `ea.source_dirty_groups.v1` JSON from `make inspect-source-dirty-groups` plus the `ea.source_dirty_groups_verifier.v1` result, so clean-receipt blockers can be handed off without losing the affected source groups or their contract validity.
+Run `make verify-source-dirty-groups` before handoff when you need to prove the dirty-source grouping report itself is internally consistent.
+For focused clean-receipt triage, run `scripts/inspect_source_dirty_groups.py --list-categories` first, then drill into one group with `scripts/inspect_source_dirty_groups.py --category services --limit 20`.
 Set `SUPPORT_INCLUDE_DB=0` to skip DB logs in support bundle generation.
 Set `SUPPORT_INCLUDE_API=0` to skip API logs in support bundle generation.
 Set `SUPPORT_INCLUDE_DB_VOLUME=0` to skip ea-db mount/volume attribution in support bundles.
@@ -577,14 +609,15 @@ Local CI-parity compile checks can be run via `make ci-local`.
 One-command local CI gate bundle is available via `make ci-gates`; it includes release asset verification, flagship release-readiness verification, whole-project gold-map verification, and generated release artifact cleanliness after the full memory-backed test suite.
 Combined local API+Postgres parity run is available via `make ci-gates-postgres`.
 Combined local API+Postgres legacy-migration parity run is available via `make ci-gates-postgres-legacy`.
-Runtime deploy hard gate is available via `make runtime-hard-exit-gates`; `scripts/deploy.sh` runs it by default after health goes green unless `EA_RUN_RUNTIME_HARD_EXIT_GATES=0`. This live bundle uses the deploy-safe API smoke lane and Pocket archive verification; the deeper principal contract smoke stays in `make hard-exit-gates`.
+Runtime deploy hard gate is available via `make runtime-hard-exit-gates`; `scripts/deploy.sh` runs it by default after health goes green unless `EA_RUN_RUNTIME_HARD_EXIT_GATES=0`. This live bundle uses the deploy-safe API smoke lane, the authoritative live-runtime release verifier, and Pocket archive verification; when `MEMORIAL` mode is enabled it also runs `verify_memorial_runtime_overlay` plus `verify_project_mode_runtime.py --mode memorial` automatically so a memorial deploy cannot finish with the overlay absent or with the mounted public memorial surface broken. The deeper principal contract smoke stays in `make hard-exit-gates`.
 Full flagship hard exit gate is available via `make hard-exit-gates`; it runs the full pytest suite plus release preflight, Postgres contract/smoke lanes, principal API smoke, and Pocket archive verification.
 Aggregate LTD release gates are available via `make ltd-release-gates`; the bundle includes critical runtime entries, the flagship verified subset, and governed provider-lane receipts.
-Release asset integrity can be checked via `scripts/verify_release_assets.sh` or `make verify-release-assets`. That path now also enforces `make verify-release-authority`, so generated receipts alone cannot stand in for deploy truth.
-Whole-project gold-map integrity can be checked via `scripts/verify_whole_project_gold_map.py` or `make verify-whole-project-gold-map`; when green, it means the current EA-controlled receipt set is coherent. Owning repos remain authoritative for their own product planes. For memorial presentation readiness, also run `make verify-memorial-voice-stability` against the deployed stack.
+Release asset integrity can be checked via `scripts/verify_release_assets.sh` or `make verify-release-assets`. That path now also enforces `make verify-release-authority` plus `make verify-release-authority-runtime-authoritative`, so generated receipts alone cannot stand in for deploy truth or a non-authoritative live runtime.
+To regenerate the full local release-truth bundle in one pass, use `make materialize-release-assets`; it now materializes deploy context before the release manifest and release-authority status.
+Whole-project gold-map integrity can be checked via `scripts/verify_whole_project_gold_map.py` or `make verify-whole-project-gold-map`; when green, it means the current EA-controlled receipt set is coherent. Owning repos remain authoritative for their own product planes. For memorial presentation readiness, run `make verify-memorial-deploy-readiness` before deploy so release-authority drift or a non-memorial runtime posture fails closed, then `make verify-memorial-runtime-overlay` so `/health/live` proves the memorial overlay is actually mounted, then `make verify-project-mode-runtime-memorial` so the mounted public memorial surface itself is reachable and correctly wired, then run `make verify-memorial-voice-stability` against the deployed stack.
 Docs-focused alias for the same check: `make docs-verify`.
 Docs + operator help aggregate: `make release-docs`.
-Release preflight aggregate is available via `make release-preflight`; it includes `make verify-release-authority`, `make verify-flagship-release-readiness`, `make verify-whole-project-gold-map`, and generated release artifact cleanliness so a green receipt cannot hide a blocked weekly pulse, Fleet journey gate, overbroad gold claim, weak deploy authority, or dirty regenerated receipt.
+Release preflight aggregate is available via `make release-preflight`; it includes `make verify-runtime-supply-chain`, `make verify-release-authority`, `make verify-release-authority-runtime-authoritative`, `make verify-flagship-release-readiness`, `make verify-whole-project-gold-map`, and generated release artifact cleanliness so a green receipt cannot hide a blocked weekly pulse, Fleet journey gate, overbroad gold claim, weak deploy authority, non-authoritative live runtime, runtime supply-chain drift, or dirty regenerated receipt.
 For real-browser gates on a fresh host, install the browser dependency first with `python -m playwright install --with-deps chromium`.
 Recommended sequencing: run `make release-docs` before `make release-preflight`.
 One-command local readiness check: `make all-local`.

@@ -7,62 +7,199 @@
     <style>
       :root {
         color-scheme: light;
-        font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+        --page-ink: #1f1a17;
+        --page-ink-soft: #5e5248;
+        --page-line: rgba(80, 60, 40, 0.14);
+        --page-line-strong: rgba(80, 60, 40, 0.22);
+        --paper: rgba(255, 250, 244, 0.92);
+        --paper-strong: rgba(255, 252, 248, 0.98);
+        --shadow: 0 24px 60px rgba(61, 40, 19, 0.12);
+        --accent: #7e5b3b;
+        --accent-soft: #b69572;
+        --danger-bg: #fbe8e5;
+        --danger-ink: #9d2c1f;
+        --success-bg: #e8f4ea;
+        --success-ink: #1f6a3a;
+        --info-bg: #e9eef7;
+        --info-ink: #244f8f;
+        --unknown-bg: #f1ede7;
+        --unknown-ink: #6a5746;
       }
       body {
         margin: 0;
-        background: #f5f7fb;
-        color: #162033;
+        min-height: 100vh;
+        background:
+          radial-gradient(circle at top, rgba(198, 180, 156, 0.32), transparent 42%),
+          linear-gradient(180deg, #f7f1ea 0%, #ece4d9 45%, #f6f1eb 100%);
+        color: var(--page-ink);
+        font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
       }
       main {
-        max-width: 960px;
+        max-width: 1120px;
         margin: 0 auto;
-        padding: 32px 20px 48px;
+        padding: 38px 22px 56px;
       }
-      h1, h2 {
-        margin: 0 0 12px;
-        font-weight: 600;
+      h1,
+      h2,
+      h3 {
+        margin: 0;
+        font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+        letter-spacing: -0.01em;
+      }
+      h1 {
+        font-size: clamp(2.2rem, 5vw, 3.5rem);
+        line-height: 1.02;
       }
       p {
         margin: 0 0 12px;
-        line-height: 1.45;
+        line-height: 1.55;
+      }
+      .hero {
+        position: relative;
+        overflow: hidden;
+        background: linear-gradient(145deg, rgba(255, 252, 247, 0.98), rgba(247, 238, 227, 0.94));
+        border: 1px solid var(--page-line-strong);
+        border-radius: 28px;
+        padding: 28px 28px 24px;
+        box-shadow: var(--shadow);
+        margin-bottom: 18px;
+      }
+      .hero::after {
+        content: "";
+        position: absolute;
+        inset: auto -8% -32% auto;
+        width: 320px;
+        height: 320px;
+        border-radius: 999px;
+        background: radial-gradient(circle, rgba(182, 149, 114, 0.22), transparent 68%);
+        pointer-events: none;
+      }
+      .hero-kicker {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 14px;
+        font-size: 0.82rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+      .hero-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.9fr);
+        gap: 18px;
+        align-items: start;
+      }
+      .hero-lead {
+        max-width: 56rem;
+        margin-top: 12px;
+        color: var(--page-ink-soft);
+        font-size: 1.02rem;
+      }
+      .hero-meta {
+        display: grid;
+        gap: 12px;
+      }
+      .hero-stat {
+        background: rgba(255, 255, 255, 0.72);
+        border: 1px solid var(--page-line);
+        border-radius: 18px;
+        padding: 14px 16px;
+      }
+      .hero-stat-label {
+        display: block;
+        margin-bottom: 5px;
+        font-size: 0.78rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--page-ink-soft);
+      }
+      .hero-stat code {
+        display: block;
+        font-size: 0.78rem;
+      }
+      .section-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
       }
       .band {
-        background: #fff;
-        border: 1px solid #dbe3f0;
-        border-radius: 8px;
-        padding: 18px 20px;
-        margin-bottom: 16px;
+        background: var(--paper);
+        border: 1px solid var(--page-line);
+        border-radius: 22px;
+        padding: 20px 20px 18px;
+        box-shadow: 0 12px 30px rgba(61, 40, 19, 0.06);
+      }
+      .band h2 {
+        margin-bottom: 12px;
+        font-size: 1.32rem;
+      }
+      .band p:last-child {
+        margin-bottom: 0;
+      }
+      .recovery {
+        margin-top: 18px;
+        padding: 16px 18px;
+        border-radius: 18px;
+        border: 1px solid rgba(157, 44, 31, 0.18);
+        background: rgba(251, 232, 229, 0.75);
+      }
+      .recovery h3 {
+        margin-bottom: 8px;
+        font-size: 1rem;
+      }
+      .recovery ul {
+        margin-top: 10px;
       }
       .status {
-        display: inline-block;
-        padding: 4px 10px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 12px;
         border-radius: 999px;
         font-size: 12px;
-        font-weight: 600;
-        background: #e7eefc;
-        color: #1a4db3;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        background: var(--info-bg);
+        color: var(--info-ink);
+      }
+      .status::before {
+        content: "";
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: currentColor;
+        opacity: 0.78;
       }
       .status.pass {
-        background: #e7f6ec;
-        color: #166534;
+        background: var(--success-bg);
+        color: var(--success-ink);
       }
-      .status.blocked, .status.no {
-        background: #fdecec;
-        color: #b42318;
+      .status.blocked,
+      .status.no,
+      .status.fail {
+        background: var(--danger-bg);
+        color: var(--danger-ink);
+      }
+      .status.unknown,
+      .status.degraded {
+        background: var(--unknown-bg);
+        color: var(--unknown-ink);
       }
       dl {
         display: grid;
-        grid-template-columns: 220px 1fr;
-        gap: 8px 16px;
+        grid-template-columns: minmax(150px, 210px) minmax(0, 1fr);
+        gap: 9px 16px;
         margin: 0;
       }
       dt {
-        font-weight: 600;
+        font-weight: 700;
+        color: var(--page-ink);
       }
       dd {
         margin: 0;
         word-break: break-word;
+        color: var(--page-ink-soft);
       }
       ul {
         margin: 8px 0 0 18px;
@@ -71,54 +208,303 @@
       code {
         font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
         font-size: 12px;
+        padding: 1px 5px;
+        border-radius: 7px;
+        background: rgba(74, 58, 43, 0.08);
+      }
+      .inline-stack {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+      .note-list {
+        margin-top: 14px;
+      }
+      .note-list li {
+        margin-bottom: 6px;
+      }
+      @media (max-width: 900px) {
+        .hero-grid,
+        .section-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+      @media (max-width: 680px) {
+        main {
+          padding: 24px 14px 42px;
+        }
+        .hero,
+        .band {
+          border-radius: 18px;
+          padding: 18px 16px;
+        }
+        dl {
+          grid-template-columns: 1fr;
+          gap: 4px 0;
+        }
+        dt {
+          margin-top: 10px;
+        }
       }
     </style>
   </head>
   <body>
     <main>
-      <section class="band">
-        <h1>{{ memorial.person_name or slug }}</h1>
-        <p><span class="status {{ operator_status.status }}">{{ operator_status.current_label }}</span></p>
-        <p>Operator gold view for the public-origin memorial proof set.</p>
+      <section class="hero">
+        <div class="hero-kicker">Memorial Gold Review</div>
+        <div class="hero-grid">
+          <div>
+            <h1>{{ memorial.person_name or slug }}</h1>
+            <p style="margin-top:14px;"><span class="status {{ operator_status.status }}">{{ operator_status.current_label }}</span></p>
+            <p class="hero-lead">Operator gold view for the public-origin memorial proof set. This page is for one question only: can the memorial voice experience be defended as dignified, grounded, and premium under real operator scrutiny?</p>
+          </div>
+          <div class="hero-meta">
+            <div class="hero-stat">
+              <span class="hero-stat-label">Current Head</span>
+              <code>{{ operator_status.readiness.current_head or "" }}</code>
+            </div>
+            <div class="hero-stat">
+              <span class="hero-stat-label">Operator Status File</span>
+              <code>{{ status_path }}</code>
+            </div>
+          </div>
+        </div>
+        {% if operator_status.status != "pass" %}
+        <div class="recovery">
+          <h3>Recovery</h3>
+          <p>The proof set is not clean yet. Use the notes and commands below to restore a reviewable state before any premium claim widens.</p>
+        </div>
+        {% endif %}
       </section>
 
-      <section class="band">
-        <h2>Heads</h2>
+      <div class="section-grid">
+        <section class="band">
+          <h2>Heads</h2>
+          <dl>
+            <dt>Current head</dt>
+            <dd><code>{{ operator_status.readiness.current_head or "" }}</code></dd>
+            <dt>Whole-project map head</dt>
+            <dd><code>{{ operator_status.evidence_heads.whole_project_map or "" }}</code></dd>
+            <dt>Voice receipt head</dt>
+            <dd><code>{{ operator_status.evidence_heads.public_voice_receipt or "" }}</code></dd>
+            <dt>Browser receipt head</dt>
+            <dd><code>{{ operator_status.evidence_heads.public_browser_receipt or "" }}</code></dd>
+            <dt>Meaningful browser head</dt>
+            <dd><code>{{ operator_status.evidence_heads.public_meaningful_browser_receipt or "" }}</code></dd>
+            <dt>Room receipt head</dt>
+            <dd><code>{{ operator_status.evidence_heads.room_audio_receipt or "" }}</code></dd>
+          </dl>
+        </section>
+
+        <section class="band">
+          <h2>Receipts</h2>
+          <dl>
+            <dt>Public voice</dt>
+            <dd><span class="status {{ operator_status.public_voice_receipt }}">{{ operator_status.public_voice_receipt }}</span></dd>
+            <dt>Public browser</dt>
+            <dd><span class="status {{ operator_status.public_browser_receipt }}">{{ operator_status.public_browser_receipt }}</span></dd>
+            <dt>Meaningful browser</dt>
+            <dd><span class="status {{ operator_status.public_browser_meaningful_receipt }}">{{ operator_status.public_browser_meaningful_receipt }}</span></dd>
+            <dt>Room audio</dt>
+            <dd><span class="status {{ operator_status.room_audio_receipt }}">{{ operator_status.room_audio_receipt }}</span></dd>
+            <dt>Whole-project gold</dt>
+            <dd><span class="status {{ operator_status.whole_project_gold }}">{{ operator_status.whole_project_gold }}</span></dd>
+            <dt>Workflow-backed</dt>
+            <dd><span class="status {{ operator_status.workflow_backing.status }}">{{ operator_status.workflow_backing.status }}</span></dd>
+          </dl>
+        </section>
+      </div>
+
+      <section class="band" style="margin-top:16px;">
+        <h2>Source Cleanup</h2>
+        {% set source_cleanup = operator_status.source_cleanup or {} %}
+        {% set source_dirty_verifier = operator_status.source_dirty_verifier or {} %}
         <dl>
-          <dt>Current head</dt>
-          <dd><code>{{ operator_status.readiness.current_head or "" }}</code></dd>
-          <dt>Whole-project map head</dt>
-          <dd><code>{{ operator_status.evidence_heads.whole_project_map or "" }}</code></dd>
-          <dt>Voice receipt head</dt>
-          <dd><code>{{ operator_status.evidence_heads.public_voice_receipt or "" }}</code></dd>
-          <dt>Browser receipt head</dt>
-          <dd><code>{{ operator_status.evidence_heads.public_browser_receipt or "" }}</code></dd>
-          <dt>Meaningful browser head</dt>
-          <dd><code>{{ operator_status.evidence_heads.public_meaningful_browser_receipt or "" }}</code></dd>
-          <dt>Room receipt head</dt>
-          <dd><code>{{ operator_status.evidence_heads.room_audio_receipt or "" }}</code></dd>
+          <dt>Status</dt>
+          <dd><span class="status {{ source_cleanup.status or 'unknown' }}">{{ source_cleanup.status or "unknown" }}</span></dd>
+          <dt>Worktree dirty</dt>
+          <dd><code>{{ source_cleanup.source_worktree_dirty if source_cleanup.source_worktree_dirty is not none else operator_status.source_worktree_dirty }}</code></dd>
+          <dt>Dirty files</dt>
+          <dd><code>{{ source_cleanup.source_dirty_count if source_cleanup.source_dirty_count is not none else operator_status.source_dirty_count or 0 }}</code></dd>
+          <dt>Grouping verifier</dt>
+          <dd>
+            <span class="status {{ source_cleanup.verifier_status or source_dirty_verifier.status or 'unknown' }}">{{ source_cleanup.verifier_status or source_dirty_verifier.status or "unknown" }}</span>
+          </dd>
+          <dt>Verifier issues</dt>
+          <dd><code>{{ (source_cleanup.verifier_issues or source_dirty_verifier.issues or []) | join(", ") or "none" }}</code></dd>
+          <dt>Top categories</dt>
+          <dd><code>{% for item in source_cleanup.top_categories or [] %}{{ item.category }}={{ item.visible_count }}{% if item.drilldown_command %} -> {{ item.drilldown_command }}{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}</code></dd>
+          <dt>Handoff commands</dt>
+          <dd><code>{% for command in source_cleanup.handoff_commands or [] %}{{ command }}{% if not loop.last %} | {% endif %}{% endfor %}</code></dd>
+          <dt>Next source command</dt>
+          <dd><code>{{ source_cleanup.next_command or operator_status.memorial_public_gold_next_command or "" }}</code></dd>
+        </dl>
+        <p style="margin-top:10px;">Clean-clone receipt refresh stays blocked until source changes are committed or stashed. The compact source_cleanup contract proves the dirty-source categories and verifier state are safe to use for handoff.</p>
+      </section>
+
+      <section class="band" style="margin-top:16px;">
+        <h2>Spoken Readiness</h2>
+        <dl>
+          <dt>Runtime state</dt>
+          <dd>
+            <div class="inline-stack">
+              <span class="status {{ operator_status.readiness.status }}">{{ operator_status.readiness.status or "unknown" }}</span>
+              <code>mode={{ operator_status.readiness.interaction_mode or "unknown" }}</code>
+              <code>spoken={{ operator_status.readiness.spoken_voice_ready }}</code>
+              <code>realtime={{ operator_status.readiness.realtime_ready }}</code>
+              <code>checked_at={{ operator_status.readiness.readiness_checked_at or 0 }}</code>
+              <code>operator_state={{ operator_status.readiness.operator_action_state or "unknown" }}</code>
+              <code>recheck_after_s={{ operator_status.readiness.operator_recheck_after_seconds or 0 }}</code>
+              <code>ready_ttl_s={{ operator_status.readiness.readiness_ttl_remaining_seconds or 0 }}</code>
+              <code>ttl_state={{ operator_status.readiness.readiness_ttl_state or "unknown" }}</code>
+              {% if operator_status.readiness.readiness_refresh_recommended %}
+              <code>readiness_refresh_recommended</code>
+              {% endif %}
+              <code>warmup_age_s={{ operator_status.readiness.warmup.warmup_age_seconds or 0 }}</code>
+              <code>warmup_completed_age_s={{ operator_status.readiness.warmup.warmup_completed_age_seconds or 0 }}</code>
+              <code>voice_inflight={{ operator_status.readiness.warmup.voice_inflight }}</code>
+              <code>voice_state={{ operator_status.readiness.warmup.voice_prewarm_state or "unknown" }}</code>
+              {% if operator_status.readiness.operator_attention_recommended %}
+              <code>operator_attention_recommended</code>
+              {% endif %}
+              {% if operator_status.readiness.operator_action_required %}
+              <code>operator_action_required</code>
+              {% endif %}
+            </div>
+          </dd>
+          <dt>Voice prewarm timing</dt>
+          <dd>
+            <div class="inline-stack">
+              <code>started_at={{ operator_status.readiness.warmup.voice_started_at or 0 }}</code>
+              <code>age_s={{ operator_status.readiness.warmup.voice_age_seconds or 0 }}</code>
+              <code>stale={{ operator_status.readiness.warmup.voice_prewarm_stale }}</code>
+              <code>stale_in_s={{ operator_status.readiness.warmup.voice_prewarm_stale_in_seconds or 0 }}</code>
+              <code>completed_at={{ operator_status.readiness.warmup.voice_completed_at or 0 }}</code>
+              <code>duration_s={{ operator_status.readiness.warmup.voice_duration_seconds or 0 }}</code>
+              <code>completed_age_s={{ operator_status.readiness.warmup.voice_completed_age_seconds or 0 }}</code>
+              <code>voice_ttl_s={{ operator_status.readiness.warmup.voice_ttl_remaining_seconds or 0 }}</code>
+              <code>recovery_attempted={{ operator_status.readiness.warmup.voice_recovery.attempted }}</code>
+              <code>recovery_scheduled={{ operator_status.readiness.warmup.voice_recovery.scheduled }}</code>
+              <code>recovery_reason={{ operator_status.readiness.warmup.voice_recovery.reason or "" }}</code>
+              <code>recovery_age_s={{ operator_status.readiness.warmup.voice_recovery.age_seconds or 0 }}</code>
+            </div>
+          </dd>
+          <dt>Runtime recovery</dt>
+          <dd>
+            {% if operator_status.readiness.next_actions %}
+            <ul>
+              {% for action in operator_status.readiness.next_actions %}
+              <li><code>{{ action }}</code></li>
+              {% endfor %}
+            </ul>
+            {% else %}
+            <span>No runtime recovery action pending.</span>
+            {% endif %}
+            {% if operator_status.readiness.degraded_reasons %}
+            <p style="margin-top:10px;">
+              {% for reason in operator_status.readiness.degraded_reasons %}
+              <code>{{ reason }}</code>
+              {% endfor %}
+            </p>
+            {% endif %}
+          </dd>
+          <dt>Spoken STT</dt>
+          <dd>
+            <div class="inline-stack">
+              <span class="status {{ operator_status.spoken_conversation_stt.status }}">{{ operator_status.spoken_conversation_stt.status }}</span>
+              {% if not operator_status.spoken_conversation_stt.production_provider %}
+              <code>no_production_stt_provider</code>
+              {% endif %}
+              <code>{{ operator_status.spoken_conversation_stt.top_candidate_provider or "" }}</code>
+            </div>
+            <p style="margin-top:10px;">{{ operator_status.spoken_conversation_stt.scoring.production_eligible_rule or "" }}</p>
+          </dd>
+          <dt>STT fixture mode</dt>
+          <dd>
+            <div class="inline-stack">
+              <code>{{ operator_status.spoken_conversation_stt.ground_truth_fixture_mode or "" }}</code>
+              <code>{{ operator_status.spoken_conversation_stt.next_action or "" }}</code>
+            </div>
+          </dd>
+          <dt>STT benchmark privacy</dt>
+          <dd>
+            {% if operator_status.spoken_conversation_stt.scoring.redacted_text_fields %}
+            raw transcript fields redacted
+            {% endif %}
+          </dd>
+          <dt>Spoken TTS</dt>
+          <dd>
+            <div class="inline-stack">
+              <span class="status {{ operator_status.spoken_conversation_tts.status }}">{{ operator_status.spoken_conversation_tts.status }}</span>
+              <code>{{ operator_status.spoken_conversation_tts.next_action or "" }}</code>
+            </div>
+          </dd>
+          <dt>Premium Speech</dt>
+          <dd>
+            <div class="inline-stack">
+              <span class="status {{ operator_status.spoken_conversation_tts.premium_status }}">{{ operator_status.spoken_conversation_tts.premium_status }}</span>
+            </div>
+            <p style="margin-top:10px;">Text fallback is useful, but it is not a premium spoken turn.</p>
+          </dd>
+          <dt>Room attestation packet</dt>
+          <dd>
+            <div class="inline-stack">
+              <span class="status {{ operator_status.room_audio_attestation_packet.status }}">{{ operator_status.room_audio_attestation_packet.status }}</span>
+              <code>{{ operator_status.room_audio_attestation_packet.receipt_path or "" }}</code>
+              <code>{{ operator_status.room_audio_attestation_packet.operator_command or "" }}</code>
+            </div>
+            {% if operator_status.room_audio_attestation_packet.receipt_command_template %}
+            <p style="margin-top:10px;"><code>{{ operator_status.room_audio_attestation_packet.receipt_command_template }}</code></p>
+            {% endif %}
+            {% if operator_status.room_audio_attestation_packet.operator_steps %}
+            <p style="margin-top:10px;"><strong>Room review steps</strong></p>
+            <ul>
+              {% for step in operator_status.room_audio_attestation_packet.operator_steps %}
+              <li>{{ step }}</li>
+              {% endfor %}
+            </ul>
+            {% endif %}
+            <ul>
+              {% for check_id in operator_status.room_audio_attestation_packet.required_check_ids %}
+              <li><code>{{ check_id }}</code></li>
+              {% endfor %}
+            </ul>
+          </dd>
+          <dt>Room receipt detail</dt>
+          <dd>
+            <div class="inline-stack">
+              <span class="status {{ operator_status.room_audio_receipt_detail.status }}">{{ operator_status.room_audio_receipt_detail.status }}</span>
+              <code>{{ operator_status.room_audio_receipt_detail.receipt_path or "" }}</code>
+              <code>{{ operator_status.room_audio_receipt_detail.next_action or "" }}</code>
+            </div>
+            {% if operator_status.room_audio_receipt_detail.missing_checks %}
+            <ul>
+              {% for check in operator_status.room_audio_receipt_detail.missing_checks %}
+              <li><code>{{ check.id }}</code> {{ check.requirement }}</li>
+              {% endfor %}
+            </ul>
+            {% endif %}
+            {% if operator_status.room_audio_receipt_detail.missing_input_hints %}
+            <p style="margin-top:10px;"><strong>Missing inputs</strong></p>
+            <ul>
+              {% for hint in operator_status.room_audio_receipt_detail.missing_input_hints %}
+              <li><code>{{ hint.name }}</code> ({{ hint.kind }}): {{ hint.description }}</li>
+              {% endfor %}
+            </ul>
+            {% endif %}
+            {% if operator_status.room_audio_receipt_detail.failed_codes %}
+            <p style="margin-top:10px;">
+              {% for code in operator_status.room_audio_receipt_detail.failed_codes %}
+              <code>{{ code }}</code>
+              {% endfor %}
+            </p>
+            {% endif %}
+          </dd>
         </dl>
       </section>
 
-      <section class="band">
-        <h2>Receipts</h2>
-        <dl>
-          <dt>Public voice</dt>
-          <dd><span class="status {{ operator_status.public_voice_receipt }}">{{ operator_status.public_voice_receipt }}</span></dd>
-          <dt>Public browser</dt>
-          <dd><span class="status {{ operator_status.public_browser_receipt }}">{{ operator_status.public_browser_receipt }}</span></dd>
-          <dt>Meaningful browser</dt>
-          <dd><span class="status {{ operator_status.public_browser_meaningful_receipt }}">{{ operator_status.public_browser_meaningful_receipt }}</span></dd>
-          <dt>Room audio</dt>
-          <dd><span class="status {{ operator_status.room_audio_receipt }}">{{ operator_status.room_audio_receipt }}</span></dd>
-          <dt>Whole-project gold</dt>
-          <dd><span class="status {{ operator_status.whole_project_gold }}">{{ operator_status.whole_project_gold }}</span></dd>
-          <dt>Workflow-backed</dt>
-          <dd><span class="status {{ operator_status.workflow_backing.status }}">{{ operator_status.workflow_backing.status }}</span></dd>
-        </dl>
-      </section>
-
-      <section class="band">
+      <section class="band" style="margin-top:16px;">
         <h2>Semantics</h2>
         <dl>
           <dt>Voice receipt label</dt>
@@ -128,11 +514,60 @@
           <dt>Operator status file</dt>
           <dd><code>{{ status_path }}</code></dd>
         </dl>
-        <ul>
+        <ul class="note-list">
           {% for note in operator_status.operator_notes %}
           <li>{{ note }}</li>
           {% endfor %}
         </ul>
+      </section>
+
+      <section class="band" style="margin-top:16px;">
+        <h2>Operator Actions</h2>
+        <dl>
+          <dt>Refresh operator status</dt>
+          <dd><code>{{ operator_status.actions.refresh_operator_status or "" }}</code></dd>
+          <dt>Refresh phrase bank</dt>
+          <dd><code>{{ operator_status.actions.refresh_phrase_bank or "" }}</code></dd>
+          <dt>Refresh public auto receipts</dt>
+          <dd><code>{{ operator_status.actions.refresh_public_auto_receipts_clean or "" }}</code></dd>
+          <dt>Prepare room attestation</dt>
+          <dd><code>{{ operator_status.actions.prepare_room_audio_attestation_packet or "" }}</code></dd>
+          <dt>Record clean room proof</dt>
+          <dd><code>{{ operator_status.actions.record_room_audio_proof_clean or "" }}</code></dd>
+        </dl>
+      </section>
+
+      <section class="band" style="margin-top:16px;">
+        <h2>Route Probe</h2>
+        <dl>
+          <dt>Configured public origin</dt>
+          <dd>
+            <div class="inline-stack">
+              <code>{{ operator_status.route_probe.configured_public_origin or "" }}</code>
+              <code>{{ operator_status.route_probe.public_origin_source or "" }}</code>
+            </div>
+          </dd>
+          <dt>Local runtime route</dt>
+          <dd>
+            <div class="inline-stack">
+              <span class="status {{ operator_status.route_probe.local_runtime.status }}">{{ operator_status.route_probe.local_runtime.status }}</span>
+              <code>{{ operator_status.route_probe.local_runtime.status_code or "" }}</code>
+              <code>{{ operator_status.route_probe.local_runtime.url or "" }}</code>
+            </div>
+            <p style="margin-top:10px;"><code>{{ operator_status.route_probe.local_runtime.detail or "" }}</code></p>
+          </dd>
+          <dt>Public origin route</dt>
+          <dd>
+            <div class="inline-stack">
+              <span class="status {{ operator_status.route_probe.public_origin_runtime.status }}">{{ operator_status.route_probe.public_origin_runtime.status }}</span>
+              <code>{{ operator_status.route_probe.public_origin_runtime.status_code or "" }}</code>
+              <code>{{ operator_status.route_probe.public_origin_runtime.url or "" }}</code>
+            </div>
+            <p style="margin-top:10px;"><code>{{ operator_status.route_probe.public_origin_runtime.detail or "" }}</code></p>
+          </dd>
+          <dt>Next action</dt>
+          <dd><code>{{ operator_status.route_probe.next_action or "" }}</code></dd>
+        </dl>
       </section>
     </main>
   </body>

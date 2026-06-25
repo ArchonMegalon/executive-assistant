@@ -1,9 +1,24 @@
 from __future__ import annotations
 
+import os
 import queue
 import threading
 import time
 from typing import Any, Callable
+
+
+def _tool_shim_excluded_tool_names() -> set[str]:
+    raw = str(os.environ.get("EA_TOOL_SHIM_EXCLUDED_TOOL_NAMES") or "").strip()
+    excluded = {
+        "request_user_input",
+    }
+    if raw:
+        excluded.update(
+            str(item or "").strip()
+            for item in raw.replace(";", ",").split(",")
+            if str(item or "").strip()
+        )
+    return excluded
 
 
 def generate_upstream_text(
@@ -147,6 +162,7 @@ def build_tool_shim_supported_tools(
         prompt: str | None = None,
     ) -> list[dict[str, object]]:
         supported: list[dict[str, object]] = []
+        excluded_tool_names = _tool_shim_excluded_tool_names()
         for tool in raw_tools:
             tool_type = str(tool.get("type") or "").strip().lower()
             if tool_type != "function":
@@ -154,6 +170,8 @@ def build_tool_shim_supported_tools(
             name = str(tool.get("name") or "").strip()
             parameters = tool.get("parameters")
             if not name or not isinstance(parameters, dict):
+                continue
+            if name in excluded_tool_names:
                 continue
             supported.append(
                 {

@@ -54,10 +54,18 @@ def test_repair_design_mirror_bundle_help_mentions_bounded_bundle() -> None:
 
 def test_release_assets_guard_wires_design_mirror_bundle_verifier() -> None:
     script = (ROOT / "scripts" / "verify_release_assets.sh").read_text(encoding="utf-8")
-    assert "scripts/verify_design_mirror_bundle.py" in script
+    assert 'PYTHONPATH=ea "${PYTHON_BIN}" scripts/materialize_release_bundle.py --python-bin "${PYTHON_BIN}" >/dev/null' in script
+    assert '"${PYTHON_BIN}" scripts/verify_design_mirror_bundle.py' in script
     assert "scripts/repair_design_mirror_bundle.sh" in script
-    assert "scripts/verify_release_authority.py" in script
+    assert '"${PYTHON_BIN}" scripts/verify_release_authority.py' in script
+    assert '"${PYTHON_BIN}" scripts/verify_deploy_context.py' in script
+    assert '"${PYTHON_BIN}" scripts/verify_release_authority_runtime.py --pretty --require-authoritative' in script
+    assert '"${PYTHON_BIN}" scripts/verify_runtime_supply_chain.py' in script
+    assert '"${PYTHON_BIN}" scripts/verify_generated_release_artifacts_clean.py' in script
+    assert "scripts/materialize_release_authority_status.py" in script
+    assert ".codex-studio/published/release_authority_status.generated.json" in script
     assert "ok: release authority gate" in script
+    assert "ok: authoritative live runtime release gate" in script
     assert "ok: bounded design mirror bundle parity" in script
 
 

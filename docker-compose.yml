@@ -1,60 +1,4 @@
 services:
-  ea-openvoice:
-    build:
-      context: ./ea
-      dockerfile: Dockerfile.openvoice
-    image: ea-openvoice:latest
-    container_name: ea-openvoice
-    restart: unless-stopped
-    mem_limit: 8g
-    mem_reservation: 2g
-    environment:
-      - EA_ROLE=openvoice
-      - OPENVOICE_PORT=8093
-      - OPENVOICE_BASE_TTS=${OPENVOICE_BASE_TTS:-espeak}
-      - OPENVOICE_HOST=0.0.0.0
-      - OPENVOICE_DATA_DIR=/data/openvoice
-      - OPENVOICE_CHECKPOINT_ROOT=/models/openvoice
-      - OPENVOICE_SOURCE_DIR=/app/third_party/OpenVoice
-      - EA_LTD_MARKDOWN_PATH=/app/LTDs.md
-      - EA_LTDS_MARKDOWN_PATH=/app/LTDs.md
-      - PIPER_BIN=/opt/piper/piper
-      - PIPER_MODEL_PATH=/models/piper/de_DE-thorsten-high.onnx
-      - PIPER_MODEL_PATH_ALT=/models/piper/de_DE-thorsten-medium.onnx
-      - PIPER_DEFAULT_VARIANT=high
-      - PIPER_ALT_VARIANT=balanced
-      - OPENVOICE_MAX_CLONE_FILES=4
-      - OPENVOICE_MAX_UPLOAD_BYTES=20971520
-      - OPENVOICE_MAX_TOTAL_UPLOAD_BYTES=50331648
-      - OPENVOICE_MAX_TTS_TEXT_LEN=3000
-      - TZ=Europe/Vienna
-    ports:
-      - "127.0.0.1:${OPENVOICE_HOST_PORT:-8093}:8093"
-    volumes:
-      - ./ea/.piper:/opt/piper:ro
-      - ./ea/third_party/OpenVoice:/app/third_party/OpenVoice:ro
-      - ./ea/.models/openvoice:/models/openvoice:ro
-      - ./ea/.models/piper:/models/piper:ro
-      - ./LTDs.md:/app/LTDs.md:ro
-      - ea_openvoice_data:/data/openvoice
-    pids_limit: 512
-    read_only: true
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
-    tmpfs:
-      - /tmp
-      - /run
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - port=$${OPENVOICE_PORT:-8093}; curl -fsS --connect-timeout 2 --max-time 10 http://127.0.0.1:$${port}/health/live >/dev/null
-      interval: 30s
-      timeout: 15s
-      start_period: 45s
-      retries: 5
-
   ea-teable-relay:
     build:
       context: .
@@ -105,6 +49,8 @@ services:
     mem_reservation: 1g
     env_file:
       - .env
+      - path: .env.local
+        required: false
     environment:
       - EA_ROLE=api
       - EA_PORT=8090
@@ -123,6 +69,8 @@ services:
       - EA_AUDIOBOOK_UNMIXR_MAX_CHARS_PER_REQUEST=${EA_AUDIOBOOK_UNMIXR_MAX_CHARS_PER_REQUEST:-1800}
       - EA_AUDIOBOOK_EBOOK_CONVERT_BIN=${EA_AUDIOBOOK_EBOOK_CONVERT_BIN:-ebook-convert}
       - EA_AUDIOBOOK_KINDLE_CONVERT_TIMEOUT_SECONDS=${EA_AUDIOBOOK_KINDLE_CONVERT_TIMEOUT_SECONDS:-900}
+      - EA_GEMINI_VORTEX_CONFIG_DIR=${EA_GEMINI_VORTEX_CONFIG_DIR:-/run/ea-gemini-cli-config}
+      - EA_GEMINI_VORTEX_HOME_ROOT=${EA_GEMINI_VORTEX_HOME_ROOT:-/tmp/ea-gemini-vortex}
       - EA_AUDIOBOOK_PARAGRAPH_PAUSES_ENABLED=${EA_AUDIOBOOK_PARAGRAPH_PAUSES_ENABLED:-1}
       - EA_AUDIOBOOK_PARAGRAPH_PAUSE_SECONDS=${EA_AUDIOBOOK_PARAGRAPH_PAUSE_SECONDS:-0.45}
       - EA_AUDIOBOOK_PUBLICATION_STT_GATE_REQUIRED=${EA_AUDIOBOOK_PUBLICATION_STT_GATE_REQUIRED:-1}
@@ -152,7 +100,6 @@ services:
       - EA_AUDIOBOOK_ACCESS_EXPIRES_DAYS=${EA_AUDIOBOOK_ACCESS_EXPIRES_DAYS:-30}
       - EA_AUDIOBOOK_PLAYER_ACCESS_BASE_URL=${EA_AUDIOBOOK_PLAYER_ACCESS_BASE_URL:-}
       - HOME=/home/ea
-      - OPENVOICE_BASE_URL=${OPENVOICE_BASE_URL:-http://ea-openvoice:8093}
       - EA_UI_SERVICE_SHARED_TEMP_ROOT=${EA_UI_SERVICE_SHARED_TEMP_ROOT:-/data/artifacts/browseract_ui_worker_shared}
       - VOICEWAVE_RUNTIME_TMP_ROOT=${VOICEWAVE_RUNTIME_TMP_ROOT:-/data/artifacts/voicewave_runtime_tmp}
       - TEABLE_BASE_URL=${TEABLE_RUNTIME_BASE_URL:-https://app.teable.ai}
@@ -163,17 +110,22 @@ services:
     volumes:
       - ./config:/config:ro
       - ./config:/app/config:ro
+      - ${EA_GEMINI_VORTEX_CONFIG_HOST_DIR:-/home/tibor/.gemini}:/run/ea-gemini-cli-config:ro
       - ./.codex-design:/app/.codex-design:ro
       - ./.codex-studio:/app/.codex-studio:ro
       - ./Dockerfile:/app/Dockerfile:ro
       - ./ea/Dockerfile:/app/Dockerfile.ea:ro
       - ./ea/Dockerfile.operator:/app/Dockerfile.operator:ro
-      - ./ea/Dockerfile.openvoice:/app/Dockerfile.openvoice:ro
       - ./ea/requirements.txt:/app/requirements.txt:ro
-      - ./ea/requirements-openvoice.txt:/app/requirements-openvoice.txt:ro
       - ./ea/requirements.lock:/app/requirements.lock:ro
+      - ./ea/app/api/routes:/app/app/api/routes:ro
       - ./ea/app/api/routes/channels.py:/app/app/api/routes/channels.py:ro
       - ./ea/app/api/routes/health.py:/app/app/api/routes/health.py:ro
+      - ./ea/app/api/routes/responses.py:/app/app/api/routes/responses.py:ro
+      - ./ea/app/api/routes/responses_local_fleet_runtime.py:/app/app/api/routes/responses_local_fleet_runtime.py:ro
+      - ./ea/app/api/routes/responses_tool_runtime.py:/app/app/api/routes/responses_tool_runtime.py:ro
+      - ./ea/app/services:/app/app/services:ro
+      - ./ea/app/templates/admin_memorial_gold.html:/app/app/templates/admin_memorial_gold.html:ro
       - ./ea/app/services/audiobook_epub_pipeline.py:/app/app/services/audiobook_epub_pipeline.py:ro
       - ./ea/app/product/service.py:/app/app/product/service.py:ro
       - ./scripts/verify_deploy_context.py:/app/scripts/verify_deploy_context.py:ro
@@ -216,9 +168,20 @@ services:
     mem_reservation: 512m
     env_file:
       - .env
+      - path: .env.local
+        required: false
     environment:
       - EA_ROLE=api
+      - EA_RESPONSES_PROXY_HOST=0.0.0.0
       - EA_RESPONSES_PROXY_PORT=8091
+      - EA_ARTIFACTS_DIR=/data/artifacts
+      - EA_RESPONSES_PROVIDER_LEDGER_DIR=/data/provider-ledger
+      - EA_ONEDRIVE_ATTACHMENT_ROOT=/data/onedrive_attachments
+      - EA_AUDIOBOOK_DURABLE_STORAGE_ROOT=${EA_AUDIOBOOK_DURABLE_STORAGE_ROOT:-/data/audiobooks}
+      - EA_AUDIOBOOK_JOBS_ROOT=${EA_AUDIOBOOK_JOBS_ROOT:-/data/audiobooks/jobs}
+      - EA_AUDIOBOOKSHELF_IMPORT_ROOT=${EA_AUDIOBOOKSHELF_IMPORT_ROOT:-/data/audiobooks/audiobookshelf}
+      - EA_UI_SERVICE_SHARED_TEMP_ROOT=${EA_UI_SERVICE_SHARED_TEMP_ROOT:-/data/artifacts/browseract_ui_worker_shared}
+      - VOICEWAVE_RUNTIME_TMP_ROOT=${VOICEWAVE_RUNTIME_TMP_ROOT:-/data/artifacts/voicewave_runtime_tmp}
       - HOME=/home/ea
       - PYTHONPATH=/app
       - TZ=Europe/Vienna
@@ -227,6 +190,11 @@ services:
     volumes:
       - ./config:/config:ro
       - ./config:/app/config:ro
+      - ./ea/app/api/routes:/app/app/api/routes:ro
+      - ./ea/app/api/routes/responses.py:/app/app/api/routes/responses.py:ro
+      - ./ea/app/api/routes/responses_local_fleet_runtime.py:/app/app/api/routes/responses_local_fleet_runtime.py:ro
+      - ./ea/app/api/routes/responses_tool_runtime.py:/app/app/api/routes/responses_tool_runtime.py:ro
+      - ./ea/app/services:/app/app/services:ro
       - ./ea/app/services/audiobook_epub_pipeline.py:/app/app/services/audiobook_epub_pipeline.py:ro
       - ./ea/app/services/whatsapp_delivery_outbox.py:/app/app/services/whatsapp_delivery_outbox.py:ro
       - ./ea/app/services/whatsapp_delivery_router.py:/app/app/services/whatsapp_delivery_router.py:ro
@@ -272,6 +240,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+      - path: .env.local
+        required: false
     environment:
       - EA_ROLE=worker
       - EA_ARTIFACTS_DIR=/data/artifacts
@@ -362,6 +332,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+      - path: .env.local
+        required: false
     environment:
       - EA_ROLE=scheduler
       - EA_ARTIFACTS_DIR=/data/artifacts

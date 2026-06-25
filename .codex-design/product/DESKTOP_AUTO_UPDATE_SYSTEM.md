@@ -176,6 +176,16 @@ Current shipped startup behavior for the classic desktop updater is:
 * silent-mode automatic updates must download, install in place, and relaunch without a second approval prompt
 * the updater surface may minimize while idle, but it must come back to the foreground for active download and apply stages
 
+The user-facing update setting has exactly three modes:
+
+* `full`: check, download, install in place, and relaunch when a compatible promoted update is available
+* `notify`: check and show that a newer build exists, without downloading or applying it automatically
+* `off`: do not check for updates on startup
+
+Packaged Windows, macOS, and Linux binaries default to `full` when update truth is available. Linked accounts also default to `full` unless the user changes the setting. Linux source-build launchers default to `notify` so source-built copies never silently replace themselves with a published binary.
+
+The Linux source-build path stays single-sourced. The executable script lives in `Chummer6/scripts/build-chummer6-linux.sh`, the user-facing explanation lives in `Chummer6/SOURCE_BUILD_LINUX.md`, and the maintenance policy lives in `maintenance/LINUX_SOURCE_BUILD_PATH.md`.
+
 The client must not:
 
 * invent local promoted-channel semantics

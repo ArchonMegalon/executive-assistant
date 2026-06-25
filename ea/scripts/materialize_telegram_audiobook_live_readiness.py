@@ -190,7 +190,11 @@ def _build_env_preflight() -> dict[str, object]:
     add("audiobookshelf_import_root_writable", _writable_or_creatable(import_root))
     add("audiobookshelf_public_share_configured", api_base and public_base and api_token and library_id, severity="warn")
     add("player_access_signing_secret_present", bool(str(os.environ.get("EA_AUDIOBOOK_ACCESS_SIGNING_SECRET") or "").strip()))
-    add("player_access_base_url_present", bool(str(os.environ.get("EA_AUDIOBOOK_PLAYER_ACCESS_BASE_URL") or "").strip()))
+    add(
+        "player_access_base_url_present",
+        bool(str(os.environ.get("EA_AUDIOBOOK_PLAYER_ACCESS_BASE_URL") or "").strip()),
+        severity="warn",
+    )
     add("scheduler_resume_enabled", _env_bool("EA_SCHEDULER_AUDIOBOOK_RESUME_ENABLED", True))
 
     failed = [str(row["key"]) for row in checks if row["status"] == "fail"]
@@ -317,11 +321,13 @@ def _check_lookup(preflight: dict[str, object]) -> dict[str, str]:
     return rows
 
 
-def _status_from_check(checks: dict[str, str], key: str, fallback: bool = False) -> str:
+def _status_from_check(checks: dict[str, str], key: str, fallback: bool = False, *, warn_is_ready: bool = False) -> str:
     status = checks.get(key)
     if status == "pass":
         return "ready"
-    if status in {"fail", "warn"}:
+    if status == "warn":
+        return "ready" if warn_is_ready else "blocked"
+    if status == "fail":
         return "blocked"
     return "ready" if fallback else "blocked"
 
@@ -491,7 +497,7 @@ def materialize_telegram_audiobook_live_readiness(
         ),
         _item(
             key="player_access_base_url_present",
-            status="ready" if bool(access.get("player_access_base_url_present")) else "blocked",
+            status=_status_from_check(checks, "player_access_base_url_present", warn_is_ready=True),
             env_var_names=["EA_AUDIOBOOK_PLAYER_ACCESS_BASE_URL"],
             operator_action="Configure the public EA base URL for player-scoped audiobook links.",
         ),

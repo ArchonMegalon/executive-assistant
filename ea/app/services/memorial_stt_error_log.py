@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -11,9 +12,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from app.services.memorial_paths import memorial_data_root
 
-_DEFAULT_STT_ERROR_ROOT = Path("/mnt/pcloud/EA/memorial_stt_errors")
-_DEFAULT_STT_ERROR_RETENTION_DAYS = 14
+
+def _default_stt_error_root() -> Path:
+    return memorial_data_root() / "memorial_data" / "private_memorial_stt_errors"
+
+
+_DEFAULT_STT_ERROR_ROOT = _default_stt_error_root()
 _GENERIC_FALLBACK_MARKERS = (
     "sag mir den konkreten punkt",
     "dann antworte ich dir direkt darauf",
@@ -40,6 +46,28 @@ _SUSPICIOUS_FALLBACK_REASONS = {
     "rescue_ooda_loop",
     "memorial_ooda_guardrail",
 }
+_DROP_FIELDS = {
+    "sources",
+    "source_documents",
+    "source_chunks",
+    "raw_response",
+    "messages",
+    "audio_base64",
+    "audio_bytes",
+}
+_REDACTED_TEXT_FIELDS = {
+    "answer",
+    "question",
+    "text",
+    "transcript_text",
+    "transcript_original_text",
+    "transcript_effective_text",
+}
+_URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
+_SECRET_RE = re.compile(
+    r"(?:sk_[A-Za-z0-9._-]+|Bearer\s+[A-Za-z0-9._-]+|AIza[0-9A-Za-z_-]+)",
+    re.IGNORECASE,
+)
 
 
 def memorial_stt_error_logging_enabled() -> bool:
@@ -49,16 +77,26 @@ def memorial_stt_error_logging_enabled() -> bool:
 
 def memorial_stt_error_log_root() -> Path:
     configured = str(os.getenv("EA_MEMORIAL_STT_ERROR_LOG_DIR") or "").strip()
-    return Path(configured or str(_DEFAULT_STT_ERROR_ROOT)).expanduser()
+    return Path(configured).expanduser() if configured else _default_stt_error_root()
 
 
-def memorial_stt_error_retention_days() -> int:
-    raw = str(os.getenv("EA_MEMORIAL_STT_ERROR_LOG_RETENTION_DAYS") or "").strip()
+def memorial_stt_error_retention_days() -> int | None:
+    raw = os.getenv("EA_MEMORIAL_STT_ERROR_LOG_RETENTION_DAYS")
+    if raw is None or not str(raw).strip():
+        return None
     try:
-        parsed = int(raw)
+        parsed = int(str(raw).strip())
     except (TypeError, ValueError):
-        return _DEFAULT_STT_ERROR_RETENTION_DAYS
+        return None
     return max(1, min(365, parsed))
+
+
+def memorial_stt_error_text_mode() -> str:
+    requested = str(os.getenv("EA_MEMORIAL_STT_ERROR_LOG_TEXT_MODE") or "").strip().lower()
+    full_allowed = str(os.getenv("EA_MEMORIAL_STT_ERROR_LOG_FULL_TEXT_ALLOWED") or "").strip().lower()
+    if requested == "full" and full_allowed in {"1", "true", "yes", "on"}:
+        return "full"
+    return "redacted"
 
 
 def classify_memorial_stt_issue(
@@ -72,7 +110,6 @@ def classify_memorial_stt_issue(
     normalized_transcript = " ".join(str(transcript_text or "").split()).strip()
     normalized_answer = " ".join(str(answer_text or "").split()).strip().lower()
     normalized_reason = str(fallback_reason or "").strip().lower()
-
     if normalized_status and normalized_status != "transcribed":
         return f"stt_{normalized_status}"
     if not normalized_transcript:
@@ -101,8 +138,13 @@ def log_memorial_stt_issue(
 ) -> dict[str, str]:
     if not memorial_stt_error_logging_enabled():
         return {"status": "disabled", "reason": "logging_disabled"}
-
-    root = memorial_stt_error_log_root()
+    retention_days = memorial_stt_error_retention_days()
+    if retention_days is None:
+        return {"status": "disabled", "reason": "retention_policy_missing"}
+    storage_policy = _storage_policy()
+    if not storage_policy["allowed"]:
+        return {"status": "disabled", "reason": str(storage_policy["reason"])}
+    root = Path(str(storage_policy["root"]))
     timestamp = datetime.now(timezone.utc)
     token = uuid.uuid4().hex[:12]
     safe_slug = _safe_path_token(slug, fallback="memorial")
@@ -112,12 +154,13 @@ def log_memorial_stt_issue(
     target_dir.mkdir(parents=True, exist_ok=True)
 
     wav_payload = _best_effort_wav_payload(payload=audio_payload, content_type=content_type)
+    audio_filename = "input.wav" if wav_payload is not None else f"input{_content_type_suffix(content_type)}"
     if wav_payload is not None:
-        _write_bytes_atomic(target_dir / "input.wav", wav_payload)
+        _write_bytes_atomic(target_dir / audio_filename, wav_payload)
     elif audio_payload:
-        suffix = _content_type_suffix(content_type)
-        _write_bytes_atomic(target_dir / f"input{suffix}", audio_payload)
+        _write_bytes_atomic(target_dir / audio_filename, audio_payload)
 
+    text_mode = memorial_stt_error_text_mode()
     metadata = {
         "status": "open",
         "severity": "error",
@@ -128,13 +171,17 @@ def log_memorial_stt_issue(
         "occurred_at": timestamp.isoformat(),
         "content_type": str(content_type or "application/octet-stream"),
         "audio_bytes": len(audio_payload or b""),
-        "storage_root": str(root),
         "stored_wav": bool(wav_payload is not None),
-        "retention_days": memorial_stt_error_retention_days(),
+        "retention_days": retention_days,
         "consent_mode": "explicit_operator_opt_in",
-        "transcription": _scrub_payload(dict(transcription_payload or {})),
-        "answer": _scrub_payload(dict(answer_payload or {})),
-        "extra": _scrub_payload(dict(extra or {})),
+        "text_mode": text_mode,
+        "storage_policy": {
+            "storage_mode": str(storage_policy["storage_mode"]),
+            "root": str(root),
+        },
+        "transcription": _scrub_payload(dict(transcription_payload or {}), text_mode=text_mode),
+        "answer": _scrub_payload(dict(answer_payload or {}), text_mode=text_mode),
+        "extra": _scrub_payload(dict(extra or {}), text_mode=text_mode),
     }
     _write_text_atomic(
         target_dir / "error.json",
@@ -144,35 +191,99 @@ def log_memorial_stt_issue(
         "status": "logged",
         "directory": str(target_dir),
         "metadata_path": str(target_dir / "error.json"),
-        "audio_path": str(target_dir / ("input.wav" if wav_payload is not None else f"input{_content_type_suffix(content_type)}")),
+        "audio_path": str(target_dir / audio_filename),
     }
 
 
-def _scrub_payload(payload: dict[str, Any]) -> dict[str, Any]:
+def _storage_policy() -> dict[str, object]:
+    root = memorial_stt_error_log_root()
+    allow_local = str(os.getenv("EA_MEMORIAL_STT_ERROR_LOG_ALLOW_LOCAL") or "").strip().lower() in {"1", "true", "yes", "on"}
+    if allow_local:
+        return {
+            "allowed": True,
+            "reason": "",
+            "root": root,
+            "storage_mode": "operator_local_override",
+        }
+    root_text = str(root)
+    if root_text.startswith("/private/"):
+        if not _private_storage_available():
+            return {
+                "allowed": False,
+                "reason": "private_storage_missing",
+                "root": root,
+                "storage_mode": "private_storage",
+            }
+        return {
+            "allowed": True,
+            "reason": "",
+            "root": root,
+            "storage_mode": "private_storage",
+        }
+    try:
+        resolved_root = root.resolve(strict=False)
+        default_root = _default_stt_error_root().resolve(strict=False)
+        under_default = resolved_root == default_root or default_root in resolved_root.parents
+    except Exception:
+        under_default = False
+    if not under_default:
+        return {
+            "allowed": False,
+            "reason": "root_not_under_memorial_stt_error_root",
+            "root": root,
+            "storage_mode": "rejected",
+        }
+    return {
+        "allowed": True,
+        "reason": "",
+        "root": root,
+        "storage_mode": "managed_private_root",
+    }
+
+
+def _private_storage_available() -> bool:
+    return Path("/private").exists()
+
+
+def _scrub_payload(payload: dict[str, Any], *, text_mode: str) -> dict[str, Any]:
     scrubbed: dict[str, Any] = {}
     for key, value in payload.items():
         normalized_key = str(key).strip()
-        lowered = normalized_key.lower()
-        if lowered in {"sources", "source_documents", "source_chunks", "raw_response", "messages", "audio_base64", "audio_bytes"}:
+        if normalized_key.lower() in _DROP_FIELDS:
             continue
-        scrubbed[normalized_key] = _scrub_value(value)
+        scrubbed[normalized_key] = _scrub_value(value, key=normalized_key, text_mode=text_mode)
     return scrubbed
 
 
-def _scrub_value(value: Any) -> Any:
+def _scrub_value(value: Any, *, key: str, text_mode: str) -> Any:
     if value is None or isinstance(value, (bool, int, float)):
         return value
     if isinstance(value, str):
-        normalized = " ".join(value.split()).strip()
+        normalized = _sanitize_public_text(value)
+        if key.lower() in _REDACTED_TEXT_FIELDS:
+            if text_mode == "full":
+                return normalized
+            return {
+                "redacted": True,
+                "chars": len(normalized),
+                "sha256": hashlib.sha256(normalized.encode("utf-8")).hexdigest(),
+            }
         return normalized[:500]
     if isinstance(value, list):
-        return [_scrub_value(item) for item in value[:10]]
+        return [_scrub_value(item, key=key, text_mode=text_mode) for item in value[:10]]
     if isinstance(value, dict):
         nested: dict[str, Any] = {}
-        for key, nested_value in list(value.items())[:20]:
-            nested[str(key)] = _scrub_value(nested_value)
+        for nested_key, nested_value in list(value.items())[:20]:
+            nested[str(nested_key)] = _scrub_value(nested_value, key=str(nested_key), text_mode=text_mode)
         return nested
-    return str(value)[:200]
+    return _sanitize_public_text(str(value))[:200]
+
+
+def _sanitize_public_text(value: str) -> str:
+    normalized = " ".join(str(value or "").split()).strip()
+    normalized = _URL_RE.sub("[url]", normalized)
+    normalized = _SECRET_RE.sub("[secret]", normalized)
+    return normalized
 
 
 def _safe_path_token(value: object, *, fallback: str) -> str:
@@ -202,8 +313,7 @@ def _best_effort_wav_payload(*, payload: bytes, content_type: str) -> bytes | No
     if normalized.startswith(("audio/wav", "audio/wave", "audio/x-wav")) or payload.startswith(b"RIFF"):
         return payload
     if normalized.startswith("audio/pcm"):
-        sample_rate = _pcm_sample_rate_from_content_type(content_type)
-        return _pcm16_to_wav(payload, sample_rate=sample_rate)
+        return _pcm16_to_wav(payload, sample_rate=_pcm_sample_rate_from_content_type(content_type))
     ffmpeg_format = _ffmpeg_input_format_for_content_type(content_type)
     if ffmpeg_format:
         return _ffmpeg_audio_to_wav(payload=payload, input_format=ffmpeg_format)

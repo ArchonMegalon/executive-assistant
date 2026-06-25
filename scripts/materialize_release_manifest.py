@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import argparse
 from datetime import UTC, datetime
+import importlib.util
 import json
 import os
 from pathlib import Path
 import subprocess  # nosec B404
-from typing import Any
+import sys
+from typing import Any, Callable, cast
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -51,6 +53,27 @@ _MODE_PREFIXES = {
     ),
 }
 
+_ENV_FILE_CACHE: dict[Path, dict[str, str]] = {}
+_DEPLOY_CONTEXT_CACHE: dict[Path, dict[str, Any]] = {}
+_DEFAULT_COMPOSE_FILES = ("docker-compose.yml", "docker-compose.prod.yml")
+
+
+def _load_source_worktree_metadata() -> Callable[[Path], dict[str, object]]:
+    script_path = ROOT / "scripts" / "source_state_head.py"
+    spec = importlib.util.spec_from_file_location("ea_source_state_head", script_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"source_state_head_unloadable:{script_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules.setdefault(spec.name, module)
+    spec.loader.exec_module(module)
+    loaded = getattr(module, "source_worktree_metadata", None)
+    if not callable(loaded):
+        raise RuntimeError(f"source_state_head_missing_export:{script_path}")
+    return cast(Callable[[Path], dict[str, object]], loaded)
+
+
+source_worktree_metadata = _load_source_worktree_metadata()
+
 
 def _normalize_mode_for_scope(raw: str) -> str:
     return str(raw or "").strip().upper().replace("-", "_")
@@ -80,6 +103,64 @@ def _artifact_in_scope(*, artifact_path: str, enabled_modes: list[str]) -> bool:
 
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _env_file_values(root: Path | None = None) -> dict[str, str]:
+    resolved_root = root or ROOT
+    cached = _ENV_FILE_CACHE.get(resolved_root)
+    if cached is not None:
+        return cached
+    values: dict[str, str] = {}
+    env_path = resolved_root / ".env"
+    if env_path.is_file():
+        for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            normalized_key = str(key).strip()
+            if not normalized_key:
+                continue
+            values[normalized_key] = str(value).strip()
+    _ENV_FILE_CACHE[resolved_root] = values
+    return values
+
+
+def _env_value(name: str, *, root: Path | None = None) -> str:
+    resolved_root = root or ROOT
+    value = str(os.environ.get(name) or "").strip()
+    if value:
+        return value
+    return str(_env_file_values(resolved_root).get(name) or "").strip()
+
+
+def _env_or_deploy_context_value(name: str, *, context_key: str | None = None, root: Path | None = None) -> str:
+    resolved_root = root or ROOT
+    value = str(os.environ.get(name) or "").strip()
+    if value:
+        return value
+    deploy_context = _deploy_context(resolved_root)
+    deploy_value = str(deploy_context.get(context_key or name) or "").strip()
+    if deploy_value:
+        return deploy_value
+    return str(_env_file_values(resolved_root).get(name) or "").strip()
+
+
+def _deploy_context(root: Path | None = None) -> dict[str, Any]:
+    resolved_root = root or ROOT
+    cached = _DEPLOY_CONTEXT_CACHE.get(resolved_root)
+    if cached is not None:
+        return cached
+    path = resolved_root / ".codex-studio" / "published" / "deploy_context.generated.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        context = dict(payload or {}) if isinstance(payload, dict) else {}
+        if str(context.get("contract_name") or "").strip() != "ea.deploy_context.v1":
+            context = {}
+    except Exception:
+        context = {}
+    _DEPLOY_CONTEXT_CACHE[resolved_root] = context
+    return context
 
 
 def _git(*args: str) -> str:
@@ -117,7 +198,7 @@ def _artifacts() -> list[str]:
 
 
 def _split_csv_env(name: str) -> list[str]:
-    raw = str(os.environ.get(name) or "").strip()
+    raw = _env_value(name)
     if not raw:
         return []
     values: list[str] = []
@@ -130,6 +211,33 @@ def _split_csv_env(name: str) -> list[str]:
     return values
 
 
+def _compose_files() -> list[str]:
+    explicit = [item.strip() for item in str(os.environ.get("EA_DEPLOY_COMPOSE_FILES") or "").split(",") if item.strip()]
+    if explicit:
+        return explicit
+    deploy_context = _deploy_context()
+    context_files = [
+        str(item).strip()
+        for item in list(deploy_context.get("compose_files") or [])
+        if str(item).strip()
+    ]
+    if context_files:
+        return context_files
+    return list(_DEFAULT_COMPOSE_FILES)
+
+
+def _compose_overrides() -> list[str]:
+    explicit = [item.strip() for item in str(os.environ.get("EA_DEPLOY_COMPOSE_OVERRIDES") or "").split(",") if item.strip()]
+    if explicit:
+        return explicit
+    deploy_context = _deploy_context()
+    return [
+        str(item).strip()
+        for item in list(deploy_context.get("compose_overrides") or [])
+        if str(item).strip()
+    ]
+
+
 def _public_origin() -> tuple[str, str]:
     for env_name in (
         "EA_PUBLIC_APP_BASE_URL",
@@ -137,21 +245,29 @@ def _public_origin() -> tuple[str, str]:
         "EA_PUBLIC_ORIGIN",
         "PUBLIC_ORIGIN",
     ):
-        value = str(os.environ.get(env_name) or "").strip().rstrip("/")
+        value = _env_or_deploy_context_value(env_name, context_key="public_origin").rstrip("/")
         if value:
+            if str(os.environ.get(env_name) or "").strip():
+                return value, env_name
+            if str(_deploy_context().get("public_origin") or "").strip():
+                return value, str(_deploy_context().get("public_origin_source") or env_name).strip() or env_name
             return value, env_name
     return "", "missing"
 
 
 def _deployment_id(commit_sha: str, generated_at: str) -> tuple[str, str]:
+    deploy_context = _deploy_context()
     explicit = str(
-        os.environ.get("EA_DEPLOYMENT_ID")
-        or os.environ.get("DEPLOYMENT_ID")
-        or os.environ.get("RENDER_GIT_COMMIT")
+        _env_value("EA_DEPLOYMENT_ID")
+        or str(deploy_context.get("deployment_id") or "").strip()
+        or _env_value("DEPLOYMENT_ID")
+        or _env_value("RENDER_GIT_COMMIT")
         or ""
     ).strip()
     if explicit:
-        return explicit, "explicit"
+        if _env_value("EA_DEPLOYMENT_ID") or _env_value("DEPLOYMENT_ID") or _env_value("RENDER_GIT_COMMIT"):
+            return explicit, "explicit"
+        return explicit, str(deploy_context.get("deployment_id_source") or "deploy_context").strip() or "deploy_context"
     stamp = generated_at.replace(":", "").replace("-", "").replace(".", "").replace("T", "T")
     commit_fragment = (commit_sha[:12] if commit_sha else "unknowncommit") or "unknowncommit"
     return f"local-{stamp}-{commit_fragment}", "local_fallback"
@@ -174,7 +290,43 @@ def _enabled_project_modes() -> list[str]:
                 modes.append(mode)
         if modes:
             return modes
-    return [_normalize_mode(os.environ.get("EA_DEPLOY_PRIMARY_MODE") or os.environ.get("EA_DEPLOY_PROJECT_MODE") or "EA_CORE")]
+    deploy_context = _deploy_context()
+    context_modes = [
+        _normalize_mode(str(item), default="")
+        for item in list(deploy_context.get("enabled_project_modes") or [])
+        if _normalize_mode(str(item), default="")
+    ]
+    if context_modes:
+        return context_modes
+    context_mode = _normalize_mode(str(deploy_context.get("project_mode") or ""), default="")
+    if context_mode:
+        return [context_mode]
+    file_configured = str(_env_file_values().get("EA_DEPLOY_ENABLED_MODES") or _env_file_values().get("EA_DEPLOY_ENABLED_PROJECT_MODES") or "").strip()
+    if file_configured:
+        file_seen: set[str] = set()
+        file_modes: list[str] = []
+        for part in file_configured.split(","):
+            mode = _normalize_mode(part, default="")
+            if mode and mode not in file_seen:
+                file_seen.add(mode)
+                file_modes.append(mode)
+        if file_modes:
+            return file_modes
+    return [_normalize_mode(_env_or_deploy_context_value("EA_DEPLOY_PRIMARY_MODE", context_key="project_mode") or _env_or_deploy_context_value("EA_DEPLOY_PROJECT_MODE", context_key="project_mode") or "EA_CORE")]
+
+
+def _project_mode() -> str:
+    configured = _normalize_mode(str(os.environ.get("EA_DEPLOY_PRIMARY_MODE") or os.environ.get("EA_DEPLOY_PROJECT_MODE") or ""), default="")
+    if configured:
+        return configured
+    deploy_context = _deploy_context()
+    context_mode = _normalize_mode(str(deploy_context.get("project_mode") or ""), default="")
+    if context_mode:
+        return context_mode
+    file_mode = _normalize_mode(str(_env_file_values().get("EA_DEPLOY_PRIMARY_MODE") or _env_file_values().get("EA_DEPLOY_PROJECT_MODE") or ""), default="")
+    if file_mode:
+        return file_mode
+    return "EA_CORE"
 
 
 def _tracking_branch() -> str:
@@ -191,13 +343,25 @@ def build_manifest(*, output_path: Path = DEFAULT_OUTPUT, generated_at: str | No
     commit_sha = _git("rev-parse", "HEAD")
     tracking_branch = _tracking_branch()
     dirty_worktree = _dirty_worktree()
-    project_mode = _normalize_mode(os.environ.get("EA_DEPLOY_PRIMARY_MODE") or os.environ.get("EA_DEPLOY_PROJECT_MODE") or "EA_CORE")
+    worktree_metadata = source_worktree_metadata(ROOT)
+    source_worktree_dirty = bool(worktree_metadata.get("source_worktree_dirty"))
+    source_dirty_count = int(cast(int, worktree_metadata.get("source_dirty_count") or 0))
+    source_dirty_files = [
+        str(item).strip()
+        for item in cast(list[object], worktree_metadata.get("source_dirty_files") or [])
+        if str(item).strip()
+    ]
+    source_dirty_omitted_count = int(cast(int, worktree_metadata.get("source_dirty_omitted_count") or 0))
+    source_dirty_status_sha256 = str(worktree_metadata.get("source_dirty_status_sha256") or "")
+    deploy_context = _deploy_context()
+    project_mode = _project_mode()
     enabled_project_modes = _enabled_project_modes()
-    compose_files = _split_csv_env("EA_DEPLOY_COMPOSE_FILES")
-    compose_overrides = _split_csv_env("EA_DEPLOY_COMPOSE_OVERRIDES")
+    compose_files = _compose_files()
+    compose_overrides = _compose_overrides()
     release_label = str(
-        os.environ.get("EA_RELEASE_LABEL")
-        or os.environ.get("RELEASE_LABEL")
+        str(deploy_context.get("release_label") or "").strip()
+        or _env_value("EA_RELEASE_LABEL")
+        or _env_value("RELEASE_LABEL")
         or (commit_sha[:12] if commit_sha else "")
     ).strip()
     deployment_id, deployment_id_source = _deployment_id(commit_sha, generated)
@@ -207,11 +371,20 @@ def build_manifest(*, output_path: Path = DEFAULT_OUTPUT, generated_at: str | No
         "contract_name": "ea.release_manifest.v1",
         "generated_at": generated,
         "generated_by": "scripts/materialize_release_manifest.py",
-        "repository": ROOT.name,
+        "repository": str(deploy_context.get("repository") or ROOT.name).strip() or ROOT.name,
         "branch": branch,
         "tracking_branch": tracking_branch,
         "commit_sha": commit_sha,
         "dirty_worktree": dirty_worktree,
+        "source_worktree_dirty": source_worktree_dirty,
+        "source_dirty_count": source_dirty_count,
+        "source_dirty_files": source_dirty_files,
+        "source_dirty_omitted_count": source_dirty_omitted_count,
+        "source_dirty_status_sha256": source_dirty_status_sha256,
+        "deploy_context_generated_at": str(deploy_context.get("generated_at") or deploy_context.get("written_at") or "").strip(),
+        "deploy_context_branch": str(deploy_context.get("branch") or "").strip(),
+        "deploy_context_tracking_branch": str(deploy_context.get("tracking_branch") or "").strip(),
+        "deploy_context_commit_sha": str(deploy_context.get("commit_sha") or "").strip(),
         "deployment_id": deployment_id,
         "deployment_id_source": deployment_id_source,
         "public_origin": public_origin,
@@ -230,6 +403,14 @@ def build_manifest(*, output_path: Path = DEFAULT_OUTPUT, generated_at: str | No
 
 
 def main() -> int:
+    if any(arg in {"--help", "-h"} for arg in sys.argv[1:]):
+        print(
+            "Usage:\n"
+            "  python3 scripts/materialize_release_manifest.py [--output PATH] [--pretty]\n\n"
+            "Write the release manifest from the current deploy-context, git state, and"
+            " scoped published artifacts."
+        )
+        return 0
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", "--out", dest="output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--pretty", action="store_true")

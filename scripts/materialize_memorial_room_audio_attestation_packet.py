@@ -19,6 +19,10 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT = ROOT / ".codex-studio/published/memorial_room_audio_attestation_packet.generated.json"
 ROOM_RECEIPT = ".codex-studio/published/memorial_room_audio_public_origin.generated.json"
 DEFAULT_MEMORIAL_PUBLIC_ORIGIN = "https://memorial.example.test"
+CHECK_FLAG_BY_ID = {
+    key: "--" + key.replace("_", "-")
+    for key in ROOM_AUDIO_CHECK_REQUIREMENTS
+}
 
 
 def _utc_now() -> str:
@@ -44,6 +48,18 @@ def build_packet(args: argparse.Namespace, *, generated_at: str | None = None) -
         "MEMORIAL_ROOM_ATTESTATION_SIGNED_AT": "YYYY-MM-DDTHH:MM:SSZ",
         "MEMORIAL_ROOM_ATTESTATION_SOURCE": "operator_room_review",
     }
+    check_flags = [CHECK_FLAG_BY_ID[key] for key in ROOM_AUDIO_CHECK_REQUIREMENTS]
+    receipt_command_template = (
+        "MEMORIAL_PUBLIC_ORIGIN=<public-origin> "
+        "MEMORIAL_ROOM_REVIEWER=<actual-listener> "
+        "MEMORIAL_ROOM_DEVICE_LABEL=<device-browser-public-path> "
+        "MEMORIAL_ROOM_SPEAKER_LABEL=<speaker-or-output-route> "
+        "MEMORIAL_ROOM_LABEL=<actual-room> "
+        "MEMORIAL_ROOM_NOTES=<plain-language-observations> "
+        "MEMORIAL_ROOM_ATTESTATION_ID=<signed-room-review-id> "
+        "MEMORIAL_ROOM_ATTESTATION_SIGNED_AT=<YYYY-MM-DDTHH:MM:SSZ> "
+        "make materialize-memorial-room-audio-gold-clean"
+    )
     return {
         "contract_name": "ea.memorial_room_audio_attestation_packet",
         "generated_at": generated_at or _utc_now(),
@@ -57,10 +73,20 @@ def build_packet(args: argparse.Namespace, *, generated_at: str | None = None) -
         "manual_only": True,
         "ci_must_not_auto_assert": True,
         "operator_command": "make materialize-memorial-room-audio-gold-clean",
+        "receipt_command_template": receipt_command_template,
         "required_env": required_env,
+        "required_cli_flags": check_flags,
         "required_checks": [
-            {"id": key, "description": description}
+            {"id": key, "description": description, "cli_flag": CHECK_FLAG_BY_ID[key]}
             for key, description in ROOM_AUDIO_CHECK_REQUIREMENTS.items()
+        ],
+        "operator_steps": [
+            f"Open {base_url}/memorials/{slug} and {base_url}/memorials/{slug}.json from the real public path.",
+            "Ask at least one normal spoken question and wait for microphone capture, STT, answer generation, TTS, and audible playback.",
+            "Confirm every required check manually; if a check is uncertain, do not set its flag.",
+            "Use non-generic reviewer, room, device, speaker, and notes values; generic labels intentionally keep the receipt blocked.",
+            "Set MEMORIAL_ROOM_ATTESTATION_ID and MEMORIAL_ROOM_ATTESTATION_SIGNED_AT from the signed operator review before recording the clean receipt.",
+            "Run the clean materializer from a clean source tree; dirty source intentionally blocks final room-audio gold.",
         ],
         "conversation_prompts": [
             "Kannst du mir kurz antworten?",

@@ -35,6 +35,7 @@ DEFAULT_MEMORIAL_VOICE_ROUNDTRIP_RECEIPT = ROOT / ".codex-studio/published/memor
 DEFAULT_MEMORIAL_PUBLIC_VOICE_RECEIPT = ROOT / ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json"
 DEFAULT_MEMORIAL_PUBLIC_BROWSER_RECEIPT = ROOT / ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json"
 DEFAULT_MEMORIAL_PUBLIC_ROOM_RECEIPT = ROOT / ".codex-studio/published/memorial_room_audio_public_origin.generated.json"
+DEFAULT_MEMORIAL_OPERATOR_STATUS = ROOT / ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json"
 DEFAULT_TELEGRAM_VIDEO_DELIVERY_RECEIPT = ROOT / ".codex-studio/published/telegram_video_delivery_operator.generated.json"
 DEFAULT_TELEGRAM_VIDEO_DELIVERY_LIVE_RECEIPT = ROOT / ".codex-studio/published/telegram_video_delivery_live.generated.json"
 DEFAULT_CORE_RULE_RECEIPTS = (
@@ -337,6 +338,7 @@ def build_gold_map(
     memorial_public_voice_receipt: Path = DEFAULT_MEMORIAL_PUBLIC_VOICE_RECEIPT,
     memorial_public_browser_receipt: Path = DEFAULT_MEMORIAL_PUBLIC_BROWSER_RECEIPT,
     memorial_public_room_receipt: Path = DEFAULT_MEMORIAL_PUBLIC_ROOM_RECEIPT,
+    memorial_operator_status_path: Path = DEFAULT_MEMORIAL_OPERATOR_STATUS,
     telegram_video_delivery_receipt: Path = DEFAULT_TELEGRAM_VIDEO_DELIVERY_RECEIPT,
     telegram_video_delivery_live_receipt: Path = DEFAULT_TELEGRAM_VIDEO_DELIVERY_LIVE_RECEIPT,
     generated_at: str | None = None,
@@ -370,11 +372,27 @@ def build_gold_map(
     memorial_public_voice_status = _status_from_receipt(memorial_public_voice_receipt, {"pass"})
     memorial_public_browser_status = _status_from_receipt(memorial_public_browser_receipt, {"pass"})
     memorial_public_room_status = _room_receipt_status(memorial_public_room_receipt)
+    memorial_operator_status = _json(memorial_operator_status_path)
+    memorial_public_runtime_status = str(memorial_operator_status.get("public_runtime_mode") or "").strip().lower()
+    memorial_public_runtime_reason = str(
+        dict(memorial_operator_status.get("public_runtime_mode_detail") or {}).get("reason") or ""
+    ).strip()
+    memorial_public_runtime_next_action = str(
+        dict(memorial_operator_status.get("public_runtime_mode_detail") or {}).get("next_action") or ""
+    ).strip()
+    memorial_public_access_status = str(memorial_operator_status.get("public_origin_access") or "").strip().lower()
+    memorial_public_access_reason = str(
+        dict(memorial_operator_status.get("public_origin_access_detail") or {}).get("reason") or ""
+    ).strip()
+    memorial_public_access_next_action = str(
+        dict(memorial_operator_status.get("public_origin_access_detail") or {}).get("next_action") or ""
+    ).strip()
     memorial_public_gold_status = (
         "pass"
         if memorial_public_voice_status == "pass"
         and memorial_public_browser_status == "pass"
         and memorial_public_room_status == "pass"
+        and memorial_public_access_status not in {"access_blocked", "blocked", "missing"}
         else "blocked"
     )
     memorial_voice_missing = (
@@ -389,6 +407,24 @@ def build_gold_map(
         memorial_public_missing.append("public-origin browser realtime/audio playback gold receipt")
     if memorial_public_room_status != "pass":
         memorial_public_missing.append("public-origin room/device audio intelligibility receipt with manual attestation")
+    if memorial_public_runtime_status in {"blocked", "missing"}:
+        if memorial_public_runtime_reason == "public_origin_not_deployed_in_memorial_mode":
+            memorial_public_missing.append("public origin is still deployed in EA_CORE mode instead of MEMORIAL mode")
+        else:
+            memorial_public_missing.append("public memorial runtime mode is not proven for the configured public origin")
+    suppress_access_symptom = (
+        memorial_public_runtime_status == "blocked"
+        and memorial_public_runtime_reason == "public_origin_not_deployed_in_memorial_mode"
+    )
+    if memorial_public_access_status in {"access_blocked", "blocked"} and not suppress_access_symptom:
+        if memorial_public_access_reason == "public_origin_memorial_not_found":
+            memorial_public_missing.append("public memorial page or manifest not found at configured public origin")
+        else:
+            memorial_public_missing.append(
+                f"public memorial origin access blocked at configured edge ({memorial_public_access_status})"
+            )
+    elif memorial_public_access_status == "missing":
+        memorial_public_missing.append("public memorial origin access status from memorial operator snapshot")
     memorial_public_design_notes = (
         [
             "Use: Memorial public-origin gold: pass.",
@@ -398,6 +434,12 @@ def build_gold_map(
         else [
             "Guest-facing copy must never say simply gold while this plane is blocked.",
             "Use: Memorial public-origin gold: blocked.",
+            *( [f"public_runtime_mode={memorial_public_runtime_status}"] if memorial_public_runtime_status else [] ),
+            *( [f"public_runtime_reason={memorial_public_runtime_reason}"] if memorial_public_runtime_reason else [] ),
+            *( [f"public_runtime_next_action={memorial_public_runtime_next_action}"] if memorial_public_runtime_next_action else [] ),
+            *( [f"public_origin_access={memorial_public_access_status}"] if memorial_public_access_status and not suppress_access_symptom else [] ),
+            *( [f"public_origin_access_reason={memorial_public_access_reason}"] if memorial_public_access_reason and not suppress_access_symptom else [] ),
+            *( [f"public_origin_access_next_action={memorial_public_access_next_action}"] if memorial_public_access_next_action and not suppress_access_symptom else [] ),
         ]
     )
     ltd_summary = _load_ltd_summary()
@@ -530,6 +572,7 @@ def build_gold_map(
                     memorial_public_voice_receipt,
                     memorial_public_browser_receipt,
                     memorial_public_room_receipt,
+                    memorial_operator_status_path,
                 )
                 if path.is_file()
             ],
@@ -582,6 +625,16 @@ def build_gold_map(
                 required_next_receipts.extend(missing)
             else:
                 required_next_receipts.append(f"{plane['key']} requires an owning-plane pass receipt")
+        if memorial_public_runtime_status in {"blocked", "missing"} and memorial_public_runtime_next_action:
+            required_next_receipts.insert(
+                0,
+                "memorial public-origin deploy next action: " + memorial_public_runtime_next_action,
+            )
+        elif memorial_public_access_status in {"access_blocked", "blocked"} and memorial_public_access_next_action and not suppress_access_symptom:
+            required_next_receipts.insert(
+                0,
+                "memorial public-origin access next action: " + memorial_public_access_next_action,
+            )
         required_next_receipts = list(dict.fromkeys(required_next_receipts))
 
     return {

@@ -3,10 +3,10 @@
   "surface": "flagship_release_control",
   "version": 1,
   "kind": "release_receipt",
-  "generated_at": "2026-06-22T20:38:26Z",
+  "generated_at": "2026-06-25T16:17:18Z",
   "generated_by": "scripts/materialize_ea_flagship_release_gate.py",
-  "source_git_head": "6c14adcab5825325941be4d3c74d924c8d5312a3",
-  "source_tree_fingerprint": "f3422fc4de0f8f478106f916a97bd32151b85262602d0f4165df5b8e7ee31abf",
+  "source_git_head": "a36f2efbf30ff0da35ebf1ee0d8c140cd3579829",
+  "source_tree_fingerprint": "c1b0304b09f6e9cf58e1a458da646d5b78b0f1eaee95c64c4eaee23209f8d9aa",
   "head_semantics": "source_state",
   "status": "blocked",
   "operator_summary": "EA flagship release truth is materialized, but the current browser-proof or release-doc state still blocks the claim.",
@@ -140,9 +140,6 @@
     "project_modes_present": true,
     "state": "blocked",
     "issues": [
-      "public_origin_missing",
-      "public_origin_source_missing",
-      "public_origin_not_runtime_origin",
       "deployment_id_local_fallback",
       "dirty_worktree"
     ]
@@ -190,7 +187,7 @@
     }
   ],
   "blocking_reasons": [
-    "release authority: public_origin_missing, public_origin_source_missing, public_origin_not_runtime_origin, deployment_id_local_fallback, dirty_worktree"
+    "release authority: deployment_id_local_fallback, dirty_worktree"
   ],
   "current_limitations": [],
   "release_truth": {

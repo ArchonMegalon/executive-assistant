@@ -77,6 +77,15 @@ def security_page(
     return support.security_page(request=request, container=container, access_identity=access_identity)
 
 
+@router.get("/data-deletion", response_class=HTMLResponse)
+def data_deletion_page(
+    request: Request,
+    container: deps.AppContainer = Depends(deps.get_container),
+    access_identity: deps.CloudflareAccessIdentity | None = Depends(deps.get_cloudflare_access_identity),
+) -> HTMLResponse:
+    return support.data_deletion_page(request=request, container=container, access_identity=access_identity)
+
+
 @router.get("/pricing", response_class=HTMLResponse)
 def pricing_page(
     request: Request,

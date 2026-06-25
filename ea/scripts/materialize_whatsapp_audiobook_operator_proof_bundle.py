@@ -18,6 +18,14 @@ ROOT = Path(__file__).resolve().parents[2]
 EA_ROOT = ROOT / "ea"
 DEFAULT_OUTPUT = ROOT / ".codex-studio" / "published" / "whatsapp_audiobook_operator_proof_bundle.generated.json"
 CONTRACT_NAME = "ea.whatsapp_audiobook_operator_proof_bundle.v1"
+LIVE_DELIVERY_CLAIM_SCOPES = {"none", "machine_playable_delivery_only", "machine_playable_delivery_and_human_accepted"}
+HUMAN_PLAYBACK_ACCEPTANCE_STATUSES = {"accepted", "rejected", "not_human_verified"}
+SUPPORTED_CALLBACK_PREFIXES = ("ab|", "ap|", "am|")
+SUPPORTED_BUTTON_KINDS = {
+    "audiobook_voice",
+    "audiobook_playback",
+    "audiobook_voice_management",
+}
 
 
 if str(EA_ROOT) not in sys.path:
@@ -118,6 +126,90 @@ def _is_epub_media(message: dict[str, object]) -> bool:
     return bool(message.get("media_present")) and (filename.endswith(".epub") or mimetype in {"application/epub+zip", "application/x-epub+zip"})
 
 
+def _message_sender_or_chat_present(message: dict[str, object]) -> bool:
+    sender_digits = "".join(ch for ch in str(message.get("sender_digits") or "") if ch.isdigit())
+    chat_ref = str(message.get("chat_ref") or message.get("chatRef") or "").strip()
+    return bool(sender_digits or chat_ref)
+
+
+def _message_direct_callback_data(message: dict[str, object]) -> str:
+    return str(
+        message.get("selected_button_id")
+        or message.get("selectedButtonId")
+        or message.get("selected_button_callback")
+        or message.get("button_callback_data")
+        or message.get("callback_data")
+        or ""
+    ).strip()
+
+
+def _message_selected_button_label(message: dict[str, object]) -> str:
+    return str(
+        message.get("selected_button_label")
+        or message.get("selected_option_label")
+        or message.get("poll_selected_option_label")
+        or ""
+    ).strip()
+
+
+def _message_context_present(message: dict[str, object]) -> bool:
+    for key in (
+        "selected_button_message_id",
+        "selected_button_parent_id",
+        "selected_button_context_id",
+        "button_message_id",
+        "poll_message_id",
+        "quoted_message_id",
+        "context_message_id",
+        "context_id",
+        "parent_message_id",
+        "reply_to_message_id",
+    ):
+        if str(message.get(key) or "").strip():
+            return True
+    return isinstance(message.get("context"), dict) and bool(message.get("context"))
+
+
+def _is_inbound_user_message(message: dict[str, object]) -> bool:
+    return str(message.get("direction") or "").strip() == "inbound" and not bool(message.get("from_me"))
+
+
+def _button_action_observation(message: dict[str, object]) -> dict[str, bool]:
+    if not _is_inbound_user_message(message) or not _message_sender_or_chat_present(message):
+        return {
+            "direct_callback": False,
+            "selected_button_id_present": False,
+            "label_fallback": False,
+            "context_present": False,
+            "poll_vote": False,
+            "actionable": False,
+        }
+    direct_callback = _message_direct_callback_data(message)
+    selected_button_id_present = bool(message.get("selected_button_id_present"))
+    selected_kind = str(message.get("selected_button_kind") or "").strip()
+    has_supported_kind = selected_kind in SUPPORTED_BUTTON_KINDS
+    has_supported_direct_callback = (
+        direct_callback.startswith(SUPPORTED_CALLBACK_PREFIXES)
+        or (has_supported_kind and bool(direct_callback))
+    )
+    context_present = _message_context_present(message)
+    poll_vote = str(message.get("type") or "").strip() == "poll_vote"
+    label_fallback = bool(_message_selected_button_label(message)) and (
+        poll_vote or context_present or has_supported_kind
+    )
+    selected_button_surface = selected_button_id_present and (
+        has_supported_kind or bool(direct_callback)
+    )
+    return {
+        "direct_callback": has_supported_direct_callback,
+        "selected_button_id_present": selected_button_id_present,
+        "label_fallback": label_fallback,
+        "context_present": context_present,
+        "poll_vote": poll_vote,
+        "actionable": has_supported_direct_callback or selected_button_surface or label_fallback,
+    }
+
+
 def _sidecar_inbox_observation(readiness_args: argparse.Namespace) -> dict[str, object]:
     base_url = str(getattr(readiness_args, "session_api_base_url", "") or "").strip().rstrip("/")
     session_ref = str(getattr(readiness_args, "session_ref", "") or "").strip()
@@ -155,7 +247,13 @@ def _sidecar_inbox_observation(readiness_args: argparse.Namespace) -> dict[str, 
     inbound_messages = [item for item in messages if str(item.get("direction") or "").strip() == "inbound"]
     media_messages = [item for item in messages if bool(item.get("media_present"))]
     epub_messages = [item for item in media_messages if _is_epub_media(item)]
-    selected_button_messages = [item for item in messages if bool(item.get("selected_button_id_present"))]
+    button_observations = [_button_action_observation(item) for item in messages]
+    selected_button_messages = [row for row in button_observations if row["selected_button_id_present"]]
+    direct_callback_messages = [row for row in button_observations if row["direct_callback"]]
+    label_fallback_messages = [row for row in button_observations if row["label_fallback"]]
+    context_fallback_messages = [row for row in button_observations if row["label_fallback"] and row["context_present"]]
+    poll_vote_messages = [row for row in button_observations if row["poll_vote"]]
+    actionable_button_messages = [row for row in button_observations if row["actionable"]]
     latest_timestamps = [
         str(item.get("message_timestamp") or item.get("received_at") or "").strip()
         for item in messages
@@ -175,6 +273,11 @@ def _sidecar_inbox_observation(readiness_args: argparse.Namespace) -> dict[str, 
         "media_message_count": len(media_messages),
         "epub_media_candidate_count": len(epub_messages),
         "selected_button_candidate_count": len(selected_button_messages),
+        "direct_button_callback_candidate_count": len(direct_callback_messages),
+        "selected_button_label_fallback_candidate_count": len(label_fallback_messages),
+        "selected_button_context_fallback_candidate_count": len(context_fallback_messages),
+        "poll_vote_candidate_count": len(poll_vote_messages),
+        "actionable_button_candidate_count": len(actionable_button_messages),
         "latest_message_timestamp_present": bool(latest_timestamps),
         "raw_text_exposed": False,
         "raw_sender_exposed": False,
@@ -271,6 +374,101 @@ def _bool_env(name: str, default: bool) -> bool:
 
 def _module_attr(module, name: str, default):
     return getattr(module, name, default)
+
+
+def _live_delivery_claim_scope(live_receipt: dict[str, object], live_status: str) -> str:
+    scope = str(live_receipt.get("live_delivery_claim_scope") or "").strip()
+    if scope in LIVE_DELIVERY_CLAIM_SCOPES:
+        return scope
+    if live_status != "pass":
+        return "none"
+    return ""
+
+
+def _human_playback_acceptance_evidence(live_receipt: dict[str, object], live_status: str) -> dict[str, object]:
+    evidence = dict(live_receipt.get("human_playback_acceptance_evidence") or {})
+    status = str(evidence.get("status") or "").strip()
+    if status in HUMAN_PLAYBACK_ACCEPTANCE_STATUSES:
+        rejected_claim_observed = bool(evidence.get("rejected_claim_observed")) or status == "rejected"
+        feedback_sha256_valid = bool(evidence.get("feedback_sha256_valid"))
+        if status == "rejected" and not feedback_sha256_valid:
+            return {
+                "status": "not_human_verified",
+                "accepted": False,
+                "rejected": False,
+                "rejected_claim_observed": rejected_claim_observed,
+                "whatsapp_sourced": bool(evidence.get("whatsapp_sourced")),
+                "source_present": bool(evidence.get("source_present")),
+                "feedback_sha256_present": bool(evidence.get("feedback_sha256_present")),
+                "feedback_sha256_valid": False,
+                "feedback_sha256_required": True,
+                "operator_grade": False,
+                "evidence_grade": "insufficient_feedback_hash",
+                "claim_allowed": False,
+                "next_action": "capture_hashed_audiobook_playback_problem_feedback",
+            }
+        return {
+            "status": status,
+            "accepted": bool(evidence.get("accepted")),
+            "rejected": True if status == "rejected" else bool(evidence.get("rejected")),
+            "rejected_claim_observed": rejected_claim_observed,
+            "whatsapp_sourced": bool(evidence.get("whatsapp_sourced")),
+            "source_present": bool(evidence.get("source_present")),
+            "feedback_sha256_present": bool(evidence.get("feedback_sha256_present")),
+            "feedback_sha256_valid": feedback_sha256_valid,
+            "feedback_sha256_required": True if status == "rejected" else bool(evidence.get("feedback_sha256_required")),
+            "operator_grade": True if status == "rejected" else bool(evidence.get("operator_grade")),
+            "evidence_grade": "operator" if status == "rejected" else str(evidence.get("evidence_grade") or ""),
+            "claim_allowed": bool(evidence.get("claim_allowed")),
+            "next_action": str(evidence.get("next_action") or ""),
+        }
+    if live_status != "pass":
+        return {
+            "status": "not_human_verified",
+            "accepted": False,
+            "rejected": False,
+            "rejected_claim_observed": False,
+            "whatsapp_sourced": False,
+            "source_present": False,
+            "feedback_sha256_present": False,
+            "feedback_sha256_valid": False,
+            "feedback_sha256_required": False,
+            "operator_grade": False,
+            "evidence_grade": "not_operator_evidence",
+            "claim_allowed": False,
+            "next_action": "capture_real_user_playback_acceptance_or_close_operator_loop",
+        }
+    return evidence
+
+
+def _proof_semantics(
+    *,
+    live_receipt: dict[str, object],
+    live_status: str,
+    live_delivery_claim_scope: str,
+    human_playback_acceptance_status: str,
+) -> dict[str, object]:
+    semantics = dict(live_receipt.get("proof_semantics") or {})
+    return {
+        "machine_playable_delivery_evidence": str(
+            semantics.get("machine_playable_delivery_evidence")
+            or ("fresh_job_receipt_and_machine_playback_e2e" if live_status == "pass" else "not_proven")
+        ),
+        "human_acceptance_evidence": human_playback_acceptance_status or "not_human_verified",
+        "live_delivery_claim_scope": live_delivery_claim_scope or "none",
+        "machine_playable_delivery_does_not_imply_human_acceptance": bool(
+            semantics.get("machine_playable_delivery_does_not_imply_human_acceptance", True)
+        ),
+    }
+
+
+def _goal_completion_claim_allowed(live_receipt: dict[str, object], live_status: str) -> bool:
+    value = live_receipt.get("goal_completion_claim_allowed")
+    if isinstance(value, bool):
+        return value
+    if live_status != "pass" and live_receipt.get("live_delivery_claim_allowed") is False:
+        return False
+    return bool(value)
 
 
 def _processor_args(processor_module, readiness_args: argparse.Namespace | None = None):
@@ -435,6 +633,8 @@ def _processor_summary(report: dict[str, object] | None, *, ran: bool) -> dict[s
         "candidate_count": int(report.get("candidate_count") or 0),
         "epub_candidate_count": int(report.get("epub_candidate_count") or 0),
         "epub_processed": int(report.get("epub_processed") or 0),
+        "voice_text_candidate_count": int(report.get("voice_text_candidate_count") or 0),
+        "voice_text_processed": int(report.get("voice_text_processed") or 0),
         "status_candidate_count": int(report.get("status_candidate_count") or 0),
         "status_processed": int(report.get("status_processed") or 0),
         "processed": int(report.get("processed") or 0),
@@ -609,6 +809,25 @@ def materialize_whatsapp_audiobook_operator_proof_bundle(
     public_share_playback = dict(live_historical_receipts.get("public_share_playback") or {})
     local_next_action = str(local_intake_stage.get("next_action") or "")
     live_next_action = str(live_receipt.get("next_action") or "")
+    live_delivery_claim_scope = _live_delivery_claim_scope(live_receipt, live_status)
+    human_playback_acceptance_evidence = _human_playback_acceptance_evidence(live_receipt, live_status)
+    human_playback_acceptance_status = str(human_playback_acceptance_evidence.get("status") or "").strip()
+    normalized_live_next_action = (
+        str(human_playback_acceptance_evidence.get("next_action") or "").strip()
+        if live_status == "pass"
+        else live_next_action
+    ) or live_next_action
+    rejected_playback_feedback_hashed_or_not_operator_grade = (
+        human_playback_acceptance_status != "rejected"
+        or bool(human_playback_acceptance_evidence.get("feedback_sha256_valid"))
+    )
+    proof_semantics = _proof_semantics(
+        live_receipt=live_receipt,
+        live_status=live_status,
+        live_delivery_claim_scope=live_delivery_claim_scope,
+        human_playback_acceptance_status=human_playback_acceptance_status,
+    )
+    goal_completion_claim_allowed = _goal_completion_claim_allowed(live_receipt, live_status)
     voice_selection_shadow_status = str(voice_selection_shadow.get("status") or "").strip()
     live_voice_selection_shadow_required = live_status == "waiting_voice_choice"
     historical_public_share_playback_proven = (
@@ -616,6 +835,17 @@ def materialize_whatsapp_audiobook_operator_proof_bundle(
         and int(public_share_playback.get("passed") or 0) >= 1
     )
     live_public_share_playback_verified = bool(live_receipt.get("machine_playback_e2e_verified"))
+    processor_callback_candidates = int(live_processor.get("candidate_count") or 0)
+    processor_processed = int(live_processor.get("processed") or 0)
+    processor_skipped_processed = int(live_processor.get("skipped_processed") or 0)
+    processor_voice_text_candidates = int(live_processor.get("voice_text_candidate_count") or 0)
+    processor_voice_text_processed = int(live_processor.get("voice_text_processed") or 0)
+    sidecar_button_callback_candidates = int(sidecar_inbox.get("actionable_button_candidate_count") or 0)
+    effective_button_callback_candidates = max(processor_callback_candidates, sidecar_button_callback_candidates)
+    live_processor["sidecar_actionable_button_candidate_count"] = sidecar_button_callback_candidates
+    live_processor["effective_button_callback_candidate_count"] = effective_button_callback_candidates
+    processor_button_callbacks_drained = effective_button_callback_candidates <= processor_processed + processor_skipped_processed
+    processor_voice_text_drained = processor_voice_text_candidates <= processor_voice_text_processed
     checks = {
         "local_epub_intake_proof_passed": local_status == "pass",
         "local_proof_waits_for_voice_choice": local_next_action == "choose_whatsapp_audiobook_voice_sample",
@@ -626,12 +856,33 @@ def materialize_whatsapp_audiobook_operator_proof_bundle(
         "live_action_processor_ready": readiness_ready,
         "live_action_processor_ran": run_live_processor,
         "live_action_processor_no_runtime_errors": int(live_processor.get("errors") or 0) == 0,
+        "live_processor_button_callbacks_drained": processor_button_callbacks_drained,
+        "live_sidecar_button_callbacks_visible_to_processor_semantics": (
+            sidecar_button_callback_candidates <= processor_callback_candidates
+            or effective_button_callback_candidates <= processor_processed + processor_skipped_processed
+        ),
+        "live_processor_voice_text_drained": processor_voice_text_drained,
         "live_processor_runtime_alignment_evaluated": bool(runtime_alignment.get("evaluated")),
         "live_sidecar_inbox_accessible": bool(sidecar_inbox.get("messages_accessible")),
         "live_receipt_materialized": live_status
         in {"pass", "blocked", "waiting_for_live_epub", "waiting_provider_throttle", "waiting_voice_choice"},
-        "live_receipt_has_explicit_next_action": bool(live_next_action),
+        "live_receipt_has_explicit_next_action": bool(normalized_live_next_action),
         "live_public_share_playback_verified_or_not_required": live_public_share_playback_verified if live_status == "pass" else True,
+        "live_delivery_semantics_from_live_receipt_or_explicit_nonpass_default": (
+            bool(live_receipt.get("proof_semantics"))
+            and bool(live_receipt.get("human_playback_acceptance_evidence"))
+            if live_status == "pass"
+            else True
+        ),
+        "live_delivery_claim_scope_explicit": live_delivery_claim_scope
+        in LIVE_DELIVERY_CLAIM_SCOPES,
+        "human_playback_acceptance_status_explicit": human_playback_acceptance_status
+        in HUMAN_PLAYBACK_ACCEPTANCE_STATUSES,
+        "rejected_playback_feedback_hashed_or_not_operator_grade": rejected_playback_feedback_hashed_or_not_operator_grade,
+        "machine_delivery_does_not_imply_human_acceptance": bool(
+            proof_semantics.get("machine_playable_delivery_does_not_imply_human_acceptance")
+        ),
+        "live_goal_completion_claim_disallowed": goal_completion_claim_allowed is False,
         "live_voice_selection_text_fallback_ready_or_not_required": (
             bool(dict(voice_selection_shadow.get("checks") or {}).get("shadow_text_fallback_ready"))
             if live_voice_selection_shadow_required
@@ -646,10 +897,18 @@ def materialize_whatsapp_audiobook_operator_proof_bundle(
         "live_action_processor_ready",
         "live_action_processor_ran",
         "live_action_processor_no_runtime_errors",
+        "live_processor_button_callbacks_drained",
+        "live_processor_voice_text_drained",
         "live_processor_runtime_alignment_evaluated",
         "live_sidecar_inbox_accessible",
         "live_receipt_materialized",
         "live_receipt_has_explicit_next_action",
+        "live_delivery_semantics_from_live_receipt_or_explicit_nonpass_default",
+        "live_delivery_claim_scope_explicit",
+        "human_playback_acceptance_status_explicit",
+        "rejected_playback_feedback_hashed_or_not_operator_grade",
+        "machine_delivery_does_not_imply_human_acceptance",
+        "live_goal_completion_claim_disallowed",
         "live_voice_selection_text_fallback_ready_or_not_required",
         "live_voice_selection_shadow_passed_or_not_required",
     }
@@ -662,20 +921,34 @@ def materialize_whatsapp_audiobook_operator_proof_bundle(
         warnings.append("live_processor_container_timeout")
     if int(sidecar_inbox.get("epub_media_candidate_count") or 0) > 0 and int(live_processor.get("epub_processed") or 0) <= 0:
         warnings.append("live_epub_media_visible_but_not_processed")
+    if not processor_button_callbacks_drained:
+        warnings.append("live_button_callbacks_visible_but_not_processed")
+    if sidecar_button_callback_candidates > processor_callback_candidates:
+        warnings.append("live_sidecar_button_callbacks_exceed_processor_candidates")
+    if not processor_voice_text_drained:
+        warnings.append("live_voice_text_choices_visible_but_not_processed")
+    if live_status == "pass" and not bool(checks.get("live_delivery_semantics_from_live_receipt_or_explicit_nonpass_default")):
+        warnings.append("live_delivery_semantics_missing_from_pass_receipt")
     live_waiting_for_epub = live_candidate_count == 0 and "whatsapp_audiobook_job_missing" in list(live_receipt.get("failed_codes") or [])
-    if live_status == "pass":
+    if live_status == "pass" and not bool(checks.get("live_delivery_semantics_from_live_receipt_or_explicit_nonpass_default")):
+        status = "blocked"
+        recommended_action = "refresh_live_delivery_receipt_with_explicit_playback_acceptance_semantics"
+    elif not processor_button_callbacks_drained or not processor_voice_text_drained:
+        status = "blocked"
+        recommended_action = "run_whatsapp_action_processor_until_voice_choices_are_drained"
+    elif live_status == "pass":
         status = "pass"
-        recommended_action = "capture_real_user_playback_acceptance_or_close_operator_loop"
+        recommended_action = normalized_live_next_action or "capture_real_user_playback_acceptance_or_close_operator_loop"
     elif live_status == "waiting_voice_choice":
         if voice_selection_shadow_status == "pass":
             status = "waiting_voice_choice"
-            recommended_action = live_next_action or "choose_whatsapp_audiobook_voice_sample"
+            recommended_action = normalized_live_next_action or "choose_whatsapp_audiobook_voice_sample"
         else:
             status = "blocked"
             recommended_action = "fix_whatsapp_voice_selection_shadow_proof"
     elif live_status == "waiting_provider_throttle":
         status = "waiting_provider_throttle"
-        recommended_action = live_next_action or "wait_until_provider_retry_after_then_resume_whatsapp_audiobook_render"
+        recommended_action = normalized_live_next_action or "wait_until_provider_retry_after_then_resume_whatsapp_audiobook_render"
     elif run_live_processor and int(live_processor.get("errors") or 0) > 0:
         status = "blocked"
         recommended_action = "fix_whatsapp_action_processor_run"
@@ -701,7 +974,8 @@ def materialize_whatsapp_audiobook_operator_proof_bundle(
         recommended_action = "fix_local_whatsapp_epub_intake_path"
     else:
         status = "blocked"
-        recommended_action = live_next_action or "inspect_whatsapp_audiobook_operator_bundle"
+        recommended_action = normalized_live_next_action or "inspect_whatsapp_audiobook_operator_bundle"
+    bundle_live_delivery_status = "waiting_for_live_epub" if status == "waiting_for_live_epub" else live_status
 
     bundle = {
         "contract_name": CONTRACT_NAME,
@@ -715,6 +989,16 @@ def materialize_whatsapp_audiobook_operator_proof_bundle(
         ),
         "checks": checks,
         "warnings": warnings,
+        "proof_semantics": {
+            "machine_playable_delivery_evidence": str(proof_semantics.get("machine_playable_delivery_evidence") or ""),
+            "human_acceptance_evidence": str(
+                proof_semantics.get("human_acceptance_evidence") or human_playback_acceptance_status
+            ),
+            "live_delivery_claim_scope": live_delivery_claim_scope,
+            "machine_playable_delivery_does_not_imply_human_acceptance": bool(
+                proof_semantics.get("machine_playable_delivery_does_not_imply_human_acceptance")
+            ),
+        },
         "runtime_alignment": runtime_alignment,
         "local_intake": {
             "status": local_status,
@@ -752,14 +1036,26 @@ def materialize_whatsapp_audiobook_operator_proof_bundle(
         "live_sidecar_inbox": sidecar_inbox,
         "live_processor": live_processor,
         "live_delivery": {
-            "status": live_status,
+            "status": bundle_live_delivery_status,
             "candidate_count": live_candidate_count,
             "observed_job_count": int(live_receipt.get("observed_job_count") or 0),
             "non_whatsapp_job_count": int(live_receipt.get("non_whatsapp_job_count") or 0),
             "failed_codes": list(live_receipt.get("failed_codes") or []),
-            "next_action": live_next_action,
+            "next_action": normalized_live_next_action,
             "stage_counts": dict(dict(live_receipt.get("stage_summary") or {}).get("counts") or {}),
             "live_delivery_claim_allowed": bool(live_receipt.get("live_delivery_claim_allowed")),
+            "live_delivery_claim_scope": live_delivery_claim_scope,
+            "machine_playback_e2e_verified": bool(live_receipt.get("machine_playback_e2e_verified")),
+            "fresh_live_job_receipt_proven": bool(live_receipt.get("fresh_live_job_receipt_proven")),
+            "historical_or_shadow_proof_only": bool(live_receipt.get("historical_or_shadow_proof_only")),
+            "proof_freshness": dict(live_receipt.get("proof_freshness") or {}),
+            "real_user_playback_acceptance_verified": bool(live_receipt.get("real_user_playback_acceptance_verified")),
+            "human_playback_acceptance_claim_allowed": bool(
+                live_receipt.get("human_playback_acceptance_claim_allowed")
+            ),
+            "human_playback_acceptance_evidence": human_playback_acceptance_evidence,
+            "proof_semantics": proof_semantics,
+            "goal_completion_claim_allowed": goal_completion_claim_allowed,
             "historical_evidence_present": live_historical_present,
             "historical_live_path_proven": live_historical_path_proven,
         },
@@ -833,9 +1129,10 @@ def main() -> int:
     )
     print(json.dumps(result, sort_keys=True))
     allowed_waiting = {"pass", "waiting_for_live_epub", "waiting_provider_throttle", "waiting_voice_choice"}
+    allowed_statuses = {*allowed_waiting, "blocked"}
     if args.require_ready_or_waiting and result["status"] not in allowed_waiting:
         return 2
-    return 0 if result["status"] in allowed_waiting else 1
+    return 0 if result["status"] in allowed_statuses else 1
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
+import logging
 import os
 import re
 import shlex
@@ -109,6 +110,317 @@ def test_tool_shim_does_not_inject_fleet_status_when_worker_prompt_forbids_it() 
     assert responses._tool_shim_direct_local_fleet_command(prompt) is None
 
 
+def test_tool_shim_unwraps_nested_final_text_function_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api.routes import responses
+
+    nested_decision = {
+        "decision": "function_call",
+        "name": "exec_command",
+        "arguments": {"cmd": "pwd && git status --short", "max_output_tokens": 200},
+    }
+    wrapped_decision = {
+        "decision": "final",
+        "text": json.dumps(nested_decision),
+    }
+
+    monkeypatch.setattr(
+        responses,
+        "_tool_shim_generate_upstream_text_with_timeout",
+        lambda **kwargs: UpstreamResult(
+            text=json.dumps(wrapped_decision),
+            provider_key="onemin",
+            model="gpt-4.1-nano",
+            provider_key_slot=None,
+            provider_backend="1min",
+            provider_account_name="test",
+            tokens_in=0,
+            tokens_out=0,
+            upstream_model="gpt-4.1-nano",
+            latency_ms=0,
+        ),
+    )
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-hard",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a command.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "cmd": {"type": "string"},
+                        "max_output_tokens": {"type": "integer"},
+                    },
+                    "required": ["cmd"],
+                },
+            }
+        ],
+        history_items=[
+            {
+                "type": "input_text",
+                "text": "Read-only smoke: run pwd and git status --short, then report receipts.",
+            }
+        ],
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == nested_decision["arguments"]
+
+
+def test_tool_shim_decision_short_circuits_direct_fleet_runtime_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    monkeypatch.setattr(
+        responses,
+        "_direct_fleet_runtime_text",
+        lambda prompt: "Live fleet status: 1 active shard out of 4 total, mode active.",
+    )
+    monkeypatch.setattr(responses, "_direct_fleet_eta_text", lambda prompt: None)
+
+    def _unexpected_upstream(**kwargs: object) -> UpstreamResult:
+        raise AssertionError("planner should not run for direct fleet runtime text")
+
+    monkeypatch.setattr(responses, "_tool_shim_generate_upstream_text_with_timeout", _unexpected_upstream)
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-hard",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a command.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "cmd": {"type": "string"},
+                    },
+                    "required": ["cmd"],
+                },
+            }
+        ],
+        history_items=[
+            {
+                "type": "input_text",
+                "text": "How many shards are running in the fleet right now?",
+            }
+        ],
+    )
+
+    assert decision.kind == "final"
+    assert decision.text == "Live fleet status: 1 active shard out of 4 total, mode active."
+    assert decision.upstream_result.provider_key == "local"
+    assert decision.upstream_result.fallback_reason == "direct_fleet_runtime_text"
+
+
+def test_tool_shim_decision_short_circuits_direct_exact_reply_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    def _unexpected_upstream(**kwargs: object) -> UpstreamResult:
+        raise AssertionError("planner should not run for direct exact reply prompt")
+
+    monkeypatch.setattr(responses, "_tool_shim_generate_upstream_text_with_timeout", _unexpected_upstream)
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-fast",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a command.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "cmd": {"type": "string"},
+                    },
+                    "required": ["cmd"],
+                },
+            }
+        ],
+        history_items=[
+            {
+                "type": "input_text",
+                "text": "Reply with exactly READY and nothing else.",
+            }
+        ],
+    )
+
+    assert decision.kind == "final"
+    assert decision.text == "READY"
+    assert decision.upstream_result.provider_key == "local"
+    assert decision.upstream_result.fallback_reason == "direct_exact_reply_text"
+
+
+def test_tool_shim_decision_short_circuits_direct_exact_reply_inside_wrapped_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    def _unexpected_upstream(**kwargs: object) -> UpstreamResult:
+        raise AssertionError("planner should not run for wrapped direct exact reply prompt")
+
+    monkeypatch.setattr(responses, "_tool_shim_generate_upstream_text_with_timeout", _unexpected_upstream)
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-fast",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a command.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "cmd": {"type": "string"},
+                    },
+                    "required": ["cmd"],
+                },
+            }
+        ],
+        history_items=[
+            {
+                "type": "input_text",
+                "text": (
+                    "Operator-prepared runtime context:\n"
+                    "- Stay in the current directory.\n\n"
+                    "Reply with exactly READY and nothing else.\n\n"
+                    "Do not inspect files before answering."
+                ),
+            }
+        ],
+    )
+
+    assert decision.kind == "final"
+    assert decision.text == "READY"
+    assert decision.upstream_result.provider_key == "local"
+    assert decision.upstream_result.fallback_reason == "direct_exact_reply_text"
+
+
+def test_tool_shim_decision_short_circuits_direct_structured_function_call_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    def _unexpected_upstream(**kwargs: object) -> UpstreamResult:
+        raise AssertionError("planner should not run for direct structured payload")
+
+    monkeypatch.setattr(responses, "_tool_shim_generate_upstream_text_with_timeout", _unexpected_upstream)
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-hard",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "update_plan",
+                "description": "Update the task plan.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "plan": {"type": "array"},
+                    },
+                    "required": ["plan"],
+                },
+            }
+        ],
+        history_items=[
+            {
+                "type": "input_text",
+                "text": '{"decision":"function_call","name":"update_plan","arguments":{"plan":[{"step":"Check live codexea posture","status":"in_progress"}]}}',
+            }
+        ],
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "update_plan"
+    assert decision.arguments == {
+        "plan": [
+            {"step": "Check live codexea posture", "status": "in_progress"},
+        ]
+    }
+    assert decision.upstream_result.provider_key == "local"
+    assert decision.upstream_result.fallback_reason == "direct_structured_payload"
+
+
+def test_tool_shim_decision_uses_direct_local_workspace_command_for_simple_repo_probe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    monkeypatch.setattr(responses, "_direct_fleet_runtime_text", lambda prompt: None)
+    monkeypatch.setattr(responses, "_direct_fleet_eta_text", lambda prompt: None)
+    monkeypatch.setattr(
+        responses,
+        "_tool_shim_generate_upstream_text_with_timeout",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("planner should not run for simple local workspace probe")),
+    )
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-hard",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a command.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "cmd": {"type": "string"},
+                    },
+                    "required": ["cmd"],
+                },
+            }
+        ],
+        history_items=[
+            {
+                "type": "input_text",
+                "text": "What branch am I on right now?",
+            }
+        ],
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {"cmd": "git branch --show-current", "max_output_tokens": 200}
+    assert decision.upstream_result.provider_key == "local"
+    assert decision.upstream_result.fallback_reason == "task_local_workspace_command"
+
+
+def test_tool_shim_supported_tools_excludes_request_user_input() -> None:
+    from app.api.routes import responses
+
+    supported = responses._tool_shim_supported_tools(
+        [
+            {
+                "type": "function",
+                "name": "exec_command",
+                "description": "Run a command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            },
+            {
+                "type": "function",
+                "name": "request_user_input",
+                "description": "Ask the user.",
+                "parameters": {"type": "object", "properties": {"question": {"type": "string"}}},
+            },
+        ],
+        prompt="Fix the fleet worker closeout path.",
+    )
+
+    assert [tool["name"] for tool in supported] == ["exec_command"]
+
+
 def test_tool_shim_direct_staged_first_command_short_circuits_initial_exec_turn(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -193,6 +505,44 @@ def test_tool_shim_direct_worker_safe_first_commands_short_circuit_initial_exec_
             )
             + " ; sed -n '1,220p' /docker/chummercomplete/chummer-presentation/WORKLIST.md"
         ),
+        "max_output_tokens": 1500,
+    }
+
+
+def test_tool_shim_staged_commands_allow_env_prefixed_shell_commands(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    monkeypatch.setattr(
+        responses,
+        "_generate_upstream_text",
+        lambda **_: (_ for _ in ()).throw(AssertionError("planner must not run before env-prefixed staged command")),
+    )
+
+    prompt = """
+    Run these exact commands first:
+    - PYTHONPATH=ea .venv/bin/pytest -q tests/test_responses_upstream.py::test_onemin_manifest_entries_are_cached_during_key_discovery
+    - bash scripts/release_authority_probe.sh
+    """
+    decision = responses._tool_shim_decision(
+        model="ea-coder-hard",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=[{"type": "input_text", "text": prompt}],
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": "PYTHONPATH=ea .venv/bin/pytest -q tests/test_responses_upstream.py::test_onemin_manifest_entries_are_cached_during_key_discovery",
         "max_output_tokens": 1500,
     }
 
@@ -3482,12 +3832,13 @@ def test_tool_shim_planner_model_preserves_managed_lanes_and_only_downshifts_che
 
     monkeypatch.delenv("EA_TOOL_SHIM_PLANNER_MODEL", raising=False)
 
-    assert responses._tool_shim_planner_model("ea-coder-hard") == "ea-coder-hard"
-    assert responses._tool_shim_planner_model("ea-coder-hard-batch") == "ea-coder-hard-batch"
-    assert responses._tool_shim_planner_model("ea-coder-hard-rescue") == "ea-coder-hard-rescue"
-    assert responses._tool_shim_planner_model("ea-review-light") == "ea-review-light"
+    assert responses._tool_shim_planner_model("ea-coder-hard") == "onemin:gpt-4.1-nano"
+    assert responses._tool_shim_planner_model("ea-coder-hard-batch") == "onemin:gpt-4.1-nano"
+    assert responses._tool_shim_planner_model("ea-coder-hard-rescue") == "onemin:gpt-4.1-nano"
+    assert responses._tool_shim_planner_model("ea-review-light") == "onemin:gpt-4.1-nano"
     assert responses._tool_shim_planner_model("ea-coder-fast") == "onemin:gpt-4.1-nano"
-    assert responses._tool_shim_planner_model("onemin:gpt-5.4") == "onemin:gpt-4.1-nano"
+    assert responses._tool_shim_planner_model("gpt-5.4") == "onemin:gpt-4.1-nano"
+    assert responses._tool_shim_planner_model("onemin:gpt-5.5") == "onemin:gpt-4.1-nano"
     assert responses._tool_shim_planner_model("magixai:codestral") == "magixai:codestral"
 
 
@@ -3505,7 +3856,7 @@ def test_tool_shim_planner_model_uses_fast_lane_for_staged_operator_guard_prompt
     - sed -n '1,140p' /docker/fleet/scripts/codex-shims/python3
     """
 
-    assert responses._tool_shim_planner_model("ea-coder-hard", prompt=prompt) == "ea-coder-fast"
+    assert responses._tool_shim_planner_model("ea-coder-hard", prompt=prompt) == "onemin:gpt-4.1-nano"
 
 
 def test_tool_shim_planner_model_uses_fast_lane_for_worker_safe_first_prompt(
@@ -3522,7 +3873,7 @@ def test_tool_shim_planner_model_uses_fast_lane_for_worker_safe_first_prompt(
     - /var/lib/codex-fleet/chummer_design_supervisor/shard-2/runs/run/TASK_LOCAL_TELEMETRY.generated.json
     """
 
-    assert responses._tool_shim_planner_model("ea-coder-hard", prompt=prompt) == "ea-coder-fast"
+    assert responses._tool_shim_planner_model("ea-coder-hard", prompt=prompt) == "onemin:gpt-4.1-nano"
 
 
 def test_tool_shim_planner_model_uses_fast_lane_for_operator_unblock_prompt_without_staged_marker(
@@ -3541,7 +3892,7 @@ def test_tool_shim_planner_model_uses_fast_lane_for_operator_unblock_prompt_with
     $ sed -n '2410,2505p' /docker/fleet/scripts/codex-shims/codexea
     """
 
-    assert responses._tool_shim_planner_model("ea-coder-hard", prompt=prompt) == "ea-coder-fast"
+    assert responses._tool_shim_planner_model("ea-coder-hard", prompt=prompt) == "onemin:gpt-4.1-nano"
 
 
 def test_tool_shim_planner_model_uses_fast_lane_for_readiness_remedy_prompt_without_staged_marker(
@@ -3560,7 +3911,7 @@ def test_tool_shim_planner_model_uses_fast_lane_for_readiness_remedy_prompt_with
     [USER-JOURNEY-TESTER] FAIL: user journey tester trace is missing
     """
 
-    assert responses._tool_shim_planner_model("ea-coder-hard", prompt=prompt) == "ea-coder-fast"
+    assert responses._tool_shim_planner_model("ea-coder-hard", prompt=prompt) == "onemin:gpt-4.1-nano"
 
 
 def test_tool_shim_messages_compact_operator_unblock_prompt_omits_system_history(
@@ -4063,6 +4414,8 @@ def test_models_list_returns_responses_aliases() -> None:
     assert resp.status_code == 200
     body = resp.json()
     model_ids = {item["id"] for item in body["data"]}
+    assert {item["slug"] for item in body["models"]} == model_ids
+    assert all(item["context_window"] > 0 for item in body["models"])
     assert "ea-coder-best" in model_ids
     assert "ea-magicx-coder" in model_ids
     assert "ea-audit-jury" in model_ids
@@ -4074,7 +4427,7 @@ def test_models_list_returns_responses_aliases() -> None:
     assert "ea-gemini-flash" in model_ids
     assert "ea-coder-survival" in model_ids
     assert "gpt-5" in model_ids
-    assert "gemini-2.5-flash" in model_ids
+    assert "gemini-3.5-flash" in model_ids
     assert "x-ai/grok-code-fast-1" in model_ids
 
 
@@ -4418,6 +4771,49 @@ def test_responses_rejects_unsupported_non_text_input_item(monkeypatch: pytest.M
     assert "unsupported_input_item" in resp.text or "unsupported_input_part_type" in resp.text
 
 
+def test_responses_ignores_unsupported_non_text_item_during_resume_mixed_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _client(principal_id="codex-test")
+    from app.api.routes import responses
+
+    def fake_generate(
+        *,
+        prompt: str,
+        messages: list[dict[str, str]] | None = None,
+        requested_model: str,
+        max_output_tokens: int | None = None,
+        **_: object,
+    ) -> UpstreamResult:
+        return UpstreamResult(
+            text="resume mixed ok",
+            provider_key="onemin",
+            model="gpt-5.4",
+            tokens_in=4,
+            tokens_out=3,
+        )
+
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+
+    resp = client.post(
+        "/v1/responses",
+        json={
+            "input": [
+                {"type": "reasoning", "summary": "Previous chain"},
+                {"type": "input_image", "url": "https://example.invalid/image.png"},
+                {"type": "input_text", "text": "continue"},
+            ],
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["output_text"] == "resume mixed ok"
+    assert body["input"] == [
+        {"type": "reasoning", "summary": "Previous chain"},
+        {"type": "input_text", "text": "continue"},
+    ]
+
+
 def test_responses_ignores_non_dict_resume_state_items(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="codex-test")
     from app.api.routes import responses
@@ -4453,6 +4849,50 @@ def test_responses_ignores_non_dict_resume_state_items(monkeypatch: pytest.Monke
     assert resp.status_code == 200
     body = resp.json()
     assert body["output_text"] == "resume ok"
+    assert body["input"] == [{"type": "input_text", "text": "keep going"}]
+
+
+def test_responses_ignores_unknown_non_text_codex_state_item_at_high_index(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _client(principal_id="codex-test")
+    from app.api.routes import responses
+
+    def fake_generate(
+        *,
+        prompt: str,
+        messages: list[dict[str, str]] | None = None,
+        requested_model: str,
+        max_output_tokens: int | None = None,
+        **_: object,
+    ) -> UpstreamResult:
+        assert prompt == "keep going"
+        assert messages == [{"role": "user", "content": "keep going"}]
+        return UpstreamResult(
+            text="state skip ok",
+            provider_key="onemin",
+            model="gpt-5.5",
+            tokens_in=4,
+            tokens_out=2,
+        )
+
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+
+    history: list[object] = [
+        {"type": "codex_internal_state", "id": f"state_{index}", "status": "completed"}
+        for index in range(573)
+    ]
+    history.append({"type": "codex_internal_state", "id": "state_573", "status": "completed"})
+    history.append({"type": "input_text", "text": "keep going"})
+
+    resp = client.post(
+        "/v1/responses",
+        json={"model": "ChatGPT 5.5 (1min.ai)", "input": history},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["output_text"] == "state skip ok"
     assert body["input"] == [{"type": "input_text", "text": "keep going"}]
 
 
@@ -4790,7 +5230,7 @@ def test_prompt_router_demotes_default_public_model_for_lightweight_ops_queries(
 
     assert decision.applied is True
     assert decision.effective_profile == "easy"
-    assert decision.effective_model == "ea-onemin-coder"
+    assert decision.effective_model == "ea-coder-fast"
     assert decision.reason == "lightweight_ops_query"
 
 
@@ -4841,12 +5281,53 @@ def test_prompt_router_keeps_readiness_remedy_on_fast_lane() -> None:
     assert decision.reason == "operator_readiness_fast_lane"
 
 
+def test_prompt_router_keeps_exact_reply_prompt_on_fast_lane() -> None:
+    from app.api.routes import responses
+
+    decision = responses._resolve_prompt_route(
+        prompt="Reply with exactly READY and nothing else.",
+        model="ea-coder-fast",
+        codex_profile="easy",
+    )
+
+    assert decision.effective_profile == "easy"
+    assert decision.effective_model == "ea-coder-fast"
+    assert decision.reason == "exact_reply_fast_lane"
+
+
+def test_effective_prompt_route_text_prefers_exact_reply_fragment_inside_wrapped_prompt() -> None:
+    from app.api.routes import responses
+
+    parsed = responses._ParsedResponseInput(
+        messages=[],
+        input_items=[],
+        prompt=(
+            "Start a short interactive session.\n"
+            "Stay in the current directory.\n"
+            "Reply with exactly READY and nothing else.\n"
+            "Do not do any other work."
+        ),
+    )
+
+    assert responses._effective_prompt_route_text(parsed) == "Reply with exactly READY and nothing else."
+
+
 def test_responses_upstream_provider_order_prefers_onemin_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.services import responses_upstream
 
     monkeypatch.delenv("EA_RESPONSES_PROVIDER_ORDER", raising=False)
 
     assert responses_upstream._provider_order() == ("onemin", "gemini_vortex", "magixai")
+
+
+def test_responses_upstream_cheap_provider_order_is_policy_configurable(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import responses_upstream
+
+    monkeypatch.delenv("EA_RESPONSES_CHEAP_PROVIDER_ORDER", raising=False)
+    assert responses_upstream._cheap_provider_order() == ("gemini_vortex", "magixai", "onemin")
+
+    monkeypatch.setenv("EA_RESPONSES_CHEAP_PROVIDER_ORDER", "1min,magicx,gemini_vortex")
+    assert responses_upstream._cheap_provider_order() == ("onemin", "magixai", "gemini_vortex")
 
 
 def test_codex_survival_endpoint_returns_in_progress_then_completed(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -6376,21 +6857,21 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     assert body["profiles"][0]["work_class"] == "hard_coder"
     assert "Hard coder lane" in body["profiles"][0]["expectation_summary"]
     easy_profile = next(profile for profile in body["profiles"] if profile["profile"] == "easy")
-    assert easy_profile["provider_hint_order"][0] == "gemini_vortex"
-    assert "onemin" in easy_profile["provider_hint_order"]
-    assert easy_profile["backend"] == "gemini_vortex"
-    assert easy_profile["health_provider_key"] == "gemini_vortex"
+    assert easy_profile["provider_hint_order"][0] == "onemin"
+    assert "gemini_vortex" in easy_profile["provider_hint_order"]
+    assert easy_profile["backend"] == "onemin"
+    assert easy_profile["health_provider_key"] == "onemin"
     assert easy_profile["work_class"] == "easy"
     assert "Easy lane" in easy_profile["expectation_summary"]
     assert easy_profile["review_cadence"]["review"] == "weekly"
     assert easy_profile["support_help_boundary"]["owner"] == "chummer6-hub"
     repair_profile = next(profile for profile in body["profiles"] if profile["profile"] == "repair")
     assert repair_profile["lane"] == "repair"
-    assert repair_profile["provider_hint_order"][0] == "gemini_vortex"
-    assert "onemin" in repair_profile["provider_hint_order"]
-    assert repair_profile["model"] == "ea-repair-gemini"
-    assert repair_profile["backend"] == "gemini_vortex"
-    assert repair_profile["health_provider_key"] == "gemini_vortex"
+    assert repair_profile["provider_hint_order"][0] == "onemin"
+    assert "gemini_vortex" in repair_profile["provider_hint_order"]
+    assert repair_profile["model"] == "ea-onemin-coder"
+    assert repair_profile["backend"] == "onemin"
+    assert repair_profile["health_provider_key"] == "onemin"
     groundwork_profile = next(profile for profile in body["profiles"] if profile["profile"] == "groundwork")
     assert groundwork_profile["lane"] == "groundwork"
     assert groundwork_profile["provider_hint_order"] == ["gemini_vortex"]
@@ -6513,6 +6994,58 @@ def test_stabilize_codex_profile_promotes_repair_model_when_onemin_only_reports_
             "providers": {
                 "magixai": {"state": "degraded"},
                 "onemin": {"slots": [{"state": "ready"}]},
+            }
+        },
+    )
+
+    assert profile["backend"] == "onemin"
+    assert profile["health_provider_key"] == "onemin"
+    assert profile["provider_hint_order"][0] == "onemin"
+    assert profile["model"] == "ea-onemin-coder"
+
+
+def test_stabilize_codex_profile_promotes_groundwork_away_from_degraded_gemini() -> None:
+    from app.api.routes import responses
+
+    profile = responses._stabilize_codex_profile(
+        {
+            "profile": "groundwork",
+            "lane": "groundwork",
+            "model": "ea-groundwork-gemini",
+            "provider_hint_order": ["gemini_vortex"],
+            "backend": "gemini_vortex",
+            "health_provider_key": "gemini_vortex",
+        },
+        provider_health={
+            "providers": {
+                "gemini_vortex": {"state": "degraded"},
+                "onemin": {"slots": [{"state": "ready"}]},
+            }
+        },
+    )
+
+    assert profile["backend"] == "onemin"
+    assert profile["health_provider_key"] == "onemin"
+    assert profile["provider_hint_order"][0] == "onemin"
+    assert profile["model"] == "ea-onemin-coder"
+
+
+def test_stabilize_codex_profile_promotes_groundwork_when_gemini_is_bad_and_onemin_is_unknown() -> None:
+    from app.api.routes import responses
+
+    profile = responses._stabilize_codex_profile(
+        {
+            "profile": "groundwork",
+            "lane": "groundwork",
+            "model": "ea-groundwork-gemini",
+            "provider_hint_order": ["gemini_vortex"],
+            "backend": "gemini_vortex",
+            "health_provider_key": "gemini_vortex",
+        },
+        provider_health={
+            "providers": {
+                "gemini_vortex": {"state": "degraded"},
+                "onemin": {"state": "unknown", "detail": "unknown_unprobed"},
             }
         },
     )
@@ -6698,7 +7231,14 @@ def test_responses_provider_health_reports_observed_credit_balance_without_leaki
     monkeypatch.setenv("EA_RESPONSES_ONEMIN_CHAT_URL", "https://api.1min.ai/api/chat-with-ai")
     monkeypatch.setenv("EA_RESPONSES_ONEMIN_MODELS", "gpt-4.1")
 
-    def fake_post_json(*, url: str, headers: dict[str, str], payload: dict[str, object], timeout_seconds: int) -> tuple[int, dict[str, object]]:
+    def fake_post_json(
+        *,
+        url: str,
+        headers: dict[str, str],
+        payload: dict[str, object],
+        timeout_seconds: int,
+        **_: object,
+    ) -> tuple[int, dict[str, object]]:
         return (
             200,
             {
@@ -6958,7 +7498,14 @@ def test_codex_status_endpoint_exposes_onemin_probe_aggregate(monkeypatch: pytes
         ),
     )
 
-    def fake_post_json(*, url: str, headers: dict[str, str], payload: dict[str, object], timeout_seconds: int) -> tuple[int, dict[str, object]]:
+    def fake_post_json(
+        *,
+        url: str,
+        headers: dict[str, str],
+        payload: dict[str, object],
+        timeout_seconds: int,
+        **_: object,
+    ) -> tuple[int, dict[str, object]]:
         if headers["API-KEY"] == "status-primary":
             return (
                 200,
@@ -7086,7 +7633,14 @@ def test_responses_provider_health_reflects_magicx_probe_degradation(monkeypatch
 
     calls: list[tuple[str, str]] = []
 
-    def fake_post_json(*, url: str, headers: dict[str, str], payload: dict[str, object], timeout_seconds: int) -> tuple[int, dict[str, object]]:
+    def fake_post_json(
+        *,
+        url: str,
+        headers: dict[str, str],
+        payload: dict[str, object],
+        timeout_seconds: int,
+        **_: object,
+    ) -> tuple[int, dict[str, object]]:
         calls.append((url, headers["Authorization"]))
         return (401, {"error": "invalid api key"})
 
@@ -7102,6 +7656,27 @@ def test_responses_provider_health_reflects_magicx_probe_degradation(monkeypatch
     assert body["providers"]["magixai"]["state"] == "degraded"
 
 
+def test_responses_provider_health_marks_magicx_missing_without_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-health")
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_API_KEY", "")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_HEALTH_CHECK", "1")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "")
+
+    health = client.get("/v1/responses/_provider_health")
+    assert health.status_code == 200
+    body = health.json()
+
+    assert body["providers"]["magixai"]["state"] == "missing"
+    assert body["providers"]["magixai"]["detail"] == "missing_api_key"
+    assert body["providers"]["magixai"]["configured_slots"] == 0
+    assert body["providers"]["magixai"]["slots"] == []
+
+
 def test_responses_provider_health_reflects_magicx_probe_ready(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="codex-health")
     from app.services import responses_upstream as upstream
@@ -7114,7 +7689,14 @@ def test_responses_provider_health_reflects_magicx_probe_ready(monkeypatch: pyte
     monkeypatch.setenv("AI_MAGICX_API_KEY", "healthy-key")
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "")
 
-    def fake_post_json(*, url: str, headers: dict[str, str], payload: dict[str, object], timeout_seconds: int) -> tuple[int, dict[str, object]]:
+    def fake_post_json(
+        *,
+        url: str,
+        headers: dict[str, str],
+        payload: dict[str, object],
+        timeout_seconds: int,
+        **_: object,
+    ) -> tuple[int, dict[str, object]]:
         return (
             200,
             {
@@ -7622,6 +8204,20 @@ def test_local_fleet_runtime_helpers_cover_output_token_and_command_selection(tm
     assert direct_local_fleet_command("Operator-prepared fleet unblock context:\nfleet eta", []) is None
     assert direct_local_fleet_command("fleet eta and do not query supervisor status", []) is None
 
+    direct_local_workspace_command = runtime.build_tool_shim_direct_local_workspace_command(
+        is_package_work_prompt=lambda prompt: "package scope:" in prompt.lower(),
+    )
+    assert direct_local_workspace_command("What branch am I on right now?") == "git branch --show-current"
+    assert direct_local_workspace_command("What is the current directory?") == "pwd"
+    assert (
+        direct_local_workspace_command("Is the repo clean or dirty right now?")
+        == "if [ -n \"$(git status --short 2>/dev/null)\" ]; then echo dirty; else echo clean; fi"
+    )
+    assert direct_local_workspace_command("How many changed files are in the repo right now?") == (
+        "git status --short 2>/dev/null | wc -l | tr -d ' '"
+    )
+    assert direct_local_workspace_command("Package scope: ui\nWhat branch am I on right now?") is None
+
 
 def test_output_runtime_helpers_cover_unwrap_latest_scalar_and_local_result() -> None:
     from app.api.routes import responses_output_runtime as runtime
@@ -8097,7 +8693,7 @@ def test_planner_runtime_helpers_cover_history_env_model_and_deadline(monkeypatc
         review_light_public_model="ea-review-light",
         groundwork_public_model="ea-groundwork-gemini",
         survival_public_model="ea-coder-survival",
-        onemin_public_model="onemin:gpt-5.4",
+        onemin_public_model="onemin:gpt-5.5",
         is_staged_local_orientation_prompt=lambda prompt: "staged" in prompt,
         is_operator_fleet_unblock_prompt=lambda prompt: "operator" in prompt,
         is_operator_gap_fix_prompt=lambda prompt: "gap-fix" in prompt,
@@ -8106,9 +8702,23 @@ def test_planner_runtime_helpers_cover_history_env_model_and_deadline(monkeypatc
         is_package_work_prompt=lambda prompt: "package scope:" in prompt.lower(),
     )
     monkeypatch.delenv("EA_TOOL_SHIM_PLANNER_MODEL", raising=False)
-    assert planner_model("ea-coder-hard-batch") == "ea-coder-hard-batch"
-    assert planner_model("onemin:gpt-5.4") == "onemin:gpt-4.1-nano"
-    assert planner_model("custom-model", prompt="operator prompt") == "ea-coder-fast"
+    assert planner_model("ea-coder-hard-batch") == "onemin:gpt-4.1-nano"
+    assert planner_model("onemin:gpt-5.5") == "onemin:gpt-4.1-nano"
+    assert planner_model("custom-model", prompt="operator prompt") == "onemin:gpt-4.1-nano"
+
+
+def test_tool_shim_planner_model_sanitizes_gemini_override_unless_strict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+    from app.api.routes import responses_planner_runtime as runtime
+
+    monkeypatch.setenv("EA_TOOL_SHIM_PLANNER_MODEL", "ea-gemini-flash")
+    monkeypatch.delenv("EA_TOOL_SHIM_PLANNER_MODEL_STRICT", raising=False)
+    assert responses._tool_shim_planner_model("gpt-5.4") == "onemin:gpt-4.1-nano"
+
+    monkeypatch.setenv("EA_TOOL_SHIM_PLANNER_MODEL_STRICT", "1")
+    assert responses._tool_shim_planner_model("gpt-5.4") == "ea-gemini-flash"
 
     assert runtime.tool_shim_planner_max_output_tokens(None) == 256
     assert runtime.tool_shim_planner_max_output_tokens(80) == 96
@@ -8121,15 +8731,37 @@ def test_planner_runtime_helpers_cover_history_env_model_and_deadline(monkeypatc
         is_operator_gap_fix_prompt=lambda prompt: "gap-fix" in prompt,
         is_operator_gap_audit_prompt=lambda prompt: "gap-audit" in prompt,
         is_operator_readiness_remedy_prompt=lambda prompt: "readiness" in prompt,
+        looks_like_lightweight_ops_query=lambda prompt: ("fleet status" in prompt.lower(), None),
     )
     deadline = runtime.time.monotonic() + 500
     assert planner_deadline_monotonic(deadline, prompt="Package scope: ui") <= deadline
     assert planner_deadline_monotonic(None, prompt="operator") is None
-    monkeypatch.setenv("EA_TOOL_SHIM_PLANNER_DEADLINE_SECONDS_DEFAULT", "90")
+    monkeypatch.setenv("EA_TOOL_SHIM_PLANNER_DEADLINE_SECONDS_PACKAGE", "240")
+    package_extended = planner_deadline_monotonic(deadline, prompt="Package scope: ui")
+    assert package_extended is not None
+    assert package_extended <= deadline
+    assert package_extended > runtime.time.monotonic() + 180
+    monkeypatch.setenv("EA_TOOL_SHIM_PLANNER_DEADLINE_SECONDS_OPERATOR", "180")
+    operator_extended = planner_deadline_monotonic(deadline, prompt="operator")
+    assert operator_extended is not None
+    assert operator_extended <= deadline
+    assert operator_extended > runtime.time.monotonic() + 120
+    monkeypatch.delenv("EA_TOOL_SHIM_PLANNER_DEADLINE_SECONDS_PACKAGE", raising=False)
+    monkeypatch.delenv("EA_TOOL_SHIM_PLANNER_DEADLINE_SECONDS_OPERATOR", raising=False)
+    lightweight_default = planner_deadline_monotonic(deadline, prompt="fleet status?")
+    assert lightweight_default is not None
+    assert lightweight_default <= deadline
+    assert lightweight_default < runtime.time.monotonic() + 30
+    monkeypatch.setenv("EA_TOOL_SHIM_PLANNER_DEADLINE_SECONDS_LIGHTWEIGHT", "30")
+    lightweight_extended = planner_deadline_monotonic(deadline, prompt="fleet status?")
+    assert lightweight_extended is not None
+    assert lightweight_extended <= deadline
+    assert lightweight_extended > runtime.time.monotonic() + 20
+    monkeypatch.setenv("EA_TOOL_SHIM_PLANNER_DEADLINE_SECONDS_DEFAULT", "300")
     extended = planner_deadline_monotonic(deadline, prompt="hello there")
     assert extended is not None
     assert extended <= deadline
-    assert extended > runtime.time.monotonic() + 60
+    assert extended > runtime.time.monotonic() + 240
 
 
 def test_background_runtime_helpers_cover_timeout_replay_and_failure_shapes() -> None:
@@ -8425,6 +9057,770 @@ def test_route_runtime_run_response_in_executor_delegates_arguments() -> None:
     }
 
 
+def test_onemin_attempt_logging_and_summary_include_live_account_parallelism(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("EA_ONEMIN_ATTEMPT_LOGGING_ENABLED", "1")
+    caplog.set_level(logging.INFO, logger="ea.responses.upstream")
+
+    inflight_total, inflight_same_proxy, inflight_same_account = upstream._onemin_attempt_enter(
+        proxy_id="ea-fastestvpn-proxy-1",
+        account_name="ONEMIN_AI_API_KEY",
+    )
+    upstream._log_onemin_attempt_start(
+        attempt_id="attempt-1",
+        request_id="request-1",
+        lane="fast",
+        model_requested="gpt-5.4",
+        account_name="ONEMIN_AI_API_KEY",
+        key_slot="slot-1",
+        endpoint_mode="chat",
+        endpoint_url="https://api.1min.ai/api/chat-with-ai",
+        proxy_id="ea-fastestvpn-proxy-1",
+        proxy_service="ea-fastestvpn-proxy-1",
+        timeout_seconds=89,
+        principal_id="principal-1",
+        inflight_total=inflight_total,
+        inflight_same_proxy=inflight_same_proxy,
+        inflight_same_account=inflight_same_account,
+    )
+    upstream._record_onemin_attempt_event(
+        attempt_id="attempt-1",
+        request_id="request-1",
+        lane="fast",
+        model_requested="gpt-5.4",
+        model_resolved="gpt-5.4",
+        account_name="ONEMIN_AI_API_KEY",
+        key_slot="slot-1",
+        endpoint_mode="chat",
+        endpoint_url="https://api.1min.ai/api/chat-with-ai",
+        proxy_id="ea-fastestvpn-proxy-1",
+        proxy_service="ea-fastestvpn-proxy-1",
+        timeout_seconds=89,
+        latency_ms=1234,
+        status="success",
+        principal_id="principal-1",
+        inflight_total=inflight_total,
+        inflight_same_proxy=inflight_same_proxy,
+        inflight_same_account=inflight_same_account,
+    )
+
+    summary = upstream._onemin_attempt_summary(now=time.time(), window_seconds=900.0)
+    upstream._onemin_attempt_exit(proxy_id="ea-fastestvpn-proxy-1", account_name="ONEMIN_AI_API_KEY")
+
+    assert summary["attempt_count"] == 1
+    assert summary["peak_parallel_same_proxy"] == 1
+    assert summary["peak_parallel_same_account"] == 1
+    assert summary["active_inflight_total"] == 1
+    assert summary["active_inflight_by_proxy"] == {"ea-fastestvpn-proxy-1": 1}
+    assert summary["active_inflight_by_account"] == {"ONEMIN_AI_API_KEY": 1}
+    assert "onemin_attempt_start attempt_id=attempt-1" in caplog.text
+    assert "onemin_attempt_finish attempt_id=attempt-1" in caplog.text
+
+
+def test_provider_health_surfaces_onemin_live_concurrency_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "primary-secret")
+    monkeypatch.setenv("EA_ONEMIN_HOST_ID", "host-main")
+    inflight_total, inflight_same_proxy, inflight_same_account = upstream._onemin_attempt_enter(
+        proxy_id="ea-fastestvpn-proxy-2",
+        account_name="ONEMIN_AI_API_KEY",
+    )
+    upstream._record_onemin_attempt_event(
+        attempt_id="attempt-health-1",
+        request_id="request-health-1",
+        lane="fast",
+        model_requested="gpt-5.4",
+        model_resolved="gpt-5.4",
+        account_name="ONEMIN_AI_API_KEY",
+        key_slot="slot-1",
+        endpoint_mode="chat",
+        endpoint_url="https://api.1min.ai/api/chat-with-ai",
+        proxy_id="ea-fastestvpn-proxy-2",
+        proxy_service="ea-fastestvpn-proxy-2",
+        timeout_seconds=89,
+        latency_ms=1200,
+        status="success",
+        principal_id="principal-1",
+        inflight_total=inflight_total,
+        inflight_same_proxy=inflight_same_proxy,
+        inflight_same_account=inflight_same_account,
+    )
+
+    health = upstream._provider_health_report()
+    onemin = health["providers"]["onemin"]
+
+    upstream._onemin_attempt_exit(proxy_id="ea-fastestvpn-proxy-2", account_name="ONEMIN_AI_API_KEY")
+
+    assert onemin["direct_api_live_concurrency"] == {
+        "active_inflight_total": 1,
+        "active_inflight_by_proxy": {"ea-fastestvpn-proxy-2": 1},
+        "active_inflight_by_account": {"ONEMIN_AI_API_KEY": 1},
+        "shared_active_inflight_total": 0,
+        "shared_active_inflight_by_proxy": {},
+        "shared_active_inflight_by_account": {},
+        "shared_active_host_count": 0,
+        "shared_active_inflight_by_host": {},
+        "current_process_active_inflight_total": 1,
+        "current_process_active_inflight_by_proxy": {"ea-fastestvpn-proxy-2": 1},
+        "current_process_active_inflight_by_account": {"ONEMIN_AI_API_KEY": 1},
+    }
+    assert onemin["direct_api_throttle_pressure_15m"] == "low"
+    assert onemin["direct_api_peak_parallel_same_proxy_15m"] == 1
+    assert onemin["direct_api_peak_parallel_same_account_15m"] == 1
+    assert onemin["direct_api_busiest_hosts_15m"] == [{"host_id": "host-main", "attempts": 1}]
+    assert onemin["direct_api_recent_by_host_15m"] == {
+        "host-main": {"attempts": 1, "http_429_count": 0, "error_count": 0, "timeout_count": 0}
+    }
+    assert onemin["direct_api_pressure_15m"]["active_inflight_by_account"] == {"ONEMIN_AI_API_KEY": 1}
+
+
+def test_provider_health_surfaces_shared_onemin_live_concurrency_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(tmp_path))
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "primary-secret")
+    upstream._test_reset_onemin_states()
+    marker_dir = tmp_path / "onemin_inflight"
+    marker_dir.mkdir(parents=True, exist_ok=True)
+    (marker_dir / "active-attempt-provider-health.json").write_text(
+        json.dumps(
+            {
+                "attempt_id": "active-attempt-provider-health",
+                "request_id": "active-request-provider-health",
+                "account_name": "SIBLING_ACCOUNT",
+                "proxy_id": "proxy-sibling.internal",
+                "proxy_service": "proxy-sibling.internal",
+                "host_id": "host-b",
+                "endpoint_mode": "chat",
+                "pid": os.getpid() + 1,
+                "registered_at": time.time(),
+            },
+            separators=(",", ":"),
+        ),
+        encoding="utf-8",
+    )
+
+    health = upstream._provider_health_report()
+    onemin = health["providers"]["onemin"]
+
+    assert onemin["direct_api_live_concurrency"] == {
+        "active_inflight_total": 1,
+        "active_inflight_by_proxy": {"proxy-sibling.internal": 1},
+        "active_inflight_by_account": {"SIBLING_ACCOUNT": 1},
+        "shared_active_inflight_total": 1,
+        "shared_active_inflight_by_proxy": {"proxy-sibling.internal": 1},
+        "shared_active_inflight_by_account": {"SIBLING_ACCOUNT": 1},
+        "shared_active_host_count": 1,
+        "shared_active_inflight_by_host": {"host-b": 1},
+        "current_process_active_inflight_total": 0,
+        "current_process_active_inflight_by_proxy": {},
+        "current_process_active_inflight_by_account": {},
+    }
+
+
+def test_onemin_proxy_selection_avoids_hot_proxy_from_pool(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv(
+        "EA_ONEMIN_DIRECT_API_PROXY_POOL",
+        "http://proxy-hot.internal:8080,http://proxy-cool.internal:8080",
+    )
+    upstream._onemin_attempt_enter(proxy_id="proxy-hot.internal", account_name="acct-a")
+    upstream._onemin_attempt_enter(proxy_id="proxy-hot.internal", account_name="acct-b")
+
+    selected = upstream._onemin_direct_api_proxy_url_for_subject("stable-subject")
+
+    upstream._onemin_attempt_exit(proxy_id="proxy-hot.internal", account_name="acct-a")
+    upstream._onemin_attempt_exit(proxy_id="proxy-hot.internal", account_name="acct-b")
+
+    assert selected == "http://proxy-cool.internal:8080"
+
+
+def test_onemin_provider_health_pick_prefers_cooler_account_when_health_is_equal(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "primary-secret")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "fallback-secret")
+    upstream._onemin_attempt_enter(proxy_id="direct", account_name="ONEMIN_AI_API_KEY")
+
+    provider_health = {
+        "providers": {
+            "onemin": {
+                "slots": [
+                    {
+                        "account_name": "ONEMIN_AI_API_KEY",
+                        "slot": "primary",
+                        "state": "ready",
+                        "last_probe_result": "ok",
+                        "remaining_credits": 5000,
+                        "billing_remaining_credits": 5000,
+                    },
+                    {
+                        "account_name": "ONEMIN_AI_API_KEY_FALLBACK_1",
+                        "slot": "fallback_1",
+                        "state": "ready",
+                        "last_probe_result": "ok",
+                        "remaining_credits": 5000,
+                        "billing_remaining_credits": 5000,
+                    },
+                ]
+            }
+        }
+    }
+
+    picked = upstream._onemin_provider_health_pick(
+        key_names=("primary-secret", "fallback-secret"),
+        provider_health=provider_health,
+        required_credits=1000,
+    )
+
+    upstream._onemin_attempt_exit(proxy_id="direct", account_name="ONEMIN_AI_API_KEY")
+
+    assert picked is not None
+    assert picked[0] == "fallback-secret"
+
+
+def test_pick_onemin_key_prefers_cooler_account_when_health_is_equal(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "primary-secret")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "fallback-secret")
+    upstream._onemin_attempt_enter(proxy_id="direct", account_name="ONEMIN_AI_API_KEY")
+
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda lightweight=False: {
+            "providers": {
+                "onemin": {
+                    "slots": [
+                        {
+                            "account_name": "ONEMIN_AI_API_KEY",
+                            "slot": "primary",
+                            "state": "ready",
+                            "last_probe_result": "ok",
+                            "remaining_credits": 5000,
+                            "billing_remaining_credits": 5000,
+                        },
+                        {
+                            "account_name": "ONEMIN_AI_API_KEY_FALLBACK_1",
+                            "slot": "fallback_1",
+                            "state": "ready",
+                            "last_probe_result": "ok",
+                            "remaining_credits": 5000,
+                            "billing_remaining_credits": 5000,
+                        },
+                    ]
+                }
+            }
+        },
+    )
+
+    picked = upstream._pick_onemin_key(
+        allow_reserve=True,
+        key_names=("primary-secret", "fallback-secret"),
+        lane="fast",
+        model="gpt-5.4",
+        required_credits=1000,
+    )
+
+    upstream._onemin_attempt_exit(proxy_id="direct", account_name="ONEMIN_AI_API_KEY")
+
+    assert picked is not None
+    assert picked[0] == "fallback-secret"
+
+
+def test_onemin_live_attempt_pressure_snapshot_reads_recent_attempts_from_shared_ledger(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(tmp_path))
+    upstream._test_reset_onemin_states()
+    ledger_path = tmp_path / "onemin_attempt_events.jsonl"
+    happened_at = time.time()
+    ledger_path.write_text(
+        json.dumps(
+            {
+                "happened_at": happened_at,
+                "attempt_id": "external-attempt-1",
+                "request_id": "external-request-1",
+                "provider_key": "onemin",
+                "lane": "fast",
+                "model_requested": "gpt-5.4",
+                "model_resolved": "gpt-5.4",
+                "account_name": "EXTERNAL_ACCOUNT",
+                "key_slot": "external_slot",
+                "endpoint_mode": "chat",
+                "endpoint_url": "https://api.1min.ai/api/chat-with-ai",
+                "proxy_id": "proxy-external.internal",
+                "proxy_service": "proxy-external.internal",
+                "timeout_seconds": 89,
+                "latency_ms": 2222,
+                "status": "http_error",
+                "error": "http_429",
+                "http_status": 429,
+                "principal_id": "external-principal",
+                "host_id": "host-external",
+                "inflight_total": 2,
+                "inflight_same_proxy": 2,
+                "inflight_same_account": 1,
+            },
+            separators=(",", ":"),
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    snapshot = upstream._onemin_live_attempt_pressure_snapshot(now=happened_at + 1.0, window_seconds=900.0)
+
+    assert snapshot["recent_attempt_count"] == 1
+    assert snapshot["recent_by_proxy"]["proxy-external.internal"]["http_429_count"] == 1
+    assert snapshot["recent_by_account"]["EXTERNAL_ACCOUNT"]["http_429_count"] == 1
+    assert snapshot["recent_by_host"]["host-external"]["http_429_count"] == 1
+
+
+def test_onemin_attempt_summary_includes_shared_ledger_hosts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(tmp_path))
+    upstream._test_reset_onemin_states()
+    ledger_path = tmp_path / "onemin_attempt_events.jsonl"
+    happened_at = time.time()
+    ledger_path.write_text(
+        json.dumps(
+            {
+                "happened_at": happened_at,
+                "attempt_id": "shared-attempt-1",
+                "request_id": "shared-request-1",
+                "provider_key": "onemin",
+                "lane": "fast",
+                "model_requested": "gpt-5.4",
+                "model_resolved": "gpt-5.4",
+                "account_name": "SHARED_ACCOUNT",
+                "key_slot": "shared-slot",
+                "endpoint_mode": "chat",
+                "endpoint_url": "https://api.1min.ai/api/chat-with-ai",
+                "proxy_id": "proxy-shared.internal",
+                "proxy_service": "proxy-shared.internal",
+                "timeout_seconds": 89,
+                "latency_ms": 2100,
+                "status": "http_error",
+                "error": "http_429",
+                "http_status": 429,
+                "principal_id": "shared-principal",
+                "host_id": "host-shared",
+                "inflight_total": 3,
+                "inflight_same_proxy": 2,
+                "inflight_same_account": 1,
+            },
+            separators=(",", ":"),
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    summary = upstream._onemin_attempt_summary(
+        now=happened_at + 1.0,
+        window_seconds=900.0,
+        principal_id="shared-principal",
+    )
+
+    assert summary["attempt_count"] == 1
+    assert summary["http_429_count"] == 1
+    assert summary["peak_parallel_same_proxy"] == 2
+    assert summary["busiest_accounts"] == [{"account_name": "SHARED_ACCOUNT", "attempts": 1}]
+    assert summary["busiest_hosts"] == [{"host_id": "host-shared", "attempts": 1}]
+
+
+def test_codex_status_endpoint_exposes_onemin_attempt_host_hotspots_for_operator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _client(principal_id="codex-status-operator", operator=True)
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "status-operator-key")
+    monkeypatch.setenv("EA_ONEMIN_HOST_ID", "operator-host-a")
+
+    inflight_total, inflight_same_proxy, inflight_same_account = upstream._onemin_attempt_enter(
+        proxy_id="proxy-operator.internal",
+        account_name="ONEMIN_AI_API_KEY",
+    )
+    upstream._record_onemin_attempt_event(
+        attempt_id="status-host-attempt-1",
+        request_id="status-host-request-1",
+        lane="fast",
+        model_requested="gpt-5.4",
+        model_resolved="gpt-5.4",
+        account_name="ONEMIN_AI_API_KEY",
+        key_slot="slot-1",
+        endpoint_mode="chat",
+        endpoint_url="https://api.1min.ai/api/chat-with-ai",
+        proxy_id="proxy-operator.internal",
+        proxy_service="proxy-operator.internal",
+        timeout_seconds=89,
+        latency_ms=1500,
+        status="http_error",
+        error="http_429",
+        http_status=429,
+        principal_id="codex-status-operator",
+        inflight_total=inflight_total,
+        inflight_same_proxy=inflight_same_proxy,
+        inflight_same_account=inflight_same_account,
+    )
+
+    response = client.get("/v1/codex/status?window=1h")
+    upstream._onemin_attempt_exit(proxy_id="proxy-operator.internal", account_name="ONEMIN_AI_API_KEY")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["onemin_aggregate"]["attempt_throttle_pressure_15m"] == "high"
+    assert body["onemin_aggregate"]["attempt_busiest_hosts_15m"] == [{"host_id": "operator-host-a", "attempts": 1}]
+    assert body["onemin_aggregate"]["attempt_recent_by_host_15m"] == {
+        "operator-host-a": {"attempts": 1, "http_429_count": 1, "error_count": 1, "timeout_count": 0}
+    }
+
+
+def test_codex_status_compact_endpoint_keeps_onemin_attempt_host_hotspots_for_operator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _client(principal_id="codex-status-operator-compact", operator=True)
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "status-operator-compact-key")
+    monkeypatch.setenv("EA_ONEMIN_HOST_ID", "operator-host-compact")
+
+    inflight_total, inflight_same_proxy, inflight_same_account = upstream._onemin_attempt_enter(
+        proxy_id="proxy-compact.internal",
+        account_name="ONEMIN_AI_API_KEY",
+    )
+    upstream._record_onemin_attempt_event(
+        attempt_id="status-host-attempt-compact-1",
+        request_id="status-host-request-compact-1",
+        lane="fast",
+        model_requested="gpt-5.4",
+        model_resolved="gpt-5.4",
+        account_name="ONEMIN_AI_API_KEY",
+        key_slot="slot-1",
+        endpoint_mode="chat",
+        endpoint_url="https://api.1min.ai/api/chat-with-ai",
+        proxy_id="proxy-compact.internal",
+        proxy_service="proxy-compact.internal",
+        timeout_seconds=89,
+        latency_ms=1400,
+        status="http_error",
+        error="http_429",
+        http_status=429,
+        principal_id="codex-status-operator-compact",
+        inflight_total=inflight_total,
+        inflight_same_proxy=inflight_same_proxy,
+        inflight_same_account=inflight_same_account,
+    )
+
+    response = client.get("/v1/codex/status?window=1h&compact=1")
+    upstream._onemin_attempt_exit(proxy_id="proxy-compact.internal", account_name="ONEMIN_AI_API_KEY")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["onemin_aggregate"] == {
+        "attempt_throttle_pressure_15m": "high",
+        "attempt_peak_parallel_same_proxy_15m": 1,
+        "attempt_peak_parallel_same_account_15m": 1,
+        "attempt_busiest_hosts_15m": [{"host_id": "operator-host-compact", "attempts": 1}],
+        "attempt_recent_by_host_15m": {
+            "operator-host-compact": {"attempts": 1, "http_429_count": 1, "error_count": 1, "timeout_count": 0}
+        },
+    }
+
+
+def test_onemin_proxy_selection_avoids_hot_proxy_from_shared_ledger(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(tmp_path))
+    monkeypatch.setenv(
+        "EA_ONEMIN_DIRECT_API_PROXY_POOL",
+        "http://proxy-hot.internal:8080,http://proxy-cool.internal:8080",
+    )
+    upstream._test_reset_onemin_states()
+    ledger_path = tmp_path / "onemin_attempt_events.jsonl"
+    happened_at = time.time()
+    ledger_path.write_text(
+        json.dumps(
+            {
+                "happened_at": happened_at,
+                "attempt_id": "external-hot-attempt",
+                "request_id": "external-hot-request",
+                "provider_key": "onemin",
+                "lane": "fast",
+                "model_requested": "gpt-5.4",
+                "model_resolved": "gpt-5.4",
+                "account_name": "OTHER_ACCOUNT",
+                "key_slot": "slot-x",
+                "endpoint_mode": "chat",
+                "endpoint_url": "https://api.1min.ai/api/chat-with-ai",
+                "proxy_id": "proxy-hot.internal",
+                "proxy_service": "proxy-hot.internal",
+                "timeout_seconds": 89,
+                "latency_ms": 1800,
+                "status": "http_error",
+                "error": "http_429",
+                "http_status": 429,
+                "principal_id": "external-principal",
+                "inflight_total": 2,
+                "inflight_same_proxy": 2,
+                "inflight_same_account": 1,
+            },
+            separators=(",", ":"),
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    selected = upstream._onemin_direct_api_proxy_url_for_subject("stable-subject", account_name="EXTERNAL_ACCOUNT")
+
+    assert selected == "http://proxy-cool.internal:8080"
+
+
+def test_onemin_live_attempt_pressure_snapshot_reads_shared_active_inflight_markers(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(tmp_path))
+    upstream._test_reset_onemin_states()
+    marker_dir = tmp_path / "onemin_inflight"
+    marker_dir.mkdir(parents=True, exist_ok=True)
+    (marker_dir / "active-attempt-1.json").write_text(
+        json.dumps(
+            {
+                "attempt_id": "active-attempt-1",
+                "request_id": "active-request-1",
+                "account_name": "ACTIVE_ACCOUNT",
+                "proxy_id": "proxy-live.internal",
+                "proxy_service": "proxy-live.internal",
+                "endpoint_mode": "chat",
+                "pid": os.getpid() + 1,
+                "registered_at": time.time(),
+            },
+            separators=(",", ":"),
+        ),
+        encoding="utf-8",
+    )
+    snapshot = upstream._onemin_live_attempt_pressure_snapshot(now=time.time(), window_seconds=900.0)
+
+    assert snapshot["shared_active_inflight_total"] == 1
+    assert snapshot["active_inflight_total"] == 1
+    assert snapshot["active_inflight_by_proxy"]["proxy-live.internal"] == 1
+    assert snapshot["active_inflight_by_account"]["ACTIVE_ACCOUNT"] == 1
+
+
+def test_onemin_proxy_selection_avoids_hot_proxy_from_shared_active_marker(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(tmp_path))
+    monkeypatch.setenv(
+        "EA_ONEMIN_DIRECT_API_PROXY_POOL",
+        "http://proxy-hot.internal:8080,http://proxy-cool.internal:8080",
+    )
+    upstream._test_reset_onemin_states()
+    marker_dir = tmp_path / "onemin_inflight"
+    marker_dir.mkdir(parents=True, exist_ok=True)
+    (marker_dir / "active-hot-attempt.json").write_text(
+        json.dumps(
+            {
+                "attempt_id": "active-hot-attempt",
+                "request_id": "active-hot-request",
+                "account_name": "OTHER_ACCOUNT",
+                "proxy_id": "proxy-hot.internal",
+                "proxy_service": "proxy-hot.internal",
+                "endpoint_mode": "chat",
+                "pid": os.getpid() + 1,
+                "registered_at": time.time(),
+            },
+            separators=(",", ":"),
+        ),
+        encoding="utf-8",
+    )
+    selected = upstream._onemin_direct_api_proxy_url_for_subject("stable-subject", account_name="ACTIVE_ACCOUNT")
+
+    assert selected == "http://proxy-cool.internal:8080"
+
+
+def test_onemin_live_attempt_pressure_snapshot_ignores_current_process_active_marker(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(tmp_path))
+    upstream._test_reset_onemin_states()
+    upstream._register_onemin_inflight_attempt(
+        attempt_id="self-active-attempt",
+        request_id="self-active-request",
+        account_name="SELF_ACCOUNT",
+        proxy_id="proxy-self.internal",
+        proxy_service="proxy-self.internal",
+        endpoint_mode="chat",
+    )
+    snapshot = upstream._onemin_live_attempt_pressure_snapshot(now=time.time(), window_seconds=900.0)
+    upstream._release_onemin_inflight_attempt(attempt_id="self-active-attempt")
+
+    assert snapshot["shared_active_inflight_total"] == 0
+    assert "proxy-self.internal" not in snapshot["active_inflight_by_proxy"]
+    assert "SELF_ACCOUNT" not in snapshot["active_inflight_by_account"]
+
+
+def test_onemin_live_attempt_pressure_snapshot_prunes_stale_shared_active_marker(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(tmp_path))
+    monkeypatch.setenv("EA_ONEMIN_INFLIGHT_MARKER_STALE_SECONDS", "5")
+    upstream._test_reset_onemin_states()
+    marker_dir = tmp_path / "onemin_inflight"
+    marker_dir.mkdir(parents=True, exist_ok=True)
+    marker_path = marker_dir / "stale-attempt.json"
+    marker_path.write_text(
+        json.dumps(
+            {
+                "attempt_id": "stale-attempt",
+                "request_id": "stale-request",
+                "account_name": "STALE_ACCOUNT",
+                "proxy_id": "proxy-stale.internal",
+                "proxy_service": "proxy-stale.internal",
+                "endpoint_mode": "chat",
+                "pid": os.getpid() + 1,
+                "registered_at": time.time() - 60.0,
+            },
+            separators=(",", ":"),
+        ),
+        encoding="utf-8",
+    )
+
+    snapshot = upstream._onemin_live_attempt_pressure_snapshot(now=time.time(), window_seconds=900.0)
+
+    assert snapshot["shared_active_inflight_total"] == 0
+    assert "proxy-stale.internal" not in snapshot["active_inflight_by_proxy"]
+    assert "STALE_ACCOUNT" not in snapshot["active_inflight_by_account"]
+    assert marker_path.exists() is False
+
+
+def test_onemin_live_attempt_pressure_snapshot_prunes_malformed_shared_active_marker(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(tmp_path))
+    upstream._test_reset_onemin_states()
+    marker_dir = tmp_path / "onemin_inflight"
+    marker_dir.mkdir(parents=True, exist_ok=True)
+    marker_path = marker_dir / "broken-attempt.json"
+    marker_path.write_text("{not-json", encoding="utf-8")
+
+    snapshot = upstream._onemin_live_attempt_pressure_snapshot(now=time.time(), window_seconds=900.0)
+
+    assert snapshot["shared_active_inflight_total"] == 0
+    assert marker_path.exists() is False
+
+
+def test_onemin_live_attempt_pressure_snapshot_prunes_stale_temp_marker_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(tmp_path))
+    monkeypatch.setenv("EA_ONEMIN_INFLIGHT_MARKER_STALE_SECONDS", "5")
+    upstream._test_reset_onemin_states()
+    marker_dir = tmp_path / "onemin_inflight"
+    marker_dir.mkdir(parents=True, exist_ok=True)
+    temp_path = marker_dir / ".active-attempt.12345.tmp"
+    temp_path.write_text("partial", encoding="utf-8")
+    stale_time = time.time() - 60.0
+    os.utime(temp_path, (stale_time, stale_time))
+
+    snapshot = upstream._onemin_live_attempt_pressure_snapshot(now=time.time(), window_seconds=900.0)
+
+    assert snapshot["shared_active_inflight_total"] == 0
+    assert temp_path.exists() is False
+
+
+def test_provider_ledger_append_uses_best_effort_lock_and_durable_write(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(tmp_path))
+
+    lock_calls: list[tuple[int, int]] = []
+    fsync_calls: list[int] = []
+
+    class FakeFcntl:
+        LOCK_EX = 1
+        LOCK_UN = 2
+
+        @staticmethod
+        def flock(fd: int, mode: int) -> None:
+            lock_calls.append((fd, mode))
+
+    monkeypatch.setattr(upstream, "_fcntl", FakeFcntl)
+    monkeypatch.setattr(upstream.os, "fsync", lambda fd: fsync_calls.append(fd))
+
+    upstream._append_provider_ledger_record("test.jsonl", {"alpha": 1})
+    upstream._append_provider_ledger_record("test.jsonl", {"beta": 2})
+
+    rows = upstream._load_provider_ledger_records("test.jsonl")
+
+    assert rows == [{"alpha": 1}, {"beta": 2}]
+    assert len(lock_calls) == 4
+    assert lock_calls[0][1] == FakeFcntl.LOCK_EX
+    assert lock_calls[1][1] == FakeFcntl.LOCK_UN
+    assert lock_calls[2][1] == FakeFcntl.LOCK_EX
+    assert lock_calls[3][1] == FakeFcntl.LOCK_UN
+    assert len(fsync_calls) == 2
+
+
 def test_codex_metadata_runtime_helpers_cover_payload_shapes() -> None:
     from app.api.routes import responses_codex_metadata as runtime
 
@@ -8445,39 +9841,107 @@ def test_codex_metadata_runtime_helpers_cover_payload_shapes() -> None:
     assert payload["profiles"][0]["provider_hint_order"] == ["onemin", "magixai"]
     assert payload["provider_registry"] == {"registry": True}
 
+    captured_lightweight_calls: list[bool] = []
+
     operator_status = runtime.codex_status_response_payload(
         window="1h",
         compact=False,
         context=context,
         is_operator_context=lambda ctx: True,
-        provider_health_snapshot=lambda **kwargs: {"providers": {"onemin": {}}},
+        provider_health_snapshot=lambda **kwargs: (
+            captured_lightweight_calls.append(bool(kwargs.get("lightweight"))),
+            {"providers": {"onemin": {}}},
+        )[1],
         codex_status_report=lambda **kwargs: {"fleet_burn": {"cost": 1}},
         codex_governance_payload=lambda: {"governance": True},
     )
     assert operator_status["fleet_burn"] == {"cost": 1}
     assert operator_status["governance"] == {"governance": True}
+    assert captured_lightweight_calls == [False]
 
+    captured_lightweight_calls.clear()
+    compact_operator_status = runtime.codex_status_response_payload(
+        window="1h",
+        compact=True,
+        context=context,
+        is_operator_context=lambda ctx: True,
+        provider_health_snapshot=lambda **kwargs: (
+            captured_lightweight_calls.append(bool(kwargs.get("lightweight"))),
+            {
+                "providers": {
+                    "onemin": {
+                        "slots": [{"account_name": "ONEMIN_AI_API_KEY"}],
+                        "direct_api_busiest_hosts_15m": [{"host_id": "host-a", "attempts": 1}],
+                    }
+                }
+            },
+        )[1],
+        codex_status_report=lambda **kwargs: {"fleet_burn": {"cost": 2}, "onemin_aggregate": {"attempt_busiest_hosts_15m": [{"host_id": "host-a", "attempts": 1}]}},
+        codex_governance_payload=lambda: {"governance": True},
+    )
+    assert captured_lightweight_calls == [True]
+    assert compact_operator_status["fleet_burn"] == {"cost": 2}
+    assert compact_operator_status["onemin_aggregate"]["attempt_busiest_hosts_15m"] == [{"host_id": "host-a", "attempts": 1}]
+
+    captured_lightweight_calls.clear()
     principal_status = runtime.codex_status_response_payload(
         window="1h",
         compact=True,
         context=context,
         is_operator_context=lambda ctx: False,
-        provider_health_snapshot=lambda **kwargs: {"providers": {"onemin": {}}},
+        provider_health_snapshot=lambda **kwargs: (
+            captured_lightweight_calls.append(bool(kwargs.get("lightweight"))),
+            {"providers": {"onemin": {}}},
+        )[1],
         codex_status_report=lambda **kwargs: {"fleet_burn": {"cost": 9}, "status": "ok"},
         codex_governance_payload=lambda: {"governance": True},
     )
+    assert captured_lightweight_calls == [True]
     assert principal_status["fleet_burn"] == {}
     assert principal_status["status"] == "ok"
+
+
+def test_build_get_codex_status_handler_refresh_invalidates_matching_provider_health_cache_mode() -> None:
+    from app.api.routes import responses_codex_metadata as runtime
+
+    invalidations: list[bool] = []
+    provider_health_calls: list[bool] = []
+
+    handler = runtime.build_get_codex_status_handler(
+        get_request_context=lambda: None,
+        is_operator_context=lambda context: bool(getattr(context, "operator", False)),
+        provider_health_snapshot=lambda **kwargs: (
+            provider_health_calls.append(bool(kwargs.get("lightweight"))),
+            {"providers": {"onemin": {}}},
+        )[1],
+        invalidate_provider_health_snapshot_cache=lambda **kwargs: invalidations.append(bool(kwargs.get("lightweight"))),
+        codex_status_report=lambda **kwargs: {"status": "ok", "provider_health_mode": "light" if kwargs.get("compact") else "full"},
+        codex_governance_payload=lambda: {"governance": True},
+    )
+
+    operator_context = SimpleNamespace(operator=True, principal_id="operator")
+    principal_context = SimpleNamespace(operator=False, principal_id="principal")
+
+    full_operator = handler(window="1h", refresh=True, compact=False, context=operator_context)
+    compact_operator = handler(window="1h", refresh=True, compact=True, context=operator_context)
+    principal_compact = handler(window="1h", refresh=True, compact=True, context=principal_context)
+
+    assert invalidations == [False, True, True]
+    assert provider_health_calls == [False, True, True]
+    assert json.loads(full_operator.body)["status"] == "ok"
+    assert json.loads(compact_operator.body)["status"] == "ok"
+    assert json.loads(principal_compact.body)["status"] == "ok"
 
 
 def test_read_and_execution_route_helpers_cover_payload_and_handler_orchestration() -> None:
     from app.api.routes import responses_read_routes as read_runtime
     from app.api.routes import responses_execution_routes as exec_runtime
 
-    assert read_runtime.models_response_payload(list_response_models=lambda: [{"id": "ea-coder-fast"}]) == {
-        "object": "list",
-        "data": [{"id": "ea-coder-fast"}],
-    }
+    models_payload = read_runtime.models_response_payload(list_response_models=lambda: [{"id": "ea-coder-fast"}])
+    assert models_payload["object"] == "list"
+    assert models_payload["data"] == [{"id": "ea-coder-fast"}]
+    assert models_payload["models"][0]["slug"] == "ea-coder-fast"
+    assert models_payload["models"][0]["model_messages"]["instructions_template"]
     stored = SimpleNamespace(response={"id": "resp_1", "status": "completed"}, input_items=[{"type": "input_text", "text": "hi"}])
     assert read_runtime.response_read_payload(
         response_id="resp_1",
@@ -8731,7 +10195,9 @@ def test_end_to_end_responses_contract(monkeypatch: pytest.MonkeyPatch) -> None:
 
     models = client.get("/v1/models")
     assert models.status_code == 200
-    model_ids = {item["id"] for item in models.json()["data"]}
+    models_body = models.json()
+    model_ids = {item["id"] for item in models_body["data"]}
+    assert {item["slug"] for item in models_body["models"]} == model_ids
     assert "ea-coder-best" in model_ids
 
     created = client.post(

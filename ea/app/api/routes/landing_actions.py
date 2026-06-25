@@ -9,7 +9,7 @@ import urllib.parse
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
-from app.api.dependencies import RequestContext, get_container, get_request_context
+from app.api.dependencies import RequestContext, get_container, get_request_context, require_operator_context
 from app.api.routes.admin_view_models import (
     ACTIVE_MEDIA_LTD_GOAL_RECEIPT as EA_ACTIVE_MEDIA_LTD_GOAL_RECEIPT,
     EXECUTIVE_ASSISTANT_ACCEPTANCE_EVIDENCE_RECEIPT as EA_ACCEPTANCE_EVIDENCE_RECEIPT,
@@ -270,6 +270,7 @@ async def app_create_commitment(
 async def admin_record_acceptance_evidence(
     request: Request,
     context: RequestContext = Depends(get_request_context),
+    _: None = Depends(require_operator_context),
 ) -> RedirectResponse:
     body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
     return_to = _normalize_browser_return_to(_form_value(body, "return_to", "/admin/goals"), default="/admin/goals")
@@ -332,6 +333,7 @@ async def admin_record_acceptance_evidence(
 async def admin_record_signal_to_decision_evidence(
     request: Request,
     context: RequestContext = Depends(get_request_context),
+    _: None = Depends(require_operator_context),
 ) -> RedirectResponse:
     body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
     return_to = _normalize_browser_return_to(_form_value(body, "return_to", "/admin/goals"), default="/admin/goals")

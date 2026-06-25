@@ -284,7 +284,23 @@ def test_build_report_derives_effective_session_ref_from_live_sidecar_when_defau
         if url.endswith("/healthz"):
             return {"ok": True, "status": "ready", "session_ref": "tibor-wa-web"}
         if url.endswith("/sessions/tibor-wa-web/status"):
-            return {"ok": True, "ready": True, "status": "ready", "store_message_text": True}
+            return {
+                "ok": True,
+                "qr_required": True,
+                "ready": True,
+                "status": "ready",
+                "store_message_text": True,
+            }
+        if url.endswith("/sessions/tibor-wa-web/qr"):
+            return {
+                "ok": True,
+                "last_qr_at": "2026-06-25T09:00:00Z",
+                "qr": "raw-secret-qr",
+                "qr_present": True,
+                "qr_required": True,
+                "ready": False,
+                "status": "qr_required",
+            }
         raise AssertionError(url)
 
     report = module.build_report(
@@ -304,7 +320,161 @@ def test_build_report_derives_effective_session_ref_from_live_sidecar_when_defau
     assert report["effective_session_ref"] == "tibor-wa-web"
     assert report["effective_session_ref_source"] == "state_file"
     assert report["sidecar_health_session_ref"] == "tibor-wa-web"
+    assert report["sidecar_last_qr_at"] == "2026-06-25T09:00:00Z"
+    assert isinstance(report["sidecar_qr_age_seconds"], int)
+    assert report["sidecar_qr_metadata_probed"] is True
+    assert report["sidecar_qr_fresh"] is False
+    assert report["sidecar_qr_fresh_seconds"] == 120
+    assert report["sidecar_qr_present"] is True
+    assert report["sidecar_qr_required"] is True
+    assert "raw-secret-qr" not in str(report)
     assert "state_session_ref_mismatch" not in report["reasons"]
+
+
+def test_build_report_allows_configured_qr_freshness_window(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "HOST_SECRET_FILE_CANDIDATES", ())
+    env_file = tmp_path / "qr-fresh.env"
+    state_file = tmp_path / "processed-live.json"
+    state_file.write_text(
+        json.dumps(
+            {
+                "actions": {},
+                "session_ref": "tibor-wa-web",
+                "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            }
+        ),
+        encoding="utf-8",
+    )
+    env_file.write_text(
+        "\n".join(
+            [
+                "EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET=secret-value",
+                "EA_WHATSAPP_WEB_ACTION_PROCESSOR_ENABLED=1",
+                "EA_WHATSAPP_WEB_QR_FRESH_SECONDS=99999999",
+                f"EA_WHATSAPP_WEB_ACTION_STATE_FILE={state_file}",
+                "EA_WHATSAPP_WEB_SESSION_API_BASE_URL=http://wa-web.test",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    def _request_json(**kwargs):
+        url = str(kwargs.get("url") or "")
+        if url.endswith("/healthz"):
+            return {"ok": True, "status": "ready", "session_ref": "tibor-wa-web"}
+        if url.endswith("/sessions/tibor-wa-web/status"):
+            return {"ok": True, "qr_required": True, "ready": True, "status": "ready", "store_message_text": True}
+        if url.endswith("/sessions/tibor-wa-web/qr"):
+            return {
+                "ok": True,
+                "last_qr_at": "2026-06-25T09:00:00Z",
+                "qr_present": True,
+                "qr_required": True,
+                "ready": False,
+                "status": "qr_required",
+            }
+        raise AssertionError(url)
+
+    report = module.build_report(
+        _args(
+            tmp_path,
+            env_file=str(env_file),
+            state_file=str(state_file),
+            session_ref=module.DEFAULT_SESSION_REF,
+            session_api_base_url="http://wa-web.test",
+        ),
+        request_json=_request_json,
+    )
+
+    assert report["sidecar_qr_fresh"] is True
+    assert report["sidecar_qr_fresh_seconds"] == 99999999
+
+
+def test_healthcheck_ok_accepts_qr_required_when_processor_state_is_fresh(tmp_path: Path, monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "HOST_SECRET_FILE_CANDIDATES", ())
+    env_file = tmp_path / "qr-required.env"
+    state_file = tmp_path / "processed-live.json"
+    state_file.write_text(
+        json.dumps(
+            {
+                "actions": {},
+                "session_ref": "tibor-wa-web",
+                "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            }
+        ),
+        encoding="utf-8",
+    )
+    env_file.write_text(
+        "\n".join(
+            [
+                "EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET=secret-value",
+                "EA_WHATSAPP_WEB_ACTION_PROCESSOR_ENABLED=1",
+                f"EA_WHATSAPP_WEB_ACTION_STATE_FILE={state_file}",
+                "EA_WHATSAPP_WEB_SESSION_API_BASE_URL=http://wa-web.test",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    def _request_json(**kwargs):
+        url = str(kwargs.get("url") or "")
+        if url.endswith("/healthz"):
+            return {"ok": True, "status": "ready", "session_ref": "tibor-wa-web"}
+        if url.endswith("/sessions/tibor-wa-web/status"):
+            return {
+                "ok": True,
+                "qr_present": True,
+                "qr_required": True,
+                "ready": False,
+                "status": "qr_required",
+                "store_message_text": True,
+            }
+        if url.endswith("/sessions/tibor-wa-web/qr"):
+            return {
+                "ok": True,
+                "last_qr_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                "qr_present": True,
+                "qr_required": True,
+                "ready": False,
+                "status": "qr_required",
+            }
+        raise AssertionError(url)
+
+    report = module.build_report(
+        _args(
+            tmp_path,
+            env_file=str(env_file),
+            state_file=str(state_file),
+            session_ref="tibor-wa-web",
+            session_api_base_url="http://wa-web.test",
+        ),
+        request_json=_request_json,
+    )
+
+    assert report["ready"] is False
+    assert report["reason"] == "sidecar_not_ready"
+    assert report["reasons"] == ["sidecar_not_ready"]
+    assert module.healthcheck_ok(report) is True
+
+
+def test_healthcheck_ok_rejects_qr_required_when_processor_state_is_stale(tmp_path: Path, monkeypatch) -> None:
+    module = _module()
+    report = {
+        "ready": False,
+        "reasons": ["sidecar_not_ready"],
+        "sidecar_ok": True,
+        "sidecar_health_ok": True,
+        "sidecar_qr_present": True,
+        "sidecar_qr_required": True,
+        "state_fresh": False,
+    }
+
+    assert module.healthcheck_ok(report) is False
 
 
 def test_build_report_accepts_processor_state_file_inside_container(tmp_path: Path, monkeypatch) -> None:
@@ -379,6 +549,86 @@ def test_build_report_accepts_processor_state_file_inside_container(tmp_path: Pa
     assert "secret-value" not in str(report)
     assert "api-secret" not in str(report)
     assert "processor-secret" not in str(report)
+
+
+def test_build_report_auto_checks_container_state_for_processor_volume_path(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "HOST_SECRET_FILE_CANDIDATES", ())
+    compose_file = tmp_path / "custom-compose.yml"
+    compose_file.write_text(
+        """
+services:
+  ea-whatsapp-web-action-processor:
+    volumes:
+      - ea_whatsapp_web_actions:/container-only-actions
+    command: python /app/scripts/process_whatsapp_web_session_actions.py
+volumes:
+  ea_whatsapp_web_actions:
+    name: ea_whatsapp_web_actions
+""",
+        encoding="utf-8",
+    )
+    state_file = "/container-only-actions/processed.json"
+    env_file = tmp_path / "container-state.env"
+    env_file.write_text(
+        "\n".join(
+            [
+                "EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET=secret-value",
+                "EA_WHATSAPP_WEB_ACTION_PROCESSOR_ENABLED=1",
+                f"EA_WHATSAPP_WEB_ACTION_STATE_FILE={state_file}",
+                "EA_WHATSAPP_WEB_SESSION_API_BASE_URL=http://wa-web.test",
+                "EA_WHATSAPP_WEB_DEFAULT_SESSION_REF=session-1",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    container_state = {
+        "state_file": state_file,
+        "state_file_checked_in_container": True,
+        "state_file_container": "ea-whatsapp-web-action-processor",
+        "state_file_json_readable": True,
+        "state_file_object": True,
+        "state_file_parent_writable": True,
+        "state_file_present": True,
+        "state_stale_seconds": 600,
+        "state_session_ref": "session-1",
+        "state_updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "state_updated_at_valid": True,
+        "state_age_seconds": 0,
+        "state_fresh": True,
+    }
+
+    def _fake_run(cmd, **kwargs):
+        if cmd[:3] == ["docker", "exec", "ea-whatsapp-web-action-processor"] and cmd[3:5] == ["python", "-c"]:
+            return SimpleNamespace(returncode=0, stdout=json.dumps(container_state))
+        raise AssertionError(cmd)
+
+    report = module.build_report(
+        _args(
+            tmp_path,
+            check_containers=False,
+            compose_file=str(compose_file),
+            env_file=str(env_file),
+            probe_sidecar=True,
+            state_file=state_file,
+        ),
+        request_json=lambda **_: {"ready": True, "status": "ready", "store_message_text": True},
+        run=_fake_run,
+    )
+
+    assert report["ready"] is True
+    assert report["reason"] == "ready"
+    assert report["containers_checked"] is False
+    assert report["state_file_probe_source"] == "processor_container"
+    assert report["state_file_processor_volume_path"] is True
+    assert report["state_file_host_present"] is False
+    assert report["state_file_container_probe_attempted"] is True
+    assert report["state_file_container_probe_succeeded"] is True
+    assert "state_file_missing" not in report["reasons"]
+    assert "state_file_parent_not_writable" not in report["reasons"]
 
 
 def test_build_report_accepts_host_and_container_secret_files(tmp_path: Path) -> None:

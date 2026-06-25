@@ -33,6 +33,17 @@ def test_runtime_dependency_materializer_writes_pass_receipts() -> None:
     assert sbom["bomFormat"] == "CycloneDX"
     assert sbom["specVersion"] == "1.6"
     assert len(list(sbom.get("components") or [])) >= 10
+    requirement_sources = {str(item["requirements_path"]) for item in list(receipt.get("requirements_sources") or [])}
+    assert requirement_sources == {"ea/requirements.txt"}
+    assert all(str(item.get("requirements_sha256") or "").strip() for item in list(receipt.get("requirements_sources") or []))
+    sbom_sources = {
+        str(prop.get("value") or "")
+        for component in list(sbom.get("components") or [])
+        if isinstance(component, dict)
+        for prop in list(component.get("properties") or [])
+        if isinstance(prop, dict) and str(prop.get("name") or "") == "ea.requirements_source"
+    }
+    assert {"ea/requirements.txt"} <= sbom_sources
 
 
 def test_runtime_dependency_verifier_passes_for_current_tree() -> None:

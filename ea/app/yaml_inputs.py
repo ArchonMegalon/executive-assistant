@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -10,8 +11,38 @@ import yaml
 
 _HYBRID_QUEUE_SPLIT_RE = re.compile(r"^mode:\s+", re.MULTILINE)
 _QUEUE_KEY_LINE_RE = re.compile(r"^\s*[A-Za-z0-9_][A-Za-z0-9_\-]*:\s*")
-_FLEET_SUCCESSOR_QUEUE_PATH = "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
-_DESIGN_SUCCESSOR_QUEUE_PATH = "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
+_LEGACY_FLEET_SUCCESSOR_QUEUE_PATH = "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
+_LEGACY_DESIGN_SUCCESSOR_QUEUE_PATH = "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
+
+
+def _repo_root() -> Path:
+    current = Path(__file__).resolve()
+    for parent in current.parents:
+        if (parent / ".codex-design").is_dir() or (parent / ".git").is_dir():
+            return parent
+    return current.parents[2]
+
+
+def _configured_successor_queue_path() -> str:
+    return str(
+        os.getenv("EA_FLEET_SUCCESSOR_QUEUE_PATH")
+        or os.getenv("EA_NEXT90_QUEUE_STAGING_PATH")
+        or _LEGACY_FLEET_SUCCESSOR_QUEUE_PATH
+    ).strip()
+
+
+def _configured_design_successor_queue_path() -> str:
+    configured = str(
+        os.getenv("EA_DESIGN_SUCCESSOR_QUEUE_PATH")
+        or os.getenv("EA_DESIGN_NEXT90_QUEUE_STAGING_PATH")
+        or ""
+    ).strip()
+    if configured:
+        return configured
+    mirror_path = _repo_root() / ".codex-design" / "product" / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
+    if mirror_path.exists():
+        return mirror_path.as_posix()
+    return _LEGACY_DESIGN_SUCCESSOR_QUEUE_PATH
 
 
 def _queue_item_identity(item: object) -> tuple[str, ...]:
@@ -111,6 +142,6 @@ def load_yaml_dict(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         return {}
     normalized = dict(payload)
-    if path.as_posix() == _FLEET_SUCCESSOR_QUEUE_PATH and not str(normalized.get("source_design_queue_path") or "").strip():
-        normalized["source_design_queue_path"] = _DESIGN_SUCCESSOR_QUEUE_PATH
+    if path.as_posix() == _configured_successor_queue_path() and not str(normalized.get("source_design_queue_path") or "").strip():
+        normalized["source_design_queue_path"] = _configured_design_successor_queue_path()
     return normalized

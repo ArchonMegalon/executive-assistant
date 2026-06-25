@@ -51,6 +51,14 @@ _DEFAULT_ALLOWED_VIDEO_HOSTS = ("api.telegram.org",)
 _DEFAULT_MAX_VIDEO_BYTES = 80 * 1024 * 1024
 
 
+def _repo_root() -> Path:
+    current = Path(__file__).resolve()
+    for parent in current.parents:
+        if (parent / ".git").is_dir() or (parent / ".codex-design").is_dir():
+            return parent
+    return current.parents[3]
+
+
 def supported_source_video_edit_summary() -> str:
     return "realistic flame overlays, brief burn accents, speed changes, louder audio, and mute/remove-audio edits"
 
@@ -237,7 +245,10 @@ def _download_video(url: str, target: Path) -> Path:
 
 def _storage_root() -> Path:
     return Path(
-        str(os.getenv("EA_TELEGRAM_SOURCE_VIDEO_EDIT_ROOT") or "/mnt/pcloud/EA/telegram_video_edits").strip()
+        str(
+            os.getenv("EA_TELEGRAM_SOURCE_VIDEO_EDIT_ROOT")
+            or (_repo_root() / ".runtime" / "telegram_video_edits")
+        ).strip()
     ).expanduser()
 
 

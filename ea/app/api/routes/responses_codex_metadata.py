@@ -56,8 +56,9 @@ def codex_status_response_payload(
     codex_status_report: Callable[..., dict[str, object]],
     codex_governance_payload: Callable[[], dict[str, object]],
 ) -> dict[str, object]:
-    profile_health = provider_health_snapshot(lightweight=(not is_operator_context(context)))
-    if is_operator_context(context):
+    operator_context = bool(is_operator_context(context))
+    profile_health = provider_health_snapshot(lightweight=(compact or (not operator_context)))
+    if operator_context:
         report = codex_status_report(window=window, provider_health=profile_health, compact=compact)
     else:
         report = dict(
@@ -118,6 +119,7 @@ def build_get_codex_status_handler(
     get_request_context: Callable[..., Any],
     is_operator_context: Callable[[Any], bool],
     provider_health_snapshot: Callable[..., dict[str, object]],
+    invalidate_provider_health_snapshot_cache: Callable[..., None],
     codex_status_report: Callable[..., dict[str, object]],
     codex_governance_payload: Callable[[], dict[str, object]],
 ) -> Callable[..., Response]:
@@ -127,7 +129,10 @@ def build_get_codex_status_handler(
         compact: bool = False,
         context: Any = Depends(get_request_context),
     ) -> Response:
-        _ = refresh
+        operator_context = bool(is_operator_context(context))
+        lightweight = bool(compact or (not operator_context))
+        if refresh:
+            invalidate_provider_health_snapshot_cache(lightweight=lightweight)
         return JSONResponse(
             codex_status_response_payload(
                 window=window,

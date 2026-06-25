@@ -28,6 +28,9 @@ NON_SECRET_KEY_PARTS = {
     "HASH",
     "SHA256",
     "OVERLAP",
+    "AUDIENCE",
+    "ISSUER",
+    "VERSION",
 }
 RAW_SECRET_CONTEXT_RE = re.compile(
     r"(?i)(?:api[_ -]?key|token|secret|password)[^\n]{0,80}\b[a-f0-9]{40,}\b"

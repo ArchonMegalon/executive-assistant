@@ -102,6 +102,7 @@ def _candidate(job: dict[str, object]) -> dict[str, object]:
     telegram = _as_dict(job.get("telegram"))
     privacy = _as_dict(job.get("privacy"))
     playback = _as_dict(job.get("playback_acceptance"))
+    origin_delivery = _as_dict(job.get("origin_edition_delivery"))
     title = str(metadata.get("title") or "").strip()
     author = str(metadata.get("author") or "").strip()
     public_url = str(imported.get("public_share_url") or "").strip()
@@ -181,10 +182,44 @@ def _candidate(job: dict[str, object]) -> dict[str, object]:
         "playback_acceptance_status": str(playback.get("status") or ""),
         "playback_acceptance_source": str(playback.get("source") or ""),
         "playback_acceptance_feedback_sha256": str(playback.get("feedback_sha256") or ""),
+        "origin_edition_link_bundle": _origin_edition_link_bundle(origin_delivery),
         "voice_selected_by_user": _voice_selected_by_user(job),
         "voice_selected_default": _voice_selected_default(job),
         "replacement_choice_pending": _replacement_choice_pending(job),
         "failed_codes": failed_codes,
+    }
+
+
+def _origin_edition_link_bundle(origin_delivery: dict[str, object]) -> dict[str, object]:
+    if not origin_delivery:
+        return {"status": "not_applicable"}
+    links = _as_dict(origin_delivery.get("links"))
+    read_url = str(links.get("read") or origin_delivery.get("read_url") or "").strip()
+    listen_url = str(links.get("listen") or origin_delivery.get("listen_url") or "").strip()
+    watch_url = str(links.get("watch") or origin_delivery.get("watch_url") or "").strip()
+    open_url = str(
+        links.get("open_in_chummer")
+        or links.get("open")
+        or origin_delivery.get("open_in_chummer_url")
+        or origin_delivery.get("open_url")
+        or ""
+    ).strip()
+    return {
+        "status": str(origin_delivery.get("status") or "").strip(),
+        "project_id": str(origin_delivery.get("project_id") or "").strip(),
+        "origin_namespace_sha256": _sha256_text(origin_delivery.get("origin_namespace")),
+        "telegram_delivery_status": str(origin_delivery.get("telegram_delivery_status") or "").strip(),
+        "telegram_message_id_present": bool(origin_delivery.get("telegram_message_id_present")),
+        "read_url_present": bool(read_url),
+        "listen_url_present": bool(listen_url),
+        "watch_url_present": bool(watch_url),
+        "open_in_chummer_url_present": bool(open_url),
+        "read_url_sha256": _sha256_text(read_url),
+        "listen_url_sha256": _sha256_text(listen_url),
+        "watch_url_sha256": _sha256_text(watch_url),
+        "open_in_chummer_url_sha256": _sha256_text(open_url),
+        "all_required_links_present": all((read_url, listen_url, watch_url, open_url)),
+        "raw_urls_exposed": False,
     }
 
 

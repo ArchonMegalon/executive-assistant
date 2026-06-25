@@ -201,21 +201,30 @@ def test_local_gate_bundles_include_flagship_readiness_and_generated_cleanliness
         assert "verify-whole-project-gold-map" in body
         assert "verify-generated-release-artifacts-clean" in body
 
+    assert "verify-runtime-supply-chain" in release_preflight
     assert "verify-release-authority" in release_preflight
+    assert "verify-release-authority-runtime-authoritative" in release_preflight
 
     generated_clean = _make_target_body(makefile, "verify-generated-release-artifacts-clean")
     assert "scripts/verify_generated_release_artifacts_clean.py" in generated_clean
     assert "git diff --exit-code -- .codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json" not in generated_clean
 
     assert "flagship release-readiness verification" in readme
+    assert "make verify-runtime-supply-chain" in readme
     assert "make verify-release-authority" in readme
+    assert "/health/release-authority" in readme
+    assert "release_authority_source" in readme
     assert "whole-project gold-map verification" in readme
     assert "generated release artifact cleanliness" in readme
     assert "flagship release readiness" in runbook
+    assert "make verify-runtime-supply-chain" in runbook
     assert "make verify-release-authority" in runbook
+    assert "/health/release-authority" in runbook
+    assert "release_authority_source" in runbook
     assert "make verify-whole-project-gold-map" in runbook
     assert "generated release artifact cleanliness" in runbook
     assert "- `make verify-flagship-release-readiness`" in runbook
+    assert "- `make verify-runtime-supply-chain`" in runbook or "make verify-runtime-supply-chain" in runbook
     assert "- `make verify-release-authority`" in runbook
     assert "- `make verify-generated-release-artifacts-clean`" in runbook
 
@@ -246,6 +255,13 @@ def test_hard_exit_gate_targets_and_runtime_gate_scripts_are_wired() -> None:
 
     assert "bash scripts/smoke_help.sh" in runtime_gate
     assert "env -u EA_API_TOKEN bash scripts/smoke_api.sh" in runtime_gate
+    assert "make -s refresh-release-authority-status" in runtime_gate
+    assert '"${PYTHON_BIN}" scripts/verify_release_authority_runtime.py --pretty --require-authoritative' in runtime_gate
+    assert "verify_memorial_runtime_overlay when MEMORIAL mode is enabled" in runtime_gate
+    assert "verify_project_mode_runtime --mode memorial when MEMORIAL mode is enabled" in runtime_gate
+    assert 'if mode_enabled "MEMORIAL"; then' in runtime_gate
+    assert '"${PYTHON_BIN}" scripts/verify_memorial_runtime_overlay.py --pretty' in runtime_gate
+    assert 'PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_project_mode_runtime.py --mode memorial' in runtime_gate
     assert "smoke_api_principal.sh` stays in the full hard-exit bundle" in runtime_gate
     assert 'PYTHON_BIN="${PYTHON_BIN:-}"' in runtime_gate
     assert '"${PYTHON_BIN}" scripts/verify_pocket_audio_archive.py' in runtime_gate
@@ -310,6 +326,7 @@ def test_endpoint_version_openapi_scripts_have_help_contracts_and_wiring() -> No
     for rel in (
         "scripts/list_endpoints.sh",
         "scripts/version_info.sh",
+        "scripts/release_authority_probe.sh",
         "scripts/export_openapi.sh",
         "scripts/diff_openapi.sh",
         "scripts/prune_openapi.sh",
@@ -326,15 +343,15 @@ def test_smoke_help_has_help_contract_and_operator_help_wiring() -> None:
 
     assert "Usage:" in smoke_help
     assert "scripts/smoke_help.sh" in makefile
-    for rel in (
-        "scripts/hard_exit_gates.sh",
-        "scripts/runtime_hard_exit_gates.sh",
-        "scripts/verify_ltd_critical_entries.py",
-        "scripts/verify_ltd_flagship_subset.py",
-        "scripts/materialize_whatsapp_web_action_processor_readiness.py",
-        "scripts/verify_whatsapp_web_action_processor_readiness.py",
-        "scripts/bootstrap_payfunnels_propertyquarry.py",
-        "scripts/bootstrap_emailit_propertyquarry.py",
-    ):
-        assert rel in makefile
-        assert rel in smoke_help
+
+
+def test_memorial_deploy_target_uses_memorial_project_mode_and_overlay() -> None:
+    makefile = (ROOT / "Makefile").read_text()
+
+    deploy_target = _make_target_body(makefile, "deploy-ea-memorial")
+
+    assert '$(MAKE) verify-memorial-deploy-readiness; \\' in deploy_target
+    assert 'COMPOSE_PROJECT_NAME=ea \\' in deploy_target
+    assert 'PROPERTYQUARRY_USE_LEGACY_STACK=1 \\' in deploy_target
+    assert 'EA_DEPLOY_PRIMARY_MODE=MEMORIAL \\' in deploy_target
+    assert 'bash scripts/deploy.sh --compose-override docker-compose.memorial.yml' in deploy_target

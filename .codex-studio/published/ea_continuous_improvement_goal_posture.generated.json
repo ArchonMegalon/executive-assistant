@@ -1,7 +1,7 @@
 {
   "blocking_reasons": [
     "deliver:manfred_speech=blocked_realtime_prerequisites",
-    "deliver:whatsapp_audiobook=waiting_for_live_epub",
+    "deliver:telegram_audiobook=blocked",
     "prove=blocked_real_world_acceptance"
   ],
   "contract_name": "ea.continuous_improvement_goal_posture.v1",
@@ -12,7 +12,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-06-22T16:39:40Z",
+  "generated_at": "2026-06-25T16:18:22Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -108,12 +108,12 @@
               "contract_name": "ea.telegram_audiobook_live_delivery_receipt.v1",
               "path": ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
               "present": true,
-              "status": "pass"
+              "status": "blocked"
             }
           ],
-          "status": "pass",
-          "status_class": "progress",
-          "summary": "live delivery pass; readiness ready_for_live_epub_delivery_test",
+          "status": "blocked",
+          "status_class": "blocking",
+          "summary": "live delivery blocked; readiness ready_for_live_epub_delivery_test",
           "title": "Telegram audiobook delivery"
         },
         {
@@ -130,13 +130,13 @@
               "contract_name": "ea.whatsapp_audiobook_operator_proof_bundle.v1",
               "path": ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json",
               "present": true,
-              "status": "waiting_for_live_epub"
+              "status": "pass"
             },
             {
               "contract_name": "ea.whatsapp_audiobook_live_delivery_receipt.v1",
               "path": ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
               "present": true,
-              "status": "waiting_for_live_epub"
+              "status": "pass"
             },
             {
               "contract_name": "ea.whatsapp_audiobook_public_share_playback_e2e.v1",
@@ -151,9 +151,9 @@
               "status": "waiting"
             }
           ],
-          "status": "waiting_for_live_epub",
-          "status_class": "blocking",
-          "summary": "intake pass; bundle waiting_for_live_epub; live waiting_for_live_epub; share pass; voice waiting",
+          "status": "pass",
+          "status_class": "progress",
+          "summary": "intake pass; bundle pass; live pass; share pass; voice waiting",
           "title": "WhatsApp audiobook delivery"
         }
       ],
@@ -171,7 +171,8 @@
         "make verify-telegram-audiobook-live-delivery-receipt",
         "make verify-whatsapp-audiobook-local-intake-proof",
         "make verify-whatsapp-audiobook-operator-proof-bundle",
-        "make verify-whatsapp-audiobook-live-delivery-receipt"
+        "make verify-whatsapp-audiobook-live-delivery-receipt",
+        "make verify-whatsapp-audiobook-public-share-playback"
       ]
     },
     {
@@ -226,13 +227,12 @@
     "real operator acceptance that the morning brief was worth reading",
     "real weekly signal-to-decision review acceptance receipt",
     "fresh-host Teable recovery drill receipt mirrored into the repo",
-    "consented Manfred STT/TTS realtime conversation proof",
-    "passing WhatsApp audiobook live delivery receipt"
+    "consented Manfred STT/TTS realtime conversation proof"
   ],
   "rules": [
     "Local route receipts and operator commands may guide work, but they do not by themselves prove real daily usefulness.",
     "The recover lens may use a mirrored local readiness receipt, but it must not claim pass until a fresh-host Teable recovery drill receipt is mirrored.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "8e6c434f4b8e7f1e1c87e1c6b3fdc566915cc85c"
+  "source_git_head": "a36f2efbf30ff0da35ebf1ee0d8c140cd3579829"
 }

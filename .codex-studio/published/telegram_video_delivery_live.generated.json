@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.telegram_video_delivery_live_receipt",
-  "generated_at": "2026-06-22T14:56:01Z",
+  "generated_at": "2026-06-23T18:10:36Z",
   "generated_by": "scripts/materialize_telegram_video_delivery_live_receipt.py",
-  "source_git_head": "8e6c434f4b8e7f1e1c87e1c6b3fdc566915cc85c",
+  "source_git_head": "a58794adbb9c84221c3140bf3fdc767e5bdf4b53",
   "head_semantics": "source_state",
   "output_path": ".codex-studio/published/telegram_video_delivery_live.generated.json",
   "status": "blocked",
@@ -14,7 +14,7 @@
       ".env",
       ".env.local"
     ],
-    "loaded_count": 337,
+    "loaded_count": 361,
     "storage_backend_present": true,
     "database_url_present": true,
     "docker_postgres_fallback": {

@@ -165,7 +165,11 @@ def test_media_factory_state_uses_resolved_onemin_slots(monkeypatch: pytest.Monk
         lambda: [{"env_name": "ONEMIN_RESOLVED_SLOT_1", "key": "resolved-key"}],
     )
     monkeypatch.setattr(readiness, "command_state", lambda command_name: ("python3", True))
-    monkeypatch.setattr(readiness, "env_value", lambda name: "")
+    monkeypatch.setattr(
+        readiness,
+        "env_value",
+        lambda name: "python3" if name == "CHUMMER6_MEDIA_FACTORY_RENDER_COMMAND" else "",
+    )
 
     state = readiness.provider_state("media_factory")
 

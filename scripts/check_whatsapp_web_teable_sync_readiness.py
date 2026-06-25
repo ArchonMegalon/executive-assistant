@@ -151,6 +151,22 @@ def check_readiness(
             "reason": "updated_at_missing_or_invalid",
         }
     age_seconds = max(0, int((checked_at - updated_at).total_seconds()))
+    if str(state.get("status") or "").strip() == "waiting" and str(state.get("reason") or "").strip().endswith("_unavailable"):
+        waiting_report = {
+            "age_seconds": age_seconds,
+            "checked_at": checked_at.isoformat().replace("+00:00", "Z"),
+            "enabled": True,
+            "ok": age_seconds <= stale_seconds,
+            "ready": False,
+            "reason": str(state.get("reason") or "session_api_unavailable").strip(),
+            "session_ref": state_session_ref,
+            "stale_seconds": stale_seconds,
+            "status": "waiting",
+            "updated_at": updated_at.isoformat().replace("+00:00", "Z"),
+        }
+        if age_seconds > stale_seconds:
+            waiting_report["reason"] = "waiting_state_stale"
+        return waiting_report
     if age_seconds > stale_seconds:
         return {
             "age_seconds": age_seconds,
@@ -229,7 +245,7 @@ def main() -> int:
         stale_seconds=max(1, int(args.stale_seconds)),
     )
     print(json.dumps(report, sort_keys=True))
-    return 0 if bool(report.get("ready")) else 1
+    return 0 if bool(report.get("ok")) else 1
 
 
 if __name__ == "__main__":

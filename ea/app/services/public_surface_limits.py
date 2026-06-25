@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 
+from app.services.public_request import trust_forwarded_ip
+
 
 _RATE_DB_LOCK = threading.Lock()
 _RATE_BACKEND_CACHE: str | None = None
@@ -38,7 +40,9 @@ def public_surface_client_key(
     if scope:
         return scope
     headers = headers or {}
-    forwarded = str(headers.get("cf-connecting-ip") or headers.get("x-forwarded-for") or "").strip()
+    forwarded = ""
+    if trust_forwarded_ip():
+        forwarded = str(headers.get("cf-connecting-ip") or headers.get("x-forwarded-for") or "").strip()
     ip = forwarded.split(",", 1)[0].strip() if forwarded else str(client_host or "").strip()
     return _safe_scope_token(f"ip:{ip}", "ip:unknown")
 

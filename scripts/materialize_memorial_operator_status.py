@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 try:
@@ -14,6 +17,9 @@ except ModuleNotFoundError:  # pragma: no cover - script execution path
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / ".codex-design" / "product" / "MEMORIAL_OPERATOR_STATUS.generated.json"
 WHOLE_PROJECT_GOLD_MAP = ROOT / ".codex-design" / "product" / "WHOLE_PROJECT_GOLD_MAP.generated.json"
+DEPLOY_CONTEXT = ROOT / ".codex-studio" / "published" / "deploy_context.generated.json"
+RELEASE_MANIFEST = ROOT / ".codex-studio" / "published" / "release_manifest.generated.json"
+RELEASE_AUTHORITY_STATUS = ROOT / ".codex-studio" / "published" / "release_authority_status.generated.json"
 MEANINGFUL_BROWSER_RECEIPT = ROOT / ".codex-studio" / "published" / "memorial_realtime_browser_meaningful_public_origin.generated.json"
 PUBLIC_VOICE_RECEIPT = ROOT / ".codex-studio" / "published" / "memorial_voice_roundtrip_public_origin.generated.json"
 PUBLIC_BROWSER_RECEIPT = ROOT / ".codex-studio" / "published" / "memorial_realtime_browser_public_origin.generated.json"
@@ -28,6 +34,8 @@ STT_CAPTURED_CANDIDATE_DIAGNOSTIC_RECEIPT = (
     ROOT / ".codex-studio" / "published" / "memorial_stt_captured_candidate_diagnostic.generated.json"
 )
 STT_CAPTURE_DISCOVERY_RECEIPT = ROOT / ".codex-studio" / "published" / "memorial_stt_capture_discovery.generated.json"
+ENV_FILE = ROOT / ".env"
+SOURCE_DIRTY_FILE_LIMIT = 10000
 
 
 def _display_path(path: Path) -> str:
@@ -37,9 +45,20 @@ def _display_path(path: Path) -> str:
         return path.as_posix()
 
 
-def _run_json(script: str) -> dict:
+def _run_json(script: str | list[str]) -> dict:
+    command = [sys.executable]
+    if isinstance(script, str):
+        command.append(str(ROOT / script))
+        script_label = script
+    else:
+        script_args = list(script)
+        if not script_args:
+            return {"status": "error", "script": "", "stdout": "", "stderr": "empty_script_args"}
+        command.append(str(ROOT / script_args[0]))
+        command.extend(script_args[1:])
+        script_label = " ".join(script_args)
     proc = subprocess.run(
-        [sys.executable, str(ROOT / script)],
+        command,
         capture_output=True,
         text=True,
         timeout=30,
@@ -49,7 +68,7 @@ def _run_json(script: str) -> dict:
     try:
         return json.loads(output or "{}")
     except Exception:
-        return {"status": "error", "script": script, "stdout": proc.stdout[:800], "stderr": proc.stderr[:800]}
+        return {"status": "error", "script": script_label, "stdout": proc.stdout[:800], "stderr": proc.stderr[:800]}
 
 
 def _load_json(path: Path) -> dict:
@@ -58,6 +77,112 @@ def _load_json(path: Path) -> dict:
     except Exception:
         return {}
     return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _env_file_value(key: str) -> str:
+    try:
+        for raw_line in ENV_FILE.read_text(encoding="utf-8").splitlines():
+            stripped = raw_line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in raw_line:
+                continue
+            current_key, value = raw_line.split("=", 1)
+            if current_key.strip() == key:
+                return value.strip()
+    except Exception:
+        return ""
+    return ""
+
+
+def _configured_public_origin() -> tuple[str, str]:
+    for key in ("EA_PUBLIC_APP_BASE_URL", "PROPERTYQUARRY_PUBLIC_BASE_URL"):
+        value = str(os.environ.get(key) or _env_file_value(key) or "").strip().rstrip("/")
+        if value:
+            return key, value
+    return "", ""
+
+
+def _http_status(url: str) -> tuple[int, str]:
+    try:
+        request = urllib.request.Request(
+            url,
+            method="GET",
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+                ),
+                "Accept": "text/html,application/json;q=0.9,*/*;q=0.8",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=20.0) as response:
+            status = int(getattr(response, "status", 200) or 200)
+            body = response.read(240).decode("utf-8", errors="replace")
+            return status, body
+    except urllib.error.HTTPError as exc:
+        body = exc.read(240).decode("utf-8", errors="replace")
+        return int(exc.code or 0), body
+    except Exception as exc:
+        return 0, f"{type(exc).__name__}:{exc}"
+
+
+def _public_origin_access_status(*, slug: str) -> dict[str, object]:
+    source_key, base_url = _configured_public_origin()
+    if not base_url:
+        return {
+            "status": "missing",
+            "base_url": "",
+            "source_key": "",
+            "page_status_code": 0,
+            "manifest_status_code": 0,
+            "page_probe_url": "",
+            "manifest_probe_url": "",
+            "next_action": "configure_public_memorial_origin",
+            "reason": "public_origin_missing",
+        }
+    page_url = f"{base_url}/memorials/{slug}"
+    manifest_url = f"{base_url}/memorials/{slug}.json"
+    page_status, page_detail = _http_status(page_url)
+    manifest_status, manifest_detail = _http_status(manifest_url)
+    access_blocked = page_status in {401, 403} or manifest_status in {401, 403}
+    not_found = page_status == 404 or manifest_status == 404
+    if page_status == 200 and manifest_status == 200:
+        return {
+            "status": "pass",
+            "base_url": base_url,
+            "source_key": source_key,
+            "page_status_code": page_status,
+            "manifest_status_code": manifest_status,
+            "page_probe_url": page_url,
+            "manifest_probe_url": manifest_url,
+            "page_detail": page_detail[:160],
+            "manifest_detail": manifest_detail[:160],
+            "next_action": "maintain_public_memorial_origin_access",
+        }
+    return {
+        "status": "access_blocked" if access_blocked else "blocked",
+        "base_url": base_url,
+        "source_key": source_key,
+        "page_status_code": page_status,
+        "manifest_status_code": manifest_status,
+        "page_probe_url": page_url,
+        "manifest_probe_url": manifest_url,
+        "page_detail": page_detail[:160],
+        "manifest_detail": manifest_detail[:160],
+        "next_action": (
+            "allow_anonymous_public_memorial_origin_access"
+            if access_blocked
+            else "republish_public_memorial_bundle_or_fix_slug"
+            if not_found
+            else "inspect_public_memorial_origin_http_failure"
+        ),
+        "reason": (
+            "public_origin_access_blocked"
+            if access_blocked
+            else "public_origin_memorial_not_found"
+            if not_found
+            else "public_origin_http_probe_failed"
+        ),
+    }
 
 
 def _receipt_state(path: Path) -> str:
@@ -72,6 +197,277 @@ def _receipt_state(path: Path) -> str:
 def _receipt_git_head(path: Path) -> str:
     payload = _load_json(path)
     return str(payload.get("git_head") or payload.get("source_git_head") or "").strip()
+
+
+def _source_dirty_category(path: str) -> str:
+    normalized = str(path or "").strip()
+    if not normalized:
+        return "other"
+    if normalized.startswith(".env") or normalized.endswith(".env") or "/.env" in normalized:
+        return "env_examples"
+    if normalized.startswith("docs-public/"):
+        return "public_docs"
+    if normalized.startswith(".codex-design/product/"):
+        return "design_mirror"
+    if normalized.startswith(".codex-studio/published/"):
+        return "generated_receipts"
+    if normalized.startswith("docker-compose") or normalized.startswith("ea/Dockerfile") or normalized in {"Dockerfile", "Dockerfile.operator"}:
+        return "deploy_runtime"
+    if normalized.startswith("ea/app/api/routes/"):
+        return "api_routes"
+    if normalized.startswith("ea/app/services/"):
+        return "services"
+    if normalized.startswith("ea/app/templates/"):
+        return "templates"
+    if normalized.startswith("ea/app/"):
+        return "app_core"
+    if normalized.startswith("ea/tests/") or normalized.startswith("tests/"):
+        return "tests"
+    if normalized.startswith("scripts/") or normalized.startswith("ea/scripts/"):
+        return "scripts"
+    if normalized.startswith("data/"):
+        return "data"
+    if normalized.endswith(".md") or normalized in {"README.md", "CHANGELOG.md", "RUNBOOK.md", "RELEASE_CHECKLIST.md", "LTDs.md"}:
+        return "docs"
+    if normalized in {"Makefile", ".gitignore"}:
+        return "repo_config"
+    return "other"
+
+
+def _source_dirty_summary(source_worktree: dict[str, object]) -> dict[str, object]:
+    files = [
+        str(item).strip()
+        for item in list(source_worktree.get("source_dirty_files") or [])
+        if str(item).strip()
+    ]
+    groups: dict[str, dict[str, object]] = {}
+    for path in files:
+        category = _source_dirty_category(path)
+        group = groups.setdefault(category, {"category": category, "visible_count": 0, "sample_files": []})
+        group["visible_count"] = int(group.get("visible_count") or 0) + 1
+        samples = list(group.get("sample_files") or [])
+        if len(samples) < 8:
+            samples.append(path)
+        group["sample_files"] = samples
+    category_order = (
+        "api_routes",
+        "services",
+        "app_core",
+        "templates",
+        "scripts",
+        "deploy_runtime",
+        "env_examples",
+        "public_docs",
+        "docs",
+        "tests",
+        "design_mirror",
+        "generated_receipts",
+        "data",
+        "repo_config",
+        "other",
+    )
+    ordered_groups = sorted(
+        groups.values(),
+        key=lambda item: (category_order.index(str(item.get("category"))) if str(item.get("category")) in category_order else 999, str(item.get("category"))),
+    )
+    visible_count = len(files)
+    total_count = int(source_worktree.get("source_dirty_count") or visible_count)
+    omitted_count = int(source_worktree.get("source_dirty_omitted_count") or 0)
+    return {
+        "status": "dirty" if bool(source_worktree.get("source_worktree_dirty")) else "clean",
+        "total_count": total_count,
+        "visible_count": visible_count,
+        "omitted_count": omitted_count,
+        "category_count": len(ordered_groups),
+        "categories": ordered_groups,
+        "recommended_first_action": (
+            "review_and_commit_or_stash_source_groups_before_clean_receipts"
+            if bool(source_worktree.get("source_worktree_dirty"))
+            else "none"
+        ),
+        "operator_hint": (
+            "Start with api_routes/services/scripts/deploy_runtime groups; generated-only receipt changes do not explain clean-clone proof failures."
+            if bool(source_worktree.get("source_worktree_dirty"))
+            else "Source worktree is clean for clean-clone receipt refresh."
+        ),
+    }
+
+
+def _source_cleanup_payload(
+    *,
+    source_worktree: dict[str, object],
+    source_dirty_summary: dict[str, object],
+    source_dirty_verifier: dict[str, object],
+    next_action: str,
+    next_command: str,
+) -> dict[str, object]:
+    dirty = bool(source_worktree.get("source_worktree_dirty"))
+    verifier_status = str(source_dirty_verifier.get("status") or "missing").strip().lower() or "missing"
+    verifier_issues = [
+        str(item).strip()
+        for item in list(source_dirty_verifier.get("issues") or [])
+        if str(item).strip()
+    ]
+    categories = [
+        {
+            "category": str(item.get("category") or "").strip(),
+            "visible_count": int(item.get("visible_count") or 0),
+            "drilldown_command": (
+                f"scripts/inspect_source_dirty_groups.py --category {str(item.get('category') or '').strip()} --limit 20"
+            ),
+        }
+        for item in list(source_dirty_summary.get("categories") or [])
+        if isinstance(item, dict) and str(item.get("category") or "").strip()
+    ]
+    source_action_names = {
+        "commit_or_stash_source_changes_before_clean_receipts",
+        "verify_source_dirty_groups_before_source_cleanup",
+    }
+    source_next_action = str(next_action or "").strip() if str(next_action or "").strip() in source_action_names else ""
+    source_next_command = str(next_command or "").strip() if source_next_action else ""
+    if not source_next_action and dirty:
+        source_next_action = (
+            "verify_source_dirty_groups_before_source_cleanup"
+            if verifier_status != "pass"
+            else "commit_or_stash_source_changes_before_clean_receipts"
+        )
+        source_next_command = _memorial_next_command_for_action(source_next_action)
+    category_drilldown_commands = [
+        str(item.get("drilldown_command") or "").strip()
+        for item in categories
+        if str(item.get("drilldown_command") or "").strip()
+    ]
+    handoff_commands = [
+        "git status --short",
+        "scripts/inspect_source_dirty_groups.py --list-categories",
+        *category_drilldown_commands[:6],
+    ]
+    if verifier_status != "pass":
+        handoff_commands.append("make verify-source-dirty-groups")
+    if source_next_command and source_next_command not in handoff_commands:
+        handoff_commands.append(source_next_command)
+    status = "ready"
+    if dirty:
+        status = "blocked"
+    if dirty and verifier_status != "pass":
+        status = "verifier_blocked"
+    return {
+        "status": status,
+        "source_worktree_dirty": dirty,
+        "source_dirty_count": int(source_worktree.get("source_dirty_count") or 0),
+        "source_dirty_omitted_count": int(source_worktree.get("source_dirty_omitted_count") or 0),
+        "source_dirty_status_sha256": str(source_worktree.get("source_dirty_status_sha256") or ""),
+        "summary_status": str(source_dirty_summary.get("status") or "").strip(),
+        "category_count": int(source_dirty_summary.get("category_count") or len(categories)),
+        "top_categories": categories[:6],
+        "category_drilldown_commands": category_drilldown_commands,
+        "handoff_commands": handoff_commands,
+        "verifier_status": verifier_status,
+        "verifier_issues": verifier_issues,
+        "next_action": source_next_action,
+        "next_command": source_next_command,
+    }
+
+
+def _memorial_public_runtime_status() -> dict[str, object]:
+    deploy_context = _load_json(DEPLOY_CONTEXT)
+    release_manifest = _load_json(RELEASE_MANIFEST)
+    project_mode = str(
+        release_manifest.get("project_mode")
+        or deploy_context.get("project_mode")
+        or ""
+    ).strip()
+    enabled_modes_raw = list(
+        release_manifest.get("enabled_project_modes")
+        or deploy_context.get("enabled_project_modes")
+        or []
+    )
+    enabled_modes = [str(item).strip() for item in enabled_modes_raw if str(item).strip()]
+    compose_files = [
+        str(item).strip()
+        for item in list(deploy_context.get("compose_files") or release_manifest.get("compose_files") or [])
+        if str(item).strip()
+    ]
+    compose_overrides = [
+        str(item).strip()
+        for item in list(deploy_context.get("compose_overrides") or release_manifest.get("compose_overrides") or [])
+        if str(item).strip()
+    ]
+    public_origin = str(
+        release_manifest.get("public_origin")
+        or deploy_context.get("public_origin")
+        or ""
+    ).strip()
+    memorial_enabled = project_mode == "MEMORIAL" or "MEMORIAL" in enabled_modes
+    if memorial_enabled:
+        return {
+            "status": "pass",
+            "project_mode": project_mode,
+            "enabled_project_modes": enabled_modes,
+            "compose_files": compose_files,
+            "compose_overrides": compose_overrides,
+            "public_origin": public_origin,
+            "next_action": "maintain_memorial_public_runtime",
+            "reason": "memorial_runtime_declared",
+        }
+    if not deploy_context and not release_manifest:
+        return {
+            "status": "missing",
+            "project_mode": project_mode,
+            "enabled_project_modes": enabled_modes,
+            "compose_files": compose_files,
+            "compose_overrides": compose_overrides,
+            "public_origin": public_origin,
+            "next_action": "materialize_deploy_context_and_release_manifest",
+            "reason": "deploy_context_or_release_manifest_missing",
+        }
+    return {
+        "status": "blocked",
+        "project_mode": project_mode,
+        "enabled_project_modes": enabled_modes,
+        "compose_files": compose_files,
+        "compose_overrides": compose_overrides,
+        "public_origin": public_origin,
+        "next_action": "deploy_ea_memorial",
+        "reason": "public_origin_not_deployed_in_memorial_mode",
+    }
+
+
+def _release_authority_status() -> dict[str, object]:
+    payload = _load_json(RELEASE_AUTHORITY_STATUS)
+    if not payload:
+        payload = _run_json(["scripts/materialize_release_authority_status.py", "--output", str(RELEASE_AUTHORITY_STATUS)])
+    if not isinstance(payload, dict):
+        return {
+            "status": "missing",
+            "state": "missing",
+            "authority_posture": "missing",
+            "issues": ["release_authority_status_missing"],
+            "next_action": "materialize_release_authority_status",
+            "detail": "release authority status artifact missing",
+        }
+    state = str(payload.get("state") or payload.get("status") or "").strip().lower() or "missing"
+    posture = str(payload.get("authority_posture") or "").strip().lower() or "missing"
+    issues = [
+        str(item).strip()
+        for item in list(payload.get("issues") or [])
+        if str(item).strip()
+    ]
+    next_action = str(payload.get("next_action") or "").strip()
+    status = "pass" if state == "pass" and not issues else "blocked"
+    return {
+        "status": status,
+        "state": state,
+        "authority_posture": posture,
+        "issues": issues,
+        "next_action": next_action or "clear_release_authority_blockers",
+        "detail": str(payload.get("summary") or "").strip(),
+        "deployment_id": str(payload.get("deployment_id") or "").strip(),
+        "deployment_id_source": str(payload.get("deployment_id_source") or "").strip(),
+        "dirty_worktree": bool(payload.get("dirty_worktree") is True),
+        "deploy_context_commit_sha": str(payload.get("deploy_context_commit_sha") or "").strip(),
+        "commit_sha": str(payload.get("commit_sha") or "").strip(),
+    }
 
 
 def _workflow_backing_status(*receipts: Path) -> dict[str, object]:
@@ -543,6 +939,16 @@ def _room_audio_attestation_packet_status() -> dict[str, object]:
         for item in list(payload.get("required_checks") or [])
         if isinstance(item, dict)
     ]
+    required_cli_flags = [
+        str(item).strip()
+        for item in list(payload.get("required_cli_flags") or [])
+        if str(item).strip()
+    ]
+    operator_steps = [
+        str(item).strip()
+        for item in list(payload.get("operator_steps") or [])
+        if str(item).strip()
+    ]
     return {
         "status": status,
         "receipt_path": _display_path(ROOM_AUDIO_ATTESTATION_PACKET),
@@ -550,7 +956,11 @@ def _room_audio_attestation_packet_status() -> dict[str, object]:
         "ci_must_not_auto_assert": bool(payload.get("ci_must_not_auto_assert") is True),
         "proof_target": proof_target,
         "operator_command": str(payload.get("operator_command") or "make materialize-memorial-room-audio-gold-clean").strip(),
+        "receipt_command_template": str(payload.get("receipt_command_template") or "").strip(),
         "required_env_keys": sorted(required_env.keys()),
+        "required_env": required_env,
+        "required_cli_flags": required_cli_flags,
+        "operator_steps": operator_steps,
         "required_check_ids": [
             str(item.get("id") or "").strip()
             for item in required_checks
@@ -560,11 +970,188 @@ def _room_audio_attestation_packet_status() -> dict[str, object]:
     }
 
 
+def _room_audio_receipt_detail() -> dict[str, object]:
+    payload = _load_json(ROOM_AUDIO_RECEIPT)
+    if not payload:
+        return {
+            "status": "missing",
+            "receipt_path": _display_path(ROOM_AUDIO_RECEIPT),
+            "failed_codes": ["room_audio_receipt_missing"],
+            "missing_check_ids": [],
+            "missing_checks": [],
+            "next_action": "collect_real_room_audio_attestation",
+        }
+    checks = dict(payload.get("checks") or {})
+    requirements = dict(payload.get("check_requirements") or {})
+    missing_check_ids = [
+        str(check_id).strip()
+        for check_id, value in checks.items()
+        if str(check_id).strip() and value is not True
+    ]
+    missing_checks = [
+        {
+            "id": check_id,
+            "requirement": str(requirements.get(check_id) or "").strip(),
+        }
+        for check_id in missing_check_ids
+    ]
+    failed_codes = [
+        str(code).strip()
+        for code in list(payload.get("failed_codes") or [])
+        if str(code).strip()
+    ]
+    missing_input_hints = _room_audio_missing_input_hints(failed_codes=failed_codes, missing_check_ids=missing_check_ids)
+    status = str(payload.get("status") or "blocked").strip().lower() or "blocked"
+    return {
+        "status": status,
+        "receipt_path": _display_path(ROOM_AUDIO_RECEIPT),
+        "source_git_head": str(payload.get("source_git_head") or payload.get("git_head") or "").strip(),
+        "head_semantics": str(payload.get("head_semantics") or "").strip(),
+        "dirty_worktree": bool(payload.get("dirty_worktree") is True),
+        "source_tree_fingerprint": str(payload.get("source_tree_fingerprint") or "").strip(),
+        "failed_codes": failed_codes,
+        "missing_input_hints": missing_input_hints,
+        "missing_check_ids": missing_check_ids,
+        "missing_checks": missing_checks,
+        "reviewer": str(payload.get("reviewer") or "").strip(),
+        "device_label": str(payload.get("device_label") or "").strip(),
+        "speaker_label": str(payload.get("speaker_label") or "").strip(),
+        "room_label": str(payload.get("room_label") or "").strip(),
+        "attestation_source": str(dict(payload.get("manual_attestation") or {}).get("source") or "").strip(),
+        "next_action": "collect_real_room_audio_attestation" if status != "pass" else "maintain_room_audio_attestation",
+    }
+
+
+def _room_audio_missing_input_hints(*, failed_codes: list[str], missing_check_ids: list[str]) -> list[dict[str, str]]:
+    hints: list[dict[str, str]] = []
+
+    def add(code: str, kind: str, name: str, description: str) -> None:
+        if any(item.get("code") == code and item.get("name") == name for item in hints):
+            return
+        hints.append({"code": code, "kind": kind, "name": name, "description": description})
+
+    check_requirements = {
+        "actual_device_checked": "Confirm the actual public-origin device/browser path.",
+        "actual_speaker_checked": "Confirm the intended room speaker/headphones/output route.",
+        "first_syllable_not_clipped": "Confirm the first audible syllable was not clipped.",
+        "intelligibility_confirmed": "Confirm the answer was understandable without reading text.",
+        "answer_text_fallback_visible": "Confirm fallback transcript text stayed visible.",
+        "no_internet_search_confirmed": "Confirm the memorial did not search the internet as Manfred.",
+        "normal_spoken_turn_confirmed": "Confirm a complete microphone -> STT -> answer -> TTS -> playback turn.",
+        "interruption_behavior_confirmed": "Confirm interruption/barge-in behavior was understandable.",
+        "retry_path_confirmed": "Confirm a clear retry/recovery path after trouble.",
+    }
+    for check_id in missing_check_ids:
+        flag = "--" + check_id.replace("_", "-")
+        add(f"{check_id}_missing", "cli_flag", flag, check_requirements.get(check_id, "Confirm this manual room-audio check."))
+
+    env_hints = {
+        "reviewer_missing": ("MEMORIAL_ROOM_REVIEWER", "Set the actual listener/operator name."),
+        "reviewer_generic": ("MEMORIAL_ROOM_REVIEWER", "Replace the generic reviewer label with a real listener/operator name."),
+        "device_label_missing": ("MEMORIAL_ROOM_DEVICE_LABEL", "Set the exact device, browser, and public-origin path."),
+        "device_label_generic": ("MEMORIAL_ROOM_DEVICE_LABEL", "Replace the generic device label with the exact device/browser/public path."),
+        "speaker_label_missing": ("MEMORIAL_ROOM_SPEAKER_LABEL", "Set the exact speaker, headphones, or output route."),
+        "speaker_label_generic": ("MEMORIAL_ROOM_SPEAKER_LABEL", "Replace the generic speaker label with the actual output route."),
+        "room_label_missing": ("MEMORIAL_ROOM_LABEL", "Set the actual room or location."),
+        "room_label_generic": ("MEMORIAL_ROOM_LABEL", "Replace the generic room label with the actual room/location."),
+        "notes_missing": ("MEMORIAL_ROOM_NOTES", "Record volume, warmth, first syllable, intelligibility, interruption, and retry observations."),
+        "manual_attestation_id_missing": ("MEMORIAL_ROOM_ATTESTATION_ID", "Set the signed/manual room review identifier."),
+        "manual_attestation_signed_at_missing": ("MEMORIAL_ROOM_ATTESTATION_SIGNED_AT", "Set the signed review timestamp as YYYY-MM-DDTHH:MM:SSZ."),
+        "manual_attestation_signed_at_invalid": ("MEMORIAL_ROOM_ATTESTATION_SIGNED_AT", "Use a UTC timestamp ending in Z, for example 2026-06-25T12:00:00Z."),
+        "public_origin_required": ("MEMORIAL_PUBLIC_ORIGIN", "Use a real public origin, not localhost."),
+        "dirty_worktree": ("source_worktree", "Commit or stash source changes before recording the final clean room-audio receipt."),
+    }
+    for code in failed_codes:
+        if code in env_hints:
+            name, description = env_hints[code]
+            add(code, "env" if name.startswith("MEMORIAL_") else "source", name, description)
+    return hints
+
+
+def _append_blocked_component(
+    blocker_summary: dict[str, object],
+    *,
+    key: str,
+    label: str,
+    issues: list[str],
+    next_action: str,
+) -> dict[str, object]:
+    payload = dict(blocker_summary or {})
+    blocked_keys = [
+        str(item).strip()
+        for item in list(payload.get("blocked_component_keys") or [])
+        if str(item).strip()
+    ]
+    blocked_components = [
+        dict(item)
+        for item in list(payload.get("blocked_components") or [])
+        if isinstance(item, dict) and str(item.get("key") or "").strip()
+    ]
+    if key in blocked_keys:
+        return payload
+    blocked_keys.append(key)
+    blocked_components.append(
+        {
+            "key": key,
+            "code": key,
+            "label": label,
+            "component": label,
+            "issues": [str(item).strip() for item in issues if str(item).strip()],
+            "next_action": str(next_action or "").strip(),
+            "next_command": _memorial_next_command_for_action(next_action),
+        }
+    )
+    payload["blocked_component_keys"] = blocked_keys
+    payload["blocked_components"] = blocked_components
+    payload["blocked_commands"] = [
+        str(item.get("next_command") or "").strip()
+        for item in blocked_components
+        if str(item.get("next_command") or "").strip()
+    ]
+    payload["blocked_count"] = len(blocked_keys)
+    return payload
+
+
+def _memorial_next_command_for_action(action: str) -> str:
+    normalized = str(action or "").strip()
+    if normalized == "commit_or_stash_source_changes_before_clean_receipts":
+        return "scripts/inspect_source_dirty_groups.py --list-categories"
+    if normalized == "verify_source_dirty_groups_before_source_cleanup":
+        return "make verify-source-dirty-groups"
+    if normalized == "clear_release_authority_for_memorial_deploy":
+        return "python3 scripts/verify_release_authority.py --pretty"
+    if normalized == "deploy_ea_memorial":
+        return "make deploy-ea-memorial"
+    if normalized in {
+        "allow_anonymous_public_memorial_origin_access",
+        "republish_public_memorial_bundle_or_fix_slug",
+        "inspect_public_memorial_origin_http_failure",
+    }:
+        return "GET /memorials/manfred and /memorials/manfred.json on the configured public origin"
+    if normalized == "refresh_memorial_public_auto_receipts_clean":
+        return "scripts/materialize_memorial_public_auto_receipts_clean.py"
+    if normalized in {
+        "refresh_public_memorial_voice_receipt",
+        "refresh_public_memorial_browser_receipt",
+        "refresh_meaningful_memorial_browser_receipt",
+    }:
+        return "scripts/materialize_memorial_public_auto_receipts_clean.py"
+    if normalized == "refresh_local_memorial_voice_receipt":
+        return "make materialize-memorial-public-voice-gold"
+    if normalized == "collect_real_room_audio_attestation":
+        return "make materialize-memorial-room-audio-gold-clean"
+    if normalized == "fix_mounted_memorial_surface_contract":
+        return "python3 scripts/verify_project_mode_runtime.py --mode memorial"
+    return ""
+
+
 def main() -> int:
     source_head = resolve_source_state_head(ROOT)
-    source_worktree = source_worktree_metadata(ROOT)
+    source_worktree = source_worktree_metadata(ROOT, dirty_path_limit=SOURCE_DIRTY_FILE_LIMIT)
+    source_dirty_summary = _source_dirty_summary(source_worktree)
     readiness = _run_json("scripts/verify_memorial_gold_readiness.py")
     whole_project = _run_json("scripts/verify_whole_project_gold_map.py")
+    memorial_surface_contract = _run_json(["scripts/verify_project_mode_runtime.py", "--mode", "memorial"])
     whole_project_map = _load_json(WHOLE_PROJECT_GOLD_MAP)
     whole_project_gold = "blocked"
     whole_project_verifier_status = str(whole_project.get("status") or "blocked").strip().lower()
@@ -584,6 +1171,8 @@ def main() -> int:
         list(readiness.get("local_release_issues") or [])
         or list(readiness.get("public_gold_issues") or [])
         or list(readiness.get("public_browser_gold_issues") or [])
+        or list(readiness.get("public_meaningful_browser_gold_issues") or [])
+        or list(readiness.get("memorial_surface_contract_issues") or [])
         or list(readiness.get("room_audio_issues") or [])
     )
     memorial_public_gold_claim_allowed = (
@@ -595,6 +1184,12 @@ def main() -> int:
     )
     memorial_public_gold_allowed = memorial_public_gold_claim_allowed
     final_status = "pass" if memorial_public_gold_allowed else "blocked"
+    readiness_next_action = str(readiness.get("next_action") or "inspect_memorial_gold_blockers").strip()
+    readiness_next_command = str(readiness.get("next_command") or "").strip()
+    source_dirty_verifier = dict(readiness.get("source_dirty_verifier") or {})
+    source_dirty_verifier_status = str(source_dirty_verifier.get("status") or "missing").strip().lower()
+    memorial_public_gold_next_action = readiness_next_action
+    memorial_public_gold_blocker_summary = dict(readiness.get("blocker_summary") or {})
     workflow_backing = _workflow_backing_status(
         PUBLIC_VOICE_RECEIPT,
         PUBLIC_BROWSER_RECEIPT,
@@ -615,6 +1210,78 @@ def main() -> int:
     )
     spoken_tts_status = _spoken_tts_playback_status()
     room_attestation_packet = _room_audio_attestation_packet_status()
+    room_audio_receipt_detail = _room_audio_receipt_detail()
+    public_runtime_status = _memorial_public_runtime_status()
+    public_origin_access = _public_origin_access_status(slug="manfred")
+    release_authority_status = _release_authority_status()
+    if str(public_runtime_status.get("status") or "").strip().lower() in {"blocked", "missing"}:
+        memorial_public_gold_blocker_summary = _append_blocked_component(
+            memorial_public_gold_blocker_summary,
+            key="public_runtime_mode",
+            label="Public runtime mode",
+            issues=[str(public_runtime_status.get("reason") or "public_runtime_mode_blocked").strip()],
+            next_action=str(public_runtime_status.get("next_action") or "deploy_ea_memorial").strip(),
+        )
+        if str(release_authority_status.get("status") or "").strip().lower() in {"blocked", "missing"}:
+            memorial_public_gold_blocker_summary = _append_blocked_component(
+                memorial_public_gold_blocker_summary,
+                key="release_authority",
+                label="Release authority",
+                issues=[
+                    str(item).strip()
+                    for item in list(release_authority_status.get("issues") or [])
+                    if str(item).strip()
+                ] or [str(release_authority_status.get("authority_posture") or "release_authority_blocked").strip()],
+                next_action="clear_release_authority_for_memorial_deploy",
+            )
+            memorial_public_gold_next_action = "clear_release_authority_for_memorial_deploy"
+        else:
+            memorial_public_gold_next_action = str(
+                public_runtime_status.get("next_action") or "deploy_ea_memorial"
+            ).strip()
+    elif str(public_origin_access.get("status") or "").strip().lower() in {"access_blocked", "blocked", "missing"}:
+        memorial_public_gold_next_action = str(
+            public_origin_access.get("next_action") or "inspect_public_memorial_origin_http_failure"
+        ).strip()
+    if (
+        bool(source_worktree.get("source_worktree_dirty"))
+        and memorial_public_gold_next_action == "refresh_memorial_public_auto_receipts_clean"
+    ):
+        source_worktree_issues = ["source_worktree_dirty"]
+        if source_dirty_verifier_status != "pass":
+            source_worktree_issues.append("source_dirty_group_verifier_failed")
+        memorial_public_gold_blocker_summary = _append_blocked_component(
+            memorial_public_gold_blocker_summary,
+            key="source_worktree",
+            label="Source worktree",
+            issues=source_worktree_issues,
+            next_action="commit_or_stash_source_changes_before_clean_receipts",
+        )
+        memorial_public_gold_next_action = (
+            "verify_source_dirty_groups_before_source_cleanup"
+            if source_dirty_verifier_status != "pass"
+            else "commit_or_stash_source_changes_before_clean_receipts"
+        )
+    memorial_public_gold_next_command = (
+        readiness_next_command
+        if memorial_public_gold_next_action == readiness_next_action and readiness_next_command
+        else _memorial_next_command_for_action(memorial_public_gold_next_action)
+    )
+    source_cleanup = dict(readiness.get("source_cleanup") or {})
+    if not source_cleanup:
+        source_cleanup = _source_cleanup_payload(
+            source_worktree=source_worktree,
+            source_dirty_summary=source_dirty_summary,
+            source_dirty_verifier=source_dirty_verifier,
+            next_action=memorial_public_gold_next_action,
+            next_command=memorial_public_gold_next_command,
+        )
+    else:
+        source_cleanup.setdefault("next_action", "")
+        source_cleanup.setdefault("next_command", "")
+        if bool(source_worktree.get("source_worktree_dirty")) and not str(source_cleanup.get("next_action") or "").strip():
+            source_cleanup["next_action"] = memorial_public_gold_next_action
+            source_cleanup["next_command"] = memorial_public_gold_next_command
     payload = {
         "contract_name": "ea.memorial_operator_status",
         "generated_by": "scripts/materialize_memorial_operator_status.py",
@@ -625,6 +1292,9 @@ def main() -> int:
         "source_dirty_files": list(source_worktree.get("source_dirty_files") or []),
         "source_dirty_omitted_count": int(source_worktree.get("source_dirty_omitted_count") or 0),
         "source_dirty_status_sha256": str(source_worktree.get("source_dirty_status_sha256") or ""),
+        "source_dirty_summary": source_dirty_summary,
+        "source_dirty_verifier": source_dirty_verifier,
+        "source_cleanup": source_cleanup,
         "slug": "manfred",
         "status": final_status,
         "current_label": "Memorial public-origin gold: pass" if final_status == "pass" else "Memorial public-origin gold: blocked",
@@ -632,16 +1302,31 @@ def main() -> int:
         "public_voice_receipt": "pass" if not list(readiness.get("public_gold_issues") or []) else "missing_or_blocked",
         "public_browser_receipt": "pass" if not list(readiness.get("public_browser_gold_issues") or []) else "missing_or_blocked",
         "public_browser_meaningful_receipt": _receipt_state(MEANINGFUL_BROWSER_RECEIPT),
+        "public_runtime_mode": str(public_runtime_status.get("status") or "missing_or_blocked").strip(),
+        "public_origin_access": str(public_origin_access.get("status") or "missing_or_blocked").strip(),
+        "memorial_surface_contract": "pass" if str(memorial_surface_contract.get("status") or "").strip().lower() == "pass" else "missing_or_blocked",
         "room_audio_receipt": "pass" if not list(readiness.get("room_audio_issues") or []) else "missing_or_blocked",
         "whole_project_gold": whole_project_gold,
+        "memorial_public_gold_next_action": memorial_public_gold_next_action,
+        "memorial_public_gold_next_command": memorial_public_gold_next_command,
+        "memorial_public_gold_blocker_summary": memorial_public_gold_blocker_summary,
         "operator_notes": [
             "Use labels only: Memorial local release candidate / Memorial public-origin gold: blocked|pass.",
             "Public-origin gold requires voice, browser, and room receipts at current HEAD/public origin.",
+            "If public_runtime_mode is blocked, the configured public origin is not currently deployed in MEMORIAL mode; use make deploy-ea-memorial before treating public memorial routes as publishable.",
+            "If release_authority.status is blocked while public_runtime_mode is blocked, clear release authority first; memorial deploy claims must not be refreshed from a dirty tree or stale deploy context.",
+            "If local/public/browser memorial receipts are stale or missing, refresh the non-manual proof set first with scripts/materialize_memorial_public_auto_receipts_clean.py before asking for a fresh room/device attestation.",
+            "If public_origin_access is access_blocked, the deployed memorial page or manifest is not anonymously reachable at the configured public edge; fix that before trying to refresh the public receipt set again.",
+            "memorial_surface_contract is a runtime contract proof that the mounted memorial surface still serves a memorial page and manifest; it is not itself a public-origin gold receipt.",
             "The current public voice receipt is a provenance proof when its transcriber mode is provenance_cache; browser + room receipts carry the intelligibility proof.",
             "source_git_head records the proved source state; a later artifact-only commit may differ without making the proof stale.",
             "whole_project_gold is reported separately and must not block a memorial-specific public-origin pass when unrelated planes remain not_gold.",
             "Manfred premium spoken conversation additionally requires spoken_conversation_stt.status=pass and spoken_conversation_tts.premium_status=pass; memorial public-origin gold alone is not a production STT/TTS claim.",
             "If source_worktree_dirty is true, the receipt is an operator snapshot with pending source changes and must not be used as final release evidence.",
+            "If source_dirty_verifier.status is not pass, run make verify-source-dirty-groups before using the source-dirty groups for cleanup or handoff.",
+            "source_cleanup is the compact operator handoff for source cleanup status, verifier state, top categories, and the next source-safe command.",
+            "If source_worktree_dirty is true and the next proof step is clean receipt refresh, commit or stash source changes first; clean-clone receipt refresh intentionally refuses dirty source inputs.",
+            "Use source_dirty_summary to review affected source groups before committing; start with api_routes/services/scripts/deploy_runtime before generated artifacts or docs.",
             "If room_audio_receipt is missing_or_blocked, use room_audio_attestation_packet to collect the required real-room evidence; CI must not auto-assert manual room checks.",
             "If spoken_conversation_stt.ground_truth_fixture_mode is synthetic_only, use stt_fixture_candidate to promote only a consented, plausible captured clip; normalize suspect WAV/WebM captures first.",
             "If stt_capture_discovery matched bundles but has no promotable captures, the logged audio is not enough for real captured STT regression proof.",
@@ -654,6 +1339,12 @@ def main() -> int:
             "public_gold_receipt": _display_path(ROOT / ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json"),
             "public_browser_gold_receipt": _display_path(ROOT / ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json"),
             "public_meaningful_browser_gold_receipt": _display_path(MEANINGFUL_BROWSER_RECEIPT),
+            "public_auto_receipts_clean": "scripts/materialize_memorial_public_auto_receipts_clean.py",
+            "public_memorial_deploy": "make deploy-ea-memorial",
+            "release_authority_probe": "python3 scripts/verify_release_authority.py --pretty",
+            "release_authority_status": _display_path(RELEASE_AUTHORITY_STATUS),
+            "public_origin_probe": "GET /memorials/manfred and /memorials/manfred.json on the configured public origin",
+            "memorial_surface_contract": "scripts/verify_project_mode_runtime.py --mode memorial",
             "room_audio_receipt": _display_path(ROOT / ".codex-studio/published/memorial_room_audio_public_origin.generated.json"),
             "room_audio_attestation_packet": _display_path(ROOM_AUDIO_ATTESTATION_PACKET),
             "spoken_stt_provider_benchmark": _display_path(STT_PROVIDER_BENCHMARK_RECEIPT),
@@ -671,7 +1362,12 @@ def main() -> int:
             "room_audio_receipt": _receipt_git_head(ROOM_AUDIO_RECEIPT),
         },
         "workflow_backing": workflow_backing,
+        "release_authority": release_authority_status,
+        "public_runtime_mode_detail": public_runtime_status,
+        "public_origin_access_detail": public_origin_access,
+        "memorial_surface_contract_detail": memorial_surface_contract,
         "public_voice_receipt_semantics": public_voice_semantics,
+        "room_audio_receipt_detail": room_audio_receipt_detail,
         "room_audio_attestation_packet": room_attestation_packet,
         "spoken_conversation_stt": spoken_stt_status,
         "stt_fixture_candidate": stt_fixture_candidate,

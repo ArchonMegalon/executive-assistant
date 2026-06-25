@@ -32,6 +32,8 @@ from app.settings import (
 
 
 _LOG = logging.getLogger(__name__)
+_WORKSPACE_ACCESS_MAX_TTL_SECONDS = 7 * 24 * 60 * 60
+_WORKSPACE_ACCESS_CLOCK_SKEW_SECONDS = 5 * 60
 
 
 def get_container(request: Request) -> AppContainer:
@@ -182,16 +184,27 @@ def _verify_signed_payload(*, secret: str, token: str) -> dict[str, object] | No
         return None
     if not isinstance(payload, dict):
         return None
+    issued_raw = str(payload.get("issued_at") or "").strip()
     expires_raw = str(payload.get("expires_at") or "").strip()
-    if expires_raw:
-        try:
-            expires_at = datetime.fromisoformat(expires_raw)
-        except ValueError:
-            return None
-        if expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=timezone.utc)
-        if expires_at <= datetime.now(timezone.utc):
-            return None
+    if not issued_raw or not expires_raw:
+        return None
+    try:
+        issued_at = datetime.fromisoformat(issued_raw)
+        expires_at = datetime.fromisoformat(expires_raw)
+    except ValueError:
+        return None
+    if issued_at.tzinfo is None:
+        issued_at = issued_at.replace(tzinfo=timezone.utc)
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+    if issued_at > now and (issued_at - now).total_seconds() > _WORKSPACE_ACCESS_CLOCK_SKEW_SECONDS:
+        return None
+    if expires_at <= now:
+        return None
+    ttl_seconds = (expires_at - issued_at).total_seconds()
+    if ttl_seconds <= 0 or ttl_seconds > _WORKSPACE_ACCESS_MAX_TTL_SECONDS:
+        return None
     return payload
 
 
@@ -371,7 +384,7 @@ def _resolved_principal_id(
             return ""
         if _loopback_no_auth_allowed(request, container):
             return principal_id
-        if authenticated and not authenticated_principal_override_allowed():
+        if authenticated and not authenticated_principal_override_allowed(request):
             principal_id = ""
         else:
             return principal_id
@@ -403,8 +416,16 @@ class RequestContext:
     operator_authorized: bool = False
 
 
-def authenticated_principal_override_allowed() -> bool:
-    if is_prod_mode(os.environ.get("EA_RUNTIME_MODE")):
+def authenticated_principal_override_allowed(request: Request) -> bool:
+    runtime_mode = os.environ.get("EA_RUNTIME_MODE")
+    app = getattr(request, "app", None)
+    state = getattr(app, "state", None)
+    container = getattr(state, "container", None)
+    if container is not None:
+        runtime_mode = getattr(getattr(container, "settings", None), "runtime_mode", runtime_mode)
+    if is_prod_mode(runtime_mode):
+        return False
+    if not _is_loopback_host(_client_host(request)):
         return False
     for env_name in (
         "EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER",
@@ -416,21 +437,7 @@ def authenticated_principal_override_allowed() -> bool:
     return False
 
 
-def browser_principal_override_allowed() -> bool:
-    if is_prod_mode(os.environ.get("EA_RUNTIME_MODE")):
-        return False
-    for env_name in (
-        "EA_TRUST_BROWSER_PRINCIPAL_OVERRIDE",
-        "EA_ALLOW_BROWSER_PRINCIPAL_OVERRIDE",
-    ):
-        if str(os.environ.get(env_name) or "").strip().lower() in {"1", "true", "yes", "on"}:
-            return True
-    return False
-
-
 def is_operator_context(context: RequestContext) -> bool:
-    if context.auth_source == "loopback_no_auth":
-        return True
     return bool(context.operator_authorized and str(context.operator_id or "").strip())
 
 
@@ -456,6 +463,32 @@ def _authorized_operator_id(
     if not roles.intersection(_OPERATOR_PRIVILEGED_ROLES):
         return ""
     return normalized_operator
+
+
+def _default_authorized_operator_id(
+    container: AppContainer,
+    *,
+    principal_id: str,
+) -> str:
+    normalized_principal = str(principal_id or "").strip()
+    if not normalized_principal:
+        return ""
+    list_profiles = getattr(getattr(container, "orchestrator", None), "list_operator_profiles", None)
+    if not callable(list_profiles):
+        return ""
+    try:
+        rows = list_profiles(principal_id=normalized_principal, status="active", limit=25)
+    except TypeError:
+        return ""
+    for row in list(rows or []):
+        operator_id = _authorized_operator_id(
+            container,
+            principal_id=normalized_principal,
+            operator_id=str(getattr(row, "operator_id", "") or "").strip(),
+        )
+        if operator_id:
+            return operator_id
+    return ""
 
 
 def get_request_context(
@@ -525,12 +558,22 @@ def get_request_context(
         if not principal_id:
             _log_auth_failure(request, detail="principal_required", profile=profile, expected_token_configured=bool(_configured_api_token(container)))
             raise HTTPException(status_code=401, detail="principal_required")
+        operator_id = _authorized_operator_id(
+            container,
+            principal_id=principal_id,
+            operator_id=_requested_operator_id(request),
+        )
+        if not operator_id:
+            operator_id = _default_authorized_operator_id(
+                container,
+                principal_id=principal_id,
+            )
         context = RequestContext(
             principal_id=principal_id,
             authenticated=True,
             auth_source="loopback_no_auth",
-            operator_id=_requested_operator_id(request),
-            operator_authorized=True,
+            operator_id=operator_id,
+            operator_authorized=bool(operator_id),
         )
         setattr(request.state, "ea_request_context", context)
         return context

@@ -8,6 +8,14 @@ from pathlib import Path
 from typing import Any
 
 
+def _repo_root() -> Path:
+    current = Path(__file__).resolve()
+    for parent in current.parents:
+        if (parent / ".git").is_dir() or (parent / ".codex-design").is_dir():
+            return parent
+    return current.parents[3]
+
+
 def _configured_or_existing_path(env_names: tuple[str, ...], candidates: tuple[str, ...]) -> Path:
     for env_name in env_names:
         value = str(os.getenv(env_name) or "").strip()
@@ -22,11 +30,17 @@ def _configured_or_existing_path(env_names: tuple[str, ...], candidates: tuple[s
 
 ARCHIVE_ROOT = _configured_or_existing_path(
     ("EA_MEMORIAL_ARCHIVE_ROOT", "EA_MEMORIAL_ARCHIVE_DIR"),
-    ("/docker/EA/memorial_archive", "/data/memorial_archive"),
+    (
+        str(_repo_root() / "memorial_archive"),
+        "/data/memorial_archive",
+    ),
 )
 PUBLIC_MEMORIAL_ROOT = _configured_or_existing_path(
     ("EA_PUBLIC_MEMORIAL_ROOT", "EA_PUBLIC_MEMORIAL_DIR"),
-    ("/docker/EA/memorial_data/public_memorials", "/data/memorial_data/public_memorials"),
+    (
+        str(_repo_root() / "memorial_data" / "public_memorials"),
+        "/data/memorial_data/public_memorials",
+    ),
 )
 DEFAULT_CORRECTION_CONTACT = str(os.getenv("EA_MEMORIAL_ARCHIVE_CORRECTION_CONTACT") or "memorial@myexternalbrain.com").strip()
 DEFAULT_PUBLIC_REGISTRY_FILENAME = "archive_registry.json"

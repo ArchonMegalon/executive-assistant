@@ -206,6 +206,44 @@ def test_repair_spacing_artifacts_fixes_current_browseract_joining() -> None:
     assert "wheretheycan" not in repaired
 
 
+def test_repair_spacing_artifacts_handles_story_apostrophe_and_sentence_boundaries() -> None:
+    module = _load_module()
+    original = "Kestrel climbed because if she told herself it wasn't a sprint, maybe her body would believe it."
+    broken = (
+        "Vela was tiny but her voice was huge.Her hands were steady. "
+        "Kestrel climbed because ifshetoldherselfitwasn't a sprint, maybeher body wouldbelieveit."
+    )
+
+    repaired = module._repair_spacing_artifacts(broken, original)
+
+    assert "huge. Her hands" in repaired
+    assert "if she told herself it wasn't a sprint" in repaired
+    assert "ifshetoldherselfitwasn" not in repaired
+
+
+def test_length_normalize_provider_output_deletes_low_overlap_sentences_only() -> None:
+    module = _load_module()
+    original = (
+        "Kestrel reached Vela's clinic in the rain. Cale wanted the ledger. "
+        "Mako ran west with the stolen book. Nobody gets sold. Nobody gets left in the rain."
+    )
+    provider = (
+        "Kestrel reached Vela's clinic in the rain. Cale wanted the ledger. "
+        "The building looked intimidating and its damaged sign created an atmosphere of urban decay. "
+        "Mako ran west with the stolen book. "
+        "The moment carried a broad thematic resonance about survival, systems, and personal agency. "
+        "Nobody gets sold. Nobody gets left in the rain."
+    )
+
+    normalized = module.length_normalize_provider_output(provider, original, max_ratio=1.2)
+
+    assert "Kestrel reached Vela's clinic" in normalized
+    assert "Cale wanted the ledger" in normalized
+    assert "Mako ran west" in normalized
+    assert "Nobody gets sold" in normalized
+    assert "broad thematic resonance" not in normalized
+
+
 def test_cmd_check_reports_unhealthy_when_probe_fails(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     module = _load_module()
     monkeypatch.setattr(module, "resolve_workflow", lambda: ("wf-1", "broken-humanizer"))

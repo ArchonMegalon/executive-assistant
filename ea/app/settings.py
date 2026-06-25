@@ -4,6 +4,7 @@ import os
 import secrets
 import warnings
 from dataclasses import dataclass, replace
+from urllib.parse import urlparse
 
 
 _PROCESS_SIGNING_SECRET = secrets.token_urlsafe(48)
@@ -386,6 +387,31 @@ def _placeholder_like_value(value: str) -> bool:
     }
 
 
+def _placeholder_like_origin(value: str) -> bool:
+    normalized = str(value or "").strip().rstrip("/")
+    if not normalized:
+        return False
+    lowered = normalized.lower()
+    if lowered == "ea://workspace-access":
+        return True
+    try:
+        parsed = urlparse(normalized)
+    except Exception:
+        return False
+    host = str(parsed.hostname or "").strip().lower().strip(".")
+    if not host:
+        return False
+    if host in {
+        "example.test",
+        "property.example.test",
+        "example.invalid",
+        "localhost",
+        "127.0.0.1",
+    }:
+        return True
+    return False
+
+
 def ensure_prod_non_placeholder_secrets(settings: Settings) -> None:
     if not is_prod_mode(settings.runtime.mode):
         return
@@ -393,6 +419,27 @@ def ensure_prod_non_placeholder_secrets(settings: Settings) -> None:
         raise RuntimeError("EA_RUNTIME_MODE=prod forbids placeholder EA_API_TOKEN")
     if _placeholder_like_value(str(getattr(settings.auth, "signing_secret", "") or "")):
         raise RuntimeError("EA_RUNTIME_MODE=prod forbids placeholder EA_SIGNING_SECRET")
+
+
+def ensure_prod_cloudflare_access_binding_configured(settings: Settings) -> None:
+    if not is_prod_mode(settings.runtime.mode):
+        return
+    auth = getattr(settings, "auth", None)
+    if auth is None or not bool(getattr(auth, "cf_access_enabled", False)):
+        return
+    team_domain = str(getattr(auth, "cf_access_team_domain", "") or "").strip().lower().rstrip("/")
+    certs_url = str(getattr(auth, "cf_access_certs_url", "") or "").strip()
+    audiences = tuple(str(value or "").strip() for value in getattr(auth, "cf_access_audiences", ()) if str(value or "").strip())
+    if not team_domain:
+        raise RuntimeError("EA_RUNTIME_MODE=prod requires EA_CF_ACCESS_TEAM_DOMAIN when using Cloudflare Access auth")
+    if _placeholder_like_origin(f"https://{team_domain}"):
+        raise RuntimeError("EA_RUNTIME_MODE=prod forbids placeholder EA_CF_ACCESS_TEAM_DOMAIN")
+    if not audiences:
+        raise RuntimeError("EA_RUNTIME_MODE=prod requires EA_CF_ACCESS_AUD when using Cloudflare Access auth")
+    if any(_placeholder_like_value(value) for value in audiences):
+        raise RuntimeError("EA_RUNTIME_MODE=prod forbids placeholder EA_CF_ACCESS_AUD")
+    if certs_url and _placeholder_like_origin(certs_url):
+        raise RuntimeError("EA_RUNTIME_MODE=prod forbids placeholder EA_CF_ACCESS_CERTS_URL")
 
 
 def ensure_prod_workspace_access_token_binding_configured(settings: Settings) -> None:
@@ -406,6 +453,8 @@ def ensure_prod_workspace_access_token_binding_configured(settings: Settings) ->
             "EA_RUNTIME_MODE=prod requires EA_PUBLIC_APP_BASE_URL, EA_GOOGLE_OAUTH_REDIRECT_URI, "
             "or EA_WORKSPACE_ACCESS_TOKEN_ISSUER for workspace access token binding"
         )
+    if _placeholder_like_origin(issuer):
+        raise RuntimeError("EA_RUNTIME_MODE=prod forbids placeholder workspace access token binding origin/issuer")
     if not str(audience or "").strip():
         raise RuntimeError("EA_RUNTIME_MODE=prod requires EA_WORKSPACE_ACCESS_TOKEN_AUDIENCE")
     if not str(key_version or "").strip():
@@ -422,6 +471,18 @@ def ensure_prod_loopback_no_auth_disabled(settings: Settings) -> None:
     if not bool(getattr(settings.auth, "allow_loopback_no_auth", False)):
         return
     raise RuntimeError("EA_RUNTIME_MODE=prod forbids EA_ALLOW_LOOPBACK_NO_AUTH=1")
+
+
+def ensure_prod_authenticated_principal_header_overrides_disabled(settings: Settings) -> None:
+    if not is_prod_mode(settings.runtime.mode):
+        return
+    for env_name in (
+        "EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER",
+        "EA_ALLOW_AUTHENTICATED_PRINCIPAL_HEADER",
+        "EA_TRUST_API_TOKEN_PRINCIPAL_HEADER",
+    ):
+        if _env_truthy(os.environ.get(env_name)):
+            raise RuntimeError(f"EA_RUNTIME_MODE=prod forbids {env_name}=1")
 
 
 def _email_sender_domain(value: str) -> str:
@@ -481,8 +542,10 @@ def validate_startup_settings(settings: Settings) -> RuntimeProfile:
     ensure_prod_api_token_configured(settings)
     ensure_prod_signing_secret_configured(settings)
     ensure_prod_non_placeholder_secrets(settings)
+    ensure_prod_cloudflare_access_binding_configured(settings)
     ensure_prod_workspace_access_token_binding_configured(settings)
     ensure_prod_loopback_no_auth_disabled(settings)
+    ensure_prod_authenticated_principal_header_overrides_disabled(settings)
     ensure_prod_registration_email_sender_domain(settings)
     profile = resolve_runtime_profile(settings)
     if is_prod_mode(settings.runtime.mode):
@@ -571,7 +634,10 @@ def get_settings() -> Settings:
         if raw_public_memorials_enabled is None
         else _env_truthy(raw_public_memorials_enabled)
     )
-    legacy_runtime_surfaces_enabled = _env_truthy(raw_legacy_runtime_surfaces_enabled)
+    if raw_legacy_runtime_surfaces_enabled is None:
+        legacy_runtime_surfaces_enabled = not is_prod_mode(runtime_mode)
+    else:
+        legacy_runtime_surfaces_enabled = _env_truthy(raw_legacy_runtime_surfaces_enabled)
 
     settings = Settings(
         core=CoreSettings(

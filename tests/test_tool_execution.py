@@ -1055,6 +1055,218 @@ def test_tool_execution_service_executes_teable_table_sync(monkeypatch: pytest.M
     assert isinstance(observed[1][2]["records"][0]["fields"]["editable_fields_allowlist"], str)
 
 
+def test_tool_execution_service_executes_teable_table_sync_with_embedded_table_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TEABLE_TABLE_SYNC_CONFIG_JSON", raising=False)
+    monkeypatch.setenv("TEABLE_API_KEY", "test-teable-key")
+
+    observed: list[tuple[str, str]] = []
+
+    def _request_json(self, *, method: str, url: str, api_key: str, body: dict[str, object] | None = None) -> dict[str, object]:
+        assert api_key == "test-teable-key"
+        observed.append((method, url))
+        if method == "GET":
+            return {"records": []}
+        if method == "POST":
+            return {"records": [{"id": "rec_pref_queue_1"}]}
+        raise AssertionError(f"unexpected method {method}")
+
+    monkeypatch.setattr(TeableToolAdapter, "_request_json", _request_json)
+
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-teable-sync-2",
+            step_id="step-teable-sync-2",
+            tool_name="provider.teable.table_sync",
+            action_kind="table.sync",
+            payload_json={
+                "projection_scope": "preference_profile",
+                "person_id": "self",
+                "table_config_json": {
+                    "preference_review_queue": {
+                        "table_id": "tbl_preference_review_queue",
+                        "key_field": "projection_id",
+                        "field_key_type": "name",
+                    }
+                },
+                "tables_json": {
+                    "preference_review_queue": [
+                        {
+                            "projection_id": "pref_node:self:willhaben:soft_preference:preferred_districts",
+                            "display_name": "Tibor",
+                            "domain": "willhaben",
+                            "key": "preferred_districts",
+                            "confidence": 0.8,
+                            "editable_fields_allowlist": ["value_json", "strength"],
+                        }
+                    ]
+                },
+            },
+            context_json={"principal_id": "pref-sync-principal"},
+        )
+    )
+
+    assert result.tool_name == "provider.teable.table_sync"
+    assert result.output_json["synced_tables"] == ["preference_review_queue"]
+    assert "/api/table/tbl_preference_review_queue/record?" in observed[0][1]
+
+
+def test_tool_execution_service_executes_teable_table_sync_with_fallback_config_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TEABLE_TABLE_SYNC_CONFIG_JSON", raising=False)
+    monkeypatch.setenv("TEABLE_API_KEY", "test-teable-key")
+    monkeypatch.setenv("EA_ENV_TEABLE_TABLE_ID", "tbl_environment_secret_backup")
+
+    observed: list[tuple[str, str]] = []
+
+    def _request_json(self, *, method: str, url: str, api_key: str, body: dict[str, object] | None = None) -> dict[str, object]:
+        assert api_key == "test-teable-key"
+        observed.append((method, url))
+        if method == "GET":
+            return {"records": []}
+        if method == "POST":
+            return {"records": [{"id": "rec_env_secret_1"}]}
+        raise AssertionError(f"unexpected method {method}")
+
+    monkeypatch.setattr(TeableToolAdapter, "_request_json", _request_json)
+
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-teable-sync-3",
+            step_id="step-teable-sync-3",
+            tool_name="provider.teable.table_sync",
+            action_kind="table.sync",
+            payload_json={
+                "projection_scope": "preference_profile",
+                "person_id": "self",
+                "tables_json": {
+                    "environment_secret_backup": [
+                        {
+                            "projection_id": "env:cred:key_123",
+                            "value": "masked",
+                        }
+                    ],
+                },
+            },
+            context_json={"principal_id": "pref-sync-principal"},
+        )
+    )
+
+    assert result.tool_name == "provider.teable.table_sync"
+    assert result.output_json["synced_tables"] == ["environment_secret_backup"]
+    assert "/api/table/tbl_environment_secret_backup/record?" in observed[0][1]
+
+
+def test_tool_execution_service_executes_teable_table_sync_with_empty_env_json_and_env_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TEABLE_TABLE_SYNC_CONFIG_JSON", "{}")
+    monkeypatch.setenv("TEABLE_API_KEY", "test-teable-key")
+    monkeypatch.setenv("EA_ENV_TEABLE_TABLE_ID", "tbl_environment_secret_backup")
+
+    observed: list[tuple[str, str]] = []
+
+    def _request_json(self, *, method: str, url: str, api_key: str, body: dict[str, object] | None = None) -> dict[str, object]:
+        assert api_key == "test-teable-key"
+        observed.append((method, url))
+        if method == "GET":
+            return {"records": []}
+        if method == "POST":
+            return {"records": [{"id": "rec_env_secret_2"}]}
+        raise AssertionError(f"unexpected method {method}")
+
+    monkeypatch.setattr(TeableToolAdapter, "_request_json", _request_json)
+
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-teable-sync-4",
+            step_id="step-teable-sync-4",
+            tool_name="provider.teable.table_sync",
+            action_kind="table.sync",
+            payload_json={
+                "projection_scope": "preference_profile",
+                "person_id": "self",
+                "tables_json": {
+                    "environment_secret_backup": [
+                        {
+                            "projection_id": "env:cred:key_999",
+                            "value": "masked",
+                        }
+                    ],
+                },
+            },
+            context_json={"principal_id": "pref-sync-principal"},
+        )
+    )
+
+    assert result.tool_name == "provider.teable.table_sync"
+    assert result.output_json["synced_tables"] == ["environment_secret_backup"]
+    assert "/api/table/tbl_environment_secret_backup/record?" in observed[0][1]
+
+
+def test_tool_execution_service_rejects_table_sync_config_non_mapping(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TEABLE_TABLE_SYNC_CONFIG_JSON", raising=False)
+    monkeypatch.setenv("TEABLE_API_KEY", "test-teable-key")
+
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+
+    with pytest.raises(ToolExecutionError, match="teable_table_sync_config_invalid"):
+        service.execute_invocation(
+            ToolInvocationRequest(
+                session_id="session-teable-sync-5",
+                step_id="step-teable-sync-5",
+                tool_name="provider.teable.table_sync",
+                action_kind="table.sync",
+                payload_json={
+                    "projection_scope": "preference_profile",
+                    "person_id": "self",
+                    "table_config_json": {
+                        "environment_secret_backup": [],
+                    },
+                    "tables_json": {
+                        "environment_secret_backup": [
+                            {
+                                "projection_id": "env:cred:key_123",
+                                "value": "masked",
+                            }
+                        ],
+                    },
+                },
+                context_json={"principal_id": "pref-sync-principal"},
+            )
+        )
+
+
 def test_teable_tool_adapter_request_json_uses_browser_style_headers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TEABLE_API_KEY", "test-teable-key")
     adapter = TeableToolAdapter()
@@ -1087,6 +1299,7 @@ def test_teable_tool_adapter_request_json_uses_browser_style_headers(monkeypatch
 
 def test_gemini_vortex_adapter_honors_payload_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_API_KEY", "test-gemini-api-key")
     adapter = GeminiVortexToolAdapter()
     seen: dict[str, object] = {}
 
@@ -5894,6 +6107,20 @@ def test_crezlo_property_tour_env_credentials_populate_inputs_and_worker_packet(
     )
     assert packet["login_email"] == "env-crezlo@example.com"
     assert packet["login_password"] == "env-crezlo-password"
+
+
+def test_crezlo_public_tour_base_url_defaults_to_propertyquarry(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("EA_PUBLIC_TOUR_BASE_URL", raising=False)
+    monkeypatch.delenv("PROPERTYQUARRY_PUBLIC_BASE_URL", raising=False)
+    monkeypatch.delenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL", raising=False)
+
+    assert BrowserActToolAdapter._crezlo_public_tour_base_url() == "https://propertyquarry.com/tours"
+
+    monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_BASE_URL", "https://property.example.test/")
+    assert BrowserActToolAdapter._crezlo_public_tour_base_url() == "https://property.example.test/tours"
+
+    monkeypatch.setenv("EA_PUBLIC_TOUR_BASE_URL", "https://ea.example.test/tours/")
+    assert BrowserActToolAdapter._crezlo_public_tour_base_url() == "https://ea.example.test/tours"
 
 
 def test_crezlo_public_tour_bundle_writer_downloads_assets_and_writes_tour_json(

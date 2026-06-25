@@ -3,11 +3,23 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+import os
 import time
 import pytest
 
 from app.domain.models import ToolInvocationResult
 from app.services import responses_upstream as upstream
+
+
+@pytest.fixture(autouse=True)
+def _isolate_live_onemin_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    for key in list(os.environ):
+        if (
+            key == "ONEMIN_AI_API_KEY"
+            or key.startswith("ONEMIN_AI_API_KEY_FALLBACK_")
+            or key.startswith("EA_RESPONSES_ONEMIN_API_KEY_")
+        ):
+            monkeypatch.delenv(key, raising=False)
 
 
 class _SlowUrlopenResponse:
@@ -61,12 +73,7 @@ def test_default_public_model_uses_easy_lane_candidates(monkeypatch: pytest.Monk
         for config, model in upstream._provider_candidates(upstream.DEFAULT_PUBLIC_MODEL)
     ]
 
-    assert candidates == [
-        ("onemin", "gpt-5.4"),
-        ("onemin", "gpt-5"),
-        ("onemin", "gpt-4o"),
-        ("onemin", "deepseek-chat"),
-    ]
+    assert candidates == [("onemin", "gpt-5.5")]
 
 
 def test_principal_identity_summary_includes_lane_role(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -86,12 +93,70 @@ def test_blank_requested_model_uses_easy_lane_candidates(monkeypatch: pytest.Mon
         for config, model in upstream._provider_candidates("")
     ]
 
-    assert candidates == [
-        ("onemin", "gpt-5.4"),
-        ("onemin", "gpt-5"),
-        ("onemin", "gpt-4o"),
-        ("onemin", "deepseek-chat"),
+    assert candidates == [("onemin", "gpt-5.5")]
+
+
+def test_provider_health_snapshot_caches_lightweight_payloads_within_ttl(monkeypatch: pytest.MonkeyPatch) -> None:
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_HEALTH_SNAPSHOT_TTL_SECONDS", "30")
+    now = {"value": 100.0}
+    calls = {"count": 0}
+
+    monkeypatch.setattr(upstream, "_now_epoch", lambda: now["value"])
+
+    def _fake_provider_health_report(*, lightweight: bool = False) -> dict[str, object]:
+        calls["count"] += 1
+        return {"providers": {"onemin": {"state": "ready"}}, "call_count": calls["count"], "lightweight": lightweight}
+
+    monkeypatch.setattr(upstream, "_provider_health_report", _fake_provider_health_report)
+
+    first = upstream._provider_health_snapshot(lightweight=True)
+    second = upstream._provider_health_snapshot(lightweight=True)
+    now["value"] = 131.0
+    third = upstream._provider_health_snapshot(lightweight=True)
+
+    assert first["call_count"] == 1
+    assert second["call_count"] == 1
+    assert third["call_count"] == 2
+    assert calls["count"] == 2
+
+
+def test_hard_lane_skips_gemini_vortex_when_auth_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_RESPONSES_HARD_PROVIDER_ORDER", "gemini_vortex,magicxai")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_API_KEY", "magicx-key")
+    for name in (
+        "EA_GEMINI_VORTEX_API_KEY",
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY",
+        "GOOGLE_API_KEY_FALLBACK_1",
+        "GOOGLE_APPLICATION_CREDENTIALS",
+        "GOOGLE_CLOUD_PROJECT",
+        "GOOGLE_CLOUD_LOCATION",
+        "GOOGLE_GENAI_USE_VERTEXAI",
+        "EA_GEMINI_VORTEX_CONFIG_DIR",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    candidates = [
+        (config.provider_key, model)
+        for config, model in upstream._provider_candidates("ea-coder-hard")
     ]
+
+    assert ("gemini_vortex", "gemini-3.5-flash") not in candidates
+    assert candidates[0][0] == "magixai"
+
+
+def test_onemin_display_model_alias_routes_to_current_coding_model() -> None:
+    candidates = [
+        (config.provider_key, model)
+        for config, model in upstream._provider_candidates("ChatGPT 5.5 (1min.ai)", lane=upstream._LANE_HARD)
+    ]
+
+    assert candidates == [("onemin", "gpt-5.5")]
+    assert upstream._provider_model_order_for_lane("onemin", upstream._LANE_HARD, "ChatGPT 5.5 (1min.ai)") == (
+        "gpt-5.5",
+    )
+    assert "ChatGPT 5.5 (1min.ai)" in {str(item["id"]) for item in upstream.list_response_models()}
 
 
 def test_onemin_nano_model_is_not_treated_as_code_capable() -> None:
@@ -163,6 +228,52 @@ def test_onemin_direct_api_proxy_pool_expands_env_placeholders(monkeypatch: pyte
         "http://ea-fastestvpn-proxy:3128",
         "http://ea-fastestvpn-proxy-ie:3128",
     )
+
+
+def test_onemin_direct_api_proxy_pool_uses_common_vpn_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_ONEMIN_DIRECT_API_PROXY_POOL", "ea-fastestvpn-proxy-1:8080,ea-fastestvpn-proxy-2:8080")
+    monkeypatch.setenv("EA_ONEMIN_DIRECT_API_PROXY_USERNAME", "vpn-user")
+    monkeypatch.setenv("EA_ONEMIN_DIRECT_API_PROXY_PASSWORD", "vpn-pass")
+
+    proxy_url = upstream._onemin_direct_api_proxy_url_for_account(
+        api_key="secret-key",
+        account_name="acct-1",
+        key_slot="fallback_1",
+    )
+
+    assert proxy_url in {
+        "http://vpn-user:vpn-pass@ea-fastestvpn-proxy-1:8080",
+        "http://vpn-user:vpn-pass@ea-fastestvpn-proxy-2:8080",
+    }
+
+
+def test_onemin_account_proxy_map_can_pin_or_disable_exit_proxy(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "EA_ONEMIN_ACCOUNT_PROXY_MAP_JSON",
+        json.dumps(
+            {
+                "acct-1": "ea-fastestvpn-proxy-7:8080",
+                "acct-2": "direct",
+            }
+        ),
+    )
+    monkeypatch.setenv("EA_ONEMIN_DIRECT_API_PROXY_USERNAME", "vpn-user")
+    monkeypatch.setenv("EA_ONEMIN_DIRECT_API_PROXY_PASSWORD", "vpn-pass")
+    monkeypatch.setenv("EA_ONEMIN_DIRECT_API_PROXY_POOL", "ea-fastestvpn-proxy-1:8080")
+
+    pinned = upstream._onemin_direct_api_proxy_url_for_account(
+        api_key="secret-key-1",
+        account_name="acct-1",
+        key_slot="fallback_1",
+    )
+    disabled = upstream._onemin_direct_api_proxy_url_for_account(
+        api_key="secret-key-2",
+        account_name="acct-2",
+        key_slot="fallback_2",
+    )
+
+    assert pinned == "http://vpn-user:vpn-pass@ea-fastestvpn-proxy-7:8080"
+    assert disabled == ""
 
 
 def test_request_opener_for_request_uses_api_key_subject_for_onemin_pool(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -288,15 +399,19 @@ def test_default_public_model_stays_onemin_only_when_the_primary_backend_fails(m
     monkeypatch.setattr(upstream, "_call_magicx", fake_call_magicx)
     monkeypatch.setattr(upstream, "_call_gemini_vortex", fake_call_gemini_vortex)
 
-    with pytest.raises(upstream.ResponsesUpstreamError, match="onemin/gpt-5.4:invalid api key"):
+    with pytest.raises(upstream.ResponsesUpstreamError, match="onemin/gpt-5.5:invalid api key"):
         upstream.generate_text(prompt="fallback please", requested_model=upstream.DEFAULT_PUBLIC_MODEL)
 
 
-def test_fast_public_model_candidates_prefer_gemini_then_magicx_without_onemin(
+def test_fast_public_model_candidates_prefer_onemin_then_magicx_then_gemini(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
     monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-best")
-    monkeypatch.setenv("EA_RESPONSES_ONEMIN_REVIEW_MODELS", "review-best")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_FAST_CANDIDATE_MODELS", "gpt-5.4")
+    monkeypatch.setattr(upstream, "gemini_vortex_auth_state", lambda: ("ready", "test"))
+    monkeypatch.setattr(upstream, "gemini_vortex_slot_status", lambda: [])
 
     candidates = [
         (config.provider_key, model)
@@ -304,17 +419,13 @@ def test_fast_public_model_candidates_prefer_gemini_then_magicx_without_onemin(
     ]
 
     assert candidates == [
-        ("gemini_vortex", "gemini-2.5-flash"),
+        ("onemin", "gpt-5.4"),
+        ("onemin", "gpt-5.5"),
         ("magixai", "mx-best"),
         ("magixai", "x-ai/grok-code-fast-1"),
         ("magixai", "mistralai/codestral-2508"),
         ("magixai", "inception/mercury-coder"),
-        ("onemin", "deepseek-chat"),
-        ("onemin", "gpt-4.1-nano"),
-        ("onemin", "gpt-4.1"),
-        ("onemin", "gpt-4o"),
-        ("onemin", "gpt-5"),
-        ("onemin", "gpt-5.4"),
+        ("gemini_vortex", "gemini-3.5-flash"),
     ]
 
 
@@ -386,15 +497,52 @@ def test_hard_public_model_candidates_downshift_when_live_slot_budget_cannot_cov
         for config, model in upstream._provider_candidates("ea-coder-hard")
     ]
 
-    assert candidates[:6] == [
-        ("onemin", "deepseek-chat"),
-        ("onemin", "gpt-4.1-nano"),
-        ("onemin", "gpt-5.4"),
-        ("onemin", "gpt-5"),
-        ("onemin", "gpt-4o"),
-        ("gemini_vortex", "gemini-2.5-flash"),
+    assert candidates[:3] == [
+        ("onemin", "gpt-5.5"),
+        ("gemini_vortex", "gemini-3.5-flash"),
+        ("magixai", "claude-sonnet-4.5"),
     ]
     assert ("magixai", "claude-sonnet-4.5") in candidates
+
+
+def test_onemin_hard_model_env_override_keeps_caller_order_with_current_default_appended(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_HARD_MODELS", "custom-hard,gpt-5.4")
+
+    assert upstream._onemin_hard_models() == (
+        "custom-hard",
+        "gpt-5.4",
+        "gpt-5.5",
+    )
+
+
+def test_onemin_default_probe_prefers_current_coding_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("EA_RESPONSES_ONEMIN_PROBE_MODEL", raising=False)
+    monkeypatch.delenv("EA_RESPONSES_ONEMIN_MODELS", raising=False)
+    monkeypatch.delenv("EA_RESPONSES_ONEMIN_MODEL", raising=False)
+    monkeypatch.delenv("EA_RESPONSES_ONEMIN_CODE_MODELS", raising=False)
+
+    assert upstream._onemin_probe_model() == "gpt-5.5"
+
+
+def test_onemin_default_probe_can_still_use_legacy_coding_model_when_explicit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_PROBE_MODEL", "gpt-5.4")
+
+    assert upstream._onemin_probe_model() == "gpt-5.4"
+
+
+def test_onemin_default_models_prefer_current_coding_model_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("EA_RESPONSES_ONEMIN_MODELS", raising=False)
+    monkeypatch.delenv("EA_RESPONSES_ONEMIN_MODEL", raising=False)
+
+    assert upstream._onemin_models() == ("gpt-5.5",)
+    assert upstream._onemin_hard_models() == ("gpt-5.5",)
+    assert upstream._onemin_code_models() == ("gpt-5.5",)
 
 
 def test_hard_public_model_candidates_keep_premium_order_when_live_slot_budget_supports_hard_tier(
@@ -429,13 +577,10 @@ def test_hard_public_model_candidates_keep_premium_order_when_live_slot_budget_s
         for config, model in upstream._provider_candidates("ea-coder-hard")
     ]
 
-    assert candidates[:6] == [
-        ("onemin", "gpt-5.4"),
-        ("onemin", "gpt-5"),
-        ("onemin", "gpt-4o"),
-        ("onemin", "deepseek-chat"),
-        ("onemin", "gpt-4.1-nano"),
-        ("gemini_vortex", "gemini-2.5-flash"),
+    assert candidates[:3] == [
+        ("onemin", "gpt-5.5"),
+        ("gemini_vortex", "gemini-3.5-flash"),
+        ("magixai", "claude-sonnet-4.5"),
     ]
     assert ("magixai", "claude-sonnet-4.5") in candidates
 
@@ -443,20 +588,21 @@ def test_hard_public_model_candidates_keep_premium_order_when_live_slot_budget_s
 def test_repair_gemini_public_model_prefers_gemini_then_cheap_fallbacks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
     monkeypatch.setenv("EA_GEMINI_VORTEX_MODEL", "gemini-repair")
     monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-best")
+    monkeypatch.setattr(upstream, "_gemini_vortex_health_state", lambda: ("ready", "python3"))
+    monkeypatch.setattr(upstream, "gemini_vortex_auth_state", lambda: ("ready", "test"))
+    monkeypatch.setattr(upstream, "gemini_vortex_slot_status", lambda: [])
 
     candidates = [
         (config.provider_key, model)
         for config, model in upstream._provider_candidates(upstream.REPAIR_GEMINI_PUBLIC_MODEL)
     ]
 
-    assert candidates[:3] == [
-        ("gemini_vortex", "gemini-repair"),
-        ("magixai", "mx-best"),
-        ("magixai", "x-ai/grok-code-fast-1"),
-    ]
-    assert ("onemin", "gpt-5.4") in candidates
+    assert candidates[0] == ("gemini_vortex", "gemini-repair")
+    assert ("magixai", "mx-best") in candidates
+    assert ("onemin", "gpt-5.5") in candidates
 
 
 def test_hard_lane_code_defaults_are_safe_without_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -506,6 +652,151 @@ def test_onemin_json_manifest_slots_feed_keys_and_account_names(monkeypatch: pyt
     assert upstream._provider_account_name("onemin", key_names=key_names, key="json-key-55") == "ONEMIN_AI_API_KEY_FALLBACK_55"
     assert upstream._onemin_key_slot("json-key-55", key_names=key_names) == "fallback_55"
     assert upstream._provider_secret_from_account_name("ONEMIN_AI_API_KEY_FALLBACK_56") == "json-key-56"
+
+
+def test_onemin_indexed_accounts_keep_slot_one_when_primary_is_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "primary-key")
+    for index in range(1, 7):
+        monkeypatch.setenv(f"EA_RESPONSES_ONEMIN_API_KEY_{index}", f"key-{index}")
+
+    assert upstream._onemin_secret_env_names() == (
+        "ONEMIN_AI_API_KEY",
+        "EA_RESPONSES_ONEMIN_API_KEY_1",
+        "EA_RESPONSES_ONEMIN_API_KEY_2",
+        "EA_RESPONSES_ONEMIN_API_KEY_3",
+        "EA_RESPONSES_ONEMIN_API_KEY_4",
+        "EA_RESPONSES_ONEMIN_API_KEY_5",
+        "EA_RESPONSES_ONEMIN_API_KEY_6",
+    )
+    assert upstream._onemin_key_names() == (
+        "primary-key",
+        "key-1",
+        "key-2",
+        "key-3",
+        "key-4",
+        "key-5",
+        "key-6",
+    )
+    key_names = upstream._onemin_key_names()
+    assert upstream._onemin_key_slot("primary-key", key_names=key_names) == "primary"
+    assert upstream._onemin_key_slot("key-1", key_names=key_names) == "fallback_1"
+    assert upstream._onemin_key_slot("key-6", key_names=key_names) == "fallback_6"
+
+
+def test_onemin_manifest_can_define_six_generic_accounts_without_code_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "ONEMIN_DIRECT_API_KEYS_JSON",
+        json.dumps(
+            {
+                "accounts": [
+                    {"key": f"manifest-key-{index}", "owner_email": f"owner{index}@example.com"}
+                    for index in range(1, 7)
+                ]
+            }
+        ),
+    )
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_ACTIVE_SLOTS", "all")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_RESERVE_SLOTS", "none")
+
+    assert upstream._onemin_secret_env_names() == (
+        "ONEMIN_AI_API_KEY",
+        "ONEMIN_AI_API_KEY_FALLBACK_1",
+        "ONEMIN_AI_API_KEY_FALLBACK_2",
+        "ONEMIN_AI_API_KEY_FALLBACK_3",
+        "ONEMIN_AI_API_KEY_FALLBACK_4",
+        "ONEMIN_AI_API_KEY_FALLBACK_5",
+        "ONEMIN_AI_API_KEY_FALLBACK_6",
+    )
+    key_names = upstream._onemin_key_names()
+    assert key_names == (
+        "manifest-key-1",
+        "manifest-key-2",
+        "manifest-key-3",
+        "manifest-key-4",
+        "manifest-key-5",
+        "manifest-key-6",
+    )
+    assert upstream._onemin_active_keys() == key_names
+    assert upstream._provider_account_name(
+        "onemin",
+        key_names=key_names,
+        key="manifest-key-6",
+    ) == "ONEMIN_AI_API_KEY_FALLBACK_6"
+    assert upstream._onemin_key_slot("manifest-key-6", key_names=key_names) == "fallback_6"
+
+
+def test_onemin_active_slots_can_select_first_six_indexed_accounts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "")
+    for index in range(1, 7):
+        monkeypatch.setenv(f"EA_RESPONSES_ONEMIN_API_KEY_{index}", f"key-{index}")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_ACTIVE_SLOTS", "first:6")
+
+    key_names = upstream._onemin_key_names()
+
+    assert key_names == ("key-1", "key-2", "key-3", "key-4", "key-5", "key-6")
+    assert upstream._onemin_active_keys() == key_names
+    assert upstream._onemin_reserve_keys() == ()
+
+
+def test_onemin_active_slots_can_select_direct_configured_account_labels(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "primary-key")
+    for index in range(1, 6):
+        monkeypatch.setenv(f"ONEMIN_AI_API_KEY_FALLBACK_{index}", f"fallback-key-{index}")
+    monkeypatch.setenv(
+        "EA_RESPONSES_ONEMIN_ACTIVE_SLOTS",
+        "ONEMIN_AI_API_KEY,ONEMIN_AI_API_KEY_FALLBACK_5",
+    )
+
+    assert upstream._onemin_active_keys() == ("primary-key", "fallback-key-5")
+    assert upstream._onemin_reserve_keys() == (
+        "fallback-key-1",
+        "fallback-key-2",
+        "fallback-key-3",
+        "fallback-key-4",
+    )
+
+
+def test_onemin_manifest_entries_are_cached_during_key_discovery(monkeypatch: pytest.MonkeyPatch) -> None:
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "primary-key")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_ACTIVE_SLOTS", "primary,fallback_55")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_RESERVE_SLOTS", "fallback_56")
+    monkeypatch.setenv(
+        "ONEMIN_DIRECT_API_KEYS_JSON",
+        json.dumps(
+            [
+                {
+                    "slot": "fallback_55",
+                    "account_name": "ONEMIN_AI_API_KEY_FALLBACK_55",
+                    "key": "json-key-55",
+                },
+                {
+                    "slot": "fallback_56",
+                    "account_name": "ONEMIN_AI_API_KEY_FALLBACK_56",
+                    "key": "json-key-56",
+                },
+            ]
+        ),
+    )
+    original_loader = upstream._load_onemin_manifest_payload
+    calls = 0
+
+    def counted_loader() -> object:
+        nonlocal calls
+        calls += 1
+        return original_loader()
+
+    monkeypatch.setattr(upstream, "_load_onemin_manifest_payload", counted_loader)
+
+    assert upstream._onemin_key_names() == ("primary-key", "json-key-55", "json-key-56")
+    assert upstream._provider_secret_from_account_name("ONEMIN_AI_API_KEY_FALLBACK_56") == "json-key-56"
+    assert calls == 1
 
 
 def test_pick_onemin_key_skips_zero_credit_observed_error_even_with_stale_success(
@@ -1075,6 +1366,7 @@ def test_groundwork_public_model_uses_gemini_only_candidates(
 ) -> None:
     monkeypatch.setenv("EA_GEMINI_VORTEX_MODEL", "gemini-groundwork")
     monkeypatch.setenv("EA_RESPONSES_CHATPLAYGROUND_MODELS", "judge-model,jury-model")
+    monkeypatch.setattr(upstream, "_gemini_vortex_health_state", lambda: ("ready", "python3"))
 
     candidates = [
         (config.provider_key, model)
@@ -1089,6 +1381,7 @@ def test_groundwork_legacy_alias_routes_to_same_gemini_only_candidates(
 ) -> None:
     monkeypatch.setenv("EA_GEMINI_VORTEX_MODEL", "gemini-groundwork")
     monkeypatch.setenv("EA_RESPONSES_CHATPLAYGROUND_MODELS", "judge-model,jury-model")
+    monkeypatch.setattr(upstream, "_gemini_vortex_health_state", lambda: ("ready", "python3"))
 
     candidates = [
         (config.provider_key, model)
@@ -1096,6 +1389,299 @@ def test_groundwork_legacy_alias_routes_to_same_gemini_only_candidates(
     ]
 
     assert candidates == [("gemini_vortex", "gemini-groundwork")]
+
+
+def test_groundwork_public_model_falls_back_when_gemini_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_REVIEW_MODELS", "deepseek-chat")
+    monkeypatch.setenv("EA_RESPONSES_REVIEW_LIGHT_CHATPLAYGROUND_MODELS", "gpt-4.1")
+    monkeypatch.setattr(upstream, "_gemini_vortex_health_state", lambda: ("degraded", "auth_config_dir_missing"))
+
+    candidates = [
+        (config.provider_key, model)
+        for config, model in upstream._provider_candidates(upstream.GROUNDWORK_PUBLIC_MODEL)
+    ]
+
+    assert candidates[0] == ("onemin", "deepseek-chat")
+    assert ("gemini_vortex", "gemini-3.5-flash") not in candidates
+
+
+def test_fast_public_model_keeps_onemin_first_when_pressure_is_low(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-fast")
+    monkeypatch.setattr(upstream, "_onemin_live_attempt_pressure_snapshot", lambda **_kwargs: {"throttle_pressure": "low"})
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda **_kwargs: {
+            "providers": {
+                "onemin": {"live_dispatchable_slot_count": 1, "state": "ready"},
+                "gemini_vortex": {"state": "ready"},
+                "magixai": {"state": "ready"},
+            }
+        },
+    )
+
+    candidates = [
+        (config.provider_key, model)
+        for config, model in upstream._provider_candidates(upstream.FAST_PUBLIC_MODEL)
+    ]
+
+    assert candidates[0][0] == "onemin"
+    assert candidates[1][0] == "magixai"
+
+
+def test_fast_public_model_prefers_magicx_and_keeps_gemini_out_of_automatic_spillover_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-fast")
+    monkeypatch.setattr(upstream, "_gemini_vortex_health_state", lambda: ("ready", "python3"))
+    monkeypatch.setattr(upstream, "gemini_vortex_auth_state", lambda: ("ready", "test"))
+    monkeypatch.setattr(upstream, "_onemin_live_attempt_pressure_snapshot", lambda **_kwargs: {"throttle_pressure": "high"})
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda **_kwargs: {
+            "providers": {
+                "onemin": {"live_dispatchable_slot_count": 1, "state": "ready"},
+                "gemini_vortex": {"state": "ready"},
+                "magixai": {"state": "ready"},
+            }
+        },
+    )
+
+    candidates = [
+        (config.provider_key, model)
+        for config, model in upstream._provider_candidates(upstream.FAST_PUBLIC_MODEL)
+    ]
+
+    assert candidates[0][0] == "magixai"
+    assert any(provider_key == "onemin" for provider_key, _model in candidates[1:])
+    assert all(provider_key != "gemini_vortex" for provider_key, _model in candidates)
+
+
+def test_fast_public_model_can_opt_in_to_gemini_automatic_spillover(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
+    monkeypatch.setenv("EA_RESPONSES_FAST_GEMINI_SPILLOVER", "1")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-fast")
+    monkeypatch.setattr(upstream, "_gemini_vortex_health_state", lambda: ("ready", "python3"))
+    monkeypatch.setattr(upstream, "gemini_vortex_auth_state", lambda: ("ready", "test"))
+    monkeypatch.setattr(upstream, "_onemin_live_attempt_pressure_snapshot", lambda **_kwargs: {"throttle_pressure": "high"})
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda **_kwargs: {
+            "providers": {
+                "onemin": {"live_dispatchable_slot_count": 1, "state": "ready"},
+                "gemini_vortex": {"state": "ready"},
+                "magixai": {"state": "ready"},
+            }
+        },
+    )
+
+    candidates = [
+        (config.provider_key, model)
+        for config, model in upstream._provider_candidates(upstream.FAST_PUBLIC_MODEL)
+    ]
+
+    assert candidates[0][0] == "magixai"
+    providers = [provider_key for provider_key, _model in candidates]
+    assert "gemini_vortex" in providers
+    assert "onemin" in providers
+    assert providers.index("gemini_vortex") < providers.index("onemin")
+
+
+def test_fast_public_model_uses_attempt_summary_when_instant_pressure_is_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-fast")
+    monkeypatch.setattr(upstream, "_onemin_live_attempt_pressure_snapshot", lambda **_kwargs: {"throttle_pressure": "unknown"})
+    monkeypatch.setattr(upstream, "_onemin_attempt_summary", lambda **_kwargs: {"throttle_pressure": "medium"})
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda **_kwargs: {
+            "providers": {
+                "onemin": {"live_dispatchable_slot_count": 1, "state": "ready"},
+                "gemini_vortex": {"state": "ready"},
+                "magixai": {"state": "ready"},
+            }
+        },
+    )
+
+    candidates = [
+        (config.provider_key, model)
+        for config, model in upstream._provider_candidates(upstream.FAST_PUBLIC_MODEL)
+    ]
+    route = upstream._fast_lane_route_snapshot()
+
+    assert candidates[0][0] == "magixai"
+    assert route["effective_order"] == ["magixai", "onemin"]
+    assert route["posture"] == "pressure_spillover"
+    assert route["reason"] == "onemin_pressure_medium"
+
+
+def test_fast_lane_route_uses_provider_health_pressure_when_instant_pressure_is_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-fast")
+    monkeypatch.setattr(upstream, "_onemin_live_attempt_pressure_snapshot", lambda **_kwargs: {"throttle_pressure": "unknown"})
+    monkeypatch.setattr(upstream, "_onemin_attempt_summary", lambda **_kwargs: {"throttle_pressure": "unknown"})
+
+    route = upstream._fast_lane_route_snapshot(
+        provider_health={
+            "providers": {
+                "onemin": {
+                    "live_dispatchable_slot_count": 1,
+                    "state": "ready",
+                    "direct_api_throttle_pressure_15m": "medium",
+                },
+                "gemini_vortex": {"state": "ready"},
+                "magixai": {"state": "ready"},
+            }
+        }
+    )
+
+    assert route["effective_order"] == ["magixai", "onemin"]
+    assert route["posture"] == "pressure_spillover"
+    assert route["reason"] == "onemin_pressure_medium"
+
+
+def test_fast_lane_route_hides_unready_spillover_provider_under_pressure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
+    monkeypatch.setattr(upstream, "_onemin_live_attempt_pressure_snapshot", lambda **_kwargs: {"throttle_pressure": "unknown"})
+    monkeypatch.setattr(upstream, "_onemin_attempt_summary", lambda **_kwargs: {"throttle_pressure": "unknown"})
+
+    route = upstream._fast_lane_route_snapshot(
+        provider_health={
+            "providers": {
+                "onemin": {
+                    "live_dispatchable_slot_count": 1,
+                    "state": "ready",
+                    "direct_api_throttle_pressure_15m": "medium",
+                },
+                "gemini_vortex": {"state": "ready"},
+                "magixai": {"state": "unknown", "slots": []},
+            }
+        }
+    )
+
+    assert route["effective_order"] == ["onemin"]
+    assert route["posture"] == "pressure_spillover_unavailable"
+    assert route["reason"] == "onemin_pressure_medium_no_ready_spillover"
+
+
+def test_codex_status_report_exposes_effective_fast_lane_route_under_pressure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
+    monkeypatch.setattr(upstream, "_gemini_vortex_health_state", lambda: ("ready", "python3"))
+    monkeypatch.setattr(upstream, "gemini_vortex_auth_state", lambda: ("ready", "test"))
+    monkeypatch.setattr(upstream, "_onemin_live_attempt_pressure_snapshot", lambda **_kwargs: {"throttle_pressure": "medium"})
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda **_kwargs: {
+            "providers": {
+                "onemin": {
+                    "state": "ready",
+                    "live_dispatchable_slot_count": 1,
+                    "slots": [{"account_name": "ONEMIN_AI_API_KEY", "state": "ready"}],
+                },
+                "gemini_vortex": {"state": "ready", "slots": [{"account_name": "EA_GEMINI_VORTEX_DEFAULT_AUTH", "state": "ready"}]},
+                "magixai": {"state": "ready", "slots": [{"account_name": "EA_RESPONSES_MAGICX_API_KEY", "state": "ready"}]},
+            },
+            "provider_config": {"default_profile": "easy", "default_lane": "fast"},
+        },
+    )
+
+    compact = upstream.codex_status_report(compact=True)
+    full = upstream.codex_status_report()
+
+    assert compact["fast_lane_route"]["configured_order"] == ["onemin", "magixai", "gemini_vortex"]
+    assert compact["fast_lane_route"]["effective_order"] == ["magixai", "onemin"]
+    assert compact["fast_lane_route"]["posture"] == "pressure_spillover"
+    assert compact["fast_lane_route"]["reason"] == "onemin_pressure_medium"
+    assert compact["fast_lane_route"]["automatic_gemini_spillover_enabled"] is False
+    assert full["fast_lane_route"]["effective_order"] == ["magixai", "onemin"]
+
+
+def test_principal_scoped_compact_status_keeps_safe_pressure_and_fast_lane_route_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
+    monkeypatch.setattr(upstream, "_gemini_vortex_health_state", lambda: ("ready", "python3"))
+    monkeypatch.setattr(upstream, "gemini_vortex_auth_state", lambda: ("ready", "test"))
+    monkeypatch.setattr(upstream, "_onemin_live_attempt_pressure_snapshot", lambda **_kwargs: {"throttle_pressure": "high"})
+    monkeypatch.setattr(
+        upstream,
+        "_onemin_attempt_summary",
+        lambda **_kwargs: {
+            "throttle_pressure": "high",
+            "peak_parallel_same_proxy": 2,
+            "peak_parallel_same_account": 1,
+            "busiest_hosts": [],
+            "recent_by_host": {},
+        },
+    )
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda **_kwargs: {
+            "providers": {
+                "onemin": {
+                    "state": "ready",
+                    "direct_api_throttle_pressure_15m": "high",
+                    "direct_api_peak_parallel_same_proxy_15m": 2,
+                    "direct_api_peak_parallel_same_account_15m": 1,
+                    "live_dispatchable_slot_count": 1,
+                    "slots": [{"account_name": "ONEMIN_AI_API_KEY", "state": "ready"}],
+                },
+                "gemini_vortex": {"state": "ready", "slots": [{"account_name": "EA_GEMINI_VORTEX_DEFAULT_AUTH", "state": "ready"}]},
+                "magixai": {"state": "ready", "slots": [{"account_name": "EA_RESPONSES_MAGICX_API_KEY", "state": "ready"}]},
+            },
+            "provider_config": {"default_profile": "easy", "default_lane": "fast"},
+        },
+    )
+
+    compact = upstream.codex_status_report(compact=True, principal_id="principal-1")
+    full = upstream.codex_status_report(principal_id="principal-1")
+
+    assert compact["status_basis"] == "principal_scoped_compact"
+    assert compact["onemin_aggregate"]["attempt_throttle_pressure_15m"] == "high"
+    assert compact["fast_lane_route"]["effective_order"] == ["magixai", "onemin"]
+    assert compact["provider_health"] == {"providers": {"_compact": {"state": "ready"}}}
+    assert full["providers_summary"]
+    assert full["onemin_aggregate"]["attempt_throttle_pressure_15m"] == "high"
+    assert full["fast_lane_route"]["posture"] == "pressure_spillover"
+    assert full["fast_lane_route"]["automatic_gemini_spillover_enabled"] is False
+    assert full["provider_health"] == {}
 
 
 def test_review_light_public_model_prefers_onemin_with_gemini_and_chatplayground_fallback(
@@ -1116,7 +1702,7 @@ def test_review_light_public_model_prefers_onemin_with_gemini_and_chatplayground
         ("onemin", "deepseek-chat"),
         ("onemin", "gpt-4.1-nano"),
         ("onemin", "gpt-4.1"),
-        ("gemini_vortex", "gemini-2.5-flash"),
+        ("gemini_vortex", "gemini-3.5-flash"),
         ("chatplayground", "gpt-4.1"),
     ]
 
@@ -1165,7 +1751,7 @@ def test_audit_model_candidates_route_to_chatplayground(monkeypatch: pytest.Monk
         for config, model in upstream._provider_candidates(upstream.AUDIT_PUBLIC_MODEL)
     ]
     assert candidates == [
-        ("gemini_vortex", "gemini-2.5-flash"),
+        ("gemini_vortex", "gemini-3.5-flash"),
         ("chatplayground", "judge-model"),
         ("chatplayground", "jury-model"),
     ]
@@ -1192,7 +1778,7 @@ def test_audit_alias_candidates_route_to_chatplayground(monkeypatch: pytest.Monk
         for config, model in upstream._provider_candidates(upstream.AUDIT_PUBLIC_MODEL_ALIAS)
     ]
     assert candidates == [
-        ("gemini_vortex", "gemini-2.5-flash"),
+        ("gemini_vortex", "gemini-3.5-flash"),
         ("chatplayground", "judge-model"),
     ]
 
@@ -1215,7 +1801,7 @@ def test_audit_model_candidates_prefer_onemin_with_chatplayground_fallback(
         ("onemin", "deepseek-chat"),
         ("onemin", "gpt-4.1-nano"),
         ("onemin", "gpt-4.1"),
-        ("gemini_vortex", "gemini-2.5-flash"),
+        ("gemini_vortex", "gemini-3.5-flash"),
         ("chatplayground", "judge-model"),
     ]
 
@@ -1232,7 +1818,7 @@ def test_audit_model_candidates_route_to_chatplayground_when_onemin_unconfigured
         for config, model in upstream._provider_candidates(upstream.AUDIT_PUBLIC_MODEL)
     ]
     assert candidates == [
-        ("gemini_vortex", "gemini-2.5-flash"),
+        ("gemini_vortex", "gemini-3.5-flash"),
         ("chatplayground", "judge-model"),
     ]
 
@@ -3602,6 +4188,24 @@ def test_onemin_owner_ledger_path_falls_back_to_repo_config(monkeypatch: pytest.
     assert path.exists()
 
 
+def test_onemin_config_paths_use_config_root_for_container_config_mount(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_root = tmp_path / "config"
+    config_root.mkdir()
+    manifest = config_root / "onemin_api_keys.local.json"
+    owner_ledger = config_root / "onemin_slot_owners.json"
+    manifest.write_text("[]", encoding="utf-8")
+    owner_ledger.write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("EA_CONFIG_ROOT", config_root.as_posix())
+    monkeypatch.setenv("ONEMIN_DIRECT_API_KEYS_JSON_FILE", "/config/onemin_api_keys.local.json")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_OWNER_LEDGER_PATH", "/config/onemin_slot_owners.json")
+
+    assert upstream._onemin_manifest_path() == manifest
+    assert upstream._onemin_owner_ledger_path() == owner_ledger
+
+
 def test_probe_all_onemin_slots_preserves_slot_order_when_parallel(monkeypatch: pytest.MonkeyPatch) -> None:
     upstream._test_reset_onemin_states()
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "slow-primary")
@@ -3949,6 +4553,39 @@ def test_post_json_uses_proxy_opener_for_onemin_direct_api_requests(monkeypatch:
     handlers = tuple(captured["handlers"])
     assert len(handlers) == 1
     assert handlers[0].proxies == {"http": "http://proxy.example:3128", "https": "http://proxy.example:3128"}
+
+
+def test_onemin_proxy_transport_fails_open_to_direct_when_vpn_drops(monkeypatch: pytest.MonkeyPatch) -> None:
+    class BrokenProxyOpener:
+        def open(self, request, timeout=0):  # noqa: ANN001
+            raise upstream.urllib.error.URLError("vpn endpoint unavailable")
+
+    metadata: dict[str, object] = {}
+    direct_calls: list[tuple[object, object]] = []
+
+    def fake_urlopen(request, timeout=0):  # noqa: ANN001
+        direct_calls.append((request, timeout))
+        return _SlowUrlopenResponse(body_chunks=[b'{"ok": true}', b""])
+
+    monkeypatch.setattr(upstream.urllib.request, "build_opener", lambda *_args, **_kwargs: BrokenProxyOpener())
+    monkeypatch.setattr(upstream.urllib.request, "urlopen", fake_urlopen)
+
+    status, payload = upstream._post_json(
+        url="https://api.1min.ai/api/features",
+        headers={"API-KEY": "secret-key"},
+        payload={"type": "UNIFY_CHAT_WITH_AI"},
+        timeout_seconds=3,
+        proxy_url="http://vpn-user:vpn-pass@ea-fastestvpn-proxy-7:8080",
+        allow_direct_fallback=True,
+        transport_metadata=metadata,
+    )
+
+    assert status == 200
+    assert payload == {"ok": True}
+    assert len(direct_calls) == 1
+    assert metadata["configured_proxy_url"] == "http://vpn-user:vpn-pass@ea-fastestvpn-proxy-7:8080"
+    assert metadata["used_proxy_url"] == ""
+    assert "vpn endpoint unavailable" in str(metadata["proxy_fallback_error"])
 
 
 def test_post_sse_uses_proxy_opener_for_onemin_direct_api_requests(monkeypatch: pytest.MonkeyPatch) -> None:

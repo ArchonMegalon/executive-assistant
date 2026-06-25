@@ -6,9 +6,9 @@ guest_readable_channels:
   - public_stable
   - preview
 release_notes_summary: The current release keeps direct Stable and Nightly paths for Windows and Linux, with posted build, release date, and verification date aligned on the public pages.
-download_authority_summary: chummer.run is the only official client download source. GitHub is source and development evidence only, never a public binary release shelf for installers, archives, update payloads, or preview clients.
+download_authority_summary: chummer.run is the only official client download source. The source repositories are for code and development records, never public installer, archive, update, or preview-client downloads.
 proof_scope_summary: Public release detail stays scoped to the builds, named flows, and recent checks a person can inspect today; it is not a blanket flagship-grade claim.
-flagship_claim_summary: Flagship wording is reserved for surfaces that currently satisfy FLAGSHIP_RELEASE_ACCEPTANCE.yaml; preview artifacts, status cards, captions, packet siblings, artifact-factory explainers, and fallback routes do not earn that claim by proximity.
+flagship_claim_summary: Flagship wording is reserved for surfaces that currently satisfy FLAGSHIP_RELEASE_ACCEPTANCE.yaml; preview files, status cards, captions, companion pages, explainers, and fallback routes do not earn that claim by proximity.
 flagship_grade_summary: A public release is only truly ready when downloads, install/update help, recovery, support, and the product surfaces behind them feel like one premium, honest product rather than a technically functional preview bundle.
 flagship_acceptance_source: FLAGSHIP_RELEASE_ACCEPTANCE.yaml
 desktop_platform_matrix_source: DESKTOP_PLATFORM_ACCEPTANCE_MATRIX.yaml
@@ -18,10 +18,10 @@ onboarding_and_empty_state_source: ONBOARDING_AND_EMPTY_STATE_JOURNEY_CONTRACT.m
 long_running_action_safety_source: LONG_RUNNING_ACTION_SAFETY_CONTRACT.md
 campaign_operability_rubric_source: CAMPAIGN_OPERABILITY_SCORING_RUBRIC.yaml
 release_label_resolver_rules:
-  - Public labels must resolve from registry-backed release truth before any shelf, help, status, or packet copy is generated.
+  - Public labels must resolve from the release record before any shelf, help, status, or packet copy is generated.
   - The strongest allowed public label is limited by the weakest checked surface in the same route family.
-  - A fallback, preview, account-gated, or setup-script lane must keep that weaker label even when adjacent proof artifacts look more complete.
-  - Gold or flagship wording is forbidden unless the current platform route, support posture, and desktop-head proof all satisfy FLAGSHIP_RELEASE_ACCEPTANCE.yaml.
+  - A fallback, preview, account-gated, or setup-script lane must keep that weaker label even when adjacent checks look more complete.
+  - Gold or flagship wording is forbidden unless the current platform route, support posture, and desktop-head checks all satisfy FLAGSHIP_RELEASE_ACCEPTANCE.yaml.
   - If platform bytes, startup checks, support posture, and release-copy posture disagree, the resolver must fail closed to preview wording.
   - Known-issue and fix words must resolve from KNOWN_ISSUE_AND_FIX_STATUS_LANGUAGE.md before public help, status, or support copy is emitted.
 desktop_flagship_head: Chummer.Avalonia
@@ -42,13 +42,13 @@ update_posture_summary: Chummer checks for a newer published build at startup an
 public_concierge_summary: Public concierge widgets may appear only as bounded preview overlays on low-risk public surfaces; the fixed release route, visible fallback path, and recovery guidance remain first-party and must still work when the widget is disabled.
 flagship_release_rules:
   - The shelf must present one obvious primary download path per supported platform.
-  - Every official client download or install handoff must start from chummer.run and resolve through registry-backed release truth.
-  - GitHub releases, repository automation artifacts, repo attachments, and repo-hosted binary shelves must not be used as public client download sources.
+  - Every official client download or install handoff must start from chummer.run and resolve through the release record.
+  - Source-repository releases, repository automation files, repo attachments, and repo-hosted binary shelves must not be used as public client download sources.
   - Avalonia is the flagship desktop head. Blazor Desktop is only a compatibility fallback when the platform matrix and release copy both say so.
   - If Blazor Desktop is the only visible desktop head for a lane or the recommended download, the release page must treat it as the flagship route and require the same flagship checks as Avalonia.
   - Public release-detail wording is limited to posted files, recent checks, and inspectable trails; it must not imply that all current product surfaces are flagship-ready.
   - Public release-detail wording must stay subordinate to the posted install shelf for each platform; status cards and explainer bundles cannot outrank the actual download route.
-  - Public release-detail wording must also stay subordinate to the recommended install route when artifact-factory packets, captions, previews, or packet-detail pages are visible on the same public surface.
+  - Public release-detail wording must also stay subordinate to the recommended install route when companion files, captions, previews, or detail pages are visible on the same public surface.
   - Any public concierge widget on release, downloads, or help-entry surfaces must stay in preview-overlay posture and must not become release authority.
   - Fixed route, fallback route, and recovery route language must remain distinct on public surfaces; warm concierge copy may not blur them.
   - First-run, no-data, and recovery copy on public release-adjacent surfaces must stay aligned with ONBOARDING_AND_EMPTY_STATE_JOURNEY_CONTRACT.md.
@@ -56,11 +56,11 @@ flagship_release_rules:
   - The happy path must not send the user to a browser to copy or paste a claim code by hand.
   - Public account language should say `Claim your copy` and avoid account-plumbing labels.
   - Public release claims must stay within the surfaces that currently pass FLAGSHIP_RELEASE_ACCEPTANCE.yaml or carry a bounded preview explanation.
-  - Help, known issues, claim/recovery guidance, and update posture must agree with the actual released artifacts.
-  - Public pages must not overclaim platform or feature readiness just because internal check artifacts exist.
-  - Artifact-factory previews, captions, packet siblings, explainers, and public packet-detail routes can prove inspectable output, but they do not by themselves promote a preview or fallback lane into a flagship claim or override the recommended install shelf.
-  - Concierge copy must not imply that a fix is already available, installed, or correct for this user unless the same claim is already true in first-party release or support truth.
-  - Flagship desktop quality requires polished install, update, crash-recovery, and support flows in addition to build/startup proof.
+  - Help, known issues, claim/recovery guidance, and update posture must agree with the actual released files.
+  - Public pages must not overclaim platform or feature readiness just because internal checks exist.
+  - Companion previews, captions, sibling pages, explainers, and public detail routes can make output easier to inspect, but they do not by themselves promote a preview or fallback lane into a flagship claim or override the recommended install shelf.
+  - Concierge copy must not imply that a fix is already available, installed, or correct for this user unless the same claim is already true in first-party release or support records.
+  - Flagship desktop quality requires polished install, update, crash-recovery, and support flows in addition to build/startup checks.
   - Claim and restore guidance must not imply that a recovered workspace is safe when required rule packs or amend packages are missing locally.
 default_public_channel_label: Nightly
 unpublished_build_label: Nightly
@@ -92,7 +92,7 @@ signed_in_dispatch_steps:
 install_steps:
   - Download the current published package for your platform.
   - Finish setup for that package, then launch Chummer.
-  - Create an account when you want download receipts, recovery, and support history to stay attached; otherwise continue unlinked.
+  - Create an account when you want download history, recovery, and support history to stay attached; otherwise continue unlinked.
   - If a restored runner or campaign needs rule packs or amend packages that are not present locally, Chummer must say so before compute continues.
   - Use Devices and access later if you need to reconnect a downloaded copy back to the same account.
 account_required_install_steps:
@@ -115,4 +115,4 @@ macos_requirements:
   - The public downloads page may expose a macOS guided setup lane when needed, but the promoted shelf route is the signed, notarized DMG installer.
   - The Mac default action is a Terminal command, not a downloaded unsigned `.command` file and not the raw DMG. The command must stream a guided setup assistant that downloads the current DMGs, removes quarantine, lets the user choose which supported desktop heads to install, lets the user choose `/Applications` versus `~/Applications`, and offers to open the selected apps when setup finishes.
   - The guided setup assistant must apply install claiming automatically on first launch or route the user to the online claim page instead of asking the user to copy codes by hand.
-  - Guest-visible macOS downloads should stay tied to the promoted signed and notarized installer truth, not a preview-coded lane.
+  - Guest-visible macOS downloads should stay tied to the promoted signed and notarized installer record, not a preview-coded lane.

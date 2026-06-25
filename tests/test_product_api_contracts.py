@@ -206,6 +206,9 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert "authority_posture" in trust_body["release_authority"]
     assert "next_action" in trust_body["release_authority"]
     assert "authority_basis" in trust_body["release_authority"]
+    assert "runtime_supply_chain" in trust_body
+    assert trust_body["runtime_supply_chain"]["state"] in {"clear", "watch"}
+    assert trust_body["runtime_supply_chain"]["gate"]["contract_name"] == "ea.runtime_supply_chain.v1"
     assert trust_body["public_help_grounding"]["id"] == "public_help"
     assert trust_body["public_help_grounding"]["actions"]
     assert any(item["label"] == "PUBLIC_TRUST_CONTENT.yaml" for item in trust_body["public_help_grounding"]["sources"])
@@ -218,6 +221,9 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert "pending" in support_body["approvals"]
     assert isinstance(support_body["human_tasks"], list)
     assert "risk_state" in support_body["providers"]
+    assert "runtime_supply_chain" in support_body
+    assert support_body["runtime_supply_chain"]["state"] in {"clear", "watch"}
+    assert support_body["runtime_supply_chain_gate"]["contract_name"] == "ea.runtime_supply_chain.v1"
     assert "load_score" in support_body["queue_health"]
     assert "blocked_action_message" in support_body["commercial"]
     assert "success_summary" in support_body["analytics"]
@@ -5469,7 +5475,8 @@ def test_preference_profile_teable_sync_preview_fails_closed_without_executable_
     assert preview_body["provider"]["provider_key"] == "teable"
     assert preview_body["provider"]["table_sync_configured"] is False
     assert preview_body["route"]["capability_key"] == "table_sync"
-    assert preview_body["projected_record_count"] >= 1
+    assert preview_body["projected_record_count"] == 0
+    assert preview_body["projected_table_count"] == 0
 
     requested = client.post("/app/api/people/self/preference-profile/teable-sync")
     assert requested.status_code == 200
@@ -5525,7 +5532,12 @@ def test_preference_profile_teable_sync_can_use_executable_lane_when_available(m
                     "table_id": "tbl_preference_review_queue",
                     "key_field": "projection_id",
                     "field_key_type": "name",
-                }
+                },
+                "environment_secret_backup": {
+                    "table_id": "tbl_environment_secret_backup",
+                    "key_field": "projection_id",
+                    "field_key_type": "name",
+                },
             }
         ),
     )
@@ -5550,7 +5562,10 @@ def test_preference_profile_teable_sync_can_use_executable_lane_when_available(m
         assert invocation.action_kind == "table.sync"
         assert invocation.payload_json["projection_scope"] == "preference_profile"
         assert invocation.payload_json["person_id"] == "self"
-        assert "preference_review_queue" in invocation.payload_json["tables_json"]
+        assert set(invocation.payload_json["tables_json"].keys()) == {
+            "preference_review_queue",
+            "environment_secret_backup",
+        }
         return ToolInvocationResult(
             tool_name=invocation.tool_name,
             action_kind=invocation.action_kind,
@@ -5569,6 +5584,108 @@ def test_preference_profile_teable_sync_can_use_executable_lane_when_available(m
     assert requested_body["sync_result"] == "sent"
     assert requested_body["tool_execution"]["target_ref"] == "teable-sync:pref-teable-sync-exec:self"
     assert requested_body["tool_execution"]["receipt_json"]["rows_upserted"] == 1
+
+
+def test_preference_profile_teable_sync_can_use_fallback_config_from_env(monkeypatch) -> None:
+    from app.domain.models import ToolInvocationResult
+
+    principal_id = "pref-teable-sync-fallback"
+    client = build_product_client(principal_id=principal_id)
+    container = client.app.state.container
+
+    client.post(
+        "/app/api/people/self/preference-profile",
+        json={
+            "display_name": "Tibor",
+            "consent_mode": "behavioral_learning",
+            "learning_enabled": True,
+        },
+    )
+    client.post(
+        "/app/api/people/self/preference-profile/nodes",
+        json={
+            "domain": "willhaben",
+            "category": "soft_preference",
+            "key": "preferred_districts",
+            "value_json": ["Waehring"],
+            "confidence": 0.8,
+        },
+    )
+
+    monkeypatch.setattr(
+        container.provider_registry,
+        "candidate_routes_by_capability_with_context",
+        lambda **_: (
+            SimpleNamespace(
+                provider_key="teable",
+                capability_key="table_sync",
+                tool_name="provider.teable.table_sync",
+                executable=True,
+            ),
+        ),
+    )
+    monkeypatch.delenv("TEABLE_TABLE_SYNC_CONFIG_JSON", raising=False)
+    monkeypatch.setenv("EA_ENV_TEABLE_TABLE_ID", "tbl_environment_secret_backup")
+    monkeypatch.setenv("EA_LTD_INVENTORY_TABLE_ID", "tbl_ltd_inventory")
+    monkeypatch.setenv("EA_LTD_DISCOVERY_TABLE_ID", "tbl_ltd_discovery")
+    monkeypatch.setenv("TEABLE_API_KEY", "fallback-key")
+    monkeypatch.setattr(
+        container.provider_registry,
+        "binding_state",
+        lambda provider_key, principal_id=None: SimpleNamespace(
+            provider_key=provider_key,
+            display_name="Teable",
+            state="ready",
+            enabled=True,
+            executable=True,
+            binding_id=f"{principal_id}:teable",
+            secret_configured=True,
+            updated_at="2026-06-24T00:00:00Z",
+        ),
+    )
+    monkeypatch.setattr(product_service.ProductService, "_teable_sync_runtime_available", lambda self, *, base_url: (True, ""))
+
+    preview = client.get("/app/api/people/self/preference-profile/teable-sync-preview")
+    assert preview.status_code == 200
+    preview_body = preview.json()
+    assert preview_body["status"] == "ready"
+    assert preview_body["provider"]["table_sync_configured"] is True
+    assert preview_body["table_config_json"].get("environment_secret_backup", {}).get("table_id") == "tbl_environment_secret_backup"
+    assert preview_body["table_config_json"].get("ltd_inventory_snapshot", {}).get("table_id") == "tbl_ltd_inventory"
+    assert preview_body["table_config_json"].get("ltd_discovery_snapshot", {}).get("table_id") == "tbl_ltd_discovery"
+
+    def _execute(invocation):
+        payload_tables = set(invocation.payload_json["tables_json"])
+        table_config = invocation.payload_json.get("table_config_json") or {}
+        assert payload_tables == {
+            "environment_secret_backup",
+            "ltd_inventory_snapshot",
+            "ltd_discovery_snapshot",
+        }
+        assert set(table_config.keys()) == payload_tables
+        assert table_config["environment_secret_backup"]["table_id"] == "tbl_environment_secret_backup"
+        assert table_config["ltd_inventory_snapshot"]["table_id"] == "tbl_ltd_inventory"
+        assert table_config["ltd_discovery_snapshot"]["table_id"] == "tbl_ltd_discovery"
+        assert invocation.action_kind == "table.sync"
+        assert invocation.payload_json["projection_scope"] == "preference_profile"
+        return ToolInvocationResult(
+            tool_name=invocation.tool_name,
+            action_kind=invocation.action_kind,
+            target_ref="teable-sync:pref-teable-sync-fallback:self",
+            output_json={"synced_tables": sorted(payload_tables)},
+            receipt_json={"status": "pass", "rows_upserted": 3},
+        )
+
+    monkeypatch.setattr(container.tool_execution, "execute_invocation", _execute)
+
+    requested = client.post("/app/api/people/self/preference-profile/teable-sync")
+    assert requested.status_code == 200
+    requested_body = requested.json()
+    assert requested_body["status"] == "ready"
+    assert requested_body["sync_attempted"] is True
+    assert requested_body["sync_result"] == "sent"
+    assert requested_body["tool_execution"]["target_ref"] == "teable-sync:pref-teable-sync-fallback:self"
+    assert requested_body["tool_execution"]["receipt_json"]["rows_upserted"] == 3
 
 
 def test_preference_profile_teable_sync_preview_blocks_when_runtime_is_unreachable(monkeypatch) -> None:
@@ -13398,7 +13515,10 @@ def test_workspace_invitation_lifecycle_is_seat_aware() -> None:
     assert revoked.json()["invitation_id"] == invite["invitation_id"]
 
 
-def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_ready_links() -> None:
+def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_ready_links(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_TRUST_X_FORWARDED_HOST", "1")
     principal_id = "exec-access-sessions"
     client = build_product_client(principal_id=principal_id)
     seeded = seed_product_state(client, principal_id=principal_id)

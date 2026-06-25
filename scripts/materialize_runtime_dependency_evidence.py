@@ -11,7 +11,9 @@ import uuid
 
 
 ROOT = Path(__file__).resolve().parents[1]
-REQUIREMENTS_PATH = ROOT / "ea" / "requirements.txt"
+REQUIREMENTS_PATHS = (
+    ROOT / "ea" / "requirements.txt",
+)
 SBOM_OUTPUT = ROOT / ".codex-studio" / "published" / "runtime_dependency_sbom.cdx.json"
 AUDIT_OUTPUT = ROOT / ".codex-studio" / "published" / "runtime_dependency_audit.generated.json"
 
@@ -37,9 +39,9 @@ def _git_head() -> str:
     return completed.stdout.strip()
 
 
-def _requirements() -> list[tuple[str, str]]:
+def _requirements(path: Path) -> list[tuple[str, str]]:
     rows: list[tuple[str, str]] = []
-    for raw in REQUIREMENTS_PATH.read_text(encoding="utf-8").splitlines():
+    for raw in path.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
         if not line or line.startswith("#") or line.startswith("--"):
             continue
@@ -48,20 +50,28 @@ def _requirements() -> list[tuple[str, str]]:
     return rows
 
 
-def _build_sbom(requirements: list[tuple[str, str]]) -> dict[str, Any]:
+def _build_sbom(requirement_sets: list[tuple[Path, list[tuple[str, str]]]]) -> dict[str, Any]:
     components: list[dict[str, Any]] = []
     dependencies: list[dict[str, Any]] = []
-    for index, (name, version) in enumerate(requirements, start=1):
-        ref = f"pkg:{name}@{version}#{index}"
-        components.append(
-            {
-                "bom-ref": ref,
-                "name": name,
-                "type": "library",
-                "version": version,
-            }
-        )
-        dependencies.append({"ref": ref})
+    for source_index, (path, requirements) in enumerate(requirement_sets, start=1):
+        source_ref = path.relative_to(ROOT).as_posix()
+        for package_index, (name, version) in enumerate(requirements, start=1):
+            ref = f"pkg:{name}@{version}#{source_index}-{package_index}"
+            components.append(
+                {
+                    "bom-ref": ref,
+                    "name": name,
+                    "type": "library",
+                    "version": version,
+                    "properties": [
+                        {
+                            "name": "ea.requirements_source",
+                            "value": source_ref,
+                        }
+                    ],
+                }
+            )
+            dependencies.append({"ref": ref})
     return {
         "bomFormat": "CycloneDX",
         "specVersion": "1.6",
@@ -74,14 +84,14 @@ def _build_sbom(requirements: list[tuple[str, str]]) -> dict[str, Any]:
     }
 
 
-def _pip_audit_json() -> dict[str, Any]:
+def _pip_audit_json(requirements_path: Path) -> dict[str, Any]:
     completed = subprocess.run(  # nosec B603
         [
             str(ROOT / ".venv" / "bin" / "python"),
             "-m",
             "pip_audit",
             "-r",
-            str(REQUIREMENTS_PATH),
+            str(requirements_path),
             "--progress-spinner",
             "off",
             "--format",
@@ -106,27 +116,50 @@ def _pip_audit_json() -> dict[str, Any]:
 
 
 def materialize() -> dict[str, Any]:
-    requirements = _requirements()
-    sbom = _build_sbom(requirements)
-    audit_payload = _pip_audit_json()
-    dependencies = [dict(item) for item in list(audit_payload.get("dependencies") or []) if isinstance(item, dict)]
-    vulnerable = [item for item in dependencies if list(item.get("vulns") or [])]
+    requirement_sets = [(path, _requirements(path)) for path in REQUIREMENTS_PATHS]
+    sbom = _build_sbom(requirement_sets)
+    source_receipts: list[dict[str, Any]] = []
+    dependencies: list[dict[str, Any]] = []
+    vulnerable: list[dict[str, Any]] = []
+    total_fix_count = 0
+    for requirements_path, _requirements_rows in requirement_sets:
+        audit_payload = _pip_audit_json(requirements_path)
+        source_dependencies = [dict(item) for item in list(audit_payload.get("dependencies") or []) if isinstance(item, dict)]
+        source_vulnerable = [item for item in source_dependencies if list(item.get("vulns") or [])]
+        source_ref = requirements_path.relative_to(ROOT).as_posix()
+        total_fix_count += len(list(audit_payload.get("fixes") or []))
+        dependencies.extend(source_dependencies)
+        for item in source_vulnerable:
+            item = dict(item)
+            item["requirements_path"] = source_ref
+            vulnerable.append(item)
+        source_receipts.append(
+            {
+                "requirements_path": source_ref,
+                "requirements_sha256": _sha256(requirements_path),
+                "dependency_count": len(source_dependencies),
+                "vulnerable_dependency_count": len(source_vulnerable),
+                "fix_count": len(list(audit_payload.get("fixes") or [])),
+            }
+        )
     receipt = {
         "contract_name": "ea.runtime_dependency_audit.v1",
         "generated_at": _utc_now(),
         "generated_by": "scripts/materialize_runtime_dependency_evidence.py",
         "source_git_head": _git_head(),
-        "requirements_path": REQUIREMENTS_PATH.relative_to(ROOT).as_posix(),
-        "requirements_sha256": _sha256(REQUIREMENTS_PATH),
+        "requirements_path": (ROOT / "ea" / "requirements.txt").relative_to(ROOT).as_posix(),
+        "requirements_sha256": _sha256(ROOT / "ea" / "requirements.txt"),
+        "requirements_sources": source_receipts,
         "sbom_path": SBOM_OUTPUT.relative_to(ROOT).as_posix(),
         "sbom_sha256": "",
         "dependency_count": len(dependencies),
         "vulnerable_dependency_count": len(vulnerable),
-        "fix_count": len(list(audit_payload.get("fixes") or [])),
+        "fix_count": total_fix_count,
         "vulnerable_dependencies": [
             {
                 "name": str(item.get("name") or ""),
                 "version": str(item.get("version") or ""),
+                "requirements_path": str(item.get("requirements_path") or ""),
                 "vulnerability_ids": [str(vuln.get("id") or "") for vuln in list(item.get("vulns") or []) if isinstance(vuln, dict)],
             }
             for item in vulnerable

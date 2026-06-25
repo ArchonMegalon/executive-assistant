@@ -24,6 +24,7 @@ def test_teable_route_fields_include_old_lady_persona_and_supported_schema() -> 
     route_field_names = {field["name"] for field in module.ROUTE_FIELDS}
     message_field_names = {field["name"] for field in module.MESSAGE_FIELDS}
     persona_field_names = {field["name"] for field in module.PERSONA_FIELDS}
+    audiobook_field_names = {field["name"] for field in module.AUDIOBOOK_FIELDS}
 
     assert "behavior_prompt" in route_field_names
     assert "memory_notes" in route_field_names
@@ -45,6 +46,7 @@ def test_teable_route_fields_include_old_lady_persona_and_supported_schema() -> 
     assert "recipient_reachability_checked_at" in route_field_names
     assert "recipient_reachability_reason" in route_field_names
     assert "heyy_ai_name" in message_field_names
+    assert "heyy_ai_route_matched" in message_field_names
     assert "selected_button_kind" in message_field_names
     assert "selected_button_id_present" in message_field_names
     assert "selected_button_hash" in message_field_names
@@ -61,6 +63,16 @@ def test_teable_route_fields_include_old_lady_persona_and_supported_schema() -> 
     assert all("notNull" not in field and "unique" not in field for field in module.ROUTE_FIELDS)
     assert all("notNull" not in field and "unique" not in field for field in module.MESSAGE_FIELDS)
     assert all("notNull" not in field and "unique" not in field for field in module.PERSONA_FIELDS)
+    assert "projection_id" in audiobook_field_names
+    assert "job_id" in audiobook_field_names
+    assert "next_action" in audiobook_field_names
+    assert "public_share_whatsapp_delivery_status" in audiobook_field_names
+    assert "playback_status" in audiobook_field_names
+    assert "selected_voice_label" in audiobook_field_names
+    assert "operator_review_pending" in audiobook_field_names
+    assert "sender_bound" in audiobook_field_names
+    assert "session_bound" in audiobook_field_names
+    assert all("notNull" not in field and "unique" not in field for field in module.AUDIOBOOK_FIELDS)
 
 
 def test_teable_transient_http_statuses_include_request_timeout() -> None:
@@ -80,6 +92,58 @@ def test_session_api_unavailable_from_exit_detects_connection_refused() -> None:
     assert unavailable is not None
     assert unavailable.operation == "session_api_request"
     assert "Connection refused" in unavailable.detail
+
+
+def test_teable_request_uses_browser_like_headers(monkeypatch) -> None:
+    module = _module()
+    captured: dict[str, object] = {}
+
+    def _fake_request_json(**kwargs):
+        captured.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(module, "_request_json", _fake_request_json)
+
+    result = module._teable_request(
+        method="GET",
+        base_url="https://app.teable.ai",
+        api_key="token",
+        path="/api/space",
+    )
+
+    assert result == {"ok": True}
+    headers = dict(captured["headers"])
+    assert headers["Authorization"] == "Bearer token"
+    assert headers["Accept"] == "application/json, text/plain, */*"
+    assert headers["Accept-Language"] == "en-US,en;q=0.9"
+    assert headers["Origin"] == "https://app.teable.ai"
+    assert headers["Referer"] == "https://app.teable.ai/"
+    assert "Mozilla/5.0" in str(headers["User-Agent"])
+
+
+def test_teable_request_uses_bounded_timeout_and_attempts(monkeypatch) -> None:
+    module = _module()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setenv("EA_WHATSAPP_WEB_TEABLE_REQUEST_TIMEOUT_SECONDS", "12")
+    monkeypatch.setenv("EA_WHATSAPP_WEB_TEABLE_REQUEST_ATTEMPTS", "2")
+
+    def _fake_request_json(**kwargs):
+        captured.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(module, "_request_json", _fake_request_json)
+
+    result = module._teable_request(
+        method="GET",
+        base_url="https://app.teable.ai",
+        api_key="token",
+        path="/api/space",
+    )
+
+    assert result == {"ok": True}
+    assert captured["timeout"] == 12.0
+    assert captured["attempts"] == 2
 
 
 def test_session_api_unavailable_from_exit_detects_startup_conflict() -> None:
@@ -110,13 +174,13 @@ def test_default_route_row_applies_slow_typing_old_lady_behavior() -> None:
     assert row["typing_status_enabled"] is True
     assert row["typing_delay_ms"] == 6500
     assert row["minimum_delay_seconds"] == 60
-    assert row["pre_reply_delay_min_seconds"] == 60
-    assert row["pre_reply_delay_max_seconds"] == 900
+    assert row["pre_reply_delay_min_seconds"] == 180
+    assert row["pre_reply_delay_max_seconds"] == 1800
     assert row["quiet_hours_start_hour"] == 21
     assert row["quiet_hours_end_hour"] == 6
-    assert row["typing_delay_ms_per_character"] == 4000
+    assert row["typing_delay_ms_per_character"] == 8000
     assert row["auto_reply_enabled"] is True
-    assert "1-15 minutes" in str(row["pacing_hint"])
+    assert "3-30 minutes" in str(row["pacing_hint"])
     assert "21:00 and 06:00" in str(row["pacing_hint"])
     assert "slow" in str(row["behavior_prompt"]).lower()
     assert "daß" in str(row["behavior_prompt"])
@@ -124,7 +188,7 @@ def test_default_route_row_applies_slow_typing_old_lady_behavior() -> None:
     assert "Sabine" in str(row["memory_notes"])
     assert "Marillenknödel" in str(row["memory_notes"])
     assert str(row["reply_text"]).startswith("Na geh")
-    assert "zurück" in str(row["reply_text"])
+    assert "Schreib mir bitte kurz" in str(row["reply_text"])
 
 
 def test_route_rows_from_teable_forward_persona_and_typing_fields(monkeypatch) -> None:
@@ -144,12 +208,12 @@ def test_route_rows_from_teable_forward_persona_and_typing_fields(monkeypatch) -
                     "memory_notes": "remember the yellow raincoat",
                     "pacing_hint": "show typing first",
                     "minimum_delay_seconds": 240,
-                    "pre_reply_delay_min_seconds": 60,
-                    "pre_reply_delay_max_seconds": 900,
+                    "pre_reply_delay_min_seconds": 180,
+                    "pre_reply_delay_max_seconds": 1800,
                     "quiet_hours_start_hour": 21,
                     "quiet_hours_end_hour": 6,
                     "typing_delay_ms": 7000,
-                    "typing_delay_ms_per_character": 4000,
+                    "typing_delay_ms_per_character": 8000,
                     "typing_status_enabled": True,
                     "auto_reply_enabled": False,
                     "reply_text": "Na geh...",
@@ -177,12 +241,12 @@ def test_route_rows_from_teable_forward_persona_and_typing_fields(monkeypatch) -
             "memory_notes": "remember the yellow raincoat",
             "pacing_hint": "show typing first",
             "minimum_delay_seconds": 240,
-            "pre_reply_delay_min_seconds": 60,
-            "pre_reply_delay_max_seconds": 900,
+            "pre_reply_delay_min_seconds": 180,
+            "pre_reply_delay_max_seconds": 1800,
             "quiet_hours_start_hour": 21,
             "quiet_hours_end_hour": 6,
             "typing_delay_ms": 7000,
-            "typing_delay_ms_per_character": 4000,
+            "typing_delay_ms_per_character": 8000,
             "typing_status_enabled": True,
             "auto_reply_enabled": False,
             "reply_text": "Na geh...",
@@ -207,7 +271,7 @@ def test_route_rows_from_teable_repairs_stale_zero_delay_for_herta(monkeypatch) 
                     "pre_reply_delay_min_seconds": 0,
                     "pre_reply_delay_max_seconds": 0,
                     "typing_delay_ms": 6500,
-                    "typing_delay_ms_per_character": 4000,
+                    "typing_delay_ms_per_character": 8000,
                     "typing_status_enabled": True,
                     "enabled": True,
                     "session_ref": "principal-wa-web",
@@ -224,11 +288,11 @@ def test_route_rows_from_teable_repairs_stale_zero_delay_for_herta(monkeypatch) 
     )
 
     assert rows[0]["minimum_delay_seconds"] == 60
-    assert rows[0]["pre_reply_delay_min_seconds"] == 60
-    assert rows[0]["pre_reply_delay_max_seconds"] == 900
+    assert rows[0]["pre_reply_delay_min_seconds"] == 180
+    assert rows[0]["pre_reply_delay_max_seconds"] == 1800
     assert rows[0]["quiet_hours_start_hour"] == 21
     assert rows[0]["quiet_hours_end_hour"] == 6
-    assert rows[0]["typing_delay_ms_per_character"] == 4000
+    assert rows[0]["typing_delay_ms_per_character"] == 8000
 
 
 def test_route_reachability_rows_probe_private_routes_without_raw_chat_ids(monkeypatch) -> None:
@@ -486,6 +550,7 @@ def test_message_rows_hash_selected_button_callback_without_raw_callback(monkeyp
                             "selected_button_id_present": True,
                             "selected_button_id": "ab|u|voice-token-secret|zz|sig",
                             "from_me": False,
+                            "heyy_ai_route_matched": True,
                             "ack_label": "unknown",
                         }
                     ],
@@ -515,7 +580,60 @@ def test_message_rows_hash_selected_button_callback_without_raw_callback(monkeyp
     assert rows[0]["selected_button_kind"] == "audiobook_voice"
     assert rows[0]["selected_button_id_present"] is True
     assert rows[0]["selected_button_hash"]
+    assert rows[0]["heyy_ai_key"] == "executive_assistant"
+    assert rows[0]["heyy_ai_route_matched"] is True
     assert "voice-token-secret" not in str(rows[0])
+
+
+def test_message_rows_blank_heyy_ai_when_route_did_not_match(monkeypatch) -> None:
+    module = _module()
+
+    def _fake_session_get(args, path: str):
+        return {
+            "conversations": [
+                {
+                    "chat_ref": "chat-ref-1",
+                    "chat_id_kind": "lid",
+                    "messages": [
+                        {
+                            "id": "wamid.unmatched.1",
+                            "direction": "inbound",
+                            "from_me": False,
+                            "sender_digits": "4369919226996",
+                            "heyy_ai_key": "empathetic_slow_typing_old_lady",
+                            "heyy_ai_name": "Herta (Heyy Lady)",
+                            "heyy_ai_route_matched": False,
+                            "body_text": "Hallo",
+                            "body_present": True,
+                            "type": "chat",
+                            "message_timestamp": "2026-06-23T10:00:00Z",
+                        }
+                    ],
+                }
+            ]
+        }
+
+    monkeypatch.setattr(module, "_session_get", _fake_session_get)
+
+    rows = module._message_rows_from_sidecar(
+        type(
+            "Args",
+            (),
+            {
+                "conversation_take": 10,
+                "conversation_skip": 0,
+                "conversation_fetch_concurrency": 4,
+                "conversation_fetch_timeout_ms": 12000,
+                "disable_conversation_page_state": True,
+                "message_limit": 10,
+                "session_ref": "principal-wa-web",
+            },
+        )()
+    )
+
+    assert rows[0]["heyy_ai_key"] == ""
+    assert rows[0]["heyy_ai_name"] == ""
+    assert rows[0]["heyy_ai_route_matched"] is False
 
 
 def test_message_rows_from_sidecar_skip_synthetic_notification_messages(monkeypatch) -> None:
@@ -635,6 +753,351 @@ def test_message_batch_payload_reports_synthetic_notification_skips(monkeypatch)
     }
 
 
+def test_message_rows_from_sidecar_preserve_notification_messages_with_real_content(monkeypatch) -> None:
+    module = _module()
+
+    def _fake_session_get(args, path: str):
+        return {
+            "conversations": [
+                {
+                    "chat_ref": "chat-ref-1",
+                    "chat_id_kind": "lid",
+                    "messages": [
+                        {
+                            "id": "wamid.notification.body.1",
+                            "direction": "outbound",
+                            "from_me": True,
+                            "type": "notification_template",
+                            "sender_digits": "4368120864006",
+                            "body_text": "Hier ist dein Hörbuch mit Remy",
+                            "body_present": True,
+                        },
+                        {
+                            "id": "wamid.notification.button.1",
+                            "direction": "outbound",
+                            "from_me": True,
+                            "type": "e2e_notification",
+                            "sender_digits": "4368120864006",
+                            "body_text": "",
+                            "body_present": False,
+                            "selected_button_id_present": True,
+                            "selected_button_id": "button-123",
+                        },
+                    ],
+                }
+            ]
+        }
+
+    monkeypatch.setattr(module, "_session_get", _fake_session_get)
+
+    rows = module._message_rows_from_sidecar(
+        type(
+            "Args",
+            (),
+            {
+                "conversation_take": 10,
+                "conversation_skip": 0,
+                "conversation_fetch_concurrency": 4,
+                "conversation_fetch_timeout_ms": 12000,
+                "disable_conversation_page_state": True,
+                "message_limit": 10,
+                "session_ref": "principal-wa-web",
+            },
+        )()
+    )
+
+    assert [row["message_id"] for row in rows] == [
+        "wamid.notification.body.1",
+        "wamid.notification.button.1",
+    ]
+    assert rows[1]["selected_button_hash"]
+
+
+def test_audiobook_job_row_from_receipt_preserves_whatsapp_review_state() -> None:
+    module = _module()
+
+    row = module._audiobook_job_row_from_receipt(
+        {
+            "job_id": "epub-audiobook-20260622T060701Z-3a098b50",
+            "job_dir_name": "epub-audiobook-20260622T060701Z-3a098b50",
+            "status": "audiobookshelf_imported",
+            "next_action": "review_audiobook_playback_problem",
+            "updated_at": "2026-06-23T09:32:30.860697Z",
+            "observed_at": "2026-06-23T10:55:38.769360Z",
+            "metadata": {
+                "title": "Sei nicht so hart zu dir selbst",
+                "author": "Knuf, Andreas",
+            },
+            "source": {
+                "kind": "epub",
+                "source_filename": "Knuf_Sei-nicht-so-hart-zu-dir-selbs_9783641178222.epub",
+            },
+            "public_share_status": "public_share_ready",
+            "public_share_whatsapp_delivery_status": "sent",
+            "public_share_whatsapp_followup_pending": False,
+            "playback_acceptance": {
+                "status": "rejected",
+                "source": "whatsapp_button_recovered",
+            },
+            "render": {
+                "voice_selection": {
+                    "status": "selected_by_user",
+                    "selected_at": "2026-06-22T08:42:32.317333Z",
+                    "selected": {
+                        "label": "Remy",
+                        "language": "fr-fr",
+                    },
+                }
+            },
+            "scheduler_resume": {
+                "next_action": "review_audiobook_playback_problem",
+            },
+            "whatsapp": {
+                "source": "whatsapp_web_session",
+                "sender_bound": True,
+                "session_bound": True,
+            },
+        }
+    )
+
+    assert row["projection_id"] == "epub-audiobook-20260622T060701Z-3a098b50"
+    assert row["job_status"] == "audiobookshelf_imported"
+    assert row["next_action"] == "review_audiobook_playback_problem"
+    assert row["public_share_whatsapp_delivery_status"] == "sent"
+    assert row["playback_status"] == "rejected"
+    assert row["playback_source"] == "whatsapp_button_recovered"
+    assert row["selected_voice_label"] == "Remy"
+    assert row["voice_selection_status"] == "selected_by_user"
+    assert row["sender_bound"] is True
+    assert row["session_bound"] is True
+    assert row["operator_review_pending"] is True
+
+
+def test_audiobook_job_rows_from_receipts_only_include_whatsapp_bound_jobs(tmp_path: Path) -> None:
+    module = _module()
+
+    keep_dir = tmp_path / "job-keep"
+    keep_dir.mkdir()
+    (keep_dir / "job_receipt.json").write_text(
+        json.dumps(
+            {
+                "job_id": "job-keep",
+                "status": "audiobookshelf_imported",
+                "metadata": {"title": "Book A", "author": "Author A"},
+                "public_share_status": "public_share_ready",
+                "public_share_whatsapp_delivery_status": "sent",
+                "playback_acceptance": {"status": "rejected", "source": "whatsapp_button_recovered"},
+                "render": {"voice_selection": {"selected": {"label": "Remy"}}},
+                "whatsapp": {"source": "whatsapp_web_session", "sender_bound": True, "session_bound": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+    skip_dir = tmp_path / "job-skip"
+    skip_dir.mkdir()
+    (skip_dir / "job_receipt.json").write_text(
+        json.dumps(
+            {
+                "job_id": "job-skip",
+                "status": "audiobookshelf_imported",
+                "metadata": {"title": "Book B", "author": "Author B"},
+                "playback_acceptance": {"status": "accepted", "source": "telegram_button"},
+                "telegram": {"chat_bound": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rows = module._audiobook_job_rows_from_receipts(str(tmp_path))
+
+    assert [row["job_id"] for row in rows] == ["job-keep"]
+    assert rows[0]["selected_voice_label"] == "Remy"
+
+
+def test_audiobook_job_row_from_receipt_reads_nested_import_projection_fields() -> None:
+    module = _module()
+
+    row = module._audiobook_job_row_from_receipt(
+        {
+            "job_id": "job-nested",
+            "status": "audiobookshelf_imported",
+            "metadata": {"title": "Book A", "author": "Author A"},
+            "playback_acceptance": {"status": "rejected", "source": "whatsapp_button"},
+            "audiobookshelf_import": {
+                "public_share_status": "public_share_ready",
+                "public_share_whatsapp_delivery_status": "sent",
+                "public_share_whatsapp_followup_pending": False,
+            },
+            "whatsapp": {"source": "whatsapp_web_session", "sender_bound": True, "session_bound": True},
+        }
+    )
+
+    assert row["public_share_status"] == "public_share_ready"
+    assert row["public_share_whatsapp_delivery_status"] == "sent"
+    assert row["public_share_whatsapp_followup_pending"] is False
+
+
+def test_cleanup_projectionless_audiobook_rows_deletes_empty_records(monkeypatch) -> None:
+    module = _module()
+    deleted: list[str] = []
+
+    monkeypatch.setattr(
+        module,
+        "_list_records",
+        lambda **_: [
+            {"id": "rec-empty-1", "fields": {}},
+            {"id": "rec-empty-2", "fields": {"projection_id": "", "job_id": ""}},
+            {"id": "rec-keep", "fields": {"projection_id": "job-1", "job_id": "job-1"}},
+        ],
+    )
+
+    def _fake_teable_request(**kwargs):
+        deleted.append(kwargs["path"])
+        return {}
+
+    monkeypatch.setattr(module, "_teable_request", _fake_teable_request)
+
+    result = module._cleanup_projectionless_audiobook_rows(
+        base_url="https://app.teable.ai",
+        api_key="token",
+        audiobook_table_id="tbl-audiobooks",
+    )
+
+    assert result == {"deleted": 2, "failed": 0, "total": 2}
+    assert deleted == [
+        "/api/table/tbl-audiobooks/record/rec-empty-1",
+        "/api/table/tbl-audiobooks/record/rec-empty-2",
+    ]
+
+
+def test_cleanup_stale_audiobook_rows_deletes_rows_missing_from_current_receipts(monkeypatch) -> None:
+    module = _module()
+    deleted: list[str] = []
+
+    monkeypatch.setattr(
+        module,
+        "_list_records",
+        lambda **_: [
+            {"id": "rec-keep", "fields": {"projection_id": "job-keep", "job_id": "job-keep"}},
+            {"id": "rec-drop", "fields": {"projection_id": "job-drop", "job_id": "job-drop"}},
+        ],
+    )
+    monkeypatch.setattr(
+        module,
+        "_teable_request",
+        lambda **kwargs: deleted.append(kwargs["path"]) or {},
+    )
+
+    result = module._cleanup_stale_audiobook_rows(
+        base_url="https://app.teable.ai",
+        api_key="token",
+        audiobook_table_id="tbl-audiobooks",
+        current_projection_ids={"job-keep"},
+    )
+
+    assert result == {"deleted": 1, "failed": 0, "total": 1}
+    assert deleted == ["/api/table/tbl-audiobooks/record/rec-drop"]
+
+
+def test_audiobook_jobs_root_accessible_requires_real_directory(tmp_path: Path) -> None:
+    module = _module()
+
+    assert module._audiobook_jobs_root_accessible(str(tmp_path)) is True
+    assert module._audiobook_jobs_root_accessible(str(tmp_path / "missing")) is False
+    assert module._audiobook_jobs_root_accessible("") is False
+
+
+def test_cleanup_rows_missing_key_ignores_nonempty_rows_without_key(monkeypatch) -> None:
+    module = _module()
+    deleted: list[str] = []
+
+    monkeypatch.setattr(
+        module,
+        "_list_records",
+        lambda **_: [
+            {"id": "rec-empty", "fields": {}},
+            {"id": "rec-keep-nonempty", "fields": {"route_key": "", "heyy_ai_name": "Herta (Heyy Lady)"}},
+            {"id": "rec-keep-valid", "fields": {"route_key": "default"}},
+        ],
+    )
+    monkeypatch.setattr(
+        module,
+        "_teable_request",
+        lambda **kwargs: deleted.append(kwargs["path"]) or {},
+    )
+
+    result = module._cleanup_rows_missing_key(
+        base_url="https://app.teable.ai",
+        api_key="token",
+        table_id="tbl-routes",
+        key_field="route_key",
+        projection=["route_key", "heyy_ai_name"],
+    )
+
+    assert result == {"deleted": 1, "failed": 0, "total": 1}
+    assert deleted == ["/api/table/tbl-routes/record/rec-empty"]
+
+
+def test_cleanup_rows_missing_key_tolerates_delete_unsupported(monkeypatch) -> None:
+    module = _module()
+
+    monkeypatch.setattr(
+        module,
+        "_list_records",
+        lambda **_: [
+            {"id": "rec-empty", "fields": {}},
+        ],
+    )
+
+    def _fake_teable_request(**_kwargs):
+        raise SystemExit("http_error:501:Unsupported method ('DELETE')")
+
+    monkeypatch.setattr(module, "_teable_request", _fake_teable_request)
+
+    result = module._cleanup_rows_missing_key(
+        base_url="https://app.teable.ai",
+        api_key="token",
+        table_id="tbl-routes",
+        key_field="route_key",
+        projection=["route_key"],
+    )
+
+    assert result == {"deleted": 0, "failed": 1, "total": 1}
+
+
+def test_cleanup_stale_route_rows_deletes_disabled_and_other_session_rows(monkeypatch) -> None:
+    module = _module()
+    deleted: list[str] = []
+
+    monkeypatch.setattr(
+        module,
+        "_list_records",
+        lambda **_: [
+            {"id": "rec-disabled", "fields": {"route_key": "disabled_reachability_abc123"}},
+            {"id": "rec-other-session", "fields": {"route_key": "inbound_old", "session_ref": "default-wa-web"}},
+            {"id": "rec-keep", "fields": {"route_key": "default", "session_ref": "tibor-wa-web"}},
+        ],
+    )
+    monkeypatch.setattr(
+        module,
+        "_teable_request",
+        lambda **kwargs: deleted.append(kwargs["path"]) or {},
+    )
+
+    result = module._cleanup_stale_route_rows(
+        base_url="https://app.teable.ai",
+        api_key="token",
+        route_table_id="tbl-routes",
+        session_ref="tibor-wa-web",
+    )
+
+    assert result == {"deleted": 2, "failed": 0, "total": 2}
+    assert deleted == [
+        "/api/table/tbl-routes/record/rec-disabled",
+        "/api/table/tbl-routes/record/rec-other-session",
+    ]
+
+
 def test_message_batches_from_sidecar_syncs_all_conversation_pages(monkeypatch) -> None:
     module = _module()
     requested_paths: list[str] = []
@@ -712,6 +1175,61 @@ def test_message_batches_from_sidecar_syncs_all_conversation_pages(monkeypatch) 
         "persisted_message_count": 3,
         "skipped_synthetic_notification_count": 0,
     }
+
+
+def test_message_batches_from_sidecar_caps_conversation_take_from_message_row_budget(monkeypatch) -> None:
+    module = _module()
+    requested_paths: list[str] = []
+
+    def _fake_session_get(_args, path: str):
+        requested_paths.append(path)
+        return {
+            "conversation_count": 2,
+            "conversation_page_complete": False,
+            "conversation_skip": 0,
+            "conversation_total": 20,
+            "next_conversation_skip": 2,
+            "conversations": [
+                {
+                    "chat_ref": "chat-1",
+                    "chat_id_kind": "c.us",
+                    "messages": [{"id": "wamid.1", "direction": "inbound"}],
+                },
+                {
+                    "chat_ref": "chat-2",
+                    "chat_id_kind": "c.us",
+                    "messages": [{"id": "wamid.2", "direction": "inbound"}],
+                },
+            ],
+        }
+
+    monkeypatch.setattr(module, "_session_get", _fake_session_get)
+
+    args = type(
+        "Args",
+        (),
+        {
+            "conversation_take": 5,
+            "conversation_skip": None,
+            "conversation_fetch_concurrency": 3,
+            "conversation_fetch_timeout_ms": 12000,
+            "conversation_max_pages": 1,
+            "conversation_page_state_file": "",
+            "disable_conversation_page_state": False,
+            "max_message_rows_per_run": 250,
+            "message_limit": 100,
+            "session_ref": "principal-wa-web",
+            "sync_all_conversations": True,
+        },
+    )()
+
+    rows, payload = module._message_batches_from_sidecar(args)
+
+    assert requested_paths == ["conversations?take=2&skip=0&messages=100&fetch_timeout_ms=12000&fetch_concurrency=3"]
+    assert [row["message_id"] for row in rows] == ["wamid.1", "wamid.2"]
+    assert payload["effective_conversation_take"] == 2
+    assert payload["max_message_rows_per_run"] == 250
+    assert payload["next_conversation_skip"] == 2
 
 
 def test_load_env_file_ignores_unreadable_env_file(monkeypatch, tmp_path: Path) -> None:
@@ -902,6 +1420,40 @@ def test_conversation_page_state_advances_after_message_upsert(tmp_path: Path) -
     assert '"conversation_skip": 10' in loaded
     assert '"next_conversation_skip": 15' in loaded
     assert '"total": 3' in loaded
+
+
+def test_conversation_page_state_ignores_unwritable_state_file(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    state_file = tmp_path / "state.json"
+    args = type(
+        "Args",
+        (),
+        {
+            "conversation_page_state_file": str(state_file),
+            "disable_conversation_page_state": False,
+            "session_ref": "principal-wa-web",
+        },
+    )()
+
+    def _boom(*_args, **_kwargs):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(Path, "write_text", _boom)
+
+    state = module._update_conversation_page_state(
+        args=args,
+        payload={
+            "conversation_count": 5,
+            "conversation_page_complete": False,
+            "conversation_skip": 10,
+            "conversation_total": 42,
+            "next_conversation_skip": 15,
+        },
+        message_upsert={"created": 1, "updated": 2, "total": 3},
+    )
+
+    assert state["next_conversation_skip"] == 15
+    assert state_file.exists() is False
 
 
 def test_conversation_page_state_records_completed_full_scan(tmp_path: Path) -> None:
@@ -1543,6 +2095,53 @@ def test_apply_routes_to_sidecar_skips_noop_when_stored_hash_matches_redacted_pu
     }
 
 
+def test_apply_routes_to_sidecar_ignores_unwritable_route_state_file(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    state_file = tmp_path / "sync-state.json"
+    args = type(
+        "Args",
+        (),
+        {
+            "session_ref": "principal-wa-web",
+            "preserve_sidecar_live_routes": False,
+            "conversation_page_state_file": str(state_file),
+        },
+    )()
+    target_route = {
+        "route_key": "default",
+        "inbound_number_digits": "*",
+        "ai_key": "empathetic_slow_typing_old_lady",
+        "ai_name": "Herta (Heyy Lady)",
+        "behavior_prompt": "prompt",
+        "memory_notes": "memory",
+        "pacing_hint": "slow",
+        "minimum_delay_seconds": 60,
+        "pre_reply_delay_min_seconds": 60,
+        "pre_reply_delay_max_seconds": 900,
+        "quiet_hours_start_hour": 21,
+        "quiet_hours_end_hour": 6,
+        "typing_delay_ms": 6500,
+        "typing_delay_ms_per_character": 4000,
+        "typing_status_enabled": True,
+        "auto_reply_enabled": True,
+        "reply_text": "Na geh...",
+        "enabled": True,
+        "session_ref": "principal-wa-web",
+    }
+
+    monkeypatch.setattr(module, "_session_get", lambda _args, suffix: {"routes": []} if suffix == "heyy-ai-routes" else {})
+    monkeypatch.setattr(module, "_session_put", lambda _args, suffix, body: {"ok": True, "routes": list(body.get("routes") or [])})
+
+    def _boom(*_args, **_kwargs):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(Path, "write_text", _boom)
+
+    result = module._apply_routes_to_sidecar(args, [target_route])
+
+    assert result["ok"] is True
+
+
 def test_main_projects_preserved_live_routes_into_teable_receipt(monkeypatch, capsys) -> None:
     module = _module()
     sidecar_live_route = {
@@ -1567,6 +2166,12 @@ def test_main_projects_preserved_live_routes_into_teable_receipt(monkeypatch, ca
         "session_ref": "principal-wa-web",
         "updated_at": "2026-06-23T12:00:00Z",
         "notes": "Preserved live sidecar route.",
+    }
+    default_sidecar_route = {
+        "route_key": "default",
+        "inbound_number_digits": "",
+        "ai_key": "empathetic_slow_typing_old_lady",
+        "ai_name": "Herta (Heyy Lady)",
     }
     upsert_calls: list[list[dict[str, object]]] = []
 
@@ -1595,14 +2200,19 @@ def test_main_projects_preserved_live_routes_into_teable_receipt(monkeypatch, ca
             route_seeds_json="",
             route_seeds_file="",
             route_import_sources_json="",
-            route_import_sources_file="",
-            preserve_sidecar_live_routes=True,
-        ),
-    )
+                route_import_sources_file="",
+                preserve_sidecar_live_routes=True,
+                skip_audiobook_jobs=True,
+            ),
+        )
     monkeypatch.setattr(module, "_ensure_table", lambda **_: ("tbl-routes", False))
     monkeypatch.setattr(module, "_ensure_fields", lambda **_: 0)
     monkeypatch.setattr(module, "_cleanup_reachability_only_route_rows", lambda **_: {"disabled": 0, "failed": 0, "total": 0})
-    monkeypatch.setattr(module, "_session_get", lambda _args, suffix: {"routes": [dict(sidecar_live_route)]} if suffix == "heyy-ai-routes" else {})
+    monkeypatch.setattr(
+        module,
+        "_session_get",
+        lambda _args, suffix: {"routes": [dict(default_sidecar_route), dict(sidecar_live_route)]} if suffix == "heyy-ai-routes" else {},
+    )
     monkeypatch.setattr(module, "_route_seed_rows", lambda **_: [])
     monkeypatch.setattr(module, "_route_import_source_rows", lambda **_: [])
     monkeypatch.setattr(module, "_route_reachability_rows_from_sidecar", lambda _args, _routes: [])
@@ -1630,6 +2240,8 @@ def test_main_projects_preserved_live_routes_into_teable_receipt(monkeypatch, ca
                 },
         ],
     )
+    monkeypatch.setattr(module, "_cleanup_route_rows", lambda **_: {"deleted": 0, "failed": 0, "total": 0})
+    monkeypatch.setattr(module, "_cleanup_stale_route_rows", lambda **_: {"deleted": 0, "failed": 0, "total": 0})
     monkeypatch.setattr(module, "_apply_routes_to_sidecar", lambda _args, routes, sidecar_live_rows=None, current_session_routes=None: {"ok": True})
 
     assert module.main() == 0
@@ -1639,6 +2251,7 @@ def test_main_projects_preserved_live_routes_into_teable_receipt(monkeypatch, ca
     assert payload["route_count"] == 2
     assert payload["route_apply_ok"] is True
     assert payload["route_apply_count"] == 2
+    assert payload["current_sidecar_route_count"] == 2
     assert payload["sidecar_live_route_count"] == 1
     assert payload["route_rows_to_upsert_count"] == 2
     assert payload["preserved_live_route_count"] == 1
@@ -1695,12 +2308,17 @@ def test_main_returns_waiting_when_session_api_is_temporarily_unavailable(monkey
         ),
     )
     monkeypatch.setattr(module, "_ensure_fields", lambda **_: 0)
+    monkeypatch.setattr(module, "_cleanup_persona_rows", lambda **_: {"deleted": 0, "failed": 0, "total": 0})
     monkeypatch.setattr(module, "_persona_rows", lambda _session_ref: [{"persona_key": "executive_assistant"}])
     monkeypatch.setattr(
         module,
         "_upsert_rows",
         lambda **kwargs: {"created": 0, "updated": 0, "total": len(kwargs["rows"])},
     )
+    monkeypatch.setattr(module, "_cleanup_projectionless_rows", lambda **_: {"deleted": 0, "failed": 0, "total": 0})
+    monkeypatch.setattr(module, "_cleanup_route_rows", lambda **_: {"deleted": 0, "failed": 0, "total": 0})
+    monkeypatch.setattr(module, "_cleanup_stale_route_rows", lambda **_: {"deleted": 0, "failed": 0, "total": 0})
+    monkeypatch.setattr(module, "_route_rows_from_teable", lambda **_: [])
     monkeypatch.setattr(module, "_cleanup_reachability_only_route_rows", lambda **_: {"disabled": 0, "failed": 0, "total": 0})
 
     def _raise_unavailable(_args, _suffix: str):
@@ -1720,7 +2338,320 @@ def test_main_returns_waiting_when_session_api_is_temporarily_unavailable(monkey
     assert payload["persona_table_id"] == "tbl-personas"
     assert payload["route_table_id"] == "tbl-routes"
     assert payload["message_table_id"] == ""
+    assert payload["audiobook_table_id"] == ""
     assert payload["session_api_operation"] == "session_api_request"
+
+
+def test_main_syncs_audiobook_job_rows_to_teable(monkeypatch, capsys, tmp_path: Path) -> None:
+    module = _module()
+
+    job_dir = tmp_path / "epub-audiobook-20260622T060701Z-3a098b50"
+    job_dir.mkdir()
+    (job_dir / "job_receipt.json").write_text(
+        json.dumps(
+            {
+                "job_id": "epub-audiobook-20260622T060701Z-3a098b50",
+                "job_dir_name": "epub-audiobook-20260622T060701Z-3a098b50",
+                "status": "audiobookshelf_imported",
+                "next_action": "review_audiobook_playback_problem",
+                "updated_at": "2026-06-23T09:32:30.860697Z",
+                "observed_at": "2026-06-23T10:55:38.769360Z",
+                "metadata": {"title": "Sei nicht so hart zu dir selbst", "author": "Knuf, Andreas"},
+                "source": {"kind": "epub", "source_filename": "book.epub"},
+                "public_share_status": "public_share_ready",
+                "public_share_whatsapp_delivery_status": "sent",
+                "public_share_whatsapp_followup_pending": False,
+                "playback_acceptance": {"status": "rejected", "source": "whatsapp_button_recovered"},
+                "render": {"voice_selection": {"status": "selected_by_user", "selected": {"label": "Remy"}}},
+                "scheduler_resume": {"next_action": "review_audiobook_playback_problem"},
+                "whatsapp": {"source": "whatsapp_web_session", "sender_bound": True, "session_bound": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    captured_upserts: list[tuple[str, list[dict[str, object]]]] = []
+
+    monkeypatch.setattr(
+        module,
+        "parse_args",
+        lambda: SimpleNamespace(
+            api_key="token",
+            base_url="http://teable.test",
+            base_id="base-1",
+            skip_personas=True,
+            skip_routes=True,
+            skip_messages=True,
+            skip_audiobook_jobs=False,
+            route_table_id="",
+            route_table_name="ea_whatsapp_heyy_ai_routes",
+            persona_table_id="",
+            persona_table_name="ea_heyy_ai_personas",
+            message_table_id="",
+            message_table_name="ea_whatsapp_session_messages",
+            audiobook_table_id="tbl-audiobooks",
+            audiobook_table_name="ea_whatsapp_audiobook_jobs",
+            audiobook_jobs_root=str(tmp_path),
+            create_missing_tables=False,
+            session_ref="principal-wa-web",
+            refresh_default_route=True,
+            map_inbound_number_digits="",
+            map_heyy_ai_key="executive_assistant",
+            map_heyy_ai_name="",
+            route_seeds_json="",
+            route_seeds_file="",
+            route_import_sources_json="",
+            route_import_sources_file="",
+        preserve_sidecar_live_routes=True,
+        tolerate_session_api_unavailable=True,
+    ),
+)
+    monkeypatch.setattr(module, "_ensure_table", lambda **kwargs: (kwargs["table_id"], False))
+    monkeypatch.setattr(module, "_ensure_fields", lambda **_: 0)
+    monkeypatch.setattr(module, "_cleanup_persona_rows", lambda **_: {"deleted": 1, "failed": 0, "total": 1})
+    monkeypatch.setattr(module, "_cleanup_route_rows", lambda **_: {"deleted": 2, "failed": 0, "total": 2})
+    monkeypatch.setattr(module, "_cleanup_stale_route_rows", lambda **_: {"deleted": 4, "failed": 0, "total": 4})
+    monkeypatch.setattr(module, "_cleanup_projectionless_rows", lambda **_: {"deleted": 3, "failed": 0, "total": 3})
+    monkeypatch.setattr(module, "_cleanup_projectionless_audiobook_rows", lambda **_: {"deleted": 2, "failed": 0, "total": 2})
+    monkeypatch.setattr(
+        module,
+        "_cleanup_stale_audiobook_rows",
+        lambda **_: {"deleted": 2, "failed": 0, "total": 2},
+    )
+
+    def _fake_upsert_rows(**kwargs):
+        captured_upserts.append((kwargs["table_id"], list(kwargs["rows"])))
+        return {"created": len(kwargs["rows"]), "updated": 0, "total": len(kwargs["rows"])}
+
+    monkeypatch.setattr(module, "_upsert_rows", _fake_upsert_rows)
+
+    assert module.main() == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "pass"
+    assert payload["audiobook_table_id"] == "tbl-audiobooks"
+    assert payload["created_audiobook_table"] is False
+    assert payload["audiobook_fields_created"] == 0
+    assert payload["audiobook_job_count"] == 1
+    assert payload["persona_cleanup"] == {"deleted": 0, "failed": 0, "total": 0}
+    assert payload["route_projection_cleanup"] == {"deleted": 0, "failed": 0, "total": 0}
+    assert payload["route_stale_cleanup"] == {"deleted": 0, "failed": 0, "total": 0}
+    assert payload["message_cleanup"] == {"deleted": 0, "failed": 0, "total": 0}
+    assert payload["audiobook_cleanup"] == {"deleted": 4, "failed": 0, "total": 4}
+    assert payload["audiobook_upsert"] == {"created": 1, "updated": 0, "total": 1}
+    assert captured_upserts == [
+        (
+            "tbl-audiobooks",
+            [
+                {
+                    "projection_id": "epub-audiobook-20260622T060701Z-3a098b50",
+                    "job_id": "epub-audiobook-20260622T060701Z-3a098b50",
+                    "job_dir_name": "epub-audiobook-20260622T060701Z-3a098b50",
+                    "job_status": "audiobookshelf_imported",
+                    "next_action": "review_audiobook_playback_problem",
+                    "updated_at": "2026-06-23T09:32:30.860697Z",
+                    "observed_at": "2026-06-23T10:55:38.769360Z",
+                    "title": "Sei nicht so hart zu dir selbst",
+                    "author": "Knuf, Andreas",
+                    "source_kind": "epub",
+                    "source_filename": "book.epub",
+                    "public_share_status": "public_share_ready",
+                    "public_share_whatsapp_delivery_status": "sent",
+                    "public_share_whatsapp_followup_pending": False,
+                    "playback_status": "rejected",
+                    "playback_source": "whatsapp_button_recovered",
+                    "selected_voice_label": "Remy",
+                    "selected_voice_language": "",
+                    "voice_selection_status": "selected_by_user",
+                    "voice_selected_at": "",
+                    "sender_bound": True,
+                    "session_bound": True,
+                    "operator_review_pending": True,
+                    "scheduler_next_action": "review_audiobook_playback_problem",
+                    "whatsapp_source": "whatsapp_web_session",
+                    "synced_at": captured_upserts[0][1][0]["synced_at"],
+                }
+            ],
+        )
+    ]
+
+
+def test_main_returns_waiting_when_teable_api_is_temporarily_unavailable(monkeypatch, capsys) -> None:
+    module = _module()
+
+    monkeypatch.setattr(
+        module,
+        "parse_args",
+        lambda: SimpleNamespace(
+            api_key="token",
+            base_url="http://teable.test",
+            base_id="base-1",
+            skip_personas=True,
+            skip_routes=False,
+            skip_messages=True,
+            route_table_id="",
+            route_table_name="ea_whatsapp_heyy_ai_routes",
+            persona_table_id="tbl-personas",
+            persona_table_name="ea_heyy_ai_personas",
+            message_table_id="",
+            message_table_name="ea_whatsapp_session_messages",
+            audiobook_table_id="",
+            audiobook_table_name="ea_whatsapp_audiobook_jobs",
+            audiobook_jobs_root="",
+            create_missing_tables=False,
+            session_ref="principal-wa-web",
+            refresh_default_route=True,
+            map_inbound_number_digits="",
+            map_heyy_ai_key="executive_assistant",
+            map_heyy_ai_name="",
+            route_seeds_json="",
+            route_seeds_file="",
+            route_import_sources_json="",
+            route_import_sources_file="",
+            preserve_sidecar_live_routes=True,
+            skip_audiobook_jobs=True,
+            tolerate_session_api_unavailable=True,
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "_ensure_table",
+        lambda **kwargs: (
+            kwargs["table_id"] or "tbl-routes",
+            False,
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "_teable_request",
+        lambda **kwargs: (_raise_teable_api_unavailable()),
+    )
+    monkeypatch.setattr(module, "_upsert_rows", lambda **kwargs: {"created": 0, "updated": 0, "total": 0})
+
+    def _raise_teable_api_unavailable() -> dict:
+        raise SystemExit("http_request_failed:URLError:<urlopen error [Errno -2] Name or service not known>")
+
+    assert module.main() == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "waiting"
+    assert payload["reason"] == "teable_api_unavailable"
+    assert payload["session_api_operation"] == "teable_api_request"
+
+
+def test_main_deletes_stale_audiobook_rows_when_jobs_root_is_accessible(monkeypatch, capsys, tmp_path: Path) -> None:
+    module = _module()
+    deleted_projection_sets: list[set[str]] = []
+
+    monkeypatch.setattr(
+        module,
+        "parse_args",
+        lambda: SimpleNamespace(
+            api_key="token",
+            base_url="http://teable.test",
+            base_id="base-1",
+            skip_personas=True,
+            skip_routes=True,
+            skip_messages=True,
+            skip_audiobook_jobs=False,
+            route_table_id="",
+            route_table_name="ea_whatsapp_heyy_ai_routes",
+            persona_table_id="",
+            persona_table_name="ea_heyy_ai_personas",
+            message_table_id="",
+            message_table_name="ea_whatsapp_session_messages",
+            audiobook_table_id="tbl-audiobooks",
+            audiobook_table_name="ea_whatsapp_audiobook_jobs",
+            audiobook_jobs_root=str(tmp_path),
+            create_missing_tables=False,
+            session_ref="principal-wa-web",
+            refresh_default_route=True,
+            map_inbound_number_digits="",
+            map_heyy_ai_key="executive_assistant",
+            map_heyy_ai_name="",
+            route_seeds_json="",
+            route_seeds_file="",
+            route_import_sources_json="",
+            route_import_sources_file="",
+            preserve_sidecar_live_routes=True,
+            tolerate_session_api_unavailable=True,
+        ),
+    )
+    monkeypatch.setattr(module, "_ensure_table", lambda **kwargs: (kwargs["table_id"], False))
+    monkeypatch.setattr(module, "_ensure_fields", lambda **_: 0)
+    monkeypatch.setattr(module, "_cleanup_projectionless_audiobook_rows", lambda **_: {"deleted": 0, "failed": 0, "total": 0})
+    monkeypatch.setattr(
+        module,
+        "_cleanup_stale_audiobook_rows",
+        lambda **kwargs: deleted_projection_sets.append(set(kwargs["current_projection_ids"])) or {"deleted": 2, "failed": 0, "total": 2},
+    )
+    monkeypatch.setattr(module, "_upsert_rows", lambda **_: {"created": 0, "updated": 0, "total": 0})
+
+    assert module.main() == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "pass"
+    assert payload["audiobook_job_count"] == 0
+    assert payload["audiobook_cleanup"] == {"deleted": 2, "failed": 0, "total": 2}
+    assert deleted_projection_sets == [set()]
+
+
+def test_main_skips_stale_audiobook_cleanup_when_jobs_root_is_inaccessible(monkeypatch, capsys, tmp_path: Path) -> None:
+    module = _module()
+    stale_cleanup_calls: list[dict[str, object]] = []
+
+    missing_root = tmp_path / "missing-jobs"
+    monkeypatch.setattr(
+        module,
+        "parse_args",
+        lambda: SimpleNamespace(
+            api_key="token",
+            base_url="http://teable.test",
+            base_id="base-1",
+            skip_personas=True,
+            skip_routes=True,
+            skip_messages=True,
+            skip_audiobook_jobs=False,
+            route_table_id="",
+            route_table_name="ea_whatsapp_heyy_ai_routes",
+            persona_table_id="",
+            persona_table_name="ea_heyy_ai_personas",
+            message_table_id="",
+            message_table_name="ea_whatsapp_session_messages",
+            audiobook_table_id="tbl-audiobooks",
+            audiobook_table_name="ea_whatsapp_audiobook_jobs",
+            audiobook_jobs_root=str(missing_root),
+            create_missing_tables=False,
+            session_ref="principal-wa-web",
+            refresh_default_route=True,
+            map_inbound_number_digits="",
+            map_heyy_ai_key="executive_assistant",
+            map_heyy_ai_name="",
+            route_seeds_json="",
+            route_seeds_file="",
+            route_import_sources_json="",
+            route_import_sources_file="",
+            preserve_sidecar_live_routes=True,
+            tolerate_session_api_unavailable=True,
+        ),
+    )
+    monkeypatch.setattr(module, "_ensure_table", lambda **kwargs: (kwargs["table_id"], False))
+    monkeypatch.setattr(module, "_ensure_fields", lambda **_: 0)
+    monkeypatch.setattr(module, "_cleanup_projectionless_audiobook_rows", lambda **_: {"deleted": 1, "failed": 0, "total": 1})
+    monkeypatch.setattr(
+        module,
+        "_cleanup_stale_audiobook_rows",
+        lambda **kwargs: stale_cleanup_calls.append(kwargs) or {"deleted": 99, "failed": 0, "total": 99},
+    )
+    monkeypatch.setattr(module, "_upsert_rows", lambda **_: {"created": 0, "updated": 0, "total": 0})
+
+    assert module.main() == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "pass"
+    assert payload["audiobook_job_count"] == 0
+    assert payload["audiobook_cleanup"] == {"deleted": 1, "failed": 0, "total": 1}
+    assert stale_cleanup_calls == []
 
 
 def test_ensure_table_discovers_existing_table_from_supplied_base(monkeypatch) -> None:

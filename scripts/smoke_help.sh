@@ -35,6 +35,7 @@ SCRIPTS=(
   scripts/test_postgres_contracts.sh
   scripts/hard_exit_gates.sh
   scripts/runtime_hard_exit_gates.sh
+  scripts/verify_codexea_fleet_shim_parity.py
   scripts/verify_ltd_critical_entries.py
   scripts/verify_ltd_flagship_subset.py
   scripts/verify_ltd_provider_lanes.py
@@ -48,6 +49,12 @@ SCRIPTS=(
   ea/scripts/verify_whatsapp_audiobook_public_share_playback.py
   scripts/list_endpoints.sh
   scripts/version_info.sh
+  scripts/materialize_deploy_context.py
+  scripts/materialize_release_manifest.py
+  scripts/verify_memorial_deploy_readiness.py
+  scripts/verify_deploy_context.py
+  scripts/release_authority_probe.sh
+  scripts/verify_release_authority_runtime.py
   scripts/export_openapi.sh
   scripts/diff_openapi.sh
   scripts/prune_openapi.sh
@@ -74,5 +81,12 @@ for s in "${SCRIPTS[@]}"; do
     exit 21
   fi
 done
+
+echo "== help smoke: scripts/verify_release_authority_runtime.py --require-authoritative =="
+out="$(PYTHONPATH="${EA_ROOT}/ea:${EA_ROOT}:${PYTHONPATH:-}" "${PYTHON_BIN}" "${EA_ROOT}/scripts/verify_release_authority_runtime.py" --help)"
+if [[ "${out}" != *"Usage:"* ]]; then
+  echo "missing Usage header in scripts/verify_release_authority_runtime.py --help output" >&2
+  exit 21
+fi
 
 echo "help smoke complete"

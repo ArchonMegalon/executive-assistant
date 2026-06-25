@@ -1,0 +1,26 @@
+{
+  "branch": "main",
+  "commit_sha": "3baf9da91e753fbf06f521452b9df15b9d609c48",
+  "compose_files": [
+    "docker-compose.yml",
+    "docker-compose.prod.yml"
+  ],
+  "compose_overrides": [
+    "docker-compose.memorial.yml"
+  ],
+  "contract_name": "ea.deploy_context.v1",
+  "deployment_id": "local-20260625T093456874493Z-3baf9da91e75",
+  "deployment_id_source": "local_fallback",
+  "enabled_project_modes": [
+    "EA_CORE",
+    "MEMORIAL"
+  ],
+  "generated_at": "2026-06-25T09:34:56.874493Z",
+  "generated_by": "scripts/materialize_deploy_context.py",
+  "project_mode": "MEMORIAL",
+  "public_origin": "https://myexternalbrain.com",
+  "public_origin_source": "EA_PUBLIC_APP_BASE_URL",
+  "release_label": "local-20260625T093456874493Z-3baf9da91e75",
+  "repository": "EA",
+  "tracking_branch": "origin/main"
+}

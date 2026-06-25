@@ -64,6 +64,22 @@ def test_base_compose_applies_core_runtime_privilege_limits() -> None:
         assert set(str(item) for item in list(service.get("tmpfs") or [])) == {"/tmp", "/run"}, service_name
 
 
+def test_base_compose_loads_optional_local_env_for_provider_runtime_only() -> None:
+    compose = _load_yaml(ROOT / "docker-compose.yml")
+    services = compose.get("services") or {}
+
+    for service_name in ("ea-api", "ea-worker", "ea-scheduler", "ea-responses-proxy"):
+        service = services.get(service_name) or {}
+        env_files = list(service.get("env_file") or [])
+        assert ".env" in env_files, service_name
+        assert {"path": ".env.local", "required": False} in env_files, service_name
+
+    for service_name in ("ea-teable-relay", "ea-proactive-ooda", "ea-telegram-teable-sync", "ea-db"):
+        service = services.get(service_name) or {}
+        env_files = list(service.get("env_file") or [])
+        assert {"path": ".env.local", "required": False} not in env_files, service_name
+
+
 def test_base_compose_applies_auxiliary_runtime_privilege_limits() -> None:
     compose = _load_yaml(ROOT / "docker-compose.yml")
     services = compose.get("services") or {}

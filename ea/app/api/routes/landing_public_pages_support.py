@@ -318,6 +318,83 @@ def security_page(
     )
 
 
+def data_deletion_page(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+) -> HTMLResponse:
+    principal_id, status = _load_status(request=request, container=container, access_identity=access_identity)
+    brand = request_brand(request)
+    is_ea = brand["key"] == "ea"
+    contact_email = "support@example.test" if is_ea else "property@propertyquarry.com"
+    return _render_public_template(
+        request,
+        "data_deletion_page.html",
+        indexable=True,
+        **_public_context(
+            request=request,
+            current_nav="security",
+            page_title=f"{brand['name']} Data deletion",
+            principal_id=principal_id,
+            status=status,
+            access_identity=access_identity,
+            extra={
+                "deletion_contact_email": contact_email,
+                "deletion_mailto_subject": "Data deletion request",
+                "deletion_request_items": (
+                    "The workspace name or account email used during onboarding.",
+                    "Which channels, imports, or linked services should be removed together.",
+                    "Any deadline or legal context that changes the deletion timeline.",
+                ),
+                "deletion_steps": (
+                    {
+                        "title": "Identity check",
+                        "body": (
+                            "The request is matched to the right workspace and contact path before anything is deleted."
+                        ),
+                    },
+                    {
+                        "title": "Scope review",
+                        "body": (
+                            "The linked channels, saved state, and delivery artifacts are reviewed so the deletion covers the intended footprint."
+                        ),
+                    },
+                    {
+                        "title": "Deletion confirmation",
+                        "body": (
+                            "A confirmation is sent back once the requested workspace scope has been removed or if any item needs a follow-up clarification."
+                        ),
+                    },
+                ),
+                "deletion_notes": (
+                    {
+                        "title": "Keep the request specific",
+                        "body": (
+                            "A precise request is easier to execute safely than a generic \"delete everything\" message spread across multiple accounts."
+                        ),
+                    },
+                    {
+                        "title": "Exports may have separate custody",
+                        "body": (
+                            "If data was exported or delivered into another system, the request should name that destination too so it can be handled explicitly."
+                        ),
+                    },
+                ),
+                **_public_page_context(
+                    request=request,
+                    page_title=f"{brand['name']} Data deletion",
+                    page_description=(
+                        "Request deletion of your Executive Assistant workspace and linked channel data."
+                        if is_ea
+                        else "Request deletion of your PropertyQuarry workspace, shortlist, and linked search data."
+                    ),
+                    path="/data-deletion",
+                ),
+            },
+        ),
+    )
+
+
 def pricing_page(
     request: Request,
     container: AppContainer = Depends(get_container),

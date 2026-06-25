@@ -641,6 +641,7 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
     analytics_counts = dict(diagnostics_analytics.get("counts") or {})
     diagnostics_channels = list(diagnostics.get("selected_channels") or [])
     release_authority = product.release_authority_summary()
+    runtime_supply_chain = product.runtime_supply_chain_summary()
     diagnostics_journey_gate = dict(diagnostics_product_control.get("journey_gate_health") or {})
     diagnostics_public_guide = dict(diagnostics_product_control.get("public_guide_freshness") or {})
     diagnostics_support_fallout = dict(diagnostics_product_control.get("support_fallout") or {})
@@ -727,10 +728,23 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
         _row("Release label", str(release_authority.get("release_label") or "Not recorded"), "Release"),
         _row("Deployment ID", str(release_authority.get("deployment_id") or "Not recorded"), "Release"),
         _row("Deployment source", str(release_authority.get("deployment_id_source") or "Not recorded").replace("_", " "), "Release"),
+        _row("Deploy context at", str(release_authority.get("deploy_context_generated_at") or "Not recorded"), "Release"),
+        _row(
+            "Deploy context ref",
+            (
+                f"{str(release_authority.get('deploy_context_branch') or '').strip()}@"
+                f"{str(release_authority.get('deploy_context_tracking_branch') or '').strip()}"
+            ).strip("@")
+            or "Not recorded",
+            "Release",
+        ),
+        _row("Deploy context commit", str(release_authority.get("deploy_context_commit_sha") or "Not recorded")[:12] or "Not recorded", "Release"),
         _row("Release branch", str(release_authority.get("branch") or "Not recorded"), "Release"),
         _row("Tracking branch", str(release_authority.get("tracking_branch") or "Not recorded"), "Release"),
         _row("Release commit", str(release_authority.get("commit_sha") or "Not recorded")[:12] or "Not recorded", "Release"),
         _row("Worktree", "dirty" if bool(release_authority.get("dirty_worktree")) else "clean", "Release"),
+        _row("Source worktree", "dirty" if bool(release_authority.get("source_worktree_dirty")) else "clean", "Release"),
+        _row("Source dirty count", str(release_authority.get("source_dirty_count") or 0), "Release"),
         _row("Primary plane", str(release_authority.get("project_mode") or "Not recorded"), "Release"),
         _row(
             "Enabled planes",
@@ -741,6 +755,9 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
         _row("Public origin", str(release_authority.get("public_origin") or "Not recorded"), "Release"),
         _row("Origin source", str(release_authority.get("public_origin_source") or "Not recorded").replace("_", " "), "Release"),
         _row("Authority basis", str(release_authority.get("authority_basis") or "Not recorded"), "Release"),
+        _row("Runtime supply chain", str(runtime_supply_chain.get("summary") or "Runtime supply chain has not been recorded."), _humanize(str(runtime_supply_chain.get("state") or "watch")).title()),
+        _row("Supply-chain next action", str(runtime_supply_chain.get("next_action") or "No runtime supply-chain action recorded."), "Release"),
+        _row("Supply-chain issues", ", ".join(str(value) for value in list(runtime_supply_chain.get("issues") or [])[:6]) or "none", "Release"),
         _row(
             "Workspace diagnostics bundle",
             "Export support-ready workspace bundle",

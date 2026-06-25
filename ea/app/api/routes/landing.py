@@ -16,7 +16,6 @@ from markupsafe import Markup
 
 from app.api.dependencies import (
     RequestContext,
-    browser_principal_override_allowed,
     get_cloudflare_access_identity,
     get_container,
     get_request_context,
@@ -1443,7 +1442,7 @@ def app_shell(
 
 
 @router.get("/admin", response_class=HTMLResponse)
-def admin_root() -> RedirectResponse:
+def admin_root(_: None = Depends(require_operator_context)) -> RedirectResponse:
     return RedirectResponse("/admin/policies", status_code=307)
 
 

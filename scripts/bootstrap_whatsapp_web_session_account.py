@@ -5,8 +5,10 @@ import argparse
 import json
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 
+ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TENANT_ID = "tenant-default"
 DEFAULT_TENANT_NAME = "Default Tenant"
 DEFAULT_TENANT_SLUG = "default"
@@ -19,10 +21,56 @@ DEFAULT_BINDING_ID = "ea-whatsapp-web-session"
 DEFAULT_CONNECTOR_STATUS = "staged"
 
 WHATSAPP_WEB_SESSION_CONNECTOR = "whatsapp_web_session"
+DEFAULT_PRINCIPAL_ENV_NAMES = (
+    "EA_WHATSAPP_WEB_DEFAULT_PRINCIPAL_ID",
+    "EA_WHATSAPP_DEFAULT_PRINCIPAL_ID",
+    "EA_DEFAULT_PRINCIPAL_ID",
+)
+
+
+def _repo_env_value(name: str) -> str:
+    normalized_name = str(name or "").strip()
+    if not normalized_name:
+        return ""
+    env_path = ROOT / ".env"
+    if not env_path.exists():
+        return ""
+    try:
+        lines = env_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return ""
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].strip()
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        if key.strip() != normalized_name:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        return value.strip()
+    return ""
 
 
 def _env(name: str, default: str = "") -> str:
     return str(os.environ.get(name) or default).strip()
+
+
+def _principal_env(name: str) -> str:
+    return str(os.environ.get(name) or _repo_env_value(name) or "").strip()
+
+
+def _default_principal_id() -> str:
+    for name in DEFAULT_PRINCIPAL_ENV_NAMES:
+        value = _principal_env(name)
+        if value:
+            return value
+    return DEFAULT_PRINCIPAL_ID
 
 
 def phone_digits(phone_number: str) -> str:
@@ -186,7 +234,7 @@ def build_seed(args: argparse.Namespace) -> WhatsAppWebSessionSeed:
         tenant_id=str(args.tenant_id or DEFAULT_TENANT_ID).strip(),
         tenant_name=str(args.tenant_name or DEFAULT_TENANT_NAME).strip(),
         tenant_slug=str(args.tenant_slug or DEFAULT_TENANT_SLUG).strip(),
-        principal_id=str(args.principal_id or DEFAULT_PRINCIPAL_ID).strip(),
+        principal_id=str(args.principal_id or _default_principal_id()).strip(),
         display_name=str(args.display_name or DEFAULT_DISPLAY_NAME).strip(),
         email=str(args.email or DEFAULT_EMAIL).strip(),
         phone_number=normalized_phone(str(args.phone_number or DEFAULT_PHONE_NUMBER)),
@@ -325,7 +373,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tenant-id", default=_env("EA_WHATSAPP_WEB_DEFAULT_TENANT_ID") or _env("EA_WHATSAPP_DEFAULT_TENANT_ID", DEFAULT_TENANT_ID))
     parser.add_argument("--tenant-name", default=_env("EA_WHATSAPP_WEB_DEFAULT_TENANT_NAME") or _env("EA_WHATSAPP_DEFAULT_TENANT_NAME", DEFAULT_TENANT_NAME))
     parser.add_argument("--tenant-slug", default=_env("EA_WHATSAPP_WEB_DEFAULT_TENANT_SLUG") or _env("EA_WHATSAPP_DEFAULT_TENANT_SLUG", DEFAULT_TENANT_SLUG))
-    parser.add_argument("--principal-id", default=_env("EA_WHATSAPP_WEB_DEFAULT_PRINCIPAL_ID") or _env("EA_WHATSAPP_DEFAULT_PRINCIPAL_ID", DEFAULT_PRINCIPAL_ID))
+    parser.add_argument("--principal-id", default=_default_principal_id())
     parser.add_argument("--display-name", default=_env("EA_WHATSAPP_WEB_DEFAULT_DISPLAY_NAME") or _env("EA_WHATSAPP_DEFAULT_DISPLAY_NAME", DEFAULT_DISPLAY_NAME))
     parser.add_argument("--email", default=_env("EA_WHATSAPP_WEB_DEFAULT_EMAIL") or _env("EA_WHATSAPP_DEFAULT_EMAIL", DEFAULT_EMAIL))
     parser.add_argument("--phone-number", default=_env("EA_WHATSAPP_WEB_DEFAULT_PHONE_NUMBER") or _env("EA_WHATSAPP_DEFAULT_BUSINESS_PHONE_NUMBER", DEFAULT_PHONE_NUMBER))

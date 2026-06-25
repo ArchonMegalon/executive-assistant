@@ -552,6 +552,7 @@ CODEXEA_TRACE_STARTUP="${CODEXEA_TRACE_STARTUP:-1}"
 CODEXEA_ENABLE_WATCHDOG="${CODEXEA_ENABLE_WATCHDOG:-0}"
 CODEXEA_NO_ALT_SCREEN="${CODEXEA_NO_ALT_SCREEN:-1}"
 CODEXEA_STARTUP_STATUS="${CODEXEA_STARTUP_STATUS:-1}"
+CODEXEA_STARTUP_STATUS_CACHE_TTL_SECONDS="${CODEXEA_STARTUP_STATUS_CACHE_TTL_SECONDS:-20}"
 CODEXEA_CREDITS_INCLUDE_BILLING="${CODEXEA_CREDITS_INCLUDE_BILLING:-1}"
 CODEXEA_STARTUP_PROMPT="${CODEXEA_STARTUP_PROMPT-}"
 CODEXEA_RESUME_PROMPT="${CODEXEA_RESUME_PROMPT-}"
@@ -564,6 +565,9 @@ CODEXEA_POST_AUDIT_ONLY_ON_DIFF="${CODEXEA_POST_AUDIT_ONLY_ON_DIFF:-1}"
 CODEXEA_POST_AUDIT_ONLY_ON_VERIFY="${CODEXEA_POST_AUDIT_ONLY_ON_VERIFY:-0}"
 CODEXEA_STATE_DIR="${CODEXEA_STATE_DIR:-${HOME}/.cache/codexea}"
 CODEXEA_STOP_FILE="${CODEXEA_STOP_FILE:-${CODEXEA_STATE_DIR}/stop}"
+CODEXEA_STARTUP_STATUS_CACHE_BODY="${CODEXEA_STATE_DIR}/startup-status-compact.body"
+CODEXEA_STARTUP_STATUS_CACHE_EPOCH="${CODEXEA_STATE_DIR}/startup-status-compact.epoch"
+CODEXEA_STARTUP_STATUS_CACHE_SOURCE="${CODEXEA_STATE_DIR}/startup-status-compact.source"
 CODEXEA_LAUNCH_HISTORY_LIMIT="${CODEXEA_LAUNCH_HISTORY_LIMIT:-24}"
 CODEXEA_CONTRACT_ENABLED="${CODEXEA_CONTRACT_ENABLED:-1}"
 CODEXEA_CONTRACT_RUNTIME_MODE="${CODEXEA_CONTRACT_RUNTIME_MODE:-code_only}"
@@ -1534,7 +1538,7 @@ codexea_route_models_for_launch() {
       printf '1min.ai:%s' "${model}"
       ;;
     ea-coder-fast|ea-repair-gemini|ea-overflow)
-      printf 'gemini_vortex:%s; magicx:%s; 1min.ai:%s' "${gemini_models}" "${magicx_models}" "${onemin_fast_models}"
+      printf '1min.ai:%s; magicx:%s; gemini_vortex:%s' "${onemin_fast_models}" "${magicx_models}" "${gemini_models}"
       ;;
     ea-gemini-flash|gemini-*)
       printf 'gemini_vortex:%s' "${gemini_models}"
@@ -1563,7 +1567,7 @@ codexea_route_models_for_launch() {
     *)
       case "${lane}" in
         easy|repair|worker|live_safe)
-          printf 'gemini_vortex:%s; magicx:%s; 1min.ai:%s' "${gemini_models}" "${magicx_models}" "${onemin_fast_models}"
+          printf '1min.ai:%s; magicx:%s; gemini_vortex:%s' "${onemin_fast_models}" "${magicx_models}" "${gemini_models}"
           ;;
         core|controller|debug_hard|jury)
           printf '1min.ai:%s' "${onemin_hard_models}"
@@ -1949,6 +1953,8 @@ show_status() {
   local status_url="${EA_STATUS_URL}?window=${window}&refresh=${refresh}&compact=${compact_report}"
   local body=""
   local body_source="status"
+  local startup_cache_source=""
+  local startup_cached_body=""
   validate_status_json_body() {
     local candidate_path="${1:-}"
     [ -n "${candidate_path}" ] || return 1
@@ -1985,7 +1991,14 @@ PY
       sleep "${watch_seconds}"
     done
   fi
-  if ! body="$("${curl_args[@]}" "${status_url}" 2>/dev/null)"; then
+  if [ "${startup_compact}" -eq 1 ] && [ "${refresh}" -eq 0 ] && [ "${want_json}" -eq 0 ]; then
+    startup_cached_body="$(startup_status_cache_load || true)"
+    startup_cache_source="${STARTUP_STATUS_CACHE_SOURCE_VALUE:-status}"
+  fi
+  if [ -n "${startup_cached_body}" ]; then
+    body="${startup_cached_body}"
+    body_source="${startup_cache_source}"
+  elif ! body="$("${curl_args[@]}" "${status_url}" 2>/dev/null)"; then
     body="$("${curl_args[@]}" "${EA_PROFILES_URL}" 2>/dev/null)" || {
       if [ "${startup_compact}" -eq 1 ]; then
         show_startup_status_pending
@@ -2003,6 +2016,9 @@ PY
   local body_file
   body_file="$(mktemp)"
   printf '%s' "${body}" > "${body_file}"
+  if [ "${startup_compact}" -eq 1 ] && [ "${want_json}" -eq 0 ] && validate_status_json_body "${body_file}"; then
+    startup_status_cache_store "$(cat "${body_file}")" "${body_source}"
+  fi
   local force_pretty="${CODEXEA_FORCE_PRETTY_STATUS:-0}"
   if [ "${want_json}" -eq 1 ]; then
     if [ "${body_source}" = "status" ] && ! validate_status_json_body "${body_file}"; then
@@ -2040,6 +2056,63 @@ def fmt(value):
 
 def line(parts, widths):
     return "  ".join(str(part).ljust(width) for part, width in zip(parts, widths))
+
+def provider_ready(row):
+    state = str((row or {}).get("state") or "").strip().lower()
+    if state == "ready":
+        return True
+    slots = [dict(item) for item in ((row or {}).get("slots") or []) if isinstance(item, dict)]
+    return any(str(slot.get("state") or "").strip().lower() == "ready" for slot in slots)
+
+def provider_ready_from_payload(payload, provider_key):
+    providers = dict(((payload.get("provider_health") or {}).get("providers") or {}))
+    provider_row = dict(providers.get(provider_key) or {})
+    if provider_row and provider_ready(provider_row):
+        return True
+    provider_rows = [
+        dict(item)
+        for item in list(payload.get("providers_summary") or [])
+        if isinstance(item, dict) and str(item.get("provider_key") or "").strip() == provider_key
+    ]
+    return any(str(row.get("state") or "").strip().lower() == "ready" for row in provider_rows)
+
+def derive_fast_lane_route(payload):
+    route = dict(payload.get("fast_lane_route") or {})
+    configured = [str(item).strip() for item in list(route.get("configured_order") or []) if str(item).strip()]
+    effective = [str(item).strip() for item in list(route.get("effective_order") or []) if str(item).strip()]
+    posture = str(route.get("posture") or "").strip()
+    reason = str(route.get("reason") or "").strip()
+    if configured and effective and posture:
+        return {
+            "configured_order": configured,
+            "effective_order": effective,
+            "posture": posture,
+            "reason": reason or "configured_order",
+        }
+    configured = ["onemin", "magixai", "gemini_vortex"]
+    pressure = str(((payload.get("onemin_aggregate") or {}).get("attempt_throttle_pressure_15m")) or "").strip().lower()
+    providers = dict(((payload.get("provider_health") or {}).get("providers") or {}))
+    effective = list(configured)
+    if pressure in {"medium", "high"}:
+        preferred = []
+        if provider_ready_from_payload(payload, "gemini_vortex"):
+            preferred.append("gemini_vortex")
+        if provider_ready_from_payload(payload, "magixai"):
+            preferred.append("magixai")
+        if preferred:
+            merged = []
+            for item in [*preferred, *configured]:
+                if item not in merged:
+                    merged.append(item)
+            effective = merged
+    posture = "pressure_spillover" if effective != configured else "configured_order"
+    reason = f"onemin_pressure_{pressure}" if posture == "pressure_spillover" and pressure else "configured_order"
+    return {
+        "configured_order": configured,
+        "effective_order": effective,
+        "posture": posture,
+        "reason": reason,
+    }
 
 with open(sys.argv[1], "r", encoding="utf-8") as handle:
     raw_body = handle.read()
@@ -2220,6 +2293,7 @@ for key in ("1h", "24h", "7d"):
     print(f"{key}:   " + " | ".join(summary))
 print("")
 hotspots = payload.get("onemin_aggregate") or {}
+fast_lane_route = derive_fast_lane_route(payload)
 print("1min hotspots")
 print(f"Throttle pressure (15m): {fmt(hotspots.get('attempt_throttle_pressure_15m'))}")
 print(
@@ -2257,6 +2331,16 @@ if recent_by_host:
     )
 else:
     print("Top host stats (15m): none")
+configured_fast_order = ", ".join(str(item) for item in list(fast_lane_route.get("configured_order") or []) if str(item).strip())
+effective_fast_order = ", ".join(str(item) for item in list(fast_lane_route.get("effective_order") or []) if str(item).strip())
+if configured_fast_order or effective_fast_order:
+    print(
+        "Fast lane route:"
+        f" {fmt(fast_lane_route.get('posture'))}"
+        f" | reason {fmt(fast_lane_route.get('reason'))}"
+        f" | configured {configured_fast_order or 'n/a'}"
+        f" | effective {effective_fast_order or 'n/a'}"
+    )
 print("")
 if is_compact_payload:
     sys.exit(0)
@@ -2781,6 +2865,98 @@ Flags:
 EOF
 }
 
+startup_status_cache_load() {
+  local ttl_raw="${CODEXEA_STARTUP_STATUS_CACHE_TTL_SECONDS:-20}"
+  local ttl=0
+  local epoch=""
+  local now=""
+  local age=0
+
+  case "${ttl_raw}" in
+    ''|*[!0-9]*)
+      return 1
+      ;;
+  esac
+  ttl="${ttl_raw}"
+  [ "${ttl}" -gt 0 ] || return 1
+  [ -s "${CODEXEA_STARTUP_STATUS_CACHE_BODY}" ] || return 1
+  [ -s "${CODEXEA_STARTUP_STATUS_CACHE_EPOCH}" ] || return 1
+
+  epoch="$(cat "${CODEXEA_STARTUP_STATUS_CACHE_EPOCH}" 2>/dev/null || true)"
+  case "${epoch}" in
+    ''|*[!0-9]*)
+      return 1
+      ;;
+  esac
+  now="$(date +%s 2>/dev/null || true)"
+  case "${now}" in
+    ''|*[!0-9]*)
+      if command -v python3 >/dev/null 2>&1; then
+        now="$(python3 - <<'PY'
+import time
+print(int(time.time()))
+PY
+)"
+      fi
+      ;;
+  esac
+  case "${now}" in
+    ''|*[!0-9]*)
+      return 1
+      ;;
+  esac
+  age=$((now - epoch))
+  [ "${age}" -ge 0 ] || return 1
+  [ "${age}" -le "${ttl}" ] || return 1
+  STARTUP_STATUS_CACHE_SOURCE_VALUE="$(cat "${CODEXEA_STARTUP_STATUS_CACHE_SOURCE}" 2>/dev/null || printf 'status')"
+  cat "${CODEXEA_STARTUP_STATUS_CACHE_BODY}"
+}
+
+startup_status_cache_store() {
+  local body="${1:-}"
+  local source="${2:-status}"
+  local ttl_raw="${CODEXEA_STARTUP_STATUS_CACHE_TTL_SECONDS:-20}"
+  local now=""
+  local tmp_body=""
+  local tmp_epoch=""
+  local tmp_source=""
+
+  case "${ttl_raw}" in
+    ''|*[!0-9]*)
+      return 0
+      ;;
+  esac
+  [ "${ttl_raw}" -gt 0 ] || return 0
+  [ -n "${body}" ] || return 0
+  mkdir -p "${CODEXEA_STATE_DIR}"
+  now="$(date +%s 2>/dev/null || true)"
+  case "${now}" in
+    ''|*[!0-9]*)
+      if command -v python3 >/dev/null 2>&1; then
+        now="$(python3 - <<'PY'
+import time
+print(int(time.time()))
+PY
+)"
+      fi
+      ;;
+  esac
+  case "${now}" in
+    ''|*[!0-9]*)
+      return 0
+      ;;
+  esac
+  tmp_body="$(mktemp "${CODEXEA_STATE_DIR}/startup-status.body.XXXXXX")"
+  tmp_epoch="$(mktemp "${CODEXEA_STATE_DIR}/startup-status.epoch.XXXXXX")"
+  tmp_source="$(mktemp "${CODEXEA_STATE_DIR}/startup-status.source.XXXXXX")"
+  printf '%s' "${body}" > "${tmp_body}"
+  printf '%s' "${now}" > "${tmp_epoch}"
+  printf '%s' "${source}" > "${tmp_source}"
+  mv "${tmp_body}" "${CODEXEA_STARTUP_STATUS_CACHE_BODY}"
+  mv "${tmp_epoch}" "${CODEXEA_STARTUP_STATUS_CACHE_EPOCH}"
+  mv "${tmp_source}" "${CODEXEA_STARTUP_STATUS_CACHE_SOURCE}"
+}
+
 REQUESTED_LANE="${CODEXEA_DEFAULT_LANE}"
 LANE_WAS_EXPLICIT=0
 case "${1:-}" in
@@ -3102,7 +3278,7 @@ if [ "${WANT_STARTUP_STATUS}" = "1" ]; then
   CODEXEA_STATUS_LAUNCH_PROVIDER="${STATUS_PROVIDER}" \
   CODEXEA_STATUS_LAUNCH_MODEL="${MODEL}" \
   CODEXEA_STATUS_LAUNCH_MODELS="${CODEXEA_MODEL_STACK}" \
-  show_status --startup --refresh || true
+  show_status --startup || true
   printf '\n'
 fi
 

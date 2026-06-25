@@ -351,6 +351,7 @@ class WorkspaceTrustOut(BaseModel):
     rule_count: int = 0
     recent_events: list[OfficeEventOut] = Field(default_factory=list)
     release_authority: dict[str, object] = Field(default_factory=dict)
+    runtime_supply_chain: dict[str, object] = Field(default_factory=dict)
     public_help_grounding: GroundingPackOut | None = None
 
 
@@ -374,6 +375,10 @@ class WorkspaceSupportBundleOut(BaseModel):
     pending_delivery: list[dict[str, object]]
     recent_events: list[OfficeEventOut] = Field(default_factory=list)
     release_authority: dict[str, object] = Field(default_factory=dict)
+    release_authority_gate: dict[str, object] = Field(default_factory=dict)
+    deploy_context_gate: dict[str, object] = Field(default_factory=dict)
+    runtime_supply_chain: dict[str, object] = Field(default_factory=dict)
+    runtime_supply_chain_gate: dict[str, object] = Field(default_factory=dict)
     support_assistant_grounding: GroundingPackOut | None = None
 
 

@@ -36,11 +36,16 @@ def tool_shim_looks_like_shell_command(candidate: str) -> bool:
     stripped = str(candidate or "").strip()
     if not stripped:
         return False
-    command_word = stripped.split(None, 1)[0]
+    parts = stripped.split()
+    while parts and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.*$", parts[0]):
+        parts.pop(0)
+    if not parts:
+        return False
+    command_word = parts[0]
     normalized = command_word.strip().lower()
     if not normalized:
         return False
-    if normalized.startswith(("/", "./", "../")):
+    if normalized.startswith(("/", "./", "../")) or "/" in normalized:
         return True
     return normalized in {
         "sed",

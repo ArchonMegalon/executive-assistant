@@ -218,22 +218,23 @@ def create_app() -> FastAPI:
     )
     from app.api.routes.responses import router as responses_router
 
-    _include_legacy_authenticated_routes(
-        app,
-        auth_dependency=auth_dependency,
-        channels_router=channels_router,
-        memory_router=memory_router,
-        evidence_router=evidence_router,
-        observations_router=observations_router,
-        delivery_router=delivery_router,
-        connectors_router=connectors_router,
-        policy_router=policy_router,
-        ltd_runtime_router=ltd_runtime_router,
-        plans_router=plans_router,
-        rewrite_router=rewrite_router,
-        skills_router=skills_router,
-        task_contracts_router=task_contracts_router,
-        tools_router=tools_router,
-        responses_router=responses_router,
-    )
+    if s.legacy_runtime_surfaces_enabled:
+        _include_legacy_authenticated_routes(
+            app,
+            auth_dependency=auth_dependency,
+            channels_router=channels_router,
+            memory_router=memory_router,
+            evidence_router=evidence_router,
+            observations_router=observations_router,
+            delivery_router=delivery_router,
+            connectors_router=connectors_router,
+            policy_router=policy_router,
+            ltd_runtime_router=ltd_runtime_router,
+            plans_router=plans_router,
+            rewrite_router=rewrite_router,
+            skills_router=skills_router,
+            task_contracts_router=task_contracts_router,
+            tools_router=tools_router,
+            responses_router=responses_router,
+        )
     return app

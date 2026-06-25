@@ -1,9 +1,9 @@
 {
-  "blocking_reason": "",
+  "blocking_reason": "valid_live_audiobook_delivery_missing, job_not_audiobookshelf_imported, m4b_output_file_not_ready, m4b_chapter_metadata_not_embedded, audiobookshelf_import_not_imported, audiobookshelf_target_file_not_ready, player_scoped_reference_not_ready, audiobookshelf_public_share_not_ready, audiobookshelf_public_share_url_missing, telegram_public_share_delivery_not_sent, telegram_public_share_message_id_missing, machine_playback_e2e_not_verified, user_selected_voice_delivery_not_ready, explicit_replacement_voice_choice_pending",
   "candidate_count": 8,
   "claim": "Telegram EPUB audiobook delivery has live proof only when a sanitized job receipt shows the M4B is ready, Audiobookshelf imported and public-shared it, and Telegram sent the public share link.",
   "contract_name": "ea.telegram_audiobook_live_delivery_receipt.v1",
-  "failed_candidate_count": 6,
+  "failed_candidate_count": 8,
   "failed_candidates": [
     {
       "failed_codes": [
@@ -19,9 +19,37 @@
         "telegram_public_share_message_id_missing",
         "machine_playback_e2e_not_verified"
       ],
-      "job_id_sha256": "a8151f361ee81b2474e77f3628d3c68fb5a03c687507d4047cfcbe96e0ccd38e",
+      "job_id_sha256": "802a77e5e72adfbc465b91e4b422ddd0662da13647e040e09bfd91ea65605889",
       "public_share_status": "",
-      "status": "waiting_voice_selection",
+      "status": "blocked_external_tts",
+      "telegram_delivery_status": "",
+      "title_present": true,
+      "title_sha256": "f4567adac918b5928c0315aa17e00499233d912a618bb9d7fd06b5b720b3ae1d"
+    },
+    {
+      "failed_codes": [
+        "m4b_output_file_not_ready",
+        "player_scoped_reference_not_ready",
+        "telegram_public_share_delivery_not_sent",
+        "telegram_public_share_message_id_missing"
+      ],
+      "job_id_sha256": "1a7a76f41c3bd81a974d309bb59ff80837451843917026aacc130b70729f0837",
+      "public_share_status": "public_share_ready",
+      "status": "audiobookshelf_imported",
+      "telegram_delivery_status": "",
+      "title_present": true,
+      "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4"
+    },
+    {
+      "failed_codes": [
+        "job_not_audiobookshelf_imported",
+        "m4b_output_file_not_ready",
+        "telegram_public_share_delivery_not_sent",
+        "telegram_public_share_message_id_missing"
+      ],
+      "job_id_sha256": "275975b4fb3c037ac9ce727bfbc307f69b8729ed5469790fdaaff43fa77047c1",
+      "public_share_status": "public_share_ready",
+      "status": "superseded_duplicate",
       "telegram_delivery_status": "",
       "title_present": true,
       "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4"
@@ -40,12 +68,12 @@
         "telegram_public_share_message_id_missing",
         "machine_playback_e2e_not_verified"
       ],
-      "job_id_sha256": "71543854a7af87deed63a715e5c163fd2fce0c9239730ab4bff68711c0678a15",
+      "job_id_sha256": "19694841d0205f8edb7a3cab55ca588218bdff291ec68cc92d6d1c66e9b56d42",
       "public_share_status": "",
-      "status": "waiting_voice_selection",
+      "status": "superseded_duplicate",
       "telegram_delivery_status": "",
       "title_present": true,
-      "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4"
+      "title_sha256": "05b3508f18aca729b725c0cea8285d8ecc15708815a9b18c74492ae3899b5dc1"
     },
     {
       "failed_codes": [
@@ -61,54 +89,12 @@
         "telegram_public_share_message_id_missing",
         "machine_playback_e2e_not_verified"
       ],
-      "job_id_sha256": "9cfb60dfb143569d78de7f5ab11c6270c37eb9f0013894defec614706c91cbda",
+      "job_id_sha256": "81df91d38515999f3846a7ffc8db184c5cd091925914dfa1c8b6d5b5b26c6378",
       "public_share_status": "",
-      "status": "waiting_voice_selection",
+      "status": "superseded_duplicate",
       "telegram_delivery_status": "",
       "title_present": true,
-      "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4"
-    },
-    {
-      "failed_codes": [
-        "job_not_audiobookshelf_imported",
-        "m4b_output_file_not_ready",
-        "m4b_chapter_metadata_not_embedded",
-        "audiobookshelf_import_not_imported",
-        "audiobookshelf_target_file_not_ready",
-        "player_scoped_reference_not_ready",
-        "audiobookshelf_public_share_not_ready",
-        "audiobookshelf_public_share_url_missing",
-        "telegram_public_share_delivery_not_sent",
-        "telegram_public_share_message_id_missing",
-        "machine_playback_e2e_not_verified"
-      ],
-      "job_id_sha256": "e8a2091574907c4fb4de75189d671336b135f2ed951c4a9db1bfbac1a262ce75",
-      "public_share_status": "",
-      "status": "waiting_voice_selection",
-      "telegram_delivery_status": "",
-      "title_present": true,
-      "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4"
-    },
-    {
-      "failed_codes": [
-        "job_not_audiobookshelf_imported",
-        "m4b_output_file_not_ready",
-        "m4b_chapter_metadata_not_embedded",
-        "audiobookshelf_import_not_imported",
-        "audiobookshelf_target_file_not_ready",
-        "player_scoped_reference_not_ready",
-        "audiobookshelf_public_share_not_ready",
-        "audiobookshelf_public_share_url_missing",
-        "telegram_public_share_delivery_not_sent",
-        "telegram_public_share_message_id_missing",
-        "machine_playback_e2e_not_verified"
-      ],
-      "job_id_sha256": "ea178445d3b4c82912e50383b8d7366bf7c5b2bb3e1aa58cb0963957d8c383ab",
-      "public_share_status": "",
-      "status": "waiting_voice_selection",
-      "telegram_delivery_status": "",
-      "title_present": true,
-      "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4"
+      "title_sha256": "05b3508f18aca729b725c0cea8285d8ecc15708815a9b18c74492ae3899b5dc1"
     },
     {
       "failed_codes": [
@@ -126,25 +112,179 @@
       ],
       "job_id_sha256": "56cf6b3ca755045ca0f0d2fd2d94e4997b47fcb52666b03580b9659076953df4",
       "public_share_status": "",
-      "status": "chapters_extracted",
+      "status": "superseded_duplicate",
       "telegram_delivery_status": "",
+      "title_present": true,
+      "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4"
+    },
+    {
+      "failed_codes": [
+        "job_not_audiobookshelf_imported",
+        "m4b_output_file_not_ready"
+      ],
+      "job_id_sha256": "d63d9e9045275ceb66e3707244363eec583b6c9c126e4471aecd68212603f014",
+      "public_share_status": "public_share_ready",
+      "status": "superseded_duplicate",
+      "telegram_delivery_status": "sent",
+      "title_present": true,
+      "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4"
+    },
+    {
+      "failed_codes": [
+        "job_not_audiobookshelf_imported",
+        "m4b_output_file_not_ready"
+      ],
+      "job_id_sha256": "fe1ae63672b07afd42ae5c3a13e4a7867ef66441ffd28bccc310cb0792cb1865",
+      "public_share_status": "public_share_ready",
+      "status": "superseded_duplicate",
+      "telegram_delivery_status": "sent",
       "title_present": true,
       "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4"
     }
   ],
-  "failed_codes": [],
-  "generated_at": "2026-06-21T07:59:31.391012Z",
+  "failed_codes": [
+    "valid_live_audiobook_delivery_missing",
+    "job_not_audiobookshelf_imported",
+    "m4b_output_file_not_ready",
+    "m4b_chapter_metadata_not_embedded",
+    "audiobookshelf_import_not_imported",
+    "audiobookshelf_target_file_not_ready",
+    "player_scoped_reference_not_ready",
+    "audiobookshelf_public_share_not_ready",
+    "audiobookshelf_public_share_url_missing",
+    "telegram_public_share_delivery_not_sent",
+    "telegram_public_share_message_id_missing",
+    "machine_playback_e2e_not_verified",
+    "user_selected_voice_delivery_not_ready",
+    "explicit_replacement_voice_choice_pending"
+  ],
+  "generated_at": "2026-06-24T23:31:49.940819Z",
   "generated_by": "ea/scripts/materialize_telegram_audiobook_live_delivery_receipt.py",
   "goal_completion_claim_allowed": false,
   "limit": 100,
-  "live_delivery_claim_allowed": true,
+  "live_delivery_claim_allowed": false,
   "load_errors": [],
   "machine_playback_e2e_verified": true,
-  "next_action": "capture_real_user_playback_acceptance_or_close_operator_loop",
+  "next_action": "choose_explicit_replacement_voice_or_restore_selected_provider",
   "observation_source": "jobs_root",
   "output_path": "/docker/EA/.codex-studio/published/telegram_audiobook_live_delivery.generated.json",
-  "pending_user_selected_voice_job_count": 0,
-  "pending_user_selected_voice_jobs": [],
+  "pending_user_selected_voice_job_count": 6,
+  "pending_user_selected_voice_jobs": [
+    {
+      "external_tts_blocker_code": "provider_cooling_down",
+      "external_tts_blocker_reason_sha256": "9c93713bfad30e720a0e45757eaf630d84faf170268c4befebdad0377713a5a2",
+      "external_tts_blocker_retryable": true,
+      "job_id_sha256": "802a77e5e72adfbc465b91e4b422ddd0662da13647e040e09bfd91ea65605889",
+      "render_chapter_index": 1,
+      "render_segment_count": 50,
+      "render_segment_index": 1,
+      "render_status": "blocked",
+      "replacement_candidate_count": 0,
+      "replacement_choice_pending": false,
+      "scheduler_retry_after": "2026-06-24T23:46:17.343455Z",
+      "selected_label_sha256": "65f57506904e040c1d2d39990b7f499b4d97fd7a7d6dacf7a257e9ec943fab62",
+      "selected_voice_id_sha256": "4cc355795f5163599f45c6661b846330ee57165594a4332290a2f96e02619712",
+      "status": "blocked_external_tts",
+      "voice_selection_reason": "",
+      "voice_selection_status": "selected",
+      "voice_selection_waiting": false
+    },
+    {
+      "external_tts_blocker_code": "provider_tts_blocked",
+      "external_tts_blocker_reason_sha256": "11fdb13f8f64e8793d8fb6ea98226cb4a2a19842e72573fb56029fe388a777ff",
+      "external_tts_blocker_retryable": false,
+      "job_id_sha256": "1a7a76f41c3bd81a974d309bb59ff80837451843917026aacc130b70729f0837",
+      "render_chapter_index": 0,
+      "render_segment_count": 0,
+      "render_segment_index": 0,
+      "render_status": "already_rendered",
+      "replacement_candidate_count": 0,
+      "replacement_choice_pending": false,
+      "scheduler_retry_after": "",
+      "selected_label_sha256": "65f57506904e040c1d2d39990b7f499b4d97fd7a7d6dacf7a257e9ec943fab62",
+      "selected_voice_id_sha256": "4cc355795f5163599f45c6661b846330ee57165594a4332290a2f96e02619712",
+      "status": "audiobookshelf_imported",
+      "voice_selection_reason": "named_voice_choice_requested",
+      "voice_selection_status": "selected_by_user",
+      "voice_selection_waiting": false
+    },
+    {
+      "external_tts_blocker_code": "provider_tts_blocked",
+      "external_tts_blocker_reason_sha256": "11fdb13f8f64e8793d8fb6ea98226cb4a2a19842e72573fb56029fe388a777ff",
+      "external_tts_blocker_retryable": false,
+      "job_id_sha256": "275975b4fb3c037ac9ce727bfbc307f69b8729ed5469790fdaaff43fa77047c1",
+      "render_chapter_index": 0,
+      "render_segment_count": 0,
+      "render_segment_index": 0,
+      "render_status": "already_rendered",
+      "replacement_candidate_count": 0,
+      "replacement_choice_pending": false,
+      "scheduler_retry_after": "",
+      "selected_label_sha256": "68dd946c583a3ff2cb30a771757eee4df7966c0f4ff4bd06655b96a7cc8913ab",
+      "selected_voice_id_sha256": "5ca45514bcc23224ec75558568d2085cb50cdb990ea1c213222a7bb883dcd168",
+      "status": "superseded_duplicate",
+      "voice_selection_reason": "language_matched_voice_restored",
+      "voice_selection_status": "selected_by_user",
+      "voice_selection_waiting": false
+    },
+    {
+      "external_tts_blocker_code": "provider_tts_blocked",
+      "external_tts_blocker_reason_sha256": "140bedbf9c3f6d56a9846d2ba7088798683f4da0c248231336e6a05679e4fdfe",
+      "external_tts_blocker_retryable": false,
+      "job_id_sha256": "19694841d0205f8edb7a3cab55ca588218bdff291ec68cc92d6d1c66e9b56d42",
+      "render_chapter_index": 0,
+      "render_segment_count": 0,
+      "render_segment_index": 0,
+      "render_status": "",
+      "replacement_candidate_count": 1,
+      "replacement_choice_pending": true,
+      "scheduler_retry_after": "",
+      "selected_label_sha256": "",
+      "selected_voice_id_sha256": "",
+      "status": "superseded_duplicate",
+      "voice_selection_reason": "",
+      "voice_selection_status": "waiting_user_choice",
+      "voice_selection_waiting": true
+    },
+    {
+      "external_tts_blocker_code": "provider_tts_blocked",
+      "external_tts_blocker_reason_sha256": "140bedbf9c3f6d56a9846d2ba7088798683f4da0c248231336e6a05679e4fdfe",
+      "external_tts_blocker_retryable": false,
+      "job_id_sha256": "81df91d38515999f3846a7ffc8db184c5cd091925914dfa1c8b6d5b5b26c6378",
+      "render_chapter_index": 0,
+      "render_segment_count": 0,
+      "render_segment_index": 0,
+      "render_status": "",
+      "replacement_candidate_count": 3,
+      "replacement_choice_pending": true,
+      "scheduler_retry_after": "",
+      "selected_label_sha256": "",
+      "selected_voice_id_sha256": "",
+      "status": "superseded_duplicate",
+      "voice_selection_reason": "",
+      "voice_selection_status": "waiting_user_choice",
+      "voice_selection_waiting": true
+    },
+    {
+      "external_tts_blocker_code": "provider_tts_blocked",
+      "external_tts_blocker_reason_sha256": "11fdb13f8f64e8793d8fb6ea98226cb4a2a19842e72573fb56029fe388a777ff",
+      "external_tts_blocker_retryable": false,
+      "job_id_sha256": "fe1ae63672b07afd42ae5c3a13e4a7867ef66441ffd28bccc310cb0792cb1865",
+      "render_chapter_index": 0,
+      "render_segment_count": 0,
+      "render_segment_index": 0,
+      "render_status": "already_rendered",
+      "replacement_candidate_count": 0,
+      "replacement_choice_pending": false,
+      "scheduler_retry_after": "",
+      "selected_label_sha256": "68dd946c583a3ff2cb30a771757eee4df7966c0f4ff4bd06655b96a7cc8913ab",
+      "selected_voice_id_sha256": "5ca45514bcc23224ec75558568d2085cb50cdb990ea1c213222a7bb883dcd168",
+      "status": "superseded_duplicate",
+      "voice_selection_reason": "",
+      "voice_selection_status": "selected_by_user",
+      "voice_selection_waiting": false
+    }
+  ],
   "privacy": {
     "audiobookshelf_token_exposed": false,
     "authors_redacted_to_sha256": true,
@@ -161,11 +301,14 @@
   "selected_delivery": {
     "author_present": true,
     "author_sha256": "74173ef36073182ba309b157c36465d17f728d7f6f555e32802b93a9428eb77c",
-    "failed_codes": [],
-    "job_id_sha256": "fe1ae63672b07afd42ae5c3a13e4a7867ef66441ffd28bccc310cb0792cb1865",
+    "failed_codes": [
+      "job_not_audiobookshelf_imported",
+      "m4b_output_file_not_ready"
+    ],
+    "job_id_sha256": "d63d9e9045275ceb66e3707244363eec583b6c9c126e4471aecd68212603f014",
     "machine_playback_e2e_browser": "chromium_playwright",
-    "machine_playback_e2e_current_time_after_play_seconds": 4.962434,
-    "machine_playback_e2e_duration_seconds": 14559.48,
+    "machine_playback_e2e_current_time_after_play_seconds": 4.922854,
+    "machine_playback_e2e_duration_seconds": 16348.107007,
     "machine_playback_e2e_media_error_present": false,
     "machine_playback_e2e_status": "pass",
     "machine_playback_e2e_track_content_type": "audio/mp4",
@@ -180,15 +323,15 @@
     "public_share_url_present": true,
     "replacement_choice_pending": false,
     "source_kind": "epub",
-    "status": "audiobookshelf_imported",
+    "status": "superseded_duplicate",
     "telegram_chat_bound": true,
     "telegram_delivery_message_id_present": true,
     "telegram_delivery_status": "sent",
     "telegram_message_bound": true,
     "title_present": true,
     "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4",
-    "voice_selected_by_user": true,
-    "voice_selected_default": false
+    "voice_selected_by_user": false,
+    "voice_selected_default": true
   },
-  "status": "pass"
+  "status": "blocked"
 }

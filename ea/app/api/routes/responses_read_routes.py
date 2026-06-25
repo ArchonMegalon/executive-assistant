@@ -7,13 +7,76 @@ from fastapi.responses import JSONResponse
 from starlette.responses import Response
 
 
+_CODEX_BASE_INSTRUCTIONS = (
+    "You are Codex, a coding agent. Follow the user's instructions, use the "
+    "available tools carefully, and keep implementation work grounded in the "
+    "current workspace."
+)
+
+_CODEX_REASONING_LEVELS = [
+    {"effort": "low", "description": "Fast responses with lighter reasoning"},
+    {"effort": "medium", "description": "Balances speed and reasoning depth for everyday tasks"},
+    {"effort": "high", "description": "Greater reasoning depth for complex problems"},
+    {"effort": "xhigh", "description": "Extra high reasoning depth for complex problems"},
+]
+
+
+def codex_model_catalog_entry(model: dict[str, object]) -> dict[str, object]:
+    model_id = str(model.get("slug") or model.get("id") or "").strip()
+    display_name = str(model.get("display_name") or model_id).strip() or model_id
+    description = str(model.get("description") or f"EA routed model alias for {display_name}.").strip()
+    context_window = int(model.get("context_window") or 272000)
+    return {
+        "slug": model_id,
+        "display_name": display_name,
+        "description": description,
+        "default_reasoning_level": "medium",
+        "supported_reasoning_levels": [dict(level) for level in _CODEX_REASONING_LEVELS],
+        "shell_type": "shell_command",
+        "visibility": "list",
+        "supported_in_api": True,
+        "priority": 1,
+        "additional_speed_tiers": [],
+        "service_tiers": [],
+        "availability_nux": {"message": ""},
+        "upgrade": None,
+        "base_instructions": _CODEX_BASE_INSTRUCTIONS,
+        "model_messages": {
+            "instructions_template": _CODEX_BASE_INSTRUCTIONS,
+            "instructions_variables": {},
+        },
+        "supports_reasoning_summaries": True,
+        "default_reasoning_summary": "none",
+        "support_verbosity": True,
+        "default_verbosity": "low",
+        "apply_patch_tool_type": "freeform",
+        "web_search_tool_type": "text_and_image",
+        "truncation_policy": {"mode": "tokens", "limit": 10000},
+        "supports_parallel_tool_calls": True,
+        "supports_image_detail_original": True,
+        "context_window": context_window,
+        "max_context_window": context_window,
+        "effective_context_window_percent": 95,
+        "experimental_supported_tools": [],
+        "input_modalities": ["text", "image"],
+        "supports_search_tool": True,
+        "use_responses_lite": False,
+    }
+
+
 def models_response_payload(
     *,
     list_response_models: Callable[[], list[dict[str, object]]],
 ) -> dict[str, object]:
+    models = [dict(model) for model in list_response_models()]
     return {
         "object": "list",
-        "data": list_response_models(),
+        "data": models,
+        "models": [
+            codex_model_catalog_entry(model)
+            for model in models
+            if str(model.get("slug") or model.get("id") or "").strip()
+        ],
     }
 
 

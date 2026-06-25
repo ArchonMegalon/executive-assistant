@@ -14,13 +14,19 @@ from typing import Any
 
 from hashlib import sha256
 
+from app.services.memorial_paths import memorial_data_root, private_profile_dir
+
 
 VOICE_PROFILE_MANIFEST_FILENAME = "voice_profile_manifest.json"
-_DEFAULT_MANIFEST_ROOT = Path("/mnt/pcloud/EA/private_memorial_profiles")
 
 
 def memorial_private_profile_root() -> Path:
-    return Path(str(os.getenv("EA_PRIVATE_MEMORIAL_PROFILE_DIR") or str(_DEFAULT_MANIFEST_ROOT))).expanduser()
+    configured = str(os.getenv("EA_PRIVATE_MEMORIAL_PROFILE_DIR") or "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    if str(os.getenv("EA_MEMORIAL_DATA_ROOT") or "").strip():
+        return memorial_data_root() / "memorial_data" / "private_memorial_profiles"
+    return private_profile_dir()
 
 
 def _safe_slug(slug: str) -> str:

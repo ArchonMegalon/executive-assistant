@@ -18,8 +18,56 @@ for path in (ROOT / "ea", ROOT, SCRIPT_DIR):
 from app.services.whatsapp_web_session_readiness import check_whatsapp_web_session_readiness  # noqa: E402
 
 
+DEFAULT_PRINCIPAL_ENV_NAMES = (
+    "EA_WHATSAPP_WEB_DEFAULT_PRINCIPAL_ID",
+    "EA_WHATSAPP_DEFAULT_PRINCIPAL_ID",
+    "EA_DEFAULT_PRINCIPAL_ID",
+)
+
+
+def _repo_env_value(name: str) -> str:
+    normalized_name = str(name or "").strip()
+    if not normalized_name:
+        return ""
+    env_path = ROOT / ".env"
+    if not env_path.exists():
+        return ""
+    try:
+        lines = env_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return ""
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].strip()
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        if key.strip() != normalized_name:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        return value.strip()
+    return ""
+
+
 def _env(name: str, default: str = "") -> str:
-    return str(os.environ.get(name) or default).strip()
+    return str(os.environ.get(name) or _repo_env_value(name) or default).strip()
+
+
+def _first_env(names: tuple[str, ...]) -> str:
+    for name in names:
+        value = _env(name)
+        if value:
+            return value
+    return ""
+
+
+def _default_principal_id() -> str:
+    return _first_env(DEFAULT_PRINCIPAL_ENV_NAMES) or "principal-default"
 
 
 def _load_json_file(path: str) -> object:
@@ -200,7 +248,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--binding-json", default=_env("EA_WHATSAPP_WEB_READINESS_BINDING_JSON"))
     parser.add_argument("--database-url", default=_env("DATABASE_URL"))
     parser.add_argument("--binding-id", default=_env("EA_WHATSAPP_WEB_DEFAULT_BINDING_ID", "ea-whatsapp-web-session"))
-    parser.add_argument("--principal-id", default=_env("EA_WHATSAPP_WEB_DEFAULT_PRINCIPAL_ID") or _env("EA_WHATSAPP_DEFAULT_PRINCIPAL_ID", "principal-default"))
+    parser.add_argument("--principal-id", default=_default_principal_id())
     parser.add_argument("--probe-session", action="store_true")
     return parser.parse_args()
 

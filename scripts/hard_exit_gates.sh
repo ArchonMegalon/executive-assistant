@@ -18,6 +18,7 @@ Usage:
 
 Runs the full flagship hard exit bundle:
   - full pytest suite
+  - spawned CodexEA worker-lane e2e smoke gate
   - release preflight
   - project-mode manifest/runtime verification
   - repeated memorial voice stability verification
@@ -32,8 +33,14 @@ EOF
   exit 0
 fi
 
+if [[ "$#" -gt 0 ]]; then
+  echo "Unknown arguments: $*" >&2
+  exit 2
+fi
+
 cd "${EA_ROOT}"
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q
+bash scripts/verify_codexea_e2e_exit_gate.sh
 make release-preflight
 make verify-project-mode-runtime
 make verify-memorial-voice-stability

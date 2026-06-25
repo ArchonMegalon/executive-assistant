@@ -181,11 +181,12 @@
 <script>
 (() => {
   const payload = {{ register_signal_payload|tojson }};
+  const fallbackTarget = {% if brand.key == 'ea' %}'/get-started?ready=1'{% else %}{{ (propertyquarry_register_ready_url or '/register?ready=1')|tojson }}{% endif %};
   const target = String(
     payload.return_to
-    || {% if brand.key == 'ea' %}'/get-started?ready=1'{% else %}'https://propertyquarry.com/register?ready=1'{% endif %}
+    || fallbackTarget
   ).trim()
-    || {% if brand.key == 'ea' %}'/get-started?ready=1'{% else %}'https://propertyquarry.com/register?ready=1'{% endif %};
+    || fallbackTarget;
   const separator = target.includes('?') ? '&' : '?';
   const query = new URLSearchParams();
   query.set('google_connected', '1');

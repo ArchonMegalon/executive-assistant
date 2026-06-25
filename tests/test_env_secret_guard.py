@@ -67,6 +67,9 @@ def test_env_key_classifier_ignores_secret_file_hash_and_overlap_settings() -> N
 
     assert module.is_suspicious_env_key("UNMIXR_API_KEY") is True
     assert module.is_suspicious_env_key("EA_CALLBACK_SECRET") is True
+    assert module.is_suspicious_env_key("EA_WORKSPACE_ACCESS_TOKEN_ISSUER") is False
+    assert module.is_suspicious_env_key("EA_WORKSPACE_ACCESS_TOKEN_AUDIENCE") is False
+    assert module.is_suspicious_env_key("EA_WORKSPACE_ACCESS_TOKEN_KEY_VERSION") is False
     assert module.is_suspicious_env_key("EA_CALLBACK_SECRET_FILE") is False
     assert module.is_suspicious_env_key("EA_AUDIOBOOK_PUBLICATION_STT_MIN_BOOK_TOKEN_OVERLAP") is False
     assert module.is_suspicious_env_key("ONEMIN_SECRET_SHA256") is False
@@ -88,6 +91,8 @@ def test_ea_env_example_uses_ea_public_oauth_callback() -> None:
 def test_public_publisher_defaults_are_generic_and_derive_from_public_app_base(monkeypatch) -> None:
     monkeypatch.delenv("EA_PUBLIC_RESULT_BASE_URL", raising=False)
     monkeypatch.delenv("EA_PUBLIC_TOUR_BASE_URL", raising=False)
+    monkeypatch.delenv("PROPERTYQUARRY_PUBLIC_BASE_URL", raising=False)
+    monkeypatch.delenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL", raising=False)
     monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://public.example.test/")
 
     browseract = _load_script(ROOT / "scripts" / "publish_browseract_ui_results.py")
@@ -95,12 +100,45 @@ def test_public_publisher_defaults_are_generic_and_derive_from_public_app_base(m
     crezlo_public = _load_script(ROOT / "scripts" / "publish_crezlo_public_tours.py")
 
     assert browseract.DEFAULT_PUBLIC_BASE_URL == "https://public.example.test/results"
-    assert crezlo_property.DEFAULT_PUBLIC_BASE_URL == "https://public.example.test/tours"
-    assert crezlo_public.DEFAULT_PUBLIC_BASE_URL == "https://public.example.test/tours"
+    assert crezlo_property.DEFAULT_PUBLIC_BASE_URL == "https://propertyquarry.com/tours"
+    assert crezlo_public.DEFAULT_PUBLIC_BASE_URL == "https://propertyquarry.com/tours"
+
+
+def test_crezlo_public_publisher_defaults_are_propertyquarry_specific(monkeypatch) -> None:
+    monkeypatch.delenv("EA_PUBLIC_TOUR_BASE_URL", raising=False)
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://assistant.example.test/")
+    monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_BASE_URL", "https://property.example.test/")
+    monkeypatch.delenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL", raising=False)
+
+    crezlo_property = _load_script(ROOT / "scripts" / "publish_crezlo_property_tours.py")
+    crezlo_public = _load_script(ROOT / "scripts" / "publish_crezlo_public_tours.py")
+
+    assert crezlo_property.DEFAULT_PUBLIC_BASE_URL == "https://property.example.test/tours"
+    assert crezlo_public.DEFAULT_PUBLIC_BASE_URL == "https://property.example.test/tours"
+
+    monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL", "https://tours.example.test/")
+    crezlo_property = _load_script(ROOT / "scripts" / "publish_crezlo_property_tours.py")
+    crezlo_public = _load_script(ROOT / "scripts" / "publish_crezlo_public_tours.py")
+
+    assert crezlo_property.DEFAULT_PUBLIC_BASE_URL == "https://tours.example.test"
+    assert crezlo_public.DEFAULT_PUBLIC_BASE_URL == "https://tours.example.test"
+
+    monkeypatch.setenv("EA_PUBLIC_TOUR_BASE_URL", "https://legacy-tour-override.example.test/")
+    crezlo_property = _load_script(ROOT / "scripts" / "publish_crezlo_property_tours.py")
+    crezlo_public = _load_script(ROOT / "scripts" / "publish_crezlo_public_tours.py")
+
+    assert crezlo_property.DEFAULT_PUBLIC_BASE_URL == "https://legacy-tour-override.example.test"
+    assert crezlo_public.DEFAULT_PUBLIC_BASE_URL == "https://legacy-tour-override.example.test"
 
 
 def _load_script(path: Path):
-    module_name = f"test_loaded_{path.stem}_{abs(hash((path, os.environ.get('EA_PUBLIC_APP_BASE_URL', ''))))}"
+    env_fingerprint = (
+        os.environ.get("EA_PUBLIC_APP_BASE_URL", ""),
+        os.environ.get("EA_PUBLIC_TOUR_BASE_URL", ""),
+        os.environ.get("PROPERTYQUARRY_PUBLIC_BASE_URL", ""),
+        os.environ.get("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL", ""),
+    )
+    module_name = f"test_loaded_{path.stem}_{abs(hash((path, env_fingerprint)))}"
     spec = importlib.util.spec_from_file_location(module_name, path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)

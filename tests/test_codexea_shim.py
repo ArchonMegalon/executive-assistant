@@ -547,6 +547,126 @@ def test_startup_status_can_tolerate_slow_but_healthy_status_endpoint(tmp_path: 
     assert "status pending" not in completed.stdout
 
 
+def test_startup_status_uses_short_ttl_cache_without_refresh(tmp_path: Path) -> None:
+    observed_paths: list[str] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, format: str, *args: object) -> None:  # noqa: A003
+            return
+
+        def do_GET(self) -> None:  # noqa: N802
+            observed_paths.append(self.path)
+            payload = {
+                "default_profile": "core",
+                "default_lane": "hard",
+                "providers_summary": [
+                    {"provider_name": "1min", "account_name": "ONEMIN_AI_API_KEY", "state": "ready"},
+                ],
+                "fleet_burn": {"1h": {"provider_credits": {"onemin": 123}}},
+                "onemin_aggregate": {"attempt_throttle_pressure_15m": "low"},
+            }
+            encoded = json.dumps(payload).encode("utf-8")
+            self.send_response(200)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(encoded)))
+            self.end_headers()
+            self.wfile.write(encoded)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        first = _run_shim_completed(
+            tmp_path,
+            "status",
+            "--startup",
+            extra_env={
+                "CODEXEA_STATUS_URL": f"http://127.0.0.1:{server.server_port}/v1/codex/status",
+                "CODEXEA_STARTUP_STATUS_CACHE_TTL_SECONDS": "60",
+            },
+        )
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
+
+    second = _run_shim_completed(
+        tmp_path,
+        "status",
+        "--startup",
+        extra_env={
+            "CODEXEA_STATUS_URL": "http://127.0.0.1:1/v1/codex/status",
+            "CODEXEA_PROFILES_URL": "http://127.0.0.1:1/v1/codex/profiles",
+            "CODEXEA_STARTUP_STATUS_CACHE_TTL_SECONDS": "60",
+        },
+    )
+
+    assert first.returncode == 0
+    assert second.returncode == 0
+    assert any("compact=1" in path for path in observed_paths)
+    assert len(observed_paths) == 1
+    assert "1h 1min burn 123 cr | 1min pressure low" in first.stdout
+    assert second.stdout == first.stdout
+    assert second.stderr == ""
+
+
+def test_startup_status_refresh_bypasses_short_ttl_cache(tmp_path: Path) -> None:
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, format: str, *args: object) -> None:  # noqa: A003
+            return
+
+        def do_GET(self) -> None:  # noqa: N802
+            payload = {
+                "default_profile": "core",
+                "default_lane": "hard",
+                "providers_summary": [
+                    {"provider_name": "1min", "account_name": "ONEMIN_AI_API_KEY", "state": "ready"},
+                ],
+                "fleet_burn": {"1h": {"provider_credits": {"onemin": 321}}},
+                "onemin_aggregate": {"attempt_throttle_pressure_15m": "medium"},
+            }
+            encoded = json.dumps(payload).encode("utf-8")
+            self.send_response(200)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(encoded)))
+            self.end_headers()
+            self.wfile.write(encoded)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        first = _run_shim_completed(
+            tmp_path,
+            "status",
+            "--startup",
+            extra_env={
+                "CODEXEA_STATUS_URL": f"http://127.0.0.1:{server.server_port}/v1/codex/status",
+                "CODEXEA_STARTUP_STATUS_CACHE_TTL_SECONDS": "60",
+            },
+        )
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
+
+    second = _run_shim_completed(
+        tmp_path,
+        "status",
+        "--startup",
+        "--refresh",
+        extra_env={
+            "CODEXEA_STATUS_URL": "http://127.0.0.1:1/v1/codex/status",
+            "CODEXEA_PROFILES_URL": "http://127.0.0.1:1/v1/codex/profiles",
+            "CODEXEA_STARTUP_STATUS_CACHE_TTL_SECONDS": "60",
+        },
+    )
+
+    assert first.returncode == 0
+    assert "1h 1min burn 321 cr | 1min pressure medium" in first.stdout
+    assert second.returncode == 0
+    assert "status pending" in second.stdout
+    assert second.stdout != first.stdout
+
+
 def test_startup_status_compact_payload_without_default_route_uses_workspace_fallback(
     tmp_path: Path,
 ) -> None:
@@ -718,6 +838,13 @@ def test_status_help_describes_compact_and_pretty_flags(tmp_path: Path) -> None:
     assert "codexea status --full [--pretty]" in completed.stdout
     assert "--pretty    Force the human-readable formatter" in completed.stdout
     assert completed.stderr == ""
+
+
+def test_launcher_startup_status_path_uses_cached_startup_probe_by_default() -> None:
+    shim_text = SHIM.read_text(encoding="utf-8")
+
+    assert 'show_status --startup || true' in shim_text
+    assert 'show_status --startup --refresh || true' not in shim_text
 
 
 def test_status_pretty_output_surfaces_onemin_host_hotspots(tmp_path: Path) -> None:

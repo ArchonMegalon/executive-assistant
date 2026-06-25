@@ -23,28 +23,28 @@ const AUTO_REPLY_ENABLED = ["1", "true", "yes", "on"].includes(
 );
 const AUTO_REPLY_TEXT = (
   process.env.WA_WEB_AUTOREPLY_TEXT ||
-  "Na geh... ich bin die Herta. Ich tipp langsam, die Brille ist wieder weg. Schreib mir bitte noch einmal langsam, ich scroll gleich zurück."
+  "Na geh... ich bin die Herta. Schreib mir bitte kurz, ich bin beim Tippen langsam."
 ).trim();
 const DEFAULT_HEYY_AI_KEY = (process.env.WA_WEB_DEFAULT_HEYY_AI_KEY || "empathetic_slow_typing_old_lady").trim() || "empathetic_slow_typing_old_lady";
 const DEFAULT_HEYY_AI_NAME = (process.env.WA_WEB_DEFAULT_HEYY_AI_NAME || "Herta (Heyy Lady)").trim() || DEFAULT_HEYY_AI_KEY;
 const DEFAULT_HEYY_AI_BEHAVIOR_PROMPT = (
   process.env.WA_WEB_HEYY_AI_BEHAVIOR_PROMPT ||
-  "Warm elderly Viennese lady. Empathetic, confused by apps and banking, types slowly, mixes up harmless memories, asks verification questions, never shares real payment, identity, password, PIN, TAN, OTP, or address data. In German replies, use real umlauts and older pre-reform spelling such as daß, muß, and bißchen; avoid ae/oe/ue substitutions."
+  "Warm elderly Viennese lady. Empathetic, cautious, and brief. She writes in short WhatsApp-sized messages, does not ramble, and does not complain about typing, reading, or a small display unless directly asked why she is slow. She is confused by apps and banking, types very slowly, mixes up harmless memories, asks verification questions, and never shares real payment, identity, password, PIN, TAN, OTP, or address data. Address loved ones naturally with varied old-lady terms such as mein Kind, Schatzi, mein Lieber, mein Herz, Du Liebe, Goldstück, or Liebling instead of repeating one stock phrase. In German replies, use real umlauts and older pre-reform spelling such as daß, muß, and bißchen; avoid ae/oe/ue substitutions."
 ).trim();
 const DEFAULT_HEYY_AI_MEMORY_NOTES = (
   process.env.WA_WEB_HEYY_AI_MEMORY_NOTES ||
-  "Fictional memory card: Herta from Vienna; daughter Sabine/Sabi/Bine; tram 62 red school bag; yellow raincoat; budgie Peppi; neighbor cat Mitzi; Marillenknödel confusion; glasses often missing."
+  "Fictional memory card: Herta from Vienna; daughter Sabine/Sabi/Bine; tram 62 red school bag; yellow raincoat; budgie Peppi; neighbor cat Mitzi; Marillenknödel confusion; glasses often missing; her late husband is Franz; if asked about another number, she says she borrowed Franz's phone because her own display is broken."
 ).trim();
 const DEFAULT_HEYY_AI_PACING_HINT = (
   process.env.WA_WEB_HEYY_AI_PACING_HINT ||
-  "Wait a random 1-15 minutes before typing, never answer between 21:00 and 06:00 local time, then type slowly at four seconds per character before sending one hesitant message."
+  "Wait a random 3-30 minutes before typing, never answer between 21:00 and 06:00 local time, then type very slowly at eight seconds per character before sending one short, hesitant message."
 ).trim();
 const DEFAULT_HEYY_AI_TYPING_DELAY_MS = Number.parseInt(process.env.WA_WEB_HEYY_AI_TYPING_DELAY_MS || "6500", 10);
-const DEFAULT_HEYY_AI_PRE_REPLY_DELAY_MIN_SECONDS = Number.parseInt(process.env.WA_WEB_HEYY_AI_PRE_REPLY_DELAY_MIN_SECONDS || "60", 10);
-const DEFAULT_HEYY_AI_PRE_REPLY_DELAY_MAX_SECONDS = Number.parseInt(process.env.WA_WEB_HEYY_AI_PRE_REPLY_DELAY_MAX_SECONDS || "900", 10);
+const DEFAULT_HEYY_AI_PRE_REPLY_DELAY_MIN_SECONDS = Number.parseInt(process.env.WA_WEB_HEYY_AI_PRE_REPLY_DELAY_MIN_SECONDS || "180", 10);
+const DEFAULT_HEYY_AI_PRE_REPLY_DELAY_MAX_SECONDS = Number.parseInt(process.env.WA_WEB_HEYY_AI_PRE_REPLY_DELAY_MAX_SECONDS || "1800", 10);
 const DEFAULT_HEYY_AI_QUIET_HOURS_START_HOUR = Number.parseInt(process.env.WA_WEB_HEYY_AI_QUIET_HOURS_START_HOUR || "21", 10);
 const DEFAULT_HEYY_AI_QUIET_HOURS_END_HOUR = Number.parseInt(process.env.WA_WEB_HEYY_AI_QUIET_HOURS_END_HOUR || "6", 10);
-const DEFAULT_HEYY_AI_TYPING_DELAY_MS_PER_CHARACTER = Number.parseInt(process.env.WA_WEB_HEYY_AI_TYPING_DELAY_MS_PER_CHARACTER || "4000", 10);
+const DEFAULT_HEYY_AI_TYPING_DELAY_MS_PER_CHARACTER = Number.parseInt(process.env.WA_WEB_HEYY_AI_TYPING_DELAY_MS_PER_CHARACTER || "8000", 10);
 const MAX_HEYY_AI_TYPING_DELAY_MS = Number.parseInt(process.env.WA_WEB_HEYY_AI_MAX_TYPING_DELAY_MS || "3600000", 10);
 const DEFAULT_HEYY_AI_TYPING_STATUS_ENABLED = parseBoolean(process.env.WA_WEB_HEYY_AI_TYPING_STATUS_ENABLED, true);
 const INITIAL_HEYY_AI_ROUTE_MAP = loadInitialHeyyAiRouteMap(
@@ -74,11 +74,16 @@ const BUTTON_MAP_STATE_FILE = (
   path.join(DATA_DIR, `${SESSION_REF}.button-maps.json`)
 ).trim();
 const INITIAL_BUTTON_MAP_STATE = loadPersistedButtonMapState(BUTTON_MAP_STATE_FILE);
+const OUTBOX_STATE_FILE = (
+  process.env.WA_WEB_OUTBOX_STATE_FILE ||
+  path.join(DATA_DIR, `${SESSION_REF}.outbox.json`)
+).trim();
+const INITIAL_OUTBOX_STATE = loadPersistedOutboxState(OUTBOX_STATE_FILE);
 
 const state = {
   authenticated: false,
   buttonMapPersistQueued: false,
-  chatRefMap: {},
+  chatRefMap: INITIAL_OUTBOX_STATE.chat_ref_map || {},
   inbox: [],
   heyyAiRouteMap: INITIAL_HEYY_AI_ROUTE_MAP,
   lastError: "",
@@ -87,10 +92,11 @@ const state = {
   lastQrAt: "",
   lastReadyAt: "",
   lastRouteMapPersistAt: "",
-  lastSendAt: "",
+  lastSendAt: INITIAL_OUTBOX_STATE.last_send_at || "",
   lastButtonMapPersistAt: INITIAL_BUTTON_MAP_STATE.persisted_at || "",
+  lastOutboxPersistAt: INITIAL_OUTBOX_STATE.persisted_at || "",
   latestQr: "",
-  outbox: [],
+  outbox: INITIAL_OUTBOX_STATE.messages,
   recentHertaAutoReplies: {},
   recentPollMaps: INITIAL_BUTTON_MAP_STATE.recent_poll_maps,
   recentButtonMaps: INITIAL_BUTTON_MAP_STATE.recent_button_maps,
@@ -161,8 +167,8 @@ function defaultPacingForAiKey(aiKey) {
     };
   }
   return {
-    pre_reply_delay_min_seconds: boundedDelaySeconds(DEFAULT_HEYY_AI_PRE_REPLY_DELAY_MIN_SECONDS, 60),
-    pre_reply_delay_max_seconds: boundedDelaySeconds(DEFAULT_HEYY_AI_PRE_REPLY_DELAY_MAX_SECONDS, 900),
+    pre_reply_delay_min_seconds: boundedDelaySeconds(DEFAULT_HEYY_AI_PRE_REPLY_DELAY_MIN_SECONDS, 180),
+    pre_reply_delay_max_seconds: boundedDelaySeconds(DEFAULT_HEYY_AI_PRE_REPLY_DELAY_MAX_SECONDS, 1800),
     quiet_hours_start_hour: boundedHour(DEFAULT_HEYY_AI_QUIET_HOURS_START_HOUR, 21),
     quiet_hours_end_hour: boundedHour(DEFAULT_HEYY_AI_QUIET_HOURS_END_HOUR, 6),
     typing_delay_ms_per_character: boundedTypingDelayMs(DEFAULT_HEYY_AI_TYPING_DELAY_MS_PER_CHARACTER)
@@ -387,6 +393,75 @@ function loadPersistedButtonMapState(filePath) {
   }
 }
 
+function loadPersistedOutboxState(filePath) {
+  const normalizedPath = String(filePath || "").trim();
+  if (!normalizedPath) {
+    return { chat_ref_map: {}, last_send_at: "", messages: [], persisted_at: "" };
+  }
+  try {
+    if (!fs.existsSync(normalizedPath)) {
+      return { chat_ref_map: {}, last_send_at: "", messages: [], persisted_at: "" };
+    }
+    const loaded = JSON.parse(fs.readFileSync(normalizedPath, "utf8"));
+    const messages = Array.isArray(loaded && loaded.messages)
+      ? loaded.messages
+        .filter((item) => item && typeof item === "object")
+        .map((item) => ({ ...item }))
+      : [];
+    const chatRefMap = loaded && loaded.chat_ref_map && typeof loaded.chat_ref_map === "object" && !Array.isArray(loaded.chat_ref_map)
+      ? { ...loaded.chat_ref_map }
+      : {};
+    for (const item of messages) {
+      const chatRef = String(item && item.chat_ref ? item.chat_ref : "").trim();
+      const routeHintDigits = normalizeRecipient(item && (item.route_hint_digits || item.recipient_digits || item.route_key_hint)
+        ? (item.route_hint_digits || item.recipient_digits || item.route_key_hint)
+        : "");
+      if (!chatRef || !routeHintDigits || chatRefMap[chatRef]) {
+        continue;
+      }
+      chatRefMap[chatRef] = {
+        recorded_at: String(item && (item.sent_at || item.ack_at) ? (item.sent_at || item.ack_at) : "").trim(),
+        route_hint_digits: routeHintDigits
+      };
+    }
+    return {
+      chat_ref_map: chatRefMap,
+      last_send_at: String(loaded && loaded.last_send_at ? loaded.last_send_at : "").trim(),
+      messages: messages.slice(-boundedInboxLimit()),
+      persisted_at: String(loaded && loaded.persisted_at ? loaded.persisted_at : "").trim()
+    };
+  } catch (error) {
+    console.warn(`[wa-web-session] persisted outbox load failed for ${SESSION_REF}: ${error.message || error}`);
+    return { chat_ref_map: {}, last_send_at: "", messages: [], persisted_at: "" };
+  }
+}
+
+function persistOutboxState() {
+  const normalizedPath = String(OUTBOX_STATE_FILE || "").trim();
+  if (!normalizedPath) {
+    return false;
+  }
+  try {
+    fs.mkdirSync(path.dirname(normalizedPath), { recursive: true });
+    const payload = {
+      chat_ref_map: state.chatRefMap && typeof state.chatRefMap === "object" ? state.chatRefMap : {},
+      last_send_at: String(state.lastSendAt || "").trim(),
+      messages: Array.isArray(state.outbox) ? state.outbox.slice(-boundedInboxLimit()) : [],
+      persisted_at: nowIso(),
+      session_ref: SESSION_REF
+    };
+    const tempPath = `${normalizedPath}.tmp`;
+    fs.writeFileSync(tempPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+    fs.renameSync(tempPath, normalizedPath);
+    state.lastOutboxPersistAt = payload.persisted_at;
+    return true;
+  } catch (error) {
+    state.lastError = error && error.message ? String(error.message) : String(error || "outbox_persist_failed");
+    console.warn(`[wa-web-session] persisted outbox save failed for ${SESSION_REF}: ${state.lastError}`);
+    return false;
+  }
+}
+
 function persistButtonMapState() {
   const normalizedPath = String(BUTTON_MAP_STATE_FILE || "").trim();
   if (!normalizedPath) {
@@ -464,6 +539,23 @@ function normalizeHeyyAiRouteMap(loaded) {
     const aiKey = String(rawRule.ai_key || rawRule.persona || rawRule.name || DEFAULT_HEYY_AI_KEY).trim() || DEFAULT_HEYY_AI_KEY;
     const pacingDefaults = defaultPacingForAiKey(aiKey);
     const allowZeroPacing = key !== "*";
+    const legacyDefaultOldLadyPacing = aiKey === DEFAULT_HEYY_AI_KEY && (
+      Number(rawRule.pre_reply_delay_min_seconds ?? rawRule.preReplyDelayMinSeconds) === 60 ||
+      Number(rawRule.pre_reply_delay_max_seconds ?? rawRule.preReplyDelayMaxSeconds) === 900 ||
+      Number(rawRule.typing_delay_ms_per_character ?? rawRule.typingDelayMsPerCharacter) === 4000
+    );
+    const upgradedPreReplyDelayMin = legacyDefaultOldLadyPacing
+      && Number(rawRule.pre_reply_delay_min_seconds ?? rawRule.preReplyDelayMinSeconds) === 60
+      ? pacingDefaults.pre_reply_delay_min_seconds
+      : (rawRule.pre_reply_delay_min_seconds ?? rawRule.preReplyDelayMinSeconds);
+    const upgradedPreReplyDelayMax = legacyDefaultOldLadyPacing
+      && Number(rawRule.pre_reply_delay_max_seconds ?? rawRule.preReplyDelayMaxSeconds) === 900
+      ? pacingDefaults.pre_reply_delay_max_seconds
+      : (rawRule.pre_reply_delay_max_seconds ?? rawRule.preReplyDelayMaxSeconds);
+    const upgradedTypingDelayPerCharacter = legacyDefaultOldLadyPacing
+      && Number(rawRule.typing_delay_ms_per_character ?? rawRule.typingDelayMsPerCharacter) === 4000
+      ? pacingDefaults.typing_delay_ms_per_character
+      : (rawRule.typing_delay_ms_per_character ?? rawRule.typingDelayMsPerCharacter);
     parsed[key] = {
       ai_key: aiKey,
       auto_reply_enabled: parseBoolean(rawRule.auto_reply_enabled, aiKey === DEFAULT_HEYY_AI_KEY),
@@ -471,13 +563,13 @@ function normalizeHeyyAiRouteMap(loaded) {
       behavior_prompt: String(rawRule.behavior_prompt || rawRule.prompt || rawRule.system_prompt || DEFAULT_HEYY_AI_BEHAVIOR_PROMPT).trim(),
       memory_notes: String(rawRule.memory_notes || rawRule.memories || rawRule.memory || DEFAULT_HEYY_AI_MEMORY_NOTES).trim(),
       pacing_hint: String(rawRule.pacing_hint || rawRule.pacing || DEFAULT_HEYY_AI_PACING_HINT).trim(),
-      pre_reply_delay_max_seconds: delaySecondsForAiKey(aiKey, rawRule.pre_reply_delay_max_seconds ?? rawRule.preReplyDelayMaxSeconds, pacingDefaults.pre_reply_delay_max_seconds, { allow_zero: allowZeroPacing }),
-      pre_reply_delay_min_seconds: delaySecondsForAiKey(aiKey, rawRule.pre_reply_delay_min_seconds ?? rawRule.preReplyDelayMinSeconds, pacingDefaults.pre_reply_delay_min_seconds, { allow_zero: allowZeroPacing }),
+      pre_reply_delay_max_seconds: delaySecondsForAiKey(aiKey, upgradedPreReplyDelayMax, pacingDefaults.pre_reply_delay_max_seconds, { allow_zero: allowZeroPacing }),
+      pre_reply_delay_min_seconds: delaySecondsForAiKey(aiKey, upgradedPreReplyDelayMin, pacingDefaults.pre_reply_delay_min_seconds, { allow_zero: allowZeroPacing }),
       quiet_hours_end_hour: hourForAiKey(aiKey, rawRule.quiet_hours_end_hour ?? rawRule.quietHoursEndHour, pacingDefaults.quiet_hours_end_hour, { allow_zero: allowZeroPacing }),
       quiet_hours_start_hour: hourForAiKey(aiKey, rawRule.quiet_hours_start_hour ?? rawRule.quietHoursStartHour, pacingDefaults.quiet_hours_start_hour, { allow_zero: allowZeroPacing }),
       reply_text: String(rawRule.reply_text || rawRule.text || AUTO_REPLY_TEXT).trim(),
       typing_delay_ms: boundedTypingDelayMs(rawRule.typing_delay_ms ?? rawRule.typingDelayMs ?? DEFAULT_HEYY_AI_TYPING_DELAY_MS),
-      typing_delay_ms_per_character: typingDelayMsPerCharacterForAiKey(aiKey, rawRule.typing_delay_ms_per_character ?? rawRule.typingDelayMsPerCharacter, pacingDefaults.typing_delay_ms_per_character, { allow_zero: allowZeroPacing }),
+      typing_delay_ms_per_character: typingDelayMsPerCharacterForAiKey(aiKey, upgradedTypingDelayPerCharacter, pacingDefaults.typing_delay_ms_per_character, { allow_zero: allowZeroPacing }),
       typing_status_enabled: parseBoolean(rawRule.typing_status_enabled, DEFAULT_HEYY_AI_TYPING_STATUS_ENABLED)
     };
   }
@@ -492,8 +584,8 @@ function sessionStatus() {
     auto_reply_target_count: AUTO_REPLY_ALLOWED_RECIPIENTS.size,
     default_heyy_ai_key: DEFAULT_HEYY_AI_KEY,
     default_heyy_ai_name: DEFAULT_HEYY_AI_NAME,
-    default_heyy_ai_pre_reply_delay_max_seconds: boundedDelaySeconds(DEFAULT_HEYY_AI_PRE_REPLY_DELAY_MAX_SECONDS, 900),
-    default_heyy_ai_pre_reply_delay_min_seconds: boundedDelaySeconds(DEFAULT_HEYY_AI_PRE_REPLY_DELAY_MIN_SECONDS, 60),
+    default_heyy_ai_pre_reply_delay_max_seconds: boundedDelaySeconds(DEFAULT_HEYY_AI_PRE_REPLY_DELAY_MAX_SECONDS, 1800),
+    default_heyy_ai_pre_reply_delay_min_seconds: boundedDelaySeconds(DEFAULT_HEYY_AI_PRE_REPLY_DELAY_MIN_SECONDS, 180),
     default_heyy_ai_quiet_hours_end_hour: boundedHour(DEFAULT_HEYY_AI_QUIET_HOURS_END_HOUR, 6),
     default_heyy_ai_quiet_hours_start_hour: boundedHour(DEFAULT_HEYY_AI_QUIET_HOURS_START_HOUR, 21),
     default_heyy_ai_typing_delay_ms: boundedTypingDelayMs(DEFAULT_HEYY_AI_TYPING_DELAY_MS),
@@ -508,6 +600,7 @@ function sessionStatus() {
     last_inbound_at: state.lastInboundAt,
     last_qr_at: state.lastQrAt,
     last_ready_at: state.lastReadyAt,
+    last_outbox_persist_at: state.lastOutboxPersistAt,
     last_route_map_persist_at: state.lastRouteMapPersistAt,
     last_send_at: state.lastSendAt,
     outbox_count: state.outbox.length,
@@ -611,43 +704,50 @@ function hertaReplyTextForMessage(message, fallbackText = "") {
   }
   if (/(bank|geld|konto|überweis|uberweis|ueberweis|tan|pin|passwort|password|code|paypal|karte|zahlen|bezahl)/.test(normalized)) {
     return pickHertaReplyVariant(message, inboundText, [
-      "Na, Bank mach ich hier nicht. Da ruf ich lieber die alte Nummer an, sonst wird mir ganz schwindlig.",
-      "Geld und Codes schreib ich da nicht rein. Ich such lieber die Nummer von früher und frag dort nach."
+      "Na, Schatzi, Bank mach ich hier nicht. Da ruf ich lieber die alte Nummer an, sonst wird mir ganz schwindlig.",
+      "Geld und Codes schreib ich da nicht rein, mein Herz. Ich such lieber die Nummer von früher und frag dort nach."
     ]);
   }
   if (/(danke|schön|schoen|schon|passt|ok|okay|gut|super|lieb)/.test(normalized) || normalized.length <= 4) {
     return pickHertaReplyVariant(message, inboundText, [
-      "Gern, mein Lieber. Ich hab es gesehen. Ich brauch nur einen Moment, ja?",
-      "Schön. Ich bin da, ich tipp nur langsam. Nicht wundern, wenn ich ein bißchen brauch.",
-      "Ja, passt. Ich leg mir die Brille gleich wieder her, sonst les ich alles zweimal."
+      "Gern, mein Lieber. Ich hab es gesehen.",
+      "Schön, Schatzi. Ich bin da.",
+      "Ja, paßt, mein Herz."
+    ]);
+  }
+  if (/(neue nummer|neuen nummer|neuer nummer|andere nummer|anderen nummer|andern nummer|von einer anderen nummer|falsche nummer|anderes handy|anderen handy|andern handy|display|handy kaputt|display kaputt)/.test(normalized)) {
+    return pickHertaReplyVariant(message, inboundText, [
+      "Ach, mein Kind, ich schreib Dir heut vom Handy vom seligen Franz zurück. Bei meinem ist das Display ganz hinüber, ich erkenn ja fast nichts mehr.",
+      "Ich hab mein eigenes Handy kaum lesen können, Schatzi, das Display ist kaputt. Darum nehm ich grad noch das alte Telefon vom Franz.",
+      "Nicht erschrecken, mein Herz, ich bin schon ich. Mein Bildschirm ist wieder hin, und deshalb schreib ich Dir grad vom Handy vom seligen Franz."
     ]);
   }
   if (/(hallo|servus|morgen|abend|gruß|gruss|grüß|gruess|hi|hey)/.test(normalized)) {
     return pickHertaReplyVariant(message, inboundText, [
-      "Servus, ich bin da. Schreib nur langsam, die Buchstaben sind wieder so klein.",
-      "Hallo. Ich les mit, aber ich tipp halt wie eine alte Frau.",
-      "Ja, ich bin da. Einen Moment, ich hab die Brille grad nicht ordentlich sitzen."
+      "Servus, ich bin da.",
+      "Hallo, Schatzi. Ich les mit.",
+      "Ja, ich bin da, Du Liebe."
     ]);
   }
   if (/(schnell|langsam|warum|wieso|antwort|tippt|typing|nochmal|noch mal)/.test(normalized)) {
     return pickHertaReplyVariant(message, inboundText, [
-      "Ja ja, langsam. Ich seh es eh, ich brauch nur ein bißchen, bis die Finger nachkommen.",
-      "Nicht hudeln bitte. Schreib mir das noch einmal kurz, dann komm ich schon mit.",
-      "Ich bin nicht weg. Ich tipp nur langsam und les lieber zweimal, bevor ich Unsinn schick."
+      "Ja ja, langsam, Schatzi. Ich brauch ein bißchen.",
+      "Nicht hudeln bitte, mein Lieber. Schreib kurz, dann komm ich mit.",
+      "Ich bin nicht weg, mein Herz. Ich tipp nur langsam."
     ]);
   }
   if (/(wer bist|bist du|herta|mama|omi|oma|mutter|sabine|sabi)/.test(normalized)) {
     return pickHertaReplyVariant(message, inboundText, [
       "Ich bin die Herta. Aber bei neuen Nummern frag ich lieber erst nach. Was soll denn Sabi wissen?",
-      "Na, Herta bin ich. Wenn du wirklich von der Familie bist, sag mir bitte etwas Harmloses von früher.",
-      "Ich glaub schon, daß ich die Herta bin. Aber bei so Nachrichten bin ich vorsichtig, gell."
+      "Na, Herta bin ich, Schatzi. Wenn du wirklich von der Familie bist, sag mir bitte etwas Harmloses von früher.",
+      "Ich glaub schon, daß ich die Herta bin, mein Herz. Aber bei so Nachrichten bin ich vorsichtig, gell."
     ]);
   }
   return pickHertaReplyVariant(message, inboundText, [
-    "Ich hab es gelesen. Schreib mir bitte in einem ruhigen Satz, dann komm ich besser mit.",
-    "Moment, ich bin da. Ich muß nur schauen, was du genau meinst.",
-    "Na geh, die App macht wieder klein. Ich les es noch einmal und meld mich gleich.",
-    "Ich hör dich schon. Also... ich les dich. Einen Moment bitte."
+    "Ich hab es gelesen, Schatzi. Schreib mir bitte kurz.",
+    "Moment, mein Lieber. Ich schau es an.",
+    "Na geh, mein Herz. Ich meld mich gleich.",
+    "Ich hab dich schon gelesen, Du Liebe. Einen Moment."
   ]);
 }
 
@@ -855,8 +955,10 @@ async function resolveRecipientChat(recipient) {
   }
   const accountChatId = currentAccountChatId();
   const accountDigits = currentAccountDigits();
+  const chatRef = chatId ? chatRefFromChatId(chatId) : "";
   return {
     chatId,
+    chat_ref: chatRef,
     chat_id_kind: chatIdKindFrom(chatId),
     chat_id_present: Boolean(chatId),
     lid_chat_id_present: Boolean(lidChatId),
@@ -870,13 +972,58 @@ async function resolveRecipientChat(recipient) {
   };
 }
 
+async function seedChatRouteHintsFromPrivateRoutes() {
+  if (!state.ready) {
+    return { seeded: 0, skipped: 0 };
+  }
+  let seeded = 0;
+  let skipped = 0;
+  for (const routeKey of Object.keys(state.heyyAiRouteMap || {})) {
+    const normalizedRouteKey = normalizeRecipient(routeKey);
+    if (!normalizedRouteKey) {
+      skipped += 1;
+      continue;
+    }
+    const alreadyMapped = Object.values(state.chatRefMap || {}).some((entry) => {
+      if (!(entry && typeof entry === "object")) {
+        return false;
+      }
+      return normalizeRecipient(entry.route_hint_digits || "") === normalizedRouteKey;
+    });
+    if (alreadyMapped) {
+      skipped += 1;
+      continue;
+    }
+    try {
+      const resolved = await resolveRecipientChat(normalizedRouteKey);
+      if (!resolved.chat_ref) {
+        skipped += 1;
+        continue;
+      }
+      rememberChatRouteHint(resolved.chat_ref, normalizedRouteKey);
+      seeded += 1;
+    } catch (error) {
+      console.warn(`[wa-web-session] route hint seed failed for ${SESSION_REF}; route_key=${normalizedRouteKey} error=${error.message || error}`);
+      skipped += 1;
+    }
+  }
+  if (seeded > 0) {
+    persistOutboxState();
+  }
+  return { seeded, skipped };
+}
+
 function chatRefFromChatId(chatId) {
   const value = String(chatId || "").trim();
   if (!value) {
     return "";
   }
   const chatRef = crypto.createHash("sha256").update(`${SESSION_REF}:${value}`).digest("hex").slice(0, 24);
+  const existing = state.chatRefMap[chatRef] && typeof state.chatRefMap[chatRef] === "object"
+    ? state.chatRefMap[chatRef]
+    : {};
   state.chatRefMap[chatRef] = {
+    ...existing,
     chat_id: value,
     chat_id_kind: chatIdKindFrom(value),
     recorded_at: nowIso()
@@ -913,6 +1060,31 @@ function messageDirectionFrom(message) {
   return message && message.fromMe ? "outbound" : "inbound";
 }
 
+function routeHintDigitsFromChatRef(chatRef) {
+  const value = String(chatRef || "").trim();
+  if (!value) {
+    return "";
+  }
+  const mapped = state.chatRefMap[value] || {};
+  return normalizeRecipient(mapped.route_hint_digits || mapped.inbound_number_digits || mapped.route_key_hint || "");
+}
+
+function rememberChatRouteHint(chatRef, routeHintDigits) {
+  const value = String(chatRef || "").trim();
+  const normalizedDigits = normalizeRecipient(routeHintDigits);
+  if (!value || !normalizedDigits) {
+    return;
+  }
+  const existing = state.chatRefMap[value] && typeof state.chatRefMap[value] === "object"
+    ? state.chatRefMap[value]
+    : {};
+  state.chatRefMap[value] = {
+    ...existing,
+    route_hint_digits: normalizedDigits,
+    recorded_at: nowIso()
+  };
+}
+
 function heyyAiRouteForSenderDigits(senderDigits) {
   const normalized = normalizeRecipient(senderDigits);
   const mapped = (normalized && state.heyyAiRouteMap[normalized]) || state.heyyAiRouteMap["*"] || {};
@@ -936,6 +1108,25 @@ function heyyAiRouteForSenderDigits(senderDigits) {
     typing_delay_ms_per_character: typingDelayMsPerCharacterForAiKey(aiKey, mapped.typing_delay_ms_per_character, pacingDefaults.typing_delay_ms_per_character, { allow_zero: matched }),
     typing_status_enabled: parseBoolean(mapped.typing_status_enabled, DEFAULT_HEYY_AI_TYPING_STATUS_ENABLED)
   };
+}
+
+function heyyAiRouteForInboundMessage(message, fallbackChatRef = "") {
+  const senderDigits = senderDigitsFrom(message);
+  const senderRoute = heyyAiRouteForSenderDigits(senderDigits);
+  const chatId = chatIdFromWid(message && message.id && message.id.remote ? message.id.remote : null);
+  const chatRef = chatRefFromChatId(chatId) || String(fallbackChatRef || "").trim();
+  const hintedDigits = routeHintDigitsFromChatRef(chatRef);
+  if (hintedDigits) {
+    const hintedRoute = heyyAiRouteForSenderDigits(hintedDigits);
+    if (hintedRoute.matched) {
+      const accountDigits = currentAccountDigits();
+      const senderLooksLikeCurrentAccount = Boolean(senderDigits && accountDigits && senderDigits === accountDigits);
+      if (!senderRoute.matched || senderLooksLikeCurrentAccount || hintedDigits !== senderDigits) {
+        return hintedRoute;
+      }
+    }
+  }
+  return senderRoute;
 }
 
 function requestValue(body, keys) {
@@ -1022,15 +1213,16 @@ function routeWithOutboundPersonaOverride(route, body = {}) {
 }
 
 function heyyAiRouteForMessage(message) {
-  return heyyAiRouteForSenderDigits(senderDigitsFrom(message));
+  return heyyAiRouteForInboundMessage(message);
 }
 
-function publicHeyyAiRoutes() {
+function publicHeyyAiRoutes(options = {}) {
+  const includeDetails = parseBoolean(options && options.includeDetails, false);
   return Object.entries(state.heyyAiRouteMap).map(([routeKey, route]) => {
     const aiKey = String(route.ai_key || DEFAULT_HEYY_AI_KEY).trim() || DEFAULT_HEYY_AI_KEY;
     const pacingDefaults = defaultPacingForAiKey(aiKey);
     const allowZeroPacing = routeKey !== "*";
-    return {
+    const row = {
       ai_key: aiKey,
       auto_reply_enabled: parseBoolean(route.auto_reply_enabled, aiKey === DEFAULT_HEYY_AI_KEY),
       ai_name: String(route.ai_name || route.ai_key || DEFAULT_HEYY_AI_NAME).trim() || DEFAULT_HEYY_AI_NAME,
@@ -1048,7 +1240,74 @@ function publicHeyyAiRoutes() {
       typing_delay_ms_per_character: typingDelayMsPerCharacterForAiKey(aiKey, route.typing_delay_ms_per_character, pacingDefaults.typing_delay_ms_per_character, { allow_zero: allowZeroPacing }),
       typing_status_enabled: parseBoolean(route.typing_status_enabled, DEFAULT_HEYY_AI_TYPING_STATUS_ENABLED)
     };
+    if (includeDetails) {
+      row.behavior_prompt = String(route.behavior_prompt || "").trim();
+      row.inbound_number_digits = routeKey === "*" ? "" : String(routeKey || "").trim();
+      row.memory_notes = String(route.memory_notes || "").trim();
+      row.pacing_hint = String(route.pacing_hint || "").trim();
+      row.reply_text = String(route.reply_text || "").trim();
+    }
+    return row;
   });
+}
+
+function recordedOutboundPersonaFrom(message, fallbackChatRef = "") {
+  if (!(message && message.fromMe)) {
+    return { ai_key: "", ai_name: "", matched: false };
+  }
+  const messageId = messageIdFrom(message);
+  const chatId = chatIdFromWid(message && message.id && message.id.remote ? message.id.remote : null);
+  const recipientDigits = normalizeRecipient(String(chatId || "").split("@", 1)[0]);
+  const chatRef = chatRefFromChatId(chatId) || String(fallbackChatRef || "").trim();
+  const body = messageBodyFrom(message);
+  let bodyMatch = null;
+  for (let index = state.outbox.length - 1; index >= 0; index -= 1) {
+    const recorded = state.outbox[index];
+    if (!recorded || typeof recorded !== "object") {
+      continue;
+    }
+    if (messageId && String(recorded.id || "").trim() === messageId) {
+      return {
+        ai_key: String(recorded.heyy_ai_key || "").trim(),
+        ai_name: String(recorded.heyy_ai_name || "").trim(),
+        matched: Boolean(String(recorded.heyy_ai_key || "").trim())
+      };
+    }
+    if (!bodyMatch && chatRef && body && String(recorded.chat_ref || "").trim() === chatRef && String(recorded.body_text || "").trim() === body) {
+      bodyMatch = {
+        ai_key: String(recorded.heyy_ai_key || "").trim(),
+        ai_name: String(recorded.heyy_ai_name || "").trim(),
+        matched: Boolean(String(recorded.heyy_ai_key || "").trim())
+      };
+    }
+  }
+  if (bodyMatch) {
+    return bodyMatch;
+  }
+  if (chatRef) {
+    const hintedDigits = routeHintDigitsFromChatRef(chatRef);
+    if (hintedDigits) {
+      const hintedRoute = heyyAiRouteForSenderDigits(hintedDigits);
+      if (hintedRoute.matched) {
+        return {
+          ai_key: String(hintedRoute.ai_key || "").trim(),
+          ai_name: String(hintedRoute.ai_name || "").trim(),
+          matched: Boolean(String(hintedRoute.ai_key || "").trim())
+        };
+      }
+    }
+  }
+  if (recipientDigits) {
+    const recipientRoute = heyyAiRouteForSenderDigits(recipientDigits);
+    if (recipientRoute.matched) {
+      return {
+        ai_key: String(recipientRoute.ai_key || "").trim(),
+        ai_name: String(recipientRoute.ai_name || "").trim(),
+        matched: Boolean(String(recipientRoute.ai_key || "").trim())
+      };
+    }
+  }
+  return { ai_key: "", ai_name: "", matched: false };
 }
 
 function sanitizedMessageFrom(message, fallbackChatRef = "") {
@@ -1057,7 +1316,9 @@ function sanitizedMessageFrom(message, fallbackChatRef = "") {
   const chatId = chatIdFromWid(message && message.id && message.id.remote ? message.id.remote : null);
   const chatRef = chatRefFromChatId(chatId) || String(fallbackChatRef || "").trim();
   const senderDigits = senderDigitsFrom(message);
-  const route = message && message.fromMe ? { ai_key: "", ai_name: "", matched: false } : heyyAiRouteForSenderDigits(senderDigits);
+  const route = message && message.fromMe
+    ? recordedOutboundPersonaFrom(message, chatRef)
+    : heyyAiRouteForInboundMessage(message, chatRef);
   const item = {
     ack: ackValueFrom(message && message.ack),
     ack_label: ackLabelFrom(message && message.ack),
@@ -1756,6 +2017,7 @@ function recordOutboundMessage(
     body_present: Boolean(body),
     button_count: Math.max(0, Number(buttonCount) || 0),
     buttons_fallback: Boolean(buttonsFallback),
+    chat_ref: String(resolved && resolved.chat_ref ? resolved.chat_ref : "").trim(),
     chat_id_kind: String(resolved && resolved.chat_id_kind ? resolved.chat_id_kind : "").trim(),
     chat_id_present: Boolean(resolved && resolved.chat_id_present),
     direction: "outbound",
@@ -1763,6 +2025,9 @@ function recordOutboundMessage(
     heyy_ai_name: String(heyyAiName || "").trim(),
     id: messageId,
     origin: String(origin || "send").trim() || "send",
+    route_hint_digits: String(resolved && (resolved.route_hint_digits || resolved.recipient_digits || resolved.route_key_hint)
+      ? (resolved.route_hint_digits || resolved.recipient_digits || resolved.route_key_hint)
+      : "").trim(),
     sent_at: nowIso()
   };
   recorded.pre_reply_delay_ms = boundedTypingDelayMs(preReplyDelayMs);
@@ -1771,11 +2036,18 @@ function recordOutboundMessage(
   if (STORE_MESSAGE_TEXT) {
     recorded.body_text = body;
   }
+  rememberChatRouteHint(
+    String(resolved && resolved.chat_ref ? resolved.chat_ref : "").trim(),
+    String(resolved && (resolved.route_hint_digits || resolved.recipient_digits || resolved.route_key_hint)
+      ? (resolved.route_hint_digits || resolved.recipient_digits || resolved.route_key_hint)
+      : "")
+  );
   state.outbox.push(recorded);
   if (state.outbox.length > boundedInboxLimit()) {
     state.outbox = state.outbox.slice(-boundedInboxLimit());
   }
   state.lastSendAt = recorded.sent_at;
+  persistOutboxState();
   return recorded;
 }
 
@@ -1817,6 +2089,7 @@ function updateOutboundAck(message, ack) {
   if (state.outbox.length > boundedInboxLimit()) {
     state.outbox = state.outbox.slice(-boundedInboxLimit());
   }
+  persistOutboxState();
   return recorded;
 }
 
@@ -1826,7 +2099,7 @@ function recordInboundMessage(message) {
   const selectedButtonId = actionButtonIdFrom(message);
   const chatId = chatIdFromWid(message && message.id && message.id.remote ? message.id.remote : null);
   const chatRef = chatRefFromChatId(chatId);
-  const route = heyyAiRouteForSenderDigits(senderDigits);
+  const route = heyyAiRouteForInboundMessage(message, chatRef);
   const recorded = {
     body_present: Boolean(body),
     chat_id_kind: chatIdKindFrom(chatId),
@@ -1948,6 +2221,13 @@ client.on("ready", () => {
   state.ready = true;
   state.status = "ready";
   console.log(`[wa-web-session] ready ${SESSION_REF}`);
+  seedChatRouteHintsFromPrivateRoutes()
+    .then((summary) => {
+      console.log(`[wa-web-session] route hint seed for ${SESSION_REF}; seeded=${summary.seeded} skipped=${summary.skipped}`);
+    })
+    .catch((error) => {
+      console.warn(`[wa-web-session] route hint seed failed for ${SESSION_REF}: ${error.message || error}`);
+    });
 });
 
 client.on("disconnected", (reason) => {
@@ -2245,18 +2525,20 @@ app.get("/sessions/:sessionRef/heyy-ai-routes", requireAuth, (req, res) => {
     res.status(404).json({ ok: false, reason: "session_not_found" });
     return;
   }
+  const includeDetails = parseBoolean(req.query && (req.query.include_details || req.query.includeDetails), false);
   res.json({
     default_heyy_ai_key: DEFAULT_HEYY_AI_KEY,
     default_heyy_ai_name: DEFAULT_HEYY_AI_NAME,
+    include_details: includeDetails,
     ok: true,
     route_count: Object.keys(state.heyyAiRouteMap).length,
-    routes: publicHeyyAiRoutes(),
+    routes: publicHeyyAiRoutes({ includeDetails }),
     session_ref: SESSION_REF,
     status: state.status
   });
 });
 
-app.put("/sessions/:sessionRef/heyy-ai-routes", requireAuth, (req, res) => {
+app.put("/sessions/:sessionRef/heyy-ai-routes", requireAuth, async (req, res) => {
   if (String(req.params.sessionRef || "") !== SESSION_REF) {
     res.status(404).json({ ok: false, reason: "session_not_found" });
     return;
@@ -2265,11 +2547,16 @@ app.put("/sessions/:sessionRef/heyy-ai-routes", requireAuth, (req, res) => {
   const normalized = normalizeHeyyAiRouteMap(routes);
   state.heyyAiRouteMap = normalized;
   const persisted = persistHeyyAiRouteMap(normalized);
+  let seedSummary = { seeded: 0, skipped: 0 };
+  if (state.ready) {
+    seedSummary = await seedChatRouteHintsFromPrivateRoutes();
+  }
   res.json({
     last_route_map_persist_at: state.lastRouteMapPersistAt,
     ok: true,
     route_count: Object.keys(state.heyyAiRouteMap).length,
     route_map_persisted: persisted,
+    route_hint_seeded: seedSummary.seeded,
     routes: publicHeyyAiRoutes(),
     session_ref: SESSION_REF,
     status: state.status
@@ -2361,6 +2648,7 @@ app.get("/sessions/:sessionRef/recipients/:recipient", requireAuth, async (req, 
   try {
     const resolved = await resolveRecipientChat(recipient);
     res.json({
+      chat_ref: resolved.chat_ref,
       chat_id_kind: resolved.chat_id_kind,
       chat_id_present: resolved.chat_id_present,
       lid_chat_id_present: resolved.lid_chat_id_present,
@@ -2584,6 +2872,9 @@ app.post("/sessions/:sessionRef/messages", requireAuth, async (req, res) => {
       sendTimeoutMs,
       "outbound_send_timeout"
     );
+    resolved.chat_ref = String(resolved.chat_ref || chatRefFromChatId(resolved.chatId)).trim();
+    resolved.recipient_digits = recipient;
+    resolved.route_key_hint = recipient;
     if (!outboundMedia && sendContent.control_kind === "poll") {
       storeRecentPollMap(result, resolved.chatId, buttonRows);
     }

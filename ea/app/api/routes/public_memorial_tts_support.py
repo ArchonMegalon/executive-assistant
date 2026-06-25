@@ -13,20 +13,15 @@ def _tts_plugin_options(
     text: Callable[[object, str], str],
     browser_speech_tts_plugin_id: str,
     unmixr_tts_plugin_id: str,
-    openvoice_tts_plugin_id: str,
-    piper_fast_plugin_option: Callable[[], dict[str, object]],
     unmixr_plugin_option: Callable[..., dict[str, object]],
     voicewave_plugin_option: Callable[..., dict[str, object]],
-    openvoice_plugin_option: Callable[..., dict[str, object]],
     unmixr_memorial_voice_id: Callable[[], str],
-    openvoice_memorial_voice_id: Callable[[], str],
     voicewave_memorial_voice_label: Callable[[], str],
 ) -> list[dict[str, object]]:
     configured_voice_id = runtime_secret_placeholder(text(payload.get("tts_plugin_voice_id"), ""))
     unmixr_voice_id = configured_voice_id or unmixr_memorial_voice_id()
     voicewave_voice_id = configured_voice_id or voicewave_memorial_voice_label()
     return [
-        piper_fast_plugin_option(),
         {
             "tts_plugin": browser_speech_tts_plugin_id,
             "tts_plugin_enabled": True,
@@ -47,6 +42,17 @@ def _tts_plugin_options(
     ]
 
 
+def _disabled_tts_fallback(tts_plugin_default_id: str) -> tuple[str, dict[str, object]]:
+    return tts_plugin_default_id, {
+        "tts_plugin": tts_plugin_default_id,
+        "tts_plugin_enabled": False,
+        "tts_plugin_needs_clone": False,
+        "tts_plugin_voice_id": "",
+        "tts_plugin_label": "Unmixr Voice Clone",
+        "tts_plugin_description": "Keine Voice-Konfiguration aktiv.",
+    }
+
+
 def _resolve_tts_plugin(
     *,
     payload: dict[str, object],
@@ -63,21 +69,13 @@ def _resolve_tts_plugin(
         for option in options:
             if option.get("tts_plugin") != requested:
                 continue
-            return requested, option
+            if bool(option.get("tts_plugin_enabled")):
+                return requested, option
+            break
     for option in options:
         if option.get("tts_plugin_enabled"):
             return str(option.get("tts_plugin") or tts_plugin_default_id), option
-    if options:
-        first = options[0]
-        return safe_tts_plugin_id(first.get("tts_plugin")) or tts_plugin_default_id, first
-    return tts_plugin_default_id, {
-        "tts_plugin": tts_plugin_default_id,
-        "tts_plugin_enabled": False,
-        "tts_plugin_needs_clone": False,
-        "tts_plugin_voice_id": "",
-        "tts_plugin_label": "Unmixr Voice Clone",
-        "tts_plugin_description": "Keine Voice-Konfiguration aktiv.",
-    }
+    return _disabled_tts_fallback(tts_plugin_default_id)
 
 
 def _resolve_server_tts_plugin(
@@ -98,7 +96,7 @@ def _resolve_server_tts_plugin(
             continue
         if bool(option.get("tts_plugin_enabled")):
             return option_plugin or tts_plugin_default_id, option
-    return selected_plugin, selected_option
+    return _disabled_tts_fallback(tts_plugin_default_id)
 
 
 def _display_tts_plugin_label(
@@ -107,13 +105,12 @@ def _display_tts_plugin_label(
     voice_label: str,
     safe_tts_plugin_id: Callable[[object], str],
     unmixr_tts_plugin_id: str,
-    openvoice_tts_plugin_id: str,
     piper_fast_tts_plugin_id: str,
     browser_speech_tts_plugin_id: str,
 ) -> str:
     plugin_id = safe_tts_plugin_id(option.get("tts_plugin"))
     friendly_voice_label = str(voice_label or "").strip() or "Manfred"
-    if plugin_id in {unmixr_tts_plugin_id, openvoice_tts_plugin_id}:
+    if plugin_id == unmixr_tts_plugin_id:
         return "Manfreds Stimme" if friendly_voice_label.lower().startswith("manfred") else f"{friendly_voice_label}s Stimme"
     if plugin_id == piper_fast_tts_plugin_id:
         return "Schnelle Gesprächsstimme"
@@ -134,15 +131,10 @@ def _effective_tts_base_voice_variant(
     *,
     text: Callable[[object, str], str],
     safe_tts_plugin_id: Callable[[object], str],
-    openvoice_tts_plugin_id: str,
 ) -> str:
     configured = text(payload.get("tts_base_voice_variant"), "").strip().lower()
     if configured:
         return configured
-    plugin_id = safe_tts_plugin_id(payload.get("tts_plugin"))
-    voice_id = text(payload.get("tts_plugin_voice_id"), "").strip().lower()
-    if plugin_id == openvoice_tts_plugin_id and voice_id in {"manfredc", "manfredb24", "manfredsatz"}:
-        return "balanced"
     return "default"
 
 
@@ -167,7 +159,6 @@ def _load_voice_config(
     runtime_secret_placeholder: Callable[[object], str],
     float_between: Callable[..., float],
     unmixr_memorial_voice_id: Callable[[], str],
-    openvoice_memorial_voice_id: Callable[[], str],
     public_voice_profile_summary: Callable[[str], dict[str, object]],
     tts_plugin_options: Callable[..., list[dict[str, object]]],
     resolve_tts_plugin: Callable[..., tuple[str, dict[str, object]]],
@@ -245,7 +236,6 @@ def _voice_config_to_public_payload(
     text: Callable[[object, str], str],
     safe_tts_plugin_id: Callable[[object], str],
     float_between: Callable[..., float],
-    openvoice_memorial_voice_id: Callable[[], str],
     tts_plugin_default_id: str,
 ) -> dict[str, object]:
     selected_plugin = safe_tts_plugin_id(text(payload.get("tts_plugin"), tts_plugin_default_id))
@@ -290,7 +280,6 @@ def _normalize_voice_config_payload(
     float_between: Callable[..., float],
     tts_plugin_default_id: str,
     unmixr_memorial_voice_id: Callable[[], str],
-    openvoice_memorial_voice_id: Callable[[], str],
 ) -> dict[str, object]:
     requested_plugin = safe_tts_plugin_id(text(payload.get("tts_plugin"), text(payload.get("tts_mode"), tts_plugin_default_id)))
     if not requested_plugin:

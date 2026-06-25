@@ -1,385 +1,41 @@
 {
+  "audiobook_runtime": {
+    "api_key_slot_count": 3,
+    "ready_for_live_intake": true,
+    "reason": "",
+    "receipt_present": true,
+    "sample_blockers": [],
+    "status": "warn",
+    "unmixr_auto_render_enabled": true,
+    "voice_catalog_count": 290
+  },
   "blocking_reason": "",
-  "candidate_count": 19,
-  "claim": "WhatsApp EPUB audiobook delivery has live proof only when a sanitized job receipt shows the M4B is ready, Audiobookshelf imported and public-shared it, WhatsApp sent the public share link, and machine playback works.",
+  "candidate_count": 2,
+  "claim": "WhatsApp EPUB audiobook delivery has live proof only when a sanitized job receipt shows the M4B is ready, Audiobookshelf imported and public-shared it, WhatsApp sent the public share link, and machine playback works. Human playback acceptance is a separate claim and is not implied by machine-playable delivery.",
   "contract_name": "ea.whatsapp_audiobook_live_delivery_receipt.v1",
-  "failed_candidate_count": 18,
+  "failed_candidate_count": 1,
   "failed_candidates": [
     {
       "failed_codes": [
-        "player_scoped_reference_not_ready"
+        "job_not_audiobookshelf_imported"
       ],
-      "job_id_sha256": "1a7a76f41c3bd81a974d309bb59ff80837451843917026aacc130b70729f0837",
+      "job_id_sha256": "275975b4fb3c037ac9ce727bfbc307f69b8729ed5469790fdaaff43fa77047c1",
       "public_share_status": "public_share_ready",
-      "status": "audiobookshelf_imported",
+      "status": "superseded_duplicate",
       "title_present": true,
       "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4",
       "whatsapp_delivery_status": "sent"
-    },
-    {
-      "failed_codes": [
-        "job_not_audiobookshelf_imported",
-        "audiobookshelf_import_not_imported",
-        "audiobookshelf_target_file_not_ready",
-        "player_scoped_reference_not_ready",
-        "audiobookshelf_public_share_not_ready",
-        "audiobookshelf_public_share_url_missing",
-        "whatsapp_public_share_delivery_not_sent",
-        "whatsapp_public_share_message_id_missing",
-        "machine_playback_e2e_not_verified"
-      ],
-      "job_id_sha256": "b6f82bf7519008902fba1f91226dcac76a4f224995a6d2bea4ecae42f31daea5",
-      "public_share_status": "",
-      "status": "m4b_ready",
-      "title_present": true,
-      "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4",
-      "whatsapp_delivery_status": ""
-    },
-    {
-      "failed_codes": [
-        "job_not_audiobookshelf_imported",
-        "m4b_output_file_not_ready",
-        "m4b_chapter_metadata_not_embedded",
-        "audiobookshelf_import_not_imported",
-        "audiobookshelf_target_file_not_ready",
-        "player_scoped_reference_not_ready",
-        "audiobookshelf_public_share_not_ready",
-        "audiobookshelf_public_share_url_missing",
-        "whatsapp_public_share_delivery_not_sent",
-        "whatsapp_public_share_message_id_missing",
-        "machine_playback_e2e_not_verified"
-      ],
-      "job_id_sha256": "755511fda9ed88d53a8c1f783e7b58c280a208cf0701ac4fb4e129386db98173",
-      "public_share_status": "",
-      "status": "waiting_voice_selection",
-      "title_present": true,
-      "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4",
-      "whatsapp_delivery_status": ""
-    },
-    {
-      "failed_codes": [
-        "job_not_audiobookshelf_imported",
-        "m4b_output_file_not_ready",
-        "m4b_chapter_metadata_not_embedded",
-        "audiobookshelf_import_not_imported",
-        "audiobookshelf_target_file_not_ready",
-        "player_scoped_reference_not_ready",
-        "audiobookshelf_public_share_not_ready",
-        "audiobookshelf_public_share_url_missing",
-        "whatsapp_public_share_delivery_not_sent",
-        "whatsapp_public_share_message_id_missing",
-        "machine_playback_e2e_not_verified"
-      ],
-      "job_id_sha256": "a85a41921a26a092bd8f3b30b5c1c2e1de114167de9dfcd6657ac4e52aa46b38",
-      "public_share_status": "",
-      "status": "waiting_voice_selection",
-      "title_present": true,
-      "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4",
-      "whatsapp_delivery_status": ""
-    },
-    {
-      "failed_codes": [
-        "job_not_audiobookshelf_imported",
-        "m4b_output_file_not_ready",
-        "m4b_chapter_metadata_not_embedded",
-        "audiobookshelf_import_not_imported",
-        "audiobookshelf_target_file_not_ready",
-        "player_scoped_reference_not_ready",
-        "audiobookshelf_public_share_not_ready",
-        "audiobookshelf_public_share_url_missing",
-        "whatsapp_public_share_delivery_not_sent",
-        "whatsapp_public_share_message_id_missing",
-        "machine_playback_e2e_not_verified"
-      ],
-      "job_id_sha256": "0fef69dbcaff704746bb06a39dd0e64ec28f6da2c487b4360759ef4acd4d9f83",
-      "public_share_status": "",
-      "status": "waiting_voice_selection",
-      "title_present": true,
-      "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4",
-      "whatsapp_delivery_status": ""
-    },
-    {
-      "failed_codes": [
-        "job_not_audiobookshelf_imported",
-        "m4b_output_file_not_ready",
-        "m4b_chapter_metadata_not_embedded",
-        "audiobookshelf_import_not_imported",
-        "audiobookshelf_target_file_not_ready",
-        "player_scoped_reference_not_ready",
-        "audiobookshelf_public_share_not_ready",
-        "audiobookshelf_public_share_url_missing",
-        "whatsapp_public_share_delivery_not_sent",
-        "whatsapp_public_share_message_id_missing",
-        "machine_playback_e2e_not_verified"
-      ],
-      "job_id_sha256": "67094c2024c84fcf106d396b2f29bb1fa08e7dfd6b5726364a4fb999b92dc8ad",
-      "public_share_status": "",
-      "status": "waiting_voice_selection",
-      "title_present": true,
-      "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4",
-      "whatsapp_delivery_status": ""
-    },
-    {
-      "failed_codes": [
-        "job_not_audiobookshelf_imported",
-        "m4b_output_file_not_ready",
-        "m4b_chapter_metadata_not_embedded",
-        "audiobookshelf_import_not_imported",
-        "audiobookshelf_target_file_not_ready",
-        "player_scoped_reference_not_ready",
-        "audiobookshelf_public_share_not_ready",
-        "audiobookshelf_public_share_url_missing",
-        "whatsapp_public_share_delivery_not_sent",
-        "whatsapp_public_share_message_id_missing",
-        "machine_playback_e2e_not_verified"
-      ],
-      "job_id_sha256": "c4ef817e3e4ae354e7a5fc38be67bc821e43ff01bafe778f90a5ac9084c1739d",
-      "public_share_status": "",
-      "status": "waiting_voice_selection",
-      "title_present": true,
-      "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4",
-      "whatsapp_delivery_status": ""
-    },
-    {
-      "failed_codes": [
-        "job_not_audiobookshelf_imported",
-        "m4b_output_file_not_ready",
-        "m4b_chapter_metadata_not_embedded",
-        "audiobookshelf_import_not_imported",
-        "audiobookshelf_target_file_not_ready",
-        "player_scoped_reference_not_ready",
-        "audiobookshelf_public_share_not_ready",
-        "audiobookshelf_public_share_url_missing",
-        "whatsapp_public_share_delivery_not_sent",
-        "whatsapp_public_share_message_id_missing",
-        "machine_playback_e2e_not_verified"
-      ],
-      "job_id_sha256": "3f7e395ad615556914c6f1ab2228a3231ef7021c0731b913b71213523d241f01",
-      "public_share_status": "",
-      "status": "waiting_voice_selection",
-      "title_present": true,
-      "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4",
-      "whatsapp_delivery_status": ""
-    },
-    {
-      "failed_codes": [
-        "job_not_audiobookshelf_imported",
-        "m4b_output_file_not_ready",
-        "m4b_chapter_metadata_not_embedded",
-        "audiobookshelf_import_not_imported",
-        "audiobookshelf_target_file_not_ready",
-        "player_scoped_reference_not_ready",
-        "audiobookshelf_public_share_not_ready",
-        "audiobookshelf_public_share_url_missing",
-        "whatsapp_public_share_delivery_not_sent",
-        "whatsapp_public_share_message_id_missing",
-        "machine_playback_e2e_not_verified"
-      ],
-      "job_id_sha256": "f6e37bd08f2ce591c8b6b047bebb9bd6b3fbb879f0d5a855e5198ab9a9106b2e",
-      "public_share_status": "",
-      "status": "waiting_voice_selection",
-      "title_present": true,
-      "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4",
-      "whatsapp_delivery_status": ""
-    },
-    {
-      "failed_codes": [
-        "job_not_audiobookshelf_imported",
-        "m4b_output_file_not_ready",
-        "m4b_chapter_metadata_not_embedded",
-        "audiobookshelf_import_not_imported",
-        "audiobookshelf_target_file_not_ready",
-        "player_scoped_reference_not_ready",
-        "audiobookshelf_public_share_not_ready",
-        "audiobookshelf_public_share_url_missing",
-        "whatsapp_public_share_delivery_not_sent",
-        "whatsapp_public_share_message_id_missing",
-        "machine_playback_e2e_not_verified"
-      ],
-      "job_id_sha256": "13eaf670a764ec720cef65bae080783668b5257026164cf1ee3cb29f565b2c26",
-      "public_share_status": "",
-      "status": "waiting_voice_selection",
-      "title_present": true,
-      "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4",
-      "whatsapp_delivery_status": ""
-    },
-    {
-      "failed_codes": [
-        "job_not_audiobookshelf_imported",
-        "m4b_output_file_not_ready",
-        "m4b_chapter_metadata_not_embedded",
-        "audiobookshelf_import_not_imported",
-        "audiobookshelf_target_file_not_ready",
-        "player_scoped_reference_not_ready",
-        "audiobookshelf_public_share_not_ready",
-        "audiobookshelf_public_share_url_missing",
-        "whatsapp_public_share_delivery_not_sent",
-        "whatsapp_public_share_message_id_missing",
-        "machine_playback_e2e_not_verified"
-      ],
-      "job_id_sha256": "621a8b5934db0ade0ea06da3f8aa5402080370e8a2951a4ec3ad9a27bc90f40d",
-      "public_share_status": "",
-      "status": "waiting_voice_selection",
-      "title_present": true,
-      "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4",
-      "whatsapp_delivery_status": ""
-    },
-    {
-      "failed_codes": [
-        "job_not_audiobookshelf_imported",
-        "m4b_output_file_not_ready",
-        "m4b_chapter_metadata_not_embedded",
-        "audiobookshelf_import_not_imported",
-        "audiobookshelf_target_file_not_ready",
-        "player_scoped_reference_not_ready",
-        "audiobookshelf_public_share_not_ready",
-        "audiobookshelf_public_share_url_missing",
-        "whatsapp_public_share_delivery_not_sent",
-        "whatsapp_public_share_message_id_missing",
-        "machine_playback_e2e_not_verified"
-      ],
-      "job_id_sha256": "1e60dbe8d34735adb8678aa676c0f668fbc9487ff233402001bec2ca3a6354ba",
-      "public_share_status": "",
-      "status": "waiting_voice_selection",
-      "title_present": true,
-      "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4",
-      "whatsapp_delivery_status": ""
-    },
-    {
-      "failed_codes": [
-        "job_not_audiobookshelf_imported",
-        "m4b_output_file_not_ready",
-        "m4b_chapter_metadata_not_embedded",
-        "audiobookshelf_import_not_imported",
-        "audiobookshelf_target_file_not_ready",
-        "player_scoped_reference_not_ready",
-        "audiobookshelf_public_share_not_ready",
-        "audiobookshelf_public_share_url_missing",
-        "whatsapp_public_share_delivery_not_sent",
-        "whatsapp_public_share_message_id_missing",
-        "machine_playback_e2e_not_verified"
-      ],
-      "job_id_sha256": "6828d04db1e71a363bc41f2afa683a956e23f980b123c287ae2de49056e7df19",
-      "public_share_status": "",
-      "status": "waiting_voice_selection",
-      "title_present": true,
-      "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4",
-      "whatsapp_delivery_status": ""
-    },
-    {
-      "failed_codes": [
-        "job_not_audiobookshelf_imported",
-        "m4b_output_file_not_ready",
-        "m4b_chapter_metadata_not_embedded",
-        "audiobookshelf_import_not_imported",
-        "audiobookshelf_target_file_not_ready",
-        "player_scoped_reference_not_ready",
-        "audiobookshelf_public_share_not_ready",
-        "audiobookshelf_public_share_url_missing",
-        "whatsapp_public_share_delivery_not_sent",
-        "whatsapp_public_share_message_id_missing",
-        "machine_playback_e2e_not_verified"
-      ],
-      "job_id_sha256": "48f256c6392b043500408d8bfcbc5cf606df1679f721e306304df032bbc64866",
-      "public_share_status": "",
-      "status": "waiting_voice_selection",
-      "title_present": true,
-      "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4",
-      "whatsapp_delivery_status": ""
-    },
-    {
-      "failed_codes": [
-        "job_not_audiobookshelf_imported",
-        "m4b_output_file_not_ready",
-        "m4b_chapter_metadata_not_embedded",
-        "audiobookshelf_import_not_imported",
-        "audiobookshelf_target_file_not_ready",
-        "player_scoped_reference_not_ready",
-        "audiobookshelf_public_share_not_ready",
-        "audiobookshelf_public_share_url_missing",
-        "whatsapp_public_share_delivery_not_sent",
-        "whatsapp_public_share_message_id_missing",
-        "machine_playback_e2e_not_verified"
-      ],
-      "job_id_sha256": "05b509707f297e770267590a5112fd9223e3987c983e627fa2890db494923d5a",
-      "public_share_status": "",
-      "status": "waiting_voice_selection",
-      "title_present": true,
-      "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4",
-      "whatsapp_delivery_status": ""
-    },
-    {
-      "failed_codes": [
-        "job_not_audiobookshelf_imported",
-        "m4b_output_file_not_ready",
-        "m4b_chapter_metadata_not_embedded",
-        "audiobookshelf_import_not_imported",
-        "audiobookshelf_target_file_not_ready",
-        "player_scoped_reference_not_ready",
-        "audiobookshelf_public_share_not_ready",
-        "audiobookshelf_public_share_url_missing",
-        "whatsapp_public_share_delivery_not_sent",
-        "whatsapp_public_share_message_id_missing",
-        "machine_playback_e2e_not_verified"
-      ],
-      "job_id_sha256": "0164647b9dc8b5b3e22f47529af039ec20c38a087a54c5dc66ae2d93c788d6ec",
-      "public_share_status": "",
-      "status": "waiting_voice_selection",
-      "title_present": true,
-      "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4",
-      "whatsapp_delivery_status": ""
-    },
-    {
-      "failed_codes": [
-        "job_not_audiobookshelf_imported",
-        "m4b_output_file_not_ready",
-        "m4b_chapter_metadata_not_embedded",
-        "audiobookshelf_import_not_imported",
-        "audiobookshelf_target_file_not_ready",
-        "player_scoped_reference_not_ready",
-        "audiobookshelf_public_share_not_ready",
-        "audiobookshelf_public_share_url_missing",
-        "whatsapp_public_share_delivery_not_sent",
-        "whatsapp_public_share_message_id_missing",
-        "machine_playback_e2e_not_verified"
-      ],
-      "job_id_sha256": "36cb45cd22ff6bde4db528e2d6683ebeb97b39cdb9007f09152e6f5995abc235",
-      "public_share_status": "",
-      "status": "waiting_voice_selection",
-      "title_present": true,
-      "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4",
-      "whatsapp_delivery_status": ""
-    },
-    {
-      "failed_codes": [
-        "job_not_audiobookshelf_imported",
-        "m4b_output_file_not_ready",
-        "m4b_chapter_metadata_not_embedded",
-        "audiobookshelf_import_not_imported",
-        "audiobookshelf_target_file_not_ready",
-        "player_scoped_reference_not_ready",
-        "audiobookshelf_public_share_not_ready",
-        "audiobookshelf_public_share_url_missing",
-        "whatsapp_public_share_delivery_not_sent",
-        "whatsapp_public_share_message_id_missing",
-        "machine_playback_e2e_not_verified"
-      ],
-      "job_id_sha256": "362f505a444db4f0fa8f4bdf75201648e466531e43251bb4e08dfb07387d95b3",
-      "public_share_status": "",
-      "status": "waiting_voice_selection",
-      "title_present": true,
-      "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4",
-      "whatsapp_delivery_status": ""
     }
   ],
   "failed_codes": [],
-  "generated_at": "2026-06-22T20:17:46.805468Z",
+  "fresh_live_job_receipt_proven": true,
+  "generated_at": "2026-06-23T16:15:08.752234Z",
   "generated_by": "ea/scripts/materialize_whatsapp_audiobook_live_delivery_receipt.py",
   "goal_completion_claim_allowed": false,
   "historical_evidence": {
     "historical_live_path_proven": true,
     "local_intake": {
-      "generated_at": "2026-06-22T20:17:47.035654Z",
+      "generated_at": "2026-06-23T16:15:09.004660Z",
       "local_path_proven": true,
       "receipt_present": true,
       "share_link_sent": 1,
@@ -387,19 +43,19 @@
       "voice_sample_sent": 3
     },
     "operator_bundle": {
-      "generated_at": "2026-06-22T19:12:38.636297Z",
+      "generated_at": "2026-06-23T14:03:42.950412Z",
       "live_delivery_claim_allowed": true,
       "live_delivery_status": "pass",
       "live_path_proven": true,
       "receipt_present": true,
-      "recommended_action": "capture_real_user_playback_acceptance_or_close_operator_loop",
+      "recommended_action": "review_audiobook_playback_problem",
       "status": "pass",
       "voice_selection_text_fallback_ready": true
     },
     "present": true,
     "public_share_playback": {
       "attempted": 1,
-      "generated_at": "2026-06-22T19:12:47.812102Z",
+      "generated_at": "2026-06-23T14:07:12.728768Z",
       "passed": 1,
       "passed_result_count": 1,
       "playback_path_proven": true,
@@ -411,14 +67,32 @@
     },
     "requires_fresh_live_job_receipt": true
   },
+  "historical_or_shadow_proof_only": false,
+  "human_playback_acceptance_claim_allowed": false,
+  "human_playback_acceptance_evidence": {
+    "accepted": false,
+    "claim_allowed": false,
+    "evidence_grade": "operator",
+    "feedback_sha256_present": true,
+    "feedback_sha256_required": true,
+    "feedback_sha256_valid": true,
+    "next_action": "review_audiobook_playback_problem",
+    "operator_grade": true,
+    "rejected": true,
+    "rejected_claim_observed": true,
+    "source_present": true,
+    "status": "rejected",
+    "whatsapp_sourced": true
+  },
   "limit": 100,
   "live_delivery_claim_allowed": true,
+  "live_delivery_claim_scope": "machine_playable_delivery_only",
   "load_errors": [],
   "machine_playback_e2e_verified": true,
-  "next_action": "capture_real_user_playback_acceptance_or_close_operator_loop",
-  "non_whatsapp_job_count": 10,
+  "next_action": "review_audiobook_playback_problem",
+  "non_whatsapp_job_count": 5,
   "observation_source": "jobs_root",
-  "observed_job_count": 29,
+  "observed_job_count": 7,
   "output_path": "/docker/EA/.codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
   "pending_user_selected_voice_job_count": 0,
   "pending_user_selected_voice_jobs": [],
@@ -426,7 +100,7 @@
     "audiobookshelf_token_exposed": false,
     "authors_redacted_to_sha256": true,
     "machine_playback_e2e_url_redacted": true,
-    "playback_acceptance_feedback_hashed": false,
+    "playback_acceptance_feedback_hashed": true,
     "provider_secret_exposed": false,
     "public_share_urls_redacted_to_host": true,
     "raw_job_receipts_persisted": false,
@@ -434,6 +108,19 @@
     "voice_labels_hashed": true,
     "whatsapp_message_ids_hashed": true,
     "whatsapp_sender_refs_hashed": true
+  },
+  "proof_freshness": {
+    "fresh_live_job_receipt_passed": true,
+    "fresh_live_job_receipt_present": true,
+    "historical_evidence_present": true,
+    "historical_live_path_proven": true,
+    "shadow_voice_selection_only": false
+  },
+  "proof_semantics": {
+    "human_acceptance_evidence": "rejected",
+    "live_delivery_claim_scope": "machine_playable_delivery_only",
+    "machine_playable_delivery_does_not_imply_human_acceptance": true,
+    "machine_playable_delivery_evidence": "fresh_job_receipt_and_machine_playback_e2e"
   },
   "real_user_playback_acceptance_verified": false,
   "runtime_readiness": {
@@ -449,19 +136,25 @@
     "author_present": true,
     "author_sha256": "74173ef36073182ba309b157c36465d17f728d7f6f555e32802b93a9428eb77c",
     "failed_codes": [],
-    "job_id_sha256": "275975b4fb3c037ac9ce727bfbc307f69b8729ed5469790fdaaff43fa77047c1",
+    "job_id_sha256": "1a7a76f41c3bd81a974d309bb59ff80837451843917026aacc130b70729f0837",
     "machine_playback_e2e_browser": "chromium_playwright",
-    "machine_playback_e2e_current_time_after_play_seconds": 2.962522,
+    "machine_playback_e2e_current_time_after_play_seconds": 2.959699,
     "machine_playback_e2e_duration_seconds": 14559.48,
+    "machine_playback_e2e_media_error_code": 0,
     "machine_playback_e2e_media_error_present": false,
+    "machine_playback_e2e_page_response_status": 200,
+    "machine_playback_e2e_reason": "",
     "machine_playback_e2e_status": "pass",
     "machine_playback_e2e_track_content_type": "audio/mp4",
+    "machine_playback_e2e_track_response_resource_type": "media",
     "machine_playback_e2e_track_response_status": 206,
     "machine_playback_e2e_verified": true,
     "playback_acceptance_feedback_sha256": "1d45152882a62b5ba66ed6536bc6d9e04e462e9c32942ceb83959bc8dec0e36a",
-    "playback_acceptance_source": "whatsapp_button",
+    "playback_acceptance_source": "whatsapp_button_recovered",
     "playback_acceptance_status": "rejected",
     "playback_acceptance_verified": false,
+    "player_scoped_reference_ready": false,
+    "player_scoped_reference_status": "blocked",
     "provider_pacing_waiting": false,
     "provider_retry_after": "",
     "public_share_host": "audiobookshelf.girschele.com",
@@ -483,23 +176,11 @@
   "stage_summary": {
     "counts": {
       "delivered_playable": 1,
-      "failed_needs_inspection": 1,
-      "render_or_import_pending": 1,
-      "waiting_voice_choice": 16
+      "render_or_import_pending": 1
     },
     "latest_by_stage": {
       "delivered_playable": {
         "failed_codes": [],
-        "job_id_sha256": "275975b4fb3c037ac9ce727bfbc307f69b8729ed5469790fdaaff43fa77047c1",
-        "public_share_status": "public_share_ready",
-        "status": "audiobookshelf_imported",
-        "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4",
-        "whatsapp_delivery_status": "sent"
-      },
-      "failed_needs_inspection": {
-        "failed_codes": [
-          "player_scoped_reference_not_ready"
-        ],
         "job_id_sha256": "1a7a76f41c3bd81a974d309bb59ff80837451843917026aacc130b70729f0837",
         "public_share_status": "public_share_ready",
         "status": "audiobookshelf_imported",
@@ -508,33 +189,13 @@
       },
       "render_or_import_pending": {
         "failed_codes": [
-          "job_not_audiobookshelf_imported",
-          "audiobookshelf_import_not_imported",
-          "audiobookshelf_target_file_not_ready",
-          "player_scoped_reference_not_ready",
-          "audiobookshelf_public_share_not_ready",
-          "audiobookshelf_public_share_url_missing"
+          "job_not_audiobookshelf_imported"
         ],
-        "job_id_sha256": "b6f82bf7519008902fba1f91226dcac76a4f224995a6d2bea4ecae42f31daea5",
-        "public_share_status": "",
-        "status": "m4b_ready",
+        "job_id_sha256": "275975b4fb3c037ac9ce727bfbc307f69b8729ed5469790fdaaff43fa77047c1",
+        "public_share_status": "public_share_ready",
+        "status": "superseded_duplicate",
         "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4",
-        "whatsapp_delivery_status": ""
-      },
-      "waiting_voice_choice": {
-        "failed_codes": [
-          "job_not_audiobookshelf_imported",
-          "m4b_output_file_not_ready",
-          "m4b_chapter_metadata_not_embedded",
-          "audiobookshelf_import_not_imported",
-          "audiobookshelf_target_file_not_ready",
-          "player_scoped_reference_not_ready"
-        ],
-        "job_id_sha256": "755511fda9ed88d53a8c1f783e7b58c280a208cf0701ac4fb4e129386db98173",
-        "public_share_status": "",
-        "status": "waiting_voice_selection",
-        "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4",
-        "whatsapp_delivery_status": ""
+        "whatsapp_delivery_status": "sent"
       }
     }
   },

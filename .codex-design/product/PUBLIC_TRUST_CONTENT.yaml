@@ -13,7 +13,7 @@ trust_pages:
       - "Support is separate from participation"
       - "Downloads and setup stay clear"
     actions:
-      - label: "Open support intake"
+      - label: "Open support"
         href: "/contact#support-intake"
         tone: primary
       - label: "Open downloads"
@@ -30,30 +30,30 @@ trust_pages:
         bullets:
           - "Stable is the calm default."
           - "Nightly is the newest published build."
-          - "Create an account only when you want tracked support or recovery."
+          - "Create an account only when you want saved help history or recovery."
       - id: sign-in-recovery
         eyebrow: "Sign-in or account recovery"
         heading: "Use Account for recovery"
-        body: "Sign in when you want support history, recovery, and install return tied to your account."
+        body: "Sign in when you want help history, recovery, and install return tied to your account."
         bullets:
           - "Guest use is allowed."
-          - "Account support keeps follow-up in one place."
+          - "Account help keeps follow-up in one place."
           - "Recovery should stay boring."
       - id: product-bug
         eyebrow: "Product bug"
         heading: "Send bugs through Contact"
-        body: "Use Contact for install trouble, product bugs, and practical feedback. Public issue threads are optional."
+        body: "Use Contact for install trouble, product bugs, and practical feedback. Public feedback is optional."
         bullets:
           - "Use Contact for install trouble, product bugs, or UX friction."
-          - "Use Account > Support if you want your support history saved in one place."
-          - "Choose a public issue thread only when the bug should be public."
+          - "Use Account > Support if you want your help history saved in one place."
+          - "Use public feedback only when the bug should stay public."
       - id: product-question
         eyebrow: "Product question or UX confusion"
         heading: "Ask Chummer first"
         body: "FAQ and Help should answer the normal questions without making you dig through project details."
         bullets:
           - "FAQ answers normal product questions in plain language."
-          - "Support cases stay separate from public feedback."
+          - "Support stays separate from public feedback."
           - "You do not need another account to ask for help."
   - id: privacy
     eyebrow: "Privacy"
@@ -63,7 +63,7 @@ trust_pages:
     updated_date: "2026-03-28"
     summary_points:
       - "The download file stays the same for everyone"
-      - "Your account stores sign-in and support history"
+      - "Your account stores sign-in and help history"
       - "Raw secret keys stay out of your account record"
     actions:
       - label: "Open account"
@@ -72,14 +72,14 @@ trust_pages:
       - label: "Read terms"
         href: "/terms"
         tone: secondary
-      - label: "Open support intake"
+      - label: "Open support"
         href: "/contact#support-intake"
         tone: ghost
     sections:
       - id: hosted-account
         eyebrow: "Account record"
-        heading: "Your account keeps sign-in, preferences, and support together"
-        body: "Your Chummer account keeps your basic profile, linked sign-in methods, device access, support cases, and preferences together so you do not have to rebuild that history by hand."
+        heading: "Your account keeps sign-in, preferences, and help together"
+        body: "Your Chummer account keeps your basic profile, linked sign-in methods, device access, support history, and preferences together so you do not have to rebuild that history by hand."
       - id: install-linking
         eyebrow: "Install linking"
         heading: "The download file is the same for everyone"
@@ -87,7 +87,7 @@ trust_pages:
       - id: not-in-hub
         eyebrow: "What stays out"
         heading: "Temporary sign-in tokens and raw secrets stay out of your account record"
-        body: "Short-lived third-party tokens stay on the machine or service using them. Your account keeps consent, support, and access records, not raw secret keys."
+        body: "Short-lived third-party tokens stay on the machine or service using them. Your account keeps consent, help history, and access records, not raw secret keys."
       - id: recognition-privacy
         eyebrow: "Privacy and recognition"
         heading: "Recognition should not force publicity"
@@ -115,27 +115,27 @@ trust_pages:
       - id: release-labels
         eyebrow: "Release labels"
         heading: "Labels should say what you can install"
-        body: "Expect current downloads and explicit labels when support, compatibility, or breadth are still moving."
+        body: "Expect current downloads and explicit labels when compatibility or platform breadth is still moving."
       - id: account-support
-        eyebrow: "Account and support"
+        eyebrow: "Account and help"
         heading: "Sign-in is simple, and support starts with Chummer"
-        body: "Sign-in keeps your access, devices, and support history together. Help and Contact are the normal first stops before any public issue thread."
+        body: "Sign-in keeps your access, devices, and help history together. Help and Contact are the normal first stops before any public feedback thread."
       - id: delivery
         eyebrow: "Delivery"
         heading: "Use the current public download first; advanced packages only when necessary"
         body: "Public downloads should match what is honestly available right now. If a regular installer exists later, it becomes the normal path, while manual packages stay as fallback for edge cases or support-directed setup."
   - id: contact
     eyebrow: "Contact"
-    heading: "Open the right support case"
-    intro: "Chummer should not make you guess where to send a problem. Start here for install help, bugs, and practical feedback."
+    heading: "Contact Chummer"
+    intro: "Choose public feedback for ideas. Use support for install trouble, bugs, or anything with logs or account detail."
     effective_date: "2026-03-25"
     updated_date: "2026-03-25"
     summary_points:
-      - "Direct support intake"
+      - "Support form"
       - "Guest submissions allowed"
       - "Tracked follow-up with an account"
     actions:
-      - label: "Open support intake"
+      - label: "Open support"
         href: "/contact#support-intake"
         tone: primary
       - label: "Open account support"
@@ -147,16 +147,16 @@ trust_pages:
     sections:
       - id: right-lane
         eyebrow: "Route it cleanly"
-        heading: "Pick the case type that matches the problem"
-        body: "Use install or update for package and launcher trouble, product bug for broken behavior, and feedback for roadmap or UX pain that is slowing the table down."
+        heading: "Choose the closest problem"
+        body: "Use install or update for setup trouble, product bug for broken behavior, and feedback for roadmap or UX friction that slows the table down."
       - id: tracked-support
         eyebrow: "Tracked follow-up"
-        heading: "Create an account when you want support history inside Chummer"
-        body: "You can submit help here without another account. Create a Chummer account if you want to see your support history later in one place."
+        heading: "Create an account when you want help history inside Chummer"
+        body: "You can submit help here without another account. Create a Chummer account if you want to see your help history later in one place."
       - id: public-issues
-        eyebrow: "Public issue threads"
-        heading: "Use public issue threads only when the report should be public"
-        body: "Most people should start with Help or Contact. A public issue thread is only for technical reports you want discussed in public."
+        eyebrow: "Public feedback"
+        heading: "Use public feedback only when the report should be public"
+        body: "Most people should start with Help or Contact. Public feedback is only for technical reports you want discussed in public."
 faq_pages:
   - id: faq
     eyebrow: "FAQ"
@@ -166,7 +166,7 @@ faq_pages:
       - label: "Open downloads"
         href: "/downloads"
         tone: primary
-      - label: "Open support intake"
+      - label: "Open support"
         href: "/contact#support-intake"
         tone: secondary
       - label: "Create account"
@@ -180,18 +180,18 @@ faq_pages:
           - question: "Why would I trust what Chummer shows me?"
             answer: "Because Chummer keeps results and explanations close together in the product."
           - question: "What does account creation give me right away?"
-            answer: "Account creation gives you recovery, support history in Account, and a cleaner return path when linked installs are available."
+            answer: "Account creation gives you recovery, help history in Account, and a cleaner return path when linked installs are available."
       - title: "Downloads and installs"
         entries:
           - question: "Do I need an account to download the current release?"
-            answer: "No. The current Linux package is open public. Create an account when you want recovery, tracked support, and a cleaner return path when linked downloads are available."
+            answer: "No. The current Linux package is open public. Create an account when you want recovery, saved help history, and a cleaner return path when linked downloads are available."
           - question: "Does the account change the download file?"
             answer: "No. The published package stays the same for everyone. Account linking is separate from the file itself."
           - question: "Where do I go if install or update goes sideways?"
-            answer: "Start with Downloads, then use Contact or Account > Support. Public issue threads are optional and not the default support door."
-      - title: "Participation and support"
+            answer: "Start with Downloads, then use Contact or Account > Support. Public issue threads are optional and not the default help door."
+      - title: "Participation and help"
         entries:
           - question: "Do I need to participate to help or report a bug?"
             answer: "No. Support and feedback stand on their own. Participation is optional and separate from the normal customer help path."
           - question: "Can I get help without another account?"
-            answer: "Yes. The first-party support intake is the default help path. Create a Chummer account if you want tracked support history inside your account."
+            answer: "Yes. Support is the default help path. Create a Chummer account if you want saved help history inside your account."

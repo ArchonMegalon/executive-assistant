@@ -39,6 +39,10 @@ def _env_bool(name: str, default: str = "0") -> bool:
     return _env(name, default).lower() in {"1", "true", "yes", "on"}
 
 
+def _default_principal_id() -> str:
+    return activation._default_principal_id()
+
+
 def _redact(value: object) -> object:
     if isinstance(value, dict):
         redacted: dict[str, object] = {}
@@ -200,7 +204,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tenant-id", default=_env("EA_WHATSAPP_WEB_DEFAULT_TENANT_ID") or _env("EA_WHATSAPP_DEFAULT_TENANT_ID", bootstrap.DEFAULT_TENANT_ID))
     parser.add_argument("--tenant-name", default=_env("EA_WHATSAPP_WEB_DEFAULT_TENANT_NAME") or _env("EA_WHATSAPP_DEFAULT_TENANT_NAME", bootstrap.DEFAULT_TENANT_NAME))
     parser.add_argument("--tenant-slug", default=_env("EA_WHATSAPP_WEB_DEFAULT_TENANT_SLUG") or _env("EA_WHATSAPP_DEFAULT_TENANT_SLUG", bootstrap.DEFAULT_TENANT_SLUG))
-    parser.add_argument("--principal-id", default=_env("EA_WHATSAPP_WEB_DEFAULT_PRINCIPAL_ID") or _env("EA_WHATSAPP_DEFAULT_PRINCIPAL_ID", bootstrap.DEFAULT_PRINCIPAL_ID))
+    parser.add_argument("--principal-id", default=_default_principal_id())
     parser.add_argument("--display-name", default=_env("EA_WHATSAPP_WEB_DEFAULT_DISPLAY_NAME") or _env("EA_WHATSAPP_DEFAULT_DISPLAY_NAME", bootstrap.DEFAULT_DISPLAY_NAME))
     parser.add_argument("--email", default=_env("EA_WHATSAPP_WEB_DEFAULT_EMAIL") or _env("EA_WHATSAPP_DEFAULT_EMAIL", bootstrap.DEFAULT_EMAIL))
     parser.add_argument("--phone-number", default=_env("EA_WHATSAPP_WEB_DEFAULT_PHONE_NUMBER") or _env("EA_WHATSAPP_DEFAULT_BUSINESS_PHONE_NUMBER", bootstrap.DEFAULT_PHONE_NUMBER))

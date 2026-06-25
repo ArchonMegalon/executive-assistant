@@ -71,25 +71,33 @@ def _is_whatsapp_share_candidate(job: dict[str, object]) -> bool:
     )
 
 
+def _job_created_sort_key(path: Path, job: dict[str, object]) -> float:
+    created_at = str(job.get("created_at") or "").strip()
+    if created_at:
+        try:
+            return datetime.fromisoformat(created_at.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            pass
+    return path.stat().st_mtime if path.exists() else 0.0
+
+
 def _candidate_paths(*, limit: int, job_id: str = "") -> list[Path]:
     from app.services import audiobook_epub_pipeline
 
     root = audiobook_epub_pipeline.audiobook_jobs_root()
     if not root.is_dir():
         return []
-    paths = sorted(root.glob("*/job.json"), key=lambda path: path.stat().st_mtime if path.exists() else 0, reverse=True)
-    result: list[Path] = []
-    for path in paths:
+    candidates: list[tuple[float, Path]] = []
+    for path in root.glob("*/job.json"):
         job = _load_job(path)
         if not job:
             continue
         if job_id and str(job.get("job_id") or path.parent.name) != job_id:
             continue
         if _is_whatsapp_share_candidate(job):
-            result.append(path)
-        if len(result) >= max(1, int(limit or 1)):
-            break
-    return result
+            candidates.append((_job_created_sort_key(path, job), path))
+    candidates.sort(key=lambda row: row[0], reverse=True)
+    return [path for _, path in candidates[: max(1, int(limit or 1))]]
 
 
 def _playback_pass(result: dict[str, object]) -> bool:
@@ -109,10 +117,34 @@ def _playback_pass(result: dict[str, object]) -> bool:
     )
 
 
+def _content_type(value: object) -> str:
+    return str(value or "").split(";", 1)[0].strip()
+
+
+def _select_track_response(
+    *,
+    responses: list[dict[str, object]],
+    media_src: object,
+) -> dict[str, object]:
+    media_src_text = str(media_src or "").strip()
+    audio_responses = [
+        row for row in responses if str(row.get("content_type") or "").strip().lower().startswith("audio/")
+    ]
+    if audio_responses:
+        return audio_responses[-1]
+    if media_src_text:
+        media_src_responses = [row for row in responses if str(row.get("url") or "").strip() == media_src_text]
+        if media_src_responses:
+            return media_src_responses[-1]
+    media_responses = [row for row in responses if str(row.get("resource_type") or "").strip() == "media"]
+    return media_responses[-1] if media_responses else {}
+
+
 def probe_share_with_playwright(*, url: str, wait_seconds: float = 3.0, timeout_seconds: float = 60.0) -> dict[str, object]:
     from playwright.sync_api import sync_playwright
 
     responses: list[dict[str, object]] = []
+    page_response_status = 0
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
             headless=True,
@@ -130,11 +162,13 @@ def probe_share_with_playwright(*, url: str, wait_seconds: float = 3.0, timeout_
                     "url": response.url,
                     "status": response.status,
                     "content_type": response.headers.get("content-type", ""),
+                    "resource_type": response.request.resource_type,
                 }
             ),
         )
         try:
-            page.goto(url, wait_until="networkidle", timeout=max(1000, int(timeout_seconds * 1000)))
+            main_response = page.goto(url, wait_until="networkidle", timeout=max(1000, int(timeout_seconds * 1000)))
+            page_response_status = int(main_response.status) if main_response else 0
             media = page.evaluate(
                 """async ({waitMs}) => {
                   const audio = document.querySelector('audio, video');
@@ -176,10 +210,8 @@ def probe_share_with_playwright(*, url: str, wait_seconds: float = 3.0, timeout_
             browser.close()
 
     media = media if isinstance(media, dict) else {}
-    audio_responses = [
-        row for row in responses if str(row.get("content_type") or "").strip().lower().startswith("audio/")
-    ]
-    selected_response = audio_responses[-1] if audio_responses else {}
+    media_src = str(media.get("src") or "").strip()
+    selected_response = _select_track_response(responses=responses, media_src=media_src)
     media_error = _as_dict(media.get("mediaError"))
     result = {
         "contract_name": CONTRACT_NAME,
@@ -187,8 +219,10 @@ def probe_share_with_playwright(*, url: str, wait_seconds: float = 3.0, timeout_
         "status": "pass" if bool(media.get("ok")) and float(media.get("currentTime") or 0) > 0 and not media_error else "failed",
         "browser": "chromium_playwright",
         "reason": str(media.get("reason") or "").strip(),
+        "page_response_status": page_response_status,
         "track_response_status": int(selected_response.get("status") or 0),
-        "track_content_type": str(selected_response.get("content_type") or "").split(";", 1)[0].strip(),
+        "track_content_type": _content_type(selected_response.get("content_type")),
+        "track_response_resource_type": str(selected_response.get("resource_type") or "").strip(),
         "duration_seconds": float(media.get("duration") or 0),
         "current_time_after_play_seconds": float(media.get("currentTime") or 0),
         "paused_after_probe": bool(media.get("paused")),
@@ -196,7 +230,8 @@ def probe_share_with_playwright(*, url: str, wait_seconds: float = 3.0, timeout_
         "media_error": bool(media_error),
         "media_error_code": int(media_error.get("code") or 0),
         "media_error_message_sha256": _sha256_text(media_error.get("message")),
-        "track_url_sha256": _sha256_text(media.get("src")),
+        "track_url_sha256": _sha256_text(media_src),
+        "track_response_url_sha256": _sha256_text(selected_response.get("url")),
         "raw_url_exposed": False,
     }
     if not result["reason"] and result["status"] != "pass":
@@ -250,11 +285,14 @@ def record_playback_e2e(
         "job_id_sha256": _sha256_text(job.get("job_id") or job_path.parent.name),
         "public_share_host": parsed.hostname or "",
         "public_share_url_sha256": _sha256_text(url),
+        "page_response_status": int(result.get("page_response_status") or 0),
         "track_response_status": int(result.get("track_response_status") or 0),
         "track_content_type": str(result.get("track_content_type") or ""),
+        "track_response_resource_type": str(result.get("track_response_resource_type") or ""),
         "duration_seconds": float(result.get("duration_seconds") or 0),
         "current_time_after_play_seconds": float(result.get("current_time_after_play_seconds") or 0),
         "media_error": bool(result.get("media_error")),
+        "media_error_code": int(result.get("media_error_code") or 0),
         "raw_url_exposed": False,
     }
 

@@ -39,12 +39,70 @@ def _empty_sidecar_inbox(_args):
         "media_message_count": 0,
         "epub_media_candidate_count": 0,
         "selected_button_candidate_count": 0,
+        "direct_button_callback_candidate_count": 0,
+        "selected_button_label_fallback_candidate_count": 0,
+        "selected_button_context_fallback_candidate_count": 0,
+        "poll_vote_candidate_count": 0,
+        "actionable_button_candidate_count": 0,
         "latest_message_timestamp_present": False,
         "raw_text_exposed": False,
         "raw_sender_exposed": False,
         "raw_message_ids_exposed": False,
         "raw_media_url_exposed": False,
     }
+
+
+def test_sidecar_inbox_observation_counts_poll_vote_label_fallback_without_button_id(
+    monkeypatch,
+) -> None:
+    module = _load_script("materialize_whatsapp_audiobook_operator_proof_bundle")
+
+    monkeypatch.setattr(
+        module,
+        "_request_json",
+        lambda **_kwargs: (
+            200,
+            {
+                "ok": True,
+                "ready": True,
+                "status": "ready",
+                "messages": [
+                    {
+                        "chat_ref": "chat-ref-1",
+                        "context_message_id": "wamid.buttons.2",
+                        "direction": "inbound",
+                        "from_me": False,
+                        "id": "pollvote:outbound-poll-context:1",
+                        "media_present": False,
+                        "selected_button_id_present": False,
+                        "selected_button_label": "Dismiss",
+                        "sender_digits": "4368120864006",
+                        "type": "poll_vote",
+                    }
+                ],
+            },
+        ),
+    )
+
+    observation = module._sidecar_inbox_observation(
+        SimpleNamespace(
+            session_api_base_url="http://127.0.0.1:8098",
+            session_ref="test-wa-web",
+            session_api_token="",
+            auth_header_name="Authorization",
+            auth_header_prefix="Bearer ",
+            timeout_seconds=15.0,
+        )
+    )
+
+    assert observation["messages_accessible"] is True
+    assert observation["selected_button_candidate_count"] == 0
+    assert observation["selected_button_label_fallback_candidate_count"] == 1
+    assert observation["selected_button_context_fallback_candidate_count"] == 1
+    assert observation["poll_vote_candidate_count"] == 1
+    assert observation["actionable_button_candidate_count"] == 1
+    assert observation["raw_text_exposed"] is False
+    assert observation["raw_sender_exposed"] is False
 
 
 class ShadowReceipt:
@@ -569,6 +627,601 @@ def test_whatsapp_audiobook_operator_proof_bundle_blocks_voice_choice_when_shado
     assert bundle["live_delivery"]["status"] == "waiting_voice_choice"
 
 
+def test_whatsapp_audiobook_operator_proof_bundle_blocks_pass_when_voice_choices_are_unprocessed(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    module = _load_script("materialize_whatsapp_audiobook_operator_proof_bundle")
+
+    class LocalProof:
+        @staticmethod
+        def materialize_whatsapp_audiobook_local_intake_proof():
+            return {
+                "status": "pass",
+                "processor_report": {
+                    "intake": {"voice_sample_sent": 3},
+                    "voice_selection": {"processed": 1, "share_link_sent": 1},
+                },
+                "local_stage_receipt_summary": {
+                    "intake": {"next_action": "choose_whatsapp_audiobook_voice_sample"},
+                    "delivery": {"stage_counts": {}},
+                },
+                "player_probe_summary": {"status": "pass", "content_type": "audio/mp4", "audio_streams": 1, "duration_seconds": 1.0},
+                "player_http_probe_summary": {
+                    "status": "pass",
+                    "metadata_status_code": 200,
+                    "download_status_code": 200,
+                    "download_content_type": "audio/mp4",
+                    "download_bytes": 1024,
+                },
+            }
+
+    class LiveReceipt:
+        @staticmethod
+        def _scan_job_receipts(_limit):
+            return [], []
+
+        @staticmethod
+        def build_receipt(**_kwargs):
+            return {
+                "status": "pass",
+                "candidate_count": 1,
+                "observed_job_count": 1,
+                "non_whatsapp_job_count": 0,
+                "failed_codes": [],
+                "next_action": "capture_real_user_playback_acceptance_or_close_operator_loop",
+                "stage_summary": {"counts": {"delivered_playable": 1}},
+                "live_delivery_claim_allowed": True,
+                "live_delivery_claim_scope": "machine_playable_delivery_only",
+                "fresh_live_job_receipt_proven": True,
+                "historical_or_shadow_proof_only": False,
+                "machine_playback_e2e_verified": True,
+                "real_user_playback_acceptance_verified": False,
+                "human_playback_acceptance_claim_allowed": False,
+                "human_playback_acceptance_evidence": {
+                    "status": "rejected",
+                    "accepted": False,
+                    "rejected": True,
+                    "whatsapp_sourced": True,
+                    "source_present": True,
+                    "feedback_sha256_present": True,
+                    "feedback_sha256_valid": True,
+                    "feedback_sha256_required": True,
+                    "operator_grade": True,
+                    "evidence_grade": "operator",
+                    "claim_allowed": False,
+                    "next_action": "review_audiobook_playback_problem",
+                },
+                "proof_semantics": {
+                    "machine_playable_delivery_evidence": "fresh_job_receipt_and_machine_playback_e2e",
+                    "human_acceptance_evidence": "rejected",
+                    "live_delivery_claim_scope": "machine_playable_delivery_only",
+                    "machine_playable_delivery_does_not_imply_human_acceptance": True,
+                },
+                "goal_completion_claim_allowed": False,
+                "historical_evidence": {"present": False, "historical_live_path_proven": False},
+            }
+
+    class Readiness:
+        @staticmethod
+        def build_report(_args):
+            return {
+                "ready": True,
+                "reason": "ready",
+                "reasons": [],
+                "action_processor_enabled": True,
+                "sidecar_ready": True,
+                "state_fresh": True,
+            }
+
+    class Processor:
+        DEFAULT_AUDIOBOOK_PRINCIPAL_ID = "principal-default"
+        DEFAULT_SESSION_API_BASE_URL = "http://127.0.0.1:8098"
+        DEFAULT_SESSION_REF = "test-wa-web"
+        DEFAULT_STATE_FILE = "/tmp/test-wa-actions.json"
+
+        @staticmethod
+        def _env(_name, default=""):
+            return os.environ.get(_name, default)
+
+        @staticmethod
+        def build_report(_args):
+            return {
+                "status": "pass",
+                "candidate_count": 1,
+                "processed": 0,
+                "skipped_processed": 0,
+                "voice_text_candidate_count": 1,
+                "voice_text_processed": 0,
+                "errors": 0,
+                "followup_summary": {"attempted": 0, "sent": 0, "errors": 0},
+                "resume_summary": {"ran": False, "errors": 0},
+            }
+
+    def fake_load_module(*, name: str, path: Path):
+        if "local_intake" in name:
+            return LocalProof
+        if "live_delivery" in name:
+            return LiveReceipt
+        if "voice_selection_shadow" in name:
+            return PassingShadowReceipt
+        if "process_whatsapp" in name:
+            return Processor
+        return Readiness
+
+    monkeypatch.setattr(module, "_load_module", fake_load_module)
+    monkeypatch.setattr(module, "_run_processor_in_container", _no_container_processor)
+    monkeypatch.setattr(module, "_sidecar_inbox_observation", _empty_sidecar_inbox)
+    monkeypatch.setattr(
+        module,
+        "_readiness_args",
+        lambda _module: SimpleNamespace(
+            session_api_base_url="http://127.0.0.1:8098",
+            session_ref="test-wa-web",
+            state_file="/tmp/test-wa-actions.json",
+        ),
+    )
+
+    bundle = module.materialize_whatsapp_audiobook_operator_proof_bundle(output_path=tmp_path / "bundle.json")
+
+    assert bundle["status"] == "blocked"
+    assert bundle["recommended_action"] == "run_whatsapp_action_processor_until_voice_choices_are_drained"
+    assert bundle["checks"]["live_processor_button_callbacks_drained"] is False
+    assert bundle["checks"]["live_processor_voice_text_drained"] is False
+    assert "live_button_callbacks_visible_but_not_processed" in bundle["warnings"]
+    assert "live_voice_text_choices_visible_but_not_processed" in bundle["warnings"]
+    assert bundle["live_delivery"]["fresh_live_job_receipt_proven"] is True
+
+
+def test_whatsapp_audiobook_operator_proof_bundle_blocks_poll_vote_fallback_callbacks_missed_by_processor(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    module = _load_script("materialize_whatsapp_audiobook_operator_proof_bundle")
+
+    class LocalProof:
+        @staticmethod
+        def materialize_whatsapp_audiobook_local_intake_proof():
+            return {
+                "status": "pass",
+                "processor_report": {
+                    "intake": {"voice_sample_sent": 3},
+                    "voice_selection": {"processed": 1, "share_link_sent": 1},
+                },
+                "local_stage_receipt_summary": {
+                    "intake": {"next_action": "choose_whatsapp_audiobook_voice_sample"},
+                    "delivery": {"stage_counts": {}},
+                },
+                "player_probe_summary": {"status": "pass", "content_type": "audio/mp4", "audio_streams": 1, "duration_seconds": 1.0},
+                "player_http_probe_summary": {
+                    "status": "pass",
+                    "metadata_status_code": 200,
+                    "download_status_code": 200,
+                    "download_content_type": "audio/mp4",
+                    "download_bytes": 1024,
+                },
+            }
+
+    class LiveReceipt:
+        @staticmethod
+        def _scan_job_receipts(_limit):
+            return [], []
+
+        @staticmethod
+        def build_receipt(**_kwargs):
+            return {
+                "status": "pass",
+                "candidate_count": 1,
+                "observed_job_count": 1,
+                "non_whatsapp_job_count": 0,
+                "failed_codes": [],
+                "next_action": "capture_real_user_playback_acceptance_or_close_operator_loop",
+                "stage_summary": {"counts": {"delivered_playable": 1}},
+                "live_delivery_claim_allowed": True,
+                "live_delivery_claim_scope": "machine_playable_delivery_only",
+                "fresh_live_job_receipt_proven": True,
+                "historical_or_shadow_proof_only": False,
+                "machine_playback_e2e_verified": True,
+                "real_user_playback_acceptance_verified": False,
+                "human_playback_acceptance_claim_allowed": False,
+                "human_playback_acceptance_evidence": {"status": "not_human_verified", "claim_allowed": False},
+                "proof_semantics": {
+                    "machine_playable_delivery_evidence": "fresh_job_receipt_and_machine_playback_e2e",
+                    "human_acceptance_evidence": "not_human_verified",
+                    "live_delivery_claim_scope": "machine_playable_delivery_only",
+                    "machine_playable_delivery_does_not_imply_human_acceptance": True,
+                },
+                "goal_completion_claim_allowed": False,
+                "historical_evidence": {"present": False, "historical_live_path_proven": False},
+            }
+
+    class Readiness:
+        @staticmethod
+        def build_report(_args):
+            return {
+                "ready": True,
+                "reason": "ready",
+                "reasons": [],
+                "action_processor_enabled": True,
+                "sidecar_ready": True,
+                "state_fresh": True,
+            }
+
+    class Processor:
+        DEFAULT_AUDIOBOOK_PRINCIPAL_ID = "principal-default"
+        DEFAULT_SESSION_API_BASE_URL = "http://127.0.0.1:8098"
+        DEFAULT_SESSION_REF = "test-wa-web"
+        DEFAULT_STATE_FILE = "/tmp/test-wa-actions.json"
+
+        @staticmethod
+        def _env(_name, default=""):
+            return os.environ.get(_name, default)
+
+        @staticmethod
+        def build_report(_args):
+            return {
+                "status": "pass",
+                "candidate_count": 0,
+                "processed": 0,
+                "skipped_processed": 0,
+                "voice_text_candidate_count": 0,
+                "voice_text_processed": 0,
+                "errors": 0,
+                "followup_summary": {"attempted": 0, "sent": 0, "errors": 0},
+                "resume_summary": {"ran": False, "errors": 0},
+            }
+
+    def fake_load_module(*, name: str, path: Path):
+        if "local_intake" in name:
+            return LocalProof
+        if "live_delivery" in name:
+            return LiveReceipt
+        if "voice_selection_shadow" in name:
+            return PassingShadowReceipt
+        if "process_whatsapp" in name:
+            return Processor
+        return Readiness
+
+    monkeypatch.setattr(module, "_load_module", fake_load_module)
+    monkeypatch.setattr(module, "_run_processor_in_container", _no_container_processor)
+    monkeypatch.setattr(
+        module,
+        "_sidecar_inbox_observation",
+        lambda _args: {
+            **_empty_sidecar_inbox(_args),
+            "selected_button_label_fallback_candidate_count": 1,
+            "selected_button_context_fallback_candidate_count": 1,
+            "poll_vote_candidate_count": 1,
+            "actionable_button_candidate_count": 1,
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "_readiness_args",
+        lambda _module: SimpleNamespace(
+            session_api_base_url="http://127.0.0.1:8098",
+            session_ref="test-wa-web",
+            state_file="/tmp/test-wa-actions.json",
+        ),
+    )
+
+    bundle = module.materialize_whatsapp_audiobook_operator_proof_bundle(output_path=tmp_path / "bundle.json")
+
+    assert bundle["status"] == "blocked"
+    assert bundle["recommended_action"] == "run_whatsapp_action_processor_until_voice_choices_are_drained"
+    assert bundle["checks"]["live_processor_button_callbacks_drained"] is False
+    assert bundle["checks"]["live_sidecar_button_callbacks_visible_to_processor_semantics"] is False
+    assert bundle["live_sidecar_inbox"]["selected_button_candidate_count"] == 0
+    assert bundle["live_sidecar_inbox"]["selected_button_label_fallback_candidate_count"] == 1
+    assert bundle["live_processor"]["sidecar_actionable_button_candidate_count"] == 1
+    assert bundle["live_processor"]["effective_button_callback_candidate_count"] == 1
+    assert "live_button_callbacks_visible_but_not_processed" in bundle["warnings"]
+    assert "live_sidecar_button_callbacks_exceed_processor_candidates" in bundle["warnings"]
+
+
+def test_whatsapp_audiobook_operator_proof_bundle_uses_live_review_action_for_rejected_playback(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    module = _load_script("materialize_whatsapp_audiobook_operator_proof_bundle")
+
+    class LocalProof:
+        @staticmethod
+        def materialize_whatsapp_audiobook_local_intake_proof():
+            return {
+                "status": "pass",
+                "processor_report": {
+                    "intake": {"voice_sample_sent": 3},
+                    "voice_selection": {"processed": 1, "share_link_sent": 1},
+                },
+                "local_stage_receipt_summary": {
+                    "intake": {"next_action": "choose_whatsapp_audiobook_voice_sample"},
+                    "delivery": {"stage_counts": {}},
+                },
+                "player_probe_summary": {"status": "pass", "content_type": "audio/mp4", "audio_streams": 1, "duration_seconds": 1.0},
+                "player_http_probe_summary": {
+                    "status": "pass",
+                    "metadata_status_code": 200,
+                    "download_status_code": 200,
+                    "download_content_type": "audio/mp4",
+                    "download_bytes": 1024,
+                },
+            }
+
+    class LiveReceipt:
+        @staticmethod
+        def _scan_job_receipts(_limit):
+            return [], []
+
+        @staticmethod
+        def build_receipt(**_kwargs):
+            return {
+                "status": "pass",
+                "candidate_count": 1,
+                "observed_job_count": 1,
+                "non_whatsapp_job_count": 0,
+                "failed_codes": [],
+                "next_action": "review_audiobook_playback_problem",
+                "stage_summary": {"counts": {"delivered_playable": 1}},
+                "live_delivery_claim_allowed": True,
+                "live_delivery_claim_scope": "machine_playable_delivery_only",
+                "fresh_live_job_receipt_proven": True,
+                "historical_or_shadow_proof_only": False,
+                "machine_playback_e2e_verified": True,
+                "real_user_playback_acceptance_verified": False,
+                "human_playback_acceptance_claim_allowed": False,
+                "human_playback_acceptance_evidence": {
+                    "status": "rejected",
+                    "accepted": False,
+                    "rejected": True,
+                    "whatsapp_sourced": True,
+                    "source_present": True,
+                    "feedback_sha256_present": True,
+                    "feedback_sha256_valid": True,
+                    "feedback_sha256_required": True,
+                    "operator_grade": True,
+                    "evidence_grade": "operator",
+                    "claim_allowed": False,
+                    "next_action": "review_audiobook_playback_problem",
+                },
+                "proof_semantics": {
+                    "machine_playable_delivery_evidence": "fresh_job_receipt_and_machine_playback_e2e",
+                    "human_acceptance_evidence": "rejected",
+                    "live_delivery_claim_scope": "machine_playable_delivery_only",
+                    "machine_playable_delivery_does_not_imply_human_acceptance": True,
+                },
+                "goal_completion_claim_allowed": False,
+                "historical_evidence": {"present": False, "historical_live_path_proven": False},
+            }
+
+    class Readiness:
+        @staticmethod
+        def build_report(_args):
+            return {
+                "ready": True,
+                "reason": "ready",
+                "reasons": [],
+                "action_processor_enabled": True,
+                "sidecar_ready": True,
+                "state_fresh": True,
+            }
+
+    class Processor:
+        DEFAULT_AUDIOBOOK_PRINCIPAL_ID = "principal-default"
+        DEFAULT_SESSION_API_BASE_URL = "http://127.0.0.1:8098"
+        DEFAULT_SESSION_REF = "test-wa-web"
+        DEFAULT_STATE_FILE = "/tmp/test-wa-actions.json"
+
+        @staticmethod
+        def _env(_name, default=""):
+            return os.environ.get(_name, default)
+
+        @staticmethod
+        def build_report(_args):
+            return {
+                "status": "pass",
+                "candidate_count": 0,
+                "processed": 0,
+                "skipped_processed": 0,
+                "voice_text_candidate_count": 0,
+                "voice_text_processed": 0,
+                "errors": 0,
+                "followup_summary": {"attempted": 0, "sent": 0, "errors": 0},
+                "resume_summary": {"ran": True, "errors": 0},
+            }
+
+    def fake_load_module(*, name: str, path: Path):
+        if "local_intake" in name:
+            return LocalProof
+        if "live_delivery" in name:
+            return LiveReceipt
+        if "voice_selection_shadow" in name:
+            return PassingShadowReceipt
+        if "process_whatsapp" in name:
+            return Processor
+        return Readiness
+
+    monkeypatch.setattr(module, "_load_module", fake_load_module)
+    monkeypatch.setattr(module, "_run_processor_in_container", _no_container_processor)
+    monkeypatch.setattr(module, "_sidecar_inbox_observation", _empty_sidecar_inbox)
+    monkeypatch.setattr(
+        module,
+        "_readiness_args",
+        lambda _module: SimpleNamespace(
+            session_api_base_url="http://127.0.0.1:8098",
+            session_ref="test-wa-web",
+            state_file="/tmp/test-wa-actions.json",
+        ),
+    )
+
+    bundle = module.materialize_whatsapp_audiobook_operator_proof_bundle(output_path=tmp_path / "bundle.json")
+
+    assert bundle["status"] == "pass"
+    assert bundle["recommended_action"] == "review_audiobook_playback_problem"
+    assert bundle["checks"]["live_processor_button_callbacks_drained"] is True
+    assert bundle["checks"]["live_processor_voice_text_drained"] is True
+    assert bundle["live_delivery"]["next_action"] == "review_audiobook_playback_problem"
+    assert bundle["live_delivery"]["live_delivery_claim_scope"] == "machine_playable_delivery_only"
+    assert bundle["live_delivery"]["machine_playback_e2e_verified"] is True
+    assert bundle["live_delivery"]["real_user_playback_acceptance_verified"] is False
+    assert bundle["live_delivery"]["human_playback_acceptance_claim_allowed"] is False
+    assert bundle["live_delivery"]["human_playback_acceptance_evidence"]["status"] == "rejected"
+    assert bundle["live_delivery"]["human_playback_acceptance_evidence"]["claim_allowed"] is False
+    assert bundle["proof_semantics"]["human_acceptance_evidence"] == "rejected"
+    assert bundle["proof_semantics"]["live_delivery_claim_scope"] == "machine_playable_delivery_only"
+    assert bundle["checks"]["human_playback_acceptance_status_explicit"] is True
+    assert bundle["checks"]["machine_delivery_does_not_imply_human_acceptance"] is True
+
+
+def test_whatsapp_audiobook_operator_proof_bundle_does_not_review_unhashed_rejected_playback(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    module = _load_script("materialize_whatsapp_audiobook_operator_proof_bundle")
+
+    class LocalProof:
+        @staticmethod
+        def materialize_whatsapp_audiobook_local_intake_proof():
+            return {
+                "status": "pass",
+                "processor_report": {
+                    "intake": {"voice_sample_sent": 3},
+                    "voice_selection": {"processed": 1, "share_link_sent": 1},
+                },
+                "local_stage_receipt_summary": {
+                    "intake": {"next_action": "choose_whatsapp_audiobook_voice_sample"},
+                    "delivery": {"stage_counts": {}},
+                },
+                "player_probe_summary": {"status": "pass", "content_type": "audio/mp4", "audio_streams": 1, "duration_seconds": 1.0},
+                "player_http_probe_summary": {
+                    "status": "pass",
+                    "metadata_status_code": 200,
+                    "download_status_code": 200,
+                    "download_content_type": "audio/mp4",
+                    "download_bytes": 1024,
+                },
+            }
+
+    class LiveReceipt:
+        @staticmethod
+        def _scan_job_receipts(_limit):
+            return [], []
+
+        @staticmethod
+        def build_receipt(**_kwargs):
+            return {
+                "status": "pass",
+                "candidate_count": 1,
+                "observed_job_count": 1,
+                "non_whatsapp_job_count": 0,
+                "failed_codes": [],
+                "next_action": "review_audiobook_playback_problem",
+                "stage_summary": {"counts": {"delivered_playable": 1}},
+                "live_delivery_claim_allowed": True,
+                "live_delivery_claim_scope": "machine_playable_delivery_only",
+                "fresh_live_job_receipt_proven": True,
+                "historical_or_shadow_proof_only": False,
+                "machine_playback_e2e_verified": True,
+                "real_user_playback_acceptance_verified": False,
+                "human_playback_acceptance_claim_allowed": False,
+                "human_playback_acceptance_evidence": {
+                    "status": "rejected",
+                    "accepted": False,
+                    "rejected": True,
+                    "rejected_claim_observed": True,
+                    "whatsapp_sourced": True,
+                    "source_present": True,
+                    "feedback_sha256_present": False,
+                    "feedback_sha256_valid": False,
+                    "feedback_sha256_required": True,
+                    "operator_grade": False,
+                    "evidence_grade": "insufficient_feedback_hash",
+                    "claim_allowed": False,
+                    "next_action": "capture_hashed_audiobook_playback_problem_feedback",
+                },
+                "proof_semantics": {
+                    "machine_playable_delivery_evidence": "fresh_job_receipt_and_machine_playback_e2e",
+                    "human_acceptance_evidence": "rejected",
+                    "live_delivery_claim_scope": "machine_playable_delivery_only",
+                    "machine_playable_delivery_does_not_imply_human_acceptance": True,
+                },
+                "goal_completion_claim_allowed": False,
+                "historical_evidence": {"present": False, "historical_live_path_proven": False},
+            }
+
+    class Readiness:
+        @staticmethod
+        def build_report(_args):
+            return {
+                "ready": True,
+                "reason": "ready",
+                "reasons": [],
+                "action_processor_enabled": True,
+                "sidecar_ready": True,
+                "state_fresh": True,
+            }
+
+    class Processor:
+        DEFAULT_AUDIOBOOK_PRINCIPAL_ID = "principal-default"
+        DEFAULT_SESSION_API_BASE_URL = "http://127.0.0.1:8098"
+        DEFAULT_SESSION_REF = "test-wa-web"
+        DEFAULT_STATE_FILE = "/tmp/test-wa-actions.json"
+
+        @staticmethod
+        def _env(_name, default=""):
+            return os.environ.get(_name, default)
+
+        @staticmethod
+        def build_report(_args):
+            return {
+                "status": "pass",
+                "candidate_count": 0,
+                "processed": 0,
+                "skipped_processed": 0,
+                "voice_text_candidate_count": 0,
+                "voice_text_processed": 0,
+                "errors": 0,
+                "followup_summary": {"attempted": 0, "sent": 0, "errors": 0},
+                "resume_summary": {"ran": True, "errors": 0},
+            }
+
+    def fake_load_module(*, name: str, path: Path):
+        if "local_intake" in name:
+            return LocalProof
+        if "live_delivery" in name:
+            return LiveReceipt
+        if "voice_selection_shadow" in name:
+            return PassingShadowReceipt
+        if "process_whatsapp" in name:
+            return Processor
+        return Readiness
+
+    monkeypatch.setattr(module, "_load_module", fake_load_module)
+    monkeypatch.setattr(module, "_run_processor_in_container", _no_container_processor)
+    monkeypatch.setattr(module, "_sidecar_inbox_observation", _empty_sidecar_inbox)
+    monkeypatch.setattr(
+        module,
+        "_readiness_args",
+        lambda _module: SimpleNamespace(
+            session_api_base_url="http://127.0.0.1:8098",
+            session_ref="test-wa-web",
+            state_file="/tmp/test-wa-actions.json",
+        ),
+    )
+
+    bundle = module.materialize_whatsapp_audiobook_operator_proof_bundle(output_path=tmp_path / "bundle.json")
+
+    evidence = bundle["live_delivery"]["human_playback_acceptance_evidence"]
+    assert bundle["status"] == "pass"
+    assert bundle["recommended_action"] == "capture_hashed_audiobook_playback_problem_feedback"
+    assert evidence["status"] == "not_human_verified"
+    assert evidence["rejected"] is False
+    assert evidence["rejected_claim_observed"] is True
+    assert evidence["operator_grade"] is False
+    assert bundle["proof_semantics"]["human_acceptance_evidence"] == "not_human_verified"
+    assert bundle["checks"]["rejected_playback_feedback_hashed_or_not_operator_grade"] is True
+
+
 def test_whatsapp_audiobook_operator_proof_bundle_requests_refresh_when_only_historical_live_proof_exists(
     monkeypatch,
     tmp_path: Path,
@@ -613,7 +1266,7 @@ def test_whatsapp_audiobook_operator_proof_bundle_requests_refresh_when_only_his
         @staticmethod
         def build_receipt(**_kwargs):
             return {
-                "status": "waiting_for_live_epub",
+                "status": "blocked",
                 "candidate_count": 0,
                 "observed_job_count": 0,
                 "non_whatsapp_job_count": 0,
@@ -700,6 +1353,8 @@ def test_whatsapp_audiobook_operator_proof_bundle_requests_refresh_when_only_his
 
     assert bundle["status"] == "waiting_for_live_epub"
     assert bundle["recommended_action"] == "send_epub_over_whatsapp_to_refresh_live_audiobook_flow"
+    assert bundle["live_delivery"]["status"] == "waiting_for_live_epub"
+    assert bundle["live_delivery"]["goal_completion_claim_allowed"] is False
     assert bundle["live_delivery"]["historical_evidence_present"] is True
     assert bundle["live_delivery"]["historical_live_path_proven"] is True
 

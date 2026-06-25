@@ -99,7 +99,7 @@ def main() -> int:
         failures.append("public tour feedback must not directly mutate owner learning profiles")
     if "request_property_tour_detail_refresh(" in public_tours:
         failures.append("public tour request-details must not queue owner work from public links")
-    if 'request.headers.get("x-forwarded-for")' in public_tours and "PROPERTYQUARRY_TRUST_X_FORWARDED_FOR" not in public_tours:
+    if 'request.headers.get("x-forwarded-for")' in public_tours and "trust_forwarded_ip()" not in public_tours:
         failures.append("public tour feedback must not trust x-forwarded-for without explicit opt-in")
     if 'except Exception:\n        pass' in public_tours:
         failures.append("public tour feedback must not silently swallow persistence failures")

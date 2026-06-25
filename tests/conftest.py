@@ -10,9 +10,10 @@ import pytest
 
 _ROOT = Path(__file__).resolve().parents[1]
 _EA_ROOT = _ROOT / "ea"
-for _candidate in (str(_ROOT), str(_EA_ROOT)):
-    if _candidate not in sys.path:
-        sys.path.insert(0, _candidate)
+for _candidate in (str(_EA_ROOT), str(_ROOT)):
+    while _candidate in sys.path:
+        sys.path.remove(_candidate)
+    sys.path.insert(0, _candidate)
 
 os.environ.setdefault("EA_INLINE_SYNC_HANDLERS", "1")
 

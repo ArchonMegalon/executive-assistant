@@ -17,8 +17,33 @@ def test_health_ready_and_version() -> None:
     assert ready.json()["status"] == "ready"
     version = client.get("/version")
     assert version.status_code == 200
-    assert version.json()["app_name"]
-    assert version.json()["version"]
+    body = version.json()
+    assert body["app_name"]
+    assert body["version"]
+    assert body["release_authority_state"] in {"clear", "watch", "missing"}
+    assert body["release_authority_posture"]
+    assert body["release_authority_source"] in {"published_status_artifact", "manifest_fallback"}
+    assert "commit_sha" in body
+    assert "deployment_id" in body
+    assert "public_origin" in body
+    assert "release_manifest_generated_at" in body
+
+    release = client.get("/health/release-authority")
+    assert release.status_code == 200
+    release_body = release.json()
+    assert release_body["release_authority"]["state"] in {"clear", "watch", "missing"}
+    assert release_body["release_authority"]["source"] in {"published_status_artifact", "manifest_fallback"}
+    assert release_body["release_authority"]["manifest_path"].endswith("release_manifest.generated.json")
+    assert "deploy_context_path" in release_body["release_authority"]
+    assert release_body["release_authority_gate"]["contract_name"] == "ea.release_authority_gate.v1"
+    assert release_body["release_authority_gate"]["status"] in {"pass", "fail", "error"}
+    assert release_body["deploy_context_gate"]["contract_name"] == "ea.deploy_context_gate.v1"
+    assert release_body["deploy_context_gate"]["status"] in {"pass", "fail", "error"}
+    assert release_body["runtime_supply_chain"]["state"] in {"clear", "watch"}
+    assert release_body["runtime_supply_chain_gate"]["contract_name"] == "ea.runtime_supply_chain.v1"
+    assert dict(release_body["release_authority"].get("deploy_context_gate") or {}) == release_body["deploy_context_gate"]
+    assert dict(release_body["release_authority"].get("gate") or {}) == release_body["release_authority_gate"]
+    assert dict(release_body["runtime_supply_chain"].get("gate") or {}) == release_body["runtime_supply_chain_gate"]
 
 
 def test_rewrite_and_policy_audit_flow() -> None:

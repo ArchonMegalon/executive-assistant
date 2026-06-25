@@ -5,16 +5,17 @@ import os
 from typing import Any
 from urllib.parse import urlparse
 
+from app.services.public_request import (
+    normalize_hostname,
+    request_hostname as _public_request_hostname,
+    trust_forwarded_ip,
+)
+
 
 _CLICKRANK_HOST_CONFIG = {
     "myexternalbrain.com": ("CLICKRANK_AI_MYEXTERNALBRAIN_SITE_ID", ""),
     "www.myexternalbrain.com": ("CLICKRANK_AI_MYEXTERNALBRAIN_SITE_ID", ""),
 }
-
-
-def _normalize_hostname(hostname: str | None) -> str:
-    return str(hostname or "").strip().lower().rstrip(".")
-
 
 def _clickrank_enabled() -> bool:
     for env_name in ("EA_ENABLE_CLICKRANK", "EA_PUBLIC_CLICKRANK_ENABLED"):
@@ -24,11 +25,11 @@ def _clickrank_enabled() -> bool:
 
 
 def _configured_public_base_hostname() -> str:
-    return _normalize_hostname(urlparse(str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "")).hostname or "")
+    return normalize_hostname(urlparse(str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "")).hostname or "")
 
 
 def _hostname_can_fallback_to_public_base_url(hostname: str) -> bool:
-    normalized = _normalize_hostname(hostname)
+    normalized = normalize_hostname(hostname)
     if not normalized:
         return True
     if normalized == "localhost":
@@ -45,33 +46,27 @@ def _hostname_can_fallback_to_public_base_url(hostname: str) -> bool:
 
 
 def request_hostname(request: Any) -> str:
-    if request is None:
-        return ""
-    headers = getattr(request, "headers", {})
-    forwarded_host = str(headers.get("x-forwarded-host") or "").split(",", 1)[0].split(":", 1)[0].strip()
-    if forwarded_host:
-        return _normalize_hostname(forwarded_host)
-    header_host = str(headers.get("host") or "").split(":", 1)[0].strip()
-    if header_host:
-        normalized_header_host = _normalize_hostname(header_host)
+    normalized_request_host = normalize_hostname(_public_request_hostname(request))
+    if normalized_request_host:
+        headers = getattr(request, "headers", {})
         configured_base_host = _configured_public_base_hostname()
-        has_proxy_signal = bool(headers.get("x-forwarded-for") or headers.get("cf-connecting-ip") or headers.get("cf-ray"))
+        has_proxy_signal = trust_forwarded_ip() and bool(
+            headers.get("x-forwarded-for") or headers.get("cf-connecting-ip") or headers.get("cf-ray")
+        )
         if (
-            normalized_header_host not in _CLICKRANK_HOST_CONFIG
-            and _hostname_can_fallback_to_public_base_url(normalized_header_host)
+            normalized_request_host not in _CLICKRANK_HOST_CONFIG
+            and _hostname_can_fallback_to_public_base_url(normalized_request_host)
             and configured_base_host in _CLICKRANK_HOST_CONFIG
             and has_proxy_signal
         ):
             return configured_base_host
-        return normalized_header_host
-    url = getattr(request, "url", None)
-    return _normalize_hostname(getattr(url, "hostname", ""))
+    return normalized_request_host
 
 
 def clickrank_site_id_for_hostname(hostname: str | None) -> str:
     if not _clickrank_enabled():
         return ""
-    normalized = _normalize_hostname(hostname)
+    normalized = normalize_hostname(hostname)
     config = _CLICKRANK_HOST_CONFIG.get(normalized)
     if config is None and _hostname_can_fallback_to_public_base_url(normalized):
         configured_base_host = _configured_public_base_hostname()

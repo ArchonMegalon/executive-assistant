@@ -48,6 +48,91 @@ def _args(**overrides):
     return Namespace(**values)
 
 
+def _clear_principal_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in (
+        "EA_WHATSAPP_WEB_DEFAULT_PRINCIPAL_ID",
+        "EA_WHATSAPP_DEFAULT_PRINCIPAL_ID",
+        "EA_DEFAULT_PRINCIPAL_ID",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+
+def test_parse_args_uses_repo_wide_principal_before_literal_default(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    (tmp_path / ".env").write_text("EA_DEFAULT_PRINCIPAL_ID=repo-wide-principal\n", encoding="utf-8")
+    _clear_principal_env(monkeypatch)
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    monkeypatch.setattr(sys, "argv", ["bootstrap_whatsapp_web_session_account.py"])
+
+    args = module.parse_args()
+
+    assert args.principal_id == "repo-wide-principal"
+
+
+def test_parse_args_prefers_whatsapp_principal_before_repo_wide_default(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    (tmp_path / ".env").write_text(
+        "\n".join(
+            [
+                "EA_WHATSAPP_DEFAULT_PRINCIPAL_ID=repo-whatsapp-principal",
+                "EA_DEFAULT_PRINCIPAL_ID=repo-wide-principal",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    _clear_principal_env(monkeypatch)
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    monkeypatch.setattr(sys, "argv", ["bootstrap_whatsapp_web_session_account.py"])
+
+    args = module.parse_args()
+
+    assert args.principal_id == "repo-whatsapp-principal"
+
+
+def test_parse_args_prefers_web_principal_before_whatsapp_default(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    (tmp_path / ".env").write_text(
+        "\n".join(
+            [
+                "EA_WHATSAPP_WEB_DEFAULT_PRINCIPAL_ID=repo-web-principal",
+                "EA_WHATSAPP_DEFAULT_PRINCIPAL_ID=repo-whatsapp-principal",
+                "EA_DEFAULT_PRINCIPAL_ID=repo-wide-principal",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    _clear_principal_env(monkeypatch)
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    monkeypatch.setattr(sys, "argv", ["bootstrap_whatsapp_web_session_account.py"])
+
+    args = module.parse_args()
+
+    assert args.principal_id == "repo-web-principal"
+
+
+def test_parse_args_uses_literal_principal_only_after_fallback_chain(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    (tmp_path / ".env").write_text("", encoding="utf-8")
+    _clear_principal_env(monkeypatch)
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    monkeypatch.setattr(sys, "argv", ["bootstrap_whatsapp_web_session_account.py"])
+
+    args = module.parse_args()
+
+    assert args.principal_id == "principal-default"
+
+
+def test_build_seed_uses_default_principal_chain_when_arg_is_empty(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    (tmp_path / ".env").write_text("EA_DEFAULT_PRINCIPAL_ID=repo-wide-principal\n", encoding="utf-8")
+    _clear_principal_env(monkeypatch)
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+
+    seed = module.build_seed(_args(principal_id=""))
+
+    assert seed.principal_id == "repo-wide-principal"
+
+
 def test_build_seed_records_whatsapp_web_transport_without_session_secret() -> None:
     module = _module()
 

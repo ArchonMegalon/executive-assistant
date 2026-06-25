@@ -13,7 +13,7 @@ sections:
         answer: That is one of the core goals. Chummer6 is being built so bad connectivity does not destroy your flow or your work.
       - question: Why would I trust it more than old opaque tool behavior?
         required: true
-        answer: Because Chummer6 is trying to show the pieces behind a result instead of asking you to accept mystery math.
+        answer: Because Chummer6 tries to show why a result changed instead of leaving you with a number and no explanation.
       - question: What is preview versus available today?
         required: true
         answer: Available today means you can open it or download it right now. Preview means you can use it, but parts of the release, compatibility, or support story are still changing.
@@ -25,16 +25,16 @@ sections:
     entries:
       - question: How do I report something?
         required: true
-        answer: Start with a bug report, documentation note, or feature request. If you want to help test or shape a fix, use the participation page.
+        answer: Start with Help or Contact. If you want to help test or shape a fix in public, use the participation page.
       - question: Can I help with fixes or testing?
         required: true
         answer: Yes. The participation page explains hands-on help for people who want to do more than leave feedback. It does not replace normal bug reports.
       - question: Do I need to join anything to help?
         required: true
         answer: No. Normal bug reports, documentation feedback, and feature requests still matter.
-      - question: Should I use the public issue tracker for a crash?
+      - question: Should I use the participation page for a crash?
         required: true
-        answer: Use the in-product private crash path when logs or diagnostics are involved. Use public issues for bugs that are safe to discuss in public.
+        answer: No. Use the private crash or support path when logs or diagnostics are involved. Use the participation page only for safe public follow-up.
       - question: Why are some things preview-only?
         required: true
         answer: Because some parts are good enough to try before every platform, install flow, and support path is equally polished.
@@ -61,7 +61,7 @@ sections:
         answer: Start with Where To Go Deeper. It points to the optional pages without making most readers wade through planning material first.
       - question: Where does the actual code live?
         required: true
-        answer: In the Chummer code. Most people never need it to install Chummer6, use it, or report a problem.
+        answer: In the Chummer repositories. Most people never need them to install Chummer6, use it, or report a problem.
       - question: Where do I propose public-facing changes?
         required: true
-        answer: Use the Chummer6 issue tracker for documentation feedback, bug reports, and feature requests.
+        answer: Start with Help or Contact. Use the participation page when you want hands-on testing or focused public follow-up.

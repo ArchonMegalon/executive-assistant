@@ -11,6 +11,145 @@ def _write(path: Path, **payload: object) -> None:
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
+def _pass_receipt(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "contract_name": "ea.whatsapp_audiobook_live_delivery_receipt.v1",
+        "generated_by": "ea/scripts/materialize_whatsapp_audiobook_live_delivery_receipt.py",
+        "status": "pass",
+        "live_delivery_claim_allowed": True,
+        "live_delivery_claim_scope": "machine_playable_delivery_only",
+        "fresh_live_job_receipt_proven": True,
+        "historical_or_shadow_proof_only": False,
+        "proof_freshness": {"fresh_live_job_receipt_passed": True},
+        "machine_playback_e2e_verified": True,
+        "real_user_playback_acceptance_verified": False,
+        "human_playback_acceptance_claim_allowed": False,
+        "human_playback_acceptance_evidence": {
+            "status": "not_human_verified",
+            "claim_allowed": False,
+            "accepted": False,
+            "rejected": False,
+        },
+        "proof_semantics": {
+            "machine_playable_delivery_does_not_imply_human_acceptance": True,
+        },
+        "goal_completion_claim_allowed": False,
+        "failed_codes": [],
+        "next_action": "capture_real_user_playback_acceptance_or_close_operator_loop",
+        "stage_summary": {"counts": {"delivered_playable": 1}},
+        "historical_evidence": {},
+        "runtime_readiness": {},
+        "audiobook_runtime": {},
+    }
+    payload.update(overrides)
+    payload["proof_semantics"] = {
+        **dict(payload.get("proof_semantics") or {}),
+        "live_delivery_claim_scope": str(payload.get("live_delivery_claim_scope") or ""),
+        "human_acceptance_evidence": str(
+            dict(payload.get("human_playback_acceptance_evidence") or {}).get("status") or ""
+        ),
+    }
+    return payload
+
+
+def test_whatsapp_audiobook_live_delivery_verifier_accepts_machine_playable_without_human_acceptance(
+    tmp_path: Path,
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json"
+    _write(receipt, **_pass_receipt())
+
+    assert verify(receipt) == []
+
+
+def test_whatsapp_audiobook_live_delivery_verifier_accepts_rejected_human_acceptance_only_with_review_action(
+    tmp_path: Path,
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json"
+    _write(
+        receipt,
+        **_pass_receipt(
+            human_playback_acceptance_evidence={
+                "status": "rejected",
+                "claim_allowed": False,
+                "accepted": False,
+                "rejected": True,
+                "rejected_claim_observed": True,
+                "feedback_sha256_present": True,
+                "feedback_sha256_valid": True,
+                "feedback_sha256_required": True,
+                "operator_grade": True,
+            },
+            next_action="review_audiobook_playback_problem",
+        ),
+    )
+
+    assert verify(receipt) == []
+
+
+def test_whatsapp_audiobook_live_delivery_verifier_requires_hash_capture_for_unhashed_rejected_claim(
+    tmp_path: Path,
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json"
+    _write(
+        receipt,
+        **_pass_receipt(
+            human_playback_acceptance_evidence={
+                "status": "not_human_verified",
+                "claim_allowed": False,
+                "accepted": False,
+                "rejected": False,
+                "rejected_claim_observed": True,
+                "feedback_sha256_present": False,
+                "feedback_sha256_valid": False,
+                "feedback_sha256_required": True,
+            },
+            next_action="capture_real_user_playback_acceptance_or_close_operator_loop",
+        ),
+    )
+
+    assert "unhashed rejected human playback claims require hashed playback-problem feedback capture" in verify(receipt)
+
+
+def test_whatsapp_audiobook_live_delivery_verifier_rejects_human_claim_without_accepted_evidence(
+    tmp_path: Path,
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json"
+    _write(
+        receipt,
+        **_pass_receipt(
+            human_playback_acceptance_claim_allowed=True,
+            live_delivery_claim_scope="machine_playable_delivery_and_human_accepted",
+        ),
+    )
+
+    issues = verify(receipt)
+    assert "human acceptance claim requires real_user_playback_acceptance_verified=true" in issues
+    assert "human acceptance claim requires accepted human evidence" in issues
+
+
+def test_whatsapp_audiobook_live_delivery_verifier_accepts_human_accepted_scope(
+    tmp_path: Path,
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json"
+    _write(
+        receipt,
+        **_pass_receipt(
+            live_delivery_claim_scope="machine_playable_delivery_and_human_accepted",
+            real_user_playback_acceptance_verified=True,
+            human_playback_acceptance_claim_allowed=True,
+            human_playback_acceptance_evidence={
+                "status": "accepted",
+                "claim_allowed": True,
+                "accepted": True,
+                "rejected": False,
+            },
+            next_action="close_operator_loop",
+        ),
+    )
+
+    assert verify(receipt) == []
+
+
 def test_whatsapp_audiobook_live_delivery_verifier_accepts_waiting_for_live_epub(tmp_path: Path) -> None:
     receipt = tmp_path / ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json"
     _write(
@@ -19,6 +158,15 @@ def test_whatsapp_audiobook_live_delivery_verifier_accepts_waiting_for_live_epub
         generated_by="ea/scripts/materialize_whatsapp_audiobook_live_delivery_receipt.py",
         status="waiting_for_live_epub",
         live_delivery_claim_allowed=False,
+        live_delivery_claim_scope="none",
+        fresh_live_job_receipt_proven=False,
+        historical_or_shadow_proof_only=True,
+        proof_freshness={
+            "fresh_live_job_receipt_present": False,
+            "fresh_live_job_receipt_passed": False,
+            "historical_evidence_present": True,
+            "historical_live_path_proven": True,
+        },
         goal_completion_claim_allowed=False,
         candidate_count=0,
         failed_codes=["valid_live_audiobook_delivery_missing", "whatsapp_audiobook_job_missing"],
@@ -26,6 +174,14 @@ def test_whatsapp_audiobook_live_delivery_verifier_accepts_waiting_for_live_epub
         stage_summary={"counts": {}, "latest_by_stage": {}},
         historical_evidence={"historical_live_path_proven": True, "present": True},
         runtime_readiness={"ready": True, "receipt_present": True, "status": "ready"},
+        audiobook_runtime={"ready_for_live_intake": True, "status": "pass"},
+        human_playback_acceptance_claim_allowed=False,
+        human_playback_acceptance_evidence={"status": "not_human_verified", "claim_allowed": False},
+        proof_semantics={
+            "machine_playable_delivery_does_not_imply_human_acceptance": True,
+            "live_delivery_claim_scope": "none",
+            "human_acceptance_evidence": "not_human_verified",
+        },
     )
 
     assert verify(receipt) == []
@@ -39,6 +195,10 @@ def test_whatsapp_audiobook_live_delivery_verifier_rejects_bad_waiting_for_live_
         generated_by="ea/scripts/materialize_whatsapp_audiobook_live_delivery_receipt.py",
         status="waiting_for_live_epub",
         live_delivery_claim_allowed=False,
+        live_delivery_claim_scope="none",
+        fresh_live_job_receipt_proven=False,
+        historical_or_shadow_proof_only=False,
+        proof_freshness={},
         goal_completion_claim_allowed=False,
         candidate_count=2,
         failed_codes=["valid_live_audiobook_delivery_missing"],
@@ -46,6 +206,10 @@ def test_whatsapp_audiobook_live_delivery_verifier_rejects_bad_waiting_for_live_
         stage_summary={},
         historical_evidence={"historical_live_path_proven": False},
         runtime_readiness={"ready": False},
+        audiobook_runtime={"ready_for_live_intake": False},
+        human_playback_acceptance_claim_allowed=False,
+        human_playback_acceptance_evidence={"status": "not_human_verified", "claim_allowed": False},
+        proof_semantics={"machine_playable_delivery_does_not_imply_human_acceptance": True},
     )
 
     issues = verify(receipt)
@@ -66,12 +230,25 @@ def test_whatsapp_audiobook_live_delivery_verifier_requires_text_fallback_signal
                 "generated_by": "ea/scripts/materialize_whatsapp_audiobook_live_delivery_receipt.py",
                 "status": "waiting_voice_choice",
                 "live_delivery_claim_allowed": False,
+                "live_delivery_claim_scope": "none",
+                "fresh_live_job_receipt_proven": False,
+                "historical_or_shadow_proof_only": False,
+                "proof_freshness": {},
                 "failed_codes": ["user_selected_voice_delivery_not_ready"],
                 "next_action": "choose_whatsapp_audiobook_voice_sample",
                 "candidate_count": 1,
                 "stage_summary": {"counts": {"waiting_voice_choice": 1}},
                 "historical_evidence": {},
                 "runtime_readiness": {},
+                "audiobook_runtime": {},
+                "human_playback_acceptance_claim_allowed": False,
+                "human_playback_acceptance_evidence": {
+                    "status": "not_human_verified",
+                    "claim_allowed": False,
+                },
+                "proof_semantics": {
+                    "machine_playable_delivery_does_not_imply_human_acceptance": True,
+                },
                 "goal_completion_claim_allowed": False,
                 "pending_user_selected_voice_jobs": [
                     {

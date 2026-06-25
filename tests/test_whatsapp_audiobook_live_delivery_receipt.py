@@ -33,6 +33,10 @@ def _job_receipt(
     replacement_choice_pending: bool = False,
     whatsapp_sender_bound: bool = True,
     whatsapp_session_bound: bool = True,
+    assembly_output_ready: bool = True,
+    chapter_metadata_embedded: bool = True,
+    player_scoped_reference_status: str = "signed_reference_ready",
+    publication_gate_chapters: int = 0,
 ) -> dict[str, object]:
     voice_selection = (
         {
@@ -94,16 +98,16 @@ def _job_receipt(
         },
         "assembly": {
             "status": "m4b_ready",
-            "output_file_ready": True,
-            "output_file_sha256": "a" * 64,
-            "chapter_metadata_embedded": True,
+            "output_file_ready": assembly_output_ready,
+            "output_file_sha256": "a" * 64 if assembly_output_ready else "",
+            "chapter_metadata_embedded": chapter_metadata_embedded,
         },
         "audiobookshelf_import": {
             "status": "imported",
             "target_file_ready": True,
             "target_file_sha256": "b" * 64,
             "target_storage_kind": "pcloud",
-            "player_scoped_reference_status": "signed_reference_ready",
+            "player_scoped_reference_status": player_scoped_reference_status,
             "public_share_status": public_share_status,
             "public_share_url": "https://abs.example.com/share/wa-test-book",
             "public_share_slug_sha256": "c" * 64,
@@ -129,6 +133,13 @@ def _job_receipt(
             "job_storage_kind": "pcloud",
             "audiobookshelf_storage_kind": "pcloud",
             "manifest_sha256": "e" * 64,
+        },
+        "audio_publication_gate": {
+            "status": "pass",
+            "issues": [],
+            "chapters": publication_gate_chapters,
+            "target_file_sha256": "b" * 64,
+            "raw_paths_exposed": False,
         },
         "telegram": {
             "chat_bound": False,
@@ -176,6 +187,48 @@ def _job_receipt(
     }
 
 
+def _runtime_preflight_ready() -> dict[str, object]:
+    return {
+        "contract_name": "ea.telegram_epub_audiobook_runtime_preflight.v1",
+        "status": "pass",
+        "provider": {
+            "api_key_slot_count": 2,
+            "voice_catalog_count": 8,
+            "voice_audition_min_candidates": 3,
+            "unmixr_auto_render_enabled": True,
+        },
+        "checks": [
+            {"key": "telegram_audiobook_enabled", "status": "pass"},
+            {"key": "jobs_root_durable", "status": "pass"},
+            {"key": "jobs_root_writable", "status": "pass"},
+            {"key": "external_tts_enabled", "status": "pass"},
+            {"key": "unmixr_auto_render_enabled", "status": "pass"},
+            {"key": "voice_catalog_configured", "status": "pass"},
+        ],
+    }
+
+
+def _runtime_preflight_blocked() -> dict[str, object]:
+    return {
+        "contract_name": "ea.telegram_epub_audiobook_runtime_preflight.v1",
+        "status": "fail",
+        "provider": {
+            "api_key_slot_count": 0,
+            "voice_catalog_count": 0,
+            "voice_audition_min_candidates": 3,
+            "unmixr_auto_render_enabled": False,
+        },
+        "checks": [
+            {"key": "telegram_audiobook_enabled", "status": "pass"},
+            {"key": "jobs_root_durable", "status": "pass"},
+            {"key": "jobs_root_writable", "status": "pass"},
+            {"key": "external_tts_enabled", "status": "pass"},
+            {"key": "unmixr_auto_render_enabled", "status": "fail"},
+            {"key": "voice_catalog_configured", "status": "fail"},
+        ],
+    }
+
+
 def test_live_whatsapp_audiobook_delivery_receipt_passes_with_sanitized_job_receipt(tmp_path: Path) -> None:
     module = _load_script("materialize_whatsapp_audiobook_live_delivery_receipt")
 
@@ -188,8 +241,16 @@ def test_live_whatsapp_audiobook_delivery_receipt_passes_with_sanitized_job_rece
     assert receipt["contract_name"] == "ea.whatsapp_audiobook_live_delivery_receipt.v1"
     assert receipt["status"] == "pass"
     assert receipt["live_delivery_claim_allowed"] is True
+    assert receipt["fresh_live_job_receipt_proven"] is True
+    assert receipt["historical_or_shadow_proof_only"] is False
+    assert receipt["proof_freshness"]["fresh_live_job_receipt_passed"] is True
+    assert receipt["live_delivery_claim_scope"] == "machine_playable_delivery_only"
     assert receipt["machine_playback_e2e_verified"] is True
     assert receipt["real_user_playback_acceptance_verified"] is False
+    assert receipt["human_playback_acceptance_claim_allowed"] is False
+    assert receipt["human_playback_acceptance_evidence"]["status"] == "not_human_verified"
+    assert receipt["proof_semantics"]["machine_playable_delivery_does_not_imply_human_acceptance"] is True
+    assert receipt["next_action"] == "capture_real_user_playback_acceptance_or_close_operator_loop"
     selected = receipt["selected_delivery"]
     assert selected["public_share_url_present"] is True
     assert selected["public_share_host"] == "abs.example.com"
@@ -206,6 +267,34 @@ def test_live_whatsapp_audiobook_delivery_receipt_passes_with_sanitized_job_rece
     assert "4368120864006" not in serialized
     assert "wamid" not in serialized
     assert receipt["privacy"]["whatsapp_message_ids_hashed"] is True
+    assert receipt["privacy"]["playback_acceptance_feedback_hashed"] is False
+
+
+def test_live_whatsapp_audiobook_delivery_receipt_accepts_cleaned_import_target_proof(
+    tmp_path: Path,
+) -> None:
+    module = _load_script("materialize_whatsapp_audiobook_live_delivery_receipt")
+
+    receipt = module.build_receipt(
+        output_path=tmp_path / "cleaned-import.generated.json",
+        job_receipts=[
+            _job_receipt(
+                assembly_output_ready=False,
+                chapter_metadata_embedded=False,
+                player_scoped_reference_status="blocked",
+                publication_gate_chapters=12,
+            )
+        ],
+        generated_at="2026-06-21T08:26:00Z",
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["live_delivery_claim_allowed"] is True
+    selected = receipt["selected_delivery"]
+    assert selected["player_scoped_reference_ready"] is False
+    assert selected["machine_playback_e2e_verified"] is True
+    assert "m4b_output_file_not_ready" not in receipt["failed_codes"]
+    assert "player_scoped_reference_not_ready" not in receipt["failed_codes"]
 
 
 def test_live_whatsapp_audiobook_delivery_receipt_surfaces_whatsapp_playback_acceptance(
@@ -221,10 +310,96 @@ def test_live_whatsapp_audiobook_delivery_receipt_surfaces_whatsapp_playback_acc
 
     assert receipt["status"] == "pass"
     assert receipt["real_user_playback_acceptance_verified"] is True
+    assert receipt["human_playback_acceptance_claim_allowed"] is True
+    assert receipt["live_delivery_claim_scope"] == "machine_playable_delivery_and_human_accepted"
+    assert receipt["human_playback_acceptance_evidence"]["status"] == "accepted"
+    assert receipt["next_action"] == "close_operator_loop"
     selected = receipt["selected_delivery"]
     assert selected["playback_acceptance_verified"] is True
     assert selected["playback_acceptance_source"] == "whatsapp_button"
     assert receipt["privacy"]["playback_acceptance_feedback_hashed"] is True
+
+
+def test_live_whatsapp_audiobook_delivery_receipt_routes_rejected_playback_to_review_action(
+    tmp_path: Path,
+) -> None:
+    module = _load_script("materialize_whatsapp_audiobook_live_delivery_receipt")
+    rejected = _job_receipt(playback_accepted=False)
+    rejected["playback_acceptance"] = {
+        "contract_name": "ea.telegram_epub_audiobook_playback_acceptance.v1",
+        "status": "rejected",
+        "accepted": False,
+        "source": "whatsapp_button_recovered",
+        "recorded_at": "2026-06-21T08:20:00Z",
+        "feedback_sha256": "f" * 64,
+        "message_id_sha256": "g" * 64,
+        "public_share_url_sha256": "h" * 64,
+        "audiobookshelf_target_file_sha256": "b" * 64,
+        "telegram_public_share_message_id_sha256": "",
+        "whatsapp_public_share_message_id_sha256": "d" * 64,
+        "raw_feedback_exposed": False,
+        "raw_message_id_exposed": False,
+    }
+
+    receipt = module.build_receipt(
+        output_path=tmp_path / "rejected.generated.json",
+        job_receipts=[rejected],
+        generated_at="2026-06-21T08:25:00Z",
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["real_user_playback_acceptance_verified"] is False
+    assert receipt["human_playback_acceptance_claim_allowed"] is False
+    assert receipt["live_delivery_claim_scope"] == "machine_playable_delivery_only"
+    assert receipt["human_playback_acceptance_evidence"]["status"] == "rejected"
+    assert receipt["human_playback_acceptance_evidence"]["rejected"] is True
+    assert receipt["human_playback_acceptance_evidence"]["feedback_sha256_present"] is True
+    assert receipt["machine_playback_e2e_verified"] is True
+    assert receipt["next_action"] == "review_audiobook_playback_problem"
+    assert receipt["privacy"]["playback_acceptance_feedback_hashed"] is True
+
+
+def test_live_whatsapp_audiobook_delivery_receipt_requires_hashed_feedback_for_rejected_playback(
+    tmp_path: Path,
+) -> None:
+    module = _load_script("materialize_whatsapp_audiobook_live_delivery_receipt")
+    rejected = _job_receipt(playback_accepted=False)
+    rejected["playback_acceptance"] = {
+        "contract_name": "ea.telegram_epub_audiobook_playback_acceptance.v1",
+        "status": "rejected",
+        "accepted": False,
+        "source": "whatsapp_button_recovered",
+        "recorded_at": "2026-06-21T08:20:00Z",
+        "feedback_sha256": "",
+        "message_id_sha256": "g" * 64,
+        "public_share_url_sha256": "h" * 64,
+        "audiobookshelf_target_file_sha256": "b" * 64,
+        "telegram_public_share_message_id_sha256": "",
+        "whatsapp_public_share_message_id_sha256": "d" * 64,
+        "raw_feedback_exposed": False,
+        "raw_message_id_exposed": False,
+    }
+
+    receipt = module.build_receipt(
+        output_path=tmp_path / "rejected-unhashed.generated.json",
+        job_receipts=[rejected],
+        generated_at="2026-06-21T08:25:00Z",
+    )
+
+    evidence = receipt["human_playback_acceptance_evidence"]
+    assert receipt["status"] == "pass"
+    assert receipt["live_delivery_claim_scope"] == "machine_playable_delivery_only"
+    assert receipt["human_playback_acceptance_claim_allowed"] is False
+    assert evidence["status"] == "not_human_verified"
+    assert evidence["rejected"] is False
+    assert evidence["rejected_claim_observed"] is True
+    assert evidence["feedback_sha256_present"] is False
+    assert evidence["feedback_sha256_valid"] is False
+    assert evidence["feedback_sha256_required"] is True
+    assert evidence["operator_grade"] is False
+    assert evidence["evidence_grade"] == "insufficient_feedback_hash"
+    assert receipt["next_action"] == "capture_hashed_audiobook_playback_problem_feedback"
+    assert receipt["privacy"]["playback_acceptance_feedback_hashed"] is False
 
 
 def test_live_whatsapp_audiobook_delivery_receipt_blocks_missing_whatsapp_delivery(
@@ -240,6 +415,7 @@ def test_live_whatsapp_audiobook_delivery_receipt_blocks_missing_whatsapp_delive
 
     assert receipt["status"] == "blocked"
     assert receipt["live_delivery_claim_allowed"] is False
+    assert receipt["live_delivery_claim_scope"] == "none"
     assert "whatsapp_public_share_delivery_not_sent" in receipt["failed_codes"]
     assert "whatsapp_public_share_message_id_missing" in receipt["failed_codes"]
     assert receipt["stage_summary"]["counts"]["waiting_whatsapp_public_share_delivery"] == 1
@@ -402,6 +578,8 @@ def test_live_whatsapp_audiobook_delivery_receipt_waits_for_fresh_epub_when_runt
     tmp_path: Path,
 ) -> None:
     module = _load_script("materialize_whatsapp_audiobook_live_delivery_receipt")
+    module._runtime_container_preflight = lambda: {}
+    module.audiobook_runtime_preflight = lambda: _runtime_preflight_ready()
 
     receipt = module.build_receipt(
         output_path=tmp_path / "historical-waiting.generated.json",
@@ -449,12 +627,133 @@ def test_live_whatsapp_audiobook_delivery_receipt_waits_for_fresh_epub_when_runt
 
     assert receipt["status"] == "waiting_for_live_epub"
     assert receipt["candidate_count"] == 0
+    assert receipt["fresh_live_job_receipt_proven"] is False
+    assert receipt["historical_or_shadow_proof_only"] is True
+    assert receipt["proof_freshness"]["historical_live_path_proven"] is True
     assert receipt["runtime_readiness"]["receipt_present"] is True
     assert receipt["runtime_readiness"]["ready"] is True
     assert receipt["runtime_readiness"]["effective_session_ref_present"] is True
     assert "whatsapp_audiobook_job_missing" in receipt["failed_codes"]
     assert "fresh_live_whatsapp_job_receipt_missing" in receipt["failed_codes"]
     assert receipt["next_action"] == "send_epub_over_whatsapp_to_refresh_live_delivery_receipt"
+
+
+def test_live_whatsapp_audiobook_delivery_receipt_blocks_refresh_when_audiobook_runtime_is_not_ready(
+    tmp_path: Path,
+) -> None:
+    module = _load_script("materialize_whatsapp_audiobook_live_delivery_receipt")
+    module._runtime_container_preflight = lambda: {}
+    module.audiobook_runtime_preflight = lambda: _runtime_preflight_blocked()
+
+    receipt = module.build_receipt(
+        output_path=tmp_path / "historical-blocked-runtime.generated.json",
+        job_receipts=[],
+        historical_receipts={
+            "local_intake": {
+                "status": "pass",
+                "generated_at": "2026-06-21T19:00:00Z",
+                "checks": {
+                    "whatsapp_public_share_sent": True,
+                    "whatsapp_sender_bound": True,
+                    "whatsapp_session_bound": True,
+                },
+                "processor_report": {
+                    "intake": {"voice_sample_sent": 3},
+                    "voice_selection": {"share_link_sent": 1},
+                },
+                "job_summary": {"status": "audiobookshelf_imported"},
+            },
+            "public_share_playback": {
+                "status": "pass",
+                "generated_at": "2026-06-21T19:05:00Z",
+                "attempted": 1,
+                "passed": 1,
+                "results": [
+                    {
+                        "passed": True,
+                        "status": "pass",
+                        "public_share_host": "audiobookshelf.girschele.com",
+                    }
+                ],
+            },
+        },
+        readiness_receipt={
+            "contract_name": "ea.whatsapp_web_action_processor_readiness.v1",
+            "status": "ready",
+            "ready": True,
+            "reason": "ready",
+            "sidecar_ready": True,
+            "state_fresh": True,
+            "effective_session_ref": "tibor-wa-web",
+        },
+        generated_at="2026-06-22T08:33:00Z",
+    )
+
+    assert receipt["status"] == "blocked"
+    assert "audiobook_runtime_not_ready" in receipt["failed_codes"]
+    assert receipt["audiobook_runtime"]["ready_for_live_intake"] is False
+    assert receipt["audiobook_runtime"]["sample_blockers"] == [
+        "unmixr_auto_render_enabled",
+        "voice_catalog_configured",
+        "voice_catalog_audition_ready",
+        "unmixr_api_key_slot_present",
+    ]
+
+
+def test_live_whatsapp_audiobook_delivery_receipt_prefers_runtime_container_preflight(
+    tmp_path: Path,
+) -> None:
+    module = _load_script("materialize_whatsapp_audiobook_live_delivery_receipt")
+    module._runtime_container_preflight = lambda: _runtime_preflight_ready()
+    module.audiobook_runtime_preflight = lambda: _runtime_preflight_blocked()
+
+    receipt = module.build_receipt(
+        output_path=tmp_path / "historical-container-runtime.generated.json",
+        job_receipts=[],
+        historical_receipts={
+            "local_intake": {
+                "status": "pass",
+                "generated_at": "2026-06-21T19:00:00Z",
+                "checks": {
+                    "whatsapp_public_share_sent": True,
+                    "whatsapp_sender_bound": True,
+                    "whatsapp_session_bound": True,
+                },
+                "processor_report": {
+                    "intake": {"voice_sample_sent": 3},
+                    "voice_selection": {"share_link_sent": 1},
+                },
+                "job_summary": {"status": "audiobookshelf_imported"},
+            },
+            "public_share_playback": {
+                "status": "pass",
+                "generated_at": "2026-06-21T19:05:00Z",
+                "attempted": 1,
+                "passed": 1,
+                "results": [
+                    {
+                        "passed": True,
+                        "status": "pass",
+                        "public_share_host": "audiobookshelf.girschele.com",
+                    }
+                ],
+            },
+        },
+        readiness_receipt={
+            "contract_name": "ea.whatsapp_web_action_processor_readiness.v1",
+            "status": "ready",
+            "ready": True,
+            "reason": "ready",
+            "sidecar_ready": True,
+            "state_fresh": True,
+            "effective_session_ref": "tibor-wa-web",
+        },
+        generated_at="2026-06-22T08:33:00Z",
+    )
+
+    assert receipt["status"] == "waiting_for_live_epub"
+    assert receipt["audiobook_runtime"]["ready_for_live_intake"] is True
+    assert receipt["audiobook_runtime"]["sample_blockers"] == []
 
 
 def test_live_whatsapp_audiobook_delivery_receipt_distinguishes_existing_whatsapp_render_job(
@@ -633,6 +932,7 @@ def test_live_whatsapp_audiobook_delivery_receipt_resolves_runtime_readiness_whe
     monkeypatch,
 ) -> None:
     module = _load_script("materialize_whatsapp_audiobook_live_delivery_receipt")
+    module.audiobook_runtime_preflight = lambda: _runtime_preflight_ready()
     readiness_path = tmp_path / "missing-readiness.generated.json"
     monkeypatch.setattr(module, "DEFAULT_READINESS_RECEIPT", readiness_path)
 

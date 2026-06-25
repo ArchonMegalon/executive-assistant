@@ -16,6 +16,7 @@ Public copy may promise:
 
 * the desktop app can check for updates in-app
 * update availability follows promoted channel truth
+* users can choose full auto-update, notify only, or off
 * Windows and Linux follow installer-first release posture
 * bad heads may be paused or revoked
 
@@ -32,6 +33,8 @@ Use:
 
 * `check for updates`
 * `update available`
+* `full auto-update`
+* `notify only`
 * `paused rollout`
 * `revoked release`
 * `install the newer build`

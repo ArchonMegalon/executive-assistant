@@ -38,7 +38,7 @@ LOCAL_SECRET_FILE_AUDIT_GLOBS = (
     "config/*credential*.json",
     "config/*secret*.json",
 )
-COMPOSE_REQUIRED_ENV_IGNORE = {"HOME"}
+COMPOSE_REQUIRED_ENV_IGNORE = {"HOME", "code", "port"}
 SECRET_MARKERS = (
     "API_KEY",
     "TOKEN",

@@ -20,7 +20,23 @@ from app.services.tool_execution_common import ToolExecutionError
 
 
 _ONEMIN_FALLBACK_ENV_RE = re.compile(r"^ONEMIN_AI_API_KEY_FALLBACK_(\d+)$")
+_ONEMIN_INDEXED_ENV_RE = re.compile(r"^(?:EA_RESPONSES_)?ONEMIN(?:_AI)?_API_KEY_(\d+)$")
 _ONEMIN_FALLBACK_SLOT_RE = re.compile(r"^fallback_?(\d+)$")
+
+
+def _repo_root() -> Path:
+    current = Path(__file__).resolve()
+    for parent in current.parents:
+        if (parent / ".git").is_dir() or (parent / ".codex-design").is_dir():
+            return parent
+    return current.parents[3]
+
+
+def _config_root() -> Path:
+    raw = str(os.environ.get("EA_CONFIG_ROOT") or "").strip()
+    if raw:
+        return Path(raw).expanduser()
+    return _repo_root() / "config"
 
 
 def _onemin_fallback_slot_number(raw: object) -> int | None:
@@ -43,6 +59,26 @@ def _onemin_fallback_slot_number(raw: object) -> int | None:
     return slot_number if slot_number >= 1 else None
 
 
+def _onemin_fallback_slot_numbers(raw: object) -> tuple[int, ...]:
+    value = str(raw or "").strip()
+    if not value:
+        return tuple()
+    direct = _onemin_fallback_slot_number(value)
+    if direct is not None:
+        return (direct,)
+    for separator in ("..", ":"):
+        if separator not in value:
+            continue
+        start, end = value.split(separator, 1)
+        start_number = _onemin_fallback_slot_number(start)
+        end_number = _onemin_fallback_slot_number(end)
+        if start_number is None or end_number is None:
+            return tuple()
+        step = 1 if end_number >= start_number else -1
+        return tuple(range(start_number, end_number + step, step))
+    return tuple()
+
+
 def _onemin_manifest_path() -> Path | None:
     raw = str(os.environ.get("ONEMIN_DIRECT_API_KEYS_JSON_FILE") or "").strip()
     if not raw:
@@ -55,13 +91,12 @@ def _onemin_manifest_path() -> Path | None:
     if path.is_absolute():
         candidates.append(path)
         if str(path).startswith("/config/"):
-            candidates.append(Path("/docker/EA") / "config" / path.name)
-            candidates.append(Path(__file__).resolve().parents[3] / "config" / path.name)
+            candidates.append(_config_root() / path.name)
     else:
         candidates.extend(
             [
                 path,
-                Path(__file__).resolve().parents[3] / path,
+                _repo_root() / path,
             ]
         )
     seen: set[Path] = set()
@@ -157,18 +192,25 @@ def _onemin_manifest_account_names() -> tuple[str, ...]:
 
 def _onemin_secret_env_names() -> tuple[str, ...]:
     fallback_numbers: set[int] = set()
+    indexed_names: dict[int, str] = {}
     for env_name in os.environ:
-        match = _ONEMIN_FALLBACK_ENV_RE.match(str(env_name or "").strip())
-        if match is None:
+        normalized_env_name = str(env_name or "").strip()
+        fallback_match = _ONEMIN_FALLBACK_ENV_RE.match(normalized_env_name)
+        indexed_match = _ONEMIN_INDEXED_ENV_RE.match(normalized_env_name)
+        if fallback_match is None and indexed_match is None:
             continue
         try:
-            fallback_numbers.add(int(match.group(1)))
+            if fallback_match is not None:
+                fallback_numbers.add(int(fallback_match.group(1)))
+            elif indexed_match is not None:
+                index = int(indexed_match.group(1))
+                if index >= 1:
+                    indexed_names[index] = normalized_env_name
         except Exception:
             continue
     for env_var in ("EA_RESPONSES_ONEMIN_ACTIVE_SLOTS", "EA_RESPONSES_ONEMIN_RESERVE_SLOTS"):
         for slot_name in str(os.environ.get(env_var) or "").split(","):
-            slot_number = _onemin_fallback_slot_number(slot_name)
-            if slot_number is not None:
+            for slot_number in _onemin_fallback_slot_numbers(slot_name):
                 fallback_numbers.add(slot_number)
     manifest_by_slot: dict[int, str] = {}
     trailing_names: list[str] = []
@@ -181,7 +223,18 @@ def _onemin_secret_env_names() -> tuple[str, ...]:
             manifest_by_slot[slot_number] = account_name
             continue
         trailing_names.append(account_name)
-    names = ["ONEMIN_AI_API_KEY"]
+    primary_name = "ONEMIN_AI_API_KEY"
+    if not str(os.environ.get(primary_name) or "").strip():
+        for candidate in ("EA_RESPONSES_ONEMIN_API_KEY", indexed_names.get(1, "")):
+            cleaned = str(candidate or "").strip()
+            if cleaned and str(os.environ.get(cleaned) or "").strip():
+                primary_name = cleaned
+                break
+    names = [primary_name]
+    for index in sorted(indexed_names):
+        if index <= 1:
+            continue
+        names.append(indexed_names[index])
     for slot_number in sorted(fallback_numbers):
         names.append(manifest_by_slot.get(slot_number) or f"ONEMIN_AI_API_KEY_FALLBACK_{slot_number}")
     names.extend(trailing_names)

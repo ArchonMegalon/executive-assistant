@@ -24,6 +24,10 @@ def _env(name: str, default: str = "") -> str:
     return str(os.environ.get(name) or default).strip()
 
 
+def _default_principal_id() -> str:
+    return readiness_script._default_principal_id()
+
+
 def _load_binding(args: argparse.Namespace):
     binding_path = str(args.binding_json or "").strip()
     database_url = str(args.database_url or "").strip()
@@ -166,10 +170,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--binding-json", default=_env("EA_WHATSAPP_WEB_READINESS_BINDING_JSON"))
     parser.add_argument("--database-url", default=_env("DATABASE_URL"))
     parser.add_argument("--binding-id", default=_env("EA_WHATSAPP_WEB_DEFAULT_BINDING_ID", "ea-whatsapp-web-session"))
-    parser.add_argument(
-        "--principal-id",
-        default=_env("EA_WHATSAPP_WEB_DEFAULT_PRINCIPAL_ID") or _env("EA_WHATSAPP_DEFAULT_PRINCIPAL_ID", "principal-default"),
-    )
+    parser.add_argument("--principal-id", default=_default_principal_id())
     parser.add_argument("--recipient", default=_env("EA_WHATSAPP_WEB_LIVE_TEST_RECIPIENT"))
     parser.add_argument(
         "--text",

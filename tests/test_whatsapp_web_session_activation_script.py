@@ -54,6 +54,48 @@ def _args(**overrides: object) -> Namespace:
     return Namespace(**values)
 
 
+def test_parse_args_uses_repo_wide_principal_before_literal_default(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    (tmp_path / ".env").write_text("EA_DEFAULT_PRINCIPAL_ID=repo-wide-principal\n", encoding="utf-8")
+    for name in (
+        "EA_WHATSAPP_WEB_DEFAULT_PRINCIPAL_ID",
+        "EA_WHATSAPP_DEFAULT_PRINCIPAL_ID",
+        "EA_DEFAULT_PRINCIPAL_ID",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(module.readiness_script, "ROOT", tmp_path)
+    monkeypatch.setattr(sys, "argv", ["activate_whatsapp_web_session.py", "--dry-run"])
+
+    args = module.parse_args()
+
+    assert args.principal_id == "repo-wide-principal"
+
+
+def test_parse_args_prefers_web_principal_over_repo_wide_principal(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    (tmp_path / ".env").write_text(
+        "\n".join(
+            [
+                "EA_WHATSAPP_WEB_DEFAULT_PRINCIPAL_ID=web-principal",
+                "EA_DEFAULT_PRINCIPAL_ID=repo-wide-principal",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    for name in (
+        "EA_WHATSAPP_WEB_DEFAULT_PRINCIPAL_ID",
+        "EA_WHATSAPP_DEFAULT_PRINCIPAL_ID",
+        "EA_DEFAULT_PRINCIPAL_ID",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(module.readiness_script, "ROOT", tmp_path)
+    monkeypatch.setattr(sys, "argv", ["activate_whatsapp_web_session.py", "--dry-run"])
+
+    args = module.parse_args()
+
+    assert args.principal_id == "web-principal"
+
+
 def test_build_report_refuses_to_activate_when_sidecar_needs_qr(monkeypatch) -> None:
     module = _module()
     seeded = False

@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ea"))
 
 from app.api.dependencies import RequestContext  # noqa: E402
 from app.api.routes.responses import _run_response  # noqa: E402
+from app.api.routes.responses_read_routes import models_response_payload  # noqa: E402
 from app.main import app  # noqa: E402
 from app.services.responses_upstream import list_response_models  # noqa: E402
 from fastapi.responses import JSONResponse, StreamingResponse  # noqa: E402
@@ -152,7 +153,7 @@ class ResponsesProxyHandler(BaseHTTPRequestHandler):
             self._send_json(200, {"status": "ready", "reason": "responses_proxy_ready"})
             return
         if parsed.path == "/v1/models":
-            self._send_json(200, {"object": "list", "data": list_response_models()})
+            self._send_json(200, models_response_payload(list_response_models=list_response_models))
             return
         self._send_json(404, {"error": {"code": "not_found", "message": "not_found"}})
 

@@ -23,11 +23,16 @@ pytest -q \
   tests/test_memorial_showtime_contracts.py \
   -k 'memorial'
 
-"$ROOT/.venv/bin/pytest" -q \
-  tests/e2e/test_memorial_browser.py \
-  tests/e2e/test_memorial_flagship_exit_gates.py \
-  tests/e2e/test_memorial_flagship_operator_tools.py \
-  tests/e2e/test_memorial_showtime_cli.py
+if [[ -n "${PYTEST_CURRENT_TEST:-}" ]]; then
+  "$PYTHON_BIN" -m pytest -q \
+    tests/e2e/test_memorial_showtime_cli.py
+else
+  "$PYTHON_BIN" -m pytest -q \
+    tests/e2e/test_memorial_browser.py \
+    tests/e2e/test_memorial_flagship_exit_gates.py \
+    tests/e2e/test_memorial_flagship_operator_tools.py \
+    tests/e2e/test_memorial_showtime_cli.py
+fi
 
 cd "$ROOT/ea"
 preflight_args=("manfred")

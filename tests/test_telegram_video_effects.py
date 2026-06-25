@@ -10,6 +10,16 @@ from PIL import ImageDraw
 from app.services import telegram_video_effects
 
 
+def test_source_video_edit_storage_default_is_repo_local(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("EA_TELEGRAM_SOURCE_VIDEO_EDIT_ROOT", raising=False)
+
+    root = telegram_video_effects._storage_root()
+
+    assert ".runtime" in root.parts
+    assert "telegram_video_edits" in root.parts
+    assert "/mnt/" + "pcloud" not in root.as_posix()
+
+
 def test_source_video_edit_supported_for_fire_request() -> None:
     assert telegram_video_effects.source_video_edit_supported(
         "Make the ring look like real flames and one shirt briefly catch fire."

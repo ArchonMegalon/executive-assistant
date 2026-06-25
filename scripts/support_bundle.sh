@@ -3,6 +3,14 @@ set -euo pipefail
 
 EA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${EA_ROOT}"
+PYTHON_BIN="${PYTHON_BIN:-}"
+if [[ -z "${PYTHON_BIN}" ]]; then
+  if [[ -x "${EA_ROOT}/.venv/bin/python" ]]; then
+    PYTHON_BIN="${EA_ROOT}/.venv/bin/python"
+  else
+    PYTHON_BIN="python3"
+  fi
+fi
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   cat <<'EOF'
@@ -20,6 +28,8 @@ Environment:
   SUPPORT_INCLUDE_PRODUCT_CONTROL=0|1   Include mirrored weekly pulse and journey-gate summary (default: 1)
   SUPPORT_INCLUDE_GROUNDING=0|1         Include mirrored help/support/operator grounding summary (default: 1)
                                         and codex governance guidance (default: 1)
+  Source-dirty group evidence is always included with its verifier as redacted JSON
+                                        so clean-receipt blockers survive handoff and incident review.
   SUPPORT_DB_SIZE_LIMIT=<n>             Top table count for DB size snapshot (default: 10)
   SUPPORT_INCLUDE_QUEUE=0|1             Include queued task snapshot (default: 1)
 EOF
@@ -31,6 +41,9 @@ if docker compose version >/dev/null 2>&1; then
 else
   DC=(docker-compose)
 fi
+
+# Keep optional FastestVPN operator-lane vars from leaking compose warnings into generic bundles.
+export FASTESTVPN_PROXY_PORT="${FASTESTVPN_PROXY_PORT:-3128}"
 
 OUT_DIR="${EA_ROOT}/artifacts"
 mkdir -p "${OUT_DIR}"
@@ -55,6 +68,17 @@ INCLUDE_QUEUE="${SUPPORT_INCLUDE_QUEUE:-1}"
 API_SERVICE="${PROPERTYQUARRY_API_SERVICE:-${EA_API_SERVICE:-ea-api}}"
 DB_SERVICE="${PROPERTYQUARRY_DB_SERVICE:-${EA_DB_SERVICE:-ea-db}}"
 DB_CONTAINER="${EA_DB_CONTAINER:-${DB_SERVICE}}"
+SUPPORT_TMP_FILES=()
+
+cleanup_support_tmp_files() {
+  local path
+  for path in "${SUPPORT_TMP_FILES[@]:-}"; do
+    if [[ -n "${path}" ]]; then
+      rm -f "${path}"
+    fi
+  done
+}
+trap cleanup_support_tmp_files EXIT
 
 redact() {
   sed -E \
@@ -215,6 +239,45 @@ print(f"codex_support_help_boundary={compact(support.get('summary'))}")
 PY
 }
 
+print_runtime_supply_chain_summary() {
+  python3 - <<'PY'
+from __future__ import annotations
+
+def compact(value: object) -> str:
+    return " ".join(str(value or "").split()).strip() or "missing"
+
+try:
+    from scripts.verify_runtime_supply_chain import verify
+    payload = dict(verify() or {})
+except Exception as exc:
+    payload = {
+        "contract_name": "ea.runtime_supply_chain.v1",
+        "status": "error",
+        "issues": ["runtime_supply_chain_verifier_error"],
+        "error": str(exc),
+        "checked": {},
+    }
+
+issues = [str(item).strip() for item in list(payload.get("issues") or []) if str(item).strip()]
+checked = dict(payload.get("checked") or {})
+dockerfiles = ", ".join(str(item) for item in list(checked.get("dockerfiles") or [])[:4]) or "missing"
+compose_services = ", ".join(str(item) for item in list(checked.get("compose_services") or [])[:8]) or "missing"
+compose_images = dict(checked.get("compose_images") or {})
+compose_images_text = ", ".join(
+    f"{key}={value}" for key, value in sorted(compose_images.items()) if str(key).strip() and str(value).strip()
+) or "missing"
+
+print(f"contract_name={compact(payload.get('contract_name') or 'ea.runtime_supply_chain.v1')}")
+print(f"status={compact(payload.get('status') or 'fail')}")
+print(f"issues={compact(', '.join(issues) if issues else 'none')}")
+print(f"requirements_txt={compact(checked.get('requirements_txt'))}")
+print(f"requirements_lock={compact(checked.get('requirements_lock'))}")
+print(f"dockerfiles={dockerfiles}")
+print(f"compose_services={compose_services}")
+print(f"compose_images={compose_images_text}")
+PY
+}
+
 {
   echo "== Support Bundle =="
   echo "generated_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -222,6 +285,179 @@ PY
 
   echo "-- version info --"
   bash scripts/version_info.sh || true
+  echo
+
+  echo "-- release authority --"
+  "${PYTHON_BIN}" scripts/materialize_release_authority_status.py >/dev/null 2>&1 || true
+  "${PYTHON_BIN}" scripts/verify_release_authority.py --pretty 2>&1 | redact || true
+  echo
+  "${PYTHON_BIN}" - <<'PY' 2>&1 | redact || true
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+root = Path.cwd()
+status_path = root / ".codex-studio" / "published" / "release_authority_status.generated.json"
+deploy_context_path = root / ".codex-studio" / "published" / "deploy_context.generated.json"
+try:
+    payload = json.loads(status_path.read_text(encoding="utf-8"))
+except Exception:
+    payload = {}
+print(f"deploy_context_path={deploy_context_path}")
+print(json.dumps(payload, indent=2, sort_keys=True))
+PY
+  echo
+  "${PYTHON_BIN}" - <<'PY' 2>&1 | redact || true
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+root = Path.cwd()
+status_path = root / ".codex-studio" / "published" / "release_authority_status.generated.json"
+try:
+    payload = json.loads(status_path.read_text(encoding="utf-8"))
+except Exception:
+    payload = {}
+
+issues = [str(item).strip() for item in list(payload.get("issues") or []) if str(item).strip()]
+deploy_context_gate = dict(payload.get("deploy_context_gate") or {})
+deploy_context_gate_issues = [
+    str(item).strip() for item in list(deploy_context_gate.get("issues") or []) if str(item).strip()
+]
+print(f"release_next_action={str(payload.get('next_action') or '').strip() or 'missing'}")
+print(f"release_issues={', '.join(issues) if issues else 'none'}")
+print(f"deploy_context_gate_status={str(deploy_context_gate.get('status') or '').strip() or 'missing'}")
+print(f"deploy_context_gate_issues={', '.join(deploy_context_gate_issues) if deploy_context_gate_issues else 'none'}")
+PY
+  echo
+  bash scripts/release_authority_probe.sh 2>&1 | redact || true
+  echo
+  "${PYTHON_BIN}" scripts/verify_release_authority_runtime.py --pretty 2>&1 | redact || true
+  echo
+  "${PYTHON_BIN}" scripts/verify_release_authority_runtime.py --pretty --require-authoritative 2>&1 | redact || true
+  echo
+  "${PYTHON_BIN}" - <<'PY' 2>&1 | redact || true
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+root = Path.cwd()
+manifest_path = root / ".codex-studio" / "published" / "release_manifest.generated.json"
+
+try:
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+except Exception:
+    payload = {}
+
+def emit(key: str) -> None:
+    value = str(payload.get(key) or "").strip() or "missing"
+    print(f"{key}={value}")
+
+emit("deploy_context_generated_at")
+emit("deploy_context_branch")
+emit("deploy_context_tracking_branch")
+emit("deploy_context_commit_sha")
+PY
+  echo
+
+  echo "-- runtime supply chain --"
+  print_runtime_supply_chain_summary | redact || true
+  echo
+
+  echo "-- memorial readiness --"
+  memorial_readiness_tmp="$(mktemp)"
+  SUPPORT_TMP_FILES+=("${memorial_readiness_tmp}")
+  "${PYTHON_BIN}" scripts/verify_memorial_gold_readiness.py --pretty >"${memorial_readiness_tmp}" 2>&1 || true
+  cat "${memorial_readiness_tmp}" | redact || true
+  echo
+  "${PYTHON_BIN}" - "${memorial_readiness_tmp}" <<'PY' 2>&1 | redact || true
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+try:
+    payload = json.loads(path.read_text(encoding="utf-8").strip() or "{}")
+except Exception:
+    payload = {"status": "error", "next_action": "inspect_memorial_gold_readiness_output", "next_command": "python3 scripts/verify_memorial_gold_readiness.py --pretty"}
+operator_status_path = Path(".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json")
+try:
+    operator_status = json.loads(operator_status_path.read_text(encoding="utf-8").strip() or "{}")
+except Exception:
+    operator_status = {}
+print(f"memorial_status={str(payload.get('status') or '').strip() or 'missing'}")
+print(f"memorial_next_action={str(payload.get('next_action') or '').strip() or 'missing'}")
+print(f"memorial_next_command={str(payload.get('next_command') or '').strip() or 'missing'}")
+blocker_summary = dict(payload.get("blocker_summary") or {})
+blocked_commands = [
+    str(item).strip()
+    for item in list(blocker_summary.get("blocked_commands") or [])
+    if str(item).strip()
+]
+if not blocked_commands:
+    blocked_commands = [
+        str(item.get("next_command") or "").strip()
+        for item in list(blocker_summary.get("blocked_components") or [])
+        if isinstance(item, dict) and str(item.get("next_command") or "").strip()
+    ]
+deduped_blocked_commands = []
+for command in blocked_commands:
+    if command not in deduped_blocked_commands:
+        deduped_blocked_commands.append(command)
+print(f"memorial_blocker_commands={' | '.join(deduped_blocked_commands[:8]) if deduped_blocked_commands else 'none'}")
+print(f"memorial_source_dirty={bool(payload.get('source_worktree_dirty'))}")
+print(f"memorial_source_dirty_count={int(payload.get('source_dirty_count') or 0)}")
+cleanup = dict(payload.get("source_cleanup") or {})
+print(f"memorial_source_cleanup_status={str(cleanup.get('status') or 'missing').strip() or 'missing'}")
+cleanup_commands = [
+    str(item).strip()
+    for item in list(cleanup.get("handoff_commands") or [])
+    if str(item).strip()
+]
+print(f"memorial_source_cleanup_commands={' | '.join(cleanup_commands[:6]) if cleanup_commands else 'none'}")
+verifier = dict(payload.get("source_dirty_verifier") or {})
+print(f"memorial_source_dirty_verifier_status={str(verifier.get('status') or 'missing').strip() or 'missing'}")
+verifier_issues = [str(item).strip() for item in list(verifier.get("issues") or []) if str(item).strip()]
+print(f"memorial_source_dirty_verifier_issues={', '.join(verifier_issues[:6]) if verifier_issues else 'none'}")
+summary = dict(payload.get("source_dirty_summary") or {})
+categories = [
+    f"{str(item.get('category') or '').strip()}:{int(item.get('visible_count') or 0)}"
+    for item in list(summary.get("categories") or [])
+    if isinstance(item, dict) and str(item.get("category") or "").strip()
+]
+print(f"memorial_source_dirty_categories={', '.join(categories[:6]) if categories else 'none'}")
+room_packet = dict(operator_status.get("room_audio_attestation_packet") or payload.get("room_audio_attestation_packet") or {})
+room_detail = dict(operator_status.get("room_audio_receipt_detail") or payload.get("room_audio_receipt_detail") or {})
+print(f"memorial_room_packet_status={str(room_packet.get('status') or 'missing').strip() or 'missing'}")
+print(f"memorial_room_packet_command={str(room_packet.get('operator_command') or 'make materialize-memorial-room-audio-gold-clean').strip() or 'make materialize-memorial-room-audio-gold-clean'}")
+print(f"memorial_room_receipt_command={str(room_packet.get('receipt_command_template') or 'missing').strip() or 'missing'}")
+room_hints = []
+for item in list(room_detail.get("missing_input_hints") or []):
+    if not isinstance(item, dict):
+        continue
+    kind = str(item.get("kind") or "").strip()
+    name = str(item.get("name") or "").strip()
+    if kind and name:
+        room_hints.append(f"{kind}:{name}")
+print(f"memorial_room_missing_inputs={'; '.join(room_hints[:10]) if room_hints else 'none'}")
+failed_codes = [str(item).strip() for item in list(room_detail.get("failed_codes") or []) if str(item).strip()]
+print(f"memorial_room_failed_codes={', '.join(failed_codes[:10]) if failed_codes else 'none'}")
+PY
+  rm -f "${memorial_readiness_tmp}"
+  SUPPORT_TMP_FILES=("${SUPPORT_TMP_FILES[@]/${memorial_readiness_tmp}/}")
+  echo
+
+  echo "-- source dirty groups --"
+  "${PYTHON_BIN}" scripts/inspect_source_dirty_groups.py --json --limit 5 2>&1 | redact || true
+  echo
+
+  echo "-- source dirty verifier --"
+  "${PYTHON_BIN}" scripts/verify_source_dirty_groups.py 2>&1 | redact || true
   echo
 
   if [[ "${INCLUDE_PRODUCT_CONTROL}" == "1" ]]; then

@@ -1,0 +1,19 @@
+# Gmail And Calendar
+
+Gmail and Calendar power the daily brief, commitment extraction, meeting context, and follow-up suggestions.
+
+## What the connection is for
+
+- Detect important inbound messages and meeting changes.
+- Prepare summaries with links back to the original evidence.
+- Identify commitments, deadlines, and unanswered requests.
+- Suggest drafts that the user can approve, edit, or reject.
+
+## OAuth expectations
+
+The Google connection should use a provider-hosted OAuth screen and request only the scopes needed for the enabled features. If a scope is upgraded later, the user should see a fresh consent step.
+
+## Common failures
+
+If Gmail or Calendar setup fails, check that the account used for consent is the intended account, third-party app access is allowed, and the browser session is not signed into the wrong Google profile.
+

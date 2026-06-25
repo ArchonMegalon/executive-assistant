@@ -3,6 +3,8 @@ set -euo pipefail
 
 APP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RELEASE_MANIFEST_PATH="${RELEASE_MANIFEST_PATH:-${APP_ROOT}/.codex-studio/published/release_manifest.generated.json}"
+RELEASE_AUTHORITY_STATUS_PATH="${RELEASE_AUTHORITY_STATUS_PATH:-${APP_ROOT}/.codex-studio/published/release_authority_status.generated.json}"
+DEPLOY_CONTEXT_PATH="${DEPLOY_CONTEXT_PATH:-${APP_ROOT}/.codex-studio/published/deploy_context.generated.json}"
 EXTRA_COMPOSE_OVERRIDES=()
 DEPLOY_PRIMARY_MODE="${EA_DEPLOY_PRIMARY_MODE:-${EA_DEPLOY_PROJECT_MODE:-EA_CORE}}"
 DEPLOY_ENABLED_MODES=()
@@ -30,6 +32,148 @@ if [[ -z "${PYTHON_BIN}" ]]; then
     PYTHON_BIN="python3"
   fi
 fi
+
+env_file_value() {
+  local key="$1"
+  local line=""
+  if [[ -f "${APP_ROOT}/.env" ]]; then
+    line="$(grep -E "^${key}=" "${APP_ROOT}/.env" | tail -n1 || true)"
+  fi
+  printf '%s' "${line#*=}"
+}
+
+effective_value() {
+  local key="$1"
+  if [[ -n "${!key+x}" ]]; then
+    printf '%s' "${!key}"
+    return 0
+  fi
+  env_file_value "${key}"
+}
+
+normalize_origin_like() {
+  local value="$1"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  value="${value%/}"
+  printf '%s' "${value}"
+}
+
+is_placeholder_origin_like() {
+  local value
+  value="$(normalize_origin_like "$1")"
+  [[ -z "${value}" ]] && return 1
+  case "${value}" in
+    http://localhost|http://localhost:*|https://localhost|https://localhost:*|\
+    http://127.0.0.1|http://127.0.0.1:*|https://127.0.0.1|https://127.0.0.1:*|\
+    https://example.test|https://*.example.test|http://example.test|http://*.example.test)
+      return 0
+      ;;
+  esac
+  [[ "${value}" == *".example.test" ]] && return 0
+  return 1
+}
+
+is_placeholder_value_like() {
+  local value
+  value="$(normalize_origin_like "$1")"
+  [[ -z "${value}" ]] && return 1
+  case "${value}" in
+    example|example-*|replace-me|replace_with_*|changeme|change-me|placeholder|todo)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+require_non_placeholder_secret() {
+  local key="$1"
+  local value="$2"
+  if [[ -z "${value}" ]]; then
+    cat >&2 <<EOF
+Refusing to deploy without ${key}.
+
+Set a real production value in .env before deploy.
+EOF
+    exit 4
+  fi
+  if is_placeholder_value_like "${value}"; then
+    cat >&2 <<EOF
+Refusing to deploy with placeholder ${key}.
+
+Set a real production value in .env before deploy.
+EOF
+    exit 4
+  fi
+}
+
+require_valid_prod_auth() {
+  local api_token="$1"
+  local cf_access_team_domain="$2"
+  local cf_access_aud="$3"
+
+  if [[ -n "${api_token}" ]]; then
+    require_non_placeholder_secret "EA_API_TOKEN" "${api_token}"
+    return 0
+  fi
+
+  if [[ -z "${cf_access_team_domain}" || -z "${cf_access_aud}" ]]; then
+    cat >&2 <<'EOF'
+Refusing to deploy without production auth.
+
+Set one of these before deploy:
+  EA_API_TOKEN=<real-token>
+
+or configure Cloudflare Access auth:
+  EA_CF_ACCESS_TEAM_DOMAIN=<team>.cloudflareaccess.com
+  EA_CF_ACCESS_AUD=<audience>
+EOF
+    exit 4
+  fi
+
+  if is_placeholder_origin_like "https://${cf_access_team_domain}"; then
+    cat >&2 <<'EOF'
+Refusing to deploy with placeholder EA_CF_ACCESS_TEAM_DOMAIN.
+
+Set a real Cloudflare Access team domain in .env before deploy.
+EOF
+    exit 4
+  fi
+
+  if is_placeholder_value_like "${cf_access_aud}"; then
+    cat >&2 <<'EOF'
+Refusing to deploy with placeholder EA_CF_ACCESS_AUD.
+
+Set a real Cloudflare Access audience in .env before deploy.
+EOF
+    exit 4
+  fi
+}
+
+ensure_runtime_readable_file_projection() {
+  local env_name="$1"
+  local raw_path
+  raw_path="$(effective_value "${env_name}")"
+  raw_path="$(normalize_origin_like "${raw_path}")"
+  [[ -z "${raw_path}" ]] && return 0
+
+  local resolved_path
+  if [[ "${raw_path}" = /* ]]; then
+    resolved_path="${raw_path}"
+  else
+    resolved_path="${APP_ROOT}/${raw_path}"
+  fi
+  [[ -f "${resolved_path}" ]] || return 0
+
+  # Bind-mounted secret projections must be readable by the non-root EA runtime
+  # UID inside Docker. Prefer a narrow ACL; fall back to read-only world access on
+  # hosts where ACL tooling is unavailable.
+  if command -v setfacl >/dev/null 2>&1 && setfacl -m u:10001:r "${resolved_path}" >/dev/null 2>&1; then
+    chmod go-w "${resolved_path}"
+    return 0
+  fi
+  chmod a+r,go-w "${resolved_path}"
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -101,9 +245,19 @@ if [[ ! -f "${APP_ROOT}/.env" ]]; then
   exit 1
 fi
 
+ensure_runtime_readable_file_projection "ONEMIN_DIRECT_API_KEYS_JSON_FILE"
+
 public_origin_line="$(grep -E '^(EA_PUBLIC_APP_BASE_URL|PROPERTYQUARRY_PUBLIC_BASE_URL)=' "${APP_ROOT}/.env" | tail -n1 || true)"
-public_origin_value="${public_origin_line#*=}"
-public_origin_value="${public_origin_value%/}"
+public_origin_source="EA_PUBLIC_APP_BASE_URL"
+public_origin_value="$(normalize_origin_like "$(effective_value EA_PUBLIC_APP_BASE_URL)")"
+if [[ -z "${public_origin_value}" ]]; then
+  public_origin_source="PROPERTYQUARRY_PUBLIC_BASE_URL"
+  public_origin_value="$(normalize_origin_like "$(effective_value PROPERTYQUARRY_PUBLIC_BASE_URL)")"
+fi
+if [[ -z "${public_origin_value}" && -n "${public_origin_line}" ]]; then
+  public_origin_source="${public_origin_line%%=*}"
+  public_origin_value="$(normalize_origin_like "${public_origin_line#*=}")"
+fi
 if [[ -z "${public_origin_value}" ]]; then
   cat >&2 <<'EOF'
 Refusing to deploy without a public runtime origin.
@@ -115,6 +269,56 @@ Set one of these in .env before deploy:
 Release authority requires the deployed runtime to declare its public origin.
 EOF
   exit 4
+fi
+
+runtime_mode="$(normalize_origin_like "$(effective_value EA_RUNTIME_MODE)")"
+if [[ -z "${runtime_mode}" ]]; then
+  runtime_mode="prod"
+fi
+if [[ "${runtime_mode}" == "prod" ]]; then
+  api_token_value="$(normalize_origin_like "$(effective_value EA_API_TOKEN)")"
+  cf_access_team_domain="$(normalize_origin_like "$(effective_value EA_CF_ACCESS_TEAM_DOMAIN)")"
+  cf_access_aud="$(normalize_origin_like "$(effective_value EA_CF_ACCESS_AUD)")"
+  signing_secret_value="$(normalize_origin_like "$(effective_value EA_SIGNING_SECRET)")"
+  workspace_issuer="$(normalize_origin_like "$(effective_value EA_WORKSPACE_ACCESS_TOKEN_ISSUER)")"
+  workspace_audience="$(normalize_origin_like "$(effective_value EA_WORKSPACE_ACCESS_TOKEN_AUDIENCE)")"
+  workspace_key_version="$(normalize_origin_like "$(effective_value EA_WORKSPACE_ACCESS_TOKEN_KEY_VERSION)")"
+  require_valid_prod_auth "${api_token_value}" "${cf_access_team_domain}" "${cf_access_aud}"
+  require_non_placeholder_secret "EA_SIGNING_SECRET" "${signing_secret_value}"
+  if is_placeholder_origin_like "${public_origin_value}" || is_placeholder_origin_like "${workspace_issuer}"; then
+    cat >&2 <<'EOF'
+Refusing to deploy with placeholder workspace access token binding origin/issuer.
+
+Set real production values before deploy:
+  EA_PUBLIC_APP_BASE_URL=https://assistant.example.test
+  EA_WORKSPACE_ACCESS_TOKEN_ISSUER=https://assistant.example.test
+
+Do not deploy with example.test or localhost token-binding origins.
+EOF
+    exit 4
+  fi
+  if [[ -z "${workspace_audience}" || -z "${workspace_key_version}" ]]; then
+    cat >&2 <<'EOF'
+Refusing to deploy without complete workspace access token binding metadata.
+
+Set these in .env before deploy:
+  EA_WORKSPACE_ACCESS_TOKEN_AUDIENCE=workspace-access
+  EA_WORKSPACE_ACCESS_TOKEN_KEY_VERSION=v1
+EOF
+    exit 4
+  fi
+  if is_placeholder_value_like "${workspace_audience}" || is_placeholder_value_like "${workspace_key_version}"; then
+    cat >&2 <<'EOF'
+Refusing to deploy with placeholder workspace access token binding metadata.
+
+Set real values before deploy:
+  EA_WORKSPACE_ACCESS_TOKEN_AUDIENCE=workspace-access
+  EA_WORKSPACE_ACCESS_TOKEN_KEY_VERSION=v1
+
+Do not deploy with placeholder token audience or key-version values.
+EOF
+    exit 4
+  fi
 fi
 
 if [[ "${allow_dirty_worktree}" != "1" ]] && [[ -n "$(git -C "${APP_ROOT}" status --short)" ]]; then
@@ -136,6 +340,15 @@ if [[ -z "${EA_DEPLOYMENT_ID:-${DEPLOYMENT_ID:-${RENDER_GIT_COMMIT:-}}}" ]]; the
     deploy_commit_fragment="unknowncommit"
   fi
   export EA_DEPLOYMENT_ID="deploy-$(date -u +%Y%m%dT%H%M%SZ)-${deploy_commit_fragment}"
+  export EA_DEPLOYMENT_ID_SOURCE="deploy_script_generated"
+elif [[ -n "${EA_DEPLOYMENT_ID:-}" ]]; then
+  export EA_DEPLOYMENT_ID_SOURCE="${EA_DEPLOYMENT_ID_SOURCE:-ea_deploy_id_env}"
+elif [[ -n "${DEPLOYMENT_ID:-}" ]]; then
+  export EA_DEPLOYMENT_ID="${DEPLOYMENT_ID}"
+  export EA_DEPLOYMENT_ID_SOURCE="${EA_DEPLOYMENT_ID_SOURCE:-deploy_platform}"
+elif [[ -n "${RENDER_GIT_COMMIT:-}" ]]; then
+  export EA_DEPLOYMENT_ID="${RENDER_GIT_COMMIT}"
+  export EA_DEPLOYMENT_ID_SOURCE="${EA_DEPLOYMENT_ID_SOURCE:-render_git_commit}"
 fi
 
 database_url_line="$(grep -E '^DATABASE_URL=' "${APP_ROOT}/.env" | tail -n1 || true)"
@@ -254,6 +467,61 @@ materialize_release_manifest() {
   "${PYTHON_BIN}" "${APP_ROOT}/scripts/materialize_release_manifest.py" --output "${RELEASE_MANIFEST_PATH}" >/dev/null
 }
 
+materialize_release_authority_status() {
+  "${PYTHON_BIN}" "${APP_ROOT}/scripts/materialize_release_authority_status.py" \
+    --output "${RELEASE_AUTHORITY_STATUS_PATH}" \
+    --release-manifest "${RELEASE_MANIFEST_PATH}" >/dev/null
+}
+
+verify_release_authority_manifest() {
+  if ! "${PYTHON_BIN}" "${APP_ROOT}/scripts/verify_release_authority.py" \
+    --release-manifest "${RELEASE_MANIFEST_PATH}" >/dev/null; then
+    cat >&2 <<EOF
+Refusing to publish a runtime without authoritative release evidence.
+
+The materialized release manifest failed release-authority verification:
+  ${RELEASE_MANIFEST_PATH}
+
+Fix the reported release-authority issues and rerun deploy.
+EOF
+    return 1
+  fi
+}
+
+write_deploy_context() {
+  local enabled_modes_csv=""
+  local compose_files_csv=""
+  local compose_overrides_csv=""
+  local deploy_public_origin="${public_origin_value}"
+  local deploy_public_origin_source="${public_origin_source}"
+  local deploy_branch=""
+  local deploy_tracking_branch=""
+  local deploy_commit_sha=""
+  deploy_branch="$(git -C "${APP_ROOT}" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  deploy_tracking_branch="$(git -C "${APP_ROOT}" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
+  deploy_commit_sha="$(git -C "${APP_ROOT}" rev-parse HEAD 2>/dev/null || true)"
+  if [[ "${#DEPLOY_ENABLED_MODES[@]}" -gt 0 ]]; then
+    enabled_modes_csv="$(IFS=,; printf '%s' "${DEPLOY_ENABLED_MODES[*]}")"
+  fi
+  compose_files_csv="$(printf '%s\n' "${COMPOSE_ARGS[@]}" | awk 'prev == "-f" { print; } { prev = $0 }' | paste -sd, -)"
+  if [[ "${#EXTRA_COMPOSE_OVERRIDES[@]}" -gt 0 ]]; then
+    compose_overrides_csv="$(IFS=,; printf '%s' "${EXTRA_COMPOSE_OVERRIDES[*]}")"
+  fi
+  export DEPLOY_CONTEXT_PATH
+  export EA_DEPLOYMENT_ID
+  export EA_DEPLOYMENT_ID_SOURCE="${EA_DEPLOYMENT_ID_SOURCE:-}"
+  export EA_DEPLOY_PUBLIC_ORIGIN="${deploy_public_origin}"
+  export EA_DEPLOY_PUBLIC_ORIGIN_SOURCE="${deploy_public_origin_source}"
+  export EA_DEPLOY_BRANCH="${deploy_branch}"
+  export EA_DEPLOY_TRACKING_BRANCH="${deploy_tracking_branch}"
+  export EA_DEPLOY_COMMIT_SHA="${deploy_commit_sha}"
+  export EA_DEPLOY_PRIMARY_MODE="${DEPLOY_PRIMARY_MODE}"
+  export EA_DEPLOY_ENABLED_MODES="${enabled_modes_csv}"
+  export EA_DEPLOY_COMPOSE_FILES="${compose_files_csv}"
+  export EA_DEPLOY_COMPOSE_OVERRIDES="${compose_overrides_csv}"
+  "${PYTHON_BIN}" "${APP_ROOT}/scripts/materialize_deploy_context.py" --output "${DEPLOY_CONTEXT_PATH}" >/dev/null
+}
+
 sync_telegram_webhooks() {
   local env_public_base
   local env_property_public_base
@@ -282,7 +550,7 @@ build_and_recreate_services() {
   fi
 
   compose build "${build_services[@]}"
-  compose up -d --no-build ea-db ea-openvoice
+  compose up -d --no-build ea-db
   local service
   for service in "${build_services[@]}"; do
     compose up -d --no-build --no-deps --force-recreate "${service}"
@@ -335,7 +603,7 @@ if [[ "${memory_only}" == "1" ]]; then
 else
   RUNTIME_BUILD_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler)
   TOPOLOGY_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler ea-db)
-  FAILURE_LOG_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler ea-db ea-openvoice)
+  FAILURE_LOG_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler ea-db)
   if [[ "${whatsapp_web_session_overlay_enabled}" == "1" ]]; then
     RUNTIME_BUILD_SERVICES+=(ea-whatsapp-web-session ea-whatsapp-web-activator ea-whatsapp-web-action-processor ea-whatsapp-web-teable-sync)
     TOPOLOGY_SERVICES+=(ea-whatsapp-web-session ea-whatsapp-web-activator ea-whatsapp-web-action-processor ea-whatsapp-web-teable-sync)
@@ -405,7 +673,10 @@ for _ in $(seq 1 60); do
     if [[ "${run_runtime_hard_exit_gates}" != "0" ]]; then
       bash "${APP_ROOT}/scripts/runtime_hard_exit_gates.sh"
     fi
+    write_deploy_context
     materialize_release_manifest
+    verify_release_authority_manifest
+    materialize_release_authority_status
     verify_mode_args=(--mode "${DEPLOY_PRIMARY_MODE}")
     for enabled_mode in "${DEPLOY_ENABLED_MODES[@]}"; do
       verify_mode_args+=(--enabled-mode "${enabled_mode}")
@@ -438,6 +709,7 @@ for _ in $(seq 1 60); do
     fi
     echo "PropertyQuarry runtime healthy at http://localhost:${HOST_PORT} with ${TOPOLOGY_SERVICES[*]}"
     echo "Release manifest written to ${RELEASE_MANIFEST_PATH}"
+    echo "Release authority status written to ${RELEASE_AUTHORITY_STATUS_PATH}"
     exit 0
   fi
   sleep 1

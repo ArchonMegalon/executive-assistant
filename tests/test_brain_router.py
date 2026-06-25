@@ -9,6 +9,7 @@ from app.repositories.task_contracts import InMemoryTaskContractRepository
 
 def test_brain_router_prefers_available_profile_hints(monkeypatch) -> None:
     monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
     repo = InMemoryProviderBindingRepository()
     repo.upsert(principal_id="exec-1", provider_key="magixai", status="disabled")
     router = BrainRouterService(provider_registry=ProviderRegistryService(provider_binding_repo=repo))
@@ -16,21 +17,22 @@ def test_brain_router_prefers_available_profile_hints(monkeypatch) -> None:
     decision = router.resolve_profile("easy", principal_id="exec-1")
 
     assert decision.profile == "easy"
-    assert decision.provider_hint_order == ("gemini_vortex",)
-    assert decision.backend_key == "gemini_vortex"
-    assert decision.health_provider_key == "gemini_vortex"
+    assert decision.provider_hint_order == ("onemin", "gemini_vortex")
+    assert decision.backend_key == "onemin"
+    assert decision.health_provider_key == "onemin"
 
 
 def test_brain_router_falls_through_to_magixai_when_gemini_is_unavailable(monkeypatch) -> None:
     monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
     repo = InMemoryProviderBindingRepository()
-    repo.upsert(principal_id="exec-1", provider_key="gemini_vortex", status="disabled")
+    repo.upsert(principal_id="exec-1", provider_key="onemin", status="disabled")
     router = BrainRouterService(provider_registry=ProviderRegistryService(provider_binding_repo=repo))
 
     decision = router.resolve_profile("easy", principal_id="exec-1")
 
     assert decision.profile == "easy"
-    assert decision.provider_hint_order == ("magixai",)
+    assert decision.provider_hint_order == ("magixai", "gemini_vortex")
     assert decision.backend_key == "magixai"
     assert decision.health_provider_key == "magixai"
 

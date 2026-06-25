@@ -29,11 +29,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxext6 \
     libxfixes3 \
     libxkbcommon0 \
+    nodejs \
+    npm \
     libxrandr2 \
     libxrender1 \
     libxshmfence1 && \
+    npm install -g @google/gemini-cli@0.47.0 && \
+    npm cache clean --force && \
     rm -rf /var/lib/apt/lists/* && \
-    adduser --system --uid 10001 --group ea
+    adduser --system --uid 10001 --group --home /home/ea ea && \
+    mkdir -p /home/ea && \
+    chown -R ea:ea /home/ea
 
 WORKDIR /app
 
@@ -53,7 +59,6 @@ RUN set -eu; \
     fi; \
     cp "$APP_SRC/requirements.txt" /app/requirements.txt; \
     if [ -f "$APP_SRC/requirements.lock" ]; then cp "$APP_SRC/requirements.lock" /app/requirements.lock; fi; \
-    if [ -f "$APP_SRC/requirements-openvoice.txt" ]; then cp "$APP_SRC/requirements-openvoice.txt" /app/requirements-openvoice.txt; fi; \
     cp -r "$APP_SRC/app" /app/; \
     cp "$APP_SRC/docker-entrypoint.sh" /usr/local/bin/docker-entrypoint.sh; \
     if [ -d "$APP_SRC/_completion" ]; then \
@@ -79,7 +84,8 @@ RUN set -eu; \
         [ -f "$script" ] || continue; \
         cp "$script" /app/scripts/; \
       done; \
-    elif [ -d "$APP_SRC/scripts" ]; then \
+    fi; \
+    if [ "$APP_SRC" != "/tmp/src" ] && [ -d "$APP_SRC/scripts" ]; then \
       for script in "$APP_SRC"/scripts/*; do \
         [ -f "$script" ] || continue; \
         cp "$script" /app/scripts/; \
@@ -96,7 +102,7 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh && \
 
 USER ea
 HEALTHCHECK --interval=30s --timeout=15s --start-period=30s --retries=5 \
-  CMD ["/bin/sh", "-ec", "role=${EA_ROLE:-api}; case \"$role\" in worker|scheduler) exit 0 ;; openvoice) port=${OPENVOICE_PORT:-8093}; curl -fsS --connect-timeout 2 --max-time 10 http://127.0.0.1:${port}/health/live >/dev/null ;; *) curl -fsS --connect-timeout 2 --max-time 10 http://127.0.0.1:8090/health/live >/dev/null ;; esac"]
+  CMD ["/bin/sh", "-ec", "role=${EA_ROLE:-api}; case \"$role\" in worker|scheduler) exit 0 ;; *) curl -fsS --connect-timeout 2 --max-time 10 http://127.0.0.1:8090/health/live >/dev/null ;; esac"]
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["python", "-m", "app.runner"]

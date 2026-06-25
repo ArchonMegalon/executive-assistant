@@ -3,6 +3,25 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _clean_source_worktree(monkeypatch):
+    import scripts.verify_memorial_gold_readiness as readiness
+
+    monkeypatch.setattr(
+        readiness,
+        "source_worktree_metadata",
+        lambda root, *, dirty_path_limit=40: {
+            "source_worktree_dirty": False,
+            "source_dirty_count": 0,
+            "source_dirty_files": [],
+            "source_dirty_omitted_count": 0,
+            "source_dirty_status_sha256": "",
+        },
+    )
+
 
 def _voice_receipt(*, base_url: str = "https://memorial.example.test", slow: bool = False) -> dict[str, object]:
     return {
@@ -120,6 +139,7 @@ def test_memorial_gold_readiness_passes_with_public_voice_and_browser_receipts(t
     monkeypatch.setattr(readiness, "BROWSER_RECEIPT", browser_path)
     monkeypatch.setattr(readiness, "ROOM_RECEIPT", room_path)
     monkeypatch.setattr(readiness, "_git_head", lambda: "HEAD")
+    monkeypatch.setattr(readiness, "_run_script_json", lambda script_args: {"status": "pass", "mode": "memorial"})
 
     assert readiness.main() == 0
 
@@ -210,6 +230,7 @@ def test_memorial_gold_readiness_uses_source_git_head_before_receipt_commit_head
     monkeypatch.setattr(readiness, "BROWSER_RECEIPT", browser_path)
     monkeypatch.setattr(readiness, "ROOM_RECEIPT", room_path)
     monkeypatch.setattr(readiness, "_git_head", lambda: "SOURCE_HEAD")
+    monkeypatch.setattr(readiness, "_run_script_json", lambda script_args: {"status": "pass", "mode": "memorial"})
 
     assert readiness.main() == 0
 
@@ -240,11 +261,241 @@ def test_memorial_gold_readiness_allows_generated_only_receipt_commit_delta(tmp_
     monkeypatch.setattr(readiness, "ROOM_RECEIPT", room_path)
     monkeypatch.setattr(readiness, "_git_head", lambda: "CURRENT_HEAD")
     monkeypatch.setattr(readiness, "_fresh_enough", lambda recorded_head, current_head: recorded_head == "SOURCE_HEAD" and current_head == "CURRENT_HEAD")
+    monkeypatch.setattr(readiness, "_run_script_json", lambda script_args: {"status": "pass", "mode": "memorial"})
 
     assert readiness.main() == 0
+
+
+def test_memorial_gold_readiness_requires_memorial_surface_contract(tmp_path: Path, monkeypatch) -> None:
+    import scripts.verify_memorial_gold_readiness as readiness
+
+    local_path = tmp_path / "local.json"
+    public_path = tmp_path / "public.json"
+    browser_path = tmp_path / "browser.json"
+    room_path = tmp_path / "room.json"
+    local_path.write_text(json.dumps(_voice_receipt(base_url="http://127.0.0.1:8090")), encoding="utf-8")
+    public_path.write_text(json.dumps(_voice_receipt()), encoding="utf-8")
+    browser_path.write_text(json.dumps(_browser_receipt()), encoding="utf-8")
+    room_path.write_text(json.dumps(_room_receipt()), encoding="utf-8")
+
+    monkeypatch.setattr(readiness, "LOCAL_RECEIPT", local_path)
+    monkeypatch.setattr(readiness, "PUBLIC_RECEIPT", public_path)
+    monkeypatch.setattr(readiness, "BROWSER_RECEIPT", browser_path)
+    monkeypatch.setattr(readiness, "ROOM_RECEIPT", room_path)
+    monkeypatch.setattr(readiness, "_git_head", lambda: "HEAD")
+    monkeypatch.setattr(readiness, "_run_script_json", lambda script_args: {"status": "blocked", "mode": "memorial"})
+
+    assert readiness.main() == 1
 
 
 def test_memorial_gold_readiness_treats_operator_status_as_generated_only_artifact() -> None:
     import scripts.verify_memorial_gold_readiness as readiness
 
     assert ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json" in readiness.GENERATED_RECEIPT_PATHS
+
+
+def test_memorial_gold_readiness_prefers_auto_receipt_refresh_before_room_attestation() -> None:
+    import scripts.verify_memorial_gold_readiness as readiness
+
+    summary = readiness._blocker_summary(
+        local_issues=[],
+        public_issues=["receipt_stale_relative_to_current_head"],
+        browser_issues=["browser_receipt_stale_relative_to_current_head"],
+        meaningful_browser_issues=[],
+        memorial_surface_contract_issues=[],
+        room_issues=["room_receipt_status_not_pass"],
+    )
+
+    assert readiness._next_action_from_summary(summary) == "refresh_memorial_public_auto_receipts_clean"
+    blocked_by_key = {item["key"]: item for item in summary["blocked_components"]}
+    assert blocked_by_key["public_voice_receipt"]["code"] == "public_voice_receipt"
+    assert blocked_by_key["public_voice_receipt"]["component"] == "Public voice receipt"
+    assert blocked_by_key["public_voice_receipt"]["next_command"] == "scripts/materialize_memorial_public_auto_receipts_clean.py"
+    assert blocked_by_key["public_browser_receipt"]["next_command"] == "scripts/materialize_memorial_public_auto_receipts_clean.py"
+    assert blocked_by_key["room_audio_receipt"]["next_command"] == "make materialize-memorial-room-audio-gold-clean"
+    assert summary["blocked_commands"] == [
+        "scripts/materialize_memorial_public_auto_receipts_clean.py",
+        "scripts/materialize_memorial_public_auto_receipts_clean.py",
+        "make materialize-memorial-room-audio-gold-clean",
+    ]
+
+
+def test_memorial_gold_readiness_overrides_auto_refresh_when_source_worktree_dirty(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    import scripts.verify_memorial_gold_readiness as readiness
+
+    local_path = tmp_path / "local.json"
+    public_path = tmp_path / "public.json"
+    browser_path = tmp_path / "browser.json"
+    room_path = tmp_path / "room.json"
+    local_path.write_text(json.dumps(_voice_receipt(base_url="http://127.0.0.1:8090")), encoding="utf-8")
+    public = _voice_receipt()
+    public["source_git_head"] = "STALE_HEAD"
+    browser_path.write_text(json.dumps(_browser_receipt()), encoding="utf-8")
+    public_path.write_text(json.dumps(public), encoding="utf-8")
+    room_path.write_text(json.dumps(_room_receipt()), encoding="utf-8")
+
+    monkeypatch.setattr(readiness, "LOCAL_RECEIPT", local_path)
+    monkeypatch.setattr(readiness, "PUBLIC_RECEIPT", public_path)
+    monkeypatch.setattr(readiness, "BROWSER_RECEIPT", browser_path)
+    monkeypatch.setattr(readiness, "ROOM_RECEIPT", room_path)
+    monkeypatch.setattr(readiness, "_git_head", lambda: "HEAD")
+    monkeypatch.setattr(readiness, "_run_script_json", lambda script_args: {"status": "pass", "mode": "memorial"})
+    monkeypatch.setattr(readiness, "_fresh_enough", lambda recorded_head, current_head: recorded_head == "HEAD")
+
+    source_metadata_calls: list[dict[str, object]] = []
+
+    def _source_metadata(root, *, dirty_path_limit):
+        source_metadata_calls.append({"dirty_path_limit": dirty_path_limit})
+        return {
+            "source_worktree_dirty": True,
+            "source_dirty_count": 2,
+            "source_dirty_files": ["ea/app/api/routes/public_memorials.py", "scripts/deploy.sh"],
+            "source_dirty_omitted_count": 1,
+            "source_dirty_status_sha256": "dirty-sha",
+        }
+
+    monkeypatch.setattr(
+        readiness,
+        "source_worktree_metadata",
+        _source_metadata,
+    )
+
+    assert readiness.main() == 1
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["next_action"] == "commit_or_stash_source_changes_before_clean_receipts"
+    assert payload["next_command"] == "scripts/inspect_source_dirty_groups.py --list-categories"
+    assert payload["source_worktree_dirty"] is True
+    assert payload["source_dirty_count"] == 2
+    assert source_metadata_calls == [{"dirty_path_limit": readiness.SOURCE_DIRTY_FILE_LIMIT}]
+    assert payload["source_dirty_summary"]["status"] == "dirty"
+    assert payload["source_dirty_summary"]["total_count"] == 2
+    assert payload["source_dirty_summary"]["omitted_count"] == 1
+    assert payload["source_dirty_verifier"]["contract_name"] == "ea.source_dirty_groups_verifier.v1"
+    assert payload["source_dirty_verifier"]["status"] == "pass"
+    assert payload["source_dirty_verifier"]["issues"] == []
+    assert payload["source_dirty_verifier"]["source_dirty_count"] == 2
+    assert payload["source_dirty_verifier"]["priority_group_count"] == 2
+    assert payload["source_cleanup"]["status"] == "blocked"
+    assert payload["source_cleanup"]["source_dirty_count"] == 2
+    assert payload["source_cleanup"]["verifier_status"] == "pass"
+    assert payload["source_cleanup"]["next_action"] == "commit_or_stash_source_changes_before_clean_receipts"
+    assert payload["source_cleanup"]["next_command"] == "scripts/inspect_source_dirty_groups.py --list-categories"
+    assert payload["source_cleanup"]["top_categories"] == [
+        {
+            "category": "api_routes",
+            "visible_count": 1,
+            "drilldown_command": "scripts/inspect_source_dirty_groups.py --category api_routes --limit 20",
+        },
+        {
+            "category": "scripts",
+            "visible_count": 1,
+            "drilldown_command": "scripts/inspect_source_dirty_groups.py --category scripts --limit 20",
+        },
+    ]
+    assert payload["source_cleanup"]["category_drilldown_commands"] == [
+        "scripts/inspect_source_dirty_groups.py --category api_routes --limit 20",
+        "scripts/inspect_source_dirty_groups.py --category scripts --limit 20",
+    ]
+    assert payload["source_cleanup"]["handoff_commands"] == [
+        "git status --short",
+        "scripts/inspect_source_dirty_groups.py --list-categories",
+        "scripts/inspect_source_dirty_groups.py --category api_routes --limit 20",
+        "scripts/inspect_source_dirty_groups.py --category scripts --limit 20",
+    ]
+    categories = {
+        item["category"]: item
+        for item in payload["source_dirty_summary"]["categories"]
+    }
+    assert categories["api_routes"]["visible_count"] == 1
+    assert categories["scripts"]["visible_count"] == 1
+    assert "source_worktree" in payload["blocker_summary"]["blocked_component_keys"]
+    source_blocker = {
+        item["key"]: item for item in payload["blocker_summary"]["blocked_components"]
+    }["source_worktree"]
+    assert source_blocker["code"] == "source_worktree"
+    assert source_blocker["component"] == "Source worktree"
+    assert source_blocker["issues"] == ["source_worktree_dirty"]
+
+
+def test_memorial_gold_readiness_routes_to_source_dirty_verifier_when_report_is_malformed(tmp_path, monkeypatch, capsys) -> None:
+    import scripts.verify_memorial_gold_readiness as readiness
+
+    local_path = tmp_path / "local.json"
+    public_path = tmp_path / "public.json"
+    browser_path = tmp_path / "browser.json"
+    room_path = tmp_path / "room.json"
+    local_path.write_text(json.dumps(_voice_receipt(base_url="http://127.0.0.1:8090")), encoding="utf-8")
+    public = _voice_receipt()
+    public["source_git_head"] = "STALE_HEAD"
+    public_path.write_text(json.dumps(public), encoding="utf-8")
+    browser_path.write_text(json.dumps(_browser_receipt()), encoding="utf-8")
+    room_path.write_text(json.dumps(_room_receipt()), encoding="utf-8")
+
+    monkeypatch.setattr(readiness, "LOCAL_RECEIPT", local_path)
+    monkeypatch.setattr(readiness, "PUBLIC_RECEIPT", public_path)
+    monkeypatch.setattr(readiness, "BROWSER_RECEIPT", browser_path)
+    monkeypatch.setattr(readiness, "ROOM_RECEIPT", room_path)
+    monkeypatch.setattr(readiness, "_git_head", lambda: "HEAD")
+    monkeypatch.setattr(readiness, "_run_script_json", lambda script_args: {"status": "pass", "mode": "memorial"})
+    monkeypatch.setattr(readiness, "_fresh_enough", lambda recorded_head, current_head: recorded_head == "HEAD")
+    monkeypatch.setattr(
+        readiness,
+        "source_worktree_metadata",
+        lambda root, *, dirty_path_limit: {
+            "source_worktree_dirty": True,
+            "source_dirty_count": 2,
+            "source_dirty_files": ["ea/app/api/routes/public_memorials.py", "scripts/deploy.sh"],
+            "source_dirty_omitted_count": 0,
+            "source_dirty_status_sha256": "dirty-sha",
+        },
+    )
+    monkeypatch.setattr(
+        readiness,
+        "_validate_source_dirty_report",
+        lambda report: ["visible_category_total_mismatch"],
+    )
+
+    assert readiness.main() == 1
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["next_action"] == "verify_source_dirty_groups_before_source_cleanup"
+    assert payload["next_command"] == "make verify-source-dirty-groups"
+    assert payload["source_dirty_verifier"]["status"] == "blocked"
+    assert payload["source_dirty_verifier"]["issues"] == ["visible_category_total_mismatch"]
+    assert payload["source_dirty_verifier"]["priority_group_count"] == 2
+    assert payload["source_cleanup"]["status"] == "verifier_blocked"
+    assert payload["source_cleanup"]["verifier_status"] == "blocked"
+    assert payload["source_cleanup"]["verifier_issues"] == ["visible_category_total_mismatch"]
+    assert payload["source_cleanup"]["next_action"] == "verify_source_dirty_groups_before_source_cleanup"
+    assert payload["source_cleanup"]["next_command"] == "make verify-source-dirty-groups"
+    assert "make verify-source-dirty-groups" in payload["source_cleanup"]["handoff_commands"]
+    source_blocker = {
+        item["key"]: item for item in payload["blocker_summary"]["blocked_components"]
+    }["source_worktree"]
+    assert source_blocker["issues"] == [
+        "source_worktree_dirty",
+        "source_dirty_group_verifier_failed",
+    ]
+
+
+def test_memorial_gold_readiness_prefers_local_refresh_before_room_when_only_local_is_stale() -> None:
+    import scripts.verify_memorial_gold_readiness as readiness
+
+    summary = readiness._blocker_summary(
+        local_issues=["receipt_stale_relative_to_current_head"],
+        public_issues=[],
+        browser_issues=[],
+        meaningful_browser_issues=[],
+        memorial_surface_contract_issues=[],
+        room_issues=["room_receipt_status_not_pass"],
+    )
+
+    assert readiness._next_action_from_summary(summary) == "refresh_local_memorial_voice_receipt"
+    blocked_by_key = {item["key"]: item for item in summary["blocked_components"]}
+    assert blocked_by_key["local_release_receipt"]["next_command"] == "make materialize-memorial-public-voice-gold"
+    assert blocked_by_key["room_audio_receipt"]["next_command"] == "make materialize-memorial-room-audio-gold-clean"

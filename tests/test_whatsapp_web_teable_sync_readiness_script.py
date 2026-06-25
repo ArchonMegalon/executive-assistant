@@ -90,6 +90,69 @@ def test_teable_sync_readiness_fails_for_stale_cursor(tmp_path: Path) -> None:
     assert report["reason"] == "state_stale"
 
 
+def test_teable_sync_readiness_treats_fresh_waiting_receipt_as_live(tmp_path: Path) -> None:
+    module = _module()
+    state_file = tmp_path / "state.json"
+    now = datetime(2026, 6, 21, 6, 30, tzinfo=timezone.utc)
+    state_file.write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "ready": False,
+                "reason": "session_api_unavailable",
+                "session_ref": "principal-wa-web",
+                "status": "waiting",
+                "updated_at": (now - timedelta(seconds=30)).isoformat().replace("+00:00", "Z"),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = module.check_readiness(
+        enabled=True,
+        state_file=state_file,
+        session_ref="principal-wa-web",
+        stale_seconds=600,
+        now=now,
+    )
+
+    assert report["ok"] is True
+    assert report["ready"] is False
+    assert report["status"] == "waiting"
+    assert report["reason"] == "session_api_unavailable"
+
+
+def test_teable_sync_readiness_fails_for_stale_waiting_receipt(tmp_path: Path) -> None:
+    module = _module()
+    state_file = tmp_path / "state.json"
+    now = datetime(2026, 6, 21, 6, 30, tzinfo=timezone.utc)
+    state_file.write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "ready": False,
+                "reason": "session_api_unavailable",
+                "session_ref": "principal-wa-web",
+                "status": "waiting",
+                "updated_at": (now - timedelta(seconds=601)).isoformat().replace("+00:00", "Z"),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = module.check_readiness(
+        enabled=True,
+        state_file=state_file,
+        session_ref="principal-wa-web",
+        stale_seconds=600,
+        now=now,
+    )
+
+    assert report["ok"] is False
+    assert report["ready"] is False
+    assert report["reason"] == "waiting_state_stale"
+
+
 def test_teable_sync_readiness_disabled_is_ready(tmp_path: Path) -> None:
     module = _module()
 

@@ -7,6 +7,7 @@ import fcntl
 import hashlib
 import hmac
 import html
+import importlib.util
 import io
 import json
 import math
@@ -51,6 +52,12 @@ except Exception:  # pragma: no cover - optional OCR fallback
 from app.domain.models import ApprovalRequest, Commitment, DecisionWindow, DeadlineWindow, FollowUp, HumanTask, IntentSpecV3, Stakeholder, TaskExecutionRequest, ToolInvocationRequest
 from app.product.commercial import workspace_commercial_snapshot, workspace_plan_for_mode
 from app.services.property_billing import enforce_property_plan_limits, property_commercial_snapshot
+from app.services.public_artifact_paths import public_tour_dir
+from app.services.public_urls import (
+    ea_public_app_base_url,
+    propertyquarry_public_base_url,
+    propertyquarry_public_tour_base_url,
+)
 from app.product.extractors import extract_commitment_candidates
 from app.product.models import (
     BriefItem,
@@ -342,7 +349,7 @@ _PROPERTY_PROFILE_IMPORT_FEATURE_PATTERNS = {
 }
 _PRODUCT_PULSE_FRESH_SECONDS = 48 * 3600
 _PRODUCT_PULSE_STALE_SECONDS = 7 * 24 * 3600
-_DEFAULT_DESIGN_PRODUCT_ROOT = Path("/docker/chummercomplete/chummer-design/products/chummer")
+_DESIGN_PRODUCT_ROOT_ENV_NAMES = ("CHUMMER6_DESIGN_PRODUCT_ROOT", "EA_DESIGN_PRODUCT_ROOT")
 _POCKET_PUBLIC_API_BASE_URL = "https://public.heypocketai.com/api/v1"
 _POCKET_API_MAX_ATTEMPTS = 4
 _POCKET_API_RETRY_BACKOFF_SECONDS = 1.0
@@ -2770,7 +2777,7 @@ def _property_scout_extract_floorplan_urls_from_archive(
         if not selected_members:
             return ()
         slug = _property_scout_public_asset_slug(source_url=source_url, archive_url=archive_url)
-        public_root = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+        public_root = public_tour_dir()
         target_dir = public_root / slug
         target_dir.mkdir(parents=True, exist_ok=True)
         public_base = _property_public_app_base_url().rstrip("/")
@@ -9570,7 +9577,7 @@ def _pocket_audio_archive_root() -> Path:
     raw = str(os.environ.get("EA_POCKET_AUDIO_ARCHIVE_ROOT") or "").strip()
     if raw:
         return Path(raw).expanduser()
-    return Path("/mnt/pcloud/EA/pocket-ai-audio")
+    return _repo_root() / ".runtime" / "pocket-ai-audio"
 
 
 def _pocket_audio_archive_min_duration_seconds() -> float:
@@ -10127,7 +10134,7 @@ def _default_journey_gates_path() -> Path:
 def _default_public_guide_manifest_path() -> Path:
     return _resolve_repo_path(
         str(os.getenv("EA_PUBLIC_GUIDE_MANIFEST_PATH") or "").strip(),
-        default=Path("/docker/chummercomplete/Chummer6/manifest.generated.json"),
+        default=_repo_root() / ".codex-studio/published/public_guide_manifest.generated.json",
     )
 
 
@@ -10142,6 +10149,89 @@ def _project_modes_manifest_path() -> Path:
     return _resolve_repo_path(
         str(os.getenv("EA_PROJECT_MODES_MANIFEST_PATH") or "").strip(),
         default=_repo_root() / ".codex-design/product/PROJECT_MODES.generated.json",
+    )
+
+
+def _release_authority_status_path() -> Path:
+    return _resolve_repo_path(
+        str(os.getenv("EA_RELEASE_AUTHORITY_STATUS_PATH") or "").strip(),
+        default=_repo_root() / ".codex-studio/published/release_authority_status.generated.json",
+    )
+
+
+def _repo_script_path(relative_path: str) -> Path:
+    normalized = str(relative_path or "").strip().lstrip("/")
+    candidates = [
+        (_repo_root() / normalized).resolve(),
+        (_repo_root() / "scripts" / normalized).resolve(),
+        (_repo_root().parent / normalized).resolve(),
+        (_repo_root().parent / "scripts" / normalized).resolve(),
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
+def _release_authority_verifier_path() -> Path:
+    return _repo_script_path("scripts/verify_release_authority.py")
+
+
+def _release_authority_status_materializer_path() -> Path:
+    return _repo_script_path("scripts/materialize_release_authority_status.py")
+
+
+def _deploy_context_verifier_path() -> Path:
+    return _repo_script_path("scripts/verify_deploy_context.py")
+
+
+def _runtime_supply_chain_verifier_path() -> Path:
+    return _repo_script_path("scripts/verify_runtime_supply_chain.py")
+
+
+def _load_repo_script_module(*, script_path: Path, module_name: str, error_key: str) -> Any:
+    spec = importlib.util.spec_from_file_location(module_name, script_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"{error_key}:{script_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules.setdefault(spec.name, module)
+    spec.loader.exec_module(module)
+    return module
+
+
+@lru_cache(maxsize=1)
+def _load_deploy_context_verifier() -> Any:
+    return _load_repo_script_module(
+        script_path=_deploy_context_verifier_path(),
+        module_name="ea_verify_deploy_context",
+        error_key="deploy_context_verifier_unloadable",
+    )
+
+
+@lru_cache(maxsize=1)
+def _load_release_authority_verifier() -> Any:
+    return _load_repo_script_module(
+        script_path=_release_authority_verifier_path(),
+        module_name="ea_verify_release_authority",
+        error_key="release_authority_verifier_unloadable",
+    )
+
+
+@lru_cache(maxsize=1)
+def _load_release_authority_status_materializer() -> Any:
+    return _load_repo_script_module(
+        script_path=_release_authority_status_materializer_path(),
+        module_name="ea_materialize_release_authority_status",
+        error_key="release_authority_status_materializer_unloadable",
+    )
+
+
+@lru_cache(maxsize=1)
+def _load_runtime_supply_chain_verifier() -> Any:
+    return _load_repo_script_module(
+        script_path=_runtime_supply_chain_verifier_path(),
+        module_name="ea_verify_runtime_supply_chain",
+        error_key="runtime_supply_chain_verifier_unloadable",
     )
 
 
@@ -10232,21 +10322,15 @@ def _configured_public_tour_hosts() -> tuple[str, ...]:
 
 
 def _public_app_base_url() -> str:
-    return str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "https://myexternalbrain.com").strip().rstrip("/")
+    return ea_public_app_base_url()
 
 
 def _property_public_app_base_url() -> str:
-    explicit = str(os.getenv("PROPERTYQUARRY_PUBLIC_BASE_URL") or "").strip().rstrip("/")
-    if explicit:
-        return explicit
-    return "https://propertyquarry.com"
+    return propertyquarry_public_base_url()
 
 
 def _property_public_tour_base_url() -> str:
-    explicit = str(os.getenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL") or "").strip().rstrip("/")
-    if explicit:
-        return explicit
-    return f"{_property_public_app_base_url()}/tours"
+    return propertyquarry_public_tour_base_url()
 
 
 def _hosted_property_tour_public_base_url() -> str:
@@ -10374,7 +10458,7 @@ def _existing_hosted_property_tour_url(structured_output: dict[str, object]) -> 
     if not slug:
         return ""
     base_url = _hosted_property_tour_public_base_url()
-    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+    public_dir = public_tour_dir()
     bundle_dir = public_dir / slug
     bundle_manifest = public_dir / slug / "tour.json"
     if not bundle_manifest.exists():
@@ -10419,7 +10503,7 @@ def _existing_hosted_property_tour_payload(slug: str) -> dict[str, object]:
     hosted_url = _existing_hosted_property_tour_url({"slug": normalized_slug})
     if not hosted_url:
         return {}
-    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+    public_dir = public_tour_dir()
     manifest_path = public_dir / normalized_slug / "tour.json"
     try:
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -10529,7 +10613,7 @@ def _write_hosted_floorplan_property_tour_bundle(
     if not normalized_urls:
         raise RuntimeError("floorplan_assets_missing")
     base_url = _hosted_property_tour_public_base_url()
-    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+    public_dir = public_tour_dir()
     slug = _hosted_property_tour_slug(title=title, listing_id=listing_id, property_url=property_url, variant_key=variant_key)
     existing_payload = _existing_hosted_property_tour_payload(slug)
     if existing_payload:
@@ -10642,7 +10726,7 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
     live_host = parsed_live.netloc.lower()
     if "matterport" in live_host:
         base_url = _hosted_property_tour_public_base_url()
-        public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+        public_dir = public_tour_dir()
         slug = _hosted_property_tour_slug(title=title, listing_id=listing_id, property_url=property_url, variant_key=variant_key)
         existing_payload = _existing_hosted_property_tour_payload(slug)
         if existing_payload:
@@ -10713,7 +10797,7 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
     if "360.kalandra.at" not in live_host and "feelestate" not in live_host:
         raise RuntimeError("pure_360_source_unsupported")
     base_url = _hosted_property_tour_public_base_url()
-    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+    public_dir = public_tour_dir()
     slug = _hosted_property_tour_slug(title=title, listing_id=listing_id, property_url=property_url, variant_key=variant_key)
     existing_payload = _existing_hosted_property_tour_payload(slug)
     if existing_payload:
@@ -10885,7 +10969,7 @@ def _hosted_property_tour_video_delivery(tour_url: str) -> dict[str, str]:
     slug = str(path_parts[-1] or "").strip()
     if not slug:
         return {}
-    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+    public_dir = public_tour_dir()
     bundle_dir = public_dir / slug
     manifest_path = bundle_dir / "tour.json"
     if not manifest_path.exists():
@@ -10931,7 +11015,7 @@ def _hosted_property_tour_bundle_dir(tour_url: str) -> tuple[str, Path] | tuple[
     slug = str(path_parts[-1] or "").strip()
     if not slug:
         return ("", None)
-    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+    public_dir = public_tour_dir()
     bundle_dir = public_dir / slug
     if not bundle_dir.exists() or not bundle_dir.is_dir():
         return (slug, None)
@@ -11398,7 +11482,7 @@ def _hosted_property_tour_direct_360_url(tour_url: str) -> str:
     slug = str(path_parts[-1] or "").strip()
     if not slug:
         return ""
-    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+    public_dir = public_tour_dir()
     manifest_path = public_dir / slug / "tour.json"
     if not manifest_path.exists():
         return ""
@@ -11501,7 +11585,7 @@ def _hosted_property_tour_preview_image_url(tour_url: str) -> str:
     slug = str(path_parts[-1] or "").strip()
     if not slug:
         return ""
-    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+    public_dir = public_tour_dir()
     bundle_dir = public_dir / slug
     manifest_path = bundle_dir / "tour.json"
     if not manifest_path.exists():
@@ -11645,7 +11729,7 @@ def _hosted_property_tour_telegram_preview_image_url(tour_url: str, *, diorama_s
     slug = str(path_parts[-1] or "").strip()
     if not slug:
         return ""
-    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+    public_dir = public_tour_dir()
     bundle_dir = public_dir / slug
     manifest_path = bundle_dir / "tour.json"
     if not manifest_path.exists():
@@ -12246,13 +12330,12 @@ def _load_yaml_dict(path: Path) -> dict[str, object] | None:
 
 
 def _design_product_root() -> Path:
-    raw = str(os.getenv("CHUMMER6_DESIGN_PRODUCT_ROOT") or "").strip()
-    if raw:
-        return Path(raw)
+    for env_name in _DESIGN_PRODUCT_ROOT_ENV_NAMES:
+        raw = str(os.getenv(env_name) or "").strip()
+        if raw:
+            return Path(raw)
     local_root = _repo_root() / ".codex-design/product"
-    if local_root.exists():
-        return local_root
-    return _DEFAULT_DESIGN_PRODUCT_ROOT
+    return local_root
 
 
 def _design_source_path(key: str, fallback: str) -> Path:
@@ -12266,15 +12349,6 @@ def _design_source_path(key: str, fallback: str) -> Path:
     candidate = root / relative
     if candidate.exists():
         return candidate
-    local_root = (_repo_root() / ".codex-design/product").resolve()
-    try:
-        root_resolved = root.resolve()
-    except Exception:
-        root_resolved = root
-    if root_resolved == local_root and _DEFAULT_DESIGN_PRODUCT_ROOT.exists():
-        fallback_candidate = _DEFAULT_DESIGN_PRODUCT_ROOT / relative
-        if fallback_candidate.exists():
-            return fallback_candidate
     return candidate
 
 
@@ -12283,15 +12357,6 @@ def _design_manifest_path(filename: str) -> Path:
     candidate = root / filename
     if candidate.exists():
         return candidate
-    local_root = (_repo_root() / ".codex-design/product").resolve()
-    try:
-        root_resolved = root.resolve()
-    except Exception:
-        root_resolved = root
-    if root_resolved == local_root and _DEFAULT_DESIGN_PRODUCT_ROOT.exists():
-        fallback_candidate = _DEFAULT_DESIGN_PRODUCT_ROOT / filename
-        if fallback_candidate.exists():
-            return fallback_candidate
     return candidate
 
 
@@ -13488,6 +13553,61 @@ class ProductService:
             person_id=normalized_person_id,
         )
 
+    @staticmethod
+    def _fallback_table_sync_config() -> dict[str, dict[str, object]]:
+        fallback_entries = {
+            "environment_secret_backup": ["EA_ENV_TEABLE_TABLE_ID", "EA_ENV_TEABLE_TABLE_NAME"],
+            "ltd_inventory_snapshot": ["EA_LTD_INVENTORY_TABLE_ID", "EA_LTDS_INVENTORY_TABLE_ID"],
+            "ltd_discovery_snapshot": ["EA_LTD_DISCOVERY_TABLE_ID", "EA_LTDS_DISCOVERY_TABLE_ID"],
+        }
+        config: dict[str, dict[str, object]] = {}
+        for table_name, env_names in fallback_entries.items():
+            table_id = ""
+            for env_name in env_names:
+                candidate = str(os.environ.get(env_name) or "").strip()
+                if candidate:
+                    table_id = candidate
+                    break
+            if not table_id:
+                continue
+            config[table_name] = {
+                "table_id": table_id,
+                "key_field": "projection_id",
+                "field_key_type": "name",
+            }
+        return config
+
+    @staticmethod
+    def _resolve_preference_teable_sync_config(raw_env_json: str) -> dict[str, dict[str, object]]:
+        parsed_table_sync: dict[str, dict[str, object]] = {}
+        if raw_env_json:
+            try:
+                loaded = json.loads(raw_env_json)
+            except Exception:
+                loaded = {}
+            if isinstance(loaded, dict):
+                parsed_table_sync = {
+                    str(table_name or "").strip(): dict(table_config or {})
+                    for table_name, table_config in dict(loaded).items()
+                    if str(table_name or "").strip() and isinstance(table_config, dict)
+                }
+        if not parsed_table_sync:
+            parsed_table_sync = {}
+        merged = {**parsed_table_sync}
+        merged.update(ProductService._fallback_table_sync_config())
+        return merged
+
+    @staticmethod
+    def _table_configured_for_sync(table_sync_config: dict[str, dict[str, object]]) -> bool:
+        if not isinstance(table_sync_config, dict) or not table_sync_config:
+            return False
+        valid = [
+            table_name
+            for table_name, config in table_sync_config.items()
+            if str(table_name or "").strip() and str(config.get("table_id") or "").strip()
+        ]
+        return bool(valid)
+
     def preference_teable_sync_preview(
         self,
         *,
@@ -13499,8 +13619,20 @@ class ProductService:
             principal_id=principal_id,
             person_id=normalized_person_id,
         )
+        table_sync_raw = str(os.environ.get("TEABLE_TABLE_SYNC_CONFIG_JSON") or "").strip()
+        parsed_table_sync = self._resolve_preference_teable_sync_config(table_sync_raw)
+        table_sync_configured = self._table_configured_for_sync(parsed_table_sync)
+        if table_sync_configured:
+            missing_table_ids = [
+                table_name
+                for table_name in parsed_table_sync
+                if not str(parsed_table_sync[table_name].get("table_id") or "").strip()
+            ]
+            if missing_table_ids:
+                table_sync_configured = False
         sync_tables = {
-            "preference_review_queue": [dict(row) for row in records.get("preference_review_queue") or []],
+            table_name: [dict(row) for row in records.get(table_name) or []]
+            for table_name in parsed_table_sync
         }
         summary = self.preference_teable_projection_summary(
             principal_id=principal_id,
@@ -13508,14 +13640,6 @@ class ProductService:
         )
         provider_state = self._container.provider_registry.binding_state("teable", principal_id=principal_id)
         teable_base_url = str(os.environ.get("TEABLE_BASE_URL") or "https://app.teable.ai").strip().rstrip("/")
-        table_sync_config_raw = str(os.environ.get("TEABLE_TABLE_SYNC_CONFIG_JSON") or "").strip()
-        table_sync_configured = False
-        if table_sync_config_raw:
-            try:
-                parsed_table_sync = json.loads(table_sync_config_raw)
-            except Exception:
-                parsed_table_sync = {}
-            table_sync_configured = isinstance(parsed_table_sync, dict) and "preference_review_queue" in parsed_table_sync
         candidate_routes = tuple(
             route
             for route in self._container.provider_registry.candidate_routes_by_capability_with_context(
@@ -13569,6 +13693,7 @@ class ProductService:
                 "base_url": teable_base_url,
                 "updated_at": str(getattr(provider_state, "updated_at", "") or "").strip(),
             },
+            "table_config_json": parsed_table_sync,
             "route": {
                 "capability_key": "table_sync",
                 "tool_name": str(getattr(executable_route, "tool_name", "") or "provider.teable.table_sync").strip(),
@@ -13652,6 +13777,9 @@ class ProductService:
         route = dict(preview.get("route") or {})
         tool_name = str(route.get("tool_name") or "").strip()
         payload_json = dict(preview.get("sync_payload_json") or {})
+        table_config_json = dict(preview.get("table_config_json") or {})
+        if table_config_json:
+            payload_json["table_config_json"] = table_config_json
         invocation = ToolInvocationRequest(
             session_id=f"product-teable-sync:{uuid4()}",
             step_id=f"product-teable-sync-step:{uuid4()}",
@@ -14998,7 +15126,7 @@ class ProductService:
         }
 
     def _onedrive_document_public_base_url(self) -> str:
-        return str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "https://myexternalbrain.com").strip().rstrip("/")
+        return ea_public_app_base_url()
 
     def _onedrive_answerly_import_enabled(self) -> bool:
         return str(os.getenv("EA_ANSWERLY_AUTO_IMPORT_GMAIL_PDFS") or "1").strip().lower() not in {"0", "false", "no", "off"}
@@ -25697,6 +25825,7 @@ class ProductService:
         providers = dict(diagnostics.get("providers") or {})
         readiness = dict(diagnostics.get("readiness") or {})
         release_authority = self.release_authority_summary()
+        runtime_supply_chain = self.runtime_supply_chain_summary()
         evidence_items = self.list_evidence(principal_id=principal_id, limit=50)
         rules = self.list_rules(principal_id=principal_id)
         recent_events = [
@@ -25735,200 +25864,295 @@ class ProductService:
             "rule_count": len(rules),
             "recent_events": recent_events[:8],
             "release_authority": release_authority,
+            "runtime_supply_chain": runtime_supply_chain,
             "public_help_grounding": self._public_help_grounding_pack(
                 product_control=dict(diagnostics.get("product_control") or {}),
             ),
         }
 
     def release_authority_summary(self) -> dict[str, object]:
+        status_path = _release_authority_status_path()
+        status_payload = _load_json_dict(status_path)
+        if str(status_payload.get("contract_name") or "").strip() == "ea.release_authority_status.v1":
+            gate_payload = dict(status_payload.get("gate") or {})
+            if not gate_payload:
+                gate_payload = {
+                    "contract_name": "ea.release_authority_gate.v1",
+                    "status": "error",
+                    "authority_posture": "verifier_error",
+                    "issues": ["release_authority_status_missing_gate"],
+                    "manifest_path": str(status_payload.get("manifest_path") or ""),
+                    "project_modes_path": str(status_payload.get("project_modes_path") or ""),
+                }
+            return {
+                "source": "published_status_artifact",
+                "state": str(status_payload.get("state") or "missing").strip() or "missing",
+                "summary": str(status_payload.get("summary") or "Release authority is missing for the current runtime.").strip(),
+                "manifest_path": str(status_payload.get("manifest_path") or ""),
+                "deploy_context_path": str(status_payload.get("deploy_context_path") or ""),
+                "project_modes_path": str(status_payload.get("project_modes_path") or ""),
+                "authority_posture": str(status_payload.get("authority_posture") or "missing_manifest").strip() or "missing_manifest",
+                "next_action": str(status_payload.get("next_action") or "Materialize the release manifest from the running deploy before trusting release claims.").strip(),
+                "authority_basis": str(status_payload.get("authority_basis") or "Release authority basis has not been recorded.").strip(),
+                "repository": str(status_payload.get("repository") or "").strip(),
+                "branch": str(status_payload.get("branch") or "").strip(),
+                "tracking_branch": str(status_payload.get("tracking_branch") or "").strip(),
+                "commit_sha": str(status_payload.get("commit_sha") or "").strip(),
+                "dirty_worktree": bool(status_payload.get("dirty_worktree")),
+                "source_worktree_dirty": bool(status_payload.get("source_worktree_dirty", status_payload.get("dirty_worktree"))),
+                "source_dirty_count": int(status_payload.get("source_dirty_count") or 0),
+                "source_dirty_files": [
+                    str(item).strip()
+                    for item in list(status_payload.get("source_dirty_files") or [])
+                    if str(item).strip()
+                ],
+                "source_dirty_omitted_count": int(status_payload.get("source_dirty_omitted_count") or 0),
+                "source_dirty_status_sha256": str(status_payload.get("source_dirty_status_sha256") or "").strip(),
+                "deployment_id": str(status_payload.get("deployment_id") or "").strip(),
+                "deployment_id_source": str(status_payload.get("deployment_id_source") or "").strip(),
+                "public_origin": str(status_payload.get("public_origin") or "").strip(),
+                "public_origin_source": str(status_payload.get("public_origin_source") or "").strip(),
+                "deploy_context_generated_at": str(status_payload.get("deploy_context_generated_at") or "").strip(),
+                "deploy_context_branch": str(status_payload.get("deploy_context_branch") or "").strip(),
+                "deploy_context_tracking_branch": str(status_payload.get("deploy_context_tracking_branch") or "").strip(),
+                "deploy_context_commit_sha": str(status_payload.get("deploy_context_commit_sha") or "").strip(),
+                "git_remote_origin": str(status_payload.get("git_remote_origin") or "").strip(),
+                "release_label": str(status_payload.get("release_label") or "").strip(),
+                "project_mode": str(status_payload.get("project_mode") or "").strip(),
+                "enabled_project_modes": [
+                    str(item).strip()
+                    for item in list(status_payload.get("enabled_project_modes") or [])
+                    if str(item).strip()
+                ],
+                "compose_files": [
+                    str(item).strip()
+                    for item in list(status_payload.get("compose_files") or [])
+                    if str(item).strip()
+                ],
+                "compose_overrides": [
+                    str(item).strip()
+                    for item in list(status_payload.get("compose_overrides") or [])
+                    if str(item).strip()
+                ],
+                "artifact_count": int(status_payload.get("artifact_count") or 0),
+                "artifact_set_preview": [
+                    str(item).strip()
+                    for item in list(status_payload.get("artifact_set_preview") or [])
+                    if str(item).strip()
+                ],
+                "declared_project_modes": [
+                    str(item).strip()
+                    for item in list(status_payload.get("declared_project_modes") or [])
+                    if str(item).strip()
+                ],
+                "generated_at": str(status_payload.get("generated_at") or "").strip(),
+                "issues": [
+                    str(item).strip()
+                    for item in list(status_payload.get("issues") or [])
+                    if str(item).strip()
+                ],
+                "deploy_context_gate": dict(status_payload.get("deploy_context_gate") or {}),
+                "gate": gate_payload,
+            }
+
         manifest_path = _release_manifest_path()
         project_modes_path = _project_modes_manifest_path()
-        manifest = _load_json_dict(manifest_path)
-        project_modes = _load_json_dict(project_modes_path)
-        issues: list[str] = []
-
-        if not manifest:
+        deploy_context_path = _resolve_repo_path(
+            str(os.getenv("EA_DEPLOY_CONTEXT_PATH") or "").strip(),
+            default=_repo_root() / ".codex-studio/published/deploy_context.generated.json",
+        )
+        try:
+            materializer = _load_release_authority_status_materializer()
+            status_payload = dict(
+                materializer.build_status(
+                    release_manifest_path=manifest_path,
+                    deploy_context_path=deploy_context_path,
+                    project_modes_path=project_modes_path,
+                )
+                or {}
+            )
+            gate_payload = dict(status_payload.get("gate") or {})
+            if not gate_payload:
+                gate_payload = {
+                    "contract_name": "ea.release_authority_gate.v1",
+                    "status": "error",
+                    "authority_posture": "verifier_error",
+                    "issues": ["release_authority_status_missing_gate"],
+                    "manifest_path": str(status_payload.get("manifest_path") or manifest_path),
+                    "project_modes_path": str(status_payload.get("project_modes_path") or project_modes_path),
+                }
             return {
+                "source": "manifest_fallback",
+                "state": str(status_payload.get("state") or "missing").strip() or "missing",
+                "summary": str(status_payload.get("summary") or "Release authority is missing for the current runtime.").strip(),
+                "manifest_path": str(status_payload.get("manifest_path") or manifest_path),
+                "deploy_context_path": str(status_payload.get("deploy_context_path") or deploy_context_path),
+                "project_modes_path": str(status_payload.get("project_modes_path") or project_modes_path),
+                "authority_posture": str(status_payload.get("authority_posture") or "missing_manifest").strip() or "missing_manifest",
+                "next_action": str(status_payload.get("next_action") or "Materialize the release manifest from the running deploy before trusting release claims.").strip(),
+                "authority_basis": str(status_payload.get("authority_basis") or "Release authority basis has not been recorded.").strip(),
+                "repository": str(status_payload.get("repository") or "").strip(),
+                "branch": str(status_payload.get("branch") or "").strip(),
+                "tracking_branch": str(status_payload.get("tracking_branch") or "").strip(),
+                "commit_sha": str(status_payload.get("commit_sha") or "").strip(),
+                "dirty_worktree": bool(status_payload.get("dirty_worktree")),
+                "source_worktree_dirty": bool(status_payload.get("source_worktree_dirty", status_payload.get("dirty_worktree"))),
+                "source_dirty_count": int(status_payload.get("source_dirty_count") or 0),
+                "source_dirty_files": [
+                    str(item).strip()
+                    for item in list(status_payload.get("source_dirty_files") or [])
+                    if str(item).strip()
+                ],
+                "source_dirty_omitted_count": int(status_payload.get("source_dirty_omitted_count") or 0),
+                "source_dirty_status_sha256": str(status_payload.get("source_dirty_status_sha256") or "").strip(),
+                "deployment_id": str(status_payload.get("deployment_id") or "").strip(),
+                "deployment_id_source": str(status_payload.get("deployment_id_source") or "").strip(),
+                "public_origin": str(status_payload.get("public_origin") or "").strip(),
+                "public_origin_source": str(status_payload.get("public_origin_source") or "").strip(),
+                "deploy_context_generated_at": str(status_payload.get("deploy_context_generated_at") or "").strip(),
+                "deploy_context_branch": str(status_payload.get("deploy_context_branch") or "").strip(),
+                "deploy_context_tracking_branch": str(status_payload.get("deploy_context_tracking_branch") or "").strip(),
+                "deploy_context_commit_sha": str(status_payload.get("deploy_context_commit_sha") or "").strip(),
+                "git_remote_origin": str(status_payload.get("git_remote_origin") or "").strip(),
+                "release_label": str(status_payload.get("release_label") or "").strip(),
+                "project_mode": str(status_payload.get("project_mode") or "").strip(),
+                "enabled_project_modes": [
+                    str(item).strip()
+                    for item in list(status_payload.get("enabled_project_modes") or [])
+                    if str(item).strip()
+                ],
+                "compose_files": [
+                    str(item).strip()
+                    for item in list(status_payload.get("compose_files") or [])
+                    if str(item).strip()
+                ],
+                "compose_overrides": [
+                    str(item).strip()
+                    for item in list(status_payload.get("compose_overrides") or [])
+                    if str(item).strip()
+                ],
+                "artifact_count": int(status_payload.get("artifact_count") or 0),
+                "artifact_set_preview": [
+                    str(item).strip()
+                    for item in list(status_payload.get("artifact_set_preview") or [])
+                    if str(item).strip()
+                ],
+                "declared_project_modes": [
+                    str(item).strip()
+                    for item in list(status_payload.get("declared_project_modes") or [])
+                    if str(item).strip()
+                ],
+                "generated_at": str(status_payload.get("generated_at") or "").strip(),
+                "issues": [
+                    str(item).strip()
+                    for item in list(status_payload.get("issues") or [])
+                    if str(item).strip()
+                ],
+                "deploy_context_gate": dict(status_payload.get("deploy_context_gate") or {}),
+                "gate": gate_payload,
+            }
+        except Exception as exc:
+            return {
+                "source": "manifest_fallback",
                 "state": "missing",
-                "summary": "Release manifest not materialized for this runtime.",
+                "summary": "Release authority could not be materialized for the current runtime.",
                 "manifest_path": str(manifest_path),
+                "deploy_context_path": str(deploy_context_path),
                 "project_modes_path": str(project_modes_path),
-                "issues": ["release_manifest_missing"],
+                "issues": ["release_authority_materializer_error"],
                 "authority_posture": "missing_manifest",
-                "next_action": "Materialize the release manifest from the running deploy before trusting release claims.",
-                "authority_basis": "No runtime release manifest is available.",
+                "next_action": "Resolve release authority issues before using this runtime as the shipping source of truth.",
+                "authority_basis": "Release authority basis has not been recorded.",
                 "repository": "",
                 "branch": "",
                 "tracking_branch": "",
                 "commit_sha": "",
                 "dirty_worktree": False,
+                "source_worktree_dirty": False,
+                "source_dirty_count": 0,
+                "source_dirty_files": [],
+                "source_dirty_omitted_count": 0,
+                "source_dirty_status_sha256": "",
                 "deployment_id": "",
                 "deployment_id_source": "",
                 "public_origin": "",
                 "public_origin_source": "",
+                "deploy_context_generated_at": "",
+                "deploy_context_branch": "",
+                "deploy_context_tracking_branch": "",
+                "deploy_context_commit_sha": "",
                 "git_remote_origin": "",
                 "release_label": "",
                 "project_mode": "",
-                "artifact_count": 0,
                 "enabled_project_modes": [],
                 "compose_files": [],
                 "compose_overrides": [],
+                "artifact_count": 0,
+                "artifact_set_preview": [],
                 "declared_project_modes": [],
                 "generated_at": "",
+                "deploy_context_gate": {
+                    "contract_name": "ea.deploy_context_gate.v1",
+                    "status": "error",
+                    "issues": ["deploy_context_verifier_error"],
+                    "error": str(exc),
+                },
+                "gate": {
+                    "contract_name": "ea.release_authority_gate.v1",
+                    "status": "error",
+                    "authority_posture": "verifier_error",
+                    "issues": ["release_authority_materializer_error"],
+                    "manifest_path": str(manifest_path),
+                    "deploy_context_path": str(deploy_context_path),
+                    "project_modes_path": str(project_modes_path),
+                    "error": str(exc),
+                },
             }
 
-        if str(manifest.get("contract_name") or "").strip() != "ea.release_manifest.v1":
-            issues.append("release_manifest_contract_invalid")
-
-        repository = str(manifest.get("repository") or "").strip()
-        branch = str(manifest.get("branch") or "").strip()
-        tracking_branch = str(manifest.get("tracking_branch") or "").strip()
-        commit_sha = str(manifest.get("commit_sha") or "").strip()
-        dirty_worktree = bool(manifest.get("dirty_worktree"))
-        deployment_id = str(manifest.get("deployment_id") or "").strip()
-        deployment_id_source = str(manifest.get("deployment_id_source") or "").strip()
-        public_origin = str(manifest.get("public_origin") or "").strip()
-        public_origin_source = str(manifest.get("public_origin_source") or "").strip()
-        git_remote_origin = str(manifest.get("git_remote_origin") or "").strip()
-        release_label = str(manifest.get("release_label") or "").strip()
-        project_mode = str(manifest.get("project_mode") or "").strip()
-        enabled_project_modes = [
-            str(item).strip()
-            for item in list(manifest.get("enabled_project_modes") or [])
-            if str(item).strip()
-        ]
-        compose_files = [
-            str(item).strip()
-            for item in list(manifest.get("compose_files") or [])
-            if str(item).strip()
-        ]
-        compose_overrides = [
-            str(item).strip()
-            for item in list(manifest.get("compose_overrides") or [])
-            if str(item).strip()
-        ]
-        artifact_set = [
-            str(item).strip()
-            for item in list(manifest.get("artifact_set") or [])
-            if str(item).strip()
-        ]
-        declared_modes = {
-            str(dict(item).get("key") or "").strip()
-            for item in list(project_modes.get("modes") or [])
-            if isinstance(item, dict) and str(dict(item).get("key") or "").strip()
+    def runtime_supply_chain_summary(self) -> dict[str, object]:
+        checked = {
+            "requirements_txt": "ea/requirements.txt",
+            "requirements_lock": "ea/requirements.lock",
+            "dockerfiles": [
+                "ea/Dockerfile",
+                "ea/Dockerfile.operator",
+                "Dockerfile",
+            ],
         }
+        try:
+            verifier = _load_runtime_supply_chain_verifier()
+            gate_payload = dict(verifier.verify() or {})
+        except Exception as exc:
+            gate_payload = {
+                "contract_name": "ea.runtime_supply_chain.v1",
+                "status": "error",
+                "issues": ["runtime_supply_chain_verifier_error"],
+                "error": str(exc),
+                "checked": checked,
+            }
 
-        required_fields = {
-            "repository": repository,
-            "branch": branch,
-            "commit_sha": commit_sha,
-            "deployment_id": deployment_id,
-            "release_label": release_label,
-            "project_mode": project_mode,
-        }
-        for key, value in required_fields.items():
-            if not value:
-                issues.append(f"missing_{key}")
-        if not enabled_project_modes:
-            issues.append("enabled_project_modes_empty")
-        if not artifact_set:
-            issues.append("artifact_set_empty")
-        if not public_origin:
-            issues.append("public_origin_missing")
-        if public_origin_source in {"missing", ""}:
-            issues.append("public_origin_source_missing")
-        if public_origin_source == "missing" and git_remote_origin:
-            issues.append("public_origin_not_runtime_origin")
-        if project_mode and declared_modes and project_mode not in declared_modes:
-            issues.append("project_mode_not_declared")
-        undeclared_modes = [mode for mode in enabled_project_modes if declared_modes and mode not in declared_modes]
-        if undeclared_modes:
-            issues.append("enabled_project_modes_not_declared")
-        if not tracking_branch:
-            issues.append("tracking_branch_missing")
-        if dirty_worktree:
-            issues.append("dirty_worktree")
-        if not compose_files:
-            issues.append("compose_files_missing")
-
-        state = "clear"
-        if issues:
-            state = "watch"
-        if deployment_id_source == "local_fallback" or deployment_id.startswith("local-"):
-            if "deployment_id_local_fallback" not in issues:
-                issues.append("deployment_id_local_fallback")
-            state = "watch"
-
-        authority_posture = "authoritative_runtime"
+        status = str(gate_payload.get("status") or "fail").strip() or "fail"
+        issues = [
+            str(item).strip()
+            for item in list(gate_payload.get("issues") or [])
+            if str(item).strip()
+        ]
+        state = "clear" if status == "pass" and not issues else "watch"
+        summary = "Runtime supply chain is pinned and verified."
         next_action = "No action required."
-        if state == "missing":
-            authority_posture = "missing_manifest"
-            next_action = "Materialize the release manifest from the running deploy before trusting release claims."
-        else:
-            issue_set = set(issues)
-            if "public_origin_missing" in issue_set or "public_origin_source_missing" in issue_set or "public_origin_not_runtime_origin" in issue_set:
-                authority_posture = "missing_public_origin"
-                next_action = "Set the deployed public base URL and rematerialize the release manifest so release authority points at a runtime origin."
-            elif "deployment_id_local_fallback" in issue_set:
-                authority_posture = "local_only_deploy_id"
-                next_action = "Set an explicit deployment ID from the real deploy system and rematerialize the release manifest."
-            elif "dirty_worktree" in issue_set:
-                authority_posture = "dirty_worktree"
-                next_action = "Build from a clean committed tree before treating this runtime as release authority."
-            elif "compose_files_missing" in issue_set:
-                authority_posture = "compose_topology_missing"
-                next_action = "Materialize the release manifest through the deploy path so the compose topology is recorded."
-            elif issue_set:
-                authority_posture = "watch"
-                next_action = "Resolve release authority issues before using this runtime as the shipping source of truth."
-
-        summary = "Release authority is recorded for the current runtime."
-        if issues:
-            summary = "Release authority is present but still has gaps to resolve."
-        if state == "missing":
-            summary = "Release authority is missing for the current runtime."
-        authority_basis = " · ".join(
-            item
-            for item in (
-                f"{branch}@{tracking_branch}" if branch and tracking_branch else branch or tracking_branch,
-                commit_sha[:12] if commit_sha else "",
-                project_mode or "",
-                ", ".join(enabled_project_modes[:4]) if enabled_project_modes else "",
-                ", ".join(compose_overrides[:4]) if compose_overrides else ", ".join(compose_files[:4]),
-            )
-            if item
-        ).strip()
-        if not authority_basis:
-            authority_basis = "Release authority basis has not been recorded."
-
+        if state != "clear":
+            summary = "Runtime supply chain verification found release-stage gaps."
+            next_action = "Resolve runtime supply-chain issues before treating this runtime as ready to ship."
+        if status == "error":
+            summary = "Runtime supply-chain verification failed to run."
+            next_action = "Repair the runtime supply-chain verifier and rerun it before trusting release posture."
         return {
             "state": state,
             "summary": summary,
-            "manifest_path": str(manifest_path),
-            "project_modes_path": str(project_modes_path),
-            "authority_posture": authority_posture,
             "next_action": next_action,
-            "authority_basis": authority_basis,
-            "repository": repository,
-            "branch": branch,
-            "tracking_branch": tracking_branch,
-            "commit_sha": commit_sha,
-            "dirty_worktree": dirty_worktree,
-            "deployment_id": deployment_id,
-            "deployment_id_source": deployment_id_source,
-            "public_origin": public_origin,
-            "public_origin_source": public_origin_source,
-            "git_remote_origin": git_remote_origin,
-            "release_label": release_label,
-            "project_mode": project_mode,
-            "enabled_project_modes": enabled_project_modes,
-            "compose_files": compose_files,
-            "compose_overrides": compose_overrides,
-            "artifact_count": len(artifact_set),
-            "artifact_set_preview": artifact_set[:8],
-            "declared_project_modes": sorted(declared_modes),
-            "generated_at": str(manifest.get("generated_at") or "").strip(),
+            "checked": dict(gate_payload.get("checked") or checked),
             "issues": issues,
+            "gate": gate_payload,
         }
 
     def search_workspace(
@@ -28075,7 +28299,7 @@ class ProductService:
         )
         if not token:
             return ""
-        base_url = str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "https://propertyquarry.com").strip().rstrip("/")
+        base_url = propertyquarry_public_base_url()
         return f"{base_url}/v1/integrations/fliplink/documents/property-packets/{token}"
 
     def _send_property_scout_hit_email(
@@ -29848,6 +30072,7 @@ class ProductService:
             "display_name": str(display_name or "").strip(),
             "operator_id": resolved_operator_id,
             "source_kind": str(source_kind or "workspace_access").strip() or "workspace_access",
+            "issued_at": _now_iso(),
             "expires_at": datetime.fromtimestamp(expires_at, tz=timezone.utc).isoformat(),
             "iss": self._workspace_access_token_issuer(),
             "aud": self._workspace_access_token_audience(),
@@ -29867,7 +30092,7 @@ class ProductService:
             "display_name": str(display_name or "").strip(),
             "operator_id": resolved_operator_id,
             "source_kind": str(token_payload["source_kind"]),
-            "issued_at": _now_iso(),
+            "issued_at": str(token_payload["issued_at"]),
             "status": "active",
             "revoked_at": "",
             "revoked_by": "",
@@ -34083,6 +34308,8 @@ class ProductService:
 
     def workspace_support_bundle(self, *, principal_id: str) -> dict[str, object]:
         diagnostics = self.workspace_diagnostics(principal_id=principal_id)
+        release_authority = self.release_authority_summary()
+        runtime_supply_chain = self.runtime_supply_chain_summary()
         queue_health = dict(diagnostics.get("queue_health") or {})
         approvals = self._container.orchestrator.list_pending_approvals_for_principal(principal_id=principal_id, limit=25)
         approval_history = self._container.orchestrator.list_approval_history_for_principal(principal_id=principal_id, limit=25)
@@ -34150,7 +34377,11 @@ class ProductService:
                 for row in pending_delivery
             ],
             "recent_events": list(self.list_office_events(principal_id=principal_id, limit=20)),
-            "release_authority": self.release_authority_summary(),
+            "release_authority": release_authority,
+            "release_authority_gate": dict(release_authority.get("gate") or {}),
+            "deploy_context_gate": dict(release_authority.get("deploy_context_gate") or {}),
+            "runtime_supply_chain": runtime_supply_chain,
+            "runtime_supply_chain_gate": dict(runtime_supply_chain.get("gate") or {}),
             "support_assistant_grounding": self._support_assistant_grounding_pack(diagnostics=diagnostics),
         }
 

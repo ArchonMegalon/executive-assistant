@@ -2,13 +2,22 @@
   "contract_name": "ea.runtime_dependency_audit.v1",
   "dependency_count": 40,
   "fix_count": 0,
-  "generated_at": "2026-06-22T19:37:55.184183Z",
+  "generated_at": "2026-06-25T15:17:40.160982Z",
   "generated_by": "scripts/materialize_runtime_dependency_evidence.py",
   "requirements_path": "ea/requirements.txt",
   "requirements_sha256": "72c7ab51cdcfbf5fe15b78e68e477f9490d8caa4832c8e8792177a24990ebaa8",
+  "requirements_sources": [
+    {
+      "dependency_count": 40,
+      "fix_count": 0,
+      "requirements_path": "ea/requirements.txt",
+      "requirements_sha256": "72c7ab51cdcfbf5fe15b78e68e477f9490d8caa4832c8e8792177a24990ebaa8",
+      "vulnerable_dependency_count": 0
+    }
+  ],
   "sbom_path": ".codex-studio/published/runtime_dependency_sbom.cdx.json",
-  "sbom_sha256": "ea1e5af1910f57053754761340e959a8d08c43213eb8215b02554b009801ad8b",
-  "source_git_head": "d99d6eb1dde32316942e92c4fb47ba035d56a4f7",
+  "sbom_sha256": "5f5fe50c47fd214a78a94a4652090d08305996ef4fb9847686995151d12070c0",
+  "source_git_head": "a36f2efbf30ff0da35ebf1ee0d8c140cd3579829",
   "status": "pass",
   "vulnerable_dependencies": [],
   "vulnerable_dependency_count": 0

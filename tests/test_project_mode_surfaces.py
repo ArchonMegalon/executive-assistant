@@ -63,6 +63,12 @@ def test_project_mode_runtime_verifier_passes_against_ea_core_surface() -> None:
     assert verify_runtime() == 0
 
 
+def test_project_mode_runtime_verifier_passes_against_memorial_surface() -> None:
+    from scripts.verify_project_mode_runtime import main as verify_runtime
+
+    assert verify_runtime(["--mode", "memorial"]) == 0
+
+
 def test_plain_deploy_target_is_fail_closed() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
@@ -131,7 +137,17 @@ def test_ea_public_pages_do_not_fall_back_to_propertyquarry_brand_copy() -> None
     assert "live assistant path" not in whatsapp.text
 
 
-def test_ea_public_home_is_indexable_and_contains_growth_metadata() -> None:
+def test_google_connected_template_uses_configured_propertyquarry_register_url() -> None:
+    template = (ROOT / "ea/app/templates/google_connected.html").read_text(encoding="utf-8")
+
+    assert "propertyquarry_register_ready_url" in template
+    assert "https://propertyquarry.com/register?ready=1" not in template
+
+
+def test_ea_public_home_is_indexable_and_contains_growth_metadata(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com")
     client = build_product_client(principal_id="exec-public-growth")
 
     response = client.get("/", headers={"host": "myexternalbrain.com", "x-forwarded-host": "myexternalbrain.com", "x-forwarded-proto": "https"})
@@ -146,7 +162,10 @@ def test_ea_public_home_is_indexable_and_contains_growth_metadata() -> None:
     assert "What shows up first each morning?" in response.text
 
 
-def test_public_robots_txt_allows_public_pages_and_blocks_private_surfaces() -> None:
+def test_public_robots_txt_allows_public_pages_and_blocks_private_surfaces(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com")
     client = build_product_client(principal_id="exec-public-robots")
 
     response = client.get("/robots.txt", headers={"host": "myexternalbrain.com", "x-forwarded-host": "myexternalbrain.com", "x-forwarded-proto": "https"})

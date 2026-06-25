@@ -1124,6 +1124,9 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert "Release authority" in trust_page.text
     assert "Authority posture" in trust_page.text
     assert "Release next action" in trust_page.text
+    assert "Runtime supply chain" in trust_page.text
+    assert "Supply-chain state" in trust_page.text
+    assert "Supply-chain next action" in trust_page.text
     assert "Release label" in trust_page.text
     assert "Tracking branch" in trust_page.text
     assert "Release branch" in trust_page.text

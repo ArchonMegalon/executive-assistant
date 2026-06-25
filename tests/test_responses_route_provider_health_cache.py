@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import marshal
 import time
 import types
@@ -22,6 +23,27 @@ def test_cached_provider_health_snapshot_uses_disk_backing(monkeypatch, tmp_path
     assert cached == payload
     assert age_seconds is not None
     assert age_seconds >= 0.0
+
+
+def test_invalidate_provider_health_snapshot_cache_removes_disk_backing(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("EA_PROVIDER_HEALTH_CACHE_DIR", str(tmp_path))
+    from app.api.routes import responses as responses_route
+
+    payload = {"providers": {"onemin": {"state": "ready", "configured_slots": 3}}}
+    responses_route.remember_provider_health_snapshot_cache(lightweight=True, payload=payload)
+    responses_route.remember_provider_health_snapshot_cache(lightweight=False, payload=payload)
+
+    lightweight_path = responses_route._provider_health_cache_file(lightweight=True)
+    full_path = responses_route._provider_health_cache_file(lightweight=False)
+    assert lightweight_path.exists()
+    assert full_path.exists()
+
+    responses_route.invalidate_provider_health_snapshot_cache(lightweight=True)
+    assert not lightweight_path.exists()
+    assert full_path.exists()
+
+    responses_route.invalidate_provider_health_snapshot_cache(lightweight=None)
+    assert not full_path.exists()
 
 
 def test_provider_health_snapshot_async_uses_disk_cache_when_refresh_in_flight(monkeypatch, tmp_path) -> None:
@@ -229,6 +251,41 @@ def test_provider_health_env_signature_ignores_runtime_timeout_knobs(monkeypatch
     monkeypatch.setenv("EA_PROVIDER_HEALTH_ROUTE_TIMEOUT_SECONDS", "21")
 
     assert responses_route._provider_health_env_signature() == original_signature
+
+
+def test_onemin_manifest_slot_names_assign_secret_only_generic_pool(monkeypatch) -> None:
+    from app.api.routes import responses as responses_route
+
+    monkeypatch.setenv(
+        "ONEMIN_DIRECT_API_KEYS_JSON",
+        json.dumps({"accounts": [{"key": f"secret-{index}"} for index in range(1, 7)]}),
+    )
+
+    assert responses_route._onemin_manifest_slot_names() == [
+        "ONEMIN_AI_API_KEY_FALLBACK_1",
+        "ONEMIN_AI_API_KEY_FALLBACK_2",
+        "ONEMIN_AI_API_KEY_FALLBACK_3",
+        "ONEMIN_AI_API_KEY_FALLBACK_4",
+        "ONEMIN_AI_API_KEY_FALLBACK_5",
+        "ONEMIN_AI_API_KEY_FALLBACK_6",
+    ]
+
+
+def test_provider_health_env_signature_tracks_onemin_manifest_rotation(monkeypatch) -> None:
+    from app.api.routes import responses as responses_route
+
+    monkeypatch.setenv(
+        "ONEMIN_DIRECT_API_KEYS_JSON",
+        json.dumps({"accounts": [{"key": f"secret-{index}"} for index in range(1, 7)]}),
+    )
+    first_signature = responses_route._provider_health_env_signature()
+
+    monkeypatch.setenv(
+        "ONEMIN_DIRECT_API_KEYS_JSON",
+        json.dumps({"accounts": [{"key": f"secret-{index}"} for index in range(1, 8)]}),
+    )
+
+    assert responses_route._provider_health_env_signature() != first_signature
 
 
 def test_provider_capacity_summary_preserves_live_ready_slot_count_and_state_counts() -> None:

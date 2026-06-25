@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+import json
+
 from app.services import memorial_video_meeting
+from app.services.hedy_meeting_evidence import hedy_webhook_signature
 
 
 def test_public_video_meeting_payload_defaults_to_fallback(monkeypatch) -> None:
@@ -10,10 +14,9 @@ def test_public_video_meeting_payload_defaults_to_fallback(monkeypatch) -> None:
     assert payload["integration_state"] == "fallback_only"
     assert payload["provider_key"] == ""
     assert payload["next_action"] == "fallback_to_portrait_voice"
-    assert payload["contract_name"] == memorial_video_meeting.CONTRACT_NAME
-    assert payload["provider_truth_allowed"] is False
-    assert payload["gold_claim_allowed"] is False
-    assert payload["provider_session_creation_allowed"] is False
+    assert payload["provider_label"] == ""
+    assert payload["fallback_mode"] == "portrait_voice"
+    assert payload["session_endpoint"] == "/memorials/manfred/video-meeting/session"
 
 
 def test_public_video_meeting_payload_marks_tavus_live_ready_when_fully_configured(monkeypatch) -> None:
@@ -27,11 +30,9 @@ def test_public_video_meeting_payload_marks_tavus_live_ready_when_fully_configur
     assert payload["integration_state"] == "provider_live_session_ready"
     assert payload["provider_key"] == "tavus"
     assert payload["next_action"] == "create_provider_session"
-    assert payload["provider_contract_only"] is True
-    assert payload["provider_session_creation_allowed"] is True
-    assert payload["live_provider_runtime_verified"] is False
-    assert payload["gold_claim_allowed"] is False
-    assert "tavus_provider_session_create_receipt" in payload["required_next_receipts"]
+    assert payload["provider_label"] == "Tavus"
+    assert payload["recommended_provider"] == "tavus"
+    assert payload["secondary_provider"] == "did"
 
 
 def test_create_video_meeting_session_returns_fallback_when_not_live_ready(monkeypatch) -> None:
@@ -48,10 +49,9 @@ def test_create_video_meeting_session_returns_fallback_when_not_live_ready(monke
     assert payload["integration_state"] == "provider_configured_contract_only"
     assert payload["provider_key"] == "did"
     assert payload["next_action"] == "provider_client_sdk_not_implemented"
-    assert payload["provider_contract_only"] is True
-    assert payload["provider_session_creation_allowed"] is False
-    assert payload["provider_truth_allowed"] is False
-    assert "did_client_sdk_integration_receipt" in payload["required_next_receipts"]
+    assert payload["provider_label"] == "D-ID"
+    assert payload["client"]["camera_requested"] is True
+    assert payload["client"]["personal_memory_enabled"] is False
 
 
 def test_create_video_meeting_session_uses_tavus_when_live_ready(monkeypatch) -> None:
@@ -102,10 +102,8 @@ def test_create_video_meeting_session_uses_tavus_when_live_ready(monkeypatch) ->
     assert payload["provider_key"] == "tavus"
     assert payload["next_action"] == "join_provider_session"
     assert payload["provider_session"]["conversation_url"] == "https://tavus.daily.co/c123"
-    assert payload["provider_session_created"] is True
-    assert payload["live_provider_runtime_verified"] is False
-    assert payload["gold_claim_allowed"] is False
-    assert "tavus_provider_session_create_receipt" not in payload["required_next_receipts"]
+    assert payload["provider_session"]["meeting_token"] == "jwt"
+    assert payload["provider_session"]["callback_url"] == "https://example.test/callback"
 
 
 def test_sanitize_provider_callback_strips_tavus_payload_to_summary() -> None:
@@ -136,3 +134,30 @@ def test_sanitize_provider_callback_strips_tavus_payload_to_summary() -> None:
         "replica_id": "replica-123",
         "participant_count": 2,
     }
+
+
+def test_public_memorial_video_meeting_callback_uses_timestamped_hmac_contract(monkeypatch) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setenv("EA_MEMORIAL_VIDEO_MEETING_WEBHOOK_SECRET", "callback-secret")
+    monkeypatch.setenv("EA_MEMORIAL_VIDEO_MEETING_WEBHOOK_TOLERANCE_SECONDS", "300")
+    body = json.dumps({"conversation_id": "conv-123"}, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    timestamp = str(int(datetime.now(timezone.utc).timestamp()))
+
+    class _Headers(dict):
+        def get(self, key, default=None):
+            return super().get(key, default)
+
+    class _Request:
+        headers = _Headers(
+            {
+                "x-tavus-timestamp": timestamp,
+                "x-tavus-signature": hedy_webhook_signature(body, "callback-secret", timestamp=timestamp),
+            }
+        )
+
+    public_memorials._verify_public_memorial_video_meeting_callback(
+        request=_Request(),
+        provider_key="tavus",
+        body=body,
+    )

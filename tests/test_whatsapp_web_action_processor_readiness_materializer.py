@@ -97,6 +97,11 @@ def test_materialize_whatsapp_web_action_processor_readiness_writes_ready_receip
     assert receipt["runtime_ready_claim_allowed"] is True
     assert receipt["live_delivery_claim_allowed"] is False
     assert receipt["next_action"] == "send_epub_over_whatsapp_to_start_or_refresh_live_audiobook_flow"
+    assert (
+        "Ready runtime means WhatsApp can process both button callbacks and degraded text controls for audiobook voice "
+        "selection when the upstream transport preserves those messages."
+        in receipt["rules"]
+    )
     persisted = json.loads(args.output.read_text(encoding="utf-8"))
     assert persisted["status"] == "ready"
     assert "secret-value" not in json.dumps(receipt, sort_keys=True)

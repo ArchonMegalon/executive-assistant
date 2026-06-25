@@ -65,6 +65,7 @@ from app.api.routes.product_api_contracts import (
 from app.container import AppContainer
 from app.product.service import build_product_service
 from app.services.google_oauth import browser_google_oauth_redirect_uri
+from app.services.public_request import public_base_url
 from app.services.property_billing import (
     capture_paypal_property_order,
     create_payfunnels_property_checkout,
@@ -113,26 +114,16 @@ def _payfunnels_field_value(payload: dict[str, object], label: str) -> str:
 
 
 def _public_base_url(request: Request) -> str:
-    forwarded_host = str(request.headers.get("x-forwarded-host") or "").strip().lower().rstrip(".")
-    request_host = str(request.url.hostname or "").strip().lower().rstrip(".")
-    effective_host = forwarded_host or request_host
-    if effective_host in {"propertyquarry.com", "www.propertyquarry.com"}:
-        explicit_property = (
-            str(os.environ.get("PROPERTYQUARRY_PUBLIC_BASE_URL") or "").strip().rstrip("/")
-            or str(os.environ.get("EA_PROPERTY_PUBLIC_BASE_URL") or "").strip().rstrip("/")
-        )
-        if explicit_property:
-            return explicit_property
-        return f"https://{effective_host}"
-    explicit = str(os.environ.get("EA_PUBLIC_APP_BASE_URL") or "").strip().rstrip("/")
-    if explicit:
-        return explicit
-    redirect_uri = str(os.environ.get("EA_GOOGLE_OAUTH_REDIRECT_URI") or "").strip()
-    if redirect_uri:
-        parsed = urlparse(redirect_uri)
-        if parsed.scheme and parsed.netloc:
-            return f"{parsed.scheme}://{parsed.netloc}"
-    return str(request.base_url).rstrip("/")
+    explicit_property = (
+        str(os.environ.get("PROPERTYQUARRY_PUBLIC_BASE_URL") or "").strip().rstrip("/")
+        or str(os.environ.get("EA_PROPERTY_PUBLIC_BASE_URL") or "").strip().rstrip("/")
+    )
+    return public_base_url(
+        request,
+        explicit_base_url=str(os.environ.get("EA_PUBLIC_APP_BASE_URL") or ""),
+        redirect_uri=str(os.environ.get("EA_GOOGLE_OAUTH_REDIRECT_URI") or ""),
+        property_base_url=explicit_property,
+    )
 
 
 def _property_preferences(container: AppContainer, *, principal_id: str) -> dict[str, object]:

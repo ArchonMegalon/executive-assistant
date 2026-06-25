@@ -168,3 +168,33 @@ def test_unauthenticated_api_calls_still_return_json_auth_error() -> None:
     response = client.get("/app/api/brief", headers={"accept": "application/json"})
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "auth_required"
+
+
+def test_browser_setup_does_not_expose_or_accept_principal_override() -> None:
+    os.environ["EA_STORAGE_BACKEND"] = "memory"
+    os.environ.pop("EA_LEDGER_BACKEND", None)
+    os.environ["EA_API_TOKEN"] = ""
+    os.environ["EA_DEFAULT_PRINCIPAL_ID"] = "browser-default"
+    from app.api.app import create_app
+
+    client = TestClient(create_app(), base_url="https://propertyquarry.com")
+
+    setup = client.get("/get-started")
+    assert setup.status_code == 200
+    assert "Workspace ID (advanced)" not in setup.text
+    assert "Switching workspaces from the browser is disabled here." not in setup.text
+
+    override = client.post(
+        "/setup/start",
+        data={
+            "principal_id": "spoofed-browser-principal",
+            "workspace_name": "Spoofed Workspace",
+            "workspace_mode": "personal",
+            "region": "AT",
+            "language": "en",
+            "timezone": "Europe/Vienna",
+            "selected_channels": "google",
+        },
+        follow_redirects=False,
+    )
+    assert override.status_code == 403

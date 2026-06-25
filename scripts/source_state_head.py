@@ -7,8 +7,10 @@ from pathlib import Path
 
 
 GENERATED_ONLY_PREFIXES = (
+    ".runtime/",
     ".codex-design/product/",
     ".codex-studio/published/",
+    "ea/.runtime/",
     "scripts/verify_",
     "tests/",
 )

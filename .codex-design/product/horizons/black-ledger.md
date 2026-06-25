@@ -153,6 +153,175 @@ The GM decides.
 
 ---
 
+## Living Market effects
+
+Some Black Ledger missions can change what an opted-in table can buy, who can supply it, and how much pressure surrounds the transaction. This is the first place where the living world touches the character builder.
+
+The boundary is strict:
+
+```text
+Black Ledger may create campaign overlays.
+Black Ledger must not mutate core rules.
+```
+
+A Living Market effect is always:
+
+* campaign-scoped
+* GM-approved
+* visible to the affected table
+* reversible
+* expiring
+* backed by a mission result
+
+The player should never wonder whether Chummer silently rewrote the game. If a price, availability, contact hook, or warning changed because of the living world, the UI says so in plain language.
+
+Example:
+
+```text
+Rust Market supply: -10%
+Applies to: selected street gear and common black-market weapons
+Source: The table established a smuggling lane in Touristville
+Approved by: GM
+Expires after: 3 sessions
+```
+
+Hover or details text should explain:
+
+```text
+Campaign effect. Your GM approved this Black Ledger consequence for this table. Turn it off from Campaign Effects to see the base Chummer value.
+```
+
+### Mission types
+
+Black Ledger may offer market-shaping missions such as:
+
+* establish a black-market route
+* root out an opposing faction's supplier
+* protect a supplier
+* burn a supplier
+* steal inventory
+* expose counterfeit goods
+* secure a street clinic
+* secure a talismonger
+* secure a rigger yard
+
+The mission is not a shopping coupon. It is a world action that creates a limited campaign consequence.
+
+### Effect contract
+
+```yaml
+LivingMarketEffect:
+  effect_id: lme-rust-market-touristville-0001
+  campaign_id: campaign-uuid
+  world_id: black-ledger-seattle
+  faction_id: rust-market-syndicate
+  district_id: touristville
+  source_mission_id: mission-uuid
+  status: proposed | active | expired | revoked
+  visibility: gm_only | table_visible | player_visible
+  gm_approved: true
+  ruleset_scope:
+    editions:
+      - sr4
+      - sr5
+      - sr6
+    applies_to:
+      - gear
+      - weapons
+    excludes:
+      - forbidden_by_table_policy
+      - unique_artifacts
+      - sourcebook_locked_items
+  effect:
+    type: price_modifier | availability_modifier | supplier_access | contact_hook | warning
+    value_percent: -10
+    label: Rust Market supply
+    explanation: The table opened a temporary smuggling lane through Touristville.
+  duration:
+    starts_at_session: 12
+    expires_after_sessions: 3
+  audit:
+    created_from: black_ledger_mission_result
+    approved_by_gm_at: 2026-06-23T00:00:00Z
+    reversible: true
+```
+
+### Rules-safe anchors
+
+Living Market effects should use concepts Shadowrun players already understand:
+
+* black-market access
+* contacts and loyalty
+* availability pressure
+* legality pressure
+* addiction or dependency obligations
+* SIN, license, and record pressure
+* awakened services and reagent supply
+* ware clinics
+* vehicle, drone, and rigger-yard access
+
+The system may suggest narrative consequences around qualities, addiction, legality, ware, or magic. It must not silently add a quality, change an attribute, grant illegal access, or rewrite a character. If a consequence would affect the sheet, it becomes a GM proposal or a player-facing choice.
+
+### Faction specialization
+
+```yaml
+Rust Market Syndicate:
+  market: black-market gear, weapons, debt, recovery jobs
+
+Neon Docks Union:
+  market: vehicles, drones, cargo routes, smuggling lanes
+
+Glass Tower Compact:
+  market: licenses, permits, legal procurement, corporate cover
+
+Ghostline Network:
+  market: intel, false supply warnings, counterfeit detection
+
+Ashline Circle:
+  market: reagents, foci, awakened services, strange suppliers
+
+Barrens Free Wardens:
+  market: clinics, survival gear, community supply, recovery networks
+```
+
+### Hard boundaries
+
+Allowed:
+
+* temporary price modifier
+* temporary availability modifier
+* temporary supplier access
+* one-time reward pool
+* contact hook
+* warning or risk flag
+* faction reputation tag
+* GM note
+
+Forbidden:
+
+* silent character mutation
+* automatic quality grant
+* automatic addiction grant
+* automatic legality override
+* global price rewrite
+* sourcebook rule reinterpretation
+* private campaign leak
+* effect without a GM approval trail
+
+### Exit gate
+
+Living Market is not ready for public use until:
+
+* campaign opt-in exists
+* each effect has a source mission result
+* the GM can approve, revoke, and expire effects
+* the player can see why a value changed
+* disabling campaign effects restores base Chummer math
+* add dialogs show matching market effects without hiding base values
+* tests cover matching category, nonmatching category, expiry, revoke, and no silent sheet mutation
+
+---
+
 ## Open Runs and the Open Runs Board
 
 A GM can turn a mission into an **Open Run**.

@@ -36,6 +36,39 @@ def _smoke_runtime_text() -> str:
     return "\n".join(parts)
 
 
+def test_memorial_gold_admin_template_surfaces_source_cleanup_verifier() -> None:
+    template = (ROOT / "ea/app/templates/admin_memorial_gold.html").read_text(encoding="utf-8")
+
+    assert "Source Cleanup" in template
+    assert "{% set source_cleanup = operator_status.source_cleanup or {} %}" in template
+    assert "{% set source_dirty_verifier = operator_status.source_dirty_verifier or {} %}" in template
+    assert "source_cleanup.status" in template
+    assert "source_cleanup.verifier_status" in template
+    assert "source_cleanup.top_categories" in template
+    assert "source_cleanup.handoff_commands" in template
+    assert "source_cleanup.next_command" in template
+    assert "source_dirty_verifier.status" in template
+    assert "source_dirty_verifier.issues" in template
+    assert "operator_status.source_dirty_count" in template
+    assert "The compact source_cleanup contract proves the dirty-source categories and verifier state are safe to use for handoff." in template
+    assert "operator_status.room_audio_attestation_packet.receipt_command_template" in template
+    assert "operator_status.room_audio_attestation_packet.operator_steps" in template
+    assert "operator_status.room_audio_receipt_detail.missing_input_hints" in template
+
+
+def _default_assignment_value(script_text: str, variable_name: str) -> str:
+    patterns = (
+        re.compile(rf'{re.escape(variable_name)}="\$\{{{re.escape(variable_name)}:-([^}}]+)\}}"'),
+        re.compile(rf'local\s+\w+="\$\{{{re.escape(variable_name)}:-([^}}]+)\}}"'),
+        re.compile(rf'{re.escape(variable_name)}="([^"]+)"'),
+    )
+    for pattern in patterns:
+        match = pattern.search(script_text)
+        if match is not None:
+            return match.group(1)
+    raise AssertionError(f"Missing default assignment for {variable_name}")
+
+
 def test_db_size_help_explains_pgdata_volume() -> None:
     result = subprocess.run(
         ["bash", "scripts/db_size.sh", "--help"],
@@ -68,9 +101,18 @@ def test_operator_summary_lists_ltd_release_gates() -> None:
     assert "ltd gates:         make ltd-release-gates" in operator_summary
     assert "ltd critical:      make verify-ltd-critical-entries" in operator_summary
     assert "ltd flagship:      make verify-ltd-flagship-subset" in operator_summary
+    assert "release manifest:  make materialize-release-manifest" in operator_summary
+    assert "release bundle:    make materialize-release-assets" in operator_summary
     assert "memorial status:   make materialize-memorial-operator-status" in operator_summary
+    assert "source groups:     make inspect-source-dirty-groups" in operator_summary
+    assert "source verify:     make verify-source-dirty-groups" in operator_summary
+    assert "source categories: scripts/inspect_source_dirty_groups.py --list-categories" in operator_summary
+    assert "memorial ready:    make verify-memorial-deploy-readiness" in operator_summary
+    assert "memorial runtime:  make verify-memorial-runtime-overlay" in operator_summary
+    assert "memorial surface:  make verify-project-mode-runtime-memorial" in operator_summary
     assert "phrase bank:       make materialize-memorial-phrase-bank" in operator_summary
     assert "room gold clean:   make materialize-memorial-room-audio-gold-clean" in operator_summary
+    assert "deploy memorial:   make deploy-ea-memorial" in operator_summary
     assert "ea quality:        make verify-executive-assistant-quality-readiness" in operator_summary
     assert "signal packet:     make verify-whole-project-signal-to-decision-receipt" in operator_summary
     assert "scope audit:       make verify-whole-project-scope-gap-audit" in operator_summary
@@ -82,7 +124,15 @@ def test_operator_summary_lists_ltd_release_gates() -> None:
     assert "wa audio bundle:   make verify-whatsapp-audiobook-operator-proof-bundle" in operator_summary
     assert "wa audiobook live: make verify-whatsapp-audiobook-live-delivery-receipt" in operator_summary
     assert "wa share play:     make verify-whatsapp-audiobook-public-share-playback" in operator_summary
+    assert "runtime supply:    make verify-runtime-supply-chain" in operator_summary
     assert "release auth:      make verify-release-authority" in operator_summary
+    assert "release runtime:   make verify-release-authority-runtime" in operator_summary
+    assert "release ready:     make verify-release-authority-runtime-authoritative" in operator_summary
+    assert "deploy context:    make materialize-deploy-context" in operator_summary
+    assert "deploy verify:     make verify-deploy-context" in operator_summary
+    assert "release probe:     make release-authority-probe" in operator_summary
+    assert "codexea parity:    make verify-codexea-fleet-shim-parity" in operator_summary
+    assert "codexea e2e:       make verify-codexea-e2e-exit-gate" in operator_summary
     assert "goal posture:      make verify-continuous-improvement-goal-posture" in operator_summary
     assert "tg video proof:    make materialize-telegram-video-delivery-receipts" in operator_summary
     assert "tg live verify:    make verify-telegram-video-delivery-live-receipt" in operator_summary
@@ -92,6 +142,74 @@ def test_operator_summary_lists_ltd_release_gates() -> None:
     assert "deliver:" in operator_summary
     assert "recover:" in operator_summary
     assert "prove:" in operator_summary
+    assert "-- release authority --" in operator_summary
+    assert "release posture:" in operator_summary
+    assert "release issues:" in operator_summary
+    assert "-- codexea runtime --" in operator_summary
+    assert "launcher parity:" in operator_summary
+    assert "status command:" in operator_summary
+    assert "throttle pressure:" in operator_summary
+    assert "parallel pressure:" in operator_summary
+    assert "latency envelope:" in operator_summary
+    assert "fast lane route:" in operator_summary
+    assert "codexea next:" in operator_summary
+    assert "deployment id:" in operator_summary
+    assert "public origin:" in operator_summary
+    assert "source worktree:" in operator_summary
+    assert "source dirty:" in operator_summary
+    assert "source groups:" in operator_summary
+    assert "source categories:" in operator_summary
+    assert "source hint:" in operator_summary
+    assert "public runtime:" in operator_summary
+    assert "public access:" in operator_summary
+    assert "surface contract:" in operator_summary
+    assert "room packet:" in operator_summary
+    assert "room command:" in operator_summary
+    assert "room missing:" in operator_summary
+    assert "next action:" in operator_summary
+    assert "next command:" in operator_summary
+    assert "blocker commands:" in operator_summary
+    assert "export EA_ROOT" in operator_summary
+    assert 'Path(os.environ["EA_ROOT"])' in operator_summary
+
+
+def test_codex_provider_lane_order_policy_is_documented() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+
+    for text in (readme, runbook):
+        assert "EA_RESPONSES_PROVIDER_ORDER" in text
+        assert "EA_RESPONSES_CHEAP_PROVIDER_ORDER" in text
+        assert "EA_RESPONSES_HARD_PROVIDER_ORDER" in text
+        assert "fast/cheap" in text
+        assert "1min" in text
+        assert "magicx" in text
+
+
+def test_fleet_codexea_launcher_keeps_critical_defaults_in_sync_with_repo_source() -> None:
+    repo_source = (ROOT / "scripts" / "codexea").read_text(encoding="utf-8")
+    fleet_shim = (FLEET_ROOT / "scripts" / "codex-shims" / "codexea").read_text(encoding="utf-8")
+
+    critical_defaults = (
+        "CODEXEA_STARTUP_STATUS_CACHE_TTL_SECONDS",
+        "CODEXEA_STATUS_CONNECT_TIMEOUT_SECONDS",
+        "CODEXEA_STATUS_MAX_TIME_SECONDS",
+    )
+
+    for variable_name in critical_defaults:
+        assert _default_assignment_value(fleet_shim, variable_name) == _default_assignment_value(
+            repo_source, variable_name
+        ), f"Fleet CodexEA shim drifted from repo source for {variable_name}"
+
+    assert _default_assignment_value(fleet_shim, "CODEXEA_PROCESS_NICE") == _default_assignment_value(
+        repo_source, "CODEXEA_NICE"
+    ), "Fleet CodexEA shim drifted from repo source for the startup niceness default"
+    assert ("show_status --startup --refresh || true" in fleet_shim) == (
+        "show_status --startup --refresh || true" in repo_source
+    ), "Fleet CodexEA shim drifted from repo source for the startup refresh path"
+    assert ("show_status --startup || true" in fleet_shim) == (
+        "show_status --startup || true" in repo_source
+    ), "Fleet CodexEA shim drifted from repo source for the startup cached path"
 
 
 def test_makefile_exposes_telegram_audiobook_live_delivery_receipt_targets() -> None:
@@ -107,6 +225,7 @@ def test_makefile_exposes_telegram_audiobook_live_delivery_receipt_targets() -> 
     assert "materialize-whatsapp-audiobook-local-intake-proof:" in makefile
     assert "ea/scripts/materialize_whatsapp_audiobook_local_intake_proof.py" in makefile
     assert "verify-whatsapp-audiobook-local-intake-proof:" in makefile
+    assert "ea/scripts/verify_whatsapp_audiobook_local_intake_proof.py" in makefile
     assert "materialize-whatsapp-web-action-processor-readiness:" in makefile
     assert "scripts/materialize_whatsapp_web_action_processor_readiness.py" in makefile
     assert "verify-whatsapp-web-action-processor-readiness:" in makefile
@@ -180,9 +299,19 @@ def test_operator_overlays_use_docker_host_proxy_contract() -> None:
     assert "tecnativa/docker-socket-proxy:0.3.0" in host_tools
     assert "DOCKER_HOST=tcp://ea-docker-socket-proxy:2375" in host_tools
     assert "/var/run/docker.sock:/var/run/docker.sock:ro" in host_tools
+    assert "/docker:/docker:ro" in host_tools
+    assert 'user: "0:0"' not in host_tools
+    assert "no-new-privileges:true" in host_tools
+    assert "read_only: true" in host_tools
+    assert "pids_limit: 512" in host_tools
+    assert "mem_limit: 2g" in host_tools
     assert "tecnativa/docker-socket-proxy:0.3.0" in fastestvpn
     assert "DOCKER_HOST=tcp://ea-docker-socket-proxy:2375" in fastestvpn
     assert "/var/run/docker.sock:/var/run/docker.sock:ro" in fastestvpn
+    assert "no-new-privileges:true" in fastestvpn
+    assert "read_only: true" in fastestvpn
+    assert "pids_limit: 512" in fastestvpn
+    assert "mem_limit: 2g" in fastestvpn
 
 
 def test_docs_describe_operator_socket_proxy_boundary() -> None:
@@ -191,12 +320,81 @@ def test_docs_describe_operator_socket_proxy_boundary() -> None:
 
     assert "ea-docker-socket-proxy" in readme
     assert "DOCKER_HOST=tcp://ea-docker-socket-proxy:2375" in readme
+    assert "constrains the sidecar itself with dropped capabilities" in readme
+    assert "runs the operator image as its default non-root user" in readme
+    assert "mounted read-only only on the operator image/profile" in readme
+    assert "drops all ambient Linux capabilities" in readme
+    assert "no-new-privileges" in readme
+    assert "bounded memory/PID limits" in readme
     assert "docker-compose.fastestvpn.yml" in readme
     assert "without rebuilding the EA runtime" in readme
 
     assert "ea-docker-socket-proxy" in runbook
+    assert "constrains that sidecar with dropped capabilities" in runbook
+    assert "default non-root user" in runbook
+    assert "drops all ambient Linux capabilities" in runbook
+    assert "read-only rootfs" in runbook
+    assert "bounded memory/PID limits" in runbook
     assert "docker-compose.fastestvpn.yml" in runbook
     assert "--no-build --force-recreate --no-deps" in runbook
+
+
+def test_docs_describe_release_authority_runtime_verifier() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    smoke_help = (ROOT / "scripts/smoke_help.sh").read_text(encoding="utf-8")
+
+    assert "make verify-release-authority-runtime" in readme
+    assert "make verify-release-authority-runtime-authoritative" in readme
+    assert "/health/release-authority" in readme
+    assert "make materialize-deploy-context" in readme
+    assert "make materialize-release-manifest" in readme
+    assert "make verify-deploy-context" in readme
+    assert "make verify-release-authority-runtime" in runbook
+    assert "make verify-release-authority-runtime-authoritative" in runbook
+    assert "make materialize-deploy-context" in runbook
+    assert "make materialize-release-manifest" in runbook
+    assert "make verify-deploy-context" in runbook
+    assert "EA_API_TOKEN" in readme
+    assert "EA_SIGNING_SECRET" in readme
+    assert "EA_CF_ACCESS_TEAM_DOMAIN" in readme
+    assert "EA_CF_ACCESS_AUD" in readme
+    assert "EA_API_TOKEN" in runbook
+    assert "EA_SIGNING_SECRET" in runbook
+
+
+def test_docs_describe_memorial_runtime_overlay_verifier() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+
+    assert "deploy-ea-memorial:" in makefile
+    assert "verify-memorial-deploy-readiness:" in makefile
+    assert "scripts/verify_memorial_deploy_readiness.py --pretty" in makefile
+    assert "EA_DEPLOY_PRIMARY_MODE=MEMORIAL" in makefile
+    assert "docker-compose.memorial.yml" in makefile
+    assert "make deploy-ea-memorial" in readme
+    assert "make verify-memorial-deploy-readiness" in readme
+    assert "verify-memorial-runtime-overlay:" in makefile
+    assert "scripts/verify_memorial_runtime_overlay.py --pretty" in makefile
+    assert "memorial-gold-gates:" in makefile
+    assert "$(MAKE) verify-memorial-runtime-overlay" in makefile
+    assert "make verify-memorial-runtime-overlay" in readme
+    assert "/health/live" in readme
+    assert "make deploy-ea-memorial" in runbook
+    assert "make verify-memorial-deploy-readiness" in runbook
+    assert "memorial runtime overlay" in runbook
+    assert "make verify-memorial-runtime-overlay" in runbook
+    assert "EA_CF_ACCESS_TEAM_DOMAIN" in runbook
+    assert "EA_CF_ACCESS_AUD" in runbook
+
+
+def test_help_smoke_includes_deploy_context_materializer() -> None:
+    smoke_help = (ROOT / "scripts" / "smoke_help.sh").read_text(encoding="utf-8")
+
+    assert "scripts/materialize_deploy_context.py" in smoke_help
+    assert "scripts/materialize_release_manifest.py" in smoke_help
+    assert "scripts/verify_codexea_fleet_shim_parity.py" in smoke_help
 
 
 def test_local_env_rotation_slots_and_gitignore_cover_browseract_and_onemin_keys() -> None:
@@ -206,6 +404,8 @@ def test_local_env_rotation_slots_and_gitignore_cover_browseract_and_onemin_keys
 
     assert ".env" in gitignore
     assert ".env.*" in gitignore
+    assert ".runtime/" in gitignore
+    assert "ea/.runtime/" in gitignore
     assert "BROWSERACT_API_KEY" in env_example
     assert "BROWSERACT_API_KEY_FALLBACK_1" in env_example
     assert "BROWSERACT_API_KEY_FALLBACK_2" in env_example
@@ -266,6 +466,62 @@ def test_local_env_rotation_slots_and_gitignore_cover_browseract_and_onemin_keys
     assert "EA_RESPONSES_ONEMIN_PROBE_TIMEOUT_SECONDS" in env_local_example
     assert (ROOT / "scripts/resolve_onemin_ai_key.sh").exists()
     assert (ROOT / "scripts/resolve_browseract_key.sh").exists()
+
+
+def test_resolve_onemin_ai_key_supports_generic_indexed_accounts(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "\n".join(f"EA_RESPONSES_ONEMIN_API_KEY_{index}=key-{index}" for index in range(1, 7)) + "\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        ["bash", str(ROOT / "scripts/resolve_onemin_ai_key.sh"), "--all"],
+        check=True,
+        capture_output=True,
+        env={"PATH": os.environ.get("PATH", ""), "EA_ENV_FILE": str(env_file)},
+        text=True,
+    )
+
+    assert result.stdout.splitlines() == [f"key-{index}" for index in range(1, 7)]
+
+
+def test_resolve_onemin_ai_key_next_supports_generic_indexed_accounts(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "\n".join(f"EA_RESPONSES_ONEMIN_API_KEY_{index}=key-{index}" for index in range(1, 7)) + "\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        ["bash", str(ROOT / "scripts/resolve_onemin_ai_key.sh"), "--next", "key-5"],
+        check=True,
+        capture_output=True,
+        env={"PATH": os.environ.get("PATH", ""), "EA_ENV_FILE": str(env_file)},
+        text=True,
+    )
+
+    assert result.stdout.strip() == "key-6"
+
+
+def test_resolve_onemin_ai_key_keeps_indexed_slot_one_when_primary_is_set(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "ONEMIN_AI_API_KEY=primary-key\n"
+        + "\n".join(f"EA_RESPONSES_ONEMIN_API_KEY_{index}=key-{index}" for index in range(1, 7))
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        ["bash", str(ROOT / "scripts/resolve_onemin_ai_key.sh"), "--all"],
+        check=True,
+        capture_output=True,
+        env={"PATH": os.environ.get("PATH", ""), "EA_ENV_FILE": str(env_file)},
+        text=True,
+    )
+
+    assert result.stdout.splitlines() == ["primary-key", *[f"key-{index}" for index in range(1, 7)]]
 
 
 def test_responses_provider_health_credit_debug_contract_is_documented() -> None:
@@ -467,12 +723,29 @@ def test_cloudflared_tunnel_is_only_available_via_override() -> None:
     tunnel_override = (ROOT / "docker-compose.cloudflared.yml").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     environment_matrix = (ROOT / "ENVIRONMENT_MATRIX.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
 
     assert "ea-cloudflared" not in base_compose
     assert "ea-cloudflared" in tunnel_override
     assert "TUNNEL_TOKEN=${EA_CF_TUNNEL_TOKEN}" in tunnel_override
     assert "docker-compose.cloudflared.yml" in readme
+    assert "digest-pinned and constrained with dropped capabilities" in readme
+    assert "loopback-only (`127.0.0.1:*`)" in readme
+    assert "ea-cloudflared` digest-pinned and constrained with dropped capabilities" in runbook
+    assert "docker-compose.prod.yml` does not widen those bindings" in runbook
     assert "EA_CF_TUNNEL_TOKEN" in environment_matrix
+
+
+def test_property_stack_docs_describe_loopback_and_runtime_limits() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+
+    assert "docker-compose.property.yml` follows the same default host posture" in readme
+    assert "loopback-only" in readme
+    assert "dropped capabilities, `no-new-privileges`, and bounded memory/PID limits" in readme
+    assert "`docker-compose.property.yml` now follows that same default posture" in runbook
+    assert "property API bind stays on `127.0.0.1`" in runbook
+    assert "dropped capabilities, `no-new-privileges`, and bounded memory/PID limits" in runbook
 
 
 def test_deploy_script_waits_for_worker_topology_and_dumps_role_logs() -> None:
@@ -495,6 +768,12 @@ def test_deploy_script_waits_for_worker_topology_and_dumps_role_logs() -> None:
     assert 'Refusing to deploy from a dirty git worktree.' in deploy
     assert 'allow_dirty_worktree="${PROPERTYQUARRY_DEPLOY_ALLOW_DIRTY_WORKTREE:-${EA_DEPLOY_ALLOW_DIRTY_WORKTREE:-0}}"' in deploy
     assert 'export EA_DEPLOYMENT_ID="deploy-$(date -u +%Y%m%dT%H%M%SZ)-${deploy_commit_fragment}"' in deploy
+    assert 'export EA_DEPLOYMENT_ID_SOURCE="deploy_script_generated"' in deploy
+    assert 'export EA_DEPLOYMENT_ID_SOURCE="${EA_DEPLOYMENT_ID_SOURCE:-ea_deploy_id_env}"' in deploy
+    assert 'export EA_DEPLOYMENT_ID="${DEPLOYMENT_ID}"' in deploy
+    assert 'export EA_DEPLOYMENT_ID_SOURCE="${EA_DEPLOYMENT_ID_SOURCE:-deploy_platform}"' in deploy
+    assert 'export EA_DEPLOYMENT_ID="${RENDER_GIT_COMMIT}"' in deploy
+    assert 'export EA_DEPLOYMENT_ID_SOURCE="${EA_DEPLOYMENT_ID_SOURCE:-render_git_commit}"' in deploy
     assert 'database_url_line="$(grep -E \'^DATABASE_URL=' in deploy
     assert 'database_url_value="${database_url_line#DATABASE_URL=}"' in deploy
     assert 'if [[ "${database_url_value}" == *"/ea_smoke_runtime" ]]; then' in deploy
@@ -554,6 +833,8 @@ def test_support_bundle_help_mentions_db_volume_attribution() -> None:
         check=True,
     )
     assert "SUPPORT_INCLUDE_DB_VOLUME=0|1" in result.stdout
+    assert "Source-dirty group evidence is always included" in result.stdout
+    assert "clean-receipt" in result.stdout
 
 
 def test_operator_summary_prints_grounded_packet_guidance() -> None:
@@ -569,6 +850,40 @@ def test_operator_summary_prints_grounded_packet_guidance() -> None:
     assert "detect next:" in result.stdout
     assert "recover next:" in result.stdout
     assert "prove next:" in result.stdout
+    assert "-- release authority --" in result.stdout
+    assert "release posture:" in result.stdout
+    assert "release issues:" in result.stdout
+    assert "release next:" in result.stdout
+    assert "deployment id:" in result.stdout
+    assert "deploy ctx at:" in result.stdout
+    assert "deploy ctx ref:" in result.stdout
+    assert "deploy ctx commit:" in result.stdout
+    assert "deploy ctx gate:" in result.stdout
+    assert "deploy ctx issues:" in result.stdout
+    assert "source worktree:" in result.stdout
+    assert "source groups:" in result.stdout
+    assert "source categories:" in result.stdout
+    assert "source hint:" in result.stdout
+    assert "-- runtime supply chain --" in result.stdout
+    assert "supply status:" in result.stdout
+    assert "supply issues:" in result.stdout
+    assert "requirements txt:" in result.stdout
+    assert "requirements lock:" in result.stdout
+    assert "-- codexea runtime --" in result.stdout
+    assert "launcher parity:" in result.stdout
+    assert "parity issues:" in result.stdout
+    assert "launcher defaults:" in result.stdout
+    assert "status command:    /docker/fleet/scripts/codex-shims/codexea status" in result.stdout
+    assert "status posture:" in result.stdout
+    assert "status issues:" in result.stdout
+    assert "throttle pressure:" in result.stdout
+    assert "parallel pressure:" in result.stdout
+    assert "latency envelope:" in result.stdout
+    assert "fast lane route:" in result.stdout
+    assert "busiest proxy:" in result.stdout
+    assert "codexea next:      make verify-codexea-e2e-exit-gate" in result.stdout
+    assert "compose services:  docker-compose.yml:ea-db, docker-compose.yml:ea-redis, docker-compose.host-tools.yml:ea-docker-socket-proxy, docker-compose.fastestvpn.yml:ea-docker-socket-proxy, docker-compose.cloudflared.yml:ea-cloudflared" in result.stdout
+    assert "compose images:    docker-compose.cloudflared.yml:ea-cloudflared=cloudflare/cloudflared:latest@sha256:6d91c121b803126f7a5344005d17a9324788fc09d305b6e2560ec6040a7ae283, docker-compose.fastestvpn.yml:ea-docker-socket-proxy=tecnativa/docker-socket-proxy:0.3.0@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2, docker-compose.host-tools.yml:ea-docker-socket-proxy=tecnativa/docker-socket-proxy:0.3.0@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2, docker-compose.yml:ea-db=postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229, docker-compose.yml:ea-redis=redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99" in result.stdout
     assert "-- grounded packets --" in result.stdout
     assert "public help:" in result.stdout
     assert "support question:" in result.stdout
@@ -618,6 +933,48 @@ def test_support_bundle_writes_grounding_summary() -> None:
         text = bundle_path.read_text(encoding="utf-8")
     finally:
         bundle_path.unlink(missing_ok=True)
+    assert "-- release authority --" in text
+    assert '"contract_name": "ea.release_authority_status.v1"' in text
+    assert '"contract_name": "ea.release_authority_gate.v1"' in text
+    assert '"authority_posture":' in text
+    assert '"manifest_path":' in text
+    assert "release_next_action=" in text
+    assert "release_issues=" in text
+    assert "deploy_context_gate_status=" in text
+    assert "deploy_context_gate_issues=" in text
+    assert "deploy_context_generated_at=" in text
+    assert "deploy_context_branch=" in text
+    assert "deploy_context_tracking_branch=" in text
+    assert "deploy_context_commit_sha=" in text
+    assert "-- runtime supply chain --" in text
+    assert "contract_name=ea.runtime_supply_chain.v1" in text
+    assert "status=" in text
+    assert "requirements_txt=" in text
+    assert "requirements_lock=" in text
+    assert "compose_services=docker-compose.yml:ea-db, docker-compose.yml:ea-redis, docker-compose.host-tools.yml:ea-docker-socket-proxy, docker-compose.fastestvpn.yml:ea-docker-socket-proxy, docker-compose.cloudflared.yml:ea-cloudflared" in text
+    assert "compose_images=docker-compose.cloudflared.yml:ea-cloudflared=cloudflare/cloudflared:latest@sha256:6d91c121b803126f7a5344005d17a9324788fc09d305b6e2560ec6040a7ae283, docker-compose.fastestvpn.yml:ea-docker-socket-proxy=tecnativa/docker-socket-proxy:0.3.0@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2, docker-compose.host-tools.yml:ea-docker-socket-proxy=tecnativa/docker-socket-proxy:0.3.0@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2, docker-compose.yml:ea-db=postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229, docker-compose.yml:ea-redis=redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99" in text
+    assert "-- memorial readiness --" in text
+    assert '"claim_labels":' in text
+    assert "memorial_next_action=" in text
+    assert "memorial_next_command=" in text
+    assert "memorial_blocker_commands=" in text
+    assert "memorial_source_dirty=" in text
+    assert "memorial_source_cleanup_status=" in text
+    assert "memorial_source_cleanup_commands=" in text
+    assert "memorial_source_dirty_verifier_status=" in text
+    assert "memorial_source_dirty_verifier_issues=" in text
+    assert "memorial_source_dirty_categories=" in text
+    assert "memorial_room_packet_status=" in text
+    assert "memorial_room_packet_command=" in text
+    assert "memorial_room_receipt_command=" in text
+    assert "memorial_room_missing_inputs=" in text
+    assert "memorial_room_failed_codes=" in text
+    assert "-- source dirty groups --" in text
+    assert '"contract_name": "ea.source_dirty_groups.v1"' in text
+    assert '"source_dirty_summary":' in text
+    assert '"recommended_commands":' in text
+    assert "-- source dirty verifier --" in text
+    assert '"contract_name": "ea.source_dirty_groups_verifier.v1"' in text
     assert "-- grounding --" in text
     assert "public_help_heading=" in text
     assert "support_scorecard_question=" in text
@@ -643,10 +1000,21 @@ def test_support_bundle_pgdata_attribution_release_baseline_is_pinned() -> None:
     assert "ea-db mount/volume attribution" in readme
     assert "ea_pgdata" in readme
     assert "/var/lib/postgresql/data" in readme
+    assert "ea.source_dirty_groups.v1" in readme
+    assert "ea.source_dirty_groups_verifier.v1" in readme
+    assert "make inspect-source-dirty-groups" in readme
+    assert "make verify-source-dirty-groups" in readme
+    assert "scripts/inspect_source_dirty_groups.py --list-categories" in readme
+    assert "scripts/inspect_source_dirty_groups.py --category services --limit 20" in readme
 
     assert "SUPPORT_INCLUDE_DB_VOLUME=0 bash scripts/support_bundle.sh" in runbook
     assert "ea_pgdata" in runbook
     assert "/var/lib/postgresql/data" in runbook
+    assert "make inspect-source-dirty-groups" in runbook
+    assert "make verify-source-dirty-groups" in runbook
+    assert "ea.source_dirty_groups_verifier.v1" in runbook
+    assert "scripts/inspect_source_dirty_groups.py --list-categories" in runbook
+    assert "scripts/inspect_source_dirty_groups.py --category api_routes --limit 20" in runbook
 
     assert "support_bundle_pgdata_attribution" in changelog
     assert "SUPPORT_INCLUDE_DB_VOLUME" in changelog
@@ -654,6 +1022,19 @@ def test_support_bundle_pgdata_attribution_release_baseline_is_pinned() -> None:
 
     assert 'echo "expected_runtime_volume=ea_pgdata"' in support_bundle
     assert 'echo "expected_container_mount=/var/lib/postgresql/data"' in support_bundle
+    assert "memorial_source_dirty_categories=" in support_bundle
+    assert "memorial_source_cleanup_status=" in support_bundle
+    assert "memorial_source_cleanup_commands=" in support_bundle
+    assert "memorial_blocker_commands=" in support_bundle
+    assert "memorial_source_dirty_verifier_status=" in support_bundle
+    assert "memorial_source_dirty_verifier_issues=" in support_bundle
+    assert "memorial_room_packet_status=" in support_bundle
+    assert "memorial_room_packet_command=" in support_bundle
+    assert "memorial_room_receipt_command=" in support_bundle
+    assert "memorial_room_missing_inputs=" in support_bundle
+    assert "memorial_room_failed_codes=" in support_bundle
+    assert "-- source dirty verifier --" in support_bundle
+    assert "scripts/verify_source_dirty_groups.py" in support_bundle
     assert 'docker inspect "${DB_CONTAINER}" --format' in support_bundle
     assert capability["status"] == "released"
 
@@ -788,6 +1169,30 @@ def test_version_info_reports_milestone_status_counts() -> None:
     )
     assert "milestone_status_counts=planned:" in result.stdout
     assert "milestone_release_tags=ci_gate_bundle" in result.stdout
+
+
+def test_release_authority_probe_help_and_wiring() -> None:
+    result = subprocess.run(
+        ["bash", "scripts/release_authority_probe.sh", "--help"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    smoke_help = (ROOT / "scripts/smoke_help.sh").read_text(encoding="utf-8")
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    script = (ROOT / "scripts/release_authority_probe.sh").read_text(encoding="utf-8")
+    support_bundle = (ROOT / "scripts/support_bundle.sh").read_text(encoding="utf-8")
+
+    assert "/health/release-authority" in result.stdout
+    assert "scripts/release_authority_probe.sh" in smoke_help
+    assert "release-authority-probe:" in makefile
+    release_probe_body = makefile.split("release-authority-probe:", 1)[1].split("\n\n", 1)[0]
+    assert "refresh-release-authority-status" in release_probe_body
+    assert "Usage:" in script
+    assert "bash scripts/release_authority_probe.sh" in support_bundle
+    assert '"${PYTHON_BIN}" scripts/materialize_release_authority_status.py >/dev/null 2>&1 || true' in support_bundle
+    assert '"${PYTHON_BIN}" scripts/verify_release_authority_runtime.py --pretty --require-authoritative' in support_bundle
 
 
 def test_postgres_contract_script_help_and_wiring() -> None:
@@ -2258,6 +2663,7 @@ def test_runtime_mode_docs_and_smoke_cover_prod_fail_fast_storage() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     env_matrix = (ROOT / "ENVIRONMENT_MATRIX.md").read_text(encoding="utf-8")
+    prod_compose = (ROOT / "docker-compose.prod.yml").read_text(encoding="utf-8")
     smoke_postgres = (ROOT / "scripts/smoke_postgres.sh").read_text(encoding="utf-8")
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 
@@ -2270,6 +2676,11 @@ def test_runtime_mode_docs_and_smoke_cover_prod_fail_fast_storage() -> None:
     assert "EA_WORKSPACE_ACCESS_TOKEN_KEY_VERSION" in env_matrix
     assert "workspace-access token binding" in readme
     assert "workspace-access token binding" in runbook
+    assert "legacy authenticated runtime surfaces" in readme
+    assert "EA_ENABLE_LEGACY_RUNTIME_SURFACES=1" in readme
+    assert "legacy authenticated runtime surfaces stay off by default" in runbook
+    assert "EA_ENABLE_LEGACY_RUNTIME_SURFACES=0" in runbook
+    assert 'EA_ENABLE_LEGACY_RUNTIME_SURFACES: ${EA_ENABLE_LEGACY_RUNTIME_SURFACES:-0}' in prod_compose
     assert 'set_env_value "EA_API_TOKEN" "smoke-prod-token"' in smoke_postgres
     assert (
         "EA_RUNTIME_MODE=prod requires (EA_SIGNING_SECRET|DATABASE_URL|a durable postgres runtime profile)"

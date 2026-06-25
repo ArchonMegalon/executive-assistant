@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api.dependencies import RequestContext, get_container, get_request_context, resolve_principal_id
 from app.container import AppContainer
 from app.product.service import build_product_service
+from app.services.public_request import public_base_url
 from app.services.google_oauth import (
     browser_google_oauth_redirect_uri,
     complete_google_oauth_callback,
@@ -106,20 +107,11 @@ def _workspace_name_from_email(email: str) -> str:
 
 
 def _registration_base_url(request: Request) -> str:
-    forwarded = str(request.headers.get("x-forwarded-host") or "").strip().lower().rstrip(".")
-    request_host = str(request.url.hostname or "").strip().lower().rstrip(".")
-    effective_host = forwarded or request_host
-    if effective_host in {"propertyquarry.com", "www.propertyquarry.com"}:
-        return f"https://{effective_host}"
-    explicit = str(os.environ.get("EA_PUBLIC_APP_BASE_URL") or "").strip().rstrip("/")
-    if explicit:
-        return explicit
-    redirect_uri = str(os.environ.get("EA_GOOGLE_OAUTH_REDIRECT_URI") or "").strip()
-    if redirect_uri:
-        parsed = urlparse(redirect_uri)
-        if parsed.scheme and parsed.netloc:
-            return f"{parsed.scheme}://{parsed.netloc}"
-    return str(request.base_url).rstrip("/")
+    return public_base_url(
+        request,
+        explicit_base_url=str(os.environ.get("EA_PUBLIC_APP_BASE_URL") or ""),
+        redirect_uri=str(os.environ.get("EA_GOOGLE_OAUTH_REDIRECT_URI") or ""),
+    )
 
 
 class RegisterStartIn(BaseModel):

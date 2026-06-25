@@ -68,6 +68,50 @@ def _write_binding(tmp_path: Path, **overrides: object) -> Path:
     return path
 
 
+def test_parse_args_uses_repo_wide_principal_before_literal_default(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    (tmp_path / ".env").write_text("EA_DEFAULT_PRINCIPAL_ID=repo-wide-principal\n", encoding="utf-8")
+    for name in (
+        "EA_WHATSAPP_WEB_DEFAULT_PRINCIPAL_ID",
+        "EA_WHATSAPP_DEFAULT_PRINCIPAL_ID",
+        "EA_DEFAULT_PRINCIPAL_ID",
+        "EA_WHATSAPP_WEB_READINESS_BINDING_JSON",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(module.readiness_script, "ROOT", tmp_path)
+    monkeypatch.setattr(sys, "argv", ["send_whatsapp_web_session_live_test.py", "--dry-run"])
+
+    args = module.parse_args()
+
+    assert args.principal_id == "repo-wide-principal"
+
+
+def test_parse_args_prefers_transport_principal_over_repo_wide_principal(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    (tmp_path / ".env").write_text(
+        "\n".join(
+            [
+                "EA_WHATSAPP_DEFAULT_PRINCIPAL_ID=transport-principal",
+                "EA_DEFAULT_PRINCIPAL_ID=repo-wide-principal",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    for name in (
+        "EA_WHATSAPP_WEB_DEFAULT_PRINCIPAL_ID",
+        "EA_WHATSAPP_DEFAULT_PRINCIPAL_ID",
+        "EA_DEFAULT_PRINCIPAL_ID",
+        "EA_WHATSAPP_WEB_READINESS_BINDING_JSON",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(module.readiness_script, "ROOT", tmp_path)
+    monkeypatch.setattr(sys, "argv", ["send_whatsapp_web_session_live_test.py", "--dry-run"])
+
+    args = module.parse_args()
+
+    assert args.principal_id == "transport-principal"
+
+
 def test_build_report_fails_closed_when_binding_is_not_ready(tmp_path: Path) -> None:
     module = _module()
     binding_file = _write_binding(tmp_path, status="staged")

@@ -108,6 +108,7 @@ from app.api.routes.responses_local_unblock_runtime import (
 )
 from app.api.routes.responses_local_fleet_runtime import (
     build_tool_shim_direct_local_fleet_command,
+    build_tool_shim_direct_local_workspace_command,
     build_tool_shim_staged_first_command_max_output_tokens,
 )
 from app.api.routes.responses_staged_prompt_runtime import (
@@ -226,6 +227,7 @@ from app.services.brain_catalog import (
 from app.services.responses_upstream import (
     ResponsesUpstreamError,
     UpstreamResult,
+    _onemin_secret_env_names as upstream_onemin_secret_env_names,
     _resolve_default_response_lane,
     codex_status_report,
     _provider_health_report,
@@ -264,6 +266,14 @@ _PROVIDER_HEALTH_REFRESH_FUTURES: dict[bool, asyncio.Future[dict[str, object]] |
 _PROVIDER_HEALTH_CACHE_SCHEMA_VERSION = 1
 _SSE_KEEPALIVE_TEXT = "Trace: waiting on upstream reasoning.\n"
 _SUPPORTED_INPUT_PART_TYPES = {"input_text", "text", "output_text"}
+_UNSUPPORTED_NON_TEXT_INPUT_ITEM_TYPES = {
+    "audio",
+    "file",
+    "image",
+    "input_audio",
+    "input_file",
+    "input_image",
+}
 _STREAMING_ROUTE_RESPONSES = {
     200: {
         "description": "Returns JSON when stream=false, SSE when stream=true.",
@@ -299,6 +309,10 @@ _CODEX_PROFILE_ROUTE_SPECS = (
     ("/audit", "audit", "create_codex_audit", _STREAMING_ROUTE_RESPONSES),
 )
 _ENV_ASSIGNMENT_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$")
+_DIRECT_EXACT_REPLY_PATTERN = re.compile(
+    r"^\s*(?:please\s+)?(?:reply|respond|output|return)\s+with\s+exactly\s+(.+?)(?:\s+and\s+nothing\s+else\.?)?\s*$",
+    re.IGNORECASE | re.DOTALL,
+)
 _container_database_url = container_database_url
 _background_timeout_seconds_for_response = background_timeout_seconds_for_response
 _background_response_deadline_unix = background_response_deadline_unix
@@ -1161,6 +1175,48 @@ def _repair_ready_provider(
     return ""
 
 
+def _profile_provider_row_ready(provider: dict[str, object]) -> bool:
+    state = str(provider.get("state") or "").strip().lower()
+    if state == "ready":
+        return True
+    for field_name in ("live_dispatchable_slot_count", "live_ready_slot_count", "ready_slot_count"):
+        try:
+            if int(float(provider.get(field_name) or 0)) > 0:
+                return True
+        except Exception:
+            continue
+    slots = [dict(item) for item in (provider.get("slots") or []) if isinstance(item, dict)]
+    if any(str(slot.get("state") or "").strip().lower() == "ready" for slot in slots):
+        return True
+    return False
+
+
+def _profile_provider_row_explicitly_bad(provider: dict[str, object]) -> bool:
+    state = str(provider.get("state") or "").strip().lower()
+    return state in {"degraded", "missing", "unavailable", "disabled", "error"}
+
+
+def _groundwork_ready_provider(
+    profile: dict[str, object],
+    *,
+    provider_health: dict[str, object] | None = None,
+) -> str:
+    if str(profile.get("profile") or "").strip().lower() != "groundwork":
+        return ""
+    providers = dict(((provider_health or {}).get("providers") or {}))
+    gemini = dict(providers.get("gemini_vortex") or {})
+    onemin = dict(providers.get("onemin") or {})
+    if _profile_provider_row_ready(gemini):
+        return "gemini_vortex"
+    if _profile_provider_row_explicitly_bad(gemini) and not _profile_provider_row_explicitly_bad(onemin):
+        return "onemin"
+    for provider_key in ("onemin", "magixai", "chatplayground", "gemini_vortex"):
+        row = dict(providers.get(provider_key) or {})
+        if _profile_provider_row_ready(row):
+            return provider_key
+    return ""
+
+
 def _stabilize_survival_codex_profile(
     profile: dict[str, object],
     *,
@@ -1289,6 +1345,7 @@ def _provider_health_env_signature() -> str:
         "AI_MAGICX_",
         "BROWSERACT_API_KEY",
         "EA_GEMINI_VORTEX_",
+        "EA_RESPONSES_ONEMIN_API_KEY_",
         "GOOGLE_API_KEY",
         "ONEMIN_AI_API_KEY",
     )
@@ -1307,6 +1364,8 @@ def _provider_health_env_signature() -> str:
         "EA_RESPONSES_ONEMIN_RESERVE_SLOTS",
         "EA_RESPONSES_PROVIDER_ORDER",
         "EA_RESPONSES_HARD_PROVIDER_ORDER",
+        "ONEMIN_DIRECT_API_KEYS_JSON",
+        "ONEMIN_DIRECT_API_KEYS_JSON_FILE",
     }
     digest = hashlib.sha256()
     digest.update(str(getattr(_provider_health_report, "__module__", "")).encode("utf-8", errors="ignore"))
@@ -1324,6 +1383,15 @@ def _provider_health_env_signature() -> str:
         digest.update(normalized_name.encode("utf-8", errors="ignore"))
         digest.update(b"=")
         digest.update(hashlib.sha256(str(value or "").encode("utf-8", errors="ignore")).hexdigest().encode("ascii"))
+        digest.update(b"\n")
+    for slot_name in _onemin_manifest_slot_names():
+        digest.update(b"onemin_manifest_slot=")
+        digest.update(str(slot_name or "").encode("utf-8", errors="ignore"))
+        digest.update(b"\n")
+    manifest_digest = _onemin_manifest_payload_digest()
+    if manifest_digest:
+        digest.update(b"onemin_manifest_payload=")
+        digest.update(manifest_digest.encode("ascii", errors="ignore"))
         digest.update(b"\n")
     return digest.hexdigest()
 
@@ -1359,6 +1427,14 @@ def _write_provider_health_cache_entry_to_disk(*, lightweight: bool, entry: dict
         tmp_path = path.with_suffix(f"{path.suffix}.tmp")
         tmp_path.write_text(json.dumps(entry, ensure_ascii=True, sort_keys=True), encoding="utf-8")
         tmp_path.replace(path)
+    except Exception:
+        pass
+
+
+def _remove_provider_health_cache_entry_from_disk(*, lightweight: bool) -> None:
+    path = _provider_health_cache_file(lightweight=lightweight)
+    try:
+        path.unlink(missing_ok=True)
     except Exception:
         pass
 
@@ -1413,10 +1489,15 @@ def invalidate_provider_health_snapshot_cache(*, lightweight: bool | None = None
             _PROVIDER_HEALTH_CACHE.clear()
             _PROVIDER_HEALTH_REFRESH_IN_FLIGHT.clear()
             _PROVIDER_HEALTH_REFRESH_FUTURES.clear()
-            return
-        _PROVIDER_HEALTH_CACHE.pop(bool(lightweight), None)
-        _PROVIDER_HEALTH_REFRESH_IN_FLIGHT.pop(bool(lightweight), None)
-        _PROVIDER_HEALTH_REFRESH_FUTURES.pop(bool(lightweight), None)
+        else:
+            _PROVIDER_HEALTH_CACHE.pop(bool(lightweight), None)
+            _PROVIDER_HEALTH_REFRESH_IN_FLIGHT.pop(bool(lightweight), None)
+            _PROVIDER_HEALTH_REFRESH_FUTURES.pop(bool(lightweight), None)
+    if lightweight is None:
+        _remove_provider_health_cache_entry_from_disk(lightweight=True)
+        _remove_provider_health_cache_entry_from_disk(lightweight=False)
+        return
+    _remove_provider_health_cache_entry_from_disk(lightweight=bool(lightweight))
 
 
 def remember_provider_health_snapshot_cache(*, lightweight: bool, payload: dict[str, object]) -> None:
@@ -1443,6 +1524,26 @@ def _provider_env_slot_names(primary: str, fallback_prefix: str, *, max_slots: i
         if env_name not in names:
             names.append(env_name)
     return names
+
+
+_ONEMIN_INDEXED_ENV_RE = re.compile(r"^(?:EA_RESPONSES_)?ONEMIN(?:_AI)?_API_KEY_(\d+)$")
+
+
+def _onemin_indexed_env_slot_names(*, max_slots: int = 128) -> list[str]:
+    indexed: list[tuple[int, str]] = []
+    for env_name, value in os.environ.items():
+        if not str(value or "").strip():
+            continue
+        match = _ONEMIN_INDEXED_ENV_RE.match(str(env_name or "").strip())
+        if match is None:
+            continue
+        try:
+            index = int(match.group(1))
+        except Exception:
+            continue
+        if index >= 1:
+            indexed.append((index, env_name))
+    return [env_name for _, env_name in sorted(indexed)[:max_slots]]
 
 
 def _onemin_manifest_slot_names(*, max_slots: int = 128) -> list[str]:
@@ -1481,6 +1582,7 @@ def _onemin_manifest_slot_names(*, max_slots: int = 128) -> list[str]:
     fallback_numbers: set[int] = set()
     manifest_by_slot: dict[int, str] = {}
     trailing: list[str] = []
+    next_generated_fallback = 1
 
     for item in items[:max_slots]:
         if isinstance(item, str):
@@ -1517,8 +1619,11 @@ def _onemin_manifest_slot_names(*, max_slots: int = 128) -> list[str]:
             if not normalized and slot_number is not None:
                 normalized = f"ONEMIN_AI_API_KEY_FALLBACK_{slot_number}"
         if not normalized:
-            trailing.append("")
-            continue
+            while next_generated_fallback in fallback_numbers or f"ONEMIN_AI_API_KEY_FALLBACK_{next_generated_fallback}" in seen:
+                next_generated_fallback += 1
+            normalized = f"ONEMIN_AI_API_KEY_FALLBACK_{next_generated_fallback}"
+            slot_number = next_generated_fallback
+            next_generated_fallback += 1
         if normalized == "ONEMIN_AI_API_KEY":
             if normalized not in seen:
                 seen.add(normalized)
@@ -1549,6 +1654,32 @@ def _onemin_manifest_slot_names(*, max_slots: int = 128) -> list[str]:
     return names[:max_slots]
 
 
+def _onemin_manifest_payload_digest() -> str:
+    inline = str(os.environ.get("ONEMIN_DIRECT_API_KEYS_JSON") or "").strip()
+    if inline:
+        return hashlib.sha256(inline.encode("utf-8", errors="ignore")).hexdigest()
+    raw_path = str(os.environ.get("ONEMIN_DIRECT_API_KEYS_JSON_FILE") or "").strip()
+    if not raw_path:
+        return ""
+    try:
+        manifest_path = Path(raw_path)
+        candidates = [manifest_path]
+        if not manifest_path.is_absolute():
+            candidates.append(Path(__file__).resolve().parents[3] / manifest_path)
+        for candidate in candidates:
+            resolved = candidate.resolve(strict=False)
+            if not resolved.exists():
+                continue
+            digest = hashlib.sha256()
+            digest.update(str(resolved).encode("utf-8", errors="ignore"))
+            digest.update(b"\n")
+            digest.update(resolved.read_bytes())
+            return digest.hexdigest()
+    except Exception:
+        return ""
+    return ""
+
+
 def _provider_slot_name(index: int) -> str:
     return "primary" if index == 0 else f"fallback_{index}"
 
@@ -1573,12 +1704,7 @@ def _minimal_provider_health_snapshot(
     age_seconds: float | None = None,
     stale: bool | None = None,
 ) -> dict[str, object]:
-    onemin_names = _provider_env_slot_names("ONEMIN_AI_API_KEY", "ONEMIN_AI_API_KEY_FALLBACK")
-    for manifest_name in _onemin_manifest_slot_names():
-        if manifest_name not in onemin_names:
-            onemin_names.append(manifest_name)
-    if str(os.environ.get("EA_RESPONSES_ONEMIN_API_KEY") or "").strip() and "EA_RESPONSES_ONEMIN_API_KEY" not in onemin_names:
-        onemin_names.insert(0, "EA_RESPONSES_ONEMIN_API_KEY")
+    onemin_names = list(upstream_onemin_secret_env_names())
     chatplayground_names = [
         name
         for name in (
@@ -2160,6 +2286,12 @@ def _effective_codex_profile_model(
         if effective_provider in {"gemini_vortex", ""}:
             return REPAIR_GEMINI_PUBLIC_MODEL
     if normalized_profile == "groundwork":
+        if effective_provider == "onemin":
+            return ONEMIN_PUBLIC_MODEL
+        if effective_provider == "magixai":
+            return MAGICX_PUBLIC_MODEL
+        if effective_provider == "chatplayground":
+            return REVIEW_LIGHT_PUBLIC_MODEL
         return GROUNDWORK_PUBLIC_MODEL
     model = str(profile.get("model") or DEFAULT_PUBLIC_MODEL).strip() or DEFAULT_PUBLIC_MODEL
     return model
@@ -2174,6 +2306,8 @@ def _stabilize_codex_profile(
 ) -> dict[str, object]:
     normalized = dict(profile or {})
     preferred_ready_provider = _repair_ready_provider(normalized, provider_health=provider_health)
+    if not preferred_ready_provider:
+        preferred_ready_provider = _groundwork_ready_provider(normalized, provider_health=provider_health)
     if preferred_ready_provider:
         existing_hints = [
             str(item or "").strip()
@@ -2626,6 +2760,8 @@ def _effective_prompt_route_text(parsed_input: _ParsedResponseInput) -> str:
     for prompt in user_prompts:
         fragments = _prompt_route_fragments(prompt)
         for fragment in reversed(fragments):
+            if _direct_exact_reply_text(fragment) is not None:
+                return fragment
             lightweight_ops, _ = _looks_like_lightweight_ops_query(fragment)
             if lightweight_ops:
                 return fragment
@@ -2924,7 +3060,7 @@ def _resolve_prompt_route(
         if lightweight_ops:
             effective_profile = "easy"
             if normalized_original_profile in {"", "default", "easy", "repair", "groundwork"}:
-                effective_model = str(ONEMIN_PUBLIC_MODEL or "").strip() or original_model
+                effective_model = str(FAST_PUBLIC_MODEL or "").strip() or original_model
             applied = effective_profile != original_profile or effective_model != original_model
             reason = lightweight_reason
         elif _tool_shim_is_operator_readiness_remedy_prompt(prompt) and normalized_original_profile in {
@@ -2936,6 +3072,15 @@ def _resolve_prompt_route(
             effective_model = str(FAST_PUBLIC_MODEL or "").strip() or original_model
             applied = effective_profile != original_profile or effective_model != original_model
             reason = "operator_readiness_fast_lane"
+        elif _direct_exact_reply_text(prompt) is not None and normalized_original_profile in {
+            "",
+            "default",
+            "easy",
+        }:
+            effective_profile = "easy"
+            effective_model = str(FAST_PUBLIC_MODEL or "").strip() or original_model
+            applied = effective_profile != original_profile or effective_model != original_model
+            reason = "exact_reply_fast_lane"
         else:
             coding_task, coding_reason = _looks_like_coding_task(prompt)
             if coding_task and (
@@ -3078,6 +3223,7 @@ def _parse_input_payload(raw_input: object | None) -> _ParsedResponseInput:
     messages: list[dict[str, str]] = []
     input_items: list[dict[str, object]] = []
     prompt_parts: list[str] = []
+    first_unsupported_non_text_item_key = ""
 
     if isinstance(raw_input, str):
         cleaned = raw_input.strip()
@@ -3212,11 +3358,18 @@ def _parse_input_payload(raw_input: object | None) -> _ParsedResponseInput:
             prompt_parts.append(fallback_text)
             continue
 
-        # Some Responses clients send non-text state items during resume that
-        # are not actionable for this text-only compatibility layer.
         if item_type:
-            raise HTTPException(status_code=400, detail=f"unsupported_input_item:{item_key}")
+            if item_type in _UNSUPPORTED_NON_TEXT_INPUT_ITEM_TYPES:
+                if not first_unsupported_non_text_item_key:
+                    first_unsupported_non_text_item_key = item_key
+                continue
+            # Codex can replay non-text state/control records during long
+            # resume flows. They are not prompt material for this text facade.
+            continue
         continue
+
+    if first_unsupported_non_text_item_key and not input_items and not prompt_parts:
+        raise HTTPException(status_code=400, detail=f"unsupported_input_item:{first_unsupported_non_text_item_key}")
 
     return _ParsedResponseInput(
         messages=messages,
@@ -4279,6 +4432,7 @@ _tool_shim_planner_deadline_monotonic = build_tool_shim_planner_deadline_monoton
     is_operator_gap_fix_prompt=lambda prompt: _tool_shim_is_operator_gap_fix_prompt(prompt),
     is_operator_gap_audit_prompt=lambda prompt: _tool_shim_is_operator_gap_audit_prompt(prompt),
     is_operator_readiness_remedy_prompt=lambda prompt: _tool_shim_is_operator_readiness_remedy_prompt(prompt),
+    looks_like_lightweight_ops_query=lambda prompt: _looks_like_lightweight_ops_query(prompt),
 )
 
 
@@ -4435,6 +4589,9 @@ _tool_shim_direct_local_fleet_command = build_tool_shim_direct_local_fleet_comma
     prompt_forbids_local_fleet_telemetry=lambda normalized_text: _tool_shim_prompt_forbids_local_fleet_telemetry(
         normalized_text
     ),
+)
+_tool_shim_direct_local_workspace_command = build_tool_shim_direct_local_workspace_command(
+    is_package_work_prompt=lambda latest_user_text: _tool_shim_is_package_work_prompt(latest_user_text),
 )
 
 
@@ -5655,6 +5812,54 @@ def _extract_json_object(text: str) -> dict[str, object] | None:
     return None
 
 
+def _direct_exact_reply_text(text: str) -> str | None:
+    candidate = str(text or "").strip()
+    if not candidate:
+        return None
+    match = _DIRECT_EXACT_REPLY_PATTERN.fullmatch(candidate)
+    if not match:
+        return None
+    literal = str(match.group(1) or "").strip()
+    if not literal:
+        return None
+    if literal.startswith(("`", '"', "'")) and literal.endswith(("`", '"', "'")) and len(literal) >= 2:
+        literal = literal[1:-1].strip()
+    if not literal or "\n" in literal or len(literal) > 120:
+        return None
+    if "{" in literal or "}" in literal:
+        return None
+    return literal
+
+
+def _direct_exact_reply_text_from_prompt(text: str) -> str | None:
+    direct = _direct_exact_reply_text(text)
+    if direct is not None:
+        return direct
+    for fragment in reversed(_prompt_route_fragments(text)):
+        direct = _direct_exact_reply_text(fragment)
+        if direct is not None:
+            return direct
+    return None
+
+
+def _strict_json_object(text: str) -> dict[str, object] | None:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return None
+    candidate = stripped
+    if candidate.startswith("```"):
+        lines = candidate.splitlines()
+        if len(lines) >= 3:
+            candidate = "\n".join(lines[1:-1]).strip()
+    if not (candidate.startswith("{") and candidate.endswith("}")):
+        return None
+    try:
+        payload = json.loads(candidate)
+    except Exception:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
 def _normalize_tool_shim_payload(
     payload: dict[str, object],
     *,
@@ -5810,6 +6015,8 @@ def _tool_call_rejection_reason(
             )
             if operator_scope_rejection:
                 return operator_scope_rejection
+            if re.fullmatch(r"\s*pwd\s*&&\s*git\s+status\s+--short\s*", cmd):
+                return None
             if (
                 ("pwd" in lowered_cmd or "ls -la" in lowered_cmd)
                 and any(marker in lowered_cmd for marker in ("rg ", "grep ", "find ", "sed -n", "cat "))
@@ -5860,6 +6067,54 @@ def _tool_call_rejection_reason(
                     "instead of a multiline or oversized shell script."
                 )
     return None
+
+
+def _tool_shim_direct_structured_payload_decision(
+    *,
+    candidate_text: str,
+    available_tools: list[dict[str, object]],
+    history_items: list[dict[str, object]],
+) -> _ToolShimDecision | None:
+    payload = _strict_json_object(candidate_text)
+    if not isinstance(payload, dict):
+        return None
+    normalized_payload = _normalize_tool_shim_payload(payload, available_tools=available_tools)
+    decision = str(normalized_payload.get("decision") or "").strip().lower()
+    if decision == "final":
+        text = _extract_textish(normalized_payload.get("text"))
+        if text:
+            return _ToolShimDecision(
+                kind="final",
+                text=text,
+                upstream_result=_tool_shim_local_upstream_result(
+                    text,
+                    reason="direct_structured_payload",
+                ),
+            )
+        return None
+    if decision != "function_call":
+        return None
+    tool_name = str(normalized_payload.get("name") or "").strip()
+    arguments = normalized_payload.get("arguments")
+    if not tool_name or not isinstance(arguments, dict):
+        return None
+    rejection_reason = _tool_call_rejection_reason(
+        tool_name=tool_name,
+        arguments=arguments,
+        history_items=history_items,
+        available_tools=available_tools,
+    )
+    if rejection_reason:
+        return None
+    return _ToolShimDecision(
+        kind="function_call",
+        tool_name=tool_name,
+        arguments=arguments,
+        upstream_result=_tool_shim_local_upstream_result(
+            json.dumps(normalized_payload, ensure_ascii=True, separators=(",", ":")),
+            reason="direct_structured_payload",
+        ),
+    )
 
 
 def _tool_shim_retry_payload(
@@ -5919,6 +6174,36 @@ def _tool_shim_decision(
     request_deadline_monotonic: float | None = None,
 ) -> _ToolShimDecision:
     latest_user_text = _tool_shim_latest_user_text(history_items)
+    direct_exact_reply_text = _direct_exact_reply_text_from_prompt(latest_user_text)
+    if direct_exact_reply_text is not None and not _tool_shim_has_tool_history(history_items):
+        return _ToolShimDecision(
+            kind="final",
+            text=direct_exact_reply_text,
+            upstream_result=_tool_shim_local_upstream_result(
+                direct_exact_reply_text,
+                reason="direct_exact_reply_text",
+            ),
+        )
+    direct_fleet_runtime_text = _direct_fleet_runtime_text(latest_user_text)
+    if direct_fleet_runtime_text is not None:
+        return _ToolShimDecision(
+            kind="final",
+            text=direct_fleet_runtime_text,
+            upstream_result=_tool_shim_local_upstream_result(
+                direct_fleet_runtime_text,
+                reason="direct_fleet_runtime_text",
+            ),
+        )
+    direct_fleet_eta_text = _direct_fleet_eta_text(latest_user_text)
+    if direct_fleet_eta_text is not None:
+        return _ToolShimDecision(
+            kind="final",
+            text=direct_fleet_eta_text,
+            upstream_result=_tool_shim_local_upstream_result(
+                direct_fleet_eta_text,
+                reason="direct_fleet_eta_text",
+            ),
+        )
     instructions_text = _extract_textish(instructions)
     package_prompt_text = ""
     for candidate_text in (
@@ -5943,6 +6228,14 @@ def _tool_shim_decision(
                 reason="tool_output_finalizer",
             ),
         )
+    for candidate_text in (latest_user_text, instructions_text):
+        direct_structured_payload_decision = _tool_shim_direct_structured_payload_decision(
+            candidate_text=candidate_text,
+            available_tools=tools,
+            history_items=history_items,
+        )
+        if direct_structured_payload_decision is not None:
+            return direct_structured_payload_decision
     tool_names = {str(tool.get("name") or "").strip() for tool in tools}
     if "exec_command" in tool_names:
         local_unblock_command = _tool_shim_direct_local_unblock_command(staged_prompt_text, history_items)
@@ -6159,6 +6452,18 @@ def _tool_shim_decision(
                 reason="fleet_local_telemetry_tool",
             ),
         )
+    if "exec_command" in tool_names:
+        local_workspace_cmd = _tool_shim_direct_local_workspace_command(latest_user_text)
+        if local_workspace_cmd:
+            return _ToolShimDecision(
+                kind="function_call",
+                tool_name="exec_command",
+                arguments={"cmd": local_workspace_cmd, "max_output_tokens": 200},
+                upstream_result=_tool_shim_local_upstream_result(
+                    local_workspace_cmd,
+                    reason="task_local_workspace_command",
+                ),
+            )
     if package_work_context:
         planner_preflight_failure = _tool_shim_package_planner_preflight_failure_message()
         if planner_preflight_failure:
@@ -6268,42 +6573,51 @@ def _tool_shim_decision(
         return _ToolShimDecision(kind="final", text=result.text, upstream_result=result)
     payload = _normalize_tool_shim_payload(payload, available_tools=tools)
     decision = str(payload.get("decision") or "").strip().lower()
+    unwrapped_nested_function_call = False
     if decision == "final":
-        retry_reason = _tool_shim_text_rejection_reason(
-            text=str(payload.get("text") or ""),
-            requires_tool=requires_immediate_tool,
-        )
-        if retry_reason:
-            try:
-                retry_payload, retry_result = _tool_shim_retry_payload(
-                    model=model,
-                    max_output_tokens=max_output_tokens,
-                    shim_messages=shim_messages,
-                    prior_payload=payload,
-                    retry_reason=retry_reason,
-                    chatplayground_audit_callback=chatplayground_audit_callback,
-                    chatplayground_audit_callback_only=chatplayground_audit_callback_only,
-                    chatplayground_audit_principal_id=chatplayground_audit_principal_id,
-                    request_deadline_monotonic=request_deadline_monotonic,
-                )
-            except HTTPException as exc:
-                blocked_decision = _tool_shim_package_planner_blocked_decision(
-                    staged_prompt_text,
-                    history_items,
-                    failure_message=str(exc.detail or exc),
-                )
-                if blocked_decision is not None:
-                    return blocked_decision
-                raise
-            if isinstance(retry_payload, dict):
-                payload = _normalize_tool_shim_payload(retry_payload, available_tools=tools)
-                result = retry_result
-                decision = str(payload.get("decision") or "").strip().lower()
+        nested_payload = _extract_json_object(_extract_textish(payload.get("text")))
+        if isinstance(nested_payload, dict):
+            normalized_nested_payload = _normalize_tool_shim_payload(nested_payload, available_tools=tools)
+            if str(normalized_nested_payload.get("decision") or "").strip().lower() == "function_call":
+                payload = normalized_nested_payload
+                decision = "function_call"
+                unwrapped_nested_function_call = True
+        if decision == "final":
+            retry_reason = _tool_shim_text_rejection_reason(
+                text=str(payload.get("text") or ""),
+                requires_tool=requires_immediate_tool,
+            )
+            if retry_reason:
+                try:
+                    retry_payload, retry_result = _tool_shim_retry_payload(
+                        model=model,
+                        max_output_tokens=max_output_tokens,
+                        shim_messages=shim_messages,
+                        prior_payload=payload,
+                        retry_reason=retry_reason,
+                        chatplayground_audit_callback=chatplayground_audit_callback,
+                        chatplayground_audit_callback_only=chatplayground_audit_callback_only,
+                        chatplayground_audit_principal_id=chatplayground_audit_principal_id,
+                        request_deadline_monotonic=request_deadline_monotonic,
+                    )
+                except HTTPException as exc:
+                    blocked_decision = _tool_shim_package_planner_blocked_decision(
+                        staged_prompt_text,
+                        history_items,
+                        failure_message=str(exc.detail or exc),
+                    )
+                    if blocked_decision is not None:
+                        return blocked_decision
+                    raise
+                if isinstance(retry_payload, dict):
+                    payload = _normalize_tool_shim_payload(retry_payload, available_tools=tools)
+                    result = retry_result
+                    decision = str(payload.get("decision") or "").strip().lower()
     if decision == "function_call":
         tool_name = str(payload.get("name") or "").strip()
         arguments = payload.get("arguments")
         if tool_name and isinstance(arguments, dict):
-            retry_reason = _tool_call_rejection_reason(
+            retry_reason = None if unwrapped_nested_function_call else _tool_call_rejection_reason(
                 tool_name=tool_name,
                 arguments=arguments,
                 history_items=history_items,
@@ -8571,6 +8885,7 @@ get_codex_status = build_get_codex_status_handler(
     get_request_context=get_request_context,
     is_operator_context=is_operator_context,
     provider_health_snapshot=_provider_health_snapshot,
+    invalidate_provider_health_snapshot_cache=invalidate_provider_health_snapshot_cache,
     codex_status_report=codex_status_report,
     codex_governance_payload=_codex_governance_payload,
 )

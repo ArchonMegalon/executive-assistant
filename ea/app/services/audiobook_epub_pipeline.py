@@ -31,7 +31,6 @@ import zipfile
 import xml.etree.ElementTree as ET
 
 from app.services.memorial_openvoice import (
-    piper_fast_synthesize_request,
     unmixr_language,
     unmixr_api_key,
     unmixr_api_key_slot_count,
@@ -3415,6 +3414,15 @@ def _audiobook_job_contact_duplicate_identity(job: dict[str, object]) -> str:
     return f"{source_kind}|contact-title-author-size:{_sha256_bytes(scoped_payload.encode('utf-8'))}"
 
 
+def _audiobook_job_whatsapp_duplicate_scope(job: dict[str, object]) -> str:
+    whatsapp = dict(job.get("whatsapp") or {})
+    sender_ref = str(whatsapp.get("sender_ref") or "").strip()
+    chat_ref = str(whatsapp.get("chat_ref") or "").strip()
+    if not (sender_ref or chat_ref):
+        return ""
+    return _sha256_bytes(f"{sender_ref}|{chat_ref}".encode("utf-8"))
+
+
 def _audiobook_job_duplicate_identities(job: dict[str, object]) -> list[str]:
     source = dict(job.get("source") or {})
     metadata = dict(job.get("metadata") or {})
@@ -3423,9 +3431,13 @@ def _audiobook_job_duplicate_identities(job: dict[str, object]) -> list[str]:
         str(source.get("source_sha256") or "").strip()
         or str(metadata.get("source_sha256") or "").strip()
     )
+    whatsapp_scope = _audiobook_job_whatsapp_duplicate_scope(job)
     identities: list[str] = []
     if source_sha256:
-        identities.append(f"{source_kind}|sha256:{source_sha256}")
+        if whatsapp_scope:
+            identities.append(f"{source_kind}|whatsapp-source:{whatsapp_scope}:{source_sha256}")
+        else:
+            identities.append(f"{source_kind}|sha256:{source_sha256}")
     contact_identity = _audiobook_job_contact_duplicate_identity(job)
     if contact_identity and contact_identity not in identities:
         identities.append(contact_identity)
@@ -3434,6 +3446,9 @@ def _audiobook_job_duplicate_identities(job: dict[str, object]) -> list[str]:
     title = str(metadata.get("title") or job.get("title") or "").strip()
     author = str(metadata.get("author") or "").strip()
     if title or author:
+        if whatsapp_scope:
+            title_author_hash = _sha256_bytes(f"{title}|{author}".encode("utf-8"))
+            return [f"{source_kind}|whatsapp-title-author:{whatsapp_scope}:{title_author_hash}"]
         return [f"{source_kind}|title-author:{_sha256_bytes(f'{title}|{author}'.encode('utf-8'))}"]
     return []
 
@@ -4586,6 +4601,7 @@ def render_unmixr_chapter_audio(*, job_dir: Path, chapters: tuple[EpubChapter, .
             "reason": str(voice_selection.get("reason") or "unmixr_voice_selection_missing"),
             "voice_selection": dict(voice_selection.get("public") or {}),
         }
+    render_language = _normalize_language(metadata.language)
     language_mismatch = _selected_voice_language_mismatch(metadata=metadata, voice_selection=voice_selection)
     if language_mismatch:
         return {
@@ -4678,7 +4694,7 @@ def render_unmixr_chapter_audio(*, job_dir: Path, chapters: tuple[EpubChapter, .
                 audio_bytes, content_type, segment_retry_errors = _synthesize_unmixr_with_retries(
                     text=segment,
                     voice_id=voice_id,
-                    lang=metadata.language,
+                    lang=render_language,
                     speaking_rate=unmixr_speaking_rate(),
                     speaking_pitch=unmixr_speaking_pitch(),
                     speaking_volume=unmixr_speaking_volume(),
@@ -5002,6 +5018,7 @@ def build_audiobook_job_receipt(*, job_dir: Path, observed_at: datetime | None =
     external_tts_blocker_reason = str(render_result.get("reason") or job.get("next_action") or "").strip()
     raw_next_action = str(job.get("next_action") or "").strip()
     scheduler_next_action = raw_next_action
+    receipt_next_action = raw_next_action
     if str(job.get("status") or "").strip() == "blocked_external_tts" and _external_tts_blocker_code(
         external_tts_blocker_reason
     ):
@@ -5010,6 +5027,7 @@ def build_audiobook_job_receipt(*, job_dir: Path, observed_at: datetime | None =
             if _external_tts_blocker_is_retryable(external_tts_blocker_reason)
             else "resolve_external_tts_provider_blocker"
         )
+        receipt_next_action = scheduler_next_action
     external_tts_retry_at = _audiobook_job_external_tts_retry_at(job)
     priority_score = _audiobook_resume_priority(job)
     priority_label = _audiobook_resume_priority_label(job)
@@ -5036,6 +5054,8 @@ def build_audiobook_job_receipt(*, job_dir: Path, observed_at: datetime | None =
         "observed_at": observed.isoformat().replace("+00:00", "Z"),
         "job_id": str(job.get("job_id") or job_dir.name).strip(),
         "job_dir_name": job_dir.name,
+        "updated_at": str(job.get("updated_at") or "").strip(),
+        "next_action": receipt_next_action,
         "source": {
             "kind": str(source.get("kind") or "").strip(),
             "priority_for_resume": priority_score == 0,
@@ -5125,11 +5145,18 @@ def build_audiobook_job_receipt(*, job_dir: Path, observed_at: datetime | None =
             "public_share_playback_e2e_status": str(public_share_playback_e2e.get("status") or "").strip(),
             "public_share_playback_e2e_browser": str(public_share_playback_e2e.get("browser") or "").strip(),
             "public_share_playback_e2e_checked_at": str(public_share_playback_e2e.get("checked_at") or "").strip(),
+            "public_share_playback_e2e_reason": str(public_share_playback_e2e.get("reason") or "").strip(),
+            "public_share_playback_e2e_page_response_status": int(
+                public_share_playback_e2e.get("page_response_status") or 0
+            ),
             "public_share_playback_e2e_track_response_status": int(
                 public_share_playback_e2e.get("track_response_status") or 0
             ),
             "public_share_playback_e2e_track_content_type": str(
                 public_share_playback_e2e.get("track_content_type") or ""
+            ).strip(),
+            "public_share_playback_e2e_track_response_resource_type": str(
+                public_share_playback_e2e.get("track_response_resource_type") or ""
             ).strip(),
             "public_share_playback_e2e_duration_seconds": float(
                 public_share_playback_e2e.get("duration_seconds") or 0.0
@@ -5138,6 +5165,7 @@ def build_audiobook_job_receipt(*, job_dir: Path, observed_at: datetime | None =
                 public_share_playback_e2e.get("current_time_after_play_seconds") or 0.0
             ),
             "public_share_playback_e2e_media_error_present": bool(public_share_playback_e2e.get("media_error")),
+            "public_share_playback_e2e_media_error_code": int(public_share_playback_e2e.get("media_error_code") or 0),
         },
         "audio_publication_gate": {
             "status": str(audio_publication_gate.get("status") or "").strip(),
@@ -6088,6 +6116,8 @@ def audiobook_runtime_preflight() -> dict[str, object]:
     ffmpeg_fallback_available = _ffmpeg_m4b_fallback_available()
     auto_import = audiobookshelf_import_enabled()
     public_share_enabled = audiobookshelf_public_share_enabled()
+    player_access_base_url_present = bool(str(os.getenv("EA_AUDIOBOOK_PLAYER_ACCESS_BASE_URL") or "").strip())
+    bulk_pacing_enabled = _unmixr_max_segments_per_run() > 0
 
     telegram_audiobook_enabled = telegram_audiobook_skill_enabled()
     add("telegram_audiobook_enabled", telegram_audiobook_enabled, detail="Telegram audiobook intake switch.")
@@ -6149,8 +6179,11 @@ def audiobook_runtime_preflight() -> dict[str, object]:
     )
     add(
         "player_access_base_url_present",
-        bool(str(os.getenv("EA_AUDIOBOOK_PLAYER_ACCESS_BASE_URL") or "").strip()),
-        detail="Telegram replies can include a full scoped playback URL.",
+        player_access_base_url_present,
+        severity="warn",
+        detail=(
+            "EA can publish an absolute player-scoped playback URL when configured; public-share delivery still works without it."
+        ),
     )
     add(
         "scheduler_resume_enabled",
@@ -6159,8 +6192,11 @@ def audiobook_runtime_preflight() -> dict[str, object]:
     )
     add(
         "unmixr_bulk_pacing_configured",
-        _unmixr_max_segments_per_run() > 0,
-        detail="Large audiobook renders pause voluntarily between batches so one book does not monopolize the audio generation lane.",
+        bulk_pacing_enabled,
+        severity="warn",
+        detail=(
+            "Large audiobook renders can pause between batches when a pacing ceiling is configured; disabling the ceiling keeps the lane uncapped."
+        ),
     )
 
     failed = [row for row in checks if row["status"] == "fail"]
@@ -6225,7 +6261,7 @@ def audiobook_runtime_preflight() -> dict[str, object]:
             "audiobookshelf_api_token_present": bool(_audiobookshelf_api_token()),
             "audiobookshelf_library_id_present": bool(_audiobookshelf_library_id()),
             "player_access_signing_secret_present": bool(_audiobook_access_secret()),
-            "player_access_base_url_present": bool(str(os.getenv("EA_AUDIOBOOK_PLAYER_ACCESS_BASE_URL") or "").strip()),
+            "player_access_base_url_present": player_access_base_url_present,
             "tokens_exposed": False,
         },
         "scheduler": {
@@ -6510,15 +6546,23 @@ def _merge_m4b_with_ffmpeg(
     command = [
         _ffmpeg_bin(),
         "-y",
-        "-f",
-        "concat",
-        "-safe",
-        "0",
-        "-i",
-        str(concat_file),
-        "-i",
-        str(metadata_file),
     ]
+    if len(concat_audio_paths) == 1:
+        # Direct WAV input avoids AAC decode corruption observed from the concat
+        # demuxer on single-chapter M4B jobs.
+        command.extend(["-i", str(concat_audio_paths[0])])
+    else:
+        command.extend(
+            [
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(concat_file),
+            ]
+        )
+    command.extend(["-i", str(metadata_file)])
     if cover_path is not None:
         command.extend(["-i", str(cover_path)])
     command.extend(
@@ -6535,12 +6579,16 @@ def _merge_m4b_with_ffmpeg(
         [
         "-map_metadata",
         "1",
+        "-map_chapters",
+        "1",
         "-c:a",
         "aac",
         "-b:a",
         str(os.getenv("EA_AUDIOBOOK_M4B_BITRATE") or "96k"),
         "-ac",
         str(_m4b_concat_channels()),
+        "-ar",
+        str(_m4b_concat_sample_rate()),
         ]
     )
     if cover_path is not None:
@@ -8143,6 +8191,7 @@ def create_job_from_text_chapters(
     player_id: str = "",
     runner_id: str = "",
     caption: str = "",
+    cover_image_path: Path | str | None = None,
 ) -> dict[str, object]:
     root = audiobook_jobs_root()
     _require_audiobook_storage_root(root)
@@ -8160,6 +8209,20 @@ def create_job_from_text_chapters(
     source_dir = job_dir / "source"
     source_dir.mkdir(parents=True, exist_ok=True)
     (source_dir / source_filename).write_text(joined_text + "\n", encoding="utf-8")
+    copied_cover_path = ""
+    copied_cover_media_type = ""
+    if cover_image_path:
+        source_cover = Path(str(cover_image_path)).expanduser()
+        if source_cover.is_file():
+            assets_dir = job_dir / "assets"
+            assets_dir.mkdir(parents=True, exist_ok=True)
+            suffix = source_cover.suffix.lower()
+            copied_name = "cover.jpg" if suffix in {"", ".jpg", ".jpeg"} else f"cover{suffix}"
+            copied_cover = assets_dir / copied_name
+            if source_cover.resolve() != copied_cover.resolve():
+                shutil.copy2(source_cover, copied_cover)
+            copied_cover_path = str(copied_cover)
+            copied_cover_media_type = "image/png" if suffix == ".png" else "image/jpeg"
     chapter_models: list[EpubChapter] = []
     for index, row in enumerate(rows, start=1):
         safe_title = _safe_filename(row["title"], fallback=f"Chapter {index:03d}")
@@ -8183,6 +8246,8 @@ def create_job_from_text_chapters(
         language=str(language or "en-US").strip() or "en-US",
         source_filename=source_filename,
         source_sha256=text_sha,
+        cover_image_path=copied_cover_path,
+        cover_media_type=copied_cover_media_type,
     )
     payload = _build_job_payload(
         job_id=job_id,
@@ -8218,6 +8283,7 @@ def create_origin_dossier_audiobook_job(
     runner_id: str = "",
     language: str = "en-US",
     chapter_title: str = "Origin Story",
+    cover_image_path: Path | str | None = None,
 ) -> dict[str, object]:
     runner_label = str(runner_name or "Runner").strip() or "Runner"
     return create_job_from_text_chapters(
@@ -8231,6 +8297,7 @@ def create_origin_dossier_audiobook_job(
         rights_basis="player_or_gm_approved_origin_story",
         player_id=player_id,
         runner_id=runner_id or dossier_id,
+        cover_image_path=cover_image_path,
     )
 
 
@@ -8855,6 +8922,36 @@ def _audiobook_completed_terminal_reason(job: dict[str, object]) -> str:
     return ""
 
 
+def _audiobook_ignored_terminal_reason(job: dict[str, object]) -> str:
+    status = str(job.get("status") or "").strip()
+    if status == "superseded_duplicate":
+        return status
+    return ""
+
+
+def _audiobook_operator_review_reason(job: dict[str, object]) -> str:
+    status = str(job.get("status") or "").strip()
+    if status != "audiobookshelf_imported":
+        return ""
+    if _audiobook_public_share_followup_pending(job):
+        return ""
+    playback_acceptance = dict(job.get("playback_acceptance") or {})
+    playback_status = str(playback_acceptance.get("status") or "").strip()
+    if playback_status == "rejected":
+        source = str(playback_acceptance.get("source") or "").strip()
+        if source == "whatsapp_button_recovered":
+            public_share = _audiobook_public_share_for_job(job)
+            playback_e2e = dict(public_share.get("playback_e2e") or {})
+            if str(playback_e2e.get("status") or "").strip() == "pass":
+                checked_at = _parse_iso_datetime(playback_e2e.get("checked_at"))
+                recorded_at = _parse_iso_datetime(playback_acceptance.get("recorded_at"))
+                if checked_at is not None and recorded_at is not None and checked_at >= recorded_at:
+                    return ""
+    if playback_status == "rejected" or str(job.get("next_action") or "").strip() == "review_audiobook_playback_problem":
+        return "review_audiobook_playback_problem"
+    return ""
+
+
 def _audiobook_resume_skip_reason(job: dict[str, object]) -> str:
     completed_terminal_reason = _audiobook_completed_terminal_reason(job)
     if completed_terminal_reason:
@@ -8995,6 +9092,10 @@ def resume_due_audiobook_jobs(
     skip_reasons: dict[str, int] = {}
     completed_terminal = 0
     completed_terminal_reasons: dict[str, int] = {}
+    ignored_terminal = 0
+    ignored_terminal_reasons: dict[str, int] = {}
+    operator_review_pending = 0
+    operator_review_reasons: dict[str, int] = {}
     errors = 0
     for manifest_path in manifests:
         try:
@@ -9011,6 +9112,16 @@ def resume_due_audiobook_jobs(
                 else:
                     share_rows.append((_audiobook_resume_priority(job), job_dir, job))
             else:
+                ignored_reason = _audiobook_ignored_terminal_reason(job)
+                if ignored_reason:
+                    ignored_terminal += 1
+                    ignored_terminal_reasons[ignored_reason] = int(ignored_terminal_reasons.get(ignored_reason) or 0) + 1
+                    continue
+                review_reason = _audiobook_operator_review_reason(job)
+                if review_reason:
+                    operator_review_pending += 1
+                    operator_review_reasons[review_reason] = int(operator_review_reasons.get(review_reason) or 0) + 1
+                    continue
                 reason = _audiobook_resume_skip_reason(job)
                 if reason == "playback_accepted":
                     completed_terminal += 1
@@ -9164,6 +9275,10 @@ def resume_due_audiobook_jobs(
         "pending": pending + max(len(rows) - max_jobs, 0),
         "skipped": skipped,
         "skip_reasons": dict(sorted(skip_reasons.items())),
+        "ignored_terminal": ignored_terminal,
+        "ignored_terminal_reasons": dict(sorted(ignored_terminal_reasons.items())),
+        "operator_review_pending": operator_review_pending,
+        "operator_review_reasons": dict(sorted(operator_review_reasons.items())),
         "completed_terminal": completed_terminal,
         "completed_terminal_reasons": dict(sorted(completed_terminal_reasons.items())),
         "errors": errors,

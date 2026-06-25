@@ -7,12 +7,29 @@ All runtime scripts that call HTTP endpoints resolve host port in this order:
 
 ## API Contract Summary
 
+Hosted GitHub Actions workflows are intentionally absent from this repo. Operator verification is local-only and is expected to run through the Make gate bundles: `make ci-gates`, `make ci-gates-postgres`, `make ci-gates-postgres-legacy`, and `make release-preflight`.
+
+`X-Forwarded-Host` is fail-closed by default. Set `PROPERTYQUARRY_TRUST_X_FORWARDED_HOST=1` only when a trusted ingress or tunnel is the sole caller rewriting that header; otherwise public canonicals, callback origins, and public host routing use the direct request host.
+
+`X-Forwarded-For` and `CF-Connecting-IP` are also fail-closed for public identity helpers. Set `PROPERTYQUARRY_TRUST_X_FORWARDED_FOR=1` only when the runtime is actually behind a trusted ingress; otherwise public rate-limit identity stays bound to the direct client host.
+
+That same rule now covers public memorial rate-limit identity as well as the shared public-results/public-documents/channel helpers.
+
+`EA_ALLOW_LOOPBACK_NO_AUTH=1` only bypasses API-token auth for loopback-local principal access. Operator-only routes still require an active operator profile; local loopback requests no longer become operator context automatically.
+
+`EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER=1` only permits authenticated principal-header override from loopback-local requests. Keep it as a local fixture/testing switch, not a shared-runtime impersonation path.
+
+Browser setup also ignores the old advanced principal override path. Without a verified access identity, `/get-started` and `/setup/*` only operate on the deployment default workspace.
+
 | Method | Route | Success | Error contracts |
 |---|---|---|---|
 | GET | `/health` | `200` | n/a |
 | GET | `/health/live` | `200` | n/a |
 | GET | `/health/ready` | `200` | `503 not_ready:*` |
 | GET | `/version` | `200` | n/a |
+| GET | `/health/release-authority` | `200` | n/a |
+
+`/version` also reports `release_authority_state`, `release_authority_posture`, and `release_authority_source` so the compact runtime probe shows whether release truth is coming from the published status artifact or manifest fallback.
 | POST | `/v1/rewrite/artifact` | `200`, `202 awaiting_approval`, `202 awaiting_human`, `202 queued` | `400 text is required`, `403 principal_scope_mismatch`, `403 policy_denied:*` (including `tool_not_allowed`) |
 | GET | `/v1/rewrite/artifacts/{artifact_id}` | `200` | `404 artifact_not_found`, `403 principal_scope_mismatch` (returns artifact content plus explicit `principal_id` ownership, originating `task_key`/`deliverable_type`, `mime_type`, `preview_text`, `storage_handle`, `body_ref`, and structured attachment metadata) |
 | GET | `/v1/rewrite/receipts/{receipt_id}` | `200` | `404 receipt_not_found`, `403 principal_scope_mismatch` (returns proof metadata plus originating `task_key`/`deliverable_type`) |
@@ -117,11 +134,12 @@ Auth:
 - Use `X-EA-Principal-ID: <principal>` for principal-scoped rewrite/session/artifact/receipt/run-cost, plan-compile/execute, connector, human-task, and memory routes; if omitted, `EA_DEFAULT_PRINCIPAL_ID` (default `principal-default`) is used.
 - On those routes, body/query `principal_id` remains a compatibility field only and mismatches fail with `403 principal_scope_mismatch`.
 - `GET /v1/models` returns both the public EA aliases and the currently configured upstream model IDs, so Codex can target concrete provider models when needed.
+- `EA_RESPONSES_PROVIDER_ORDER`, `EA_RESPONSES_CHEAP_PROVIDER_ORDER`, and `EA_RESPONSES_HARD_PROVIDER_ORDER` tune normal, fast/cheap, and hard lane provider order without patching code; aliases such as `1min` and `magicx` normalize to runtime provider keys.
 - `GET /v1/responses/_provider_health` and `GET /v1/codex/profiles` expose account-name-only provider attribution plus 1min owner metadata matched by hash or stable slot/account identifiers, latest explicit probe evidence, 1min.AI depletion, observed per-slot consumption (`observed_consumed_credits`, `observed_success_count`), rolling burn-rate, and deleted-key telemetry (`remaining_credits`, `required_credits`, `estimated_remaining_credits_total`, `remaining_percent_of_max`, `estimated_burn_credits_per_hour`, `estimated_hours_remaining_at_current_pace`) without leaking raw API keys.
 - `POST /v1/providers/onemin/probe-all` sends one live low-volume request to each selected 1min slot, records `last_probe_result`, and updates deleted/depleted/rate-limited evidence immediately instead of waiting for incidental runtime traffic.
 - `python3 scripts/sync_onemin_owner_ledger.py --write` re-hashes the current `ONEMIN_AI_API_KEY*` values plus any `ONEMIN_DIRECT_API_KEYS_JSON(_FILE)` manifest entries into `config/onemin_slot_owners.json` and carries owner labels/emails forward by slot/account when the runtime key set rotates.
 - The template-backed 1min BrowserAct refresh lane now accepts a generic rotating proxy through `EA_UI_BROWSER_PROXY_SERVER`, `EA_UI_BROWSER_PROXY_USERNAME`, `EA_UI_BROWSER_PROXY_PASSWORD`, and `EA_UI_BROWSER_PROXY_BYPASS`; use `ONEMIN_BROWSERACT_MAX_ACCOUNTS_PER_REFRESH` plus `EA_ONEMIN_BILLING_REFRESH_MIN_INTERVAL_SECONDS` when you want one operator-triggered refresh cycle to sweep the full slot set without the old cadence throttle.
-- FastestVPN can back that lane through [docker-compose.fastestvpn.yml](docker-compose.fastestvpn.yml): place FastestVPN OpenVPN profiles under `vpn/fastestvpn/`, or fetch them with `scripts/bootstrap_fastestvpn_configs.sh`, then deploy with `EA_ENABLE_FASTESTVPN=1 bash scripts/deploy.sh --compose-override docker-compose.fastestvpn.yml`. If you use `scripts/deploy.sh`, keep that overlay explicit with `EA_ENABLE_FASTESTVPN=1`. The overlay uses `ea-docker-socket-proxy` for operator Docker control and mounts only `docker-compose.yml`, `docker-compose.fastestvpn.yml`, and `vpn/fastestvpn/` into the runtime services. Use `scripts/rotate_fastestvpn_proxy.sh` to recreate the proxy on a fresh FastestVPN exit profile before a full 1min BrowserAct refresh; it uses `docker compose up -d --no-build --force-recreate --no-deps` so the refresh does not rebuild the runtime.
+- FastestVPN can back that lane through [docker-compose.fastestvpn.yml](docker-compose.fastestvpn.yml): place FastestVPN OpenVPN profiles under `vpn/fastestvpn/`, or fetch them with `scripts/bootstrap_fastestvpn_configs.sh`, then deploy with `EA_ENABLE_FASTESTVPN=1 bash scripts/deploy.sh --compose-override docker-compose.fastestvpn.yml`. If you use `scripts/deploy.sh`, keep that overlay explicit with `EA_ENABLE_FASTESTVPN=1`. The overlay uses `ea-docker-socket-proxy` for operator Docker control, constrains that sidecar with dropped capabilities, `no-new-privileges`, read-only rootfs, and bounded memory/PID limits, keeps the operator image on its default non-root user, mounts only `docker-compose.yml`, `docker-compose.fastestvpn.yml`, and `vpn/fastestvpn/` into the runtime services, drops all ambient Linux capabilities, and applies read-only rootfs, `no-new-privileges`, and bounded memory/PID limits to the operator services. Use `scripts/rotate_fastestvpn_proxy.sh` to recreate the proxy on a fresh FastestVPN exit profile before a full 1min BrowserAct refresh; it uses `docker compose up -d --no-build --force-recreate --no-deps` so the refresh does not rebuild the runtime.
 - `EA_RESPONSES_ONEMIN_INCLUDED_CREDITS_PER_KEY`, `EA_RESPONSES_ONEMIN_BONUS_CREDITS_PER_KEY`, `EA_RESPONSES_ONEMIN_DELETED_KEY_QUARANTINE_SECONDS`, `EA_RESPONSES_ONEMIN_OWNER_LEDGER_PATH`, `EA_RESPONSES_ONEMIN_PROBE_MODEL`, and `EA_RESPONSES_ONEMIN_PROBE_TIMEOUT_SECONDS` tune those credit, owner-ledger, and explicit-probe diagnostics.
 - `EA_RESPONSES_MAGICX_HEALTH_CHECK`, `EA_RESPONSES_MAGICX_HEALTH_INTERVAL_SECONDS`, and `EA_RESPONSES_MAGICX_HEALTH_TIMEOUT_SECONDS` enable and tune the live Magicx fallback probe so provider health reflects a real upstream readiness check.
 - After a BrowserAct inventory refresh, `bash scripts/refresh_ltds_from_inventory.sh --input <inventory.json> --write` can rewrite the `## Discovery Tracking` section in [LTDs.md](LTDs.md) from the structured inventory artifact/output instead of editing the markdown table by hand.
@@ -135,7 +153,12 @@ Auth:
 
 Runtime mode:
 - Set `EA_RUNTIME_MODE=prod` for durable environments; the app will fail fast instead of falling back from `EA_STORAGE_BACKEND=auto` or `memory` to in-process storage.
-- In `prod`, workspace-access token binding must resolve from `EA_PUBLIC_APP_BASE_URL`, `EA_GOOGLE_OAUTH_REDIRECT_URI`, or `EA_WORKSPACE_ACCESS_TOKEN_ISSUER`; keep `EA_WORKSPACE_ACCESS_TOKEN_AUDIENCE` and `EA_WORKSPACE_ACCESS_TOKEN_KEY_VERSION` explicit so session cookies and workspace links stay verifiable across deploys.
+- In `prod`, workspace-access token binding must resolve from `EA_PUBLIC_APP_BASE_URL`, `EA_GOOGLE_OAUTH_REDIRECT_URI`, or `EA_WORKSPACE_ACCESS_TOKEN_ISSUER`; keep `EA_WORKSPACE_ACCESS_TOKEN_AUDIENCE` and `EA_WORKSPACE_ACCESS_TOKEN_KEY_VERSION` explicit so session cookies and workspace links stay verifiable across deploys. Placeholder or loopback binding origins such as `https://example.test`, `https://property.example.test`, or `http://localhost` are rejected.
+- `scripts/deploy.sh` enforces that preflight now: in `prod` it requires real production auth (`EA_API_TOKEN` or Cloudflare Access via `EA_CF_ACCESS_TEAM_DOMAIN` + `EA_CF_ACCESS_AUD`), requires a real `EA_SIGNING_SECRET`, refuses placeholder or loopback token-binding origins, and refuses missing or placeholder `EA_WORKSPACE_ACCESS_TOKEN_AUDIENCE` / `EA_WORKSPACE_ACCESS_TOKEN_KEY_VERSION` values before it recreates containers.
+- The EA core compose publishes its host ports only on `127.0.0.1`, and `docker-compose.prod.yml` does not widen those bindings. If the runtime should be reachable from outside the host, add an explicit ingress override such as `docker-compose.cloudflared.yml` instead of changing the core bind posture.
+- `docker-compose.property.yml` now follows that same default posture: the property API bind stays on `127.0.0.1`, and the property API, scheduler, and database containers run with dropped capabilities, `no-new-privileges`, and bounded memory/PID limits.
+- The Cloudflare tunnel override keeps `ea-cloudflared` digest-pinned and constrained with dropped capabilities, `no-new-privileges`, and bounded memory/PID limits, so ingress stays on the same hardening path as the rest of the runtime.
+- In `prod`, legacy authenticated runtime surfaces stay off by default as well. Keep `EA_ENABLE_LEGACY_RUNTIME_SURFACES=0` for EA core product deploys, and only opt in when a governed migration or operator-only lane still needs `/v1/memory/*`, `/v1/rewrite/*`, `/v1/channels/*`, or `/v1/responses*`.
 - For the durable runtime profile, run `bash scripts/deploy.sh`.
 
 Memorial shadow STT:
@@ -297,8 +320,15 @@ The local release-check bundle is:
 - `make smoke-help`
 - `make ci-local`
 - `make test-api`
+- `make materialize-release-assets`
 - `make verify-release-assets`
+- `make materialize-deploy-context`
+- `make materialize-release-manifest`
+- `make verify-deploy-context`
 - `make verify-release-authority`
+- `make verify-release-authority-runtime`
+- `make verify-release-authority-runtime-authoritative`
+- `make release-authority-probe`
 - `make verify-flagship-release-readiness`
 - `make verify-whole-project-gold-map`
 - `make verify-generated-release-artifacts-clean`
@@ -310,7 +340,9 @@ The local release-check bundle is:
 
 Release-preflight highlights:
 
+  - `make materialize-release-assets`
   - `make verify-release-authority`
+  - `make release-authority-probe`
   - `make verify-flagship-release-readiness`
   - `make verify-whole-project-gold-map`
   - `make verify-generated-release-artifacts-clean`
@@ -482,6 +514,7 @@ curl -fsS http://localhost:${EA_HOST_PORT:-8090}/health
 curl -fsS http://localhost:${EA_HOST_PORT:-8090}/health/live
 curl -fsS http://localhost:${EA_HOST_PORT:-8090}/health/ready
 curl -fsS http://localhost:${EA_HOST_PORT:-8090}/version
+curl -fsS http://localhost:${EA_HOST_PORT:-8090}/health/release-authority
 ```
 
 ## 4) Rewrite + Session Audit Smoke
@@ -774,6 +807,15 @@ SUPPORT_INCLUDE_DB_VOLUME=0 bash scripts/support_bundle.sh
 SUPPORT_INCLUDE_DB_SIZE=0 bash scripts/support_bundle.sh
 # optional: DB size snapshot top-table limit
 SUPPORT_DB_SIZE_LIMIT=15 bash scripts/support_bundle.sh
+# inspect the same clean-receipt blocker groups without writing a bundle
+make inspect-source-dirty-groups
+# verify the grouping report contract before handing the blocker off
+make verify-source-dirty-groups
+# support bundles include both ea.source_dirty_groups.v1 and ea.source_dirty_groups_verifier.v1
+# list group names/counts before drilling into one blocker group
+scripts/inspect_source_dirty_groups.py --list-categories
+# narrow the source-dirty view to one blocker group
+scripts/inspect_source_dirty_groups.py --category api_routes --limit 20
 # optional: skip queue snapshot
 SUPPORT_INCLUDE_QUEUE=0 bash scripts/support_bundle.sh
 # optional: custom filename prefix
@@ -808,6 +850,7 @@ bash scripts/verify_release_assets.sh
 # or
 make verify-release-assets
 make verify-whole-project-gold-map
+make verify-memorial-runtime-overlay
 make verify-memorial-voice-stability
 make materialize-memorial-phrase-bank
 make materialize-memorial-operator-status
@@ -818,7 +861,7 @@ make docs-verify
 make release-docs
 ```
 
-Use `make release-docs` as a pre-smoke documentation/usage pass before running `make release-preflight`. `make verify-release-authority` is the deploy-truth guard: it fails closed unless the manifest records a runtime public origin, explicit deployment id, clean worktree, and compose topology strong enough for a shipping claim. `make verify-whole-project-gold-map` is the explicit overclaim guard: a green result means the EA-controlled receipt set is coherent, not that EA owns every Chummer, Fleet, Property, media-provider, or design truth plane. `make verify-memorial-voice-stability` is the repeat deployed voice-loop check to run before a public memorial presentation claim. `make materialize-memorial-phrase-bank` refreshes the approved memorial audio/visible-copy phrase bank, `make materialize-memorial-operator-status` refreshes the operator-facing local/public-gold status card, and `make materialize-memorial-room-audio-gold-clean` records the final manual room/device receipt from a clean clone so unrelated worktree drift does not poison the proof.
+Use `make release-docs` as a pre-smoke documentation/usage pass before running `make release-preflight`. `make verify-runtime-supply-chain` is the runtime dependency and pinned-image guard for release-stage claims. `make verify-release-authority` is the deploy-truth guard: it fails closed unless the manifest records a runtime public origin, explicit deployment id, clean worktree, and compose topology strong enough for a shipping claim. `make materialize-deploy-context` is the deploy-attempt receipt: it must carry repository, branch, tracking branch, commit, deployment id, public origin, release label, project mode, and compose topology before the release manifest can claim authority. `make verify-release-authority-runtime-authoritative` is the live-runtime guard: it fails unless the running `/health/release-authority` surface is internally consistent, `clear`, `authoritative_runtime`, and both nested release/deploy gates pass. `make verify-whole-project-gold-map` is the explicit overclaim guard: a green result means the EA-controlled receipt set is coherent, not that EA owns every Chummer, Fleet, Property, media-provider, or design truth plane. `make verify-memorial-deploy-readiness` is the memorial pre-deploy guard: it fails closed unless memorial operator status and release authority agree the deploy can be trusted. `make verify-memorial-runtime-overlay` is the memorial deployment guard: it fails closed unless `/health/live` reports the memorial runtime overlay as mounted with a healthcheck slug, so public memorial gold claims cannot ride on a base stack that still has the surface disabled. `make verify-project-mode-runtime-memorial` is the mounted-surface guard: it proves the memorial public page and manifest are actually reachable once the overlay is present. `make verify-memorial-voice-stability` is the repeat deployed voice-loop check to run before a public memorial presentation claim. `make materialize-memorial-phrase-bank` refreshes the approved memorial audio/visible-copy phrase bank, `make materialize-memorial-operator-status` refreshes the operator-facing local/public-gold status card, and `make materialize-memorial-room-audio-gold-clean` records the final manual room/device receipt from a clean clone so unrelated worktree drift does not poison the proof.
 
 Combined local readiness check:
 
@@ -828,15 +871,26 @@ make all-local
 
 `make all-local` is a lightweight readiness pass that still checks release assets, flagship release readiness, and generated release artifact cleanliness. It does not require release-claim authority. Use `make release-preflight` for release-stage smoke and operator checks.
 
-Deploys now default to a runtime hard-exit pass after the stack reports healthy. `scripts/deploy.sh` will run `bash scripts/runtime_hard_exit_gates.sh` unless `EA_RUN_RUNTIME_HARD_EXIT_GATES=0`. The runtime bundle is deploy-safe and excludes the deeper `smoke_api_principal.sh` contract lane; that lane remains part of `make hard-exit-gates`.
+Deploys now default to a runtime hard-exit pass after the stack reports healthy. `scripts/deploy.sh` will run `bash scripts/runtime_hard_exit_gates.sh` unless `EA_RUN_RUNTIME_HARD_EXIT_GATES=0`. The runtime bundle is deploy-safe, includes the authoritative live-runtime release verifier, and excludes the deeper `smoke_api_principal.sh` contract lane; that lane remains part of `make hard-exit-gates`. When the deploy enables `MEMORIAL` mode, the same runtime bundle also runs `verify_memorial_runtime_overlay` plus `verify_project_mode_runtime.py --mode memorial` automatically before the deploy is allowed to finish.
 
-Release preflight aggregate (asset checks + release-authority verification + flagship release-readiness verification + generated release artifact cleanliness + operator help + release smoke):
+Release preflight aggregate (asset checks + release-authority verification + authoritative runtime verification + flagship release-readiness verification + generated release artifact cleanliness + operator help + release smoke):
 
 ```bash
 make release-preflight
 ```
 
 `RELEASE_CHECKLIST.md` now includes explicit EA flagship truth-plane, release-authority, and release-readiness preflight lines to validate the browser proof, release gate seed, weekly pulse, Fleet journey gate, and deploy truth.
+
+Memorial-mode deploy:
+
+```bash
+make verify-memorial-deploy-readiness
+make deploy-ea-memorial
+make verify-memorial-runtime-overlay
+```
+
+`make verify-memorial-deploy-readiness` should run before `make deploy-ea-memorial`. `make deploy-ea-memorial` is the first-class memorial runtime path. It sets `EA_DEPLOY_PRIMARY_MODE=MEMORIAL`, layers `docker-compose.memorial.yml`, and ensures the deploy context, release manifest, and project-mode receipts describe a memorial runtime instead of a generic EA core stack.
+The memorial overlay bind-mounts `${EA_MEMORIAL_DATA_HOST_PATH:-./memorial_data}` read-only at `/data/memorial_data`; set that host path explicitly if the Manfred public/private memorial data lives outside the repo checkout.
 
 Standalone-compatible service aliases for shared operator scripts:
 

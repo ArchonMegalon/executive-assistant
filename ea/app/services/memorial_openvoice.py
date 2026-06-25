@@ -15,10 +15,8 @@ import requests
 from fastapi import HTTPException
 
 
-OPENVOICE_TTS_PLUGIN_ID = "openvoice_local"
-OPENVOICE_TTS_PLUGIN_LABEL = "OpenVoice Local Clone"
+OPENVOICE_TTS_PLUGIN_ID = "openvoice_local"  # Legacy config value; never offered as a TTS provider.
 PIPER_FAST_TTS_PLUGIN_ID = "piper_local_fast"
-PIPER_FAST_TTS_PLUGIN_LABEL = "Piper Local Fast"
 UNMIXR_TTS_PLUGIN_ID = "unmixr_clone"
 UNMIXR_TTS_PLUGIN_LABEL = "Unmixr AI Clone"
 VOICEWAVE_TTS_PLUGIN_ID = "voicewave_clone"
@@ -317,7 +315,14 @@ def unmixr_language(default: str = "de") -> str:
     if preferred.lower().startswith("de"):
         return "de"
     configured = str(os.environ.get(_UNMIXR_LANGUAGE_ENV) or "").strip()
-    return preferred or configured or "de"
+    selected = preferred or configured or "de"
+    normalized = selected.replace("_", "-").strip()
+    if not normalized:
+        return "de"
+    if "-" not in normalized:
+        return normalized.lower()
+    language, region = normalized.split("-", 1)
+    return f"{language.lower()}-{region.upper()}" if language and region else normalized
 
 
 def unmixr_speaking_rate() -> str:
@@ -385,50 +390,6 @@ def _voicewave_cache_paths(*, text: str, voice_label: str) -> tuple[Path, Path]:
     key = _voicewave_cache_key(text=text, voice_label=voice_label)
     root = voicewave_cache_root()
     return root / f"{key}.wav", root / f"{key}.json"
-
-
-def openvoice_plugin_option(*, configured_voice_id: str, voice_profile_ready: bool) -> dict[str, object]:
-    base_url = openvoice_base_url()
-    plugin_enabled = bool(base_url)
-    needs_clone = bool(plugin_enabled and voice_profile_ready and not configured_voice_id)
-    if not base_url:
-        description = "Bitte OPENVOICE_BASE_URL auf einen self-hosted OpenVoice-Service setzen."
-    elif needs_clone:
-        description = "Stimmprofil ist bereit. Bitte jetzt den OpenVoice-Klon erzeugen."
-    elif not configured_voice_id:
-        description = "OpenVoice ist verbunden. Es fehlt noch eine aktive Voice-ID."
-    else:
-        description = "OpenVoice-Klon fuer Live-Sprachausgabe ist aktiviert."
-    return {
-        "tts_plugin": OPENVOICE_TTS_PLUGIN_ID,
-        "tts_plugin_label": OPENVOICE_TTS_PLUGIN_LABEL,
-        "tts_plugin_description": description,
-        "tts_plugin_enabled": plugin_enabled,
-        "tts_plugin_needs_clone": needs_clone,
-        "tts_plugin_clone_capable": True,
-        "tts_plugin_requires_voice_id": True,
-        "tts_plugin_voice_id": configured_voice_id,
-        "tts_plugin_voice_profile_ready": bool(voice_profile_ready),
-        "tts_plugin_base_url": base_url,
-    }
-
-
-def piper_fast_plugin_option() -> dict[str, object]:
-    base_url = openvoice_base_url()
-    plugin_enabled = bool(base_url)
-    description = "Schneller lokaler Realtime-TTS-Pfad ueber Piper." if base_url else "Bitte OPENVOICE_BASE_URL auf den lokalen Voice-Service setzen."
-    return {
-        "tts_plugin": PIPER_FAST_TTS_PLUGIN_ID,
-        "tts_plugin_label": PIPER_FAST_TTS_PLUGIN_LABEL,
-        "tts_plugin_description": description,
-        "tts_plugin_enabled": plugin_enabled,
-        "tts_plugin_needs_clone": False,
-        "tts_plugin_clone_capable": False,
-        "tts_plugin_requires_voice_id": False,
-        "tts_plugin_voice_id": "",
-        "tts_plugin_voice_profile_ready": True,
-        "tts_plugin_base_url": base_url,
-    }
 
 
 def unmixr_plugin_option(*, configured_voice_id: str, voice_profile_ready: bool) -> dict[str, object]:
@@ -822,50 +783,7 @@ def openvoice_clone_request(
     sample_paths: list[Path],
     voice_id: str | None = None,
 ) -> str:
-    if not sample_paths:
-        raise HTTPException(status_code=400, detail="voice_profile_no_samples")
-    sample_paths = _curate_clone_paths(sample_paths)
-    prepared_files: list[tuple[str, object]] = []
-    temp_paths: list[Path] = []
-    try:
-        for index, path in enumerate(sample_paths, start=1):
-            upload_path, is_temp = _prepare_clone_upload_path(path)
-            if is_temp:
-                temp_paths.append(upload_path)
-            prepared_files.append(
-                (
-                    "files",
-                    (
-                        f"memorial-{slug}-{index}{upload_path.suffix or '.wav'}",
-                        upload_path.read_bytes(),
-                        "application/octet-stream",
-                    ),
-                )
-            )
-        response = _openvoice_request(
-            method="POST",
-            path="/clone",
-            data={
-                "slug": slug,
-                "voice_label": voice_label,
-                "voice_id": str(voice_id or f"{slug}-openvoice").strip() or f"{slug}-openvoice",
-            },
-            files=prepared_files,
-        )
-    finally:
-        for temp_path in temp_paths:
-            temp_path.unlink(missing_ok=True)
-    try:
-        payload = response.json()
-    except Exception:
-        payload = {}
-    if response.status_code >= 400 or not response.ok:
-        detail = str(payload.get("detail") or payload.get("error") or "openvoice_clone_failed").strip()
-        raise HTTPException(status_code=502, detail=f"{detail}:{response.status_code}")
-    voice_id = str(payload.get("voice_id") or payload.get("id") or "").strip()
-    if not voice_id:
-        raise HTTPException(status_code=502, detail="openvoice_clone_invalid_response")
-    return voice_id
+    raise HTTPException(status_code=410, detail="openvoice_tts_pipeline_removed")
 
 
 def unmixr_clone_request(*, slug: str, voice_label: str, sample_paths: list[Path]) -> str:
@@ -960,59 +878,15 @@ def unmixr_delete_clone_profile_request(*, profile_id: str) -> dict[str, object]
 
 
 def openvoice_synthesize_request(*, text: str, voice_id: str, lang: str) -> tuple[bytes, str]:
-    return openvoice_synthesize_request_with_variant(text=text, voice_id=voice_id, lang=lang, base_voice_variant="")
+    raise HTTPException(status_code=410, detail="openvoice_tts_pipeline_removed")
 
 
 def openvoice_synthesize_request_with_variant(*, text: str, voice_id: str, lang: str, base_voice_variant: str) -> tuple[bytes, str]:
-    normalized_voice_id = str(voice_id or "").strip()
-    if not normalized_voice_id:
-        raise HTTPException(status_code=409, detail="tts_voice_id_missing")
-    response = _openvoice_request(
-        method="POST",
-        path="/synthesize",
-        json_payload={
-            "text": text,
-            "voice_id": normalized_voice_id,
-            "lang": str(lang or "de").strip() or "de",
-            "base_voice_variant": str(base_voice_variant or "default").strip() or "default",
-        },
-    )
-    if response.status_code >= 400 or not response.ok:
-        try:
-            payload = response.json()
-        except Exception:
-            payload = {}
-        detail = str(payload.get("detail") or payload.get("error") or "openvoice_tts_failed").strip()
-        raise HTTPException(status_code=502, detail=f"{detail}:{response.status_code}")
-    content = response.content
-    if not content:
-        raise HTTPException(status_code=502, detail="openvoice_tts_no_audio")
-    content_type = str(response.headers.get("Content-Type") or "audio/wav").split(";", 1)[0].strip().lower() or "audio/wav"
-    return content, content_type
+    raise HTTPException(status_code=410, detail="openvoice_tts_pipeline_removed")
 
 
 def piper_fast_synthesize_request(*, text: str, lang: str, base_voice_variant: str) -> tuple[bytes, str]:
-    response = _openvoice_request(
-        method="POST",
-        path="/synthesize-base",
-        json_payload={
-            "text": text,
-            "lang": str(lang or "de").strip() or "de",
-            "base_voice_variant": str(base_voice_variant or "default").strip() or "default",
-        },
-    )
-    if response.status_code >= 400 or not response.ok:
-        try:
-            payload = response.json()
-        except Exception:
-            payload = {}
-        detail = str(payload.get("detail") or payload.get("error") or "piper_fast_tts_failed").strip()
-        raise HTTPException(status_code=502, detail=f"{detail}:{response.status_code}")
-    content = response.content
-    if not content:
-        raise HTTPException(status_code=502, detail="piper_fast_tts_no_audio")
-    content_type = str(response.headers.get("Content-Type") or "audio/wav").split(";", 1)[0].strip().lower() or "audio/wav"
-    return content, content_type
+    raise HTTPException(status_code=410, detail="openvoice_tts_pipeline_removed")
 
 
 def unmixr_synthesize_request(
