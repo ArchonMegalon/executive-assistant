@@ -75,6 +75,30 @@ def _clean_cli_failure_detail(raw_detail: str) -> str:
     return cleaned or text
 
 
+def _gemini_spawn_pressure_cooldown_seconds() -> int:
+    raw = _env_value("EA_GEMINI_VORTEX_SPAWN_PRESSURE_COOLDOWN_SECONDS") or "45"
+    try:
+        return max(5, min(600, int(raw)))
+    except Exception:
+        return 45
+
+
+def _is_retryable_cli_failure_detail(detail: str) -> bool:
+    lowered = str(detail or "").strip().lower()
+    if not lowered:
+        return False
+    return any(
+        token in lowered
+        for token in (
+            "spawn /usr/bin/node eagain",
+            "resource temporarily unavailable",
+            "workerthreadstaskrunner::delayedscheduler::start",
+            "node_platform.cc:68",
+            "assert",
+        )
+    )
+
+
 def _provider_ledger_dir() -> Path | None:
     raw = _env_value("EA_RESPONSES_PROVIDER_LEDGER_DIR") or "/tmp/ea_provider_ledger"
     if not raw:
@@ -205,6 +229,73 @@ def _save_slot_ledger(payload: dict[str, dict[str, Any]]) -> None:
         return
 
 
+def _spawn_pressure_ledger_path() -> Path | None:
+    root = _provider_ledger_dir()
+    if root is None:
+        return None
+    return root / "gemini_vortex_spawn_pressure.json"
+
+
+def _load_spawn_pressure_state() -> dict[str, Any]:
+    target = _spawn_pressure_ledger_path()
+    if target is None or not target.exists():
+        return {}
+    try:
+        loaded = json.loads(target.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return dict(loaded) if isinstance(loaded, dict) else {}
+
+
+def _save_spawn_pressure_state(payload: dict[str, Any]) -> None:
+    target = _spawn_pressure_ledger_path()
+    if target is None:
+        return
+    try:
+        target.write_text(json.dumps(payload, ensure_ascii=True, sort_keys=True, indent=2), encoding="utf-8")
+    except Exception:
+        return
+
+
+def _clear_spawn_pressure_state() -> None:
+    target = _spawn_pressure_ledger_path()
+    if target is None:
+        return
+    try:
+        target.unlink(missing_ok=True)
+    except Exception:
+        return
+
+
+def _spawn_pressure_active() -> tuple[bool, str]:
+    payload = _load_spawn_pressure_state()
+    if not payload:
+        return (False, "")
+    expires_at = _parse_iso(str(payload.get("cooldown_expires_at") or ""))
+    now = datetime.now(_UTC)
+    if expires_at is None or expires_at <= now:
+        _clear_spawn_pressure_state()
+        return (False, "")
+    detail = str(payload.get("detail") or "").strip()
+    remaining_seconds = max(1, int((expires_at - now).total_seconds()))
+    reason = f"spawn_pressure_cooldown:{remaining_seconds}s"
+    if detail:
+        reason = f"{reason}:{detail[:160]}"
+    return (True, reason)
+
+
+def _record_spawn_pressure(detail: str) -> None:
+    now = datetime.now(_UTC)
+    cooldown_seconds = _gemini_spawn_pressure_cooldown_seconds()
+    payload = {
+        "state": "cooldown",
+        "recorded_at": now.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "cooldown_expires_at": (now + timedelta(seconds=cooldown_seconds)).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "detail": str(detail or "").strip()[:240],
+    }
+    _save_spawn_pressure_state(payload)
+
+
 def _lease_is_active(entry: dict[str, Any], *, now: datetime | None = None) -> bool:
     current = now or datetime.now(_UTC)
     lease_expires_at = _parse_iso(str(entry.get("lease_expires_at") or ""))
@@ -222,6 +313,7 @@ def gemini_vortex_slot_status() -> list[dict[str, Any]]:
     adapter = GeminiVortexToolAdapter()
     ledger = _load_slot_ledger()
     now = datetime.now(_UTC)
+    spawn_pressure_active, spawn_pressure_detail = _spawn_pressure_active()
     payload: list[dict[str, Any]] = []
     for slot in adapter._auth_slots():
         entry = dict(ledger.get(slot.slot) or {})
@@ -240,6 +332,8 @@ def gemini_vortex_slot_status() -> list[dict[str, Any]]:
                 "last_used_at": str(entry.get("last_used_at") or ""),
                 "last_result": str(entry.get("last_result") or ""),
                 "last_result_detail": str(entry.get("last_result_detail") or ""),
+                "spawn_pressure_active": spawn_pressure_active,
+                "spawn_pressure_detail": spawn_pressure_detail if spawn_pressure_active else "",
             }
         )
     return payload
@@ -435,6 +529,9 @@ class GeminiVortexToolAdapter:
         prompt = self._build_prompt(payload)
         model = _normalize_cli_model_name(str(payload.get("model") or self._default_model()).strip()) or self._default_model()
         principal_id = str((request.context_json or {}).get("principal_id") or payload.get("principal_id") or "").strip()
+        spawn_pressure_active, spawn_pressure_detail = _spawn_pressure_active()
+        if spawn_pressure_active:
+            raise ToolExecutionError(f"gemini_vortex_{spawn_pressure_detail}")
         command = self._command_base() + [
             "-p",
             prompt,
@@ -467,6 +564,7 @@ class GeminiVortexToolAdapter:
                 )
                 selected_slot = slot
                 selected_lease = self._record_slot_usage(slot, principal_id=principal_id, success=True)
+                _clear_spawn_pressure_state()
                 break
             except FileNotFoundError as exc:
                 raise ToolExecutionError("gemini_vortex_cli_missing") from exc
@@ -476,6 +574,8 @@ class GeminiVortexToolAdapter:
                 detail = _clean_cli_failure_detail(exc.stderr or "")
                 if detail == "gemini_vortex_failed":
                     detail = _clean_cli_failure_detail(exc.stdout or "")
+                if _is_retryable_cli_failure_detail(detail):
+                    _record_spawn_pressure(detail)
                 self._record_slot_usage(slot, principal_id=principal_id, success=False, detail=detail)
                 failures.append(f"{slot.account_name}:{detail[:160]}")
         if completed is None:

@@ -48,7 +48,11 @@ from app.services.brain_catalog import (
 )
 from app.services.onemin_manager import active_onemin_manager
 from app.services.tool_execution_common import ToolExecutionError
-from app.services.tool_execution_gemini_vortex_adapter import GeminiVortexToolAdapter, gemini_vortex_slot_status
+from app.services.tool_execution_gemini_vortex_adapter import (
+    GeminiVortexToolAdapter,
+    _spawn_pressure_active as _gemini_spawn_pressure_active,
+    gemini_vortex_slot_status,
+)
 ChatMessage = dict[str, str]
 
 _LOG = logging.getLogger("ea.responses.upstream")
@@ -60,11 +64,16 @@ _ONEMIN_KEY_STATES: dict[str, OneminKeyState] = {}
 _ONEMIN_USAGE_EVENTS: deque[OneminUsageEvent] = deque(maxlen=512)
 _ONEMIN_REQUIRED_CREDIT_EVENTS: deque[OneminRequiredCreditObservation] = deque(maxlen=128)
 _ONEMIN_PROBE_EVENTS: deque[OneminProbeEvent] = deque(maxlen=512)
+_ONEMIN_ATTEMPT_EVENTS: deque["OneminAttemptEvent"] = deque(maxlen=1024)
 _PROVIDER_BALANCE_SNAPSHOTS: deque[ProviderBalanceSnapshot] = deque(maxlen=512)
 _PROVIDER_BILLING_SNAPSHOTS: deque[ProviderBillingSnapshot] = deque(maxlen=512)
 _PROVIDER_MEMBER_RECONCILIATION_SNAPSHOTS: deque[ProviderMemberReconciliationSnapshot] = deque(maxlen=256)
 _PROVIDER_DISPATCH_EVENTS: deque[ProviderDispatchEvent] = deque(maxlen=1024)
 _ONEMIN_USAGE_LOCK = threading.Lock()
+_ONEMIN_ATTEMPT_LOCK = threading.Lock()
+_ONEMIN_ATTEMPT_INFLIGHT_TOTAL = 0
+_ONEMIN_ATTEMPT_INFLIGHT_BY_PROXY: dict[str, int] = {}
+_ONEMIN_ATTEMPT_INFLIGHT_BY_PROXY_ACCOUNT: dict[tuple[str, str], int] = {}
 _PROVIDER_LEDGER_LOADED = False
 _PROVIDER_LEDGER_LOCK = threading.Lock()
 _ONEMIN_BACKGROUND_REFRESH_LOCK = threading.Lock()
@@ -547,6 +556,32 @@ class OneminProbeEvent:
 
 
 @dataclass(frozen=True)
+class OneminAttemptEvent:
+    happened_at: float
+    attempt_id: str
+    request_id: str
+    lane: str
+    model_requested: str
+    model_resolved: str
+    account_name: str
+    key_slot: str
+    endpoint_mode: str
+    endpoint_url: str
+    proxy_id: str
+    proxy_service: str
+    timeout_seconds: int
+    latency_ms: int
+    status: str
+    error: str = ""
+    http_status: int | None = None
+    principal_id: str = ""
+    inflight_total: int = 0
+    inflight_same_proxy: int = 0
+    inflight_same_account: int = 0
+    principal_scope_id: str = ""
+
+
+@dataclass(frozen=True)
 class ProviderDispatchEvent:
     happened_at: float
     provider_key: str
@@ -720,6 +755,7 @@ def _load_provider_ledgers_once() -> None:
         state_rows = _load_provider_ledger_records("onemin_key_state_events.jsonl")
         required_rows = _load_provider_ledger_records("onemin_required_credit_events.jsonl")
         probe_rows = _load_provider_ledger_records("onemin_probe_events.jsonl")
+        attempt_rows = _load_provider_ledger_records("onemin_attempt_events.jsonl")
         balance_rows = _load_provider_ledger_records("provider_balance_snapshots.jsonl")
         billing_rows = _load_provider_ledger_records("provider_billing_snapshots.jsonl")
         member_rows = _load_provider_ledger_records("provider_member_reconciliation_snapshots.jsonl")
@@ -790,6 +826,38 @@ def _load_provider_ledgers_once() -> None:
                             model=str(row.get("model") or ""),
                             latency_ms=int(row.get("latency_ms") or 0),
                             source=str(row.get("source") or "explicit_probe"),
+                        )
+                    )
+                except Exception:
+                    continue
+            for row in attempt_rows[-_ONEMIN_ATTEMPT_EVENTS.maxlen :]:
+                try:
+                    _ONEMIN_ATTEMPT_EVENTS.append(
+                        OneminAttemptEvent(
+                            happened_at=float(row.get("happened_at") or 0.0),
+                            attempt_id=str(row.get("attempt_id") or ""),
+                            request_id=str(row.get("request_id") or ""),
+                            lane=str(row.get("lane") or ""),
+                            model_requested=str(row.get("model_requested") or ""),
+                            model_resolved=str(row.get("model_resolved") or ""),
+                            account_name=str(row.get("account_name") or ""),
+                            key_slot=str(row.get("key_slot") or ""),
+                            endpoint_mode=str(row.get("endpoint_mode") or ""),
+                            endpoint_url=str(row.get("endpoint_url") or ""),
+                            proxy_id=str(row.get("proxy_id") or ""),
+                            proxy_service=str(row.get("proxy_service") or ""),
+                            timeout_seconds=int(row.get("timeout_seconds") or 0),
+                            latency_ms=int(row.get("latency_ms") or 0),
+                            status=str(row.get("status") or ""),
+                            error=str(row.get("error") or ""),
+                            http_status=(
+                                int(row.get("http_status")) if row.get("http_status") is not None else None
+                            ),
+                            principal_id=str(row.get("principal_id") or ""),
+                            inflight_total=int(row.get("inflight_total") or 0),
+                            inflight_same_proxy=int(row.get("inflight_same_proxy") or 0),
+                            inflight_same_account=int(row.get("inflight_same_account") or 0),
+                            principal_scope_id=str(row.get("principal_scope_id") or ""),
                         )
                     )
                 except Exception:
@@ -920,6 +988,7 @@ def _non_empty_values(*values: str) -> tuple[str, ...]:
 
 
 _ONEMIN_FALLBACK_ENV_RE = re.compile(r"^ONEMIN_AI_API_KEY_FALLBACK_(\d+)$")
+_ONEMIN_INDEXED_ENV_RE = re.compile(r"^(?:EA_RESPONSES_)?ONEMIN(?:_AI)?_API_KEY_(\d+)$")
 _ONEMIN_FALLBACK_SLOT_RE = re.compile(r"^fallback_?(\d+)$")
 
 
@@ -1101,12 +1170,20 @@ def _onemin_secret_env_name_for_key(api_key: str) -> str:
 
 def _onemin_secret_env_names() -> tuple[str, ...]:
     fallback_numbers: set[int] = set()
+    indexed_names: dict[int, str] = {}
     for env_name in os.environ:
-        match = _ONEMIN_FALLBACK_ENV_RE.match(str(env_name or "").strip())
-        if match is None:
+        normalized_env_name = str(env_name or "").strip()
+        match = _ONEMIN_FALLBACK_ENV_RE.match(normalized_env_name)
+        indexed_match = _ONEMIN_INDEXED_ENV_RE.match(normalized_env_name)
+        if match is None and indexed_match is None:
             continue
         try:
-            fallback_numbers.add(int(match.group(1)))
+            if match is not None:
+                fallback_numbers.add(int(match.group(1)))
+            elif indexed_match is not None:
+                index = int(indexed_match.group(1))
+                if index >= 1:
+                    indexed_names[index] = normalized_env_name
         except Exception:
             continue
     for slot_name in _merge_unique(
@@ -1129,6 +1206,10 @@ def _onemin_secret_env_names() -> tuple[str, ...]:
             continue
         trailing_names.append(account_name)
     names = ["ONEMIN_AI_API_KEY"]
+    for index in sorted(indexed_names):
+        if index <= 1:
+            continue
+        names.append(indexed_names[index])
     for slot_number in sorted(fallback_numbers):
         names.append(manifest_by_slot.get(slot_number) or f"ONEMIN_AI_API_KEY_FALLBACK_{slot_number}")
     names.extend(trailing_names)
@@ -1902,7 +1983,10 @@ def _onemin_slot_key_names(raw_slot_names: tuple[str, ...], all_keys: tuple[str,
 
 def _onemin_active_keys() -> tuple[str, ...]:
     all_keys = _onemin_key_names()
-    return _onemin_slot_key_names(_configured_slot_names(), all_keys, fallback_default=True)
+    configured = _configured_slot_names()
+    if configured:
+        return _onemin_slot_key_names(configured, all_keys, fallback_default=False)
+    return all_keys
 
 
 def _onemin_reserve_keys() -> tuple[str, ...]:
@@ -1911,7 +1995,7 @@ def _onemin_reserve_keys() -> tuple[str, ...]:
     if configured_reserve:
         return configured_reserve
     active_keys = set(_onemin_active_keys())
-    return tuple(key for key in all_keys[len(active_keys) :] if key)
+    return tuple(key for key in all_keys if key and key not in active_keys)
 
 
 def _onemin_slot_role_for_key(api_key: str, *, active_keys: tuple[str, ...], reserve_keys: tuple[str, ...]) -> str:
@@ -4335,8 +4419,22 @@ def _provider_order_for_lane_health(
     lane: str,
     ordered: tuple[str, ...],
 ) -> tuple[str, ...]:
-    if lane not in {_LANE_HARD, _LANE_REVIEW, _LANE_AUDIT, _LANE_REVIEW_LIGHT}:
+    if lane not in {
+        _LANE_FAST,
+        _LANE_OVERFLOW,
+        _LANE_HARD,
+        _LANE_REVIEW,
+        _LANE_AUDIT,
+        _LANE_REVIEW_LIGHT,
+    }:
         return ordered
+    if lane in {_LANE_FAST, _LANE_OVERFLOW} and "gemini_vortex" in ordered:
+        try:
+            gemini_state, _ = _gemini_vortex_health_state()
+        except Exception:
+            gemini_state = "unknown"
+        if gemini_state != "ready":
+            ordered = tuple(provider_key for provider_key in ordered if provider_key != "gemini_vortex")
     if "onemin" not in ordered:
         return ordered
     providers = dict((_provider_health_snapshot(lightweight=True).get("providers") or {}))
@@ -4512,6 +4610,10 @@ def _provider_configs() -> dict[str, ProviderConfig]:
 
 
 def _gemini_vortex_health_state() -> tuple[str, str]:
+    spawn_pressure_active, spawn_pressure_detail = _gemini_spawn_pressure_active()
+    if spawn_pressure_active:
+        return ("degraded", f"spawn_pressure_cooldown:{spawn_pressure_detail}")
+
     command = _env("EA_GEMINI_VORTEX_COMMAND") or "gemini"
     adapter = GeminiVortexToolAdapter()
     command_base = adapter._command_base()
@@ -4977,6 +5079,159 @@ def _post_sse(
         raise ResponsesUpstreamError(f"request_failed:{exc}") from exc
 
 
+def _onemin_attempt_proxy_for_request(*, url: str, api_key: str) -> tuple[str, str]:
+    proxy_url = ""
+    if _is_onemin_direct_api_url(url):
+        proxy_url = _onemin_direct_api_proxy_url_for_subject(api_key)
+    return _onemin_proxy_identity(proxy_url)
+
+
+def _onemin_http_status_label(status: int | None) -> str:
+    if status is None:
+        return "error"
+    if 200 <= int(status) < 300:
+        return "success"
+    return f"http_{int(status)}"
+
+
+def _post_onemin_json_with_attempt(
+    *,
+    url: str,
+    api_key: str,
+    payload: dict[str, object],
+    timeout_seconds: int,
+    attempt_id: str,
+    request_id: str,
+    lane: str,
+    model: str,
+    account_name: str,
+    key_slot: str,
+    principal_id: str,
+    principal_scope_id: str,
+    endpoint_mode: str,
+) -> tuple[int, dict[str, Any] | list[Any] | str]:
+    proxy_id, proxy_service = _onemin_attempt_proxy_for_request(url=url, api_key=api_key)
+    inflight_total, inflight_same_proxy, inflight_same_account = _onemin_attempt_enter(
+        proxy_id=proxy_id,
+        account_name=account_name,
+    )
+    started_at = _now_ms()
+    status: int | None = None
+    error = ""
+    try:
+        status, response_payload = _post_json(
+            url=url,
+            headers={"API-KEY": api_key},
+            payload=payload,
+            timeout_seconds=timeout_seconds,
+        )
+        return status, response_payload
+    except ResponsesUpstreamError as exc:
+        error = str(exc)
+        raise
+    finally:
+        latency_ms = _now_ms() - started_at
+        try:
+            try:
+                _record_onemin_attempt_event(
+                    attempt_id=attempt_id,
+                    request_id=request_id,
+                    lane=lane,
+                    model_requested=model,
+                    model_resolved=model,
+                    account_name=account_name,
+                    key_slot=key_slot,
+                    endpoint_mode=endpoint_mode,
+                    endpoint_url=url,
+                    proxy_id=proxy_id,
+                    proxy_service=proxy_service,
+                    timeout_seconds=timeout_seconds,
+                    latency_ms=latency_ms,
+                    status=_onemin_http_status_label(status),
+                    http_status=status,
+                    error=_compact_text_preview(error, limit=240) if error else "",
+                    principal_id=principal_id,
+                    inflight_total=inflight_total,
+                    inflight_same_proxy=inflight_same_proxy,
+                    inflight_same_account=inflight_same_account,
+                    principal_scope_id=principal_scope_id,
+                )
+            except Exception:
+                _LOG.debug("onemin_attempt_telemetry_record_failed", exc_info=True)
+        finally:
+            _onemin_attempt_exit(proxy_id=proxy_id, account_name=account_name)
+
+
+def _post_onemin_sse_with_attempt(
+    *,
+    url: str,
+    api_key: str,
+    payload: dict[str, object],
+    timeout_seconds: int,
+    on_event: Callable[[str, str], None],
+    attempt_id: str,
+    request_id: str,
+    lane: str,
+    model: str,
+    account_name: str,
+    key_slot: str,
+    principal_id: str,
+    principal_scope_id: str,
+    endpoint_mode: str,
+) -> tuple[int, str | None]:
+    proxy_id, proxy_service = _onemin_attempt_proxy_for_request(url=url, api_key=api_key)
+    inflight_total, inflight_same_proxy, inflight_same_account = _onemin_attempt_enter(
+        proxy_id=proxy_id,
+        account_name=account_name,
+    )
+    started_at = _now_ms()
+    status: int | None = None
+    error = ""
+    try:
+        status, response_payload = _post_sse(
+            url=url,
+            headers={"API-KEY": api_key},
+            payload=payload,
+            timeout_seconds=timeout_seconds,
+            on_event=on_event,
+        )
+        return status, response_payload
+    except ResponsesUpstreamError as exc:
+        error = str(exc)
+        raise
+    finally:
+        latency_ms = _now_ms() - started_at
+        try:
+            try:
+                _record_onemin_attempt_event(
+                    attempt_id=attempt_id,
+                    request_id=request_id,
+                    lane=lane,
+                    model_requested=model,
+                    model_resolved=model,
+                    account_name=account_name,
+                    key_slot=key_slot,
+                    endpoint_mode=endpoint_mode,
+                    endpoint_url=url,
+                    proxy_id=proxy_id,
+                    proxy_service=proxy_service,
+                    timeout_seconds=timeout_seconds,
+                    latency_ms=latency_ms,
+                    status=_onemin_http_status_label(status),
+                    http_status=status,
+                    error=_compact_text_preview(error, limit=240) if error else "",
+                    principal_id=principal_id,
+                    inflight_total=inflight_total,
+                    inflight_same_proxy=inflight_same_proxy,
+                    inflight_same_account=inflight_same_account,
+                    principal_scope_id=principal_scope_id,
+                )
+            except Exception:
+                _LOG.debug("onemin_attempt_telemetry_record_failed", exc_info=True)
+        finally:
+            _onemin_attempt_exit(proxy_id=proxy_id, account_name=account_name)
+
+
 def _effective_request_timeout_seconds(
     *,
     default_timeout_seconds: int,
@@ -5409,7 +5664,11 @@ def _provider_candidates(
 
     if normalized in {FAST_PUBLIC_MODEL, "ea-overflow"}:
         candidates: list[tuple[ProviderConfig, str]] = []
-        for provider_key in _cheap_provider_order():
+        provider_keys_by_lane = _provider_order_for_lane_health(
+            lane=lane,
+            ordered=_cheap_provider_order(),
+        )
+        for provider_key in provider_keys_by_lane:
             config = configs.get(provider_key)
             if config is None:
                 continue
@@ -6638,12 +6897,21 @@ def _call_onemin(
                             stream_error = str(parsed_data or data or "").strip()
 
                 try:
-                    status, failure_payload = _post_sse(
+                    status, failure_payload = _post_onemin_sse_with_attempt(
                         url=url,
-                        headers={"API-KEY": api_key},
+                        api_key=api_key,
                         payload=_onemin_payload_for_mode("chat", prompt=prompt_text, model=model),
                         timeout_seconds=request_timeout_seconds,
                         on_event=_handle_stream_event,
+                        attempt_id=f"{selection_request_id}:{key_slot}:{index + 1}:{mode}",
+                        request_id=selection_request_id,
+                        lane=lane,
+                        model=model,
+                        account_name=account_name,
+                        key_slot=key_slot,
+                        principal_id=principal_id,
+                        principal_scope_id="",
+                        endpoint_mode=mode,
                     )
                 except ResponsesUpstreamError as exc:
                     error_detail = str(exc)
@@ -6823,11 +7091,20 @@ def _call_onemin(
                 )
 
             try:
-                status, payload = _post_json(
+                status, payload = _post_onemin_json_with_attempt(
                     url=url,
-                    headers={"API-KEY": api_key},
+                    api_key=api_key,
                     payload=_onemin_payload_for_mode(mode, prompt=prompt_text, model=model),
                     timeout_seconds=request_timeout_seconds,
+                    attempt_id=f"{selection_request_id}:{key_slot}:{index + 1}:{mode}",
+                    request_id=selection_request_id,
+                    lane=lane,
+                    model=model,
+                    account_name=account_name,
+                    key_slot=key_slot,
+                    principal_id=principal_id,
+                    principal_scope_id="",
+                    endpoint_mode=mode,
                 )
             except ResponsesUpstreamError as exc:
                 error_detail = str(exc)
@@ -7315,6 +7592,7 @@ def _test_reset_onemin_states() -> None:
         _ONEMIN_USAGE_EVENTS.clear()
         _ONEMIN_REQUIRED_CREDIT_EVENTS.clear()
         _ONEMIN_PROBE_EVENTS.clear()
+        _ONEMIN_ATTEMPT_EVENTS.clear()
         _PROVIDER_BALANCE_SNAPSHOTS.clear()
         _PROVIDER_BILLING_SNAPSHOTS.clear()
         _PROVIDER_MEMBER_RECONCILIATION_SNAPSHOTS.clear()
@@ -7328,6 +7606,7 @@ def _test_reset_onemin_states() -> None:
         "onemin_usage_events.jsonl",
         "onemin_required_credit_events.jsonl",
         "onemin_probe_events.jsonl",
+        "onemin_attempt_events.jsonl",
         "provider_balance_snapshots.jsonl",
         "provider_billing_snapshots.jsonl",
         "provider_member_reconciliation_snapshots.jsonl",
@@ -7378,6 +7657,242 @@ def _onemin_lane_burn_summary(*, now: float, window_seconds: float, principal_id
         "lane_requests": lane_requests,
         "lane_credits": lane_credits,
     }
+
+
+def _onemin_attempt_summary(
+    *,
+    now: float | None = None,
+    window_seconds: float = 3600.0,
+    principal_id: str = "",
+) -> dict[str, object]:
+    _load_provider_ledgers_once()
+    normalized_window = float(window_seconds or 3600.0)
+    normalized_principal = str(principal_id or "").strip()
+    normalized_now = float(now if now is not None else _now_epoch())
+    with _ONEMIN_USAGE_LOCK:
+        events = [
+            item
+            for item in _ONEMIN_ATTEMPT_EVENTS
+            if normalized_now - item.happened_at <= normalized_window
+            and (
+                not normalized_principal
+                or str(item.principal_id or "").strip() == normalized_principal
+            )
+        ]
+    attempt_count = len(events)
+    success_count = 0
+    http_429_count = 0
+    status_breakdown: dict[str, int] = {}
+    endpoint_mode_breakdown: dict[str, int] = {}
+    proxy_service_attempts: dict[str, int] = {}
+    proxy_service_successes: dict[str, int] = {}
+    proxy_service_429: dict[str, int] = {}
+    proxy_service_peak_inflight_same_proxy: dict[str, int] = {}
+    peak_parallel_total = 0
+    peak_parallel_same_proxy = 0
+    for event in events:
+        status = str(event.status or "").strip().lower() or "unknown"
+        endpoint_mode = str(event.endpoint_mode or "").strip() or "unknown"
+        proxy_service = str(event.proxy_service or "").strip() or "direct"
+        status_breakdown[status] = status_breakdown.get(status, 0) + 1
+        endpoint_mode_breakdown[endpoint_mode] = endpoint_mode_breakdown.get(endpoint_mode, 0) + 1
+        proxy_service_attempts[proxy_service] = proxy_service_attempts.get(proxy_service, 0) + 1
+        if status == "success":
+            proxy_service_successes[proxy_service] = proxy_service_successes.get(proxy_service, 0) + 1
+        if status in {"http_error", "http_429", "too_many_requests", "http_429_error"} or "429" in status:
+            http_429_count += 1
+            proxy_service_429[proxy_service] = proxy_service_429.get(proxy_service, 0) + 1
+        if event.inflight_total > peak_parallel_total:
+            peak_parallel_total = int(event.inflight_total)
+        if event.inflight_same_proxy > peak_parallel_same_proxy:
+            peak_parallel_same_proxy = int(event.inflight_same_proxy)
+        proxy_service_peak_inflight_same_proxy[proxy_service] = max(
+            proxy_service_peak_inflight_same_proxy.get(proxy_service, 0),
+            int(event.inflight_same_proxy),
+        )
+        if status == "success":
+            success_count += 1
+    with _ONEMIN_ATTEMPT_LOCK:
+        active_inflight_total = int(_ONEMIN_ATTEMPT_INFLIGHT_TOTAL)
+
+    throttle_pressure = "low"
+    if peak_parallel_same_proxy >= 2:
+        throttle_pressure = "high"
+    elif peak_parallel_total >= 2:
+        throttle_pressure = "medium"
+
+    busiest_proxy_services: list[dict[str, object]] = []
+    for proxy_service in sorted(
+        proxy_service_attempts,
+        key=lambda item: (-proxy_service_attempts[item], item),
+    ):
+        busiest_proxy_services.append(
+            {
+                "proxy_service": proxy_service,
+                "attempt_count": proxy_service_attempts[proxy_service],
+                "success_count": proxy_service_successes.get(proxy_service, 0),
+                "http_429_count": proxy_service_429.get(proxy_service, 0),
+                "peak_parallel_same_proxy": proxy_service_peak_inflight_same_proxy.get(proxy_service, 0),
+            }
+        )
+
+    return {
+        "window_seconds": normalized_window,
+        "attempt_count": attempt_count,
+        "success_count": success_count,
+        "http_429_count": http_429_count,
+        "peak_parallel_total": peak_parallel_total,
+        "peak_parallel_same_proxy": peak_parallel_same_proxy,
+        "active_inflight_total": active_inflight_total,
+        "throttle_pressure": throttle_pressure,
+        "status_breakdown": status_breakdown,
+        "endpoint_mode_breakdown": endpoint_mode_breakdown,
+        "busiest_proxy_services": busiest_proxy_services,
+    }
+
+
+def _onemin_proxy_identity(proxy_url: str) -> tuple[str, str]:
+    normalized_proxy_url = str(proxy_url or "").strip()
+    if not normalized_proxy_url or normalized_proxy_url.lower() in {"direct", "off", "disabled", "none", "direct://"}:
+        return "direct", "direct"
+    parsed = urlparse(normalized_proxy_url if "://" in normalized_proxy_url else f"http://{normalized_proxy_url}")
+    host = str(parsed.hostname or "").strip().lower()
+    if not host:
+        return "direct", "direct"
+    service = host.split(":")[0] if ":" in host else host
+    proxy_id = f"{service}:{parsed.port}" if parsed.port else service
+    return proxy_id, service
+
+
+def _onemin_attempt_enter(*, proxy_id: str, account_name: str) -> tuple[int, int, int]:
+    normalized_proxy_id = str(proxy_id or "direct").strip() or "direct"
+    normalized_account = str(account_name or "").strip() or "anonymous"
+    with _ONEMIN_ATTEMPT_LOCK:
+        global _ONEMIN_ATTEMPT_INFLIGHT_TOTAL
+        _ONEMIN_ATTEMPT_INFLIGHT_TOTAL += 1
+        total = int(_ONEMIN_ATTEMPT_INFLIGHT_TOTAL)
+        _ONEMIN_ATTEMPT_INFLIGHT_BY_PROXY[normalized_proxy_id] = int(
+            _ONEMIN_ATTEMPT_INFLIGHT_BY_PROXY.get(normalized_proxy_id, 0) + 1
+        )
+        same_proxy = int(_ONEMIN_ATTEMPT_INFLIGHT_BY_PROXY[normalized_proxy_id])
+        proxy_account_key = (normalized_proxy_id, normalized_account)
+        _ONEMIN_ATTEMPT_INFLIGHT_BY_PROXY_ACCOUNT[proxy_account_key] = int(
+            _ONEMIN_ATTEMPT_INFLIGHT_BY_PROXY_ACCOUNT.get(proxy_account_key, 0) + 1
+        )
+        same_account = int(_ONEMIN_ATTEMPT_INFLIGHT_BY_PROXY_ACCOUNT[proxy_account_key])
+    return total, same_proxy, same_account
+
+
+def _onemin_attempt_exit(*, proxy_id: str, account_name: str) -> tuple[int, int, int]:
+    normalized_proxy_id = str(proxy_id or "direct").strip() or "direct"
+    normalized_account = str(account_name or "").strip() or "anonymous"
+    with _ONEMIN_ATTEMPT_LOCK:
+        global _ONEMIN_ATTEMPT_INFLIGHT_TOTAL
+        _ONEMIN_ATTEMPT_INFLIGHT_TOTAL = max(0, int(_ONEMIN_ATTEMPT_INFLIGHT_TOTAL) - 1)
+        total = int(_ONEMIN_ATTEMPT_INFLIGHT_TOTAL)
+        proxy_key = normalized_proxy_id
+        _ONEMIN_ATTEMPT_INFLIGHT_BY_PROXY[proxy_key] = max(
+            0,
+            int(_ONEMIN_ATTEMPT_INFLIGHT_BY_PROXY.get(proxy_key, 0)) - 1,
+        )
+        same_proxy = int(_ONEMIN_ATTEMPT_INFLIGHT_BY_PROXY[proxy_key])
+        if same_proxy <= 0:
+            _ONEMIN_ATTEMPT_INFLIGHT_BY_PROXY.pop(proxy_key, None)
+            same_proxy = 0
+        proxy_account_key = (proxy_key, normalized_account)
+        _ONEMIN_ATTEMPT_INFLIGHT_BY_PROXY_ACCOUNT[proxy_account_key] = max(
+            0,
+            int(_ONEMIN_ATTEMPT_INFLIGHT_BY_PROXY_ACCOUNT.get(proxy_account_key, 0)) - 1,
+        )
+        same_account = int(_ONEMIN_ATTEMPT_INFLIGHT_BY_PROXY_ACCOUNT[proxy_account_key])
+        if same_account <= 0:
+            _ONEMIN_ATTEMPT_INFLIGHT_BY_PROXY_ACCOUNT.pop(proxy_account_key, None)
+            same_account = 0
+    return total, same_proxy, same_account
+
+
+def _record_onemin_attempt_event(
+    *,
+    attempt_id: str,
+    request_id: str,
+    lane: str,
+    model_requested: str,
+    model_resolved: str = "",
+    account_name: str,
+    key_slot: str,
+    endpoint_mode: str,
+    endpoint_url: str,
+    proxy_id: str,
+    proxy_service: str,
+    timeout_seconds: int,
+    latency_ms: int,
+    status: str,
+    http_status: int | None = None,
+    error: str = "",
+    principal_id: str = "",
+    inflight_total: int = 0,
+    inflight_same_proxy: int = 0,
+    inflight_same_account: int = 0,
+    principal_scope_id: str = "",
+    happened_at: float | None = None,
+) -> None:
+    _load_provider_ledgers_once()
+    normalized_status = str(status or "").strip().lower() or "unknown"
+    event = OneminAttemptEvent(
+        happened_at=float(happened_at if happened_at is not None else _now_epoch()),
+        attempt_id=str(attempt_id or "").strip() or "attempt",
+        request_id=str(request_id or "").strip() or "",
+        lane=str(lane or "").strip() or _LANE_DEFAULT,
+        model_requested=str(model_requested or "").strip() or "",
+        model_resolved=str(model_resolved or "").strip() or str(model_requested or ""),
+        account_name=str(account_name or "").strip(),
+        key_slot=str(key_slot or "").strip(),
+        endpoint_mode=str(endpoint_mode or "").strip(),
+        endpoint_url=str(endpoint_url or "").strip(),
+        proxy_id=str(proxy_id or "direct").strip() or "direct",
+        proxy_service=str(proxy_service or "direct").strip() or "direct",
+        timeout_seconds=max(0, int(timeout_seconds or 0)),
+        latency_ms=max(0, int(latency_ms or 0)),
+        status=normalized_status,
+        error=str(error or "").strip(),
+        http_status=(
+            int(http_status) if http_status is not None else None
+        ),
+        principal_id=str(principal_id or "").strip(),
+        inflight_total=max(0, int(inflight_total or 0)),
+        inflight_same_proxy=max(0, int(inflight_same_proxy or 0)),
+        inflight_same_account=max(0, int(inflight_same_account or 0)),
+        principal_scope_id=str(principal_scope_id or "").strip(),
+    )
+    with _ONEMIN_USAGE_LOCK:
+        _ONEMIN_ATTEMPT_EVENTS.append(event)
+    _append_provider_ledger_record(
+        "onemin_attempt_events.jsonl",
+        {
+            "happened_at": event.happened_at,
+            "attempt_id": event.attempt_id,
+            "request_id": event.request_id,
+            "lane": event.lane,
+            "model_requested": event.model_requested,
+            "model_resolved": event.model_resolved,
+            "account_name": event.account_name,
+            "key_slot": event.key_slot,
+            "endpoint_mode": event.endpoint_mode,
+            "endpoint_url": event.endpoint_url,
+            "proxy_id": event.proxy_id,
+            "proxy_service": event.proxy_service,
+            "timeout_seconds": event.timeout_seconds,
+            "latency_ms": event.latency_ms,
+            "status": event.status,
+            "error": event.error,
+            "http_status": event.http_status,
+            "principal_id": event.principal_id,
+            "inflight_total": event.inflight_total,
+            "inflight_same_proxy": event.inflight_same_proxy,
+            "inflight_same_account": event.inflight_same_account,
+            "principal_scope_id": event.principal_scope_id,
+        },
+    )
 
 
 def _record_provider_dispatch_event(
@@ -7864,10 +8379,17 @@ def _compact_codex_status_report(
             basis_summary = str(provider_config.get("default_lane") or "").strip()
         if not basis_summary:
             basis_summary = "compact"
+    window_seconds = _status_window_seconds(window)
     return {
         "status_basis": basis_summary,
         "providers_summary": providers_summary,
         "fleet_burn": {"1h": {"provider_credits": {"onemin": burn_1h.get("provider_credits", {}).get("onemin", 0)}}},
+        "onemin_attempt_telemetry": {
+            "1h": _onemin_attempt_summary(now=now, window_seconds=3600.0, principal_id=normalized_principal),
+            "24h": _onemin_attempt_summary(now=now, window_seconds=86400.0, principal_id=normalized_principal),
+            "7d": _onemin_attempt_summary(now=now, window_seconds=604800.0, principal_id=normalized_principal),
+            "selected_window": _onemin_attempt_summary(now=now, window_seconds=window_seconds, principal_id=normalized_principal),
+        },
         "default_profile": str((provider_health.get("provider_config") or {}).get("default_profile", "")) if not principal_scoped else "",
         "default_lane": str((provider_health.get("provider_config") or {}).get("default_lane", "")) if not principal_scoped else "",
         "provider_health": {"providers": {"_compact": {"state": "ready"}}} if principal_scoped else (provider_health or {}),
@@ -8368,6 +8890,12 @@ def codex_status_report(
                 actual_onemin_burn=int((selected_window_burn.get("provider_credits") or {}).get("onemin") or 0),
                 avoided=selected_window_avoided,
             ),
+        },
+        "onemin_attempt_telemetry": {
+            "1h": _onemin_attempt_summary(now=now, window_seconds=3600.0, principal_id=normalized_principal),
+            "24h": _onemin_attempt_summary(now=now, window_seconds=86400.0, principal_id=normalized_principal),
+            "7d": _onemin_attempt_summary(now=now, window_seconds=604800.0, principal_id=normalized_principal),
+            "selected_window": _onemin_attempt_summary(now=now, window_seconds=window_seconds, principal_id=normalized_principal),
         },
         "topup_summary": {} if principal_scoped else {
             "last_actual_balance_check_at": onemin.get("last_actual_balance_at"),
