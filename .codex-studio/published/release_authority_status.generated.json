@@ -1,11 +1,11 @@
 {
   "contract_name": "ea.release_authority_status.v1",
-  "generated_at": "2026-06-25T17:00:43Z",
+  "generated_at": "2026-06-25T17:09:42Z",
   "state": "clear",
   "summary": "Release authority is recorded for the current runtime.",
   "authority_posture": "authoritative_runtime",
   "next_action": "No action required.",
-  "authority_basis": "main@origin/main · 3c3da458482b · EA_CORE · docker-compose.yml, docker-compose.prod.yml",
+  "authority_basis": "main@origin/main · b711c555bdf2 · EA_CORE · docker-compose.whatsapp-web-session.yml",
   "manifest_path": "/docker/EA/.codex-studio/published/release_manifest.generated.json",
   "deploy_context_path": "/docker/EA/.codex-studio/published/deploy_context.generated.json",
   "project_modes_path": "/docker/EA/.codex-design/product/PROJECT_MODES.generated.json",
@@ -13,32 +13,36 @@
   "repository": "EA",
   "branch": "main",
   "tracking_branch": "origin/main",
-  "commit_sha": "3c3da458482badf2b174e5a609370e09252b6da5",
+  "commit_sha": "b711c555bdf2c9e0c656143107a5fef76d833e4d",
   "dirty_worktree": true,
   "source_worktree_dirty": false,
   "source_dirty_count": 0,
   "source_dirty_files": [],
   "source_dirty_omitted_count": 0,
   "source_dirty_status_sha256": "",
-  "deployment_id": "deploy-20260625T165654Z-3c3da458482b",
+  "deployment_id": "deploy-20260625T170546Z-b711c555bdf2",
   "deployment_id_source": "explicit",
   "public_origin": "https://myexternalbrain.com",
   "public_origin_source": "EA_PUBLIC_APP_BASE_URL",
-  "deploy_context_generated_at": "2026-06-25T17:00:43.143430Z",
+  "deploy_context_generated_at": "2026-06-25T17:09:42.312384Z",
   "deploy_context_branch": "main",
   "deploy_context_tracking_branch": "origin/main",
-  "deploy_context_commit_sha": "3c3da458482badf2b174e5a609370e09252b6da5",
+  "deploy_context_commit_sha": "b711c555bdf2c9e0c656143107a5fef76d833e4d",
   "git_remote_origin": "https://github.com/ArchonMegalon/executive-assistant.git",
-  "release_label": "deploy-20260625T165654Z-3c3da458482b",
+  "release_label": "deploy-20260625T170546Z-b711c555bdf2",
   "project_mode": "EA_CORE",
   "enabled_project_modes": [
     "EA_CORE"
   ],
   "compose_files": [
     "docker-compose.yml",
-    "docker-compose.prod.yml"
+    "docker-compose.prod.yml",
+    "docker-compose.whatsapp-web-session.yml",
+    "docker-compose.cloudflared.yml"
   ],
-  "compose_overrides": [],
+  "compose_overrides": [
+    "docker-compose.whatsapp-web-session.yml"
+  ],
   "artifact_count": 38,
   "artifact_set_preview": [
     ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json",
@@ -61,24 +65,28 @@
     "contract_name": "ea.deploy_context_gate.v1",
     "status": "pass",
     "issues": [],
-    "deployment_id": "deploy-20260625T165654Z-3c3da458482b",
+    "deployment_id": "deploy-20260625T170546Z-b711c555bdf2",
     "deployment_id_source": "deploy_script_generated",
     "public_origin": "https://myexternalbrain.com",
     "public_origin_source": "EA_PUBLIC_APP_BASE_URL",
     "repository": "EA",
     "branch": "main",
     "tracking_branch": "origin/main",
-    "commit_sha": "3c3da458482badf2b174e5a609370e09252b6da5",
-    "release_label": "deploy-20260625T165654Z-3c3da458482b",
+    "commit_sha": "b711c555bdf2c9e0c656143107a5fef76d833e4d",
+    "release_label": "deploy-20260625T170546Z-b711c555bdf2",
     "project_mode": "EA_CORE",
     "enabled_project_modes": [
       "EA_CORE"
     ],
     "compose_files": [
       "docker-compose.yml",
-      "docker-compose.prod.yml"
+      "docker-compose.prod.yml",
+      "docker-compose.whatsapp-web-session.yml",
+      "docker-compose.cloudflared.yml"
     ],
-    "compose_overrides": []
+    "compose_overrides": [
+      "docker-compose.whatsapp-web-session.yml"
+    ]
   },
   "gate": {
     "contract_name": "ea.release_authority_gate.v1",
@@ -91,8 +99,8 @@
     "repository": "EA",
     "branch": "main",
     "tracking_branch": "origin/main",
-    "commit_sha": "3c3da458482badf2b174e5a609370e09252b6da5",
-    "deployment_id": "deploy-20260625T165654Z-3c3da458482b",
+    "commit_sha": "b711c555bdf2c9e0c656143107a5fef76d833e4d",
+    "deployment_id": "deploy-20260625T170546Z-b711c555bdf2",
     "deployment_id_source": "explicit",
     "public_origin": "https://myexternalbrain.com",
     "public_origin_source": "EA_PUBLIC_APP_BASE_URL",
@@ -102,18 +110,22 @@
     ],
     "compose_files": [
       "docker-compose.yml",
-      "docker-compose.prod.yml"
+      "docker-compose.prod.yml",
+      "docker-compose.whatsapp-web-session.yml",
+      "docker-compose.cloudflared.yml"
     ],
-    "compose_overrides": [],
+    "compose_overrides": [
+      "docker-compose.whatsapp-web-session.yml"
+    ],
     "dirty_worktree": true,
     "source_worktree_dirty": false,
     "source_dirty_count": 0,
     "source_dirty_files": [],
     "source_dirty_omitted_count": 0,
     "source_dirty_status_sha256": "",
-    "deploy_context_generated_at": "2026-06-25T17:00:43.143430Z",
+    "deploy_context_generated_at": "2026-06-25T17:09:42.312384Z",
     "deploy_context_branch": "main",
     "deploy_context_tracking_branch": "origin/main",
-    "deploy_context_commit_sha": "3c3da458482badf2b174e5a609370e09252b6da5"
+    "deploy_context_commit_sha": "b711c555bdf2c9e0c656143107a5fef76d833e4d"
   }
 }

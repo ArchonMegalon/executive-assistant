@@ -1610,6 +1610,7 @@ def test_deploy_script_materializes_release_manifest_after_health() -> None:
     assert '"${PYTHON_BIN}" "${APP_ROOT}/scripts/verify_project_mode_manifests.py" >/dev/null' in deploy
     assert '"${PYTHON_BIN}" "${APP_ROOT}/scripts/verify_release_manifest_runtime_mode.py" "${verify_mode_args[@]}" >/dev/null' in deploy
     assert '"${PYTHON_BIN}" "${APP_ROOT}/scripts/verify_release_manifest_artifact_plane.py" "${verify_artifact_args[@]}" >/dev/null' in deploy
+    assert 'public_smoke_base_url="${public_origin_value:-https://example.test}"' in deploy
     assert 'echo "Release manifest written to ${RELEASE_MANIFEST_PATH}"' in deploy
     assert 'echo "Release authority status written to ${RELEASE_AUTHORITY_STATUS_PATH}"' in deploy
 

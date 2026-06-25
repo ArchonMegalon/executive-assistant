@@ -691,7 +691,7 @@ for _ in $(seq 1 60); do
     done
     "${PYTHON_BIN}" "${APP_ROOT}/scripts/verify_release_manifest_artifact_plane.py" "${verify_artifact_args[@]}" >/dev/null
     if [[ "${CLOUDFLARED_OVERLAY_ENABLED}" == "1" ]]; then
-      public_smoke_base_url="${PROPERTYQUARRY_PUBLIC_BASE_URL:-${EA_PUBLIC_APP_BASE_URL:-https://example.test}}"
+      public_smoke_base_url="${public_origin_value:-https://example.test}"
       public_smoke_base_url="${public_smoke_base_url%/}"
       public_smoke_urls="${PROPERTYQUARRY_CLOUDFLARED_PUBLIC_SMOKE_URLS:-${EA_CLOUDFLARED_PUBLIC_SMOKE_URLS:-${public_smoke_base_url}/sign-in}}"
       for public_url in ${public_smoke_urls}; do

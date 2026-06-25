@@ -3,13 +3,13 @@
   "surface": "flagship_release_control",
   "version": 1,
   "kind": "release_receipt",
-  "generated_at": "2026-06-25T17:00:27Z",
+  "generated_at": "2026-06-25T17:09:19Z",
   "generated_by": "scripts/materialize_ea_flagship_release_gate.py",
-  "source_git_head": "baf7965c62b8ad999bb9619228669bd470cb4b57",
-  "source_tree_fingerprint": "3c82d61e89ac5af772711ef410ac247e5b02e659fb302653f99e5cf727995460",
+  "source_git_head": "b711c555bdf2c9e0c656143107a5fef76d833e4d",
+  "source_tree_fingerprint": "3a674029a7a8072944f079d0f854ced7a4769638e56f8e472ada579d3cad20d8",
   "head_semantics": "source_state",
-  "status": "blocked",
-  "operator_summary": "EA flagship release truth is materialized, but the current browser-proof or release-doc state still blocks the claim.",
+  "status": "pass",
+  "operator_summary": "EA flagship release truth is published as a machine-readable receipt and currently green.",
   "truth_plane": {
     "source": ".codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md",
     "present": true,
@@ -138,10 +138,8 @@
     "project_modes_path": ".codex-design/product/PROJECT_MODES.generated.json",
     "manifest_present": true,
     "project_modes_present": true,
-    "state": "blocked",
-    "issues": [
-      "deployment_id_local_fallback"
-    ]
+    "state": "clear",
+    "issues": []
   },
   "verification_binding": {
     "primary_verifier": "scripts/verify_release_assets.sh",
@@ -185,9 +183,7 @@
       "present": true
     }
   ],
-  "blocking_reasons": [
-    "release authority: deployment_id_local_fallback"
-  ],
+  "blocking_reasons": [],
   "current_limitations": [],
   "release_truth": {
     "oracle": ".codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md",
