@@ -300,7 +300,9 @@ def _audiobook_cinematic_narration() -> bool:
 
 
 def _audiobook_cinematic_single_pass() -> bool:
-    return _env_bool("EA_AUDIOBOOK_CINEMATIC_SINGLE_PASS", True)
+    # One uninterrupted cinematic narration is required for premium quality output.
+    # Keep this hard-pinned to true to prevent clip-stitch artifacts at runtime.
+    return True
 
 
 def _audiobook_cinematic_max_chars_per_request() -> int:
@@ -314,6 +316,32 @@ def _audiobook_cinematic_max_chars_per_request() -> int:
 
 def _cinematic_master_audio_path(audio_dir: Path) -> Path:
     return audio_dir / "_cinematic_master.wav"
+
+
+def _cinematic_master_audio_mode_path(audio_dir: Path) -> Path:
+    return audio_dir / "_cinematic_master.mode"
+
+
+def _cinematic_master_audio_signature_path(audio_dir: Path) -> Path:
+    return audio_dir / "_cinematic_master.signature"
+
+
+def _collect_cinematic_track_input(*, job_dir: Path, chapters: tuple[EpubChapter, ...]) -> tuple[tuple[EpubChapter, str], ...]:
+    if not chapters:
+        return ()
+    values: list[tuple[EpubChapter, str]] = []
+    for chapter in chapters:
+        source_text = (job_dir / "chapters" / chapter.text_path).read_text(encoding="utf-8")
+        values.append((chapter, str(source_text or "").strip()))
+    return tuple(values)
+
+
+def _cinematic_track_signature(*, chapter_inputs: tuple[tuple[EpubChapter, str], ...]) -> str:
+    payload = "\n".join(f"{chapter.index}:{text}" for chapter, text in chapter_inputs)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+_CINEMATIC_MASTER_SINGLE_PASS_MODE = "unmixr_cinematic_single_pass"
 
 
 def _unmixr_pacing_wait_seconds() -> int:
@@ -4609,35 +4637,64 @@ def _removed_local_piper_render_result(voice_selection: dict[str, object]) -> di
 def render_unmixr_chapter_audio(*, job_dir: Path, chapters: tuple[EpubChapter, ...], metadata: EpubMetadata) -> dict[str, object]:
     audio_dir = job_dir / "audio"
     audio_dir.mkdir(parents=True, exist_ok=True)
+    cinematic_track_input = _collect_cinematic_track_input(job_dir=job_dir, chapters=chapters) if _audiobook_cinematic_narration() else ()
+    cinematic_track_signature = _cinematic_track_signature(chapter_inputs=cinematic_track_input)
     if _audiobook_cinematic_narration():
         cinematic_master = _cinematic_master_audio_path(audio_dir)
+        cinematic_mode_path = _cinematic_master_audio_mode_path(audio_dir)
+        cinematic_signature_path = _cinematic_master_audio_signature_path(audio_dir)
+        cinematic_mode = ""
+        if cinematic_mode_path.is_file():
+            try:
+                cinematic_mode = cinematic_mode_path.read_text(encoding="utf-8").strip()
+            except OSError:
+                cinematic_mode = ""
+        cinematic_cached_signature = ""
+        if cinematic_signature_path.is_file():
+            try:
+                cinematic_cached_signature = cinematic_signature_path.read_text(encoding="utf-8").strip()
+            except OSError:
+                cinematic_cached_signature = ""
+        if (
+            cinematic_master.is_file()
+            and cinematic_mode == _CINEMATIC_MASTER_SINGLE_PASS_MODE
+            and cinematic_cached_signature == cinematic_track_signature
+        ):
+            if cinematic_master.is_file() and cinematic_master.stat().st_size > 0:
+                rendered = []
+                for chapter in chapters:
+                    source_text = (job_dir / "chapters" / chapter.text_path).read_text(encoding="utf-8")
+                    normalized_source_text = str(source_text or "").strip()
+                    if not normalized_source_text:
+                        rendered.append({"chapter": chapter.index, "status": "skipped_empty"})
+                        continue
+                    rendered.append(
+                        {
+                            "chapter": chapter.index,
+                            "status": "already_present",
+                            "path": cinematic_master.name,
+                            "segment_count": 1,
+                            "audio_quality": _rendered_audio_quality_report(cinematic_master),
+                        }
+                    )
+                return {
+                    "status": "already_rendered",
+                    "reason": "cinematic_master_present",
+                    "chapters": rendered,
+                    "voice_selection": dict(selected_unmixr_voice_for_job(job_dir) or select_unmixr_voice_for_book(metadata=metadata, chapters=chapters, job_dir=job_dir)).get(
+                        "public",
+                        {},
+                    ),
+                    "cinematic_master_audio": str(cinematic_master),
+                }
+
         if cinematic_master.is_file() and cinematic_master.stat().st_size > 0:
-            rendered = []
-            for chapter in chapters:
-                source_text = (job_dir / "chapters" / chapter.text_path).read_text(encoding="utf-8")
-                normalized_source_text = str(source_text or "").strip()
-                if not normalized_source_text:
-                    rendered.append({"chapter": chapter.index, "status": "skipped_empty"})
-                    continue
-                rendered.append(
-                    {
-                        "chapter": chapter.index,
-                        "status": "already_present",
-                        "path": cinematic_master.name,
-                        "segment_count": 1,
-                        "audio_quality": _rendered_audio_quality_report(cinematic_master),
-                    }
-                )
-            return {
-                "status": "already_rendered",
-                "reason": "cinematic_master_present",
-                "chapters": rendered,
-                "voice_selection": dict(selected_unmixr_voice_for_job(job_dir) or select_unmixr_voice_for_book(metadata=metadata, chapters=chapters, job_dir=job_dir)).get(
-                    "public",
-                    {},
-                ),
-                "cinematic_master_audio": str(cinematic_master),
-            }
+            try:
+                cinematic_master.unlink()
+                cinematic_mode_path.unlink()
+                cinematic_signature_path.unlink()
+            except OSError:
+                pass
     elif _audio_inputs_ready(job_dir, chapters):
         return {"status": "already_rendered", "reason": "chapter_audio_present"}
     voice_selection = selected_unmixr_voice_for_job(job_dir) or select_unmixr_voice_for_book(
@@ -4677,14 +4734,10 @@ def render_unmixr_chapter_audio(*, job_dir: Path, chapters: tuple[EpubChapter, .
     rendered: list[dict[str, object]] = []
     if _audiobook_cinematic_narration():
         cinematic_master = _cinematic_master_audio_path(audio_dir)
-        cinematic_track_chapters: list[tuple[EpubChapter, str]] = []
-        for chapter in chapters:
-            source_text = (job_dir / "chapters" / chapter.text_path).read_text(encoding="utf-8")
-            normalized_source_text = str(source_text or "").strip()
-            if not normalized_source_text:
+        cinematic_track_chapters: list[tuple[EpubChapter, str]] = [item for item in cinematic_track_input if item[1]]
+        for chapter, text in cinematic_track_input:
+            if not text:
                 rendered.append({"chapter": chapter.index, "status": "skipped_empty"})
-                continue
-            cinematic_track_chapters.append((chapter, normalized_source_text))
 
         if not cinematic_track_chapters:
             return {"status": "rendered", "chapters": rendered, "voice_selection": dict(voice_selection.get("public") or {})}
@@ -4796,6 +4849,12 @@ def render_unmixr_chapter_audio(*, job_dir: Path, chapters: tuple[EpubChapter, .
                 "segment_merge_input_count": len(segment_paths),
             }
         cinematic_audio_quality = _rendered_audio_quality_report(cinematic_master)
+        try:
+            cinematic_mode_path.write_text(_CINEMATIC_MASTER_SINGLE_PASS_MODE, encoding="utf-8")
+            cinematic_signature_path = _cinematic_master_audio_signature_path(audio_dir)
+            cinematic_signature_path.write_text(cinematic_track_signature, encoding="utf-8")
+        except OSError:
+            pass
         rendered = []
         for chapter in chapters:
             source_text = (job_dir / "chapters" / chapter.text_path).read_text(encoding="utf-8")
