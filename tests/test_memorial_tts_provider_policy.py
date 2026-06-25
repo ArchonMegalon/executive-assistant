@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import pytest
 from fastapi import HTTPException
 
 from app.api.routes import public_memorial_tts_support, public_memorials
+from app.api.routes import public_memorial_turn_support
+from app.services import memorial_openvoice
 
 
 def test_safe_tts_plugin_id_coerces_openvoice_to_unmixr() -> None:
     assert public_memorials._safe_tts_plugin_id(public_memorials.OPENVOICE_TTS_PLUGIN_ID) == public_memorials.UNMIXR_TTS_PLUGIN_ID
+    assert public_memorials._safe_tts_plugin_id(public_memorials.PIPER_FAST_TTS_PLUGIN_ID) == public_memorials.UNMIXR_TTS_PLUGIN_ID
 
 
 def test_tts_plugin_options_exclude_openvoice() -> None:
@@ -28,11 +32,66 @@ def test_tts_plugin_options_exclude_openvoice() -> None:
     )
 
     assert {str(option.get("tts_plugin")) for option in options} == {
-        public_memorials.PIPER_FAST_TTS_PLUGIN_ID,
         "browser_speech_synthesis",
         public_memorials.UNMIXR_TTS_PLUGIN_ID,
         public_memorials.VOICEWAVE_TTS_PLUGIN_ID,
     }
+
+
+def test_openvoice_and_piper_plugin_options_are_disabled() -> None:
+    openvoice = memorial_openvoice.openvoice_plugin_option(configured_voice_id="openvoice-id", voice_profile_ready=True)
+    piper = memorial_openvoice.piper_fast_plugin_option()
+
+    assert openvoice["tts_plugin"] == public_memorials.OPENVOICE_TTS_PLUGIN_ID
+    assert openvoice["tts_plugin_enabled"] is False
+    assert openvoice["tts_plugin_clone_capable"] is False
+    assert openvoice["tts_plugin_disabled_reason"] == "openvoice_tts_disabled_by_policy"
+    assert piper["tts_plugin"] == public_memorials.PIPER_FAST_TTS_PLUGIN_ID
+    assert piper["tts_plugin_enabled"] is False
+    assert piper["tts_plugin_disabled_reason"] == "openvoice_tts_disabled_by_policy"
+
+
+def test_openvoice_and_piper_tts_request_functions_are_disabled() -> None:
+    with pytest.raises(HTTPException) as clone_error:
+        memorial_openvoice.openvoice_clone_request(slug="manfred", voice_label="Manfred", sample_paths=[])
+    with pytest.raises(HTTPException) as synth_error:
+        memorial_openvoice.openvoice_synthesize_request(text="Hallo", voice_id="manfred", lang="de")
+    with pytest.raises(HTTPException) as variant_error:
+        memorial_openvoice.openvoice_synthesize_request_with_variant(
+            text="Hallo",
+            voice_id="manfred",
+            lang="de",
+            base_voice_variant="default",
+        )
+    with pytest.raises(HTTPException) as piper_error:
+        memorial_openvoice.piper_fast_synthesize_request(text="Hallo", lang="de", base_voice_variant="default")
+
+    assert clone_error.value.status_code == 403
+    assert clone_error.value.detail == "openvoice_tts_disabled_by_policy"
+    assert synth_error.value.status_code == 403
+    assert variant_error.value.detail == "openvoice_tts_disabled_by_policy"
+    assert piper_error.value.detail == "openvoice_tts_disabled_by_policy"
+
+
+def test_rehearsal_tts_fallback_default_excludes_openvoice_and_piper(monkeypatch) -> None:
+    monkeypatch.delenv("EA_MEMORIAL_REHEARSAL_TTS_FALLBACK_PLUGINS", raising=False)
+
+    assert public_memorial_turn_support._fallback_tts_plugin_order() == ()
+
+
+def test_rehearsal_tts_fallback_allows_only_voicewave(monkeypatch) -> None:
+    monkeypatch.setenv(
+        "EA_MEMORIAL_REHEARSAL_TTS_FALLBACK_PLUGINS",
+        ",".join(
+            [
+                public_memorials.OPENVOICE_TTS_PLUGIN_ID,
+                public_memorials.PIPER_FAST_TTS_PLUGIN_ID,
+                public_memorials.VOICEWAVE_TTS_PLUGIN_ID,
+            ]
+        ),
+    )
+
+    assert public_memorial_turn_support._fallback_tts_plugin_order() == (public_memorials.VOICEWAVE_TTS_PLUGIN_ID,)
 
 
 def test_voice_ab_auto_build_challenger_does_not_fallback_to_openvoice(monkeypatch) -> None:

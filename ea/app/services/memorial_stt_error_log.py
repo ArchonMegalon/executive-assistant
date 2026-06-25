@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import hashlib
 import subprocess
 import tempfile
 import uuid
@@ -47,6 +48,11 @@ def memorial_stt_error_logging_enabled() -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
+def _env_flag(name: str) -> bool:
+    raw = str(os.getenv(name) or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
 def memorial_stt_error_log_root() -> Path:
     configured = str(os.getenv("EA_MEMORIAL_STT_ERROR_LOG_DIR") or "").strip()
     return Path(configured or str(_DEFAULT_STT_ERROR_ROOT)).expanduser()
@@ -59,6 +65,54 @@ def memorial_stt_error_retention_days() -> int:
     except (TypeError, ValueError):
         return _DEFAULT_STT_ERROR_RETENTION_DAYS
     return max(1, min(365, parsed))
+
+
+def _retention_policy_configured() -> bool:
+    return bool(str(os.getenv("EA_MEMORIAL_STT_ERROR_LOG_RETENTION_DAYS") or "").strip())
+
+
+def _private_storage_available() -> bool:
+    root = memorial_stt_error_log_root()
+    for candidate in (root, root.parent):
+        try:
+            if candidate.exists() and os.access(candidate, os.W_OK):
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def _is_relative_to(path: Path, base: Path) -> bool:
+    try:
+        path.resolve().relative_to(base.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _storage_policy(root: Path) -> tuple[bool, str, dict[str, Any]]:
+    if _env_flag("EA_MEMORIAL_STT_ERROR_LOG_ALLOW_LOCAL"):
+        return True, "", {
+            "storage_mode": "operator_local_override",
+            "root": str(root),
+            "local_override": True,
+        }
+    if not (_is_relative_to(root, _DEFAULT_STT_ERROR_ROOT) or str(root.resolve()).startswith("/private/")):
+        return False, "root_not_under_memorial_stt_error_root", {}
+    if not _private_storage_available():
+        return False, "private_storage_missing", {}
+    return True, "", {
+        "storage_mode": "private_memorial_stt_error_root",
+        "root": str(root),
+        "local_override": False,
+    }
+
+
+def _text_mode() -> str:
+    raw = str(os.getenv("EA_MEMORIAL_STT_ERROR_LOG_TEXT_MODE") or "").strip().lower()
+    if raw == "full" and _env_flag("EA_MEMORIAL_STT_ERROR_LOG_FULL_TEXT_ALLOWED"):
+        return "full"
+    return "redacted"
 
 
 def classify_memorial_stt_issue(
@@ -101,8 +155,14 @@ def log_memorial_stt_issue(
 ) -> dict[str, str]:
     if not memorial_stt_error_logging_enabled():
         return {"status": "disabled", "reason": "logging_disabled"}
+    if not _retention_policy_configured():
+        return {"status": "disabled", "reason": "retention_policy_missing"}
 
     root = memorial_stt_error_log_root()
+    storage_allowed, storage_reason, storage_policy = _storage_policy(root)
+    if not storage_allowed:
+        return {"status": "disabled", "reason": storage_reason}
+
     timestamp = datetime.now(timezone.utc)
     token = uuid.uuid4().hex[:12]
     safe_slug = _safe_path_token(slug, fallback="memorial")
@@ -118,6 +178,7 @@ def log_memorial_stt_issue(
         suffix = _content_type_suffix(content_type)
         _write_bytes_atomic(target_dir / f"input{suffix}", audio_payload)
 
+    text_mode = _text_mode()
     metadata = {
         "status": "open",
         "severity": "error",
@@ -132,9 +193,11 @@ def log_memorial_stt_issue(
         "stored_wav": bool(wav_payload is not None),
         "retention_days": memorial_stt_error_retention_days(),
         "consent_mode": "explicit_operator_opt_in",
-        "transcription": _scrub_payload(dict(transcription_payload or {})),
-        "answer": _scrub_payload(dict(answer_payload or {})),
-        "extra": _scrub_payload(dict(extra or {})),
+        "storage_policy": storage_policy,
+        "text_mode": text_mode,
+        "transcription": _scrub_payload(dict(transcription_payload or {}), text_mode=text_mode),
+        "answer": _scrub_payload(dict(answer_payload or {}), text_mode=text_mode),
+        "extra": _scrub_payload(dict(extra or {}), text_mode=text_mode),
     }
     _write_text_atomic(
         target_dir / "error.json",
@@ -148,31 +211,57 @@ def log_memorial_stt_issue(
     }
 
 
-def _scrub_payload(payload: dict[str, Any]) -> dict[str, Any]:
+def _scrub_payload(payload: dict[str, Any], *, text_mode: str) -> dict[str, Any]:
     scrubbed: dict[str, Any] = {}
     for key, value in payload.items():
         normalized_key = str(key).strip()
         lowered = normalized_key.lower()
         if lowered in {"sources", "source_documents", "source_chunks", "raw_response", "messages", "audio_base64", "audio_bytes"}:
             continue
-        scrubbed[normalized_key] = _scrub_value(value)
+        scrubbed[normalized_key] = _scrub_value(value, key=normalized_key, text_mode=text_mode)
     return scrubbed
 
 
-def _scrub_value(value: Any) -> Any:
+def _scrub_value(value: Any, *, key: str = "", text_mode: str) -> Any:
     if value is None or isinstance(value, (bool, int, float)):
         return value
     if isinstance(value, str):
-        normalized = " ".join(value.split()).strip()
+        normalized = _mask_sensitive_text(" ".join(value.split()).strip())
+        if text_mode != "full" and _is_private_text_field(key):
+            return {
+                "redacted": True,
+                "chars": len(normalized),
+                "sha256": hashlib.sha256(normalized.encode("utf-8")).hexdigest(),
+            }
         return normalized[:500]
     if isinstance(value, list):
-        return [_scrub_value(item) for item in value[:10]]
+        return [_scrub_value(item, key=key, text_mode=text_mode) for item in value[:10]]
     if isinstance(value, dict):
         nested: dict[str, Any] = {}
         for key, nested_value in list(value.items())[:20]:
-            nested[str(key)] = _scrub_value(nested_value)
+            nested[str(key)] = _scrub_value(nested_value, key=str(key), text_mode=text_mode)
         return nested
     return str(value)[:200]
+
+
+def _is_private_text_field(key: str) -> bool:
+    lowered = str(key or "").strip().lower()
+    return lowered in {
+        "answer",
+        "pre_guardrail_answer",
+        "transcript_text",
+        "transcript_original_text",
+        "transcript_effective_text",
+    }
+
+
+def _mask_sensitive_text(value: str) -> str:
+    masked = re.sub(r"https?://\S+", "[url]", value, flags=re.IGNORECASE)
+    masked = re.sub(r"\bBearer\s+[A-Za-z0-9._~+/=-]+", "Bearer [secret]", masked, flags=re.IGNORECASE)
+    masked = re.sub(r"\bsk_[A-Za-z0-9_=-]{8,}\b", "[secret]", masked)
+    masked = re.sub(r"\b[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b", "[secret]", masked)
+    masked = re.sub(r"([?&](?:token|key|secret|signature|sig)=)[^&\s]+", r"\1[secret]", masked, flags=re.IGNORECASE)
+    return masked
 
 
 def _safe_path_token(value: object, *, fallback: str) -> str:

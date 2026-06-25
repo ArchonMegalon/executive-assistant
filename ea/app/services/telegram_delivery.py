@@ -398,27 +398,7 @@ def _telegram_video_render_fallback_audio_path(*, source_path: Path, text: str, 
     normalized_text = " ".join(str(text or "").split()).strip()
     if not normalized_text:
         raise RuntimeError("telegram_video_fallback_audio_text_missing")
-    from app.services.memorial_openvoice import piper_fast_synthesize_request
-
-    try:
-        audio_bytes, content_type = piper_fast_synthesize_request(
-            text=normalized_text,
-            lang=str(language or "en").strip() or "en",
-            base_voice_variant="default",
-        )
-    except Exception as exc:  # pragma: no cover - network/runtime dependent
-        raise RuntimeError("telegram_video_fallback_audio_render_failed") from exc
-    suffix = ".wav"
-    normalized_content_type = str(content_type or "").strip().lower()
-    if "mpeg" in normalized_content_type or "mp3" in normalized_content_type:
-        suffix = ".mp3"
-    elif "ogg" in normalized_content_type:
-        suffix = ".ogg"
-    fd, raw_path = tempfile.mkstemp(prefix="ea-telegram-video-fallback-audio-", suffix=suffix)
-    os.close(fd)
-    path = Path(raw_path)
-    path.write_bytes(audio_bytes)
-    return path
+    raise RuntimeError("telegram_video_fallback_audio_tts_disabled_by_policy")
 
 
 def _telegram_video_with_attached_audio(source_path: str | Path, rendered_audio_path: str | Path) -> tuple[str, Path]:

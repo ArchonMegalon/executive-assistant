@@ -111,14 +111,18 @@ async def public_memorial_chat_help(slug: str) -> JSONResponse:
             "endpoint": f"/memorials/{slug}/chat",
             "example_body": {"question": "Wie hätte er Susanna schriftlich geschrieben?"},
             "page": f"/memorials/{slug}",
-        }
+        },
+        headers=dict(shared._PUBLIC_MEMORIAL_JSON_HEADERS),
     )
 
 
 async def public_memorial_personal_memory_status(slug: str, request: Request) -> JSONResponse:
     shared._load_memorial(slug)
     context = shared._extract_personal_memory_request_context(request=request)
-    return JSONResponse(shared._personal_memory_public_status(slug=slug, context=context))
+    return JSONResponse(
+        shared._personal_memory_public_status(slug=slug, context=context),
+        headers=dict(shared._PUBLIC_MEMORIAL_JSON_HEADERS),
+    )
 
 
 async def public_memorial_personal_memory_forget(slug: str, request: Request) -> JSONResponse:
@@ -131,42 +135,51 @@ async def public_memorial_personal_memory_forget(slug: str, request: Request) ->
         store["frozen"] = False
         store["approved_voice_choice"] = ""
         shared._save_personal_memory_store(slug=slug, scope=scope, payload=store)
-    return JSONResponse({"status": "forgotten", **shared._personal_memory_public_status(slug=slug, context=context)})
+    return JSONResponse(
+        {"status": "forgotten", **shared._personal_memory_public_status(slug=slug, context=context)},
+        headers=dict(shared._PUBLIC_MEMORIAL_JSON_HEADERS),
+    )
 
 
 async def public_memorial_chat(slug: str, request: Request) -> JSONResponse:
     try:
         body = await request.json()
     except Exception as exc:
-        raise HTTPException(status_code=400, detail="invalid_json") from exc
+        return shared._public_memorial_error_response(400, "invalid_json")
     if not isinstance(body, dict):
-        raise HTTPException(status_code=400, detail="invalid_json")
-    answer = _memorial_chat_answer_payload(slug=slug, request=request, body=body)
-    return JSONResponse(answer)
+        return shared._public_memorial_error_response(400, "invalid_json")
+    try:
+        answer = _memorial_chat_answer_payload(slug=slug, request=request, body=body)
+    except HTTPException as exc:
+        return shared._public_memorial_error_response(exc.status_code, shared._text(exc.detail, "request_failed"))
+    return JSONResponse(answer, headers=dict(shared._PUBLIC_MEMORIAL_JSON_HEADERS))
 
 
 async def public_memorial_whatsapp_draft(slug: str, request: Request, *, principal_id: str) -> JSONResponse:
     try:
         body = await request.json()
     except Exception as exc:
-        raise HTTPException(status_code=400, detail="invalid_json") from exc
+        return shared._public_memorial_error_response(400, "invalid_json")
     if not isinstance(body, dict):
-        raise HTTPException(status_code=400, detail="invalid_json")
+        return shared._public_memorial_error_response(400, "invalid_json")
     recipient = shared._text(body.get("recipient"))
     if not recipient:
-        raise HTTPException(status_code=400, detail="recipient_required")
+        return shared._public_memorial_error_response(400, "recipient_required")
     question_text = shared._text(body.get("question"))
     if not question_text:
-        raise HTTPException(status_code=400, detail="question_required")
+        return shared._public_memorial_error_response(400, "question_required")
     container = getattr(request.app.state, "container", None)
     if container is None:
-        raise HTTPException(status_code=500, detail="container_unavailable")
-    answer = _memorial_chat_answer_payload(slug=slug, request=request, body=body)
-    binding = _resolve_whatsapp_binding(
-        principal_id=principal_id,
-        container=container,
-        requested_binding_id=shared._text(body.get("binding_id")),
-    )
+        return shared._public_memorial_error_response(500, "container_unavailable")
+    try:
+        answer = _memorial_chat_answer_payload(slug=slug, request=request, body=body)
+        binding = _resolve_whatsapp_binding(
+            principal_id=principal_id,
+            container=container,
+            requested_binding_id=shared._text(body.get("binding_id")),
+        )
+    except HTTPException as exc:
+        return shared._public_memorial_error_response(exc.status_code, shared._text(exc.detail, "request_failed"))
     binding_state = {
         "binding_id": str(getattr(binding, "binding_id", "") or ""),
         "connector_name": str(getattr(binding, "connector_name", "") or ""),
@@ -212,7 +225,8 @@ async def public_memorial_whatsapp_draft(slug: str, request: Request, *, princip
             "answer": shared._text(answer.get("answer"), ""),
             "sources": list(answer.get("sources") or []),
             "route": shared._text(answer.get("route"), ""),
-        }
+        },
+        headers=dict(shared._PUBLIC_MEMORIAL_JSON_HEADERS),
     )
 
 

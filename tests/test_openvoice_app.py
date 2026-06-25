@@ -15,17 +15,6 @@ class _FakeRuntime:
     def available_base_voice_variants(self) -> list[str]:
         return ["high", "balanced"]
 
-    def synthesize_base(self, *, text: str, lang: str, base_voice_variant: str = "") -> bytes:
-        assert text == "Guten Tag"
-        assert lang == "de"
-        assert base_voice_variant == "high"
-        return b"RIFFbase"
-
-    def synthesize(self, *, voice_id: str, text: str, lang: str, base_voice_variant: str = "") -> bytes:
-        assert voice_id == "manfred"
-        assert text == "Hallo"
-        return b"RIFFclone"
-
     def clone_voice(self, *, voice_id: str, voice_label: str, source_files: list[tuple[str, bytes]]) -> dict[str, object]:
         self.clone_payloads.append(source_files)
         return {"voice_id": voice_id, "voice_label": voice_label, "sample_count": len(source_files)}
@@ -47,7 +36,21 @@ def _client(monkeypatch):
     return TestClient(openvoice_app.create_app()), runtime
 
 
-def test_openvoice_synthesize_base_returns_audio(monkeypatch) -> None:
+def test_openvoice_ready_reports_tts_disabled_by_policy(monkeypatch) -> None:
+    client, _runtime = _client(monkeypatch)
+
+    response = client.get("/health/ready")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["service"] == "openvoice"
+    assert body["role"] == "stt_only_policy_enforced"
+    assert body["tts_allowed"] is False
+    assert body["clone_allowed"] is False
+    assert body["tts_disabled_reason"] == "openvoice_tts_disabled_by_policy"
+
+
+def test_openvoice_synthesize_base_is_disabled_by_policy(monkeypatch) -> None:
     client, _runtime = _client(monkeypatch)
 
     response = client.post(
@@ -55,12 +58,11 @@ def test_openvoice_synthesize_base_returns_audio(monkeypatch) -> None:
         json={"text": "Guten Tag", "lang": "de", "base_voice_variant": "high"},
     )
 
-    assert response.status_code == 200
-    assert response.headers["content-type"].startswith("audio/wav")
-    assert response.content == b"RIFFbase"
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "openvoice_tts_disabled_by_policy"
 
 
-def test_openvoice_synthesize_returns_clone_audio(monkeypatch) -> None:
+def test_openvoice_synthesize_is_disabled_by_policy(monkeypatch) -> None:
     client, _runtime = _client(monkeypatch)
 
     response = client.post(
@@ -68,11 +70,11 @@ def test_openvoice_synthesize_returns_clone_audio(monkeypatch) -> None:
         json={"voice_id": "manfred", "text": "Hallo", "lang": "de"},
     )
 
-    assert response.status_code == 200
-    assert response.content == b"RIFFclone"
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "openvoice_tts_disabled_by_policy"
 
 
-def test_openvoice_clone_accepts_bounded_files(monkeypatch) -> None:
+def test_openvoice_clone_is_disabled_by_policy(monkeypatch) -> None:
     pytest.importorskip("multipart")
     client, runtime = _client(monkeypatch)
 
@@ -82,16 +84,16 @@ def test_openvoice_clone_accepts_bounded_files(monkeypatch) -> None:
         files=[("files", ("sample.wav", b"audio", "audio/wav"))],
     )
 
-    assert response.status_code == 200
-    assert response.json()["voice_id"] == "manfred-openvoice"
-    assert runtime.clone_payloads == [[("sample.wav", b"audio")]]
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "openvoice_tts_disabled_by_policy"
+    assert runtime.clone_payloads == []
 
 
-def test_openvoice_synthesize_base_rejects_oversized_text(monkeypatch) -> None:
+def test_openvoice_synthesize_base_rejects_by_policy_before_text_handling(monkeypatch) -> None:
     monkeypatch.setenv("OPENVOICE_MAX_TTS_TEXT_LEN", "4")
     client, _runtime = _client(monkeypatch)
 
     response = client.post("/synthesize-base", json={"text": "too long"})
 
-    assert response.status_code == 413
-    assert response.json()["error"]["code"] == "text_too_long"
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "openvoice_tts_disabled_by_policy"

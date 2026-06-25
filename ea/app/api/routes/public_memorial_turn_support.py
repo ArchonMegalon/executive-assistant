@@ -59,8 +59,8 @@ def _fallback_tts_plugin_order() -> tuple[str, ...]:
     if configured:
         candidates = tuple(item.strip() for item in configured.split(",") if item.strip())
     else:
-        candidates = (shared.PIPER_FAST_TTS_PLUGIN_ID, shared.OPENVOICE_TTS_PLUGIN_ID)
-    return tuple(item for item in candidates if item in {shared.PIPER_FAST_TTS_PLUGIN_ID, shared.OPENVOICE_TTS_PLUGIN_ID})
+        candidates = ()
+    return tuple(item for item in candidates if item in {shared.VOICEWAVE_TTS_PLUGIN_ID})
 
 
 def _resolve_rehearsal_fallback_tts_option(options: list[dict[str, object]]) -> tuple[str, dict[str, object]] | None:

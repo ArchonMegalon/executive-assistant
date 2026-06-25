@@ -120,23 +120,16 @@ async def _read_clone_files(files: list[object]) -> list[tuple[str, bytes]]:
 
 
 def _ready_payload() -> tuple[int, dict[str, Any]]:
-    config = load_openvoice_service_config()
-    base_tts_ready = True
-    readiness_errors: list[str] = []
-    if config.base_tts == "piper" and (not config.piper_bin or not config.piper_model):
-        base_tts_ready = False
-        readiness_errors.append("piper_not_configured")
-    clone_ready = (config.converter_dir / "config.json").is_file() and (config.converter_dir / "checkpoint.pth").is_file()
     return (
-        200 if base_tts_ready else 503,
+        200,
         {
-            "status": "ready" if base_tts_ready else "degraded",
+            "status": "ready",
             "service": "openvoice",
-            "base_tts": config.base_tts,
-            "base_tts_ready": base_tts_ready,
-            "clone_ready": clone_ready,
-            "base_voice_variants": get_openvoice_runtime().available_base_voice_variants(),
-            "errors": readiness_errors,
+            "role": "stt_only_policy_enforced",
+            "tts_allowed": False,
+            "clone_allowed": False,
+            "tts_disabled_reason": "openvoice_tts_disabled_by_policy",
+            "errors": [],
         },
     )
 
@@ -156,64 +149,15 @@ def create_app() -> FastAPI:
 
     @app.post("/synthesize-base")
     async def synthesize_base(payload: SynthesizeBaseRequest) -> Response:
-        text = _clean_text(payload.text, max_len=_max_tts_text_len())
-        lang = str(payload.lang or "de").strip() or "de"
-        variant = str(payload.base_voice_variant or "default").strip() or "default"
-        try:
-            audio = get_openvoice_runtime().synthesize_base(
-                text=text,
-                lang=lang,
-                base_voice_variant=variant,
-            )
-        except Exception as exc:
-            raise _runtime_error(exc) from exc
-        return _audio_response(audio)
+        raise HTTPException(status_code=403, detail="openvoice_tts_disabled_by_policy")
 
     @app.post("/synthesize")
     async def synthesize(payload: SynthesizeRequest) -> Response:
-        text = _clean_text(payload.text, max_len=_max_tts_text_len())
-        voice_id = _clean_token(payload.voice_id, field_name="voice_id")
-        lang = str(payload.lang or "de").strip() or "de"
-        variant = str(payload.base_voice_variant or "default").strip() or "default"
-        try:
-            audio = get_openvoice_runtime().synthesize(
-                voice_id=voice_id,
-                text=text,
-                lang=lang,
-                base_voice_variant=variant,
-            )
-        except Exception as exc:
-            raise _runtime_error(exc) from exc
-        return _audio_response(audio)
+        raise HTTPException(status_code=403, detail="openvoice_tts_disabled_by_policy")
 
     @app.post("/clone")
     async def clone_voice(request: Request) -> dict[str, object]:
-        try:
-            form = await request.form()
-        except Exception as exc:
-            raise HTTPException(status_code=503, detail="multipart_parser_unavailable") from exc
-        files = [value for key, value in form.multi_items() if str(key) == "files"]
-        source_files = await _read_clone_files(files)
-        slug = str(form.get("slug") or "")
-        voice_label = str(form.get("voice_label") or "")
-        voice_id = str(form.get("voice_id") or "")
-        normalized_slug = _clean_token(slug or voice_id, field_name="slug", max_len=80)
-        normalized_voice_id = _clean_token(voice_id or f"{normalized_slug}-openvoice", field_name="voice_id", max_len=120)
-        normalized_label = str(voice_label or normalized_voice_id).strip()[:160] or normalized_voice_id
-        try:
-            manifest = get_openvoice_runtime().clone_voice(
-                voice_id=normalized_voice_id,
-                voice_label=normalized_label,
-                source_files=source_files,
-            )
-        except Exception as exc:
-            raise _runtime_error(exc) from exc
-        return {
-            "voice_id": str(manifest.get("voice_id") or normalized_voice_id),
-            "voice_label": str(manifest.get("voice_label") or normalized_label),
-            "sample_count": int(manifest.get("sample_count") or len(source_files)),
-            "status": "ready",
-        }
+        raise HTTPException(status_code=403, detail="openvoice_tts_disabled_by_policy")
 
     return app
 

@@ -2564,7 +2564,7 @@ def _normalize_memorial_spoken_tts_text(value: object) -> str:
 
 def _safe_tts_plugin_id(value: object) -> str:
     normalized = str(value or "").strip()
-    if normalized in {_LEGACY_ELEVENLABS_TTS_PLUGIN_ID, OPENVOICE_TTS_PLUGIN_ID}:
+    if normalized in {_LEGACY_ELEVENLABS_TTS_PLUGIN_ID, OPENVOICE_TTS_PLUGIN_ID, PIPER_FAST_TTS_PLUGIN_ID}:
         return _TTS_PLUGIN_DEFAULT_ID
     return normalized
 
@@ -2697,11 +2697,7 @@ def _preferred_curated_youtube_interview_assets(*, slug: str) -> list[Path]:
 
 
 def _openvoice_clone_from_memorial(*, slug: str, voice_label: str) -> str:
-    sample_paths = _profile_clip_assets_for_memorial(slug=slug)
-    if not sample_paths:
-        raise HTTPException(status_code=400, detail="voice_profile_no_samples")
-    usable_sample_paths = sample_paths[:_TTS_MAX_CLONE_FILES]
-    return openvoice_clone_request(slug=slug, voice_label=voice_label, sample_paths=usable_sample_paths)
+    raise HTTPException(status_code=403, detail="openvoice_tts_disabled_by_policy")
 
 
 def _float_between(value: object, *, fallback: float, minimum: float, maximum: float) -> float:
@@ -2772,10 +2768,35 @@ def _write_json_atomic(path: Path, payload: dict[str, object]) -> None:
     tmp_path.replace(path)
 
 
+_PUBLIC_MEMORIAL_JSON_HEADERS = {
+    "Cache-Control": "no-store",
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+    "X-Robots-Tag": "noindex, nofollow",
+}
+
+
+def _public_memorial_stable_error(detail: str, status_code: int) -> tuple[int, str, dict[str, str]]:
+    raw = _text(detail, "request_failed") or "request_failed"
+    lowered = raw.lower()
+    headers: dict[str, str] = {}
+    if "unmixr_slots_cooling_down" in lowered or "too many requests" in lowered:
+        retry_after = "600"
+        match = re.search(r"unmixr_slots_cooling_down:(\d+)", raw, flags=re.IGNORECASE)
+        if match:
+            retry_after = str(max(1, min(int(match.group(1)), 3600)))
+        headers["Retry-After"] = retry_after
+        return 429, "tts_temporarily_unavailable", headers
+    return status_code, raw, headers
+
+
 def _public_memorial_error_response(status_code: int, detail: str) -> JSONResponse:
-    code = _text(detail, "request_failed") or "request_failed"
+    stable_status, code, extra_headers = _public_memorial_stable_error(detail, status_code)
+    headers = dict(_PUBLIC_MEMORIAL_JSON_HEADERS)
+    headers.update(extra_headers)
     return JSONResponse(
-        status_code=status_code,
+        status_code=stable_status,
+        headers=headers,
         content={
             "detail": code,
             "error": {
@@ -6348,13 +6369,7 @@ def _render_memorial_tts_audio(
             return adopted_legacy
 
     def _synthesize_once() -> tuple[bytes, str]:
-        if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID:
-            synthesized_audio, synthesized_content_type = piper_fast_synthesize_request(
-                text=normalized_text,
-                lang=_text(merged_config.get("lang"), "de-AT"),
-                base_voice_variant=_effective_tts_base_voice_variant(merged_config),
-            )
-        elif selected_plugin == UNMIXR_TTS_PLUGIN_ID:
+        if selected_plugin == UNMIXR_TTS_PLUGIN_ID:
             if not voice_ref:
                 raise HTTPException(status_code=409, detail="tts_voice_id_missing")
             synthesized_audio, synthesized_content_type = unmixr_synthesize_request(
@@ -6372,15 +6387,6 @@ def _render_memorial_tts_audio(
                 text=normalized_text,
                 voice_label=voice_ref,
             )
-        elif selected_plugin == OPENVOICE_TTS_PLUGIN_ID:
-            if not voice_ref:
-                raise HTTPException(status_code=409, detail="tts_voice_id_missing")
-            synthesized_audio, synthesized_content_type = openvoice_synthesize_request_with_variant(
-                text=normalized_text,
-                voice_id=voice_ref,
-                lang=_text(merged_config.get("lang"), "de-AT"),
-                base_voice_variant=_effective_tts_base_voice_variant(merged_config),
-            )
         else:
             raise HTTPException(status_code=400, detail="unsupported_tts_plugin")
         if int(max(0, lead_in_ms)) == 0 and int(max(0, tail_silence_ms)) == 0 and not str(extra_filters or "").strip():
@@ -6395,7 +6401,7 @@ def _render_memorial_tts_audio(
 
     audio = b""
     content_type = "audio/wav"
-    if direct_contact_phrase and selected_plugin in {UNMIXR_TTS_PLUGIN_ID, VOICEWAVE_TTS_PLUGIN_ID, OPENVOICE_TTS_PLUGIN_ID}:
+    if direct_contact_phrase and selected_plugin in {UNMIXR_TTS_PLUGIN_ID, VOICEWAVE_TTS_PLUGIN_ID}:
         best_audio = b""
         best_content_type = "audio/wav"
         best_validation: dict[str, object] = {"status": "unchecked", "f1": 0.0, "transcript_text": ""}
@@ -6439,7 +6445,7 @@ def _render_memorial_tts_audio(
         contact_phrase_validation = best_validation
     else:
         audio, content_type = _synthesize_once()
-        if selected_plugin in {PIPER_FAST_TTS_PLUGIN_ID, UNMIXR_TTS_PLUGIN_ID, VOICEWAVE_TTS_PLUGIN_ID, OPENVOICE_TTS_PLUGIN_ID}:
+        if selected_plugin in {UNMIXR_TTS_PLUGIN_ID, VOICEWAVE_TTS_PLUGIN_ID}:
             too_short, minimum_duration_ms, actual_duration_ms = _memorial_tts_audio_is_suspiciously_short(
                 text=normalized_text,
                 payload=audio,
@@ -6711,17 +6717,10 @@ def _run_memorial_live_warmup(slug: str) -> None:
             errors.append(f"chat:{str(exc)[:120]}")
         try:
             base_config = _load_voice_config(slug)
-            selected_plugin = PIPER_FAST_TTS_PLUGIN_ID
-            phase_started = time.perf_counter()
-            piper_fast_synthesize_request(
-                text=_memorial_contact_answer_body("Hallo Manfred"),
-                lang=_text(base_config.get("lang"), "de-AT"),
-                base_voice_variant=_effective_tts_base_voice_variant(base_config),
-            )
-            tts_ms = (time.perf_counter() - phase_started) * 1000.0
+            selected_plugin = _safe_tts_plugin_id(base_config.get("tts_plugin"))
         except Exception as exc:
             errors.append(f"tts:{str(exc)[:120]}")
-        if _safe_tts_plugin_id(base_config.get("tts_plugin")) == VOICEWAVE_TTS_PLUGIN_ID:
+        if selected_plugin == VOICEWAVE_TTS_PLUGIN_ID:
             voice_label = _text(base_config.get("tts_plugin_voice_id"), voicewave_memorial_voice_label())
             if voice_label:
                 with _MEMORIAL_LIVE_WARMUP_LOCK:
@@ -6736,7 +6735,7 @@ def _run_memorial_live_warmup(slug: str) -> None:
                     current["voicewave_contact_errors"] = []
                     _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
                 _schedule_memorial_voicewave_contact_prewarm(slug, voice_label)
-        elif _safe_tts_plugin_id(base_config.get("tts_plugin")) == UNMIXR_TTS_PLUGIN_ID:
+        elif selected_plugin == UNMIXR_TTS_PLUGIN_ID:
             with _MEMORIAL_LIVE_WARMUP_LOCK:
                 current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
                 current["voice_contact_required"] = True
@@ -6860,7 +6859,7 @@ def _run_memorial_server_voice_contact_prewarm(slug: str) -> None:
             voice_profile_ready=bool(base_config.get("voice_profile_ready")),
         )
         selected_plugin, selected_option = _resolve_server_tts_plugin(payload=merged_config, options=tts_options)
-        if selected_plugin not in {UNMIXR_TTS_PLUGIN_ID, OPENVOICE_TTS_PLUGIN_ID}:
+        if selected_plugin != UNMIXR_TTS_PLUGIN_ID:
             return
         if not bool(selected_option.get("tts_plugin_enabled")):
             return
@@ -14947,8 +14946,11 @@ def _public_memorial_page_html(
 
 @router.post("/memorials/{slug}/warmup")
 async def public_memorial_warmup(slug: str, request: Request) -> JSONResponse:
-    _load_memorial(slug)
-    _enforce_public_memorial_rate_limit("warmup", request=request)
+    try:
+        _load_memorial(slug)
+        _enforce_public_memorial_rate_limit("warmup", request=request)
+    except HTTPException as exc:
+        return _public_memorial_error_response(exc.status_code, _text(exc.detail, "request_failed"))
     result = _schedule_memorial_live_warmup(slug)
     return JSONResponse(
         {
@@ -14957,15 +14959,22 @@ async def public_memorial_warmup(slug: str, request: Request) -> JSONResponse:
             "scheduled": bool(result["scheduled"]),
             "ttl_seconds": int(result["ttl_seconds"]),
         },
-        headers={"Cache-Control": "no-store"},
+        headers=dict(_PUBLIC_MEMORIAL_JSON_HEADERS),
         status_code=202,
     )
 
 
 @router.get("/memorials/{slug}/warmup-status")
 def public_memorial_warmup_status(slug: str) -> JSONResponse:
-    _load_memorial(slug)
+    try:
+        _load_memorial(slug)
+    except HTTPException as exc:
+        return _public_memorial_error_response(exc.status_code, _text(exc.detail, "request_failed"))
     snapshot = _memorial_live_warmup_snapshot(_safe_slug(slug))
+    spoken_voice_ready = bool(snapshot["warm"]) and (
+        not bool(snapshot["voice_required"]) or bool(snapshot["voice_ready"])
+    )
+    realtime_ready = bool(_gemini_live_available())
     return JSONResponse(
         {
             "slug": _safe_slug(slug),
@@ -14981,8 +14990,12 @@ def public_memorial_warmup_status(slug: str) -> JSONResponse:
             "voice_errors": list(snapshot["voice_errors"]),
             "voice_required": bool(snapshot["voice_required"]),
             "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS,
+            "ready": spoken_voice_ready,
+            "spoken_voice_ready": spoken_voice_ready,
+            "realtime_ready": realtime_ready,
+            "degraded_reasons": [] if realtime_ready else ["realtime_backend_unavailable"],
         },
-        headers={"Cache-Control": "no-store"},
+        headers=dict(_PUBLIC_MEMORIAL_JSON_HEADERS),
     )
 
 

@@ -26,7 +26,6 @@ def _tts_plugin_options(
     unmixr_voice_id = configured_voice_id or unmixr_memorial_voice_id()
     voicewave_voice_id = configured_voice_id or voicewave_memorial_voice_label()
     return [
-        piper_fast_plugin_option(),
         {
             "tts_plugin": browser_speech_tts_plugin_id,
             "tts_plugin_enabled": True,
