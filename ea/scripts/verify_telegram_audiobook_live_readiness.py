@@ -24,12 +24,16 @@ DISCOVERY_ENV_VARS = {
         "EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED",
         "EA_AUDIOBOOK_UNMIXR_VOICE_DISCOVERY_USE_CASES",
     },
+    "unmixr_cinematic_narration_enabled": {
+        "EA_AUDIOBOOK_CINEMATIC_NARRATION",
+    },
     "voice_catalog_audition_ready": {
         "EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED",
         "EA_AUDIOBOOK_UNMIXR_VOICE_DISCOVERY_TARGET_COUNT",
         "EA_AUDIOBOOK_UNMIXR_VOICE_DISCOVERY_USE_CASES",
     },
 }
+REQUIRED_READY_VOICE_KEYS = {"unmixr_cinematic_narration_enabled"}
 
 
 Runner = Callable[..., object]
@@ -166,6 +170,8 @@ def verify_telegram_audiobook_live_readiness(
         env_vars = set(str(value) for value in list(item.get("env_var_names") or []))
         if not required_vars.issubset(env_vars):
             issues.append(f"live_readiness_discovery_env_vars_missing:{key}")
+        if key in REQUIRED_READY_VOICE_KEYS and item and str(item.get("status") or "") != "ready":
+            issues.append(f"live_readiness_critical_voice_item_blocked:{key}")
     for section in ("voice_samples", "delivery"):
         section_obj = receipt.get(section)
         if not isinstance(section_obj, dict):

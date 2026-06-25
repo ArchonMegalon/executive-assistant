@@ -179,6 +179,7 @@ def _build_env_preflight() -> dict[str, object]:
     telegram_audiobook_enabled = _telegram_audiobook_enabled()
     add("telegram_audiobook_enabled", telegram_audiobook_enabled)
     add("telegram_epub_enabled", telegram_audiobook_enabled)
+    add("unmixr_cinematic_narration_enabled", _env_bool("EA_AUDIOBOOK_CINEMATIC_NARRATION", True))
     add("jobs_root_durable", allow_non_durable or _path_storage_kind(jobs_root) in {"durable", "pcloud"})
     add("jobs_root_writable", _writable_or_creatable(jobs_root))
     add("external_tts_enabled", external_tts)
@@ -209,6 +210,7 @@ def _build_env_preflight() -> dict[str, object]:
         "provider": {
             "api_key_slot_count": _unmixr_api_key_slot_count(),
             "voice_catalog_count": voice_count,
+            "unmixr_cinematic_narration_enabled": _env_bool("EA_AUDIOBOOK_CINEMATIC_NARRATION", True),
             "voice_discovery_enabled": _env_bool("EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED", True),
             "voice_discovery_target_count": _env_int("EA_AUDIOBOOK_VOICE_DISCOVERY_TARGET_COUNT", 30, minimum=3, maximum=100),
             "voice_audition_min_candidates": audition_min,
@@ -408,6 +410,12 @@ def materialize_telegram_audiobook_live_readiness(
             status=_status_from_check(checks, "external_tts_enabled"),
             env_var_names=["EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED"],
             operator_action="Approve raw owned audiobook source text leaving EA for governed external audiobook TTS.",
+        ),
+        _item(
+            key="unmixr_cinematic_narration_enabled",
+            status=_status_from_check(checks, "unmixr_cinematic_narration_enabled", True),
+            env_var_names=["EA_AUDIOBOOK_CINEMATIC_NARRATION"],
+            operator_action="Keep cinematic narration enabled for premium memorial audiobook output.",
         ),
         _item(
             key="unmixr_auto_render_enabled",

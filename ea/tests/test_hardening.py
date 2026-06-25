@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import os
+import importlib.util
 import subprocess
 import tempfile
 import unittest
@@ -43,6 +44,14 @@ from app.settings import (
     validate_startup_settings,
 )
 
+
+def _load_script_module(module_name: str, *, path: Path):
+    spec = importlib.util.spec_from_file_location(module_name, str(path))
+    module = importlib.util.module_from_spec(spec) if spec else None
+    if module is None or spec is None or spec.loader is None:
+        raise RuntimeError(f"Unable to load script module {module_name} from {path}")
+    spec.loader.exec_module(module)
+    return module
 
 def _signed_token(payload: dict[str, object], *, secret: str) -> str:
     payload_json = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
@@ -227,6 +236,50 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("http://example.test/slow", result)
         self.assertEqual(result["http://example.test/slow"]["status"], "timeout")
         self.assertEqual(result["http://example.test/slow"]["detail"], "probe_timeout")
+
+    def test_materialized_telegram_audiobook_readiness_tracks_cinematic_narration(self) -> None:
+        script_path = Path(__file__).resolve().parents[1] / "scripts" / "materialize_telegram_audiobook_live_readiness.py"
+        materialize_module = _load_script_module("ea_materialize_audiobook_live_readiness_for_test", path=script_path)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            receipt = materialize_module.materialize_telegram_audiobook_live_readiness(
+                receipt_path=Path(tmpdir) / "telegram_audiobook_live_readiness_test.json"
+            )
+        voice_items = receipt.get("voice_samples", {}).get("items", [])
+        cinematic_items = [item for item in voice_items if item.get("key") == "unmixr_cinematic_narration_enabled"]
+        self.assertEqual(len(cinematic_items), 1)
+        self.assertEqual(cinematic_items[0].get("status"), "ready")
+
+    def test_verify_audiobook_cinematic_readiness_fails_if_disabled(self) -> None:
+        script_root = Path(__file__).resolve().parents[1] / "scripts"
+        materialize_module = _load_script_module("ea_materialize_audiobook_live_readiness_for_verify_test", path=script_root / "materialize_telegram_audiobook_live_readiness.py")
+        verify_module = _load_script_module("ea_verify_audiobook_live_readiness_for_test", path=script_root / "verify_telegram_audiobook_live_readiness.py")
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED": "1",
+                    "EA_AUDIOBOOK_UNMIXR_AUTO_RENDER": "1",
+                    "UNMIXR_API_KEY": "test",
+                    "EA_AUDIOBOOK_UNMIXR_VOICE_DISCOVERY_ENABLED": "1",
+                    "EA_AUDIOBOOK_CINEMATIC_NARRATION": "0",
+                    "EA_AUDIOBOOK_UNMIXR_VOICE_DISCOVERY_USE_CASES": "commemorative",
+                    "EA_AUDIOBOOK_UNMIXR_VOICE_DISCOVERY_TARGET_COUNT": "3",
+                    "EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED": "1",
+                },
+                clear=False,
+            ),
+            tempfile.TemporaryDirectory() as tmpdir,
+        ):
+            temp_path = Path(tmpdir) / "receipt.json"
+            materialize_module.materialize_telegram_audiobook_live_readiness(receipt_path=temp_path)
+            verification = verify_module.verify_telegram_audiobook_live_readiness(
+                temp_path,
+                runtime_container=None,
+                require_deployed_runtime=False,
+            )
+            self.assertEqual(verification.get("status"), "fail")
+            issues = [str(item) for item in verification.get("issues", [])]
+            self.assertTrue(any("live_readiness_critical_voice_item_blocked:unmixr_cinematic_narration_enabled" in item for item in issues))
 
     def test_validate_startup_settings_rejects_prod_principal_override_flags(self) -> None:
         settings = _base_settings(mode="prod")
