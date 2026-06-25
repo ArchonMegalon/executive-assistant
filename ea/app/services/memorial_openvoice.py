@@ -19,16 +19,13 @@ OPENVOICE_TTS_PLUGIN_ID = "openvoice_local"
 OPENVOICE_TTS_PLUGIN_LABEL = "OpenVoice Local Clone"
 PIPER_FAST_TTS_PLUGIN_ID = "piper_local_fast"
 PIPER_FAST_TTS_PLUGIN_LABEL = "Piper Local Fast"
-OPENVOICE_TTS_DISABLED_REASON = "openvoice_tts_disabled_by_policy"
+OPENVOICE_TTS_DISABLED_REASON = "openvoice_tts_pipeline_removed"
 UNMIXR_TTS_PLUGIN_ID = "unmixr_clone"
 UNMIXR_TTS_PLUGIN_LABEL = "Unmixr AI Clone"
 VOICEWAVE_TTS_PLUGIN_ID = "voicewave_clone"
 VOICEWAVE_TTS_PLUGIN_LABEL = "VoiceWave Clone"
-_OPENVOICE_BASE_URL_ENV = "OPENVOICE_BASE_URL"
 _OPENVOICE_TIMEOUT_ENV = "OPENVOICE_TIMEOUT_SECONDS"
-_OPENVOICE_MEMORIAL_VOICE_ID_ENV = "OPENVOICE_MEMORIAL_VOICE_ID"
 _OPENVOICE_DEFAULT_TIMEOUT_SECONDS = 180
-_OPENVOICE_DEFAULT_BASE_URL = "http://127.0.0.1:8093"
 _OPENVOICE_CLONE_CLIP_SECONDS = 180
 _OPENVOICE_CLONE_SAMPLE_RATE = 16000
 _OPENVOICE_MAX_CURATED_CLIPS = 3
@@ -75,7 +72,7 @@ _UNMIXR_RETRY_AFTER_RE = re.compile(
 
 
 def openvoice_base_url() -> str:
-    return str(os.environ.get(_OPENVOICE_BASE_URL_ENV) or _OPENVOICE_DEFAULT_BASE_URL).strip().rstrip("/")
+    return ""
 
 
 def openvoice_timeout_seconds() -> int:
@@ -88,7 +85,7 @@ def openvoice_timeout_seconds() -> int:
 
 
 def openvoice_memorial_voice_id() -> str:
-    return str(os.environ.get(_OPENVOICE_MEMORIAL_VOICE_ID_ENV) or "").strip()
+    return ""
 
 
 def unmixr_api_key() -> str:
@@ -389,7 +386,6 @@ def _voicewave_cache_paths(*, text: str, voice_label: str) -> tuple[Path, Path]:
 
 
 def openvoice_plugin_option(*, configured_voice_id: str, voice_profile_ready: bool) -> dict[str, object]:
-    base_url = openvoice_base_url()
     return {
         "tts_plugin": OPENVOICE_TTS_PLUGIN_ID,
         "tts_plugin_label": OPENVOICE_TTS_PLUGIN_LABEL,
@@ -400,13 +396,11 @@ def openvoice_plugin_option(*, configured_voice_id: str, voice_profile_ready: bo
         "tts_plugin_requires_voice_id": True,
         "tts_plugin_voice_id": configured_voice_id,
         "tts_plugin_voice_profile_ready": bool(voice_profile_ready),
-        "tts_plugin_base_url": base_url,
         "tts_plugin_disabled_reason": OPENVOICE_TTS_DISABLED_REASON,
     }
 
 
 def piper_fast_plugin_option() -> dict[str, object]:
-    base_url = openvoice_base_url()
     return {
         "tts_plugin": PIPER_FAST_TTS_PLUGIN_ID,
         "tts_plugin_label": PIPER_FAST_TTS_PLUGIN_LABEL,
@@ -417,7 +411,6 @@ def piper_fast_plugin_option() -> dict[str, object]:
         "tts_plugin_requires_voice_id": False,
         "tts_plugin_voice_id": "",
         "tts_plugin_voice_profile_ready": True,
-        "tts_plugin_base_url": base_url,
         "tts_plugin_disabled_reason": OPENVOICE_TTS_DISABLED_REASON,
     }
 
@@ -467,31 +460,6 @@ def voicewave_plugin_option(*, configured_voice_id: str, voice_profile_ready: bo
         "tts_plugin_voice_id": voice_label,
         "tts_plugin_voice_profile_ready": bool(voice_profile_ready),
     }
-
-
-def _openvoice_request(
-    *,
-    method: str,
-    path: str,
-    json_payload: dict[str, object] | None = None,
-    files: list[tuple[str, object]] | None = None,
-    data: dict[str, str] | None = None,
-) -> requests.Response:
-    base_url = openvoice_base_url()
-    if not base_url:
-        raise HTTPException(status_code=503, detail="openvoice_base_url_missing")
-    try:
-        response = requests.request(
-            method=method,
-            url=f"{base_url}{path}",
-            json=json_payload,
-            files=files,
-            data=data,
-            timeout=openvoice_timeout_seconds(),
-        )
-    except requests.RequestException as exc:
-        raise HTTPException(status_code=502, detail=f"openvoice_upstream_unreachable:{type(exc).__name__}") from exc
-    return response
 
 
 def _unmixr_headers(api_key: str | None = None) -> dict[str, str]:
@@ -677,7 +645,7 @@ def _prepare_clone_upload_path(path: Path) -> tuple[Path, bool]:
     if path.stat().st_size <= 18 * 1024 * 1024:
         return path, False
     suffix = path.suffix or ".wav"
-    handle = tempfile.NamedTemporaryFile(prefix="ea-openvoice-clone-", suffix=suffix, delete=False)
+    handle = tempfile.NamedTemporaryFile(prefix="ea-unmixr-clone-", suffix=suffix, delete=False)
     temp_path = Path(handle.name)
     handle.close()
     cmd = [
@@ -813,7 +781,7 @@ def openvoice_clone_request(
     sample_paths: list[Path],
     voice_id: str | None = None,
 ) -> str:
-    raise HTTPException(status_code=403, detail=OPENVOICE_TTS_DISABLED_REASON)
+    raise HTTPException(status_code=410, detail=OPENVOICE_TTS_DISABLED_REASON)
 
 
 def unmixr_clone_request(*, slug: str, voice_label: str, sample_paths: list[Path]) -> str:
@@ -908,15 +876,15 @@ def unmixr_delete_clone_profile_request(*, profile_id: str) -> dict[str, object]
 
 
 def openvoice_synthesize_request(*, text: str, voice_id: str, lang: str) -> tuple[bytes, str]:
-    raise HTTPException(status_code=403, detail=OPENVOICE_TTS_DISABLED_REASON)
+    raise HTTPException(status_code=410, detail=OPENVOICE_TTS_DISABLED_REASON)
 
 
 def openvoice_synthesize_request_with_variant(*, text: str, voice_id: str, lang: str, base_voice_variant: str) -> tuple[bytes, str]:
-    raise HTTPException(status_code=403, detail=OPENVOICE_TTS_DISABLED_REASON)
+    raise HTTPException(status_code=410, detail=OPENVOICE_TTS_DISABLED_REASON)
 
 
 def piper_fast_synthesize_request(*, text: str, lang: str, base_voice_variant: str) -> tuple[bytes, str]:
-    raise HTTPException(status_code=403, detail=OPENVOICE_TTS_DISABLED_REASON)
+    raise HTTPException(status_code=410, detail=OPENVOICE_TTS_DISABLED_REASON)
 
 
 def unmixr_synthesize_request(

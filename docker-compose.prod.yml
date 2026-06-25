@@ -1,32 +1,10 @@
 services:
-  ea-openvoice:
-    environment:
-      OPENVOICE_PORT: 8093
-      OPENVOICE_BASE_TTS: piper
-      OPENVOICE_HOST: 0.0.0.0
-      OPENVOICE_DATA_DIR: /data/openvoice
-      OPENVOICE_CHECKPOINT_ROOT: /models/openvoice
-      OPENVOICE_SOURCE_DIR: /app/third_party/OpenVoice
-      EA_LTD_MARKDOWN_PATH: /app/LTDs.md
-      EA_LTDS_MARKDOWN_PATH: /app/LTDs.md
-      PIPER_BIN: /opt/piper/piper
-      PIPER_MODEL_PATH: /models/piper/de_DE-thorsten-high.onnx
-      PIPER_MODEL_PATH_ALT: /models/piper/de_DE-thorsten-medium.onnx
-      PIPER_DEFAULT_VARIANT: high
-      PIPER_ALT_VARIANT: balanced
-      OPENVOICE_MAX_CLONE_FILES: 4
-      OPENVOICE_MAX_UPLOAD_BYTES: 20971520
-      OPENVOICE_MAX_TOTAL_UPLOAD_BYTES: 50331648
-      OPENVOICE_MAX_TTS_TEXT_LEN: 3000
-      TZ: Europe/Vienna
-
   ea-api:
     environment:
       EA_RUNTIME_MODE: prod
       EA_ALLOW_LOOPBACK_NO_AUTH: "0"
       EA_STORAGE_BACKEND: postgres
       EA_ENABLE_LEGACY_RUNTIME_SURFACES: ${EA_ENABLE_LEGACY_RUNTIME_SURFACES:-1}
-      OPENVOICE_BASE_URL: ${OPENVOICE_BASE_URL:-http://ea-openvoice:8093}
       EA_PUBLIC_MEMORIAL_DIR: ${EA_PUBLIC_MEMORIAL_DIR:-/data/memorial_data/public_memorials}
       EA_PRIVATE_MEMORIAL_PROFILE_DIR: ${EA_PRIVATE_MEMORIAL_PROFILE_DIR:-/data/memorial_data/private_memorial_profiles}
       EA_API_TOKEN: ${EA_API_TOKEN:?set EA_API_TOKEN in .env for prod deployments}

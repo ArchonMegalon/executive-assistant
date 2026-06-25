@@ -1485,24 +1485,6 @@ def _run_api() -> None:
     )
 
 
-def _run_openvoice() -> None:
-    host = str(os.environ.get("OPENVOICE_HOST") or "0.0.0.0").strip() or "0.0.0.0"
-    raw_port = str(os.environ.get("OPENVOICE_PORT") or "8093").strip()
-    try:
-        port = int(raw_port)
-    except ValueError:
-        port = 8093
-    log_level = str(os.environ.get("OPENVOICE_LOG_LEVEL") or get_settings().log_level).strip().lower() or "info"
-    uvicorn.run(
-        "app.openvoice_app:app",
-        host=host,
-        port=port,
-        log_level=log_level,
-        ws_ping_interval=None,
-        ws_ping_timeout=None,
-    )
-
-
 def _run_execution_worker(role: str) -> None:
     stop = {"flag": False}
 
@@ -1745,9 +1727,6 @@ def main() -> None:
     configure_logging(s.log_level)
     if s.role == "api":
         _run_api()
-        return
-    if s.role == "openvoice":
-        _run_openvoice()
         return
     _run_execution_worker(s.role)
 

@@ -282,7 +282,7 @@ build_and_recreate_services() {
   fi
 
   compose build "${build_services[@]}"
-  compose up -d --no-build ea-db ea-openvoice
+  compose up -d --no-build ea-db
   local service
   for service in "${build_services[@]}"; do
     compose up -d --no-build --no-deps --force-recreate "${service}"
@@ -335,7 +335,7 @@ if [[ "${memory_only}" == "1" ]]; then
 else
   RUNTIME_BUILD_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler)
   TOPOLOGY_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler ea-db)
-  FAILURE_LOG_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler ea-db ea-openvoice)
+  FAILURE_LOG_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler ea-db)
   if [[ "${whatsapp_web_session_overlay_enabled}" == "1" ]]; then
     RUNTIME_BUILD_SERVICES+=(ea-whatsapp-web-session ea-whatsapp-web-activator ea-whatsapp-web-action-processor ea-whatsapp-web-teable-sync)
     TOPOLOGY_SERVICES+=(ea-whatsapp-web-session ea-whatsapp-web-activator ea-whatsapp-web-action-processor ea-whatsapp-web-teable-sync)

@@ -30,21 +30,16 @@ def verify() -> dict[str, object]:
     issues: list[str] = []
 
     requirements = _pinned_requirements(APP_ROOT / "requirements.txt")
-    openvoice_requirements = _pinned_requirements(APP_ROOT / "requirements-openvoice.txt")
     if not requirements:
         issues.append("requirements_txt_empty")
-    if not openvoice_requirements:
-        issues.append("requirements_openvoice_empty")
     if any(not PIN_RE.match(line) for line in requirements):
         issues.append("requirements_txt_unpinned_entries")
-    if any(not PIN_RE.match(line) for line in openvoice_requirements):
-        issues.append("requirements_openvoice_unpinned_entries")
 
     lock_text = _read(APP_ROOT / "requirements.lock")
     if not lock_text.strip():
         issues.append("requirements_lock_empty")
 
-    for rel in ("ea/Dockerfile", "ea/Dockerfile.operator", "ea/Dockerfile.openvoice", "Dockerfile"):
+    for rel in ("ea/Dockerfile", "ea/Dockerfile.operator", "Dockerfile"):
         text = _read(ROOT / rel)
         if not DOCKER_RE.search(text):
             issues.append(f"docker_base_not_pinned:{rel}")
@@ -54,6 +49,14 @@ def verify() -> dict[str, object]:
         issues.append("operator_image_has_unlocked_install_fallback")
     if "pip install --no-cache-dir -r requirements.txt -c requirements.lock" not in _read(ROOT / "Dockerfile"):
         issues.append("root_image_missing_locked_install")
+    for rel in (
+        "ea/Dockerfile.openvoice",
+        "ea/requirements-openvoice.txt",
+        "ea/app/openvoice_app.py",
+        "ea/app/services/openvoice_runtime.py",
+    ):
+        if (ROOT / rel).exists():
+            issues.append(f"openvoice_tts_runtime_present:{rel}")
 
     return {
         "contract_name": "ea.runtime_supply_chain.v1",
@@ -61,13 +64,17 @@ def verify() -> dict[str, object]:
         "issues": issues,
         "checked": {
             "requirements_txt": "ea/requirements.txt",
-            "requirements_openvoice_txt": "ea/requirements-openvoice.txt",
             "requirements_lock": "ea/requirements.lock",
             "dockerfiles": [
                 "ea/Dockerfile",
                 "ea/Dockerfile.operator",
-                "ea/Dockerfile.openvoice",
                 "Dockerfile",
+            ],
+            "forbidden_openvoice_tts_runtime": [
+                "ea/Dockerfile.openvoice",
+                "ea/requirements-openvoice.txt",
+                "ea/app/openvoice_app.py",
+                "ea/app/services/openvoice_runtime.py",
             ],
         },
     }

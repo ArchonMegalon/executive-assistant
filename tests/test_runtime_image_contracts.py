@@ -11,10 +11,8 @@ def test_runtime_image_build_inputs_exist() -> None:
     required = (
         APP_ROOT / "Dockerfile",
         APP_ROOT / "Dockerfile.operator",
-        APP_ROOT / "Dockerfile.openvoice",
         APP_ROOT / "requirements.txt",
         APP_ROOT / "requirements.lock",
-        APP_ROOT / "requirements-openvoice.txt",
         APP_ROOT / "docker-entrypoint.sh",
         APP_ROOT / "app" / "runner.py",
         APP_ROOT / "app" / "logging_utils.py",
@@ -40,7 +38,6 @@ def test_runtime_image_copies_release_gate_makefile() -> None:
 def test_runtime_images_install_with_requirements_lock_constraints() -> None:
     dockerfile = (APP_ROOT / "Dockerfile").read_text(encoding="utf-8")
     operator_dockerfile = (APP_ROOT / "Dockerfile.operator").read_text(encoding="utf-8")
-    openvoice_dockerfile = (APP_ROOT / "Dockerfile.openvoice").read_text(encoding="utf-8")
 
     assert "requirements.lock" in dockerfile
     assert "pip install --no-cache-dir -r requirements.txt -c requirements.lock" in dockerfile
@@ -48,20 +45,15 @@ def test_runtime_images_install_with_requirements_lock_constraints() -> None:
     assert "requirements.lock" in operator_dockerfile
     assert "pip install --no-cache-dir -r requirements.txt -c requirements.lock" in operator_dockerfile
     assert "pip install --no-cache-dir -r requirements.txt;" not in operator_dockerfile
-    assert "COPY requirements.lock /app/requirements.lock" in openvoice_dockerfile
-    assert "pip install --no-cache-dir -r /app/requirements.txt -c /app/requirements.lock" in openvoice_dockerfile
-    assert "pip install --no-cache-dir -r /app/requirements-openvoice.txt -c /app/requirements.lock" in openvoice_dockerfile
 
 
 def test_runtime_images_pin_python_base_image_digests() -> None:
     dockerfile = (APP_ROOT / "Dockerfile").read_text(encoding="utf-8")
     operator_dockerfile = (APP_ROOT / "Dockerfile.operator").read_text(encoding="utf-8")
-    openvoice_dockerfile = (APP_ROOT / "Dockerfile.openvoice").read_text(encoding="utf-8")
     root_dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
 
     assert "FROM python:3.12-slim@sha256:" in dockerfile
     assert "FROM python:3.12-slim@sha256:" in operator_dockerfile
-    assert "FROM python:3.11-slim@sha256:" in openvoice_dockerfile
     assert "FROM python:3.12-slim@sha256:" in root_dockerfile
 
 
@@ -77,16 +69,15 @@ def test_runtime_requirements_are_exactly_pinned() -> None:
     assert not any(">=" in line or "<=" in line or "~=" in line for line in lines)
 
 
-def test_openvoice_requirements_are_exactly_pinned() -> None:
-    lines = [
-        line.strip()
-        for line in (APP_ROOT / "requirements-openvoice.txt").read_text(encoding="utf-8").splitlines()
-        if line.strip() and not line.lstrip().startswith("#") and not line.lstrip().startswith("--")
-    ]
+def test_openvoice_tts_runtime_image_inputs_are_absent() -> None:
+    forbidden = (
+        APP_ROOT / "Dockerfile.openvoice",
+        APP_ROOT / "requirements-openvoice.txt",
+        APP_ROOT / "app" / "openvoice_app.py",
+        APP_ROOT / "app" / "services" / "openvoice_runtime.py",
+    )
 
-    assert lines, "requirements-openvoice.txt must not be empty"
-    assert all("==" in line for line in lines), f"unlocked openvoice requirements found: {lines}"
-    assert not any(">=" in line or "<=" in line or "~=" in line for line in lines)
+    assert [str(path.relative_to(ROOT)) for path in forbidden if path.exists()] == []
 
 
 def test_runtime_image_runs_as_non_root_user_by_default() -> None:

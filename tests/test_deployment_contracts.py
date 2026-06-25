@@ -43,7 +43,6 @@ def test_base_compose_keeps_core_runtime_ports_loopback_only() -> None:
     expected = {
         "ea-api": "127.0.0.1:${EA_HOST_PORT:-8090}:8090",
         "ea-responses-proxy": "127.0.0.1:${EA_RESPONSES_PROXY_HOST_PORT:-8092}:8091",
-        "ea-openvoice": "127.0.0.1:${OPENVOICE_HOST_PORT:-8093}:8093",
     }
     for service_name, port_mapping in expected.items():
         service = services.get(service_name) or {}
@@ -68,7 +67,6 @@ def test_base_compose_applies_auxiliary_runtime_privilege_limits() -> None:
     compose = _load_yaml(ROOT / "docker-compose.yml")
     services = compose.get("services") or {}
     expected = {
-        "ea-openvoice": {"pids_limit": 512, "mem_limit": "8g", "mem_reservation": "2g"},
         "ea-teable-relay": {"pids_limit": 256, "mem_limit": "512m", "mem_reservation": "128m"},
         "ea-proactive-ooda": {"pids_limit": 256, "mem_limit": "512m", "mem_reservation": "128m"},
         "ea-telegram-teable-sync": {"pids_limit": 256, "mem_limit": "512m", "mem_reservation": "128m"},
@@ -176,9 +174,24 @@ def test_property_compose_keeps_api_loopback_only_and_applies_runtime_limits() -
 def test_prod_compose_does_not_widen_core_runtime_port_exposure() -> None:
     compose = _load_yaml(ROOT / "docker-compose.prod.yml")
     services = compose.get("services") or {}
-    for service_name in ("ea-api", "ea-responses-proxy", "ea-openvoice", "ea-worker", "ea-scheduler"):
+    for service_name in ("ea-api", "ea-responses-proxy", "ea-worker", "ea-scheduler"):
         service = services.get(service_name) or {}
         assert "ports" not in service, service_name
+
+
+def test_compose_does_not_ship_openvoice_tts_sidecar() -> None:
+    base = (ROOT / "docker-compose.yml").read_text(encoding="utf-8").lower()
+    prod = (ROOT / "docker-compose.prod.yml").read_text(encoding="utf-8").lower()
+    rendered = "\n".join((base, prod))
+
+    for token in (
+        "ea-openvoice",
+        "dockerfile.openvoice",
+        "requirements-openvoice.txt",
+        "ea_role=openvoice",
+        "openvoice_base_url",
+    ):
+        assert token not in rendered
 
 
 def test_prod_compose_does_not_restore_memorial_runtime_contract() -> None:

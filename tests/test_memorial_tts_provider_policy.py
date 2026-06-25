@@ -45,10 +45,10 @@ def test_openvoice_and_piper_plugin_options_are_disabled() -> None:
     assert openvoice["tts_plugin"] == public_memorials.OPENVOICE_TTS_PLUGIN_ID
     assert openvoice["tts_plugin_enabled"] is False
     assert openvoice["tts_plugin_clone_capable"] is False
-    assert openvoice["tts_plugin_disabled_reason"] == "openvoice_tts_disabled_by_policy"
+    assert openvoice["tts_plugin_disabled_reason"] == "openvoice_tts_pipeline_removed"
     assert piper["tts_plugin"] == public_memorials.PIPER_FAST_TTS_PLUGIN_ID
     assert piper["tts_plugin_enabled"] is False
-    assert piper["tts_plugin_disabled_reason"] == "openvoice_tts_disabled_by_policy"
+    assert piper["tts_plugin_disabled_reason"] == "openvoice_tts_pipeline_removed"
 
 
 def test_openvoice_and_piper_tts_request_functions_are_disabled() -> None:
@@ -66,11 +66,11 @@ def test_openvoice_and_piper_tts_request_functions_are_disabled() -> None:
     with pytest.raises(HTTPException) as piper_error:
         memorial_openvoice.piper_fast_synthesize_request(text="Hallo", lang="de", base_voice_variant="default")
 
-    assert clone_error.value.status_code == 403
-    assert clone_error.value.detail == "openvoice_tts_disabled_by_policy"
-    assert synth_error.value.status_code == 403
-    assert variant_error.value.detail == "openvoice_tts_disabled_by_policy"
-    assert piper_error.value.detail == "openvoice_tts_disabled_by_policy"
+    assert clone_error.value.status_code == 410
+    assert clone_error.value.detail == "openvoice_tts_pipeline_removed"
+    assert synth_error.value.status_code == 410
+    assert variant_error.value.detail == "openvoice_tts_pipeline_removed"
+    assert piper_error.value.detail == "openvoice_tts_pipeline_removed"
 
 
 def test_rehearsal_tts_fallback_default_excludes_openvoice_and_piper(monkeypatch) -> None:

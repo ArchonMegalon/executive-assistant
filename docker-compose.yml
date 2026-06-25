@@ -1,60 +1,4 @@
 services:
-  ea-openvoice:
-    build:
-      context: ./ea
-      dockerfile: Dockerfile.openvoice
-    image: ea-openvoice:latest
-    container_name: ea-openvoice
-    restart: unless-stopped
-    mem_limit: 8g
-    mem_reservation: 2g
-    environment:
-      - EA_ROLE=openvoice
-      - OPENVOICE_PORT=8093
-      - OPENVOICE_BASE_TTS=${OPENVOICE_BASE_TTS:-espeak}
-      - OPENVOICE_HOST=0.0.0.0
-      - OPENVOICE_DATA_DIR=/data/openvoice
-      - OPENVOICE_CHECKPOINT_ROOT=/models/openvoice
-      - OPENVOICE_SOURCE_DIR=/app/third_party/OpenVoice
-      - EA_LTD_MARKDOWN_PATH=/app/LTDs.md
-      - EA_LTDS_MARKDOWN_PATH=/app/LTDs.md
-      - PIPER_BIN=/opt/piper/piper
-      - PIPER_MODEL_PATH=/models/piper/de_DE-thorsten-high.onnx
-      - PIPER_MODEL_PATH_ALT=/models/piper/de_DE-thorsten-medium.onnx
-      - PIPER_DEFAULT_VARIANT=high
-      - PIPER_ALT_VARIANT=balanced
-      - OPENVOICE_MAX_CLONE_FILES=4
-      - OPENVOICE_MAX_UPLOAD_BYTES=20971520
-      - OPENVOICE_MAX_TOTAL_UPLOAD_BYTES=50331648
-      - OPENVOICE_MAX_TTS_TEXT_LEN=3000
-      - TZ=Europe/Vienna
-    ports:
-      - "127.0.0.1:${OPENVOICE_HOST_PORT:-8093}:8093"
-    volumes:
-      - ./ea/.piper:/opt/piper:ro
-      - ./ea/third_party/OpenVoice:/app/third_party/OpenVoice:ro
-      - ./ea/.models/openvoice:/models/openvoice:ro
-      - ./ea/.models/piper:/models/piper:ro
-      - ./LTDs.md:/app/LTDs.md:ro
-      - ea_openvoice_data:/data/openvoice
-    pids_limit: 512
-    read_only: true
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
-    tmpfs:
-      - /tmp
-      - /run
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - port=$${OPENVOICE_PORT:-8093}; curl -fsS --connect-timeout 2 --max-time 10 http://127.0.0.1:$${port}/health/live >/dev/null
-      interval: 30s
-      timeout: 15s
-      start_period: 45s
-      retries: 5
-
   ea-teable-relay:
     build:
       context: .
@@ -152,7 +96,6 @@ services:
       - EA_AUDIOBOOK_ACCESS_EXPIRES_DAYS=${EA_AUDIOBOOK_ACCESS_EXPIRES_DAYS:-30}
       - EA_AUDIOBOOK_PLAYER_ACCESS_BASE_URL=${EA_AUDIOBOOK_PLAYER_ACCESS_BASE_URL:-}
       - HOME=/home/ea
-      - OPENVOICE_BASE_URL=${OPENVOICE_BASE_URL:-http://ea-openvoice:8093}
       - EA_UI_SERVICE_SHARED_TEMP_ROOT=${EA_UI_SERVICE_SHARED_TEMP_ROOT:-/data/artifacts/browseract_ui_worker_shared}
       - VOICEWAVE_RUNTIME_TMP_ROOT=${VOICEWAVE_RUNTIME_TMP_ROOT:-/data/artifacts/voicewave_runtime_tmp}
       - TEABLE_BASE_URL=${TEABLE_RUNTIME_BASE_URL:-https://app.teable.ai}
@@ -168,9 +111,7 @@ services:
       - ./Dockerfile:/app/Dockerfile:ro
       - ./ea/Dockerfile:/app/Dockerfile.ea:ro
       - ./ea/Dockerfile.operator:/app/Dockerfile.operator:ro
-      - ./ea/Dockerfile.openvoice:/app/Dockerfile.openvoice:ro
       - ./ea/requirements.txt:/app/requirements.txt:ro
-      - ./ea/requirements-openvoice.txt:/app/requirements-openvoice.txt:ro
       - ./ea/requirements.lock:/app/requirements.lock:ro
       - ./ea/app/api/routes/channels.py:/app/app/api/routes/channels.py:ro
       - ./ea/app/api/routes/health.py:/app/app/api/routes/health.py:ro
@@ -597,7 +538,6 @@ services:
 
 volumes:
   ea_artifacts: {}
-  ea_openvoice_data: {}
   ea_pgdata: {}
   ea_proactive_ooda_state: {}
   ea_telegram_teable_sync: {}

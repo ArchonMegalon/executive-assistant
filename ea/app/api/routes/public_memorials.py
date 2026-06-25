@@ -2697,7 +2697,7 @@ def _preferred_curated_youtube_interview_assets(*, slug: str) -> list[Path]:
 
 
 def _openvoice_clone_from_memorial(*, slug: str, voice_label: str) -> str:
-    raise HTTPException(status_code=403, detail="openvoice_tts_disabled_by_policy")
+    raise HTTPException(status_code=410, detail="openvoice_tts_pipeline_removed")
 
 
 def _float_between(value: object, *, fallback: float, minimum: float, maximum: float) -> float:

@@ -32,26 +32,10 @@ def test_run_api_uses_main_asgi_target(monkeypatch: pytest.MonkeyPatch) -> None:
     assert calls[0][0] == ("app.main:app",)
 
 
-def test_run_openvoice_uses_openvoice_asgi_target(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_openvoice_tts_role_is_not_available(monkeypatch: pytest.MonkeyPatch) -> None:
     runner = _load_runner_module(monkeypatch)
-    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
 
-    monkeypatch.setattr(
-        runner.uvicorn,
-        "run",
-        lambda *args, **kwargs: calls.append((args, kwargs)),
-    )
-    monkeypatch.setenv("OPENVOICE_HOST", "127.0.0.1")
-    monkeypatch.setenv("OPENVOICE_PORT", "9123")
-    monkeypatch.setenv("OPENVOICE_LOG_LEVEL", "warning")
-
-    runner._run_openvoice()
-
-    assert calls
-    assert calls[0][0] == ("app.openvoice_app:app",)
-    assert calls[0][1]["host"] == "127.0.0.1"
-    assert calls[0][1]["port"] == 9123
-    assert calls[0][1]["log_level"] == "warning"
+    assert not hasattr(runner, "_run_openvoice")
 
 
 def test_scheduler_onemin_billing_refresh_runs_browseract_and_provider_api_sweep(
