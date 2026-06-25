@@ -43,6 +43,7 @@ def _clear_env() -> None:
         "EA_REGISTRATION_EMAIL_ALLOWED_DOMAINS",
         "EA_ALLOW_NON_PROPERTYQUARRY_EMAIL_SENDER",
         "EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER",
+        "EA_CODEXEA_AUTHENTICATED_PRINCIPAL_ID",
         "EA_PUBLIC_APP_BASE_URL",
         "EA_GOOGLE_OAUTH_REDIRECT_URI",
         "EA_WORKSPACE_ACCESS_TOKEN_ISSUER",
@@ -75,6 +76,7 @@ def _isolated_env() -> None:
         "EA_REGISTRATION_EMAIL_ALLOWED_DOMAINS": os.environ.get("EA_REGISTRATION_EMAIL_ALLOWED_DOMAINS"),
         "EA_ALLOW_NON_PROPERTYQUARRY_EMAIL_SENDER": os.environ.get("EA_ALLOW_NON_PROPERTYQUARRY_EMAIL_SENDER"),
         "EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER": os.environ.get("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"),
+        "EA_CODEXEA_AUTHENTICATED_PRINCIPAL_ID": os.environ.get("EA_CODEXEA_AUTHENTICATED_PRINCIPAL_ID"),
         "EA_PUBLIC_APP_BASE_URL": os.environ.get("EA_PUBLIC_APP_BASE_URL"),
         "EA_GOOGLE_OAUTH_REDIRECT_URI": os.environ.get("EA_GOOGLE_OAUTH_REDIRECT_URI"),
         "EA_WORKSPACE_ACCESS_TOKEN_ISSUER": os.environ.get("EA_WORKSPACE_ACCESS_TOKEN_ISSUER"),
@@ -97,7 +99,7 @@ def _isolated_env() -> None:
                 os.environ[key] = value
 
 
-def _request(headers: dict[str, str] | None = None, *, client_host: str = "127.0.0.1") -> Request:
+def _request(headers: dict[str, str] | None = None, *, client_host: str = "127.0.0.1", path: str = "/context") -> Request:
     raw_headers = [
         (key.lower().encode("latin-1"), value.encode("latin-1"))
         for key, value in (headers or {}).items()
@@ -106,7 +108,7 @@ def _request(headers: dict[str, str] | None = None, *, client_host: str = "127.0
         {
             "type": "http",
             "method": "GET",
-            "path": "/context",
+            "path": path,
             "headers": raw_headers,
             "client": (client_host, 49152),
         }
@@ -612,6 +614,47 @@ def test_prod_ignores_authenticated_principal_override_even_when_flagged() -> No
     with pytest.raises(HTTPException, match="principal_required"):
         get_request_context(
             _request(headers={"Authorization": "Bearer real-api-token", "X-EA-Principal-ID": "ops-1"}),
+            container=container,
+        )
+
+
+def test_prod_codexea_routes_use_fixed_authenticated_principal_without_trusting_header() -> None:
+    _clear_env()
+    os.environ["EA_RUNTIME_MODE"] = "prod"
+    os.environ["EA_API_TOKEN"] = "real-api-token"
+    os.environ["EA_SIGNING_SECRET"] = "real-signing-secret"
+    os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
+    os.environ["EA_CODEXEA_AUTHENTICATED_PRINCIPAL_ID"] = "codexea-runtime"
+    container, _ = _container_for_current_settings()
+
+    context = get_request_context(
+        _request(
+            headers={
+                "Authorization": "Bearer real-api-token",
+                "X-EA-Principal-ID": "caller-controlled",
+            },
+            path="/v1/models",
+        ),
+        container=container,
+    )
+
+    assert context.principal_id == "codexea-runtime"
+    assert context.authenticated is True
+    assert context.auth_source == "api_token"
+
+
+def test_prod_fixed_codexea_principal_does_not_apply_to_general_routes() -> None:
+    _clear_env()
+    os.environ["EA_RUNTIME_MODE"] = "prod"
+    os.environ["EA_API_TOKEN"] = "real-api-token"
+    os.environ["EA_SIGNING_SECRET"] = "real-signing-secret"
+    os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
+    os.environ["EA_CODEXEA_AUTHENTICATED_PRINCIPAL_ID"] = "codexea-runtime"
+    container, _ = _container_for_current_settings()
+
+    with pytest.raises(HTTPException, match="principal_required"):
+        get_request_context(
+            _request(headers={"Authorization": "Bearer real-api-token"}, path="/v1/onboarding/start"),
             container=container,
         )
 

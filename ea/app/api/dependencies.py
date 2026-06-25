@@ -392,7 +392,26 @@ def _resolved_principal_id(
         return fallback_principal
     if profile.default_principal_fallback_allowed:
         return fallback_principal or "local-user"
+    codexea_principal = _codexea_authenticated_principal_id(request)
+    if authenticated and codexea_principal:
+        return codexea_principal
     return ""
+
+
+def _codexea_authenticated_principal_id(request: Request) -> str:
+    path = str(getattr(getattr(request, "url", None), "path", "") or "").strip()
+    if not (
+        path == "/v1/models"
+        or path == "/v1/responses"
+        or path.startswith("/v1/responses/")
+        or path == "/v1/codex"
+        or path.startswith("/v1/codex/")
+    ):
+        return ""
+    return (
+        str(os.environ.get("EA_CODEXEA_AUTHENTICATED_PRINCIPAL_ID") or "").strip()
+        or str(os.environ.get("EA_CODEXEA_PRINCIPAL_ID") or "").strip()
+    )
 
 
 def require_request_auth(
@@ -418,7 +437,10 @@ class RequestContext:
 
 def authenticated_principal_override_allowed(request: Request) -> bool:
     runtime_mode = os.environ.get("EA_RUNTIME_MODE")
-    app = getattr(request, "app", None)
+    app = None
+    scope = getattr(request, "scope", None)
+    if isinstance(scope, dict):
+        app = scope.get("app")
     state = getattr(app, "state", None)
     container = getattr(state, "container", None)
     if container is not None:
