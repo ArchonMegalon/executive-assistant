@@ -133,6 +133,7 @@ def build_tool_shim_planner_deadline_monotonic(
     is_operator_gap_fix_prompt: Callable[[str], bool],
     is_operator_gap_audit_prompt: Callable[[str], bool],
     is_operator_readiness_remedy_prompt: Callable[[str], bool],
+    looks_like_lightweight_ops_query: Callable[[str], tuple[bool, object]] | None = None,
 ) -> Callable[..., float | None]:
     def _configured_default_budget_seconds() -> float:
         raw = str(os.environ.get("EA_TOOL_SHIM_PLANNER_DEADLINE_SECONDS_DEFAULT") or "").strip()
@@ -142,6 +143,15 @@ def build_tool_shim_planner_deadline_monotonic(
             return max(0.0, min(600.0, float(raw)))
         except Exception:
             return 0.0
+
+    def _configured_budget_seconds(env_name: str, default: float) -> float:
+        raw = str(os.environ.get(env_name) or "").strip()
+        if not raw:
+            return default
+        try:
+            return max(0.0, min(900.0, float(raw)))
+        except Exception:
+            return default
 
     def tool_shim_planner_deadline_monotonic(
         request_deadline_monotonic: float | None,
@@ -155,7 +165,10 @@ def build_tool_shim_planner_deadline_monotonic(
             return request_deadline_monotonic
         deadline_budget_seconds = 0.0
         if is_package_work_prompt(normalized_prompt):
-            deadline_budget_seconds = 75.0
+            deadline_budget_seconds = _configured_budget_seconds(
+                "EA_TOOL_SHIM_PLANNER_DEADLINE_SECONDS_PACKAGE",
+                45.0,
+            )
         elif (
             is_staged_local_orientation_prompt(normalized_prompt)
             or is_operator_fleet_unblock_prompt(normalized_prompt)
@@ -163,7 +176,15 @@ def build_tool_shim_planner_deadline_monotonic(
             or is_operator_gap_audit_prompt(normalized_prompt)
             or is_operator_readiness_remedy_prompt(normalized_prompt)
         ):
-            deadline_budget_seconds = 30.0
+            deadline_budget_seconds = _configured_budget_seconds(
+                "EA_TOOL_SHIM_PLANNER_DEADLINE_SECONDS_OPERATOR",
+                20.0,
+            )
+        elif looks_like_lightweight_ops_query is not None and looks_like_lightweight_ops_query(normalized_prompt)[0]:
+            deadline_budget_seconds = _configured_budget_seconds(
+                "EA_TOOL_SHIM_PLANNER_DEADLINE_SECONDS_LIGHTWEIGHT",
+                12.0,
+            )
         else:
             deadline_budget_seconds = _configured_default_budget_seconds()
         if deadline_budget_seconds <= 0:
