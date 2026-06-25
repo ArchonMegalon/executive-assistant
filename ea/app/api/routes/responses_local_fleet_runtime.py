@@ -110,3 +110,77 @@ def build_tool_shim_direct_local_fleet_command(
     tool_shim_direct_local_fleet_command.__name__ = "tool_shim_direct_local_fleet_command"
     tool_shim_direct_local_fleet_command.__qualname__ = "tool_shim_direct_local_fleet_command"
     return tool_shim_direct_local_fleet_command
+
+
+def build_tool_shim_direct_local_workspace_command(
+    *,
+    is_package_work_prompt: Callable[[str], bool],
+) -> Callable[[str], str | None]:
+    def tool_shim_direct_local_workspace_command(latest_user_text: str) -> str | None:
+        normalized = " ".join(str(latest_user_text or "").strip().lower().split())
+        if not normalized:
+            return None
+        if is_package_work_prompt(latest_user_text):
+            return None
+
+        asks_cwd = any(
+            marker in normalized
+            for marker in (
+                "current directory",
+                "working directory",
+                "where am i",
+                "pwd",
+            )
+        )
+        asks_branch = any(
+            marker in normalized
+            for marker in (
+                "current branch",
+                "what branch",
+                "which branch",
+                "branch am i on",
+            )
+        )
+        asks_repo_name = any(
+            marker in normalized
+            for marker in (
+                "repo name",
+                "repository name",
+                "which repo",
+                "what repo",
+            )
+        )
+        asks_repo_clean = any(
+            marker in normalized
+            for marker in (
+                "repo clean",
+                "working tree clean",
+                "repo dirty",
+                "uncommitted changes",
+                "pending changes",
+                "local changes",
+                "dirty working tree",
+            )
+        )
+        asks_changed_file_count = (
+            "how many" in normalized
+            and any(marker in normalized for marker in ("changed file", "files changed", "modified file"))
+        )
+
+        if asks_cwd and asks_branch:
+            return "printf 'cwd=%s branch=%s\\n' \"$(pwd)\" \"$(git branch --show-current 2>/dev/null)\""
+        if asks_cwd:
+            return "pwd"
+        if asks_branch:
+            return "git branch --show-current"
+        if asks_repo_name:
+            return "basename \"$(git rev-parse --show-toplevel 2>/dev/null)\""
+        if asks_repo_clean:
+            return "if [ -n \"$(git status --short 2>/dev/null)\" ]; then echo dirty; else echo clean; fi"
+        if asks_changed_file_count:
+            return "git status --short 2>/dev/null | wc -l | tr -d ' '"
+        return None
+
+    tool_shim_direct_local_workspace_command.__name__ = "tool_shim_direct_local_workspace_command"
+    tool_shim_direct_local_workspace_command.__qualname__ = "tool_shim_direct_local_workspace_command"
+    return tool_shim_direct_local_workspace_command
