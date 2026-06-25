@@ -254,7 +254,9 @@ def test_hard_exit_gate_targets_and_runtime_gate_scripts_are_wired() -> None:
     assert "pytest -q" in test_all
 
     assert "bash scripts/smoke_help.sh" in runtime_gate
-    assert "env -u EA_API_TOKEN bash scripts/smoke_api.sh" in runtime_gate
+    assert "bash scripts/smoke_api_runtime.sh" in runtime_gate
+    assert "smoke_api.sh` and `smoke_api_principal.sh` stay in the full hard-exit bundle" in runtime_gate
+    assert 'if [[ -n "${EA_DEPLOYMENT_ID:-${DEPLOYMENT_ID:-${RENDER_GIT_COMMIT:-}}}" ]]; then' in runtime_gate
     assert "make -s refresh-release-authority-status" in runtime_gate
     assert '"${PYTHON_BIN}" scripts/verify_release_authority_runtime.py --pretty --require-authoritative' in runtime_gate
     assert "verify_memorial_runtime_overlay when MEMORIAL mode is enabled" in runtime_gate
@@ -262,7 +264,6 @@ def test_hard_exit_gate_targets_and_runtime_gate_scripts_are_wired() -> None:
     assert 'if mode_enabled "MEMORIAL"; then' in runtime_gate
     assert '"${PYTHON_BIN}" scripts/verify_memorial_runtime_overlay.py --pretty' in runtime_gate
     assert 'PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_project_mode_runtime.py --mode memorial' in runtime_gate
-    assert "smoke_api_principal.sh` stays in the full hard-exit bundle" in runtime_gate
     assert 'PYTHON_BIN="${PYTHON_BIN:-}"' in runtime_gate
     assert '"${PYTHON_BIN}" scripts/verify_pocket_audio_archive.py' in runtime_gate
 

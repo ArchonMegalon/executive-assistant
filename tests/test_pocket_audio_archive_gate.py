@@ -62,6 +62,36 @@ def test_pocket_audio_archive_gate_passes_when_archive_db_and_teable_counts_matc
     assert receipt["database_index"]["latest_dismissed_total"] == 1
 
 
+def test_pocket_audio_archive_gate_passes_when_lane_has_no_archive_data_yet(tmp_path: Path) -> None:
+    archive_root = tmp_path / "missing-pocket-archive"
+
+    receipt = build_receipt(
+        archive_root=archive_root,
+        index_rows=[],
+        completion_rows=[],
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["evidence_mode"] == "inactive_no_archive_data"
+    assert receipt["archive_files"]["archive_root_exists"] is False
+    assert receipt["failures"] == []
+
+
+def test_pocket_audio_archive_gate_still_fails_when_index_exists_but_archive_root_is_missing(tmp_path: Path) -> None:
+    archive_root = tmp_path / "missing-pocket-archive"
+    archive = archive_root / "recording.mp3"
+
+    receipt = build_receipt(
+        archive_root=archive_root,
+        index_rows=[_row("pocket-recording:done-1", status="archived", archive_path=archive.as_posix())],
+        completion_rows=[_backfill(archived_total="1", archive_dismissed_total="0", teable_index_row_total="1")],
+    )
+
+    assert receipt["status"] == "fail"
+    assert f"archive_root_missing:{archive_root}" in receipt["failures"]
+    assert "archived_rows_missing_audio_file:1" in receipt["failures"]
+
+
 def test_pocket_audio_archive_gate_fails_closed_on_missing_audio_or_transcript(tmp_path: Path) -> None:
     archive = tmp_path / "missing.mp3"
 

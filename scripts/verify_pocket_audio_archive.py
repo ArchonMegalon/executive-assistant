@@ -124,6 +124,11 @@ def build_receipt(
     latest_completion = completion_rows[0] if completion_rows else {}
     file_summary = summarize_archive_files(archive_root)
     metadata_summary = summarize_archive_metadata(archive_root)
+    inactive_no_archive_data = (
+        not latest
+        and not completion_rows
+        and not file_summary["archive_root_exists"]
+    )
 
     inferred_filesystem_backfill = False
     inferred_sync_backfill = False
@@ -183,10 +188,11 @@ def build_receipt(
         }
 
     failures: list[str] = []
-    if not file_summary["archive_root_exists"]:
+    if not file_summary["archive_root_exists"] and not inactive_no_archive_data:
         failures.append(f"archive_root_missing:{archive_root}")
     if not latest_backfill:
-        failures.append("missing_full_backfill_completion")
+        if not inactive_no_archive_data:
+            failures.append("missing_full_backfill_completion")
     else:
         if _bool_value(latest_backfill.get("scan_truncated")):
             failures.append("latest_backfill_scan_truncated")
@@ -238,6 +244,9 @@ def build_receipt(
         "db_probe_status": "fallback" if db_probe_error else "ok",
         "db_probe_error": db_probe_error,
         "evidence_mode": (
+            "inactive_no_archive_data"
+            if inactive_no_archive_data
+            else
             "filesystem_archive_scan"
             if inferred_filesystem_backfill
             else "sync_index_inferred_backfill"

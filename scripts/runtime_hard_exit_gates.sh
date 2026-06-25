@@ -57,7 +57,9 @@ cd "${EA_ROOT}"
 bash scripts/smoke_help.sh
 bash scripts/smoke_api_runtime.sh
 bash scripts/verify_codexea_e2e_exit_gate.sh
-make -s refresh-release-authority-status
+if [[ -n "${EA_DEPLOYMENT_ID:-${DEPLOYMENT_ID:-${RENDER_GIT_COMMIT:-}}}" ]]; then
+  make -s refresh-release-authority-status
+fi
 "${PYTHON_BIN}" scripts/verify_release_authority_runtime.py --pretty --require-authoritative
 if mode_enabled "MEMORIAL"; then
   "${PYTHON_BIN}" scripts/verify_memorial_runtime_overlay.py --pretty
