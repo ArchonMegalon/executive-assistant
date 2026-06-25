@@ -693,9 +693,9 @@ for _ in $(seq 1 60); do
     if [[ "${CLOUDFLARED_OVERLAY_ENABLED}" == "1" ]]; then
       public_smoke_base_url="${public_origin_value:-https://example.test}"
       public_smoke_base_url="${public_smoke_base_url%/}"
-      public_smoke_urls="${PROPERTYQUARRY_CLOUDFLARED_PUBLIC_SMOKE_URLS:-${EA_CLOUDFLARED_PUBLIC_SMOKE_URLS:-${public_smoke_base_url}/sign-in}}"
+      public_smoke_urls="${PROPERTYQUARRY_CLOUDFLARED_PUBLIC_SMOKE_URLS:-${EA_CLOUDFLARED_PUBLIC_SMOKE_URLS:-${public_smoke_base_url}/health}}"
       for public_url in ${public_smoke_urls}; do
-        for _public in $(seq 1 20); do
+        for _public in $(seq 1 60); do
           if curl -fsS --max-time 10 "${public_url}" >/dev/null 2>&1; then
             break
           fi
