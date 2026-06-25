@@ -18,15 +18,16 @@ Usage:
 
 Runs the runtime-only hard exit bundle that a live deploy must pass:
   - smoke_help
-  - smoke_api
+  - smoke_api_runtime
   - spawned CodexEA worker-lane e2e smoke gate
   - verify_release_authority_runtime --require-authoritative
   - verify_memorial_runtime_overlay when MEMORIAL mode is enabled
   - verify_project_mode_runtime --mode memorial when MEMORIAL mode is enabled
   - verify_pocket_audio_archive
 
-`smoke_api_principal.sh` stays in the full hard-exit bundle because it mutates
-deeper task-contract state and is not a live-deploy-safe probe.
+`smoke_api.sh` and `smoke_api_principal.sh` stay in the full hard-exit bundle
+because they mutate deeper task-contract state and rely on caller principal
+headers that production deploys intentionally do not trust.
 EOF
   exit 0
 fi
@@ -54,7 +55,7 @@ mode_enabled() {
 
 cd "${EA_ROOT}"
 bash scripts/smoke_help.sh
-env -u EA_API_TOKEN bash scripts/smoke_api.sh
+bash scripts/smoke_api_runtime.sh
 bash scripts/verify_codexea_e2e_exit_gate.sh
 make -s refresh-release-authority-status
 "${PYTHON_BIN}" scripts/verify_release_authority_runtime.py --pretty --require-authoritative

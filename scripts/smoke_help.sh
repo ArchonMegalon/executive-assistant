@@ -29,6 +29,7 @@ SCRIPTS=(
   scripts/db_size.sh
   scripts/db_retention.sh
   scripts/smoke_api.sh
+  scripts/smoke_api_runtime.sh
   scripts/smoke_help.sh
   scripts/bootstrap_from_teable.sh
   scripts/smoke_postgres.sh
