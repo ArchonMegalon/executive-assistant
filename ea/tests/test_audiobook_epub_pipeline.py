@@ -41,22 +41,27 @@ def _voice_selection() -> dict[str, object]:
 
 
 @contextmanager
-def _chapter_job() -> tuple[Path, tuple[audiobook_epub_pipeline.EpubChapter, ...], audiobook_epub_pipeline.EpubMetadata]:
+def _chapter_job(*, chapter_count: int = 1):
     with tempfile.TemporaryDirectory() as tmpdir:
         job_dir = Path(tmpdir) / "job"
         chapters_dir = job_dir / "chapters"
         chapters_dir.mkdir(parents=True, exist_ok=True)
-        chapter_text = _chapter_text()
-        (chapters_dir / "chapter-001.txt").write_text(chapter_text, encoding="utf-8")
-        chapter = audiobook_epub_pipeline.EpubChapter(
-            index=1,
-            title="Cinematic Chapter",
-            source_href="chapter-001.xhtml",
-            text_path="chapter-001.txt",
-            audio_filename="001-cinematic.wav",
-            char_count=len(chapter_text),
-            sha256="dummy-sha-001",
-        )
+        chapters: list[audiobook_epub_pipeline.EpubChapter] = []
+        for index in range(1, chapter_count + 1):
+            chapter_text = f"{_chapter_text()} [part {index}]"
+            text_path = f"chapter-{index:03d}.txt"
+            (chapters_dir / text_path).write_text(chapter_text, encoding="utf-8")
+            chapters.append(
+                audiobook_epub_pipeline.EpubChapter(
+                    index=index,
+                    title=f"Cinematic Chapter {index}",
+                    source_href=f"chapter-{index:03d}.xhtml",
+                    text_path=text_path,
+                    audio_filename=f"{index:03d}-cinematic.wav",
+                    char_count=len(chapter_text),
+                    sha256=f"dummy-sha-{index:03d}",
+                )
+            )
         metadata = audiobook_epub_pipeline.EpubMetadata(
             title="Cinematic Test Book",
             author="EA QA",
@@ -64,7 +69,7 @@ def _chapter_job() -> tuple[Path, tuple[audiobook_epub_pipeline.EpubChapter, ...
             source_filename="book.epub",
             source_sha256="source-sha",
         )
-        yield job_dir, (chapter,), metadata
+        yield job_dir, tuple(chapters), metadata
 
 
 class AudiobookCinematicNarrationTests(unittest.TestCase):
@@ -74,13 +79,18 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
         target.write_bytes(b"audio-blob")
         return Path(target)
 
+    def _merge_master(self, segment_paths: tuple[Path, ...], target: Path) -> bool:
+        target.write_bytes(b"audio-blob")
+        return True
+
     @contextmanager
-    def _base_context(self):
-        with _chapter_job() as job_context:
+    def _base_context(self, chapter_count: int = 1):
+        with _chapter_job(chapter_count=chapter_count) as job_context:
             with patch.dict(
                 os.environ,
                 {
                     "EA_AUDIOBOOK_CINEMATIC_NARRATION": "1",
+                    "EA_AUDIOBOOK_CINEMATIC_MAX_CHARS_PER_REQUEST": "200000",
                     "EA_AUDIOBOOK_UNMIXR_MAX_CHARS_PER_REQUEST": "100",
                     "EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED": "1",
                     "EA_AUDIOBOOK_UNMIXR_AUTO_RENDER": "1",
@@ -108,6 +118,7 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
                 ) as synthesize,
                 patch.object(audiobook_epub_pipeline, "_rendered_audio_quality_report", return_value={"status": "pass"}),
                 patch.object(audiobook_epub_pipeline, "_write_provider_audio_file", side_effect=self._write_audio_file),
+                patch.object(audiobook_epub_pipeline, "_merge_audio_segments_to_wav", side_effect=self._merge_master),
             ):
                 result = audiobook_epub_pipeline.render_unmixr_chapter_audio(
                     job_dir=job_dir,
@@ -116,22 +127,55 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
                 )
 
         self.assertEqual(result["status"], "rendered")
+        self.assertIn("cinematic_master_audio", result)
         chapter_result = dict(result["chapters"][0])
         self.assertEqual(chapter_result["status"], "rendered")
         self.assertEqual(chapter_result["segment_count"], 1)
         self.assertEqual(synthesize.call_count, 1)
         self.assertEqual(synthesize.call_args_list[0].kwargs["text"], source_text)
 
-    def test_render_unmixr_chapter_audio_does_not_segment_when_cinematic_enabled(self) -> None:
-        with self._base_context() as (job_dir, chapters, metadata):
+    def test_render_unmixr_chapter_audio_prefers_cinematic_continuity(self) -> None:
+        with self._base_context(chapter_count=3) as (job_dir, chapters, metadata):
+            combined_text = " ".join((job_dir / "chapters" / chapter.text_path).read_text(encoding="utf-8") for chapter in chapters)
             with (
                 self._voice_context(),
                 patch.object(
                     audiobook_epub_pipeline,
-                    "_chapter_text_segment_rows",
-                    side_effect=AssertionError("segmentation should be bypassed in cinematic mode"),
+                    "_synthesize_unmixr_with_retries",
+                    return_value=(b"audio-blob", "audio/wav", []),
+                ) as synthesize,
+                patch.object(audiobook_epub_pipeline, "_rendered_audio_quality_report", return_value={"status": "pass"}),
+                patch.object(audiobook_epub_pipeline, "_write_provider_audio_file", side_effect=self._write_audio_file),
+                patch.object(audiobook_epub_pipeline, "_merge_audio_segments_to_wav", side_effect=self._merge_master),
+            ):
+                result = audiobook_epub_pipeline.render_unmixr_chapter_audio(
+                    job_dir=job_dir,
+                    chapters=chapters,
+                    metadata=metadata,
+                )
+
+                self.assertEqual(result["status"], "rendered")
+                self.assertEqual(len(result["chapters"]), 3)
+                self.assertTrue(all(chapter["status"] == "rendered" for chapter in result["chapters"]))
+                self.assertEqual(synthesize.call_count, 1)
+                self.assertEqual(synthesize.call_args_list[0].kwargs["text"], combined_text)
+
+    def test_render_unmixr_chapter_audio_continuous_single_pass_ignores_cinematic_split_cap(self) -> None:
+        with self._base_context(chapter_count=3) as (job_dir, chapters, metadata):
+            combined_text = " ".join((job_dir / "chapters" / chapter.text_path).read_text(encoding="utf-8") for chapter in chapters)
+            with (
+                patch.dict(os.environ, {"EA_AUDIOBOOK_CINEMATIC_MAX_CHARS_PER_REQUEST": "10"}),
+                self._voice_context(),
+                patch.object(
+                    audiobook_epub_pipeline,
+                    "_chapter_text_segments",
+                    side_effect=AssertionError("should not segment in cinematic single-pass mode"),
                 ),
-                patch.object(audiobook_epub_pipeline, "_synthesize_unmixr_with_retries", return_value=(b"audio-blob", "audio/wav", [])),
+                patch.object(
+                    audiobook_epub_pipeline,
+                    "_synthesize_unmixr_with_retries",
+                    return_value=(b"audio-blob", "audio/wav", []),
+                ) as synthesize,
                 patch.object(audiobook_epub_pipeline, "_rendered_audio_quality_report", return_value={"status": "pass"}),
                 patch.object(audiobook_epub_pipeline, "_write_provider_audio_file", side_effect=self._write_audio_file),
             ):
@@ -142,6 +186,8 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
                 )
 
         self.assertEqual(result["status"], "rendered")
+        self.assertEqual(synthesize.call_count, 1)
+        self.assertEqual(synthesize.call_args_list[0].kwargs["text"], combined_text)
 
     def test_render_unmixr_chapter_audio_reverts_to_segments_when_cinematic_disabled(self) -> None:
         with self._base_context() as (job_dir, chapters, metadata):
@@ -180,6 +226,7 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
                 patch.object(audiobook_epub_pipeline, "_synthesize_unmixr_with_retries", side_effect=synthesize) as synthesize_mock,
                 patch.object(audiobook_epub_pipeline, "_rendered_audio_quality_report", return_value={"status": "pass"}),
                 patch.object(audiobook_epub_pipeline, "_write_provider_audio_file", side_effect=self._write_audio_file),
+                patch.object(audiobook_epub_pipeline, "_merge_audio_segments_to_wav", side_effect=self._merge_master),
             ):
                 result = audiobook_epub_pipeline.render_unmixr_chapter_audio(
                     job_dir=job_dir,
