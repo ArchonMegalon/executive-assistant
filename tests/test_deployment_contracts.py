@@ -216,6 +216,7 @@ def test_prod_compose_does_not_restore_memorial_runtime_contract() -> None:
     environment = [str(item) for item in list(service.get("environment") or [])]
     volumes = [str(item) for item in list(service.get("volumes") or [])]
     rendered = "\n".join(environment + volumes)
+    assert service.get("environment", {}).get("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER") == "0"
 
     for token in (
         "EA_ENABLE_PUBLIC_MEMORIALS",

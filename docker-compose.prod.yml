@@ -3,6 +3,7 @@ services:
     environment:
       EA_RUNTIME_MODE: prod
       EA_ALLOW_LOOPBACK_NO_AUTH: "0"
+      EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER: "0"
       EA_STORAGE_BACKEND: postgres
       EA_ENABLE_LEGACY_RUNTIME_SURFACES: ${EA_ENABLE_LEGACY_RUNTIME_SURFACES:-0}
       EA_PUBLIC_MEMORIAL_DIR: ${EA_PUBLIC_MEMORIAL_DIR:-/data/memorial_data/public_memorials}
@@ -18,6 +19,7 @@ services:
     environment:
       EA_RUNTIME_MODE: prod
       EA_ALLOW_LOOPBACK_NO_AUTH: "0"
+      EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER: "0"
       EA_STORAGE_BACKEND: postgres
       EA_API_TOKEN: ${EA_API_TOKEN:?set EA_API_TOKEN in .env for prod deployments}
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env for prod deployments}
@@ -29,6 +31,7 @@ services:
     environment:
       EA_RUNTIME_MODE: prod
       EA_ALLOW_LOOPBACK_NO_AUTH: "0"
+      EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER: "0"
       EA_STORAGE_BACKEND: postgres
       EA_API_TOKEN: ${EA_API_TOKEN:?set EA_API_TOKEN in .env for prod deployments}
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env for prod deployments}
