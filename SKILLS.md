@@ -13,7 +13,7 @@ This repository now treats executive capabilities as first-class skills layered 
 
 The API surface for this layer is `POST /v1/skills`, `GET /v1/skills`, and `GET /v1/skills/{skill_key}`. Skills persist through the existing task-contract store, so the runtime stays schema-light while the product layer becomes explicit. The same API now also carries `provider_hints_json`, so the LTD-backed service stack is projected into the product skill layer instead of living only in markdown notes. `GET /v1/skills?provider_hint=BrowserAct` (or another provider name) filters the catalog against those hints.
 
-Operator-only skills can live under `skills/` when they encode repeatable release or artifact handling workflows that should not be improvised in chat. These are not automatically customer-facing product contracts. `skills/propertyquarry_artifact_intake/SKILL.md` covers licensed installer/export intake, Telegram operator asks, pCloud drops, 3D-tour import evidence, and redacted receipt handling for PropertyQuarry.
+Operator-only skills can live under `skills/` when they encode repeatable release or artifact handling workflows that should not be improvised in chat. These are not automatically customer-facing product contracts. `skills/propertyquarry_artifact_intake/SKILL.md` is the PropertyQuarry tour-ops skill for licensed installer/export intake, Wine/Xvfb desktop tooling, Telegram operator asks, pCloud drops, playable 3D-tour evidence, import verification, and redacted receipt handling.
 
 Legacy note:
 - The `chummer6_*` entries below are internal guide/media lanes that still exist in the repository, but they are not part of the Executive Assistant product surface.
