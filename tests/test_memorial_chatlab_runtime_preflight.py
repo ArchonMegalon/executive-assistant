@@ -244,3 +244,19 @@ def test_chatlab_runtime_preflight_clis_work(monkeypatch: pytest.MonkeyPatch, tm
     assert verified.returncode == 0, verified.stderr + verified.stdout
     verification = json.loads(verified.stdout)
     assert verification["status"] == "pass"
+
+    verified_receipt_alias = subprocess.run(
+        [
+            sys.executable,
+            str(script_root / "verify_memorial_chatlab_runtime_preflight.py"),
+            "--receipt",
+            str(output_path),
+        ],
+        cwd=Path(__file__).resolve().parents[1] / "ea",
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert verified_receipt_alias.returncode == 0, verified_receipt_alias.stderr + verified_receipt_alias.stdout
+    receipt_alias_verification = json.loads(verified_receipt_alias.stdout)
+    assert receipt_alias_verification["status"] == "pass"

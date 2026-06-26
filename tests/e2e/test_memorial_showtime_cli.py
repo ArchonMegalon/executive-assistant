@@ -144,7 +144,8 @@ def memorial_showtime_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     (private_root / slug / "tts_voice.json").write_text(
         json.dumps(
             {
-                "tts_plugin": public_memorials.PIPER_FAST_TTS_PLUGIN_ID,
+                "tts_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
+                "tts_plugin_voice_id": "fixture-unmixr-voice",
                 "voice_label": "Tibor freigegebene synthetische Stimme",
                 "voice_consent": {
                     "status": "approved",
@@ -191,6 +192,8 @@ def memorial_showtime_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
 
     monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
     monkeypatch.setenv("EA_PRIVATE_MEMORIAL_PROFILE_DIR", str(private_root))
+    monkeypatch.setenv("UNMIXR_API_KEY", "fixture-unmixr-key")
+    monkeypatch.setenv("UNMIXR_VOICE_ID", "fixture-unmixr-voice")
     transcript_lookup: dict[bytes, str] = {}
 
     def _fake_generate_text(*, messages, requested_model, max_output_tokens):
@@ -206,13 +209,13 @@ def memorial_showtime_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
         return SimpleNamespace(text=text, provider_key="unit-test-model", model="unit-test-model")
 
     monkeypatch.setattr(public_memorials, "generate_text", _fake_generate_text)
-    def _fake_piper_fast_synthesize_request(**kwargs):
+    def _fake_unmixr_synthesize_request(**kwargs):
         text = str(kwargs.get("text") or "audio")
         payload = _generated_wav_bytes(seed=text)
         transcript_lookup[payload] = text
         return payload, "audio/wav"
 
-    monkeypatch.setattr(public_memorials, "piper_fast_synthesize_request", _fake_piper_fast_synthesize_request)
+    monkeypatch.setattr(public_memorials, "unmixr_synthesize_request", _fake_unmixr_synthesize_request)
 
     def _fake_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dict[str, object]:
         raw = bytes(payload or b"")

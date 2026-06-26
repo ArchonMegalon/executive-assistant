@@ -18,7 +18,7 @@ from app.services.memorial_chatlab_integration import verify_chatlab_runtime_pre
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--preflight", type=Path, default=DEFAULT_RECEIPT)
+    parser.add_argument("--preflight", "--receipt", dest="preflight", type=Path, default=DEFAULT_RECEIPT)
     args = parser.parse_args()
     result = verify_chatlab_runtime_preflight(args.preflight)
     print(json.dumps(result, sort_keys=True))

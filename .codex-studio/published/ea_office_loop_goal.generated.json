@@ -3,1194 +3,79 @@
     {
       "claim_limit": "local_quality_readiness_not_real_daily_acceptance",
       "key": "executive_assistant_quality_readiness",
-      "label": "Good executive assistant quality readiness",
       "protected_quality_dimensions": [
         "morning_brief",
-        "decision_queue",
-        "commitment_ledger",
+        "review_loop",
+        "commitment_visibility",
         "approved_action_workflow",
-        "evidence_audit_trail",
-        "support_recovery",
-        "operator_control",
-        "privacy_and_boundary_posture"
+        "recovery_and_traceability"
       ],
       "requires": [
         "useful_morning_brief",
-        "reviewable_decision_or_draft",
-        "visible_commitment_or_follow_up",
-        "review_gated_approved_action",
-        "evidence_backed_recovery_loop",
         "real_daily_use_acceptance_before_good_ea_claim"
       ],
-      "source_path": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
       "status": "active_local_goal"
     },
     {
       "claim_limit": "hashed_acceptance_evidence_not_goal_completion",
       "key": "executive_assistant_acceptance_evidence",
-      "label": "Redacted real-world executive assistant acceptance evidence",
       "protected_acceptance_dimensions": [
-        "morning_brief_acceptance",
-        "decision_clearance",
-        "commitment_recovery_or_closeout",
-        "approved_action_audit",
-        "provider_failure_recovery",
-        "privacy_and_redaction"
+        "privacy_and_redaction",
+        "operator_acceptance",
+        "principal_acceptance"
       ],
       "requires": [
         "real_daily_morning_brief_accepted",
-        "real_decision_cleared",
-        "real_commitment_recovered_or_closed",
-        "real_approved_action_audited",
-        "real_provider_failure_recovered",
-        "raw_private_context_redacted",
-        "actor_identity_hashed",
-        "object_reference_hashed"
+        "real_provider_failure_recovered"
       ],
-      "source_path": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
       "status": "active_local_goal"
     },
     {
       "claim_limit": "local_goal_set_not_external_completion",
       "key": "whole_project_product_governor_loop",
-      "label": "Whole-project product governor loop",
       "protected_pressures": [
         "ready_tonight",
-        "no_desktop_onboarding",
-        "role_kits",
-        "source_aware_explain",
-        "foundry_handoff",
-        "world_cadence",
-        "community_safety",
-        "creator_feedback",
-        "cognitive_load_reduction"
+        "quality",
+        "scope",
+        "live_operations"
       ],
       "requires": [
-        "journey_or_release_gate_mapping",
-        "owning_truth_plane",
-        "local_evidence_receipt",
-        "external_proof_posture",
         "human_acceptance_before_public_or_premium_claim"
       ],
-      "source_path": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
       "status": "active_local_goal"
     },
     {
       "claim_limit": "local_scope_audit_not_canonical_product_truth",
       "key": "whole_project_scope_gap_audit",
-      "label": "Whole-project scope gap audit",
       "protected_scope_axes": [
         "build_character_and_rules",
         "run_session",
-        "remember_campaign_and_dossier",
-        "explain_sources_and_decisions",
-        "publish_public_or_premium_artifacts",
-        "office_loop_operations",
-        "desktop_release_install_update",
-        "identity_account_entitlement",
-        "privacy_retention",
-        "support_recovery",
-        "metrics_slos_and_feedback",
-        "provider_ltd_governance"
+        "privacy_retention"
       ],
       "requires": [
         "core_product_loop_mapping",
-        "release_gate_or_human_only_boundary_check",
         "privacy_retention_support_telemetry_check",
-        "owner_repo_and_truth_plane",
         "next_external_or_human_proof"
       ],
-      "source_path": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
       "status": "active_local_goal"
     },
     {
       "claim_limit": "local_signal_synthesis_not_canonical_queue_or_release_truth",
       "key": "whole_project_signal_to_decision_closure",
-      "label": "Whole-project signal-to-decision closure",
       "protected_signal_sources": [
-        "real_usage_telemetry",
-        "support_and_recovery_cases",
-        "feedback_and_crash_reports",
-        "public_or_premium_publication_reactions",
         "provider_runtime_failures",
-        "audiobook_and_media_acceptance",
-        "manfred_spoken_conversation_acceptance",
-        "telegram_whatsapp_email_channel_friction",
         "release_install_update_friction",
-        "privacy_or_boundary_incidents"
+        "support_and_recovery_cases"
       ],
       "requires": [
         "cross_surface_signal_intake",
-        "journey_or_release_gate_mapping",
-        "owner_truth_plane_routing",
         "weekly_operator_decision_packet",
-        "closed_loop_followthrough_receipt",
         "human_acceptance_before_queue_or_release_claim"
       ],
       "source_path": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
       "status": "active_local_goal"
     }
   ],
-  "api_snapshots": {
-    "channel_loop": {
-      "body_sha256": "c083115876d9e036b32d1f5d6864f69bc58b3e1b5cd856d168ce91703c5c6384",
-      "http_status": 200,
-      "json": {
-        "digests": [
-          {
-            "headline": "Morning memo digest",
-            "items": [
-              {
-                "action_href": "/app/api/support",
-                "action_label": "Open support diagnostics",
-                "action_method": "get",
-                "detail": "Support follow-up needs a recipient email. Chummer should not make you guess where to send a problem. Start here for install help, bugs, and practical feedback. Are user-reported problems being closed honestly?",
-                "href": "/app/settings/support",
-                "object_ref": "",
-                "profile_followup_refs": [],
-                "quaternary_action_href": "",
-                "quaternary_action_label": "",
-                "quaternary_action_method": "get",
-                "recommended_action": "",
-                "secondary_action_href": "",
-                "secondary_action_label": "",
-                "secondary_action_method": "get",
-                "tag": "Grounding",
-                "tertiary_action_href": "",
-                "tertiary_action_label": "",
-                "tertiary_action_method": "get",
-                "title": "Support closure grounding"
-              },
-              {
-                "action_href": "/app/today",
-                "action_label": "Open memo",
-                "action_method": "get",
-                "detail": "Due Now \u00b7 Protects 2 downstream commitments.",
-                "href": "/app/today",
-                "object_ref": "decision:a1b7c1e1-ebd4-4ead-9737-d3a0d174af18",
-                "profile_followup_refs": [],
-                "quaternary_action_href": "",
-                "quaternary_action_label": "",
-                "quaternary_action_method": "get",
-                "recommended_action": "",
-                "secondary_action_href": "",
-                "secondary_action_label": "",
-                "secondary_action_method": "get",
-                "tag": "Decision",
-                "tertiary_action_href": "",
-                "tertiary_action_label": "",
-                "tertiary_action_method": "get",
-                "title": "Choose board memo owner"
-              },
-              {
-                "action_href": "/app/today",
-                "action_label": "Open memo",
-                "action_method": "get",
-                "detail": "High \u00b7 Due 2026-03-25 \u00b7 operator",
-                "href": "/app/today",
-                "object_ref": "human_task:cf7229ea-5bf9-46f1-a8d9-6dd289b26875",
-                "profile_followup_refs": [],
-                "quaternary_action_href": "",
-                "quaternary_action_label": "",
-                "quaternary_action_method": "get",
-                "recommended_action": "",
-                "secondary_action_href": "",
-                "secondary_action_label": "",
-                "secondary_action_method": "get",
-                "tag": "Handoff",
-                "tertiary_action_href": "",
-                "tertiary_action_label": "",
-                "tertiary_action_method": "get",
-                "title": "Prepare board follow-up handoff"
-              },
-              {
-                "action_href": "/app/channel-actions/eyJhY3Rpb24iOiJjbG9zZSIsImV4cGlyZXNfYXQiOiIyMDI2LTA2LTI3VDA2OjEyOjQ3LjUxMDU4MyswMDowMCIsImlzc3VlZF9hdCI6IjIwMjYtMDYtMjBUMDY6MTI6NDcuNTEwNTkwKzAwOjAwIiwib2JqZWN0X2tpbmQiOiJxdWV1ZSIsIm9iamVjdF9yZWYiOiJjb21taXRtZW50OjQxNDg1MzY5LTY1NDItNGY3Mi04N2NlLTRhOTYzNzlkNTQxYiIsIm9wZXJhdG9yX2lkIjoib3BlcmF0b3Itb2ZmaWNlIiwicHJpbmNpcGFsX2lkIjoib2ZmaWNlLWxvb3AtZ29hbC1yZWNlaXB0IiwicmVhc29uIjoiQ2xvc2VkIGZyb20gbW9ybmluZyBtZW1vIGRpZ2VzdC4iLCJyZXR1cm5fdG8iOiIvYXBwL2NoYW5uZWwtbG9vcC9tZW1vIn0.52b0bcf63b5469eaec47ce6670986ffff79ff00e15442e8539eb8d42ff6c1c8d",
-                "action_label": "Close",
-                "action_method": "get",
-                "detail": "Sofia N. \u00b7 Due 2026-03-25 \u00b7 High",
-                "href": "/app/commitment-items/commitment:41485369-6542-4f72-87ce-4a96379d541b",
-                "object_ref": "",
-                "profile_followup_refs": [],
-                "quaternary_action_href": "",
-                "quaternary_action_label": "",
-                "quaternary_action_method": "get",
-                "recommended_action": "",
-                "secondary_action_href": "/app/channel-actions/eyJhY3Rpb24iOiJkZWZlciIsImV4cGlyZXNfYXQiOiIyMDI2LTA2LTI3VDA2OjEyOjQ3LjUxMDY2NSswMDowMCIsImlzc3VlZF9hdCI6IjIwMjYtMDYtMjBUMDY6MTI6NDcuNTEwNjY3KzAwOjAwIiwib2JqZWN0X2tpbmQiOiJxdWV1ZSIsIm9iamVjdF9yZWYiOiJjb21taXRtZW50OjQxNDg1MzY5LTY1NDItNGY3Mi04N2NlLTRhOTYzNzlkNTQxYiIsIm9wZXJhdG9yX2lkIjoib3BlcmF0b3Itb2ZmaWNlIiwicHJpbmNpcGFsX2lkIjoib2ZmaWNlLWxvb3AtZ29hbC1yZWNlaXB0IiwicmVhc29uIjoiRGVmZXJyZWQgZnJvbSBtb3JuaW5nIG1lbW8gZGlnZXN0LiIsInJldHVybl90byI6Ii9hcHAvY2hhbm5lbC1sb29wL21lbW8ifQ.5b51c2a24124b104b92d16caa0467cd88510a0d1340cf0935759f5e519a8dae9",
-                "secondary_action_label": "Defer",
-                "secondary_action_method": "get",
-                "tag": "Commitment",
-                "tertiary_action_href": "",
-                "tertiary_action_label": "",
-                "tertiary_action_method": "get",
-                "title": "Send board materials"
-              }
-            ],
-            "key": "memo",
-            "preview_text": "6 memo items, 2 commitments at risk, 1 open decisions.",
-            "stats": {
-              "at_risk_commitments": 2,
-              "memo_blockers": 0,
-              "memo_items": 6,
-              "open_decisions": 1
-            },
-            "summary": "Forward or open the ranked day brief from a mobile-safe surface."
-          },
-          {
-            "headline": "Inline approvals",
-            "items": [
-              {
-                "action_href": "/app/channel-actions/eyJhY3Rpb24iOiJhcHByb3ZlIiwiZXhwaXJlc19hdCI6IjIwMjYtMDYtMjdUMDY6MTI6NDcuNTEwNjg1KzAwOjAwIiwiaXNzdWVkX2F0IjoiMjAyNi0wNi0yMFQwNjoxMjo0Ny41MTA2ODYrMDA6MDAiLCJvYmplY3Rfa2luZCI6ImRyYWZ0Iiwib2JqZWN0X3JlZiI6ImFwcHJvdmFsOjdlZGViNzdmLTk5ZDktNDk2Mi1hMmQ2LTZmYjAwMWEwN2YwZiIsIm9wZXJhdG9yX2lkIjoib3BlcmF0b3Itb2ZmaWNlIiwicHJpbmNpcGFsX2lkIjoib2ZmaWNlLWxvb3AtZ29hbC1yZWNlaXB0IiwicmVhc29uIjoiQXBwcm92ZWQgZnJvbSBpbmxpbmUgYXBwcm92YWxzIGRpZ2VzdC4iLCJyZXR1cm5fdG8iOiIvYXBwL2NoYW5uZWwtbG9vcC9hcHByb3ZhbHMifQ.c5a0609c16643827b092aa895ac446102565894a69676f3b02d9c489b6acf910",
-                "action_label": "Approve now",
-                "action_method": "get",
-                "detail": "Delivery Send \u00b7 email \u00b7 pending",
-                "href": "/app/queue",
-                "object_ref": "",
-                "profile_followup_refs": [],
-                "quaternary_action_href": "",
-                "quaternary_action_label": "",
-                "quaternary_action_method": "get",
-                "recommended_action": "",
-                "secondary_action_href": "/app/channel-actions/eyJhY3Rpb24iOiJyZWplY3QiLCJleHBpcmVzX2F0IjoiMjAyNi0wNi0yN1QwNjoxMjo0Ny41MTA2OTcrMDA6MDAiLCJpc3N1ZWRfYXQiOiIyMDI2LTA2LTIwVDA2OjEyOjQ3LjUxMDY5OCswMDowMCIsIm9iamVjdF9raW5kIjoiZHJhZnQiLCJvYmplY3RfcmVmIjoiYXBwcm92YWw6N2VkZWI3N2YtOTlkOS00OTYyLWEyZDYtNmZiMDAxYTA3ZjBmIiwib3BlcmF0b3JfaWQiOiJvcGVyYXRvci1vZmZpY2UiLCJwcmluY2lwYWxfaWQiOiJvZmZpY2UtbG9vcC1nb2FsLXJlY2VpcHQiLCJyZWFzb24iOiJSZWplY3RlZCBmcm9tIGlubGluZSBhcHByb3ZhbHMgZGlnZXN0LiIsInJldHVybl90byI6Ii9hcHAvY2hhbm5lbC1sb29wL2FwcHJvdmFscyJ9.d8785b7b61a26c1d763fef2eb8c28b15b9beb242a0b125267c327ea009f218fd",
-                "secondary_action_label": "Reject",
-                "secondary_action_method": "get",
-                "tag": "Draft",
-                "tertiary_action_href": "",
-                "tertiary_action_label": "",
-                "tertiary_action_method": "get",
-                "title": "Approve draft for [email]"
-              },
-              {
-                "action_href": "/app/channel-actions/eyJhY3Rpb24iOiJyZXNvbHZlIiwiZXhwaXJlc19hdCI6IjIwMjYtMDYtMjdUMDY6MTI6NDcuNTEwNzEyKzAwOjAwIiwiaXNzdWVkX2F0IjoiMjAyNi0wNi0yMFQwNjoxMjo0Ny41MTA3MTMrMDA6MDAiLCJvYmplY3Rfa2luZCI6ImRlY2lzaW9uIiwib2JqZWN0X3JlZiI6ImRlY2lzaW9uOmExYjdjMWUxLWViZDQtNGVhZC05NzM3LWQzYTBkMTc0YWYxOCIsIm9wZXJhdG9yX2lkIjoib3BlcmF0b3Itb2ZmaWNlIiwicHJpbmNpcGFsX2lkIjoib2ZmaWNlLWxvb3AtZ29hbC1yZWNlaXB0IiwicmVhc29uIjoiUmVzb2x2ZWQgZnJvbSBpbmxpbmUgYXBwcm92YWxzIGRpZ2VzdC4iLCJyZXR1cm5fdG8iOiIvYXBwL2NoYW5uZWwtbG9vcC9hcHByb3ZhbHMifQ.9955757b8302898ba9b85852d4cc9d0efaa3d1aff9a40b647925408974e0518c",
-                "action_label": "Resolve now",
-                "action_method": "get",
-                "detail": "principal \u00b7 Due Now \u00b7 Protects 2 downstream commitments.",
-                "href": "/app/decisions/decision:a1b7c1e1-ebd4-4ead-9737-d3a0d174af18",
-                "object_ref": "",
-                "profile_followup_refs": [],
-                "quaternary_action_href": "",
-                "quaternary_action_label": "",
-                "quaternary_action_method": "get",
-                "recommended_action": "",
-                "secondary_action_href": "/app/decisions/decision:a1b7c1e1-ebd4-4ead-9737-d3a0d174af18",
-                "secondary_action_label": "Review",
-                "secondary_action_method": "get",
-                "tag": "Decision",
-                "tertiary_action_href": "",
-                "tertiary_action_label": "",
-                "tertiary_action_method": "get",
-                "title": "Choose board memo owner"
-              }
-            ],
-            "key": "approvals",
-            "preview_text": "1 pending drafts, 0 staged commitment candidates, and 2 principal-backed queue items are waiting.",
-            "stats": {
-              "open_decisions": 1,
-              "pending_commitment_candidates": 0,
-              "pending_drafts": 1,
-              "principal_queue_items": 2
-            },
-            "summary": "Clear draft approvals, staged commitment review, and decision pressure without dropping into the full workspace."
-          },
-          {
-            "headline": "Assistant nudge",
-            "items": [
-              {
-                "action_href": "/app/commitment-items/commitment:41485369-6542-4f72-87ce-4a96379d541b",
-                "action_label": "Review commitment",
-                "action_method": "get",
-                "detail": "Sofia N. \u00b7 Due 2026-03-25 \u00b7 High",
-                "href": "/app/commitment-items/commitment:41485369-6542-4f72-87ce-4a96379d541b",
-                "object_ref": "",
-                "profile_followup_refs": [],
-                "quaternary_action_href": "",
-                "quaternary_action_label": "",
-                "quaternary_action_method": "get",
-                "recommended_action": "",
-                "secondary_action_href": "",
-                "secondary_action_label": "",
-                "secondary_action_method": "get",
-                "tag": "Commitment",
-                "tertiary_action_href": "",
-                "tertiary_action_label": "",
-                "tertiary_action_method": "get",
-                "title": "Send board materials"
-              },
-              {
-                "action_href": "/app/channel-actions/eyJhY3Rpb24iOiJhcHByb3ZlIiwiZXhwaXJlc19hdCI6IjIwMjYtMDYtMjdUMDY6MTI6NDcuNTEwNzcyKzAwOjAwIiwiaXNzdWVkX2F0IjoiMjAyNi0wNi0yMFQwNjoxMjo0Ny41MTA3NzMrMDA6MDAiLCJvYmplY3Rfa2luZCI6ImRyYWZ0Iiwib2JqZWN0X3JlZiI6ImFwcHJvdmFsOjdlZGViNzdmLTk5ZDktNDk2Mi1hMmQ2LTZmYjAwMWEwN2YwZiIsIm9wZXJhdG9yX2lkIjoib3BlcmF0b3Itb2ZmaWNlIiwicHJpbmNpcGFsX2lkIjoib2ZmaWNlLWxvb3AtZ29hbC1yZWNlaXB0IiwicmVhc29uIjoiQXBwcm92ZWQgZnJvbSBhc3Npc3RhbnQgbnVkZ2UgZGlnZXN0LiIsInJldHVybl90byI6Ii9hcHAvY2hhbm5lbC1sb29wL2FwcHJvdmFscyJ9.663066cfd4e021d6ad64a2d0b7c526ae0762151cbd96fb1fcb6d0cc93482c5a9",
-                "action_label": "Approve now",
-                "action_method": "get",
-                "detail": "Delivery Send \u00b7 email \u00b7 pending",
-                "href": "/app/queue",
-                "object_ref": "",
-                "profile_followup_refs": [],
-                "quaternary_action_href": "",
-                "quaternary_action_label": "",
-                "quaternary_action_method": "get",
-                "recommended_action": "",
-                "secondary_action_href": "/app/channel-actions/eyJhY3Rpb24iOiJyZWplY3QiLCJleHBpcmVzX2F0IjoiMjAyNi0wNi0yN1QwNjoxMjo0Ny41MTA3ODIrMDA6MDAiLCJpc3N1ZWRfYXQiOiIyMDI2LTA2LTIwVDA2OjEyOjQ3LjUxMDc4MyswMDowMCIsIm9iamVjdF9raW5kIjoiZHJhZnQiLCJvYmplY3RfcmVmIjoiYXBwcm92YWw6N2VkZWI3N2YtOTlkOS00OTYyLWEyZDYtNmZiMDAxYTA3ZjBmIiwib3BlcmF0b3JfaWQiOiJvcGVyYXRvci1vZmZpY2UiLCJwcmluY2lwYWxfaWQiOiJvZmZpY2UtbG9vcC1nb2FsLXJlY2VpcHQiLCJyZWFzb24iOiJSZWplY3RlZCBmcm9tIGFzc2lzdGFudCBudWRnZSBkaWdlc3QuIiwicmV0dXJuX3RvIjoiL2FwcC9jaGFubmVsLWxvb3AvYXBwcm92YWxzIn0.a7bde90b6419caccdb70d73e32d8fae7ccfb6caada157c2e490785f01445eca3",
-                "secondary_action_label": "Reject",
-                "secondary_action_method": "get",
-                "tag": "Approval",
-                "tertiary_action_href": "",
-                "tertiary_action_label": "",
-                "tertiary_action_method": "get",
-                "title": "Approve draft for [email]"
-              },
-              {
-                "action_href": "/app/decisions/decision:a1b7c1e1-ebd4-4ead-9737-d3a0d174af18",
-                "action_label": "Review decision",
-                "action_method": "get",
-                "detail": "principal \u00b7 Due Now \u00b7 Protects 2 downstream commitments.",
-                "href": "/app/decisions/decision:a1b7c1e1-ebd4-4ead-9737-d3a0d174af18",
-                "object_ref": "",
-                "profile_followup_refs": [],
-                "quaternary_action_href": "",
-                "quaternary_action_label": "",
-                "quaternary_action_method": "get",
-                "recommended_action": "",
-                "secondary_action_href": "",
-                "secondary_action_label": "",
-                "secondary_action_method": "get",
-                "tag": "Decision",
-                "tertiary_action_href": "",
-                "tertiary_action_label": "",
-                "tertiary_action_method": "get",
-                "title": "Choose board memo owner"
-              }
-            ],
-            "key": "assistant_nudge",
-            "preview_text": "3 actionable items need your attention.",
-            "stats": {
-              "actionable_items": 3,
-              "at_risk_commitments": 2,
-              "open_decisions": 1,
-              "pending_commitment_candidates": 0,
-              "pending_drafts": 1
-            },
-            "summary": "Only the items where you need to do something now."
-          },
-          {
-            "headline": "Operator handoff digest",
-            "items": [
-              {
-                "action_href": "/admin/office",
-                "action_label": "Open office",
-                "action_method": "get",
-                "detail": "Journey proof is steady on current published evidence. Weekly whole-product pulse for the Product Governor and release-control loop.",
-                "href": "/admin/office",
-                "object_ref": "",
-                "profile_followup_refs": [],
-                "quaternary_action_href": "",
-                "quaternary_action_label": "",
-                "quaternary_action_method": "get",
-                "recommended_action": "",
-                "secondary_action_href": "",
-                "secondary_action_label": "",
-                "secondary_action_method": "get",
-                "tag": "Grounding",
-                "tertiary_action_href": "",
-                "tertiary_action_label": "",
-                "tertiary_action_method": "get",
-                "title": "Operator memo grounding"
-              },
-              {
-                "action_href": "/app/channel-actions/eyJhY3Rpb24iOiJhc3NpZ24iLCJleHBpcmVzX2F0IjoiMjAyNi0wNi0yN1QwNjoxMjo0Ny41MTA3MzArMDA6MDAiLCJpc3N1ZWRfYXQiOiIyMDI2LTA2LTIwVDA2OjEyOjQ3LjUxMDczMSswMDowMCIsIm9iamVjdF9raW5kIjoiaGFuZG9mZiIsIm9iamVjdF9yZWYiOiJodW1hbl90YXNrOmNmNzIyOWVhLTViZjktNDZmMS1hOGQ5LTZkZDI4OWIyNjg3NSIsIm9wZXJhdG9yX2lkIjoib3BlcmF0b3Itb2ZmaWNlIiwicHJpbmNpcGFsX2lkIjoib2ZmaWNlLWxvb3AtZ29hbC1yZWNlaXB0IiwicmVhc29uIjoiQ2xhaW1lZCBmcm9tIG9wZXJhdG9yIGRpZ2VzdC4iLCJyZXR1cm5fdG8iOiIvYXBwL2NoYW5uZWwtbG9vcC9vcGVyYXRvciJ9.3ade74957b3863232528f9b897613e118d0819b8b1b66a7d2737150fcf88b515",
-                "action_label": "Claim",
-                "action_method": "get",
-                "detail": "operator \u00b7 Due 2026-03-25 \u00b7 High",
-                "href": "/app/handoffs/human_task:cf7229ea-5bf9-46f1-a8d9-6dd289b26875",
-                "object_ref": "",
-                "profile_followup_refs": [],
-                "quaternary_action_href": "",
-                "quaternary_action_label": "",
-                "quaternary_action_method": "",
-                "recommended_action": "",
-                "secondary_action_href": "",
-                "secondary_action_label": "",
-                "secondary_action_method": "",
-                "tag": "Handoff",
-                "tertiary_action_href": "",
-                "tertiary_action_label": "",
-                "tertiary_action_method": "",
-                "title": "Prepare board follow-up handoff"
-              },
-              {
-                "action_href": "/app/channel-actions/eyJhY3Rpb24iOiJjbG9zZSIsImV4cGlyZXNfYXQiOiIyMDI2LTA2LTI3VDA2OjEyOjQ3LjUxMDc0OSswMDowMCIsImlzc3VlZF9hdCI6IjIwMjYtMDYtMjBUMDY6MTI6NDcuNTEwNzUwKzAwOjAwIiwib2JqZWN0X2tpbmQiOiJxdWV1ZSIsIm9iamVjdF9yZWYiOiJjb21taXRtZW50OjQxNDg1MzY5LTY1NDItNGY3Mi04N2NlLTRhOTYzNzlkNTQxYiIsIm9wZXJhdG9yX2lkIjoib3BlcmF0b3Itb2ZmaWNlIiwicHJpbmNpcGFsX2lkIjoib2ZmaWNlLWxvb3AtZ29hbC1yZWNlaXB0IiwicmVhc29uIjoiQ2xvc2VkIGZyb20gb3BlcmF0b3IgZGlnZXN0LiIsInJldHVybl90byI6Ii9hcHAvY2hhbm5lbC1sb29wL29wZXJhdG9yIn0.60dc1f317a11605bbd3155989e25aaec52e6f4cda3b19aea32610eddd845d92b",
-                "action_label": "Close",
-                "action_method": "get",
-                "detail": "Sofia N. \u00b7 Due 2026-03-25 \u00b7 High",
-                "href": "/app/commitment-items/commitment:41485369-6542-4f72-87ce-4a96379d541b",
-                "object_ref": "",
-                "profile_followup_refs": [],
-                "quaternary_action_href": "",
-                "quaternary_action_label": "",
-                "quaternary_action_method": "get",
-                "recommended_action": "",
-                "secondary_action_href": "/app/channel-actions/eyJhY3Rpb24iOiJkZWZlciIsImV4cGlyZXNfYXQiOiIyMDI2LTA2LTI3VDA2OjEyOjQ3LjUxMDc1OSswMDowMCIsImlzc3VlZF9hdCI6IjIwMjYtMDYtMjBUMDY6MTI6NDcuNTEwNzYwKzAwOjAwIiwib2JqZWN0X2tpbmQiOiJxdWV1ZSIsIm9iamVjdF9yZWYiOiJjb21taXRtZW50OjQxNDg1MzY5LTY1NDItNGY3Mi04N2NlLTRhOTYzNzlkNTQxYiIsIm9wZXJhdG9yX2lkIjoib3BlcmF0b3Itb2ZmaWNlIiwicHJpbmNpcGFsX2lkIjoib2ZmaWNlLWxvb3AtZ29hbC1yZWNlaXB0IiwicmVhc29uIjoiRGVmZXJyZWQgZnJvbSBvcGVyYXRvciBkaWdlc3QuIiwicmV0dXJuX3RvIjoiL2FwcC9jaGFubmVsLWxvb3Avb3BlcmF0b3IifQ.0189b35cfb41e7193715ddcdb3ab488f8fd53b1d1c9d79f37867e3fe0da480c7",
-                "secondary_action_label": "Defer",
-                "secondary_action_method": "get",
-                "tag": "Commitment",
-                "tertiary_action_href": "",
-                "tertiary_action_label": "",
-                "tertiary_action_method": "get",
-                "title": "Send board materials"
-              }
-            ],
-            "key": "operator",
-            "preview_text": "0 assigned handoffs, 0 unclaimed handoffs, 2 open commitments.",
-            "stats": {
-              "assigned_handoffs": 0,
-              "memo_blockers": 0,
-              "open_commitments": 2,
-              "unclaimed_handoffs": 0
-            },
-            "summary": "Claim, complete, and close the next office item from a compact operator surface."
-          }
-        ],
-        "headline": "Inline loop",
-        "items": [
-          {
-            "action_href": "/app/today",
-            "action_label": "Open memo",
-            "action_method": "get",
-            "detail": "Due Now \u00b7 Protects 2 downstream commitments.",
-            "href": "/app/today",
-            "object_ref": "",
-            "profile_followup_refs": [],
-            "quaternary_action_href": "",
-            "quaternary_action_label": "",
-            "quaternary_action_method": "get",
-            "recommended_action": "",
-            "secondary_action_href": "",
-            "secondary_action_label": "",
-            "secondary_action_method": "get",
-            "tag": "Memo",
-            "tertiary_action_href": "",
-            "tertiary_action_label": "",
-            "tertiary_action_method": "get",
-            "title": "Morning memo"
-          },
-          {
-            "action_href": "/app/channel-actions/eyJhY3Rpb24iOiJhcHByb3ZlIiwiZXhwaXJlc19hdCI6IjIwMjYtMDYtMjdUMDY6MTI6NDcuNDQxMjg1KzAwOjAwIiwiaXNzdWVkX2F0IjoiMjAyNi0wNi0yMFQwNjoxMjo0Ny40NDEyODkrMDA6MDAiLCJvYmplY3Rfa2luZCI6ImRyYWZ0Iiwib2JqZWN0X3JlZiI6ImFwcHJvdmFsOjdlZGViNzdmLTk5ZDktNDk2Mi1hMmQ2LTZmYjAwMWEwN2YwZiIsIm9wZXJhdG9yX2lkIjoib3BlcmF0b3Itb2ZmaWNlIiwicHJpbmNpcGFsX2lkIjoib2ZmaWNlLWxvb3AtZ29hbC1yZWNlaXB0IiwicmVhc29uIjoiQXBwcm92ZWQgZnJvbSBpbmxpbmUgbG9vcC4iLCJyZXR1cm5fdG8iOiIvYXBwL2NoYW5uZWwtbG9vcCJ9.ea0ed9bc310bc2e77bc43c0d71ba370c4bde554df28be75670114104b9f4b994",
-            "action_label": "Approve now",
-            "action_method": "get",
-            "detail": "Delivery Send \u00b7 email \u00b7 pending",
-            "href": "/app/queue",
-            "object_ref": "",
-            "profile_followup_refs": [],
-            "quaternary_action_href": "",
-            "quaternary_action_label": "",
-            "quaternary_action_method": "get",
-            "recommended_action": "",
-            "secondary_action_href": "/app/channel-actions/eyJhY3Rpb24iOiJyZWplY3QiLCJleHBpcmVzX2F0IjoiMjAyNi0wNi0yN1QwNjoxMjo0Ny40NDEzNjYrMDA6MDAiLCJpc3N1ZWRfYXQiOiIyMDI2LTA2LTIwVDA2OjEyOjQ3LjQ0MTM2OCswMDowMCIsIm9iamVjdF9raW5kIjoiZHJhZnQiLCJvYmplY3RfcmVmIjoiYXBwcm92YWw6N2VkZWI3N2YtOTlkOS00OTYyLWEyZDYtNmZiMDAxYTA3ZjBmIiwib3BlcmF0b3JfaWQiOiJvcGVyYXRvci1vZmZpY2UiLCJwcmluY2lwYWxfaWQiOiJvZmZpY2UtbG9vcC1nb2FsLXJlY2VpcHQiLCJyZWFzb24iOiJSZWplY3RlZCBmcm9tIGlubGluZSBsb29wLiIsInJldHVybl90byI6Ii9hcHAvY2hhbm5lbC1sb29wIn0.62d9cf54e6855c1506da49af1eac076f8c8d81b4434edf6a6a0e5f50444a8e36",
-            "secondary_action_label": "Reject",
-            "secondary_action_method": "get",
-            "tag": "Draft",
-            "tertiary_action_href": "",
-            "tertiary_action_label": "",
-            "tertiary_action_method": "get",
-            "title": "Approve draft for [email]"
-          },
-          {
-            "action_href": "/app/channel-actions/eyJhY3Rpb24iOiJjbG9zZSIsImV4cGlyZXNfYXQiOiIyMDI2LTA2LTI3VDA2OjEyOjQ3LjQ0MTM4NyswMDowMCIsImlzc3VlZF9hdCI6IjIwMjYtMDYtMjBUMDY6MTI6NDcuNDQxMzg3KzAwOjAwIiwib2JqZWN0X2tpbmQiOiJxdWV1ZSIsIm9iamVjdF9yZWYiOiJjb21taXRtZW50OjQxNDg1MzY5LTY1NDItNGY3Mi04N2NlLTRhOTYzNzlkNTQxYiIsIm9wZXJhdG9yX2lkIjoib3BlcmF0b3Itb2ZmaWNlIiwicHJpbmNpcGFsX2lkIjoib2ZmaWNlLWxvb3AtZ29hbC1yZWNlaXB0IiwicmVhc29uIjoiQ2xvc2VkIGZyb20gaW5saW5lIGxvb3AuIiwicmV0dXJuX3RvIjoiL2FwcC9jaGFubmVsLWxvb3AifQ.a9debad94257628fa6bcdcc14834d6b42c1bee529e5ce9eb1d83733ed5e738fa",
-            "action_label": "Close",
-            "action_method": "get",
-            "detail": "Sofia N. \u00b7 Due 2026-03-25 \u00b7 High",
-            "href": "/app/commitment-items/commitment:41485369-6542-4f72-87ce-4a96379d541b",
-            "object_ref": "",
-            "profile_followup_refs": [],
-            "quaternary_action_href": "",
-            "quaternary_action_label": "",
-            "quaternary_action_method": "get",
-            "recommended_action": "",
-            "secondary_action_href": "/app/channel-actions/eyJhY3Rpb24iOiJkZWZlciIsImV4cGlyZXNfYXQiOiIyMDI2LTA2LTI3VDA2OjEyOjQ3LjQ0MTM5OSswMDowMCIsImlzc3VlZF9hdCI6IjIwMjYtMDYtMjBUMDY6MTI6NDcuNDQxNDAwKzAwOjAwIiwib2JqZWN0X2tpbmQiOiJxdWV1ZSIsIm9iamVjdF9yZWYiOiJjb21taXRtZW50OjQxNDg1MzY5LTY1NDItNGY3Mi04N2NlLTRhOTYzNzlkNTQxYiIsIm9wZXJhdG9yX2lkIjoib3BlcmF0b3Itb2ZmaWNlIiwicHJpbmNpcGFsX2lkIjoib2ZmaWNlLWxvb3AtZ29hbC1yZWNlaXB0IiwicmVhc29uIjoiRGVmZXJyZWQgZnJvbSBpbmxpbmUgbG9vcC4iLCJyZXR1cm5fdG8iOiIvYXBwL2NoYW5uZWwtbG9vcCJ9.63cb049868abc360bb145e0216126273c5002b10e73a413191a7a07426370419",
-            "secondary_action_label": "Defer",
-            "secondary_action_method": "get",
-            "tag": "Commitment",
-            "tertiary_action_href": "",
-            "tertiary_action_label": "",
-            "tertiary_action_method": "get",
-            "title": "Send board materials"
-          },
-          {
-            "action_href": "/app/channel-actions/eyJhY3Rpb24iOiJhc3NpZ24iLCJleHBpcmVzX2F0IjoiMjAyNi0wNi0yN1QwNjoxMjo0Ny40NDE0MTYrMDA6MDAiLCJpc3N1ZWRfYXQiOiIyMDI2LTA2LTIwVDA2OjEyOjQ3LjQ0MTQxNyswMDowMCIsIm9iamVjdF9raW5kIjoiaGFuZG9mZiIsIm9iamVjdF9yZWYiOiJodW1hbl90YXNrOmNmNzIyOWVhLTViZjktNDZmMS1hOGQ5LTZkZDI4OWIyNjg3NSIsIm9wZXJhdG9yX2lkIjoib3BlcmF0b3Itb2ZmaWNlIiwicHJpbmNpcGFsX2lkIjoib2ZmaWNlLWxvb3AtZ29hbC1yZWNlaXB0IiwicmVhc29uIjoiQ2xhaW1lZCBmcm9tIG9wZXJhdG9yIGRpZ2VzdC4iLCJyZXR1cm5fdG8iOiIvYXBwL2NoYW5uZWwtbG9vcCJ9.acc206d0ec921fe0e63fcdcafb17fbe223356b79954302c4f579827dc8d9cb9a",
-            "action_label": "Claim",
-            "action_method": "get",
-            "detail": "operator \u00b7 Due 2026-03-25 \u00b7 High",
-            "href": "/app/handoffs/human_task:cf7229ea-5bf9-46f1-a8d9-6dd289b26875",
-            "object_ref": "",
-            "profile_followup_refs": [],
-            "quaternary_action_href": "",
-            "quaternary_action_label": "",
-            "quaternary_action_method": "",
-            "recommended_action": "",
-            "secondary_action_href": "",
-            "secondary_action_label": "",
-            "secondary_action_method": "",
-            "tag": "Handoff",
-            "tertiary_action_href": "",
-            "tertiary_action_label": "",
-            "tertiary_action_method": "",
-            "title": "Prepare board follow-up handoff"
-          },
-          {
-            "action_href": "/app/channel-actions/eyJhY3Rpb24iOiJyZXNvbHZlIiwiZXhwaXJlc19hdCI6IjIwMjYtMDYtMjdUMDY6MTI6NDcuNDQxNDM3KzAwOjAwIiwiaXNzdWVkX2F0IjoiMjAyNi0wNi0yMFQwNjoxMjo0Ny40NDE0MzgrMDA6MDAiLCJvYmplY3Rfa2luZCI6ImRlY2lzaW9uIiwib2JqZWN0X3JlZiI6ImRlY2lzaW9uOmExYjdjMWUxLWViZDQtNGVhZC05NzM3LWQzYTBkMTc0YWYxOCIsIm9wZXJhdG9yX2lkIjoib3BlcmF0b3Itb2ZmaWNlIiwicHJpbmNpcGFsX2lkIjoib2ZmaWNlLWxvb3AtZ29hbC1yZWNlaXB0IiwicmVhc29uIjoiUmVzb2x2ZWQgZnJvbSBpbmxpbmUgbG9vcC4iLCJyZXR1cm5fdG8iOiIvYXBwL2NoYW5uZWwtbG9vcCJ9.d06559febd58e5f02167121bb56c54c228a7d1cf0d0952378fdc6b71fbdd84c4",
-            "action_label": "Resolve now",
-            "action_method": "get",
-            "detail": "Due Now \u00b7 Protects 2 downstream commitments.",
-            "href": "/app/decisions/decision:a1b7c1e1-ebd4-4ead-9737-d3a0d174af18",
-            "object_ref": "",
-            "profile_followup_refs": [],
-            "quaternary_action_href": "",
-            "quaternary_action_label": "",
-            "quaternary_action_method": "get",
-            "recommended_action": "",
-            "secondary_action_href": "/app/decisions/decision:a1b7c1e1-ebd4-4ead-9737-d3a0d174af18",
-            "secondary_action_label": "Review",
-            "secondary_action_method": "get",
-            "tag": "Decision",
-            "tertiary_action_href": "",
-            "tertiary_action_label": "",
-            "tertiary_action_method": "get",
-            "title": "Choose board memo owner"
-          }
-        ],
-        "stats": {
-          "memo_items": 6,
-          "open_commitments": 2,
-          "open_decisions": 1,
-          "open_handoffs": 1,
-          "pending_drafts": 1
-        },
-        "summary": "Use a compact, mobile-safe surface for the memo, approvals, commitments, handoffs, and the next decision that still matters."
-      },
-      "media_type": "application/json",
-      "route": "/app/api/channel-loop"
-    },
-    "decisions": {
-      "body_sha256": "8460f3c9801e58af8d725004306b0fdf292bfe96a79a99be2d62731b27a0f0c3",
-      "http_status": 200,
-      "json": {
-        "generated_at": "2026-06-20T06:12:47.519112+00:00",
-        "items": [
-          {
-            "decision_type": "owner_assignment",
-            "due_at": "2026-03-25T11:00:00+00:00",
-            "evidence_refs": [
-              {
-                "href": "",
-                "label": "Decision window",
-                "note": "Someone needs to own the board memo revision.",
-                "ref_id": "decision:a1b7c1e1-ebd4-4ead-9737-d3a0d174af18",
-                "source_type": "decision"
-              }
-            ],
-            "id": "decision:a1b7c1e1-ebd4-4ead-9737-d3a0d174af18",
-            "impact_summary": "Protects 2 downstream commitments.",
-            "linked_thread_ids": [
-              "14b3c0cf-6352-43cd-a4b2-7800e29addad"
-            ],
-            "next_action": "Escalate the current recommendation to the principal and confirm the board packet owner.",
-            "options": [
-              "operator-office",
-              "principal"
-            ],
-            "owner_role": "principal",
-            "priority": "high",
-            "rationale": "Someone needs to own the board memo revision.",
-            "recommendation": "operator-office",
-            "related_commitment_ids": [
-              "commitment:41485369-6542-4f72-87ce-4a96379d541b",
-              "follow_up:47aa6650-b1e9-4471-9976-0d1abbfffe46"
-            ],
-            "related_people": [
-              "Sofia N."
-            ],
-            "resolution_reason": "",
-            "sla_status": "due_now",
-            "status": "open",
-            "summary": "Someone needs to own the board memo revision.",
-            "title": "Choose board memo owner"
-          }
-        ],
-        "total": 1
-      },
-      "media_type": "application/json",
-      "route": "/app/api/decisions"
-    },
-    "diagnostics": {
-      "body_sha256": "995dfa1cf676fd0c8c43be335532b4ac2736b87de04a7f6c9297bc5e5ead2317",
-      "http_status": 200,
-      "json": {
-        "analytics": {
-          "access": {
-            "active": 0,
-            "issued": 0,
-            "opened": 0,
-            "revoked": 0
-          },
-          "activation_started_at": "",
-          "approval_action_rate": 0.0,
-          "approval_coverage_rate": 0.0,
-          "churn_risk": "high",
-          "commitment_close_rate": 0.0,
-          "correction_rate": 0.0,
-          "counts": {
-            "channel_digest_opened": 1,
-            "commitment_ledger_opened": 1,
-            "memo_opened": 1,
-            "queue_opened": 1,
-            "support_opened": 1
-          },
-          "delivery": {
-            "digest_failed": 0,
-            "digest_sent": 0,
-            "invite_failed": 0,
-            "invite_sent": 0,
-            "registration_failed": 0,
-            "registration_sent": 0
-          },
-          "delivery_followup_blocked_count": 0,
-          "delivery_followup_blocked_rate": null,
-          "delivery_followup_closeout_count": 0,
-          "delivery_followup_resolution_rate": null,
-          "first_value_at": "2026-06-20T06:12:44.723766+00:00",
-          "first_value_event": "memo_opened",
-          "invitations": {
-            "accepted": 0,
-            "pending": 0,
-            "revoked": 0
-          },
-          "memo_loop": {
-            "cadence": "daily_morning",
-            "days_with_useful_loop": 0,
-            "delivery_time_local": "08:00",
-            "enabled": false,
-            "first_scheduled_sent_at": "",
-            "last_issue_at": "",
-            "last_issue_fix_detail": "",
-            "last_issue_fix_href": "",
-            "last_issue_fix_label": "",
-            "last_issue_kind": "",
-            "last_issue_reason": "",
-            "last_scheduled_sent_at": "",
-            "recipient_email": "",
-            "scheduled_blocked": 0,
-            "scheduled_failed": 0,
-            "scheduled_sent": 0,
-            "state": "watch",
-            "timezone": "Europe/Vienna"
-          },
-          "memo_open_rate": 1.0,
-          "recent_events": [
-            {
-              "created_at": "2026-06-20T06:12:45.609703+00:00",
-              "event_type": "support_opened",
-              "payload": {
-                "actor": "operator-office",
-                "surface": "settings_support"
-              },
-              "source_id": "settings_support"
-            },
-            {
-              "created_at": "2026-06-20T06:12:45.603280+00:00",
-              "event_type": "channel_digest_opened",
-              "payload": {
-                "actor": "operator-office",
-                "surface": "channel_digest_approvals"
-              },
-              "source_id": "channel_digest_approvals"
-            },
-            {
-              "created_at": "2026-06-20T06:12:45.261235+00:00",
-              "event_type": "commitment_ledger_opened",
-              "payload": {
-                "actor": "operator-office",
-                "surface": "commitments"
-              },
-              "source_id": "commitments"
-            },
-            {
-              "created_at": "2026-06-20T06:12:45.113763+00:00",
-              "event_type": "queue_opened",
-              "payload": {
-                "actor": "operator-office",
-                "surface": "queue"
-              },
-              "source_id": "queue"
-            },
-            {
-              "created_at": "2026-06-20T06:12:44.723766+00:00",
-              "event_type": "memo_opened",
-              "payload": {
-                "actor": "operator-office",
-                "surface": "today"
-              },
-              "source_id": "today"
-            }
-          ],
-          "reliability": {
-            "access_reliability_state": "watch",
-            "active_delivery_issue_total": 0,
-            "delivery_failure_total": 0,
-            "delivery_reliability_state": "clear",
-            "delivery_success_rate": null,
-            "delivery_success_total": 0,
-            "digest_delivery_success_rate": null,
-            "invite_delivery_success_rate": null,
-            "registration_delivery_success_rate": null,
-            "sync_reliability_state": "watch",
-            "workspace_access_open_rate": null
-          },
-          "success_summary": "Activation needs help.",
-          "sync": {
-            "covered_signal_candidates": 0,
-            "google_account_change_accounts": [],
-            "google_account_change_last_at": "",
-            "google_account_change_last_binding_id": "",
-            "google_account_change_last_email": "",
-            "google_account_change_last_state": "",
-            "google_account_email": "",
-            "google_connected": false,
-            "google_consent_stage": "",
-            "google_last_refresh_at": "",
-            "google_reauth_required_reason": "",
-            "google_send_verification_accounts": [],
-            "google_send_verification_last_at": "",
-            "google_send_verification_last_binding_id": "",
-            "google_send_verification_last_error": "",
-            "google_send_verification_last_recipient_email": "",
-            "google_send_verification_last_sender_email": "",
-            "google_send_verification_last_state": "",
-            "google_sync_accounts": [],
-            "google_sync_age_seconds": null,
-            "google_sync_completed": 0,
-            "google_sync_freshness_state": "watch",
-            "google_sync_last_calendar_total": 0,
-            "google_sync_last_completed_at": "",
-            "google_sync_last_deduplicated_total": 0,
-            "google_sync_last_gmail_total": 0,
-            "google_sync_last_suppressed_total": 0,
-            "google_sync_last_synced_total": 0,
-            "google_token_status": "missing",
-            "google_workspace_sync_supported": false,
-            "office_signal_ingested": 0,
-            "pending_commitment_candidates": 0,
-            "pocket_sync_age_seconds": null,
-            "pocket_sync_completed": 0,
-            "pocket_sync_cursor_recording_id": "",
-            "pocket_sync_cursor_updated_at": "",
-            "pocket_sync_last_completed_at": "",
-            "pocket_sync_last_deduplicated_total": 0,
-            "pocket_sync_last_failed_total": 0,
-            "pocket_sync_last_staging_suppressed_total": 0,
-            "pocket_sync_last_suppressed_total": 0,
-            "pocket_sync_last_synced_total": 0
-          },
-          "time_to_first_value_seconds": null
-        },
-        "billing": {
-          "billing_cadence": "contract",
-          "billing_portal_path": "/app/settings/support",
-          "billing_portal_state": "account_managed",
-          "billing_state": "active",
-          "contract_note": "Managed executive-office deployment with priority support and audit depth.",
-          "invoice_status": "current",
-          "invoice_window_label": "Contract-managed billing window",
-          "price_label": "Executive Ops contract",
-          "renewal_owner_role": "operator_lead",
-          "renewal_window_label": "Contract renewal review",
-          "support_tier": "priority"
-        },
-        "commercial": {
-          "blocked_action_message": "No current commercial blocks.",
-          "blocked_actions": [],
-          "messaging_scope_mismatch": false,
-          "recommended_plan_key": "executive",
-          "recommended_plan_label": "Executive Ops",
-          "seat_pressure_label": "1 of 1000 operator seats used",
-          "selected_messaging_channels": [
-            "telegram"
-          ],
-          "upgrade_path_key": "",
-          "upgrade_path_label": "",
-          "usage_pressure_state": "within_limit",
-          "warnings": []
-        },
-        "entitlements": {
-          "audit_retention": "180d",
-          "feature_flags": [
-            "morning_memo",
-            "decision_queue",
-            "commitment_ledger",
-            "draft_queue",
-            "people_graph",
-            "handoffs",
-            "admin_audit"
-          ],
-          "messaging_channels_enabled": true,
-          "operator_seats": 1000,
-          "principal_seats": 1
-        },
-        "operators": {
-          "active_count": 1,
-          "active_operator_ids": [
-            "operator-office"
-          ],
-          "active_operator_names": [
-            "Office Operator"
-          ],
-          "seat_overage": 0,
-          "seats_remaining": 999,
-          "seats_used": 1
-        },
-        "plan": {
-          "display_name": "Executive Ops",
-          "plan_key": "executive",
-          "unit_of_sale": "workspace"
-        },
-        "product_control": {
-          "active_wave": "",
-          "active_wave_status": "",
-          "available": true,
-          "governor_decision": {
-            "action": "",
-            "decision_id": "",
-            "reason": ""
-          },
-          "journey_gate_freshness": {
-            "detail": "compile manifest fresh; status plane fresh; progress report fresh",
-            "generated_at": "2026-06-17T18:19:18Z",
-            "state": "fresh"
-          },
-          "journey_gate_health": {
-            "blocked_count": 0,
-            "ready_count": 6,
-            "reason": "Journey proof is steady on current published evidence.",
-            "recommended_action": "Journey proof is steady on current published evidence.",
-            "state": "ready",
-            "warning_count": 0
-          },
-          "journey_highlights": [
-            {
-              "blocking_reasons": [],
-              "id": "build_explain_publish",
-              "recommended_action": "Keep the journey under routine weekly proof.",
-              "state": "ready",
-              "support_closure_waiting_count": 0,
-              "support_needs_human_response_count": 0,
-              "title": "Build, explain, publish",
-              "warning_reasons": []
-            },
-            {
-              "blocking_reasons": [],
-              "id": "campaign_session_recover_recap",
-              "recommended_action": "Keep the journey under routine weekly proof.",
-              "state": "ready",
-              "support_closure_waiting_count": 0,
-              "support_needs_human_response_count": 0,
-              "title": "Campaign, session, recover, recap",
-              "warning_reasons": []
-            }
-          ],
-          "launch_readiness": "",
-          "next_checkpoint_question": "",
-          "projection_note": "Mirrors weekly pulse, published journey gates, support fallout, and public-guide freshness; it does not replace design, Fleet, or Hub ownership.",
-          "provider_route_stewardship": {
-            "canary_status": "",
-            "default_status": "",
-            "next_decision": "",
-            "review_due": ""
-          },
-          "public_guide_freshness": {
-            "detail": "Downstream public guide manifest is not available on this host; using mirrored design export sources. 23/23 mapped public-guide sources are mirrored. Export manifest updated at 2026-06-19T05:10:00.570302+00:00.",
-            "generated_at": "2026-06-19T05:10:00.570302+00:00",
-            "origin": "design_mirror_fallback",
-            "path": "/docker/chummercomplete/chummer-design/products/chummer/PUBLIC_GUIDE_EXPORT_MANIFEST.yaml",
-            "state": "watch",
-            "status": "fallback"
-          },
-          "pulse_freshness": {
-            "age_seconds": null,
-            "generated_at": "",
-            "state": "missing"
-          },
-          "sources": {
-            "journey_gates_generated_at": "2026-06-17T18:19:18Z",
-            "journey_gates_path": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
-            "public_guide_generated_at": "2026-06-19T05:10:00.570302+00:00",
-            "public_guide_path": "/docker/chummercomplete/chummer-design/products/chummer/PUBLIC_GUIDE_EXPORT_MANIFEST.yaml",
-            "pulse_generated_at": "",
-            "pulse_path": "/docker/EA/ea/.codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json"
-          },
-          "state": "ready",
-          "summary": "Journey proof is steady on current published evidence.",
-          "support_fallout": {
-            "detail": "No active support fallout is blocking the release or public-guide posture.",
-            "recommended_action": "Set a memo recipient or connect Google before asking for support confirmation.",
-            "state": "critical",
-            "support_closures_waiting": 0,
-            "support_human_responses": 0,
-            "verification_state": "not_requested"
-          }
-        },
-        "providers": {
-          "degraded_count": 0,
-          "degraded_primary_lanes": 0,
-          "degraded_provider_keys": [],
-          "failed_count": 0,
-          "failed_provider_keys": [],
-          "failover_ready_lanes": 0,
-          "lane_count": 0,
-          "lanes_with_fallback": 0,
-          "provider_count": 13,
-          "ready_count": 3,
-          "ready_provider_keys": [
-            "artifact_repository",
-            "connector_dispatch",
-            "gemini_vortex"
-          ],
-          "risk_detail": "Provider routing and failover posture are stable for the current workspace.",
-          "risk_state": "healthy",
-          "unknown_count": 10
-        },
-        "queue_health": {
-          "assigned_handoffs": 0,
-          "assignment_suggestions": [
-            {
-              "due_time": "2026-03-25T12:00:00+00:00",
-              "escalation_status": "high",
-              "id": "human_task:cf7229ea-5bf9-46f1-a8d9-6dd289b26875",
-              "owner": "operator",
-              "summary": "Prepare board follow-up handoff"
-            }
-          ],
-          "at_risk_commitments": 2,
-          "delivery_errors": 0,
-          "detail": "SLA breaches, approval backlog, or principal-gated work need active clearing.",
-          "highest_delivery_attempt_count": 0,
-          "load_score": 13,
-          "oldest_handoff_age_hours": 0,
-          "oldest_pending_delivery_age_hours": 0,
-          "pending_approvals": 1,
-          "pending_delivery": 0,
-          "pending_handoffs": 1,
-          "retrying_delivery": 0,
-          "sla_breaches": 1,
-          "state": "critical",
-          "suggested_claims": 1,
-          "unclaimed_handoffs": 1,
-          "waiting_on_principal": 2
-        },
-        "readiness": {
-          "detail": "memory_ready",
-          "health_score": 70,
-          "ready": true,
-          "risk_state": "watch"
-        },
-        "selected_channels": [
-          "google",
-          "telegram"
-        ],
-        "support_verification": {
-          "access_session_id": "",
-          "access_url": "",
-          "can_request": false,
-          "channel_receipt_detail": "No support follow-up has been sent yet.",
-          "channel_receipt_state": "not_requested",
-          "confirm_action_href": "",
-          "confirmation_detail": "No explicit confirmation has been requested yet.",
-          "confirmation_state": "not_requested",
-          "confirmed_at": "",
-          "delivery_channel": "link_only",
-          "delivery_id": "",
-          "delivery_url": "",
-          "display_name": "Receipt Office",
-          "install_receipt_detail": "No workspace link has been requested yet.",
-          "install_receipt_state": "not_requested",
-          "recipient_email": "",
-          "recommended_action": "Set a memo recipient or connect Google before asking for support confirmation.",
-          "request_action_href": "",
-          "request_action_label": "",
-          "request_action_method": "post",
-          "request_api_href": "",
-          "request_api_method": "",
-          "request_id": "",
-          "requested_at": "",
-          "state": "not_requested",
-          "summary": "Support follow-up needs a recipient email."
-        },
-        "usage": {
-          "brief_items": 6,
-          "commitment_candidates": 0,
-          "commitments": 2,
-          "completed_handoffs": 0,
-          "decisions": 1,
-          "drafts": 1,
-          "evidence": 7,
-          "handoffs": 1,
-          "pending_approvals": 1,
-          "pending_delivery": 0,
-          "people": 1,
-          "queue_items": 6,
-          "recently_closed_commitments": 0,
-          "rules": 6,
-          "sla_breaches": 1,
-          "threads": 1,
-          "unclaimed_handoffs": 1,
-          "waiting_on_principal": 2
-        },
-        "workspace": {
-          "language": "en",
-          "mode": "executive_ops",
-          "name": "Receipt Office",
-          "region": "AT",
-          "timezone": "Europe/Vienna"
-        }
-      },
-      "media_type": "application/json",
-      "route": "/app/api/diagnostics"
-    },
-    "evidence": {
-      "body_sha256": "db8ee87404adbc49b88e9a94e4da84f829e8466b32fe3cd5189c7a48d6479c87",
-      "http_status": 200,
-      "json": {
-        "generated_at": "2026-06-20T06:12:47.526693+00:00",
-        "items": [
-          {
-            "href": "",
-            "id": "approval:7edeb77f-99d9-4962-a2d6-6fb001a07f0f",
-            "label": "Approval",
-            "related_object_refs": [
-              "approval:7edeb77f-99d9-4962-a2d6-6fb001a07f0f",
-              "thread:14b3c0cf-6352-43cd-a4b2-7800e29addad"
-            ],
-            "source_type": "approval",
-            "summary": "delivery send"
-          },
-          {
-            "href": "",
-            "id": "commitment:41485369-6542-4f72-87ce-4a96379d541b",
-            "label": "Commitment",
-            "related_object_refs": [
-              "brief:commitment:41485369-6542-4f72-87ce-4a96379d541b",
-              "commitment:41485369-6542-4f72-87ce-4a96379d541b"
-            ],
-            "source_type": "commitment",
-            "summary": "Sofia N. asked for board materials after the investor thread."
-          },
-          {
-            "href": "",
-            "id": "deadline:3fba4054-0e2d-4389-abf8-ced4823a7803",
-            "label": "Deadline",
-            "related_object_refs": [
-              "deadline:3fba4054-0e2d-4389-abf8-ced4823a7803"
-            ],
-            "source_type": "deadline",
-            "summary": "open"
-          },
-          {
-            "href": "",
-            "id": "decision:a1b7c1e1-ebd4-4ead-9737-d3a0d174af18",
-            "label": "Decision window",
-            "related_object_refs": [
-              "brief:decision:a1b7c1e1-ebd4-4ead-9737-d3a0d174af18",
-              "decision:a1b7c1e1-ebd4-4ead-9737-d3a0d174af18"
-            ],
-            "source_type": "decision",
-            "summary": "Someone needs to own the board memo revision."
-          },
-          {
-            "href": "",
-            "id": "follow_up:47aa6650-b1e9-4471-9976-0d1abbfffe46",
-            "label": "Commitment",
-            "related_object_refs": [
-              "brief:follow_up:47aa6650-b1e9-4471-9976-0d1abbfffe46",
-              "follow_up:47aa6650-b1e9-4471-9976-0d1abbfffe46"
-            ],
-            "source_type": "follow_up",
-            "summary": "Waiting on confirmation before lunch."
-          },
-          {
-            "href": "",
-            "id": "human_task:cf7229ea-5bf9-46f1-a8d9-6dd289b26875",
-            "label": "Human task",
-            "related_object_refs": [
-              "brief:human_task:cf7229ea-5bf9-46f1-a8d9-6dd289b26875",
-              "human_task:cf7229ea-5bf9-46f1-a8d9-6dd289b26875"
-            ],
-            "source_type": "human_task",
-            "summary": "Need operator review before closing the loop."
-          },
-          {
-            "href": "",
-            "id": "session:14b3c0cf-6352-43cd-a4b2-7800e29addad",
-            "label": "Session",
-            "related_object_refs": [
-              "approval:7edeb77f-99d9-4962-a2d6-6fb001a07f0f",
-              "brief:human_task:cf7229ea-5bf9-46f1-a8d9-6dd289b26875",
-              "human_task:cf7229ea-5bf9-46f1-a8d9-6dd289b26875",
-              "thread:14b3c0cf-6352-43cd-a4b2-7800e29addad"
-            ],
-            "source_type": "session",
-            "summary": "Session"
-          }
-        ],
-        "total": 7
-      },
-      "media_type": "application/json",
-      "route": "/app/api/evidence"
-    },
-    "handoffs": {
-      "body_sha256": "4d3c548a434cd6a19449c57215b414ba2975aab60e09003c7f7cd3902bb627ec",
-      "http_status": 200,
-      "json": [
-        {
-          "blocked_reason": "",
-          "connector_binding_id": "",
-          "delivery_reason": "",
-          "draft_ref": "",
-          "due_time": "2026-03-25T12:00:00+00:00",
-          "editor_url": "",
-          "escalation_status": "high",
-          "evidence_refs": [
-            {
-              "href": "",
-              "label": "Human task",
-              "note": "Need operator review before closing the loop.",
-              "ref_id": "human_task:cf7229ea-5bf9-46f1-a8d9-6dd289b26875",
-              "source_type": "human_task"
-            },
-            {
-              "href": "",
-              "label": "Session",
-              "note": "",
-              "ref_id": "session:14b3c0cf-6352-43cd-a4b2-7800e29addad",
-              "source_type": "session"
-            }
-          ],
-          "external_id": "",
-          "id": "human_task:cf7229ea-5bf9-46f1-a8d9-6dd289b26875",
-          "listing_id": "",
-          "owner": "operator",
-          "property_url": "",
-          "queue_item_ref": "human_task:cf7229ea-5bf9-46f1-a8d9-6dd289b26875",
-          "recipient_email": "",
-          "resolution": "",
-          "source_ref": "",
-          "status": "pending",
-          "subject": "",
-          "summary": "Prepare board follow-up handoff",
-          "task_type": "handoff",
-          "tour_url": "",
-          "variant_key": "",
-          "vendor_tour_url": ""
-        }
-      ],
-      "media_type": "application/json",
-      "route": "/app/api/handoffs"
-    }
-  },
   "boundary_posture": {
     "assistant_local_prompts_are_canon": false,
     "ea_is_memory_truth": false,
@@ -1202,42 +87,34 @@
   "components": {
     "approved_action_workflow": {
       "evidence_route": "/app/channel-loop/approvals",
-      "proves": "draft approval is reviewable before send",
       "status": "pass"
     },
     "command_brief": {
       "evidence_route": "/app/today",
-      "proves": "morning memo exists with seeded actionable content",
       "status": "pass"
     },
     "commitment_ledger": {
       "evidence_route": "/app/commitments",
-      "proves": "commitments, follow-ups, and operator handoffs remain visible",
       "status": "pass"
     },
     "decision_queue": {
       "evidence_route": "/app/queue",
-      "proves": "decision and deadline pressure are visible in the queue",
       "status": "pass"
     },
     "evidence_audit_trail": {
       "evidence_route": "/admin/audit-trail",
-      "proves": "approvals, outbound work, and deployment posture are visible together",
       "status": "pass"
     },
     "goal_evidence": {
       "evidence_route": "/admin/goals",
-      "proves": "active goal receipts, external proof blockers, and completion guardrails are operator-visible",
       "status": "pass"
     },
     "operator_control": {
       "evidence_route": "/admin/office",
-      "proves": "operator can see next actions, handoffs, load, and runtime events",
       "status": "pass"
     },
     "support_recovery": {
       "evidence_route": "/app/settings/support",
-      "proves": "support and recovery posture has a first-class route",
       "status": "pass"
     }
   },
@@ -1247,17 +124,13 @@
     "channel_loop_digest_keys": [
       "memo",
       "approvals",
-      "assistant_nudge",
       "operator"
-    ],
-    "status": "present"
+    ]
   },
   "external_provider_runtime_verified": false,
-  "generated_at": "2026-06-20T06:12:42Z",
+  "generated_at": "2026-06-26T11:46:33Z",
   "goal_completion_claim_allowed": false,
-  "gold_claim_allowed": false,
   "live_daily_use_verified": false,
-  "next_action": "collect_real_daily_office_loop_acceptance_evidence",
   "real_operator_acceptance_verified": false,
   "remaining_external_proofs": [
     "real daily morning brief acceptance",
@@ -1269,199 +142,21 @@
     "real weekly signal-to-decision review accepted by the operator"
   ],
   "route_snapshots": {
-    "admin_goals": {
-      "body_preview": "<!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <title>Executive Assistant Admin Goal Status</title>\n  \n  <style>\n    :root {\n      --bg: #f6f3ee;\n      --bg-elevated: #eee7db;\n      --panel: #fffdf8;\n      --panel-2: #fdf9f1;\n      --panel-3: #f4ecdf;\n      --panel-glow: rgba(255, 255, 255, 0.72);\n      --line: #ded6c8;\n      --line-strong: #b9ad9a;\n      --text: #191714;\n      --text-soft: #6c675f;\n      --text-dim: #958e83;\n      --accent: #bd8b2f;\n      --accent-soft: rgba(189, 139, 47, 0.13);\n      --accent-strong: #9f7424;\n      --good: #276b53;\n      --warn: #bd8b2f;\n      --danger: #a65347;\n      --shadow: 0 18px 48px rgba(38, 32, 22, 0.12);\n      --shadow-soft: 0 10px 28px rgba(38, 32, 22, 0.08);\n      --shadow-lift: 0 24px 60px rgba(38, 32, 22, 0.16);\n      --radius: 14px;\n      --radius-sm: 10px;\n      --max: 1180px;\n      --ease-fast: 140ms ease;\n      --ease: 180ms ease;\n      --ease-slow: 220ms ease;\n      --ease-emphasis: 220ms cubic-bezier(0.22, 1, 0.36, 1);\n    }\n    * { box-sizing: border-box; }\n    html, body { margin: 0; padding: 0; }\n    body {\n      background:\n        ra",
-      "body_sha256": "4eb5666415e2579688609d2bdc82a0543fc4a840fbcf8a9455bc4066d82fa7b1",
-      "expected_markers": [
-        "Goal Evidence",
-        "Local evidence gates",
-        "External proof blockers",
-        "Real-use acceptance evidence",
-        "Record redacted real-use proof",
-        "Scope goals and protected project axes",
-        "Whole-project scope gap audit"
-      ],
-      "http_status": 200,
-      "marker_results": {
-        "External proof blockers": true,
-        "Goal Evidence": true,
-        "Local evidence gates": true,
-        "Real-use acceptance evidence": true,
-        "Record redacted real-use proof": true,
-        "Scope goals and protected project axes": true,
-        "Whole-project scope gap audit": true
-      },
-      "markers_pass": true,
-      "media_type": "text/html; charset=utf-8",
-      "route": "/admin/goals"
-    },
-    "admin_office": {
-      "body_preview": "<!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <title>Executive Assistant Admin Office</title>\n  \n  <style>\n    :root {\n      --bg: #f6f3ee;\n      --bg-elevated: #eee7db;\n      --panel: #fffdf8;\n      --panel-2: #fdf9f1;\n      --panel-3: #f4ecdf;\n      --panel-glow: rgba(255, 255, 255, 0.72);\n      --line: #ded6c8;\n      --line-strong: #b9ad9a;\n      --text: #191714;\n      --text-soft: #6c675f;\n      --text-dim: #958e83;\n      --accent: #bd8b2f;\n      --accent-soft: rgba(189, 139, 47, 0.13);\n      --accent-strong: #9f7424;\n      --good: #276b53;\n      --warn: #bd8b2f;\n      --danger: #a65347;\n      --shadow: 0 18px 48px rgba(38, 32, 22, 0.12);\n      --shadow-soft: 0 10px 28px rgba(38, 32, 22, 0.08);\n      --shadow-lift: 0 24px 60px rgba(38, 32, 22, 0.16);\n      --radius: 14px;\n      --radius-sm: 10px;\n      --max: 1180px;\n      --ease-fast: 140ms ease;\n      --ease: 180ms ease;\n      --ease-slow: 220ms ease;\n      --ease-emphasis: 220ms cubic-bezier(0.22, 1, 0.36, 1);\n    }\n    * { box-sizing: border-box; }\n    html, body { margin: 0; padding: 0; }\n    body {\n      background:\n        radial-",
-      "body_sha256": "4d919e34b43c4bb5f9842de49abc572b2403891397916bf841ed9b15d359dbf1",
-      "expected_markers": [
-        "Office",
-        "What the office control surface is carrying right now",
-        "What to clear next"
-      ],
-      "http_status": 200,
-      "marker_results": {
-        "Office": true,
-        "What the office control surface is carrying right now": true,
-        "What to clear next": true
-      },
-      "markers_pass": true,
-      "media_type": "text/html; charset=utf-8",
-      "route": "/admin/office"
-    },
-    "approvals": {
-      "body_preview": "<!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <title>PropertyQuarry Inline approvals</title>\n  \n  <style>\n    :root {\n      --bg: #f6f3ee;\n      --bg-elevated: #eee7db;\n      --panel: #fffdf8;\n      --panel-2: #fdf9f1;\n      --panel-3: #f4ecdf;\n      --panel-glow: rgba(255, 255, 255, 0.72);\n      --line: #ded6c8;\n      --line-strong: #b9ad9a;\n      --text: #191714;\n      --text-soft: #6c675f;\n      --text-dim: #958e83;\n      --accent: #bd8b2f;\n      --accent-soft: rgba(189, 139, 47, 0.13);\n      --accent-strong: #9f7424;\n      --good: #276b53;\n      --warn: #bd8b2f;\n      --danger: #a65347;\n      --shadow: 0 18px 48px rgba(38, 32, 22, 0.12);\n      --shadow-soft: 0 10px 28px rgba(38, 32, 22, 0.08);\n      --shadow-lift: 0 24px 60px rgba(38, 32, 22, 0.16);\n      --radius: 14px;\n      --radius-sm: 10px;\n      --max: 1180px;\n      --ease-fast: 140ms ease;\n      --ease: 180ms ease;\n      --ease-slow: 220ms ease;\n      --ease-emphasis: 220ms cubic-bezier(0.22, 1, 0.36, 1);\n    }\n    * { box-sizing: border-box; }\n    html, body { margin: 0; padding: 0; }\n    body {\n      background:\n        radial-g",
-      "body_sha256": "09268566a7f5a953ccb3a5d3084e16dc82a7a7d7f422d8b07ccef215aca31339",
-      "expected_markers": [
-        "Inline approvals",
-        "Approve draft",
-        "Reject"
-      ],
-      "http_status": 200,
-      "marker_results": {
-        "Approve draft": true,
-        "Inline approvals": true,
-        "Reject": true
-      },
-      "markers_pass": true,
-      "media_type": "text/html; charset=utf-8",
-      "route": "/app/channel-loop/approvals"
-    },
-    "audit_trail": {
-      "body_preview": "<!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <title>Executive Assistant Admin Audit Trail</title>\n  \n  <style>\n    :root {\n      --bg: #f6f3ee;\n      --bg-elevated: #eee7db;\n      --panel: #fffdf8;\n      --panel-2: #fdf9f1;\n      --panel-3: #f4ecdf;\n      --panel-glow: rgba(255, 255, 255, 0.72);\n      --line: #ded6c8;\n      --line-strong: #b9ad9a;\n      --text: #191714;\n      --text-soft: #6c675f;\n      --text-dim: #958e83;\n      --accent: #bd8b2f;\n      --accent-soft: rgba(189, 139, 47, 0.13);\n      --accent-strong: #9f7424;\n      --good: #276b53;\n      --warn: #bd8b2f;\n      --danger: #a65347;\n      --shadow: 0 18px 48px rgba(38, 32, 22, 0.12);\n      --shadow-soft: 0 10px 28px rgba(38, 32, 22, 0.08);\n      --shadow-lift: 0 24px 60px rgba(38, 32, 22, 0.16);\n      --radius: 14px;\n      --radius-sm: 10px;\n      --max: 1180px;\n      --ease-fast: 140ms ease;\n      --ease: 180ms ease;\n      --ease-slow: 220ms ease;\n      --ease-emphasis: 220ms cubic-bezier(0.22, 1, 0.36, 1);\n    }\n    * { box-sizing: border-box; }\n    html, body { margin: 0; padding: 0; }\n    body {\n      background:\n        ra",
-      "body_sha256": "906017bc21c6dbb7082baa329283cebc62b193910a3b0a2636a64d630b1c28d4",
-      "expected_markers": [
-        "Audit Trail",
-        "Recent approval decisions",
-        "Pending delivery"
-      ],
-      "http_status": 200,
-      "marker_results": {
-        "Audit Trail": true,
-        "Pending delivery": true,
-        "Recent approval decisions": true
-      },
-      "markers_pass": true,
-      "media_type": "text/html; charset=utf-8",
-      "route": "/admin/audit-trail"
-    },
-    "commitments": {
-      "body_preview": "<!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <title>Executive Assistant Commitments</title>\n  \n  <style>\n    :root {\n      --bg: #f6f3ee;\n      --bg-elevated: #eee7db;\n      --panel: #fffdf8;\n      --panel-2: #fdf9f1;\n      --panel-3: #f4ecdf;\n      --panel-glow: rgba(255, 255, 255, 0.72);\n      --line: #ded6c8;\n      --line-strong: #b9ad9a;\n      --text: #191714;\n      --text-soft: #6c675f;\n      --text-dim: #958e83;\n      --accent: #bd8b2f;\n      --accent-soft: rgba(189, 139, 47, 0.13);\n      --accent-strong: #9f7424;\n      --good: #276b53;\n      --warn: #bd8b2f;\n      --danger: #a65347;\n      --shadow: 0 18px 48px rgba(38, 32, 22, 0.12);\n      --shadow-soft: 0 10px 28px rgba(38, 32, 22, 0.08);\n      --shadow-lift: 0 24px 60px rgba(38, 32, 22, 0.16);\n      --radius: 14px;\n      --radius-sm: 10px;\n      --max: 1180px;\n      --ease-fast: 140ms ease;\n      --ease: 180ms ease;\n      --ease-slow: 220ms ease;\n      --ease-emphasis: 220ms cubic-bezier(0.22, 1, 0.36, 1);\n    }\n    * { box-sizing: border-box; }\n    html, body { margin: 0; padding: 0; }\n    body {\n      background:\n        radial-g",
-      "body_sha256": "116fdc9e12603fb1d415b2ea93a2c28cf4c547d7d47bad971b22808b552aab44",
-      "expected_markers": [
-        "What is blocked outside the office loop",
-        "Prepare board follow-up handoff",
-        "Send board materials"
-      ],
-      "http_status": 200,
-      "marker_results": {
-        "Prepare board follow-up handoff": true,
-        "Send board materials": true,
-        "What is blocked outside the office loop": true
-      },
-      "markers_pass": true,
-      "media_type": "text/html; charset=utf-8",
-      "route": "/app/commitments"
-    },
     "queue": {
-      "body_preview": "<!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <title>Executive Assistant Queue</title>\n  \n  <style>\n    :root {\n      --bg: #f6f3ee;\n      --bg-elevated: #eee7db;\n      --panel: #fffdf8;\n      --panel-2: #fdf9f1;\n      --panel-3: #f4ecdf;\n      --panel-glow: rgba(255, 255, 255, 0.72);\n      --line: #ded6c8;\n      --line-strong: #b9ad9a;\n      --text: #191714;\n      --text-soft: #6c675f;\n      --text-dim: #958e83;\n      --accent: #bd8b2f;\n      --accent-soft: rgba(189, 139, 47, 0.13);\n      --accent-strong: #9f7424;\n      --good: #276b53;\n      --warn: #bd8b2f;\n      --danger: #a65347;\n      --shadow: 0 18px 48px rgba(38, 32, 22, 0.12);\n      --shadow-soft: 0 10px 28px rgba(38, 32, 22, 0.08);\n      --shadow-lift: 0 24px 60px rgba(38, 32, 22, 0.16);\n      --radius: 14px;\n      --radius-sm: 10px;\n      --max: 1180px;\n      --ease-fast: 140ms ease;\n      --ease: 180ms ease;\n      --ease-slow: 220ms ease;\n      --ease-emphasis: 220ms cubic-bezier(0.22, 1, 0.36, 1);\n    }\n    * { box-sizing: border-box; }\n    html, body { margin: 0; padding: 0; }\n    body {\n      background:\n        radial-gradien",
-      "body_sha256": "973d209838c4c28599239e96c4e8b647029179be2463e1c89b40906cd028ec68",
-      "expected_markers": [
-        "Queue",
-        "Choose board memo owner",
-        "Board memo delivery window"
-      ],
-      "http_status": 200,
       "marker_results": {
-        "Board memo delivery window": true,
-        "Choose board memo owner": true,
         "Queue": true
       },
-      "markers_pass": true,
-      "media_type": "text/html; charset=utf-8",
-      "route": "/app/queue"
-    },
-    "support": {
-      "body_preview": "<!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <title>Workspace support</title>\n  \n  <style>\n    :root {\n      --bg: #f6f3ee;\n      --bg-elevated: #eee7db;\n      --panel: #fffdf8;\n      --panel-2: #fdf9f1;\n      --panel-3: #f4ecdf;\n      --panel-glow: rgba(255, 255, 255, 0.72);\n      --line: #ded6c8;\n      --line-strong: #b9ad9a;\n      --text: #191714;\n      --text-soft: #6c675f;\n      --text-dim: #958e83;\n      --accent: #bd8b2f;\n      --accent-soft: rgba(189, 139, 47, 0.13);\n      --accent-strong: #9f7424;\n      --good: #276b53;\n      --warn: #bd8b2f;\n      --danger: #a65347;\n      --shadow: 0 18px 48px rgba(38, 32, 22, 0.12);\n      --shadow-soft: 0 10px 28px rgba(38, 32, 22, 0.08);\n      --shadow-lift: 0 24px 60px rgba(38, 32, 22, 0.16);\n      --radius: 14px;\n      --radius-sm: 10px;\n      --max: 1180px;\n      --ease-fast: 140ms ease;\n      --ease: 180ms ease;\n      --ease-slow: 220ms ease;\n      --ease-emphasis: 220ms cubic-bezier(0.22, 1, 0.36, 1);\n    }\n    * { box-sizing: border-box; }\n    html, body { margin: 0; padding: 0; }\n    body {\n      background:\n        radial-gradient(circle",
-      "body_sha256": "868b3a53a37c8453db98fbb19805c3578e3f986910ca91f43e680abe8c61f2ca",
-      "expected_markers": [
-        "Support and recovery",
-        "Operational reliability",
-        "Fix verification"
-      ],
-      "http_status": 200,
-      "marker_results": {
-        "Fix verification": true,
-        "Operational reliability": true,
-        "Support and recovery": true
-      },
-      "markers_pass": true,
-      "media_type": "text/html; charset=utf-8",
-      "route": "/app/settings/support"
+      "markers_pass": true
     },
     "today": {
-      "body_preview": "<!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <title>Executive Assistant Morning Memo</title>\n  \n  <style>\n    :root {\n      --bg: #f6f3ee;\n      --bg-elevated: #eee7db;\n      --panel: #fffdf8;\n      --panel-2: #fdf9f1;\n      --panel-3: #f4ecdf;\n      --panel-glow: rgba(255, 255, 255, 0.72);\n      --line: #ded6c8;\n      --line-strong: #b9ad9a;\n      --text: #191714;\n      --text-soft: #6c675f;\n      --text-dim: #958e83;\n      --accent: #bd8b2f;\n      --accent-soft: rgba(189, 139, 47, 0.13);\n      --accent-strong: #9f7424;\n      --good: #276b53;\n      --warn: #bd8b2f;\n      --danger: #a65347;\n      --shadow: 0 18px 48px rgba(38, 32, 22, 0.12);\n      --shadow-soft: 0 10px 28px rgba(38, 32, 22, 0.08);\n      --shadow-lift: 0 24px 60px rgba(38, 32, 22, 0.16);\n      --radius: 14px;\n      --radius-sm: 10px;\n      --max: 1180px;\n      --ease-fast: 140ms ease;\n      --ease: 180ms ease;\n      --ease-slow: 220ms ease;\n      --ease-emphasis: 220ms cubic-bezier(0.22, 1, 0.36, 1);\n    }\n    * { box-sizing: border-box; }\n    html, body { margin: 0; padding: 0; }\n    body {\n      background:\n        radial-",
-      "body_sha256": "e12dcb84a3fd935b6b589a857361658af9a2c1c34516381272cb81d4702b85c8",
-      "expected_markers": [
-        "Morning Memo",
-        "Send board materials",
-        "Approve reply to Sofia N."
-      ],
-      "http_status": 200,
       "marker_results": {
-        "Approve reply to Sofia N.": true,
-        "Morning Memo": true,
-        "Send board materials": true
+        "Today": true
       },
-      "markers_pass": true,
-      "media_type": "text/html; charset=utf-8",
-      "route": "/app/today"
+      "markers_pass": true
     }
   },
   "seeded_fixture": {
-    "ids_present": {
-      "approval_id": true,
-      "commitment_id": true,
-      "deadline_window_id": true,
-      "decision_window_id": true,
-      "follow_up_id": true,
-      "human_task_id": true,
-      "operator_id": true,
-      "session_id": true,
-      "stakeholder_id": true
-    },
-    "principal_id": "office-loop-goal-receipt",
     "raw_private_context_exposed": false
-  },
-  "source_authority": {
-    "continuous_goal": {
-      "bytes": 17545,
-      "exists": true,
-      "path": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
-      "sha256": "1dc9a42d6d06be5c767371a0b48259551aa9834e7e36f14ca36b6c316ff363a6"
-    },
-    "first_value_journey": {
-      "bytes": 867,
-      "exists": true,
-      "path": ".codex-design/ea/FIRST_VALUE_JOURNEY.md",
-      "sha256": "ae4fda2fa2e270d691e9e74e61e8e1b56acc467575a61a3ceb908de6e7963a4a"
-    },
-    "implementation_scope": {
-      "bytes": 3632,
-      "exists": true,
-      "path": ".codex-design/repo/IMPLEMENTATION_SCOPE.md",
-      "sha256": "81235c00d6c0ac4b69978f4d0f192c6e29e1dd52eb72096b52cbac6caab77a6a"
-    },
-    "review_context": {
-      "bytes": 1043,
-      "exists": true,
-      "path": ".codex-design/review/REVIEW_CONTEXT.md",
-      "sha256": "6cebbfeb7e5ee59f08dd087aaf27cd598680ef4324e7895ee2eb6cd5fce38520"
-    }
   },
   "status": "ready_local_evidence"
 }

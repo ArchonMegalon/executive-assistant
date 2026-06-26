@@ -51,3 +51,19 @@ def test_cinematic_media_pipeline_contract_cli_outputs_pass() -> None:
     payload = json.loads(completed.stdout)
     assert payload["contract_name"] == "ea.cinematic_narration_and_promo_pipeline.v1"
     assert payload["status"] == "pass"
+
+
+def test_cinematic_media_pipeline_contract_cli_help_does_not_run_verifier() -> None:
+    script = Path(__file__).resolve().parents[1] / "ea" / "scripts" / "verify_cinematic_media_pipeline_contract.py"
+
+    completed = subprocess.run(
+        [sys.executable, str(script), "--help"],
+        cwd=Path(__file__).resolve().parents[1] / "ea",
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0
+    assert "usage:" in completed.stdout
+    assert "ea.cinematic_narration_and_promo_pipeline.v1" not in completed.stdout

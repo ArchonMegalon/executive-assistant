@@ -109,7 +109,7 @@
     "status": "ready"
   },
   "delivery_blockers": [],
-  "generated_at": "2026-06-24T23:21:46.191055Z",
+  "generated_at": "2026-06-26T11:46:40.096142Z",
   "goal_completion_claim_allowed": false,
   "live_delivery_claim_allowed": false,
   "next_action": "run_real_telegram_epub_audiobook_delivery_test",
@@ -127,7 +127,7 @@
   ],
   "privacy": {
     "env_values_exposed": false,
-    "preflight_contract_sha256": "f9fad9ff7bdedcc7f76fd31c4ceb8e63a405c9e3705e982bce59c25c649a8bcf",
+    "preflight_contract_sha256": "6650a3e6b4722d8ab116d23b3bac7eff644f182f1fef05dbfef8a82ee3039bd1",
     "raw_provider_voice_ids_exposed": false,
     "raw_public_share_url_included": false,
     "raw_storage_paths_included": false,
@@ -150,7 +150,7 @@
   "status": "ready_for_live_epub_delivery_test",
   "voice_sample_prereqs_ready": true,
   "voice_samples": {
-    "api_key_slot_count": 3,
+    "api_key_slot_count": 7,
     "items": [
       {
         "env_values_exposed": false,
@@ -192,6 +192,16 @@
         ],
         "key": "external_tts_enabled",
         "operator_action": "Approve raw owned audiobook source text leaving EA for governed external audiobook TTS.",
+        "status": "ready",
+        "verification_command": "make verify-telegram-audiobook-live-readiness"
+      },
+      {
+        "env_values_exposed": false,
+        "env_var_names": [
+          "EA_AUDIOBOOK_CINEMATIC_NARRATION"
+        ],
+        "key": "unmixr_cinematic_narration_enabled",
+        "operator_action": "Keep cinematic narration enabled for premium memorial audiobook output.",
         "status": "ready",
         "verification_command": "make verify-telegram-audiobook-live-readiness"
       },

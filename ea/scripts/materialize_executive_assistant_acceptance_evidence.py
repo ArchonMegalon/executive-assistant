@@ -1,0 +1,172 @@
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+
+SCRIPT_PATH = Path(__file__).resolve()
+REPO_ROOT = SCRIPT_PATH.parents[2]
+DEFAULT_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "ea_executive_assistant_acceptance_evidence.generated.json"
+
+REQUIRED_ACCEPTANCE_KEYS = [
+    "real_daily_morning_brief_accepted",
+    "real_decision_cleared",
+    "real_commitment_recovered_or_closed",
+    "real_approved_action_audited",
+    "real_provider_failure_recovered",
+]
+
+REMAINING_PROOF_LABELS = {
+    "real_daily_morning_brief_accepted": "real daily morning brief acceptance",
+    "real_decision_cleared": "real decision cleared by the principal or operator",
+    "real_commitment_recovered_or_closed": "real commitment recovered or closed with an evidence receipt",
+    "real_approved_action_audited": "real approved outbound action with audit trail",
+    "real_provider_failure_recovered": "real provider failure recovered with operator-grade reason",
+}
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _hash(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest() if value else ""
+
+
+def _write(path: str | Path, payload: dict[str, Any]) -> None:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _load(path: str | Path) -> dict[str, Any]:
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def _empty_row() -> dict[str, Any]:
+    return {
+        "accepted": False,
+        "status": "missing_or_invalid",
+        "source_kind": "unknown",
+        "recorded_at": "",
+        "evidence_sha256": "",
+        "actor_sha256": "",
+        "object_ref_sha256": "",
+        "raw_evidence_exposed": False,
+        "raw_actor_exposed": False,
+        "raw_object_ref_exposed": False,
+    }
+
+
+def _row_from_proof(proof: dict[str, Any]) -> dict[str, Any]:
+    accepted = bool(proof.get("accepted"))
+    evidence = str(proof.get("evidence") or "")
+    actor = str(proof.get("actor") or "")
+    object_ref = str(proof.get("object_ref") or "")
+    valid = accepted and bool(evidence and actor and object_ref)
+    return {
+        "accepted": valid,
+        "status": "accepted_redacted" if valid else "missing_or_invalid",
+        "source_kind": str(proof.get("source") or "unknown"),
+        "recorded_at": str(proof.get("recorded_at") or ""),
+        "evidence_sha256": _hash(evidence),
+        "actor_sha256": _hash(actor),
+        "object_ref_sha256": _hash(object_ref),
+        "raw_evidence_exposed": False,
+        "raw_actor_exposed": False,
+        "raw_object_ref_exposed": False,
+    }
+
+
+def _existing_rows(receipt_path: Path, preserve_existing: bool) -> dict[str, dict[str, Any]]:
+    if not preserve_existing or not receipt_path.is_file():
+        return {}
+    try:
+        existing = _load(receipt_path)
+    except Exception:
+        return {}
+    rows = existing.get("acceptance_keys")
+    return dict(rows) if isinstance(rows, dict) else {}
+
+
+def materialize_executive_assistant_acceptance_evidence(
+    *,
+    receipt_path: str | Path,
+    input_payload: dict[str, Any] | None = None,
+    generated_at: str = "",
+    preserve_existing: bool = True,
+) -> dict[str, Any]:
+    target = Path(receipt_path)
+    rows: dict[str, dict[str, Any]] = {key: _empty_row() for key in REQUIRED_ACCEPTANCE_KEYS}
+    for key, row in _existing_rows(target, preserve_existing).items():
+        if key in rows and dict(row).get("accepted") is True:
+            rows[key] = dict(row)
+    for proof in list((input_payload or {}).get("proofs") or []):
+        if not isinstance(proof, dict):
+            continue
+        key = str(proof.get("key") or "")
+        if key in rows:
+            rows[key] = _row_from_proof(proof)
+    accepted_keys = [key for key in REQUIRED_ACCEPTANCE_KEYS if rows[key].get("accepted") is True]
+    blocked_keys = [key for key in REQUIRED_ACCEPTANCE_KEYS if key not in accepted_keys]
+    status = (
+        "ready_real_world_acceptance_evidence"
+        if not blocked_keys
+        else "partial_real_world_acceptance_evidence"
+        if accepted_keys
+        else "blocked_missing_real_world_acceptance_evidence"
+    )
+    receipt = {
+        "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
+        "status": status,
+        "generated_at": generated_at or _now(),
+        "generated_by": "ea/scripts/materialize_executive_assistant_acceptance_evidence.py",
+        "goal_completion_claim_allowed": False,
+        "public_or_premium_claim_allowed": False,
+        "acceptance_keys": rows,
+        "accepted_keys": accepted_keys,
+        "blocked_keys": blocked_keys,
+        "real_daily_use_verified": not blocked_keys,
+        "real_principal_acceptance_verified": rows["real_daily_morning_brief_accepted"].get("accepted") is True,
+        "real_operator_acceptance_verified": any(rows[key].get("accepted") is True for key in REQUIRED_ACCEPTANCE_KEYS if key != "real_daily_morning_brief_accepted"),
+        "real_provider_recovery_verified": rows["real_provider_failure_recovered"].get("accepted") is True,
+        "remaining_external_proofs": [REMAINING_PROOF_LABELS[key] for key in blocked_keys],
+        "privacy": {
+            "credential_values_exposed": False,
+            "raw_acceptance_text_exposed": False,
+            "raw_actor_identity_exposed": False,
+            "raw_object_reference_exposed": False,
+            "raw_private_context_exposed": False,
+        },
+        "source_input": {"provided": input_payload is not None},
+        "rejected_input_count": 0,
+        "next_action": "collect_redacted_real_world_acceptance_evidence" if blocked_keys else "review_good_executive_assistant_claim",
+    }
+    _write(target, receipt)
+    return receipt
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Materialize redacted Executive Assistant acceptance evidence.")
+    parser.add_argument("--receipt", default=str(DEFAULT_RECEIPT))
+    parser.add_argument("--input")
+    parser.add_argument("--generated-at", default="")
+    parser.add_argument("--reset", action="store_true")
+    args = parser.parse_args(argv)
+    input_payload = _load(args.input) if args.input else None
+    receipt = materialize_executive_assistant_acceptance_evidence(
+        receipt_path=args.receipt,
+        input_payload=input_payload,
+        generated_at=args.generated_at,
+        preserve_existing=not args.reset,
+    )
+    print(json.dumps({"status": receipt["status"], "receipt": str(args.receipt)}, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

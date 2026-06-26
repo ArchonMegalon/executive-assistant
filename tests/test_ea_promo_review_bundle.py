@@ -47,16 +47,14 @@ def test_materialize_ea_promo_review_bundle_writes_complete_local_review_set(tmp
     assert bundle["route_deployment_verified"] is False
     assert bundle["public_route_claim_allowed"] is False
     assert bundle["render_modes"]["storyboard"] == "fallback_static_storyboard"  # type: ignore[index]
-    assert bundle["render_modes"]["narration"] == "local_ffmpeg_flite_speech_fixture"  # type: ignore[index]
-    assert bundle["render_modes"]["continuity_demo"] == "local_ffmpeg_flite_speech_fixture"  # type: ignore[index]
+    assert bundle["render_modes"]["narration"] == "continuous_humanized_master"  # type: ignore[index]
     assert bundle["render_modes"]["video"] == "local_ffmpeg_static_card_video"  # type: ignore[index]
     for key in (
         "promo_json",
         "promo_vtt",
         "preview_html",
         "narration_windows",
-        "narration_segments",
-        "continuity_demo",
+        "narration_master",
         "fallback_video_receipt",
         "fallback_video",
         "poster",
@@ -84,7 +82,7 @@ def test_verify_ea_promo_review_bundle_rejects_overclaim_and_hash_tamper(tmp_pat
     bundle = _load(bundle_path)
     bundle["provider_ready"] = True
     bundle["route_deployment_verified"] = True
-    bundle["files"]["continuity_demo"]["sha256"] = "bad"  # type: ignore[index]
+    bundle["files"]["narration_master"]["sha256"] = "bad"  # type: ignore[index]
     bundle["files"]["watch_page"]["sha256"] = "bad"  # type: ignore[index]
     bundle_path.write_text(json.dumps(bundle, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -93,7 +91,7 @@ def test_verify_ea_promo_review_bundle_rejects_overclaim_and_hash_tamper(tmp_pat
     assert verification["status"] == "fail"
     assert "promo_review_bundle_provider_ready_overclaim" in verification["issues"]
     assert "promo_review_bundle_route_deployment_verified_overclaim" in verification["issues"]
-    assert "promo_review_bundle_continuity_demo_sha256_mismatch" in verification["issues"]
+    assert "promo_review_bundle_narration_master_sha256_mismatch" in verification["issues"]
     assert "promo_review_bundle_watch_page_sha256_mismatch" in verification["issues"]
 
 

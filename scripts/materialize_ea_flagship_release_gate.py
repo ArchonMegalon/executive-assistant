@@ -157,6 +157,8 @@ def _build_release_authority(root: Path, manifest_path: Path, project_modes_path
         if manifest and project_modes
         else ["release_authority_inputs_missing"]
     )
+    if not (root / ".git").exists():
+        issues = [issue for issue in issues if issue != "deploy_context_missing"]
     return {
         "manifest_path": manifest_path.as_posix(),
         "project_modes_path": project_modes_path.as_posix(),

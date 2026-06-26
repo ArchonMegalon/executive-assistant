@@ -344,6 +344,48 @@ def _cinematic_track_signature(*, chapter_inputs: tuple[tuple[EpubChapter, str],
 _CINEMATIC_MASTER_SINGLE_PASS_MODE = "unmixr_cinematic_single_pass"
 
 
+def _discover_or_build_cinematic_master_audio(
+    *,
+    job_dir: Path,
+    chapters: tuple[EpubChapter, ...],
+) -> Path | None:
+    if not _audiobook_cinematic_narration():
+        return None
+    audio_dir = job_dir / "audio"
+    cinematic_master = _cinematic_master_audio_path(audio_dir)
+    if not cinematic_master.is_file() or cinematic_master.stat().st_size <= 0:
+        return None
+
+    cinematic_mode_path = _cinematic_master_audio_mode_path(audio_dir)
+    cinematic_signature_path = _cinematic_master_audio_signature_path(audio_dir)
+    cinematic_track_input = _collect_cinematic_track_input(job_dir=job_dir, chapters=chapters)
+    if not cinematic_track_input:
+        return None
+    cinematic_signature_expected = _cinematic_track_signature(chapter_inputs=tuple(cinematic_track_input))
+
+    cinematic_mode = ""
+    cinematic_signature_cached = ""
+    if cinematic_mode_path.is_file():
+        try:
+            cinematic_mode = cinematic_mode_path.read_text(encoding="utf-8").strip()
+        except OSError:
+            cinematic_mode = ""
+    if cinematic_signature_path.is_file():
+        try:
+            cinematic_signature_cached = cinematic_signature_path.read_text(encoding="utf-8").strip()
+        except OSError:
+            cinematic_signature_cached = ""
+
+    if (
+        cinematic_mode != _CINEMATIC_MASTER_SINGLE_PASS_MODE
+        or not cinematic_signature_cached
+        or cinematic_signature_cached != cinematic_signature_expected
+    ):
+        return None
+
+    return cinematic_master
+
+
 def _unmixr_pacing_wait_seconds() -> int:
     return _env_int("EA_AUDIOBOOK_UNMIXR_PACING_WAIT_SECONDS", 1800, minimum=60, maximum=86400)
 
@@ -6943,6 +6985,45 @@ def _merge_m4b_if_ready(
         narrator=str(os.getenv("EA_AUDIOBOOK_NARRATOR_LABEL") or "EA Audio").strip(),
         cover_path=_m4b_cover_image_path(job_dir, metadata),
     )
+    if _audiobook_cinematic_narration():
+        # Keep cinematic narration continuous once enabled; do not fall back to
+        # fragmented chapter tracks if cinematic master track is not available.
+        if cinematic_track_path is not None:
+            discovered_cinematic_track = _discover_or_build_cinematic_master_audio(job_dir=job_dir, chapters=chapters)
+            if discovered_cinematic_track is None or discovered_cinematic_track.resolve() != cinematic_track_path.resolve():
+                cinematic_track_path = None
+            else:
+                cinematic_track_path = discovered_cinematic_track
+        else:
+            cinematic_track_path = _discover_or_build_cinematic_master_audio(job_dir=job_dir, chapters=chapters)
+        if cinematic_track_path is None:
+            return {
+                "status": "waiting_for_unmixr_export",
+                "command": command,
+                "output_file": str(output_file),
+                "reason": "cinematic_master_track_missing",
+            }
+        if not cinematic_track_path.is_file() or cinematic_track_path.stat().st_size <= 0:
+            return {
+                "status": "waiting_for_unmixr_export",
+                "command": command,
+                "output_file": str(output_file),
+                "reason": "cinematic_master_track_not_ready",
+            }
+        return _merge_m4b_with_ffmpeg(
+            job_dir=job_dir,
+            metadata=metadata,
+            chapters=chapters,
+            output_file=output_file,
+            cinematic_track_path=cinematic_track_path,
+        )
+
+    if cinematic_track_path is not None:
+        discovered_cinematic_track = _discover_or_build_cinematic_master_audio(job_dir=job_dir, chapters=chapters)
+        if discovered_cinematic_track is None or discovered_cinematic_track.resolve() != cinematic_track_path.resolve():
+            cinematic_track_path = None
+    if cinematic_track_path is None:
+        cinematic_track_path = _discover_or_build_cinematic_master_audio(job_dir=job_dir, chapters=chapters)
     if not _audio_inputs_ready(
         job_dir,
         chapters,

@@ -13,6 +13,9 @@ from app.api.routes import public_memorials
 
 
 class MemorialRuntimeTests(unittest.TestCase):
+    def setUp(self) -> None:
+        public_memorials._MEMORIAL_RUNTIME_READINESS_CACHE_STATE.clear()
+
     def test_schedule_memorial_live_warmup_queues_voice_when_base_warmup_ready(self) -> None:
         with (
             patch.object(
@@ -656,6 +659,57 @@ class MemorialRuntimeTests(unittest.TestCase):
         self.assertEqual(payload["voice_recovery"]["reason"], "voice_prewarm_stale")
         self.assertGreater(payload["voice_recovery"]["at"], 0.0)
         self.assertGreaterEqual(payload["voice_recovery"]["age_seconds"], 0.0)
+
+    def test_recover_stale_memorial_voice_prewarm_for_status_invalidates_readiness_cache_on_requeue(self) -> None:
+        stale_snapshot = {
+            "warm": True,
+            "voice_required": True,
+            "voice_prewarm_stale": True,
+        }
+        refreshed_snapshot = {
+            "status": "warming_voice",
+            "warm": True,
+            "inflight": False,
+            "started_at": 1.0,
+            "completed_at": 2.0,
+            "voice_ready": True,
+            "voice_inflight": True,
+            "voice_prewarm_state": "warming",
+            "voice_required": True,
+            "voice_prewarm_stale": False,
+        }
+        with (
+            patch.object(public_memorials, "_MEMORIAL_LIVE_WARMUP_STATE", {"manfred": {}}),
+            patch.object(public_memorials, "_schedule_missing_memorial_voice_prewarm", return_value=True),
+            patch.object(public_memorials, "_memorial_live_warmup_snapshot", return_value=refreshed_snapshot),
+            patch.object(public_memorials, "_memorial_runtime_readiness_cache_invalidate") as invalidate,
+        ):
+            snapshot, recovery = public_memorials._recover_stale_memorial_voice_prewarm_for_status("manfred", stale_snapshot)
+
+        self.assertEqual(snapshot["status"], "warming_voice")
+        self.assertTrue(recovery["attempted"])
+        self.assertTrue(recovery["scheduled"])
+        self.assertEqual(recovery["reason"], "voice_prewarm_stale")
+        invalidate.assert_called_once_with("manfred")
+
+    def test_recover_stale_memorial_voice_prewarm_for_status_invalidates_readiness_cache_on_schedule_failure(self) -> None:
+        stale_snapshot = {
+            "warm": True,
+            "voice_required": True,
+            "voice_prewarm_stale": True,
+        }
+        with (
+            patch.object(public_memorials, "_MEMORIAL_LIVE_WARMUP_STATE", {"manfred": {}}),
+            patch.object(public_memorials, "_schedule_missing_memorial_voice_prewarm", return_value=False),
+            patch.object(public_memorials, "_memorial_runtime_readiness_cache_invalidate") as invalidate,
+        ):
+            snapshot, recovery = public_memorials._recover_stale_memorial_voice_prewarm_for_status("manfred", stale_snapshot)
+
+        self.assertEqual(snapshot, stale_snapshot)
+        self.assertTrue(recovery["attempted"])
+        self.assertFalse(recovery["scheduled"])
+        self.assertEqual(recovery["reason"], "voice_prewarm_stale")
+        invalidate.assert_called_once_with("manfred")
 
     def test_public_memorial_readiness_returns_503_when_not_ready(self) -> None:
         with patch.object(

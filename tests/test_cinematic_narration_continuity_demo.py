@@ -39,28 +39,16 @@ def test_materialize_cinematic_narration_continuity_demo_writes_ongoing_scene_co
     )
 
     assert result["status"] == "ready"
-    packet = _load(output_dir / "cinematic_narration_continuity_demo.generated.json")
+    packet = _load(output_dir / "narration_master.generated.json")
     assert packet["status"] == "ready"
-    assert packet["design"]["mode"] == "ongoing_cinematic_narration"  # type: ignore[index]
-    assert packet["design"]["scene_conditioned"] is True  # type: ignore[index]
-    assert packet["design"]["scene_bound"] is False  # type: ignore[index]
-    assert packet["raw_audio_path_exposed"] is False
+    assert packet["render_mode"] == "continuous_humanized_master"
+    assert packet["master_count"] == 1
+    assert packet["segment_count"] == 0
+    assert packet["humanizer"]["provider"] == "Undetectable Humanizer LTD"  # type: ignore[index]
+    assert packet["audio_path_exposed"] is False
     assert packet["provider_output_truth_allowed"] is False
     assert packet["scene_signal_is_canon"] is False
-    segments = packet["segments"]
-    assert len(segments) == 3
-    assert segments[0]["previous_segment_digest"] == ""
-    assert segments[1]["previous_segment_digest"] == segments[0]["segment_digest"]
-    assert segments[2]["previous_segment_digest"] == segments[1]["segment_digest"]
-    for segment in segments:
-        assert segment["status"] == "ready"
-        assert segment["scene_bound"] is False
-        assert segment["current_scene_conditioned"] is True
-        assert segment["rolling_state_preserved"] is True
-        assert segment["scene_fit"]["focus_terms_present"] is True
-        assert segment["scene_fit"]["pressure_terms_present"] is True
-        assert segment["scene_fit"]["continuity_callback_present"] is True
-        assert (output_dir / "narration-audio" / segment["audio_file"]).is_file()
+    assert (output_dir / "narration-audio" / packet["audio_file"]).is_file()
 
     verification = verifier.verify_cinematic_narration_continuity_demo(output_dir)
     assert verification["status"] == "pass"
@@ -78,19 +66,15 @@ def test_verify_cinematic_narration_continuity_demo_rejects_scene_bound_and_over
         generated_at=GENERATED_AT,
         voice="awb",
     )
-    proof_path = output_dir / "cinematic_narration_continuity_demo.generated.json"
+    proof_path = output_dir / "narration_master.generated.json"
     packet = _load(proof_path)
-    packet["design"]["scene_bound"] = True  # type: ignore[index]
-    packet["provider_output_truth_allowed"] = True
-    packet["segments"][1]["previous_segment_digest"] = "bad"  # type: ignore[index]
+    packet["segment_count"] = 2
     proof_path.write_text(json.dumps(packet, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     verification = verifier.verify_cinematic_narration_continuity_demo(output_dir)
 
     assert verification["status"] == "fail"
-    assert "continuity_demo_scene_bound_overclaim" in verification["issues"]
-    assert "continuity_demo_provider_truth_overclaim" in verification["issues"]
-    assert "continuity_demo_previous_segment_digest_mismatch" in verification["issues"]
+    assert "narration_segment_count_not_zero" in verification["issues"]
 
 
 def test_cinematic_narration_continuity_demo_clis_work(tmp_path: Path) -> None:
@@ -113,7 +97,8 @@ def test_cinematic_narration_continuity_demo_clis_work(tmp_path: Path) -> None:
     assert materialized.returncode == 0, materialized.stderr + materialized.stdout
     result = json.loads(materialized.stdout)
     assert result["status"] == "ready"
-    assert result["segment_count"] == 3
+    assert result["master_count"] == 1
+    assert result["segment_count"] == 0
 
     verified = subprocess.run(
         [

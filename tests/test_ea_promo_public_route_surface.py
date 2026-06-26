@@ -136,3 +136,26 @@ def test_ea_promo_public_route_surface_clis_work(tmp_path: Path) -> None:
     assert verified.returncode == 0, verified.stderr + verified.stdout
     verification = json.loads(verified.stdout)
     assert verification["status"] == "pass"
+
+
+def test_ea_promo_public_route_surface_cli_defaults_use_published_receipt(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    materializer = _load_script("materialize_ea_promo_public_route_surface")
+    verifier = _load_script("verify_ea_promo_public_route_surface")
+    _route_root, artifact_root = _prepare_route_artifacts(tmp_path)
+    receipt_path = tmp_path / "published-route-surface.generated.json"
+    monkeypatch.setattr(materializer, "DEFAULT_ARTIFACT_ROOT", artifact_root)
+    monkeypatch.setattr(materializer, "DEFAULT_RECEIPT", receipt_path)
+    monkeypatch.setattr(verifier, "DEFAULT_RECEIPT", receipt_path)
+
+    assert materializer.main([]) == 0
+    materialized = json.loads(capsys.readouterr().out)
+    assert materialized["status"] == "ready"
+    assert receipt_path.is_file()
+
+    assert verifier.main([]) == 0
+    verification = json.loads(capsys.readouterr().out)
+    assert verification["status"] == "pass"

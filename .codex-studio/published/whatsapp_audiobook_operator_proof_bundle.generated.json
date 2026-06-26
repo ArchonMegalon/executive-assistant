@@ -4,7 +4,7 @@
     "human_playback_acceptance_status_explicit": true,
     "live_action_processor_no_runtime_errors": true,
     "live_action_processor_ran": true,
-    "live_action_processor_ready": true,
+    "live_action_processor_ready": false,
     "live_delivery_claim_scope_explicit": true,
     "live_delivery_semantics_from_live_receipt_or_explicit_nonpass_default": true,
     "live_goal_completion_claim_disallowed": true,
@@ -28,7 +28,7 @@
   },
   "claim": "This bundle combines local WhatsApp EPUB intake proof, live WhatsApp action processor readiness, and the live WhatsApp audiobook delivery receipt. It separates implementation proof from live delivery proof.",
   "contract_name": "ea.whatsapp_audiobook_operator_proof_bundle.v1",
-  "generated_at": "2026-06-23T14:03:42.950412Z",
+  "generated_at": "2026-06-26T11:46:54.701201Z",
   "generated_by": "ea/scripts/materialize_whatsapp_audiobook_operator_proof_bundle.py",
   "live_delivery": {
     "candidate_count": 2,
@@ -58,8 +58,8 @@
     "live_delivery_claim_scope": "machine_playable_delivery_only",
     "machine_playback_e2e_verified": true,
     "next_action": "review_audiobook_playback_problem",
-    "non_whatsapp_job_count": 5,
-    "observed_job_count": 7,
+    "non_whatsapp_job_count": 10,
+    "observed_job_count": 12,
     "proof_freshness": {
       "fresh_live_job_receipt_passed": true,
       "fresh_live_job_receipt_present": true,
@@ -131,12 +131,14 @@
   },
   "live_readiness": {
     "action_processor_enabled": true,
-    "ready": true,
-    "reason": "ready",
-    "reasons": [],
-    "sidecar_ready": true,
+    "ready": false,
+    "reason": "sidecar_not_ready",
+    "reasons": [
+      "sidecar_not_ready"
+    ],
+    "sidecar_ready": false,
     "state_fresh": true,
-    "status": "ready"
+    "status": "blocked"
   },
   "live_sidecar_inbox": {
     "actionable_button_candidate_count": 0,
@@ -158,8 +160,8 @@
     "selected_button_context_fallback_candidate_count": 0,
     "selected_button_label_fallback_candidate_count": 0,
     "session_api_host_kind": "loopback",
-    "session_ready": true,
-    "session_status": "ready",
+    "session_ready": false,
+    "session_status": "qr_required",
     "status": "pass",
     "status_code": 200
   },
@@ -204,7 +206,7 @@
     "delivery_stage_next_action": "finish_user_selected_voice_audiobook_before_sending_whatsapp_public_share_link",
     "next_action": "choose_whatsapp_audiobook_voice_sample",
     "player_http_probe": {
-      "download_bytes": 30581,
+      "download_bytes": 29131,
       "download_content_type": "audio/mp4",
       "download_status_code": 200,
       "metadata_status_code": 200,
@@ -213,7 +215,7 @@
     "player_probe": {
       "audio_streams": 1,
       "content_type": "audio/mp4",
-      "duration_seconds": 0.24,
+      "duration_seconds": 0.12,
       "metadata_status": "ready",
       "status": "pass"
     },

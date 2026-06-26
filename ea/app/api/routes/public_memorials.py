@@ -50,6 +50,7 @@ from app.services.memorial_openvoice import (
     PIPER_FAST_TTS_PLUGIN_ID,
     UNMIXR_TTS_PLUGIN_ID,
     VOICEWAVE_TTS_PLUGIN_ID,
+    piper_fast_synthesize_request,
     unmixr_clone_request,
     unmixr_delete_clone_profile_request,
     unmixr_memorial_voice_id,
@@ -236,6 +237,9 @@ _PUBLIC_MEMORIAL_RATE_DB_LOCK = threading.Lock()
 _PUBLIC_MEMORIAL_RATE_BACKEND_CACHE: str | None = None
 _MEMORIAL_LIVE_WARMUP_STATE: dict[str, dict[str, object]] = {}
 _MEMORIAL_LIVE_WARMUP_LOCK = threading.Lock()
+_MEMORIAL_RUNTIME_READINESS_CACHE_TTL_SECONDS_DEFAULT = 2.0
+_MEMORIAL_RUNTIME_READINESS_CACHE_STATE: dict[str, dict[str, object]] = {}
+_MEMORIAL_RUNTIME_READINESS_CACHE_LOCK = threading.Lock()
 _MEMORIAL_KNOWN_AUDIO_TRANSCRIPTS: dict[str, dict[str, object]] = {}
 _MEMORIAL_KNOWN_AUDIO_AMBIGUOUS_DIGESTS: set[str] = set()
 _MEMORIAL_KNOWN_AUDIO_LOCK = threading.Lock()
@@ -6773,6 +6777,53 @@ def _memorial_voice_recovery_receipt(value: object, *, now: float | None = None)
     }
 
 
+def _memorial_runtime_readiness_cache_ttl_seconds() -> float:
+    raw = str(os.getenv("EA_MEMORIAL_RUNTIME_READINESS_CACHE_SECONDS") or "").strip()
+    try:
+        return max(0.5, min(10.0, float(raw or str(_MEMORIAL_RUNTIME_READINESS_CACHE_TTL_SECONDS_DEFAULT))))
+    except ValueError:
+        return _MEMORIAL_RUNTIME_READINESS_CACHE_TTL_SECONDS_DEFAULT
+
+
+def _memorial_runtime_cache_key(slug: str) -> str:
+    return _safe_slug(slug)
+
+
+def _memorial_runtime_readiness_cache_get(slug: str) -> dict[str, object] | None:
+    key = _memorial_runtime_cache_key(slug)
+    now = time.time()
+    with _MEMORIAL_RUNTIME_READINESS_CACHE_LOCK:
+        entry = dict(_MEMORIAL_RUNTIME_READINESS_CACHE_STATE.get(key) or {})
+    if not entry:
+        return None
+    expires_at = float(entry.get("expires_at") or 0.0)
+    if expires_at <= now:
+        with _MEMORIAL_RUNTIME_READINESS_CACHE_LOCK:
+            _MEMORIAL_RUNTIME_READINESS_CACHE_STATE.pop(key, None)
+        return None
+    payload = dict(entry.get("payload") or {})
+    return payload
+
+
+def _memorial_runtime_readiness_cache_set(slug: str, readiness: dict[str, object], *, now: float) -> None:
+    key = _memorial_runtime_cache_key(slug)
+    base_ttl = _memorial_runtime_readiness_cache_ttl_seconds()
+    readiness_ttl = float(readiness.get("readiness_ttl_remaining_seconds") or 0.0)
+    cache_ttl = min(base_ttl, readiness_ttl) if readiness_ttl > 0 else min(base_ttl, 1.0)
+    with _MEMORIAL_RUNTIME_READINESS_CACHE_LOCK:
+        _MEMORIAL_RUNTIME_READINESS_CACHE_STATE[key] = {
+            "payload": dict(readiness),
+            "expires_at": now + cache_ttl,
+            "checked_at": now,
+        }
+
+
+def _memorial_runtime_readiness_cache_invalidate(slug: str) -> None:
+    key = _memorial_runtime_cache_key(slug)
+    with _MEMORIAL_RUNTIME_READINESS_CACHE_LOCK:
+        _MEMORIAL_RUNTIME_READINESS_CACHE_STATE.pop(key, None)
+
+
 def _memorial_voice_prewarm_state(
     *,
     voice_required: bool,
@@ -7005,6 +7056,11 @@ def _memorial_operator_recheck_after_seconds(operator_action_state: str) -> int:
 
 
 def _memorial_runtime_readiness(slug: str) -> dict[str, object]:
+    cached = _memorial_runtime_readiness_cache_get(slug)
+    if cached is not None:
+        return cached
+
+    readiness_checked_at = time.time()
     probe = _public_memorial_surface_probe(slug)
     safe_slug = _safe_slug(slug)
     snapshot = _memorial_live_warmup_snapshot(safe_slug)
@@ -7064,7 +7120,6 @@ def _memorial_runtime_readiness(slug: str) -> dict[str, object]:
         readiness_ttl_candidates.append(float(snapshot.get("ttl_remaining_seconds") or 0.0))
         if bool(snapshot.get("voice_required")):
             readiness_ttl_candidates.append(float(snapshot.get("voice_ttl_remaining_seconds") or 0.0))
-    readiness_checked_at = time.time()
     readiness_ttl_remaining_seconds = min(readiness_ttl_candidates) if readiness_ttl_candidates else 0.0
     readiness_expires_at = readiness_checked_at + readiness_ttl_remaining_seconds if readiness_ttl_remaining_seconds > 0 else 0.0
     readiness_ttl_state = _memorial_readiness_ttl_state(
@@ -7095,7 +7150,7 @@ def _memorial_runtime_readiness(slug: str) -> dict[str, object]:
         realtime_ready=realtime_ready,
         degraded_reasons=degraded_reasons,
     )
-    return {
+    readiness = {
         "slug": safe_slug,
         "status": status,
         "interaction_mode": interaction_mode,
@@ -7127,6 +7182,8 @@ def _memorial_runtime_readiness(slug: str) -> dict[str, object]:
         },
         "operator_write_configured": bool(_collect_memorial_write_tokens(payload)),
     }
+    _memorial_runtime_readiness_cache_set(slug=safe_slug, readiness=readiness, now=readiness_checked_at)
+    return readiness
 
 
 def _log_memorial_timing(event: str, *, slug: str, **fields: object) -> None:
@@ -7245,6 +7302,7 @@ def _run_memorial_live_warmup(slug: str) -> None:
             current["completed_at"] = time.time()
             current["errors"] = errors[:6]
             _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
+        _memorial_runtime_readiness_cache_invalidate(slug)
 
 
 def _run_memorial_voicewave_contact_prewarm(slug: str, voice_label: str) -> None:
@@ -7322,6 +7380,7 @@ def _run_memorial_voicewave_contact_prewarm(slug: str, voice_label: str) -> None
                 current["voicewave_contact_completed_at"] = time.time()
             current["voicewave_contact_errors"] = errors[:6]
             _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
+        _memorial_runtime_readiness_cache_invalidate(slug)
 
 
 def _run_memorial_server_voice_contact_prewarm(slug: str) -> None:
@@ -7387,11 +7446,13 @@ def _run_memorial_server_voice_contact_prewarm(slug: str) -> None:
             else:
                 current["voice_contact_errors"] = errors[:6]
             _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
+        _memorial_runtime_readiness_cache_invalidate(slug)
 
 
 def _schedule_memorial_voicewave_contact_prewarm(slug: str, voice_label: str) -> None:
     if not str(voice_label or "").strip():
         return
+    _memorial_runtime_readiness_cache_invalidate(slug)
     worker = threading.Thread(
         target=_run_memorial_voicewave_contact_prewarm,
         args=(slug, voice_label),
@@ -7402,6 +7463,7 @@ def _schedule_memorial_voicewave_contact_prewarm(slug: str, voice_label: str) ->
 
 
 def _schedule_memorial_server_voice_contact_prewarm(slug: str) -> None:
+    _memorial_runtime_readiness_cache_invalidate(slug)
     worker = threading.Thread(
         target=_run_memorial_server_voice_contact_prewarm,
         args=(slug,),
@@ -7428,6 +7490,7 @@ def _schedule_memorial_live_warmup(slug: str) -> dict[str, object]:
         return {"status": "voice_cold", "scheduled": False, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
     worker = threading.Thread(target=_run_memorial_live_warmup, args=(safe_slug,), daemon=True, name=f"memorial-warmup-{safe_slug}")
     worker.start()
+    _memorial_runtime_readiness_cache_invalidate(safe_slug)
     return {"status": "queued", "scheduled": True, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
 
 
@@ -7454,6 +7517,7 @@ def _recover_stale_memorial_voice_prewarm_for_status(
             current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(safe_slug, {}))
             current["voice_recovery"] = dict(recovery)
             _MEMORIAL_LIVE_WARMUP_STATE[safe_slug] = current
+        _memorial_runtime_readiness_cache_invalidate(safe_slug)
         return snapshot, _memorial_voice_recovery_receipt(recovery, now=now)
     recovery["scheduled"] = True
     with _MEMORIAL_LIVE_WARMUP_LOCK:
@@ -7461,6 +7525,7 @@ def _recover_stale_memorial_voice_prewarm_for_status(
         current["voice_recovery"] = dict(recovery)
         _MEMORIAL_LIVE_WARMUP_STATE[safe_slug] = current
     snapshot = _memorial_live_warmup_snapshot(safe_slug)
+    _memorial_runtime_readiness_cache_invalidate(safe_slug)
     return snapshot, dict(snapshot.get("voice_recovery") or _memorial_voice_recovery_receipt(recovery))
 
 

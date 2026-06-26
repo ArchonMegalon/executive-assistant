@@ -150,7 +150,7 @@
       }
     }
   },
-  "generated_at": "2026-06-20T06:10:35Z",
+  "generated_at": "2026-06-26T11:49:47Z",
   "goal_completion_claim_allowed": false,
   "goal_scope": [
     "telegram_epub_audiobook_voice_quality",
@@ -198,10 +198,10 @@
     "audiobook_live_readiness": {
       "issues": [],
       "receipt": {
-        "bytes": 10232,
+        "bytes": 10336,
         "exists": true,
         "path": ".codex-studio/published/telegram_audiobook_live_readiness.generated.json",
-        "sha256": "e755dfec549ceef23bf4eb39aecf148b19c0ebd601ffd7bdb84b07560e164431"
+        "sha256": "7e865aefd1f3c5237238d9022aaa8015fc201660e92490115c3987892bfb97d1"
       },
       "status": "pass"
     },
@@ -228,10 +228,10 @@
     "chatlab_contract": {
       "issues": [],
       "receipt": {
-        "bytes": 3097,
+        "bytes": 1549,
         "exists": true,
         "path": ".codex-studio/published/memorial_chatlab_contract.generated.json",
-        "sha256": "d8476b61cd007c8dc1742401fabbfac39b87e1efcd3821bb86377e6e75e433b7"
+        "sha256": "5b42cf81a681cda2118776154fb4a5a4a361414c4a0bcff5e44d2f320cdd3e58"
       },
       "status": "pass"
     },
@@ -258,10 +258,10 @@
     "cinematic_continuity_demo": {
       "issues": [],
       "receipt": {
-        "bytes": 27707,
+        "bytes": 1597,
         "exists": true,
         "path": ".codex-studio/published/cinematic_narration_continuity_demo/cinematic_narration_continuity_demo.generated.json",
-        "sha256": "d1e9edfb9053e6cfaedc71cf10dbc90997162bf8e6c2659545abb08d608d86f1"
+        "sha256": "35188000c0ed2f55be239203607da98c1775032267a95b3801e038275357405b"
       },
       "status": "pass"
     },
@@ -272,20 +272,20 @@
     "manfred_realtime_readiness": {
       "issues": [],
       "receipt": {
-        "bytes": 8949,
+        "bytes": 2004,
         "exists": true,
         "path": ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
-        "sha256": "d9f18da7c61501832e3a073ac9a3c4a7638c01e1e6ac6a765c424379668f038b"
+        "sha256": "2606c21b0183a6307f47d8f15c62c55ca6aa0d5dd455422e102bb49fe1e25aec"
       },
       "status": "pass"
     },
     "promo_public_route_surface": {
       "issues": [],
       "receipt": {
-        "bytes": 21610,
+        "bytes": 1078,
         "exists": true,
         "path": ".codex-studio/published/ea_promo_public_route_surface.generated.json",
-        "sha256": "2041a8644e2eba6576bab1abf7c2765fb3fa33e5c63c128dbc3e98be770cd4c3"
+        "sha256": "f8167a7502e44f2dba7cdddc823fdaae80c8ed393cdcd3219c1a9a33d51603b4"
       },
       "status": "pass"
     },
@@ -302,10 +302,10 @@
     "promo_review_bundle": {
       "issues": [],
       "receipt": {
-        "bytes": 3511,
+        "bytes": 2205,
         "exists": true,
         "path": ".codex-studio/published/ea_promo_video_fallback/ashline-circle/promo_review_bundle.generated.json",
-        "sha256": "23b48e5e33ec1fe2eed528f2b4ad30ad240d601e44b70b17efd14ca6af1a5d5d"
+        "sha256": "67231546dc6f62b3a8b61ee910b92a55eeaf68292ed4bd14d89eae916c3f94d7"
       },
       "status": "pass"
     }

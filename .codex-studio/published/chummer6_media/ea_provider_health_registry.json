@@ -1,0 +1,61 @@
+{
+  "providers": {
+    "onemin": {
+      "families": {
+        "hero_flagship": {
+          "recent_attempts": [
+            {
+              "target": "assets/hero/chummer6-hero.png",
+              "outcome": "manager_unavailable",
+              "detail": "onemin:manager_unavailable",
+              "ok": false,
+              "observed_at": 1782472914.442611
+            }
+          ],
+          "success_count": 0,
+          "failure_count": 1,
+          "updated_at": 1782472914.442615
+        }
+      },
+      "updated_at": 1782472914.4426153
+    },
+    "browseract_prompting_systems": {
+      "families": {
+        "weak_horizon": {
+          "recent_attempts": [
+            {
+              "target": "assets/horizons/jackpoint.png",
+              "outcome": "success",
+              "detail": "browseract_prompting_systems:rendered",
+              "ok": true,
+              "observed_at": 1782472914.5170238
+            }
+          ],
+          "success_count": 1,
+          "failure_count": 0,
+          "updated_at": 1782472914.5170267
+        }
+      },
+      "updated_at": 1782472914.5170271
+    },
+    "media_factory": {
+      "families": {
+        "weak_page": {
+          "recent_attempts": [
+            {
+              "target": "assets/pages/current-status.png",
+              "outcome": "success",
+              "detail": "media_factory:rendered",
+              "ok": true,
+              "observed_at": 1782472922.3493662
+            }
+          ],
+          "success_count": 1,
+          "failure_count": 0,
+          "updated_at": 1782472922.3493707
+        }
+      },
+      "updated_at": 1782472922.349371
+    }
+  }
+}

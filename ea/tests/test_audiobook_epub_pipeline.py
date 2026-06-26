@@ -334,6 +334,171 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
         self.assertEqual(result["reason"], "request entity too large")
         self.assertEqual(synthesize_mock.call_count, 1)
 
+    def test_merge_m4b_if_ready_rebuilds_continuous_cinematic_track(self) -> None:
+        with self._base_context(chapter_count=4) as (job_dir, chapters, metadata):
+            audio_dir = job_dir / "audio"
+            audio_dir.mkdir(parents=True, exist_ok=True)
+            cinematic_track = audio_dir / "_cinematic_master.wav"
+            cinematic_track.write_bytes(b"cinematic-track")
+            (audio_dir / "_cinematic_master.mode").write_text(
+                audiobook_epub_pipeline._CINEMATIC_MASTER_SINGLE_PASS_MODE,
+                encoding="utf-8",
+            )
+            (audio_dir / "_cinematic_master.signature").write_text(
+                audiobook_epub_pipeline._cinematic_track_signature(
+                    chapter_inputs=audiobook_epub_pipeline._collect_cinematic_track_input(job_dir=job_dir, chapters=chapters),
+                ),
+                encoding="utf-8",
+            )
+            for chapter in chapters:
+                (audio_dir / chapter.audio_filename).write_bytes(f"legacy-{chapter.index}".encode("utf-8"))
+            output_file = (job_dir / "output" / "Cinematic Test Book.m4b").resolve()
+            merged_result = {
+                "status": "m4b_ready",
+                "provider": "ffmpeg",
+                "output_file": str(output_file),
+                "command": ["ffmpeg", "-hide_banner"],
+                "chapter_count": 1,
+                "cover_embedded": False,
+                "normalized_audio_count": 1,
+            }
+
+            with (
+                patch.object(
+                    audiobook_epub_pipeline,
+                    "_merge_audio_segments_to_wav",
+                    side_effect=self._merge_master,
+                ) as merge_segments,
+                patch.object(
+                    audiobook_epub_pipeline,
+                    "_merge_m4b_with_ffmpeg",
+                    return_value=merged_result,
+                ) as merge_m4b,
+            ):
+                result = audiobook_epub_pipeline._merge_m4b_if_ready(
+                    job_dir=job_dir,
+                    metadata=metadata,
+                    chapters=chapters,
+                    cinematic_track_path=cinematic_track,
+                )
+
+        self.assertEqual(result["status"], "m4b_ready")
+        self.assertEqual(merge_segments.call_count, 0)
+        self.assertEqual(merge_m4b.call_count, 1)
+        self.assertEqual(merge_m4b.call_args.kwargs["cinematic_track_path"], cinematic_track)
+
+    def test_merge_m4b_if_ready_rejects_invalid_cinematic_track_path(self) -> None:
+        with self._base_context(chapter_count=4) as (job_dir, chapters, metadata):
+            audio_dir = job_dir / "audio"
+            audio_dir.mkdir(parents=True, exist_ok=True)
+            cinematic_track = audio_dir / "_cinematic_master.wav"
+            cinematic_track.write_bytes(b"legacy-track")
+            for chapter in chapters:
+                (audio_dir / chapter.audio_filename).write_bytes(f"legacy-{chapter.index}".encode("utf-8"))
+            output_file = (job_dir / "output" / "Cinematic Test Book.m4b").resolve()
+            merged_result = {
+                "status": "m4b_ready",
+                "provider": "ffmpeg",
+                "output_file": str(output_file),
+                "command": ["ffmpeg", "-hide_banner"],
+                "chapter_count": len(chapters),
+                "cover_embedded": False,
+                "normalized_audio_count": len(chapters),
+            }
+
+            with patch.object(
+                audiobook_epub_pipeline,
+                "_merge_m4b_with_ffmpeg",
+                return_value=merged_result,
+            ) as merge_m4b:
+                result = audiobook_epub_pipeline._merge_m4b_if_ready(
+                    job_dir=job_dir,
+                    metadata=metadata,
+                    chapters=chapters,
+                    cinematic_track_path=cinematic_track,
+                )
+
+        self.assertEqual(result["status"], "waiting_for_unmixr_export")
+        self.assertEqual(result["reason"], "cinematic_master_track_missing")
+        self.assertEqual(merge_m4b.call_count, 0)
+
+    def test_discover_or_build_cinematic_master_audio(self) -> None:
+        with self._base_context(chapter_count=2) as (job_dir, chapters, _metadata):
+            audio_dir = job_dir / "audio"
+            audio_dir.mkdir(parents=True, exist_ok=True)
+            cinematic_master = audio_dir / "_cinematic_master.wav"
+            cinematic_master.write_bytes(b"legacy-track")
+            (audio_dir / "_cinematic_master.mode").write_text(
+                audiobook_epub_pipeline._CINEMATIC_MASTER_SINGLE_PASS_MODE,
+                encoding="utf-8",
+            )
+            (audio_dir / "_cinematic_master.signature").write_text(
+                audiobook_epub_pipeline._cinematic_track_signature(
+                    chapter_inputs=audiobook_epub_pipeline._collect_cinematic_track_input(job_dir=job_dir, chapters=chapters),
+                ),
+                encoding="utf-8",
+            )
+
+            cinematic_master_discovered = audiobook_epub_pipeline._discover_or_build_cinematic_master_audio(
+                job_dir=job_dir,
+                chapters=chapters,
+            )
+
+            self.assertEqual(cinematic_master_discovered, cinematic_master)
+            self.assertEqual(cinematic_master_discovered is not None and cinematic_master_discovered.is_file(), True)
+
+    def test_discover_or_build_cinematic_master_audio_refuses_legacy_merge(self) -> None:
+        with self._base_context(chapter_count=2) as (job_dir, chapters, _metadata):
+            audio_dir = job_dir / "audio"
+            audio_dir.mkdir(parents=True, exist_ok=True)
+            for chapter in chapters:
+                (audio_dir / chapter.audio_filename).write_bytes(f"legacy-{chapter.index}".encode("utf-8"))
+
+            with patch.object(
+                audiobook_epub_pipeline,
+                "_merge_audio_segments_to_wav",
+                side_effect=self._merge_master,
+            ) as merge_master:
+                cinematic_master = audiobook_epub_pipeline._discover_or_build_cinematic_master_audio(
+                    job_dir=job_dir,
+                    chapters=chapters,
+                )
+
+            self.assertIsNone(cinematic_master)
+            self.assertEqual(merge_master.call_count, 0)
+
+    def test_merge_m4b_if_ready_waits_for_cinematic_master_when_cinematic_mode_enabled(self) -> None:
+        with self._base_context(chapter_count=4) as (job_dir, chapters, metadata):
+            audio_dir = job_dir / "audio"
+            audio_dir.mkdir(parents=True, exist_ok=True)
+            for chapter in chapters:
+                (audio_dir / chapter.audio_filename).write_bytes(f"legacy-{chapter.index}".encode("utf-8"))
+            output_file = (job_dir / "output" / "Cinematic Test Book.m4b").resolve()
+            merged_result = {
+                "status": "m4b_ready",
+                "provider": "ffmpeg",
+                "output_file": str(output_file),
+                "command": ["ffmpeg", "-hide_banner"],
+                "chapter_count": len(chapters),
+                "cover_embedded": False,
+                "normalized_audio_count": len(chapters),
+            }
+
+            with patch.object(
+                audiobook_epub_pipeline,
+                "_merge_m4b_with_ffmpeg",
+                return_value=merged_result,
+            ) as merge_m4b:
+                result = audiobook_epub_pipeline._merge_m4b_if_ready(
+                    job_dir=job_dir,
+                    metadata=metadata,
+                    chapters=chapters,
+                    cinematic_track_path=None,
+                )
+
+        self.assertEqual(result["status"], "waiting_for_unmixr_export")
+        self.assertEqual(result["reason"], "cinematic_master_track_missing")
+        self.assertEqual(merge_m4b.call_count, 0)
 
 if __name__ == "__main__":
     unittest.main()

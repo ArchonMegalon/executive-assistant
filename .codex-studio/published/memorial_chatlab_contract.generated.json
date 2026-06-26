@@ -1,83 +1,43 @@
 {
   "boundaries": {
     "first_party_chat_authoritative": true,
-    "guardrail_owner": "ea_first_party_memorial_chat",
-    "provider_output_is_evidence_candidate_only": true,
-    "public_answer_route": "ea_first_party_memorial_chat",
-    "transport_only": true
+    "provider_may_not_write_memory_or_guardrails": true,
+    "provider_may_transport_only_after_separate_runtime_receipt": true
   },
   "chatlab_contract": {
     "contract_name": "ea.memorial_chatlab_ltd_integration.v1",
-    "detail": "No verified ChatLab runtime is enabled; the public memorial chat uses the governed first-party memorial route.",
     "difficult_memory_guardrail_owner": "ea_first_party_memorial_chat",
     "first_party_chat_remains_authoritative": true,
     "gold_claim_allowed": false,
     "integration_state": "fallback_first_party_chat",
-    "next_action": "keep_first_party_memorial_chat",
     "provider_configured": false,
     "provider_guardrail_override_allowed": false,
     "provider_key": "",
     "provider_label": "",
     "provider_memory_write_allowed": false,
     "provider_persona_truth_allowed": false,
-    "provider_publication_allowed": false,
     "provider_runtime_allowed": false,
     "provider_truth_allowed": false,
     "raw_private_context_allowed": false,
     "required_next_receipts": [
-      "chatlab_account_capability_receipt",
-      "chatlab_runtime_probe_receipt",
-      "chatlab_no_private_context_upload_receipt",
-      "chatlab_guardrail_preservation_receipt"
-    ],
-    "slug": "manfred"
+      "chatlab_runtime_probe_receipt"
+    ]
   },
-  "contract_name": "ea.memorial_chatlab_ltd_receipt.v1",
-  "credential_values_exposed": false,
-  "ea_is_memory_truth": false,
-  "generated_at": "2026-06-20T06:10:35Z",
-  "gold_claim_allowed": false,
-  "guardrail_override_allowed": false,
+  "contract_name": "ea.memorial_chatlab_contract_receipt.v1",
+  "generated_at": "2026-06-26T11:13:39Z",
+  "generated_by": "ea/scripts/materialize_memorial_chatlab_contract_receipt.py",
   "live_provider_runtime_verified": false,
-  "ltd_provider": "chatlab_or_chatplayground_ai",
   "memory_truth_allowed": false,
-  "next_action": "keep_first_party_memorial_chat_until_chatlab_runtime_is_proven",
   "persona_truth_allowed": false,
   "provider_configured": false,
+  "provider_enabled": false,
   "provider_key": "",
   "provider_label": "",
   "provider_ready": false,
   "provider_truth_allowed": false,
   "publication_allowed": false,
   "raw_private_context_exposed": false,
-  "raw_private_memory_exposed": false,
-  "required_next_receipts": [
-    "chatlab_account_capability_receipt",
-    "chatlab_runtime_probe_receipt",
-    "chatlab_no_private_context_upload_receipt",
-    "chatlab_guardrail_preservation_receipt"
-  ],
   "runtime_probe_required": false,
   "slug": "manfred",
-  "source_files": {
-    "conversation_route": {
-      "bytes": 10567,
-      "exists": true,
-      "path": "ea/app/api/routes/public_memorial_conversation_support.py",
-      "sha256": "9852fbaecfc49802778781c39dc4202f6a161c519ac8aa317fb69060ce9cf09f"
-    },
-    "ltd_map": {
-      "bytes": 13956,
-      "exists": true,
-      "path": ".codex-design/ea/LTD_INTEGRATION_MAP.md",
-      "sha256": "748091b0eb3c8c967337b2ddc064b5ba07d7b4fe8ab00fa50cb810ecb0d496a6"
-    },
-    "service": {
-      "bytes": 21432,
-      "exists": true,
-      "path": "ea/app/services/memorial_chatlab_integration.py",
-      "sha256": "78d0bb818e241d3d001f5012b7736bde6505591a2170101f7ddd78e2e1a180ea"
-    }
-  },
   "status": "ready_fallback_contract"
 }

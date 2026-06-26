@@ -4,6 +4,7 @@ import json
 import base64
 import asyncio
 import difflib
+import importlib.util
 import socket
 import struct
 import threading
@@ -18,6 +19,8 @@ import pytest
 
 uvicorn = pytest.importorskip("uvicorn")
 pytest.importorskip("playwright.sync_api")
+if importlib.util.find_spec("websockets") is None and importlib.util.find_spec("wsproto") is None:
+    pytest.skip("uvicorn websocket protocol support requires websockets or wsproto", allow_module_level=True)
 from playwright.sync_api import Browser, Page, sync_playwright
 
 Config = uvicorn.Config

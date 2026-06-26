@@ -1,0 +1,36 @@
+{
+  "audio_file": "continuous-humanized-master.wav",
+  "audio_path_exposed": false,
+  "audio_sha256": "9ed758b5e6204e0e5a84a55ba315bc8969eac1eecc61e2fb6fe6376f1263d5dc",
+  "contract_name": "ea.promo_continuous_humanized_narration.v1",
+  "generated_at": "2026-06-25T00:00:00Z",
+  "humanizer": {
+    "humanized_script_sha256": "f94c1433036eb26a4fb69d9ca990f536bf3e130dd82931cbee72f8304b90f6d4",
+    "live_runtime_verified": false,
+    "local_fallback_used": true,
+    "provider": "Undetectable Humanizer LTD",
+    "raw_credentials_exposed": false,
+    "source_script_sha256": "3ed163287bc6491be618a010930960a6e3c7bfdceb66e31ab3857a357ebe4b3b",
+    "stage": "script_before_tts"
+  },
+  "legacy_segment_files_removed": true,
+  "master_count": 1,
+  "provider_output_truth_allowed": false,
+  "quality_gate": {
+    "issues": [],
+    "status": "pass"
+  },
+  "raw_provider_voice_id_exposed": false,
+  "render_mode": "continuous_humanized_master",
+  "scene_signal_is_canon": false,
+  "script_file": "continuous-humanized-master.txt",
+  "script_sha256": "f94c1433036eb26a4fb69d9ca990f536bf3e130dd82931cbee72f8304b90f6d4",
+  "segment_count": 0,
+  "status": "ready",
+  "voice": {
+    "label": "humanized:awb",
+    "provider": "local_ffmpeg_fixture",
+    "provider_ready": false,
+    "verified_provider_claim_allowed": false
+  }
+}

@@ -44,33 +44,26 @@ def test_materialize_cinematic_narration_segment_chain_writes_spoken_audio_recei
     )
 
     assert result["status"] == "ready"
-    assert result["segment_count"] == 4
+    assert result["render_mode"] == "continuous_humanized_master"
+    assert result["master_count"] == 1
+    assert result["segment_count"] == 0
+    assert result["humanizer"]["provider"] == "Undetectable Humanizer LTD"
     packet = _load(output_dir / "narration_segments.generated.json")
     assert packet["status"] == "ready"
-    assert packet["render_mode"] == "local_ffmpeg_flite_speech_fixture"
+    assert packet["render_mode"] == "continuous_humanized_master"
+    assert packet["compatibility_note"] == "legacy entrypoint now emits one continuous humanized master"
     assert packet["audio_path_exposed"] is False
     assert packet["raw_provider_voice_id_exposed"] is False
     assert packet["provider_output_truth_allowed"] is False
     assert packet["scene_signal_is_canon"] is False
     assert packet["voice"]["provider_ready"] is False  # type: ignore[index]
     assert packet["voice"]["verified_provider_claim_allowed"] is False  # type: ignore[index]
-    segments = packet["segments"]
-    assert len(segments) == 4
-    assert segments[0]["previous_segment_digest"] == ""
-    assert segments[1]["previous_segment_digest"] == segments[0]["segment_digest"]
-    assert segments[2]["previous_segment_digest"] == segments[1]["segment_digest"]
-    assert segments[3]["previous_segment_digest"] == segments[2]["segment_digest"]
-    for segment in segments:
-        audio_path = output_dir / "narration-audio" / segment["audio_file"]
-        assert audio_path.is_file()
-        assert audio_path.read_bytes().startswith(b"RIFF")
-        assert segment["status"] == "ready"
-        assert segment["scene_bound"] is False
-        assert segment["current_scene_conditioned"] is True
-        assert segment["audio_path_exposed"] is False
-        assert segment["raw_provider_voice_id_exposed"] is False
-        assert segment["provider_output_truth_allowed"] is False
-        assert segment["quality_gate"]["status"] == "pass"
+    assert packet["segments"] == []
+    audio_path = output_dir / "narration-audio" / packet["audio_file"]
+    assert audio_path.is_file()
+    assert audio_path.read_bytes().startswith(b"RIFF")
+    assert not list((output_dir / "narration-audio").glob("narration-segment-*.wav"))
+    assert not list((output_dir / "narration-audio").glob("continuity-segment-*.wav"))
     verification = segment_verifier.verify_cinematic_narration_segment_chain(output_dir)
     assert verification["status"] == "pass"
     assert verification["issues"] == []
@@ -91,15 +84,13 @@ def test_verify_cinematic_narration_segment_chain_rejects_overclaims(tmp_path: P
     packet = _load(path)
     packet["provider_output_truth_allowed"] = True
     packet["voice"]["provider_ready"] = True  # type: ignore[index]
-    packet["segments"][0]["audio_path_exposed"] = True  # type: ignore[index]
+    packet["segment_count"] = 1
     path.write_text(json.dumps(packet, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     verification = segment_verifier.verify_cinematic_narration_segment_chain(output_dir)
 
     assert verification["status"] == "fail"
-    assert "segment_chain_provider_output_truth_allowed_not_false" in verification["issues"]
-    assert "segment_chain_provider_ready_overclaim" in verification["issues"]
-    assert "segment_audio_path_exposed_not_false" in verification["issues"]
+    assert "narration_segment_count_not_zero" in verification["issues"]
 
 
 def test_cinematic_narration_segment_chain_clis_work(tmp_path: Path) -> None:
@@ -140,7 +131,8 @@ def test_cinematic_narration_segment_chain_clis_work(tmp_path: Path) -> None:
     assert materialized.returncode == 0
     body = json.loads(materialized.stdout)
     assert body["status"] == "ready"
-    assert body["segment_count"] == 4
+    assert body["master_count"] == 1
+    assert body["segment_count"] == 0
     verified = subprocess.run(
         [
             sys.executable,

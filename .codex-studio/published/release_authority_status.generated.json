@@ -1,6 +1,6 @@
 {
   "contract_name": "ea.release_authority_status.v1",
-  "generated_at": "2026-06-25T17:14:41Z",
+  "generated_at": "2026-06-26T11:47:56Z",
   "state": "clear",
   "summary": "Release authority is recorded for the current runtime.",
   "authority_posture": "authoritative_runtime",

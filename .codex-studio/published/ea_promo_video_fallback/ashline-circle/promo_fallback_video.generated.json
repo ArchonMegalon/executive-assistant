@@ -1,73 +1,40 @@
 {
-  "artifact_dir": "/docker/EA/.codex-studio/published/ea_promo_video_fallback/ashline-circle",
-  "contract_name": "ea.local_fallback_promo_video.v1",
+  "contract_name": "ea.fallback_promo_video.v1",
   "ea_is_product_truth": false,
-  "generated_at": "2026-06-20T06:10:35Z",
+  "generated_at": "2026-06-25T00:00:00Z",
   "live_provider_runtime_verified": false,
-  "next_action": "human_review_local_fallback_video_before_public_route_claim",
   "provider_output_truth_allowed": false,
   "provider_ready": false,
   "public_route_claim_allowed": false,
   "render_mode": "local_ffmpeg_static_card_video",
   "review_assets": {
     "contact_sheet": {
-      "bytes": 42663,
       "luma": {
-        "mean": 28.779,
-        "nonblank": true,
-        "pixel_count": 230400,
-        "status": "pass",
-        "stddev": 24.636
-      },
-      "path": "contact-sheet.jpg",
-      "relative_dir": "promo-video",
-      "sha256": "4919bda08156d3cd5b763f0ec6db58d5e6b95f4a882289ff6bdb99bf051a637a"
+        "nonblank": true
+      }
     },
     "poster": {
-      "bytes": 78520,
       "luma": {
-        "mean": 28.389,
-        "nonblank": true,
-        "pixel_count": 921600,
-        "status": "pass",
-        "stddev": 32.202
-      },
-      "path": "poster.jpg",
-      "relative_dir": "promo-video",
-      "sha256": "4612f073cc72ad492653c6246e7d429fb28d350ed9073fd4a2e4dee48cb08824"
+        "nonblank": true
+      }
     }
   },
   "review_page": {
-    "bytes": 4171,
-    "captions": "../promo.vtt",
-    "contact_sheet": "contact-sheet.jpg",
     "path": "watch.html",
-    "poster": "poster.jpg",
     "provider_claims_present": false,
-    "relative_dir": "promo-video",
     "route_claims_present": false,
-    "sha256": "9c19566eb7c29f56010483d1f0b166ff725b479ddc4c2f228f95f2bf595839dc",
-    "video_source": "promo-fallback.mp4"
+    "sha256": "2634485f85954e6ce0c6f05c88fdc676088ad74b8c608a6338fdfbc64a638048"
   },
   "route_deployment_verified": false,
-  "scene_count": 4,
-  "segment_count": 4,
-  "source_artifacts": {
-    "narration_segments": "narration_segments.generated.json",
-    "promo_json": "promo.json",
-    "promo_vtt": "promo.vtt"
+  "sources": {
+    "narration_master": "narration_master.generated.json"
   },
   "status": "ready",
   "verified_provider_claim_allowed": false,
   "video": {
-    "bytes": 821840,
     "captions_embedded": true,
-    "duration_seconds": 46.986,
     "has_audio": true,
-    "has_subtitles": true,
     "has_video": true,
-    "path": "promo-fallback.mp4",
-    "relative_dir": "promo-video",
-    "sha256": "97e5d634768f8f1306852af9965ad5060f14ecb62c2db8acf093ff805dc27f93"
+    "path": "promo-fallback.mp4"
   }
 }

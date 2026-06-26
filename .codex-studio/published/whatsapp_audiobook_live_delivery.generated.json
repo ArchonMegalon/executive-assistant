@@ -1,13 +1,13 @@
 {
   "audiobook_runtime": {
-    "api_key_slot_count": 3,
+    "api_key_slot_count": 7,
     "ready_for_live_intake": true,
     "reason": "",
     "receipt_present": true,
     "sample_blockers": [],
     "status": "warn",
     "unmixr_auto_render_enabled": true,
-    "voice_catalog_count": 290
+    "voice_catalog_count": 292
   },
   "blocking_reason": "",
   "candidate_count": 2,
@@ -29,13 +29,13 @@
   ],
   "failed_codes": [],
   "fresh_live_job_receipt_proven": true,
-  "generated_at": "2026-06-23T16:15:08.752234Z",
+  "generated_at": "2026-06-26T11:47:38.198346Z",
   "generated_by": "ea/scripts/materialize_whatsapp_audiobook_live_delivery_receipt.py",
   "goal_completion_claim_allowed": false,
   "historical_evidence": {
     "historical_live_path_proven": true,
     "local_intake": {
-      "generated_at": "2026-06-23T16:15:09.004660Z",
+      "generated_at": "2026-06-26T11:46:54.897167Z",
       "local_path_proven": true,
       "receipt_present": true,
       "share_link_sent": 1,
@@ -43,7 +43,7 @@
       "voice_sample_sent": 3
     },
     "operator_bundle": {
-      "generated_at": "2026-06-23T14:03:42.950412Z",
+      "generated_at": "2026-06-26T11:46:54.701201Z",
       "live_delivery_claim_allowed": true,
       "live_delivery_status": "pass",
       "live_path_proven": true,
@@ -55,7 +55,7 @@
     "present": true,
     "public_share_playback": {
       "attempted": 1,
-      "generated_at": "2026-06-23T14:07:12.728768Z",
+      "generated_at": "2026-06-23T16:15:44.821338Z",
       "passed": 1,
       "passed_result_count": 1,
       "playback_path_proven": true,
@@ -90,9 +90,9 @@
   "load_errors": [],
   "machine_playback_e2e_verified": true,
   "next_action": "review_audiobook_playback_problem",
-  "non_whatsapp_job_count": 5,
+  "non_whatsapp_job_count": 10,
   "observation_source": "jobs_root",
-  "observed_job_count": 7,
+  "observed_job_count": 12,
   "output_path": "/docker/EA/.codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
   "pending_user_selected_voice_job_count": 0,
   "pending_user_selected_voice_jobs": [],
@@ -125,12 +125,12 @@
   "real_user_playback_acceptance_verified": false,
   "runtime_readiness": {
     "effective_session_ref_present": true,
-    "ready": true,
-    "reason": "ready",
+    "ready": false,
+    "reason": "sidecar_not_ready",
     "receipt_present": true,
-    "sidecar_ready": true,
+    "sidecar_ready": false,
     "state_fresh": true,
-    "status": "ready"
+    "status": "blocked"
   },
   "selected_delivery": {
     "author_present": true,
@@ -138,7 +138,7 @@
     "failed_codes": [],
     "job_id_sha256": "1a7a76f41c3bd81a974d309bb59ff80837451843917026aacc130b70729f0837",
     "machine_playback_e2e_browser": "chromium_playwright",
-    "machine_playback_e2e_current_time_after_play_seconds": 2.959699,
+    "machine_playback_e2e_current_time_after_play_seconds": 2.962141,
     "machine_playback_e2e_duration_seconds": 14559.48,
     "machine_playback_e2e_media_error_code": 0,
     "machine_playback_e2e_media_error_present": false,

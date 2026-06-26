@@ -128,7 +128,8 @@ def memorial_flagship_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     (private_root / slug / "tts_voice.json").write_text(
         json.dumps(
             {
-                "tts_mode": "browser_speech_synthesis",
+                "tts_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
+                "tts_plugin_voice_id": "fixture-unmixr-voice",
                 "voice_label": "Tibor freigegebene synthetische Stimme",
                 "lang": "de-AT",
                 "rate": 0.88,
@@ -181,11 +182,15 @@ def memorial_flagship_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     public_memorials._PERSONAL_MEMORY_ROOT = artifacts_root / "memorial_user_memory"
     public_memorials._VOICE_AB_ROOT = artifacts_root / "memorial_voice_ab"
     public_memorials._PUBLIC_MEMORIAL_RATE_DB = artifacts_root / "memorial_rate_limits.sqlite3"
+    public_memorials._MEMORIAL_TTS_RENDER_CACHE_ROOT = artifacts_root / "memorial_tts_render_cache"
+    public_memorials._MEMORIAL_PRESENT_WORLD_CACHE_ROOT = artifacts_root / "memorial_present_world_cache"
     memorial_archive_registry.PUBLIC_MEMORIAL_ROOT = registry_root
     memorial_archive_registry.ARCHIVE_ROOT = tmp_path / "archive"
 
     monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
     monkeypatch.setenv("EA_PRIVATE_MEMORIAL_PROFILE_DIR", str(private_root))
+    monkeypatch.setenv("UNMIXR_API_KEY", "fixture-unmixr-key")
+    monkeypatch.setenv("UNMIXR_VOICE_ID", "fixture-unmixr-voice")
     transcript_lookup: dict[bytes, str] = {}
 
     def _fake_generate_text(*, messages, requested_model, max_output_tokens):
@@ -202,7 +207,7 @@ def memorial_flagship_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
 
     monkeypatch.setattr(public_memorials, "generate_text", _fake_generate_text)
 
-    def _fake_piper_fast_synthesize_request(**kwargs):
+    def _fake_unmixr_synthesize_request(**kwargs):
         text = str(kwargs.get("text") or "audio")
         payload = _generated_wav_bytes(seed=text)
         transcript_lookup[payload] = text
@@ -218,7 +223,7 @@ def memorial_flagship_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
             "transcriber": "fixture_stub",
         }
 
-    monkeypatch.setattr(public_memorials, "piper_fast_synthesize_request", _fake_piper_fast_synthesize_request)
+    monkeypatch.setattr(public_memorials, "unmixr_synthesize_request", _fake_unmixr_synthesize_request)
     monkeypatch.setattr(public_memorials, "_memorial_transcribe_audio_blob", _fake_transcribe_audio_blob)
     monkeypatch.setattr(
         public_memorials,

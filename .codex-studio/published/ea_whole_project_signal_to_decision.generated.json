@@ -1,98 +1,45 @@
 {
   "boundary_posture": {
-    "canonical_product_truth_created": false,
-    "canonical_support_truth_created": false,
     "ea_is_product_truth": false,
-    "ea_owns_canonical_queue_truth": false,
-    "ea_owns_release_authority": false,
-    "provider_telemetry_is_product_authority": false
+    "local_signal_synthesis_not_canonical_queue_or_release_truth": true
   },
   "closed_loop_followthrough_receipt_verified": false,
   "contract_name": "ea.whole_project_signal_to_decision_receipt.v1",
   "decision_packet": {
-    "cadence": "weekly",
     "decision_items": [
       {
-        "claim_limit": "local_quality_evidence_is_not_real_daily_acceptance",
-        "evidence_status": "blocked_missing_real_world_acceptance_evidence",
-        "journey_or_release_gate_mapping": "office_loop_operations",
-        "key": "real_ea_acceptance_gap",
-        "owner_truth_plane": "ea_operator",
-        "recommendation": "Collect the next redacted real-world EA acceptance proof before calling EA good."
+        "key": "provider_runtime_recovery",
+        "source": "provider_runtime_failures"
       },
       {
-        "claim_limit": "local_media_receipts_are_not_live_provider_or_publication_truth",
-        "evidence_status": "ready_local_evidence",
-        "journey_or_release_gate_mapping": "publish_public_or_premium_artifacts",
-        "key": "media_provider_external_proofs",
-        "owner_truth_plane": "provider_or_publication_owner",
-        "recommendation": "Collect live provider, public-route, human-review, audiobook playback, and Manfred spoken proofs before widening media claims."
+        "key": "audiobook_acceptance",
+        "source": "audiobook_and_media_acceptance"
       },
       {
-        "claim_limit": "ea_synthesizes_queue_candidates_only",
-        "evidence_status": "blocked_real_world_acceptance",
-        "journey_or_release_gate_mapping": "office_loop_operations",
-        "key": "quality_blockers",
-        "owner_truth_plane": "ea_operator",
-        "recommendation": "Use blocked quality checks as the next operating queue, but do not promote them as canonical project queue truth."
+        "key": "spoken_conversation_acceptance",
+        "source": "manfred_spoken_conversation_acceptance"
       },
       {
-        "claim_limit": "packet_ready_is_not_operator_acceptance",
-        "evidence_status": "pending_operator_acceptance",
-        "journey_or_release_gate_mapping": "metrics_slos_and_feedback",
-        "key": "weekly_operator_review",
-        "owner_truth_plane": "operator",
-        "recommendation": "Review this packet, accept or reject it, then record follow-through evidence after the next action is taken."
+        "key": "privacy_boundary_review",
+        "source": "privacy_or_boundary_incidents"
       }
-    ],
-    "human_acceptance_required": true,
-    "owner_routing_required": true,
-    "packet_ref_sha256": "81d307a8b7f6b26a82c139dc22697b208979c752b63cb9fb6c9f2fefad00c40a",
-    "status": "ready_for_operator_review"
+    ]
   },
   "evidence_receipts": {
     "active_media_ltd": {
       "contract_name": "ea.active_media_ltd_goal_bundle.v1",
-      "file": {
-        "bytes": 12743,
-        "exists": true,
-        "path": ".codex-studio/published/active_media_ltd_goal_bundle.generated.json",
-        "sha256": "1fdade5f749ffb540765c53cb853d9577aba7451fc94e09eaf6860a9c6fea047"
-      },
-      "goal_completion_claim_allowed": false,
       "status": "ready_local_evidence"
-    },
-    "ea_quality": {
-      "contract_name": "ea.executive_assistant_quality_readiness.v1",
-      "file": {
-        "bytes": 10864,
-        "exists": true,
-        "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
-        "sha256": "cec6e682a043cb4018911a91d412fadc516a495e993b97770a7d6eff4d664c31"
-      },
-      "goal_completion_claim_allowed": false,
-      "status": "blocked_real_world_acceptance"
     },
     "executive_assistant_acceptance_evidence": {
       "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
-      "file": {
-        "bytes": 3288,
-        "exists": true,
-        "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
-        "sha256": "544d0c3a3d4e556a5fe578e19dba9cfb85722fe7e00681845dbdf0f6f8502b64"
-      },
-      "goal_completion_claim_allowed": false,
       "status": "blocked_missing_real_world_acceptance_evidence"
+    },
+    "executive_assistant_quality": {
+      "contract_name": "ea.executive_assistant_quality_readiness.v1",
+      "status": "blocked_real_world_acceptance"
     },
     "office_loop": {
       "contract_name": "ea.office_loop_goal_receipt.v1",
-      "file": {
-        "bytes": 75217,
-        "exists": true,
-        "path": ".codex-studio/published/ea_office_loop_goal.generated.json",
-        "sha256": "3166642b39c064ce310fd86aa430216343d8767193568e4c10188cb8ec728d69"
-      },
-      "goal_completion_claim_allowed": false,
       "status": "ready_local_evidence"
     }
   },
@@ -101,41 +48,19 @@
     "actor_sha256": "",
     "followthrough_sha256": "",
     "packet_ref_sha256": "",
-    "raw_actor_exposed": false,
-    "raw_content_exposed": false,
-    "raw_packet_ref_exposed": false,
     "recorded_at": "",
-    "source_kind": "unknown",
-    "status": "missing_or_invalid"
+    "source_kind": ""
   },
-  "generated_at": "2026-06-20T06:12:47Z",
-  "generated_by": "ea/scripts/materialize_whole_project_signal_to_decision_receipt.py",
+  "generated_at": "2026-06-26T11:46:33Z",
   "goal_completion_claim_allowed": false,
-  "gold_claim_allowed": false,
-  "issues": [],
-  "local_packet_claim_allowed": true,
-  "next_action": "review_weekly_signal_to_decision_packet_with_operator",
   "operator_review": {
     "accepted": false,
     "actor_sha256": "",
     "packet_ref_sha256": "",
-    "raw_actor_exposed": false,
-    "raw_content_exposed": false,
-    "raw_packet_ref_exposed": false,
     "recorded_at": "",
     "review_sha256": "",
-    "source_kind": "unknown",
-    "status": "missing_or_invalid"
+    "source_kind": ""
   },
-  "privacy": {
-    "credential_values_exposed": false,
-    "raw_actor_identity_exposed": false,
-    "raw_followthrough_text_exposed": false,
-    "raw_packet_reference_exposed": false,
-    "raw_private_context_exposed": false,
-    "raw_review_text_exposed": false
-  },
-  "public_or_premium_claim_allowed": false,
   "queue_truth_claim_allowed": false,
   "real_weekly_operator_review_accepted": false,
   "release_authority_claim_allowed": false,
@@ -161,294 +86,65 @@
   ],
   "signal_sources": [
     {
-      "journey_or_release_gate_mapping": "metrics_slos_and_feedback",
+      "journey_or_release_gate_mapping": "weekly_signal_to_decision_packet",
       "key": "real_usage_telemetry",
-      "label": "Real usage telemetry",
-      "next_decision_question": "Which observed usage signal should change the next weekly operating decision?",
-      "owner_truth_plane": "design_or_product_governor",
-      "source_files": [
-        {
-          "bytes": 10544,
-          "exists": true,
-          "path": ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
-          "sha256": "b2dafe3a4c3069421111186bd2bfb4b5b4adcfb71a2b5764defd8ea538f9aa5c"
-        },
-        {
-          "bytes": 18804,
-          "exists": true,
-          "path": ".codex-design/product/PRODUCT_USAGE_TELEMETRY_MODEL.md",
-          "sha256": "0c5864ae13df87b26945fbeca6082b7605d2779b04f51305a7fe810e1dae2017"
-        }
-      ],
-      "status": "mapped_from_sources",
-      "truth_plane": "mirrored_product_control"
+      "owner_truth_plane": "operator_review_required",
+      "status": "mapped_from_sources"
     },
     {
-      "journey_or_release_gate_mapping": "support_recovery",
+      "journey_or_release_gate_mapping": "weekly_signal_to_decision_packet",
       "key": "support_and_recovery_cases",
-      "label": "Support and recovery cases",
-      "next_decision_question": "Which support failure needs owner routing or a recovery receipt?",
-      "owner_truth_plane": "hub_support_or_design",
-      "source_files": [
-        {
-          "bytes": 2925,
-          "exists": true,
-          "path": ".codex-design/product/SUPPORT_AND_SIGNAL_OODA_LOOP.md",
-          "sha256": "2cda3b3c435c4300612e7d90b908a600cbcd6736326183c2f8e7892b9ef166c0"
-        },
-        {
-          "bytes": 4053,
-          "exists": true,
-          "path": ".codex-design/product/FEEDBACK_AND_CRASH_STATUS_MODEL.md",
-          "sha256": "66a9628125fe9748cd2b5ee956496306ef055e0fde5cac08ffbec9cdfed7e68f"
-        }
-      ],
-      "status": "mapped_from_sources",
-      "truth_plane": "mirrored_support_signal_loop"
+      "owner_truth_plane": "operator_review_required",
+      "status": "mapped_from_sources"
     },
     {
-      "journey_or_release_gate_mapping": "metrics_slos_and_feedback",
+      "journey_or_release_gate_mapping": "weekly_signal_to_decision_packet",
       "key": "feedback_and_crash_reports",
-      "label": "Feedback and crash reports",
-      "next_decision_question": "Which feedback or crash pattern should become a bounded next test?",
-      "owner_truth_plane": "hub_support_or_design",
-      "source_files": [
-        {
-          "bytes": 12879,
-          "exists": true,
-          "path": ".codex-design/product/FEEDBACK_AND_CRASH_REPORTING_SYSTEM.md",
-          "sha256": "ee1024f7912e0525c49d08f059cb8ef033ce9982c34c36b44cdbc417810b3006"
-        },
-        {
-          "bytes": 5762,
-          "exists": true,
-          "path": ".codex-design/product/FEEDBACK_AND_SIGNAL_OODA_LOOP.md",
-          "sha256": "313189442194121449028041c3b64a8fc752775a9398111987aa937f693239e5"
-        }
-      ],
-      "status": "mapped_from_sources",
-      "truth_plane": "mirrored_support_signal_loop"
+      "owner_truth_plane": "operator_review_required",
+      "status": "mapped_from_sources"
     },
     {
-      "journey_or_release_gate_mapping": "publish_public_or_premium_artifacts",
+      "journey_or_release_gate_mapping": "weekly_signal_to_decision_packet",
       "key": "public_or_premium_publication_reactions",
-      "label": "Public or premium publication reactions",
-      "next_decision_question": "Which public or premium reaction needs human approval before claim widening?",
-      "owner_truth_plane": "public_or_premium_owner",
-      "source_files": [
-        {
-          "bytes": 11072,
-          "exists": true,
-          "path": ".codex-design/product/PUBLIC_RELEASE_EXPERIENCE.yaml",
-          "sha256": "9a355919ae5afb2a2a121d8a3c896cb152fc36d5db8d39fc92e3cbe857e348df"
-        },
-        {
-          "bytes": 1390,
-          "exists": true,
-          "path": ".codex-design/product/PREMIUM_AND_COMMUNITY_PACKAGING_MODEL.md",
-          "sha256": "adae45a0d75705460cc89175718815668b0187a4773f6c2364587d16f6bf7b41"
-        }
-      ],
-      "status": "mapped_from_sources",
-      "truth_plane": "mirrored_publication_policy"
+      "owner_truth_plane": "operator_review_required",
+      "status": "mapped_from_sources"
     },
     {
-      "journey_or_release_gate_mapping": "provider_ltd_governance",
+      "journey_or_release_gate_mapping": "weekly_signal_to_decision_packet",
       "key": "provider_runtime_failures",
-      "label": "Provider runtime failures",
-      "next_decision_question": "Which provider failure needs recovery, fallback, or default-provider challenge?",
-      "owner_truth_plane": "provider_stewardship",
-      "source_files": [
-        {
-          "bytes": 4279,
-          "exists": true,
-          "path": ".codex-design/product/PROVIDER_AND_ROUTE_STEWARDSHIP.md",
-          "sha256": "a735b8d7088c88fe20ff82cf427479ae071420c8954348cccc4d9f9e5b401ea0"
-        },
-        {
-          "bytes": 38966,
-          "exists": true,
-          "path": ".codex-design/product/EXTERNAL_TOOLS_PLANE.md",
-          "sha256": "a23aedb90910636aa5632e1abe8856d890e9a8f68f16b0f8aa328ff5b3d3cc37"
-        }
-      ],
-      "status": "mapped_from_sources",
-      "truth_plane": "provider_governance"
+      "owner_truth_plane": "operator_review_required",
+      "status": "mapped_from_sources"
     },
     {
-      "journey_or_release_gate_mapping": "publish_public_or_premium_artifacts",
+      "journey_or_release_gate_mapping": "weekly_signal_to_decision_packet",
       "key": "audiobook_and_media_acceptance",
-      "label": "Audiobook and media acceptance",
-      "next_decision_question": "Which audiobook or media proof is still blocking a real user claim?",
-      "owner_truth_plane": "ea_operator_with_publication_owner_review",
-      "source_files": [
-        {
-          "bytes": 12743,
-          "exists": true,
-          "path": ".codex-studio/published/active_media_ltd_goal_bundle.generated.json",
-          "sha256": "1fdade5f749ffb540765c53cb853d9577aba7451fc94e09eaf6860a9c6fea047"
-        }
-      ],
-      "status": "mapped_from_sources",
-      "truth_plane": "ea_local_media_receipts"
+      "owner_truth_plane": "operator_review_required",
+      "status": "mapped_from_sources"
     },
     {
-      "journey_or_release_gate_mapping": "manfred_premium_speech",
+      "journey_or_release_gate_mapping": "weekly_signal_to_decision_packet",
       "key": "manfred_spoken_conversation_acceptance",
-      "label": "Manfred spoken conversation acceptance",
-      "next_decision_question": "Which STT, TTS, or room-audio proof is blocking premium speech?",
-      "owner_truth_plane": "memorial_runtime_operator",
-      "source_files": [
-        {
-          "bytes": 12743,
-          "exists": true,
-          "path": ".codex-studio/published/active_media_ltd_goal_bundle.generated.json",
-          "sha256": "1fdade5f749ffb540765c53cb853d9577aba7451fc94e09eaf6860a9c6fea047"
-        },
-        {
-          "bytes": 19227,
-          "exists": true,
-          "path": ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json",
-          "sha256": "a829e7ac19d580ef98c9624fb07f515d042f25fb3daa5769c63efc039a8a9898"
-        }
-      ],
-      "status": "mapped_from_sources",
-      "truth_plane": "ea_local_media_receipts"
+      "owner_truth_plane": "operator_review_required",
+      "status": "mapped_from_sources"
     },
     {
-      "journey_or_release_gate_mapping": "office_loop_operations",
+      "journey_or_release_gate_mapping": "weekly_signal_to_decision_packet",
       "key": "telegram_whatsapp_email_channel_friction",
-      "label": "Telegram, WhatsApp, and email channel friction",
-      "next_decision_question": "Which channel failure should be repaired before adding another surface?",
-      "owner_truth_plane": "ea_operator",
-      "source_files": [
-        {
-          "bytes": 75217,
-          "exists": true,
-          "path": ".codex-studio/published/ea_office_loop_goal.generated.json",
-          "sha256": "3166642b39c064ce310fd86aa430216343d8767193568e4c10188cb8ec728d69"
-        },
-        {
-          "bytes": 12743,
-          "exists": true,
-          "path": ".codex-studio/published/active_media_ltd_goal_bundle.generated.json",
-          "sha256": "1fdade5f749ffb540765c53cb853d9577aba7451fc94e09eaf6860a9c6fea047"
-        }
-      ],
-      "status": "mapped_from_sources",
-      "truth_plane": "ea_channel_runtime"
+      "owner_truth_plane": "operator_review_required",
+      "status": "mapped_from_sources"
     },
     {
-      "journey_or_release_gate_mapping": "desktop_release_install_update",
+      "journey_or_release_gate_mapping": "weekly_signal_to_decision_packet",
       "key": "release_install_update_friction",
-      "label": "Release, install, and update friction",
-      "next_decision_question": "Which install, update, or release signal belongs to Fleet or release owners?",
-      "owner_truth_plane": "fleet_or_release_owner",
-      "source_files": [
-        {
-          "bytes": 11072,
-          "exists": true,
-          "path": ".codex-design/product/PUBLIC_RELEASE_EXPERIENCE.yaml",
-          "sha256": "9a355919ae5afb2a2a121d8a3c896cb152fc36d5db8d39fc92e3cbe857e348df"
-        },
-        {
-          "bytes": 5784,
-          "exists": true,
-          "path": ".codex-design/product/PUBLIC_DOWNLOADS_POLICY.md",
-          "sha256": "cea04efe6efe547dc73f1befa32cfe4a179952ab09c98eafeec1e2b173a0016c"
-        }
-      ],
-      "status": "mapped_from_sources",
-      "truth_plane": "mirrored_release_policy"
+      "owner_truth_plane": "operator_review_required",
+      "status": "mapped_from_sources"
     },
     {
-      "journey_or_release_gate_mapping": "privacy_retention",
+      "journey_or_release_gate_mapping": "weekly_signal_to_decision_packet",
       "key": "privacy_or_boundary_incidents",
-      "label": "Privacy or boundary incidents",
-      "next_decision_question": "Which privacy or boundary incident requires claim reduction or owner escalation?",
-      "owner_truth_plane": "privacy_owner_or_design",
-      "source_files": [
-        {
-          "bytes": 8735,
-          "exists": true,
-          "path": ".codex-design/product/PRIVACY_AND_RETENTION_BOUNDARIES.md",
-          "sha256": "f0e15461d59aa7e1110e5117946262b0c53e0302fd28bc24143d76989a78a392"
-        },
-        {
-          "bytes": 3632,
-          "exists": true,
-          "path": ".codex-design/repo/IMPLEMENTATION_SCOPE.md",
-          "sha256": "81235c00d6c0ac4b69978f4d0f192c6e29e1dd52eb72096b52cbac6caab77a6a"
-        }
-      ],
-      "status": "mapped_from_sources",
-      "truth_plane": "mirrored_privacy_and_ea_boundary"
+      "owner_truth_plane": "operator_review_required",
+      "status": "mapped_from_sources"
     }
   ],
-  "source_authority": {
-    "continuous_goal": {
-      "bytes": 17545,
-      "exists": true,
-      "path": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
-      "sha256": "1dc9a42d6d06be5c767371a0b48259551aa9834e7e36f14ca36b6c316ff363a6"
-    },
-    "implementation_scope": {
-      "bytes": 3632,
-      "exists": true,
-      "path": ".codex-design/repo/IMPLEMENTATION_SCOPE.md",
-      "sha256": "81235c00d6c0ac4b69978f4d0f192c6e29e1dd52eb72096b52cbac6caab77a6a"
-    },
-    "metrics_and_slos": {
-      "bytes": 25821,
-      "exists": true,
-      "path": ".codex-design/product/METRICS_AND_SLOS.yaml",
-      "sha256": "687732a5f41e25e01715d46132862ee492c5e4f7b2a1b0e93359ad849267adbc"
-    },
-    "privacy_boundaries": {
-      "bytes": 8735,
-      "exists": true,
-      "path": ".codex-design/product/PRIVACY_AND_RETENTION_BOUNDARIES.md",
-      "sha256": "f0e15461d59aa7e1110e5117946262b0c53e0302fd28bc24143d76989a78a392"
-    },
-    "product_usage_telemetry": {
-      "bytes": 18804,
-      "exists": true,
-      "path": ".codex-design/product/PRODUCT_USAGE_TELEMETRY_MODEL.md",
-      "sha256": "0c5864ae13df87b26945fbeca6082b7605d2779b04f51305a7fe810e1dae2017"
-    },
-    "provider_stewardship": {
-      "bytes": 4279,
-      "exists": true,
-      "path": ".codex-design/product/PROVIDER_AND_ROUTE_STEWARDSHIP.md",
-      "sha256": "a735b8d7088c88fe20ff82cf427479ae071420c8954348cccc4d9f9e5b401ea0"
-    },
-    "public_release_experience": {
-      "bytes": 11072,
-      "exists": true,
-      "path": ".codex-design/product/PUBLIC_RELEASE_EXPERIENCE.yaml",
-      "sha256": "9a355919ae5afb2a2a121d8a3c896cb152fc36d5db8d39fc92e3cbe857e348df"
-    },
-    "review_context": {
-      "bytes": 1043,
-      "exists": true,
-      "path": ".codex-design/review/REVIEW_CONTEXT.md",
-      "sha256": "6cebbfeb7e5ee59f08dd087aaf27cd598680ef4324e7895ee2eb6cd5fce38520"
-    },
-    "support_ooda": {
-      "bytes": 2925,
-      "exists": true,
-      "path": ".codex-design/product/SUPPORT_AND_SIGNAL_OODA_LOOP.md",
-      "sha256": "2cda3b3c435c4300612e7d90b908a600cbcd6736326183c2f8e7892b9ef166c0"
-    },
-    "weekly_product_pulse": {
-      "bytes": 10544,
-      "exists": true,
-      "path": ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
-      "sha256": "b2dafe3a4c3069421111186bd2bfb4b5b4adcfb71a2b5764defd8ea538f9aa5c"
-    }
-  },
-  "source_input": {
-    "provided": false
-  },
   "status": "ready_local_packet_pending_operator_acceptance"
 }
