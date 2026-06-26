@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 from app.services.proactive_ooda_service import ProactiveOodaService
 from app.services.proactive_ooda_stage_packets import (
@@ -105,6 +106,21 @@ def test_persist_stage_packets_writes_private_packet_files(tmp_path) -> None:
     packet = json.loads((tmp_path / f"{result.packet_refs[0].removeprefix('stage_packet:')}.json").read_text(encoding="utf-8"))
     assert packet["packet_ref"] == result.packet_refs[0]
     assert packet["stage"]["summary"] == "One vendor candidate ready for approval."
+
+
+def test_persist_stage_packets_refreshes_existing_artifact_for_same_signal(tmp_path) -> None:
+    digest = _digest_with_stage()
+    first = persist_stage_packets(digest=digest, output_dir=tmp_path)
+
+    refreshed = replace(digest, generated_at="2026-06-27T12:00:00+00:00")
+    second = persist_stage_packets(digest=refreshed, output_dir=tmp_path)
+
+    assert not first.errors
+    assert not second.errors
+    assert first.packet_refs == second.packet_refs
+    assert len(list(tmp_path.glob("*.json"))) == 1
+    packet = json.loads((tmp_path / f"{first.packet_refs[0].removeprefix('stage_packet:')}.json").read_text(encoding="utf-8"))
+    assert packet["generated_at"] == "2026-06-27T12:00:00+00:00"
 
 
 def test_persist_stage_packets_reports_directory_errors(tmp_path) -> None:

@@ -92,6 +92,16 @@ def test_build_safe_work_result_blocks_when_no_research_input_exists() -> None:
     assert result["execution_receipt"]["external_actions_attempted"] == []
 
 
+def test_build_safe_work_result_keeps_stable_result_id_across_regeneration() -> None:
+    packet = _packet_with_cart_work()
+
+    first = build_safe_work_result(packet, generated_at="2026-06-26T12:00:00+00:00")
+    second = build_safe_work_result(packet, generated_at="2026-06-27T12:00:00+00:00")
+
+    assert first["result_id"] == second["result_id"]
+    assert first["result_ref"] == second["result_ref"]
+
+
 def test_persist_safe_work_results_writes_private_result_files(tmp_path) -> None:
     digest = ProactiveOodaService().build_digest(
         principal_id="exec",
@@ -190,6 +200,23 @@ def test_persist_safe_work_results_from_paths_only_materializes_current_packets(
     assert len(stage_result.paths) == 2
     assert len(result.paths) == 1
     assert len(result.result_refs) == 1
+
+
+def test_persist_safe_work_results_from_paths_refreshes_existing_result(tmp_path) -> None:
+    packet = _packet_with_cart_work()
+    stage_dir = tmp_path / "stage"
+    result_dir = tmp_path / "results"
+    stage_dir.mkdir()
+    stage_path = stage_dir / f"{packet['packet_id']}.json"
+    stage_path.write_text(json.dumps(packet, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    first = persist_safe_work_results_from_paths(stage_packet_paths=(stage_path,), result_dir=result_dir)
+    second = persist_safe_work_results_from_paths(stage_packet_paths=(stage_path,), result_dir=result_dir)
+
+    assert not first.errors
+    assert not second.errors
+    assert first.result_refs == second.result_refs
+    assert len(list(result_dir.glob("*.json"))) == 1
 
 
 def test_default_safe_work_result_dir_sits_next_to_stage_packet_dir(tmp_path) -> None:

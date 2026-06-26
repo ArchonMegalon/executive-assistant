@@ -292,13 +292,8 @@ def _label_from_url(url: str) -> str:
 
 
 def _result_id(*, packet: Mapping[str, Any], order: Mapping[str, Any], generated_at: str) -> str:
-    material = "|".join(
-        (
-            str(packet.get("packet_id") or packet.get("packet_ref") or ""),
-            str(order.get("work_order_id") or ""),
-            generated_at,
-        )
-    )
+    # Safe-work results should refresh the same staged artifact across deferred retries.
+    material = "|".join((str(packet.get("packet_id") or packet.get("packet_ref") or ""), str(order.get("work_order_id") or "")))
     return f"proactive-ooda-safe-work-{_hash_value(material)[:24]}"
 
 

@@ -292,7 +292,8 @@ def _work_input_contract(*, stage_payload: Mapping[str, Any], stage_artifacts: t
 
 
 def _packet_id(*, digest: ProactiveOodaDigest, item: OodaInk, index: int) -> str:
-    material = "|".join((digest.generated_at, digest.principal_id, item.signal_ref, str(index)))
+    # Keep deferred retries stable so quiet-hours/pause loops refresh in place.
+    material = "|".join((digest.principal_id, item.signal_ref))
     return f"proactive-ooda-stage-{_hash_value(material)[:24]}"
 
 
