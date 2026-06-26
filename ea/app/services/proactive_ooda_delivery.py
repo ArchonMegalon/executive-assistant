@@ -11,6 +11,7 @@ from app.services.proactive_telegram_binding import proactive_telegram_ready, re
 from app.services.telegram_delivery import _telegram_bot_registry, resolve_primary_telegram_binding, send_telegram_message_for_principal
 from app.services.whatsapp_delivery import resolve_whatsapp_delivery_config
 from app.services.whatsapp_delivery_router import WEB_SESSION_CONNECTOR, send_whatsapp_delivery_text
+from app.services.whatsapp_web_session_readiness import check_whatsapp_web_session_readiness
 
 
 SUPPORTED_DELIVERY_CHANNELS = {"telegram", "whatsapp"}
@@ -362,6 +363,8 @@ def _whatsapp_route_status(
     tool_runtime: Any | None,
 ) -> ProactiveOodaDeliveryStatus:
     normalized_recipient = _normalize_recipient(recipient_ref)
+    readiness_error = ""
+    staged_error = ""
     if not normalized_recipient:
         return ProactiveOodaDeliveryStatus(
             ready=False,
@@ -378,17 +381,27 @@ def _whatsapp_route_status(
         enabled_web.sort(key=lambda row: str(getattr(row, "updated_at", "") or ""), reverse=True)
         if enabled_web:
             binding = enabled_web[0]
-            return ProactiveOodaDeliveryStatus(
-                ready=True,
-                selected_channel="whatsapp",
-                selected_transport=WEB_SESSION_CONNECTOR,
-                selected_by="tool_runtime_binding",
-                selected_reason="enabled WhatsApp Web session binding available",
-                recipient_ref=normalized_recipient,
-                recipient_ref_hash=_hash_text(normalized_recipient),
-                binding_id=str(getattr(binding, "binding_id", "") or ""),
-                available_channels=("whatsapp",),
+            readiness = check_whatsapp_web_session_readiness(
+                tool_runtime=tool_runtime,
+                principal_id=principal_id,
+                binding=binding,
+                probe_session=True,
             )
+            if readiness.ready:
+                return ProactiveOodaDeliveryStatus(
+                    ready=True,
+                    selected_channel="whatsapp",
+                    selected_transport=WEB_SESSION_CONNECTOR,
+                    selected_by="tool_runtime_binding",
+                    selected_reason="enabled WhatsApp Web session binding available",
+                    recipient_ref=normalized_recipient,
+                    recipient_ref_hash=_hash_text(normalized_recipient),
+                    binding_id=str(getattr(binding, "binding_id", "") or ""),
+                    available_channels=("whatsapp",),
+                )
+            readiness_error = _whatsapp_readiness_error(readiness)
+        else:
+            readiness_error = ""
         staged_web = next(
             (
                 row
@@ -399,17 +412,13 @@ def _whatsapp_route_status(
         )
         if staged_web is not None and str(getattr(staged_web, "status", "") or "").strip().lower() != "enabled":
             staged_error = f"whatsapp_web_session_binding_disabled:{getattr(staged_web, 'binding_id', '')}"
-        else:
-            staged_error = ""
-    else:
-        staged_error = ""
     try:
         config = resolve_whatsapp_delivery_config(
             tool_runtime=tool_runtime,
             principal_id=principal_id,
         )
     except Exception as exc:
-        errors = [staged_error] if staged_error else []
+        errors = [item for item in (readiness_error, staged_error) if item]
         errors.append(str(exc) or exc.__class__.__name__)
         return ProactiveOodaDeliveryStatus(
             ready=False,
@@ -597,3 +606,13 @@ def _hash_text(value: str) -> str:
     if not normalized:
         return ""
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _whatsapp_readiness_error(readiness: Any) -> str:
+    probe_reason = str(getattr(readiness, "probe_reason", "") or "").strip()
+    reason = str(getattr(readiness, "reason", "") or "").strip()
+    if probe_reason:
+        return f"whatsapp_web_session_not_ready:{probe_reason}"
+    if reason:
+        return f"whatsapp_web_session_not_ready:{reason}"
+    return "whatsapp_web_session_not_ready:unknown"

@@ -63,7 +63,17 @@ def _telegram_binding(**overrides: object) -> SimpleNamespace:
 def _whatsapp_web_binding(**overrides: object) -> SimpleNamespace:
     values = {
         "binding_id": "wa-binding-1",
+        "principal_id": "exec",
         "connector_name": "whatsapp_web_session",
+        "external_account_ref": "+15550101000",
+        "scope_json": {"scopes": ["whatsapp.send"]},
+        "auth_metadata_json": {
+            "session_ref": "session-exec",
+            "session_store_ref": "vault://ea/whatsapp-web/session-exec",
+            "session_send_url_template": "https://wa-web.test/sessions/{session_ref}/messages",
+            "session_status_url_template": "https://wa-web.test/sessions/{session_ref}/status",
+            "session_api_token": "session-token",
+        },
         "status": "enabled",
         "updated_at": "2026-06-26T12:00:00+00:00",
     }
@@ -71,7 +81,7 @@ def _whatsapp_web_binding(**overrides: object) -> SimpleNamespace:
     return SimpleNamespace(**values)
 
 
-def test_delivery_status_prefers_active_whatsapp_delivery_preference() -> None:
+def test_delivery_status_prefers_active_whatsapp_delivery_preference(monkeypatch) -> None:
     memory_runtime = SimpleNamespace(
         list_delivery_preferences=lambda **_kwargs: [_delivery_preference()],
         list_communication_policies=lambda **_kwargs: [],
@@ -79,6 +89,11 @@ def test_delivery_status_prefers_active_whatsapp_delivery_preference() -> None:
     )
     tool_runtime = SimpleNamespace(
         list_connector_bindings=lambda principal_id, limit=200: [_whatsapp_web_binding()],
+    )
+    monkeypatch.setattr(
+        delivery,
+        "check_whatsapp_web_session_readiness",
+        lambda **_kwargs: SimpleNamespace(ready=True, reason="ready", probe_reason="ready"),
     )
 
     status = delivery.resolve_proactive_ooda_delivery_status(
@@ -131,6 +146,35 @@ def test_delivery_status_skips_urgent_only_whatsapp_preference_for_non_high_prio
     assert status.selected_channel == "telegram"
     assert status.selected_by == "communication_policy"
     assert "delivery_preference_ineligible:pref-1:high_priority_required" in status.errors
+
+
+def test_delivery_status_blocks_qr_required_whatsapp_web_and_falls_back_to_telegram(monkeypatch) -> None:
+    memory_runtime = SimpleNamespace(
+        list_delivery_preferences=lambda **_kwargs: [_delivery_preference()],
+        list_communication_policies=lambda **_kwargs: [_communication_policy(preferred_channel="telegram")],
+        list_follow_ups=lambda **_kwargs: [],
+    )
+    tool_runtime = SimpleNamespace(
+        list_connector_bindings=lambda principal_id, limit=200: [_whatsapp_web_binding()],
+    )
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token")
+    monkeypatch.setattr(delivery, "resolve_primary_telegram_binding", lambda tool_runtime, *, principal_id: _telegram_binding())
+    monkeypatch.setattr(
+        delivery,
+        "check_whatsapp_web_session_readiness",
+        lambda **_kwargs: SimpleNamespace(ready=False, reason="probe_failed", probe_reason="qr_required"),
+    )
+
+    status = delivery.resolve_proactive_ooda_delivery_status(
+        principal_id="exec",
+        tool_runtime=tool_runtime,
+        memory_runtime=memory_runtime,
+    )
+
+    assert status.ready is True
+    assert status.selected_channel == "telegram"
+    assert status.selected_by == "communication_policy"
+    assert "whatsapp_web_session_not_ready:qr_required" in status.errors
 
 
 def test_send_proactive_notification_queues_outbox_and_returns_generic_receipt(monkeypatch) -> None:
