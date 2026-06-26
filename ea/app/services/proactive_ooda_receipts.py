@@ -15,6 +15,7 @@ SAFE_STAGE_KIND_LABELS = {
     "approval_packet",
     "booking_candidate",
     "cart_draft",
+    "decision_packet",
     "draft_reply",
     "research_packet",
     "shortlist",
@@ -110,6 +111,8 @@ def proactive_ooda_receipt_payload(
     payload["digest_item_count"] = len(digest.items)
     payload["notification_status"] = receipt.notification_status
     payload["deferred_reason"] = receipt.error_code if receipt.notification_status == "deferred" else ""
+    payload["stage_packet_count"] = len(receipt.stage_packet_ref_hashes)
+    payload["stage_packet_error_count"] = receipt.stage_packet_error_count
     payload["privacy"] = {
         "raw_principal_id_stored": False,
         "raw_chat_id_stored": False,

@@ -111,6 +111,7 @@ class OodaInk:
     stage_kind: str = ""
     stage_summary: str = ""
     stage_artifacts: tuple[str, ...] = ()
+    stage_payload: Mapping[str, Any] | None = None
     approval_gate: str = ""
     external_action_policy: str = ""
 
@@ -132,6 +133,8 @@ class ProactiveOodaRunReceipt:
     notified_ref_hashes: tuple[str, ...]
     notification_status: str
     telegram_message_ids: tuple[str, ...]
+    stage_packet_ref_hashes: tuple[str, ...] = ()
+    stage_packet_error_count: int = 0
     error_code: str = ""
 
 
@@ -356,6 +359,13 @@ def _structured_ooda_ink(signal: ProactiveSignal) -> OodaInk | None:
         stage_section.get("guardrail"),
         external_action_policy if stage_section else "",
     )
+    stage_payload = _structured_stage_payload(
+        stage_section,
+        stage_kind=stage_kind,
+        stage_summary=stage_summary,
+        stage_artifacts=stage_artifacts,
+        approval_gate=approval_gate,
+    )
     combined_text = " ".join(
         (
             signal.title,
@@ -406,6 +416,7 @@ def _structured_ooda_ink(signal: ProactiveSignal) -> OodaInk | None:
         stage_kind=stage_kind,
         stage_summary=stage_summary,
         stage_artifacts=stage_artifacts[:4],
+        stage_payload=stage_payload,
         approval_gate=approval_gate,
         external_action_policy=external_action_policy,
     )
@@ -462,6 +473,8 @@ def build_run_receipt(
     dry_run: bool,
     notification_result: object | None = None,
     error_code: str = "",
+    stage_packet_refs: Iterable[str] = (),
+    stage_packet_error_count: int = 0,
 ) -> ProactiveOodaRunReceipt:
     status = "skipped_no_items"
     if dry_run:
@@ -480,6 +493,8 @@ def build_run_receipt(
         notified_ref_hashes=tuple(_hash_value(ref) for ref in digest.notified_refs),
         notification_status=status,
         telegram_message_ids=_extract_telegram_message_ids(notification_result),
+        stage_packet_ref_hashes=tuple(_hash_value(ref) for ref in stage_packet_refs if str(ref).strip()),
+        stage_packet_error_count=max(int(stage_packet_error_count or 0), 0),
         error_code=error_code,
     )
 
@@ -569,6 +584,42 @@ def _structured_section(ooda_loop: Mapping[str, Any], name: str) -> Mapping[str,
     return section if isinstance(section, Mapping) else {}
 
 
+def _structured_stage_payload(
+    stage_section: Mapping[str, Any],
+    *,
+    stage_kind: str,
+    stage_summary: str,
+    stage_artifacts: tuple[str, ...],
+    approval_gate: str,
+) -> Mapping[str, Any] | None:
+    if not stage_section and not any((stage_kind, stage_summary, stage_artifacts, approval_gate)):
+        return None
+    payload: dict[str, Any] = {
+        "kind": stage_kind,
+        "summary": stage_summary,
+        "artifacts": list(stage_artifacts),
+        "approval_gate": approval_gate,
+    }
+    for key in (
+        "status",
+        "candidate_items",
+        "candidates",
+        "links",
+        "draft",
+        "draft_text",
+        "cart_url",
+        "approval_url",
+        "booking_options",
+        "worker_hint",
+        "adapter_hint",
+        "constraints",
+        "evidence_refs",
+    ):
+        if key in stage_section:
+            payload[key] = _json_safe(stage_section.get(key))
+    return payload
+
+
 def _first_structured_text(*values: Any) -> str:
     for value in values:
         if isinstance(value, (list, tuple)):
@@ -591,6 +642,18 @@ def _first_list_item(values: Iterable[str]) -> str:
         if normalized:
             return normalized
     return ""
+
+
+def _json_safe(value: Any, *, depth: int = 0) -> Any:
+    if depth > 6:
+        return str(value)
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, Mapping):
+        return {str(key): _json_safe(item, depth=depth + 1) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item, depth=depth + 1) for item in value]
+    return str(value)
 
 
 def _structured_approval_required(signal: ProactiveSignal, *, ooda_loop: Mapping[str, Any], action_text: str) -> bool:

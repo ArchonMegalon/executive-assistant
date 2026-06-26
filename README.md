@@ -511,7 +511,7 @@ stream_max_retries = 5
 
 ## Proactive OODA Ink
 
-EA can ingest every configured source it can reach in one pass: static signal files, generic discovery feeds, local opportunity rules, recent EA observations, and Google workspace signals. Each source is isolated, so a broken connector becomes a source-health OODA item instead of silencing the whole loop. EA then orients the combined signals into concise OODA ink and notifies the principal only when the result is actionable. The notification includes why it matters, the recommended decision/action, approval status, a staged action plan when available, the staged next-step contract, the external-action guardrail, the ignored consequence, and source evidence. Persisted run receipts keep privacy-safe stage telemetry such as safe stage kind, artifact count, approval-gate hash, and policy hash, but not the private staged packet text or links.
+EA can ingest every configured source it can reach in one pass: static signal files, generic discovery feeds, local opportunity rules, recent EA observations, and Google workspace signals. Each source is isolated, so a broken connector becomes a source-health OODA item instead of silencing the whole loop. EA then orients the combined signals into concise OODA ink and notifies the principal only when the result is actionable. The notification includes why it matters, the recommended decision/action, approval status, a staged action plan when available, the staged next-step contract, the external-action guardrail, the ignored consequence, and source evidence. Real non-dry runs also persist private stage packets next to the OODA state file by default so operator tooling can inspect reversible next steps after the notification. Persisted run receipts keep privacy-safe stage telemetry such as safe stage kind, artifact count, approval-gate hash, policy hash, and stage-packet hashes, but not the private staged packet text or links.
 
 Run it manually or from cron:
 
@@ -541,6 +541,8 @@ Useful runtime knobs:
 - `EA_PROACTIVE_OODA_MAX_ITEMS`: maximum actionable items per run
 - `EA_PROACTIVE_OODA_STATE_PATH`: dedupe state file, default `state/proactive_ooda_notified.json`
 - `EA_PROACTIVE_OODA_CONTAINER_STATE_PATH`: container dedupe state path, default `/data/provider-ledger/proactive_ooda_notified.json`
+- `EA_PROACTIVE_OODA_STAGE_PACKETS_ENABLED`: persist private staged next-step packet files for real runs, default `1`
+- `EA_PROACTIVE_OODA_STAGE_PACKET_DIR`: override private stage-packet output directory; default is `proactive_ooda_stage_packets` next to the dedupe state file
 - `EA_PROACTIVE_OODA_OBSERVATION_LOOKBACK_HOURS` / `EA_PROACTIVE_OODA_OBSERVATION_LIMIT`: fallback scan window for recent EA observation events
 - `EA_PROACTIVE_OODA_PERSIST_RECEIPTS`: persist redacted run receipts into `observation_events`, default `1`
 - `EA_PROACTIVE_OODA_SIGNALS_JSON`: optional file-backed signal feed

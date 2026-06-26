@@ -188,6 +188,8 @@ def test_proactive_ooda_prefers_structured_ooda_loop() -> None:
                                 "kind": "approval_packet",
                                 "summary": "A budget decision packet ready for the user to approve.",
                                 "artifacts": ["budget_context", "yes_no_prompt"],
+                                "candidate_items": [{"label": "Approve", "risk": "Budget is committed."}],
+                                "approval_url": "https://approval.example.test/decision/123",
                                 "approval_gate": "User must approve before any external send.",
                             },
                             "external_action_policy": "Do not send externally without approval.",
@@ -211,6 +213,9 @@ def test_proactive_ooda_prefers_structured_ooda_loop() -> None:
     assert item.stage_kind == "approval_packet"
     assert item.stage_summary == "A budget decision packet ready for the user to approve."
     assert item.stage_artifacts == ("budget_context", "yes_no_prompt")
+    assert item.stage_payload is not None
+    assert item.stage_payload["candidate_items"] == [{"label": "Approve", "risk": "Budget is committed."}]
+    assert item.stage_payload["approval_url"] == "https://approval.example.test/decision/123"
     assert item.approval_gate == "User must approve before any external send."
     assert item.external_action_policy == "Do not send externally without approval."
     assert "ooda:reviewed" in item.evidence

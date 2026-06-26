@@ -534,6 +534,22 @@ def _opportunity_rule_stage(
         value = _clean_text(str(raw_stage.get(key) or rule.get(key) or ""))
         if value:
             stage[key] = value
+    for key in (
+        "candidate_items",
+        "candidates",
+        "links",
+        "draft",
+        "draft_text",
+        "cart_url",
+        "approval_url",
+        "booking_options",
+        "constraints",
+        "evidence_refs",
+    ):
+        if key in raw_stage:
+            stage[key] = raw_stage.get(key)
+        elif key in rule:
+            stage[key] = rule.get(key)
     return stage
 
 

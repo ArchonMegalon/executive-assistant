@@ -57,6 +57,10 @@ from app.services.proactive_signal_discovery import (  # noqa: E402
     load_signal_sources_config,
 )
 from app.services.proactive_ooda_receipts import persist_proactive_ooda_receipt  # noqa: E402
+from app.services.proactive_ooda_stage_packets import (  # noqa: E402
+    default_stage_packet_dir,
+    persist_stage_packets,
+)
 from app.services.proactive_telegram_binding import resolve_proactive_telegram_chat_id  # noqa: E402
 
 
@@ -136,6 +140,12 @@ def main() -> int:
     )
     parser.add_argument("--max-items", type=int, default=int(os.getenv("EA_PROACTIVE_OODA_MAX_ITEMS", "5")))
     parser.add_argument("--receipt-path", default=os.getenv("EA_PROACTIVE_OODA_RECEIPT_PATH", ""))
+    parser.add_argument("--stage-packet-dir", default=os.getenv("EA_PROACTIVE_OODA_STAGE_PACKET_DIR", ""))
+    parser.add_argument(
+        "--stage-packets",
+        action=argparse.BooleanOptionalAction,
+        default=_env_truthy("EA_PROACTIVE_OODA_STAGE_PACKETS_ENABLED", default=True),
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--pretty", action="store_true")
     args = parser.parse_args()
@@ -175,11 +185,22 @@ def main() -> int:
     except Exception as exc:
         digest = service.build_digest(principal_id=args.principal_id, signals=signals)
         error_code = exc.__class__.__name__
+    stage_packet_refs: tuple[str, ...] = ()
+    stage_packet_error_count = 0
+    if digest.items and not args.dry_run and bool(getattr(args, "stage_packets", True)):
+        stage_result = persist_stage_packets(
+            digest=digest,
+            output_dir=_stage_packet_dir(args),
+        )
+        stage_packet_refs = stage_result.packet_refs
+        stage_packet_error_count = len(stage_result.errors)
     receipt = build_run_receipt(
         digest=digest,
         dry_run=args.dry_run,
         notification_result=notification_result,
         error_code=error_code,
+        stage_packet_refs=stage_packet_refs,
+        stage_packet_error_count=stage_packet_error_count,
     )
     if notification_result is not None and digest.notified_refs and not args.dry_run and not error_code:
         _record_interruption_event(
@@ -205,6 +226,14 @@ def main() -> int:
 def _write_receipt(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _stage_packet_dir(args: argparse.Namespace) -> Path:
+    configured = str(getattr(args, "stage_packet_dir", "") or "").strip()
+    if configured:
+        path = Path(configured)
+        return path if path.is_absolute() else ROOT / path
+    return default_stage_packet_dir(root=ROOT, state_path=getattr(args, "state_path", "state/proactive_ooda_notified.json"))
 
 
 def _env_truthy(name: str, *, default: bool = False) -> bool:

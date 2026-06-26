@@ -226,6 +226,8 @@ def test_opportunity_rules_create_consent_gated_ooda_signal(tmp_path) -> None:
                             "kind": "approval_packet",
                             "summary": "One recommended option with evidence and an approval prompt.",
                             "artifacts": ["shortlist", "candidate_link", "approval_prompt"],
+                            "candidate_items": [{"label": "Option A", "url": "https://example.test/option-a"}],
+                            "approval_url": "https://example.test/approve",
                         },
                         "external_action_policy": "Do not buy, book, send, or cancel without explicit approval.",
                         "trigger": {"kind": "always"},
@@ -255,6 +257,8 @@ def test_opportunity_rules_create_consent_gated_ooda_signal(tmp_path) -> None:
         "status": "planned",
         "approval_gate": "Do not buy, book, send, or cancel without explicit approval.",
         "artifacts": ["shortlist", "candidate_link", "approval_prompt"],
+        "candidate_items": [{"label": "Option A", "url": "https://example.test/option-a"}],
+        "approval_url": "https://example.test/approve",
     }
     assert act["external_action_policy"] == "Do not buy, book, send, or cancel without explicit approval."
 

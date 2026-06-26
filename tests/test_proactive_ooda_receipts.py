@@ -77,7 +77,12 @@ def test_receipt_payload_keeps_redacted_stage_telemetry() -> None:
             }
         ],
     )
-    receipt = build_run_receipt(digest=digest, dry_run=False, notification_result={"message_id": 42})
+    receipt = build_run_receipt(
+        digest=digest,
+        dry_run=False,
+        notification_result={"message_id": 42},
+        stage_packet_refs=("stage_packet:private-cart-packet",),
+    )
 
     payload = proactive_ooda_receipt_payload(digest=digest, receipt=receipt)
     item = payload["item_summaries"][0]
@@ -91,9 +96,27 @@ def test_receipt_payload_keeps_redacted_stage_telemetry() -> None:
     assert item["action_plan_count"] == 1
     assert len(item["approval_gate_hash"]) == 64
     assert len(item["external_action_policy_hash"]) == 64
+    assert payload["stage_packet_count"] == 1
+    assert len(payload["stage_packet_ref_hashes"][0]) == 64
     assert "Private cart with one selected item" not in serialized
     assert "private-cart-link" not in serialized
+    assert "private-cart-packet" not in serialized
     assert "User must approve the private purchase" not in serialized
+
+
+def test_receipt_payload_keeps_stage_packet_error_count() -> None:
+    digest, _receipt = _digest_and_receipt()
+    receipt = build_run_receipt(
+        digest=digest,
+        dry_run=False,
+        notification_result={"message_id": 42},
+        stage_packet_error_count=2,
+    )
+
+    payload = proactive_ooda_receipt_payload(digest=digest, receipt=receipt)
+
+    assert payload["stage_packet_count"] == 0
+    assert payload["stage_packet_error_count"] == 2
 
 
 def test_receipt_payload_keeps_safe_deferred_reason() -> None:

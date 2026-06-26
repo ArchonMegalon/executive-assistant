@@ -256,6 +256,20 @@ def test_runner_operator_pause_defers_actionable_digest() -> None:
     assert receipt.notified_ref_hashes == ()
 
 
+def test_runner_stage_packet_dir_defaults_next_to_state_path(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(runner, "ROOT", tmp_path)
+    args = SimpleNamespace(stage_packet_dir="", state_path="state/proactive_ooda_notified.json")
+
+    assert runner._stage_packet_dir(args) == tmp_path / "state" / "proactive_ooda_stage_packets"
+
+
+def test_runner_stage_packet_dir_accepts_relative_override(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(runner, "ROOT", tmp_path)
+    args = SimpleNamespace(stage_packet_dir="operator/stage-packets", state_path="state/proactive_ooda_notified.json")
+
+    assert runner._stage_packet_dir(args) == tmp_path / "operator" / "stage-packets"
+
+
 def test_runner_interruption_budget_defers_when_window_is_exhausted(tmp_path) -> None:
     state_store = JsonOodaStateStore(tmp_path / "state.json")
     state_store.save_interruption_events(
