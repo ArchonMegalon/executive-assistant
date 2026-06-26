@@ -111,6 +111,36 @@ def persist_safe_work_results(
     return SafeWorkResultWriteResult(paths=tuple(paths), result_refs=tuple(refs), errors=tuple(errors))
 
 
+def persist_safe_work_results_from_paths(
+    *,
+    stage_packet_paths: Iterable[str | Path],
+    result_dir: str | Path,
+) -> SafeWorkResultWriteResult:
+    target = Path(result_dir)
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        return SafeWorkResultWriteResult(paths=(), result_refs=(), errors=(f"safe_work_result_dir:{exc.__class__.__name__}",))
+    paths: list[str] = []
+    refs: list[str] = []
+    errors: list[str] = []
+    for raw_path in stage_packet_paths:
+        path = Path(raw_path)
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                errors.append(f"{path.name}:packet_not_object")
+                continue
+            result = build_safe_work_result(payload)
+            result_path = target / f"{result['result_id']}.json"
+            result_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            paths.append(str(result_path))
+            refs.append(str(result["result_ref"]))
+        except Exception as exc:
+            errors.append(f"{path.name}:{exc.__class__.__name__}")
+    return SafeWorkResultWriteResult(paths=tuple(paths), result_refs=tuple(refs), errors=tuple(errors))
+
+
 def load_stage_packets(*, stage_packet_dir: str | Path, limit: int = 100) -> tuple[tuple[dict[str, Any], ...], tuple[str, ...]]:
     root = Path(stage_packet_dir)
     if not root.exists():

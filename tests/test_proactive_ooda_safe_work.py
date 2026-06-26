@@ -7,6 +7,7 @@ from app.services.proactive_ooda_safe_work import (
     build_safe_work_result,
     default_safe_work_result_dir,
     persist_safe_work_results,
+    persist_safe_work_results_from_paths,
 )
 from app.services.proactive_ooda_service import ProactiveOodaService
 from app.services.proactive_ooda_stage_packets import build_stage_packets, persist_stage_packets
@@ -131,6 +132,64 @@ def test_persist_safe_work_results_writes_private_result_files(tmp_path) -> None
     payload = json.loads((result_dir / f"{result.result_refs[0].removeprefix('safe_work_result:')}.json").read_text(encoding="utf-8"))
     assert payload["schema"] == SAFE_WORK_RESULT_SCHEMA
     assert payload["work_type"] == "compare_options"
+
+
+def test_persist_safe_work_results_from_paths_only_materializes_current_packets(tmp_path) -> None:
+    stage_dir = tmp_path / "stage"
+    result_dir = tmp_path / "results"
+    digest = ProactiveOodaService().build_digest(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "opportunity:current",
+                "title": "Prepare current packet",
+                "summary": "Review this packet.",
+                "payload": {
+                    "ooda_loop": {
+                        "reviewed": True,
+                        "decide": {"summary": "Approve whether to proceed.", "approval_required": True},
+                        "act": {
+                            "summary": "Stage the current packet.",
+                            "stage": {
+                                "kind": "approval_packet",
+                                "summary": "Current packet ready.",
+                                "candidate_items": [{"label": "Current"}],
+                            },
+                            "external_action_policy": "Do not commit without explicit approval.",
+                        },
+                    }
+                },
+            },
+            {
+                "source_ref": "opportunity:also-current",
+                "title": "Prepare second packet",
+                "summary": "Review this second packet.",
+                "payload": {
+                    "ooda_loop": {
+                        "reviewed": True,
+                        "decide": {"summary": "Approve whether to proceed.", "approval_required": True},
+                        "act": {
+                            "summary": "Stage the second packet.",
+                            "stage": {
+                                "kind": "approval_packet",
+                                "summary": "Second packet ready.",
+                                "candidate_items": [{"label": "Second"}],
+                            },
+                            "external_action_policy": "Do not commit without explicit approval.",
+                        },
+                    }
+                },
+            },
+        ],
+    )
+    stage_result = persist_stage_packets(digest=digest, output_dir=stage_dir)
+
+    result = persist_safe_work_results_from_paths(stage_packet_paths=stage_result.paths[:1], result_dir=result_dir)
+
+    assert not result.errors
+    assert len(stage_result.paths) == 2
+    assert len(result.paths) == 1
+    assert len(result.result_refs) == 1
 
 
 def test_default_safe_work_result_dir_sits_next_to_stage_packet_dir(tmp_path) -> None:

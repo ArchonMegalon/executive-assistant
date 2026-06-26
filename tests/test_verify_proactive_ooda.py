@@ -396,6 +396,9 @@ def test_verify_proactive_ooda_reports_stage_packet_readiness(tmp_path, monkeypa
             stage_packet_dir=str(tmp_path / "packets"),
             stage_packets=True,
             require_stage_packets=True,
+            safe_work_result_dir=str(tmp_path / "results"),
+            safe_work_results=True,
+            require_safe_work_results=True,
             require_source=True,
             require_telegram=False,
             require_receipt_observation=False,
@@ -408,7 +411,13 @@ def test_verify_proactive_ooda_reports_stage_packet_readiness(tmp_path, monkeypa
     assert report["stage_packets"]["expected_packet_count"] == 1
     assert report["stage_packets"]["packet_count"] == 1
     assert report["stage_packets"]["safe_work_order_count"] == 1
+    assert report["safe_work_results"]["ready"] is True
+    assert report["safe_work_results"]["output_dir_writable"] is True
+    assert report["safe_work_results"]["expected_result_count"] == 1
+    assert report["safe_work_results"]["result_count"] == 1
+    assert report["safe_work_results"]["schema_valid_count"] == 1
     assert "stage packets: ready, 1/1 packets, 1 work orders, writable" in verifier._format_report(report)
+    assert "safe-work results: ready, 1/1 results, 1 schema-valid, writable" in verifier._format_report(report)
 
 
 def test_verify_proactive_ooda_fails_required_stage_packets_when_disabled(tmp_path, monkeypatch) -> None:
@@ -439,6 +448,9 @@ def test_verify_proactive_ooda_fails_required_stage_packets_when_disabled(tmp_pa
             stage_packet_dir=str(tmp_path / "packets"),
             stage_packets=False,
             require_stage_packets=True,
+            safe_work_result_dir=str(tmp_path / "results"),
+            safe_work_results=False,
+            require_safe_work_results=True,
             require_source=False,
             require_telegram=False,
             require_receipt_observation=False,
@@ -447,8 +459,10 @@ def test_verify_proactive_ooda_fails_required_stage_packets_when_disabled(tmp_pa
 
     assert report["ok"] is False
     assert report["stage_packets"]["ready"] is False
-    assert report["errors"] == ["stage_packets_disabled"]
+    assert report["safe_work_results"]["ready"] is False
+    assert report["errors"] == ["stage_packets_disabled", "safe_work_results_disabled"]
     assert "stage packets: disabled" in verifier._format_report(report)
+    assert "safe-work results: disabled" in verifier._format_report(report)
 
 
 def test_verify_proactive_ooda_fails_required_stage_packets_when_dir_is_unwritable(tmp_path, monkeypatch) -> None:
@@ -494,6 +508,9 @@ def test_verify_proactive_ooda_fails_required_stage_packets_when_dir_is_unwritab
             stage_packet_dir=str(blocked_path),
             stage_packets=True,
             require_stage_packets=True,
+            safe_work_result_dir=str(tmp_path / "results"),
+            safe_work_results=True,
+            require_safe_work_results=True,
             require_source=True,
             require_telegram=False,
             require_receipt_observation=False,
@@ -504,8 +521,70 @@ def test_verify_proactive_ooda_fails_required_stage_packets_when_dir_is_unwritab
     assert report["stage_packets"]["ready"] is False
     assert report["stage_packets"]["packet_count"] == 1
     assert report["stage_packets"]["safe_work_order_count"] == 1
+    assert report["safe_work_results"]["ready"] is True
+    assert report["safe_work_results"]["result_count"] == 1
     assert report["errors"] == ["stage_packet_dir_unwritable:FileExistsError"]
     assert "stage packets: not ready, 1/1 packets, 1 work orders, unwritable" in verifier._format_report(report)
+
+
+def test_verify_proactive_ooda_fails_required_safe_work_results_when_dir_is_unwritable(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv("EA_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID", raising=False)
+    blocked_path = tmp_path / "blocked-results"
+    blocked_path.write_text("not a directory", encoding="utf-8")
+    signal_file = tmp_path / "signals.json"
+    signal_file.write_text(
+        json.dumps(
+            [
+                {
+                    "source_ref": "operator:approval",
+                    "title": "Approval needed today",
+                    "summary": "Approve the provider renewal.",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    report = verifier._build_report(
+        Namespace(
+            principal_id="exec",
+            signals_json=str(signal_file),
+            discovery_json="",
+            opportunity_rules_json="",
+            state_path=str(tmp_path / "state.json"),
+            max_items=5,
+            observation_lookback_hours=24,
+            observation_limit=50,
+            skip_observation_source=True,
+            skip_workspace_source=True,
+            paused=False,
+            pause_reason="",
+            quiet_hours_start="",
+            quiet_hours_end="",
+            quiet_hours_timezone="UTC",
+            quiet_hours_allow_high_priority=True,
+            interruption_budget_limit=0,
+            interruption_budget_window_hours=24,
+            interruption_budget_allow_high_priority=True,
+            stage_packet_dir=str(tmp_path / "packets"),
+            stage_packets=True,
+            require_stage_packets=True,
+            safe_work_result_dir=str(blocked_path),
+            safe_work_results=True,
+            require_safe_work_results=True,
+            require_source=True,
+            require_telegram=False,
+            require_receipt_observation=False,
+        )
+    )
+
+    assert report["ok"] is False
+    assert report["stage_packets"]["ready"] is True
+    assert report["safe_work_results"]["ready"] is False
+    assert report["safe_work_results"]["result_count"] == 1
+    assert report["errors"] == ["safe_work_result_dir_unwritable:FileExistsError"]
+    assert "safe-work results: not ready, 1/1 results, 1 schema-valid, unwritable" in verifier._format_report(report)
 
 
 def test_verify_proactive_ooda_reports_budget_guard(tmp_path, monkeypatch) -> None:

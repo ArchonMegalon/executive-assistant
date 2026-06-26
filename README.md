@@ -511,7 +511,7 @@ stream_max_retries = 5
 
 ## Proactive OODA Ink
 
-EA can ingest every configured source it can reach in one pass: static signal files, generic discovery feeds, local opportunity rules, recent EA observations, and Google workspace signals. Each source is isolated, so a broken connector becomes a source-health OODA item instead of silencing the whole loop. EA then orients the combined signals into concise OODA ink and notifies the principal only when the result is actionable. The notification includes why it matters, the recommended decision/action, approval status, a staged action plan when available, the staged next-step contract, the external-action guardrail, the ignored consequence, and source evidence. Real non-dry runs also persist private stage packets next to the OODA state file by default so operator tooling can inspect reversible next steps after the notification. Each private stage packet includes a safe-work order contract for research, option comparison, drafting, shortlisting, cart/link preparation, or booking-candidate preparation; purchases, bookings, cancellations, external sends, posts, and commitments remain forbidden without explicit approval. Persisted run receipts keep privacy-safe stage telemetry such as safe stage kind, artifact count, approval-gate hash, policy hash, and stage-packet hashes, but not the private staged packet text or links.
+EA can ingest every configured source it can reach in one pass: static signal files, generic discovery feeds, local opportunity rules, recent EA observations, and Google workspace signals. Each source is isolated, so a broken connector becomes a source-health OODA item instead of silencing the whole loop. EA then orients the combined signals into concise OODA ink and notifies the principal only when the result is actionable. The notification includes why it matters, the recommended decision/action, approval status, a staged action plan when available, the staged next-step contract, the external-action guardrail, the ignored consequence, and source evidence. Real non-dry runs also persist private stage packets next to the OODA state file by default so operator tooling can inspect reversible next steps after the notification. Each private stage packet includes a safe-work order contract for research, option comparison, drafting, shortlisting, cart/link preparation, or booking-candidate preparation; purchases, bookings, cancellations, external sends, posts, and commitments remain forbidden without explicit approval. Real non-dry runs also materialize private safe-work results for the stage packets created in that run when safe-work results are enabled. Persisted run receipts keep privacy-safe stage/result telemetry such as safe stage kind, artifact count, approval-gate hash, policy hash, stage-packet hashes, and safe-work-result hashes, but not the private staged packet text, result text, or links.
 
 Run it manually or from cron:
 
@@ -527,7 +527,7 @@ Check readiness without sending a Telegram message:
 make verify-proactive-ooda
 ```
 
-The verifier also reports whether private stage packets are enabled, writable, buildable, and carrying safe-work orders for the current actionable digest; when proactive OODA is enabled and stage packets are enabled, that stage-packet check is release-blocking.
+The verifier also reports whether private stage packets and safe-work results are enabled, writable, buildable, and carrying the expected safe-work contracts for the current actionable digest; when proactive OODA is enabled, those private artifact checks are release-blocking.
 
 Check the privacy-safe live Telegram delivery proof:
 
@@ -553,6 +553,7 @@ Useful runtime knobs:
 - `EA_PROACTIVE_OODA_CONTAINER_STATE_PATH`: container dedupe state path, default `/data/provider-ledger/proactive_ooda_notified.json`
 - `EA_PROACTIVE_OODA_STAGE_PACKETS_ENABLED`: persist private staged next-step packet files for real runs, default `1`
 - `EA_PROACTIVE_OODA_STAGE_PACKET_DIR`: override private stage-packet output directory; default is `proactive_ooda_stage_packets` next to the dedupe state file
+- `EA_PROACTIVE_OODA_SAFE_WORK_RESULTS_ENABLED`: materialize private safe-work result files for new stage packets in real runs, default `1`
 - `EA_PROACTIVE_OODA_SAFE_WORK_RESULT_DIR`: override private safe-work result output directory; default is `proactive_ooda_safe_work_results` next to the stage-packet directory
 - `EA_PROACTIVE_OODA_SAFE_WORK_LIMIT`: maximum stage packets to materialize in one safe-work pass, default `100`
 - `EA_PROACTIVE_OODA_OBSERVATION_LOOKBACK_HOURS` / `EA_PROACTIVE_OODA_OBSERVATION_LIMIT`: fallback scan window for recent EA observation events

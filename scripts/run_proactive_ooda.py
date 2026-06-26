@@ -57,6 +57,10 @@ from app.services.proactive_signal_discovery import (  # noqa: E402
     load_signal_sources_config,
 )
 from app.services.proactive_ooda_receipts import persist_proactive_ooda_receipt  # noqa: E402
+from app.services.proactive_ooda_safe_work import (  # noqa: E402
+    default_safe_work_result_dir,
+    persist_safe_work_results_from_paths,
+)
 from app.services.proactive_ooda_stage_packets import (  # noqa: E402
     default_stage_packet_dir,
     persist_stage_packets,
@@ -146,6 +150,12 @@ def main() -> int:
         action=argparse.BooleanOptionalAction,
         default=_env_truthy("EA_PROACTIVE_OODA_STAGE_PACKETS_ENABLED", default=True),
     )
+    parser.add_argument("--safe-work-result-dir", default=os.getenv("EA_PROACTIVE_OODA_SAFE_WORK_RESULT_DIR", ""))
+    parser.add_argument(
+        "--safe-work-results",
+        action=argparse.BooleanOptionalAction,
+        default=_env_truthy("EA_PROACTIVE_OODA_SAFE_WORK_RESULTS_ENABLED", default=True),
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--pretty", action="store_true")
     args = parser.parse_args()
@@ -187,13 +197,23 @@ def main() -> int:
         error_code = exc.__class__.__name__
     stage_packet_refs: tuple[str, ...] = ()
     stage_packet_error_count = 0
+    safe_work_result_refs: tuple[str, ...] = ()
+    safe_work_result_error_count = 0
     if digest.items and not args.dry_run and bool(getattr(args, "stage_packets", True)):
+        stage_packet_dir = _stage_packet_dir(args)
         stage_result = persist_stage_packets(
             digest=digest,
-            output_dir=_stage_packet_dir(args),
+            output_dir=stage_packet_dir,
         )
         stage_packet_refs = stage_result.packet_refs
         stage_packet_error_count = len(stage_result.errors)
+        if stage_result.paths and bool(getattr(args, "safe_work_results", True)):
+            safe_work_result = persist_safe_work_results_from_paths(
+                stage_packet_paths=stage_result.paths,
+                result_dir=_safe_work_result_dir(args, stage_packet_dir=stage_packet_dir),
+            )
+            safe_work_result_refs = safe_work_result.result_refs
+            safe_work_result_error_count = len(safe_work_result.errors)
     receipt = build_run_receipt(
         digest=digest,
         dry_run=args.dry_run,
@@ -201,6 +221,8 @@ def main() -> int:
         error_code=error_code,
         stage_packet_refs=stage_packet_refs,
         stage_packet_error_count=stage_packet_error_count,
+        safe_work_result_refs=safe_work_result_refs,
+        safe_work_result_error_count=safe_work_result_error_count,
     )
     if notification_result is not None and digest.notified_refs and not args.dry_run and not error_code:
         _record_interruption_event(
@@ -234,6 +256,14 @@ def _stage_packet_dir(args: argparse.Namespace) -> Path:
         path = Path(configured)
         return path if path.is_absolute() else ROOT / path
     return default_stage_packet_dir(root=ROOT, state_path=getattr(args, "state_path", "state/proactive_ooda_notified.json"))
+
+
+def _safe_work_result_dir(args: argparse.Namespace, *, stage_packet_dir: Path) -> Path:
+    configured = str(getattr(args, "safe_work_result_dir", "") or "").strip()
+    if configured:
+        path = Path(configured)
+        return path if path.is_absolute() else ROOT / path
+    return default_safe_work_result_dir(stage_packet_dir)
 
 
 def _env_truthy(name: str, *, default: bool = False) -> bool:

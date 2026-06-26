@@ -135,6 +135,8 @@ class ProactiveOodaRunReceipt:
     telegram_message_ids: tuple[str, ...]
     stage_packet_ref_hashes: tuple[str, ...] = ()
     stage_packet_error_count: int = 0
+    safe_work_result_ref_hashes: tuple[str, ...] = ()
+    safe_work_result_error_count: int = 0
     error_code: str = ""
 
 
@@ -475,6 +477,8 @@ def build_run_receipt(
     error_code: str = "",
     stage_packet_refs: Iterable[str] = (),
     stage_packet_error_count: int = 0,
+    safe_work_result_refs: Iterable[str] = (),
+    safe_work_result_error_count: int = 0,
 ) -> ProactiveOodaRunReceipt:
     status = "skipped_no_items"
     if dry_run:
@@ -495,6 +499,8 @@ def build_run_receipt(
         telegram_message_ids=_extract_telegram_message_ids(notification_result),
         stage_packet_ref_hashes=tuple(_hash_value(ref) for ref in stage_packet_refs if str(ref).strip()),
         stage_packet_error_count=max(int(stage_packet_error_count or 0), 0),
+        safe_work_result_ref_hashes=tuple(_hash_value(ref) for ref in safe_work_result_refs if str(ref).strip()),
+        safe_work_result_error_count=max(int(safe_work_result_error_count or 0), 0),
         error_code=error_code,
     )
 

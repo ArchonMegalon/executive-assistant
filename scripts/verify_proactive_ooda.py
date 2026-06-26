@@ -41,6 +41,11 @@ def _load_dotenv_if_present(path: Path) -> None:
 _load_dotenv_if_present(ROOT / ".env")
 
 from app.services.proactive_ooda_service import JsonOodaStateStore, ProactiveOodaService, digest_to_dict  # noqa: E402
+from app.services.proactive_ooda_safe_work import (  # noqa: E402
+    SAFE_WORK_RESULT_SCHEMA,
+    build_safe_work_results,
+    default_safe_work_result_dir,
+)
 from app.services.proactive_ooda_stage_packets import (  # noqa: E402
     SAFE_WORK_ORDER_SCHEMA,
     build_stage_packets,
@@ -115,16 +120,29 @@ def main() -> int:
         default=_env_truthy("EA_PROACTIVE_OODA_INTERRUPTION_BUDGET_ALLOW_HIGH_PRIORITY", default=True),
     )
     parser.add_argument("--stage-packet-dir", default=os.getenv("EA_PROACTIVE_OODA_STAGE_PACKET_DIR", ""))
+    parser.add_argument("--safe-work-result-dir", default=os.getenv("EA_PROACTIVE_OODA_SAFE_WORK_RESULT_DIR", ""))
     parser.add_argument(
         "--stage-packets",
         action=argparse.BooleanOptionalAction,
         default=_env_truthy("EA_PROACTIVE_OODA_STAGE_PACKETS_ENABLED", default=True),
     )
     parser.add_argument(
+        "--safe-work-results",
+        action=argparse.BooleanOptionalAction,
+        default=_env_truthy("EA_PROACTIVE_OODA_SAFE_WORK_RESULTS_ENABLED", default=True),
+    )
+    parser.add_argument(
         "--require-stage-packets",
         action=argparse.BooleanOptionalAction,
         default=_env_truthy("EA_PROACTIVE_OODA_ENABLED")
         and _env_truthy("EA_PROACTIVE_OODA_STAGE_PACKETS_ENABLED", default=True),
+    )
+    parser.add_argument(
+        "--require-safe-work-results",
+        action=argparse.BooleanOptionalAction,
+        default=_env_truthy("EA_PROACTIVE_OODA_ENABLED")
+        and _env_truthy("EA_PROACTIVE_OODA_STAGE_PACKETS_ENABLED", default=True)
+        and _env_truthy("EA_PROACTIVE_OODA_SAFE_WORK_RESULTS_ENABLED", default=True),
     )
     parser.add_argument(
         "--require-source",
@@ -243,6 +261,9 @@ def _build_report(args: argparse.Namespace) -> dict[str, Any]:
     stage_packet_status = _stage_packet_status(args, digest=digest)
     if stage_packet_status["required"] and not stage_packet_status["ready"]:
         errors.extend(stage_packet_status["errors"])
+    safe_work_result_status = _safe_work_result_status(args, digest=digest, stage_packet_dir=Path(stage_packet_status["output_dir"]))
+    if safe_work_result_status["required"] and not safe_work_result_status["ready"]:
+        errors.extend(safe_work_result_status["errors"])
 
     return {
         "ok": not errors,
@@ -260,6 +281,7 @@ def _build_report(args: argparse.Namespace) -> dict[str, Any]:
         "state_path": args.state_path,
         "delivery_guard": guard_status,
         "stage_packets": stage_packet_status,
+        "safe_work_results": safe_work_result_status,
         "digest": digest_payload,
     }
 
@@ -420,12 +442,70 @@ def _stage_packet_status(args: argparse.Namespace, *, digest: Any | None) -> dic
     }
 
 
+def _safe_work_result_status(args: argparse.Namespace, *, digest: Any | None, stage_packet_dir: Path) -> dict[str, Any]:
+    enabled = bool(getattr(args, "safe_work_results", True))
+    required = bool(getattr(args, "require_safe_work_results", False))
+    output_dir = _safe_work_result_dir(args, stage_packet_dir=stage_packet_dir)
+    expected_result_count = len(tuple(getattr(digest, "items", ()) or ())) if digest is not None else 0
+    result_count = 0
+    schema_valid_count = 0
+    errors: list[str] = []
+    writable = False
+    if not enabled:
+        if required:
+            errors.append("safe_work_results_disabled")
+        return {
+            "enabled": False,
+            "required": required,
+            "ready": not errors,
+            "output_dir": str(output_dir),
+            "output_dir_writable": False,
+            "expected_result_count": expected_result_count,
+            "result_count": 0,
+            "schema_valid_count": 0,
+            "errors": errors,
+        }
+    writable, write_error = _directory_writable(output_dir)
+    if not writable:
+        errors.append(f"safe_work_result_dir_unwritable:{write_error}")
+    if digest is not None:
+        try:
+            results = build_safe_work_results(build_stage_packets(digest))
+            result_count = len(results)
+            schema_valid_count = sum(1 for result in results if result.get("schema") == SAFE_WORK_RESULT_SCHEMA)
+        except Exception as exc:
+            errors.append(f"safe_work_result_build_failed:{exc.__class__.__name__}")
+    if expected_result_count and result_count != expected_result_count:
+        errors.append("safe_work_result_count_mismatch")
+    if expected_result_count and schema_valid_count != expected_result_count:
+        errors.append("safe_work_result_schema_count_mismatch")
+    return {
+        "enabled": True,
+        "required": required,
+        "ready": not errors,
+        "output_dir": str(output_dir),
+        "output_dir_writable": writable,
+        "expected_result_count": expected_result_count,
+        "result_count": result_count,
+        "schema_valid_count": schema_valid_count,
+        "errors": errors,
+    }
+
+
 def _stage_packet_dir(args: argparse.Namespace) -> Path:
     configured = str(getattr(args, "stage_packet_dir", "") or "").strip()
     if configured:
         path = Path(configured)
         return path if path.is_absolute() else ROOT / path
     return default_stage_packet_dir(root=ROOT, state_path=getattr(args, "state_path", "state/proactive_ooda_notified.json"))
+
+
+def _safe_work_result_dir(args: argparse.Namespace, *, stage_packet_dir: Path) -> Path:
+    configured = str(getattr(args, "safe_work_result_dir", "") or "").strip()
+    if configured:
+        path = Path(configured)
+        return path if path.is_absolute() else ROOT / path
+    return default_safe_work_result_dir(stage_packet_dir)
 
 
 def _directory_writable(path: Path) -> tuple[bool, str]:
@@ -531,6 +611,7 @@ def _format_report(report: dict[str, Any]) -> str:
         f"workspace: {_workspace_status(report)}",
         f"delivery guard: {_delivery_guard_summary(report)}",
         f"stage packets: {_stage_packet_summary(report)}",
+        f"safe-work results: {_safe_work_result_summary(report)}",
         f"receipt observations: {report['receipt_observation_count']}",
         f"state: {report['state_path']}",
     ]
@@ -568,6 +649,18 @@ def _stage_packet_summary(report: dict[str, Any]) -> str:
     return (
         f"{ready}, {status.get('packet_count', 0)}/{status.get('expected_packet_count', 0)} packets, "
         f"{status.get('safe_work_order_count', 0)} work orders, {writable}"
+    )
+
+
+def _safe_work_result_summary(report: dict[str, Any]) -> str:
+    status = dict(report.get("safe_work_results") or {})
+    if not status.get("enabled"):
+        return "disabled"
+    ready = "ready" if status.get("ready") else "not ready"
+    writable = "writable" if status.get("output_dir_writable") else "unwritable"
+    return (
+        f"{ready}, {status.get('result_count', 0)}/{status.get('expected_result_count', 0)} results, "
+        f"{status.get('schema_valid_count', 0)} schema-valid, {writable}"
     )
 
 

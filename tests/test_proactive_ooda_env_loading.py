@@ -270,6 +270,24 @@ def test_runner_stage_packet_dir_accepts_relative_override(tmp_path, monkeypatch
     assert runner._stage_packet_dir(args) == tmp_path / "operator" / "stage-packets"
 
 
+def test_runner_safe_work_result_dir_defaults_next_to_stage_packet_dir(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(runner, "ROOT", tmp_path)
+    stage_dir = tmp_path / "state" / "proactive_ooda_stage_packets"
+    args = SimpleNamespace(safe_work_result_dir="")
+
+    assert runner._safe_work_result_dir(args, stage_packet_dir=stage_dir) == (
+        tmp_path / "state" / "proactive_ooda_safe_work_results"
+    )
+
+
+def test_runner_safe_work_result_dir_accepts_relative_override(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(runner, "ROOT", tmp_path)
+    stage_dir = tmp_path / "state" / "proactive_ooda_stage_packets"
+    args = SimpleNamespace(safe_work_result_dir="operator/safe-work-results")
+
+    assert runner._safe_work_result_dir(args, stage_packet_dir=stage_dir) == tmp_path / "operator" / "safe-work-results"
+
+
 def test_runner_interruption_budget_defers_when_window_is_exhausted(tmp_path) -> None:
     state_store = JsonOodaStateStore(tmp_path / "state.json")
     state_store.save_interruption_events(

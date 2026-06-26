@@ -113,6 +113,8 @@ def proactive_ooda_receipt_payload(
     payload["deferred_reason"] = receipt.error_code if receipt.notification_status == "deferred" else ""
     payload["stage_packet_count"] = len(receipt.stage_packet_ref_hashes)
     payload["stage_packet_error_count"] = receipt.stage_packet_error_count
+    payload["safe_work_result_count"] = len(receipt.safe_work_result_ref_hashes)
+    payload["safe_work_result_error_count"] = receipt.safe_work_result_error_count
     payload["privacy"] = {
         "raw_principal_id_stored": False,
         "raw_chat_id_stored": False,
