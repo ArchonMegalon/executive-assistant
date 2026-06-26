@@ -41,6 +41,7 @@ def _load_dotenv_if_present(path: Path) -> None:
 _load_dotenv_if_present(ROOT / ".env")
 
 from app.services.proactive_ooda_service import JsonOodaStateStore, ProactiveOodaService, digest_to_dict  # noqa: E402
+from app.services.proactive_ooda_stage_packets import build_stage_packets, default_stage_packet_dir  # noqa: E402
 from app.services.proactive_signal_discovery import (  # noqa: E402
     discover_opportunity_rule_signals,
     discover_postgres_observation_signals,
@@ -109,8 +110,28 @@ def main() -> int:
         action=argparse.BooleanOptionalAction,
         default=_env_truthy("EA_PROACTIVE_OODA_INTERRUPTION_BUDGET_ALLOW_HIGH_PRIORITY", default=True),
     )
-    parser.add_argument("--require-source", action="store_true", default=_env_truthy("EA_PROACTIVE_OODA_ENABLED"))
-    parser.add_argument("--require-telegram", action="store_true", default=_env_truthy("EA_PROACTIVE_OODA_ENABLED"))
+    parser.add_argument("--stage-packet-dir", default=os.getenv("EA_PROACTIVE_OODA_STAGE_PACKET_DIR", ""))
+    parser.add_argument(
+        "--stage-packets",
+        action=argparse.BooleanOptionalAction,
+        default=_env_truthy("EA_PROACTIVE_OODA_STAGE_PACKETS_ENABLED", default=True),
+    )
+    parser.add_argument(
+        "--require-stage-packets",
+        action=argparse.BooleanOptionalAction,
+        default=_env_truthy("EA_PROACTIVE_OODA_ENABLED")
+        and _env_truthy("EA_PROACTIVE_OODA_STAGE_PACKETS_ENABLED", default=True),
+    )
+    parser.add_argument(
+        "--require-source",
+        action=argparse.BooleanOptionalAction,
+        default=_env_truthy("EA_PROACTIVE_OODA_ENABLED"),
+    )
+    parser.add_argument(
+        "--require-telegram",
+        action=argparse.BooleanOptionalAction,
+        default=_env_truthy("EA_PROACTIVE_OODA_ENABLED"),
+    )
     parser.add_argument("--require-receipt-observation", action="store_true")
     parser.add_argument("--pretty", action="store_true")
     args = parser.parse_args()
@@ -212,8 +233,12 @@ def _build_report(args: argparse.Namespace) -> dict[str, Any]:
         digest_payload = digest_to_dict(digest)
         guard_status = _delivery_guard_status(args, state_store=state_store, digest=digest)
     else:
+        digest = None
         digest_payload = {}
         guard_status = _delivery_guard_status(args, state_store=state_store, digest=None)
+    stage_packet_status = _stage_packet_status(args, digest=digest)
+    if stage_packet_status["required"] and not stage_packet_status["ready"]:
+        errors.extend(stage_packet_status["errors"])
 
     return {
         "ok": not errors,
@@ -230,6 +255,7 @@ def _build_report(args: argparse.Namespace) -> dict[str, Any]:
         "workspace_source_healthy": workspace_source_healthy,
         "state_path": args.state_path,
         "delivery_guard": guard_status,
+        "stage_packets": stage_packet_status,
         "digest": digest_payload,
     }
 
@@ -335,6 +361,68 @@ def _delivery_guard_status(
     }
 
 
+def _stage_packet_status(args: argparse.Namespace, *, digest: Any | None) -> dict[str, Any]:
+    enabled = bool(getattr(args, "stage_packets", True))
+    required = bool(getattr(args, "require_stage_packets", False))
+    output_dir = _stage_packet_dir(args)
+    expected_packet_count = len(tuple(getattr(digest, "items", ()) or ())) if digest is not None else 0
+    packet_count = 0
+    errors: list[str] = []
+    writable = False
+    if not enabled:
+        if required:
+            errors.append("stage_packets_disabled")
+        return {
+            "enabled": False,
+            "required": required,
+            "ready": not errors,
+            "output_dir": str(output_dir),
+            "output_dir_writable": False,
+            "expected_packet_count": expected_packet_count,
+            "packet_count": 0,
+            "errors": errors,
+        }
+    writable, write_error = _directory_writable(output_dir)
+    if not writable:
+        errors.append(f"stage_packet_dir_unwritable:{write_error}")
+    if digest is not None:
+        try:
+            packet_count = len(build_stage_packets(digest))
+        except Exception as exc:
+            errors.append(f"stage_packet_build_failed:{exc.__class__.__name__}")
+    if expected_packet_count and packet_count != expected_packet_count:
+        errors.append("stage_packet_count_mismatch")
+    return {
+        "enabled": True,
+        "required": required,
+        "ready": not errors,
+        "output_dir": str(output_dir),
+        "output_dir_writable": writable,
+        "expected_packet_count": expected_packet_count,
+        "packet_count": packet_count,
+        "errors": errors,
+    }
+
+
+def _stage_packet_dir(args: argparse.Namespace) -> Path:
+    configured = str(getattr(args, "stage_packet_dir", "") or "").strip()
+    if configured:
+        path = Path(configured)
+        return path if path.is_absolute() else ROOT / path
+    return default_stage_packet_dir(root=ROOT, state_path=getattr(args, "state_path", "state/proactive_ooda_notified.json"))
+
+
+def _directory_writable(path: Path) -> tuple[bool, str]:
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / f".proactive_ooda_write_probe.{os.getpid()}"
+        probe.write_text("ok\n", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        return True, ""
+    except Exception as exc:
+        return False, exc.__class__.__name__
+
+
 def _quiet_hours_configured(args: argparse.Namespace) -> bool:
     return _parse_local_time(getattr(args, "quiet_hours_start", "")) is not None and _parse_local_time(
         getattr(args, "quiet_hours_end", "")
@@ -426,6 +514,7 @@ def _format_report(report: dict[str, Any]) -> str:
         f"telegram: {'ready' if report['telegram_ready'] else 'not configured'}",
         f"workspace: {_workspace_status(report)}",
         f"delivery guard: {_delivery_guard_summary(report)}",
+        f"stage packets: {_stage_packet_summary(report)}",
         f"receipt observations: {report['receipt_observation_count']}",
         f"state: {report['state_path']}",
     ]
@@ -452,6 +541,15 @@ def _delivery_guard_summary(report: dict[str, Any]) -> str:
     paused = ", paused" if guard.get("operator_paused") else ""
     quiet = ", quiet-active" if guard.get("quiet_hours_active") else ""
     return f"{state}{f' ({reason})' if reason else ''}{paused}{quiet}{budget}"
+
+
+def _stage_packet_summary(report: dict[str, Any]) -> str:
+    status = dict(report.get("stage_packets") or {})
+    if not status.get("enabled"):
+        return "disabled"
+    ready = "ready" if status.get("ready") else "not ready"
+    writable = "writable" if status.get("output_dir_writable") else "unwritable"
+    return f"{ready}, {status.get('packet_count', 0)}/{status.get('expected_packet_count', 0)} packets, {writable}"
 
 
 if __name__ == "__main__":

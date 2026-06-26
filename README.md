@@ -527,6 +527,8 @@ Check readiness without sending a Telegram message:
 make verify-proactive-ooda
 ```
 
+The verifier also reports whether private stage packets are enabled, writable, and buildable for the current actionable digest; when proactive OODA is enabled and stage packets are enabled, that stage-packet check is release-blocking.
+
 Check the privacy-safe live Telegram delivery proof:
 
 ```bash

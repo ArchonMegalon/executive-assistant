@@ -351,6 +351,161 @@ def test_verify_proactive_ooda_reports_operator_pause_guard(tmp_path, monkeypatc
     assert "delivery guard: deferred (deferred_by_operator_pause), paused" in verifier._format_report(report)
 
 
+def test_verify_proactive_ooda_reports_stage_packet_readiness(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv("EA_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID", raising=False)
+
+    report = verifier._build_report(
+        Namespace(
+            principal_id="exec",
+            signals_json="",
+            discovery_json="",
+            opportunity_rules_json=json.dumps(
+                {
+                    "rules": [
+                        {
+                            "id": "stage-readiness",
+                            "title": "Prepare approval packet",
+                            "summary": "A reversible next step is useful now.",
+                            "trigger": {"kind": "always"},
+                            "action": "Prepare an approval packet with one candidate.",
+                            "stage": {
+                                "kind": "approval_packet",
+                                "summary": "One candidate ready for approval.",
+                                "candidate_items": [{"label": "Candidate A", "url": "https://example.test/a"}],
+                            },
+                        }
+                    ]
+                }
+            ),
+            state_path=str(tmp_path / "state.json"),
+            max_items=5,
+            observation_lookback_hours=24,
+            observation_limit=50,
+            skip_observation_source=True,
+            skip_workspace_source=True,
+            paused=False,
+            pause_reason="",
+            quiet_hours_start="",
+            quiet_hours_end="",
+            quiet_hours_timezone="UTC",
+            quiet_hours_allow_high_priority=True,
+            interruption_budget_limit=0,
+            interruption_budget_window_hours=24,
+            interruption_budget_allow_high_priority=True,
+            stage_packet_dir=str(tmp_path / "packets"),
+            stage_packets=True,
+            require_stage_packets=True,
+            require_source=True,
+            require_telegram=False,
+            require_receipt_observation=False,
+        )
+    )
+
+    assert report["ok"] is True
+    assert report["stage_packets"]["ready"] is True
+    assert report["stage_packets"]["output_dir_writable"] is True
+    assert report["stage_packets"]["expected_packet_count"] == 1
+    assert report["stage_packets"]["packet_count"] == 1
+    assert "stage packets: ready, 1/1 packets, writable" in verifier._format_report(report)
+
+
+def test_verify_proactive_ooda_fails_required_stage_packets_when_disabled(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv("EA_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID", raising=False)
+
+    report = verifier._build_report(
+        Namespace(
+            principal_id="exec",
+            signals_json="",
+            discovery_json="",
+            opportunity_rules_json="",
+            state_path=str(tmp_path / "state.json"),
+            max_items=5,
+            observation_lookback_hours=24,
+            observation_limit=50,
+            skip_observation_source=True,
+            skip_workspace_source=True,
+            paused=False,
+            pause_reason="",
+            quiet_hours_start="",
+            quiet_hours_end="",
+            quiet_hours_timezone="UTC",
+            quiet_hours_allow_high_priority=True,
+            interruption_budget_limit=0,
+            interruption_budget_window_hours=24,
+            interruption_budget_allow_high_priority=True,
+            stage_packet_dir=str(tmp_path / "packets"),
+            stage_packets=False,
+            require_stage_packets=True,
+            require_source=False,
+            require_telegram=False,
+            require_receipt_observation=False,
+        )
+    )
+
+    assert report["ok"] is False
+    assert report["stage_packets"]["ready"] is False
+    assert report["errors"] == ["stage_packets_disabled"]
+    assert "stage packets: disabled" in verifier._format_report(report)
+
+
+def test_verify_proactive_ooda_fails_required_stage_packets_when_dir_is_unwritable(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv("EA_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID", raising=False)
+    blocked_path = tmp_path / "blocked"
+    blocked_path.write_text("not a directory", encoding="utf-8")
+    signal_file = tmp_path / "signals.json"
+    signal_file.write_text(
+        json.dumps(
+            [
+                {
+                    "source_ref": "operator:approval",
+                    "title": "Approval needed today",
+                    "summary": "Approve the provider renewal.",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    report = verifier._build_report(
+        Namespace(
+            principal_id="exec",
+            signals_json=str(signal_file),
+            discovery_json="",
+            opportunity_rules_json="",
+            state_path=str(tmp_path / "state.json"),
+            max_items=5,
+            observation_lookback_hours=24,
+            observation_limit=50,
+            skip_observation_source=True,
+            skip_workspace_source=True,
+            paused=False,
+            pause_reason="",
+            quiet_hours_start="",
+            quiet_hours_end="",
+            quiet_hours_timezone="UTC",
+            quiet_hours_allow_high_priority=True,
+            interruption_budget_limit=0,
+            interruption_budget_window_hours=24,
+            interruption_budget_allow_high_priority=True,
+            stage_packet_dir=str(blocked_path),
+            stage_packets=True,
+            require_stage_packets=True,
+            require_source=True,
+            require_telegram=False,
+            require_receipt_observation=False,
+        )
+    )
+
+    assert report["ok"] is False
+    assert report["stage_packets"]["ready"] is False
+    assert report["stage_packets"]["packet_count"] == 1
+    assert report["errors"] == ["stage_packet_dir_unwritable:FileExistsError"]
+    assert "stage packets: not ready, 1/1 packets, unwritable" in verifier._format_report(report)
+
+
 def test_verify_proactive_ooda_reports_budget_guard(tmp_path, monkeypatch) -> None:
     monkeypatch.delenv("EA_TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID", raising=False)
