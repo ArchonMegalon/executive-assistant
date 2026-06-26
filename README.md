@@ -546,6 +546,7 @@ Useful runtime knobs:
 - `EA_PROACTIVE_OODA_SIGNALS_JSON`: optional file-backed signal feed
 - `EA_PROACTIVE_OODA_DISCOVERY_JSON`: JSON source list for generic `json`, `jsonl`, `rss`, or `teable` discovery feeds
 - `EA_PROACTIVE_OODA_OPPORTUNITY_RULES_JSON`: JSON opportunity rules for generic paid-assistant OODA loops; rules may use `always` or weather threshold triggers and can include `action_plan`, `stage`, and an external-action guardrail
+- `EA_PROACTIVE_OODA_PAUSED` / `EA_PROACTIVE_OODA_PAUSE_REASON`: operator pause switch; actionable packets are still built and receipted as deferred, but delivery is skipped and refs stay unnotified
 - `EA_PROACTIVE_OODA_QUIET_HOURS_START` / `EA_PROACTIVE_OODA_QUIET_HOURS_END` / `EA_PROACTIVE_OODA_QUIET_HOURS_TIMEZONE`: optional local quiet-hours window; matching non-high-priority digests are deferred without marking refs as notified
 - `EA_PROACTIVE_OODA_QUIET_HOURS_ALLOW_HIGH_PRIORITY`: allow high-priority proactive digests through quiet hours, default `1`
 - `EA_PROACTIVE_OODA_INTERRUPTION_BUDGET_LIMIT`: optional rolling-window notification cap; exhausted budgets defer the digest without marking refs as notified, default `0` disabled

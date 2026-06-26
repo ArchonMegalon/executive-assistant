@@ -112,6 +112,13 @@ def main() -> int:
         default=_env_truthy("EA_PROACTIVE_OODA_QUIET_HOURS_ALLOW_HIGH_PRIORITY", default=True),
     )
     parser.add_argument(
+        "--paused",
+        action=argparse.BooleanOptionalAction,
+        default=_env_truthy("EA_PROACTIVE_OODA_PAUSED", default=False),
+        help="Build and receipt the OODA packet, but defer delivery and leave refs unnotified.",
+    )
+    parser.add_argument("--pause-reason", default=os.getenv("EA_PROACTIVE_OODA_PAUSE_REASON", ""))
+    parser.add_argument(
         "--interruption-budget-limit",
         type=int,
         default=int(os.getenv("EA_PROACTIVE_OODA_INTERRUPTION_BUDGET_LIMIT", "0") or "0"),
@@ -149,7 +156,9 @@ def main() -> int:
             signals=signals,
             already_notified_refs=state_store.load_notified_refs(args.principal_id),
         )
-        deferred_reason = _quiet_hours_defer_reason(args, candidate_digest)
+        deferred_reason = _operator_pause_defer_reason(args, candidate_digest)
+        if not deferred_reason:
+            deferred_reason = _quiet_hours_defer_reason(args, candidate_digest)
         if not deferred_reason:
             deferred_reason = _interruption_budget_defer_reason(
                 args,
@@ -216,6 +225,12 @@ def _quiet_hours_defer_reason(args: argparse.Namespace, digest: Any, *, now: dat
         return ""
     local_now = (now or datetime.now(timezone.utc)).astimezone(_quiet_hours_timezone(getattr(args, "quiet_hours_timezone", "")))
     return "deferred_by_quiet_hours" if _is_time_within_quiet_hours(local_now.time(), start=start, end=end) else ""
+
+
+def _operator_pause_defer_reason(args: argparse.Namespace, digest: Any) -> str:
+    if not getattr(digest, "items", ()):
+        return ""
+    return "deferred_by_operator_pause" if bool(getattr(args, "paused", False)) else ""
 
 
 def _without_notified_refs(digest: ProactiveOodaDigest) -> ProactiveOodaDigest:

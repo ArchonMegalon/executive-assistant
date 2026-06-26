@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from argparse import Namespace
 
 import scripts.run_proactive_ooda as runner
@@ -53,6 +54,7 @@ def test_verify_proactive_ooda_accepts_static_signal_source(tmp_path, monkeypatc
     assert report["source_mode"] == "signals_json"
     assert report["signal_count"] == 1
     assert report["actionable_count"] == 1
+    assert report["delivery_guard"]["delivery_state"] == "eligible"
 
 
 def test_verify_proactive_ooda_aggregates_static_discovery_and_observations(tmp_path, monkeypatch) -> None:
@@ -302,3 +304,109 @@ def test_verify_proactive_ooda_reports_unhealthy_workspace_source(tmp_path, monk
     assert report["workspace_source_checked"] is True
     assert report["workspace_source_healthy"] is False
     assert report["errors"] == ["google_workspace_signal_source_unhealthy:RuntimeError"]
+
+
+def test_verify_proactive_ooda_reports_operator_pause_guard(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv("EA_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID", raising=False)
+    signal_file = tmp_path / "signals.json"
+    signal_file.write_text(
+        json.dumps(
+            [
+                {
+                    "source_ref": "operator:approval",
+                    "title": "Approval needed today",
+                    "summary": "Approve the provider renewal.",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    report = verifier._build_report(
+        Namespace(
+            principal_id="exec",
+            signals_json=str(signal_file),
+            discovery_json="",
+            opportunity_rules_json="",
+            state_path=str(tmp_path / "state.json"),
+            max_items=5,
+            observation_lookback_hours=24,
+            observation_limit=50,
+            skip_observation_source=True,
+            skip_workspace_source=True,
+            paused=True,
+            pause_reason="maintenance window",
+            require_source=True,
+            require_telegram=False,
+            require_receipt_observation=False,
+        )
+    )
+
+    assert report["ok"] is True
+    assert report["delivery_guard"]["delivery_state"] == "deferred"
+    assert report["delivery_guard"]["deferred_reason"] == "deferred_by_operator_pause"
+    assert report["delivery_guard"]["operator_paused"] is True
+    assert report["delivery_guard"]["pause_reason_present"] is True
+    assert "delivery guard: deferred (deferred_by_operator_pause), paused" in verifier._format_report(report)
+
+
+def test_verify_proactive_ooda_reports_budget_guard(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv("EA_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID", raising=False)
+    signal_file = tmp_path / "signals.json"
+    signal_file.write_text(
+        json.dumps(
+            [
+                {
+                    "source_ref": "operator:approval",
+                    "title": "Review provider renewal",
+                    "summary": "Review the provider renewal notes.",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    state_store = verifier.JsonOodaStateStore(tmp_path / "state.json")
+    state_store.save_interruption_events("exec", ["2026-06-26T10:00:00+00:00"])
+    args = Namespace(
+        principal_id="exec",
+        signals_json=str(signal_file),
+        discovery_json="",
+        opportunity_rules_json="",
+        state_path=str(tmp_path / "state.json"),
+        max_items=5,
+        observation_lookback_hours=24,
+        observation_limit=50,
+        skip_observation_source=True,
+        skip_workspace_source=True,
+        paused=False,
+        pause_reason="",
+        quiet_hours_start="",
+        quiet_hours_end="",
+        quiet_hours_timezone="UTC",
+        quiet_hours_allow_high_priority=True,
+        interruption_budget_limit=1,
+        interruption_budget_window_hours=24,
+        interruption_budget_allow_high_priority=False,
+        require_source=True,
+        require_telegram=False,
+        require_receipt_observation=False,
+    )
+
+    report = verifier._build_report(args)
+    guard = verifier._delivery_guard_status(
+        args,
+        state_store=state_store,
+        digest=verifier.ProactiveOodaService(state_store=state_store).build_digest(
+            principal_id="exec",
+            signals=json.loads(signal_file.read_text(encoding="utf-8")),
+        ),
+        now=datetime(2026, 6, 26, 12, 0, tzinfo=timezone.utc),
+    )
+
+    assert report["ok"] is True
+    assert guard["delivery_state"] == "deferred"
+    assert guard["deferred_reason"] == "deferred_by_interruption_budget"
+    assert guard["interruption_budget_used"] == 1
+    assert guard["interruption_budget_exhausted"] is True

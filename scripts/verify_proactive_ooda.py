@@ -5,8 +5,10 @@ import argparse
 import json
 import os
 import sys
+from datetime import datetime, time as datetime_time, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 ROOT = Path(__file__).resolve().parents[1]
 EA_ROOT = ROOT / "ea"
@@ -75,6 +77,38 @@ def main() -> int:
     )
     parser.add_argument("--skip-observation-source", action="store_true")
     parser.add_argument("--skip-workspace-source", action="store_true")
+    parser.add_argument(
+        "--paused",
+        action=argparse.BooleanOptionalAction,
+        default=_env_truthy("EA_PROACTIVE_OODA_PAUSED"),
+    )
+    parser.add_argument("--pause-reason", default=os.getenv("EA_PROACTIVE_OODA_PAUSE_REASON", ""))
+    parser.add_argument("--quiet-hours-start", default=os.getenv("EA_PROACTIVE_OODA_QUIET_HOURS_START", ""))
+    parser.add_argument("--quiet-hours-end", default=os.getenv("EA_PROACTIVE_OODA_QUIET_HOURS_END", ""))
+    parser.add_argument(
+        "--quiet-hours-timezone",
+        default=os.getenv("EA_PROACTIVE_OODA_QUIET_HOURS_TIMEZONE", os.getenv("TZ", "UTC")),
+    )
+    parser.add_argument(
+        "--quiet-hours-allow-high-priority",
+        action=argparse.BooleanOptionalAction,
+        default=_env_truthy("EA_PROACTIVE_OODA_QUIET_HOURS_ALLOW_HIGH_PRIORITY", default=True),
+    )
+    parser.add_argument(
+        "--interruption-budget-limit",
+        type=int,
+        default=int(os.getenv("EA_PROACTIVE_OODA_INTERRUPTION_BUDGET_LIMIT", "0") or "0"),
+    )
+    parser.add_argument(
+        "--interruption-budget-window-hours",
+        type=int,
+        default=int(os.getenv("EA_PROACTIVE_OODA_INTERRUPTION_BUDGET_WINDOW_HOURS", "24") or "24"),
+    )
+    parser.add_argument(
+        "--interruption-budget-allow-high-priority",
+        action=argparse.BooleanOptionalAction,
+        default=_env_truthy("EA_PROACTIVE_OODA_INTERRUPTION_BUDGET_ALLOW_HIGH_PRIORITY", default=True),
+    )
     parser.add_argument("--require-source", action="store_true", default=_env_truthy("EA_PROACTIVE_OODA_ENABLED"))
     parser.add_argument("--require-telegram", action="store_true", default=_env_truthy("EA_PROACTIVE_OODA_ENABLED"))
     parser.add_argument("--require-receipt-observation", action="store_true")
@@ -165,16 +199,21 @@ def _build_report(args: argparse.Namespace) -> dict[str, Any]:
 
     digest_items = 0
     notified_refs: list[str] = []
+    guard_status: dict[str, Any]
+    state_store = JsonOodaStateStore(ROOT / args.state_path)
     if signals:
-        digest = ProactiveOodaService(
-            state_store=JsonOodaStateStore(ROOT / args.state_path),
-            max_items=args.max_items,
-        ).build_digest(principal_id=args.principal_id, signals=signals)
+        digest = ProactiveOodaService(state_store=state_store, max_items=args.max_items).build_digest(
+            principal_id=args.principal_id,
+            signals=signals,
+            already_notified_refs=state_store.load_notified_refs(args.principal_id),
+        )
         digest_items = len(digest.items)
         notified_refs = list(digest.notified_refs)
         digest_payload = digest_to_dict(digest)
+        guard_status = _delivery_guard_status(args, state_store=state_store, digest=digest)
     else:
         digest_payload = {}
+        guard_status = _delivery_guard_status(args, state_store=state_store, digest=None)
 
     return {
         "ok": not errors,
@@ -190,6 +229,7 @@ def _build_report(args: argparse.Namespace) -> dict[str, Any]:
         "workspace_source_checked": workspace_source_checked,
         "workspace_source_healthy": workspace_source_healthy,
         "state_path": args.state_path,
+        "delivery_guard": guard_status,
         "digest": digest_payload,
     }
 
@@ -234,8 +274,148 @@ def _receipt_observation_count(principal_id: str) -> int:
     return int(row[0] or 0) if row else 0
 
 
-def _env_truthy(name: str) -> bool:
-    return str(os.getenv(name) or "").strip().lower() in {"1", "true", "yes", "on"}
+def _env_truthy(name: str, *, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _delivery_guard_status(
+    args: argparse.Namespace,
+    *,
+    state_store: JsonOodaStateStore,
+    digest: Any | None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    items = tuple(getattr(digest, "items", ()) or ()) if digest is not None else ()
+    has_items = bool(items)
+    has_high_priority = any(getattr(item, "priority", "") == "high" for item in items)
+    paused = bool(getattr(args, "paused", False))
+    quiet_active = _quiet_hours_active(args, now=now)
+    quiet_allows_high = bool(getattr(args, "quiet_hours_allow_high_priority", True))
+    budget_limit = max(_safe_int(getattr(args, "interruption_budget_limit", 0), default=0), 0)
+    budget_window_hours = max(_safe_int(getattr(args, "interruption_budget_window_hours", 24), default=24), 1)
+    budget_used = len(
+        _recent_interruption_events(
+            state_store.load_interruption_events(str(getattr(args, "principal_id", "") or "")),
+            now=now or datetime.now(timezone.utc),
+            window_hours=budget_window_hours,
+        )
+    )
+    budget_allows_high = bool(getattr(args, "interruption_budget_allow_high_priority", True))
+    budget_exhausted = budget_limit > 0 and budget_used >= budget_limit
+
+    delivery_state = "no_actionable_items" if not has_items else "eligible"
+    deferred_reason = ""
+    if has_items and paused:
+        delivery_state = "deferred"
+        deferred_reason = "deferred_by_operator_pause"
+    elif has_items and quiet_active and not (quiet_allows_high and has_high_priority):
+        delivery_state = "deferred"
+        deferred_reason = "deferred_by_quiet_hours"
+    elif has_items and budget_exhausted and not (budget_allows_high and has_high_priority):
+        delivery_state = "deferred"
+        deferred_reason = "deferred_by_interruption_budget"
+
+    return {
+        "delivery_state": delivery_state,
+        "deferred_reason": deferred_reason,
+        "operator_paused": paused,
+        "pause_reason_present": bool(str(getattr(args, "pause_reason", "") or "").strip()),
+        "quiet_hours_configured": _quiet_hours_configured(args),
+        "quiet_hours_active": quiet_active,
+        "quiet_hours_allow_high_priority": quiet_allows_high,
+        "interruption_budget_limit": budget_limit,
+        "interruption_budget_window_hours": budget_window_hours,
+        "interruption_budget_used": budget_used,
+        "interruption_budget_exhausted": budget_exhausted,
+        "interruption_budget_allow_high_priority": budget_allows_high,
+        "has_high_priority": has_high_priority,
+    }
+
+
+def _quiet_hours_configured(args: argparse.Namespace) -> bool:
+    return _parse_local_time(getattr(args, "quiet_hours_start", "")) is not None and _parse_local_time(
+        getattr(args, "quiet_hours_end", "")
+    ) is not None
+
+
+def _quiet_hours_active(args: argparse.Namespace, *, now: datetime | None = None) -> bool:
+    start = _parse_local_time(getattr(args, "quiet_hours_start", ""))
+    end = _parse_local_time(getattr(args, "quiet_hours_end", ""))
+    if start is None or end is None:
+        return False
+    local_now = (now or datetime.now(timezone.utc)).astimezone(_quiet_hours_timezone(getattr(args, "quiet_hours_timezone", "")))
+    return _is_time_within_quiet_hours(local_now.time(), start=start, end=end)
+
+
+def _parse_local_time(value: str) -> datetime_time | None:
+    parts = str(value or "").strip().split(":")
+    if len(parts) < 2:
+        return None
+    try:
+        hour = int(parts[0])
+        minute = int(parts[1])
+    except ValueError:
+        return None
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return None
+    return datetime_time(hour=hour, minute=minute)
+
+
+def _quiet_hours_timezone(value: str):
+    name = str(value or "UTC").strip() or "UTC"
+    try:
+        return ZoneInfo(name)
+    except ZoneInfoNotFoundError:
+        return timezone.utc
+
+
+def _is_time_within_quiet_hours(current: datetime_time, *, start: datetime_time, end: datetime_time) -> bool:
+    current_minutes = current.hour * 60 + current.minute
+    start_minutes = start.hour * 60 + start.minute
+    end_minutes = end.hour * 60 + end.minute
+    if start_minutes == end_minutes:
+        return False
+    if start_minutes < end_minutes:
+        return start_minutes <= current_minutes < end_minutes
+    return current_minutes >= start_minutes or current_minutes < end_minutes
+
+
+def _recent_interruption_events(events: tuple[str, ...], *, now: datetime, window_hours: int) -> tuple[str, ...]:
+    normalized_now = now if now.tzinfo is not None else now.replace(tzinfo=timezone.utc)
+    cutoff_epoch = normalized_now.timestamp() - (max(int(window_hours or 1), 1) * 3600)
+    recent: list[str] = []
+    for raw_event in events:
+        parsed = _parse_datetime(raw_event)
+        if parsed is None:
+            continue
+        if parsed.timestamp() >= cutoff_epoch:
+            recent.append(parsed.isoformat())
+    return tuple(recent)
+
+
+def _parse_datetime(value: str) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    if raw.endswith("Z"):
+        raw = f"{raw[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _safe_int(value: Any, *, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _format_report(report: dict[str, Any]) -> str:
@@ -245,6 +425,7 @@ def _format_report(report: dict[str, Any]) -> str:
         f"source: {report['source_mode']} ({report['signal_count']} signals, {report['actionable_count']} actionable)",
         f"telegram: {'ready' if report['telegram_ready'] else 'not configured'}",
         f"workspace: {_workspace_status(report)}",
+        f"delivery guard: {_delivery_guard_summary(report)}",
         f"receipt observations: {report['receipt_observation_count']}",
         f"state: {report['state_path']}",
     ]
@@ -259,6 +440,18 @@ def _workspace_status(report: dict[str, Any]) -> str:
     if not report.get("workspace_source_checked"):
         return "not checked"
     return "ready" if report.get("workspace_source_healthy") else "unhealthy"
+
+
+def _delivery_guard_summary(report: dict[str, Any]) -> str:
+    guard = dict(report.get("delivery_guard") or {})
+    state = str(guard.get("delivery_state") or "unknown")
+    reason = str(guard.get("deferred_reason") or "").strip()
+    budget_limit = int(guard.get("interruption_budget_limit") or 0)
+    budget_used = int(guard.get("interruption_budget_used") or 0)
+    budget = f", budget {budget_used}/{budget_limit}" if budget_limit > 0 else ""
+    paused = ", paused" if guard.get("operator_paused") else ""
+    quiet = ", quiet-active" if guard.get("quiet_hours_active") else ""
+    return f"{state}{f' ({reason})' if reason else ''}{paused}{quiet}{budget}"
 
 
 if __name__ == "__main__":

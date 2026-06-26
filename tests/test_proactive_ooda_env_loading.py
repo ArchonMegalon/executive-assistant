@@ -231,6 +231,31 @@ def test_runner_deferred_digest_clears_notified_refs() -> None:
     assert receipt.notified_ref_hashes == ()
 
 
+def test_runner_operator_pause_defers_actionable_digest() -> None:
+    digest = ProactiveOodaService().build_digest(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "opportunity:pause",
+                "signal_type": "opportunity",
+                "channel": "assistant_opportunity",
+                "title": "Review vendor options",
+                "summary": "Review the provider notes.",
+            }
+        ],
+    )
+    args = SimpleNamespace(paused=True, pause_reason="maintenance")
+
+    reason = runner._operator_pause_defer_reason(args, digest)
+    deferred = runner._without_notified_refs(digest)
+    receipt = build_run_receipt(digest=deferred, dry_run=False, error_code=reason)
+
+    assert reason == "deferred_by_operator_pause"
+    assert deferred.notified_refs == ()
+    assert receipt.notification_status == "deferred"
+    assert receipt.notified_ref_hashes == ()
+
+
 def test_runner_interruption_budget_defers_when_window_is_exhausted(tmp_path) -> None:
     state_store = JsonOodaStateStore(tmp_path / "state.json")
     state_store.save_interruption_events(
