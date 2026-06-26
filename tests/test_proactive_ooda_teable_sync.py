@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+import scripts.bootstrap_proactive_ooda_teable_tables as teable_bootstrap
 import scripts.run_proactive_ooda as runner
 from app.services.proactive_ooda_safe_work import build_safe_work_result
 from app.services.proactive_ooda_service import ProactiveOodaService, build_run_receipt
@@ -76,11 +77,52 @@ def test_proactive_ooda_teable_projection_keeps_important_artifacts_without_raw_
     assert "exec" not in serialized
     assert "opportunity:vendor-approval" not in serialized
     assert records["proactive_ooda_runs"][0]["notification_status"] == "sent"
+    assert records["proactive_ooda_runs"][0]["delivery_channel"] == "telegram"
+    assert records["proactive_ooda_runs"][0]["delivery_transport"] == "telegram"
+    assert records["proactive_ooda_runs"][0]["delivery_message_count"] == 1
+    assert records["proactive_ooda_runs"][0]["delivery_message_ids"] == ["123"]
     assert records["proactive_ooda_items"][0]["stage_kind"] == "approval_packet"
     assert records["proactive_ooda_items"][0]["staged_action_url"] == "https://example.test/approve/vendor-a"
     assert records["proactive_ooda_items"][0]["recommended_label"] == "Vendor A"
     assert records["proactive_ooda_safe_work"][0]["recommended_url"] == "https://example.test/vendor-a"
     assert records["proactive_ooda_safe_work"][0]["shortlist_count"] == 2
+
+
+def test_proactive_ooda_teable_bootstrap_schema_includes_delivery_route_fields() -> None:
+    run_fields = [field["name"] for field in teable_bootstrap.PROACTIVE_OODA_TABLES["proactive_ooda_runs"]]
+
+    assert "delivery_channel" in run_fields
+    assert "delivery_transport" in run_fields
+    assert "delivery_selected_by" in run_fields
+    assert "delivery_recipient_hash" in run_fields
+    assert "delivery_message_count" in run_fields
+    assert "delivery_message_ids" in run_fields
+    assert "delivery_outbox_id_hash" in run_fields
+
+
+def test_proactive_ooda_teable_bootstrap_adds_missing_fields_with_direct_field_payload(monkeypatch) -> None:
+    calls: list[dict[str, object]] = []
+
+    def _request_json(*, method: str, url: str, api_key: str, body: dict[str, object] | None = None) -> object:
+        calls.append({"method": method, "url": url, "body": body})
+        if method == "GET":
+            return [{"name": "projection_id", "type": "singleLineText"}]
+        return {"id": "fld-created"}
+
+    monkeypatch.setattr(teable_bootstrap, "_request_json", _request_json)
+
+    created = teable_bootstrap._ensure_fields(
+        base_url="https://app.teable.test",
+        api_key="test-token",
+        table_id="tbl-proactive",
+        fields=[
+            {"name": "projection_id", "type": "singleLineText"},
+            {"name": "delivery_channel", "type": "singleLineText"},
+        ],
+    )
+
+    assert created == 1
+    assert calls[1]["body"] == {"name": "delivery_channel", "type": "singleLineText"}
 
 
 def test_proactive_ooda_teable_sync_can_sync_available_tables_and_report_missing_ones(monkeypatch) -> None:

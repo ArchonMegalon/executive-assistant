@@ -41,6 +41,13 @@ PROACTIVE_OODA_TABLES: dict[str, list[dict[str, object]]] = {
         _checkbox_field("dry_run"),
         _number_field("item_count"),
         _number_field("notified_ref_count"),
+        _text_field("delivery_channel"),
+        _text_field("delivery_transport"),
+        _text_field("delivery_selected_by"),
+        _text_field("delivery_recipient_hash"),
+        _number_field("delivery_message_count"),
+        _long_text_field("delivery_message_ids"),
+        _text_field("delivery_outbox_id_hash"),
         _number_field("telegram_message_count"),
         _long_text_field("telegram_message_ids"),
         _number_field("stage_packet_count"),
@@ -249,7 +256,7 @@ def _ensure_fields(*, base_url: str, api_key: str, table_id: str, fields: list[d
             method="POST",
             url=f"{base_url.rstrip('/')}/api/table/{urllib.parse.quote(table_id)}/field",
             api_key=api_key,
-            body={"field": field},
+            body=dict(field),
         )
         existing.add(name)
         created += 1
