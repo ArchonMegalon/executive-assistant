@@ -563,7 +563,7 @@ Useful runtime knobs:
 - `EA_PROACTIVE_OODA_PERSIST_RECEIPTS`: persist redacted run receipts into `observation_events`, default `1`
 - `EA_PROACTIVE_OODA_SIGNALS_JSON`: optional file-backed signal feed
 - `EA_PROACTIVE_OODA_DISCOVERY_JSON`: JSON source list for generic `json`, `jsonl`, `rss`, or `teable` discovery feeds
-- `EA_PROACTIVE_OODA_OPPORTUNITY_RULES_JSON`: JSON opportunity rules for generic paid-assistant OODA loops; rules may use `always` or weather threshold triggers and can include `action_plan`, `stage`, and an external-action guardrail
+- `EA_PROACTIVE_OODA_OPPORTUNITY_RULES_JSON`: JSON opportunity rules for generic paid-assistant OODA loops; rules may use `always` or weather threshold triggers and can include `action_plan`, `stage`, and an external-action guardrail. Threshold-style triggers default to stateful edge memory, so EA can rearm on the next true occurrence instead of only time-bucketing the rule; set `trigger_memory_mode` to `periodic` to opt back into cadence-only behavior, and `repeat_while_true` to `true` when a still-open condition should reappear after each cadence window
 - `EA_PROACTIVE_OODA_PAUSED` / `EA_PROACTIVE_OODA_PAUSE_REASON`: operator pause switch; actionable packets are still built and receipted as deferred, but delivery is skipped and refs stay unnotified
 - `EA_PROACTIVE_OODA_QUIET_HOURS_START` / `EA_PROACTIVE_OODA_QUIET_HOURS_END` / `EA_PROACTIVE_OODA_QUIET_HOURS_TIMEZONE`: optional local quiet-hours window; matching non-high-priority digests are deferred without marking refs as notified
 - `EA_PROACTIVE_OODA_QUIET_HOURS_ALLOW_HIGH_PRIORITY`: allow high-priority proactive digests through quiet hours, default `1`
@@ -598,6 +598,13 @@ Opportunity rule example:
 ```bash
 EA_PROACTIVE_OODA_OPPORTUNITY_RULES_JSON='{"rules":[{"id":"renewal-review","title":"Review renewal options","summary":"A renewal window is open; compare realistic alternatives before it becomes urgent.","trigger":{"kind":"always"},"action":"Prepare one approval packet with the best option and the default do-nothing consequence.","action_plan":["Check current constraints","Compare realistic options","Stage the recommended next step"],"stage":{"kind":"approval_packet","summary":"One reversible next step ready for approval.","artifacts":["shortlist","candidate_link_or_cart","approval_prompt"],"work_type":"compare_options","research_query":"Compare renewal options against current constraints","selection_criteria":["price","fit","reversibility"]},"external_action_policy":"Do not buy, book, send, cancel, or commit without explicit approval."}]}' \
 PYTHONPATH=ea .venv/bin/python scripts/run_proactive_ooda.py --dry-run --pretty
+```
+
+Stateful rearm example:
+
+```bash
+EA_PROACTIVE_OODA_OPPORTUNITY_RULES_JSON='{"rules":[{"id":"cooler-weather-errand","title":"Stage the cooler-weather errand","summary":"A weather-sensitive task is easier when the temperature drops.","trigger":{"kind":"cooler_weather","location":"Vienna","latitude":48.2082,"longitude":16.3738,"temperature_at_or_below_c":20},"action":"Research one reversible next step and stage it for approval.","stage":{"kind":"approval_packet","summary":"One researched next step ready for approval.","artifacts":["shortlist","approval_prompt"],"work_type":"compare_options","selection_criteria":["reversibility","effort","timing"]},"external_action_policy":"Do not buy, book, send, cancel, or commit without explicit approval."}]}' \
+PYTHONPATH=ea .venv/bin/python scripts/run_proactive_ooda.py --pretty
 ```
 Snapshot pruning is available via `scripts/prune_openapi.sh` or `make openapi-prune`.
 Endpoint inventory can be printed via `scripts/list_endpoints.sh` or `make endpoints`.

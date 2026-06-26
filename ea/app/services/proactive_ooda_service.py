@@ -147,6 +147,7 @@ class ProactiveOodaRunReceipt:
 
 class JsonOodaStateStore:
     INTERRUPTION_EVENTS_KEY = "_proactive_ooda_interruption_events"
+    OPPORTUNITY_RULE_STATE_KEY = "_proactive_ooda_opportunity_rule_state"
 
     def __init__(self, path: str | Path):
         self.path = Path(path)
@@ -176,14 +177,42 @@ class JsonOodaStateStore:
 
     def save_interruption_events(self, principal_id: str, events: Iterable[str]) -> None:
         payload = self._read()
-        bucket = payload.get(self.INTERRUPTION_EVENTS_KEY)
-        if not isinstance(bucket, dict):
-            bucket = {}
+        bucket = self._mapping_bucket(payload, self.INTERRUPTION_EVENTS_KEY)
         key = _state_key(principal_id)
         bucket[key] = [str(item).strip() for item in events if str(item).strip()]
         bucket.pop(principal_id, None)
         payload[self.INTERRUPTION_EVENTS_KEY] = bucket
         self._write(payload)
+
+    def load_opportunity_rule_state(self, principal_id: str, rule_id: str) -> dict[str, Any]:
+        payload = self._read()
+        bucket = payload.get(self.OPPORTUNITY_RULE_STATE_KEY)
+        if not isinstance(bucket, Mapping):
+            return {}
+        principal_bucket = bucket.get(_state_key(principal_id), bucket.get(principal_id, {}))
+        if not isinstance(principal_bucket, Mapping):
+            return {}
+        state = principal_bucket.get(_state_key(rule_id), principal_bucket.get(rule_id, {}))
+        return dict(state) if isinstance(state, Mapping) else {}
+
+    def save_opportunity_rule_state(self, principal_id: str, rule_id: str, state: Mapping[str, Any]) -> None:
+        payload = self._read()
+        bucket = self._mapping_bucket(payload, self.OPPORTUNITY_RULE_STATE_KEY)
+        principal_key = _state_key(principal_id)
+        principal_bucket = bucket.get(principal_key)
+        if not isinstance(principal_bucket, dict):
+            principal_bucket = {}
+        rule_key = _state_key(rule_id)
+        principal_bucket[rule_key] = dict(state)
+        principal_bucket.pop(rule_id, None)
+        bucket[principal_key] = principal_bucket
+        bucket.pop(principal_id, None)
+        payload[self.OPPORTUNITY_RULE_STATE_KEY] = bucket
+        self._write(payload)
+
+    def _mapping_bucket(self, payload: Mapping[str, Any], key: str) -> dict[str, Any]:
+        bucket = payload.get(key)
+        return bucket if isinstance(bucket, dict) else {}
 
     def _read(self) -> dict[str, Any]:
         if not self.path.exists():

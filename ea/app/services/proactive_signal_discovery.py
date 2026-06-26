@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 from xml.etree import ElementTree
 
-from app.services.proactive_ooda_service import ProactiveSignal
+from app.services.proactive_ooda_service import JsonOodaStateStore, ProactiveSignal
 
 
 @dataclass(frozen=True)
@@ -50,6 +50,20 @@ class SignalDiscoveryResult:
     errors: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class OpportunityTriggerEvaluation:
+    kind: str
+    matched: bool
+    weather_context: Mapping[str, float] | None = None
+
+
+@dataclass(frozen=True)
+class OpportunityTriggerRuntime:
+    signal_key: str
+    occurrence: int
+    state: Mapping[str, Any]
+
+
 def load_signal_sources_config(raw: str) -> tuple[SignalSource, ...]:
     normalized = str(raw or "").strip()
     if not normalized:
@@ -69,10 +83,22 @@ def discover_signals(
     sources: Iterable[SignalSource],
     base_dir: Path,
     timeout_seconds: int = 20,
+    principal_id: str = "",
+    opportunity_state_store: JsonOodaStateStore | None = None,
+    persist_opportunity_state: bool = True,
 ) -> list[ProactiveSignal]:
     signals: list[ProactiveSignal] = []
     for source in sources:
-        signals.extend(_discover_source(source, base_dir=base_dir, timeout_seconds=timeout_seconds))
+        signals.extend(
+            _discover_source(
+                source,
+                base_dir=base_dir,
+                timeout_seconds=timeout_seconds,
+                principal_id=principal_id,
+                opportunity_state_store=opportunity_state_store,
+                persist_opportunity_state=persist_opportunity_state,
+            )
+        )
     return signals
 
 
@@ -81,20 +107,47 @@ def discover_signals_resilient(
     sources: Iterable[SignalSource],
     base_dir: Path,
     timeout_seconds: int = 20,
+    principal_id: str = "",
+    opportunity_state_store: JsonOodaStateStore | None = None,
+    persist_opportunity_state: bool = True,
 ) -> SignalDiscoveryResult:
     signals: list[ProactiveSignal] = []
     errors: list[str] = []
     for source in sources:
         try:
-            signals.extend(_discover_source(source, base_dir=base_dir, timeout_seconds=timeout_seconds))
+            signals.extend(
+                _discover_source(
+                    source,
+                    base_dir=base_dir,
+                    timeout_seconds=timeout_seconds,
+                    principal_id=principal_id,
+                    opportunity_state_store=opportunity_state_store,
+                    persist_opportunity_state=persist_opportunity_state,
+                )
+            )
         except Exception as exc:
             errors.append(_source_error_label(source, exc))
     return SignalDiscoveryResult(signals=tuple(signals), errors=tuple(errors))
 
 
-def _discover_source(source: SignalSource, *, base_dir: Path, timeout_seconds: int) -> list[ProactiveSignal]:
+def _discover_source(
+    source: SignalSource,
+    *,
+    base_dir: Path,
+    timeout_seconds: int,
+    principal_id: str = "",
+    opportunity_state_store: JsonOodaStateStore | None = None,
+    persist_opportunity_state: bool = True,
+) -> list[ProactiveSignal]:
     if source.source_type in {"opportunity_rules", "opportunity_rule", "personal_rules", "personal_rule"}:
-        return _load_opportunity_rules_source(source, base_dir=base_dir, timeout_seconds=timeout_seconds)
+        return _load_opportunity_rules_source(
+            source,
+            base_dir=base_dir,
+            timeout_seconds=timeout_seconds,
+            principal_id=principal_id,
+            opportunity_state_store=opportunity_state_store,
+            persist_opportunity_state=persist_opportunity_state,
+        )
     if not source.ref:
         return []
     if source.source_type == "json":
@@ -113,6 +166,9 @@ def discover_opportunity_rule_signals(
     raw_config: str,
     base_dir: Path,
     timeout_seconds: int = 20,
+    principal_id: str = "",
+    opportunity_state_store: JsonOodaStateStore | None = None,
+    persist_opportunity_state: bool = True,
 ) -> SignalDiscoveryResult:
     normalized = str(raw_config or "").strip()
     if not normalized:
@@ -127,7 +183,16 @@ def discover_opportunity_rule_signals(
             config=json.loads(normalized) if normalized.startswith(("{", "[")) else None,
         )
         return SignalDiscoveryResult(
-            signals=tuple(_load_opportunity_rules_source(source, base_dir=base_dir, timeout_seconds=timeout_seconds)),
+            signals=tuple(
+                _load_opportunity_rules_source(
+                    source,
+                    base_dir=base_dir,
+                    timeout_seconds=timeout_seconds,
+                    principal_id=principal_id,
+                    opportunity_state_store=opportunity_state_store,
+                    persist_opportunity_state=persist_opportunity_state,
+                )
+            ),
             errors=(),
         )
     except Exception as exc:
@@ -139,8 +204,18 @@ def discover_personal_rule_signals(
     raw_config: str,
     base_dir: Path,
     timeout_seconds: int = 20,
+    principal_id: str = "",
+    opportunity_state_store: JsonOodaStateStore | None = None,
+    persist_opportunity_state: bool = True,
 ) -> SignalDiscoveryResult:
-    return discover_opportunity_rule_signals(raw_config=raw_config, base_dir=base_dir, timeout_seconds=timeout_seconds)
+    return discover_opportunity_rule_signals(
+        raw_config=raw_config,
+        base_dir=base_dir,
+        timeout_seconds=timeout_seconds,
+        principal_id=principal_id,
+        opportunity_state_store=opportunity_state_store,
+        persist_opportunity_state=persist_opportunity_state,
+    )
 
 
 def discover_postgres_observation_signals(
@@ -376,7 +451,15 @@ def _load_teable_source(source: SignalSource, *, timeout_seconds: int) -> list[P
     return signals
 
 
-def _load_opportunity_rules_source(source: SignalSource, *, base_dir: Path, timeout_seconds: int) -> list[ProactiveSignal]:
+def _load_opportunity_rules_source(
+    source: SignalSource,
+    *,
+    base_dir: Path,
+    timeout_seconds: int,
+    principal_id: str = "",
+    opportunity_state_store: JsonOodaStateStore | None = None,
+    persist_opportunity_state: bool = True,
+) -> list[ProactiveSignal]:
     payload: Any
     if source.ref:
         payload = json.loads(_read_ref(source.ref, base_dir=base_dir, timeout_seconds=timeout_seconds))
@@ -395,7 +478,16 @@ def _load_opportunity_rules_source(source: SignalSource, *, base_dir: Path, time
     for index, raw_rule in enumerate(rules[: source.limit]):
         if not isinstance(raw_rule, Mapping) or not _truthy_default(raw_rule.get("enabled"), default=True):
             continue
-        signal = _opportunity_rule_to_signal(raw_rule, source=source, index=index, now_epoch=now_epoch, timeout_seconds=timeout_seconds)
+        signal = _opportunity_rule_to_signal(
+            raw_rule,
+            source=source,
+            index=index,
+            now_epoch=now_epoch,
+            timeout_seconds=timeout_seconds,
+            principal_id=principal_id,
+            opportunity_state_store=opportunity_state_store,
+            persist_opportunity_state=persist_opportunity_state,
+        )
         if signal is not None:
             signals.append(signal)
     return signals
@@ -408,15 +500,31 @@ def _opportunity_rule_to_signal(
     index: int,
     now_epoch: int,
     timeout_seconds: int,
+    principal_id: str = "",
+    opportunity_state_store: JsonOodaStateStore | None = None,
+    persist_opportunity_state: bool = True,
 ) -> ProactiveSignal | None:
     trigger = rule.get("trigger") if isinstance(rule.get("trigger"), Mapping) else {}
-    if not _opportunity_rule_triggered(trigger, timeout_seconds=timeout_seconds):
-        return None
     rule_id = _rule_id(rule, fallback=f"rule-{index}")
     cadence_days = _safe_int(rule.get("cadence_days") or rule.get("cooldown_days") or 14)
     cadence_seconds = max(cadence_days, 1) * 86400
-    period = now_epoch // cadence_seconds
-    weather_context = _weather_context(trigger, timeout_seconds=timeout_seconds)
+    evaluation = _evaluate_opportunity_rule_trigger(trigger, timeout_seconds=timeout_seconds)
+    trigger_kind = evaluation.kind or "always"
+    weather_context = evaluation.weather_context
+    runtime = _opportunity_trigger_runtime(
+        rule,
+        trigger=trigger,
+        rule_id=rule_id,
+        trigger_kind=trigger_kind,
+        matched=evaluation.matched,
+        now_epoch=now_epoch,
+        cadence_seconds=cadence_seconds,
+        principal_id=principal_id,
+        opportunity_state_store=opportunity_state_store,
+        persist_opportunity_state=persist_opportunity_state,
+    )
+    if runtime is None:
+        return None
     location = _clean_text(str(trigger.get("location") or trigger.get("location_name") or "local weather"))
     title = _clean_text(str(rule.get("title") or "Assistant opportunity"))
     base_summary = _clean_text(str(rule.get("summary") or rule.get("brief") or "A potentially useful opportunity is worth attention."))
@@ -427,7 +535,7 @@ def _opportunity_rule_to_signal(
     ignored = _clean_text(str(rule.get("ignored_consequence") or "A useful low-effort opportunity may slip again."))
     counterparty = _clean_text(str(rule.get("counterparty") or source.counterparty or "EA"))
     approval_required = _truthy_default(rule.get("approval_required"), default=True)
-    source_ref = f"opportunity:{rule_id}:{period}"
+    source_ref = f"opportunity:{rule_id}:{runtime.signal_key}"
     action_plan = _string_list(rule.get("action_plan") or rule.get("plan"))
     external_action_policy = _clean_text(
         str(
@@ -449,11 +557,11 @@ def _opportunity_rule_to_signal(
         summary=summary,
         counterparty=counterparty,
         due_at=_clean_text(str(rule.get("due_at") or "")) or None,
-        external_id=_short_hash(f"{rule_id}:{period}:{title}"),
+        external_id=_short_hash(f"{rule_id}:{runtime.signal_key}:{title}"),
         payload={
             "source": "opportunity_rules",
             "rule_id_hash": _short_hash(rule_id),
-            "trigger_kind": str(trigger.get("kind") or "always"),
+            "trigger_kind": trigger_kind,
             "ooda_loop": {
                 "reviewed": True,
                 "observe": {
@@ -477,6 +585,12 @@ def _opportunity_rule_to_signal(
                     "action_plan": list(action_plan),
                     "external_action_policy": external_action_policy,
                     "stage": stage,
+                },
+                "trigger": {
+                    "kind": trigger_kind,
+                    "memory_mode": _trigger_memory_mode(rule, trigger=trigger, trigger_kind=trigger_kind),
+                    "occurrence": runtime.occurrence,
+                    "signal_key": runtime.signal_key,
                 },
             },
         },
@@ -575,14 +689,18 @@ def _opportunity_rule_stage(
     return stage
 
 
-def _opportunity_rule_triggered(trigger: Mapping[str, Any], *, timeout_seconds: int) -> bool:
+def _evaluate_opportunity_rule_trigger(
+    trigger: Mapping[str, Any],
+    *,
+    timeout_seconds: int,
+) -> OpportunityTriggerEvaluation:
     kind = str(trigger.get("kind") or "always").strip().lower()
     if kind in {"", "always"}:
-        return True
+        return OpportunityTriggerEvaluation(kind="always", matched=True)
     if kind in {"cooler_weather", "weather_below", "weather_at_or_below"}:
         context = _weather_context(trigger, timeout_seconds=timeout_seconds)
         if not context:
-            return False
+            return OpportunityTriggerEvaluation(kind=kind, matched=False)
         threshold = _float_value(
             trigger.get("temperature_at_or_below_c"),
             trigger.get("max_temperature_c"),
@@ -591,8 +709,82 @@ def _opportunity_rule_triggered(trigger: Mapping[str, Any], *, timeout_seconds: 
         if threshold is None:
             threshold = 24.0
         values = [value for value in (context.get("current_temperature_c"), context.get("min_forecast_temperature_c")) if isinstance(value, (int, float))]
-        return any(float(value) <= threshold for value in values)
-    return False
+        return OpportunityTriggerEvaluation(kind=kind, matched=any(float(value) <= threshold for value in values), weather_context=context)
+    return OpportunityTriggerEvaluation(kind=kind or "always", matched=False)
+
+
+def _opportunity_trigger_runtime(
+    rule: Mapping[str, Any],
+    *,
+    trigger: Mapping[str, Any],
+    rule_id: str,
+    trigger_kind: str,
+    matched: bool,
+    now_epoch: int,
+    cadence_seconds: int,
+    principal_id: str,
+    opportunity_state_store: JsonOodaStateStore | None,
+    persist_opportunity_state: bool,
+) -> OpportunityTriggerRuntime | None:
+    memory_mode = _trigger_memory_mode(rule, trigger=trigger, trigger_kind=trigger_kind)
+    if memory_mode == "periodic" or not principal_id or opportunity_state_store is None:
+        if not matched:
+            return None
+        period = now_epoch // max(cadence_seconds, 1)
+        return OpportunityTriggerRuntime(signal_key=f"period-{period}", occurrence=period, state={})
+
+    previous_state = opportunity_state_store.load_opportunity_rule_state(principal_id, rule_id)
+    previous_condition = _truthy_default(previous_state.get("last_condition"), default=False)
+    occurrence = max(_safe_int(previous_state.get("occurrence")), 0)
+    first_matched_at = _safe_int(previous_state.get("first_matched_at"))
+    if matched and not previous_condition:
+        occurrence += 1
+        first_matched_at = now_epoch
+    elif not matched:
+        first_matched_at = None
+
+    next_state: dict[str, Any] = {
+        "last_condition": bool(matched),
+        "occurrence": occurrence,
+    }
+    if first_matched_at is not None:
+        next_state["first_matched_at"] = first_matched_at
+
+    if persist_opportunity_state:
+        opportunity_state_store.save_opportunity_rule_state(principal_id, rule_id, next_state)
+    if not matched or occurrence <= 0:
+        return None
+
+    signal_key = f"occurrence-{occurrence}"
+    if _rule_repeats_while_true(rule, trigger=trigger):
+        anchor_epoch = first_matched_at or now_epoch
+        period = max((now_epoch - anchor_epoch) // max(cadence_seconds, 1), 0)
+        signal_key = f"{signal_key}:period-{period}"
+    return OpportunityTriggerRuntime(signal_key=signal_key, occurrence=occurrence, state=next_state)
+
+
+def _trigger_memory_mode(rule: Mapping[str, Any], *, trigger: Mapping[str, Any], trigger_kind: str) -> str:
+    explicit = _clean_text(
+        str(
+            rule.get("trigger_memory_mode")
+            or rule.get("retrigger_mode")
+            or trigger.get("memory_mode")
+            or trigger.get("retrigger_mode")
+            or ""
+        )
+    ).lower()
+    if explicit in {"edge", "stateful_edge", "rearm_on_false"}:
+        return "edge"
+    if explicit in {"periodic", "cadence"}:
+        return "periodic"
+    return "periodic" if trigger_kind == "always" else "edge"
+
+
+def _rule_repeats_while_true(rule: Mapping[str, Any], *, trigger: Mapping[str, Any]) -> bool:
+    value = rule.get("repeat_while_true")
+    if value is None:
+        value = trigger.get("repeat_while_true")
+    return _truthy_default(value, default=False)
 
 
 def _weather_context(trigger: Mapping[str, Any], *, timeout_seconds: int) -> dict[str, float] | None:

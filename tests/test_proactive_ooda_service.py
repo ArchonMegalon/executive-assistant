@@ -181,6 +181,28 @@ def test_ooda_state_store_tracks_interruption_events_under_hashed_principal(tmp_
     assert JsonOodaStateStore.INTERRUPTION_EVENTS_KEY in payload
 
 
+def test_ooda_state_store_hashes_opportunity_rule_state_keys(tmp_path) -> None:
+    state_path = tmp_path / "ooda.json"
+    store = JsonOodaStateStore(state_path)
+
+    store.save_opportunity_rule_state(
+        "exec",
+        "cool-weather-window",
+        {"last_condition": True, "occurrence": 2, "first_matched_at": 123},
+    )
+
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+
+    assert "exec" not in payload
+    assert "cool-weather-window" not in json.dumps(payload, sort_keys=True)
+    assert store.load_opportunity_rule_state("exec", "cool-weather-window") == {
+        "last_condition": True,
+        "occurrence": 2,
+        "first_matched_at": 123,
+    }
+    assert JsonOodaStateStore.OPPORTUNITY_RULE_STATE_KEY in payload
+
+
 def test_run_receipt_redacts_principal_and_refs() -> None:
     service = ProactiveOodaService()
     digest = service.build_digest(

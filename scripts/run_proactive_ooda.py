@@ -175,8 +175,12 @@ def main() -> int:
     parser.add_argument("--pretty", action="store_true")
     args = parser.parse_args()
 
-    signals = _load_signals(args)
     state_store = JsonOodaStateStore(ROOT / args.state_path)
+    signals = _load_signals(
+        args,
+        state_store=state_store,
+        persist_opportunity_state=not args.dry_run,
+    )
     service = ProactiveOodaService(
         notify=_telegram_notify,
         state_store=state_store,
@@ -430,7 +434,12 @@ def _is_deferred_error(value: str) -> bool:
     return str(value or "").startswith("deferred_by_")
 
 
-def _load_signals(args: argparse.Namespace) -> list[dict[str, Any]]:
+def _load_signals(
+    args: argparse.Namespace,
+    *,
+    state_store: JsonOodaStateStore | None = None,
+    persist_opportunity_state: bool = True,
+) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     if args.signals_json:
         try:
@@ -443,14 +452,26 @@ def _load_signals(args: argparse.Namespace) -> list[dict[str, Any]]:
     if args.discovery_json:
         try:
             sources = load_signal_sources_config(args.discovery_json)
-            discovery = discover_signals_resilient(sources=sources, base_dir=ROOT)
+            discovery = discover_signals_resilient(
+                sources=sources,
+                base_dir=ROOT,
+                principal_id=getattr(args, "principal_id", ""),
+                opportunity_state_store=state_store,
+                persist_opportunity_state=persist_opportunity_state,
+            )
             rows.extend(signal.__dict__ for signal in discovery.signals)
             rows.extend(_source_error_signals(discovery.errors, source_label="discovery"))
         except Exception as exc:
             rows.extend(_source_error_signals((f"discovery_json:{exc.__class__.__name__}:config",), source_label="discovery"))
     opportunity_rules_json = str(getattr(args, "opportunity_rules_json", getattr(args, "personal_rules_json", "")) or "")
     if opportunity_rules_json:
-        opportunity = discover_opportunity_rule_signals(raw_config=opportunity_rules_json, base_dir=ROOT)
+        opportunity = discover_opportunity_rule_signals(
+            raw_config=opportunity_rules_json,
+            base_dir=ROOT,
+            principal_id=getattr(args, "principal_id", ""),
+            opportunity_state_store=state_store,
+            persist_opportunity_state=persist_opportunity_state,
+        )
         rows.extend(signal.__dict__ for signal in opportunity.signals)
         rows.extend(_source_error_signals(opportunity.errors, source_label="opportunity_rules"))
     if not args.skip_observation_source:

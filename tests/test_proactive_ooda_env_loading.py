@@ -120,6 +120,66 @@ def test_runner_ingests_all_available_sources_when_workspace_scan_fails(tmp_path
     assert any(ref.startswith("proactive_source_error:google_workspace:") for ref in source_refs)
 
 
+def test_runner_load_signals_reuses_opportunity_occurrence_until_condition_resets(tmp_path) -> None:
+    state_store = JsonOodaStateStore(tmp_path / "state.json")
+    args = SimpleNamespace(
+        signals_json="",
+        discovery_json="",
+        opportunity_rules_json=json.dumps(
+            {
+                "rules": [
+                    {
+                        "id": "cool-weather-window",
+                        "title": "Cool-weather opportunity",
+                        "summary": "A weather-sensitive errand may be easier now.",
+                        "trigger": {
+                            "kind": "cooler_weather",
+                            "location": "Vienna",
+                            "temperature_at_or_below_c": 20,
+                            "current_temperature_c": 18,
+                        },
+                    }
+                ]
+            }
+        ),
+        skip_observation_source=True,
+        skip_workspace_source=True,
+        principal_id="exec",
+        observation_limit=0,
+        observation_lookback_hours=0,
+        email_limit=1,
+        calendar_limit=1,
+        gmail_query="",
+    )
+    warm_args = SimpleNamespace(**{**args.__dict__, "opportunity_rules_json": json.dumps(
+        {
+            "rules": [
+                {
+                    "id": "cool-weather-window",
+                    "title": "Cool-weather opportunity",
+                    "summary": "A weather-sensitive errand may be easier now.",
+                    "trigger": {
+                        "kind": "cooler_weather",
+                        "location": "Vienna",
+                        "temperature_at_or_below_c": 20,
+                        "current_temperature_c": 26,
+                    },
+                }
+            ]
+        }
+    )})
+
+    first = runner._load_signals(args, state_store=state_store)
+    second = runner._load_signals(args, state_store=state_store)
+    warm = runner._load_signals(warm_args, state_store=state_store)
+    third = runner._load_signals(args, state_store=state_store)
+
+    assert [row["source_ref"] for row in first] == ["opportunity:cool-weather-window:occurrence-1"]
+    assert [row["source_ref"] for row in second] == ["opportunity:cool-weather-window:occurrence-1"]
+    assert warm == []
+    assert [row["source_ref"] for row in third] == ["opportunity:cool-weather-window:occurrence-2"]
+
+
 def test_runner_quiet_hours_defer_non_high_priority_digest() -> None:
     digest = ProactiveOodaService().build_digest(
         principal_id="exec",

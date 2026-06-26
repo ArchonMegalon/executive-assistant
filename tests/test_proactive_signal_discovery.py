@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from io import BytesIO
 
+from app.services.proactive_ooda_service import JsonOodaStateStore
 from app.services.proactive_signal_discovery import (
     discover_opportunity_rule_signals,
     discover_signals,
@@ -325,6 +326,77 @@ def test_opportunity_weather_trigger_uses_inline_weather_without_vendor_lock_in(
 
     assert len(result.signals) == 1
     assert "Vienna is about 18.0 C" in result.signals[0].summary
+
+
+def test_opportunity_weather_trigger_rearms_when_condition_turns_true_again(tmp_path) -> None:
+    config = {
+        "rules": [
+            {
+                "id": "cool-weather-window",
+                "title": "Cool-weather opportunity",
+                "summary": "A weather-sensitive errand may be easier now.",
+                "trigger": {
+                    "kind": "cooler_weather",
+                    "location": "Vienna",
+                    "temperature_at_or_below_c": 20,
+                    "current_temperature_c": 18,
+                },
+            }
+        ]
+    }
+    warm_config = {
+        "rules": [
+            {
+                "id": "cool-weather-window",
+                "title": "Cool-weather opportunity",
+                "summary": "A weather-sensitive errand may be easier now.",
+                "trigger": {
+                    "kind": "cooler_weather",
+                    "location": "Vienna",
+                    "temperature_at_or_below_c": 20,
+                    "current_temperature_c": 26,
+                },
+            }
+        ]
+    }
+    state_store = JsonOodaStateStore(tmp_path / "ooda.json")
+
+    first = discover_opportunity_rule_signals(
+        raw_config=json.dumps(config),
+        base_dir=tmp_path,
+        principal_id="exec",
+        opportunity_state_store=state_store,
+    )
+    second = discover_opportunity_rule_signals(
+        raw_config=json.dumps(config),
+        base_dir=tmp_path,
+        principal_id="exec",
+        opportunity_state_store=state_store,
+    )
+    warm = discover_opportunity_rule_signals(
+        raw_config=json.dumps(warm_config),
+        base_dir=tmp_path,
+        principal_id="exec",
+        opportunity_state_store=state_store,
+    )
+    third = discover_opportunity_rule_signals(
+        raw_config=json.dumps(config),
+        base_dir=tmp_path,
+        principal_id="exec",
+        opportunity_state_store=state_store,
+    )
+
+    assert [signal.source_ref for signal in first.signals] == ["opportunity:cool-weather-window:occurrence-1"]
+    assert [signal.source_ref for signal in second.signals] == ["opportunity:cool-weather-window:occurrence-1"]
+    assert warm.signals == ()
+    assert [signal.source_ref for signal in third.signals] == ["opportunity:cool-weather-window:occurrence-2"]
+    assert third.signals[0].payload is not None
+    assert third.signals[0].payload["ooda_loop"]["trigger"] == {
+        "kind": "cooler_weather",
+        "memory_mode": "edge",
+        "occurrence": 2,
+        "signal_key": "occurrence-2",
+    }
 
 
 def test_observation_mapper_turns_commitment_candidate_into_signal() -> None:
