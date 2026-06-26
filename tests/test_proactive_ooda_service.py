@@ -92,6 +92,80 @@ def test_proactive_ooda_dedupes_hashed_refs(tmp_path) -> None:
     assert second.items == ()
 
 
+def test_proactive_ooda_dedupes_same_external_id_across_sources_in_one_run(tmp_path) -> None:
+    sent: list[tuple[str, str]] = []
+    service = ProactiveOodaService(
+        notify=lambda principal_id, text: sent.append((principal_id, text)),
+        state_store=JsonOodaStateStore(tmp_path / "ooda.json"),
+    )
+
+    digest, _notification_result = service.run(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "rss:https://example.test/vendor-a",
+                "external_id": "https://example.test/vendor-a",
+                "signal_type": "market_signal",
+                "channel": "market_watch",
+                "title": "Vendor option review today",
+                "summary": "Review the same vendor opportunity today.",
+            },
+            {
+                "source_ref": "json:mirror:vendor-a",
+                "external_id": "https://example.test/vendor-a",
+                "signal_type": "operator_signal",
+                "channel": "operator_feed",
+                "title": "Vendor option review today",
+                "summary": "Review the same vendor opportunity today.",
+            },
+        ],
+    )
+
+    assert [item.signal_ref for item in digest.items] == ["rss:https://example.test/vendor-a"]
+    assert sent and sent[0][0] == "exec"
+
+
+def test_proactive_ooda_dedupes_previously_notified_external_id_across_sources(tmp_path) -> None:
+    state_path = tmp_path / "ooda.json"
+    service = ProactiveOodaService(
+        notify=lambda _principal_id, _text: None,
+        state_store=JsonOodaStateStore(state_path),
+    )
+
+    first, _ = service.run(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "rss:https://example.test/vendor-a",
+                "external_id": "https://example.test/vendor-a",
+                "signal_type": "market_signal",
+                "channel": "market_watch",
+                "title": "Vendor option review today",
+                "summary": "Review the same vendor opportunity today.",
+            }
+        ],
+    )
+    second, _ = service.run(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "json:mirror:vendor-a",
+                "external_id": "https://example.test/vendor-a",
+                "signal_type": "operator_signal",
+                "channel": "operator_feed",
+                "title": "Vendor option review today",
+                "summary": "Review the same vendor opportunity today.",
+            }
+        ],
+    )
+
+    assert len(first.items) == 1
+    assert second.items == ()
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    serialized = json.dumps(payload, sort_keys=True)
+    assert "https://example.test/vendor-a" not in serialized
+
+
 def test_ooda_state_store_tracks_interruption_events_under_hashed_principal(tmp_path) -> None:
     state_path = tmp_path / "ooda.json"
     store = JsonOodaStateStore(state_path)

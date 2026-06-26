@@ -225,8 +225,10 @@ def test_runner_deferred_digest_clears_notified_refs() -> None:
     receipt = build_run_receipt(digest=deferred, dry_run=False, error_code="deferred_by_quiet_hours")
 
     assert digest.notified_refs == ("opportunity:quiet",)
+    assert digest.notified_markers == ("opportunity:quiet",)
     assert deferred.items == digest.items
     assert deferred.notified_refs == ()
+    assert deferred.notified_markers == ()
     assert receipt.notification_status == "deferred"
     assert receipt.notified_ref_hashes == ()
 
@@ -252,6 +254,7 @@ def test_runner_operator_pause_defers_actionable_digest() -> None:
 
     assert reason == "deferred_by_operator_pause"
     assert deferred.notified_refs == ()
+    assert deferred.notified_markers == ()
     assert receipt.notification_status == "deferred"
     assert receipt.notified_ref_hashes == ()
 

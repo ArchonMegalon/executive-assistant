@@ -298,6 +298,7 @@ def _without_notified_refs(digest: ProactiveOodaDigest) -> ProactiveOodaDigest:
         generated_at=digest.generated_at,
         items=digest.items,
         notified_refs=(),
+        notified_markers=(),
     )
 
 

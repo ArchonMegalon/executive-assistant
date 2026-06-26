@@ -94,6 +94,10 @@ class ProactiveSignal:
         raw = "\n".join((self.channel, self.signal_type, self.title, self.summary, self.external_id))
         return f"signal:{hashlib.sha256(raw.encode('utf-8')).hexdigest()[:24]}"
 
+    def dedupe_marker(self) -> str:
+        external = str(self.external_id or "").strip()
+        return f"external_id:{external}" if external else ""
+
 
 @dataclass(frozen=True)
 class OodaInk:
@@ -122,6 +126,7 @@ class ProactiveOodaDigest:
     generated_at: str
     items: tuple[OodaInk, ...]
     notified_refs: tuple[str, ...]
+    notified_markers: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -215,16 +220,19 @@ class ProactiveOodaService:
     ) -> ProactiveOodaDigest:
         seen = set(already_notified_refs or set())
         items: list[OodaInk] = []
+        notified_markers: list[str] = []
         for raw_signal in signals:
             signal = raw_signal if isinstance(raw_signal, ProactiveSignal) else ProactiveSignal.from_mapping(raw_signal)
             signal_ref = signal.stable_ref()
-            if signal_ref in seen or _state_key(signal_ref) in seen:
+            signal_marker = signal.dedupe_marker()
+            if _marker_seen(signal_ref, seen) or _marker_seen(signal_marker, seen):
                 continue
             ink = self._orient_signal(signal)
             if not ink.notify:
                 continue
             items.append(ink)
-            seen.add(signal_ref)
+            _remember_marker(signal_ref, seen=seen, emitted=notified_markers)
+            _remember_marker(signal_marker, seen=seen, emitted=notified_markers)
             if len(items) >= self._max_items:
                 break
         return ProactiveOodaDigest(
@@ -232,6 +240,7 @@ class ProactiveOodaService:
             generated_at=datetime.now(timezone.utc).isoformat(),
             items=tuple(items),
             notified_refs=tuple(item.signal_ref for item in items),
+            notified_markers=tuple(dict.fromkeys(marker for marker in notified_markers if marker)),
         )
 
     def run(
@@ -246,8 +255,8 @@ class ProactiveOodaService:
         notification_result: object | None = None
         if digest.items and self._notify and not dry_run:
             notification_result = self._notify(principal_id, format_telegram_digest(digest))
-        if digest.notified_refs and self._state_store and not dry_run:
-            self._state_store.save_notified_refs(principal_id, stored_refs.union(digest.notified_refs))
+        if digest.notified_markers and self._state_store and not dry_run:
+            self._state_store.save_notified_refs(principal_id, stored_refs.union(digest.notified_markers))
         return digest, notification_result
 
     def _orient_signal(self, signal: ProactiveSignal) -> OodaInk:
@@ -536,6 +545,26 @@ def _state_key(value: str) -> str:
     if len(normalized) == 64 and all(char in "0123456789abcdef" for char in normalized.lower()):
         return normalized.lower()
     return _hash_value(normalized)
+
+
+def _marker_seen(marker: str, seen: set[str]) -> bool:
+    normalized = str(marker or "").strip()
+    if not normalized:
+        return False
+    return any(candidate in seen for candidate in _marker_variants(normalized))
+
+
+def _remember_marker(marker: str, *, seen: set[str], emitted: list[str]) -> None:
+    normalized = str(marker or "").strip()
+    if not normalized:
+        return
+    emitted.append(normalized)
+    seen.update(_marker_variants(normalized))
+
+
+def _marker_variants(marker: str) -> tuple[str, str]:
+    normalized = str(marker or "").strip()
+    return normalized, _state_key(normalized)
 
 
 def _build_orient(signal: ProactiveSignal, *, priority: str, approval_required: bool) -> str:
