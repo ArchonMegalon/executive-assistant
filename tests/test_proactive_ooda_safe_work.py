@@ -70,6 +70,7 @@ def test_build_safe_work_result_materializes_reversible_cart_contract() -> None:
         "value": "https://example.test/cart/private",
         "source": "stage_payload",
     }
+    assert result["staged_action_url"] == "https://example.test/cart/private"
     assert result["shortlist"] == [{"label": "Candidate A", "url": "https://example.test/item-a"}]
     assert result["approval"]["required"] is True
     assert result["execution_receipt"]["external_actions_attempted"] == []
@@ -134,6 +135,7 @@ def test_build_safe_work_result_enriches_live_page_checks_and_prefers_reachable_
     assert result["execution_receipt"]["network_fetch_success_count"] == 1
     assert result["recommended_option_or_draft"]["kind"] == "reversible_cart_or_link"
     assert result["recommended_option_or_draft"]["value"] == "https://example.test/item-b"
+    assert result["staged_action_url"] == "https://example.test/item-b"
     assert result["shortlist"][0]["reachable"] is False
     assert result["shortlist"][1]["reachable"] is True
     assert result["shortlist"][1]["page_title"] == "Candidate B Live"

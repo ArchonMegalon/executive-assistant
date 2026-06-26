@@ -5,7 +5,9 @@ import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
+from app.services.proactive_ooda_safe_work import build_safe_work_result
 from app.services.proactive_ooda_service import JsonOodaStateStore, ProactiveOodaService, build_run_receipt
+from app.services.proactive_ooda_stage_packets import build_stage_packets
 
 import scripts.run_proactive_ooda as runner
 import scripts.verify_proactive_ooda as verifier
@@ -178,6 +180,127 @@ def test_runner_load_signals_reuses_opportunity_occurrence_until_condition_reset
     assert [row["source_ref"] for row in second] == ["opportunity:cool-weather-window:occurrence-1"]
     assert warm == []
     assert [row["source_ref"] for row in third] == ["opportunity:cool-weather-window:occurrence-2"]
+
+
+def test_runner_notification_text_includes_safe_work_preview() -> None:
+    digest = ProactiveOodaService().build_digest(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "opportunity:vendor-approval",
+                "signal_type": "opportunity",
+                "channel": "assistant_opportunity",
+                "title": "Prepare one vendor approval packet",
+                "summary": "A reversible vendor choice is ready.",
+                "payload": {
+                    "ooda_loop": {
+                        "reviewed": True,
+                        "observe": {"summary": "Review the vendor shortlist."},
+                        "orient": {"summary": "A reversible option can be staged before approval."},
+                        "decide": {"summary": "Approve whether EA should proceed.", "approval_required": True},
+                        "act": {
+                            "summary": "Prepare the best approval link.",
+                            "stage": {
+                                "kind": "approval_packet",
+                                "summary": "One vendor candidate ready for approval.",
+                                "approval_url": "https://example.test/approve/vendor-a",
+                                "candidate_items": [
+                                    {"label": "Vendor A", "url": "https://example.test/vendor-a"},
+                                    {"label": "Vendor B", "url": "https://example.test/vendor-b"},
+                                ],
+                            },
+                            "external_action_policy": "Do not buy, book, send, cancel, post, or commit without explicit approval.",
+                        },
+                    }
+                },
+            }
+        ],
+    )
+    packet = build_stage_packets(digest)[0]
+    result = build_safe_work_result(packet)
+
+    text = runner._format_notification_text(digest, safe_work_results=(result,))
+
+    assert "Prepared: One vendor candidate ready for approval." in text
+    assert "Recommended: shortlist candidate: Vendor A | https://example.test/vendor-a" in text
+    assert "Link: https://example.test/approve/vendor-a" in text
+    assert "Shortlist: Vendor A - https://example.test/vendor-a" in text
+    assert "Approve: Approve whether EA should proceed with this staged shortlist candidate." in text
+
+
+def test_runner_main_sends_safe_work_preview_to_telegram(tmp_path, monkeypatch, capsys) -> None:
+    signal_file = tmp_path / "signals.json"
+    signal_file.write_text(
+        json.dumps(
+            [
+                {
+                    "source_ref": "opportunity:vendor-approval",
+                    "signal_type": "opportunity",
+                    "channel": "assistant_opportunity",
+                    "title": "Prepare one vendor approval packet",
+                    "summary": "A reversible vendor choice is ready.",
+                    "payload": {
+                        "ooda_loop": {
+                            "reviewed": True,
+                            "observe": {"summary": "Review the vendor shortlist."},
+                            "orient": {"summary": "A reversible option can be staged before approval."},
+                            "decide": {"summary": "Approve whether EA should proceed.", "approval_required": True},
+                            "act": {
+                                "summary": "Prepare the best approval link.",
+                                "stage": {
+                                    "kind": "approval_packet",
+                                    "summary": "One vendor candidate ready for approval.",
+                                    "approval_url": "https://example.test/approve/vendor-a",
+                                    "candidate_items": [
+                                        {"label": "Vendor A", "url": "https://example.test/vendor-a"},
+                                        {"label": "Vendor B", "url": "https://example.test/vendor-b"},
+                                    ],
+                                },
+                                "external_action_policy": "Do not buy, book, send, cancel, post, or commit without explicit approval.",
+                            },
+                        }
+                    },
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    sent: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(
+        runner,
+        "_telegram_notify",
+        lambda principal_id, text: sent.append((principal_id, text)) or {"message_id": 123},
+    )
+    monkeypatch.setattr(runner, "persist_proactive_ooda_receipt", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        runner.sys,
+        "argv",
+        [
+            "run_proactive_ooda.py",
+            "--principal-id",
+            "exec",
+            "--signals-json",
+            str(signal_file),
+            "--state-path",
+            str(tmp_path / "state.json"),
+            "--stage-packet-dir",
+            str(tmp_path / "packets"),
+            "--safe-work-result-dir",
+            str(tmp_path / "results"),
+            "--skip-observation-source",
+            "--skip-workspace-source",
+        ],
+    )
+
+    assert runner.main() == 0
+
+    captured = capsys.readouterr()
+    assert sent and sent[0][0] == "exec"
+    assert "Recommended: shortlist candidate: Vendor A | https://example.test/vendor-a" in sent[0][1]
+    assert "Link: https://example.test/approve/vendor-a" in sent[0][1]
+    assert "Shortlist: Vendor A - https://example.test/vendor-a" in sent[0][1]
+    assert '"notification_status": "sent"' in captured.out
 
 
 def test_runner_quiet_hours_defer_non_high_priority_digest() -> None:

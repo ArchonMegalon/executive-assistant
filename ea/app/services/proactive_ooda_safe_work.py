@@ -84,6 +84,11 @@ def build_safe_work_result(
         stage_payload=stage_payload,
         candidate_items=candidate_items,
     )
+    staged_action_url = _staged_action_url(
+        stage_payload=stage_payload,
+        recommended=recommended,
+        candidate_items=candidate_items,
+    )
     has_material = bool(recommended.get("value") or candidate_items)
     result_id = _result_id(packet=packet, order=order, generated_at=generated_at or "")
     return {
@@ -104,6 +109,7 @@ def build_safe_work_result(
             page_checks=page_checks,
         ),
         "recommended_option_or_draft": recommended,
+        "staged_action_url": staged_action_url,
         "shortlist": candidate_items,
         "evidence_refs": _evidence_refs(
             input_contract=input_contract,
@@ -290,6 +296,24 @@ def _summary(
     return f"{base} {live_summary}".strip() if live_summary else base
 
 
+def _staged_action_url(
+    *,
+    stage_payload: Mapping[str, Any],
+    recommended: Mapping[str, Any],
+    candidate_items: list[dict[str, Any]],
+) -> str:
+    for value in (
+        stage_payload.get("cart_url"),
+        stage_payload.get("approval_url"),
+        recommended.get("value"),
+        candidate_items,
+    ):
+        url = _url_from_value(value)
+        if url:
+            return url
+    return ""
+
+
 def _evidence_refs(
     *,
     input_contract: Mapping[str, Any],
@@ -386,6 +410,15 @@ def _first_url(items: list[dict[str, Any]]) -> str:
             if value:
                 return value
     return ""
+
+
+def _url_from_value(value: Any) -> str:
+    if isinstance(value, Mapping):
+        return _first_url([dict(value)])
+    if isinstance(value, list):
+        return _first_url([dict(item) for item in value if isinstance(item, Mapping)])
+    text = str(value or "").strip()
+    return text if re.match(r"^https?://", text, flags=re.IGNORECASE) else ""
 
 
 def _label_from_url(url: str) -> str:

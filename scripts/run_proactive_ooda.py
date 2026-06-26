@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
 from datetime import datetime, time as datetime_time, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable, Mapping
 import urllib.request
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -58,10 +59,12 @@ from app.services.proactive_signal_discovery import (  # noqa: E402
 )
 from app.services.proactive_ooda_receipts import persist_proactive_ooda_receipt  # noqa: E402
 from app.services.proactive_ooda_safe_work import (  # noqa: E402
+    build_safe_work_result,
     default_safe_work_result_dir,
     persist_safe_work_results_from_paths,
 )
 from app.services.proactive_ooda_stage_packets import (  # noqa: E402
+    build_stage_packets,
     default_stage_packet_dir,
     persist_stage_packets,
 )
@@ -182,48 +185,44 @@ def main() -> int:
         persist_opportunity_state=not args.dry_run,
     )
     service = ProactiveOodaService(
-        notify=_telegram_notify,
         state_store=state_store,
         max_items=args.max_items,
     )
     error_code = ""
     notification_result: object | None = None
-    digest = None
+    stored_refs = state_store.load_notified_refs(args.principal_id)
+    digest = service.build_digest(
+        principal_id=args.principal_id,
+        signals=signals,
+        already_notified_refs=stored_refs,
+    )
     if not args.dry_run:
-        candidate_digest = service.build_digest(
-            principal_id=args.principal_id,
-            signals=signals,
-            already_notified_refs=state_store.load_notified_refs(args.principal_id),
-        )
-        deferred_reason = _operator_pause_defer_reason(args, candidate_digest)
+        deferred_reason = _operator_pause_defer_reason(args, digest)
         if not deferred_reason:
-            deferred_reason = _quiet_hours_defer_reason(args, candidate_digest)
+            deferred_reason = _quiet_hours_defer_reason(args, digest)
         if not deferred_reason:
             deferred_reason = _interruption_budget_defer_reason(
                 args,
                 state_store=state_store,
                 principal_id=args.principal_id,
-                digest=candidate_digest,
+                digest=digest,
             )
         if deferred_reason:
-            digest = _without_notified_refs(candidate_digest)
+            digest = _without_notified_refs(digest)
             error_code = deferred_reason
-    try:
-        if digest is None:
-            digest, notification_result = service.run(principal_id=args.principal_id, signals=signals, dry_run=args.dry_run)
-    except Exception as exc:
-        digest = service.build_digest(principal_id=args.principal_id, signals=signals)
-        error_code = exc.__class__.__name__
     stage_packet_refs: tuple[str, ...] = ()
     stage_packet_error_count = 0
     safe_work_result_refs: tuple[str, ...] = ()
     safe_work_result_error_count = 0
+    stage_packet_paths: tuple[str, ...] = ()
+    safe_work_result_paths: tuple[str, ...] = ()
     if digest.items and not args.dry_run and bool(getattr(args, "stage_packets", True)):
         stage_packet_dir = _stage_packet_dir(args)
         stage_result = persist_stage_packets(
             digest=digest,
             output_dir=stage_packet_dir,
         )
+        stage_packet_paths = stage_result.paths
         stage_packet_refs = stage_result.packet_refs
         stage_packet_error_count = len(stage_result.errors)
         if stage_result.paths and bool(getattr(args, "safe_work_results", True)):
@@ -234,8 +233,25 @@ def main() -> int:
                 network_fetch_limit=max(int(getattr(args, "safe_work_network_fetch_limit", 6) or 1), 1),
                 network_fetch_timeout_seconds=max(int(getattr(args, "safe_work_network_fetch_timeout_seconds", 10) or 1), 1),
             )
+            safe_work_result_paths = safe_work_result.paths
             safe_work_result_refs = safe_work_result.result_refs
             safe_work_result_error_count = len(safe_work_result.errors)
+    notification_text = _format_notification_text(
+        digest,
+        safe_work_results=_notification_safe_work_previews(
+            args,
+            digest=digest,
+            stage_packet_paths=stage_packet_paths,
+            safe_work_result_paths=safe_work_result_paths,
+        ),
+    )
+    if digest.items and not args.dry_run and not error_code:
+        try:
+            notification_result = _telegram_notify(args.principal_id, notification_text)
+            if digest.notified_markers:
+                state_store.save_notified_refs(args.principal_id, stored_refs.union(digest.notified_markers))
+        except Exception as exc:
+            error_code = exc.__class__.__name__
     receipt = build_run_receipt(
         digest=digest,
         dry_run=args.dry_run,
@@ -260,8 +276,7 @@ def main() -> int:
     if error_code and not _is_deferred_error(error_code):
         raise RuntimeError(f"proactive_ooda_notification_failed:{error_code}")
     if args.pretty:
-        text = format_telegram_digest(digest) or "No actionable OODA ink."
-        print(text)
+        print(notification_text or "No actionable OODA ink.")
     else:
         print(json.dumps({"digest": digest_to_dict(digest), "receipt": receipt_to_dict(receipt)}, indent=2, sort_keys=True))
     return 0
@@ -286,6 +301,172 @@ def _safe_work_result_dir(args: argparse.Namespace, *, stage_packet_dir: Path) -
         path = Path(configured)
         return path if path.is_absolute() else ROOT / path
     return default_safe_work_result_dir(stage_packet_dir)
+
+
+def _notification_safe_work_previews(
+    args: argparse.Namespace,
+    *,
+    digest: ProactiveOodaDigest,
+    stage_packet_paths: Iterable[str | Path] = (),
+    safe_work_result_paths: Iterable[str | Path] = (),
+) -> tuple[dict[str, Any], ...]:
+    if not digest.items or not bool(getattr(args, "safe_work_results", True)):
+        return ()
+    try:
+        ordered_persisted = _ordered_safe_work_results_from_paths(
+            stage_packet_paths=stage_packet_paths,
+            safe_work_result_paths=safe_work_result_paths,
+        )
+        if ordered_persisted:
+            return ordered_persisted
+        packets = build_stage_packets(digest)
+        return tuple(
+            build_safe_work_result(
+                packet,
+                network_fetch_enabled=bool(getattr(args, "safe_work_network_fetch", True)),
+                network_fetch_limit=max(int(getattr(args, "safe_work_network_fetch_limit", 6) or 1), 1),
+                network_fetch_timeout_seconds=max(int(getattr(args, "safe_work_network_fetch_timeout_seconds", 10) or 1), 1),
+            )
+            for packet in packets
+        )
+    except Exception:
+        return ()
+
+
+def _ordered_safe_work_results_from_paths(
+    *,
+    stage_packet_paths: Iterable[str | Path],
+    safe_work_result_paths: Iterable[str | Path],
+) -> tuple[dict[str, Any], ...]:
+    packet_order: list[tuple[int, str]] = []
+    for raw_path in stage_packet_paths:
+        payload = _read_json_object(raw_path)
+        if not payload:
+            continue
+        packet_ref = str(payload.get("packet_ref") or "").strip()
+        item_index = int(payload.get("item_index") or 0)
+        if packet_ref and item_index > 0:
+            packet_order.append((item_index, _hash_value(packet_ref)))
+    if not packet_order:
+        return ()
+    result_by_packet_hash: dict[str, dict[str, Any]] = {}
+    for raw_path in safe_work_result_paths:
+        payload = _read_json_object(raw_path)
+        packet_hash = str(payload.get("source_packet_ref_hash") or "").strip()
+        if packet_hash:
+            result_by_packet_hash[packet_hash] = payload
+    ordered: list[dict[str, Any]] = []
+    for _index, packet_hash in sorted(packet_order):
+        payload = result_by_packet_hash.get(packet_hash)
+        if payload:
+            ordered.append(payload)
+    return tuple(ordered)
+
+
+def _read_json_object(path: str | Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _format_notification_text(
+    digest: ProactiveOodaDigest,
+    *,
+    safe_work_results: Iterable[Mapping[str, Any]] = (),
+) -> str:
+    base = format_telegram_digest(digest)
+    if not base:
+        return ""
+    results = tuple(safe_work_results)
+    if not results:
+        return base
+    lines = base.splitlines()
+    enriched: list[str] = []
+    result_index = 0
+    item_number = 0
+    for line in lines:
+        enriched.append(line)
+        stripped = line.strip()
+        if stripped and stripped[0].isdigit() and stripped[1:3] == ". ":
+            item_number += 1
+            if result_index < len(results):
+                preview_lines = _safe_work_preview_lines(results[result_index])
+                if preview_lines:
+                    enriched.extend(preview_lines)
+                result_index += 1
+    return "\n".join(enriched).strip()
+
+
+def _safe_work_preview_lines(result: Mapping[str, Any]) -> list[str]:
+    summary = _compact_text(result.get("summary"), 220)
+    recommended = _recommended_preview(result.get("recommended_option_or_draft"))
+    staged_action_url = _compact_text(result.get("staged_action_url"), 180)
+    shortlist = _shortlist_preview(result.get("shortlist"))
+    prompt = _compact_text(result.get("approval_prompt"), 220)
+    lines: list[str] = []
+    if summary:
+        lines.append(f"Prepared: {summary}")
+    if recommended:
+        lines.append(f"Recommended: {recommended}")
+    if staged_action_url:
+        lines.append(f"Link: {staged_action_url}")
+    if shortlist:
+        lines.append(f"Shortlist: {shortlist}")
+    if prompt:
+        lines.append(f"Approve: {prompt}")
+    return lines
+
+
+def _recommended_preview(value: Any) -> str:
+    if not isinstance(value, Mapping):
+        return _compact_text(value, 180)
+    kind = str(value.get("kind") or "result").replace("_", " ").strip()
+    raw = value.get("value")
+    if isinstance(raw, Mapping):
+        label = _compact_text(raw.get("label") or raw.get("title"), 80)
+        url = _compact_text(raw.get("url") or raw.get("link") or raw.get("href"), 120)
+        title = _compact_text(raw.get("page_title"), 80)
+        parts = [part for part in (label, title, url) if part]
+        detail = " | ".join(parts)
+        return f"{kind}: {detail}" if detail else kind
+    detail = _compact_text(raw, 180)
+    return f"{kind}: {detail}" if detail else kind
+
+
+def _shortlist_preview(value: Any, *, limit: int = 2) -> str:
+    if not isinstance(value, list):
+        return ""
+    parts: list[str] = []
+    for item in value[: max(int(limit or 1), 1)]:
+        if not isinstance(item, Mapping):
+            continue
+        label = _compact_text(item.get("label") or item.get("title"), 60) or "candidate"
+        url = _compact_text(item.get("url") or item.get("link") or item.get("href"), 100)
+        reachability = ""
+        if item.get("reachable") is True:
+            reachability = "reachable"
+        elif item.get("reachable") is False:
+            reachability = "unreachable"
+        page_title = _compact_text(item.get("page_title"), 60)
+        detail = ", ".join(part for part in (reachability, page_title) if part)
+        candidate = f"{label} - {url}" if url else label
+        if detail:
+            candidate = f"{candidate} ({detail})"
+        parts.append(candidate)
+    return " | ".join(parts)
+
+
+def _compact_text(value: Any, limit: int) -> str:
+    text = " ".join(str(value or "").strip().split())
+    if not text:
+        return ""
+    return text if len(text) <= limit else f"{text[: max(limit - 1, 1)].rstrip()}..."
+
+
+def _hash_value(value: str) -> str:
+    return hashlib.sha256(str(value or "").encode("utf-8")).hexdigest()
 
 
 def _env_truthy(name: str, *, default: bool = False) -> bool:
