@@ -101,6 +101,9 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert receipt["overall_status"] == "blocked_real_world_acceptance"
     assert receipt["goal_completion_claim_allowed"] is False
     assert receipt["real_use_claim_allowed"] is False
+    assert "proactive OODA" in receipt["goal_shorthand"]
+    assert "real proactive OODA packet accepted and mirrored into Teable" in receipt["required_next_receipts"]
+    assert "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth." in receipt["rules"]
 
     lenses = {lens["key"]: lens for lens in receipt["lenses"]}
     assert lenses["detect"]["status"] == "ready_local_packet_pending_operator_acceptance"
@@ -108,6 +111,8 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert lenses["deliver"]["status"] == "mixed_local_progress"
     assert lenses["recover"]["status"] == "ready_local_audit"
     assert lenses["prove"]["status"] == "blocked_real_world_acceptance"
+    assert "proactive OODA shortlist" in lenses["detect"]["summary"]
+    assert "proactive OODA packet loop" in lenses["decide"]["summary"]
 
     deliver_components = {component["key"]: component for component in lenses["deliver"]["components"]}
     assert deliver_components["promo_media"]["status"] == "ready_local_evidence"

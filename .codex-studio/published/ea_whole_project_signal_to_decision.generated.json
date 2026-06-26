@@ -51,7 +51,7 @@
     "recorded_at": "",
     "source_kind": ""
   },
-  "generated_at": "2026-06-26T11:46:33Z",
+  "generated_at": "2026-06-26T16:55:38Z",
   "goal_completion_claim_allowed": false,
   "operator_review": {
     "accepted": false,
@@ -70,6 +70,7 @@
     "real commitment recovered or closed with an evidence receipt",
     "real approved outbound action with audit trail",
     "real provider failure recovered with operator-grade reason",
+    "real proactive OODA packet accepted with routed delivery and mirrored Teable projection",
     "real whole-project scope gap audit reviewed against the current product spine",
     "real weekly signal-to-decision review accepted by the operator",
     "ChatLab account capability receipt",

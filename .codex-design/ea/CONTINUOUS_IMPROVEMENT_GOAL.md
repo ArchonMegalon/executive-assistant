@@ -74,6 +74,23 @@ Keep this goal open until evidence exists for all of these outcomes:
 - real recovery acceptance: a fresh-host Teable recovery drill that restores required env files, referenced credentials, and service config from Teable-seeded credentials only;
 - real verification acceptance: each user-facing lane has a runnable verifier, redacted receipt, owner boundary, privacy posture, and claim limit.
 
+## Proactive OODA Gold-Production Goal
+
+EA must behave like a smart paid human assistant, not a reminder bot. The flower example is only one instance. The real goal is a reusable proactive OODA loop that notices relationship, calendar, deadline, renewal, property, vendor, shopping, and follow-through opportunities and then moves them toward decision-ready outcomes.
+
+The target behavior is explicit:
+
+- observe: ingest every approved reachable signal source and provider posture that can help the user, while keeping EA downstream of the owning truth planes;
+- orient: combine timing, commitments, preferences, budgets, quiet hours, past outcomes, open loops, and channel readiness before deciding to interrupt;
+- decide: produce generic assistant-grade packets such as shortlists, carts, booking candidates, drafted replies, reminders, vendor comparisons, approval links, and recovery steps;
+- act: route the packet over the best viable channel, browse when useful, and stage reversible next steps, but keep purchases, bookings, outbound commitments, cancellations, and sent messages behind explicit approval;
+- remember: mirror important run facts, blockers, staged options, delivery posture, and follow-through receipts into Teable as an admin projection, not canonical truth;
+- improve: use live acceptance, ignored or accepted outcomes, and provider failures to tune the loop without widening claims prematurely.
+
+Acceptance rule: this goal is not complete until real proactive OODA packets are accepted under ordinary use, generic delivery routing stays honest about blockers, Teable holds the important projected facts, and irreversible actions remain consent-gated.
+
+Idle priority rule: when signal intake is broad but outcomes are weak, improve orientation, packet quality, delivery routing, or Teable projection before adding another source or demo.
+
 ## Life and Work Operating System Goal
 
 Make EA a trusted operating system for Tibor's life and work: it continuously observes relevant signals, protects attention, remembers commitments, coordinates tools and projects, speaks naturally through Manfred when useful, produces high-quality media and documents, recovers from infrastructure loss, and improves itself through real acceptance evidence rather than local green checks.

@@ -124,7 +124,7 @@
     "real_approved_action_audited",
     "real_provider_failure_recovered"
   ],
-  "generated_at": "2026-06-26T11:46:33Z",
+  "generated_at": "2026-06-26T16:55:38Z",
   "generated_by": "ea/scripts/materialize_executive_assistant_quality_readiness.py",
   "goal_completion_claim_allowed": false,
   "good_executive_assistant_claim_allowed": false,
@@ -184,10 +184,10 @@
     "real provider failure recovered with operator-grade reason"
   ],
   "source_receipt": {
-    "bytes": 4746,
+    "bytes": 5768,
     "exists": true,
     "path": ".codex-studio/published/ea_office_loop_goal.generated.json",
-    "sha256": "c514d72923cc7d234d366da1f3b0f294cdc0401b4b9fc7b5eead05accbab2acd"
+    "sha256": "7ea189a7c6795cb3ede0e4432741882de82cfc3dbfa0a1ceac577fe0e400492d"
   },
   "status": "blocked_real_world_acceptance"
 }

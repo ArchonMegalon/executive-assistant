@@ -35,6 +35,7 @@ def test_office_loop_goal_receipt_materializes_seeded_local_loop(tmp_path: Path)
     assert receipt["goal_completion_claim_allowed"] is False
     assert receipt["live_daily_use_verified"] is False
     assert receipt["real_operator_acceptance_verified"] is False
+    assert receipt["next_action"] == "collect a real proactive OODA packet with accepted outcome, routed delivery proof, and mirrored Teable projection"
     assert receipt["boundary_posture"]["ea_is_product_truth"] is False  # type: ignore[index]
     assert receipt["seeded_fixture"]["raw_private_context_exposed"] is False  # type: ignore[index]
     for key, row in receipt["components"].items():  # type: ignore[union-attr]
@@ -71,7 +72,14 @@ def test_office_loop_goal_receipt_materializes_seeded_local_loop(tmp_path: Path)
     assert "human_acceptance_before_queue_or_release_claim" in signal_goal["requires"]
     assert "provider_runtime_failures" in signal_goal["protected_signal_sources"]
     assert "release_install_update_friction" in signal_goal["protected_signal_sources"]
+    proactive_goal = additional_goals["proactive_ooda_gold_production"]
+    assert proactive_goal["status"] == "active_local_goal"
+    assert proactive_goal["claim_limit"] == "local_proactive_ooda_readiness_not_real_assistant_grade_acceptance"
+    assert "generic_safe_work_packets" in proactive_goal["requires"]
+    assert "teable_projection_of_run_facts" in proactive_goal["requires"]
+    assert "delivery_route_readiness" in proactive_goal["protected_signal_sources"]
     assert "real whole-project scope gap audit reviewed against the current product spine" in receipt["remaining_external_proofs"]
+    assert "real proactive OODA packet accepted with routed delivery and mirrored Teable projection" in receipt["remaining_external_proofs"]
     assert "real weekly signal-to-decision review accepted by the operator" in receipt["remaining_external_proofs"]
 
     verification = verifier.verify_office_loop_goal_receipt(receipt_path)
@@ -102,6 +110,8 @@ def test_office_loop_goal_verifier_rejects_overclaim_and_route_regression(tmp_pa
     additional_goals["whole_project_product_governor_loop"]["protected_pressures"].remove("ready_tonight")
     additional_goals["whole_project_scope_gap_audit"]["protected_scope_axes"].remove("run_session")
     additional_goals["whole_project_signal_to_decision_closure"]["protected_signal_sources"].remove("provider_runtime_failures")
+    additional_goals["proactive_ooda_gold_production"]["requires"].remove("teable_projection_of_run_facts")
+    additional_goals["proactive_ooda_gold_production"]["protected_signal_sources"].remove("delivery_route_readiness")
     receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     verification = verifier.verify_office_loop_goal_receipt(receipt_path)
@@ -119,6 +129,8 @@ def test_office_loop_goal_verifier_rejects_overclaim_and_route_regression(tmp_pa
     assert "office_loop_product_governor_pressure_missing:ready_tonight" in verification["issues"]
     assert "office_loop_scope_gap_audit_axis_missing:run_session" in verification["issues"]
     assert "office_loop_signal_to_decision_source_missing:provider_runtime_failures" in verification["issues"]
+    assert "office_loop_proactive_ooda_requirement_missing:teable_projection_of_run_facts" in verification["issues"]
+    assert "office_loop_proactive_ooda_source_missing:delivery_route_readiness" in verification["issues"]
 
 
 def test_office_loop_goal_receipt_clis_work(tmp_path: Path) -> None:

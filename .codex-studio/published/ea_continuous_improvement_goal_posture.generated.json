@@ -12,11 +12,11 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-06-25T16:18:22Z",
+  "generated_at": "2026-06-26T16:55:38Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
-  "goal_shorthand": "Make EA the user's dependable executive, conversation, and media operating system: proactive, cross-channel, self-healing, premium-quality, and governed by owning truth planes rather than assistant-local lore.",
+  "goal_shorthand": "Make EA the user's dependable executive operating system: proactive OODA, cross-channel, Teable-projected, self-healing, premium-quality, and governed by owning truth planes rather than assistant-local lore.",
   "head_semantics": "source_state",
   "lenses": [
     {
@@ -33,7 +33,7 @@
       ],
       "status": "ready_local_packet_pending_operator_acceptance",
       "status_class": "progress",
-      "summary": "Turn incoming signals into a bounded operator packet instead of letting them pile up as ambient noise.",
+      "summary": "Turn incoming signals into a bounded operator packet and proactive OODA shortlist instead of letting them pile up as ambient noise.",
       "title": "Signal ingest and prioritization",
       "verifier_commands": [
         "make verify-whole-project-signal-to-decision-receipt",
@@ -43,7 +43,7 @@
     {
       "components": [],
       "key": "decide",
-      "next_action": "collect_real_daily_office_loop_acceptance_evidence",
+      "next_action": "collect a real proactive OODA packet with accepted outcome, routed delivery proof, and mirrored Teable projection",
       "source_receipts": [
         {
           "contract_name": "ea.office_loop_goal_receipt.v1",
@@ -54,7 +54,7 @@
       ],
       "status": "ready_local_evidence",
       "status_class": "progress",
-      "summary": "Keep the morning brief, decision queue, and commitment loop coherent enough to drive ordinary daily work.",
+      "summary": "Keep the morning brief, decision queue, commitment loop, and proactive OODA packet loop coherent enough to drive ordinary daily work.",
       "title": "Decision and office-loop closure",
       "verifier_commands": [
         "make verify-office-loop-goal-receipt"
@@ -80,7 +80,7 @@
         },
         {
           "key": "manfred_speech",
-          "next_action": "Promote only a consented real captured STT fixture that passes the provider benchmark.",
+          "next_action": "promote only a consented real captured STT fixture that passes the provider benchmark",
           "source_receipts": [
             {
               "contract_name": "ea.manfred_realtime_conversation_readiness.v1",
@@ -158,7 +158,7 @@
         }
       ],
       "key": "deliver",
-      "next_action": "Promote only a consented real captured STT fixture that passes the provider benchmark.",
+      "next_action": "promote only a consented real captured STT fixture that passes the provider benchmark",
       "source_receipts": [],
       "status": "mixed_local_progress",
       "status_class": "blocking",
@@ -226,13 +226,16 @@
   "required_next_receipts": [
     "real operator acceptance that the morning brief was worth reading",
     "real weekly signal-to-decision review acceptance receipt",
+    "real proactive OODA packet accepted and mirrored into Teable",
     "fresh-host Teable recovery drill receipt mirrored into the repo",
     "consented Manfred STT/TTS realtime conversation proof"
   ],
   "rules": [
     "Local route receipts and operator commands may guide work, but they do not by themselves prove real daily usefulness.",
+    "Irreversible purchases, bookings, cancellations, outbound commitments, and sent messages must stay consent-gated even when proactive OODA staging is automated.",
     "The recover lens may use a mirrored local readiness receipt, but it must not claim pass until a fresh-host Teable recovery drill receipt is mirrored.",
+    "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "a36f2efbf30ff0da35ebf1ee0d8c140cd3579829"
+  "source_git_head": "e98fbd5fef1184d6eafd6e41a6c1faf4b70d11dc"
 }

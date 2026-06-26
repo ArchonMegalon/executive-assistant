@@ -71,6 +71,27 @@ def _additional_goals() -> list[dict[str, Any]]:
             "requires": ["cross_surface_signal_intake", "weekly_operator_decision_packet", "human_acceptance_before_queue_or_release_claim"],
             "protected_signal_sources": ["provider_runtime_failures", "release_install_update_friction", "support_and_recovery_cases"],
         },
+        {
+            "key": "proactive_ooda_gold_production",
+            "label": "Proactive OODA gold production",
+            "status": "active_local_goal",
+            "claim_limit": "local_proactive_ooda_readiness_not_real_assistant_grade_acceptance",
+            "source_path": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
+            "requires": [
+                "approved_signal_ingest",
+                "generic_safe_work_packets",
+                "consent_gated_irreversible_actions",
+                "teable_projection_of_run_facts",
+                "real_operator_acceptance_before_gold_claim",
+            ],
+            "protected_signal_sources": [
+                "commitment_and_deadline_signals",
+                "relationship_and_occasion_signals",
+                "shopping_and_vendor_signals",
+                "delivery_route_readiness",
+                "provider_runtime_failures",
+            ],
+        },
     ]
 
 
@@ -98,6 +119,7 @@ def materialize_office_loop_goal_receipt(*, receipt_path: str | Path, generated_
             "today": {"markers_pass": True, "marker_results": {"Today": True}},
         },
         "diagnostics_summary": {"analytics_counts_present": True, "channel_loop_digest_keys": ["memo", "approvals", "operator"]},
+        "next_action": "collect a real proactive OODA packet with accepted outcome, routed delivery proof, and mirrored Teable projection",
         "additional_goals": _additional_goals(),
         "remaining_external_proofs": [
             "real daily morning brief acceptance",
@@ -105,6 +127,7 @@ def materialize_office_loop_goal_receipt(*, receipt_path: str | Path, generated_
             "real commitment recovered or closed with an evidence receipt",
             "real approved outbound action with audit trail",
             "real provider failure recovered with operator-grade reason",
+            "real proactive OODA packet accepted with routed delivery and mirrored Teable projection",
             "real whole-project scope gap audit reviewed against the current product spine",
             "real weekly signal-to-decision review accepted by the operator",
         ],

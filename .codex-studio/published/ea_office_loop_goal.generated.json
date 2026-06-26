@@ -74,6 +74,27 @@
       ],
       "source_path": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
       "status": "active_local_goal"
+    },
+    {
+      "claim_limit": "local_proactive_ooda_readiness_not_real_assistant_grade_acceptance",
+      "key": "proactive_ooda_gold_production",
+      "label": "Proactive OODA gold production",
+      "protected_signal_sources": [
+        "commitment_and_deadline_signals",
+        "relationship_and_occasion_signals",
+        "shopping_and_vendor_signals",
+        "delivery_route_readiness",
+        "provider_runtime_failures"
+      ],
+      "requires": [
+        "approved_signal_ingest",
+        "generic_safe_work_packets",
+        "consent_gated_irreversible_actions",
+        "teable_projection_of_run_facts",
+        "real_operator_acceptance_before_gold_claim"
+      ],
+      "source_path": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
+      "status": "active_local_goal"
     }
   ],
   "boundary_posture": {
@@ -128,9 +149,10 @@
     ]
   },
   "external_provider_runtime_verified": false,
-  "generated_at": "2026-06-26T11:46:33Z",
+  "generated_at": "2026-06-26T16:55:38Z",
   "goal_completion_claim_allowed": false,
   "live_daily_use_verified": false,
+  "next_action": "collect a real proactive OODA packet with accepted outcome, routed delivery proof, and mirrored Teable projection",
   "real_operator_acceptance_verified": false,
   "remaining_external_proofs": [
     "real daily morning brief acceptance",
@@ -138,6 +160,7 @@
     "real commitment recovered or closed with an evidence receipt",
     "real approved outbound action with audit trail",
     "real provider failure recovered with operator-grade reason",
+    "real proactive OODA packet accepted with routed delivery and mirrored Teable projection",
     "real whole-project scope gap audit reviewed against the current product spine",
     "real weekly signal-to-decision review accepted by the operator"
   ],

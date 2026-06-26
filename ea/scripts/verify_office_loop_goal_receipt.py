@@ -41,6 +41,10 @@ def verify_office_loop_goal_receipt(receipt_path: str | Path) -> dict[str, Any]:
         issues.append("office_loop_scope_gap_audit_axis_missing:run_session")
     if "provider_runtime_failures" not in dict(goals.get("whole_project_signal_to_decision_closure") or {}).get("protected_signal_sources", []):
         issues.append("office_loop_signal_to_decision_source_missing:provider_runtime_failures")
+    if "teable_projection_of_run_facts" not in dict(goals.get("proactive_ooda_gold_production") or {}).get("requires", []):
+        issues.append("office_loop_proactive_ooda_requirement_missing:teable_projection_of_run_facts")
+    if "delivery_route_readiness" not in dict(goals.get("proactive_ooda_gold_production") or {}).get("protected_signal_sources", []):
+        issues.append("office_loop_proactive_ooda_source_missing:delivery_route_readiness")
     return {"contract_name": "ea.office_loop_goal_receipt.verify.v1", "status": "pass" if not issues else "fail", "issues": issues}
 
 

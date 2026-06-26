@@ -156,7 +156,7 @@ def build_goal_posture(
         key="detect",
         title="Signal ingest and prioritization",
         status=_status(signal),
-        summary="Turn incoming signals into a bounded operator packet instead of letting them pile up as ambient noise.",
+        summary="Turn incoming signals into a bounded operator packet and proactive OODA shortlist instead of letting them pile up as ambient noise.",
         next_action=_compact(signal.get("next_action"), default="review_weekly_signal_to_decision_packet_with_operator"),
         verifier_commands=[
             "make verify-whole-project-signal-to-decision-receipt",
@@ -169,7 +169,7 @@ def build_goal_posture(
         key="decide",
         title="Decision and office-loop closure",
         status=_status(office),
-        summary="Keep the morning brief, decision queue, and commitment loop coherent enough to drive ordinary daily work.",
+        summary="Keep the morning brief, decision queue, commitment loop, and proactive OODA packet loop coherent enough to drive ordinary daily work.",
         next_action=_compact(office.get("next_action"), default="collect_real_daily_office_loop_acceptance_evidence"),
         verifier_commands=[
             "make verify-office-loop-goal-receipt",
@@ -343,6 +343,7 @@ def build_goal_posture(
     required_next_receipts = [
         "real operator acceptance that the morning brief was worth reading",
         "real weekly signal-to-decision review acceptance receipt",
+        "real proactive OODA packet accepted and mirrored into Teable",
         "fresh-host Teable recovery drill receipt mirrored into the repo",
     ]
     if any(reason.startswith("deliver:manfred_speech") for reason in blocking_reasons):
@@ -358,7 +359,7 @@ def build_goal_posture(
         "head_semantics": "source_state",
         "output_path": _display_path(root, output_path),
         "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
-        "goal_shorthand": "Make EA the user's dependable executive, conversation, and media operating system: proactive, cross-channel, self-healing, premium-quality, and governed by owning truth planes rather than assistant-local lore.",
+        "goal_shorthand": "Make EA the user's dependable executive operating system: proactive OODA, cross-channel, Teable-projected, self-healing, premium-quality, and governed by owning truth planes rather than assistant-local lore.",
         "execution_lenses": [lens["key"] for lens in lenses],
         "overall_status": overall_status,
         "goal_completion_claim_allowed": False,
@@ -368,7 +369,9 @@ def build_goal_posture(
         "required_next_receipts": required_next_receipts,
         "rules": [
             "Local route receipts and operator commands may guide work, but they do not by themselves prove real daily usefulness.",
+            "Irreversible purchases, bookings, cancellations, outbound commitments, and sent messages must stay consent-gated even when proactive OODA staging is automated.",
             "The recover lens may use a mirrored local readiness receipt, but it must not claim pass until a fresh-host Teable recovery drill receipt is mirrored.",
+            "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
             "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open.",
         ],
     }

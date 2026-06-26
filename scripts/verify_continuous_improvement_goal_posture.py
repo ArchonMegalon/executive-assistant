@@ -81,6 +81,8 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
         issues.append("goal_completion_claim_allowed must remain false")
     if "governed by owning truth planes" not in str(receipt.get("goal_shorthand") or ""):
         issues.append("goal_shorthand drifted away from the governed north-star wording")
+    if "proactive ooda" not in str(receipt.get("goal_shorthand") or "").lower():
+        issues.append("goal_shorthand must keep the proactive OODA posture explicit")
 
     current_head = _git_head(repo_root)
     if current_head and not _fresh_enough(str(receipt.get("source_git_head") or ""), current_head=current_head):
@@ -178,6 +180,17 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
         str(item) for item in list(receipt.get("rules") or [])
     ):
         issues.append("missing recover rule about mirrored Teable recovery receipts")
+    if "Irreversible purchases, bookings, cancellations, outbound commitments, and sent messages must stay consent-gated even when proactive OODA staging is automated." not in "\n".join(
+        str(item) for item in list(receipt.get("rules") or [])
+    ):
+        issues.append("missing proactive OODA consent-gate rule")
+    if "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth." not in "\n".join(
+        str(item) for item in list(receipt.get("rules") or [])
+    ):
+        issues.append("missing Teable projection rule for proactive OODA")
+    required_next_receipts = set(str(item) for item in list(receipt.get("required_next_receipts") or []) if str(item).strip())
+    if "real proactive OODA packet accepted and mirrored into Teable" not in required_next_receipts:
+        issues.append("required_next_receipts must include proactive OODA Teable proof")
     if by_key.get("recover", {}).get("status") == "command_backed_no_published_receipt" and "recover=command_backed_no_published_receipt" not in blocking_reasons:
         issues.append("blocking_reasons must include the command-backed recover posture")
     return issues
