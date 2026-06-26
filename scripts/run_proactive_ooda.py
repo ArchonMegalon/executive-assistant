@@ -69,11 +69,14 @@ from app.services.proactive_ooda_stage_packets import (  # noqa: E402
     persist_stage_packets,
 )
 from app.services.proactive_ooda_context_grounding import ground_digest_with_context  # noqa: E402
+from app.services.proactive_ooda_delivery import (  # noqa: E402
+    resolve_proactive_ooda_delivery_status,
+    send_proactive_ooda_notification,
+)
 from app.services.proactive_ooda_teable_sync import (  # noqa: E402
     sync_proactive_ooda_to_teable,
     teable_sync_enabled,
 )
-from app.services.proactive_telegram_binding import resolve_proactive_telegram_chat_id  # noqa: E402
 
 
 def _default_principal_id() -> str:
@@ -259,7 +262,7 @@ def main() -> int:
     )
     if digest.items and not args.dry_run and not error_code:
         try:
-            notification_result = _telegram_notify(args.principal_id, notification_text)
+            notification_result = _deliver_notification(args.principal_id, notification_text, digest=digest)
             if digest.notified_markers:
                 state_store.save_notified_refs(args.principal_id, stored_refs.union(digest.notified_markers))
         except Exception as exc:
@@ -836,32 +839,43 @@ def _short_hash(value: str) -> str:
     return hashlib.sha256(str(value or "").encode("utf-8")).hexdigest()[:12]
 
 
-def _telegram_notify(principal_id: str, text: str) -> object:
+def _delivery_status(principal_id: str, *, digest: ProactiveOodaDigest | None = None) -> object:
     try:
         from app.container import build_container
-        from app.services.telegram_delivery import send_telegram_message_for_principal
-    except Exception as exc:  # pragma: no cover - depends on full runtime being present
-        return _telegram_notify_from_env(principal_id=principal_id, text=text, fallback_error=exc)
-    container = build_container()
-    return send_telegram_message_for_principal(container.tool_runtime, principal_id=principal_id, text=text)
-
-
-def _telegram_notify_from_env(*, principal_id: str, text: str, fallback_error: Exception) -> object:
-    token = str(os.getenv("EA_TELEGRAM_BOT_TOKEN") or "").strip()
-    chat_id = resolve_proactive_telegram_chat_id(principal_id=principal_id)
-    if not token or not chat_id:
-        raise RuntimeError(f"telegram_runtime_unavailable:{fallback_error.__class__.__name__}") from fallback_error
-    request = urllib.request.Request(
-        f"https://api.telegram.org/bot{token}/sendMessage",
-        data=json.dumps({"chat_id": chat_id, "text": text}).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
+    except Exception:
+        return resolve_proactive_ooda_delivery_status(principal_id=principal_id, digest=digest)
+    try:
+        container = build_container()
+    except Exception:
+        return resolve_proactive_ooda_delivery_status(principal_id=principal_id, digest=digest)
+    if not hasattr(container, "tool_runtime") or not hasattr(container, "memory_runtime"):
+        return resolve_proactive_ooda_delivery_status(principal_id=principal_id, digest=digest)
+    return resolve_proactive_ooda_delivery_status(
+        principal_id=principal_id,
+        tool_runtime=container.tool_runtime,
+        memory_runtime=container.memory_runtime,
+        digest=digest,
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        payload = json.loads(response.read().decode("utf-8"))
-    if not bool(payload.get("ok")):
-        raise RuntimeError("telegram_sendmessage_failed")
-    return payload.get("result") or {}
+
+
+def _deliver_notification(principal_id: str, text: str, *, digest: ProactiveOodaDigest | None = None) -> object:
+    try:
+        from app.container import build_container
+    except Exception:
+        return send_proactive_ooda_notification(
+            principal_id=principal_id,
+            text=text,
+            digest=digest,
+        )
+    container = build_container()
+    return send_proactive_ooda_notification(
+        principal_id=principal_id,
+        text=text,
+        tool_runtime=container.tool_runtime,
+        channel_runtime=container.channel_runtime,
+        memory_runtime=container.memory_runtime,
+        digest=digest,
+    )
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from argparse import Namespace
+from types import SimpleNamespace
 
 import scripts.run_proactive_ooda as runner
 import scripts.verify_proactive_ooda as verifier
@@ -54,6 +55,7 @@ def test_verify_proactive_ooda_accepts_static_signal_source(tmp_path, monkeypatc
     assert report["source_mode"] == "signals_json"
     assert report["signal_count"] == 1
     assert report["actionable_count"] == 1
+    assert report["delivery_route"]["ready"] is False
     assert report["delivery_guard"]["delivery_state"] == "eligible"
 
 
@@ -301,6 +303,65 @@ def test_verify_proactive_ooda_reports_context_grounding(tmp_path, monkeypatch) 
     assert report["context_grounding"]["candidate_assessment_count"] == 1
     assert report["context_grounding"]["requirement_count"] >= 1
     assert report["context_grounding"]["deadline_count"] == 1
+
+
+def test_verify_proactive_ooda_reports_generic_delivery_route(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv("EA_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID", raising=False)
+    signal_file = tmp_path / "signals.json"
+    signal_file.write_text(
+        json.dumps(
+            [
+                {
+                    "source_ref": "operator:approval",
+                    "title": "Approval needed today",
+                    "summary": "Approve the provider renewal.",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        runner,
+        "_delivery_status",
+        lambda principal_id, *, digest=None: SimpleNamespace(
+            ready=True,
+            selected_channel="whatsapp",
+            selected_transport="whatsapp_web_session",
+            selected_by="delivery_preference",
+            selected_reason="whatsapp preference selected",
+            binding_id="wa-binding-1",
+            recipient_ref_hash="a" * 64,
+            available_channels=("whatsapp", "telegram"),
+            errors=(),
+            preference_count=1,
+            policy_count=0,
+            follow_up_hint_count=0,
+        ),
+    )
+
+    report = verifier._build_report(
+        Namespace(
+            principal_id="exec",
+            signals_json=str(signal_file),
+            discovery_json="",
+            opportunity_rules_json="",
+            state_path=str(tmp_path / "state.json"),
+            max_items=5,
+            observation_lookback_hours=24,
+            observation_limit=50,
+            skip_observation_source=True,
+            skip_workspace_source=True,
+            require_source=True,
+            require_telegram=False,
+            require_receipt_observation=False,
+        )
+    )
+
+    assert report["delivery_route"]["ready"] is True
+    assert report["delivery_route"]["selected_channel"] == "whatsapp"
+    assert report["delivery_route"]["selected_transport"] == "whatsapp_web_session"
+    assert "delivery route: ready [whatsapp via whatsapp_web_session (delivery_preference)]" in verifier._format_report(report)
 
 
 def test_runner_load_signals_continues_after_discovery_failure(tmp_path, monkeypatch) -> None:

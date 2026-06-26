@@ -26,6 +26,7 @@ def test_verify_proactive_ooda_live_receipt_accepts_redacted_sent_receipt(tmp_pa
     report = verify_receipt(receipt)
 
     assert report["ok"] is True
+    assert report["delivery_message_count"] == 1
     assert report["telegram_message_count"] == 1
 
 
@@ -75,4 +76,5 @@ def test_verify_proactive_ooda_live_receipt_rejects_missing_message_ids(tmp_path
     report = verify_receipt(receipt)
 
     assert report["ok"] is False
+    assert "receipt_missing_delivery_message_id" in report["errors"]
     assert "receipt_missing_telegram_message_id" in report["errors"]

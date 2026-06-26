@@ -111,6 +111,8 @@ def proactive_ooda_receipt_payload(
     payload["digest_item_count"] = len(digest.items)
     payload["notification_status"] = receipt.notification_status
     payload["deferred_reason"] = receipt.error_code if receipt.notification_status == "deferred" else ""
+    payload["delivery_message_count"] = len(receipt.delivery_message_ids)
+    payload["telegram_message_count"] = len(receipt.telegram_message_ids)
     payload["stage_packet_count"] = len(receipt.stage_packet_ref_hashes)
     payload["stage_packet_error_count"] = receipt.stage_packet_error_count
     payload["safe_work_result_count"] = len(receipt.safe_work_result_ref_hashes)
@@ -147,6 +149,10 @@ def _receipt_dedupe_key(receipt: ProactiveOodaRunReceipt) -> str:
             receipt.notification_status,
             receipt.principal_id_hash,
             ",".join(receipt.notified_ref_hashes),
+            receipt.delivery_channel,
+            receipt.delivery_transport,
+            receipt.delivery_recipient_hash,
+            ",".join(receipt.delivery_message_ids),
             ",".join(receipt.telegram_message_ids),
         )
     )

@@ -143,6 +143,12 @@ class ProactiveOodaRunReceipt:
     safe_work_result_ref_hashes: tuple[str, ...] = ()
     safe_work_result_error_count: int = 0
     error_code: str = ""
+    delivery_channel: str = ""
+    delivery_transport: str = ""
+    delivery_selected_by: str = ""
+    delivery_recipient_hash: str = ""
+    delivery_message_ids: tuple[str, ...] = ()
+    delivery_outbox_id_hash: str = ""
 
 
 class JsonOodaStateStore:
@@ -540,6 +546,12 @@ def build_run_receipt(
         safe_work_result_ref_hashes=tuple(_hash_value(ref) for ref in safe_work_result_refs if str(ref).strip()),
         safe_work_result_error_count=max(int(safe_work_result_error_count or 0), 0),
         error_code=error_code,
+        delivery_channel=_extract_delivery_channel(notification_result),
+        delivery_transport=_extract_delivery_transport(notification_result),
+        delivery_selected_by=_extract_delivery_selected_by(notification_result),
+        delivery_recipient_hash=_extract_delivery_recipient_hash(notification_result),
+        delivery_message_ids=_extract_delivery_message_ids(notification_result),
+        delivery_outbox_id_hash=_extract_delivery_outbox_id_hash(notification_result),
     )
 
 
@@ -554,15 +566,101 @@ def receipt_to_dict(receipt: ProactiveOodaRunReceipt) -> dict[str, Any]:
 def _extract_telegram_message_ids(notification_result: object | None) -> tuple[str, ...]:
     if notification_result is None:
         return ()
+    if hasattr(notification_result, "telegram_message_ids"):
+        return tuple(str(item) for item in getattr(notification_result, "telegram_message_ids") if str(item).strip())
+    if hasattr(notification_result, "message_ids"):
+        channel = _extract_delivery_channel(notification_result)
+        return tuple(str(item) for item in getattr(notification_result, "message_ids") if str(item).strip()) if channel in {"", "telegram"} else ()
+    if isinstance(notification_result, dict):
+        channel = str(notification_result.get("channel") or notification_result.get("delivery_channel") or "").strip().lower()
+        message_id = notification_result.get("message_id")
+        if message_id is not None and channel in {"", "telegram"}:
+            return (str(message_id),)
+        if isinstance(notification_result.get("telegram_message_ids"), (list, tuple)):
+            return tuple(str(item) for item in notification_result["telegram_message_ids"] if str(item).strip())
+        if isinstance(notification_result.get("message_ids"), (list, tuple)) and channel in {"", "telegram"}:
+            return tuple(str(item) for item in notification_result["message_ids"] if str(item).strip())
+    return ()
+
+
+def _extract_delivery_channel(notification_result: object | None) -> str:
+    if notification_result is None:
+        return ""
+    if hasattr(notification_result, "channel"):
+        return str(getattr(notification_result, "channel") or "").strip().lower()
+    if isinstance(notification_result, dict):
+        explicit = str(notification_result.get("channel") or notification_result.get("delivery_channel") or "").strip().lower()
+        if explicit:
+            return explicit
+        if "message_id" in notification_result or "telegram_message_ids" in notification_result:
+            return "telegram"
+    if hasattr(notification_result, "chat_id") or hasattr(notification_result, "bot_key"):
+        return "telegram"
+    if hasattr(notification_result, "recipient") and hasattr(notification_result, "delivery_transport"):
+        return "whatsapp"
+    if hasattr(notification_result, "request_url"):
+        return "whatsapp"
+    return ""
+
+
+def _extract_delivery_transport(notification_result: object | None) -> str:
+    if notification_result is None:
+        return ""
+    if hasattr(notification_result, "delivery_transport"):
+        return str(getattr(notification_result, "delivery_transport") or "").strip().lower()
+    if isinstance(notification_result, dict):
+        explicit = str(notification_result.get("delivery_transport") or "").strip().lower()
+        if explicit:
+            return explicit
+    return _extract_delivery_channel(notification_result)
+
+
+def _extract_delivery_selected_by(notification_result: object | None) -> str:
+    if notification_result is None:
+        return ""
+    if hasattr(notification_result, "selected_by"):
+        return str(getattr(notification_result, "selected_by") or "").strip().lower()
+    if isinstance(notification_result, dict):
+        return str(notification_result.get("selected_by") or "").strip().lower()
+    return ""
+
+
+def _extract_delivery_recipient_hash(notification_result: object | None) -> str:
+    if notification_result is None:
+        return ""
+    if hasattr(notification_result, "recipient_ref_hash"):
+        return str(getattr(notification_result, "recipient_ref_hash") or "").strip()
+    if isinstance(notification_result, dict):
+        return str(notification_result.get("recipient_ref_hash") or "").strip()
+    return ""
+
+
+def _extract_delivery_message_ids(notification_result: object | None) -> tuple[str, ...]:
+    if notification_result is None:
+        return ()
     if hasattr(notification_result, "message_ids"):
         return tuple(str(item) for item in getattr(notification_result, "message_ids") if str(item).strip())
     if isinstance(notification_result, dict):
-        message_id = notification_result.get("message_id")
-        if message_id is not None:
-            return (str(message_id),)
+        if isinstance(notification_result.get("delivery_message_ids"), (list, tuple)):
+            return tuple(str(item) for item in notification_result["delivery_message_ids"] if str(item).strip())
         if isinstance(notification_result.get("message_ids"), (list, tuple)):
             return tuple(str(item) for item in notification_result["message_ids"] if str(item).strip())
+        message_id = notification_result.get("message_id") or notification_result.get("id")
+        if message_id is not None and str(message_id).strip():
+            return (str(message_id),)
     return ()
+
+
+def _extract_delivery_outbox_id_hash(notification_result: object | None) -> str:
+    if notification_result is None:
+        return ""
+    if hasattr(notification_result, "outbox_delivery_id"):
+        value = str(getattr(notification_result, "outbox_delivery_id") or "").strip()
+        return _hash_value(value) if value else ""
+    if isinstance(notification_result, dict):
+        value = str(notification_result.get("outbox_delivery_id") or "").strip()
+        return _hash_value(value) if value else ""
+    return ""
 
 
 def _hash_value(value: str) -> str:

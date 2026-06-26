@@ -42,8 +42,12 @@ def verify_receipt(path: Path) -> dict[str, Any]:
             errors.append("receipt_is_dry_run")
         if int(payload.get("item_count") or 0) < 1:
             errors.append("receipt_has_no_items")
-        message_ids = payload.get("telegram_message_ids")
-        if not isinstance(message_ids, list) or not any(str(item).strip() for item in message_ids):
+        delivery_channel = str(payload.get("delivery_channel") or "").strip().lower()
+        delivery_message_ids = payload.get("delivery_message_ids")
+        telegram_message_ids = payload.get("telegram_message_ids")
+        if not _non_empty_message_id_list(delivery_message_ids) and not _non_empty_message_id_list(telegram_message_ids):
+            errors.append("receipt_missing_delivery_message_id")
+        if delivery_channel in {"", "telegram"} and not _non_empty_message_id_list(telegram_message_ids) and not _non_empty_message_id_list(delivery_message_ids):
             errors.append("receipt_missing_telegram_message_id")
         if not _looks_sha256(payload.get("principal_id_hash")):
             errors.append("principal_hash_missing")
@@ -52,7 +56,10 @@ def verify_receipt(path: Path) -> dict[str, Any]:
             errors.append("notified_ref_hashes_invalid")
         if payload.get("error_code"):
             errors.append("receipt_has_error_code")
-        for key in ("principal_id", "chat_id", "chat_ref", "text", "message_text", "source_ref"):
+        recipient_hash = str(payload.get("delivery_recipient_hash") or "").strip()
+        if recipient_hash and not _looks_sha256(recipient_hash):
+            errors.append("delivery_recipient_hash_invalid")
+        for key in ("principal_id", "chat_id", "chat_ref", "recipient_ref", "recipient", "text", "message_text", "source_ref"):
             if key in payload:
                 errors.append(f"receipt_contains_raw_{key}")
 
@@ -62,7 +69,9 @@ def verify_receipt(path: Path) -> dict[str, Any]:
         "receipt_path": str(path),
         "notification_status": payload.get("notification_status", ""),
         "item_count": int(payload.get("item_count") or 0),
-        "telegram_message_count": len(payload.get("telegram_message_ids") or []),
+        "delivery_channel": str(payload.get("delivery_channel") or ""),
+        "delivery_message_count": _message_id_count(payload.get("delivery_message_ids") or payload.get("telegram_message_ids") or []),
+        "telegram_message_count": _message_id_count(payload.get("telegram_message_ids") or []),
         "generated_at": payload.get("generated_at", ""),
     }
 
@@ -72,12 +81,24 @@ def _looks_sha256(value: Any) -> bool:
     return len(normalized) == 64 and all(char in "0123456789abcdef" for char in normalized)
 
 
+def _non_empty_message_id_list(value: Any) -> bool:
+    return isinstance(value, list) and any(str(item or "").strip() for item in value)
+
+
+def _message_id_count(value: Any) -> int:
+    if not isinstance(value, list):
+        return 0
+    return len([item for item in value if str(item or "").strip()])
+
+
 def _format_report(report: dict[str, Any]) -> str:
     status = "ok" if report["ok"] else "not ready"
     lines = [
         f"proactive OODA live receipt: {status}",
         f"status: {report['notification_status'] or 'missing'}",
         f"items: {report['item_count']}",
+        f"channel: {report['delivery_channel'] or 'telegram'}",
+        f"delivery messages: {report['delivery_message_count']}",
         f"telegram messages: {report['telegram_message_count']}",
         f"receipt: {report['receipt_path']}",
     ]

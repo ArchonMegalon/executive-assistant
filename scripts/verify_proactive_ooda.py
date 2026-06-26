@@ -246,6 +246,7 @@ def _build_report(args: argparse.Namespace) -> dict[str, Any]:
     notified_refs: list[str] = []
     guard_status: dict[str, Any]
     context_grounding_status: dict[str, Any]
+    delivery_route_status: dict[str, Any]
     state_store = JsonOodaStateStore(ROOT / args.state_path)
     if signals:
         digest = ProactiveOodaService(state_store=state_store, max_items=args.max_items).build_digest(
@@ -259,11 +260,13 @@ def _build_report(args: argparse.Namespace) -> dict[str, Any]:
         digest_payload = digest_to_dict(grounded_digest)
         guard_status = _delivery_guard_status(args, state_store=state_store, digest=grounded_digest)
         context_grounding_status = _context_grounding_status(grounded_digest)
+        delivery_route_status = _delivery_route_status(args.principal_id, grounded_digest)
     else:
         grounded_digest = None
         digest_payload = {}
         guard_status = _delivery_guard_status(args, state_store=state_store, digest=None)
         context_grounding_status = _context_grounding_status(None)
+        delivery_route_status = _delivery_route_status(args.principal_id, None)
     stage_packet_status = _stage_packet_status(args, digest=grounded_digest)
     if stage_packet_status["required"] and not stage_packet_status["ready"]:
         errors.extend(stage_packet_status["errors"])
@@ -285,6 +288,7 @@ def _build_report(args: argparse.Namespace) -> dict[str, Any]:
         "workspace_source_checked": workspace_source_checked,
         "workspace_source_healthy": workspace_source_healthy,
         "state_path": args.state_path,
+        "delivery_route": delivery_route_status,
         "delivery_guard": guard_status,
         "context_grounding": context_grounding_status,
         "stage_packets": stage_packet_status,
@@ -302,6 +306,24 @@ def _load_signal_file(path_value: str) -> list[dict[str, Any]]:
 
 def _telegram_ready(principal_id: str) -> bool:
     return proactive_telegram_ready(principal_id=principal_id)
+
+
+def _delivery_route_status(principal_id: str, digest: Any | None) -> dict[str, Any]:
+    status = runner._delivery_status(principal_id, digest=digest)
+    return {
+        "ready": bool(getattr(status, "ready", False)),
+        "selected_channel": str(getattr(status, "selected_channel", "") or ""),
+        "selected_transport": str(getattr(status, "selected_transport", "") or ""),
+        "selected_by": str(getattr(status, "selected_by", "") or ""),
+        "selected_reason": str(getattr(status, "selected_reason", "") or ""),
+        "binding_id_present": bool(str(getattr(status, "binding_id", "") or "").strip()),
+        "recipient_ref_hash_present": bool(str(getattr(status, "recipient_ref_hash", "") or "").strip()),
+        "available_channels": [str(item or "") for item in getattr(status, "available_channels", ()) if str(item or "").strip()],
+        "errors": [str(item or "") for item in getattr(status, "errors", ()) if str(item or "").strip()],
+        "preference_count": int(getattr(status, "preference_count", 0) or 0),
+        "policy_count": int(getattr(status, "policy_count", 0) or 0),
+        "follow_up_hint_count": int(getattr(status, "follow_up_hint_count", 0) or 0),
+    }
 
 
 def _receipt_observation_count(principal_id: str) -> int:
@@ -662,6 +684,7 @@ def _format_report(report: dict[str, Any]) -> str:
         f"proactive OODA: {status}",
         f"source: {report['source_mode']} ({report['signal_count']} signals, {report['actionable_count']} actionable)",
         f"telegram: {'ready' if report['telegram_ready'] else 'not configured'}",
+        f"delivery route: {_delivery_route_summary(report)}",
         f"workspace: {_workspace_status(report)}",
         f"delivery guard: {_delivery_guard_summary(report)}",
         f"context grounding: {_context_grounding_summary(report)}",
@@ -681,6 +704,26 @@ def _workspace_status(report: dict[str, Any]) -> str:
     if not report.get("workspace_source_checked"):
         return "not checked"
     return "ready" if report.get("workspace_source_healthy") else "unhealthy"
+
+
+def _delivery_route_summary(report: dict[str, Any]) -> str:
+    status = dict(report.get("delivery_route") or {})
+    if not status:
+        return "unknown"
+    ready = "ready" if status.get("ready") else "not ready"
+    channel = str(status.get("selected_channel") or "").strip()
+    transport = str(status.get("selected_transport") or "").strip()
+    selected_by = str(status.get("selected_by") or "").strip()
+    available = list(status.get("available_channels") or [])
+    errors = list(status.get("errors") or [])
+    detail = channel
+    if transport and transport != channel:
+        detail = f"{detail} via {transport}" if detail else transport
+    if selected_by:
+        detail = f"{detail} ({selected_by})" if detail else selected_by
+    available_text = f", available {', '.join(available)}" if available else ""
+    error_text = f", blocked by {errors[0]}" if errors else ""
+    return f"{ready}{f' [{detail}]' if detail else ''}{available_text}{error_text}"
 
 
 def _delivery_guard_summary(report: dict[str, Any]) -> str:

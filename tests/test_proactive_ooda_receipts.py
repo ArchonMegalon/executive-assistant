@@ -35,6 +35,9 @@ def test_receipt_payload_is_redacted_and_keeps_delivery_facts() -> None:
 
     assert payload["event_type"] == RECEIPT_EVENT_TYPE
     assert payload["notification_status"] == "sent"
+    assert payload["delivery_channel"] == "telegram"
+    assert payload["delivery_message_ids"] == ("42",)
+    assert payload["delivery_message_count"] == 1
     assert payload["telegram_message_ids"] == ("42",)
     assert payload["privacy"]["raw_principal_id_stored"] is False
     assert "cf-email:user@example.test" not in serialized

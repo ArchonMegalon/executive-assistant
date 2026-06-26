@@ -269,8 +269,8 @@ def test_runner_main_sends_safe_work_preview_to_telegram(tmp_path, monkeypatch, 
 
     monkeypatch.setattr(
         runner,
-        "_telegram_notify",
-        lambda principal_id, text: sent.append((principal_id, text)) or {"message_id": 123},
+        "_deliver_notification",
+        lambda principal_id, text, *, digest=None: sent.append((principal_id, text, digest)) or {"message_id": 123},
     )
     monkeypatch.setattr(runner, "persist_proactive_ooda_receipt", lambda **_kwargs: None)
     monkeypatch.setattr(
@@ -297,6 +297,7 @@ def test_runner_main_sends_safe_work_preview_to_telegram(tmp_path, monkeypatch, 
 
     captured = capsys.readouterr()
     assert sent and sent[0][0] == "exec"
+    assert sent[0][2] is not None
     assert "Recommended: shortlist candidate: Vendor A | https://example.test/vendor-a" in sent[0][1]
     assert "Link: https://example.test/approve/vendor-a" in sent[0][1]
     assert "Shortlist: Vendor A - https://example.test/vendor-a" in sent[0][1]

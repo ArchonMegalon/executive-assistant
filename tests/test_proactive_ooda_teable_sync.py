@@ -153,8 +153,8 @@ def test_runner_main_emits_teable_sync_result_when_enabled(tmp_path, monkeypatch
     monkeypatch.setenv("EA_PROACTIVE_OODA_TEABLE_SYNC_ENABLED", "1")
     monkeypatch.setattr(
         runner,
-        "_telegram_notify",
-        lambda principal_id, text: sent.append((principal_id, text)) or {"message_id": 123},
+        "_deliver_notification",
+        lambda principal_id, text, *, digest=None: sent.append((principal_id, text, digest)) or {"message_id": 123},
     )
     monkeypatch.setattr(runner, "persist_proactive_ooda_receipt", lambda **_kwargs: None)
     monkeypatch.setattr(
@@ -182,6 +182,7 @@ def test_runner_main_emits_teable_sync_result_when_enabled(tmp_path, monkeypatch
 
     captured = capsys.readouterr()
     assert sent and sent[0][0] == "exec"
+    assert sent[0][2] is not None
     assert sync_calls and sync_calls[0]["principal_id"] == "exec"
     assert '"teable_sync"' in captured.out
     assert '"status": "synced"' in captured.out
