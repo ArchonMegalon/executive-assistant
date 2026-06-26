@@ -108,6 +108,10 @@ class OodaInk:
     ignored_consequence: str
     notify: bool
     action_plan: tuple[str, ...] = ()
+    stage_kind: str = ""
+    stage_summary: str = ""
+    stage_artifacts: tuple[str, ...] = ()
+    approval_gate: str = ""
     external_action_policy: str = ""
 
 
@@ -309,6 +313,23 @@ def _structured_ooda_ink(signal: ProactiveSignal) -> OodaInk | None:
         decide_section.get("guardrail"),
         _default_external_action_policy(approval_required=approval_required),
     )
+    stage_section = act_section.get("stage") if isinstance(act_section.get("stage"), Mapping) else {}
+    stage_kind = _first_structured_text(
+        stage_section.get("kind"),
+        stage_section.get("stage_kind"),
+        stage_section.get("type"),
+    )
+    stage_summary = _first_structured_text(
+        stage_section.get("summary"),
+        stage_section.get("description"),
+    )
+    stage_artifacts = _string_list(stage_section.get("artifacts")) or _string_list(stage_section.get("expected_artifacts"))
+    approval_gate = _first_structured_text(
+        stage_section.get("approval_gate"),
+        stage_section.get("external_action_policy"),
+        stage_section.get("guardrail"),
+        external_action_policy if stage_section else "",
+    )
     combined_text = " ".join(
         (
             signal.title,
@@ -317,8 +338,12 @@ def _structured_ooda_ink(signal: ProactiveSignal) -> OodaInk | None:
             orient,
             decision,
             action,
+            stage_kind,
+            stage_summary,
+            approval_gate,
             signal.due_at or "",
             " ".join(recommended_actions),
+            " ".join(stage_artifacts),
         )
     ).lower()
     has_structured_action = bool(
@@ -328,6 +353,9 @@ def _structured_ooda_ink(signal: ProactiveSignal) -> OodaInk | None:
         or _string_list(act_section.get("executed_actions"))
         or _safe_positive_int(act_section.get("staged_candidate_count"))
         or _safe_positive_int(act_section.get("staged_draft_count"))
+        or stage_kind
+        or stage_summary
+        or stage_artifacts
     )
     high_urgency = any(term in combined_text for term in HIGH_URGENCY_TERMS)
     notify = approval_required or has_structured_action or bool(signal.due_at) or any(
@@ -349,6 +377,10 @@ def _structured_ooda_ink(signal: ProactiveSignal) -> OodaInk | None:
         ignored_consequence=_structured_ignored_consequence(signal, approval_required=approval_required),
         notify=notify,
         action_plan=action_plan[:4],
+        stage_kind=stage_kind,
+        stage_summary=stage_summary,
+        stage_artifacts=stage_artifacts[:4],
+        approval_gate=approval_gate,
         external_action_policy=external_action_policy,
     )
 
@@ -371,6 +403,13 @@ def format_telegram_digest(digest: ProactiveOodaDigest) -> str:
         )
         if item.action_plan:
             lines.append(f"Plan: {' | '.join(item.action_plan)}")
+        if item.stage_kind or item.stage_summary:
+            stage_label = item.stage_kind or "stage"
+            lines.append(f"Stage: {stage_label} - {item.stage_summary}" if item.stage_summary else f"Stage: {stage_label}")
+        if item.stage_artifacts:
+            lines.append(f"Artifacts: {' | '.join(item.stage_artifacts)}")
+        if item.approval_gate:
+            lines.append(f"Approval: {item.approval_gate}")
         if item.external_action_policy:
             lines.append(f"Guardrail: {item.external_action_policy}")
         lines.extend(

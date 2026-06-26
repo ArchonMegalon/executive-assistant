@@ -222,6 +222,11 @@ def test_opportunity_rules_create_consent_gated_ooda_signal(tmp_path) -> None:
                             "Compare two realistic options",
                             "Prepare one approval packet",
                         ],
+                        "stage": {
+                            "kind": "approval_packet",
+                            "summary": "One recommended option with evidence and an approval prompt.",
+                            "artifacts": ["shortlist", "candidate_link", "approval_prompt"],
+                        },
                         "external_action_policy": "Do not buy, book, send, or cancel without explicit approval.",
                         "trigger": {"kind": "always"},
                     }
@@ -244,7 +249,44 @@ def test_opportunity_rules_create_consent_gated_ooda_signal(tmp_path) -> None:
         "Compare two realistic options",
         "Prepare one approval packet",
     ]
+    assert act["stage"] == {
+        "kind": "approval_packet",
+        "summary": "One recommended option with evidence and an approval prompt.",
+        "status": "planned",
+        "approval_gate": "Do not buy, book, send, or cancel without explicit approval.",
+        "artifacts": ["shortlist", "candidate_link", "approval_prompt"],
+    }
     assert act["external_action_policy"] == "Do not buy, book, send, or cancel without explicit approval."
+
+
+def test_discovery_loads_inline_opportunity_rules_without_ref(tmp_path) -> None:
+    sources = load_signal_sources_config(
+        json.dumps(
+            {
+                "sources": [
+                    {
+                        "type": "opportunity_rules",
+                        "rules": [
+                            {
+                                "id": "inline-generic-opportunity",
+                                "title": "Stage useful next step",
+                                "summary": "A reachable signal crossed the threshold for a proactive assistant packet.",
+                                "action": "Research the option and prepare a reversible approval packet.",
+                                "trigger": {"kind": "always"},
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+    )
+
+    signals = discover_signals(sources=sources, base_dir=tmp_path)
+
+    assert len(signals) == 1
+    assert signals[0].source_ref.startswith("opportunity:inline-generic-opportunity:")
+    assert signals[0].payload is not None
+    assert signals[0].payload["ooda_loop"]["act"]["stage"]["kind"] == "approval_packet"
 
 
 def test_opportunity_weather_trigger_uses_inline_weather_without_vendor_lock_in(tmp_path) -> None:

@@ -148,6 +148,12 @@ def test_proactive_ooda_prefers_structured_ooda_loop() -> None:
                         "act": {
                             "summary": "Ask for the user's decision with the budget context",
                             "action_plan": ["Collect context", "Prepare a yes/no approval packet"],
+                            "stage": {
+                                "kind": "approval_packet",
+                                "summary": "A budget decision packet ready for the user to approve.",
+                                "artifacts": ["budget_context", "yes_no_prompt"],
+                                "approval_gate": "User must approve before any external send.",
+                            },
                             "external_action_policy": "Do not send externally without approval.",
                         },
                     }
@@ -166,9 +172,17 @@ def test_proactive_ooda_prefers_structured_ooda_loop() -> None:
     assert item.priority == "high"
     assert item.ignored_consequence == "The launch budget stalls."
     assert item.action_plan == ("Collect context", "Prepare a yes/no approval packet")
+    assert item.stage_kind == "approval_packet"
+    assert item.stage_summary == "A budget decision packet ready for the user to approve."
+    assert item.stage_artifacts == ("budget_context", "yes_no_prompt")
+    assert item.approval_gate == "User must approve before any external send."
     assert item.external_action_policy == "Do not send externally without approval."
     assert "ooda:reviewed" in item.evidence
     assert "tag:launch" in item.evidence
+    text = format_telegram_digest(digest)
+    assert "Stage: approval_packet - A budget decision packet ready for the user to approve." in text
+    assert "Artifacts: budget_context | yes_no_prompt" in text
+    assert "Approval: User must approve before any external send." in text
 
 
 def test_format_telegram_digest_is_minimal_but_decision_ready() -> None:

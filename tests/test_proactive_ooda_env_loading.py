@@ -89,7 +89,7 @@ def test_runner_ingests_all_available_sources_when_workspace_scan_fails(tmp_path
         SimpleNamespace(
             signals_json=str(signal_file),
             discovery_json="",
-            personal_rules_json=json.dumps(
+            opportunity_rules_json=json.dumps(
                 {
                     "rules": [
                         {

@@ -48,7 +48,7 @@ from app.services.proactive_ooda_service import (  # noqa: E402
     receipt_to_dict,
 )
 from app.services.proactive_signal_discovery import (  # noqa: E402
-    discover_personal_rule_signals,
+    discover_opportunity_rule_signals,
     discover_postgres_observation_signals,
     discover_signals_resilient,
     load_signal_sources_config,
@@ -81,7 +81,7 @@ def main() -> int:
     parser.add_argument(
         "--opportunity-rules-json",
         "--personal-rules-json",
-        dest="personal_rules_json",
+        dest="opportunity_rules_json",
         default=os.getenv("EA_PROACTIVE_OODA_OPPORTUNITY_RULES_JSON", os.getenv("EA_PROACTIVE_OODA_PERSONAL_RULES_JSON", "")),
         help="JSON list/object configuring local OODA opportunity rules.",
     )
@@ -166,11 +166,11 @@ def _load_signals(args: argparse.Namespace) -> list[dict[str, Any]]:
             rows.extend(_source_error_signals(discovery.errors, source_label="discovery"))
         except Exception as exc:
             rows.extend(_source_error_signals((f"discovery_json:{exc.__class__.__name__}:config",), source_label="discovery"))
-    personal_rules_json = str(getattr(args, "personal_rules_json", getattr(args, "opportunity_rules_json", "")) or "")
-    if personal_rules_json:
-        personal = discover_personal_rule_signals(raw_config=personal_rules_json, base_dir=ROOT)
-        rows.extend(signal.__dict__ for signal in personal.signals)
-        rows.extend(_source_error_signals(personal.errors, source_label="personal_rules"))
+    opportunity_rules_json = str(getattr(args, "opportunity_rules_json", getattr(args, "personal_rules_json", "")) or "")
+    if opportunity_rules_json:
+        opportunity = discover_opportunity_rule_signals(raw_config=opportunity_rules_json, base_dir=ROOT)
+        rows.extend(signal.__dict__ for signal in opportunity.signals)
+        rows.extend(_source_error_signals(opportunity.errors, source_label="opportunity_rules"))
     if not args.skip_observation_source:
         observation_signals = discover_postgres_observation_signals(
             principal_id=args.principal_id,

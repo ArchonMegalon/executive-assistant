@@ -93,6 +93,8 @@ def discover_signals_resilient(
 
 
 def _discover_source(source: SignalSource, *, base_dir: Path, timeout_seconds: int) -> list[ProactiveSignal]:
+    if source.source_type in {"opportunity_rules", "opportunity_rule", "personal_rules", "personal_rule"}:
+        return _load_opportunity_rules_source(source, base_dir=base_dir, timeout_seconds=timeout_seconds)
     if not source.ref:
         return []
     if source.source_type == "json":
@@ -103,8 +105,6 @@ def _discover_source(source: SignalSource, *, base_dir: Path, timeout_seconds: i
         return _load_rss_source(source, base_dir=base_dir, timeout_seconds=timeout_seconds)
     if source.source_type == "teable":
         return _load_teable_source(source, timeout_seconds=timeout_seconds)
-    if source.source_type in {"opportunity_rules", "opportunity_rule", "personal_rules", "personal_rule"}:
-        return _load_personal_rules_source(source, base_dir=base_dir, timeout_seconds=timeout_seconds)
     raise ValueError(f"unsupported_signal_source_type:{source.source_type}")
 
 
@@ -127,7 +127,7 @@ def discover_opportunity_rule_signals(
             config=json.loads(normalized) if normalized.startswith(("{", "[")) else None,
         )
         return SignalDiscoveryResult(
-            signals=tuple(_load_personal_rules_source(source, base_dir=base_dir, timeout_seconds=timeout_seconds)),
+            signals=tuple(_load_opportunity_rules_source(source, base_dir=base_dir, timeout_seconds=timeout_seconds)),
             errors=(),
         )
     except Exception as exc:
@@ -376,7 +376,7 @@ def _load_teable_source(source: SignalSource, *, timeout_seconds: int) -> list[P
     return signals
 
 
-def _load_personal_rules_source(source: SignalSource, *, base_dir: Path, timeout_seconds: int) -> list[ProactiveSignal]:
+def _load_opportunity_rules_source(source: SignalSource, *, base_dir: Path, timeout_seconds: int) -> list[ProactiveSignal]:
     payload: Any
     if source.ref:
         payload = json.loads(_read_ref(source.ref, base_dir=base_dir, timeout_seconds=timeout_seconds))
@@ -395,13 +395,13 @@ def _load_personal_rules_source(source: SignalSource, *, base_dir: Path, timeout
     for index, raw_rule in enumerate(rules[: source.limit]):
         if not isinstance(raw_rule, Mapping) or not _truthy_default(raw_rule.get("enabled"), default=True):
             continue
-        signal = _personal_rule_to_signal(raw_rule, source=source, index=index, now_epoch=now_epoch, timeout_seconds=timeout_seconds)
+        signal = _opportunity_rule_to_signal(raw_rule, source=source, index=index, now_epoch=now_epoch, timeout_seconds=timeout_seconds)
         if signal is not None:
             signals.append(signal)
     return signals
 
 
-def _personal_rule_to_signal(
+def _opportunity_rule_to_signal(
     rule: Mapping[str, Any],
     *,
     source: SignalSource,
@@ -410,7 +410,7 @@ def _personal_rule_to_signal(
     timeout_seconds: int,
 ) -> ProactiveSignal | None:
     trigger = rule.get("trigger") if isinstance(rule.get("trigger"), Mapping) else {}
-    if not _personal_rule_triggered(trigger, timeout_seconds=timeout_seconds):
+    if not _opportunity_rule_triggered(trigger, timeout_seconds=timeout_seconds):
         return None
     rule_id = _rule_id(rule, fallback=f"rule-{index}")
     cadence_days = _safe_int(rule.get("cadence_days") or rule.get("cooldown_days") or 14)
@@ -435,6 +435,11 @@ def _personal_rule_to_signal(
             or rule.get("guardrail")
             or "Research, prepare, or stage external actions only; ask the user before purchase, booking, posting, or sending."
         )
+    )
+    stage = _opportunity_rule_stage(
+        rule,
+        action_text=action_text,
+        external_action_policy=external_action_policy,
     )
     return ProactiveSignal(
         source_ref=source_ref,
@@ -471,13 +476,68 @@ def _personal_rule_to_signal(
                     "summary": action_text,
                     "action_plan": list(action_plan),
                     "external_action_policy": external_action_policy,
+                    "stage": stage,
                 },
             },
         },
     )
 
 
-def _personal_rule_triggered(trigger: Mapping[str, Any], *, timeout_seconds: int) -> bool:
+def _opportunity_rule_stage(
+    rule: Mapping[str, Any],
+    *,
+    action_text: str,
+    external_action_policy: str,
+) -> dict[str, Any]:
+    raw_stage = rule.get("stage") if isinstance(rule.get("stage"), Mapping) else {}
+    stage_kind = _clean_text(
+        str(
+            raw_stage.get("kind")
+            or raw_stage.get("stage_kind")
+            or raw_stage.get("type")
+            or rule.get("stage_kind")
+            or rule.get("stage_type")
+            or "approval_packet"
+        )
+    )
+    summary = _clean_text(
+        str(
+            raw_stage.get("summary")
+            or raw_stage.get("description")
+            or rule.get("stage_summary")
+            or action_text
+            or "Prepare one reversible next step for user approval."
+        )
+    )
+    artifacts = _string_list(
+        raw_stage.get("artifacts")
+        or raw_stage.get("expected_artifacts")
+        or rule.get("stage_artifacts")
+        or rule.get("expected_artifacts")
+    )
+    approval_gate = _clean_text(
+        str(
+            raw_stage.get("approval_gate")
+            or raw_stage.get("external_action_policy")
+            or rule.get("approval_gate")
+            or external_action_policy
+        )
+    )
+    stage: dict[str, Any] = {
+        "kind": stage_kind or "approval_packet",
+        "summary": summary,
+        "status": _clean_text(str(raw_stage.get("status") or rule.get("stage_status") or "planned")) or "planned",
+        "approval_gate": approval_gate,
+        "artifacts": list(artifacts),
+    }
+    for key in ("worker_hint", "adapter_hint"):
+        value = _clean_text(str(raw_stage.get(key) or rule.get(key) or ""))
+        if value:
+            stage[key] = value
+    return stage
+
+
+def _opportunity_rule_triggered(trigger: Mapping[str, Any], *, timeout_seconds: int) -> bool:
     kind = str(trigger.get("kind") or "always").strip().lower()
     if kind in {"", "always"}:
         return True
