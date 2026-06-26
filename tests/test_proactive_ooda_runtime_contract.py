@@ -16,6 +16,7 @@ def test_proactive_ooda_has_deployable_lightweight_service_and_operator_targets(
     assert "python /app/scripts/run_proactive_ooda.py" in compose
     assert "EA_PROACTIVE_OODA_ENABLED=${EA_PROACTIVE_OODA_ENABLED:-0}" in compose
     assert "EA_PROACTIVE_OODA_STATE_PATH=${EA_PROACTIVE_OODA_CONTAINER_STATE_PATH:-/data/provider-ledger/proactive_ooda_notified.json}" in compose
+    assert "EA_PROACTIVE_OODA_TEABLE_SYNC_ENABLED=${EA_PROACTIVE_OODA_TEABLE_SYNC_ENABLED:-0}" in compose
     assert "DATABASE_URL=${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD}@ea-db:5432/ea}" in compose
     assert "ea_proactive_ooda_state:" in compose
     assert "ea_proactive_ooda_state:/data" in compose
@@ -33,4 +34,8 @@ def test_proactive_ooda_has_deployable_lightweight_service_and_operator_targets(
     assert "EA_PROACTIVE_OODA_SAFE_WORK_NETWORK_FETCH_ENABLED=1" in env_example
     assert "EA_PROACTIVE_OODA_SAFE_WORK_NETWORK_FETCH_LIMIT=6" in env_example
     assert "EA_PROACTIVE_OODA_SAFE_WORK_NETWORK_FETCH_TIMEOUT_SECONDS=10" in env_example
+    assert "EA_PROACTIVE_OODA_TEABLE_SYNC_ENABLED=0" in env_example
     assert "EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID=" in env_example
+    assert '"proactive_ooda_runs"' in env_example
+    assert '"proactive_ooda_items"' in env_example
+    assert '"proactive_ooda_safe_work"' in env_example

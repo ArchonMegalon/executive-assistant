@@ -68,6 +68,10 @@ from app.services.proactive_ooda_stage_packets import (  # noqa: E402
     default_stage_packet_dir,
     persist_stage_packets,
 )
+from app.services.proactive_ooda_teable_sync import (  # noqa: E402
+    sync_proactive_ooda_to_teable,
+    teable_sync_enabled,
+)
 from app.services.proactive_telegram_binding import resolve_proactive_telegram_chat_id  # noqa: E402
 
 
@@ -174,6 +178,11 @@ def main() -> int:
         type=int,
         default=int(os.getenv("EA_PROACTIVE_OODA_SAFE_WORK_NETWORK_FETCH_TIMEOUT_SECONDS", "10") or "10"),
     )
+    parser.add_argument(
+        "--teable-sync",
+        action=argparse.BooleanOptionalAction,
+        default=teable_sync_enabled(),
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--pretty", action="store_true")
     args = parser.parse_args()
@@ -236,14 +245,15 @@ def main() -> int:
             safe_work_result_paths = safe_work_result.paths
             safe_work_result_refs = safe_work_result.result_refs
             safe_work_result_error_count = len(safe_work_result.errors)
+    safe_work_results = _notification_safe_work_previews(
+        args,
+        digest=digest,
+        stage_packet_paths=stage_packet_paths,
+        safe_work_result_paths=safe_work_result_paths,
+    )
     notification_text = _format_notification_text(
         digest,
-        safe_work_results=_notification_safe_work_previews(
-            args,
-            digest=digest,
-            stage_packet_paths=stage_packet_paths,
-            safe_work_result_paths=safe_work_result_paths,
-        ),
+        safe_work_results=safe_work_results,
     )
     if digest.items and not args.dry_run and not error_code:
         try:
@@ -273,12 +283,34 @@ def main() -> int:
         _write_receipt(Path(args.receipt_path), receipt_to_dict(receipt))
     if _env_truthy("EA_PROACTIVE_OODA_PERSIST_RECEIPTS", default=True):
         persist_proactive_ooda_receipt(principal_id=args.principal_id, digest=digest, receipt=receipt)
+    teable_sync: dict[str, Any] = {
+        "status": "disabled",
+        "sync_attempted": False,
+        "blocked_reason": "",
+    }
+    if bool(getattr(args, "teable_sync", False)):
+        teable_sync = sync_proactive_ooda_to_teable(
+            principal_id=args.principal_id,
+            digest=digest,
+            receipt=receipt,
+            safe_work_results=safe_work_results,
+        )
     if error_code and not _is_deferred_error(error_code):
         raise RuntimeError(f"proactive_ooda_notification_failed:{error_code}")
     if args.pretty:
         print(notification_text or "No actionable OODA ink.")
     else:
-        print(json.dumps({"digest": digest_to_dict(digest), "receipt": receipt_to_dict(receipt)}, indent=2, sort_keys=True))
+        print(
+            json.dumps(
+                {
+                    "digest": digest_to_dict(digest),
+                    "receipt": receipt_to_dict(receipt),
+                    "teable_sync": teable_sync,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
     return 0
 
 

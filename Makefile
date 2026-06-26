@@ -195,6 +195,10 @@ verify-memorial-deploy-readiness: materialize-memorial-operator-status refresh-r
 proactive-ooda:
 	PYTHONPATH=ea $(PYTHON_BIN) scripts/run_proactive_ooda.py --pretty
 
+.PHONY: bootstrap-proactive-ooda-teable
+bootstrap-proactive-ooda-teable:
+	$(PYTHON_BIN) scripts/bootstrap_proactive_ooda_teable_tables.py --create-missing --write-config
+
 .PHONY: proactive-ooda-safe-work
 proactive-ooda-safe-work:
 	PYTHONPATH=ea $(PYTHON_BIN) scripts/materialize_proactive_ooda_safe_work.py --pretty
