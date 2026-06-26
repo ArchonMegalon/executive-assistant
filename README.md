@@ -535,6 +535,14 @@ Check the privacy-safe live Telegram delivery proof:
 make verify-proactive-ooda-live-receipt
 ```
 
+Materialize private safe-work results from existing stage packets:
+
+```bash
+make proactive-ooda-safe-work
+```
+
+Safe-work results stay private next to the stage-packet state by default. They summarize the reversible result, evidence refs, risks/tradeoffs, and the approval prompt, while recording that no irreversible external action was attempted.
+
 Useful runtime knobs:
 
 - `EA_PROACTIVE_OODA_PRINCIPAL_ID`: principal to notify, default `principal-default`
@@ -545,6 +553,8 @@ Useful runtime knobs:
 - `EA_PROACTIVE_OODA_CONTAINER_STATE_PATH`: container dedupe state path, default `/data/provider-ledger/proactive_ooda_notified.json`
 - `EA_PROACTIVE_OODA_STAGE_PACKETS_ENABLED`: persist private staged next-step packet files for real runs, default `1`
 - `EA_PROACTIVE_OODA_STAGE_PACKET_DIR`: override private stage-packet output directory; default is `proactive_ooda_stage_packets` next to the dedupe state file
+- `EA_PROACTIVE_OODA_SAFE_WORK_RESULT_DIR`: override private safe-work result output directory; default is `proactive_ooda_safe_work_results` next to the stage-packet directory
+- `EA_PROACTIVE_OODA_SAFE_WORK_LIMIT`: maximum stage packets to materialize in one safe-work pass, default `100`
 - `EA_PROACTIVE_OODA_OBSERVATION_LOOKBACK_HOURS` / `EA_PROACTIVE_OODA_OBSERVATION_LIMIT`: fallback scan window for recent EA observation events
 - `EA_PROACTIVE_OODA_PERSIST_RECEIPTS`: persist redacted run receipts into `observation_events`, default `1`
 - `EA_PROACTIVE_OODA_SIGNALS_JSON`: optional file-backed signal feed

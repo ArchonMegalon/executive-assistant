@@ -195,6 +195,10 @@ verify-memorial-deploy-readiness: materialize-memorial-operator-status refresh-r
 proactive-ooda:
 	PYTHONPATH=ea $(PYTHON_BIN) scripts/run_proactive_ooda.py --pretty
 
+.PHONY: proactive-ooda-safe-work
+proactive-ooda-safe-work:
+	PYTHONPATH=ea $(PYTHON_BIN) scripts/materialize_proactive_ooda_safe_work.py --pretty
+
 verify-proactive-ooda:
 	PYTHONPATH=ea $(PYTHON_BIN) scripts/verify_proactive_ooda.py
 

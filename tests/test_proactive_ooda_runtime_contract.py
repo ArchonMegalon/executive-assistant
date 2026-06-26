@@ -20,10 +20,13 @@ def test_proactive_ooda_has_deployable_lightweight_service_and_operator_targets(
     assert "ea_proactive_ooda_state:" in compose
     assert "ea_proactive_ooda_state:/data" in compose
     assert "ea-proactive-ooda" in makefile
+    assert "proactive-ooda-safe-work:" in makefile
     assert "verify-proactive-ooda:" in makefile
     assert "verify-proactive-ooda-live-receipt:" in makefile
     assert "EA_PROACTIVE_OODA_DISCOVERY_JSON=" in env_example
     assert "EA_PROACTIVE_OODA_OPPORTUNITY_RULES_JSON=" in env_example
     assert "EA_PROACTIVE_OODA_STAGE_PACKETS_ENABLED=1" in env_example
     assert "EA_PROACTIVE_OODA_STAGE_PACKET_DIR=" in env_example
+    assert "EA_PROACTIVE_OODA_SAFE_WORK_RESULT_DIR=" in env_example
+    assert "EA_PROACTIVE_OODA_SAFE_WORK_LIMIT=100" in env_example
     assert "EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID=" in env_example
