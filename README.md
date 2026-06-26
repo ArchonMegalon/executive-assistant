@@ -541,7 +541,7 @@ Materialize private safe-work results from existing stage packets:
 make proactive-ooda-safe-work
 ```
 
-Safe-work results stay private next to the stage-packet state by default. They summarize the reversible result, evidence refs, risks/tradeoffs, and the approval prompt, while recording that no irreversible external action was attempted.
+Safe-work results stay private next to the stage-packet state by default. They summarize the reversible result, evidence refs, risks/tradeoffs, and the approval prompt, while recording that no irreversible external action was attempted. When enabled, the safe-work pass can also perform bounded read-only page fetches against staged URLs so the private result captures live page titles, reachability, and verified links without crossing the approval boundary.
 
 Useful runtime knobs:
 
@@ -556,6 +556,9 @@ Useful runtime knobs:
 - `EA_PROACTIVE_OODA_SAFE_WORK_RESULTS_ENABLED`: materialize private safe-work result files for new stage packets in real runs, default `1`
 - `EA_PROACTIVE_OODA_SAFE_WORK_RESULT_DIR`: override private safe-work result output directory; default is `proactive_ooda_safe_work_results` next to the stage-packet directory
 - `EA_PROACTIVE_OODA_SAFE_WORK_LIMIT`: maximum stage packets to materialize in one safe-work pass, default `100`
+- `EA_PROACTIVE_OODA_SAFE_WORK_NETWORK_FETCH_ENABLED`: allow bounded read-only page fetches for staged safe-work URLs, default `1`
+- `EA_PROACTIVE_OODA_SAFE_WORK_NETWORK_FETCH_LIMIT`: maximum distinct staged URLs fetched per result, default `6`
+- `EA_PROACTIVE_OODA_SAFE_WORK_NETWORK_FETCH_TIMEOUT_SECONDS`: per-request timeout for staged safe-work page fetches, default `10`
 - `EA_PROACTIVE_OODA_OBSERVATION_LOOKBACK_HOURS` / `EA_PROACTIVE_OODA_OBSERVATION_LIMIT`: fallback scan window for recent EA observation events
 - `EA_PROACTIVE_OODA_PERSIST_RECEIPTS`: persist redacted run receipts into `observation_events`, default `1`
 - `EA_PROACTIVE_OODA_SIGNALS_JSON`: optional file-backed signal feed

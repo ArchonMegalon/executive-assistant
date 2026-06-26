@@ -30,4 +30,7 @@ def test_proactive_ooda_has_deployable_lightweight_service_and_operator_targets(
     assert "EA_PROACTIVE_OODA_SAFE_WORK_RESULTS_ENABLED=1" in env_example
     assert "EA_PROACTIVE_OODA_SAFE_WORK_RESULT_DIR=" in env_example
     assert "EA_PROACTIVE_OODA_SAFE_WORK_LIMIT=100" in env_example
+    assert "EA_PROACTIVE_OODA_SAFE_WORK_NETWORK_FETCH_ENABLED=1" in env_example
+    assert "EA_PROACTIVE_OODA_SAFE_WORK_NETWORK_FETCH_LIMIT=6" in env_example
+    assert "EA_PROACTIVE_OODA_SAFE_WORK_NETWORK_FETCH_TIMEOUT_SECONDS=10" in env_example
     assert "EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID=" in env_example

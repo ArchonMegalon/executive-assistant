@@ -26,12 +26,34 @@ def main() -> int:
     parser.add_argument("--result-dir", default=os.getenv("EA_PROACTIVE_OODA_SAFE_WORK_RESULT_DIR", ""))
     parser.add_argument("--state-path", default=os.getenv("EA_PROACTIVE_OODA_STATE_PATH", "state/proactive_ooda_notified.json"))
     parser.add_argument("--limit", type=int, default=int(os.getenv("EA_PROACTIVE_OODA_SAFE_WORK_LIMIT", "100") or "100"))
+    parser.add_argument(
+        "--network-fetch",
+        action=argparse.BooleanOptionalAction,
+        default=str(os.getenv("EA_PROACTIVE_OODA_SAFE_WORK_NETWORK_FETCH_ENABLED") or "1").strip().lower() in {"1", "true", "yes", "on"},
+    )
+    parser.add_argument(
+        "--network-fetch-limit",
+        type=int,
+        default=int(os.getenv("EA_PROACTIVE_OODA_SAFE_WORK_NETWORK_FETCH_LIMIT", "6") or "6"),
+    )
+    parser.add_argument(
+        "--network-fetch-timeout-seconds",
+        type=int,
+        default=int(os.getenv("EA_PROACTIVE_OODA_SAFE_WORK_NETWORK_FETCH_TIMEOUT_SECONDS", "10") or "10"),
+    )
     parser.add_argument("--pretty", action="store_true")
     args = parser.parse_args()
 
     stage_dir = _stage_packet_dir(args)
     result_dir = _result_dir(args, stage_dir=stage_dir)
-    result = persist_safe_work_results(stage_packet_dir=stage_dir, result_dir=result_dir, limit=args.limit)
+    result = persist_safe_work_results(
+        stage_packet_dir=stage_dir,
+        result_dir=result_dir,
+        limit=args.limit,
+        network_fetch_enabled=bool(getattr(args, "network_fetch", True)),
+        network_fetch_limit=max(int(getattr(args, "network_fetch_limit", 6) or 1), 1),
+        network_fetch_timeout_seconds=max(int(getattr(args, "network_fetch_timeout_seconds", 10) or 1), 1),
+    )
     payload = {
         "ok": not result.errors,
         "stage_packet_dir": str(stage_dir),

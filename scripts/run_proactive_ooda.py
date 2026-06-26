@@ -156,6 +156,21 @@ def main() -> int:
         action=argparse.BooleanOptionalAction,
         default=_env_truthy("EA_PROACTIVE_OODA_SAFE_WORK_RESULTS_ENABLED", default=True),
     )
+    parser.add_argument(
+        "--safe-work-network-fetch",
+        action=argparse.BooleanOptionalAction,
+        default=_env_truthy("EA_PROACTIVE_OODA_SAFE_WORK_NETWORK_FETCH_ENABLED", default=True),
+    )
+    parser.add_argument(
+        "--safe-work-network-fetch-limit",
+        type=int,
+        default=int(os.getenv("EA_PROACTIVE_OODA_SAFE_WORK_NETWORK_FETCH_LIMIT", "6") or "6"),
+    )
+    parser.add_argument(
+        "--safe-work-network-fetch-timeout-seconds",
+        type=int,
+        default=int(os.getenv("EA_PROACTIVE_OODA_SAFE_WORK_NETWORK_FETCH_TIMEOUT_SECONDS", "10") or "10"),
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--pretty", action="store_true")
     args = parser.parse_args()
@@ -211,6 +226,9 @@ def main() -> int:
             safe_work_result = persist_safe_work_results_from_paths(
                 stage_packet_paths=stage_result.paths,
                 result_dir=_safe_work_result_dir(args, stage_packet_dir=stage_packet_dir),
+                network_fetch_enabled=bool(getattr(args, "safe_work_network_fetch", True)),
+                network_fetch_limit=max(int(getattr(args, "safe_work_network_fetch_limit", 6) or 1), 1),
+                network_fetch_timeout_seconds=max(int(getattr(args, "safe_work_network_fetch_timeout_seconds", 10) or 1), 1),
             )
             safe_work_result_refs = safe_work_result.result_refs
             safe_work_result_error_count = len(safe_work_result.errors)
