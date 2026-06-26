@@ -192,6 +192,88 @@ def test_preference_profile_service_builds_teable_projection_rows() -> None:
     assert projection["preference_review_queue"][0]["domain"] == "willhaben"
 
 
+def test_preference_profile_service_scores_generic_candidate_from_profile() -> None:
+    service = _service()
+    service.ensure_profile(
+        principal_id="pref-principal",
+        person_id="self",
+        consent_mode="behavioral_learning",
+        learning_enabled=True,
+    )
+    service.upsert_preference_node(
+        principal_id="pref-principal",
+        person_id="self",
+        domain="general",
+        category="constraint",
+        key="max_budget",
+        value_json=100,
+        confidence=1.0,
+    )
+    service.upsert_preference_node(
+        principal_id="pref-principal",
+        person_id="self",
+        domain="general",
+        category="constraint",
+        key="require_reversible_before_approval",
+        value_json=True,
+        confidence=1.0,
+    )
+    service.upsert_preference_node(
+        principal_id="pref-principal",
+        person_id="self",
+        domain="general",
+        category="soft_preference",
+        key="preferred_keywords",
+        value_json=["cool weather"],
+        confidence=0.9,
+    )
+    service.upsert_preference_node(
+        principal_id="pref-principal",
+        person_id="self",
+        domain="general",
+        category="soft_preference",
+        key="preferred_domains",
+        value_json=["example.test"],
+        confidence=0.9,
+    )
+    service.upsert_preference_node(
+        principal_id="pref-principal",
+        person_id="self",
+        domain="general",
+        category="aversion",
+        key="avoided_tags",
+        value_json=["indoor"],
+        confidence=1.0,
+    )
+
+    assessment = service.assess_candidate(
+        principal_id="pref-principal",
+        person_id="self",
+        domain="general",
+        object_type="candidate",
+        object_id="candidate-1",
+        object_payload={
+            "label": "Cool weather option",
+            "url": "https://example.test/item-a",
+            "domain": "example.test",
+            "price_value": 89.0,
+            "currency": "EUR",
+            "delivery_days": 2,
+            "reversible_before_approval": True,
+            "available": True,
+            "tags": ["cool weather", "outdoor"],
+        },
+        persist=False,
+        require_existing_profile=True,
+    )
+
+    assert assessment is not None
+    assert assessment["recommendation"] == "shortlist"
+    assert assessment["blocking_constraints_json"] == []
+    assert any("budget ceiling" in entry.lower() for entry in assessment["match_reasons_json"])
+    assert any("preferred source domain" in entry.lower() for entry in assessment["match_reasons_json"])
+
+
 def test_preference_profile_service_partial_profile_update_keeps_existing_flags() -> None:
     service = _service()
 

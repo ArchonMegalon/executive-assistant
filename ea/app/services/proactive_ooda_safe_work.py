@@ -333,6 +333,11 @@ def _candidate_evaluation_context(
         budget.get("currency"),
         constraints.get("currency"),
     )
+    delivery_days_max = _delivery_days_limit(
+        deadline=_stage_or_input(stage_payload=stage_payload, input_contract=input_contract, key="deadline"),
+        delivery_window=_stage_or_input(stage_payload=stage_payload, input_contract=input_contract, key="delivery_window"),
+        constraints=constraints,
+    )
     all_text = tuple(dict.fromkeys((*selection_criteria, *comparison_dimensions, *preferences, *requirements)))
     return {
         "selection_criteria": selection_criteria,
@@ -343,6 +348,7 @@ def _candidate_evaluation_context(
         "budget_max": budget_max,
         "budget_min": budget_min,
         "budget_currency": budget_currency,
+        "delivery_days_max": delivery_days_max,
         "all_text": all_text,
         "price_relevant": any(_text_mentions(term, ("price", "budget", "cheap", "cost", "value")) for term in all_text),
         "timing_relevant": any(_text_mentions(term, ("timing", "delivery", "soon", "fast", "quick", "eta")) for term in all_text),
@@ -416,6 +422,16 @@ def _candidate_analysis(
             score -= 16
             constraint_violations.append("not currently available")
 
+    if context.get("delivery_days_max") is not None and delivery_days is not None:
+        delivery_days_max = float(context["delivery_days_max"])
+        if delivery_days <= delivery_days_max:
+            score += 12
+            matched_criteria.append(f"delivery within {delivery_days_max:g} days")
+            recommendation_reasons.append("meets timing window")
+        else:
+            score -= 20
+            constraint_violations.append(f"misses timing window ({delivery_days:g}d > {delivery_days_max:g}d)")
+
     for phrase in context.get("selection_criteria", ()):
         if _candidate_matches_phrase(candidate, search_text=search_text, phrase=phrase):
             score += 8
@@ -471,6 +487,35 @@ def _candidate_analysis(
         if relative_bonus > 0:
             score += relative_bonus
             recommendation_reasons.append("faster timing")
+
+    preference_assessment = _mapping_value(candidate.get("preference_assessment"))
+    if preference_assessment:
+        fit_score = _float_value(preference_assessment.get("fit_score"))
+        if fit_score is not None:
+            score += max(-20.0, min(20.0, round((fit_score - 50.0) * 0.4, 2)))
+            if fit_score >= 55:
+                matched_criteria.append(f"profile fit {fit_score:g}")
+        recommendation = str(preference_assessment.get("recommendation") or "").strip().lower()
+        if recommendation == "shortlist":
+            score += 6
+            recommendation_reasons.append("profile recommends shortlist")
+        elif recommendation == "mention":
+            score += 2
+        elif recommendation == "reject":
+            score -= 8
+        for value in list(preference_assessment.get("match_reasons_json") or [])[:2]:
+            text = str(value or "").strip()
+            if text:
+                recommendation_reasons.append(text)
+        for value in list(preference_assessment.get("mismatch_reasons_json") or [])[:2]:
+            text = str(value or "").strip()
+            if text:
+                constraint_violations.append(text)
+        for value in list(preference_assessment.get("blocking_constraints_json") or [])[:2]:
+            text = str(value or "").strip()
+            if text:
+                score -= 25
+                constraint_violations.append(text)
 
     return {
         "index": index,
@@ -785,6 +830,50 @@ def _float_value(*values: Any) -> float | None:
         except ValueError:
             continue
     return None
+
+
+def _delivery_days_limit(
+    *,
+    deadline: Any,
+    delivery_window: Any,
+    constraints: Mapping[str, Any],
+) -> float | None:
+    for source in (constraints, _mapping_value(delivery_window)):
+        limit = _float_value(
+            source.get("delivery_days_max"),
+            source.get("eta_days_max"),
+            source.get("lead_time_days_max"),
+            source.get("max_delivery_days"),
+        )
+        if limit is not None:
+            return limit
+    deadline_text = str(deadline or "").strip()
+    if deadline_text:
+        parsed = _parse_datetime(deadline_text)
+        if parsed is not None:
+            remaining = max((parsed - datetime.now(timezone.utc)).total_seconds() / 86400.0, 0.0)
+            return round(remaining, 2)
+    window_text = str(delivery_window or "").strip()
+    if window_text:
+        limit = _float_value(window_text)
+        if limit is not None:
+            return limit
+    return None
+
+
+def _parse_datetime(value: str) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    if raw.endswith("Z"):
+        raw = f"{raw[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _upper_text(*values: Any) -> str:

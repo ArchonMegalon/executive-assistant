@@ -68,6 +68,7 @@ from app.services.proactive_ooda_stage_packets import (  # noqa: E402
     default_stage_packet_dir,
     persist_stage_packets,
 )
+from app.services.proactive_ooda_context_grounding import ground_digest_with_context  # noqa: E402
 from app.services.proactive_ooda_teable_sync import (  # noqa: E402
     sync_proactive_ooda_to_teable,
     teable_sync_enabled,
@@ -205,6 +206,7 @@ def main() -> int:
         signals=signals,
         already_notified_refs=stored_refs,
     )
+    digest = _context_grounded_digest(args.principal_id, digest)
     if not args.dry_run:
         deferred_reason = _operator_pause_defer_reason(args, digest)
         if not deferred_reason:
@@ -317,6 +319,56 @@ def main() -> int:
 def _write_receipt(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _context_grounded_digest(principal_id: str, digest: ProactiveOodaDigest) -> ProactiveOodaDigest:
+    if not digest.items:
+        return digest
+    try:
+        from app.container import build_container
+        from app.services.memory_reasoning_service import MemoryReasoningService
+    except Exception:
+        return digest
+    try:
+        container = build_container()
+    except Exception:
+        return digest
+    try:
+        context_pack = MemoryReasoningService(container.memory_runtime).build_context_pack(
+            principal_id=principal_id,
+            task_key="proactive_ooda",
+            goal="Ground proactive assistant decisions against current context and commitments.",
+            limit=5,
+        ).as_dict()
+    except Exception:
+        context_pack = {}
+    try:
+        preference_bundle = container.preference_profiles.get_profile_bundle(principal_id=principal_id, person_id="self")
+    except Exception:
+        preference_bundle = {}
+
+    def _assess_candidate(domain: str, object_type: str, object_id: str, object_payload: dict[str, object]) -> dict[str, object] | None:
+        try:
+            assessment = container.preference_profiles.assess_candidate(
+                principal_id=principal_id,
+                person_id="self",
+                domain=domain,
+                object_type=object_type,
+                object_id=object_id,
+                object_payload=object_payload,
+                persist=False,
+                require_existing_profile=False,
+            )
+        except Exception:
+            return None
+        return dict(assessment or {}) if isinstance(assessment, dict) else None
+
+    return ground_digest_with_context(
+        digest,
+        context_pack=context_pack,
+        preference_bundle=preference_bundle,
+        assess_candidate=_assess_candidate,
+    )
 
 
 def _stage_packet_dir(args: argparse.Namespace) -> Path:

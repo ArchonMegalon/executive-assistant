@@ -206,6 +206,103 @@ def test_verify_proactive_ooda_warns_but_passes_when_one_discovery_source_fails(
     assert "missing-private-feed" not in report["warnings"][0]
 
 
+def test_verify_proactive_ooda_reports_context_grounding(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv("EA_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID", raising=False)
+    signal_file = tmp_path / "signals.json"
+    signal_file.write_text(
+        json.dumps(
+            [
+                {
+                    "source_ref": "operator:approval",
+                    "signal_type": "opportunity",
+                    "channel": "assistant_opportunity",
+                    "title": "Prepare a contextual approval packet",
+                    "summary": "Review the reversible candidate.",
+                    "payload": {
+                        "ooda_loop": {
+                            "reviewed": True,
+                            "observe": {"summary": "Review the candidate."},
+                            "orient": {"summary": "Stored context should influence the result."},
+                            "decide": {"summary": "Approve whether EA should proceed.", "approval_required": True},
+                            "act": {
+                                "summary": "Stage the candidate.",
+                                "stage": {
+                                    "kind": "approval_packet",
+                                    "summary": "One candidate ready for approval.",
+                                    "candidate_items": [{"label": "Candidate A", "url": "https://example.test/item-a"}],
+                                },
+                            },
+                        }
+                    },
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        runner,
+        "_context_grounded_digest",
+        lambda _principal_id, digest: runner.ground_digest_with_context(
+            digest,
+            context_pack={
+                "summary": "1 active commitment",
+                "commitment_risks": [{"summary": "Gift window is open.", "due_at": "2099-06-30T12:00:00+00:00", "severity": "high"}],
+            },
+            preference_bundle={
+                "preference_nodes": [
+                    {"domain": "general", "category": "constraint", "key": "require_reversible_before_approval", "value_json": True, "status": "active"}
+                ]
+            },
+            assess_candidate=lambda *_args: {
+                "fit_score": 80.0,
+                "recommendation": "shortlist",
+                "match_reasons_json": ["Matches stored profile"],
+                "mismatch_reasons_json": [],
+                "blocking_constraints_json": [],
+            },
+        ),
+    )
+
+    report = verifier._build_report(
+        Namespace(
+            principal_id="exec",
+            signals_json=str(signal_file),
+            discovery_json="",
+            state_path=str(tmp_path / "state.json"),
+            max_items=5,
+            observation_lookback_hours=24,
+            observation_limit=50,
+            skip_observation_source=True,
+            require_source=True,
+            require_telegram=False,
+            require_receipt_observation=False,
+            stage_packet_dir=str(tmp_path / "packets"),
+            safe_work_result_dir=str(tmp_path / "results"),
+            stage_packets=True,
+            safe_work_results=True,
+            require_stage_packets=False,
+            require_safe_work_results=False,
+            paused=False,
+            pause_reason="",
+            quiet_hours_start="",
+            quiet_hours_end="",
+            quiet_hours_timezone="UTC",
+            quiet_hours_allow_high_priority=True,
+            interruption_budget_limit=0,
+            interruption_budget_window_hours=24,
+            interruption_budget_allow_high_priority=True,
+            skip_workspace_source=True,
+            opportunity_rules_json="",
+        )
+    )
+
+    assert report["ok"] is True
+    assert report["context_grounding"]["candidate_assessment_count"] == 1
+    assert report["context_grounding"]["requirement_count"] >= 1
+    assert report["context_grounding"]["deadline_count"] == 1
+
+
 def test_runner_load_signals_continues_after_discovery_failure(tmp_path, monkeypatch) -> None:
     _stub_empty_workspace(monkeypatch)
     missing_file = tmp_path / "missing.json"

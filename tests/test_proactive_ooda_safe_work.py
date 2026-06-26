@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from io import BytesIO
+from datetime import datetime, timedelta, timezone
 
 from app.services.proactive_ooda_safe_work import (
     SAFE_WORK_RESULT_SCHEMA,
@@ -204,6 +205,58 @@ def test_build_safe_work_result_scores_candidates_against_budget_preferences_and
     assert any("over budget" in value for value in result["comparison_table"][1]["constraint_violations"])
     assert any("currency mismatch" in value for value in result["comparison_table"][2]["constraint_violations"])
     assert any("not reversible" in value for value in result["comparison_table"][2]["constraint_violations"])
+
+
+def test_build_safe_work_result_uses_profile_assessment_and_timing_window() -> None:
+    packet = _packet_with_cart_work()
+    packet["stage"]["payload"]["kind"] = "shortlist"  # type: ignore[index]
+    packet["stage"]["payload"]["work_type"] = "compare_options"  # type: ignore[index]
+    packet["safe_work_order"]["work_type"] = "compare_options"  # type: ignore[index]
+    packet["stage"]["payload"]["approval_url"] = ""  # type: ignore[index]
+    deadline = (datetime.now(timezone.utc) + timedelta(days=3)).isoformat()
+    packet["safe_work_order"]["input_contract"] = {  # type: ignore[index]
+        "selection_criteria": ["timing", "reversible before approval"],
+        "deadline": deadline,
+        "expected_artifacts": ["shortlist"],
+        "private_payload_available": True,
+    }
+    packet["stage"]["payload"]["candidate_items"] = [  # type: ignore[index]
+        {
+            "label": "Candidate A",
+            "url": "https://example.test/item-a",
+            "delivery_days": 2,
+            "reversible_before_approval": True,
+            "preference_assessment": {
+                "fit_score": 82.0,
+                "recommendation": "shortlist",
+                "match_reasons_json": ["Matches stored profile"],
+                "mismatch_reasons_json": [],
+                "blocking_constraints_json": [],
+            },
+        },
+        {
+            "label": "Candidate B",
+            "url": "https://example.test/item-b",
+            "delivery_days": 5,
+            "reversible_before_approval": True,
+            "preference_assessment": {
+                "fit_score": 28.0,
+                "recommendation": "reject",
+                "match_reasons_json": [],
+                "mismatch_reasons_json": ["Conflicts with stored preferences"],
+                "blocking_constraints_json": [],
+            },
+        },
+    ]
+
+    result = build_safe_work_result(packet)
+
+    assert [item["label"] for item in result["shortlist"]] == ["Candidate A", "Candidate B"]
+    assert result["comparison_table"][0]["label"] == "Candidate A"
+    assert "profile fit 82" in result["comparison_table"][0]["matched_criteria"]
+    assert any("meets timing window" in value for value in result["comparison_table"][0]["recommendation_reasons"])
+    assert any("misses timing window" in value for value in result["comparison_table"][1]["constraint_violations"])
+    assert any("Conflicts with stored preferences" in value for value in result["comparison_table"][1]["constraint_violations"])
 
 
 def test_build_safe_work_result_keeps_stable_result_id_across_regeneration() -> None:

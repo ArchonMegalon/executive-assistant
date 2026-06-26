@@ -40,6 +40,8 @@ def _load_dotenv_if_present(path: Path) -> None:
 
 _load_dotenv_if_present(ROOT / ".env")
 
+import scripts.run_proactive_ooda as runner  # noqa: E402
+
 from app.services.proactive_ooda_service import JsonOodaStateStore, ProactiveOodaService, digest_to_dict  # noqa: E402
 from app.services.proactive_ooda_safe_work import (  # noqa: E402
     SAFE_WORK_RESULT_SCHEMA,
@@ -243,6 +245,7 @@ def _build_report(args: argparse.Namespace) -> dict[str, Any]:
     digest_items = 0
     notified_refs: list[str] = []
     guard_status: dict[str, Any]
+    context_grounding_status: dict[str, Any]
     state_store = JsonOodaStateStore(ROOT / args.state_path)
     if signals:
         digest = ProactiveOodaService(state_store=state_store, max_items=args.max_items).build_digest(
@@ -250,18 +253,21 @@ def _build_report(args: argparse.Namespace) -> dict[str, Any]:
             signals=signals,
             already_notified_refs=state_store.load_notified_refs(args.principal_id),
         )
-        digest_items = len(digest.items)
-        notified_refs = list(digest.notified_refs)
-        digest_payload = digest_to_dict(digest)
-        guard_status = _delivery_guard_status(args, state_store=state_store, digest=digest)
+        grounded_digest = runner._context_grounded_digest(args.principal_id, digest)
+        digest_items = len(grounded_digest.items)
+        notified_refs = list(grounded_digest.notified_refs)
+        digest_payload = digest_to_dict(grounded_digest)
+        guard_status = _delivery_guard_status(args, state_store=state_store, digest=grounded_digest)
+        context_grounding_status = _context_grounding_status(grounded_digest)
     else:
-        digest = None
+        grounded_digest = None
         digest_payload = {}
         guard_status = _delivery_guard_status(args, state_store=state_store, digest=None)
-    stage_packet_status = _stage_packet_status(args, digest=digest)
+        context_grounding_status = _context_grounding_status(None)
+    stage_packet_status = _stage_packet_status(args, digest=grounded_digest)
     if stage_packet_status["required"] and not stage_packet_status["ready"]:
         errors.extend(stage_packet_status["errors"])
-    safe_work_result_status = _safe_work_result_status(args, digest=digest, stage_packet_dir=Path(stage_packet_status["output_dir"]))
+    safe_work_result_status = _safe_work_result_status(args, digest=grounded_digest, stage_packet_dir=Path(stage_packet_status["output_dir"]))
     if safe_work_result_status["required"] and not safe_work_result_status["ready"]:
         errors.extend(safe_work_result_status["errors"])
 
@@ -280,6 +286,7 @@ def _build_report(args: argparse.Namespace) -> dict[str, Any]:
         "workspace_source_healthy": workspace_source_healthy,
         "state_path": args.state_path,
         "delivery_guard": guard_status,
+        "context_grounding": context_grounding_status,
         "stage_packets": stage_packet_status,
         "safe_work_results": safe_work_result_status,
         "digest": digest_payload,
@@ -384,6 +391,37 @@ def _delivery_guard_status(
         "interruption_budget_exhausted": budget_exhausted,
         "interruption_budget_allow_high_priority": budget_allows_high,
         "has_high_priority": has_high_priority,
+    }
+
+
+def _context_grounding_status(digest: Any | None) -> dict[str, Any]:
+    items = tuple(getattr(digest, "items", ()) or ()) if digest is not None else ()
+    notes_count = 0
+    preference_count = 0
+    requirement_count = 0
+    exclusion_count = 0
+    assessment_count = 0
+    deadline_count = 0
+    for item in items:
+        payload = dict(getattr(item, "stage_payload", None) or {})
+        notes_count += len(_list_value(payload.get("notes")))
+        preference_count += len(_list_value(payload.get("preferences")))
+        requirement_count += len(_list_value(payload.get("requirements")))
+        exclusion_count += len(_list_value(payload.get("exclusions")))
+        if str(payload.get("deadline") or "").strip():
+            deadline_count += 1
+        for key in ("candidate_items", "candidates", "booking_options"):
+            for candidate in _object_list(payload.get(key)):
+                if isinstance(candidate.get("preference_assessment"), dict):
+                    assessment_count += 1
+    return {
+        "grounded": bool(items),
+        "notes_count": notes_count,
+        "preference_count": preference_count,
+        "requirement_count": requirement_count,
+        "exclusion_count": exclusion_count,
+        "deadline_count": deadline_count,
+        "candidate_assessment_count": assessment_count,
     }
 
 
@@ -519,6 +557,22 @@ def _directory_writable(path: Path) -> tuple[bool, str]:
         return False, exc.__class__.__name__
 
 
+def _object_list(value: Any) -> list[dict[str, Any]]:
+    if isinstance(value, dict):
+        return [dict(value)]
+    if not isinstance(value, (list, tuple)):
+        return []
+    return [dict(item) for item in value if isinstance(item, dict)]
+
+
+def _list_value(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value.strip()] if value.strip() else []
+    if not isinstance(value, (list, tuple)):
+        return []
+    return [str(item or "").strip() for item in value if str(item or "").strip()]
+
+
 def _quiet_hours_configured(args: argparse.Namespace) -> bool:
     return _parse_local_time(getattr(args, "quiet_hours_start", "")) is not None and _parse_local_time(
         getattr(args, "quiet_hours_end", "")
@@ -610,6 +664,7 @@ def _format_report(report: dict[str, Any]) -> str:
         f"telegram: {'ready' if report['telegram_ready'] else 'not configured'}",
         f"workspace: {_workspace_status(report)}",
         f"delivery guard: {_delivery_guard_summary(report)}",
+        f"context grounding: {_context_grounding_summary(report)}",
         f"stage packets: {_stage_packet_summary(report)}",
         f"safe-work results: {_safe_work_result_summary(report)}",
         f"receipt observations: {report['receipt_observation_count']}",
@@ -638,6 +693,18 @@ def _delivery_guard_summary(report: dict[str, Any]) -> str:
     paused = ", paused" if guard.get("operator_paused") else ""
     quiet = ", quiet-active" if guard.get("quiet_hours_active") else ""
     return f"{state}{f' ({reason})' if reason else ''}{paused}{quiet}{budget}"
+
+
+def _context_grounding_summary(report: dict[str, Any]) -> str:
+    status = dict(report.get("context_grounding") or {})
+    if not status.get("grounded"):
+        return "no actionable stage context"
+    return (
+        f"{status.get('candidate_assessment_count', 0)} candidate assessments, "
+        f"{status.get('preference_count', 0)} preferences, "
+        f"{status.get('requirement_count', 0)} requirements, "
+        f"{status.get('deadline_count', 0)} deadlines"
+    )
 
 
 def _stage_packet_summary(report: dict[str, Any]) -> str:

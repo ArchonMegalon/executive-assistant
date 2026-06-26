@@ -562,21 +562,225 @@ class PreferenceProfileService:
         return hints
 
     def _assess_generic(self, *, object_id: str, object_payload: dict[str, object], nodes: list[dict[str, object]]) -> dict[str, object]:
-        del object_id, object_payload
-        confidence = 0.2 if nodes else 0.0
-        recommendation = "ask_for_clarification" if nodes else "mention"
+        facts = dict(object_payload or {})
+        score = 50.0
+        match_reasons: list[str] = []
+        mismatch_reasons: list[str] = []
+        unknowns: list[str] = []
+        blocking_constraints: list[str] = []
+        search_text = _generic_search_text(facts)
+        price_value = _generic_float(facts.get("price_value"), facts.get("price"), facts.get("amount"), facts.get("total"))
+        currency = _generic_upper_text(facts.get("currency"))
+        delivery_days = _generic_float(facts.get("delivery_days"), facts.get("eta_days"), facts.get("lead_time_days"))
+        reversible = _generic_boolean(facts, "reversible_before_approval", "reversible", "refundable", "cancellable_before_approval")
+        available = _generic_availability(facts)
+        candidate_domain = _normalize_key(
+            facts.get("domain")
+            or facts.get("site")
+            or facts.get("provider")
+            or facts.get("source")
+            or facts.get("marketplace")
+            or ""
+        )
+
+        for node in nodes:
+            category = _normalize_key(node.get("category"))
+            key = _normalize_key(node.get("key"))
+            value = node.get("value_json")
+            weight = _strength_weight(str(node.get("strength") or "medium")) * max(float(node.get("confidence") or 0.5), 0.3)
+
+            if category == "constraint" and key in {"max_budget", "budget_max", "max_price", "price_max"}:
+                limit = _generic_float(value)
+                if limit is None:
+                    continue
+                if price_value is None:
+                    unknowns.append(f"Budget limit {limit:g} is set, but price still needs verification.")
+                elif price_value > limit:
+                    blocking_constraints.append(f"Price exceeds the required budget ceiling of {limit:g}.")
+                    score -= 20.0
+                else:
+                    score += 4.0 * weight
+                    match_reasons.append(f"Price sits within the required budget ceiling of {limit:g}.")
+            elif category == "constraint" and key in {"min_budget", "budget_min", "min_price", "price_min"}:
+                limit = _generic_float(value)
+                if limit is None:
+                    continue
+                if price_value is None:
+                    unknowns.append(f"Minimum budget floor {limit:g} is set, but price still needs verification.")
+                elif price_value < limit:
+                    mismatch_reasons.append(f"Price is below the expected floor of {limit:g}.")
+                    score -= 8.0
+            elif category == "constraint" and key in {"required_currency", "currency"}:
+                expected_currency = _generic_upper_text(value)
+                if not expected_currency:
+                    continue
+                if not currency:
+                    unknowns.append(f"Currency should be {expected_currency}, but the candidate does not declare one.")
+                elif currency != expected_currency:
+                    blocking_constraints.append(f"Currency {currency} does not match the required currency {expected_currency}.")
+                    score -= 16.0
+                else:
+                    score += 3.0 * weight
+            elif category == "constraint" and key in {"max_delivery_days", "delivery_days_max", "eta_days_max", "lead_time_days_max"}:
+                limit = _generic_float(value)
+                if limit is None:
+                    continue
+                if delivery_days is None:
+                    unknowns.append(f"Delivery should stay within {limit:g} days, but timing still needs verification.")
+                elif delivery_days > limit:
+                    blocking_constraints.append(f"Delivery takes about {delivery_days:g} days, which misses the required {limit:g}-day window.")
+                    score -= 18.0
+                else:
+                    score += 4.0 * weight
+                    match_reasons.append(f"Delivery fits within the required {limit:g}-day window.")
+            elif category == "constraint" and key == "require_reversible_before_approval":
+                if bool(value):
+                    if reversible is True:
+                        score += 5.0 * weight
+                        match_reasons.append("The candidate remains reversible before approval.")
+                    elif reversible is False:
+                        blocking_constraints.append("The candidate is not reversible before approval.")
+                        score -= 18.0
+                    else:
+                        unknowns.append("Reversibility before approval still needs verification.")
+            elif category == "constraint" and key == "require_available_now":
+                if bool(value):
+                    if available is True:
+                        score += 4.0 * weight
+                        match_reasons.append("The candidate appears available now.")
+                    elif available is False:
+                        blocking_constraints.append("Immediate availability is required, but the candidate is not currently available.")
+                        score -= 14.0
+                    else:
+                        unknowns.append("Immediate availability still needs verification.")
+            elif category == "constraint" and key in {"required_keywords", "required_tags"}:
+                required = _list_value(value)
+                if required and not all(_normalize_key(entry) in search_text for entry in required):
+                    blocking_constraints.append("Not all required keywords or tags appear in the candidate details.")
+                    score -= 14.0
+                elif required:
+                    score += 5.0 * weight
+                    match_reasons.append("The candidate includes the required keywords or tags.")
+            elif category == "constraint" and key in {"required_sites", "required_domains", "required_brands"}:
+                required = {_normalize_key(entry) for entry in _list_value(value)}
+                if required and candidate_domain and candidate_domain in required:
+                    score += 4.0 * weight
+                    match_reasons.append(f"The candidate comes from the required source domain ({candidate_domain}).")
+                elif required and candidate_domain:
+                    blocking_constraints.append(f"The candidate comes from {candidate_domain}, which is outside the required source domains.")
+                    score -= 14.0
+                elif required:
+                    unknowns.append("Required source-domain checks still need verification.")
+            elif category == "soft_preference" and key in {"preferred_keywords", "preferred_tags", "preferred_features"}:
+                matched = [entry for entry in _list_value(value) if _normalize_key(entry) in search_text]
+                if matched:
+                    score += 4.0 * weight
+                    match_reasons.append(f"The candidate matches preferred keywords or tags: {', '.join(matched[:2])}.")
+            elif category == "soft_preference" and key in {"preferred_sites", "preferred_domains", "preferred_brands"}:
+                preferred = {_normalize_key(entry) for entry in _list_value(value)}
+                if preferred and candidate_domain and candidate_domain in preferred:
+                    score += 5.0 * weight
+                    match_reasons.append(f"The candidate comes from a preferred source domain ({candidate_domain}).")
+            elif category == "soft_preference" and key in {"preferred_currency", "currency"}:
+                preferred_currency = _generic_upper_text(value)
+                if preferred_currency and currency:
+                    if currency == preferred_currency:
+                        score += 3.0 * weight
+                        match_reasons.append(f"Currency matches the preferred currency ({preferred_currency}).")
+                    else:
+                        score -= 2.5 * weight
+                        mismatch_reasons.append(f"Currency {currency} differs from the preferred currency {preferred_currency}.")
+            elif category == "soft_preference" and key in {"max_delivery_days_preference", "preferred_delivery_days"}:
+                limit = _generic_float(value)
+                if limit is None:
+                    continue
+                if delivery_days is None:
+                    unknowns.append(f"A preferred delivery window of {limit:g} days is set, but timing still needs verification.")
+                elif delivery_days <= limit:
+                    score += 4.0 * weight
+                    match_reasons.append(f"Delivery fits within the preferred {limit:g}-day window.")
+                else:
+                    score -= 4.0 * weight
+                    mismatch_reasons.append(f"Delivery is slower than the preferred {limit:g}-day window.")
+            elif category == "soft_preference" and key == "prefer_reversible_before_approval":
+                if bool(value):
+                    if reversible is True:
+                        score += 7.0 * weight
+                        match_reasons.append("The candidate stays reversible before approval, which matches the preferred workflow.")
+                    elif reversible is False:
+                        score -= 6.0 * weight
+                        mismatch_reasons.append("The candidate is not reversible before approval.")
+                    else:
+                        unknowns.append("Reversibility before approval still needs verification.")
+            elif category == "soft_preference" and key == "prefer_available_now":
+                if bool(value):
+                    if available is True:
+                        score += 5.0 * weight
+                        match_reasons.append("The candidate appears immediately available.")
+                    elif available is False:
+                        score -= 4.0 * weight
+                        mismatch_reasons.append("The candidate does not appear immediately available.")
+                    else:
+                        unknowns.append("Immediate availability still needs verification.")
+            elif category == "soft_preference" and key == "prefer_fast_delivery":
+                if bool(value):
+                    if delivery_days is not None and delivery_days <= 3.0:
+                        score += 5.0 * weight
+                        match_reasons.append("Delivery timing looks fast enough for the preferred workflow.")
+                    elif delivery_days is not None and delivery_days > 5.0:
+                        score -= 4.0 * weight
+                        mismatch_reasons.append("Delivery timing looks slower than preferred.")
+                    else:
+                        unknowns.append("Delivery timing still needs verification.")
+            elif category == "aversion" and key in {"avoided_keywords", "avoided_tags", "avoided_features"}:
+                matched = [entry for entry in _list_value(value) if _normalize_key(entry) in search_text]
+                if matched:
+                    score -= 12.0 * weight
+                    mismatch_reasons.append(f"The candidate matches recorded aversions: {', '.join(matched[:2])}.")
+            elif category == "aversion" and key in {"avoided_sites", "avoided_domains", "avoided_brands"}:
+                avoided = {_normalize_key(entry) for entry in _list_value(value)}
+                if avoided and candidate_domain and candidate_domain in avoided:
+                    score -= 10.0 * weight
+                    mismatch_reasons.append(f"The candidate comes from {candidate_domain}, which matches a recorded source aversion.")
+
+        if price_value is None:
+            unknowns.append("Price still needs verification.")
+        if delivery_days is None:
+            unknowns.append("Delivery timing still needs verification.")
+        if reversible is None:
+            unknowns.append("Reversibility before approval still needs verification.")
+        if available is None:
+            unknowns.append("Availability still needs verification.")
+
+        confidence = 0.25 if not nodes else min(0.9, 0.35 + min(len(nodes), 8) * 0.07)
+        if blocking_constraints:
+            recommendation = "reject"
+            predicted_reaction = "reject"
+        elif score >= 68:
+            recommendation = "shortlist"
+            predicted_reaction = "shortlist"
+        elif score >= 55:
+            recommendation = "mention"
+            predicted_reaction = "consider"
+        elif score >= 45:
+            recommendation = "ask_for_clarification"
+            predicted_reaction = "mixed"
+        else:
+            recommendation = "reject"
+            predicted_reaction = "reject"
+
         return {
             "domain": "general",
             "object_type": "candidate",
-            "object_id": "",
-            "fit_score": 50.0,
-            "confidence": confidence,
-            "predicted_reaction": "consider",
+            "object_id": object_id,
+            "fit_score": round(max(0.0, min(100.0, score)), 2),
+            "confidence": round(confidence, 2),
+            "predicted_reaction": predicted_reaction,
             "recommendation": recommendation,
-            "match_reasons_json": [],
-            "mismatch_reasons_json": [],
-            "unknowns_json": ["No domain-specific scoring model is configured yet for this candidate type."],
-            "blocking_constraints_json": [],
+            "match_reasons_json": match_reasons[:6],
+            "mismatch_reasons_json": mismatch_reasons[:6],
+            "unknowns_json": list(dict.fromkeys(unknowns))[:6],
+            "blocking_constraints_json": blocking_constraints[:4],
         }
 
     def _assess_willhaben(
@@ -879,3 +1083,72 @@ class PreferenceProfileService:
             "unknowns_json": unknowns[:6],
             "blocking_constraints_json": blocking_constraints[:4],
         }
+
+
+def _generic_search_text(payload: dict[str, object]) -> str:
+    pieces: list[str] = []
+
+    def _visit(value: Any, *, key: str = "") -> None:
+        if isinstance(value, dict):
+            for nested_key, nested_value in value.items():
+                _visit(nested_value, key=str(nested_key))
+            return
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                _visit(item, key=key)
+            return
+        if value is None:
+            return
+        if key in {"url", "link", "href", "final_url"}:
+            return
+        text = str(value).strip()
+        if text:
+            pieces.append(text.lower())
+
+    _visit(payload)
+    return " ".join(pieces)
+
+
+def _generic_float(*values: Any) -> float | None:
+    for value in values:
+        if value is None or value == "":
+            continue
+        if isinstance(value, (int, float)):
+            return float(value)
+        try:
+            return float(str(value).strip().replace(",", "."))
+        except Exception:
+            continue
+    return None
+
+
+def _generic_upper_text(value: Any) -> str:
+    text = str(value or "").strip()
+    return text.upper() if text else ""
+
+
+def _generic_boolean(payload: dict[str, object], *keys: str) -> bool | None:
+    for key in keys:
+        if key not in payload:
+            continue
+        value = payload.get(key)
+        if isinstance(value, bool):
+            return value
+        normalized = str(value or "").strip().lower()
+        if normalized in {"1", "true", "yes", "y", "on", "available", "in_stock"}:
+            return True
+        if normalized in {"0", "false", "no", "n", "off", "unavailable", "out_of_stock"}:
+            return False
+    return None
+
+
+def _generic_availability(payload: dict[str, object]) -> bool | None:
+    direct = _generic_boolean(payload, "in_stock", "available")
+    if direct is not None:
+        return direct
+    raw = _normalize_key(payload.get("availability"))
+    if raw in {"available", "in stock", "ready", "now"}:
+        return True
+    if raw in {"unavailable", "out of stock", "delayed"}:
+        return False
+    return None
