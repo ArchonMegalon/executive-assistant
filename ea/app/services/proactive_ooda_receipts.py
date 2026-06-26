@@ -10,6 +10,16 @@ from app.services.proactive_ooda_service import ProactiveOodaDigest, ProactiveOo
 
 
 RECEIPT_EVENT_TYPE = "proactive_ooda.run_receipt"
+SAFE_STAGE_KIND_LABELS = {
+    "approval_link",
+    "approval_packet",
+    "booking_candidate",
+    "cart_draft",
+    "draft_reply",
+    "research_packet",
+    "shortlist",
+    "source_health",
+}
 
 
 def persist_proactive_ooda_receipt(
@@ -110,6 +120,14 @@ def proactive_ooda_receipt_payload(
             "priority": item.priority,
             "approval_required": item.approval_required,
             "signal_ref_hash": _hash_value(item.signal_ref),
+            "action_plan_count": len(item.action_plan),
+            "has_stage": bool(item.stage_kind or item.stage_summary or item.stage_artifacts),
+            "stage_kind": _safe_stage_kind(item.stage_kind),
+            "stage_kind_hash": _hash_value(item.stage_kind) if item.stage_kind else "",
+            "stage_summary_present": bool(item.stage_summary),
+            "stage_artifact_count": len(item.stage_artifacts),
+            "approval_gate_hash": _hash_value(item.approval_gate) if item.approval_gate else "",
+            "external_action_policy_hash": _hash_value(item.external_action_policy) if item.external_action_policy else "",
         }
         for item in digest.items
     ]
@@ -131,6 +149,13 @@ def _receipt_dedupe_key(receipt: ProactiveOodaRunReceipt) -> str:
 
 def _hash_value(value: str) -> str:
     return hashlib.sha256(str(value or "").encode("utf-8")).hexdigest()
+
+
+def _safe_stage_kind(value: str) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if not normalized:
+        return ""
+    return normalized if normalized in SAFE_STAGE_KIND_LABELS else "custom"
 
 
 def _json_dumps(payload: Mapping[str, Any]) -> str:

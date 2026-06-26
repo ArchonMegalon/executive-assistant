@@ -42,6 +42,60 @@ def test_receipt_payload_is_redacted_and_keeps_delivery_facts() -> None:
     assert "Approve renewal today" not in serialized
 
 
+def test_receipt_payload_keeps_redacted_stage_telemetry() -> None:
+    digest = ProactiveOodaService().build_digest(
+        principal_id="cf-email:user@example.test",
+        signals=[
+            {
+                "source_ref": "opportunity:private-source",
+                "signal_type": "opportunity",
+                "channel": "assistant_opportunity",
+                "title": "Private household opportunity",
+                "summary": "Private summary.",
+                "payload": {
+                    "ooda_loop": {
+                        "reviewed": True,
+                        "observe": {"summary": "Private observation"},
+                        "orient": {"summary": "Private orientation"},
+                        "decide": {
+                            "summary": "Approve staged private purchase candidate",
+                            "approval_required": True,
+                        },
+                        "act": {
+                            "summary": "Prepare private cart candidate.",
+                            "action_plan": ["Private comparison"],
+                            "stage": {
+                                "kind": "cart_draft",
+                                "summary": "Private cart with one selected item.",
+                                "artifacts": ["private-cart-link", "private-approval-prompt"],
+                                "approval_gate": "User must approve the private purchase.",
+                            },
+                            "external_action_policy": "Do not buy the private item without approval.",
+                        },
+                    }
+                },
+            }
+        ],
+    )
+    receipt = build_run_receipt(digest=digest, dry_run=False, notification_result={"message_id": 42})
+
+    payload = proactive_ooda_receipt_payload(digest=digest, receipt=receipt)
+    item = payload["item_summaries"][0]
+    serialized = json.dumps(payload, sort_keys=True)
+
+    assert item["has_stage"] is True
+    assert item["stage_kind"] == "cart_draft"
+    assert len(item["stage_kind_hash"]) == 64
+    assert item["stage_summary_present"] is True
+    assert item["stage_artifact_count"] == 2
+    assert item["action_plan_count"] == 1
+    assert len(item["approval_gate_hash"]) == 64
+    assert len(item["external_action_policy_hash"]) == 64
+    assert "Private cart with one selected item" not in serialized
+    assert "private-cart-link" not in serialized
+    assert "User must approve the private purchase" not in serialized
+
+
 def test_receipt_observation_record_matches_observation_schema() -> None:
     digest, receipt = _digest_and_receipt()
 

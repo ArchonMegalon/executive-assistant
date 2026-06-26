@@ -511,7 +511,7 @@ stream_max_retries = 5
 
 ## Proactive OODA Ink
 
-EA can ingest every configured source it can reach in one pass: static signal files, generic discovery feeds, local opportunity rules, recent EA observations, and Google workspace signals. Each source is isolated, so a broken connector becomes a source-health OODA item instead of silencing the whole loop. EA then orients the combined signals into concise OODA ink and notifies the principal only when the result is actionable. The notification includes why it matters, the recommended decision/action, approval status, a staged action plan when available, the staged next-step contract, the external-action guardrail, the ignored consequence, and source evidence.
+EA can ingest every configured source it can reach in one pass: static signal files, generic discovery feeds, local opportunity rules, recent EA observations, and Google workspace signals. Each source is isolated, so a broken connector becomes a source-health OODA item instead of silencing the whole loop. EA then orients the combined signals into concise OODA ink and notifies the principal only when the result is actionable. The notification includes why it matters, the recommended decision/action, approval status, a staged action plan when available, the staged next-step contract, the external-action guardrail, the ignored consequence, and source evidence. Persisted run receipts keep privacy-safe stage telemetry such as safe stage kind, artifact count, approval-gate hash, and policy hash, but not the private staged packet text or links.
 
 Run it manually or from cron:
 
