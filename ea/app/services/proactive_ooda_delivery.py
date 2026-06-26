@@ -4,7 +4,7 @@ import hashlib
 import json
 import os
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from app.services.proactive_telegram_binding import proactive_telegram_ready, resolve_proactive_telegram_chat_id
@@ -41,6 +41,16 @@ class ProactiveOodaDeliveryStatus:
     preference_count: int = 0
     policy_count: int = 0
     follow_up_hint_count: int = 0
+    route_error: str = ""
+    recovery_hint: str = ""
+    next_action: str = ""
+
+
+@dataclass(frozen=True)
+class ProactiveOodaDeliveryRecovery:
+    route_error: str = ""
+    recovery_hint: str = ""
+    next_action: str = ""
 
 
 @dataclass(frozen=True)
@@ -55,6 +65,9 @@ class ProactiveOodaDeliveryReceipt:
     outbox_delivery_id: str = ""
     outbox_status: str = ""
     telegram_message_ids: tuple[str, ...] = ()
+    route_error: str = ""
+    recovery_hint: str = ""
+    next_action: str = ""
 
 
 def resolve_proactive_ooda_delivery_status(
@@ -129,7 +142,7 @@ def resolve_proactive_ooda_delivery_status(
         errors.extend(route.errors)
 
     if preference_candidates:
-        return min(preference_candidates, key=lambda item: item[0])[1]
+        return _with_delivery_recovery(min(preference_candidates, key=lambda item: item[0])[1])
 
     for scope, channel in _ordered_policy_channels_with_scope(policies):
         route = _channel_route_status(
@@ -140,7 +153,8 @@ def resolve_proactive_ooda_delivery_status(
         )
         if route.ready:
             ready_channels.append(route.selected_channel)
-            return ProactiveOodaDeliveryStatus(
+            return _with_delivery_recovery(
+                ProactiveOodaDeliveryStatus(
                 ready=True,
                 selected_channel=route.selected_channel,
                 selected_transport=route.selected_transport,
@@ -155,6 +169,7 @@ def resolve_proactive_ooda_delivery_status(
                 preference_count=len(preferences),
                 policy_count=len(policies),
                 follow_up_hint_count=len(follow_up_hints),
+                )
             )
         errors.extend(route.errors)
 
@@ -166,7 +181,8 @@ def resolve_proactive_ooda_delivery_status(
     )
     if telegram_fallback.ready:
         ready_channels.append("telegram")
-        return ProactiveOodaDeliveryStatus(
+        return _with_delivery_recovery(
+            ProactiveOodaDeliveryStatus(
             ready=True,
             selected_channel=telegram_fallback.selected_channel,
             selected_transport=telegram_fallback.selected_transport,
@@ -180,16 +196,19 @@ def resolve_proactive_ooda_delivery_status(
             preference_count=len(preferences),
             policy_count=len(policies),
             follow_up_hint_count=len(follow_up_hints),
+            )
         )
     errors.extend(telegram_fallback.errors)
 
-    return ProactiveOodaDeliveryStatus(
+    return _with_delivery_recovery(
+        ProactiveOodaDeliveryStatus(
         ready=False,
         available_channels=tuple(dict.fromkeys(ready_channels)),
         errors=tuple(dict.fromkeys(item for item in errors if item)),
         preference_count=len(preferences),
         policy_count=len(policies),
         follow_up_hint_count=len(follow_up_hints),
+    )
     )
 
 
@@ -266,6 +285,9 @@ def send_proactive_ooda_notification(
                     "message_ids": list(receipt.message_ids),
                     "telegram_message_ids": list(receipt.telegram_message_ids),
                     "recipient_ref_hash": receipt.recipient_ref_hash,
+                    "route_error": receipt.route_error,
+                    "recovery_hint": receipt.recovery_hint,
+                    "next_action": receipt.next_action,
                 },
             )
         except Exception:
@@ -471,6 +493,9 @@ def _normalize_delivery_receipt(
         outbox_delivery_id=str(getattr(outbox_row, "delivery_id", "") or ""),
         outbox_status=str(getattr(outbox_row, "status", "") or ""),
         telegram_message_ids=telegram_message_ids,
+        route_error=route.route_error,
+        recovery_hint=route.recovery_hint,
+        next_action=route.next_action,
     )
 
 
@@ -606,6 +631,98 @@ def _hash_text(value: str) -> str:
     if not normalized:
         return ""
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def proactive_ooda_delivery_recovery(
+    error_codes: str | tuple[str, ...] | list[str],
+    *,
+    ready: bool | None = None,
+) -> ProactiveOodaDeliveryRecovery:
+    errors = _normalized_delivery_errors(error_codes)
+    actionable = next((item for item in errors if not item.startswith("delivery_preference_ineligible:")), "")
+    if not actionable:
+        if ready is False:
+            actionable = errors[0] if errors else "delivery_route_unavailable"
+        else:
+            return ProactiveOodaDeliveryRecovery()
+    return _guidance_for_delivery_error(actionable)
+
+
+def _with_delivery_recovery(status: ProactiveOodaDeliveryStatus) -> ProactiveOodaDeliveryStatus:
+    recovery = proactive_ooda_delivery_recovery(status.errors, ready=status.ready)
+    return replace(
+        status,
+        route_error=status.route_error or recovery.route_error,
+        recovery_hint=status.recovery_hint or recovery.recovery_hint,
+        next_action=status.next_action or recovery.next_action,
+    )
+
+
+def _normalized_delivery_errors(error_codes: str | tuple[str, ...] | list[str]) -> tuple[str, ...]:
+    if isinstance(error_codes, str):
+        items = (error_codes,)
+    else:
+        items = tuple(error_codes or ())
+    return tuple(dict.fromkeys(str(item or "").strip() for item in items if str(item or "").strip()))
+
+
+def _guidance_for_delivery_error(error_code: str) -> ProactiveOodaDeliveryRecovery:
+    normalized = str(error_code or "").strip()
+    if not normalized:
+        return ProactiveOodaDeliveryRecovery()
+    if normalized == "whatsapp_recipient_missing":
+        return ProactiveOodaDeliveryRecovery(
+            route_error=normalized,
+            recovery_hint="Add a WhatsApp recipient ref or phone number on the active delivery preference before routing there.",
+            next_action="set_whatsapp_recipient_ref",
+        )
+    if normalized.startswith("whatsapp_web_session_binding_disabled:"):
+        return ProactiveOodaDeliveryRecovery(
+            route_error=normalized,
+            recovery_hint="Enable the staged WhatsApp Web binding or replace it with an enabled session binding before preferring WhatsApp.",
+            next_action="enable_whatsapp_web_binding",
+        )
+    if normalized == "whatsapp_delivery_config_missing":
+        return ProactiveOodaDeliveryRecovery(
+            route_error=normalized,
+            recovery_hint="Seed or enable a WhatsApp delivery binding with send credentials before preferring WhatsApp.",
+            next_action="configure_whatsapp_delivery_binding",
+        )
+    if normalized.startswith("whatsapp_web_session_not_ready:qr_required"):
+        return ProactiveOodaDeliveryRecovery(
+            route_error=normalized,
+            recovery_hint="Scan the WhatsApp Web QR code and re-activate the session before preferring WhatsApp again.",
+            next_action="scan_whatsapp_web_qr",
+        )
+    if normalized.startswith("whatsapp_web_session_not_ready:"):
+        return ProactiveOodaDeliveryRecovery(
+            route_error=normalized,
+            recovery_hint="Restore or re-authenticate the WhatsApp Web session and confirm it reports ready before preferring WhatsApp.",
+            next_action="restore_whatsapp_web_session",
+        )
+    if normalized == "telegram_notification_not_configured":
+        return ProactiveOodaDeliveryRecovery(
+            route_error=normalized,
+            recovery_hint="Link Telegram delivery or set the proactive Telegram chat so Telegram can be used as the fallback route.",
+            next_action="configure_telegram_proactive_delivery",
+        )
+    if normalized.startswith("delivery_channel_unsupported:"):
+        return ProactiveOodaDeliveryRecovery(
+            route_error=normalized,
+            recovery_hint="Use telegram or whatsapp for proactive delivery preferences and policies.",
+            next_action="use_supported_delivery_channel",
+        )
+    if normalized == "delivery_route_unavailable":
+        return ProactiveOodaDeliveryRecovery(
+            route_error=normalized,
+            recovery_hint="Inspect channel bindings, recipients, and fallback delivery config before retrying proactive delivery.",
+            next_action="inspect_proactive_delivery_route",
+        )
+    return ProactiveOodaDeliveryRecovery(
+        route_error=normalized,
+        recovery_hint="Inspect the proactive delivery route configuration and provider readiness before retrying.",
+        next_action="inspect_proactive_delivery_route",
+    )
 
 
 def _whatsapp_readiness_error(readiness: Any) -> str:

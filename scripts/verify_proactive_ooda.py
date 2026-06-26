@@ -320,6 +320,9 @@ def _delivery_route_status(principal_id: str, digest: Any | None) -> dict[str, A
         "recipient_ref_hash_present": bool(str(getattr(status, "recipient_ref_hash", "") or "").strip()),
         "available_channels": [str(item or "") for item in getattr(status, "available_channels", ()) if str(item or "").strip()],
         "errors": [str(item or "") for item in getattr(status, "errors", ()) if str(item or "").strip()],
+        "route_error": str(getattr(status, "route_error", "") or ""),
+        "recovery_hint": str(getattr(status, "recovery_hint", "") or ""),
+        "next_action": str(getattr(status, "next_action", "") or ""),
         "preference_count": int(getattr(status, "preference_count", 0) or 0),
         "policy_count": int(getattr(status, "policy_count", 0) or 0),
         "follow_up_hint_count": int(getattr(status, "follow_up_hint_count", 0) or 0),
@@ -693,6 +696,9 @@ def _format_report(report: dict[str, Any]) -> str:
         f"receipt observations: {report['receipt_observation_count']}",
         f"state: {report['state_path']}",
     ]
+    recovery = _delivery_recovery_summary(report)
+    if recovery:
+        lines.append(f"delivery recovery: {recovery}")
     if report["errors"]:
         lines.append(f"errors: {', '.join(report['errors'])}")
     if report.get("warnings"):
@@ -716,14 +722,33 @@ def _delivery_route_summary(report: dict[str, Any]) -> str:
     selected_by = str(status.get("selected_by") or "").strip()
     available = list(status.get("available_channels") or [])
     errors = list(status.get("errors") or [])
+    route_error = str(status.get("route_error") or "").strip()
+    next_action = str(status.get("next_action") or "").strip()
     detail = channel
     if transport and transport != channel:
         detail = f"{detail} via {transport}" if detail else transport
     if selected_by:
         detail = f"{detail} ({selected_by})" if detail else selected_by
     available_text = f", available {', '.join(available)}" if available else ""
-    error_text = f", blocked by {errors[0]}" if errors else ""
-    return f"{ready}{f' [{detail}]' if detail else ''}{available_text}{error_text}"
+    blocker = route_error or (errors[0] if errors else "")
+    error_text = f", blocked by {blocker}" if blocker else ""
+    next_action_text = f", next action {next_action}" if next_action else ""
+    return f"{ready}{f' [{detail}]' if detail else ''}{available_text}{error_text}{next_action_text}"
+
+
+def _delivery_recovery_summary(report: dict[str, Any]) -> str:
+    status = dict(report.get("delivery_route") or {})
+    route_error = str(status.get("route_error") or "").strip()
+    recovery_hint = str(status.get("recovery_hint") or "").strip()
+    next_action = str(status.get("next_action") or "").strip()
+    if not route_error and not recovery_hint and not next_action:
+        return ""
+    head = next_action or "inspect_proactive_delivery_route"
+    if route_error:
+        head = f"{head} ({route_error})"
+    if recovery_hint:
+        head = f"{head} - {recovery_hint}"
+    return head
 
 
 def _delivery_guard_summary(report: dict[str, Any]) -> str:

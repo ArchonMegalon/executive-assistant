@@ -72,6 +72,9 @@ def verify_receipt(path: Path) -> dict[str, Any]:
         "delivery_channel": str(payload.get("delivery_channel") or ""),
         "delivery_message_count": _message_id_count(payload.get("delivery_message_ids") or payload.get("telegram_message_ids") or []),
         "telegram_message_count": _message_id_count(payload.get("telegram_message_ids") or []),
+        "delivery_route_error": str(payload.get("delivery_route_error") or ""),
+        "delivery_recovery_hint": str(payload.get("delivery_recovery_hint") or ""),
+        "delivery_next_action": str(payload.get("delivery_next_action") or ""),
         "generated_at": payload.get("generated_at", ""),
     }
 
@@ -102,6 +105,13 @@ def _format_report(report: dict[str, Any]) -> str:
         f"telegram messages: {report['telegram_message_count']}",
         f"receipt: {report['receipt_path']}",
     ]
+    if report["delivery_route_error"] or report["delivery_next_action"] or report["delivery_recovery_hint"]:
+        recovery = report["delivery_next_action"] or "inspect_proactive_delivery_route"
+        if report["delivery_route_error"]:
+            recovery = f"{recovery} ({report['delivery_route_error']})"
+        if report["delivery_recovery_hint"]:
+            recovery = f"{recovery} - {report['delivery_recovery_hint']}"
+        lines.append(f"recovery: {recovery}")
     if report["errors"]:
         lines.append(f"errors: {', '.join(report['errors'])}")
     return "\n".join(lines)

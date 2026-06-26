@@ -266,7 +266,7 @@ def main() -> int:
             if digest.notified_markers:
                 state_store.save_notified_refs(args.principal_id, stored_refs.union(digest.notified_markers))
         except Exception as exc:
-            error_code = exc.__class__.__name__
+            error_code = _notification_error_code(exc)
     receipt = build_run_receipt(
         digest=digest,
         dry_run=args.dry_run,
@@ -561,6 +561,13 @@ def _env_truthy(name: str, *, default: bool = False) -> bool:
     if raw is None:
         return default
     return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _notification_error_code(exc: Exception) -> str:
+    detail = " ".join(str(exc or "").split()).strip()
+    if detail and all(char.isalnum() or char in {":", "_", "-"} for char in detail):
+        return detail[:200]
+    return exc.__class__.__name__
 
 
 def _quiet_hours_defer_reason(args: argparse.Namespace, digest: Any, *, now: datetime | None = None) -> str:

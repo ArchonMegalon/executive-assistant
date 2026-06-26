@@ -28,7 +28,28 @@ def _digest_and_receipt():
 
 
 def test_receipt_payload_is_redacted_and_keeps_delivery_facts() -> None:
-    digest, receipt = _digest_and_receipt()
+    digest = ProactiveOodaService().build_digest(
+        principal_id="cf-email:user@example.test",
+        signals=[
+            {
+                "source_ref": "telegram:raw-source",
+                "signal_type": "operator_signal",
+                "channel": "telegram",
+                "title": "Action required: approve renewal",
+                "summary": "Approve renewal today.",
+            }
+        ],
+    )
+    receipt = build_run_receipt(
+        digest=digest,
+        dry_run=False,
+        notification_result={
+            "message_id": 42,
+            "route_error": "whatsapp_web_session_not_ready:qr_required",
+            "recovery_hint": "Scan the WhatsApp Web QR code and re-activate the session before preferring WhatsApp again.",
+            "next_action": "scan_whatsapp_web_qr",
+        },
+    )
 
     payload = proactive_ooda_receipt_payload(digest=digest, receipt=receipt)
     serialized = json.dumps(payload, sort_keys=True)
@@ -39,6 +60,8 @@ def test_receipt_payload_is_redacted_and_keeps_delivery_facts() -> None:
     assert payload["delivery_message_ids"] == ("42",)
     assert payload["delivery_message_count"] == 1
     assert payload["telegram_message_ids"] == ("42",)
+    assert payload["delivery_route_error"] == "whatsapp_web_session_not_ready:qr_required"
+    assert payload["delivery_next_action"] == "scan_whatsapp_web_qr"
     assert payload["privacy"]["raw_principal_id_stored"] is False
     assert "cf-email:user@example.test" not in serialized
     assert "telegram:raw-source" not in serialized
@@ -162,6 +185,32 @@ def test_receipt_payload_keeps_safe_deferred_reason() -> None:
     assert payload["notification_status"] == "deferred"
     assert payload["deferred_reason"] == "deferred_by_interruption_budget"
     assert "Private vendor context" not in serialized
+
+
+def test_receipt_payload_derives_delivery_recovery_from_failed_error_code() -> None:
+    digest = ProactiveOodaService().build_digest(
+        principal_id="cf-email:user@example.test",
+        signals=[
+            {
+                "source_ref": "opportunity:private-source",
+                "signal_type": "opportunity",
+                "channel": "assistant_opportunity",
+                "title": "Review vendor options",
+                "summary": "Private vendor context.",
+            }
+        ],
+    )
+    receipt = build_run_receipt(
+        digest=digest,
+        dry_run=False,
+        error_code="whatsapp_web_session_not_ready:qr_required",
+    )
+
+    payload = proactive_ooda_receipt_payload(digest=digest, receipt=receipt)
+
+    assert payload["notification_status"] == "failed"
+    assert payload["delivery_route_error"] == "whatsapp_web_session_not_ready:qr_required"
+    assert payload["delivery_next_action"] == "scan_whatsapp_web_qr"
 
 
 def test_receipt_observation_record_matches_observation_schema() -> None:

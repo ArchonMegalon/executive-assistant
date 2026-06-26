@@ -334,6 +334,9 @@ def test_verify_proactive_ooda_reports_generic_delivery_route(tmp_path, monkeypa
             recipient_ref_hash="a" * 64,
             available_channels=("whatsapp", "telegram"),
             errors=(),
+            route_error="whatsapp_web_session_not_ready:qr_required",
+            recovery_hint="Scan the WhatsApp Web QR code and re-activate the session before preferring WhatsApp again.",
+            next_action="scan_whatsapp_web_qr",
             preference_count=1,
             policy_count=0,
             follow_up_hint_count=0,
@@ -361,7 +364,10 @@ def test_verify_proactive_ooda_reports_generic_delivery_route(tmp_path, monkeypa
     assert report["delivery_route"]["ready"] is True
     assert report["delivery_route"]["selected_channel"] == "whatsapp"
     assert report["delivery_route"]["selected_transport"] == "whatsapp_web_session"
-    assert "delivery route: ready [whatsapp via whatsapp_web_session (delivery_preference)]" in verifier._format_report(report)
+    assert report["delivery_route"]["route_error"] == "whatsapp_web_session_not_ready:qr_required"
+    assert report["delivery_route"]["next_action"] == "scan_whatsapp_web_qr"
+    assert "delivery route: ready [whatsapp via whatsapp_web_session (delivery_preference)], available whatsapp, telegram, blocked by whatsapp_web_session_not_ready:qr_required, next action scan_whatsapp_web_qr" in verifier._format_report(report)
+    assert "delivery recovery: scan_whatsapp_web_qr (whatsapp_web_session_not_ready:qr_required)" in verifier._format_report(report)
 
 
 def test_runner_load_signals_continues_after_discovery_failure(tmp_path, monkeypatch) -> None:

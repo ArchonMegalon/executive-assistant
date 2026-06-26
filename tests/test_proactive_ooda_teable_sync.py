@@ -54,7 +54,12 @@ def _digest_and_safe_work():
     receipt = build_run_receipt(
         digest=digest,
         dry_run=False,
-        notification_result={"message_id": 123},
+        notification_result={
+            "message_id": 123,
+            "route_error": "whatsapp_web_session_not_ready:qr_required",
+            "recovery_hint": "Scan the WhatsApp Web QR code and re-activate the session before preferring WhatsApp again.",
+            "next_action": "scan_whatsapp_web_qr",
+        },
         stage_packet_refs=("stage_packet:vendor-approval",),
         safe_work_result_refs=(str(result.get("result_ref") or ""),),
     )
@@ -81,6 +86,8 @@ def test_proactive_ooda_teable_projection_keeps_important_artifacts_without_raw_
     assert records["proactive_ooda_runs"][0]["delivery_transport"] == "telegram"
     assert records["proactive_ooda_runs"][0]["delivery_message_count"] == 1
     assert records["proactive_ooda_runs"][0]["delivery_message_ids"] == ["123"]
+    assert records["proactive_ooda_runs"][0]["delivery_route_error"] == "whatsapp_web_session_not_ready:qr_required"
+    assert records["proactive_ooda_runs"][0]["delivery_next_action"] == "scan_whatsapp_web_qr"
     assert records["proactive_ooda_items"][0]["stage_kind"] == "approval_packet"
     assert records["proactive_ooda_items"][0]["staged_action_url"] == "https://example.test/approve/vendor-a"
     assert records["proactive_ooda_items"][0]["recommended_label"] == "Vendor A"
@@ -98,6 +105,9 @@ def test_proactive_ooda_teable_bootstrap_schema_includes_delivery_route_fields()
     assert "delivery_message_count" in run_fields
     assert "delivery_message_ids" in run_fields
     assert "delivery_outbox_id_hash" in run_fields
+    assert "delivery_route_error" in run_fields
+    assert "delivery_recovery_hint" in run_fields
+    assert "delivery_next_action" in run_fields
 
 
 def test_proactive_ooda_teable_bootstrap_adds_missing_fields_with_direct_field_payload(monkeypatch) -> None:

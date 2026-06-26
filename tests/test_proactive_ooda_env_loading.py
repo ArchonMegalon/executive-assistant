@@ -450,6 +450,58 @@ def test_runner_stage_packet_dir_defaults_next_to_state_path(tmp_path, monkeypat
     assert runner._stage_packet_dir(args) == tmp_path / "state" / "proactive_ooda_stage_packets"
 
 
+def test_runner_main_preserves_safe_delivery_error_detail_in_receipt(tmp_path, monkeypatch) -> None:
+    signal_file = tmp_path / "signals.json"
+    signal_file.write_text(
+        json.dumps(
+            [
+                {
+                    "source_ref": "operator:approval",
+                    "title": "Approval needed today",
+                    "summary": "Approve the provider renewal.",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    receipt_path = tmp_path / "receipt.json"
+    monkeypatch.setattr(
+        runner,
+        "_deliver_notification",
+        lambda principal_id, text, *, digest=None: (_ for _ in ()).throw(RuntimeError("whatsapp_web_session_not_ready:qr_required")),
+    )
+    monkeypatch.setattr(runner, "persist_proactive_ooda_receipt", lambda **_kwargs: None)
+    monkeypatch.setattr(runner, "sync_proactive_ooda_to_teable", lambda **_kwargs: {"status": "disabled", "sync_attempted": False, "blocked_reason": ""})
+    monkeypatch.setattr(
+        runner.sys,
+        "argv",
+        [
+            "run_proactive_ooda.py",
+            "--principal-id",
+            "exec",
+            "--signals-json",
+            str(signal_file),
+            "--state-path",
+            str(tmp_path / "state.json"),
+            "--receipt-path",
+            str(receipt_path),
+            "--skip-observation-source",
+            "--skip-workspace-source",
+        ],
+    )
+
+    try:
+        runner.main()
+        raise AssertionError("runner.main should have raised")
+    except RuntimeError as exc:
+        assert str(exc) == "proactive_ooda_notification_failed:whatsapp_web_session_not_ready:qr_required"
+
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["error_code"] == "whatsapp_web_session_not_ready:qr_required"
+    assert receipt["delivery_route_error"] == "whatsapp_web_session_not_ready:qr_required"
+    assert receipt["delivery_next_action"] == "scan_whatsapp_web_qr"
+
+
 def test_runner_stage_packet_dir_accepts_relative_override(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(runner, "ROOT", tmp_path)
     args = SimpleNamespace(stage_packet_dir="operator/stage-packets", state_path="state/proactive_ooda_notified.json")

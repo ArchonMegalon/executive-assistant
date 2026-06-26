@@ -149,6 +149,9 @@ class ProactiveOodaRunReceipt:
     delivery_recipient_hash: str = ""
     delivery_message_ids: tuple[str, ...] = ()
     delivery_outbox_id_hash: str = ""
+    delivery_route_error: str = ""
+    delivery_recovery_hint: str = ""
+    delivery_next_action: str = ""
 
 
 class JsonOodaStateStore:
@@ -533,6 +536,7 @@ def build_run_receipt(
         status = "failed"
     elif digest.items:
         status = "sent" if notification_result is not None else "not_sent"
+    delivery_recovery = _resolve_delivery_recovery(notification_result, error_code=error_code)
     return ProactiveOodaRunReceipt(
         principal_id_hash=_hash_value(digest.principal_id),
         generated_at=digest.generated_at,
@@ -552,6 +556,9 @@ def build_run_receipt(
         delivery_recipient_hash=_extract_delivery_recipient_hash(notification_result),
         delivery_message_ids=_extract_delivery_message_ids(notification_result),
         delivery_outbox_id_hash=_extract_delivery_outbox_id_hash(notification_result),
+        delivery_route_error=delivery_recovery["route_error"],
+        delivery_recovery_hint=delivery_recovery["recovery_hint"],
+        delivery_next_action=delivery_recovery["next_action"],
     )
 
 
@@ -661,6 +668,34 @@ def _extract_delivery_outbox_id_hash(notification_result: object | None) -> str:
         value = str(notification_result.get("outbox_delivery_id") or "").strip()
         return _hash_value(value) if value else ""
     return ""
+
+
+def _resolve_delivery_recovery(notification_result: object | None, *, error_code: str) -> dict[str, str]:
+    route_error = ""
+    recovery_hint = ""
+    next_action = ""
+    if notification_result is not None:
+        if hasattr(notification_result, "route_error"):
+            route_error = str(getattr(notification_result, "route_error") or "").strip()
+            recovery_hint = str(getattr(notification_result, "recovery_hint") or "").strip()
+            next_action = str(getattr(notification_result, "next_action") or "").strip()
+        elif isinstance(notification_result, dict):
+            route_error = str(notification_result.get("route_error") or "").strip()
+            recovery_hint = str(notification_result.get("recovery_hint") or "").strip()
+            next_action = str(notification_result.get("next_action") or "").strip()
+    guidance_code = route_error or ("" if _is_deferred_error(error_code) else str(error_code or "").strip())
+    if guidance_code and (not route_error or not recovery_hint or not next_action):
+        from app.services.proactive_ooda_delivery import proactive_ooda_delivery_recovery
+
+        guidance = proactive_ooda_delivery_recovery(guidance_code, ready=False)
+        route_error = route_error or guidance.route_error
+        recovery_hint = recovery_hint or guidance.recovery_hint
+        next_action = next_action or guidance.next_action
+    return {
+        "route_error": route_error,
+        "recovery_hint": recovery_hint,
+        "next_action": next_action,
+    }
 
 
 def _hash_value(value: str) -> str:

@@ -174,6 +174,9 @@ def test_delivery_status_blocks_qr_required_whatsapp_web_and_falls_back_to_teleg
     assert status.ready is True
     assert status.selected_channel == "telegram"
     assert status.selected_by == "communication_policy"
+    assert status.route_error == "whatsapp_web_session_not_ready:qr_required"
+    assert status.next_action == "scan_whatsapp_web_qr"
+    assert "Scan the WhatsApp Web QR code" in status.recovery_hint
     assert "whatsapp_web_session_not_ready:qr_required" in status.errors
 
 
@@ -250,6 +253,9 @@ def test_build_run_receipt_keeps_generic_delivery_fields_for_whatsapp() -> None:
         binding_id="wa-binding-1",
         outbox_delivery_id="delivery-1",
         telegram_message_ids=(),
+        route_error="whatsapp_web_session_not_ready:qr_required",
+        recovery_hint="Scan the WhatsApp Web QR code and re-activate the session before preferring WhatsApp again.",
+        next_action="scan_whatsapp_web_qr",
     )
 
     receipt = build_run_receipt(
@@ -266,3 +272,31 @@ def test_build_run_receipt_keeps_generic_delivery_fields_for_whatsapp() -> None:
     assert receipt.telegram_message_ids == ()
     assert receipt.delivery_recipient_hash == "a" * 64
     assert receipt.delivery_outbox_id_hash
+    assert receipt.delivery_route_error == "whatsapp_web_session_not_ready:qr_required"
+    assert receipt.delivery_next_action == "scan_whatsapp_web_qr"
+
+
+def test_build_run_receipt_derives_delivery_recovery_from_failed_error_code() -> None:
+    digest = ProactiveOodaService().build_digest(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "signal:vendor",
+                "signal_type": "opportunity",
+                "channel": "assistant_opportunity",
+                "title": "Vendor shortlist ready today",
+                "summary": "Review the shortlist.",
+            }
+        ],
+    )
+
+    receipt = build_run_receipt(
+        digest=digest,
+        dry_run=False,
+        error_code="whatsapp_web_session_not_ready:qr_required",
+    )
+
+    assert receipt.notification_status == "failed"
+    assert receipt.delivery_route_error == "whatsapp_web_session_not_ready:qr_required"
+    assert receipt.delivery_next_action == "scan_whatsapp_web_qr"
+    assert "Scan the WhatsApp Web QR code" in receipt.delivery_recovery_hint

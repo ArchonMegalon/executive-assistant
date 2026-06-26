@@ -17,6 +17,9 @@ def test_verify_proactive_ooda_live_receipt_accepts_redacted_sent_receipt(tmp_pa
                 "notification_status": "sent",
                 "notified_ref_hashes": ["a" * 64],
                 "principal_id_hash": "b" * 64,
+                "delivery_route_error": "whatsapp_web_session_not_ready:qr_required",
+                "delivery_recovery_hint": "Scan the WhatsApp Web QR code and re-activate the session before preferring WhatsApp again.",
+                "delivery_next_action": "scan_whatsapp_web_qr",
                 "telegram_message_ids": ["3004"],
             }
         ),
@@ -28,6 +31,7 @@ def test_verify_proactive_ooda_live_receipt_accepts_redacted_sent_receipt(tmp_pa
     assert report["ok"] is True
     assert report["delivery_message_count"] == 1
     assert report["telegram_message_count"] == 1
+    assert report["delivery_next_action"] == "scan_whatsapp_web_qr"
 
 
 def test_verify_proactive_ooda_live_receipt_rejects_raw_fields(tmp_path) -> None:

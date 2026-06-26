@@ -152,6 +152,7 @@ def _receipt_dedupe_key(receipt: ProactiveOodaRunReceipt) -> str:
             receipt.delivery_channel,
             receipt.delivery_transport,
             receipt.delivery_recipient_hash,
+            receipt.delivery_route_error,
             ",".join(receipt.delivery_message_ids),
             ",".join(receipt.telegram_message_ids),
         )
