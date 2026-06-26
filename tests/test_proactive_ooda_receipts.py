@@ -96,6 +96,29 @@ def test_receipt_payload_keeps_redacted_stage_telemetry() -> None:
     assert "User must approve the private purchase" not in serialized
 
 
+def test_receipt_payload_keeps_safe_deferred_reason() -> None:
+    digest = ProactiveOodaService().build_digest(
+        principal_id="cf-email:user@example.test",
+        signals=[
+            {
+                "source_ref": "opportunity:private-source",
+                "signal_type": "opportunity",
+                "channel": "assistant_opportunity",
+                "title": "Review vendor options",
+                "summary": "Private vendor context.",
+            }
+        ],
+    )
+    receipt = build_run_receipt(digest=digest, dry_run=False, error_code="deferred_by_interruption_budget")
+
+    payload = proactive_ooda_receipt_payload(digest=digest, receipt=receipt)
+    serialized = json.dumps(payload, sort_keys=True)
+
+    assert payload["notification_status"] == "deferred"
+    assert payload["deferred_reason"] == "deferred_by_interruption_budget"
+    assert "Private vendor context" not in serialized
+
+
 def test_receipt_observation_record_matches_observation_schema() -> None:
     digest, receipt = _digest_and_receipt()
 

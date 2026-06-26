@@ -548,6 +548,9 @@ Useful runtime knobs:
 - `EA_PROACTIVE_OODA_OPPORTUNITY_RULES_JSON`: JSON opportunity rules for generic paid-assistant OODA loops; rules may use `always` or weather threshold triggers and can include `action_plan`, `stage`, and an external-action guardrail
 - `EA_PROACTIVE_OODA_QUIET_HOURS_START` / `EA_PROACTIVE_OODA_QUIET_HOURS_END` / `EA_PROACTIVE_OODA_QUIET_HOURS_TIMEZONE`: optional local quiet-hours window; matching non-high-priority digests are deferred without marking refs as notified
 - `EA_PROACTIVE_OODA_QUIET_HOURS_ALLOW_HIGH_PRIORITY`: allow high-priority proactive digests through quiet hours, default `1`
+- `EA_PROACTIVE_OODA_INTERRUPTION_BUDGET_LIMIT`: optional rolling-window notification cap; exhausted budgets defer the digest without marking refs as notified, default `0` disabled
+- `EA_PROACTIVE_OODA_INTERRUPTION_BUDGET_WINDOW_HOURS`: rolling interruption-budget window, default `24`
+- `EA_PROACTIVE_OODA_INTERRUPTION_BUDGET_ALLOW_HIGH_PRIORITY`: allow high-priority proactive digests through the interruption budget, default `1`
 - `EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID`: direct Telegram fallback chat id when the full app adapter is unavailable
 - `--skip-observation-source` / `--skip-workspace-source`: runner/verifier flags for isolated dry-runs; the default runtime attempts both
 

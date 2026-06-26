@@ -136,6 +136,8 @@ class ProactiveOodaRunReceipt:
 
 
 class JsonOodaStateStore:
+    INTERRUPTION_EVENTS_KEY = "_proactive_ooda_interruption_events"
+
     def __init__(self, path: str | Path):
         self.path = Path(path)
 
@@ -150,8 +152,28 @@ class JsonOodaStateStore:
         payload = self._read()
         payload[_state_key(principal_id)] = sorted({_state_key(str(item)) for item in refs if str(item).strip()})
         payload.pop(principal_id, None)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        self._write(payload)
+
+    def load_interruption_events(self, principal_id: str) -> tuple[str, ...]:
+        payload = self._read()
+        bucket = payload.get(self.INTERRUPTION_EVENTS_KEY)
+        if not isinstance(bucket, Mapping):
+            return ()
+        events = bucket.get(_state_key(principal_id), bucket.get(principal_id, []))
+        if not isinstance(events, list):
+            return ()
+        return tuple(str(item).strip() for item in events if str(item).strip())
+
+    def save_interruption_events(self, principal_id: str, events: Iterable[str]) -> None:
+        payload = self._read()
+        bucket = payload.get(self.INTERRUPTION_EVENTS_KEY)
+        if not isinstance(bucket, dict):
+            bucket = {}
+        key = _state_key(principal_id)
+        bucket[key] = [str(item).strip() for item in events if str(item).strip()]
+        bucket.pop(principal_id, None)
+        payload[self.INTERRUPTION_EVENTS_KEY] = bucket
+        self._write(payload)
 
     def _read(self) -> dict[str, Any]:
         if not self.path.exists():
@@ -161,6 +183,10 @@ class JsonOodaStateStore:
         except (OSError, json.JSONDecodeError, UnicodeDecodeError):
             return {}
         return payload if isinstance(payload, dict) else {}
+
+    def _write(self, payload: Mapping[str, Any]) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(json.dumps(dict(payload), indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 class ProactiveOodaService:

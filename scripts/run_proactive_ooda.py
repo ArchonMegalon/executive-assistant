@@ -111,6 +111,22 @@ def main() -> int:
         action=argparse.BooleanOptionalAction,
         default=_env_truthy("EA_PROACTIVE_OODA_QUIET_HOURS_ALLOW_HIGH_PRIORITY", default=True),
     )
+    parser.add_argument(
+        "--interruption-budget-limit",
+        type=int,
+        default=int(os.getenv("EA_PROACTIVE_OODA_INTERRUPTION_BUDGET_LIMIT", "0") or "0"),
+        help="Maximum proactive notifications in the rolling budget window; 0 disables this guard.",
+    )
+    parser.add_argument(
+        "--interruption-budget-window-hours",
+        type=int,
+        default=int(os.getenv("EA_PROACTIVE_OODA_INTERRUPTION_BUDGET_WINDOW_HOURS", "24") or "24"),
+    )
+    parser.add_argument(
+        "--interruption-budget-allow-high-priority",
+        action=argparse.BooleanOptionalAction,
+        default=_env_truthy("EA_PROACTIVE_OODA_INTERRUPTION_BUDGET_ALLOW_HIGH_PRIORITY", default=True),
+    )
     parser.add_argument("--max-items", type=int, default=int(os.getenv("EA_PROACTIVE_OODA_MAX_ITEMS", "5")))
     parser.add_argument("--receipt-path", default=os.getenv("EA_PROACTIVE_OODA_RECEIPT_PATH", ""))
     parser.add_argument("--dry-run", action="store_true")
@@ -134,6 +150,13 @@ def main() -> int:
             already_notified_refs=state_store.load_notified_refs(args.principal_id),
         )
         deferred_reason = _quiet_hours_defer_reason(args, candidate_digest)
+        if not deferred_reason:
+            deferred_reason = _interruption_budget_defer_reason(
+                args,
+                state_store=state_store,
+                principal_id=args.principal_id,
+                digest=candidate_digest,
+            )
         if deferred_reason:
             digest = _without_notified_refs(candidate_digest)
             error_code = deferred_reason
@@ -149,6 +172,13 @@ def main() -> int:
         notification_result=notification_result,
         error_code=error_code,
     )
+    if notification_result is not None and digest.notified_refs and not args.dry_run and not error_code:
+        _record_interruption_event(
+            args,
+            state_store=state_store,
+            principal_id=args.principal_id,
+            occurred_at=receipt.generated_at,
+        )
     if args.receipt_path:
         _write_receipt(Path(args.receipt_path), receipt_to_dict(receipt))
     if _env_truthy("EA_PROACTIVE_OODA_PERSIST_RECEIPTS", default=True):
@@ -195,6 +225,79 @@ def _without_notified_refs(digest: ProactiveOodaDigest) -> ProactiveOodaDigest:
         items=digest.items,
         notified_refs=(),
     )
+
+
+def _interruption_budget_defer_reason(
+    args: argparse.Namespace,
+    *,
+    state_store: JsonOodaStateStore,
+    principal_id: str,
+    digest: Any,
+    now: datetime | None = None,
+) -> str:
+    if not getattr(digest, "items", ()):
+        return ""
+    limit = max(int(getattr(args, "interruption_budget_limit", 0) or 0), 0)
+    if limit <= 0:
+        return ""
+    if bool(getattr(args, "interruption_budget_allow_high_priority", True)) and any(item.priority == "high" for item in digest.items):
+        return ""
+    window_hours = max(int(getattr(args, "interruption_budget_window_hours", 24) or 24), 1)
+    local_now = now or datetime.now(timezone.utc)
+    recent = _recent_interruption_events(
+        state_store.load_interruption_events(principal_id),
+        now=local_now,
+        window_hours=window_hours,
+    )
+    return "deferred_by_interruption_budget" if len(recent) >= limit else ""
+
+
+def _record_interruption_event(
+    args: argparse.Namespace,
+    *,
+    state_store: JsonOodaStateStore,
+    principal_id: str,
+    occurred_at: str,
+) -> None:
+    window_hours = max(int(getattr(args, "interruption_budget_window_hours", 24) or 24), 1)
+    now = _parse_datetime(occurred_at) or datetime.now(timezone.utc)
+    recent = list(
+        _recent_interruption_events(
+            state_store.load_interruption_events(principal_id),
+            now=now,
+            window_hours=window_hours,
+        )
+    )
+    recent.append(now.isoformat())
+    state_store.save_interruption_events(principal_id, recent)
+
+
+def _recent_interruption_events(events: tuple[str, ...], *, now: datetime, window_hours: int) -> tuple[str, ...]:
+    normalized_now = now if now.tzinfo is not None else now.replace(tzinfo=timezone.utc)
+    cutoff_epoch = normalized_now.timestamp() - (max(int(window_hours or 1), 1) * 3600)
+    recent: list[str] = []
+    for raw_event in events:
+        parsed = _parse_datetime(raw_event)
+        if parsed is None:
+            continue
+        if parsed.timestamp() >= cutoff_epoch:
+            recent.append(parsed.isoformat())
+    return tuple(recent)
+
+
+def _parse_datetime(value: str) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    if raw.endswith("Z"):
+        raw = f"{raw[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _parse_local_time(value: str) -> datetime_time | None:

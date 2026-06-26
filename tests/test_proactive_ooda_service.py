@@ -92,6 +92,21 @@ def test_proactive_ooda_dedupes_hashed_refs(tmp_path) -> None:
     assert second.items == ()
 
 
+def test_ooda_state_store_tracks_interruption_events_under_hashed_principal(tmp_path) -> None:
+    state_path = tmp_path / "ooda.json"
+    store = JsonOodaStateStore(state_path)
+
+    store.save_notified_refs("exec", {"gmail:approval"})
+    store.save_interruption_events("exec", ["2026-06-26T10:00:00+00:00"])
+
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+
+    assert "exec" not in payload
+    assert "gmail:approval" not in json.dumps(payload, sort_keys=True)
+    assert store.load_interruption_events("exec") == ("2026-06-26T10:00:00+00:00",)
+    assert JsonOodaStateStore.INTERRUPTION_EVENTS_KEY in payload
+
+
 def test_run_receipt_redacts_principal_and_refs() -> None:
     service = ProactiveOodaService()
     digest = service.build_digest(
