@@ -4,6 +4,7 @@ import json
 from io import BytesIO
 
 from app.services.proactive_signal_discovery import (
+    discover_opportunity_rule_signals,
     discover_signals,
     discover_signals_resilient,
     load_signal_sources_config,
@@ -203,6 +204,73 @@ def test_resilient_discovery_keeps_good_sources_and_hashes_failed_refs(tmp_path)
     assert result.errors[0].startswith("private_feed:json:FileNotFoundError:")
     assert str(missing_file) not in result.errors[0]
     assert "missing-secret-name" not in result.errors[0]
+
+
+def test_opportunity_rules_create_consent_gated_ooda_signal(tmp_path) -> None:
+    result = discover_opportunity_rule_signals(
+        raw_config=json.dumps(
+            {
+                "rules": [
+                    {
+                        "id": "renewal-review",
+                        "title": "Review renewal options",
+                        "summary": "The current subscription renewal window is a good moment to compare alternatives.",
+                        "decision": "Decide whether to let EA prepare a shortlist.",
+                        "action": "Compare options and stage the best candidate for approval.",
+                        "action_plan": [
+                            "Check current constraints",
+                            "Compare two realistic options",
+                            "Prepare one approval packet",
+                        ],
+                        "external_action_policy": "Do not buy, book, send, or cancel without explicit approval.",
+                        "trigger": {"kind": "always"},
+                    }
+                ]
+            }
+        ),
+        base_dir=tmp_path,
+    )
+
+    assert not result.errors
+    assert len(result.signals) == 1
+    signal = result.signals[0]
+    assert signal.source_ref.startswith("opportunity:renewal-review:")
+    assert signal.signal_type == "opportunity"
+    assert signal.channel == "assistant_opportunity"
+    assert signal.payload is not None
+    act = signal.payload["ooda_loop"]["act"]
+    assert act["action_plan"] == [
+        "Check current constraints",
+        "Compare two realistic options",
+        "Prepare one approval packet",
+    ]
+    assert act["external_action_policy"] == "Do not buy, book, send, or cancel without explicit approval."
+
+
+def test_opportunity_weather_trigger_uses_inline_weather_without_vendor_lock_in(tmp_path) -> None:
+    result = discover_opportunity_rule_signals(
+        raw_config=json.dumps(
+            {
+                "rules": [
+                    {
+                        "id": "cool-weather-window",
+                        "title": "Cool-weather opportunity",
+                        "summary": "A weather-sensitive errand may be easier now.",
+                        "trigger": {
+                            "kind": "cooler_weather",
+                            "location": "Vienna",
+                            "current_temperature_c": 18,
+                            "temperature_at_or_below_c": 20,
+                        },
+                    }
+                ]
+            }
+        ),
+        base_dir=tmp_path,
+    )
+
+    assert len(result.signals) == 1
+    assert "Vienna is about 18.0 C" in result.signals[0].summary
 
 
 def test_observation_mapper_turns_commitment_candidate_into_signal() -> None:

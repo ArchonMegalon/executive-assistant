@@ -48,6 +48,7 @@ from app.services.proactive_ooda_service import (  # noqa: E402
     receipt_to_dict,
 )
 from app.services.proactive_signal_discovery import (  # noqa: E402
+    discover_personal_rule_signals,
     discover_postgres_observation_signals,
     discover_signals_resilient,
     load_signal_sources_config,
@@ -78,6 +79,13 @@ def main() -> int:
         help="JSON list/object configuring generic JSON, JSONL, or RSS signal sources.",
     )
     parser.add_argument(
+        "--opportunity-rules-json",
+        "--personal-rules-json",
+        dest="personal_rules_json",
+        default=os.getenv("EA_PROACTIVE_OODA_OPPORTUNITY_RULES_JSON", os.getenv("EA_PROACTIVE_OODA_PERSONAL_RULES_JSON", "")),
+        help="JSON list/object configuring local OODA opportunity rules.",
+    )
+    parser.add_argument(
         "--observation-lookback-hours",
         type=int,
         default=int(os.getenv("EA_PROACTIVE_OODA_OBSERVATION_LOOKBACK_HOURS", "24")),
@@ -88,6 +96,7 @@ def main() -> int:
         default=int(os.getenv("EA_PROACTIVE_OODA_OBSERVATION_LIMIT", "50")),
     )
     parser.add_argument("--skip-observation-source", action="store_true")
+    parser.add_argument("--skip-workspace-source", action="store_true")
     parser.add_argument("--max-items", type=int, default=int(os.getenv("EA_PROACTIVE_OODA_MAX_ITEMS", "5")))
     parser.add_argument("--receipt-path", default=os.getenv("EA_PROACTIVE_OODA_RECEIPT_PATH", ""))
     parser.add_argument("--dry-run", action="store_true")
@@ -142,14 +151,26 @@ def _env_truthy(name: str, *, default: bool = False) -> bool:
 def _load_signals(args: argparse.Namespace) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     if args.signals_json:
-        payload = json.loads(Path(args.signals_json).read_text(encoding="utf-8"))
-        if not isinstance(payload, list):
-            raise SystemExit("signals_json_must_be_a_list")
-        rows.extend(dict(item) for item in payload if isinstance(item, dict))
+        try:
+            payload = json.loads(Path(args.signals_json).read_text(encoding="utf-8"))
+            if not isinstance(payload, list):
+                raise ValueError("signals_json_must_be_a_list")
+            rows.extend(dict(item) for item in payload if isinstance(item, dict))
+        except Exception as exc:
+            rows.extend(_source_error_signals((f"signals_json:{exc.__class__.__name__}:{_short_hash(args.signals_json)}",), source_label="signals_json"))
     if args.discovery_json:
-        sources = load_signal_sources_config(args.discovery_json)
-        discovery = discover_signals_resilient(sources=sources, base_dir=ROOT)
-        rows.extend(signal.__dict__ for signal in discovery.signals)
+        try:
+            sources = load_signal_sources_config(args.discovery_json)
+            discovery = discover_signals_resilient(sources=sources, base_dir=ROOT)
+            rows.extend(signal.__dict__ for signal in discovery.signals)
+            rows.extend(_source_error_signals(discovery.errors, source_label="discovery"))
+        except Exception as exc:
+            rows.extend(_source_error_signals((f"discovery_json:{exc.__class__.__name__}:config",), source_label="discovery"))
+    personal_rules_json = str(getattr(args, "personal_rules_json", getattr(args, "opportunity_rules_json", "")) or "")
+    if personal_rules_json:
+        personal = discover_personal_rule_signals(raw_config=personal_rules_json, base_dir=ROOT)
+        rows.extend(signal.__dict__ for signal in personal.signals)
+        rows.extend(_source_error_signals(personal.errors, source_label="personal_rules"))
     if not args.skip_observation_source:
         observation_signals = discover_postgres_observation_signals(
             principal_id=args.principal_id,
@@ -158,26 +179,93 @@ def _load_signals(args: argparse.Namespace) -> list[dict[str, Any]]:
         )
         if observation_signals:
             rows.extend(signal.__dict__ for signal in observation_signals)
-    if rows:
+    if bool(getattr(args, "skip_workspace_source", False)):
         return rows
     try:
         from app.container import build_container
         from app.services.google_oauth import list_recent_workspace_signals
     except Exception as exc:  # pragma: no cover - depends on full runtime being present
-        raise SystemExit(f"workspace_signal_runtime_unavailable:{exc.__class__.__name__}") from exc
-    container = build_container()
-    packet = list_recent_workspace_signals(
-        container=container,
-        principal_id=args.principal_id,
-        email_limit=args.email_limit,
-        calendar_limit=args.calendar_limit,
-        gmail_query=args.gmail_query,
-    )
-    rows: list[dict[str, Any]] = []
+        return rows + [_workspace_source_error_signal(exc)]
+    try:
+        container = build_container()
+        packet = list_recent_workspace_signals(
+            container=container,
+            principal_id=args.principal_id,
+            email_limit=args.email_limit,
+            calendar_limit=args.calendar_limit,
+            gmail_query=args.gmail_query,
+        )
+    except Exception as exc:
+        return rows + [_workspace_source_error_signal(exc)]
     for signal in packet.signals:
         if hasattr(signal, "__dict__"):
             rows.append(dict(signal.__dict__))
     return rows
+
+
+def _source_error_signals(errors: tuple[str, ...], *, source_label: str) -> list[dict[str, Any]]:
+    signals: list[dict[str, Any]] = []
+    for error in errors:
+        error_label = str(error or "").strip()
+        if not error_label:
+            continue
+        signals.append(
+            {
+                "source_ref": f"proactive_source_error:{source_label}:{_short_hash(error_label)}",
+                "signal_type": "proactive_source_health",
+                "channel": "proactive_runtime",
+                "title": "EA proactive source needs attention",
+                "summary": "A configured proactive source failed. EA kept running, but this source may be missing from the brief.",
+                "counterparty": "EA runtime",
+                "payload": {
+                    "ooda_loop": _source_health_ooda(
+                        "A configured proactive source failed.",
+                        "Check the configured source and repair credentials, URL, or table mapping.",
+                    )
+                },
+            }
+        )
+    return signals
+
+
+def _workspace_source_error_signal(exc: Exception) -> dict[str, Any]:
+    error_name = exc.__class__.__name__
+    error_text = str(exc or error_name)
+    summary = "Google workspace scanning is failing, so EA cannot reliably inspect Gmail or Calendar for proactive nudges."
+    action = "Reauthorize Google for the EA principal, then rerun the proactive OODA verifier."
+    return {
+        "source_ref": f"proactive_source_error:google_workspace:{_short_hash(error_text or error_name)}",
+        "signal_type": "proactive_source_health",
+        "channel": "proactive_runtime",
+        "title": "EA cannot scan Google workspace",
+        "summary": summary,
+        "counterparty": "Google workspace",
+        "payload": {"ooda_loop": _source_health_ooda(summary, action)},
+    }
+
+
+def _source_health_ooda(summary: str, action: str) -> dict[str, Any]:
+    return {
+        "reviewed": True,
+        "observe": {"summary": summary, "channel": "proactive_runtime", "signal_type": "source_health"},
+        "orient": {
+            "summary": "A paid-assistant loop should degrade visibly instead of going silent when one source breaks.",
+            "tags": ["proactive", "reliability"],
+        },
+        "decide": {
+            "summary": "Repair the source or accept that EA will miss reminders from it.",
+            "recommended_actions": [action],
+            "approval_required": False,
+            "ignored_consequence": "EA may stay quiet even when a human assistant would have found the signal.",
+        },
+        "act": {"summary": action},
+    }
+
+
+def _short_hash(value: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(str(value or "").encode("utf-8")).hexdigest()[:12]
 
 
 def _telegram_notify(principal_id: str, text: str) -> object:

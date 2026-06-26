@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import json
+from types import SimpleNamespace
 
 import scripts.run_proactive_ooda as runner
 import scripts.verify_proactive_ooda as verifier
@@ -56,3 +58,60 @@ def test_proactive_ooda_default_principal_is_generic_and_uses_runtime_default(mo
 
 def test_dotenv_loader_ignores_missing_or_unreadable_paths(tmp_path) -> None:
     runner._load_dotenv_if_present(tmp_path / "missing.env")
+
+
+def test_runner_ingests_all_available_sources_when_workspace_scan_fails(tmp_path, monkeypatch) -> None:
+    signal_file = tmp_path / "signals.json"
+    signal_file.write_text(
+        json.dumps(
+            [
+                {
+                    "source_ref": "manual:1",
+                    "title": "Decision needed today",
+                    "summary": "Approve the action.",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    from app import container as app_container
+    from app.services import google_oauth
+
+    monkeypatch.setattr(app_container, "build_container", lambda: object())
+    monkeypatch.setattr(
+        google_oauth,
+        "list_recent_workspace_signals",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("google_oauth_invalid_grant")),
+    )
+
+    rows = runner._load_signals(
+        SimpleNamespace(
+            signals_json=str(signal_file),
+            discovery_json="",
+            personal_rules_json=json.dumps(
+                {
+                    "rules": [
+                        {
+                            "id": "generic-opportunity",
+                            "title": "Prepare useful next step",
+                            "summary": "EA can stage the next useful step.",
+                            "trigger": {"kind": "always"},
+                        }
+                    ]
+                }
+            ),
+            skip_observation_source=True,
+            principal_id="exec",
+            observation_limit=0,
+            observation_lookback_hours=0,
+            email_limit=1,
+            calendar_limit=1,
+            gmail_query="",
+        )
+    )
+
+    source_refs = {str(row.get("source_ref") or "") for row in rows}
+    assert "manual:1" in source_refs
+    assert any(ref.startswith("opportunity:generic-opportunity:") for ref in source_refs)
+    assert any(ref.startswith("proactive_source_error:google_workspace:") for ref in source_refs)

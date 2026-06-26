@@ -22,4 +22,5 @@ def test_proactive_ooda_has_deployable_lightweight_service_and_operator_targets(
     assert "verify-proactive-ooda:" in makefile
     assert "verify-proactive-ooda-live-receipt:" in makefile
     assert "EA_PROACTIVE_OODA_DISCOVERY_JSON=" in env_example
+    assert "EA_PROACTIVE_OODA_OPPORTUNITY_RULES_JSON=" in env_example
     assert "EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID=" in env_example

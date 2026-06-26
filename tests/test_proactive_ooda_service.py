@@ -145,7 +145,11 @@ def test_proactive_ooda_prefers_structured_ooda_loop() -> None:
                             "approval_required": True,
                             "ignored_consequence": "The launch budget stalls.",
                         },
-                        "act": {"summary": "Ask for the user's decision with the budget context"},
+                        "act": {
+                            "summary": "Ask for the user's decision with the budget context",
+                            "action_plan": ["Collect context", "Prepare a yes/no approval packet"],
+                            "external_action_policy": "Do not send externally without approval.",
+                        },
                     }
                 },
             }
@@ -161,6 +165,8 @@ def test_proactive_ooda_prefers_structured_ooda_loop() -> None:
     assert item.approval_required is True
     assert item.priority == "high"
     assert item.ignored_consequence == "The launch budget stalls."
+    assert item.action_plan == ("Collect context", "Prepare a yes/no approval packet")
+    assert item.external_action_policy == "Do not send externally without approval."
     assert "ooda:reviewed" in item.evidence
     assert "tag:launch" in item.evidence
 
@@ -187,5 +193,6 @@ def test_format_telegram_digest_is_minimal_but_decision_ready() -> None:
     assert "Why:" in text
     assert "Decision:" in text
     assert "Action:" in text
+    assert "Guardrail:" in text
     assert "Evidence:" in text
     assert "checks" not in text.lower()

@@ -107,6 +107,8 @@ class OodaInk:
     approval_required: bool
     ignored_consequence: str
     notify: bool
+    action_plan: tuple[str, ...] = ()
+    external_action_policy: str = ""
 
 
 @dataclass(frozen=True)
@@ -251,6 +253,7 @@ class ProactiveOodaService:
             approval_required=approval_required,
             ignored_consequence=_build_ignored_consequence(signal, approval_required=approval_required),
             notify=notify,
+            external_action_policy=_default_external_action_policy(approval_required=approval_required),
         )
 
 
@@ -298,6 +301,14 @@ def _structured_ooda_ink(signal: ProactiveSignal) -> OodaInk | None:
         raw_act_summary,
         _build_act(signal, approval_required=approval_required),
     )
+    action_plan = _string_list(act_section.get("action_plan")) or _string_list(decide_section.get("action_plan"))
+    external_action_policy = _first_structured_text(
+        act_section.get("external_action_policy"),
+        act_section.get("guardrail"),
+        decide_section.get("external_action_policy"),
+        decide_section.get("guardrail"),
+        _default_external_action_policy(approval_required=approval_required),
+    )
     combined_text = " ".join(
         (
             signal.title,
@@ -337,6 +348,8 @@ def _structured_ooda_ink(signal: ProactiveSignal) -> OodaInk | None:
         approval_required=approval_required,
         ignored_consequence=_structured_ignored_consequence(signal, approval_required=approval_required),
         notify=notify,
+        action_plan=action_plan[:4],
+        external_action_policy=external_action_policy,
     )
 
 
@@ -354,6 +367,14 @@ def format_telegram_digest(digest: ProactiveOodaDigest) -> str:
                 f"Why: {item.orient}",
                 f"Decision: {item.decide}",
                 f"Action: {item.act}",
+            )
+        )
+        if item.action_plan:
+            lines.append(f"Plan: {' | '.join(item.action_plan)}")
+        if item.external_action_policy:
+            lines.append(f"Guardrail: {item.external_action_policy}")
+        lines.extend(
+            (
                 f"If ignored: {item.ignored_consequence}",
                 f"Evidence: {', '.join(item.evidence)}",
             )
@@ -454,6 +475,12 @@ def _build_act(signal: ProactiveSignal, *, approval_required: bool) -> str:
     if signal.channel == "gmail":
         return "Draft a concise reply or follow-up, but do not send without instruction."
     return "Create a concise follow-up prompt for the user."
+
+
+def _default_external_action_policy(*, approval_required: bool) -> str:
+    if approval_required:
+        return "Ask before any external send, purchase, booking, cancellation, or commitment."
+    return "Prepare or draft only; require explicit approval for irreversible external action."
 
 
 def _build_ignored_consequence(signal: ProactiveSignal, *, approval_required: bool) -> str:

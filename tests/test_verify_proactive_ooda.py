@@ -8,6 +8,14 @@ import scripts.verify_proactive_ooda as verifier
 from app.services.proactive_ooda_service import ProactiveSignal
 
 
+def _stub_empty_workspace(monkeypatch) -> None:
+    from app import container as app_container
+    from app.services import google_oauth
+
+    monkeypatch.setattr(app_container, "build_container", lambda: object())
+    monkeypatch.setattr(google_oauth, "list_recent_workspace_signals", lambda **_kwargs: Namespace(signals=()))
+
+
 def test_verify_proactive_ooda_accepts_static_signal_source(tmp_path, monkeypatch) -> None:
     monkeypatch.delenv("EA_TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID", raising=False)
@@ -113,6 +121,7 @@ def test_verify_proactive_ooda_aggregates_static_discovery_and_observations(tmp_
 
 
 def test_runner_load_signals_aggregates_configured_sources_and_observations(tmp_path, monkeypatch) -> None:
+    _stub_empty_workspace(monkeypatch)
     signal_file = tmp_path / "signals.json"
     signal_file.write_text(
         json.dumps([{"source_ref": "static:1", "title": "Approval needed", "summary": "Approve this."}]),
@@ -196,6 +205,7 @@ def test_verify_proactive_ooda_warns_but_passes_when_one_discovery_source_fails(
 
 
 def test_runner_load_signals_continues_after_discovery_failure(tmp_path, monkeypatch) -> None:
+    _stub_empty_workspace(monkeypatch)
     missing_file = tmp_path / "missing.json"
     monkeypatch.setattr(
         runner,
@@ -225,7 +235,9 @@ def test_runner_load_signals_continues_after_discovery_failure(tmp_path, monkeyp
         )
     )
 
-    assert [signal["source_ref"] for signal in signals] == ["observation:still-loaded"]
+    source_refs = [signal["source_ref"] for signal in signals]
+    assert "observation:still-loaded" in source_refs
+    assert any(ref.startswith("proactive_source_error:discovery:") for ref in source_refs)
 
 
 def test_verify_proactive_ooda_fails_enabled_without_source_or_telegram(tmp_path, monkeypatch) -> None:
@@ -251,3 +263,42 @@ def test_verify_proactive_ooda_fails_enabled_without_source_or_telegram(tmp_path
     assert report["ok"] is False
     assert "no_signal_source_configured" in report["errors"]
     assert "telegram_notification_not_configured" in report["errors"]
+
+
+def test_verify_proactive_ooda_reports_unhealthy_workspace_source(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv("EA_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID", raising=False)
+
+    from app import container as app_container
+    from app.services import google_oauth
+
+    monkeypatch.setattr(app_container, "build_container", lambda: object())
+    monkeypatch.setattr(
+        google_oauth,
+        "list_recent_workspace_signals",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("google_oauth_invalid_grant")),
+    )
+
+    report = verifier._build_report(
+        Namespace(
+            principal_id="exec",
+            signals_json="",
+            discovery_json="",
+            opportunity_rules_json="",
+            state_path=str(tmp_path / "state.json"),
+            max_items=5,
+            observation_lookback_hours=24,
+            observation_limit=50,
+            skip_observation_source=True,
+            skip_workspace_source=False,
+            require_source=True,
+            require_telegram=False,
+            require_receipt_observation=False,
+        )
+    )
+
+    assert report["ok"] is False
+    assert report["source_mode"] == "google_workspace_error"
+    assert report["workspace_source_checked"] is True
+    assert report["workspace_source_healthy"] is False
+    assert report["errors"] == ["google_workspace_signal_source_unhealthy:RuntimeError"]

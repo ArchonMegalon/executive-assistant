@@ -511,7 +511,7 @@ stream_max_retries = 5
 
 ## Proactive OODA Ink
 
-EA can ingest workspace or generic discovery signals, orient them into concise OODA ink, and notify the principal only when the result is actionable. The notification includes why it matters, the recommended decision/action, approval status, the ignored consequence, and source evidence.
+EA can ingest every configured source it can reach in one pass: static signal files, generic discovery feeds, local opportunity rules, recent EA observations, and Google workspace signals. Each source is isolated, so a broken connector becomes a source-health OODA item instead of silencing the whole loop. EA then orients the combined signals into concise OODA ink and notifies the principal only when the result is actionable. The notification includes why it matters, the recommended decision/action, approval status, a staged action plan when available, the external-action guardrail, the ignored consequence, and source evidence.
 
 Run it manually or from cron:
 
@@ -545,7 +545,9 @@ Useful runtime knobs:
 - `EA_PROACTIVE_OODA_PERSIST_RECEIPTS`: persist redacted run receipts into `observation_events`, default `1`
 - `EA_PROACTIVE_OODA_SIGNALS_JSON`: optional file-backed signal feed
 - `EA_PROACTIVE_OODA_DISCOVERY_JSON`: JSON source list for generic `json`, `jsonl`, `rss`, or `teable` discovery feeds
+- `EA_PROACTIVE_OODA_OPPORTUNITY_RULES_JSON`: JSON opportunity rules for generic paid-assistant OODA loops; rules may use `always` or weather threshold triggers and can include `action_plan` plus an external-action guardrail
 - `EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID`: direct Telegram fallback chat id when the full app adapter is unavailable
+- `--skip-observation-source` / `--skip-workspace-source`: runner/verifier flags for isolated dry-runs; the default runtime attempts both
 
 Generic discovery example:
 
@@ -565,6 +567,13 @@ The runner can also be tested from a static signal feed:
 
 ```bash
 PYTHONPATH=ea .venv/bin/python scripts/run_proactive_ooda.py --signals-json signals.json --dry-run --pretty
+```
+
+Opportunity rule example:
+
+```bash
+EA_PROACTIVE_OODA_OPPORTUNITY_RULES_JSON='{"rules":[{"id":"renewal-review","title":"Review renewal options","summary":"A renewal window is open; compare realistic alternatives before it becomes urgent.","trigger":{"kind":"always"},"action":"Prepare one approval packet with the best option and the default do-nothing consequence.","action_plan":["Check current constraints","Compare realistic options","Stage the recommended next step"],"external_action_policy":"Do not buy, book, send, cancel, or commit without explicit approval."}]}' \
+PYTHONPATH=ea .venv/bin/python scripts/run_proactive_ooda.py --dry-run --pretty
 ```
 Snapshot pruning is available via `scripts/prune_openapi.sh` or `make openapi-prune`.
 Endpoint inventory can be printed via `scripts/list_endpoints.sh` or `make endpoints`.

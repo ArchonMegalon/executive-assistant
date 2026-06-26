@@ -40,6 +40,7 @@ _load_dotenv_if_present(ROOT / ".env")
 
 from app.services.proactive_ooda_service import JsonOodaStateStore, ProactiveOodaService, digest_to_dict  # noqa: E402
 from app.services.proactive_signal_discovery import (  # noqa: E402
+    discover_opportunity_rule_signals,
     discover_postgres_observation_signals,
     discover_signals_resilient,
     load_signal_sources_config,
@@ -56,6 +57,10 @@ def main() -> int:
     parser.add_argument("--principal-id", default=_default_principal_id())
     parser.add_argument("--signals-json", default=os.getenv("EA_PROACTIVE_OODA_SIGNALS_JSON", ""))
     parser.add_argument("--discovery-json", default=os.getenv("EA_PROACTIVE_OODA_DISCOVERY_JSON", ""))
+    parser.add_argument(
+        "--opportunity-rules-json",
+        default=os.getenv("EA_PROACTIVE_OODA_OPPORTUNITY_RULES_JSON", os.getenv("EA_PROACTIVE_OODA_PERSONAL_RULES_JSON", "")),
+    )
     parser.add_argument("--state-path", default=os.getenv("EA_PROACTIVE_OODA_STATE_PATH", "state/proactive_ooda_notified.json"))
     parser.add_argument("--max-items", type=int, default=int(os.getenv("EA_PROACTIVE_OODA_MAX_ITEMS", "5")))
     parser.add_argument(
@@ -69,6 +74,7 @@ def main() -> int:
         default=int(os.getenv("EA_PROACTIVE_OODA_OBSERVATION_LIMIT", "50")),
     )
     parser.add_argument("--skip-observation-source", action="store_true")
+    parser.add_argument("--skip-workspace-source", action="store_true")
     parser.add_argument("--require-source", action="store_true", default=_env_truthy("EA_PROACTIVE_OODA_ENABLED"))
     parser.add_argument("--require-telegram", action="store_true", default=_env_truthy("EA_PROACTIVE_OODA_ENABLED"))
     parser.add_argument("--require-receipt-observation", action="store_true")
@@ -107,6 +113,14 @@ def _build_report(args: argparse.Namespace) -> dict[str, Any]:
             warnings.extend(f"discovery_source_failed:{item}" for item in discovery.errors)
         except Exception as exc:
             errors.append(f"discovery_json_invalid:{exc.__class__.__name__}")
+    opportunity_rules_json = str(getattr(args, "opportunity_rules_json", "") or "")
+    if opportunity_rules_json:
+        discovery = discover_opportunity_rule_signals(raw_config=opportunity_rules_json, base_dir=ROOT)
+        loaded = [signal.__dict__ for signal in discovery.signals]
+        if loaded:
+            source_modes.append("opportunity_rules")
+            signals.extend(loaded)
+        warnings.extend(f"opportunity_rule_failed:{item}" for item in discovery.errors)
     if not args.skip_observation_source:
         observation_signals = discover_postgres_observation_signals(
             principal_id=args.principal_id,
@@ -116,6 +130,28 @@ def _build_report(args: argparse.Namespace) -> dict[str, Any]:
         if observation_signals:
             source_modes.append("postgres_observations")
             signals.extend(signal.__dict__ for signal in observation_signals)
+    workspace_source_checked = False
+    workspace_source_healthy = False
+    if not bool(getattr(args, "skip_workspace_source", True)):
+        workspace_source_checked = True
+        try:
+            from app.container import build_container
+            from app.services.google_oauth import list_recent_workspace_signals
+
+            packet = list_recent_workspace_signals(
+                container=build_container(),
+                principal_id=args.principal_id,
+                email_limit=1,
+                calendar_limit=1,
+                gmail_query=os.getenv("EA_PROACTIVE_OODA_GMAIL_QUERY", ""),
+            )
+            loaded = [dict(signal.__dict__) for signal in tuple(getattr(packet, "signals", ()) or ()) if hasattr(signal, "__dict__")]
+            source_modes.append("google_workspace")
+            signals.extend(loaded)
+            workspace_source_healthy = True
+        except Exception as exc:
+            source_modes.append("google_workspace_error")
+            errors.append(f"google_workspace_signal_source_unhealthy:{exc.__class__.__name__}")
     source_mode = "+".join(source_modes) if source_modes else "none"
     if args.require_source and source_mode == "none":
         errors.append("no_signal_source_configured")
@@ -151,6 +187,8 @@ def _build_report(args: argparse.Namespace) -> dict[str, Any]:
         "notified_refs": notified_refs,
         "telegram_ready": telegram_ready,
         "receipt_observation_count": receipt_observation_count,
+        "workspace_source_checked": workspace_source_checked,
+        "workspace_source_healthy": workspace_source_healthy,
         "state_path": args.state_path,
         "digest": digest_payload,
     }
@@ -206,6 +244,7 @@ def _format_report(report: dict[str, Any]) -> str:
         f"proactive OODA: {status}",
         f"source: {report['source_mode']} ({report['signal_count']} signals, {report['actionable_count']} actionable)",
         f"telegram: {'ready' if report['telegram_ready'] else 'not configured'}",
+        f"workspace: {_workspace_status(report)}",
         f"receipt observations: {report['receipt_observation_count']}",
         f"state: {report['state_path']}",
     ]
@@ -214,6 +253,12 @@ def _format_report(report: dict[str, Any]) -> str:
     if report.get("warnings"):
         lines.append(f"warnings: {', '.join(report['warnings'])}")
     return "\n".join(lines)
+
+
+def _workspace_status(report: dict[str, Any]) -> str:
+    if not report.get("workspace_source_checked"):
+        return "not checked"
+    return "ready" if report.get("workspace_source_healthy") else "unhealthy"
 
 
 if __name__ == "__main__":

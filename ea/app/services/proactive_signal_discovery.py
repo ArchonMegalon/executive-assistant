@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import json
-import re
 import os
+import re
+import time
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
@@ -22,6 +24,7 @@ class SignalSource:
     counterparty: str = ""
     limit: int = 20
     field_map: Mapping[str, str] | None = None
+    config: Mapping[str, Any] | None = None
 
     @classmethod
     def from_mapping(cls, row: Mapping[str, Any]) -> "SignalSource":
@@ -37,6 +40,7 @@ class SignalSource:
             counterparty=str(row.get("counterparty") or row.get("source_name") or row.get("name") or "").strip(),
             limit=max(int(row.get("limit") or 20), 1),
             field_map=row.get("field_map") if isinstance(row.get("field_map"), Mapping) else None,
+            config=row,
         )
 
 
@@ -99,7 +103,44 @@ def _discover_source(source: SignalSource, *, base_dir: Path, timeout_seconds: i
         return _load_rss_source(source, base_dir=base_dir, timeout_seconds=timeout_seconds)
     if source.source_type == "teable":
         return _load_teable_source(source, timeout_seconds=timeout_seconds)
+    if source.source_type in {"opportunity_rules", "opportunity_rule", "personal_rules", "personal_rule"}:
+        return _load_personal_rules_source(source, base_dir=base_dir, timeout_seconds=timeout_seconds)
     raise ValueError(f"unsupported_signal_source_type:{source.source_type}")
+
+
+def discover_opportunity_rule_signals(
+    *,
+    raw_config: str,
+    base_dir: Path,
+    timeout_seconds: int = 20,
+) -> SignalDiscoveryResult:
+    normalized = str(raw_config or "").strip()
+    if not normalized:
+        return SignalDiscoveryResult(signals=(), errors=())
+    try:
+        source = SignalSource(
+            source_type="opportunity_rules",
+            ref=normalized if not normalized.startswith(("{", "[")) else "",
+            channel="assistant_opportunity",
+            signal_type="opportunity",
+            counterparty="EA",
+            config=json.loads(normalized) if normalized.startswith(("{", "[")) else None,
+        )
+        return SignalDiscoveryResult(
+            signals=tuple(_load_personal_rules_source(source, base_dir=base_dir, timeout_seconds=timeout_seconds)),
+            errors=(),
+        )
+    except Exception as exc:
+        return SignalDiscoveryResult(signals=(), errors=(f"assistant_opportunity:opportunity_rules:{exc.__class__.__name__}:config",))
+
+
+def discover_personal_rule_signals(
+    *,
+    raw_config: str,
+    base_dir: Path,
+    timeout_seconds: int = 20,
+) -> SignalDiscoveryResult:
+    return discover_opportunity_rule_signals(raw_config=raw_config, base_dir=base_dir, timeout_seconds=timeout_seconds)
 
 
 def discover_postgres_observation_signals(
@@ -333,6 +374,232 @@ def _load_teable_source(source: SignalSource, *, timeout_seconds: int) -> list[P
         record_id = str(record.get("id") or index).strip()
         signals.append(_signal_from_teable_record(fields, record_id=record_id, source=source))
     return signals
+
+
+def _load_personal_rules_source(source: SignalSource, *, base_dir: Path, timeout_seconds: int) -> list[ProactiveSignal]:
+    payload: Any
+    if source.ref:
+        payload = json.loads(_read_ref(source.ref, base_dir=base_dir, timeout_seconds=timeout_seconds))
+    else:
+        payload = source.config or {}
+    if isinstance(payload, list):
+        rules = payload
+    elif isinstance(payload, Mapping):
+        rules = payload.get("rules") or payload.get("items") or []
+    else:
+        rules = []
+    if not isinstance(rules, list):
+        return []
+    now_epoch = int(time.time())
+    signals: list[ProactiveSignal] = []
+    for index, raw_rule in enumerate(rules[: source.limit]):
+        if not isinstance(raw_rule, Mapping) or not _truthy_default(raw_rule.get("enabled"), default=True):
+            continue
+        signal = _personal_rule_to_signal(raw_rule, source=source, index=index, now_epoch=now_epoch, timeout_seconds=timeout_seconds)
+        if signal is not None:
+            signals.append(signal)
+    return signals
+
+
+def _personal_rule_to_signal(
+    rule: Mapping[str, Any],
+    *,
+    source: SignalSource,
+    index: int,
+    now_epoch: int,
+    timeout_seconds: int,
+) -> ProactiveSignal | None:
+    trigger = rule.get("trigger") if isinstance(rule.get("trigger"), Mapping) else {}
+    if not _personal_rule_triggered(trigger, timeout_seconds=timeout_seconds):
+        return None
+    rule_id = _rule_id(rule, fallback=f"rule-{index}")
+    cadence_days = _safe_int(rule.get("cadence_days") or rule.get("cooldown_days") or 14)
+    cadence_seconds = max(cadence_days, 1) * 86400
+    period = now_epoch // cadence_seconds
+    weather_context = _weather_context(trigger, timeout_seconds=timeout_seconds)
+    location = _clean_text(str(trigger.get("location") or trigger.get("location_name") or "local weather"))
+    title = _clean_text(str(rule.get("title") or "Assistant opportunity"))
+    base_summary = _clean_text(str(rule.get("summary") or rule.get("brief") or "A potentially useful opportunity is worth attention."))
+    summary = base_summary
+    if weather_context:
+        summary = f"{base_summary} {_weather_sentence(weather_context, location=location)}"
+    action_text = _clean_text(str(rule.get("action") or rule.get("recommended_action") or "Ask the user whether to take the next step."))
+    ignored = _clean_text(str(rule.get("ignored_consequence") or "A useful low-effort opportunity may slip again."))
+    counterparty = _clean_text(str(rule.get("counterparty") or source.counterparty or "EA"))
+    approval_required = _truthy_default(rule.get("approval_required"), default=True)
+    source_ref = f"opportunity:{rule_id}:{period}"
+    action_plan = _string_list(rule.get("action_plan") or rule.get("plan"))
+    external_action_policy = _clean_text(
+        str(
+            rule.get("external_action_policy")
+            or rule.get("guardrail")
+            or "Research, prepare, or stage external actions only; ask the user before purchase, booking, posting, or sending."
+        )
+    )
+    return ProactiveSignal(
+        source_ref=source_ref,
+        signal_type=_clean_text(str(rule.get("signal_type") or source.signal_type or "opportunity")),
+        channel=_clean_text(str(rule.get("channel") or source.channel or "assistant_opportunity")),
+        title=title,
+        summary=summary,
+        counterparty=counterparty,
+        due_at=_clean_text(str(rule.get("due_at") or "")) or None,
+        external_id=_short_hash(f"{rule_id}:{period}:{title}"),
+        payload={
+            "source": "opportunity_rules",
+            "rule_id_hash": _short_hash(rule_id),
+            "trigger_kind": str(trigger.get("kind") or "always"),
+            "ooda_loop": {
+                "reviewed": True,
+                "observe": {
+                    "summary": title,
+                    "channel": source.channel or "assistant_opportunity",
+                    "signal_type": rule.get("signal_type") or "opportunity",
+                    "counterparty": counterparty,
+                },
+                "orient": {
+                    "summary": summary,
+                    "tags": ["assistant_opportunity", "care", "cadence"],
+                },
+                "decide": {
+                    "summary": _clean_text(str(rule.get("decision") or "Decide whether to pursue this opportunity now.")),
+                    "recommended_actions": [action_text],
+                    "approval_required": approval_required,
+                    "ignored_consequence": ignored,
+                },
+                "act": {
+                    "summary": action_text,
+                    "action_plan": list(action_plan),
+                    "external_action_policy": external_action_policy,
+                },
+            },
+        },
+    )
+
+
+def _personal_rule_triggered(trigger: Mapping[str, Any], *, timeout_seconds: int) -> bool:
+    kind = str(trigger.get("kind") or "always").strip().lower()
+    if kind in {"", "always"}:
+        return True
+    if kind in {"cooler_weather", "weather_below", "weather_at_or_below"}:
+        context = _weather_context(trigger, timeout_seconds=timeout_seconds)
+        if not context:
+            return False
+        threshold = _float_value(
+            trigger.get("temperature_at_or_below_c"),
+            trigger.get("max_temperature_c"),
+            trigger.get("threshold_c"),
+        )
+        if threshold is None:
+            threshold = 24.0
+        values = [value for value in (context.get("current_temperature_c"), context.get("min_forecast_temperature_c")) if isinstance(value, (int, float))]
+        return any(float(value) <= threshold for value in values)
+    return False
+
+
+def _weather_context(trigger: Mapping[str, Any], *, timeout_seconds: int) -> dict[str, float] | None:
+    current = _float_value(trigger.get("current_temperature_c"), trigger.get("temperature_c"))
+    hourly_values = _float_list(trigger.get("hourly_temperature_c") or trigger.get("forecast_temperature_c"))
+    if current is not None or hourly_values:
+        values = ([current] if current is not None else []) + hourly_values
+        return {
+            "current_temperature_c": float(current if current is not None else values[0]),
+            "min_forecast_temperature_c": float(min(values)),
+        }
+    latitude = _float_value(trigger.get("latitude"), trigger.get("lat"))
+    longitude = _float_value(trigger.get("longitude"), trigger.get("lon"), trigger.get("lng"))
+    if latitude is None or longitude is None:
+        return None
+    forecast_hours = max(_safe_int(trigger.get("forecast_hours") or 48), 1)
+    params = urllib.parse.urlencode(
+        {
+            "latitude": f"{latitude:.5f}",
+            "longitude": f"{longitude:.5f}",
+            "current": "temperature_2m",
+            "hourly": "temperature_2m",
+            "forecast_days": 3,
+            "timezone": "auto",
+        }
+    )
+    request = urllib.request.Request(
+        f"https://api.open-meteo.com/v1/forecast?{params}",
+        headers={"User-Agent": "EA-Proactive-OODA/1.0"},
+        method="GET",
+    )
+    with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    current_payload = payload.get("current") if isinstance(payload.get("current"), Mapping) else {}
+    hourly_payload = payload.get("hourly") if isinstance(payload.get("hourly"), Mapping) else {}
+    current_temperature = _float_value(current_payload.get("temperature_2m"))
+    forecast_temperatures = _float_list(hourly_payload.get("temperature_2m"))[:forecast_hours]
+    values = ([current_temperature] if current_temperature is not None else []) + forecast_temperatures
+    if not values:
+        return None
+    return {
+        "current_temperature_c": float(current_temperature if current_temperature is not None else values[0]),
+        "min_forecast_temperature_c": float(min(values)),
+    }
+
+
+def _weather_sentence(context: Mapping[str, float], *, location: str) -> str:
+    current = context.get("current_temperature_c")
+    minimum = context.get("min_forecast_temperature_c")
+    if isinstance(current, (int, float)) and isinstance(minimum, (int, float)):
+        return f"{location} is about {current:.1f} C now, with a near-term low around {minimum:.1f} C."
+    if isinstance(current, (int, float)):
+        return f"{location} is about {current:.1f} C now."
+    return ""
+
+
+def _rule_id(rule: Mapping[str, Any], *, fallback: str) -> str:
+    raw = str(rule.get("id") or rule.get("name") or "").strip()
+    if raw:
+        return re.sub(r"[^a-zA-Z0-9_.:-]+", "-", raw).strip("-") or fallback
+    digest = hashlib.sha256(json.dumps(dict(rule), sort_keys=True, default=str).encode("utf-8")).hexdigest()[:12]
+    return f"{fallback}-{digest}"
+
+
+def _truthy_default(value: Any, *, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "y", "on", "enabled"}:
+        return True
+    if normalized in {"0", "false", "no", "n", "off", "disabled"}:
+        return False
+    return default
+
+
+def _string_list(value: Any) -> tuple[str, ...]:
+    if isinstance(value, str):
+        return (_clean_text(value),) if value.strip() else ()
+    if not isinstance(value, (list, tuple)):
+        return ()
+    return tuple(_clean_text(str(item or "")) for item in value if str(item or "").strip())
+
+
+def _float_value(*values: Any) -> float | None:
+    for value in values:
+        if value is None or value == "":
+            continue
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _float_list(value: Any) -> list[float]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    values: list[float] = []
+    for item in value:
+        parsed = _float_value(item)
+        if parsed is not None:
+            values.append(parsed)
+    return values
 
 
 def _signal_from_teable_record(fields: Mapping[str, Any], *, record_id: str, source: SignalSource) -> ProactiveSignal:
