@@ -78,6 +78,11 @@ def build_safe_work_result(
     )
     candidate_items = _candidate_items(input_contract=input_contract, stage_payload=stage_payload)
     candidate_items = _enrich_candidate_items(candidate_items, page_checks=page_checks)
+    candidate_items, comparison_table = _rank_candidate_items(
+        input_contract=input_contract,
+        stage_payload=stage_payload,
+        candidate_items=candidate_items,
+    )
     recommended = _recommended_option_or_draft(
         work_type=work_type,
         input_contract=input_contract,
@@ -111,6 +116,7 @@ def build_safe_work_result(
         "recommended_option_or_draft": recommended,
         "staged_action_url": staged_action_url,
         "shortlist": candidate_items,
+        "comparison_table": comparison_table,
         "evidence_refs": _evidence_refs(
             input_contract=input_contract,
             stage_payload=stage_payload,
@@ -248,6 +254,231 @@ def _candidate_items(*, input_contract: Mapping[str, Any], stage_payload: Mappin
     links = _string_list(_stage_or_input(stage_payload=stage_payload, input_contract=input_contract, key="links"))
     target_sites = _string_list(_stage_or_input(stage_payload=stage_payload, input_contract=input_contract, key="target_sites"))
     return [{"label": _label_from_url(url), "url": url} for url in (*links, *target_sites)]
+
+
+def _rank_candidate_items(
+    *,
+    input_contract: Mapping[str, Any],
+    stage_payload: Mapping[str, Any],
+    candidate_items: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    if not candidate_items:
+        return candidate_items, []
+    context = _candidate_evaluation_context(input_contract=input_contract, stage_payload=stage_payload)
+    analyses = [
+        _candidate_analysis(candidate=item, index=index, context=context, candidate_items=candidate_items)
+        for index, item in enumerate(candidate_items)
+    ]
+    order = sorted(
+        range(len(candidate_items)),
+        key=lambda index: (
+            -float(analyses[index]["score"]),
+            len(analyses[index]["constraint_violations"]),
+            0 if candidate_items[index].get("reachable") is True else 1 if candidate_items[index].get("reachable") is False else 2,
+            index,
+        ),
+    )
+    ordered_items = [dict(candidate_items[index]) for index in order]
+    comparison_table: list[dict[str, Any]] = []
+    for rank, index in enumerate(order, start=1):
+        item = candidate_items[index]
+        analysis = analyses[index]
+        row = {
+            "label": str(item.get("label") or item.get("title") or f"candidate-{rank}").strip(),
+            "url": str(item.get("url") or item.get("link") or item.get("href") or "").strip(),
+            "assistant_rank": rank,
+            "assistant_score": round(float(analysis["score"]), 2),
+            "recommended": rank == 1,
+            "matched_criteria": list(analysis["matched_criteria"]),
+            "constraint_violations": list(analysis["constraint_violations"]),
+            "recommendation_reasons": list(analysis["recommendation_reasons"]),
+        }
+        for key in ("reachable", "page_title", "final_url"):
+            if key in item:
+                row[key] = item.get(key)
+        for key in ("price", "price_value", "currency", "delivery_days", "eta_days", "lead_time_days"):
+            if key in item:
+                row[key] = item.get(key)
+        comparison_table.append(row)
+    return ordered_items, comparison_table
+
+
+def _candidate_evaluation_context(
+    *,
+    input_contract: Mapping[str, Any],
+    stage_payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    selection_criteria = _criteria_texts(_stage_or_input(stage_payload=stage_payload, input_contract=input_contract, key="selection_criteria"))
+    comparison_dimensions = _criteria_texts(_stage_or_input(stage_payload=stage_payload, input_contract=input_contract, key="comparison_dimensions"))
+    preferences = _criteria_texts(_stage_or_input(stage_payload=stage_payload, input_contract=input_contract, key="preferences"))
+    requirements = _criteria_texts(_stage_or_input(stage_payload=stage_payload, input_contract=input_contract, key="requirements"))
+    exclusions = _criteria_texts(_stage_or_input(stage_payload=stage_payload, input_contract=input_contract, key="exclusions"))
+    budget = _mapping_value(_stage_or_input(stage_payload=stage_payload, input_contract=input_contract, key="budget"))
+    constraints = _mapping_value(_stage_or_input(stage_payload=stage_payload, input_contract=input_contract, key="constraints"))
+    budget_max = _float_value(
+        budget.get("max"),
+        budget.get("budget_max"),
+        constraints.get("max"),
+        constraints.get("budget_max"),
+        constraints.get("price_max"),
+    )
+    budget_min = _float_value(
+        budget.get("min"),
+        budget.get("budget_min"),
+        constraints.get("min"),
+        constraints.get("budget_min"),
+        constraints.get("price_min"),
+    )
+    budget_currency = _upper_text(
+        budget.get("currency"),
+        constraints.get("currency"),
+    )
+    all_text = tuple(dict.fromkeys((*selection_criteria, *comparison_dimensions, *preferences, *requirements)))
+    return {
+        "selection_criteria": selection_criteria,
+        "comparison_dimensions": comparison_dimensions,
+        "preferences": preferences,
+        "requirements": requirements,
+        "exclusions": exclusions,
+        "budget_max": budget_max,
+        "budget_min": budget_min,
+        "budget_currency": budget_currency,
+        "all_text": all_text,
+        "price_relevant": any(_text_mentions(term, ("price", "budget", "cheap", "cost", "value")) for term in all_text),
+        "timing_relevant": any(_text_mentions(term, ("timing", "delivery", "soon", "fast", "quick", "eta")) for term in all_text),
+        "reversibility_relevant": any(_text_mentions(term, ("reversible", "refund", "return", "cancel", "flexib")) for term in all_text),
+        "availability_relevant": any(_text_mentions(term, ("stock", "available", "availability", "ready")) for term in all_text),
+    }
+
+
+def _candidate_analysis(
+    *,
+    candidate: Mapping[str, Any],
+    index: int,
+    context: Mapping[str, Any],
+    candidate_items: list[dict[str, Any]],
+) -> dict[str, Any]:
+    score = 0.0
+    matched_criteria: list[str] = []
+    constraint_violations: list[str] = []
+    recommendation_reasons: list[str] = []
+    search_text = _candidate_search_text(candidate)
+    price_value = _candidate_price_value(candidate)
+    candidate_currency = _upper_text(candidate.get("currency"))
+    delivery_days = _float_value(candidate.get("delivery_days"), candidate.get("eta_days"), candidate.get("lead_time_days"))
+    reversible = _candidate_boolean(candidate, "reversible_before_approval", "reversible", "refundable", "cancellable_before_approval")
+    available = _candidate_availability(candidate)
+
+    if candidate.get("reachable") is True:
+        score += 18
+        recommendation_reasons.append("link verified reachable")
+    elif candidate.get("reachable") is False:
+        score -= 12
+        constraint_violations.append("link not reachable")
+
+    if context.get("budget_max") is not None and price_value is not None:
+        budget_max = float(context["budget_max"])
+        if price_value <= budget_max:
+            score += 14
+            matched_criteria.append(f"within budget <= {budget_max:g}")
+            recommendation_reasons.append(f"within budget ({price_value:g})")
+        else:
+            score -= 30
+            constraint_violations.append(f"over budget ({price_value:g} > {budget_max:g})")
+    if context.get("budget_min") is not None and price_value is not None:
+        budget_min = float(context["budget_min"])
+        if price_value < budget_min:
+            score -= 12
+            constraint_violations.append(f"below minimum budget ({price_value:g} < {budget_min:g})")
+    budget_currency = str(context.get("budget_currency") or "").strip()
+    if budget_currency and candidate_currency:
+        if candidate_currency == budget_currency:
+            score += 6
+            matched_criteria.append(f"currency {candidate_currency}")
+        else:
+            score -= 10
+            constraint_violations.append(f"currency mismatch ({candidate_currency} vs {budget_currency})")
+
+    if context.get("reversibility_relevant") and reversible is not None:
+        if reversible:
+            score += 16
+            matched_criteria.append("reversible before approval")
+            recommendation_reasons.append("reversible before approval")
+        else:
+            score -= 18
+            constraint_violations.append("not reversible before approval")
+
+    if context.get("availability_relevant") and available is not None:
+        if available:
+            score += 8
+            matched_criteria.append("available now")
+        else:
+            score -= 16
+            constraint_violations.append("not currently available")
+
+    for phrase in context.get("selection_criteria", ()):
+        if _candidate_matches_phrase(candidate, search_text=search_text, phrase=phrase):
+            score += 8
+            matched_criteria.append(phrase)
+    for phrase in context.get("comparison_dimensions", ()):
+        if _candidate_matches_phrase(candidate, search_text=search_text, phrase=phrase):
+            score += 4
+            matched_criteria.append(phrase)
+    for phrase in context.get("preferences", ()):
+        if _candidate_matches_phrase(candidate, search_text=search_text, phrase=phrase):
+            score += 6
+            matched_criteria.append(phrase)
+    for phrase in context.get("requirements", ()):
+        if _candidate_matches_phrase(candidate, search_text=search_text, phrase=phrase):
+            score += 8
+            matched_criteria.append(phrase)
+    for phrase in context.get("exclusions", ()):
+        if _candidate_matches_phrase(candidate, search_text=search_text, phrase=phrase):
+            score -= 30
+            constraint_violations.append(f"matches exclusion '{phrase}'")
+
+    if context.get("price_relevant") and price_value is not None:
+        relative_bonus = _relative_metric_bonus(
+            price_value,
+            values=[
+                _candidate_price_value(item)
+                for item in candidate_items
+                if _candidate_price_value(item) is not None
+                and (
+                    not budget_currency
+                    or not _upper_text(item.get("currency"))
+                    or _upper_text(item.get("currency")) == budget_currency
+                )
+            ],
+            prefer_lower=True,
+            max_bonus=12,
+        )
+        if relative_bonus > 0:
+            score += relative_bonus
+            recommendation_reasons.append("strong price fit")
+
+    if context.get("timing_relevant") and delivery_days is not None:
+        relative_bonus = _relative_metric_bonus(
+            delivery_days,
+            values=[
+                _float_value(item.get("delivery_days"), item.get("eta_days"), item.get("lead_time_days"))
+                for item in candidate_items
+                if _float_value(item.get("delivery_days"), item.get("eta_days"), item.get("lead_time_days")) is not None
+            ],
+            prefer_lower=True,
+            max_bonus=10,
+        )
+        if relative_bonus > 0:
+            score += relative_bonus
+            recommendation_reasons.append("faster timing")
+
+    return {
+        "index": index,
+        "score": score,
+        "matched_criteria": tuple(dict.fromkeys(item for item in matched_criteria if item)),
+        "constraint_violations": tuple(dict.fromkeys(item for item in constraint_violations if item)),
+        "recommendation_reasons": tuple(dict.fromkeys(item for item in recommendation_reasons if item))[:4],
+    }
 
 
 def _recommended_option_or_draft(
@@ -421,15 +652,160 @@ def _url_from_value(value: Any) -> str:
     return text if re.match(r"^https?://", text, flags=re.IGNORECASE) else ""
 
 
+def _mapping_value(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
+def _criteria_texts(value: Any) -> tuple[str, ...]:
+    texts: list[str] = []
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if isinstance(item, bool):
+                if item:
+                    texts.append(str(key).strip())
+                continue
+            if isinstance(item, (list, tuple)):
+                for nested in _criteria_texts(item):
+                    texts.append(f"{key} {nested}".strip())
+                continue
+            text = " ".join(str(part).strip() for part in (key, item) if str(part).strip())
+            if text:
+                texts.append(text)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            texts.extend(_criteria_texts(item))
+    else:
+        text = str(value or "").strip()
+        if text:
+            texts.append(text)
+    return tuple(dict.fromkeys(text for text in texts if text))
+
+
+def _candidate_search_text(candidate: Mapping[str, Any]) -> str:
+    pieces: list[str] = []
+
+    def _visit(value: Any, *, key: str = "") -> None:
+        if isinstance(value, Mapping):
+            for nested_key, nested_value in value.items():
+                _visit(nested_value, key=str(nested_key))
+            return
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                _visit(item, key=key)
+            return
+        if value is None:
+            return
+        if key in {"url", "link", "href", "final_url"}:
+            return
+        text = str(value).strip()
+        if not text:
+            return
+        pieces.append(f"{key} {text}".strip() if key else text)
+
+    _visit(candidate)
+    return " ".join(pieces).lower()
+
+
+def _candidate_matches_phrase(candidate: Mapping[str, Any], *, search_text: str, phrase: str) -> bool:
+    normalized = str(phrase or "").strip().lower()
+    if not normalized:
+        return False
+    if normalized in search_text:
+        return True
+    if _text_mentions(normalized, ("reversible", "refund", "return", "cancel", "flexib")):
+        reversible = _candidate_boolean(candidate, "reversible_before_approval", "reversible", "refundable", "cancellable_before_approval")
+        return reversible is True
+    if _text_mentions(normalized, ("stock", "available", "availability", "ready")):
+        available = _candidate_availability(candidate)
+        return available is True
+    return False
+
+
+def _candidate_price_value(candidate: Mapping[str, Any]) -> float | None:
+    return _float_value(candidate.get("price_value"), candidate.get("price"), candidate.get("amount"), candidate.get("total"))
+
+
+def _candidate_boolean(candidate: Mapping[str, Any], *keys: str) -> bool | None:
+    for key in keys:
+        if key not in candidate:
+            continue
+        value = candidate.get(key)
+        if isinstance(value, bool):
+            return value
+        normalized = str(value or "").strip().lower()
+        if normalized in {"1", "true", "yes", "y", "on", "available", "in_stock"}:
+            return True
+        if normalized in {"0", "false", "no", "n", "off", "unavailable", "out_of_stock"}:
+            return False
+    return None
+
+
+def _candidate_availability(candidate: Mapping[str, Any]) -> bool | None:
+    available = _candidate_boolean(candidate, "in_stock", "available")
+    if available is not None:
+        return available
+    raw = str(candidate.get("availability") or "").strip().lower()
+    if raw in {"in stock", "available", "ready", "now"}:
+        return True
+    if raw in {"out of stock", "unavailable", "delayed"}:
+        return False
+    return None
+
+
+def _relative_metric_bonus(
+    value: float,
+    *,
+    values: list[float | None],
+    prefer_lower: bool,
+    max_bonus: int,
+) -> float:
+    comparable = [float(item) for item in values if item is not None]
+    if not comparable:
+        return 0.0
+    minimum = min(comparable)
+    maximum = max(comparable)
+    if maximum <= minimum:
+        return float(max_bonus // 2)
+    position = (maximum - value) / (maximum - minimum) if prefer_lower else (value - minimum) / (maximum - minimum)
+    position = max(0.0, min(position, 1.0))
+    return round(position * max_bonus, 2)
+
+
+def _float_value(*values: Any) -> float | None:
+    for value in values:
+        if value is None or value == "":
+            continue
+        if isinstance(value, (int, float)):
+            return float(value)
+        match = re.search(r"-?\d+(?:[.,]\d+)?", str(value))
+        if not match:
+            continue
+        try:
+            return float(match.group(0).replace(",", "."))
+        except ValueError:
+            continue
+    return None
+
+
+def _upper_text(*values: Any) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text.upper()
+    return ""
+
+
+def _text_mentions(text: str, needles: tuple[str, ...]) -> bool:
+    haystack = str(text or "").lower()
+    return any(needle in haystack for needle in needles)
+
+
 def _label_from_url(url: str) -> str:
     normalized = str(url or "").strip()
     return normalized.split("//", 1)[-1].split("/", 1)[0] or normalized or "link"
 
 
 def _preferred_candidate(items: list[dict[str, Any]]) -> dict[str, Any]:
-    for item in items:
-        if item.get("reachable") is True:
-            return item
     return items[0] if items else {}
 
 

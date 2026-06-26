@@ -72,6 +72,7 @@ def test_build_safe_work_result_materializes_reversible_cart_contract() -> None:
     }
     assert result["staged_action_url"] == "https://example.test/cart/private"
     assert result["shortlist"] == [{"label": "Candidate A", "url": "https://example.test/item-a"}]
+    assert result["comparison_table"][0]["recommended"] is True
     assert result["approval"]["required"] is True
     assert result["execution_receipt"]["external_actions_attempted"] == []
     assert result["execution_receipt"]["irreversible_actions_attempted"] == []
@@ -136,12 +137,73 @@ def test_build_safe_work_result_enriches_live_page_checks_and_prefers_reachable_
     assert result["recommended_option_or_draft"]["kind"] == "reversible_cart_or_link"
     assert result["recommended_option_or_draft"]["value"] == "https://example.test/item-b"
     assert result["staged_action_url"] == "https://example.test/item-b"
-    assert result["shortlist"][0]["reachable"] is False
-    assert result["shortlist"][1]["reachable"] is True
-    assert result["shortlist"][1]["page_title"] == "Candidate B Live"
+    assert result["shortlist"][0]["label"] == "Candidate B"
+    assert result["shortlist"][0]["reachable"] is True
+    assert result["shortlist"][0]["page_title"] == "Candidate B Live"
+    assert result["shortlist"][1]["label"] == "Candidate A"
+    assert result["shortlist"][1]["reachable"] is False
     assert "Live page checks verified 1/2 URLs." in result["summary"]
     candidate_refs = [ref for ref in result["evidence_refs"] if ref["kind"] == "candidate"]
-    assert candidate_refs[1]["page_title"] == "Candidate B Live"
+    assert candidate_refs[0]["page_title"] == "Candidate B Live"
+    assert result["comparison_table"][0]["label"] == "Candidate B"
+    assert result["comparison_table"][0]["recommended"] is True
+
+
+def test_build_safe_work_result_scores_candidates_against_budget_preferences_and_reversibility() -> None:
+    packet = _packet_with_cart_work()
+    packet["stage"]["payload"]["kind"] = "shortlist"  # type: ignore[index]
+    packet["stage"]["payload"]["work_type"] = "compare_options"  # type: ignore[index]
+    packet["stage"]["payload"]["approval_url"] = ""  # type: ignore[index]
+    packet["safe_work_order"]["work_type"] = "compare_options"  # type: ignore[index]
+    packet["stage"]["payload"]["candidate_items"] = [  # type: ignore[index]
+        {
+            "label": "Candidate A",
+            "url": "https://example.test/item-a",
+            "price_value": 89,
+            "currency": "EUR",
+            "reversible_before_approval": True,
+            "delivery_days": 4,
+            "tags": ["cool weather", "outdoor"],
+        },
+        {
+            "label": "Candidate B",
+            "url": "https://example.test/item-b",
+            "price_value": 129,
+            "currency": "EUR",
+            "reversible_before_approval": True,
+            "delivery_days": 1,
+            "tags": ["outdoor"],
+        },
+        {
+            "label": "Candidate C",
+            "url": "https://example.test/item-c",
+            "price_value": 79,
+            "currency": "USD",
+            "reversible_before_approval": False,
+            "delivery_days": 2,
+            "tags": ["indoor"],
+        },
+    ]
+    packet["safe_work_order"]["input_contract"] = {  # type: ignore[index]
+        "selection_criteria": ["reversible before approval", "price", "timing"],
+        "preferences": ["cool weather"],
+        "budget": {"max": 100, "currency": "EUR"},
+        "expected_artifacts": ["shortlist"],
+        "private_payload_available": True,
+    }
+
+    result = build_safe_work_result(packet)
+
+    assert result["recommended_option_or_draft"]["kind"] == "shortlist_candidate"
+    assert result["recommended_option_or_draft"]["value"]["label"] == "Candidate A"
+    assert [item["label"] for item in result["shortlist"]] == ["Candidate A", "Candidate B", "Candidate C"]
+    assert result["comparison_table"][0]["label"] == "Candidate A"
+    assert result["comparison_table"][0]["recommended"] is True
+    assert "within budget <= 100" in result["comparison_table"][0]["matched_criteria"]
+    assert "reversible before approval" in result["comparison_table"][0]["matched_criteria"]
+    assert any("over budget" in value for value in result["comparison_table"][1]["constraint_violations"])
+    assert any("currency mismatch" in value for value in result["comparison_table"][2]["constraint_violations"])
+    assert any("not reversible" in value for value in result["comparison_table"][2]["constraint_violations"])
 
 
 def test_build_safe_work_result_keeps_stable_result_id_across_regeneration() -> None:
