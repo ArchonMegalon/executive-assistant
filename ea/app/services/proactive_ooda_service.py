@@ -440,6 +440,8 @@ def build_run_receipt(
     status = "skipped_no_items"
     if dry_run:
         status = "dry_run"
+    elif _is_deferred_error(error_code):
+        status = "deferred"
     elif error_code:
         status = "failed"
     elif digest.items:
@@ -454,6 +456,10 @@ def build_run_receipt(
         telegram_message_ids=_extract_telegram_message_ids(notification_result),
         error_code=error_code,
     )
+
+
+def _is_deferred_error(value: str) -> bool:
+    return str(value or "").startswith("deferred_by_")
 
 
 def receipt_to_dict(receipt: ProactiveOodaRunReceipt) -> dict[str, Any]:

@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import os
 import json
+from datetime import datetime, timezone
 from types import SimpleNamespace
+
+from app.services.proactive_ooda_service import ProactiveOodaService, build_run_receipt
 
 import scripts.run_proactive_ooda as runner
 import scripts.verify_proactive_ooda as verifier
@@ -115,3 +118,114 @@ def test_runner_ingests_all_available_sources_when_workspace_scan_fails(tmp_path
     assert "manual:1" in source_refs
     assert any(ref.startswith("opportunity:generic-opportunity:") for ref in source_refs)
     assert any(ref.startswith("proactive_source_error:google_workspace:") for ref in source_refs)
+
+
+def test_runner_quiet_hours_defer_non_high_priority_digest() -> None:
+    digest = ProactiveOodaService().build_digest(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "opportunity:vendor-review",
+                "signal_type": "opportunity",
+                "channel": "assistant_opportunity",
+                "title": "Review vendor options",
+                "summary": "Review the provider notes.",
+            }
+        ],
+    )
+    args = SimpleNamespace(
+        quiet_hours_start="22:00",
+        quiet_hours_end="07:00",
+        quiet_hours_timezone="UTC",
+        quiet_hours_allow_high_priority=True,
+    )
+
+    reason = runner._quiet_hours_defer_reason(
+        args,
+        digest,
+        now=datetime(2026, 6, 26, 23, 30, tzinfo=timezone.utc),
+    )
+
+    assert reason == "deferred_by_quiet_hours"
+
+
+def test_runner_quiet_hours_can_allow_high_priority_digest() -> None:
+    digest = ProactiveOodaService().build_digest(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "gmail:approval",
+                "signal_type": "email_thread",
+                "channel": "gmail",
+                "title": "Approval needed today",
+                "summary": "Approve the provider renewal today.",
+            }
+        ],
+    )
+    args = SimpleNamespace(
+        quiet_hours_start="22:00",
+        quiet_hours_end="07:00",
+        quiet_hours_timezone="UTC",
+        quiet_hours_allow_high_priority=True,
+    )
+
+    reason = runner._quiet_hours_defer_reason(
+        args,
+        digest,
+        now=datetime(2026, 6, 26, 23, 30, tzinfo=timezone.utc),
+    )
+
+    assert reason == ""
+
+
+def test_runner_quiet_hours_can_defer_high_priority_when_configured() -> None:
+    digest = ProactiveOodaService().build_digest(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "gmail:approval",
+                "signal_type": "email_thread",
+                "channel": "gmail",
+                "title": "Approval needed today",
+                "summary": "Approve the provider renewal today.",
+            }
+        ],
+    )
+    args = SimpleNamespace(
+        quiet_hours_start="22:00",
+        quiet_hours_end="07:00",
+        quiet_hours_timezone="UTC",
+        quiet_hours_allow_high_priority=False,
+    )
+
+    reason = runner._quiet_hours_defer_reason(
+        args,
+        digest,
+        now=datetime(2026, 6, 26, 23, 30, tzinfo=timezone.utc),
+    )
+
+    assert reason == "deferred_by_quiet_hours"
+
+
+def test_runner_deferred_digest_clears_notified_refs() -> None:
+    digest = ProactiveOodaService().build_digest(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "opportunity:quiet",
+                "signal_type": "opportunity",
+                "channel": "assistant_opportunity",
+                "title": "Review vendor options",
+                "summary": "Review the provider notes.",
+            }
+        ],
+    )
+
+    deferred = runner._without_notified_refs(digest)
+    receipt = build_run_receipt(digest=deferred, dry_run=False, error_code="deferred_by_quiet_hours")
+
+    assert digest.notified_refs == ("opportunity:quiet",)
+    assert deferred.items == digest.items
+    assert deferred.notified_refs == ()
+    assert receipt.notification_status == "deferred"
+    assert receipt.notified_ref_hashes == ()

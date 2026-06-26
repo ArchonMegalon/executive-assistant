@@ -115,6 +115,27 @@ def test_run_receipt_redacts_principal_and_refs() -> None:
     assert "gmail:secret-ref" not in receipt.notified_ref_hashes
 
 
+def test_run_receipt_marks_deferred_notifications() -> None:
+    service = ProactiveOodaService()
+    digest = service.build_digest(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "opportunity:quiet",
+                "signal_type": "opportunity",
+                "channel": "assistant_opportunity",
+                "title": "Review vendor options",
+                "summary": "Review the provider notes.",
+            }
+        ],
+    )
+
+    receipt = build_run_receipt(digest=digest, dry_run=False, error_code="deferred_by_quiet_hours")
+
+    assert receipt.notification_status == "deferred"
+    assert receipt.error_code == "deferred_by_quiet_hours"
+
+
 def test_proactive_ooda_prefers_structured_ooda_loop() -> None:
     service = ProactiveOodaService()
 

@@ -5,9 +5,11 @@ import argparse
 import json
 import os
 import sys
+from datetime import datetime, time as datetime_time, timezone
 from pathlib import Path
 from typing import Any
 import urllib.request
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 ROOT = Path(__file__).resolve().parents[1]
 EA_ROOT = ROOT / "ea"
@@ -41,6 +43,7 @@ _load_dotenv_if_present(ROOT / ".env")
 
 from app.services.proactive_ooda_service import (  # noqa: E402
     JsonOodaStateStore,
+    ProactiveOodaDigest,
     ProactiveOodaService,
     build_run_receipt,
     digest_to_dict,
@@ -97,6 +100,17 @@ def main() -> int:
     )
     parser.add_argument("--skip-observation-source", action="store_true")
     parser.add_argument("--skip-workspace-source", action="store_true")
+    parser.add_argument("--quiet-hours-start", default=os.getenv("EA_PROACTIVE_OODA_QUIET_HOURS_START", ""))
+    parser.add_argument("--quiet-hours-end", default=os.getenv("EA_PROACTIVE_OODA_QUIET_HOURS_END", ""))
+    parser.add_argument(
+        "--quiet-hours-timezone",
+        default=os.getenv("EA_PROACTIVE_OODA_QUIET_HOURS_TIMEZONE", os.getenv("TZ", "UTC")),
+    )
+    parser.add_argument(
+        "--quiet-hours-allow-high-priority",
+        action=argparse.BooleanOptionalAction,
+        default=_env_truthy("EA_PROACTIVE_OODA_QUIET_HOURS_ALLOW_HIGH_PRIORITY", default=True),
+    )
     parser.add_argument("--max-items", type=int, default=int(os.getenv("EA_PROACTIVE_OODA_MAX_ITEMS", "5")))
     parser.add_argument("--receipt-path", default=os.getenv("EA_PROACTIVE_OODA_RECEIPT_PATH", ""))
     parser.add_argument("--dry-run", action="store_true")
@@ -104,15 +118,28 @@ def main() -> int:
     args = parser.parse_args()
 
     signals = _load_signals(args)
+    state_store = JsonOodaStateStore(ROOT / args.state_path)
     service = ProactiveOodaService(
         notify=_telegram_notify,
-        state_store=JsonOodaStateStore(ROOT / args.state_path),
+        state_store=state_store,
         max_items=args.max_items,
     )
     error_code = ""
     notification_result: object | None = None
+    digest = None
+    if not args.dry_run:
+        candidate_digest = service.build_digest(
+            principal_id=args.principal_id,
+            signals=signals,
+            already_notified_refs=state_store.load_notified_refs(args.principal_id),
+        )
+        deferred_reason = _quiet_hours_defer_reason(args, candidate_digest)
+        if deferred_reason:
+            digest = _without_notified_refs(candidate_digest)
+            error_code = deferred_reason
     try:
-        digest, notification_result = service.run(principal_id=args.principal_id, signals=signals, dry_run=args.dry_run)
+        if digest is None:
+            digest, notification_result = service.run(principal_id=args.principal_id, signals=signals, dry_run=args.dry_run)
     except Exception as exc:
         digest = service.build_digest(principal_id=args.principal_id, signals=signals)
         error_code = exc.__class__.__name__
@@ -126,7 +153,7 @@ def main() -> int:
         _write_receipt(Path(args.receipt_path), receipt_to_dict(receipt))
     if _env_truthy("EA_PROACTIVE_OODA_PERSIST_RECEIPTS", default=True):
         persist_proactive_ooda_receipt(principal_id=args.principal_id, digest=digest, receipt=receipt)
-    if error_code:
+    if error_code and not _is_deferred_error(error_code):
         raise RuntimeError(f"proactive_ooda_notification_failed:{error_code}")
     if args.pretty:
         text = format_telegram_digest(digest) or "No actionable OODA ink."
@@ -146,6 +173,65 @@ def _env_truthy(name: str, *, default: bool = False) -> bool:
     if raw is None:
         return default
     return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _quiet_hours_defer_reason(args: argparse.Namespace, digest: Any, *, now: datetime | None = None) -> str:
+    if not getattr(digest, "items", ()):
+        return ""
+    start = _parse_local_time(getattr(args, "quiet_hours_start", ""))
+    end = _parse_local_time(getattr(args, "quiet_hours_end", ""))
+    if start is None or end is None:
+        return ""
+    if bool(getattr(args, "quiet_hours_allow_high_priority", True)) and any(item.priority == "high" for item in digest.items):
+        return ""
+    local_now = (now or datetime.now(timezone.utc)).astimezone(_quiet_hours_timezone(getattr(args, "quiet_hours_timezone", "")))
+    return "deferred_by_quiet_hours" if _is_time_within_quiet_hours(local_now.time(), start=start, end=end) else ""
+
+
+def _without_notified_refs(digest: ProactiveOodaDigest) -> ProactiveOodaDigest:
+    return ProactiveOodaDigest(
+        principal_id=digest.principal_id,
+        generated_at=digest.generated_at,
+        items=digest.items,
+        notified_refs=(),
+    )
+
+
+def _parse_local_time(value: str) -> datetime_time | None:
+    parts = str(value or "").strip().split(":")
+    if len(parts) < 2:
+        return None
+    try:
+        hour = int(parts[0])
+        minute = int(parts[1])
+    except ValueError:
+        return None
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return None
+    return datetime_time(hour=hour, minute=minute)
+
+
+def _quiet_hours_timezone(value: str):
+    name = str(value or "UTC").strip() or "UTC"
+    try:
+        return ZoneInfo(name)
+    except ZoneInfoNotFoundError:
+        return timezone.utc
+
+
+def _is_time_within_quiet_hours(current: datetime_time, *, start: datetime_time, end: datetime_time) -> bool:
+    current_minutes = current.hour * 60 + current.minute
+    start_minutes = start.hour * 60 + start.minute
+    end_minutes = end.hour * 60 + end.minute
+    if start_minutes == end_minutes:
+        return False
+    if start_minutes < end_minutes:
+        return start_minutes <= current_minutes < end_minutes
+    return current_minutes >= start_minutes or current_minutes < end_minutes
+
+
+def _is_deferred_error(value: str) -> bool:
+    return str(value or "").startswith("deferred_by_")
 
 
 def _load_signals(args: argparse.Namespace) -> list[dict[str, Any]]:
