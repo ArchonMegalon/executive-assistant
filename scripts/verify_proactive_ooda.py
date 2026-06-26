@@ -41,7 +41,11 @@ def _load_dotenv_if_present(path: Path) -> None:
 _load_dotenv_if_present(ROOT / ".env")
 
 from app.services.proactive_ooda_service import JsonOodaStateStore, ProactiveOodaService, digest_to_dict  # noqa: E402
-from app.services.proactive_ooda_stage_packets import build_stage_packets, default_stage_packet_dir  # noqa: E402
+from app.services.proactive_ooda_stage_packets import (  # noqa: E402
+    SAFE_WORK_ORDER_SCHEMA,
+    build_stage_packets,
+    default_stage_packet_dir,
+)
 from app.services.proactive_signal_discovery import (  # noqa: E402
     discover_opportunity_rule_signals,
     discover_postgres_observation_signals,
@@ -367,6 +371,7 @@ def _stage_packet_status(args: argparse.Namespace, *, digest: Any | None) -> dic
     output_dir = _stage_packet_dir(args)
     expected_packet_count = len(tuple(getattr(digest, "items", ()) or ())) if digest is not None else 0
     packet_count = 0
+    safe_work_order_count = 0
     errors: list[str] = []
     writable = False
     if not enabled:
@@ -380,6 +385,7 @@ def _stage_packet_status(args: argparse.Namespace, *, digest: Any | None) -> dic
             "output_dir_writable": False,
             "expected_packet_count": expected_packet_count,
             "packet_count": 0,
+            "safe_work_order_count": 0,
             "errors": errors,
         }
     writable, write_error = _directory_writable(output_dir)
@@ -387,11 +393,20 @@ def _stage_packet_status(args: argparse.Namespace, *, digest: Any | None) -> dic
         errors.append(f"stage_packet_dir_unwritable:{write_error}")
     if digest is not None:
         try:
-            packet_count = len(build_stage_packets(digest))
+            packets = build_stage_packets(digest)
+            packet_count = len(packets)
+            safe_work_order_count = sum(
+                1
+                for packet in packets
+                if isinstance(packet.get("safe_work_order"), dict)
+                and packet["safe_work_order"].get("schema") == SAFE_WORK_ORDER_SCHEMA
+            )
         except Exception as exc:
             errors.append(f"stage_packet_build_failed:{exc.__class__.__name__}")
     if expected_packet_count and packet_count != expected_packet_count:
         errors.append("stage_packet_count_mismatch")
+    if expected_packet_count and safe_work_order_count != expected_packet_count:
+        errors.append("safe_work_order_count_mismatch")
     return {
         "enabled": True,
         "required": required,
@@ -400,6 +415,7 @@ def _stage_packet_status(args: argparse.Namespace, *, digest: Any | None) -> dic
         "output_dir_writable": writable,
         "expected_packet_count": expected_packet_count,
         "packet_count": packet_count,
+        "safe_work_order_count": safe_work_order_count,
         "errors": errors,
     }
 
@@ -549,7 +565,10 @@ def _stage_packet_summary(report: dict[str, Any]) -> str:
         return "disabled"
     ready = "ready" if status.get("ready") else "not ready"
     writable = "writable" if status.get("output_dir_writable") else "unwritable"
-    return f"{ready}, {status.get('packet_count', 0)}/{status.get('expected_packet_count', 0)} packets, {writable}"
+    return (
+        f"{ready}, {status.get('packet_count', 0)}/{status.get('expected_packet_count', 0)} packets, "
+        f"{status.get('safe_work_order_count', 0)} work orders, {writable}"
+    )
 
 
 if __name__ == "__main__":

@@ -407,7 +407,8 @@ def test_verify_proactive_ooda_reports_stage_packet_readiness(tmp_path, monkeypa
     assert report["stage_packets"]["output_dir_writable"] is True
     assert report["stage_packets"]["expected_packet_count"] == 1
     assert report["stage_packets"]["packet_count"] == 1
-    assert "stage packets: ready, 1/1 packets, writable" in verifier._format_report(report)
+    assert report["stage_packets"]["safe_work_order_count"] == 1
+    assert "stage packets: ready, 1/1 packets, 1 work orders, writable" in verifier._format_report(report)
 
 
 def test_verify_proactive_ooda_fails_required_stage_packets_when_disabled(tmp_path, monkeypatch) -> None:
@@ -502,8 +503,9 @@ def test_verify_proactive_ooda_fails_required_stage_packets_when_dir_is_unwritab
     assert report["ok"] is False
     assert report["stage_packets"]["ready"] is False
     assert report["stage_packets"]["packet_count"] == 1
+    assert report["stage_packets"]["safe_work_order_count"] == 1
     assert report["errors"] == ["stage_packet_dir_unwritable:FileExistsError"]
-    assert "stage packets: not ready, 1/1 packets, unwritable" in verifier._format_report(report)
+    assert "stage packets: not ready, 1/1 packets, 1 work orders, unwritable" in verifier._format_report(report)
 
 
 def test_verify_proactive_ooda_reports_budget_guard(tmp_path, monkeypatch) -> None:

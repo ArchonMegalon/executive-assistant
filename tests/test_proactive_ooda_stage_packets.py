@@ -4,6 +4,7 @@ import json
 
 from app.services.proactive_ooda_service import ProactiveOodaService
 from app.services.proactive_ooda_stage_packets import (
+    SAFE_WORK_ORDER_SCHEMA,
     STAGE_PACKET_SCHEMA,
     build_stage_packets,
     default_stage_packet_dir,
@@ -41,6 +42,11 @@ def _digest_with_stage():
                                     {"label": "Candidate A", "url": "https://example.test/candidate-a"}
                                 ],
                                 "approval_url": "https://example.test/approve",
+                                "work_type": "prepare_cart_or_link",
+                                "research_query": "Find a vendor option that matches the private constraints.",
+                                "target_sites": ["https://example.test"],
+                                "selection_criteria": ["fits constraints", "reversible before approval"],
+                                "budget": {"max": 100, "currency": "EUR"},
                                 "approval_gate": "User must approve before any purchase or booking.",
                             },
                             "external_action_policy": "Do not buy, book, send, cancel, or commit without explicit approval.",
@@ -70,6 +76,20 @@ def test_stage_packet_preserves_reversible_action_contract_without_raw_identity(
     assert packet["approval"]["required"] is True
     assert packet["approval"]["irreversible_actions_require_explicit_approval"] is True
     assert "purchase" in packet["execution_policy"]["forbidden_without_explicit_approval"]
+    assert packet["safe_work_order"]["schema"] == SAFE_WORK_ORDER_SCHEMA
+    assert packet["safe_work_order"]["status"] == "queued"
+    assert packet["safe_work_order"]["work_type"] == "prepare_cart_or_link"
+    assert packet["safe_work_order"]["primary_allowed_operation"] == "prepare_cart_or_link"
+    assert "prepare_cart_or_link" in packet["safe_work_order"]["allowed_operations"]
+    assert "purchase" in packet["safe_work_order"]["forbidden_without_explicit_approval"]
+    assert packet["safe_work_order"]["handoff_policy"]["human_approval_required_before_irreversible_action"] is True
+    assert packet["safe_work_order"]["input_contract"]["research_query"] == "Find a vendor option that matches the private constraints."
+    assert packet["safe_work_order"]["input_contract"]["target_sites"] == ["https://example.test"]
+    assert packet["safe_work_order"]["input_contract"]["selection_criteria"] == [
+        "fits constraints",
+        "reversible before approval",
+    ]
+    assert "approval_prompt" in packet["safe_work_order"]["output_contract"]["must_include"]
     assert "cf-email:user@example.test" not in serialized
     assert "opportunity:private-source" not in serialized
 

@@ -228,6 +228,10 @@ def test_opportunity_rules_create_consent_gated_ooda_signal(tmp_path) -> None:
                             "artifacts": ["shortlist", "candidate_link", "approval_prompt"],
                             "candidate_items": [{"label": "Option A", "url": "https://example.test/option-a"}],
                             "approval_url": "https://example.test/approve",
+                            "work_type": "compare_options",
+                            "research_query": "Compare renewal options",
+                            "target_sites": ["https://example.test/options"],
+                            "selection_criteria": ["price", "reversibility"],
                         },
                         "external_action_policy": "Do not buy, book, send, or cancel without explicit approval.",
                         "trigger": {"kind": "always"},
@@ -259,6 +263,10 @@ def test_opportunity_rules_create_consent_gated_ooda_signal(tmp_path) -> None:
         "artifacts": ["shortlist", "candidate_link", "approval_prompt"],
         "candidate_items": [{"label": "Option A", "url": "https://example.test/option-a"}],
         "approval_url": "https://example.test/approve",
+        "work_type": "compare_options",
+        "research_query": "Compare renewal options",
+        "target_sites": ["https://example.test/options"],
+        "selection_criteria": ["price", "reversibility"],
     }
     assert act["external_action_policy"] == "Do not buy, book, send, or cancel without explicit approval."
 

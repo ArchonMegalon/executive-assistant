@@ -511,7 +511,7 @@ stream_max_retries = 5
 
 ## Proactive OODA Ink
 
-EA can ingest every configured source it can reach in one pass: static signal files, generic discovery feeds, local opportunity rules, recent EA observations, and Google workspace signals. Each source is isolated, so a broken connector becomes a source-health OODA item instead of silencing the whole loop. EA then orients the combined signals into concise OODA ink and notifies the principal only when the result is actionable. The notification includes why it matters, the recommended decision/action, approval status, a staged action plan when available, the staged next-step contract, the external-action guardrail, the ignored consequence, and source evidence. Real non-dry runs also persist private stage packets next to the OODA state file by default so operator tooling can inspect reversible next steps after the notification. Persisted run receipts keep privacy-safe stage telemetry such as safe stage kind, artifact count, approval-gate hash, policy hash, and stage-packet hashes, but not the private staged packet text or links.
+EA can ingest every configured source it can reach in one pass: static signal files, generic discovery feeds, local opportunity rules, recent EA observations, and Google workspace signals. Each source is isolated, so a broken connector becomes a source-health OODA item instead of silencing the whole loop. EA then orients the combined signals into concise OODA ink and notifies the principal only when the result is actionable. The notification includes why it matters, the recommended decision/action, approval status, a staged action plan when available, the staged next-step contract, the external-action guardrail, the ignored consequence, and source evidence. Real non-dry runs also persist private stage packets next to the OODA state file by default so operator tooling can inspect reversible next steps after the notification. Each private stage packet includes a safe-work order contract for research, option comparison, drafting, shortlisting, cart/link preparation, or booking-candidate preparation; purchases, bookings, cancellations, external sends, posts, and commitments remain forbidden without explicit approval. Persisted run receipts keep privacy-safe stage telemetry such as safe stage kind, artifact count, approval-gate hash, policy hash, and stage-packet hashes, but not the private staged packet text or links.
 
 Run it manually or from cron:
 
@@ -527,7 +527,7 @@ Check readiness without sending a Telegram message:
 make verify-proactive-ooda
 ```
 
-The verifier also reports whether private stage packets are enabled, writable, and buildable for the current actionable digest; when proactive OODA is enabled and stage packets are enabled, that stage-packet check is release-blocking.
+The verifier also reports whether private stage packets are enabled, writable, buildable, and carrying safe-work orders for the current actionable digest; when proactive OODA is enabled and stage packets are enabled, that stage-packet check is release-blocking.
 
 Check the privacy-safe live Telegram delivery proof:
 
@@ -582,7 +582,7 @@ PYTHONPATH=ea .venv/bin/python scripts/run_proactive_ooda.py --signals-json sign
 Opportunity rule example:
 
 ```bash
-EA_PROACTIVE_OODA_OPPORTUNITY_RULES_JSON='{"rules":[{"id":"renewal-review","title":"Review renewal options","summary":"A renewal window is open; compare realistic alternatives before it becomes urgent.","trigger":{"kind":"always"},"action":"Prepare one approval packet with the best option and the default do-nothing consequence.","action_plan":["Check current constraints","Compare realistic options","Stage the recommended next step"],"stage":{"kind":"approval_packet","summary":"One reversible next step ready for approval.","artifacts":["shortlist","candidate_link_or_cart","approval_prompt"]},"external_action_policy":"Do not buy, book, send, cancel, or commit without explicit approval."}]}' \
+EA_PROACTIVE_OODA_OPPORTUNITY_RULES_JSON='{"rules":[{"id":"renewal-review","title":"Review renewal options","summary":"A renewal window is open; compare realistic alternatives before it becomes urgent.","trigger":{"kind":"always"},"action":"Prepare one approval packet with the best option and the default do-nothing consequence.","action_plan":["Check current constraints","Compare realistic options","Stage the recommended next step"],"stage":{"kind":"approval_packet","summary":"One reversible next step ready for approval.","artifacts":["shortlist","candidate_link_or_cart","approval_prompt"],"work_type":"compare_options","research_query":"Compare renewal options against current constraints","selection_criteria":["price","fit","reversibility"]},"external_action_policy":"Do not buy, book, send, cancel, or commit without explicit approval."}]}' \
 PYTHONPATH=ea .venv/bin/python scripts/run_proactive_ooda.py --dry-run --pretty
 ```
 Snapshot pruning is available via `scripts/prune_openapi.sh` or `make openapi-prune`.

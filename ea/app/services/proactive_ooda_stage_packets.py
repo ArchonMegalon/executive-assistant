@@ -10,6 +10,24 @@ from app.services.proactive_ooda_service import OodaInk, ProactiveOodaDigest
 
 
 STAGE_PACKET_SCHEMA = "proactive_ooda.stage_packet.v1"
+SAFE_WORK_ORDER_SCHEMA = "proactive_ooda.safe_work_order.v1"
+
+ALLOWED_BEFORE_APPROVAL = (
+    "research",
+    "compare_options",
+    "draft",
+    "prepare_shortlist",
+    "prepare_cart_or_link",
+    "prepare_booking_candidate",
+)
+FORBIDDEN_WITHOUT_EXPLICIT_APPROVAL = (
+    "purchase",
+    "book",
+    "cancel",
+    "send_external_message",
+    "post",
+    "commit",
+)
 
 
 @dataclass(frozen=True)
@@ -61,6 +79,15 @@ def _stage_packet(digest: ProactiveOodaDigest, *, item: OodaInk, index: int) -> 
     stage_summary = item.stage_summary or str(stage_payload.get("summary") or "").strip() or item.act
     stage_artifacts = tuple(item.stage_artifacts) or _string_tuple(stage_payload.get("artifacts"))
     approval_gate = item.approval_gate or str(stage_payload.get("approval_gate") or "").strip() or item.external_action_policy
+    safe_work_order = _safe_work_order(
+        packet_id=packet_id,
+        item=item,
+        stage_kind=stage_kind,
+        stage_summary=stage_summary,
+        stage_artifacts=stage_artifacts,
+        stage_payload=stage_payload,
+        approval_gate=approval_gate,
+    )
     return {
         "schema": STAGE_PACKET_SCHEMA,
         "packet_id": packet_id,
@@ -82,6 +109,7 @@ def _stage_packet(digest: ProactiveOodaDigest, *, item: OodaInk, index: int) -> 
             "artifacts": list(stage_artifacts),
             "payload": _json_safe(stage_payload),
         },
+        "safe_work_order": safe_work_order,
         "approval": {
             "required": bool(item.approval_required),
             "gate": approval_gate,
@@ -92,22 +120,8 @@ def _stage_packet(digest: ProactiveOodaDigest, *, item: OodaInk, index: int) -> 
         "evidence_count": len(item.evidence),
         "evidence_hashes": [_hash_value(value) for value in item.evidence],
         "execution_policy": {
-            "allowed_before_approval": [
-                "research",
-                "compare_options",
-                "draft",
-                "prepare_shortlist",
-                "prepare_cart_or_link",
-                "prepare_booking_candidate",
-            ],
-            "forbidden_without_explicit_approval": [
-                "purchase",
-                "book",
-                "cancel",
-                "send_external_message",
-                "post",
-                "commit",
-            ],
+            "allowed_before_approval": list(ALLOWED_BEFORE_APPROVAL),
+            "forbidden_without_explicit_approval": list(FORBIDDEN_WITHOUT_EXPLICIT_APPROVAL),
         },
         "privacy": {
             "raw_principal_id_stored": False,
@@ -115,6 +129,166 @@ def _stage_packet(digest: ProactiveOodaDigest, *, item: OodaInk, index: int) -> 
             "raw_evidence_refs_stored": False,
         },
     }
+
+
+def _safe_work_order(
+    *,
+    packet_id: str,
+    item: OodaInk,
+    stage_kind: str,
+    stage_summary: str,
+    stage_artifacts: tuple[str, ...],
+    stage_payload: Mapping[str, Any],
+    approval_gate: str,
+) -> dict[str, Any]:
+    work_type = _work_type(stage_payload=stage_payload, stage_kind=stage_kind, stage_summary=stage_summary, item=item)
+    return {
+        "schema": SAFE_WORK_ORDER_SCHEMA,
+        "work_order_id": f"safe_work:{packet_id}",
+        "status": _worker_status(stage_payload),
+        "work_type": work_type,
+        "requested_outcome": stage_summary or item.act,
+        "primary_allowed_operation": work_type,
+        "allowed_operations": list(ALLOWED_BEFORE_APPROVAL),
+        "forbidden_without_explicit_approval": list(FORBIDDEN_WITHOUT_EXPLICIT_APPROVAL),
+        "approval_gate": approval_gate,
+        "tool_hints": _tool_hints(stage_payload),
+        "input_contract": _work_input_contract(stage_payload=stage_payload, stage_artifacts=stage_artifacts),
+        "output_contract": {
+            "return_status": "staged_for_user_decision",
+            "must_include": [
+                "summary",
+                "recommended_option_or_draft",
+                "evidence_refs",
+                "risks_or_tradeoffs",
+                "approval_prompt",
+            ],
+            "may_include": [
+                "shortlist",
+                "reversible_cart_or_link",
+                "booking_candidate",
+                "draft_text",
+                "comparison_table",
+            ],
+            "must_not_include": [
+                "completed_purchase",
+                "completed_booking",
+                "sent_external_message",
+                "committed_cancellation",
+            ],
+        },
+        "handoff_policy": {
+            "human_approval_required_before_irreversible_action": True,
+            "safe_to_execute_before_approval": True,
+            "external_actions_remain_staged_only": True,
+        },
+    }
+
+
+def _work_type(*, stage_payload: Mapping[str, Any], stage_kind: str, stage_summary: str, item: OodaInk) -> str:
+    explicit = _normalized_work_type(
+        stage_payload.get("work_type")
+        or stage_payload.get("safe_work_type")
+        or stage_payload.get("task_type")
+        or stage_payload.get("worker_task")
+    )
+    if explicit:
+        return explicit
+    kind = _normalized_work_type(stage_kind)
+    if kind:
+        return kind
+    if stage_payload.get("booking_options"):
+        return "prepare_booking_candidate"
+    if stage_payload.get("cart_url"):
+        return "prepare_cart_or_link"
+    if stage_payload.get("draft") or stage_payload.get("draft_text"):
+        return "draft"
+    if stage_payload.get("candidate_items") or stage_payload.get("candidates"):
+        return "compare_options"
+    combined = f"{stage_summary} {item.act} {' '.join(item.action_plan)}".lower()
+    if "booking" in combined or "reservation" in combined:
+        return "prepare_booking_candidate"
+    if "cart" in combined or "basket" in combined or "checkout" in combined:
+        return "prepare_cart_or_link"
+    if "draft" in combined or "reply" in combined:
+        return "draft"
+    if "shortlist" in combined:
+        return "prepare_shortlist"
+    if "compare" in combined or "option" in combined:
+        return "compare_options"
+    return "research"
+
+
+def _normalized_work_type(value: Any) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "research": "research",
+        "browse": "research",
+        "browser_research": "research",
+        "compare": "compare_options",
+        "comparison": "compare_options",
+        "compare_options": "compare_options",
+        "shortlist": "prepare_shortlist",
+        "prepare_shortlist": "prepare_shortlist",
+        "draft": "draft",
+        "draft_reply": "draft",
+        "message_draft": "draft",
+        "prepare_draft": "draft",
+        "cart": "prepare_cart_or_link",
+        "basket": "prepare_cart_or_link",
+        "cart_draft": "prepare_cart_or_link",
+        "shopping": "prepare_cart_or_link",
+        "prepare_cart": "prepare_cart_or_link",
+        "prepare_cart_or_link": "prepare_cart_or_link",
+        "booking": "prepare_booking_candidate",
+        "booking_candidate": "prepare_booking_candidate",
+        "reservation": "prepare_booking_candidate",
+        "prepare_booking": "prepare_booking_candidate",
+        "prepare_booking_candidate": "prepare_booking_candidate",
+    }
+    return aliases.get(normalized, "")
+
+
+def _worker_status(stage_payload: Mapping[str, Any]) -> str:
+    normalized = str(stage_payload.get("worker_status") or stage_payload.get("work_status") or "queued").strip().lower()
+    return normalized if normalized in {"queued", "ready", "in_progress", "blocked", "done"} else "queued"
+
+
+def _tool_hints(stage_payload: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "worker_hint": str(stage_payload.get("worker_hint") or "").strip(),
+        "adapter_hint": str(stage_payload.get("adapter_hint") or "").strip(),
+    }
+
+
+def _work_input_contract(*, stage_payload: Mapping[str, Any], stage_artifacts: tuple[str, ...]) -> dict[str, Any]:
+    keys = (
+        "research_query",
+        "search_queries",
+        "target_sites",
+        "links",
+        "candidate_items",
+        "candidates",
+        "booking_options",
+        "constraints",
+        "selection_criteria",
+        "comparison_dimensions",
+        "budget",
+        "deadline",
+        "delivery_window",
+        "recipient_context",
+        "locale",
+        "currency",
+        "quantity",
+        "preferences",
+        "requirements",
+        "exclusions",
+        "notes",
+    )
+    inputs = {key: _json_safe(stage_payload.get(key)) for key in keys if key in stage_payload}
+    inputs["expected_artifacts"] = list(stage_artifacts)
+    inputs["private_payload_available"] = bool(inputs)
+    return inputs
 
 
 def _packet_id(*, digest: ProactiveOodaDigest, item: OodaInk, index: int) -> str:
