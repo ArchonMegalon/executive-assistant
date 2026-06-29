@@ -120,9 +120,8 @@ from app.services.property_market_catalog import (
     property_type_options as property_type_options_catalog,
     provider_options as property_provider_options,
 )
-from app.services.proactive_ooda_runtime_artifacts import (
-    load_runtime_artifact_bundle,
-    select_current_approval_outcome_for_bundle,
+from app.services.proactive_ooda_live_ops_bridge import (
+    resolve_proactive_ooda_capture_bundle,
 )
 from app.services.public_branding import request_brand
 from app.services.registration_email import email_delivery_enabled
@@ -1600,15 +1599,20 @@ def admin_proactive_ooda_approval_capture(
     )
     if redirect is not None:
         return redirect
-    bundle = load_runtime_artifact_bundle(
+    bundle_resolution = resolve_proactive_ooda_capture_bundle(
         root=_repo_root(),
         state_path=os.getenv("EA_PROACTIVE_OODA_STATE_PATH", "state/proactive_ooda_notified.json"),
         receipt_path=os.getenv("EA_PROACTIVE_OODA_RECEIPT_PATH", ""),
     )
+    bundle = dict(bundle_resolution.get("bundle") or {})
     stage_packet = dict(bundle.get("stage_packet") or {})
     safe_work_result = dict(bundle.get("safe_work_result") or {})
-    approval_selection = select_current_approval_outcome_for_bundle(bundle)
+    approval_selection = dict(bundle_resolution.get("approval_selection") or {})
     approval_outcome = dict(approval_selection.get("approval_outcome") or {})
+    live_report = dict(bundle_resolution.get("live_report") or {})
+    bundle_source = str(bundle_resolution.get("bundle_source") or "").strip()
+    host_fallback_used = bool(bundle_resolution.get("host_fallback_used"))
+    fallback_reason = str(bundle_resolution.get("fallback_reason") or "").strip()
     run_receipt = dict(bundle.get("run_receipt") or {})
     packet_ref = str(stage_packet.get("packet_ref") or "").strip()
     staged_artifact_ref = str(safe_work_result.get("result_ref") or "").strip()
@@ -1625,6 +1629,8 @@ def admin_proactive_ooda_approval_capture(
     )
     approval_source = str(approval_selection.get("source") or "").strip()
     evidence_rows = _admin_proactive_evidence_rows(safe_work_result)
+    action_status = str(request.query_params.get("proactive_ooda_status") or "").strip()
+    action_error = str(request.query_params.get("proactive_ooda_error") or "").strip()
     return _render_console_object_detail(
         request=request,
         context=context,
@@ -1632,18 +1638,32 @@ def admin_proactive_ooda_approval_capture(
         page_title=f"{request_brand(request)['name']} Proactive OODA Approval",
         current_nav="goals",
         console_title="Record proactive OODA outcome",
-        console_summary="Capture the redacted human approval outcome for the current staged packet.",
+        console_summary=(
+            "Capture the redacted human approval outcome for the current staged packet."
+            + (
+                f" Last action: {action_status.replace('_', ' ')}"
+                f"{f' ({action_error.replace('_', ' ')})' if action_error else ''}."
+                if action_status
+                else ""
+            )
+        ),
         object_kind="Proactive OODA",
         object_title="Approval capture",
         object_summary="Use this form after reviewing the staged packet and its safe-work result. The runtime stores only redacted hashes for the evidence note, actor, packet ref, and staged artifact ref.",
         object_meta=[
             {"label": "Notification status", "value": str(run_receipt.get("notification_status") or "unknown")},
+            {"label": "Artifact source", "value": bundle_source.replace("_", " ") or "unknown"},
             {"label": "Packet ref", "value": packet_ref or "Missing"},
             {"label": "Staged artifact", "value": staged_artifact_ref or "Missing"},
             {"label": "Recorded outcome", "value": approval_status},
             *(
                 [{"label": "Approval source", "value": approval_source}]
                 if approval_source
+                else []
+            ),
+            *(
+                [{"label": "Live probe", "value": str(live_report.get("status") or "unknown")}]
+                if live_report
                 else []
             ),
         ],
@@ -1662,6 +1682,17 @@ def admin_proactive_ooda_approval_capture(
                 str(bundle.get("approval_outcome_path") or "") or "No approval receipt path resolved.",
                 "Runtime",
             ),
+            *(
+                [
+                    _object_detail_row(
+                        "Live runtime fallback",
+                        fallback_reason.replace("_", " ") or "Live runtime probe failed.",
+                        "Fallback",
+                    )
+                ]
+                if host_fallback_used
+                else []
+            ),
         ],
         object_sidebar_title="Capture form",
         object_sidebar_copy="Record the decision outcome with a short redacted note. Do not paste secrets, full private packet text, or raw identifiers.",
@@ -1669,6 +1700,11 @@ def admin_proactive_ooda_approval_capture(
             _object_detail_row("Run receipt", str(bundle.get("run_receipt_path") or "") or "Missing", "Runtime"),
             _object_detail_row("Stage packet", str(bundle.get("stage_packet_path") or "") or "Missing", "Runtime"),
             _object_detail_row("Safe-work result", str(bundle.get("safe_work_result_path") or "") or "Missing", "Runtime"),
+            _object_detail_row(
+                "Current live pending",
+                str(int(bundle.get("current_packet_live_pending_count") or 0)),
+                "Runtime",
+            ),
         ],
         object_sections=[
             {
