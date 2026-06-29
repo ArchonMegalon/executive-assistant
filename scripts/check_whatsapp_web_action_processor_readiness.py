@@ -522,10 +522,21 @@ def _container_secret_file_present(
     paths: tuple[str, ...],
     run: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> bool:
-    script = " || ".join(f"[ -s {path!r} ]" for path in paths)
+    script = r"""
+import sys
+from pathlib import Path
+
+for raw_path in sys.argv[1:]:
+    try:
+        if Path(raw_path).read_text(encoding="utf-8").strip():
+            raise SystemExit(0)
+    except OSError:
+        pass
+raise SystemExit(1)
+"""
     try:
         completed = run(
-            ["docker", "exec", container_name, "sh", "-lc", script],
+            ["docker", "exec", container_name, "python", "-c", script, *paths],
             check=False,
             capture_output=True,
             text=True,

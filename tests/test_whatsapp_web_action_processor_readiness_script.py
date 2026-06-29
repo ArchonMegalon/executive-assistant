@@ -720,3 +720,46 @@ def test_build_report_accepts_host_and_container_secret_files(tmp_path: Path) ->
     assert report["api_callback_secret_present"] is True
     assert report["processor_callback_secret_present"] is True
     assert "file-secret" not in str(report)
+
+
+def test_build_report_rejects_unreadable_processor_secret_file_without_leaking_errors(tmp_path: Path) -> None:
+    module = _module()
+    env_file = tmp_path / "file-secret.env"
+    secret_file = tmp_path / "whatsapp_audiobook_callback_secret"
+    secret_file.write_text("file-secret\n", encoding="utf-8")
+    env_file.write_text(
+        "\n".join(
+            [
+                f"EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET_FILE={secret_file}",
+                "EA_WHATSAPP_WEB_ACTION_PROCESSOR_ENABLED=1",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    def _fake_run(cmd, **kwargs):
+        if cmd[:3] == ["docker", "exec", "ea-api"]:
+            if cmd[3:] == ["env"]:
+                return SimpleNamespace(returncode=0, stdout="")
+            if cmd[3:5] == ["python", "-c"]:
+                return SimpleNamespace(returncode=0, stdout="")
+        if cmd[:3] == ["docker", "exec", "ea-whatsapp-web-action-processor"]:
+            if cmd[3:] == ["env"]:
+                return SimpleNamespace(returncode=0, stdout="EA_WHATSAPP_WEB_ACTION_PROCESSOR_ENABLED=1\n")
+            if cmd[3:5] == ["python", "-c"]:
+                return SimpleNamespace(returncode=1, stdout="", stderr="PermissionError: file-secret")
+        return SimpleNamespace(returncode=1, stdout="")
+
+    report = module.build_report(
+        _args(tmp_path, check_containers=True, env_file=str(env_file)),
+        request_json=lambda **_: {"ready": True, "status": "ready", "store_message_text": True},
+        run=_fake_run,
+    )
+
+    assert report["ready"] is False
+    assert report["callback_secret_present"] is True
+    assert report["api_callback_secret_present"] is True
+    assert report["processor_callback_secret_present"] is False
+    assert "processor_container_callback_secret_missing" in report["reasons"]
+    assert "PermissionError" not in str(report)
+    assert "file-secret" not in str(report)
