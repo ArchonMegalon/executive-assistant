@@ -594,6 +594,115 @@ def test_probe_telegram_readiness_runtime_failure_is_not_probe_ok(monkeypatch) -
     assert report["next_action"] == "inspect_telegram_readiness_runtime_probe"
 
 
+def test_probe_teable_recovery_reports_ready_without_raw_table_id(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-06-29T14:10:00Z")
+
+    def _fake_sync_env_to_teable_json(command: str, *, timeout_seconds: float):
+        assert timeout_seconds == 30.0
+        payload = {
+            "status": "pass",
+            "table_id": "tbl-secret-id",
+            "expected_rows": 535,
+            "same_hash": 535,
+            "root_restore_count": 420,
+            "local_restore_count": 100,
+            "service_restore_count": 9,
+            "referenced_file_restore_count": 6,
+            "different_hash_count": 0,
+        }
+        if command == "verify":
+            return 0, payload | {
+                "missing_count": 0,
+                "missing_secret_value_count": 0,
+                "extra_restorable_count": 0,
+                "uncovered_local_secret_file_count": 0,
+            }, ""
+        if command == "local-status":
+            return 0, payload | {
+                "missing_artifact_count": 0,
+                "wrong_mode_count": 0,
+                "wrong_modes": [],
+            }, ""
+        raise AssertionError(command)
+
+    monkeypatch.setattr(module, "_sync_env_to_teable_json", _fake_sync_env_to_teable_json)
+
+    report = module.probe_teable_recovery(output_format="operator")
+    serialized = json.dumps(report, sort_keys=True)
+
+    assert report["ready"] is True
+    assert report["status"] == "ready"
+    assert report["verify_status"] == "pass"
+    assert report["local_status"] == "pass"
+    assert report["table_id_present"] is True
+    assert len(str(report["table_id_sha256"])) == 64
+    assert report["wrong_mode_count"] == 0
+    assert "teable_recovery status=ready" in str(report["operator_text"])
+    assert "tbl-secret-id" not in serialized
+
+
+def test_probe_teable_recovery_maps_wrong_secret_mode_to_operator_action(monkeypatch) -> None:
+    module = _module()
+
+    def _fake_sync_env_to_teable_json(command: str, *, timeout_seconds: float):
+        if command == "verify":
+            return 0, {
+                "status": "pass",
+                "table_id": "tbl-secret-id",
+                "expected_rows": 535,
+                "same_hash": 535,
+                "missing_count": 0,
+                "different_hash_count": 0,
+                "missing_secret_value_count": 0,
+                "extra_restorable_count": 0,
+                "uncovered_local_secret_file_count": 0,
+            }, ""
+        if command == "local-status":
+            return 1, {
+                "status": "fail",
+                "table_id": "tbl-secret-id",
+                "expected_rows": 535,
+                "same_hash": 535,
+                "root_restore_count": 420,
+                "local_restore_count": 100,
+                "service_restore_count": 9,
+                "referenced_file_restore_count": 6,
+                "missing_artifact_count": 0,
+                "wrong_mode_count": 1,
+                "different_hash_count": 0,
+                "wrong_modes": [{"path": "/docker/EA/config/secret-file", "mode": "0o644"}],
+            }, ""
+        raise AssertionError(command)
+
+    monkeypatch.setattr(module, "_sync_env_to_teable_json", _fake_sync_env_to_teable_json)
+
+    report = module.probe_teable_recovery(output_format="operator")
+
+    assert report["ready"] is False
+    assert report["status"] == "blocked"
+    assert report["reason"] == "teable_recovery_local_secret_mode_drift"
+    assert report["next_action"] == "chmod_referenced_secret_files_owner_only"
+    assert report["wrong_mode_count"] == 1
+    assert report["wrong_mode_paths"] == ["/docker/EA/config/secret-file"]
+    assert "wrong_modes=1" in str(report["operator_text"])
+
+
+def test_main_probe_teable_recovery_operator_prints_plain_text(monkeypatch, capsys) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "parse_args", lambda: Namespace(command="probe-teable-recovery", format="operator", timeout_seconds=5.0))
+
+    def _fake_probe_teable_recovery(*, output_format: str, timeout_seconds: float):
+        assert output_format == "operator"
+        assert timeout_seconds == 5.0
+        return {"ready": True, "operator_text": "teable ok"}
+
+    monkeypatch.setattr(module, "probe_teable_recovery", _fake_probe_teable_recovery)
+
+    assert module.main() == 0
+    assert capsys.readouterr().out.strip() == "teable ok"
+
+
 def test_main_probe_telegram_readiness_operator_prints_plain_text(monkeypatch, capsys) -> None:
     module = _module()
     monkeypatch.setattr(

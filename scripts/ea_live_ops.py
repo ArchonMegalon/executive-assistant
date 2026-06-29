@@ -835,6 +835,173 @@ def _operator_text_for_telegram_readiness(report: Mapping[str, object]) -> str:
     return "; ".join(str(item) for item in pieces if str(item).strip())
 
 
+def _operator_text_for_teable_recovery(report: Mapping[str, object]) -> str:
+    pieces = [
+        f"teable_recovery status={report.get('status') or 'unknown'}",
+        f"verify={report.get('verify_status') or 'unknown'}",
+        f"local={report.get('local_status') or 'unknown'}",
+    ]
+    if report.get("reason"):
+        pieces.append(f"reason={report['reason']}")
+    if report.get("next_action"):
+        pieces.append(f"next={report['next_action']}")
+    pieces.append(f"table_id_present={str(bool(report.get('table_id_present'))).lower()}")
+    if report.get("expected_rows") is not None:
+        pieces.append(f"expected_rows={int(report.get('expected_rows') or 0)}")
+    if report.get("same_hash") is not None:
+        pieces.append(f"same_hash={int(report.get('same_hash') or 0)}")
+    pieces.append(
+        "restore="
+        f"root:{int(report.get('root_restore_count') or 0)}"
+        f",local:{int(report.get('local_restore_count') or 0)}"
+        f",service:{int(report.get('service_restore_count') or 0)}"
+        f",referenced:{int(report.get('referenced_file_restore_count') or 0)}"
+    )
+    pieces.append(f"missing={int(report.get('missing_artifact_count') or report.get('missing_count') or 0)}")
+    pieces.append(f"wrong_modes={int(report.get('wrong_mode_count') or 0)}")
+    pieces.append(f"different_hash={int(report.get('different_hash_count') or 0)}")
+    if report.get("observed_at"):
+        pieces.append(f"observed_at={report['observed_at']}")
+    if report.get("source"):
+        pieces.append(f"source={report['source']}")
+    return "; ".join(str(item) for item in pieces if str(item).strip())
+
+
+def _sync_env_to_teable_json(command: str, *, timeout_seconds: float) -> tuple[int, dict[str, object], str]:
+    try:
+        completed = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "sync_env_to_teable.py"), command],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=max(float(timeout_seconds), 1.0),
+            cwd=str(ROOT),
+        )
+    except subprocess.TimeoutExpired:
+        return 124, {}, "timeout"
+    except Exception as exc:
+        return 1, {}, type(exc).__name__
+    payload: dict[str, object] = {}
+    try:
+        parsed = json.loads(str(completed.stdout or "{}"))
+        if isinstance(parsed, dict):
+            payload = dict(parsed)
+    except json.JSONDecodeError:
+        payload = {}
+    return completed.returncode, payload, str(completed.stderr or "").strip()[:160]
+
+
+def _hash_text(value: object) -> str:
+    normalized = str(value or "").strip()
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest() if normalized else ""
+
+
+def _int_payload(payload: Mapping[str, object], key: str) -> int:
+    try:
+        return int(payload.get(key) or 0)
+    except Exception:
+        return 0
+
+
+def probe_teable_recovery(
+    *,
+    output_format: str = "json",
+    timeout_seconds: float = 30.0,
+) -> dict[str, object]:
+    observed_at = _utc_now()
+    verify_exit, verify_payload, verify_stderr = _sync_env_to_teable_json("verify", timeout_seconds=timeout_seconds)
+    local_exit, local_payload, local_stderr = _sync_env_to_teable_json("local-status", timeout_seconds=timeout_seconds)
+    verify_status = str(verify_payload.get("status") or ("probe_failed" if verify_exit else "unknown")).strip()
+    local_status = str(local_payload.get("status") or ("probe_failed" if local_exit else "unknown")).strip()
+    table_id = str(verify_payload.get("table_id") or local_payload.get("table_id") or "").strip()
+    missing_artifact_count = _int_payload(local_payload, "missing_artifact_count")
+    wrong_mode_count = _int_payload(local_payload, "wrong_mode_count")
+    different_hash_count = max(_int_payload(verify_payload, "different_hash_count"), _int_payload(local_payload, "different_hash_count"))
+    missing_count = _int_payload(verify_payload, "missing_count")
+    missing_secret_value_count = _int_payload(verify_payload, "missing_secret_value_count")
+    extra_restorable_count = _int_payload(verify_payload, "extra_restorable_count")
+    uncovered_local_secret_file_count = _int_payload(verify_payload, "uncovered_local_secret_file_count")
+    probe_ok = bool(verify_payload) and bool(local_payload)
+    ready = (
+        probe_ok
+        and verify_exit == 0
+        and local_exit == 0
+        and verify_status == "pass"
+        and local_status == "pass"
+        and missing_artifact_count == 0
+        and wrong_mode_count == 0
+        and different_hash_count == 0
+        and missing_count == 0
+        and missing_secret_value_count == 0
+        and extra_restorable_count == 0
+        and uncovered_local_secret_file_count == 0
+    )
+    reason = ""
+    next_action = ""
+    if not probe_ok:
+        reason = "teable_recovery_probe_failed"
+        next_action = "inspect_teable_recovery_probe"
+    elif verify_status != "pass" or verify_exit != 0:
+        reason = "teable_recovery_verify_failed"
+        next_action = "run_make_env_check_teable_or_repair_teable_recovery_table"
+    elif local_status != "pass" or local_exit != 0:
+        if wrong_mode_count:
+            reason = "teable_recovery_local_secret_mode_drift"
+            next_action = "chmod_referenced_secret_files_owner_only"
+        elif missing_artifact_count:
+            reason = "teable_recovery_local_artifacts_missing"
+            next_action = "restore_missing_teable_recovery_artifacts"
+        elif different_hash_count:
+            reason = "teable_recovery_local_hash_drift"
+            next_action = "run_env_recover_teable_or_refresh_backup_after_review"
+        else:
+            reason = "teable_recovery_local_status_failed"
+            next_action = "inspect_teable_recovery_local_status"
+    report = {
+        "probe_ok": probe_ok,
+        "ready": ready,
+        "status": "ready" if ready else "blocked" if probe_ok else "probe_failed",
+        "reason": reason,
+        "next_action": next_action,
+        "verify_status": verify_status,
+        "verify_exit_code": verify_exit,
+        "local_status": local_status,
+        "local_exit_code": local_exit,
+        "table_id_present": bool(table_id),
+        "table_id_sha256": _hash_text(table_id),
+        "expected_rows": max(_int_payload(verify_payload, "expected_rows"), _int_payload(local_payload, "expected_rows")),
+        "same_hash": max(_int_payload(verify_payload, "same_hash"), _int_payload(local_payload, "same_hash")),
+        "root_restore_count": max(_int_payload(verify_payload, "root_restore_count"), _int_payload(local_payload, "root_restore_count")),
+        "local_restore_count": max(_int_payload(verify_payload, "local_restore_count"), _int_payload(local_payload, "local_restore_count")),
+        "service_restore_count": max(_int_payload(verify_payload, "service_restore_count"), _int_payload(local_payload, "service_restore_count")),
+        "referenced_file_restore_count": max(
+            _int_payload(verify_payload, "referenced_file_restore_count"),
+            _int_payload(local_payload, "referenced_file_restore_count"),
+        ),
+        "missing_count": missing_count,
+        "missing_artifact_count": missing_artifact_count,
+        "wrong_mode_count": wrong_mode_count,
+        "different_hash_count": different_hash_count,
+        "missing_secret_value_count": missing_secret_value_count,
+        "extra_restorable_count": extra_restorable_count,
+        "uncovered_local_secret_file_count": uncovered_local_secret_file_count,
+        "wrong_mode_paths": [
+            str(dict(item).get("path") or "").strip()
+            for item in list(local_payload.get("wrong_modes") or [])
+            if isinstance(item, dict) and str(dict(item).get("path") or "").strip()
+        ][:10],
+        "observed_at": observed_at,
+        "source": "sync_env_to_teable.verify+local_status",
+    }
+    if verify_stderr:
+        report["verify_error"] = verify_stderr
+    if local_stderr:
+        report["local_error"] = local_stderr
+    if output_format == "operator":
+        report["operator_text"] = _operator_text_for_teable_recovery(report)
+    return report
+
+
 def probe_telegram_readiness(
     *,
     principal_id: str,
@@ -3206,6 +3373,9 @@ def parse_args() -> argparse.Namespace:
     telegram_readiness.add_argument("--principal-id", dest="telegram_principal_id", default=_default_proactive_principal_id())
     telegram_readiness.add_argument("--format", choices=("json", "operator"), default="json")
 
+    teable_recovery = subparsers.add_parser("probe-teable-recovery", help="Probe Teable env backup/restore posture without exposing secret values.")
+    teable_recovery.add_argument("--format", choices=("json", "operator"), default="json")
+
     proactive_route = subparsers.add_parser("probe-proactive-route", help="Probe the live proactive OODA delivery route.")
     proactive_route.add_argument("--principal-id", dest="proactive_principal_id", default=_default_proactive_principal_id())
     proactive_route.add_argument("--format", choices=("json", "operator"), default="json")
@@ -3336,6 +3506,16 @@ def main() -> int:
         else:
             print(_json_dumps(report))
         return 0 if bool(report.get("probe_ok")) else 2
+    if args.command == "probe-teable-recovery":
+        report = probe_teable_recovery(
+            output_format=args.format,
+            timeout_seconds=float(args.timeout_seconds or 30.0),
+        )
+        if args.format == "operator":
+            print(str(report.get("operator_text") or ""))
+        else:
+            print(_json_dumps(report))
+        return 0 if bool(report.get("ready")) else 2
     if args.command == "probe-proactive-route":
         report = probe_proactive_route(
             principal_id=str(getattr(args, "proactive_principal_id", "") or "").strip(),
