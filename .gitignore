@@ -30,6 +30,9 @@ config/*.local.json
 config/*.local.json.*.bak
 config/onemin_api_keys.local.json
 config/onemin_slot_owners.local.json
+config/*api_keys*.json.*.bak
+config/*accounts*.json.*.bak
+config/*slot_owners*.json.*.bak
 config/*client_secret*.json
 config/*client_secret*.json.*.bak
 config/*oauth*secret*.json
@@ -38,6 +41,8 @@ config/*secret*
 config/*password*
 config/*token*
 config/*credential*
+config/audiobook_*.*.bak
+config/whatsapp_audiobook_*.*.bak
 config/amazon_archon_password
 config/amazon_password
 config/*credential*.json.*.bak

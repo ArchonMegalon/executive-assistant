@@ -280,7 +280,7 @@ def _local_secret_file_candidates() -> list[Path]:
     candidates: set[Path] = set()
     for pattern in LOCAL_SECRET_FILE_AUDIT_GLOBS:
         for path in ROOT.glob(pattern):
-            if path.is_file() and not _is_example_secret_file(path):
+            if path.is_file() and not _is_ignored_secret_file(path):
                 candidates.add(path)
     return sorted(candidates)
 
@@ -288,6 +288,14 @@ def _local_secret_file_candidates() -> list[Path]:
 def _is_example_secret_file(path: Path) -> bool:
     name = path.name.lower()
     return ".example." in name or name.endswith(".example")
+
+
+def _is_recovery_backup_file(path: Path) -> bool:
+    return path.name.lower().endswith(".bak")
+
+
+def _is_ignored_secret_file(path: Path) -> bool:
+    return _is_example_secret_file(path) or _is_recovery_backup_file(path)
 
 
 def audit_local_secret_file_coverage(
@@ -367,7 +375,7 @@ def build_referenced_secret_file_rows(
     if _uses_default_env_files(env_files):
         for pattern in DEFAULT_LOCAL_SECRET_FILE_GLOBS:
             for path in sorted(ROOT.glob(pattern)):
-                if _is_example_secret_file(path):
+                if _is_ignored_secret_file(path):
                     continue
                 candidates.append((f"LOCAL_SECRET_FILE:{path.relative_to(ROOT).as_posix()}", path))
     for key, path in candidates:

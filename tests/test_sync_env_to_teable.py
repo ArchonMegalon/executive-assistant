@@ -191,6 +191,31 @@ def test_build_recovery_rows_includes_default_audiobook_access_files(monkeypatch
     assert file_rows[str(phone_whitelist)]["env_value_secret"] == base64.b64encode(b"+15550101000\n").decode("ascii")
 
 
+def test_build_recovery_rows_ignores_generated_restore_backup_files(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    whatsapp_secret = config_dir / "whatsapp_audiobook_callback_secret"
+    backup_secret = config_dir / "whatsapp_audiobook_callback_secret.20260629T130046Z.bak"
+    whatsapp_secret.write_text("callback-secret\n", encoding="utf-8")
+    backup_secret.write_text("older-callback-secret\n", encoding="utf-8")
+    env_file = tmp_path / ".env"
+    env_file.write_text("EA_API_TOKEN=root-token\n", encoding="utf-8")
+    service_env_file = tmp_path / "ea" / ".env"
+    service_env_file.parent.mkdir()
+    service_env_file.write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    monkeypatch.setattr(module, "DEFAULT_ENV_FILES", (env_file, service_env_file))
+    rows = module.build_recovery_rows(
+        env_files=(env_file, service_env_file), include_values=True, host_profile="test-host"
+    )
+    file_rows = {row["source_path"]: row for row in rows if row["source_scope"] == "ea_file"}
+
+    assert set(file_rows) == {str(whatsapp_secret)}
+    assert str(backup_secret) not in file_rows
+
+
 def test_build_recovery_rows_deduplicates_env_referenced_default_local_secret_files(
     monkeypatch, tmp_path: Path
 ) -> None:
@@ -267,6 +292,32 @@ def test_audit_local_secret_file_coverage_covers_default_audiobook_access_files(
     assert result["status"] == "pass"
     assert result["candidate_count"] == 2
     assert result["covered_count"] == 2
+
+
+def test_audit_local_secret_file_coverage_ignores_generated_restore_backup_files(
+    monkeypatch, tmp_path: Path
+) -> None:
+    module = _module()
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    (config_dir / "whatsapp_audiobook_callback_secret").write_text("callback-secret\n", encoding="utf-8")
+    (config_dir / "whatsapp_audiobook_callback_secret.20260629T130046Z.bak").write_text(
+        "older-callback-secret\n", encoding="utf-8"
+    )
+    env_file = tmp_path / ".env"
+    env_file.write_text("", encoding="utf-8")
+    service_env_file = tmp_path / "ea" / ".env"
+    service_env_file.parent.mkdir()
+    service_env_file.write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    monkeypatch.setattr(module, "DEFAULT_ENV_FILES", (env_file, service_env_file))
+
+    result = module.audit_local_secret_file_coverage(env_files=(env_file, service_env_file), host_profile="test-host")
+
+    assert result["status"] == "pass"
+    assert result["candidate_count"] == 1
+    assert result["covered_count"] == 1
 
 
 def test_uses_default_env_files_accepts_standard_relative_paths(monkeypatch, tmp_path: Path) -> None:
@@ -2354,7 +2405,12 @@ def test_gitignore_covers_teable_recovery_secret_backups() -> None:
 
     assert ".env.*" in gitignore
     assert "config/*.local.json.*.bak" in gitignore
+    assert "config/*api_keys*.json.*.bak" in gitignore
+    assert "config/*accounts*.json.*.bak" in gitignore
+    assert "config/*slot_owners*.json.*.bak" in gitignore
     assert "config/*client_secret*.json.*.bak" in gitignore
     assert "config/*oauth*secret*.json.*.bak" in gitignore
+    assert "config/audiobook_*.*.bak" in gitignore
+    assert "config/whatsapp_audiobook_*.*.bak" in gitignore
     assert "config/*credential*.json.*.bak" in gitignore
     assert "config/*secret*.json.*.bak" in gitignore
