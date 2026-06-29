@@ -65,6 +65,7 @@ state/proactive_ooda_notified.json
 state/proactive_ooda_run_receipts/
 state/proactive_ooda_safe_work_results/
 state/proactive_ooda_stage_packets/
+.state/home-girschele/
 
 # Editor/OS noise
 .DS_Store
