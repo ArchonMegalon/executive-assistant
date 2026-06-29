@@ -23,6 +23,21 @@ class RegistrationEmailReceipt:
     accepted_at: str
 
 
+class EmailDeliveryRateLimitedError(RuntimeError):
+    def __init__(
+        self,
+        *,
+        retry_after_seconds: int,
+        provider_error: str = "",
+        detail: str = "",
+    ) -> None:
+        self.retry_after_seconds = max(int(retry_after_seconds or 0), 0)
+        self.provider_error = str(provider_error or "").strip()
+        self.detail = str(detail or "").strip()
+        label = self.provider_error or "rate_limited"
+        super().__init__(f"registration_email_rate_limited:{label}:retry_after={self.retry_after_seconds}")
+
+
 def email_delivery_enabled() -> bool:
     return bool(str(os.environ.get("EMAILIT_API_KEY") or "").strip())
 
@@ -165,6 +180,32 @@ def _emailit_meta_payload(*, kind: str, recipient_email: str, meta: dict[str, ob
             continue
         payload[normalized_key] = normalized_value[:500]
     return payload
+
+
+def _emailit_max_429_sleep_seconds() -> int:
+    raw = str(os.environ.get("EA_EMAILIT_MAX_429_SLEEP_SECONDS") or "").strip()
+    if not raw:
+        return 30
+    try:
+        return max(int(raw), 0)
+    except ValueError:
+        return 30
+
+
+def _emailit_error_payload(detail: str) -> dict[str, object]:
+    try:
+        parsed = json.loads(str(detail or "").strip() or "{}")
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _emailit_retry_after_seconds(detail: str, *, fallback: int = 1) -> int:
+    payload = _emailit_error_payload(detail)
+    try:
+        return max(int(payload.get("retry_after") or fallback), 0)
+    except Exception:
+        return max(int(fallback), 0)
 
 
 def _digest_preview_excerpt(plain_text: str, *, max_lines: int = 8, max_chars: int = 800) -> str:
@@ -472,11 +513,14 @@ def _send_emailit_email(
                     used_fallback_sender = True
                     continue
             if exc.code == 429:
-                retry_after = 1
-                try:
-                    retry_after = int(json.loads(detail).get("retry_after") or 1)
-                except Exception:
-                    retry_after = 1
+                error_payload = _emailit_error_payload(detail)
+                retry_after = _emailit_retry_after_seconds(detail)
+                if retry_after > _emailit_max_429_sleep_seconds():
+                    raise EmailDeliveryRateLimitedError(
+                        retry_after_seconds=retry_after,
+                        provider_error=str(error_payload.get("error") or "too_many_requests"),
+                        detail=detail[:600],
+                    ) from exc
                 time.sleep(max(1, retry_after))
                 continue
             break

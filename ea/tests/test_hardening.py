@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import io
 import json
 import os
 import importlib.util
@@ -10,6 +11,7 @@ import subprocess
 import tempfile
 import unittest
 import time
+import urllib.error
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -31,6 +33,7 @@ from app.services import responses_upstream
 from app.services import provider_registry
 from app.services import public_clickrank
 from app.services import public_rybbit
+from app.services import registration_email
 from app.services import tool_execution_gemini_vortex_adapter as gemini_vortex_adapter
 from app.services import tool_execution_browseract_adapter
 from app.settings import (
@@ -177,6 +180,82 @@ class HardeningTests(unittest.TestCase):
         )
         with patch.dict(os.environ, {"PROPERTYQUARRY_TRUST_X_FORWARDED_HOST": "1"}, clear=False):
             self.assertTrue(landing_browser._workspace_session_cookie_kwargs(request)["secure"])
+
+    def test_emailit_daily_limit_fails_fast_without_sleeping_retry_window(self) -> None:
+        detail = json.dumps(
+            {
+                "error": "Daily limit exceeded",
+                "message": "Daily sending limit of 5000 messages has been reached.",
+                "retry_after": 48712,
+            }
+        ).encode("utf-8")
+        http_error = urllib.error.HTTPError(
+            registration_email.EMAILIT_API_BASE,
+            429,
+            "Too Many Requests",
+            hdrs={},
+            fp=io.BytesIO(detail),
+        )
+        env = {"EMAILIT_API_KEY": "emailit-fixture", "EA_EMAILIT_MAX_429_SLEEP_SECONDS": "30"}
+
+        with patch.dict(os.environ, env, clear=True), patch.object(
+            registration_email.urllib.request,
+            "urlopen",
+            side_effect=http_error,
+        ) as urlopen, patch.object(registration_email.time, "sleep") as sleep:
+            with self.assertRaises(registration_email.EmailDeliveryRateLimitedError) as raised:
+                registration_email.send_plaintext_digest_email(
+                    recipient_email="tibor@example.test",
+                    digest_key="daily-limit",
+                    headline="Daily limit fixture",
+                    preview_text="",
+                    plain_text="body",
+                )
+
+        self.assertEqual(raised.exception.retry_after_seconds, 48712)
+        self.assertEqual(raised.exception.provider_error, "Daily limit exceeded")
+        self.assertIn("registration_email_rate_limited", str(raised.exception))
+        sleep.assert_not_called()
+        self.assertEqual(urlopen.call_count, 1)
+
+    def test_emailit_short_429_retry_still_sleeps_and_sends(self) -> None:
+        class _Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self):
+                return b'{"id":"emailit-message-id"}'
+
+        detail = json.dumps({"error": "Too Many Requests", "retry_after": 2}).encode("utf-8")
+        http_error = urllib.error.HTTPError(
+            registration_email.EMAILIT_API_BASE,
+            429,
+            "Too Many Requests",
+            hdrs={},
+            fp=io.BytesIO(detail),
+        )
+        env = {"EMAILIT_API_KEY": "emailit-fixture", "EA_EMAILIT_MAX_429_SLEEP_SECONDS": "30"}
+
+        with patch.dict(os.environ, env, clear=True), patch.object(
+            registration_email.urllib.request,
+            "urlopen",
+            side_effect=[http_error, _Response()],
+        ) as urlopen, patch.object(registration_email.time, "sleep") as sleep:
+            receipt = registration_email.send_plaintext_digest_email(
+                recipient_email="tibor@example.test",
+                digest_key="short-retry",
+                headline="Short retry fixture",
+                preview_text="",
+                plain_text="body",
+            )
+
+        self.assertEqual(receipt.provider, "emailit")
+        self.assertEqual(receipt.message_id, "emailit-message-id")
+        sleep.assert_called_once_with(2)
+        self.assertEqual(urlopen.call_count, 2)
 
     def test_provider_secret_file_candidates_finds_parent_config_path_for_relative_password_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
