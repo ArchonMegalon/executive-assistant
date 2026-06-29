@@ -45,10 +45,10 @@ def test_home_girschele_ops_script_covers_operational_receipts() -> None:
     ):
         assert contract in script
 
-    assert 'CF_ZONE_ID="${HOME_GIRSCHELE_CLOUDFLARE_ZONE_ID:-}"' in script
-    assert 'ACCESS_EMAILS="${HOME_GIRSCHELE_ACCESS_EMAILS:-}"' in script
+    assert 'CF_ZONE_ID="${HOME_GIRSCHELE_CLOUDFLARE_ZONE_ID:-bd452cbf817e065da8063fc21673d536}"' in script
+    assert 'ACCESS_EMAILS="${HOME_GIRSCHELE_ACCESS_EMAILS:-Tibor.girschele@gmail.com,Elisabeth.girschele@gmail.com,h.girschele@gmx.de,Archon.megalon@gmail.com}"' in script
     assert "load_home_girschele_private_defaults" in script
-    assert "bd452cbf817e065da8063fc21673d536" not in script
+    assert "bd452cbf817e065da8063fc21673d536" in script
     assert "http://172.17.0.1:8123" in script
     assert 'max-size: "10m"' in script
     assert 'max-file: "3"' in script
