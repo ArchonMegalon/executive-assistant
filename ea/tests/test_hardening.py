@@ -31,6 +31,7 @@ from app.api.routes import responses as responses_route
 from app.api.routes import public_memorial_operator
 from app.services import responses_upstream
 from app.services import provider_registry
+from app.services import proactive_ooda_delivery
 from app.services import public_clickrank
 from app.services import public_rybbit
 from app.services import registration_email
@@ -256,6 +257,46 @@ class HardeningTests(unittest.TestCase):
         self.assertEqual(receipt.message_id, "emailit-message-id")
         sleep.assert_called_once_with(2)
         self.assertEqual(urlopen.call_count, 2)
+
+    def test_proactive_ooda_delivery_does_not_treat_internal_packet_as_telegram_action(self) -> None:
+        request = {
+            "packet_ref": "packet:proof",
+            "staged_artifact_ref": "artifact:proof",
+            "approval_prompt": "Approve whether EA should preserve this proof packet as the canonical live check.",
+        }
+        route = proactive_ooda_delivery.ProactiveOodaDeliveryStatus(
+            ready=True,
+            selected_channel="telegram",
+            selected_transport="telegram",
+            selected_by="unit_test",
+            selected_reason="fixture",
+            recipient_ref_hash="hash",
+        )
+
+        self.assertFalse(proactive_ooda_delivery._approval_request_requires_telegram_action(request))
+        with patch.object(proactive_ooda_delivery, "prepare_proactive_ooda_telegram_approval") as prepare:
+            prompt = proactive_ooda_delivery._proactive_ooda_approval_prompt(
+                route=route,
+                principal_id="principal",
+                tool_runtime=None,
+                approval_request=request,
+            )
+
+        prepare.assert_not_called()
+        self.assertEqual(prompt["prompt_text"], "")
+        self.assertEqual(prompt["inline_buttons"], [])
+        self.assertEqual(prompt["approval_surface"], {})
+
+    def test_proactive_ooda_delivery_keeps_real_draft_packet_as_telegram_action(self) -> None:
+        request = {
+            "packet_ref": "packet:draft",
+            "staged_artifact_ref": "artifact:draft",
+            "approval_prompt": "Approve whether EA should save this Gmail draft as the chosen next step.",
+            "approved_execution_mode": "record_outcome_only",
+            "approved_action": "save_gmail_draft",
+        }
+
+        self.assertTrue(proactive_ooda_delivery._approval_request_requires_telegram_action(request))
 
     def test_provider_secret_file_candidates_finds_parent_config_path_for_relative_password_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

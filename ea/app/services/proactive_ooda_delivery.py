@@ -11,6 +11,7 @@ from app.services.proactive_ooda_telegram_approval import (
     prepare_proactive_ooda_telegram_approval,
     record_proactive_ooda_telegram_approval_delivery,
 )
+from app.services.proactive_ooda_telegram_policy import approval_request_needs_telegram_user_action
 from app.services.proactive_telegram_binding import proactive_telegram_ready, resolve_proactive_telegram_chat_id
 from app.services.telegram_delivery import (
     _telegram_bot_registry,
@@ -582,11 +583,7 @@ def _send_telegram_via_route(
 
 
 def _approval_request_requires_telegram_action(approval_request: Mapping[str, Any] | None) -> bool:
-    request = dict(approval_request or {})
-    return bool(
-        str(request.get("packet_ref") or "").strip()
-        and str(request.get("staged_artifact_ref") or "").strip()
-    )
+    return approval_request_needs_telegram_user_action(approval_request)
 
 
 def _send_telegram_message_for_route(
@@ -691,6 +688,8 @@ def _proactive_ooda_approval_prompt(
     packet_ref = str(request.get("packet_ref") or "").strip()
     staged_artifact_ref = str(request.get("staged_artifact_ref") or "").strip()
     if route.selected_channel != "telegram" or not packet_ref or not staged_artifact_ref:
+        return {"prompt_text": "", "inline_buttons": [], "url_buttons": [], "approval_surface": {}, "record_path": ""}
+    if not approval_request_needs_telegram_user_action(request):
         return {"prompt_text": "", "inline_buttons": [], "url_buttons": [], "approval_surface": {}, "record_path": ""}
     chat_id, bot_token = _telegram_route_identity(route=route, principal_id=principal_id, tool_runtime=tool_runtime)
     if not chat_id or not bot_token:
