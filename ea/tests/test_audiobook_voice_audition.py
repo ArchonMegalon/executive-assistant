@@ -167,8 +167,10 @@ def test_prepare_audiobook_voice_audition_keeps_partial_author_gender_matches() 
 
     voice_selection = dict(dict(job.get("provider") or {}).get("voice_selection") or {})
     pending_batch = [dict(item) for item in list(voice_selection.get("pending_batch") or []) if isinstance(item, dict)]
-    assert [item.get("label") for item in pending_batch] == ["Hans", "Jurgen", "Seraphina"]
+    assert [item.get("label") for item in pending_batch] == ["Hans", "Jurgen"]
     assert voice_selection.get("author_gender_preference_used") is True
+    assert voice_selection.get("underfilled") is True
+    assert voice_selection.get("underfilled_reason") == "voice_catalog_author_gender_underfilled"
     assert dict(voice_selection.get("book_profile") or {}).get("author_gender_signal") == "male"
 
 
@@ -220,9 +222,11 @@ def test_prepare_audiobook_voice_audition_refreshes_stale_batch_when_gender_sign
 
     voice_selection = dict(dict(job.get("provider") or {}).get("voice_selection") or {})
     pending_batch = [dict(item) for item in list(voice_selection.get("pending_batch") or []) if isinstance(item, dict)]
-    assert [item.get("label") for item in pending_batch] == ["Hans", "Jurgen", "Seraphina"]
+    assert [item.get("label") for item in pending_batch] == ["Hans", "Jurgen"]
     assert dict(voice_selection.get("book_profile") or {}).get("author_gender_signal") == "male"
     assert voice_selection.get("status") == "waiting_user_choice"
+    assert voice_selection.get("underfilled") is True
+    assert voice_selection.get("underfilled_reason") == "voice_catalog_author_gender_underfilled"
 
 
 def test_select_unmixr_voice_for_book_prefers_author_gender_match() -> None:

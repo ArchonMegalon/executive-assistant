@@ -2996,6 +2996,7 @@ def prepare_audiobook_voice_audition(*, job_dir: Path, batch_size: int = 3, refi
     exclude_identity_key_set = set(dismissed_identity_keys) | (set(active_identity_keys) if refill_pending else set())
     author_gender_signal = str(profile.get("author_gender_signal") or "").strip().lower()
     author_gender_preference_used = False
+    author_gender_match_only_batch_used = False
     prefer_nonpremium_after_dismissals = _prefer_nonpremium_after_dismissals(
         candidate_rows=candidate_rows,
         dismissed_keys=dismissed_keys,
@@ -3054,6 +3055,8 @@ def prepare_audiobook_voice_audition(*, job_dir: Path, batch_size: int = 3, refi
         prefer_nonpremium: bool = False,
     ) -> list[dict[str, object]]:
         nonlocal author_gender_preference_used
+        nonlocal author_gender_match_only_batch_used
+        author_gender_match_only_batch_used = False
         if not author_gender_signal:
             selected_rows = _pick_pending_rows(
                 source_rows,
@@ -3094,25 +3097,8 @@ def prepare_audiobook_voice_audition(*, job_dir: Path, batch_size: int = 3, refi
                 prefer_nonpremium=prefer_nonpremium,
             )
         author_gender_preference_used = True
-        if len(preferred_rows) >= limit:
-            return preferred_rows
-        preferred_keys = {
-            str(row.get("preset_key") or "").strip()
-            for row in preferred_rows
-            if str(row.get("preset_key") or "").strip()
-        }
-        preferred_identities: set[str] = set()
-        for row in preferred_rows:
-            preferred_identities.update(_voice_candidate_identity_keys(row))
-        general_rows = _pick_pending_rows(
-            source_rows,
-            exclude_keys=exclude_keys | preferred_keys,
-            exclude_identity_keys=exclude_identity_keys | preferred_identities,
-            limit=limit - len(preferred_rows),
-            require_language_match=require_language_match,
-            prefer_nonpremium=prefer_nonpremium,
-        )
-        return [*preferred_rows, *general_rows]
+        author_gender_match_only_batch_used = True
+        return preferred_rows
 
     discovery_expanded_target_count = 0
 
@@ -3448,12 +3434,16 @@ def prepare_audiobook_voice_audition(*, job_dir: Path, batch_size: int = 3, refi
     underfilled = len(pending_batch) < requested_batch_size
     if refill_pending and underfilled and sample_generation_failures:
         underfilled_reason = "voice_sample_generation_failed_after_dismissal"
+    elif refill_pending and underfilled and author_gender_match_only_batch_used:
+        underfilled_reason = "voice_catalog_author_gender_underfilled_after_dismissals"
     elif refill_pending and underfilled:
         underfilled_reason = "voice_catalog_underfilled_after_dismissals"
     elif language_fallback_used:
         underfilled_reason = "voice_catalog_language_relaxed_after_dismissals"
     elif underfilled and sample_generation_failures:
         underfilled_reason = "voice_sample_generation_failed"
+    elif underfilled and author_gender_match_only_batch_used:
+        underfilled_reason = "voice_catalog_author_gender_underfilled"
     elif underfilled:
         underfilled_reason = "voice_catalog_underfilled"
     else:
@@ -9987,6 +9977,16 @@ def telegram_epub_reply_text(job: dict[str, object]) -> str:
                 sample_line = (
                     "I found matching voices, but the provider could not generate sample audio for them yet. "
                     "I did not send voice samples."
+                )
+            elif underfilled_reason == "voice_catalog_author_gender_underfilled_after_dismissals":
+                sample_line = (
+                    f"{pending_count} author-gender-matched voice {sample_word} {verb} after your dismissals; "
+                    "the provider catalog has no more fitting matches for this book."
+                )
+            elif underfilled_reason == "voice_catalog_author_gender_underfilled":
+                sample_line = (
+                    f"I found {pending_count} author-gender-matched voice {sample_word}; "
+                    "the provider catalog has fewer matching voices than requested."
                 )
             elif underfilled_reason == "voice_catalog_underfilled_after_dismissals":
                 sample_line = (
