@@ -27,6 +27,7 @@ def _base_payload() -> dict[str, object]:
             "operator_runtime_posture": {"present": True, "status": "pass"},
             "routed_delivery": {"present": True, "status": "pass"},
             "action_required_only_delivery": {"present": True, "status": "pass"},
+            "assistant_grade_packet_quality": {"present": True, "status": "pass", "issues": []},
             "live_browse_evidence": {"present": True, "status": "pass"},
             "chosen_candidate": {"present": True, "status": "pass"},
             "staged_reversible_artifact": {"present": True, "status": "pass"},
@@ -57,7 +58,7 @@ def _base_payload() -> dict[str, object]:
             "make verify-proactive-ooda-gold-acceptance",
         ],
         "rules": [
-            "This receipt proves proactive OODA gold only when routed delivery, live browse evidence, a chosen candidate, a staged reversible artifact, mirrored Teable projection, and a redacted approval outcome are all present.",
+            "This receipt proves proactive OODA gold only when routed delivery, assistant-grade source intent, live browse evidence, a chosen candidate, a staged reversible artifact, mirrored Teable projection, and a redacted approval outcome are all present.",
             "Irreversible purchases, bookings, cancellations, sent messages, posts, and commitments remain consent-gated even when proactive staging is automated.",
             "Raw packet text, private links, actor identity, packet refs, and staged artifact refs must stay out of this published receipt; only hashes and coarse status may appear.",
             "Teable remains an admin projection and audit mirror rather than canonical queue or product truth.",
@@ -239,6 +240,31 @@ def test_proactive_ooda_gold_acceptance_verifier_accepts_blocked_operator_runtim
     payload["evidence_receipts"] = {}
     payload["remaining_external_proofs"] = [
         "healthy operator runtime posture across approved proactive sources",
+        "redacted explicit approval outcome for the proactive OODA packet",
+    ]
+    _write_receipt(receipt, **payload)
+    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
+
+    assert verifier.verify(receipt, root=tmp_path) == []
+
+
+def test_proactive_ooda_gold_acceptance_verifier_accepts_low_quality_packet_blocker(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json"
+    payload = _base_payload()
+    payload["status"] = "blocked_low_quality_packet_evidence"
+    payload["summary"] = "The proactive OODA mechanics have evidence, but the selected packet is not assistant-grade enough to prove production readiness."
+    payload["next_action"] = "stage_fresh_assistant_grade_proactive_packet"
+    payload["proofs"]["assistant_grade_packet_quality"] = {
+        "present": False,
+        "status": "blocked",
+        "issues": ["transcript_signal_lacks_action_intent"],
+    }
+    payload["evidence_receipts"] = {}
+    payload["remaining_external_proofs"] = [
+        "assistant-grade source intent and candidate alignment for the proactive OODA packet",
         "redacted explicit approval outcome for the proactive OODA packet",
     ]
     _write_receipt(receipt, **payload)

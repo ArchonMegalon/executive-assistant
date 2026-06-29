@@ -21,10 +21,22 @@ CF_ZONE_ID="${HOME_GIRSCHELE_CLOUDFLARE_ZONE_ID:-bd452cbf817e065da8063fc21673d53
 ACCESS_EMAILS="${HOME_GIRSCHELE_ACCESS_EMAILS:-Tibor.girschele@gmail.com,Elisabeth.girschele@gmail.com,h.girschele@gmx.de,Archon.megalon@gmail.com}"
 STATE_DIR="${HOME_GIRSCHELE_STATE_DIR:-$REPO_ROOT/.state/home-girschele}"
 BACKUP_DIR="${HOME_GIRSCHELE_BACKUP_DIR:-$STATE_DIR/backups}"
+REPLICA_DIR="${HOME_GIRSCHELE_REPLICA_DIR:-/mnt/pcloud/EA/home-girschele/homeassistant-backups}"
+LOCAL_RETENTION_COUNT="${HOME_GIRSCHELE_LOCAL_RETENTION_COUNT:-14}"
+REPLICA_RETENTION_COUNT="${HOME_GIRSCHELE_REPLICA_RETENTION_COUNT:-30}"
 BACKUP_RECEIPT_PATH="${HOME_GIRSCHELE_BACKUP_RECEIPT:-$STATE_DIR/homeassistant-backup.receipt.json}"
+REPLICATION_RECEIPT_PATH="${HOME_GIRSCHELE_REPLICATION_RECEIPT:-$STATE_DIR/homeassistant-replication.receipt.json}"
 RESTORE_RECEIPT_PATH="${HOME_GIRSCHELE_RESTORE_RECEIPT:-$STATE_DIR/homeassistant-restore-drill.receipt.json}"
+REPLICA_RESTORE_RECEIPT_PATH="${HOME_GIRSCHELE_REPLICA_RESTORE_RECEIPT:-$STATE_DIR/homeassistant-replica-restore-drill.receipt.json}"
 DRIFT_RECEIPT_PATH="${HOME_GIRSCHELE_DRIFT_RECEIPT:-$STATE_DIR/homeassistant-drift.receipt.json}"
 DISK_LOG_RECEIPT_PATH="${HOME_GIRSCHELE_DISK_LOG_RECEIPT:-$STATE_DIR/homeassistant-disk-log.receipt.json}"
+ALERT_RECEIPT_PATH="${HOME_GIRSCHELE_ALERT_RECEIPT:-$STATE_DIR/homeassistant-alert.receipt.json}"
+CLOUDFLARE_ACCESS_RECEIPT_PATH="${HOME_GIRSCHELE_CLOUDFLARE_ACCESS_RECEIPT:-$STATE_DIR/homeassistant-cloudflare-access.receipt.json}"
+CLOUDFLARE_SNAPSHOT_DIR="${HOME_GIRSCHELE_CLOUDFLARE_SNAPSHOT_DIR:-$STATE_DIR/cloudflare-snapshots}"
+CLOUDFLARE_SNAPSHOT_RECEIPT_PATH="${HOME_GIRSCHELE_CLOUDFLARE_SNAPSHOT_RECEIPT:-$STATE_DIR/homeassistant-cloudflare-snapshot.receipt.json}"
+STATUS_MARKDOWN_PATH="${HOME_GIRSCHELE_STATUS_MARKDOWN:-$STATE_DIR/homeassistant-status.md}"
+STATUS_RECEIPT_PATH="${HOME_GIRSCHELE_STATUS_RECEIPT:-$STATE_DIR/homeassistant-status.receipt.json}"
+INCIDENT_DRILL_RECEIPT_PATH="${HOME_GIRSCHELE_INCIDENT_DRILL_RECEIPT:-$STATE_DIR/homeassistant-incident-drill.receipt.json}"
 SCHEDULE_RECEIPT_PATH="${HOME_GIRSCHELE_SCHEDULE_RECEIPT:-$STATE_DIR/homeassistant-scheduled-health.receipt.json}"
 SCHEDULE_LOG_PATH="${HOME_GIRSCHELE_SCHEDULE_LOG:-$STATE_DIR/scheduled-health.log}"
 SYSTEMD_USER_DIR="${HOME_GIRSCHELE_SYSTEMD_USER_DIR:-$HOME/.config/systemd/user}"
@@ -33,6 +45,11 @@ SYSTEMD_TIMER_NAME="${HOME_GIRSCHELE_SYSTEMD_TIMER_NAME:-home-girschele-health.t
 EXPECTED_TUNNEL_ORIGIN="${HOME_GIRSCHELE_EXPECTED_TUNNEL_ORIGIN:-http://172.17.0.1:8123}"
 MIN_FREE_BYTES="${HOME_GIRSCHELE_MIN_FREE_BYTES:-2147483648}"
 MAX_DOCKER_LOG_BYTES="${HOME_GIRSCHELE_MAX_DOCKER_LOG_BYTES:-67108864}"
+CF_SERVICE_TOKEN_NAME="${HOME_GIRSCHELE_CF_SERVICE_TOKEN_NAME:-}"
+ALERT_PHONE_HINT="${HOME_GIRSCHELE_ALERT_PHONE_HINT:-*6419}"
+ALERT_DRY_RUN="${HOME_GIRSCHELE_ALERT_DRY_RUN:-false}"
+ALERT_TELEGRAM_CHAT_ID="${HOME_GIRSCHELE_ALERT_TELEGRAM_CHAT_ID:-}"
+EA_LIVE_OPS_SCRIPT="${HOME_GIRSCHELE_EA_LIVE_OPS_SCRIPT:-$REPO_ROOT/scripts/ea_live_ops.py}"
 
 require_tool() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -114,6 +131,62 @@ latest_backup_archive() {
   find "$BACKUP_DIR" -maxdepth 1 -type f -name 'homeassistant-config-*.tar.gz' 2>/dev/null | sort | tail -n 1
 }
 
+latest_replica_archive() {
+  find "$REPLICA_DIR" -maxdepth 1 -type f -name 'homeassistant-config-*.tar.gz' 2>/dev/null | sort | tail -n 1
+}
+
+archive_manifest_path() {
+  local archive="$1"
+  printf '%s' "${archive%.tar.gz}.manifest.json"
+}
+
+absolute_path() {
+  require_tool python3
+  python3 - "$1" <<'PY'
+from pathlib import Path
+import sys
+
+print(Path(sys.argv[1]).expanduser().resolve(strict=False))
+PY
+}
+
+mount_info_json() {
+  local path="$1"
+  local target source fstype
+  if command -v findmnt >/dev/null 2>&1; then
+    target="$(findmnt -T "$path" -o TARGET --noheadings 2>/dev/null | head -n 1 | xargs || true)"
+    source="$(findmnt -T "$path" -o SOURCE --noheadings 2>/dev/null | head -n 1 | xargs || true)"
+    fstype="$(findmnt -T "$path" -o FSTYPE --noheadings 2>/dev/null | head -n 1 | xargs || true)"
+  else
+    target=""
+    source=""
+    fstype=""
+  fi
+  jq -cn --arg target "$target" --arg source "$source" --arg fstype "$fstype" \
+    '{target: $target, source: $source, fstype: $fstype}'
+}
+
+prune_backup_archives() {
+  local dir="$1"
+  local keep="$2"
+  local pruned_file="$3"
+  : >"$pruned_file"
+  [[ "$keep" =~ ^[0-9]+$ ]] || keep=0
+  local archives count remove_count archive manifest
+  mapfile -t archives < <(find "$dir" -maxdepth 1 -type f -name 'homeassistant-config-*.tar.gz' 2>/dev/null | sort)
+  count="${#archives[@]}"
+  remove_count=$((count - keep))
+  if (( remove_count <= 0 )); then
+    return 0
+  fi
+  for archive in "${archives[@]:0:remove_count}"; do
+    manifest="$(archive_manifest_path "$archive")"
+    rm -f "$archive" "$manifest"
+    jq -cn --arg archive "$archive" --arg manifest "$manifest" \
+      '{archive: $archive, manifest: $manifest}' >>"$pruned_file"
+  done
+}
+
 cloudflare_credentials() {
   CF_EMAIL="$(read_env_value "$CLOUDFLARE_ENV_FILE" CLOUDFLARE_EMAIL)"
   CF_API_KEY="$(read_env_value "$CLOUDFLARE_ENV_FILE" CLOUDFLARE_GLOBAL_API_KEY)"
@@ -157,6 +230,33 @@ cloudflare_tunnel_config() {
     -H "X-Auth-Email: $CF_EMAIL" \
     -H "X-Auth-Key: $CF_API_KEY" \
     -H "Content-Type: application/json"
+}
+
+cloudflare_service_tokens() {
+  cloudflare_credentials || return 1
+  local account_id
+  account_id="$(cloudflare_account_id)"
+  [[ -n "$account_id" && "$account_id" != "null" ]] || return 1
+  curl -fsS "https://api.cloudflare.com/client/v4/accounts/$account_id/access/service_tokens?per_page=200" \
+    -H "X-Auth-Email: $CF_EMAIL" \
+    -H "X-Auth-Key: $CF_API_KEY" \
+    -H "Content-Type: application/json"
+}
+
+cloudflare_matching_service_token() {
+  require_tool jq
+  local access_client_id tokens
+  access_client_id="$(read_env_value "$CF_ACCESS_ENV_FILE" CODEXLIZ_CF_ACCESS_CLIENT_ID)"
+  [[ -n "$access_client_id" ]] || return 1
+  tokens="$(cloudflare_service_tokens)" || return 1
+  printf '%s' "$tokens" | jq -ce --arg clientId "$access_client_id" --arg name "$CF_SERVICE_TOKEN_NAME" '
+    (.result // [])
+    | map(select(
+        (if ($name | length) > 0 then .name == $name else .client_id == $clientId end)
+      ))
+    | .[0] // empty
+    | {id, name, client_id, expires_at}
+  '
 }
 
 migrate_config() {
@@ -255,7 +355,7 @@ restore_access() {
     exit 1
   fi
 
-  local apps_url apps app_id payload method url emails_json
+  local apps_url apps app_id payload method url emails_json token_json token_id token_name token_expires service_token_include
   apps_url="https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/access/apps"
   apps="$(curl -fsS "$apps_url?per_page=200" \
     -H "X-Auth-Email: $email" \
@@ -263,9 +363,18 @@ restore_access() {
     -H "Content-Type: application/json")"
   app_id="$(printf '%s' "$apps" | jq -r --arg domain "$DOMAIN" '.result[]? | select(.domain == $domain) | .id' | head -n 1)"
   emails_json="$(printf '%s\n' "$ACCESS_EMAILS" | tr ',' '\n' | sed '/^[[:space:]]*$/d' | jq -R '{email:{email:.}}' | jq -s '.')"
+  if ! token_json="$(cloudflare_matching_service_token 2>/dev/null)"; then
+    echo "No Cloudflare Access service token matches the configured client id or HOME_GIRSCHELE_CF_SERVICE_TOKEN_NAME." >&2
+    exit 1
+  fi
+  token_id="$(printf '%s' "$token_json" | jq -r '.id')"
+  token_name="$(printf '%s' "$token_json" | jq -r '.name')"
+  token_expires="$(printf '%s' "$token_json" | jq -r '.expires_at // empty')"
+  service_token_include="$(jq -n --arg tokenId "$token_id" '[{service_token: {token_id: $tokenId}}]')"
 
   payload="$(jq -n \
     --arg domain "$DOMAIN" \
+    --argjson serviceTokenInclude "$service_token_include" \
     --argjson emails "$emails_json" \
     '{
       type: "self_hosted",
@@ -284,7 +393,7 @@ restore_access() {
         {
           name: "Home service token",
           decision: "non_identity",
-          include: [{any_valid_service_token: {}}],
+          include: $serviceTokenInclude,
           exclude: [],
           require: [],
           precedence: 1
@@ -308,13 +417,57 @@ restore_access() {
     url="$apps_url"
   fi
 
-  curl -fsS -X "$method" "$url" \
+  local response api_success named_policy_ok pass
+  response="$(curl -fsS -X "$method" "$url" \
     -H "X-Auth-Email: $email" \
     -H "X-Auth-Key: $api_key" \
     -H "Content-Type: application/json" \
-    --data "$payload" | jq -e '.success == true' >/dev/null
+    --data "$payload")"
+  printf '%s' "$response" | jq -e '.success == true' >/dev/null
+  api_success=true
+  if printf '%s' "$response" | jq -e --arg tokenId "$token_id" '
+    any(.result.policies[]?; .decision == "non_identity" and any(.include[]?; (.service_token.token_id // "") == $tokenId))
+  ' >/dev/null; then
+    named_policy_ok=true
+  else
+    named_policy_ok=false
+  fi
+  [[ "$api_success" == true && "$named_policy_ok" == true ]] && pass=true || pass=false
 
-  echo "Cloudflare Access is configured for $DOMAIN"
+  mkdir -p "$(dirname "$CLOUDFLARE_ACCESS_RECEIPT_PATH")"
+  jq -n \
+    --arg generatedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg domain "$DOMAIN" \
+    --arg method "$method" \
+    --arg appId "$(printf '%s' "$response" | jq -r '.result.id // empty')" \
+    --arg serviceTokenId "$token_id" \
+    --arg serviceTokenName "$token_name" \
+    --arg serviceTokenExpiresAt "$token_expires" \
+    --argjson apiSuccess "$(json_bool "$api_success")" \
+    --argjson namedPolicyOk "$(json_bool "$named_policy_ok")" \
+    --argjson pass "$(json_bool "$pass")" \
+    '{
+      contractName: "home.girschele.home_assistant.cloudflare_access.v1",
+      generatedAt: $generatedAt,
+      status: (if $pass then "pass" else "fail" end),
+      domain: $domain,
+      method: $method,
+      appId: $appId,
+      serviceTokenPolicy: {
+        selector: "service_token.token_id",
+        serviceTokenId: $serviceTokenId,
+        serviceTokenName: $serviceTokenName,
+        expiresAt: $serviceTokenExpiresAt,
+        ok: $namedPolicyOk
+      },
+      cloudflareApiSuccess: $apiSuccess
+    }' > "$CLOUDFLARE_ACCESS_RECEIPT_PATH"
+
+  jq -r '"Cloudflare Access for home.girschele.com: " + .status + " named token " + .serviceTokenPolicy.serviceTokenName' "$CLOUDFLARE_ACCESS_RECEIPT_PATH"
+  if [[ "$pass" != true ]]; then
+    jq '.' "$CLOUDFLARE_ACCESS_RECEIPT_PATH"
+    exit 1
+  fi
 }
 
 curl_status() {
@@ -595,6 +748,135 @@ PY
   fi
 }
 
+replicate_backup() {
+  require_tool jq
+  require_tool python3
+  require_tool sha256sum
+  require_tool stat
+
+  local archive manifest
+  archive="$(latest_backup_archive)"
+  if [[ -z "$archive" || ! -f "$archive" ]]; then
+    backup_config
+    archive="$(latest_backup_archive)"
+  fi
+  manifest="$(archive_manifest_path "$archive")"
+
+  mkdir -p "$REPLICA_DIR" "$(dirname "$REPLICATION_RECEIPT_PATH")"
+
+  local state_abs replica_abs mount_json offhost_ok mount_target mount_source mount_fstype
+  state_abs="$(absolute_path "$STATE_DIR")"
+  replica_abs="$(absolute_path "$REPLICA_DIR")"
+  mount_json="$(mount_info_json "$replica_abs")"
+  mount_target="$(printf '%s' "$mount_json" | jq -r '.target')"
+  mount_source="$(printf '%s' "$mount_json" | jq -r '.source')"
+  mount_fstype="$(printf '%s' "$mount_json" | jq -r '.fstype')"
+  if [[ "$replica_abs" != "$state_abs" &&
+        "$replica_abs" != "$state_abs"/* &&
+        "$replica_abs" == /mnt/* &&
+        -n "$mount_target" &&
+        "$mount_source" != "/dev/vda1" ]]; then
+    offhost_ok=true
+  else
+    offhost_ok=false
+  fi
+
+  local replica_archive replica_manifest archive_sha replica_sha archive_size manifest_copied copied_ok
+  replica_archive="$REPLICA_DIR/$(basename "$archive")"
+  replica_manifest="$REPLICA_DIR/$(basename "$manifest")"
+  cp -p "$archive" "$replica_archive"
+  if [[ -f "$manifest" ]]; then
+    cp -p "$manifest" "$replica_manifest"
+    manifest_copied=true
+  else
+    manifest_copied=false
+  fi
+  archive_sha="$(sha256sum "$archive" | awk '{print $1}')"
+  replica_sha="$(sha256sum "$replica_archive" | awk '{print $1}')"
+  archive_size="$(stat -c '%s' "$replica_archive")"
+  [[ "$archive_sha" == "$replica_sha" && "$archive_size" -gt 0 ]] && copied_ok=true || copied_ok=false
+
+  local local_keep replica_keep tmp_dir local_pruned_file replica_pruned_file local_pruned_json replica_pruned_json pass
+  local_keep="$LOCAL_RETENTION_COUNT"
+  replica_keep="$REPLICA_RETENTION_COUNT"
+  [[ "$local_keep" =~ ^[0-9]+$ ]] || local_keep=14
+  [[ "$replica_keep" =~ ^[0-9]+$ ]] || replica_keep=30
+  tmp_dir="$(mktemp -d)"
+  trap 'rm -rf "${tmp_dir:-}"' RETURN
+  local_pruned_file="$tmp_dir/local-pruned.jsonl"
+  replica_pruned_file="$tmp_dir/replica-pruned.jsonl"
+  prune_backup_archives "$BACKUP_DIR" "$local_keep" "$local_pruned_file"
+  prune_backup_archives "$REPLICA_DIR" "$replica_keep" "$replica_pruned_file"
+  local_pruned_json="$(jq -s '.' "$local_pruned_file")"
+  replica_pruned_json="$(jq -s '.' "$replica_pruned_file")"
+
+  if [[ "$copied_ok" == true && "$manifest_copied" == true && "$offhost_ok" == true ]]; then
+    pass=true
+  else
+    pass=false
+  fi
+
+  jq -n \
+    --arg generatedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg sourceArchive "$archive" \
+    --arg sourceManifest "$manifest" \
+    --arg replicaArchive "$replica_archive" \
+    --arg replicaManifest "$replica_manifest" \
+    --arg archiveSha256 "$archive_sha" \
+    --arg replicaSha256 "$replica_sha" \
+    --arg replicaDir "$replica_abs" \
+    --arg stateDir "$state_abs" \
+    --arg mountTarget "$mount_target" \
+    --arg mountSource "$mount_source" \
+    --arg mountFstype "$mount_fstype" \
+    --argjson archiveSize "$archive_size" \
+    --argjson localKeep "$local_keep" \
+    --argjson replicaKeep "$replica_keep" \
+    --argjson copiedOk "$(json_bool "$copied_ok")" \
+    --argjson manifestCopied "$(json_bool "$manifest_copied")" \
+    --argjson offhostOk "$(json_bool "$offhost_ok")" \
+    --argjson localPruned "$local_pruned_json" \
+    --argjson replicaPruned "$replica_pruned_json" \
+    --argjson pass "$(json_bool "$pass")" \
+    '{
+      contractName: "home.girschele.home_assistant.replication.v1",
+      generatedAt: $generatedAt,
+      status: (if $pass then "pass" else "fail" end),
+      source: {archive: $sourceArchive, manifest: $sourceManifest},
+      replica: {
+        directory: $replicaDir,
+        archive: $replicaArchive,
+        manifest: $replicaManifest,
+        sha256: $replicaSha256,
+        sizeBytes: $archiveSize,
+        manifestCopied: $manifestCopied
+      },
+      checks: {
+        copiedShaMatches: $copiedOk,
+        offHostReplicaTarget: {
+          ok: $offhostOk,
+          stateDir: $stateDir,
+          mountTarget: $mountTarget,
+          mountSource: $mountSource,
+          fstype: $mountFstype
+        }
+      },
+      retention: {
+        localKeep: $localKeep,
+        replicaKeep: $replicaKeep,
+        localPruned: $localPruned,
+        replicaPruned: $replicaPruned
+      },
+      archiveSha256: $archiveSha256
+    }' > "$REPLICATION_RECEIPT_PATH"
+
+  jq -r '"home.girschele.com backup replication: " + .status + " " + .replica.archive' "$REPLICATION_RECEIPT_PATH"
+  if [[ "$pass" != true ]]; then
+    jq '.checks' "$REPLICATION_RECEIPT_PATH"
+    exit 1
+  fi
+}
+
 restore_drill() {
   require_tool docker
   require_tool jq
@@ -678,6 +960,91 @@ restore_drill() {
   fi
 }
 
+restore_replica_drill() {
+  require_tool docker
+  require_tool jq
+  require_tool tar
+  require_tool sha256sum
+
+  local archive="${1:-}"
+  if [[ -z "$archive" ]]; then
+    archive="$(latest_replica_archive)"
+  fi
+  if [[ -z "$archive" || ! -f "$archive" ]]; then
+    replicate_backup
+    archive="$(latest_replica_archive)"
+  fi
+
+  local tmp_dir restore_dir archive_sha expected_sha archive_size required_ok config_ok config_exit
+  tmp_dir="$(mktemp -d)"
+  restore_dir="$tmp_dir/config"
+  mkdir -p "$restore_dir" "$(dirname "$REPLICA_RESTORE_RECEIPT_PATH")"
+  trap 'rm -rf "${tmp_dir:-}"' RETURN
+
+  tar -xzf "$archive" -C "$restore_dir"
+  archive_sha="$(sha256sum "$archive" | awk '{print $1}')"
+  expected_sha="$(jq -r '.replica.sha256 // .archiveSha256 // empty' "$REPLICATION_RECEIPT_PATH" 2>/dev/null || true)"
+  archive_size="$(stat -c '%s' "$archive")"
+
+  if [[ -f "$restore_dir/configuration.yaml" &&
+        -f "$restore_dir/.storage/auth" &&
+        -f "$restore_dir/.storage/core.config_entries" &&
+        -f "$restore_dir/home-assistant_v2.db" ]]; then
+    required_ok=true
+  else
+    required_ok=false
+  fi
+
+  set +e
+  docker run --rm \
+    --name "home-girschele-replica-restore-drill-$(date -u +%Y%m%d%H%M%S)" \
+    --entrypoint python \
+    -v "$restore_dir:/config" \
+    "ghcr.io/home-assistant/home-assistant:${HOME_GIRSCHELE_HASS_IMAGE_TAG:-stable}" \
+    -m homeassistant --script check_config --config /config >/tmp/home-girschele-replica-restore-check.log 2>&1
+  config_exit=$?
+  set -e
+  if [[ "$config_exit" == "0" ]]; then
+    config_ok=true
+  else
+    config_ok=false
+  fi
+
+  jq -n \
+    --arg generatedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg archivePath "$archive" \
+    --arg archiveSha256 "$archive_sha" \
+    --arg expectedSha256 "$expected_sha" \
+    --argjson archiveSize "$archive_size" \
+    --argjson requiredOk "$(json_bool "$required_ok")" \
+    --argjson configOk "$(json_bool "$config_ok")" \
+    --argjson configExit "$config_exit" \
+    '{
+      contractName: "home.girschele.home_assistant.replica_restore_drill.v1",
+      generatedAt: $generatedAt,
+      status: (if $requiredOk and $configOk and ($archiveSize > 0) then "pass" else "fail" end),
+      drillType: "fresh_disposable_container_from_replicated_backup",
+      archive: {
+        path: $archivePath,
+        sha256: $archiveSha256,
+        expectedSha256: $expectedSha256,
+        sizeBytes: $archiveSize,
+        source: "replica"
+      },
+      checks: {
+        requiredStateFilesPresent: $requiredOk,
+        freshHomeAssistantContainerCheckConfig: {exitCode: $configExit, ok: $configOk}
+      }
+    }' > "$REPLICA_RESTORE_RECEIPT_PATH"
+
+  jq -r '"home.girschele.com replica restore drill: " + .status + " " + .archive.path' "$REPLICA_RESTORE_RECEIPT_PATH"
+  if [[ "$(jq -r '.status' "$REPLICA_RESTORE_RECEIPT_PATH")" != "pass" ]]; then
+    jq '.checks' "$REPLICA_RESTORE_RECEIPT_PATH"
+    cat /tmp/home-girschele-replica-restore-check.log >&2 || true
+    exit 1
+  fi
+}
+
 drift_check() {
   require_tool curl
   require_tool docker
@@ -757,12 +1124,20 @@ drift_check() {
     fi
   fi
 
-  local apps access_api_ok access_app_ok service_token_policy_ok email_policy_ok app_summary
+  local apps access_api_ok access_app_ok service_token_policy_ok email_policy_ok app_summary expected_token_json expected_token_id expected_token_name service_token_policy_mode broad_service_token_policy
   access_api_ok=false
   access_app_ok=false
   service_token_policy_ok=false
   email_policy_ok=false
+  expected_token_id=""
+  expected_token_name=""
+  service_token_policy_mode="missing"
+  broad_service_token_policy=false
   app_summary='{}'
+  if expected_token_json="$(cloudflare_matching_service_token 2>/dev/null)"; then
+    expected_token_id="$(printf '%s' "$expected_token_json" | jq -r '.id')"
+    expected_token_name="$(printf '%s' "$expected_token_json" | jq -r '.name')"
+  fi
   if apps="$(cloudflare_access_apps 2>/dev/null)"; then
     access_api_ok=true
     app_summary="$(printf '%s' "$apps" | jq -c --arg domain "$DOMAIN" '
@@ -774,7 +1149,14 @@ drift_check() {
     if printf '%s' "$app_summary" | jq -e '
       any(.policies[]?; .decision == "non_identity" and any(.include[]?; has("any_valid_service_token")))
     ' >/dev/null; then
+      broad_service_token_policy=true
+      service_token_policy_mode="any_valid_service_token"
+    fi
+    if [[ -n "$expected_token_id" ]] && printf '%s' "$app_summary" | jq -e --arg tokenId "$expected_token_id" '
+      any(.policies[]?; .decision == "non_identity" and any(.include[]?; (.service_token.token_id // "") == $tokenId))
+    ' >/dev/null; then
       service_token_policy_ok=true
+      service_token_policy_mode="named_service_token"
     fi
     if printf '%s' "$app_summary" | jq -e '
       any(.policies[]?; .decision == "allow" and any(.include[]?; has("email")))
@@ -814,6 +1196,9 @@ drift_check() {
     --arg protectedStatus "$protected_status" \
     --arg expectedTunnelOrigin "$EXPECTED_TUNNEL_ORIGIN" \
     --arg tunnelSource "$tunnel_source" \
+    --arg serviceTokenPolicyMode "$service_token_policy_mode" \
+    --arg expectedServiceTokenId "$expected_token_id" \
+    --arg expectedServiceTokenName "$expected_token_name" \
     --argjson adminPaths "$admin_paths_json" \
     --argjson pass "$(json_bool "$pass")" \
     --argjson containerRunningOk "$(json_bool "$container_running_ok")" \
@@ -828,6 +1213,7 @@ drift_check() {
     --argjson accessApiOk "$(json_bool "$access_api_ok")" \
     --argjson accessAppOk "$(json_bool "$access_app_ok")" \
     --argjson serviceTokenPolicyOk "$(json_bool "$service_token_policy_ok")" \
+    --argjson broadServiceTokenPolicy "$(json_bool "$broad_service_token_policy")" \
     --argjson emailPolicyOk "$(json_bool "$email_policy_ok")" \
     '{
       contractName: "home.girschele.home_assistant.drift.v1",
@@ -846,7 +1232,13 @@ drift_check() {
         tunnelRoute: {ok: $tunnelOk, expectedOrigin: $expectedTunnelOrigin, source: $tunnelSource},
         cloudflareAccessApi: $accessApiOk,
         cloudflareAccessApp: $accessAppOk,
-        serviceTokenPolicy: $serviceTokenPolicyOk,
+        serviceTokenPolicy: {
+          ok: $serviceTokenPolicyOk,
+          mode: $serviceTokenPolicyMode,
+          expectedServiceTokenId: $expectedServiceTokenId,
+          expectedServiceTokenName: $expectedServiceTokenName,
+          broadAnyValidPolicyPresent: $broadServiceTokenPolicy
+        },
         emailAllowPolicy: $emailPolicyOk
       }
     }' > "$DRIFT_RECEIPT_PATH"
@@ -933,6 +1325,400 @@ disk_log_check() {
   fi
 }
 
+snapshot_cloudflare() {
+  require_tool curl
+  require_tool jq
+  require_tool sha256sum
+
+  local timestamp snapshot_dir tunnel_config apps app_json tunnel_path app_path tunnel_sha app_sha route_ok app_ok token_json expected_token_id named_policy_ok pass
+  timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  snapshot_dir="$CLOUDFLARE_SNAPSHOT_DIR/$timestamp"
+  mkdir -p "$snapshot_dir" "$(dirname "$CLOUDFLARE_SNAPSHOT_RECEIPT_PATH")"
+  tunnel_path="$snapshot_dir/tunnel-config.json"
+  app_path="$snapshot_dir/access-app.json"
+
+  tunnel_config="$(cloudflare_tunnel_config)"
+  printf '%s' "$tunnel_config" | jq '.' > "$tunnel_path"
+  apps="$(cloudflare_access_apps)"
+  app_json="$(printf '%s' "$apps" | jq -c --arg domain "$DOMAIN" '
+    (.result // [])
+    | map(select((.domain == $domain) or ((.self_hosted_domains // []) | index($domain))))
+    | .[0] // {}
+  ')"
+  printf '%s' "$app_json" | jq '.' > "$app_path"
+
+  tunnel_sha="$(sha256sum "$tunnel_path" | awk '{print $1}')"
+  app_sha="$(sha256sum "$app_path" | awk '{print $1}')"
+  if printf '%s' "$tunnel_config" | jq -e --arg domain "$DOMAIN" --arg service "$EXPECTED_TUNNEL_ORIGIN" '
+    any(.result.config.ingress[]?; .hostname == $domain and .service == $service)
+  ' >/dev/null; then
+    route_ok=true
+  else
+    route_ok=false
+  fi
+  [[ "$app_json" != "{}" ]] && app_ok=true || app_ok=false
+  named_policy_ok=false
+  expected_token_id=""
+  if token_json="$(cloudflare_matching_service_token 2>/dev/null)"; then
+    expected_token_id="$(printf '%s' "$token_json" | jq -r '.id')"
+    if printf '%s' "$app_json" | jq -e --arg tokenId "$expected_token_id" '
+      any(.policies[]?; .decision == "non_identity" and any(.include[]?; (.service_token.token_id // "") == $tokenId))
+    ' >/dev/null; then
+      named_policy_ok=true
+    fi
+  fi
+  if [[ "$route_ok" == true && "$app_ok" == true && "$named_policy_ok" == true ]]; then
+    pass=true
+  else
+    pass=false
+  fi
+
+  jq -n \
+    --arg generatedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg snapshotDir "$snapshot_dir" \
+    --arg tunnelPath "$tunnel_path" \
+    --arg accessAppPath "$app_path" \
+    --arg tunnelSha256 "$tunnel_sha" \
+    --arg accessAppSha256 "$app_sha" \
+    --arg domain "$DOMAIN" \
+    --arg expectedTunnelOrigin "$EXPECTED_TUNNEL_ORIGIN" \
+    --arg expectedServiceTokenId "$expected_token_id" \
+    --argjson routeOk "$(json_bool "$route_ok")" \
+    --argjson appOk "$(json_bool "$app_ok")" \
+    --argjson namedPolicyOk "$(json_bool "$named_policy_ok")" \
+    --argjson pass "$(json_bool "$pass")" \
+    '{
+      contractName: "home.girschele.home_assistant.cloudflare_snapshot.v1",
+      generatedAt: $generatedAt,
+      status: (if $pass then "pass" else "fail" end),
+      snapshotDir: $snapshotDir,
+      files: {
+        tunnelConfig: {path: $tunnelPath, sha256: $tunnelSha256},
+        accessApp: {path: $accessAppPath, sha256: $accessAppSha256}
+      },
+      checks: {
+        tunnelRoute: {ok: $routeOk, domain: $domain, expectedOrigin: $expectedTunnelOrigin},
+        accessAppPresent: $appOk,
+        namedServiceTokenPolicy: {ok: $namedPolicyOk, expectedServiceTokenId: $expectedServiceTokenId}
+      }
+    }' > "$CLOUDFLARE_SNAPSHOT_RECEIPT_PATH"
+
+  jq -r '"home.girschele.com Cloudflare snapshot: " + .status + " " + .snapshotDir' "$CLOUDFLARE_SNAPSHOT_RECEIPT_PATH"
+  if [[ "$pass" != true ]]; then
+    jq '.checks' "$CLOUDFLARE_SNAPSHOT_RECEIPT_PATH"
+    exit 1
+  fi
+}
+
+send_operator_alert() {
+  require_tool jq
+  require_tool python3
+  local text="$1"
+  local dry_run="${2:-$ALERT_DRY_RUN}"
+  local whatsapp_output whatsapp_exit whatsapp_json telegram_json bot_token chat_id payload_json telegram_status telegram_reason
+
+  if [[ "$dry_run" == true ]]; then
+    jq -cn --arg transport "dry_run" --arg reason "dry_run" '{ok: true, transport: $transport, reason: $reason}'
+    return 0
+  fi
+
+  whatsapp_output=""
+  whatsapp_exit=127
+  if [[ -f "$EA_LIVE_OPS_SCRIPT" ]]; then
+    set +e
+    whatsapp_output="$(python3 "$EA_LIVE_OPS_SCRIPT" send-whatsapp --phone-hint "$ALERT_PHONE_HINT" --text "$text" 2>&1)"
+    whatsapp_exit=$?
+    set -e
+  fi
+  if [[ "$whatsapp_exit" == "0" ]] && printf '%s' "$whatsapp_output" | jq -e '.sent == true' >/dev/null 2>&1; then
+    printf '%s' "$whatsapp_output" | jq -c '{ok: true, transport: "whatsapp", delivery: .}'
+    return 0
+  fi
+  whatsapp_json="$(printf '%s' "$whatsapp_output" | jq -c '.' 2>/dev/null || jq -cn --arg raw "$(printf '%s' "$whatsapp_output" | head -c 500)" --argjson exitCode "$whatsapp_exit" '{exitCode: $exitCode, raw: $raw}')"
+
+  bot_token="$(read_env_value "$ENV_FILE" EA_TELEGRAM_BOT_TOKEN)"
+  chat_id="$ALERT_TELEGRAM_CHAT_ID"
+  if [[ -z "$chat_id" ]]; then
+    chat_id="$(read_env_value "$ENV_FILE" EA_WHATSAPP_WEB_TG_SUMMARY_CHAT_ID)"
+  fi
+  if [[ -z "$chat_id" ]]; then
+    chat_id="$(read_env_value "$ENV_FILE" EA_TELEGRAM_DEFAULT_CHAT_ID)"
+  fi
+  if [[ -z "$bot_token" || -z "$chat_id" ]]; then
+    jq -cn --argjson whatsapp "$whatsapp_json" \
+      '{ok: false, transport: "none", reason: "operator_transport_not_configured", whatsappAttempt: $whatsapp}'
+    return 1
+  fi
+
+  set +e
+  telegram_json="$(EA_HA_TG_TOKEN="$bot_token" EA_HA_TG_CHAT="$chat_id" EA_HA_TG_TEXT="$text" python3 - <<'PY'
+from __future__ import annotations
+
+import json
+import os
+import urllib.error
+import urllib.request
+
+token = os.environ.get("EA_HA_TG_TOKEN", "").strip()
+chat_id = os.environ.get("EA_HA_TG_CHAT", "").strip()
+text = os.environ.get("EA_HA_TG_TEXT", "").strip()
+payload = json.dumps({"chat_id": chat_id, "text": text, "disable_web_page_preview": True}).encode("utf-8")
+request = urllib.request.Request(
+    f"https://api.telegram.org/bot{token}/sendMessage",
+    data=payload,
+    headers={"Content-Type": "application/json"},
+    method="POST",
+)
+try:
+    with urllib.request.urlopen(request, timeout=15) as response:
+        raw = response.read().decode("utf-8")
+except urllib.error.HTTPError as exc:
+    print(json.dumps({"status": "failed", "reason": f"telegram_http_{exc.code}", "detail": exc.read().decode("utf-8", errors="ignore")[:160]}))
+    raise SystemExit(1)
+except Exception as exc:
+    print(json.dumps({"status": "failed", "reason": type(exc).__name__}))
+    raise SystemExit(1)
+try:
+    parsed = json.loads(raw or "{}")
+except json.JSONDecodeError:
+    parsed = {}
+result = dict(parsed.get("result") or {}) if isinstance(parsed, dict) else {}
+message_id = str(result.get("message_id") or "").strip()
+ok = bool(parsed.get("ok"))
+print(json.dumps({"status": "sent" if ok else "failed", "message_id": message_id}))
+raise SystemExit(0 if ok else 1)
+PY
+)"
+  telegram_status=$?
+  set -e
+  telegram_reason="$(printf '%s' "$telegram_json" | jq -r '.reason // empty' 2>/dev/null || true)"
+  if [[ "$telegram_status" == "0" ]] && printf '%s' "$telegram_json" | jq -e '.status == "sent"' >/dev/null 2>&1; then
+    jq -cn --argjson whatsapp "$whatsapp_json" --argjson telegram "$telegram_json" \
+      '{ok: true, transport: "telegram", whatsappAttempt: $whatsapp, delivery: $telegram}'
+    return 0
+  fi
+  payload_json="$(printf '%s' "$telegram_json" | jq -c '.' 2>/dev/null || jq -cn --arg raw "$(printf '%s' "$telegram_json" | head -c 500)" '{raw: $raw}')"
+  jq -cn --argjson whatsapp "$whatsapp_json" --argjson telegram "$payload_json" --arg reason "${telegram_reason:-telegram_failed}" \
+    '{ok: false, transport: "telegram", reason: $reason, whatsappAttempt: $whatsapp, delivery: $telegram}'
+  return 1
+}
+
+alert_check() {
+  require_tool jq
+  local mode="${1:-check}"
+  local tmp_dir failures_file failures_json failure_count delivery_json delivery_ok message pass
+  tmp_dir="$(mktemp -d)"
+  trap 'rm -rf "${tmp_dir:-}"' RETURN
+  failures_file="$tmp_dir/failures.jsonl"
+  : >"$failures_file"
+
+  if [[ "$mode" == "drill" ]]; then
+    jq -cn \
+      --arg name "synthetic-incident-drill" \
+      --arg receipt "$ALERT_RECEIPT_PATH" \
+      --arg generatedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      '{name: $name, receipt: $receipt, status: "fail", generatedAt: $generatedAt, synthetic: true}' >>"$failures_file"
+  else
+    local name receipt status generated_at
+    for row in \
+      "health|$RECEIPT_PATH" \
+      "drift|$DRIFT_RECEIPT_PATH" \
+      "disk-log|$DISK_LOG_RECEIPT_PATH"; do
+      name="${row%%|*}"
+      receipt="${row#*|}"
+      if [[ -f "$receipt" ]]; then
+        status="$(jq -r '.status // "missing"' "$receipt")"
+        generated_at="$(jq -r '.generatedAt // ""' "$receipt")"
+      else
+        status="missing"
+        generated_at=""
+      fi
+      if [[ "$status" != "pass" ]]; then
+        jq -cn --arg name "$name" --arg receipt "$receipt" --arg status "$status" --arg generatedAt "$generated_at" \
+          '{name: $name, receipt: $receipt, status: $status, generatedAt: $generatedAt}' >>"$failures_file"
+      fi
+    done
+  fi
+
+  failures_json="$(jq -s '.' "$failures_file")"
+  failure_count="$(printf '%s' "$failures_json" | jq 'length')"
+  if [[ "$failure_count" == "0" ]]; then
+    delivery_json='{"ok":true,"transport":"none","reason":"no_failed_receipts"}'
+    delivery_ok=true
+    pass=true
+  else
+    message="home.girschele.com Home Assistant alert: $failure_count failed receipt(s). Check $STATUS_MARKDOWN_PATH and $STATE_DIR."
+    set +e
+    delivery_json="$(send_operator_alert "$message" "$ALERT_DRY_RUN")"
+    delivery_rc=$?
+    set -e
+    if [[ "$delivery_rc" == "0" ]] && printf '%s' "$delivery_json" | jq -e '.ok == true' >/dev/null; then
+      delivery_ok=true
+      pass=true
+    else
+      delivery_ok=false
+      pass=false
+    fi
+  fi
+
+  mkdir -p "$(dirname "$ALERT_RECEIPT_PATH")"
+  jq -n \
+    --arg generatedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg mode "$mode" \
+    --arg phoneHint "$ALERT_PHONE_HINT" \
+    --argjson failureCount "$failure_count" \
+    --argjson failures "$failures_json" \
+    --argjson delivery "$delivery_json" \
+    --argjson deliveryOk "$(json_bool "$delivery_ok")" \
+    --argjson pass "$(json_bool "$pass")" \
+    '{
+      contractName: "home.girschele.home_assistant.alert.v1",
+      generatedAt: $generatedAt,
+      status: (if $pass then "pass" else "fail" end),
+      mode: $mode,
+      watchedReceipts: ["health", "drift", "disk-log"],
+      failureCount: $failureCount,
+      failures: $failures,
+      delivery: ($delivery + {ok: $deliveryOk, phoneHint: $phoneHint})
+    }' > "$ALERT_RECEIPT_PATH"
+
+  jq -r '"home.girschele.com alert check: " + .status + " failures=" + (.failureCount|tostring) + " transport=" + (.delivery.transport // "none")' "$ALERT_RECEIPT_PATH"
+  if [[ "$pass" != true ]]; then
+    jq '.delivery' "$ALERT_RECEIPT_PATH"
+    exit 1
+  fi
+}
+
+status_board() {
+  require_tool jq
+  require_tool python3
+  mkdir -p "$(dirname "$STATUS_MARKDOWN_PATH")" "$(dirname "$STATUS_RECEIPT_PATH")"
+  python3 - "$STATUS_MARKDOWN_PATH" "$STATUS_RECEIPT_PATH" \
+    "$RECEIPT_PATH" "$BACKUP_RECEIPT_PATH" "$REPLICATION_RECEIPT_PATH" "$RESTORE_RECEIPT_PATH" \
+    "$REPLICA_RESTORE_RECEIPT_PATH" "$DRIFT_RECEIPT_PATH" "$DISK_LOG_RECEIPT_PATH" \
+    "$CLOUDFLARE_ACCESS_RECEIPT_PATH" "$CLOUDFLARE_SNAPSHOT_RECEIPT_PATH" "$ALERT_RECEIPT_PATH" \
+    "$SCHEDULE_RECEIPT_PATH" "$INCIDENT_DRILL_RECEIPT_PATH" <<'PY'
+from __future__ import annotations
+
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+import sys
+
+status_path = Path(sys.argv[1])
+receipt_path = Path(sys.argv[2])
+receipt_paths = [Path(item) for item in sys.argv[3:]]
+rows: list[dict[str, str]] = []
+for path in receipt_paths:
+    if path.exists():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            data = {}
+        rows.append(
+            {
+                "receipt": str(path),
+                "contractName": str(data.get("contractName") or path.name),
+                "status": str(data.get("status") or "unknown"),
+                "generatedAt": str(data.get("generatedAt") or ""),
+            }
+        )
+    else:
+        rows.append(
+            {
+                "receipt": str(path),
+                "contractName": path.name,
+                "status": "missing",
+                "generatedAt": "",
+            }
+        )
+generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+overall = "pass" if all(row["status"] == "pass" for row in rows if "incident-drill" not in row["receipt"]) else "fail"
+lines = [
+    "# home.girschele.com Home Assistant Status",
+    "",
+    f"- Generated: `{generated_at}`",
+    f"- Overall: `{overall}`",
+    "",
+    "| Receipt | Status | Generated |",
+    "| --- | --- | --- |",
+]
+for row in rows:
+    lines.append(f"| `{row['contractName']}` | `{row['status']}` | `{row['generatedAt']}` |")
+status_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+receipt = {
+    "contractName": "home.girschele.home_assistant.status_board.v1",
+    "generatedAt": generated_at,
+    "status": overall,
+    "statusMarkdownPath": str(status_path),
+    "receipts": rows,
+}
+receipt_path.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+print(f"home.girschele.com status board: {overall} {status_path}")
+raise SystemExit(0 if overall == "pass" else 1)
+PY
+}
+
+incident_drill() {
+  require_tool jq
+  local timestamp drill_dir steps_file step command log_path exit_code steps_json pass
+  timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  drill_dir="$STATE_DIR/incident-drills/$timestamp"
+  steps_file="$drill_dir/steps.jsonl"
+  mkdir -p "$drill_dir" "$(dirname "$INCIDENT_DRILL_RECEIPT_PATH")"
+  : >"$steps_file"
+
+  for step in \
+    "snapshot-cloudflare|snapshot Cloudflare tunnel and Access app" \
+    "restore-access|reapply named-token Cloudflare Access recovery" \
+    "backup|create local HA backup" \
+    "replicate-backup|replicate backup off host" \
+    "restore-replica-drill|prove fresh-container restore from replica" \
+    "drift|verify drift invariants" \
+    "health|verify public and local HA health" \
+    "status|refresh status board"; do
+    command="${step%%|*}"
+    log_path="$drill_dir/${command}.log"
+    set +e
+    "$0" "$command" >"$log_path" 2>&1
+    exit_code=$?
+    set -e
+    jq -cn \
+      --arg command "$command" \
+      --arg description "${step#*|}" \
+      --arg logPath "$log_path" \
+      --argjson exitCode "$exit_code" \
+      '{command: $command, description: $description, exitCode: $exitCode, ok: ($exitCode == 0), logPath: $logPath}' >>"$steps_file"
+  done
+
+  steps_json="$(jq -s '.' "$steps_file")"
+  if printf '%s' "$steps_json" | jq -e 'all(.[]; .ok == true)' >/dev/null; then
+    pass=true
+  else
+    pass=false
+  fi
+
+  jq -n \
+    --arg generatedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg drillDir "$drill_dir" \
+    --argjson steps "$steps_json" \
+    --argjson pass "$(json_bool "$pass")" \
+    '{
+      contractName: "home.girschele.home_assistant.incident_drill.v1",
+      generatedAt: $generatedAt,
+      status: (if $pass then "pass" else "fail" end),
+      drillType: "backup_restore_and_cloudflare_access_tunnel_recovery",
+      drillDir: $drillDir,
+      steps: $steps
+    }' > "$INCIDENT_DRILL_RECEIPT_PATH"
+
+  jq -r '"home.girschele.com incident drill: " + .status + " " + .drillDir' "$INCIDENT_DRILL_RECEIPT_PATH"
+  if [[ "$pass" != true ]]; then
+    jq '.steps[] | select(.ok == false)' "$INCIDENT_DRILL_RECEIPT_PATH"
+    exit 1
+  fi
+}
+
 scheduled_health() {
   require_tool jq
   mkdir -p "$(dirname "$SCHEDULE_RECEIPT_PATH")" "$(dirname "$SCHEDULE_LOG_PATH")"
@@ -941,6 +1727,7 @@ scheduled_health() {
     health
     drift_check
     disk_log_check
+    alert_check
     echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] scheduled-health complete"
   } >>"$SCHEDULE_LOG_PATH" 2>&1
 
@@ -949,6 +1736,7 @@ scheduled_health() {
     --arg healthReceipt "$RECEIPT_PATH" \
     --arg driftReceipt "$DRIFT_RECEIPT_PATH" \
     --arg diskLogReceipt "$DISK_LOG_RECEIPT_PATH" \
+    --arg alertReceipt "$ALERT_RECEIPT_PATH" \
     --arg logPath "$SCHEDULE_LOG_PATH" \
     '{
       contractName: "home.girschele.home_assistant.scheduled_health.v1",
@@ -957,6 +1745,7 @@ scheduled_health() {
       reusedHealthReceipt: $healthReceipt,
       driftReceipt: $driftReceipt,
       diskLogReceipt: $diskLogReceipt,
+      alertReceipt: $alertReceipt,
       logPath: $logPath
     }' > "$SCHEDULE_RECEIPT_PATH"
   jq -r '"home.girschele.com scheduled health: " + .status + " (" + .generatedAt + ")"' "$SCHEDULE_RECEIPT_PATH"

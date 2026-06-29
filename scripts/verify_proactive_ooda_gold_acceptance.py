@@ -17,13 +17,14 @@ except ModuleNotFoundError:  # pragma: no cover - script execution path
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RECEIPT = ROOT / ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json"
 EXPECTED_RULES = {
-    "This receipt proves proactive OODA gold only when routed delivery, live browse evidence, a chosen candidate, a staged reversible artifact, mirrored Teable projection, and a redacted approval outcome are all present.",
+    "This receipt proves proactive OODA gold only when routed delivery, assistant-grade source intent, live browse evidence, a chosen candidate, a staged reversible artifact, mirrored Teable projection, and a redacted approval outcome are all present.",
     "Irreversible purchases, bookings, cancellations, sent messages, posts, and commitments remain consent-gated even when proactive staging is automated.",
     "Raw packet text, private links, actor identity, packet refs, and staged artifact refs must stay out of this published receipt; only hashes and coarse status may appear.",
     "Teable remains an admin projection and audit mirror rather than canonical queue or product truth.",
 }
 KNOWN_STATUSES = {
     "blocked_operator_runtime_posture",
+    "blocked_low_quality_packet_evidence",
     "blocked_missing_proactive_packet_evidence",
     "blocked_not_accepted_under_ordinary_use",
     "ready_for_approval_outcome_capture",
@@ -33,6 +34,7 @@ EXPECTED_PROOF_KEYS = {
     "operator_runtime_posture",
     "routed_delivery",
     "action_required_only_delivery",
+    "assistant_grade_packet_quality",
     "live_browse_evidence",
     "chosen_candidate",
     "staged_reversible_artifact",
@@ -139,6 +141,7 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
             "operator_runtime_posture",
             "routed_delivery",
             "action_required_only_delivery",
+            "assistant_grade_packet_quality",
             "live_browse_evidence",
             "chosen_candidate",
             "staged_reversible_artifact",
@@ -198,6 +201,12 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
         if bool(operator_runtime.get("present")):
             issues.append("blocked_operator_runtime_posture requires operator_runtime_posture.present=false")
         _verify_next_action_surface(operator_runtime, issues, prefix="operator_runtime_posture")
+    if status == "blocked_low_quality_packet_evidence":
+        quality = dict(proofs.get("assistant_grade_packet_quality") or {})
+        if bool(quality.get("present")):
+            issues.append("blocked_low_quality_packet_evidence requires assistant_grade_packet_quality.present=false")
+        if not list(quality.get("issues") or []):
+            issues.append("blocked_low_quality_packet_evidence requires assistant_grade_packet_quality.issues")
 
     evidence_receipts = receipt.get("evidence_receipts")
     if not isinstance(evidence_receipts, dict):

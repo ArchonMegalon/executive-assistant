@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -29,6 +30,11 @@ except ModuleNotFoundError:  # pragma: no cover - script execution path
     import ea_live_ops
 from app.services.proactive_ooda_operator_actions import proactive_next_action_surface
 from app.services.proactive_ooda_runtime_artifacts import display_path, load_runtime_artifact_bundle
+from app.services.proactive_signal_discovery import (
+    _ascii_fold_text as _signal_ascii_fold_text,
+    _clean_text as _signal_clean_text,
+    _transcript_has_action_intent,
+)
 
 DEFAULT_OUTPUT = ROOT / ".codex-studio" / "published" / "ea_proactive_ooda_gold_acceptance.generated.json"
 DEFAULT_OPERATOR_STATUS = ROOT / ".codex-studio" / "published" / "ea_proactive_ooda_operator_status.generated.json"
@@ -37,11 +43,54 @@ DEFAULT_SAFE_WORK_RESULT_DIR = ROOT / "state" / "proactive_ooda_safe_work_result
 DEFAULT_RUN_RECEIPT = ROOT / "state" / "proactive_ooda_latest_run.generated.json"
 CONTRACT_NAME = "ea.proactive_ooda_gold_acceptance.v1"
 RULES = [
-    "This receipt proves proactive OODA gold only when routed delivery, live browse evidence, a chosen candidate, a staged reversible artifact, mirrored Teable projection, and a redacted approval outcome are all present.",
+    "This receipt proves proactive OODA gold only when routed delivery, assistant-grade source intent, live browse evidence, a chosen candidate, a staged reversible artifact, mirrored Teable projection, and a redacted approval outcome are all present.",
     "Irreversible purchases, bookings, cancellations, sent messages, posts, and commitments remain consent-gated even when proactive staging is automated.",
     "Raw packet text, private links, actor identity, packet refs, and staged artifact refs must stay out of this published receipt; only hashes and coarse status may appear.",
     "Teable remains an admin projection and audit mirror rather than canonical queue or product truth.",
 ]
+_TRANSCRIPT_NOISE_MARKERS = (
+    "background noise",
+    "background talk",
+    "hintergrund",
+    "hintergrundgeraeusch",
+    "hintergrundgerausch",
+    "mikrofongeraeusch",
+    "mikrofongerausche",
+    "microphone noise",
+    "mic noise",
+)
+_LANGUAGE_REFERENCE_MARKERS = (
+    "deepl",
+    "dictionary",
+    "difference between",
+    "german language",
+    "google translate",
+    "grammar",
+    "how to say",
+    "language lesson",
+    "translate.",
+    "translate/",
+    "translation",
+    "translator",
+    "uebersetzer",
+    "ubersetzer",
+    "vocabulary",
+)
+_LANGUAGE_REQUEST_MARKERS = (
+    "dictionary",
+    "grammar",
+    "language",
+    "translate",
+    "translation",
+    "translator",
+    "uebersetz",
+    "ubersetz",
+    "uebersetzer",
+    "ubersetzer",
+    "vocabulary",
+    "woerterbuch",
+    "worterbuch",
+)
 
 
 def _utc_now() -> str:
@@ -282,11 +331,155 @@ def _proof_row(*, present: bool, detail: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def _folded_text(value: object) -> str:
+    return _signal_ascii_fold_text(_signal_clean_text(str(value or ""))).strip().lower()
+
+
+def _as_mapping(value: object) -> dict[str, Any]:
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
+def _string_list(value: object) -> list[str]:
+    if isinstance(value, (list, tuple)):
+        return [str(item or "").strip() for item in value if str(item or "").strip()]
+    text = str(value or "").strip()
+    return [text] if text else []
+
+
+def _stage_payload_and_input(stage_packet: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    stage = _as_mapping(stage_packet.get("stage"))
+    payload = _as_mapping(stage.get("payload"))
+    safe_work_order = _as_mapping(stage_packet.get("safe_work_order"))
+    input_contract = _as_mapping(safe_work_order.get("input_contract"))
+    tool_hints = _as_mapping(safe_work_order.get("tool_hints"))
+    return payload, input_contract, tool_hints
+
+
+def _request_texts_for_quality(stage_packet: Mapping[str, Any]) -> list[str]:
+    payload, input_contract, _tool_hints = _stage_payload_and_input(stage_packet)
+    values: list[str] = []
+    for source in (payload, input_contract):
+        for key in ("draft_request_text", "research_query", "requested_outcome", "subject_hint"):
+            values.extend(_string_list(source.get(key)))
+        for key in ("search_queries", "notes"):
+            values.extend(_string_list(source.get(key)))
+    # Preserve order while removing exact duplicates. These strings are never published raw.
+    return list(dict.fromkeys(value for value in values if value))
+
+
+def _transcript_signal_adapter_hint(stage_packet: Mapping[str, Any]) -> str:
+    payload, _input_contract, tool_hints = _stage_payload_and_input(stage_packet)
+    return _first_text(payload.get("adapter_hint"), tool_hints.get("adapter_hint"))
+
+
+def _text_is_noise_like(value: object) -> bool:
+    folded = _folded_text(value)
+    if not folded:
+        return False
+    if re.search(r"\[[^\]]*(?:geraeusch|gerausch|noise|hintergrund|background)[^\]]*\]", folded):
+        return True
+    return any(marker in folded for marker in _TRANSCRIPT_NOISE_MARKERS)
+
+
+def _request_allows_language_reference(request_texts: list[str]) -> bool:
+    folded = " ".join(_folded_text(value) for value in request_texts)
+    return any(marker in folded for marker in _LANGUAGE_REQUEST_MARKERS)
+
+
+def _candidate_text_for_quality(recommended: Mapping[str, Any]) -> str:
+    value = recommended.get("value")
+    if isinstance(value, Mapping):
+        parts = [
+            value.get("label"),
+            value.get("title"),
+            value.get("page_title"),
+            value.get("snippet"),
+            value.get("url"),
+            value.get("final_url"),
+            value.get("source_query"),
+        ]
+        return " ".join(str(part or "").strip() for part in parts if str(part or "").strip())
+    return str(value or "").strip()
+
+
+def _candidate_is_language_reference(candidate_text: str) -> bool:
+    folded = _folded_text(candidate_text)
+    return any(marker in folded for marker in _LANGUAGE_REFERENCE_MARKERS)
+
+
+def _safe_work_audit_issue_codes(audit: Mapping[str, Any]) -> list[str]:
+    codes: list[str] = []
+    for issue in list(audit.get("issues") or []):
+        if isinstance(issue, Mapping):
+            code = str(issue.get("code") or "").strip()
+            if code:
+                codes.append(code)
+    return codes
+
+
+def _assistant_grade_packet_quality_proof(
+    *,
+    stage_packet: Mapping[str, Any],
+    safe_work_result: Mapping[str, Any],
+    packet_artifacts_match_run_receipt: bool,
+) -> tuple[dict[str, Any], bool]:
+    issues: list[str] = []
+    payload, input_contract, tool_hints = _stage_payload_and_input(stage_packet)
+    request_texts = _request_texts_for_quality(stage_packet)
+    adapter_hint = _transcript_signal_adapter_hint(stage_packet)
+    transcript_signal = adapter_hint == "transcript_signal"
+    if not packet_artifacts_match_run_receipt:
+        issues.append("packet_artifacts_do_not_match_run_receipt")
+    if transcript_signal:
+        has_action_intent = any(_transcript_has_action_intent(_folded_text(text)) for text in request_texts)
+        noise_like = any(_text_is_noise_like(text) for text in request_texts)
+        if not has_action_intent:
+            issues.append("transcript_signal_lacks_action_intent")
+        if noise_like:
+            issues.append("transcript_signal_noise_like_query")
+    audit = _as_mapping(safe_work_result.get("audit"))
+    audit_status = str(audit.get("status") or "").strip().lower()
+    audit_issue_codes = _safe_work_audit_issue_codes(audit)
+    if audit_status in {"blocked", "fail", "failed", "error"}:
+        issues.append("safe_work_audit_not_pass")
+    recommended = _as_mapping(safe_work_result.get("recommended_option_or_draft"))
+    candidate_text = _candidate_text_for_quality(recommended)
+    if candidate_text and _candidate_is_language_reference(candidate_text) and not _request_allows_language_reference(request_texts):
+        issues.append("candidate_reference_page_not_aligned_with_request")
+    quality_present = bool(stage_packet and safe_work_result and packet_artifacts_match_run_receipt and not issues)
+    proof = _proof_row(
+        present=quality_present,
+        detail={
+            "adapter_hint": adapter_hint,
+            "stage_kind": str(_as_mapping(stage_packet.get("stage")).get("kind") or "").strip(),
+            "work_type": _first_text(
+                payload.get("work_type"),
+                _as_mapping(stage_packet.get("safe_work_order")).get("work_type"),
+                safe_work_result.get("work_type"),
+            ),
+            "transcript_signal": transcript_signal,
+            "request_text_count": len(request_texts),
+            "safe_work_audit_status": audit_status,
+            "safe_work_audit_issue_codes": audit_issue_codes[:8],
+            "recommended_kind": str(recommended.get("kind") or "").strip(),
+            "recommended_candidate_hash": _hash_value(candidate_text),
+            "request_allows_language_reference": _request_allows_language_reference(request_texts),
+            "issues": list(dict.fromkeys(issues)),
+            "raw_request_exposed": False,
+            "raw_candidate_exposed": False,
+            "packet_artifacts_match_run_receipt": packet_artifacts_match_run_receipt,
+        },
+    )
+    return proof, quality_present
+
+
 def _summary_for_status(status: str, *, approval_capture_surface_ready: bool = False) -> str:
     if status == "pass":
         return "A proactive OODA packet has routed delivery, live browse evidence, a chosen candidate, a staged reversible artifact, mirrored Teable facts, and a redacted approved outcome."
     if status == "blocked_operator_runtime_posture":
         return "The proactive OODA packet proofs exist, but operator runtime posture is blocked and gold cannot be claimed until approved source health is restored."
+    if status == "blocked_low_quality_packet_evidence":
+        return "The proactive OODA mechanics have evidence, but the selected packet is not assistant-grade enough to prove production readiness."
     if status == "blocked_not_accepted_under_ordinary_use":
         return "A proactive OODA packet was routed and staged, but the recorded outcome was not accepted under ordinary use."
     if status == "ready_for_approval_outcome_capture":
@@ -318,6 +511,7 @@ def _next_action(
     operator_status: Mapping[str, Any],
     delivery_present: bool,
     action_required_delivery_present: bool,
+    assistant_grade_present: bool,
     browse_present: bool,
     chosen_present: bool,
     staged_present: bool,
@@ -329,6 +523,8 @@ def _next_action(
         return _operator_runtime_next_action(operator_status)
     if not delivery_present:
         return "send_or_mirror_one_real_proactive_packet_with_routed_delivery_proof"
+    if not assistant_grade_present:
+        return "stage_fresh_assistant_grade_proactive_packet"
     if not browse_present:
         return "collect_live_browse_backed_safe_work_result"
     if not chosen_present:
@@ -353,6 +549,7 @@ def _remaining_external_proofs(
     operator_runtime_ready: bool,
     delivery_present: bool,
     action_required_delivery_present: bool,
+    assistant_grade_present: bool,
     browse_present: bool,
     chosen_present: bool,
     staged_present: bool,
@@ -366,6 +563,8 @@ def _remaining_external_proofs(
         remaining.append("routed delivery proof for a real proactive OODA packet")
     if not action_required_delivery_present:
         remaining.append("action-required-only Telegram delivery proof for the proactive OODA packet")
+    if not assistant_grade_present:
+        remaining.append("assistant-grade source intent and candidate alignment for the proactive OODA packet")
     if not browse_present:
         remaining.append("live browse evidence for a real proactive OODA packet")
     if not chosen_present:
@@ -903,6 +1102,11 @@ def materialize_proactive_ooda_gold_acceptance(
             "packet_artifacts_match_run_receipt": packet_artifacts_match_run_receipt,
         },
     )
+    assistant_grade_proof, assistant_grade_present = _assistant_grade_packet_quality_proof(
+        stage_packet=stage_packet,
+        safe_work_result=safe_work_result,
+        packet_artifacts_match_run_receipt=packet_artifacts_match_run_receipt,
+    )
 
     teable_sync = dict(run_receipt.get("teable_sync") or {})
     projection_summary = dict(teable_sync.get("projection_summary") or {})
@@ -943,9 +1147,13 @@ def materialize_proactive_ooda_gold_acceptance(
         },
     )
 
-    runtime_proofs_complete = operator_runtime_ready and all((delivery_present, browse_present, chosen_present, staged_present, teable_present))
+    runtime_proofs_complete = operator_runtime_ready and all(
+        (delivery_present, assistant_grade_present, browse_present, chosen_present, staged_present, teable_present)
+    )
     if not operator_runtime_ready:
         status = "blocked_operator_runtime_posture"
+    elif delivery_present and not assistant_grade_present:
+        status = "blocked_low_quality_packet_evidence"
     elif runtime_proofs_complete and bool(approval_row.get("accepted")) and action_required_delivery_present:
         status = "pass"
     elif runtime_proofs_complete and bool(approval_row.get("accepted")):
@@ -961,6 +1169,7 @@ def materialize_proactive_ooda_gold_acceptance(
         operator_status=operator_status,
         delivery_present=delivery_present,
         action_required_delivery_present=action_required_delivery_present,
+        assistant_grade_present=assistant_grade_present,
         browse_present=browse_present,
         chosen_present=chosen_present,
         staged_present=staged_present,
@@ -988,6 +1197,7 @@ def materialize_proactive_ooda_gold_acceptance(
             "operator_runtime_posture": operator_runtime_proof,
             "routed_delivery": delivery_proof,
             "action_required_only_delivery": action_required_delivery_proof,
+            "assistant_grade_packet_quality": assistant_grade_proof,
             "live_browse_evidence": browse_proof,
             "chosen_candidate": chosen_candidate_proof,
             "staged_reversible_artifact": staged_proof,
@@ -1049,6 +1259,7 @@ def materialize_proactive_ooda_gold_acceptance(
             operator_runtime_ready=operator_runtime_ready,
             delivery_present=delivery_present,
             action_required_delivery_present=action_required_delivery_present,
+            assistant_grade_present=assistant_grade_present,
             browse_present=browse_present,
             chosen_present=chosen_present,
             staged_present=staged_present,
