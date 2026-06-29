@@ -7,6 +7,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from materialize_executive_assistant_acceptance_evidence import ACCEPTANCE_CAPTURE_LABEL
+from materialize_executive_assistant_acceptance_evidence import ACCEPTANCE_CAPTURE_METHOD
+from materialize_executive_assistant_acceptance_evidence import ACCEPTANCE_CAPTURE_PATH
 from materialize_executive_assistant_acceptance_evidence import REMAINING_PROOF_LABELS, REQUIRED_ACCEPTANCE_KEYS
 
 
@@ -28,6 +31,8 @@ LOCAL_CHECKS = {
 }
 
 REQUIRED_REAL_WORLD_PROOF = list(REMAINING_PROOF_LABELS.values())
+LOCAL_REVIEW_PATH = "/app/today"
+LOCAL_REVIEW_LABEL = "Open Today"
 
 
 def _now() -> str:
@@ -104,6 +109,24 @@ def materialize_executive_assistant_quality_readiness(
     else:
         status = "blocked_real_world_acceptance"
     good_claim = bool(local_ready and acceptance_ready)
+    next_action = "review_good_executive_assistant_claim" if good_claim else (
+        "collect_redacted_real_world_acceptance_evidence"
+        if local_ready
+        else "inspect_local_office_loop_quality_regression"
+    )
+    next_action_href = ""
+    next_action_label = ""
+    next_action_method = ""
+    next_action_proof_key = ""
+    if local_ready and not good_claim:
+        next_action_href = ACCEPTANCE_CAPTURE_PATH
+        next_action_label = ACCEPTANCE_CAPTURE_LABEL
+        next_action_method = ACCEPTANCE_CAPTURE_METHOD.lower()
+        next_action_proof_key = str(acceptance.get("next_action_proof_key") or (blocked_checks[0] if blocked_checks else "")).strip()
+    elif not local_ready:
+        next_action_href = LOCAL_REVIEW_PATH
+        next_action_label = LOCAL_REVIEW_LABEL
+        next_action_method = "get"
     receipt = {
         "contract_name": "ea.executive_assistant_quality_readiness.v1",
         "status": status,
@@ -146,7 +169,11 @@ def materialize_executive_assistant_quality_readiness(
             "raw_private_context_exposed": False,
             "seeded_fixture_raw_private_context_exposed": False,
         },
-        "next_action": "review_good_executive_assistant_claim" if good_claim else "Collect real principal/operator acceptance that the morning brief was worth reading.",
+        "next_action": next_action,
+        "next_action_href": next_action_href,
+        "next_action_label": next_action_label,
+        "next_action_method": next_action_method,
+        "next_action_proof_key": next_action_proof_key,
     }
     _write(receipt_path, receipt)
     return receipt

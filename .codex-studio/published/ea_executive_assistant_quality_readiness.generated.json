@@ -210,10 +210,14 @@
       "real_provider_failure_recovered"
     ],
     "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
-    "generated_at": "2026-06-29T18:19:12Z",
+    "generated_at": "2026-06-29T20:28:04Z",
     "generated_by": "ea/scripts/materialize_executive_assistant_acceptance_evidence.py",
     "goal_completion_claim_allowed": false,
     "next_action": "collect_redacted_real_world_acceptance_evidence",
+    "next_action_href": "/admin/actions/acceptance-evidence",
+    "next_action_label": "Record a real-use outcome",
+    "next_action_method": "post",
+    "next_action_proof_key": "real_daily_morning_brief_accepted",
     "privacy": {
       "credential_values_exposed": false,
       "raw_acceptance_text_exposed": false,
@@ -240,10 +244,10 @@
     "status": "blocked_missing_real_world_acceptance_evidence"
   },
   "acceptance_evidence_receipt": {
-    "bytes": 8746,
+    "bytes": 8954,
     "exists": true,
     "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
-    "sha256": "1d4bcb9c69961d1c82a96485dbd94a4f098c72ab8e219ebde24fda33a132b210"
+    "sha256": "98e7449dbe1a3225d9c15e3887d1c6ba654c9013c1797b9df61d3276d679f328"
   },
   "blocked_checks": [
     "real_daily_morning_brief_accepted",
@@ -263,14 +267,18 @@
     "real_approved_action_audited",
     "real_provider_failure_recovered"
   ],
-  "generated_at": "2026-06-29T18:19:12Z",
+  "generated_at": "2026-06-29T20:51:38Z",
   "generated_by": "ea/scripts/materialize_executive_assistant_quality_readiness.py",
   "goal_completion_claim_allowed": false,
   "good_executive_assistant_claim_allowed": false,
   "live_daily_use_verified": false,
   "local_blockers": [],
   "local_quality_evidence_ready": true,
-  "next_action": "Collect real principal/operator acceptance that the morning brief was worth reading.",
+  "next_action": "collect_redacted_real_world_acceptance_evidence",
+  "next_action_href": "/admin/actions/acceptance-evidence",
+  "next_action_label": "Record a real-use outcome",
+  "next_action_method": "post",
+  "next_action_proof_key": "real_daily_morning_brief_accepted",
   "privacy": {
     "credential_values_exposed": false,
     "env_values_exposed": false,
@@ -323,10 +331,10 @@
     "real provider failure recovered with operator-grade reason"
   ],
   "source_receipt": {
-    "bytes": 11434,
+    "bytes": 10948,
     "exists": true,
     "path": ".codex-studio/published/ea_office_loop_goal.generated.json",
-    "sha256": "e67b23fb0b9e6822f0f6141b911e8d01ad1bde32b92cf08214f7ad671533443a"
+    "sha256": "70d5226098067723d656a18857c0146a54218af1234551ba107360c731fd65e7"
   },
   "status": "blocked_real_world_acceptance"
 }

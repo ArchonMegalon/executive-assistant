@@ -239,6 +239,11 @@ def test_executive_assistant_quality_readiness_blocks_real_world_acceptance_with
     assert "real_provider_failure_recovered" in receipt["external_acceptance_blockers"]
     assert receipt["quality_dimensions"]["morning_brief"]["status"] == "ready"  # type: ignore[index]
     assert receipt["privacy"]["raw_private_context_exposed"] is False  # type: ignore[index]
+    assert receipt["next_action"] == "collect_redacted_real_world_acceptance_evidence"
+    assert receipt["next_action_href"] == "/admin/actions/acceptance-evidence"
+    assert receipt["next_action_label"] == "Record a real-use outcome"
+    assert receipt["next_action_method"] == "post"
+    assert receipt["next_action_proof_key"] == "real_daily_morning_brief_accepted"
 
     verification = verifier.verify_executive_assistant_quality_readiness(receipt_path)
 
@@ -273,6 +278,10 @@ def test_executive_assistant_quality_readiness_uses_redacted_acceptance_evidence
     assert receipt["real_principal_acceptance_verified"] is True
     assert receipt["real_provider_recovery_verified"] is True
     assert receipt["goal_completion_claim_allowed"] is False
+    assert receipt["next_action_href"] == ""
+    assert receipt["next_action_label"] == ""
+    assert receipt["next_action_method"] == ""
+    assert receipt["next_action_proof_key"] == ""
 
     verification = verifier.verify_executive_assistant_quality_readiness(receipt_path)
 
@@ -295,6 +304,11 @@ def test_executive_assistant_quality_readiness_reports_local_quality_regression(
     assert receipt["local_quality_evidence_ready"] is False
     assert "command_brief_local_ready" in receipt["local_blockers"]
     assert "api_digest_local_ready" in receipt["local_blockers"]
+    assert receipt["next_action"] == "inspect_local_office_loop_quality_regression"
+    assert receipt["next_action_href"] == "/app/today"
+    assert receipt["next_action_label"] == "Open Today"
+    assert receipt["next_action_method"] == "get"
+    assert receipt["next_action_proof_key"] == ""
 
     verification = verifier.verify_executive_assistant_quality_readiness(receipt_path)
 
@@ -317,6 +331,10 @@ def test_executive_assistant_quality_readiness_can_be_claim_ready_without_closin
     assert receipt["blocked_checks"] == []
     assert receipt["good_executive_assistant_claim_allowed"] is True
     assert receipt["goal_completion_claim_allowed"] is False
+    assert receipt["next_action_href"] == ""
+    assert receipt["next_action_label"] == ""
+    assert receipt["next_action_method"] == ""
+    assert receipt["next_action_proof_key"] == ""
 
     verification = verifier.verify_executive_assistant_quality_readiness(receipt_path)
 
@@ -339,6 +357,10 @@ def test_executive_assistant_quality_readiness_verifier_rejects_overclaims(tmp_p
     receipt["ea_is_product_truth"] = True
     receipt["privacy"]["seeded_fixture_raw_private_context_exposed"] = True
     receipt["required_real_world_proof"] = []
+    receipt["next_action_href"] = ""
+    receipt["next_action_label"] = ""
+    receipt["next_action_method"] = ""
+    receipt["next_action_proof_key"] = ""
     receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     verification = verifier.verify_executive_assistant_quality_readiness(receipt_path)
@@ -349,6 +371,10 @@ def test_executive_assistant_quality_readiness_verifier_rejects_overclaims(tmp_p
     assert "ea_quality_good_claim_flag_mismatch" in verification["issues"]
     assert "ea_quality_privacy_flag_not_false:seeded_fixture_raw_private_context_exposed" in verification["issues"]
     assert "ea_quality_required_proof_missing:real daily morning brief acceptance" in verification["issues"]
+    assert "ea_quality_next_action_href_missing" in verification["issues"]
+    assert "ea_quality_next_action_label_missing" in verification["issues"]
+    assert "ea_quality_next_action_method_missing" in verification["issues"]
+    assert "ea_quality_next_action_proof_key_missing" in verification["issues"]
 
 
 def test_executive_assistant_quality_readiness_clis_work(tmp_path: Path) -> None:
