@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from scripts.materialize_continuous_improvement_goal_posture import build_goal_posture
+import scripts.verify_continuous_improvement_goal_posture as verifier_module
 from scripts.verify_continuous_improvement_goal_posture import verify
 
 
@@ -13,6 +14,22 @@ def _write_receipt(root: Path, relative_path: str, *, status: str, **extra: obje
     payload = {"status": status, "contract_name": f"test.{path.stem}"}
     payload.update(extra)
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def _write_proactive_ooda_receipts(root: Path, *, source_git_head: str = "source-head") -> None:
+    extra = {"source_git_head": source_git_head} if source_git_head else {}
+    _write_receipt(
+        root,
+        ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
+        status="ready_for_approval_outcome_capture",
+        **extra,
+    )
+    _write_receipt(
+        root,
+        ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
+        status="ready_with_live_receipt",
+        **extra,
+    )
 
 
 def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_path: Path) -> None:
@@ -90,6 +107,7 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
         ".codex-studio/published/whatsapp_audiobook_live_voice_selection_shadow.generated.json",
         status="waiting",
     )
+    _write_proactive_ooda_receipts(tmp_path)
 
     receipt = build_goal_posture(
         root=tmp_path,
@@ -249,6 +267,7 @@ def test_goal_posture_verifier_accepts_materialized_receipt(tmp_path: Path) -> N
         ".codex-studio/published/whatsapp_audiobook_live_voice_selection_shadow.generated.json",
         status="waiting",
     )
+    _write_proactive_ooda_receipts(tmp_path)
 
     output = tmp_path / ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"
     receipt = build_goal_posture(root=tmp_path, output_path=output, generated_at="2026-06-22T15:00:00Z")
@@ -331,6 +350,7 @@ def test_goal_posture_verifier_rejects_uncovered_acceptance_proof_requirement(tm
         ".codex-studio/published/whatsapp_audiobook_live_voice_selection_shadow.generated.json",
         status="pass",
     )
+    _write_proactive_ooda_receipts(tmp_path)
 
     output = tmp_path / ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"
     receipt = build_goal_posture(root=tmp_path, output_path=output, generated_at="2026-06-22T15:15:00Z")
@@ -345,6 +365,97 @@ def test_goal_posture_verifier_rejects_uncovered_acceptance_proof_requirement(tm
     issues = verify(output)
     assert "acceptance_proof_requirements must cover every required_next_receipts item exactly" in issues
     assert "acceptance_proof_requirements must include proactive_ooda_packet_acceptance" in issues
+
+
+def test_goal_posture_verifier_rejects_stale_proactive_ooda_source_receipts(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(verifier_module, "_git_head", lambda _root: "fresh-source-head")
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
+        status="ready_local_packet_pending_operator_acceptance",
+        next_action="review packet with operator",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_office_loop_goal.generated.json",
+        status="ready_local_evidence",
+        next_action="collect office-loop acceptance",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/active_media_ltd_goal_bundle.generated.json",
+        status="ready_local_evidence",
+        next_action="collect external media proofs",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
+        status="blocked_real_world_acceptance",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/teable_env_recovery_readiness.generated.json",
+        status="ready_local_audit",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/telegram_audiobook_live_readiness.generated.json",
+        status="ready_for_live_epub_delivery_test",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_local_intake_proof.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_public_share_playback.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_live_voice_selection_shadow.generated.json",
+        status="pass",
+    )
+    _write_proactive_ooda_receipts(tmp_path, source_git_head="stale-source-head")
+
+    output = tmp_path / ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"
+    receipt = build_goal_posture(root=tmp_path, output_path=output, generated_at="2026-06-22T15:25:00Z")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+
+    issues = verify(output, root=tmp_path)
+    assert (
+        "proactive_ooda_packet_acceptance source receipt stale: .codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json"
+        in issues
+    )
+    assert (
+        "proactive_ooda_packet_acceptance source receipt stale: .codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
+        in issues
+    )
 
 
 def test_goal_posture_verifier_accepts_waiting_for_live_epub_component_status(tmp_path: Path) -> None:
@@ -421,6 +532,7 @@ def test_goal_posture_verifier_accepts_waiting_for_live_epub_component_status(tm
         ".codex-studio/published/whatsapp_audiobook_live_voice_selection_shadow.generated.json",
         status="waiting",
     )
+    _write_proactive_ooda_receipts(tmp_path)
 
     output = tmp_path / ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"
     receipt = build_goal_posture(root=tmp_path, output_path=output, generated_at="2026-06-22T15:30:00Z")

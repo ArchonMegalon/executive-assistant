@@ -89,13 +89,19 @@ def _load_receipt(root: Path, path: Path) -> tuple[dict[str, Any], str]:
     return {}, _display_path(root, path)
 
 
-def _source_receipt(path_text: str, payload: dict[str, Any]) -> dict[str, Any]:
-    return {
+def _source_receipt(path_text: str, payload: dict[str, Any], *, current_source_head: str = "") -> dict[str, Any]:
+    receipt = {
         "path": path_text,
         "present": bool(payload),
         "contract_name": _compact(payload.get("contract_name")),
         "status": _status(payload),
     }
+    source_head = str(payload.get("source_git_head") or "").strip()
+    if source_head:
+        receipt["source_git_head"] = source_head
+        if current_source_head:
+            receipt["source_fresh_to_current_source"] = source_head == current_source_head
+    return receipt
 
 
 def _lens(
@@ -177,6 +183,7 @@ def build_goal_posture(
     output_path: Path = DEFAULT_OUTPUT,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
+    current_source_head = _git_head(root)
     office, office_path = _load_receipt(root, root / DEFAULT_OFFICE_RECEIPT.relative_to(ROOT))
     signal, signal_path = _load_receipt(root, root / DEFAULT_SIGNAL_RECEIPT.relative_to(ROOT))
     media, media_path = _load_receipt(root, root / DEFAULT_MEDIA_RECEIPT.relative_to(ROOT))
@@ -203,7 +210,7 @@ def build_goal_posture(
             "make verify-whole-project-signal-to-decision-receipt",
             "make verify-proactive-ooda",
         ],
-        source_receipts=[_source_receipt(signal_path, signal)],
+        source_receipts=[_source_receipt(signal_path, signal, current_source_head=current_source_head)],
     )
 
     decide_lens = _lens(
@@ -215,7 +222,7 @@ def build_goal_posture(
         verifier_commands=[
             "make verify-office-loop-goal-receipt",
         ],
-        source_receipts=[_source_receipt(office_path, office)],
+        source_receipts=[_source_receipt(office_path, office, current_source_head=current_source_head)],
     )
 
     tg_summary = (
@@ -239,7 +246,7 @@ def build_goal_posture(
                 media.get("next_action"),
                 default="collect_external_provider_and_public_route_proofs_before_any_gold_or_live_provider_claim",
             ),
-            receipts=[_source_receipt(media_path, media)],
+            receipts=[_source_receipt(media_path, media, current_source_head=current_source_head)],
         ),
         _deliver_component(
             key="manfred_speech",
@@ -250,7 +257,7 @@ def build_goal_posture(
                 manfred.get("next_action"),
                 default="promote only a consented real captured STT fixture that passes the provider benchmark",
             ),
-            receipts=[_source_receipt(manfred_path, manfred)],
+            receipts=[_source_receipt(manfred_path, manfred, current_source_head=current_source_head)],
         ),
         _deliver_component(
             key="telegram_audiobook",
@@ -259,8 +266,8 @@ def build_goal_posture(
             summary=tg_summary,
             next_action="keep live Telegram audiobook delivery passing while widening playback acceptance evidence",
             receipts=[
-                _source_receipt(tg_ready_path, tg_ready),
-                _source_receipt(tg_live_path, tg_live),
+                _source_receipt(tg_ready_path, tg_ready, current_source_head=current_source_head),
+                _source_receipt(tg_live_path, tg_live, current_source_head=current_source_head),
             ],
         ),
         _deliver_component(
@@ -270,11 +277,11 @@ def build_goal_posture(
             summary=wa_summary,
             next_action="clear blocked WhatsApp live delivery and keep share-link playback plus voice-selection flow honest",
             receipts=[
-                _source_receipt(wa_intake_path, wa_intake),
-                _source_receipt(wa_bundle_path, wa_bundle),
-                _source_receipt(wa_live_path, wa_live),
-                _source_receipt(wa_share_path, wa_share),
-                _source_receipt(wa_voice_path, wa_voice),
+                _source_receipt(wa_intake_path, wa_intake, current_source_head=current_source_head),
+                _source_receipt(wa_bundle_path, wa_bundle, current_source_head=current_source_head),
+                _source_receipt(wa_live_path, wa_live, current_source_head=current_source_head),
+                _source_receipt(wa_share_path, wa_share, current_source_head=current_source_head),
+                _source_receipt(wa_voice_path, wa_voice, current_source_head=current_source_head),
             ],
         ),
     ]
@@ -331,7 +338,7 @@ def build_goal_posture(
                 "make env-fresh-host-teable",
                 "make env-probe-teable",
             ],
-            source_receipts=[_source_receipt(recovery_path, recovery)],
+            source_receipts=[_source_receipt(recovery_path, recovery, current_source_head=current_source_head)],
         )
     else:
         recover_lens = _lens(
@@ -362,7 +369,7 @@ def build_goal_posture(
         verifier_commands=[
             "make verify-executive-assistant-quality-readiness",
         ],
-        source_receipts=[_source_receipt(quality_path, quality)],
+        source_receipts=[_source_receipt(quality_path, quality, current_source_head=current_source_head)],
     )
 
     lenses = [detect_lens, decide_lens, deliver_lens, recover_lens, prove_lens]
@@ -396,7 +403,7 @@ def build_goal_posture(
             ],
             next_action="record_redacted_operator_acceptance_for_real_morning_brief",
             claim_boundary="does_not_prove_good_executive_assistant_until_real_operator_or_principal_acceptance_is_recorded",
-            source_receipts=[_source_receipt(quality_path, quality)],
+            source_receipts=[_source_receipt(quality_path, quality, current_source_head=current_source_head)],
         ),
         _acceptance_proof_requirement(
             key="weekly_signal_to_decision_review_acceptance",
@@ -407,7 +414,7 @@ def build_goal_posture(
             capture_surfaces=[signal_path],
             next_action="record_weekly_signal_to_decision_review_acceptance",
             claim_boundary="does_not_prove_signal_loop_value_until_a_real_operator_review_is_recorded",
-            source_receipts=[_source_receipt(signal_path, signal)],
+            source_receipts=[_source_receipt(signal_path, signal, current_source_head=current_source_head)],
         ),
         _acceptance_proof_requirement(
             key="proactive_ooda_packet_acceptance",
@@ -419,8 +426,8 @@ def build_goal_posture(
             next_action="tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
             claim_boundary="does_not_prove_assistant_grade_proactive_ooda_until_a_real_approval_outcome_is_captured",
             source_receipts=[
-                _source_receipt(ooda_gold_path, ooda_gold),
-                _source_receipt(ooda_status_path, ooda_status),
+                _source_receipt(ooda_gold_path, ooda_gold, current_source_head=current_source_head),
+                _source_receipt(ooda_status_path, ooda_status, current_source_head=current_source_head),
             ],
         ),
         _acceptance_proof_requirement(
@@ -432,7 +439,7 @@ def build_goal_posture(
             capture_surfaces=[recovery_path],
             next_action="run_shell_seeded_fresh_host_probe_and_mirror_drill_evidence",
             claim_boundary="does_not_prove_recovery_readiness_until_fresh_host_drill_evidence_is_mirrored",
-            source_receipts=[_source_receipt(recovery_path, recovery)],
+            source_receipts=[_source_receipt(recovery_path, recovery, current_source_head=current_source_head)],
         ),
     ]
     if any(reason.startswith("deliver:manfred_speech") for reason in blocking_reasons):
@@ -446,7 +453,7 @@ def build_goal_posture(
                 capture_surfaces=[manfred_path],
                 next_action="capture_consented_manfred_stt_tts_realtime_proof",
                 claim_boundary="does_not_prove_realtime_speech_delivery_until_a_consented_room_conversation_receipt_passes",
-                source_receipts=[_source_receipt(manfred_path, manfred)],
+                source_receipts=[_source_receipt(manfred_path, manfred, current_source_head=current_source_head)],
             )
         )
     if any(reason.startswith("deliver:telegram_audiobook") for reason in blocking_reasons):
@@ -464,8 +471,8 @@ def build_goal_posture(
                 ),
                 claim_boundary="does_not_prove_telegram_audiobook_delivery_until_live_delivery_and_playback_receipts_pass",
                 source_receipts=[
-                    _source_receipt(tg_live_path, tg_live),
-                    _source_receipt(tg_ready_path, tg_ready),
+                    _source_receipt(tg_live_path, tg_live, current_source_head=current_source_head),
+                    _source_receipt(tg_ready_path, tg_ready, current_source_head=current_source_head),
                 ],
             )
         )
@@ -481,10 +488,10 @@ def build_goal_posture(
                 next_action="capture_passing_whatsapp_audiobook_live_delivery_receipt",
                 claim_boundary="does_not_prove_whatsapp_delivery_until_live_delivery_and_playback_receipts_pass",
                 source_receipts=[
-                    _source_receipt(wa_live_path, wa_live),
-                    _source_receipt(wa_bundle_path, wa_bundle),
-                    _source_receipt(wa_share_path, wa_share),
-                    _source_receipt(wa_voice_path, wa_voice),
+                    _source_receipt(wa_live_path, wa_live, current_source_head=current_source_head),
+                    _source_receipt(wa_bundle_path, wa_bundle, current_source_head=current_source_head),
+                    _source_receipt(wa_share_path, wa_share, current_source_head=current_source_head),
+                    _source_receipt(wa_voice_path, wa_voice, current_source_head=current_source_head),
                 ],
             )
         )
@@ -498,7 +505,7 @@ def build_goal_posture(
         "contract_name": "ea.continuous_improvement_goal_posture.v1",
         "generated_at": generated_at or _utc_now(),
         "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
-        "source_git_head": _git_head(root),
+        "source_git_head": current_source_head,
         "head_semantics": "source_state",
         "output_path": _display_path(root, output_path),
         "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",

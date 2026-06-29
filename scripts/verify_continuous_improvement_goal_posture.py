@@ -61,6 +61,10 @@ DELIVER_BLOCKER_PROOF_KEYS = {
     "deliver:telegram_audiobook": "telegram_audiobook_live_delivery",
     "deliver:whatsapp_audiobook": "whatsapp_audiobook_live_delivery",
 }
+PROACTIVE_OODA_FRESH_SOURCE_RECEIPTS = {
+    "ea_proactive_ooda_gold_acceptance.generated.json",
+    "ea_proactive_ooda_operator_status.generated.json",
+}
 
 
 def _json(path: Path) -> dict[str, Any]:
@@ -233,6 +237,7 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
     proof_receipts: set[str] = set()
     proof_keys: set[str] = set()
     proof_by_key: dict[str, dict[str, Any]] = {}
+    proactive_source_receipt_names: set[str] = set()
     for index, requirement in enumerate(acceptance_proof_requirements):
         if not isinstance(requirement, dict):
             issues.append(f"acceptance_proof_requirements[{index}] must be an object")
@@ -284,10 +289,28 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                 issues.append(f"acceptance proof requirement {key or index} source receipt path missing")
                 continue
             source_path = repo_root / path_text
+            source_name = source_path.name
+            if key == "proactive_ooda_packet_acceptance" and source_name in PROACTIVE_OODA_FRESH_SOURCE_RECEIPTS:
+                proactive_source_receipt_names.add(source_name)
             if bool(source.get("present")) != source_path.exists():
                 issues.append(f"acceptance proof requirement {key or index} source receipt presence drifted for {path_text}")
+            if key == "proactive_ooda_packet_acceptance" and source_name in PROACTIVE_OODA_FRESH_SOURCE_RECEIPTS:
+                if not source_path.exists():
+                    issues.append(f"proactive_ooda_packet_acceptance source receipt missing: {path_text}")
+                    continue
+                source_payload = _json(source_path)
+                source_head = str(source.get("source_git_head") or source_payload.get("source_git_head") or "").strip()
+                if not source_head:
+                    issues.append(f"proactive_ooda_packet_acceptance source receipt missing source_git_head: {path_text}")
+                elif current_head and source_head != current_head:
+                    issues.append(f"proactive_ooda_packet_acceptance source receipt stale: {path_text}")
+                if current_head and "source_fresh_to_current_source" in source and source.get("source_fresh_to_current_source") is not True:
+                    issues.append(f"proactive_ooda_packet_acceptance source receipt freshness flag false: {path_text}")
     if proof_receipts != required_next_receipts:
         issues.append("acceptance_proof_requirements must cover every required_next_receipts item exactly")
+    missing_proactive_sources = sorted(PROACTIVE_OODA_FRESH_SOURCE_RECEIPTS - proactive_source_receipt_names)
+    if missing_proactive_sources:
+        issues.append(f"proactive_ooda_packet_acceptance missing source receipts: {', '.join(missing_proactive_sources)}")
     for blocker_prefix, proof_key in DELIVER_BLOCKER_PROOF_KEYS.items():
         if any(reason.startswith(blocker_prefix) for reason in blocking_reasons) and proof_key not in proof_by_key:
             issues.append(f"active blocker {blocker_prefix} must have acceptance proof requirement {proof_key}")
