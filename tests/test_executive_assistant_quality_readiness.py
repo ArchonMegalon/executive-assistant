@@ -133,6 +133,11 @@ def test_executive_assistant_acceptance_evidence_hashes_raw_inputs(tmp_path: Pat
     assert receipt["real_daily_use_verified"] is True
     assert receipt["real_principal_acceptance_verified"] is True
     assert receipt["goal_completion_claim_allowed"] is False
+    assert receipt["next_action"] == "review_good_executive_assistant_claim"
+    assert receipt["next_action_href"] == ""
+    assert receipt["next_action_label"] == ""
+    assert receipt["next_action_method"] == ""
+    assert receipt["next_action_proof_key"] == ""
     assert receipt["acceptance_capture_surface"]["path"] == "/admin/actions/acceptance-evidence"  # type: ignore[index]
     assert receipt["acceptance_capture_surface"]["raw_input_not_persisted"] is True  # type: ignore[index]
     assert len(receipt["acceptance_capture_requirements"]) == 5
@@ -166,6 +171,11 @@ def test_executive_assistant_acceptance_evidence_preserves_existing_redacted_row
     assert first["status"] == "partial_real_world_acceptance_evidence"
     assert second["status"] == "partial_real_world_acceptance_evidence"
     assert second["accepted_keys"] == ["real_daily_morning_brief_accepted"]
+    assert second["next_action"] == "collect_redacted_real_world_acceptance_evidence"
+    assert second["next_action_href"] == "/admin/actions/acceptance-evidence"
+    assert second["next_action_label"] == "Record a real-use outcome"
+    assert second["next_action_method"] == "post"
+    assert second["next_action_proof_key"] == "real_decision_cleared"
     requirements = {item["key"]: item for item in second["acceptance_capture_requirements"]}  # type: ignore[index]
     assert requirements["real_daily_morning_brief_accepted"]["status"] == "accepted_redacted"
     assert requirements["real_decision_cleared"]["status"] == "pending_real_world_evidence"
@@ -194,6 +204,9 @@ def test_executive_assistant_acceptance_verifier_requires_capture_contract(tmp_p
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     receipt.pop("acceptance_capture_surface")
     receipt["acceptance_capture_requirements"] = []
+    receipt["next_action_href"] = ""
+    receipt["next_action_label"] = ""
+    receipt["next_action_method"] = ""
     receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     verification = verifier.verify_executive_assistant_acceptance_evidence(receipt_path)
@@ -201,6 +214,9 @@ def test_executive_assistant_acceptance_verifier_requires_capture_contract(tmp_p
     assert verification["status"] == "fail"
     assert "ea_acceptance_capture_surface_path_missing" in verification["issues"]
     assert "ea_acceptance_capture_requirement_missing:real_daily_morning_brief_accepted" in verification["issues"]
+    assert "ea_acceptance_next_action_href_missing" in verification["issues"]
+    assert "ea_acceptance_next_action_label_missing" in verification["issues"]
+    assert "ea_acceptance_next_action_method_missing" in verification["issues"]
 
 
 def test_executive_assistant_quality_readiness_blocks_real_world_acceptance_without_overclaiming(tmp_path: Path) -> None:

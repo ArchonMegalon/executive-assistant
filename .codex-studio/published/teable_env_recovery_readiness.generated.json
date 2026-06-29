@@ -37,7 +37,7 @@
   "command_surface_ready": true,
   "contract_name": "ea.teable_env_recovery_readiness.v1",
   "fresh_host_drill_receipt_mirrored": false,
-  "generated_at": "2026-06-29T20:20:51Z",
+  "generated_at": "2026-06-29T20:29:10Z",
   "generated_by": "scripts/materialize_teable_env_recovery_readiness.py",
   "head_semantics": "source_state",
   "issues": [],
@@ -58,7 +58,7 @@
     "sync_script": "scripts/sync_env_to_teable.py"
   },
   "source_git_head": "ac132b85ff2ebe6f225d943eb8511737c1827e08",
-  "source_state_fingerprint": "685ee67b5cf066d3be64f9bccbd8457fe18d241fc101241ee9013e03a1c02928",
+  "source_state_fingerprint": "4e09e64fd5015f2e56a8a27c3c0247e5b25e26ed14e6cc84b42e3713fcbfeb62",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready_local_audit",
   "summary": "Teable recovery command surface is mirrored and documented locally; a seeded fresh-host drill receipt is still required before any pass claim.",

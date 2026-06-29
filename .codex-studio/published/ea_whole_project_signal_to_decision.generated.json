@@ -55,8 +55,13 @@
     "source_kind": "",
     "status": "missing_or_invalid"
   },
-  "generated_at": "2026-06-29T18:19:13Z",
+  "generated_at": "2026-06-29T20:28:04Z",
   "goal_completion_claim_allowed": false,
+  "next_action": "record_redacted_signal_review_acceptance",
+  "next_action_evidence_part": "review",
+  "next_action_href": "/admin/actions/signal-to-decision-evidence",
+  "next_action_label": "Record a signal-loop outcome",
+  "next_action_method": "post",
   "operator_review": {
     "accepted": false,
     "actor_sha256": "",

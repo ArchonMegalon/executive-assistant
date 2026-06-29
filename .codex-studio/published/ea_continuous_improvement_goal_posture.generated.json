@@ -63,7 +63,7 @@
           "present": true,
           "source_fresh_to_current_source": true,
           "source_git_head": "ac132b85ff2ebe6f225d943eb8511737c1827e08",
-          "source_state_fingerprint": "685ee67b5cf066d3be64f9bccbd8457fe18d241fc101241ee9013e03a1c02928",
+          "source_state_fingerprint": "4e09e64fd5015f2e56a8a27c3c0247e5b25e26ed14e6cc84b42e3713fcbfeb62",
           "status": "ready_for_approval_outcome_capture"
         },
         {
@@ -72,7 +72,7 @@
           "present": true,
           "source_fresh_to_current_source": true,
           "source_git_head": "ac132b85ff2ebe6f225d943eb8511737c1827e08",
-          "source_state_fingerprint": "685ee67b5cf066d3be64f9bccbd8457fe18d241fc101241ee9013e03a1c02928",
+          "source_state_fingerprint": "4e09e64fd5015f2e56a8a27c3c0247e5b25e26ed14e6cc84b42e3713fcbfeb62",
           "status": "ready_with_live_receipt"
         }
       ],
@@ -145,7 +145,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-06-29T20:21:12Z",
+  "generated_at": "2026-06-29T20:29:33Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -155,7 +155,7 @@
     {
       "components": [],
       "key": "detect",
-      "next_action": "review_weekly_signal_to_decision_packet_with_operator",
+      "next_action": "record_redacted_signal_review_acceptance",
       "source_receipts": [
         {
           "contract_name": "ea.whole_project_signal_to_decision_receipt.v1",
@@ -330,7 +330,7 @@
           "present": true,
           "source_fresh_to_current_source": true,
           "source_git_head": "ac132b85ff2ebe6f225d943eb8511737c1827e08",
-          "source_state_fingerprint": "685ee67b5cf066d3be64f9bccbd8457fe18d241fc101241ee9013e03a1c02928",
+          "source_state_fingerprint": "4e09e64fd5015f2e56a8a27c3c0247e5b25e26ed14e6cc84b42e3713fcbfeb62",
           "status": "ready_local_audit"
         },
         {
@@ -339,7 +339,7 @@
           "present": true,
           "source_fresh_to_current_source": true,
           "source_git_head": "ac132b85ff2ebe6f225d943eb8511737c1827e08",
-          "source_state_fingerprint": "685ee67b5cf066d3be64f9bccbd8457fe18d241fc101241ee9013e03a1c02928",
+          "source_state_fingerprint": "4e09e64fd5015f2e56a8a27c3c0247e5b25e26ed14e6cc84b42e3713fcbfeb62",
           "status": "pass"
         }
       ],
@@ -401,6 +401,6 @@
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
   "source_git_head": "ac132b85ff2ebe6f225d943eb8511737c1827e08",
-  "source_state_fingerprint": "685ee67b5cf066d3be64f9bccbd8457fe18d241fc101241ee9013e03a1c02928",
+  "source_state_fingerprint": "4e09e64fd5015f2e56a8a27c3c0247e5b25e26ed14e6cc84b42e3713fcbfeb62",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }

@@ -31,6 +31,7 @@ REMAINING_PROOF_LABELS = {
 ACCEPTANCE_CAPTURE_PATH = "/admin/actions/acceptance-evidence"
 ACCEPTANCE_CAPTURE_METHOD = "POST"
 ACCEPTANCE_CAPTURE_FORM_FIELDS = ["proof_key", "source_kind", "evidence", "object_ref"]
+ACCEPTANCE_CAPTURE_LABEL = "Record a real-use outcome"
 
 
 def _now() -> str:
@@ -185,6 +186,8 @@ def materialize_executive_assistant_acceptance_evidence(
         if accepted_keys
         else "blocked_missing_real_world_acceptance_evidence"
     )
+    next_proof_key = blocked_keys[0] if blocked_keys else ""
+    next_action = "collect_redacted_real_world_acceptance_evidence" if blocked_keys else "review_good_executive_assistant_claim"
     receipt = {
         "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
         "status": status,
@@ -211,7 +214,11 @@ def materialize_executive_assistant_acceptance_evidence(
         },
         "source_input": {"provided": input_payload is not None},
         "rejected_input_count": 0,
-        "next_action": "collect_redacted_real_world_acceptance_evidence" if blocked_keys else "review_good_executive_assistant_claim",
+        "next_action": next_action,
+        "next_action_href": ACCEPTANCE_CAPTURE_PATH if blocked_keys else "",
+        "next_action_label": ACCEPTANCE_CAPTURE_LABEL if blocked_keys else "",
+        "next_action_method": ACCEPTANCE_CAPTURE_METHOD.lower() if blocked_keys else "",
+        "next_action_proof_key": next_proof_key,
     }
     _write(target, receipt)
     return receipt

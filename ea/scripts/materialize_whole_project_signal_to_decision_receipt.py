@@ -32,6 +32,7 @@ REQUIRED_SIGNAL_SOURCES = [
 SIGNAL_EVIDENCE_CAPTURE_PATH = "/admin/actions/signal-to-decision-evidence"
 SIGNAL_EVIDENCE_CAPTURE_METHOD = "POST"
 SIGNAL_EVIDENCE_CAPTURE_FORM_FIELDS = ["evidence_part", "source_kind", "evidence", "packet_ref"]
+SIGNAL_EVIDENCE_CAPTURE_LABEL = "Record a signal-loop outcome"
 SIGNAL_EVIDENCE_PARTS = {
     "review": {
         "label": "real weekly signal-to-decision review accepted by the operator",
@@ -164,6 +165,15 @@ def materialize_whole_project_signal_to_decision_receipt(
     follow = dict(payload.get("followthrough") or {})
     review_accepted = bool(review.get("accepted"))
     follow_accepted = bool(follow.get("accepted"))
+    if not review_accepted:
+        next_action = str(SIGNAL_EVIDENCE_PARTS["review"]["next_action"])
+        next_action_evidence_part = "review"
+    elif not follow_accepted:
+        next_action = str(SIGNAL_EVIDENCE_PARTS["followthrough"]["next_action"])
+        next_action_evidence_part = "followthrough"
+    else:
+        next_action = "review_closed_signal_to_decision_claim"
+        next_action_evidence_part = ""
     receipt = {
         "contract_name": "ea.whole_project_signal_to_decision_receipt.v1",
         "status": "ready_real_signal_to_decision_closure"
@@ -173,6 +183,11 @@ def materialize_whole_project_signal_to_decision_receipt(
         "goal_completion_claim_allowed": False,
         "queue_truth_claim_allowed": False,
         "release_authority_claim_allowed": False,
+        "next_action": next_action,
+        "next_action_href": SIGNAL_EVIDENCE_CAPTURE_PATH if next_action_evidence_part else "",
+        "next_action_label": SIGNAL_EVIDENCE_CAPTURE_LABEL if next_action_evidence_part else "",
+        "next_action_method": SIGNAL_EVIDENCE_CAPTURE_METHOD.lower() if next_action_evidence_part else "",
+        "next_action_evidence_part": next_action_evidence_part,
         "real_weekly_operator_review_accepted": review_accepted,
         "closed_loop_followthrough_receipt_verified": follow_accepted,
         "signal_evidence_capture_surface": _signal_evidence_capture_surface(),

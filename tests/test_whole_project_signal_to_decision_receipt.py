@@ -108,6 +108,11 @@ def test_signal_to_decision_receipt_materializes_local_packet_without_overclaim(
     assert receipt["goal_completion_claim_allowed"] is False
     assert receipt["queue_truth_claim_allowed"] is False
     assert receipt["release_authority_claim_allowed"] is False
+    assert receipt["next_action"] == "record_redacted_signal_review_acceptance"
+    assert receipt["next_action_href"] == "/admin/actions/signal-to-decision-evidence"
+    assert receipt["next_action_label"] == "Record a signal-loop outcome"
+    assert receipt["next_action_method"] == "post"
+    assert receipt["next_action_evidence_part"] == "review"
     assert receipt["real_weekly_operator_review_accepted"] is False
     assert receipt["closed_loop_followthrough_receipt_verified"] is False
     assert receipt["signal_evidence_capture_surface"]["path"] == "/admin/actions/signal-to-decision-evidence"  # type: ignore[index]
@@ -169,6 +174,11 @@ def test_signal_to_decision_receipt_hashes_operator_review_and_followthrough(tmp
     )
 
     assert receipt["status"] == "ready_real_signal_to_decision_closure"
+    assert receipt["next_action"] == "review_closed_signal_to_decision_claim"
+    assert receipt["next_action_href"] == ""
+    assert receipt["next_action_label"] == ""
+    assert receipt["next_action_method"] == ""
+    assert receipt["next_action_evidence_part"] == ""
     assert receipt["real_weekly_operator_review_accepted"] is True
     assert receipt["closed_loop_followthrough_receipt_verified"] is True
     assert receipt["goal_completion_claim_allowed"] is False
@@ -212,6 +222,9 @@ def test_signal_to_decision_verifier_rejects_overclaim_and_missing_source(tmp_pa
     receipt["boundary_posture"]["ea_is_product_truth"] = True
     receipt.pop("signal_evidence_capture_surface")
     receipt["signal_evidence_capture_requirements"] = []
+    receipt["next_action_href"] = ""
+    receipt["next_action_label"] = ""
+    receipt["next_action_method"] = ""
     receipt["signal_sources"] = [row for row in receipt["signal_sources"] if row["key"] != "provider_runtime_failures"]
     receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -224,6 +237,9 @@ def test_signal_to_decision_verifier_rejects_overclaim_and_missing_source(tmp_pa
     assert "signal_decision_source_row_missing:provider_runtime_failures" in verification["issues"]
     assert "signal_decision_capture_surface_path_missing" in verification["issues"]
     assert "signal_decision_capture_requirement_missing:review" in verification["issues"]
+    assert "signal_decision_next_action_href_missing" in verification["issues"]
+    assert "signal_decision_next_action_label_missing" in verification["issues"]
+    assert "signal_decision_next_action_method_missing" in verification["issues"]
 
 
 def test_signal_to_decision_clis_work(tmp_path: Path) -> None:

@@ -8,7 +8,7 @@
       "hash_verified": 420,
       "mode": "0o600",
       "path_recorded": true,
-      "path_sha256": "9397f40326f72d80e0e012f3f0518fc1b81d779feeeb8ddfbdf4917e2053a165",
+      "path_sha256": "5e8cfcb55b4de92282d1ad5f844010ca805d44501e3d8a910c5b4895725d9855",
       "restored": 420,
       "scope": "ea_root"
     },
@@ -18,7 +18,7 @@
       "hash_verified": 100,
       "mode": "0o600",
       "path_recorded": true,
-      "path_sha256": "b17c668aa9e396f739e351d526493fe3b5bcf23d89a641ce2b346cac5b007977",
+      "path_sha256": "708fc66f7a922d42c06775e590dbc768726e6a0d6ac7d63036e42d94d46261c3",
       "restored": 100,
       "scope": "ea_root_local"
     },
@@ -28,13 +28,13 @@
       "hash_verified": 9,
       "mode": "0o600",
       "path_recorded": true,
-      "path_sha256": "754cbabe5dc8f542d441dd409e8841d1d1402fd8bc40c77ba20af1a4ed1634b7",
+      "path_sha256": "66eed97a8e615f7dfe28cd0c667b0cdf5e108dd7b5c4c9318e3672b315e6b92e",
       "restored": 9,
       "scope": "ea_service"
     }
   ],
   "fresh_host_api_key_source": "process_env",
-  "generated_at": "2026-06-29T20:21:11Z",
+  "generated_at": "2026-06-29T20:29:31Z",
   "generated_by": "scripts/materialize_teable_env_recovery_proof.py",
   "head_semantics": "source_state",
   "host_profile": "ea-prod",
@@ -53,37 +53,37 @@
     "modes": [
       {
         "mode": "0o600",
-        "path_sha256": "a876695ab15c4bbff4e91912031106b1aac5c52b6eaabf5276e74c692c635e69"
+        "path_sha256": "2bf3b6ac3442b5b9955f4fcb95d2c1841b53771225b4190446ea0f7169f3c57d"
       },
       {
         "mode": "0o600",
-        "path_sha256": "5b8519588c97cabe69e8dc27325297a0146dbc22b5b175131a78e758374e4343"
+        "path_sha256": "4b42015b3a0d49260b62a39414795598d3cc78b8e92634c07bb00feaa300709d"
       },
       {
         "mode": "0o600",
-        "path_sha256": "80e4935073f161043ed92290bc62e92ef8a5155116a8180e5d683c3e038aa202"
+        "path_sha256": "70002a7df0f1a47ce08f3bdfb62d30028fd8abbd733f56f597ac481d4422051e"
       },
       {
         "mode": "0o600",
-        "path_sha256": "710da879a616640c5e827b41b917e061cd8a63e2391372362938f5e8a32ac85e"
+        "path_sha256": "561c22a7aad02f765f238a1c1930b9efdb70af648035f2d403b41c835e7d958b"
       },
       {
         "mode": "0o600",
-        "path_sha256": "99be0b055deb3263599e7578308ef85c15785db1062fe5a2beb2336d21468b66"
+        "path_sha256": "3d5ee95871c85408bd00a8419365ef4d6b0b988c52d1616d85104330aa29c3af"
       },
       {
         "mode": "0o600",
-        "path_sha256": "cad11cd82ee80b3fede3273ce36cde249fe1277f082c601d76a10c318baf6817"
+        "path_sha256": "dc86918011999bf4cffad386bacd2cd95f85f91bb23ecede147e8f26c908d5f7"
       }
     ],
     "path_count": 6,
     "path_sha256": [
-      "a876695ab15c4bbff4e91912031106b1aac5c52b6eaabf5276e74c692c635e69",
-      "5b8519588c97cabe69e8dc27325297a0146dbc22b5b175131a78e758374e4343",
-      "80e4935073f161043ed92290bc62e92ef8a5155116a8180e5d683c3e038aa202",
-      "710da879a616640c5e827b41b917e061cd8a63e2391372362938f5e8a32ac85e",
-      "99be0b055deb3263599e7578308ef85c15785db1062fe5a2beb2336d21468b66",
-      "cad11cd82ee80b3fede3273ce36cde249fe1277f082c601d76a10c318baf6817"
+      "2bf3b6ac3442b5b9955f4fcb95d2c1841b53771225b4190446ea0f7169f3c57d",
+      "4b42015b3a0d49260b62a39414795598d3cc78b8e92634c07bb00feaa300709d",
+      "70002a7df0f1a47ce08f3bdfb62d30028fd8abbd733f56f597ac481d4422051e",
+      "561c22a7aad02f765f238a1c1930b9efdb70af648035f2d403b41c835e7d958b",
+      "3d5ee95871c85408bd00a8419365ef4d6b0b988c52d1616d85104330aa29c3af",
+      "dc86918011999bf4cffad386bacd2cd95f85f91bb23ecede147e8f26c908d5f7"
     ],
     "restored": 6
   },
@@ -94,7 +94,7 @@
   ],
   "secret_values_redacted": true,
   "source_git_head": "ac132b85ff2ebe6f225d943eb8511737c1827e08",
-  "source_state_fingerprint": "685ee67b5cf066d3be64f9bccbd8457fe18d241fc101241ee9013e03a1c02928",
+  "source_state_fingerprint": "4e09e64fd5015f2e56a8a27c3c0247e5b25e26ed14e6cc84b42e3713fcbfeb62",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "pass",
   "table_discovery_mode": "explicit_table_id",

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from materialize_executive_assistant_acceptance_evidence import (
+    ACCEPTANCE_CAPTURE_LABEL,
     ACCEPTANCE_CAPTURE_FORM_FIELDS,
     ACCEPTANCE_CAPTURE_METHOD,
     ACCEPTANCE_CAPTURE_PATH,
@@ -38,6 +39,33 @@ def verify_executive_assistant_acceptance_evidence(receipt_path: str | Path) -> 
         issues.append("ea_acceptance_blocked_keys_mismatch")
     if list(receipt.get("remaining_external_proofs") or []) != [REMAINING_PROOF_LABELS[key] for key in expected_blocked]:
         issues.append("ea_acceptance_remaining_external_proofs_mismatch")
+    next_action = str(receipt.get("next_action") or "").strip()
+    next_action_href = str(receipt.get("next_action_href") or "").strip()
+    next_action_label = str(receipt.get("next_action_label") or "").strip()
+    next_action_method = str(receipt.get("next_action_method") or "").strip().lower()
+    next_action_proof_key = str(receipt.get("next_action_proof_key") or "").strip()
+    if expected_blocked:
+        if next_action != "collect_redacted_real_world_acceptance_evidence":
+            issues.append("ea_acceptance_next_action_missing")
+        if next_action_href != ACCEPTANCE_CAPTURE_PATH:
+            issues.append("ea_acceptance_next_action_href_missing")
+        if next_action_label != ACCEPTANCE_CAPTURE_LABEL:
+            issues.append("ea_acceptance_next_action_label_missing")
+        if next_action_method != ACCEPTANCE_CAPTURE_METHOD.lower():
+            issues.append("ea_acceptance_next_action_method_missing")
+        if next_action_proof_key != expected_blocked[0]:
+            issues.append("ea_acceptance_next_action_proof_key_mismatch")
+    else:
+        if next_action != "review_good_executive_assistant_claim":
+            issues.append("ea_acceptance_next_action_review_missing")
+        for key, value in (
+            ("href", next_action_href),
+            ("label", next_action_label),
+            ("method", next_action_method),
+            ("proof_key", next_action_proof_key),
+        ):
+            if value:
+                issues.append(f"ea_acceptance_next_action_{key}_should_be_empty_after_acceptance")
     for key, row in rows.items():
         row_dict = dict(row)
         if row_dict.get("accepted") is True:

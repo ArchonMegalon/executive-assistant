@@ -209,10 +209,14 @@
     "real_provider_failure_recovered"
   ],
   "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
-  "generated_at": "2026-06-29T18:19:12Z",
+  "generated_at": "2026-06-29T20:28:04Z",
   "generated_by": "ea/scripts/materialize_executive_assistant_acceptance_evidence.py",
   "goal_completion_claim_allowed": false,
   "next_action": "collect_redacted_real_world_acceptance_evidence",
+  "next_action_href": "/admin/actions/acceptance-evidence",
+  "next_action_label": "Record a real-use outcome",
+  "next_action_method": "post",
+  "next_action_proof_key": "real_daily_morning_brief_accepted",
   "privacy": {
     "credential_values_exposed": false,
     "raw_acceptance_text_exposed": false,

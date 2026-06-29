@@ -7,6 +7,7 @@ from typing import Any
 
 from materialize_whole_project_signal_to_decision_receipt import (
     REQUIRED_SIGNAL_SOURCES,
+    SIGNAL_EVIDENCE_CAPTURE_LABEL,
     SIGNAL_EVIDENCE_CAPTURE_FORM_FIELDS,
     SIGNAL_EVIDENCE_CAPTURE_METHOD,
     SIGNAL_EVIDENCE_CAPTURE_PATH,
@@ -32,6 +33,11 @@ def verify_whole_project_signal_to_decision_receipt(receipt_path: str | Path) ->
         issues.append("signal_decision_queue_truth_overclaim")
     if dict(receipt.get("boundary_posture") or {}).get("ea_is_product_truth") is True:
         issues.append("signal_decision_ea_product_truth_overclaim")
+    next_action = str(receipt.get("next_action") or "").strip()
+    next_action_href = str(receipt.get("next_action_href") or "").strip()
+    next_action_label = str(receipt.get("next_action_label") or "").strip()
+    next_action_method = str(receipt.get("next_action_method") or "").strip().lower()
+    next_action_evidence_part = str(receipt.get("next_action_evidence_part") or "").strip()
     rows = {dict(row).get("key"): row for row in receipt.get("signal_sources") or []}
     for key in REQUIRED_SIGNAL_SOURCES:
         if key not in rows:
@@ -117,6 +123,39 @@ def verify_whole_project_signal_to_decision_receipt(receipt_path: str | Path) ->
         for raw_key in (raw_field, "raw_actor_exposed", "raw_packet_ref_exposed"):
             if evidence_row.get(raw_key) is not False:
                 issues.append(f"signal_decision_raw_field_flag_not_false:{part}:{raw_key}")
+    if not bool(receipt.get("real_weekly_operator_review_accepted")):
+        if next_action != str(SIGNAL_EVIDENCE_PARTS["review"]["next_action"]):
+            issues.append("signal_decision_next_action_review_missing")
+        if next_action_evidence_part != "review":
+            issues.append("signal_decision_next_action_evidence_part_mismatch:review")
+        if next_action_href != SIGNAL_EVIDENCE_CAPTURE_PATH:
+            issues.append("signal_decision_next_action_href_missing")
+        if next_action_label != SIGNAL_EVIDENCE_CAPTURE_LABEL:
+            issues.append("signal_decision_next_action_label_missing")
+        if next_action_method != SIGNAL_EVIDENCE_CAPTURE_METHOD.lower():
+            issues.append("signal_decision_next_action_method_missing")
+    elif not bool(receipt.get("closed_loop_followthrough_receipt_verified")):
+        if next_action != str(SIGNAL_EVIDENCE_PARTS["followthrough"]["next_action"]):
+            issues.append("signal_decision_next_action_followthrough_missing")
+        if next_action_evidence_part != "followthrough":
+            issues.append("signal_decision_next_action_evidence_part_mismatch:followthrough")
+        if next_action_href != SIGNAL_EVIDENCE_CAPTURE_PATH:
+            issues.append("signal_decision_next_action_href_missing")
+        if next_action_label != SIGNAL_EVIDENCE_CAPTURE_LABEL:
+            issues.append("signal_decision_next_action_label_missing")
+        if next_action_method != SIGNAL_EVIDENCE_CAPTURE_METHOD.lower():
+            issues.append("signal_decision_next_action_method_missing")
+    else:
+        if next_action != "review_closed_signal_to_decision_claim":
+            issues.append("signal_decision_next_action_review_closed_claim_missing")
+        for key, value in (
+            ("href", next_action_href),
+            ("label", next_action_label),
+            ("method", next_action_method),
+            ("evidence_part", next_action_evidence_part),
+        ):
+            if value:
+                issues.append(f"signal_decision_next_action_{key}_should_be_empty_after_acceptance")
     return {"contract_name": "ea.whole_project_signal_to_decision_receipt.verify.v1", "status": "pass" if not issues else "fail", "issues": issues}
 
 
