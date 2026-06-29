@@ -618,10 +618,10 @@ def format_telegram_digest(
 ) -> str:
     if not digest.items:
         return ""
-    lines = ["EA OODA"]
+    needs_decision = any(item.approval_required for item in digest.items)
+    lines = ["EA needs your decision" if needs_decision else "EA staged a next step"]
     safe_results = tuple(dict(row) for row in safe_work_results if isinstance(row, Mapping))
     for index, item in enumerate(digest.items, start=1):
-        approval = "approval needed" if item.approval_required else "no approval needed"
         lines.extend(
             (
                 "",
@@ -630,31 +630,25 @@ def format_telegram_digest(
         )
         if index - 1 < len(safe_results):
             lines.extend(_safe_work_preview_lines(safe_results[index - 1]))
-        lines.extend(
-            (
-                f"Priority: {item.priority}; {approval}",
-                f"Why: {item.orient}",
-                f"Decision: {item.decide}",
-                f"Action: {item.act}",
-            )
-        )
-        if item.action_plan:
-            lines.append(f"Plan: {' | '.join(item.action_plan)}")
-        if item.stage_kind or item.stage_summary:
-            stage_label = item.stage_kind or "stage"
-            lines.append(f"Stage: {stage_label} - {item.stage_summary}" if item.stage_summary else f"Stage: {stage_label}")
-        if item.stage_artifacts:
-            lines.append(f"Artifacts: {' | '.join(item.stage_artifacts)}")
-        if item.approval_gate:
-            lines.append(f"Approval: {item.approval_gate}")
-        if item.external_action_policy:
-            lines.append(f"Guardrail: {item.external_action_policy}")
-        lines.extend(
-            (
-                f"If ignored: {item.ignored_consequence}",
-                f"Evidence: {', '.join(item.evidence)}",
-            )
-    )
+        else:
+            decision_label = "Please decide" if item.approval_required else "Suggested decision"
+            if item.decide:
+                lines.append(f"{decision_label}: {item.decide}")
+            if item.act:
+                lines.append(f"EA will: {item.act}")
+        if item.orient:
+            lines.append(f"Why now: {item.orient}")
+        if item.stage_summary and index - 1 >= len(safe_results):
+            lines.append(f"Ready: {item.stage_summary}")
+        guardrail = item.approval_gate or item.external_action_policy
+        if guardrail:
+            lines.append(f"Guardrail: {guardrail}")
+        if item.ignored_consequence:
+            lines.append(f"If skipped: {item.ignored_consequence}")
+        if item.evidence:
+            receipt_count = len(item.evidence)
+            suffix = "" if receipt_count == 1 else "s"
+            lines.append(f"Receipts: {receipt_count} source receipt{suffix} recorded.")
     return "\n".join(lines).strip()
 
 
@@ -666,15 +660,15 @@ def _safe_work_preview_lines(result: Mapping[str, Any]) -> list[str]:
     prompt = _compact(str(result.get("approval_prompt") or ""), 220)
     lines: list[str] = []
     if summary:
-        lines.append(f"Prepared: {summary}")
+        lines.append(f"Ready: {summary}")
     if recommended:
-        lines.append(f"Recommended: {recommended}")
+        lines.append(f"Recommendation: {recommended}")
     if staged_action_url:
-        lines.append(f"Link: {staged_action_url}")
+        lines.append(f"Open: {staged_action_url}")
     if shortlist:
-        lines.append(f"Shortlist: {shortlist}")
+        lines.append(f"Options: {shortlist}")
     if prompt:
-        lines.append(f"Approve: {prompt}")
+        lines.append(f"Please decide: {prompt}")
     return lines
 
 
@@ -687,9 +681,13 @@ def _recommended_preview(value: Any) -> str:
         label = _compact(str(raw.get("label") or raw.get("title") or ""), 80)
         url = _compact(str(raw.get("url") or raw.get("link") or raw.get("href") or ""), 120)
         title = _compact(str(raw.get("page_title") or ""), 80)
-        parts = [part for part in (label, title, url) if part]
-        detail = " | ".join(parts)
-        return f"{kind}: {detail}" if detail else kind
+        parts = [part for part in (label, url, title) if part]
+        detail = " - ".join(parts)
+        if not detail:
+            return kind
+        if kind in {"result", "shortlist candidate"}:
+            return detail
+        return f"{kind}: {detail}"
     detail = _compact(str(raw or ""), 180)
     return f"{kind}: {detail}" if detail else kind
 

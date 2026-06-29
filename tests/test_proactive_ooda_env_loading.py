@@ -330,11 +330,11 @@ def test_runner_notification_text_includes_safe_work_preview() -> None:
 
     text = runner._format_notification_text(digest, safe_work_results=(result,))
 
-    assert "Prepared: One vendor candidate ready for approval." in text
-    assert "Recommended: shortlist candidate: Vendor A | https://example.test/vendor-a" in text
-    assert "Link: https://example.test/approve/vendor-a" in text
-    assert "Shortlist: Vendor A - https://example.test/vendor-a" in text
-    assert "Approve: Approve whether EA should proceed with this staged shortlist candidate." in text
+    assert "Ready: One vendor candidate ready for approval." in text
+    assert "Recommendation: Vendor A - https://example.test/vendor-a" in text
+    assert "Open: https://example.test/approve/vendor-a" in text
+    assert "Options: Vendor A - https://example.test/vendor-a" in text
+    assert "Please decide: Approve whether EA should proceed with this staged shortlist candidate." in text
 
 
 def test_runner_main_sends_safe_work_preview_to_telegram(tmp_path, monkeypatch, capsys) -> None:
@@ -408,9 +408,10 @@ def test_runner_main_sends_safe_work_preview_to_telegram(tmp_path, monkeypatch, 
     captured = capsys.readouterr()
     assert sent and sent[0][0] == "exec"
     assert sent[0][2] is not None
-    assert "Recommended: shortlist candidate: Vendor A | https://example.test/vendor-a" in sent[0][1]
-    assert "Link: https://example.test/approve/vendor-a" in sent[0][1]
-    assert "Shortlist: Vendor A - https://example.test/vendor-a" in sent[0][1]
+    assert "Recommendation: Vendor A - https://example.test/vendor-a" in sent[0][1]
+    assert "Open: https://example.test/approve/vendor-a" in sent[0][1]
+    assert "Options: Vendor A - https://example.test/vendor-a" in sent[0][1]
+    assert "Priority:" not in sent[0][1]
     assert '"notification_status": "sent"' in captured.out
 
 

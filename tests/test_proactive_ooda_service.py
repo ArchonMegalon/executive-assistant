@@ -46,8 +46,10 @@ def test_proactive_ooda_notifies_only_actionable_signals_and_keeps_evidence(tmp_
     assert digest.items[0].priority == "high"
     assert "gmail:gmail:APPROVAL" in digest.items[0].evidence
     assert sent and sent[0][0] == "exec"
-    assert "If ignored:" in sent[0][1]
-    assert "Evidence:" in sent[0][1]
+    assert sent[0][1].startswith("EA needs your decision")
+    assert "Please decide:" in sent[0][1]
+    assert "Receipts:" in sent[0][1]
+    assert "gmail:gmail:APPROVAL" not in sent[0][1]
 
 
 def test_proactive_ooda_treats_assistant_task_verbs_as_actionable() -> None:
@@ -417,9 +419,10 @@ def test_proactive_ooda_prefers_structured_ooda_loop() -> None:
     assert "ooda:reviewed" in item.evidence
     assert "tag:launch" in item.evidence
     text = format_telegram_digest(digest)
-    assert "Stage: approval_packet - A budget decision packet ready for the user to approve." in text
-    assert "Artifacts: budget_context | yes_no_prompt" in text
-    assert "Approval: User must approve before any external send." in text
+    assert "Ready: A budget decision packet ready for the user to approve." in text
+    assert "Guardrail: User must approve before any external send." in text
+    assert "Artifacts:" not in text
+    assert "tag:launch" not in text
 
 
 def test_format_telegram_digest_is_minimal_but_decision_ready() -> None:
@@ -440,12 +443,14 @@ def test_format_telegram_digest_is_minimal_but_decision_ready() -> None:
 
     text = format_telegram_digest(digest)
 
-    assert text.startswith("EA OODA")
-    assert "Why:" in text
-    assert "Decision:" in text
-    assert "Action:" in text
+    assert text.startswith("EA needs your decision")
+    assert "Why now:" in text
+    assert "Please decide:" in text
+    assert "EA will:" in text
     assert "Guardrail:" in text
-    assert "Evidence:" in text
+    assert "Receipts:" in text
+    assert "Priority:" not in text
+    assert "Evidence:" not in text
     assert "checks" not in text.lower()
 
 
@@ -487,8 +492,10 @@ def test_format_telegram_digest_can_embed_safe_work_preview() -> None:
 
     text = format_telegram_digest(digest, safe_work_results=(result,))
 
-    assert "Prepared: One vendor candidate ready for approval." in text
-    assert "Recommended: shortlist candidate: Vendor A | https://example.test/vendor-a" in text
-    assert "Link: https://example.test/approve/vendor-a" in text
-    assert "Shortlist: Vendor A - https://example.test/vendor-a" in text
-    assert "Approve: Approve whether EA should proceed with this staged shortlist candidate." in text
+    assert "Ready: One vendor candidate ready for approval." in text
+    assert "Recommendation: Vendor A - https://example.test/vendor-a" in text
+    assert "Open: https://example.test/approve/vendor-a" in text
+    assert "Options: Vendor A - https://example.test/vendor-a" in text
+    assert "Please decide: Approve whether EA should proceed with this staged shortlist candidate." in text
+    assert "Prepared:" not in text
+    assert "Approve:" not in text
