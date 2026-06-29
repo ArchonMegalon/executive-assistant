@@ -70,6 +70,46 @@ def _verify_surface(
             issues.append(f"{prefix} approval-capture next_action_method must be get")
 
 
+def _next_action_surface(payload: dict[str, Any]) -> dict[str, str]:
+    return {
+        "next_action": str(payload.get("next_action") or "").strip(),
+        "next_action_href": str(payload.get("next_action_href") or "").strip(),
+        "next_action_label": str(payload.get("next_action_label") or "").strip(),
+        "next_action_method": str(payload.get("next_action_method") or "").strip(),
+    }
+
+
+def _preferred_action_surface(*surfaces: dict[str, str]) -> dict[str, str]:
+    selected: dict[str, str] = {}
+    fallback_same_action: dict[str, str] = {}
+    for surface in surfaces:
+        action = str(surface.get("next_action") or "").strip()
+        if not action:
+            continue
+        if not selected:
+            selected = {
+                "next_action": action,
+                "next_action_href": str(surface.get("next_action_href") or "").strip(),
+                "next_action_label": str(surface.get("next_action_label") or "").strip(),
+                "next_action_method": str(surface.get("next_action_method") or "").strip(),
+            }
+            continue
+        if action == selected["next_action"] and not fallback_same_action:
+            fallback_same_action = {
+                "next_action": action,
+                "next_action_href": str(surface.get("next_action_href") or "").strip(),
+                "next_action_label": str(surface.get("next_action_label") or "").strip(),
+                "next_action_method": str(surface.get("next_action_method") or "").strip(),
+            }
+    if not selected:
+        return {}
+    if fallback_same_action:
+        for key in ("next_action_href", "next_action_label", "next_action_method"):
+            if not str(selected.get(key) or "").strip():
+                selected[key] = str(fallback_same_action.get(key) or "").strip()
+    return selected
+
+
 def verify_office_loop_goal_receipt(receipt_path: str | Path) -> dict[str, Any]:
     receipt = _load(Path(receipt_path))
     issues: list[str] = []
@@ -157,6 +197,10 @@ def verify_office_loop_goal_receipt(receipt_path: str | Path) -> dict[str, Any]:
     proactive_operator_evidence = dict(evidence_receipts.get("proactive_ooda_operator_status") or {})
     proactive_gold_evidence = dict(evidence_receipts.get("proactive_ooda_gold_acceptance") or {})
     proactive_posture = dict(receipt.get("proactive_ooda_followthrough_posture") or {})
+    expected_followthrough_surface = _preferred_action_surface(
+        _next_action_surface(proactive_gold_evidence),
+        _next_action_surface(proactive_operator_evidence),
+    )
     if not proactive_posture:
         issues.append("office_loop_followthrough_posture_missing")
     else:
@@ -165,6 +209,15 @@ def verify_office_loop_goal_receipt(receipt_path: str | Path) -> dict[str, Any]:
         for key in ("next_action_href", "next_action_label", "next_action_method"):
             if str(proactive_posture.get(key) or "").strip() != str(receipt.get(key) or "").strip():
                 issues.append(f"office_loop_{key}_drifted_from_followthrough_posture")
+        if expected_followthrough_surface:
+            for key, issue in (
+                ("next_action", "office_loop_followthrough_posture_missing_action_surface"),
+                ("next_action_href", "office_loop_followthrough_posture_missing_action_href"),
+                ("next_action_label", "office_loop_followthrough_posture_missing_action_label"),
+                ("next_action_method", "office_loop_followthrough_posture_missing_action_method"),
+            ):
+                if str(proactive_posture.get(key) or "").strip() != str(expected_followthrough_surface.get(key) or "").strip():
+                    issues.append(issue)
         _verify_surface(proactive_posture, issues, prefix="office_loop_followthrough_posture")
 
     for key, linked in (

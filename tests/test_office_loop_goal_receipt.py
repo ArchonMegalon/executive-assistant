@@ -115,6 +115,71 @@ def test_office_loop_goal_receipt_materializes_seeded_local_loop(tmp_path: Path)
     assert verification["issues"] == []
 
 
+def test_office_loop_goal_receipt_propagates_proactive_approval_capture_surface(tmp_path: Path) -> None:
+    materializer = _load_script("materialize_office_loop_goal_receipt")
+    verifier = _load_script("verify_office_loop_goal_receipt")
+    receipt_path = tmp_path / "office-loop-approval-surface.generated.json"
+    proactive_gold_path = tmp_path / "ea_proactive_ooda_gold_acceptance.generated.json"
+    proactive_operator_path = tmp_path / "ea_proactive_ooda_operator_status.generated.json"
+
+    proactive_gold_path.write_text(
+        json.dumps(
+            {
+                "contract_name": "ea.proactive_ooda_gold_acceptance.v1",
+                "status": "ready_for_approval_outcome_capture",
+                "summary": "A proactive OODA packet has local gold-proof runtime evidence and a live Telegram approval capture surface; capture the redacted approval outcome next.",
+                "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
+                "next_action_href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
+                "next_action_label": "Open approval capture",
+                "next_action_method": "get",
+                "proofs": {"approval_outcome": {"approval_outcome_recorded": False, "accepted": False}},
+                "evidence_receipts": {"approval_capture_surface": {"ready": True}},
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    proactive_operator_path.write_text(
+        json.dumps(
+            {
+                "contract_name": "ea.proactive_ooda_operator_status.v1",
+                "status": "ready_with_live_receipt",
+                "summary": "Proactive OODA route, packet runtime, latest host-visible live receipt, and Telegram approval capture surface are ready for operator follow-through.",
+                "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
+                "next_action_href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
+                "next_action_label": "Open approval capture",
+                "next_action_method": "get",
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    receipt = materializer.materialize_office_loop_goal_receipt(
+        receipt_path=receipt_path,
+        generated_at=GENERATED_AT,
+        proactive_operator_status_receipt_path=proactive_operator_path,
+        proactive_gold_acceptance_receipt_path=proactive_gold_path,
+    )
+
+    assert receipt["next_action"] == "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome"
+    assert receipt["next_action_href"] == "https://myexternalbrain.com/admin/proactive-ooda/approval"
+    assert receipt["next_action_label"] == "Open approval capture"
+    assert receipt["next_action_method"] == "get"
+    assert receipt["proactive_ooda_followthrough_posture"]["next_action"] == receipt["next_action"]
+    assert receipt["proactive_ooda_followthrough_posture"]["next_action_href"] == receipt["next_action_href"]
+    assert receipt["proactive_ooda_followthrough_posture"]["next_action_label"] == receipt["next_action_label"]
+    assert receipt["proactive_ooda_followthrough_posture"]["next_action_method"] == receipt["next_action_method"]
+
+    verification = verifier.verify_office_loop_goal_receipt(receipt_path)
+    assert verification["status"] == "pass"
+    assert verification["issues"] == []
+
+
 def test_office_loop_goal_verifier_rejects_overclaim_and_route_regression(tmp_path: Path) -> None:
     materializer = _load_script("materialize_office_loop_goal_receipt")
     verifier = _load_script("verify_office_loop_goal_receipt")
@@ -208,6 +273,75 @@ def test_office_loop_goal_verifier_rejects_overclaim_and_route_regression(tmp_pa
     assert "office_loop_proactive_ooda_source_missing:gmail_draft_execution_state" in verification["issues"]
     assert "office_loop_proactive_ooda_source_missing:telegram_interruption_action_required_state" in verification["issues"]
     assert "office_loop_proactive_ooda_source_missing:current_packet_and_stale_approval_state" in verification["issues"]
+
+
+def test_office_loop_goal_verifier_rejects_missing_proactive_action_surface(tmp_path: Path) -> None:
+    materializer = _load_script("materialize_office_loop_goal_receipt")
+    verifier = _load_script("verify_office_loop_goal_receipt")
+    receipt_path = tmp_path / "missing-action-surface.generated.json"
+    proactive_gold_path = tmp_path / "ea_proactive_ooda_gold_acceptance.generated.json"
+    proactive_operator_path = tmp_path / "ea_proactive_ooda_operator_status.generated.json"
+
+    proactive_gold_path.write_text(
+        json.dumps(
+            {
+                "contract_name": "ea.proactive_ooda_gold_acceptance.v1",
+                "status": "ready_for_approval_outcome_capture",
+                "summary": "Ready to capture approval outcome.",
+                "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
+                "next_action_href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
+                "next_action_label": "Open approval capture",
+                "next_action_method": "get",
+                "proofs": {"approval_outcome": {"approval_outcome_recorded": False, "accepted": False}},
+                "evidence_receipts": {"approval_capture_surface": {"ready": True}},
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    proactive_operator_path.write_text(
+        json.dumps(
+            {
+                "contract_name": "ea.proactive_ooda_operator_status.v1",
+                "status": "ready_with_live_receipt",
+                "summary": "Operator runtime ready for follow-through.",
+                "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
+                "next_action_href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
+                "next_action_label": "Open approval capture",
+                "next_action_method": "get",
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    materializer.materialize_office_loop_goal_receipt(
+        receipt_path=receipt_path,
+        generated_at=GENERATED_AT,
+        proactive_operator_status_receipt_path=proactive_operator_path,
+        proactive_gold_acceptance_receipt_path=proactive_gold_path,
+    )
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["next_action"] = "collect a real proactive OODA packet"
+    receipt["next_action_href"] = ""
+    receipt["next_action_label"] = ""
+    receipt["next_action_method"] = ""
+    receipt["proactive_ooda_followthrough_posture"]["next_action"] = "collect a real proactive OODA packet"
+    receipt["proactive_ooda_followthrough_posture"]["next_action_href"] = ""
+    receipt["proactive_ooda_followthrough_posture"]["next_action_label"] = ""
+    receipt["proactive_ooda_followthrough_posture"]["next_action_method"] = ""
+    receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    verification = verifier.verify_office_loop_goal_receipt(receipt_path)
+    assert verification["status"] == "fail"
+    assert "office_loop_followthrough_posture_missing_action_surface" in verification["issues"]
+    assert "office_loop_followthrough_posture_missing_action_href" in verification["issues"]
+    assert "office_loop_followthrough_posture_missing_action_label" in verification["issues"]
+    assert "office_loop_followthrough_posture_missing_action_method" in verification["issues"]
 
 
 def test_office_loop_goal_receipt_clis_work(tmp_path: Path) -> None:

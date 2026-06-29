@@ -94,6 +94,36 @@ def _next_action_surface(payload: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def _preferred_action_surface(*surfaces: dict[str, str]) -> dict[str, str]:
+    selected: dict[str, str] = {}
+    fallback_same_action: dict[str, str] = {}
+    for surface in surfaces:
+        action = _text(surface.get("next_action"))
+        if not action:
+            continue
+        if not selected:
+            selected = {
+                "next_action": action,
+                "next_action_href": _text(surface.get("next_action_href")),
+                "next_action_label": _text(surface.get("next_action_label")),
+                "next_action_method": _text(surface.get("next_action_method")),
+            }
+            continue
+        if action == selected["next_action"] and not fallback_same_action:
+            fallback_same_action = {
+                "next_action": action,
+                "next_action_href": _text(surface.get("next_action_href")),
+                "next_action_label": _text(surface.get("next_action_label")),
+                "next_action_method": _text(surface.get("next_action_method")),
+            }
+    if not selected:
+        return {}
+    if fallback_same_action:
+        for key in ("next_action_href", "next_action_label", "next_action_method"):
+            selected[key] = _text(selected.get(key)) or _text(fallback_same_action.get(key))
+    return selected
+
+
 def _receipt_summary(path: Path, payload: dict[str, Any], *, extra: dict[str, Any] | None = None) -> dict[str, Any]:
     row: dict[str, Any] = {
         "present": bool(payload),
@@ -144,9 +174,7 @@ def _proactive_followthrough_posture(
     approval_capture_surface = dict(
         dict(proactive_gold.get("evidence_receipts") or {}).get("approval_capture_surface") or {}
     )
-    selected_surface = gold_surface if gold_status == "pass" and gold_surface["next_action"] else {}
-    if not selected_surface and gold_status == "pass" and operator_surface["next_action"]:
-        selected_surface = operator_surface
+    selected_surface = _preferred_action_surface(gold_surface, operator_surface)
     next_action = str(selected_surface.get("next_action") or "").strip() or DEFAULT_NARRATIVE_NEXT_ACTION
     return {
         "status": gold_status or operator_status or "missing",
