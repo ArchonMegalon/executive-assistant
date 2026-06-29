@@ -335,7 +335,9 @@ def _state_file_report(
         "state_file_present": state_file.is_file(),
         "state_file_probe_source": "host",
         "state_file_processor_volume_path": is_processor_volume_path,
+        "state_fresh": False,
         "state_stale_seconds": stale_seconds,
+        "state_updated_at_valid": False,
     }
 
     if is_processor_volume_path and not state_file.parent.exists():
@@ -416,7 +418,9 @@ report = {
     "state_file_object": False,
     "state_file_parent_writable": False,
     "state_file_present": state_file.is_file(),
+    "state_fresh": False,
     "state_stale_seconds": stale_seconds,
+    "state_updated_at_valid": False,
 }
 try:
     state_file.parent.mkdir(parents=True, exist_ok=True)
@@ -502,6 +506,14 @@ def _merge_container_state(
         "state_file_container_probe_succeeded": True,
         "state_file_probe_source": "processor_container",
     }
+
+
+def _container_volume_state_unverified(state: dict[str, object]) -> bool:
+    return (
+        bool(state.get("state_file_processor_volume_path"))
+        and bool(state.get("state_file_host_probe_skipped"))
+        and not bool(state.get("state_file_container_probe_succeeded"))
+    )
 
 
 def _container_secret_file_present(
@@ -640,6 +652,9 @@ def build_report(
             )
             if bool(container_state.get("state_file_checked_in_container")):
                 state = _merge_container_state(host_state=state, container_state=container_state)
+            else:
+                state["state_file_container_probe_attempted"] = True
+                state["state_file_container_probe_succeeded"] = False
         api_env = _container_env_presence(container_name=str(args.api_container), keys=CALLBACK_SECRET_KEYS, run=run)
         processor_env = _container_env_presence(
             container_name=str(args.processor_container),
@@ -684,11 +699,15 @@ def build_report(
     for key in ("compose_file_present", "processor_service_declared", "processor_script_mounted", "processor_state_volume_declared"):
         if not bool(compose.get(key)):
             reasons.append(key)
-    if not bool(state.get("state_file_parent_writable")):
-        reasons.append("state_file_parent_not_writable")
-    if not bool(state.get("state_file_present")):
-        reasons.append("state_file_missing")
-    if bool(state.get("state_file_present")):
+    state_unknown = _container_volume_state_unverified(state)
+    if state_unknown:
+        reasons.append("state_file_container_probe_unavailable")
+    else:
+        if not bool(state.get("state_file_parent_writable")):
+            reasons.append("state_file_parent_not_writable")
+        if not bool(state.get("state_file_present")):
+            reasons.append("state_file_missing")
+    if bool(state.get("state_file_present")) and not state_unknown:
         if not bool(state.get("state_file_json_readable")):
             reasons.append("state_file_unreadable")
         elif not bool(state.get("state_file_object")):

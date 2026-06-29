@@ -631,6 +631,58 @@ volumes:
     assert "state_file_parent_not_writable" not in report["reasons"]
 
 
+def test_build_report_marks_container_volume_state_unverified_when_processor_container_is_unavailable(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "HOST_SECRET_FILE_CANDIDATES", ())
+    env_file = tmp_path / "container-state-unavailable.env"
+    env_file.write_text(
+        "\n".join(
+            [
+                "EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET=secret-value",
+                "EA_WHATSAPP_WEB_ACTION_PROCESSOR_ENABLED=1",
+                "EA_WHATSAPP_WEB_ACTION_STATE_FILE=/data/whatsapp-actions/processed.json",
+                "EA_WHATSAPP_WEB_SESSION_API_BASE_URL=http://wa-web.test",
+                "EA_WHATSAPP_WEB_DEFAULT_SESSION_REF=session-1",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    def _fake_run(cmd, **kwargs):
+        if cmd[:3] == ["docker", "exec", "ea-api"]:
+            if cmd[3:] == ["env"]:
+                return SimpleNamespace(returncode=0, stdout="EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET=api-secret\n")
+            return SimpleNamespace(returncode=0, stdout="")
+        if cmd[:3] == ["docker", "exec", "ea-whatsapp-web-action-processor"]:
+            return SimpleNamespace(returncode=1, stdout="", stderr="container secret failure")
+        raise AssertionError(cmd)
+
+    report = module.build_report(
+        _args(
+            tmp_path,
+            check_containers=True,
+            env_file=str(env_file),
+            state_file="/data/whatsapp-actions/processed.json",
+        ),
+        request_json=lambda **_: {"ready": True, "status": "ready", "store_message_text": True},
+        run=_fake_run,
+    )
+
+    assert report["ready"] is False
+    assert report["state_file_host_probe_skipped"] is True
+    assert report["state_file_container_probe_attempted"] is True
+    assert report["state_file_container_probe_succeeded"] is False
+    assert report["state_fresh"] is False
+    assert "state_file_container_probe_unavailable" in report["reasons"]
+    assert "processor_container_disabled_or_not_running" in report["reasons"]
+    assert "state_file_missing" not in report["reasons"]
+    assert "state_file_parent_not_writable" not in report["reasons"]
+    assert "container secret failure" not in str(report)
+
+
 def test_build_report_accepts_host_and_container_secret_files(tmp_path: Path) -> None:
     module = _module()
     env_file = tmp_path / "file-secret.env"

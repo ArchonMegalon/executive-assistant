@@ -139,6 +139,48 @@ def test_materialize_whatsapp_web_action_processor_readiness_maps_blocked_runtim
     assert receipt["next_action"] == "seed_whatsapp_callback_secret_and_rerun_readiness"
 
 
+def test_materialize_whatsapp_web_action_processor_readiness_prioritizes_unavailable_processor_container(
+    tmp_path: Path,
+) -> None:
+    module = _load_script()
+    args = _args(
+        tmp_path,
+        env_lines=[
+            "EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET=secret-value",
+            "EA_WHATSAPP_WEB_ACTION_PROCESSOR_ENABLED=1",
+            "EA_WHATSAPP_WEB_ACTION_STATE_FILE=/data/whatsapp-actions/processed.json",
+            "EA_WHATSAPP_WEB_SESSION_API_BASE_URL=http://wa-web.test",
+            "EA_WHATSAPP_WEB_DEFAULT_SESSION_REF=session-1",
+        ],
+    )
+    args.state_file = "/data/whatsapp-actions/processed.json"
+    args.check_containers = True
+
+    def _fake_run(cmd, **kwargs):
+        if cmd[:3] == ["docker", "exec", "ea-api"]:
+            if cmd[3:] == ["env"]:
+                return type("Completed", (), {"returncode": 0, "stdout": "EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET=api-secret\n"})()
+            return type("Completed", (), {"returncode": 0, "stdout": ""})()
+        if cmd[:3] == ["docker", "exec", "ea-whatsapp-web-action-processor"]:
+            return type("Completed", (), {"returncode": 1, "stdout": "", "stderr": "container secret failure"})()
+        raise AssertionError(cmd)
+
+    receipt = module.build_whatsapp_web_action_processor_readiness(
+        output_path=args.output,
+        generated_at="2026-06-22T16:42:00Z",
+        args=args,
+        request_json=lambda **_: {"ready": True, "status": "ready", "store_message_text": True},
+        run=_fake_run,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["reason"] == "state_file_container_probe_unavailable"
+    assert receipt["next_action"] == "start_or_repair_whatsapp_action_processor_container"
+    assert "state_file_missing" not in receipt["reasons"]
+    assert "state_file_parent_not_writable" not in receipt["reasons"]
+    assert "container secret failure" not in json.dumps(receipt, sort_keys=True)
+
+
 def test_resolve_whatsapp_web_action_processor_readiness_output_path_falls_back_to_runtime_cache(
     monkeypatch,
     tmp_path: Path,

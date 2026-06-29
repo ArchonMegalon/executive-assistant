@@ -127,8 +127,8 @@ def _next_action(report: dict[str, Any]) -> str:
     reasons = [str(item).strip() for item in list(report.get("reasons") or []) if str(item).strip()]
     if "callback_secret_missing" in reasons:
         return "seed_whatsapp_callback_secret_and_rerun_readiness"
-    if "sidecar_not_ready" in reasons or "sidecar_message_text_storage_disabled" in reasons:
-        return "restore_whatsapp_web_session_sidecar_readiness"
+    if any(code in reasons for code in ("state_file_container_probe_unavailable", "processor_container_disabled_or_not_running")):
+        return "start_or_repair_whatsapp_action_processor_container"
     if any(
         code in reasons
         for code in (
@@ -146,8 +146,8 @@ def _next_action(report: dict[str, Any]) -> str:
         return "repair_whatsapp_action_processor_compose_contract"
     if any(code in reasons for code in ("api_container_callback_secret_missing", "processor_container_callback_secret_missing")):
         return "sync_callback_secret_into_runtime_containers"
-    if "processor_container_disabled_or_not_running" in reasons:
-        return "start_or_repair_whatsapp_action_processor_container"
+    if "sidecar_not_ready" in reasons or "sidecar_message_text_storage_disabled" in reasons:
+        return "restore_whatsapp_web_session_sidecar_readiness"
     return "fix_whatsapp_web_action_processor_readiness"
 
 
