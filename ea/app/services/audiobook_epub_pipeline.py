@@ -3337,9 +3337,25 @@ def selected_unmixr_voice_for_job(job_dir: Path) -> dict[str, object]:
         provider_payload = dict(job.get("provider") or {})
         provider_payload["voice_selection"] = repaired_selection
         job["provider"] = provider_payload
+        render_result = dict(job.get("render_result") or {})
+        if isinstance(render_result.get("voice_selection"), dict):
+            render_result["voice_selection"] = dict(repaired_selection)
+            job["render_result"] = render_result
         job["updated_at"] = _now_iso()
         _write_job(job_dir, job)
+        _write_current_job_receipt_best_effort(job_dir)
         voice_selection = repaired_selection
+    render_result = dict(job.get("render_result") or {})
+    if str(voice_selection.get("status") or "").strip() == "selected_by_user" and isinstance(
+        render_result.get("voice_selection"), dict
+    ):
+        render_voice_selection = dict(render_result.get("voice_selection") or {})
+        if render_voice_selection != voice_selection:
+            render_result["voice_selection"] = dict(voice_selection)
+            job["render_result"] = render_result
+            job["updated_at"] = _now_iso()
+            _write_job(job_dir, job)
+            _write_current_job_receipt_best_effort(job_dir)
     private_payload = _load_voice_audition_private(job_dir)
     recovered_token = str(private_payload.get("selected_callback_token") or "").strip()
     if str(voice_selection.get("status") or "") != "selected_by_user" and recovered_token:

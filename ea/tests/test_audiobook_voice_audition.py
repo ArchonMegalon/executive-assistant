@@ -270,6 +270,15 @@ def test_selected_unmixr_voice_for_job_backfills_legacy_author_gender_signal() -
         "book_profile": {"author_gender_signal": ""},
     }
     job_dir = _create_job_dir(current_voice_selection=current_selection)
+    stored_job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
+    stored_job["render_result"] = {
+        "status": "blocked",
+        "voice_selection": {
+            **current_selection,
+            "book_profile": {"author_gender_signal": ""},
+        },
+    }
+    (job_dir / "job.json").write_text(json.dumps(stored_job, ensure_ascii=True, indent=2), encoding="utf-8")
     private_payload = {
         "contract_name": audiobook_epub_pipeline.VOICE_AUDITION_CONTRACT_NAME,
         "job_id": "test-job",
@@ -289,10 +298,65 @@ def test_selected_unmixr_voice_for_job_backfills_legacy_author_gender_signal() -
     }
     audiobook_epub_pipeline._write_voice_audition_private(job_dir, private_payload)  # noqa: SLF001
 
-    selection = audiobook_epub_pipeline.selected_unmixr_voice_for_job(job_dir)
+    with patch.object(audiobook_epub_pipeline, "_write_current_job_receipt_best_effort") as write_receipt:
+        selection = audiobook_epub_pipeline.selected_unmixr_voice_for_job(job_dir)
 
     public = dict(selection.get("public") or {})
     assert dict(public.get("book_profile") or {}).get("author_gender_signal") == "male"
+    write_receipt.assert_called_once_with(job_dir)
     stored_job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
     stored_selection = dict(dict(stored_job.get("provider") or {}).get("voice_selection") or {})
     assert dict(stored_selection.get("book_profile") or {}).get("author_gender_signal") == "male"
+    render_voice_selection = dict(dict(stored_job.get("render_result") or {}).get("voice_selection") or {})
+    assert dict(render_voice_selection.get("book_profile") or {}).get("author_gender_signal") == "male"
+
+
+def test_selected_unmixr_voice_for_job_syncs_stale_render_result_voice_selection() -> None:
+    current_selection = {
+        "status": "selected_by_user",
+        "selected": {
+            "preset_key": "unmixr_hans_12345678",
+            "label": "Hans",
+            "tags": ["audiobook", "narration", "male", "warm"],
+        },
+        "selected_callback_token": "callback-token-2",
+        "selected_candidate_key": "unmixr_hans_12345678",
+        "book_profile": {"author_gender_signal": "male"},
+    }
+    job_dir = _create_job_dir(current_voice_selection=current_selection)
+    stored_job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
+    stored_job["render_result"] = {
+        "status": "blocked",
+        "voice_selection": {
+            **current_selection,
+            "book_profile": {"author_gender_signal": ""},
+        },
+    }
+    (job_dir / "job.json").write_text(json.dumps(stored_job, ensure_ascii=True, indent=2), encoding="utf-8")
+    private_payload = {
+        "contract_name": audiobook_epub_pipeline.VOICE_AUDITION_CONTRACT_NAME,
+        "job_id": "test-job",
+        "updated_at": "2026-06-29T00:00:00Z",
+        "candidates": {
+            "callback-token-2": {
+                "candidate_key": "unmixr_hans_12345678",
+                "voice_id": "voice-hans",
+                "voice_id_sha256": hashlib.sha256(b"voice-hans").hexdigest(),
+                "public": {
+                    "preset_key": "unmixr_hans_12345678",
+                    "label": "Hans",
+                    "tags": ["audiobook", "narration", "male", "warm"],
+                },
+            }
+        },
+    }
+    audiobook_epub_pipeline._write_voice_audition_private(job_dir, private_payload)  # noqa: SLF001
+
+    with patch.object(audiobook_epub_pipeline, "_write_current_job_receipt_best_effort") as write_receipt:
+        selection = audiobook_epub_pipeline.selected_unmixr_voice_for_job(job_dir)
+
+    assert selection.get("status") == "selected"
+    write_receipt.assert_called_once_with(job_dir)
+    stored_job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
+    render_voice_selection = dict(dict(stored_job.get("render_result") or {}).get("voice_selection") or {})
+    assert dict(render_voice_selection.get("book_profile") or {}).get("author_gender_signal") == "male"
