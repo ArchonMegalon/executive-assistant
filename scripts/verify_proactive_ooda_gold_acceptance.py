@@ -8,8 +8,10 @@ from typing import Any, Mapping
 
 try:
     from scripts.source_state_head import resolve_source_state_head
+    from scripts.source_state_head import resolve_source_worktree_fingerprint
 except ModuleNotFoundError:  # pragma: no cover - script execution path
     from source_state_head import resolve_source_state_head
+    from source_state_head import resolve_source_worktree_fingerprint
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -69,6 +71,10 @@ def _git_head(path: Path = ROOT) -> str:
     return resolve_source_state_head(path)
 
 
+def _source_fingerprint(path: Path = ROOT) -> str:
+    return resolve_source_worktree_fingerprint(path)
+
+
 def _path_from_text(root: Path, value: object) -> Path | None:
     text = str(value or "").strip()
     if not text:
@@ -89,13 +95,22 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
         issues.append("generated_by must point at the proactive OODA gold-acceptance materializer")
     if receipt.get("head_semantics") != "source_state":
         issues.append("head_semantics must remain source_state")
+    if receipt.get("source_state_fingerprint_semantics") != "worktree_source_files_sha256_excluding_generated_only_paths":
+        issues.append("source_state_fingerprint_semantics must describe the source worktree fingerprint")
 
     current_head = _git_head(root)
     recorded_head = str(receipt.get("source_git_head") or "").strip()
+    current_fingerprint = _source_fingerprint(root)
+    recorded_fingerprint = str(receipt.get("source_state_fingerprint") or "").strip()
+    fingerprint_matches = bool(current_fingerprint and recorded_fingerprint and current_fingerprint == recorded_fingerprint)
     if not recorded_head:
         issues.append("source_git_head missing")
-    elif current_head and current_head != recorded_head:
+    elif current_head and current_head != recorded_head and not fingerprint_matches:
         issues.append("receipt is stale relative to current source HEAD")
+    if not recorded_fingerprint:
+        issues.append("source_state_fingerprint missing")
+    elif current_fingerprint and recorded_fingerprint != current_fingerprint:
+        issues.append("receipt is stale relative to current source fingerprint")
 
     status = str(receipt.get("status") or "").strip()
     if status not in KNOWN_STATUSES:
@@ -210,7 +225,10 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
             if not linked_operator_status:
                 issues.append("linked operator_status receipt invalid")
             else:
-                for key in ("contract_name", "status", "generated_at", "source_git_head"):
+                drift_keys = ["contract_name", "status", "generated_at", "source_git_head"]
+                if "source_state_fingerprint" in operator_status_evidence or "source_state_fingerprint" in linked_operator_status:
+                    drift_keys.append("source_state_fingerprint")
+                for key in drift_keys:
                     expected = str(operator_status_evidence.get(key) or "").strip()
                     actual = str(linked_operator_status.get(key) or "").strip()
                     if expected != actual:

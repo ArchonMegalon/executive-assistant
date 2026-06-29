@@ -17,8 +17,10 @@ for candidate in (str(ROOT), str(EA_ROOT)):
 
 try:
     from scripts.source_state_head import resolve_source_state_head
+    from scripts.source_state_head import resolve_source_worktree_fingerprint
 except ModuleNotFoundError:  # pragma: no cover - script execution path
     from source_state_head import resolve_source_state_head
+    from source_state_head import resolve_source_worktree_fingerprint
 
 import scripts.verify_proactive_ooda as proactive_verifier
 import scripts.verify_proactive_ooda_live_receipt as live_receipt_verifier
@@ -47,6 +49,10 @@ def _utc_now() -> str:
 
 def _git_head(path: Path = ROOT) -> str:
     return resolve_source_state_head(path)
+
+
+def _source_fingerprint(path: Path = ROOT) -> str:
+    return resolve_source_worktree_fingerprint(path)
 
 
 def _env_truthy(name: str, *, default: bool = False) -> bool:
@@ -601,6 +607,8 @@ def build_proactive_ooda_operator_status(
         "generated_by": "scripts/materialize_proactive_ooda_operator_status.py",
         "source_git_head": _git_head(ROOT),
         "head_semantics": "source_state",
+        "source_state_fingerprint": _source_fingerprint(ROOT),
+        "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
         "output_path": output_path.relative_to(ROOT).as_posix() if output_path.is_absolute() and output_path.is_relative_to(ROOT) else output_path.as_posix(),
         "status": status,
         "reason": reason,

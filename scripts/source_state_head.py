@@ -70,6 +70,39 @@ def resolve_source_tree_fingerprint(
     return digest.hexdigest()
 
 
+def resolve_source_worktree_fingerprint(
+    repo_root: Path,
+    *,
+    generated_only_prefixes: tuple[str, ...] = GENERATED_ONLY_PREFIXES,
+) -> str:
+    relpaths = [
+        line.strip()
+        for line in _git_stdout(repo_root, "ls-files", "--cached", "--others", "--exclude-standard").splitlines()
+        if line.strip()
+    ]
+    if not relpaths:
+        return ""
+
+    digest = hashlib.sha256()
+    included = 0
+    for relpath in sorted(set(relpaths)):
+        if _is_generated_only_path(relpath, prefixes=generated_only_prefixes):
+            continue
+        path = repo_root / relpath
+        if not path.is_file():
+            continue
+        try:
+            content_digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError:
+            continue
+        digest.update(relpath.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(content_digest.encode("utf-8"))
+        digest.update(b"\0")
+        included += 1
+    return digest.hexdigest() if included else ""
+
+
 def source_worktree_metadata(
     repo_root: Path,
     *,

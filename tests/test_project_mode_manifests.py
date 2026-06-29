@@ -178,3 +178,43 @@ def test_source_worktree_metadata_reports_source_dirty_without_generated_noise(
     assert metadata["source_dirty_files"] == ["app/api/routes/public_memorials.py"]
     assert metadata["source_dirty_omitted_count"] == 1
     assert metadata["source_dirty_status_sha256"]
+
+
+def test_source_worktree_fingerprint_hashes_effective_source_files_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "app/api/routes").mkdir(parents=True)
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "tests").mkdir()
+    (tmp_path / ".codex-studio/published").mkdir(parents=True)
+    source_file = tmp_path / "app/api/routes/public_memorials.py"
+    materializer = tmp_path / "scripts/materialize_project_mode_manifests.py"
+    generated = tmp_path / ".codex-studio/published/receipt.generated.json"
+    test_file = tmp_path / "tests/test_generated_noise.py"
+    source_file.write_text("source = 1\n", encoding="utf-8")
+    materializer.write_text("materializer = 1\n", encoding="utf-8")
+    generated.write_text("generated = 1\n", encoding="utf-8")
+    test_file.write_text("test = 1\n", encoding="utf-8")
+
+    def _fake_git_stdout(_root: Path, *args: str) -> str:
+        if args == ("ls-files", "--cached", "--others", "--exclude-standard"):
+            return "\n".join(
+                [
+                    "app/api/routes/public_memorials.py",
+                    "scripts/materialize_project_mode_manifests.py",
+                    ".codex-studio/published/receipt.generated.json",
+                    "tests/test_generated_noise.py",
+                    "deleted_source.py",
+                ]
+            )
+        return ""
+
+    monkeypatch.setattr(source_state_head, "_git_stdout", _fake_git_stdout)
+
+    first = source_state_head.resolve_source_worktree_fingerprint(tmp_path)
+    generated.write_text("generated = 2\n", encoding="utf-8")
+    test_file.write_text("test = 2\n", encoding="utf-8")
+    assert source_state_head.resolve_source_worktree_fingerprint(tmp_path) == first
+
+    source_file.write_text("source = 2\n", encoding="utf-8")
+    assert source_state_head.resolve_source_worktree_fingerprint(tmp_path) != first

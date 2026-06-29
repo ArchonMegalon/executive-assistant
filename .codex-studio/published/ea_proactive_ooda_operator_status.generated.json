@@ -75,7 +75,7 @@
   },
   "delivery_route_error": "",
   "delivery_route_ready": true,
-  "generated_at": "2026-06-29T09:00:42Z",
+  "generated_at": "2026-06-29T09:13:12Z",
   "generated_by": "scripts/materialize_proactive_ooda_operator_status.py",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
@@ -102,11 +102,11 @@
   "operator_action_state": "clear",
   "output_path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
   "reason": "ready",
-  "receipt_observation_count": 475,
+  "receipt_observation_count": 476,
   "remaining_external_proofs": [
     "real proactive OODA packet accepted with routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome"
   ],
-  "route_probe_observed_at": "2026-06-29T09:00:37Z",
+  "route_probe_observed_at": "2026-06-29T09:13:07Z",
   "route_probe_runtime_service": "ea-proactive-ooda",
   "route_probe_source": "docker_compose_exec",
   "route_ready_claim_allowed": true,
@@ -128,8 +128,10 @@
     "result_count": 0,
     "schema_valid_count": 0
   },
-  "source_git_head": "7595a115beb42f7505c4a831ba8ac5399f3a4fb3",
+  "source_git_head": "e3d1eeb15ffe6125e3481a50814c077eb32270dc",
   "source_mode": "google_workspace",
+  "source_state_fingerprint": "61ac8da8160aa6786a4642aa74a88df62ea312124c7423cb7b8feb113dabd046",
+  "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "stage_packets": {
     "enabled": true,
     "errors": [],

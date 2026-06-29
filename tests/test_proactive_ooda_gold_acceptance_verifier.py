@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 import scripts.verify_proactive_ooda_gold_acceptance as verifier
 
 
@@ -61,7 +63,15 @@ def _base_payload() -> dict[str, object]:
             "Teable remains an admin projection and audit mirror rather than canonical queue or product truth.",
         ],
         "source_git_head": "source-head-123",
+        "source_state_fingerprint": "source-fingerprint-123",
+        "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
+        "evidence_receipts": {},
     }
+
+
+@pytest.fixture(autouse=True)
+def _stable_source_fingerprint(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(verifier, "_source_fingerprint", lambda path=verifier.ROOT: "source-fingerprint-123")
 
 
 def test_proactive_ooda_gold_acceptance_verifier_accepts_valid_receipt(tmp_path: Path, monkeypatch) -> None:
@@ -75,6 +85,7 @@ def test_proactive_ooda_gold_acceptance_verifier_accepts_valid_receipt(tmp_path:
         status="ready_with_live_receipt",
         generated_at="2026-06-26T19:00:00Z",
         source_git_head="source-head-123",
+        source_state_fingerprint="source-fingerprint-123",
     )
     payload = _base_payload()
     payload["evidence_receipts"] = {
@@ -85,12 +96,41 @@ def test_proactive_ooda_gold_acceptance_verifier_accepts_valid_receipt(tmp_path:
             "status": "ready_with_live_receipt",
             "generated_at": "2026-06-26T19:00:00Z",
             "source_git_head": "source-head-123",
+            "source_state_fingerprint": "source-fingerprint-123",
         }
     }
     _write_receipt(receipt, **payload)
     monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
 
     assert verifier.verify(receipt, root=tmp_path) == []
+
+
+def test_proactive_ooda_gold_acceptance_verifier_accepts_post_commit_head_change_when_source_fingerprint_matches(
+    tmp_path: Path, monkeypatch
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json"
+    payload = _base_payload()
+    payload["source_git_head"] = "pre-commit-source-head"
+    _write_receipt(receipt, **payload)
+    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "post-commit-source-head")
+
+    assert verifier.verify(receipt, root=tmp_path) == []
+
+
+def test_proactive_ooda_gold_acceptance_verifier_rejects_source_fingerprint_drift(
+    tmp_path: Path, monkeypatch
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json"
+    payload = _base_payload()
+    payload["source_git_head"] = "pre-commit-source-head"
+    payload["source_state_fingerprint"] = "old-source-fingerprint"
+    _write_receipt(receipt, **payload)
+    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "post-commit-source-head")
+
+    issues = verifier.verify(receipt, root=tmp_path)
+
+    assert "receipt is stale relative to current source HEAD" in issues
+    assert "receipt is stale relative to current source fingerprint" in issues
 
 
 def test_proactive_ooda_gold_acceptance_verifier_rejects_pass_without_accepted_outcome(

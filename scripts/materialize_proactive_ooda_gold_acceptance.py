@@ -18,8 +18,10 @@ for candidate in (str(ROOT), str(EA_ROOT)):
 
 try:
     from scripts.source_state_head import resolve_source_state_head
+    from scripts.source_state_head import resolve_source_worktree_fingerprint
 except ModuleNotFoundError:  # pragma: no cover - script execution path
     from source_state_head import resolve_source_state_head
+    from source_state_head import resolve_source_worktree_fingerprint
 
 try:
     import scripts.ea_live_ops as ea_live_ops
@@ -48,6 +50,10 @@ def _utc_now() -> str:
 
 def _git_head(path: Path = ROOT) -> str:
     return resolve_source_state_head(path)
+
+
+def _source_fingerprint(path: Path = ROOT) -> str:
+    return resolve_source_worktree_fingerprint(path)
 
 
 def _hash_value(value: str) -> str:
@@ -969,6 +975,8 @@ def materialize_proactive_ooda_gold_acceptance(
         "generated_by": "scripts/materialize_proactive_ooda_gold_acceptance.py",
         "source_git_head": _git_head(ROOT),
         "head_semantics": "source_state",
+        "source_state_fingerprint": _source_fingerprint(ROOT),
+        "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
         "output_path": display_path(ROOT, output_path),
         "status": status,
         "summary": _summary_for_status(status, approval_capture_surface_ready=approval_capture_surface_ready),
@@ -994,6 +1002,7 @@ def materialize_proactive_ooda_gold_acceptance(
                 "status": str(operator_status.get("status") or "").strip(),
                 "generated_at": str(operator_status.get("generated_at") or "").strip(),
                 "source_git_head": str(operator_status.get("source_git_head") or "").strip(),
+                "source_state_fingerprint": str(operator_status.get("source_state_fingerprint") or "").strip(),
             },
             "run_receipt": {
                 "present": bool(run_receipt),

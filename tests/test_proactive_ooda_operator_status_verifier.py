@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 import scripts.verify_proactive_ooda_operator_status as verifier
 
 
@@ -16,6 +18,8 @@ def _base_payload() -> dict[str, object]:
         "contract_name": "ea.proactive_ooda_operator_status.v1",
         "generated_by": "scripts/materialize_proactive_ooda_operator_status.py",
         "head_semantics": "source_state",
+        "source_state_fingerprint": "source-fingerprint-123",
+        "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
         "status": "ready_local_runtime",
         "summary": "Proactive OODA route and packet runtime are locally ready; mirror a host-visible live receipt when the next real packet is sent.",
         "next_action": "run_or_mirror_live_proactive_ooda_receipt",
@@ -51,6 +55,11 @@ def _base_payload() -> dict[str, object]:
     }
 
 
+@pytest.fixture(autouse=True)
+def _stable_source_fingerprint(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(verifier, "_source_fingerprint", lambda path=verifier.ROOT: "source-fingerprint-123")
+
+
 def test_proactive_ooda_operator_status_verifier_accepts_valid_receipt(tmp_path: Path, monkeypatch) -> None:
     receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
     payload = _base_payload()
@@ -59,6 +68,34 @@ def test_proactive_ooda_operator_status_verifier_accepts_valid_receipt(tmp_path:
     monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
 
     assert verifier.verify(receipt, root=tmp_path) == []
+
+
+def test_proactive_ooda_operator_status_verifier_accepts_post_commit_head_change_when_source_fingerprint_matches(
+    tmp_path: Path, monkeypatch
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
+    payload = _base_payload()
+    payload["source_git_head"] = "pre-commit-source-head"
+    _write_receipt(receipt, **payload)
+    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "post-commit-source-head")
+
+    assert verifier.verify(receipt, root=tmp_path) == []
+
+
+def test_proactive_ooda_operator_status_verifier_rejects_source_fingerprint_drift(
+    tmp_path: Path, monkeypatch
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
+    payload = _base_payload()
+    payload["source_git_head"] = "pre-commit-source-head"
+    payload["source_state_fingerprint"] = "old-source-fingerprint"
+    _write_receipt(receipt, **payload)
+    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "post-commit-source-head")
+
+    issues = verifier.verify(receipt, root=tmp_path)
+
+    assert "receipt is stale relative to current source HEAD" in issues
+    assert "receipt is stale relative to current source fingerprint" in issues
 
 
 def test_proactive_ooda_operator_status_verifier_rejects_live_receipt_overclaim(tmp_path: Path, monkeypatch) -> None:
