@@ -15,6 +15,8 @@ CONFIG_DIR="${HOME_GIRSCHELE_HASS_CONFIG_DIR:-$REPO_ROOT/.state/home-girschele/h
 RECEIPT_PATH="${HOME_GIRSCHELE_HEALTH_RECEIPT:-$REPO_ROOT/.state/home-girschele/homeassistant-health.receipt.json}"
 CLOUDFLARE_ENV_FILE="${HOME_GIRSCHELE_CLOUDFLARE_ENV_FILE:-$REPO_ROOT/.env}"
 CF_ACCESS_ENV_FILE="${HOME_GIRSCHELE_CF_ACCESS_ENV_FILE:-/docker/fleet/secrets/codexliz-cf-access.env}"
+CF_ACCOUNT_ID="${HOME_GIRSCHELE_CLOUDFLARE_ACCOUNT_ID:-}"
+CF_TUNNEL_NAME="${HOME_GIRSCHELE_CLOUDFLARE_TUNNEL_NAME:-chummer-run}"
 CF_ZONE_ID="${HOME_GIRSCHELE_CLOUDFLARE_ZONE_ID:-bd452cbf817e065da8063fc21673d536}"
 ACCESS_EMAILS="${HOME_GIRSCHELE_ACCESS_EMAILS:-Tibor.girschele@gmail.com,Elisabeth.girschele@gmail.com,h.girschele@gmx.de,Archon.megalon@gmail.com}"
 STATE_DIR="${HOME_GIRSCHELE_STATE_DIR:-$REPO_ROOT/.state/home-girschele}"
@@ -123,6 +125,35 @@ cloudflare_credentials() {
 cloudflare_access_apps() {
   cloudflare_credentials || return 1
   curl -fsS "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/access/apps?per_page=200" \
+    -H "X-Auth-Email: $CF_EMAIL" \
+    -H "X-Auth-Key: $CF_API_KEY" \
+    -H "Content-Type: application/json"
+}
+
+cloudflare_account_id() {
+  cloudflare_credentials || return 1
+  if [[ -n "$CF_ACCOUNT_ID" ]]; then
+    printf '%s' "$CF_ACCOUNT_ID"
+    return 0
+  fi
+  curl -fsS "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID" \
+    -H "X-Auth-Email: $CF_EMAIL" \
+    -H "X-Auth-Key: $CF_API_KEY" \
+    -H "Content-Type: application/json" | jq -r '.result.account.id'
+}
+
+cloudflare_tunnel_config() {
+  cloudflare_credentials || return 1
+  local account_id tunnels tunnel_id
+  account_id="$(cloudflare_account_id)"
+  [[ -n "$account_id" && "$account_id" != "null" ]] || return 1
+  tunnels="$(curl -fsS "https://api.cloudflare.com/client/v4/accounts/$account_id/cfd_tunnel?per_page=100" \
+    -H "X-Auth-Email: $CF_EMAIL" \
+    -H "X-Auth-Key: $CF_API_KEY" \
+    -H "Content-Type: application/json")"
+  tunnel_id="$(printf '%s' "$tunnels" | jq -r --arg name "$CF_TUNNEL_NAME" '.result[]? | select(.name == $name) | .id' | head -n 1)"
+  [[ -n "$tunnel_id" && "$tunnel_id" != "null" ]] || return 1
+  curl -fsS "https://api.cloudflare.com/client/v4/accounts/$account_id/cfd_tunnel/$tunnel_id/configurations" \
     -H "X-Auth-Email: $CF_EMAIL" \
     -H "X-Auth-Key: $CF_API_KEY" \
     -H "Content-Type: application/json"
@@ -323,7 +354,7 @@ health() {
 
   local tmp_dir
   tmp_dir="$(mktemp -d)"
-  trap 'rm -rf "$tmp_dir"' RETURN
+  trap 'rm -rf "${tmp_dir:-}"' RETURN
 
   local local_root_headers local_root_body local_api_headers local_api_body local_ws_headers local_ws_body
   local public_headers public_body protected_headers protected_body token_headers token_body token_api_headers token_api_body token_ws_headers token_ws_body
@@ -583,7 +614,7 @@ restore_drill() {
   tmp_dir="$(mktemp -d)"
   restore_dir="$tmp_dir/config"
   mkdir -p "$restore_dir" "$(dirname "$RESTORE_RECEIPT_PATH")"
-  trap 'rm -rf "$tmp_dir"' RETURN
+  trap 'rm -rf "${tmp_dir:-}"' RETURN
 
   tar -xzf "$archive" -C "$restore_dir"
   archive_sha="$(sha256sum "$archive" | awk '{print $1}')"
@@ -675,7 +706,7 @@ drift_check() {
 
   local tmp_dir public_headers public_body protected_headers protected_body public_status protected_status public_guard_ok protected_ok
   tmp_dir="$(mktemp -d)"
-  trap 'rm -rf "$tmp_dir"' RETURN
+  trap 'rm -rf "${tmp_dir:-}"' RETURN
   public_headers="$tmp_dir/public.headers"
   public_body="$tmp_dir/public.body"
   protected_headers="$tmp_dir/protected.headers"
@@ -685,12 +716,20 @@ drift_check() {
   grep -qi '^location: .*cloudflareaccess\.com' "$public_headers" && public_guard_ok=true || public_guard_ok=false
   [[ "$protected_status" == "200" ]] && grep -q '"protected"[[:space:]]*:[[:space:]]*true' "$protected_body" && protected_ok=true || protected_ok=false
 
-  local tunnel_log tunnel_ok
-  tunnel_log="$(docker logs --tail 400 chummer-run-cloudflared 2>&1 || true)"
-  if grep -q "\"hostname\":\"$DOMAIN\"" <<<"$tunnel_log" && grep -q "\"service\":\"$EXPECTED_TUNNEL_ORIGIN\"" <<<"$tunnel_log"; then
+  local tunnel_config tunnel_log tunnel_ok tunnel_source
+  tunnel_ok=false
+  tunnel_source="cloudflare_api"
+  if tunnel_config="$(cloudflare_tunnel_config 2>/dev/null)" &&
+     printf '%s' "$tunnel_config" | jq -e --arg domain "$DOMAIN" --arg service "$EXPECTED_TUNNEL_ORIGIN" '
+       any(.result.config.ingress[]?; .hostname == $domain and .service == $service)
+     ' >/dev/null; then
     tunnel_ok=true
   else
-    tunnel_ok=false
+    tunnel_source="cloudflared_log_fallback"
+    tunnel_log="$(docker logs chummer-run-cloudflared 2>&1 || true)"
+    if grep -q "\"hostname\":\"$DOMAIN\"" <<<"$tunnel_log" && grep -q "\"service\":\"$EXPECTED_TUNNEL_ORIGIN\"" <<<"$tunnel_log"; then
+      tunnel_ok=true
+    fi
   fi
 
   local apps access_api_ok access_app_ok service_token_policy_ok email_policy_ok app_summary
@@ -748,6 +787,7 @@ drift_check() {
     --arg publicStatus "$public_status" \
     --arg protectedStatus "$protected_status" \
     --arg expectedTunnelOrigin "$EXPECTED_TUNNEL_ORIGIN" \
+    --arg tunnelSource "$tunnel_source" \
     --argjson pass "$(json_bool "$pass")" \
     --argjson containerRunningOk "$(json_bool "$container_running_ok")" \
     --argjson mountOk "$(json_bool "$mount_ok")" \
@@ -774,7 +814,7 @@ drift_check() {
         composeContract: $composeOk,
         publicAccessGuard: {httpStatus: $publicStatus, ok: $publicGuardOk},
         protectedResource: {httpStatus: $protectedStatus, ok: $protectedOk},
-        tunnelRoute: {ok: $tunnelOk, expectedOrigin: $expectedTunnelOrigin},
+        tunnelRoute: {ok: $tunnelOk, expectedOrigin: $expectedTunnelOrigin, source: $tunnelSource},
         cloudflareAccessApi: $accessApiOk,
         cloudflareAccessApp: $accessAppOk,
         serviceTokenPolicy: $serviceTokenPolicyOk,
