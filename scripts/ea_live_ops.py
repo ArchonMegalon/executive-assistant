@@ -2002,6 +2002,293 @@ def _proactive_callback_cleanup_operator_text(report: Mapping[str, object]) -> s
     return " ".join(pieces)
 
 
+def _proactive_approval_capture_operator_text(report: Mapping[str, object]) -> str:
+    pieces = [
+        "proactive_approval_capture",
+        f"status={str(report.get('status') or '').strip() or 'unknown'}",
+        f"principal_match={str(bool(report.get('principal_match_ready'))).lower()}",
+        f"telegram_ready={str(bool(report.get('telegram_binding_ready'))).lower()}",
+        f"current_pending={int(report.get('current_packet_live_pending_count') or 0)}",
+        f"callback_status={str(report.get('current_packet_callback_latest_status') or '').strip() or 'missing'}",
+        f"age_seconds={int(report.get('current_packet_callback_latest_age_seconds') or 0)}",
+        f"expires_in_seconds={int(report.get('current_packet_callback_latest_seconds_until_expiry') or 0)}",
+    ]
+    if str(report.get("blocking_reason") or "").strip():
+        pieces.append(f"reason={str(report.get('blocking_reason') or '').strip()}")
+    if str(report.get("next_action") or "").strip():
+        pieces.append(f"next={str(report.get('next_action') or '').strip()}")
+    if str(report.get("source") or "").strip():
+        pieces.append(f"source={str(report.get('source') or '').strip()}")
+    return " ".join(pieces)
+
+
+def probe_proactive_approval_capture(
+    *,
+    principal_id: str,
+    compose_file: str = "",
+    runtime_service: str = "",
+    timeout_seconds: float = 30.0,
+    output_format: str = "json",
+) -> dict[str, object]:
+    effective_compose_file = str(compose_file or _env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE))).strip()
+    effective_runtime_service = str(runtime_service or _env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE)).strip()
+    observed_at = _utc_now()
+    if not effective_compose_file or not effective_runtime_service:
+        report = {
+            "probe_ok": False,
+            "ready": False,
+            "status": "probe_failed",
+            "compose_file": effective_compose_file,
+            "runtime_service": effective_runtime_service,
+            "observed_at": observed_at,
+            "source": "docker_compose_exec",
+            "blocking_reason": "runtime_probe_configuration_missing",
+            "next_action": "configure_proactive_runtime_probe",
+        }
+        report.update(_next_action_surface_fields(str(report.get("next_action") or "")))
+        if output_format == "operator":
+            report["operator_text"] = _proactive_approval_capture_operator_text(report)
+        return report
+
+    command = [
+        "python",
+        "-c",
+        (
+            "import hashlib, json, os, sys\n"
+            "from datetime import datetime, timezone\n"
+            "from pathlib import Path\n"
+            "from app.container import build_container\n"
+            "from app.services.proactive_ooda_runtime_artifacts import load_runtime_artifact_bundle\n"
+            "from app.services.proactive_ooda_telegram_approval import (\n"
+            "    _approval_callback_principal_candidates,\n"
+            "    default_proactive_ooda_telegram_approval_callback_dir,\n"
+            ")\n"
+            "from app.services.telegram_delivery import resolve_primary_telegram_binding, _telegram_bot_registry\n"
+            "payload = json.loads(sys.argv[1])\n"
+            "principal_id = str(payload.get('principal_id') or '').strip()\n"
+            "root = Path('/app')\n"
+            "state_path = os.getenv('EA_PROACTIVE_OODA_STATE_PATH') or '/data/provider-ledger/proactive_ooda_notified.json'\n"
+            "receipt_path = os.getenv('EA_PROACTIVE_OODA_RECEIPT_PATH') or ''\n"
+            "stage_packet_dir = os.getenv('EA_PROACTIVE_OODA_STAGE_PACKET_DIR') or ''\n"
+            "safe_work_result_dir = os.getenv('EA_PROACTIVE_OODA_SAFE_WORK_RESULT_DIR') or ''\n"
+            "def _hash(value):\n"
+            "    text = str(value or '').strip()\n"
+            "    return hashlib.sha256(text.encode('utf-8')).hexdigest() if text else ''\n"
+            "def _parse_dt(value):\n"
+            "    text = str(value or '').strip()\n"
+            "    if not text:\n"
+            "        return None\n"
+            "    normalized = text[:-1] + '+00:00' if text.endswith('Z') else text\n"
+            "    try:\n"
+            "        parsed = datetime.fromisoformat(normalized)\n"
+            "    except Exception:\n"
+            "        return None\n"
+            "    if parsed.tzinfo is None:\n"
+            "        parsed = parsed.replace(tzinfo=timezone.utc)\n"
+            "    return parsed.astimezone(timezone.utc)\n"
+            "def _age_seconds(value):\n"
+            "    parsed = _parse_dt(value)\n"
+            "    return max(int((datetime.now(timezone.utc) - parsed).total_seconds()), 0) if parsed else 0\n"
+            "def _seconds_until(value):\n"
+            "    parsed = _parse_dt(value)\n"
+            "    return max(int((parsed - datetime.now(timezone.utc)).total_seconds()), 0) if parsed else 0\n"
+            "def _is_live(row):\n"
+            "    parsed = _parse_dt(row.get('expires_at'))\n"
+            "    return parsed is None or parsed > datetime.now(timezone.utc)\n"
+            "def _status(row):\n"
+            "    return str(row.get('status') or '').strip().lower()\n"
+            "def _current_refs(bundle):\n"
+            "    stage_packet = dict(bundle.get('stage_packet') or {})\n"
+            "    safe_work_result = dict(bundle.get('safe_work_result') or {})\n"
+            "    packet_ref = str(stage_packet.get('packet_ref') or stage_packet.get('packet_id') or '').strip()\n"
+            "    artifact_ref = str(safe_work_result.get('result_ref') or '').strip()\n"
+            "    if not artifact_ref:\n"
+            "        result_id = str(safe_work_result.get('result_id') or '').strip()\n"
+            "        artifact_ref = f'safe_work_result:{result_id}' if result_id else ''\n"
+            "    return packet_ref, artifact_ref\n"
+            "container = build_container()\n"
+            "bundle = load_runtime_artifact_bundle(root=root, state_path=state_path, receipt_path=receipt_path, stage_packet_dir=stage_packet_dir, safe_work_result_dir=safe_work_result_dir)\n"
+            "callback_dir = default_proactive_ooda_telegram_approval_callback_dir(root=root, state_path=state_path, receipt_path=receipt_path)\n"
+            "packet_ref, artifact_ref = _current_refs(bundle)\n"
+            "rows = []\n"
+            "if callback_dir.is_dir():\n"
+            "    for candidate in callback_dir.glob('*.json'):\n"
+            "        try:\n"
+            "            record = json.loads(candidate.read_text(encoding='utf-8'))\n"
+            "        except Exception:\n"
+            "            continue\n"
+            "        if isinstance(record, dict):\n"
+            "            rows.append(record)\n"
+            "current_rows = [\n"
+            "    row for row in rows\n"
+            "    if str(row.get('packet_ref') or '').strip() == packet_ref\n"
+            "    and str(row.get('staged_artifact_ref') or '').strip() == artifact_ref\n"
+            "]\n"
+            "current_live_pending_rows = [row for row in current_rows if _status(row) == 'pending' and _is_live(row)]\n"
+            "current_rows.sort(key=lambda row: str(row.get('created_at') or ''))\n"
+            "current_live_pending_rows.sort(key=lambda row: str(row.get('created_at') or ''))\n"
+            "latest = current_live_pending_rows[-1] if current_live_pending_rows else (current_rows[-1] if current_rows else {})\n"
+            "record_principal_hash = str(latest.get('principal_id_hash') or '').strip()\n"
+            "candidates = tuple(_approval_callback_principal_candidates(container=container, principal_id=principal_id, include_delivery_defaults=True))\n"
+            "candidate_hashes = tuple(_hash(candidate) for candidate in candidates if str(candidate or '').strip())\n"
+            "principal_match_ready = bool(record_principal_hash and record_principal_hash in candidate_hashes)\n"
+            "binding = resolve_primary_telegram_binding(container.tool_runtime, principal_id=principal_id)\n"
+            "telegram_reason = ''\n"
+            "chat_ref = ''\n"
+            "bot_key = ''\n"
+            "bot_token_present = False\n"
+            "if binding is None:\n"
+            "    telegram_reason = 'telegram_binding_not_found'\n"
+            "else:\n"
+            "    metadata = dict(getattr(binding, 'auth_metadata_json', None) or {})\n"
+            "    chat_ref = str(metadata.get('default_chat_ref') or getattr(binding, 'external_account_ref', '') or '').strip()\n"
+            "    bot_key = str(metadata.get('bot_key') or 'default').strip() or 'default'\n"
+            "    token = str(dict((_telegram_bot_registry().get(bot_key) or {})).get('token') or '').strip()\n"
+            "    bot_token_present = bool(token)\n"
+            "    if not chat_ref:\n"
+            "        telegram_reason = 'telegram_chat_ref_missing'\n"
+            "    elif not bot_token_present:\n"
+            "        telegram_reason = 'telegram_bot_token_missing'\n"
+            "latest_created_at = str(latest.get('created_at') or '').strip()\n"
+            "latest_expires_at = str(latest.get('expires_at') or '').strip()\n"
+            "print(json.dumps({\n"
+            "    'ok': True,\n"
+            "    'callback_dir_exists': callback_dir.is_dir(),\n"
+            "    'callback_record_count': len(rows),\n"
+            "    'current_packet_ref_sha256': _hash(packet_ref),\n"
+            "    'current_staged_artifact_ref_sha256': _hash(artifact_ref),\n"
+            "    'current_packet_refs_present': bool(packet_ref and artifact_ref),\n"
+            "    'current_packet_callback_record_count': len(current_rows),\n"
+            "    'current_packet_live_pending_count': len(current_live_pending_rows),\n"
+            "    'current_packet_callback_latest_status': str(latest.get('status') or '').strip(),\n"
+            "    'current_packet_callback_latest_expired': bool(latest) and not _is_live(latest),\n"
+            "    'current_packet_callback_latest_age_seconds': _age_seconds(latest_created_at),\n"
+            "    'current_packet_callback_latest_seconds_until_expiry': _seconds_until(latest_expires_at),\n"
+            "    'callback_principal_hash_present': bool(record_principal_hash),\n"
+            "    'candidate_principal_hash_count': len(set(candidate_hashes)),\n"
+            "    'principal_match_ready': principal_match_ready,\n"
+            "    'telegram_binding_ready': not bool(telegram_reason),\n"
+            "    'telegram_blocking_reason': telegram_reason,\n"
+            "    'telegram_chat_ref_present': bool(chat_ref),\n"
+            "    'telegram_chat_ref_sha256': _hash(chat_ref),\n"
+            "    'telegram_bot_key_present': bool(bot_key),\n"
+            "    'telegram_bot_token_present': bot_token_present,\n"
+            "    'privacy': {\n"
+            "        'raw_callback_token_exposed': False,\n"
+            "        'raw_principal_id_exposed': False,\n"
+            "        'raw_chat_ref_exposed': False,\n"
+            "        'raw_packet_ref_exposed': False,\n"
+            "        'raw_staged_artifact_ref_exposed': False,\n"
+            "    },\n"
+            "}, sort_keys=True))\n"
+        ),
+        _json_dumps({"principal_id": str(principal_id or "").strip()}),
+    ]
+    code, payload, stdout, stderr = _docker_compose_exec_json(
+        compose_file=effective_compose_file,
+        service=effective_runtime_service,
+        command=command,
+        timeout_seconds=timeout_seconds,
+    )
+    if not payload:
+        report = {
+            "probe_ok": False,
+            "ready": False,
+            "status": "probe_failed",
+            "compose_file": effective_compose_file,
+            "runtime_service": effective_runtime_service,
+            "observed_at": observed_at,
+            "source": "docker_compose_exec:proactive_approval_capture",
+            "blocking_reason": f"runtime_approval_capture_probe_failed:exit_{code}",
+            "next_action": "inspect_proactive_approval_capture_runtime_probe",
+            "stdout_excerpt": stdout.strip()[:200],
+            "stderr_excerpt": stderr.strip()[:200],
+        }
+        report.update(_next_action_surface_fields(str(report.get("next_action") or "")))
+        if output_format == "operator":
+            report["operator_text"] = _proactive_approval_capture_operator_text(report)
+        return report
+
+    current_refs_present = bool(payload.get("current_packet_refs_present"))
+    current_pending = int(payload.get("current_packet_live_pending_count") or 0)
+    callback_hash_present = bool(payload.get("callback_principal_hash_present"))
+    principal_match_ready = bool(payload.get("principal_match_ready"))
+    telegram_ready = bool(payload.get("telegram_binding_ready"))
+    telegram_reason = str(payload.get("telegram_blocking_reason") or "").strip()
+    ready = bool(current_refs_present and current_pending > 0 and callback_hash_present and principal_match_ready and telegram_ready)
+    blocking_reason = ""
+    next_action = ""
+    if not current_refs_present:
+        blocking_reason = "current_packet_refs_missing"
+        next_action = "regenerate_proactive_ooda_stage_packet"
+    elif current_pending <= 0:
+        blocking_reason = "current_packet_approval_callback_missing"
+        next_action = "reissue_proactive_approval"
+    elif not callback_hash_present:
+        blocking_reason = "approval_callback_principal_hash_missing"
+        next_action = "reissue_proactive_approval"
+    elif not principal_match_ready:
+        blocking_reason = "approval_callback_principal_mismatch_risk"
+        next_action = "repair_proactive_approval_principal_aliases"
+    elif not telegram_ready:
+        blocking_reason = telegram_reason or "telegram_binding_not_ready"
+        if blocking_reason == "telegram_binding_not_found":
+            next_action = "connect_telegram_identity_binding"
+        elif blocking_reason == "telegram_chat_ref_missing":
+            next_action = "repair_telegram_chat_binding"
+        elif blocking_reason == "telegram_bot_token_missing":
+            next_action = "configure_telegram_bot_token"
+        else:
+            next_action = "repair_telegram_delivery_binding"
+    else:
+        next_action = "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome"
+
+    report = {
+        "probe_ok": bool(payload.get("ok", True)),
+        "ready": ready,
+        "status": "ready" if ready else "blocked",
+        "compose_file": effective_compose_file,
+        "runtime_service": effective_runtime_service,
+        "observed_at": observed_at,
+        "source": "docker_compose_exec:proactive_approval_capture",
+        "blocking_reason": blocking_reason,
+        "next_action": next_action,
+        "callback_dir_exists": bool(payload.get("callback_dir_exists")),
+        "callback_record_count": int(payload.get("callback_record_count") or 0),
+        "current_packet_ref_sha256": str(payload.get("current_packet_ref_sha256") or "").strip(),
+        "current_staged_artifact_ref_sha256": str(payload.get("current_staged_artifact_ref_sha256") or "").strip(),
+        "current_packet_refs_present": current_refs_present,
+        "current_packet_callback_record_count": int(payload.get("current_packet_callback_record_count") or 0),
+        "current_packet_live_pending_count": current_pending,
+        "current_packet_callback_latest_status": str(payload.get("current_packet_callback_latest_status") or "").strip(),
+        "current_packet_callback_latest_expired": bool(payload.get("current_packet_callback_latest_expired")),
+        "current_packet_callback_latest_age_seconds": int(payload.get("current_packet_callback_latest_age_seconds") or 0),
+        "current_packet_callback_latest_seconds_until_expiry": int(
+            payload.get("current_packet_callback_latest_seconds_until_expiry") or 0
+        ),
+        "callback_principal_hash_present": callback_hash_present,
+        "candidate_principal_hash_count": int(payload.get("candidate_principal_hash_count") or 0),
+        "principal_match_ready": principal_match_ready,
+        "telegram_binding_ready": telegram_ready,
+        "telegram_blocking_reason": telegram_reason,
+        "telegram_chat_ref_present": bool(payload.get("telegram_chat_ref_present")),
+        "telegram_chat_ref_sha256": str(payload.get("telegram_chat_ref_sha256") or "").strip(),
+        "telegram_bot_key_present": bool(payload.get("telegram_bot_key_present")),
+        "telegram_bot_token_present": bool(payload.get("telegram_bot_token_present")),
+        "privacy": {
+            "raw_callback_token_exposed": False,
+            "raw_principal_id_exposed": False,
+            "raw_chat_ref_exposed": False,
+            "raw_packet_ref_exposed": False,
+            "raw_staged_artifact_ref_exposed": False,
+        },
+    }
+    report.update(_next_action_surface_fields(next_action))
+    if output_format == "operator":
+        report["operator_text"] = _proactive_approval_capture_operator_text(report)
+    return report
+
+
 def probe_proactive_gmail_draft(
     *,
     principal_id: str,
@@ -3388,6 +3675,15 @@ def parse_args() -> argparse.Namespace:
     proactive_artifacts.add_argument("--compose-file", default=_env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE)))
     proactive_artifacts.add_argument("--runtime-service", default=_env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE))
 
+    proactive_approval_capture = subparsers.add_parser(
+        "probe-proactive-approval-capture",
+        help="Probe whether the current Telegram approval callback can be accepted without exposing secret values.",
+    )
+    proactive_approval_capture.add_argument("--principal-id", dest="proactive_principal_id", default=_default_proactive_principal_id())
+    proactive_approval_capture.add_argument("--format", choices=("json", "operator"), default="json")
+    proactive_approval_capture.add_argument("--compose-file", default=_env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE)))
+    proactive_approval_capture.add_argument("--runtime-service", default=_env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE))
+
     proactive_gmail_draft = subparsers.add_parser(
         "probe-proactive-gmail-draft",
         help="Probe the live Telegram to Gmail draft followthrough lane for the current staged proactive action.",
@@ -3532,6 +3828,19 @@ def main() -> int:
         return 0 if bool(report.get("probe_ok")) else 2
     if args.command == "probe-proactive-artifacts":
         report = probe_proactive_artifacts(
+            compose_file=str(args.compose_file or "").strip(),
+            runtime_service=str(args.runtime_service or "").strip(),
+            timeout_seconds=float(args.timeout_seconds or 15.0),
+            output_format=args.format,
+        )
+        if args.format == "operator":
+            print(str(report.get("operator_text") or ""))
+        else:
+            print(_json_dumps(report))
+        return 0 if bool(report.get("probe_ok")) else 2
+    if args.command == "probe-proactive-approval-capture":
+        report = probe_proactive_approval_capture(
+            principal_id=str(getattr(args, "proactive_principal_id", "") or "").strip(),
             compose_file=str(args.compose_file or "").strip(),
             runtime_service=str(args.runtime_service or "").strip(),
             timeout_seconds=float(args.timeout_seconds or 15.0),

@@ -1240,6 +1240,165 @@ def test_probe_proactive_artifacts_operator_format_reports_approval_outcome_pres
     assert "recommend=Vendor A" in str(report["operator_text"])
 
 
+def test_probe_proactive_approval_capture_reports_ready_without_raw_callback_identity(monkeypatch) -> None:
+    module = _module()
+
+    def _fake_exec_json(*, command: list[str], **_kwargs):
+        assert command[:2] == ["python", "-c"]
+        assert "_approval_callback_principal_candidates" in command[2]
+        return (
+            0,
+            {
+                "ok": True,
+                "callback_dir_exists": True,
+                "callback_record_count": 4,
+                "current_packet_ref_sha256": "a" * 64,
+                "current_staged_artifact_ref_sha256": "b" * 64,
+                "current_packet_refs_present": True,
+                "current_packet_callback_record_count": 1,
+                "current_packet_live_pending_count": 1,
+                "current_packet_callback_latest_status": "pending",
+                "current_packet_callback_latest_expired": False,
+                "current_packet_callback_latest_age_seconds": 91,
+                "current_packet_callback_latest_seconds_until_expiry": 1200,
+                "callback_principal_hash_present": True,
+                "candidate_principal_hash_count": 3,
+                "principal_match_ready": True,
+                "telegram_binding_ready": True,
+                "telegram_blocking_reason": "",
+                "telegram_chat_ref_present": True,
+                "telegram_chat_ref_sha256": "c" * 64,
+                "telegram_bot_key_present": True,
+                "telegram_bot_token_present": True,
+                "raw_callback_token": "callback-token-secret",
+                "raw_principal_id": "cf-email:tibor.girschele@example.test",
+                "raw_chat_ref": "123456789",
+                "raw_packet_ref": "stage_packet:pkt-1",
+                "raw_staged_artifact_ref": "safe_work_result:res-1",
+            },
+            '{"ok":true}',
+            "",
+        )
+
+    monkeypatch.setattr(module, "_docker_compose_exec_json", _fake_exec_json)
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-06-29T14:30:00Z")
+
+    report = module.probe_proactive_approval_capture(
+        principal_id="cf-email:tibor.girschele@example.test",
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+        output_format="operator",
+    )
+    serialized = json.dumps(report, sort_keys=True)
+
+    assert report["probe_ok"] is True
+    assert report["ready"] is True
+    assert report["status"] == "ready"
+    assert report["principal_match_ready"] is True
+    assert report["telegram_binding_ready"] is True
+    assert report["current_packet_live_pending_count"] == 1
+    assert report["candidate_principal_hash_count"] == 3
+    assert report["next_action"] == "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome"
+    assert "proactive_approval_capture status=ready" in str(report["operator_text"])
+    assert "principal_match=true" in str(report["operator_text"])
+    assert "telegram_ready=true" in str(report["operator_text"])
+    assert "callback-token-secret" not in serialized
+    assert "cf-email:tibor.girschele@example.test" not in serialized
+    assert "123456789" not in serialized
+    assert "stage_packet:pkt-1" not in serialized
+    assert "safe_work_result:res-1" not in serialized
+
+
+def test_probe_proactive_approval_capture_blocks_on_principal_mismatch_risk(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(
+        module,
+        "_docker_compose_exec_json",
+        lambda **_kwargs: (
+            0,
+            {
+                "ok": True,
+                "callback_dir_exists": True,
+                "callback_record_count": 1,
+                "current_packet_ref_sha256": "a" * 64,
+                "current_staged_artifact_ref_sha256": "b" * 64,
+                "current_packet_refs_present": True,
+                "current_packet_callback_record_count": 1,
+                "current_packet_live_pending_count": 1,
+                "current_packet_callback_latest_status": "pending",
+                "current_packet_callback_latest_expired": False,
+                "current_packet_callback_latest_age_seconds": 120,
+                "current_packet_callback_latest_seconds_until_expiry": 600,
+                "callback_principal_hash_present": True,
+                "candidate_principal_hash_count": 2,
+                "principal_match_ready": False,
+                "telegram_binding_ready": True,
+                "telegram_blocking_reason": "",
+                "telegram_chat_ref_present": True,
+                "telegram_bot_key_present": True,
+                "telegram_bot_token_present": True,
+            },
+            "",
+            "",
+        ),
+    )
+
+    report = module.probe_proactive_approval_capture(
+        principal_id="local-user",
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+        output_format="operator",
+    )
+
+    assert report["probe_ok"] is True
+    assert report["ready"] is False
+    assert report["status"] == "blocked"
+    assert report["blocking_reason"] == "approval_callback_principal_mismatch_risk"
+    assert report["next_action"] == "repair_proactive_approval_principal_aliases"
+    assert "principal_match=false" in str(report["operator_text"])
+    assert "reason=approval_callback_principal_mismatch_risk" in str(report["operator_text"])
+
+
+def test_probe_proactive_approval_capture_maps_missing_telegram_token(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(
+        module,
+        "_docker_compose_exec_json",
+        lambda **_kwargs: (
+            0,
+            {
+                "ok": True,
+                "callback_dir_exists": True,
+                "callback_record_count": 1,
+                "current_packet_refs_present": True,
+                "current_packet_callback_record_count": 1,
+                "current_packet_live_pending_count": 1,
+                "current_packet_callback_latest_status": "pending",
+                "callback_principal_hash_present": True,
+                "candidate_principal_hash_count": 2,
+                "principal_match_ready": True,
+                "telegram_binding_ready": False,
+                "telegram_blocking_reason": "telegram_bot_token_missing",
+                "telegram_chat_ref_present": True,
+                "telegram_bot_key_present": True,
+                "telegram_bot_token_present": False,
+            },
+            "",
+            "",
+        ),
+    )
+
+    report = module.probe_proactive_approval_capture(
+        principal_id="local-user",
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+    )
+
+    assert report["ready"] is False
+    assert report["blocking_reason"] == "telegram_bot_token_missing"
+    assert report["next_action"] == "configure_telegram_bot_token"
+
+
 def test_cleanup_proactive_approval_callbacks_dry_run_reports_stale_counts_without_mutation(monkeypatch) -> None:
     module = _module()
 
@@ -1728,6 +1887,20 @@ def test_parse_args_probe_proactive_artifacts_uses_runtime_defaults(monkeypatch)
     assert args.format == "json"
 
 
+def test_parse_args_probe_proactive_approval_capture_uses_proactive_principal_default(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setenv("EA_PROACTIVE_OODA_PRINCIPAL_ID", "cf-email:test@example.com")
+    monkeypatch.setenv("EA_PROACTIVE_OODA_RUNTIME_SERVICE", "ea-proactive-ooda")
+    monkeypatch.setattr(sys, "argv", ["ea_live_ops.py", "probe-proactive-approval-capture", "--format", "operator"])
+
+    args = module.parse_args()
+
+    assert args.command == "probe-proactive-approval-capture"
+    assert args.proactive_principal_id == "cf-email:test@example.com"
+    assert args.runtime_service == "ea-proactive-ooda"
+    assert args.format == "operator"
+
+
 def test_parse_args_probe_proactive_gmail_draft_uses_proactive_principal_default(monkeypatch) -> None:
     module = _module()
     monkeypatch.setenv("EA_PROACTIVE_OODA_PRINCIPAL_ID", "cf-email:test@example.com")
@@ -2026,6 +2199,37 @@ def test_main_probe_proactive_artifacts_emits_json(monkeypatch, capsys) -> None:
     payload = json.loads(capsys.readouterr().out)
     assert payload["probe_ok"] is True
     assert payload["status"] == "ok"
+
+
+def test_main_probe_proactive_approval_capture_operator_prints_plain_text(monkeypatch, capsys) -> None:
+    module = _module()
+    monkeypatch.setattr(
+        module,
+        "probe_proactive_approval_capture",
+        lambda **kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "operator_text": (
+                "proactive_approval_capture status=ready "
+                f"principal={kwargs['principal_id']}"
+            ),
+        },
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "ea_live_ops.py",
+            "probe-proactive-approval-capture",
+            "--principal-id",
+            "principal-1",
+            "--format",
+            "operator",
+        ],
+    )
+
+    assert module.main() == 0
+    assert capsys.readouterr().out.strip() == "proactive_approval_capture status=ready principal=principal-1"
 
 
 def test_resolve_whatsapp_matches_phone_hint_suffix_and_returns_chat_ref(monkeypatch) -> None:
