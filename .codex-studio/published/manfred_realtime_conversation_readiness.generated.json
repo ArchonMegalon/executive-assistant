@@ -14,11 +14,15 @@
   },
   "contract_name": "ea.manfred_realtime_conversation_readiness.v1",
   "current_label": "Memorial public-origin gold: blocked",
-  "generated_at": "2026-06-26T11:46:34Z",
+  "generated_at": "2026-06-29T20:47:23Z",
   "goal_completion_claim_allowed": false,
   "interaction_acceptance": {
     "ongoing_cinematic_narration_not_scene_bound": true
   },
+  "next_action": "collect_real_room_audio_attestation",
+  "next_action_href": "/memorials/manfred/voice-config",
+  "next_action_label": "Spoken conversation proof",
+  "next_action_method": "get",
   "operator_status": "blocked",
   "premium_spoken_claim_allowed": false,
   "privacy": {
