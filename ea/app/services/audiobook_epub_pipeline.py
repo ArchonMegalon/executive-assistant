@@ -3592,6 +3592,7 @@ def reopen_audiobook_voice_selection_for_language_mismatch(*, job_dir: Path, lim
         "status": "waiting_user_choice",
         "reason": "selected_voice_language_mismatch",
         "pending_candidate_keys": pending_keys,
+        "replacement_candidate_keys": pending_keys,
         "pending_batch": selected_rows,
         "selected": {},
         "selected_candidate_key": "",
@@ -3609,6 +3610,7 @@ def reopen_audiobook_voice_selection_for_language_mismatch(*, job_dir: Path, lim
     provider_payload["voice_selection"] = reopened_selection
     provider_payload["raw_book_text_leaves_ea"] = False
     job["provider"] = provider_payload
+    _reset_audiobook_voice_sample_deliveries(job=job, expected_count=len(selected_rows))
     job["status"] = "waiting_voice_selection"
     job["next_action"] = "choose_audiobook_voice"
     job["render_result"] = {
@@ -3653,6 +3655,7 @@ def reopen_audiobook_voice_selection_for_author_gender_mismatch(*, job_dir: Path
         "status": "waiting_user_choice",
         "reason": "selected_voice_author_gender_mismatch",
         "pending_candidate_keys": pending_keys,
+        "replacement_candidate_keys": pending_keys,
         "pending_batch": selected_rows,
         "selected": {},
         "selected_candidate_key": "",
@@ -3672,6 +3675,7 @@ def reopen_audiobook_voice_selection_for_author_gender_mismatch(*, job_dir: Path
     provider_payload["voice_selection"] = reopened_selection
     provider_payload["raw_book_text_leaves_ea"] = False
     job["provider"] = provider_payload
+    _reset_audiobook_voice_sample_deliveries(job=job, expected_count=len(selected_rows))
     job["status"] = "waiting_voice_selection"
     job["next_action"] = "choose_audiobook_voice"
     job["render_result"] = {
@@ -3743,6 +3747,17 @@ def _audiobook_voice_sample_delivery_summary(
         ],
         "updated_at": _now_iso(),
     }
+
+
+def _reset_audiobook_voice_sample_deliveries(*, job: dict[str, object], expected_count: int) -> None:
+    summary = _audiobook_voice_sample_delivery_summary(expected_count=max(int(expected_count or 0), 0), sample_receipts=[])
+    for channel_key in ("telegram", "whatsapp"):
+        current_channel = job.get(channel_key)
+        if current_channel is None and channel_key not in job:
+            continue
+        channel = dict(current_channel or {})
+        channel["voice_sample_delivery"] = dict(summary)
+        job[channel_key] = channel
 
 
 def record_audiobook_voice_sample_delivery(

@@ -435,8 +435,27 @@ def test_reopen_audiobook_voice_selection_for_author_gender_mismatch_stages_matc
         "selected_candidate_key": "unmixr_seraphina_express_9827708d",
         "book_profile": {"author_gender_signal": "male"},
         "dismissed_candidate_keys": ["unmixr_jurgen_2ab157a8"],
+        "replacement_candidate_keys": ["unmixr_seraphina_express_9827708d"],
     }
     job_dir = _create_job_dir(current_voice_selection=current_selection)
+    stored_job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
+    stored_job["telegram"] = {
+        "chat_id": "1354554303",
+        "voice_sample_delivery": {
+            "status": "sent",
+            "expected_count": 1,
+            "attempted_count": 1,
+            "sent_count": 1,
+            "failed_count": 0,
+            "skipped_count": 0,
+            "reason": "",
+            "reasons": [],
+            "token_sha256": [hashlib.sha256(b"callback-token-seraphina").hexdigest()],
+            "samples": [],
+            "updated_at": "2026-06-29T00:00:00Z",
+        },
+    }
+    (job_dir / "job.json").write_text(json.dumps(stored_job, ensure_ascii=True, indent=2), encoding="utf-8")
     private_payload = {
         "contract_name": audiobook_epub_pipeline.VOICE_AUDITION_CONTRACT_NAME,
         "job_id": "test-job",
@@ -484,7 +503,16 @@ def test_reopen_audiobook_voice_selection_for_author_gender_mismatch_stages_matc
     assert reopened_job.get("status") == "waiting_voice_selection"
     assert voice_selection.get("reason") == "selected_voice_author_gender_mismatch"
     assert [item.get("label") for item in pending_batch] == ["Hans", "Seraphina (Express)"]
+    assert voice_selection.get("replacement_candidate_keys") == [
+        "unmixr_hans_84ea27fb",
+        "unmixr_seraphina_express_9827708d",
+    ]
     assert voice_selection.get("voice_author_gender_override_by_user") is False
+    delivery = dict(reopened_job.get("telegram") or {}).get("voice_sample_delivery") or {}
+    assert delivery.get("status") == "not_attempted"
+    assert delivery.get("expected_count") == 2
+    assert delivery.get("attempted_count") == 0
+    assert delivery.get("sent_count") == 0
 
 
 def test_apply_audiobook_voice_audition_action_marks_explicit_author_gender_override_when_user_keeps_mismatched_voice() -> None:
