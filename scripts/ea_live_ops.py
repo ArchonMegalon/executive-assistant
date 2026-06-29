@@ -3290,9 +3290,10 @@ def record_proactive_approval(
             "for value in ('/app', '/app/ea', '/app/scripts'):\n"
             "    if value not in sys.path:\n"
             "        sys.path.insert(0, value)\n"
-            "from app.services.proactive_ooda_approval_capture import finalize_proactive_ooda_approval_outcome\n"
+            "from app.services.proactive_ooda_approval_reissue import record_current_proactive_ooda_approval_outcome\n"
             "payload = json.loads(sys.argv[1])\n"
-            "result = finalize_proactive_ooda_approval_outcome(**payload)\n"
+            "payload['root'] = Path(str(payload.get('root') or '/app'))\n"
+            "result = record_current_proactive_ooda_approval_outcome(**payload)\n"
             "def _jsonify(value):\n"
             "    if isinstance(value, Path):\n"
             "        return value.as_posix()\n"
@@ -3309,14 +3310,14 @@ def record_proactive_approval(
                 "outcome": normalized_outcome,
                 "evidence": str(evidence or "").strip(),
                 "actor": str(actor or "").strip(),
-                "packet_ref": resolved_packet_ref,
-                "staged_artifact_ref": resolved_staged_artifact_ref,
+                "root": "/app",
                 "source_kind": str(source_kind or "").strip() or "operator",
                 "state_path": str(artifact_probe.get("state_path") or "").strip(),
                 "receipt_path": str(artifact_probe.get("run_receipt_path") or "").strip(),
                 "stage_packet_dir": str(artifact_probe.get("stage_packet_dir") or "").strip(),
                 "safe_work_result_dir": str(artifact_probe.get("safe_work_result_dir") or "").strip(),
-                "approval_outcome_path": str(artifact_probe.get("approval_outcome_path") or "").strip(),
+                "expected_packet_ref": resolved_packet_ref,
+                "expected_staged_artifact_ref": resolved_staged_artifact_ref,
             }
         ),
     ]
@@ -3339,16 +3340,18 @@ def record_proactive_approval(
             report["operator_text"] = f"proactive_approval status=record_failed; next=inspect {effective_runtime_service}"
         return report
 
-    approval_outcome = dict(payload.get("approval_outcome") or {})
     teable_sync = dict(payload.get("teable_sync") or {})
+    runtime_status = str(payload.get("status") or "").strip()
+    already_decided = runtime_status == "already_decided"
+    recorded = runtime_status == "recorded" or already_decided
     report = {
         **base_report,
-        "recorded": bool(approval_outcome.get("approval_outcome_recorded")),
-        "reason": "recorded" if bool(approval_outcome.get("approval_outcome_recorded")) else "record_not_confirmed",
-        "accepted": bool(approval_outcome.get("accepted")),
-        "approval_outcome": approval_outcome,
-        "approval_outcome_id": str(approval_outcome.get("outcome_id") or "").strip(),
-        "approval_outcome_status": str(approval_outcome.get("status") or "").strip(),
+        "recorded": recorded,
+        "reason": "recorded" if runtime_status == "recorded" else "already_decided" if already_decided else runtime_status or "record_not_confirmed",
+        "accepted": bool(payload.get("approval_outcome_accepted")),
+        "approval_outcome": dict(payload),
+        "approval_outcome_id": str(payload.get("approval_outcome_id") or "").strip(),
+        "approval_outcome_status": str(payload.get("approval_outcome_status") or "").strip(),
         "approval_outcome_path": str(payload.get("approval_outcome_path") or "").strip(),
         "operator_status_path": str(payload.get("operator_status_path") or "").strip(),
         "gold_acceptance_path": str(payload.get("gold_acceptance_path") or "").strip(),
@@ -3356,9 +3359,10 @@ def record_proactive_approval(
     }
     if output_format == "operator":
         teable_status = str(teable_sync.get("status") or "unknown").strip() or "unknown"
+        operator_status = "recorded" if recorded else runtime_status or "record_not_confirmed"
         report["operator_text"] = (
-            "proactive_approval status=recorded; "
-            f"outcome={normalized_outcome}; accepted={str(bool(approval_outcome.get('accepted'))).lower()}; "
+            f"proactive_approval status={operator_status}; "
+            f"outcome={normalized_outcome}; accepted={str(bool(payload.get('approval_outcome_accepted'))).lower()}; "
             f"teable={teable_status}"
         )
     return report

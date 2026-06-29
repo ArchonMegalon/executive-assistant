@@ -15,7 +15,17 @@ for candidate in (str(ROOT), str(EA_ROOT)):
     if candidate not in sys.path:
         sys.path.insert(0, candidate)
 
-from app.services.proactive_ooda_approval_reissue import reissue_current_proactive_ooda_approval  # noqa: E402
+from app.services.proactive_ooda_approval_reissue import record_current_proactive_ooda_approval_outcome  # noqa: E402
+
+
+def _default_principal_id() -> str:
+    return (
+        str(os.getenv("EA_PROACTIVE_OODA_PRINCIPAL_ID") or "").strip()
+        or str(os.getenv("EA_DEFAULT_PRINCIPAL_ID") or "").strip()
+        or str(os.getenv("EA_WHATSAPP_WEB_DEFAULT_PRINCIPAL_ID") or "").strip()
+        or str(os.getenv("EA_WHATSAPP_DEFAULT_PRINCIPAL_ID") or "").strip()
+        or "principal-default"
+    )
 
 
 def _default_runtime_state_path() -> str:
@@ -51,12 +61,19 @@ def _default_safe_work_result_dir() -> str:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Reissue the current proactive OODA Telegram approval surface.")
-    parser.add_argument("--principal-id", default=os.getenv("EA_PROACTIVE_OODA_PRINCIPAL_ID", ""))
+    parser = argparse.ArgumentParser(description="Record the current proactive OODA approval outcome.")
+    parser.add_argument("--principal-id", default=_default_principal_id())
+    parser.add_argument("--outcome", default="approved")
+    parser.add_argument("--evidence", default="")
+    parser.add_argument("--actor", default=os.getenv("EA_PROACTIVE_OODA_APPROVAL_ACTOR", os.getenv("USER", "")))
+    parser.add_argument("--source-kind", default=os.getenv("EA_PROACTIVE_OODA_APPROVAL_SOURCE_KIND", "operator_manual"))
+    parser.add_argument("--recorded-at", default="")
     parser.add_argument("--state-path", default=_default_runtime_state_path())
     parser.add_argument("--receipt-path", default=_default_runtime_receipt_path())
     parser.add_argument("--stage-packet-dir", default=_default_stage_packet_dir())
     parser.add_argument("--safe-work-result-dir", default=_default_safe_work_result_dir())
+    parser.add_argument("--expected-packet-ref", default="")
+    parser.add_argument("--expected-staged-artifact-ref", default="")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
@@ -74,19 +91,26 @@ def _jsonable(value: Any) -> Any:
 
 def main() -> int:
     args = parse_args()
-    result = reissue_current_proactive_ooda_approval(
+    result = record_current_proactive_ooda_approval_outcome(
         principal_id=str(args.principal_id or "").strip(),
+        outcome=str(args.outcome or "").strip(),
+        evidence=str(args.evidence or "").strip(),
+        actor=str(args.actor or "").strip(),
         root=ROOT,
         state_path=args.state_path,
         receipt_path=args.receipt_path,
         stage_packet_dir=args.stage_packet_dir,
         safe_work_result_dir=args.safe_work_result_dir,
+        source_kind=str(args.source_kind or "").strip() or "operator_manual",
+        recorded_at=str(args.recorded_at or "").strip() or None,
+        expected_packet_ref=str(args.expected_packet_ref or "").strip(),
+        expected_staged_artifact_ref=str(args.expected_staged_artifact_ref or "").strip(),
         force=bool(args.force),
         dry_run=bool(args.dry_run),
     )
     print(json.dumps(_jsonable(result), sort_keys=True))
     status = str(result.get("status") or "").strip()
-    return 0 if status in {"sent", "already_live_pending", "dry_run"} else 2
+    return 0 if status in {"recorded", "already_decided", "dry_run"} else 2
 
 
 if __name__ == "__main__":

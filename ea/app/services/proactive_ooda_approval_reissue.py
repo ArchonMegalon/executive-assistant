@@ -4,6 +4,7 @@ import hashlib
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+from app.services.proactive_ooda_approval_capture import finalize_proactive_ooda_approval_outcome
 from app.services.proactive_ooda_delivery import send_proactive_ooda_notification
 from app.services.proactive_ooda_runtime_artifacts import load_runtime_artifact_bundle
 from app.services.proactive_ooda_telegram_policy import approval_request_needs_telegram_user_action
@@ -119,6 +120,128 @@ def reissue_current_proactive_ooda_approval(
         "delivery_channel": _receipt_text(receipt, "channel"),
         "delivery_transport": _receipt_text(receipt, "delivery_transport"),
         "approval_surface": _redacted_approval_surface(approval_surface),
+        **_redacted_request_summary(approval_request),
+    }
+
+
+def record_current_proactive_ooda_approval_outcome(
+    *,
+    principal_id: str,
+    outcome: str,
+    evidence: str,
+    actor: str,
+    root: Path,
+    state_path: str | Path,
+    receipt_path: str | Path = "",
+    stage_packet_dir: str | Path = "",
+    safe_work_result_dir: str | Path = "",
+    source_kind: str = "operator_manual",
+    recorded_at: str | None = None,
+    expected_packet_ref: str = "",
+    expected_staged_artifact_ref: str = "",
+    force: bool = False,
+    dry_run: bool = False,
+    bundle_loader: Callable[..., Mapping[str, Any]] = load_runtime_artifact_bundle,
+    finalizer: Callable[..., Mapping[str, Any]] = finalize_proactive_ooda_approval_outcome,
+) -> dict[str, Any]:
+    normalized_principal_id = str(principal_id or "").strip()
+    if not normalized_principal_id:
+        return {"status": "blocked", "reason": "principal_id_required"}
+    if not str(actor or "").strip():
+        return {"status": "blocked", "reason": "actor_required"}
+    if not str(evidence or "").strip():
+        return {"status": "blocked", "reason": "evidence_required"}
+    bundle = dict(
+        bundle_loader(
+            root=root,
+            state_path=state_path,
+            receipt_path=receipt_path,
+            stage_packet_dir=stage_packet_dir,
+            safe_work_result_dir=safe_work_result_dir,
+        )
+    )
+    current_packet_live_pending_count = int(bundle.get("current_packet_live_pending_count") or 0)
+    approval_request = current_proactive_ooda_approval_request(bundle)
+    if not approval_request.get("ready"):
+        return {
+            "status": "blocked",
+            "reason": str(approval_request.get("reason") or "approval_request_unavailable"),
+            "current_packet_live_pending_count": current_packet_live_pending_count,
+            **_redacted_request_summary(approval_request),
+        }
+    current_packet_ref = str(approval_request.get("packet_ref") or "").strip()
+    current_staged_artifact_ref = str(approval_request.get("staged_artifact_ref") or "").strip()
+    expected_packet_ref_text = str(expected_packet_ref or "").strip()
+    if expected_packet_ref_text and expected_packet_ref_text != current_packet_ref:
+        return {
+            "status": "blocked",
+            "reason": "current_packet_ref_mismatch",
+            "current_packet_live_pending_count": current_packet_live_pending_count,
+            "expected_packet_ref_sha256": _hash_value(expected_packet_ref_text),
+            "current_packet_ref_sha256": _hash_value(current_packet_ref),
+            **_redacted_request_summary(approval_request),
+        }
+    expected_staged_artifact_ref_text = str(expected_staged_artifact_ref or "").strip()
+    if expected_staged_artifact_ref_text and expected_staged_artifact_ref_text != current_staged_artifact_ref:
+        return {
+            "status": "blocked",
+            "reason": "current_staged_artifact_ref_mismatch",
+            "current_packet_live_pending_count": current_packet_live_pending_count,
+            "expected_staged_artifact_ref_sha256": _hash_value(expected_staged_artifact_ref_text),
+            "current_staged_artifact_ref_sha256": _hash_value(current_staged_artifact_ref),
+            **_redacted_request_summary(approval_request),
+        }
+    current_outcome = dict(bundle.get("approval_outcome") or {})
+    if not force and _approval_outcome_matches_request(current_outcome, approval_request):
+        return {
+            "status": "already_decided",
+            "reason": "current_packet_approval_outcome_already_recorded",
+            "approval_outcome_status": str(current_outcome.get("status") or "").strip(),
+            "current_packet_live_pending_count": current_packet_live_pending_count,
+            **_redacted_request_summary(approval_request),
+        }
+    if dry_run:
+        return {
+            "status": "dry_run",
+            "reason": "approval_outcome_ready_to_record",
+            "requested_outcome": str(outcome or "").strip(),
+            "source_kind": str(source_kind or "").strip() or "operator_manual",
+            "current_packet_live_pending_count": current_packet_live_pending_count,
+            **_redacted_request_summary(approval_request),
+        }
+    finalized = dict(
+        finalizer(
+            principal_id=normalized_principal_id,
+            outcome=outcome,
+            evidence=evidence,
+            actor=actor,
+            packet_ref=str(approval_request.get("packet_ref") or "").strip(),
+            staged_artifact_ref=str(approval_request.get("staged_artifact_ref") or "").strip(),
+            source_kind=str(source_kind or "").strip() or "operator_manual",
+            recorded_at=recorded_at,
+            root=root,
+            state_path=state_path,
+            receipt_path=receipt_path,
+            stage_packet_dir=stage_packet_dir,
+            safe_work_result_dir=safe_work_result_dir,
+        )
+    )
+    approval_outcome = dict(finalized.get("approval_outcome") or {})
+    return {
+        "status": "recorded" if bool(approval_outcome.get("approval_outcome_recorded")) else "failed",
+        "reason": "approval_outcome_recorded" if bool(approval_outcome.get("approval_outcome_recorded")) else "approval_outcome_not_recorded",
+        "approval_outcome_id": str(approval_outcome.get("outcome_id") or "").strip(),
+        "approval_outcome_status": str(approval_outcome.get("status") or "").strip(),
+        "approval_outcome_accepted": bool(approval_outcome.get("accepted")),
+        "source_kind": str(approval_outcome.get("source_kind") or source_kind or "").strip(),
+        "recorded_at": str(approval_outcome.get("recorded_at") or recorded_at or "").strip(),
+        "current_packet_live_pending_count": current_packet_live_pending_count,
+        "approval_outcome_path": finalized.get("approval_outcome_path"),
+        "operator_status_path": finalized.get("operator_status_path"),
+        "gold_acceptance_path": finalized.get("gold_acceptance_path"),
+        "operator_status_materialization": dict(finalized.get("operator_status_materialization") or {}),
+        "gold_acceptance_materialization": dict(finalized.get("gold_acceptance_materialization") or {}),
+        "teable_sync": dict(finalized.get("teable_sync") or {}),
         **_redacted_request_summary(approval_request),
     }
 
