@@ -599,6 +599,40 @@ def test_probe_whatsapp_pairing_telegram_caption_withholds_host_local_pair_url(m
     assert Path(str(observed["document_ref"])).is_file()
 
 
+def test_probe_whatsapp_pairing_reports_degraded_fallback_when_binding_lookup_errors(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_safe_load_whatsapp_binding", lambda _args: (None, "OperationalError"))
+    monkeypatch.setattr(module, "_qr_age_seconds", lambda _value: 10)
+    monkeypatch.setattr(
+        module,
+        "_sidecar_get",
+        lambda **_kwargs: {
+            "ok": True,
+            "ready": False,
+            "status": "qr_required",
+            "qr_present": True,
+            "qr_required": True,
+            "last_qr_at": "2026-06-29T14:00:00Z",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "_sidecar_bytes",
+        lambda **_kwargs: (b"<svg>qr</svg>", "image/svg+xml", "http://127.0.0.1:8098/sessions/session-1/qr.svg"),
+    )
+
+    report = module.probe_whatsapp_pairing(
+        args=_args(session_api_base_url="http://127.0.0.1:8098", session_ref="session-1"),
+        output_dir=str(tmp_path),
+    )
+
+    assert report["status"] == "available"
+    assert report["binding_lookup_status"] == "degraded_sidecar_fallback"
+    assert report["binding_lookup_error"] == "OperationalError"
+    assert report["binding_lookup_recovered"] is True
+    assert report["binding_lookup_fallback_source"] == "whatsapp_web_session_sidecar_qr"
+
+
 def test_main_probe_whatsapp_pairing_prints_operator_text(monkeypatch, capsys) -> None:
     module = _module()
     monkeypatch.setattr(
@@ -2754,8 +2788,11 @@ def test_resolve_whatsapp_falls_back_to_sidecar_when_binding_lookup_errors(monke
     serialized = json.dumps(report)
 
     assert report["status"] == "resolved"
-    assert report["binding_lookup_status"] == "error"
+    assert report["reason"] == ""
+    assert report["binding_lookup_status"] == "degraded_sidecar_fallback"
     assert report["binding_lookup_error"] == "RuntimeError"
+    assert report["binding_lookup_recovered"] is True
+    assert report["binding_lookup_fallback_source"] == "whatsapp_web_session_sidecar"
     assert report["route_lookup_ready"] is True
     assert report["chat_ref"] == "chat-ref-1"
     assert "secret" not in serialized
@@ -2783,6 +2820,7 @@ def test_resolve_whatsapp_blocks_without_traceback_when_binding_and_sidecar_rout
     assert report["reason"] == "OSError"
     assert report["binding_lookup_status"] == "error"
     assert report["binding_lookup_error"] == "RuntimeError"
+    assert report["binding_lookup_recovered"] is False
     assert report["route_lookup_ready"] is False
     assert "sidecar token secret" not in serialized
     assert "postgresql://" not in serialized

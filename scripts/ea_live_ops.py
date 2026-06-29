@@ -3299,6 +3299,34 @@ def _safe_load_whatsapp_binding(args: argparse.Namespace) -> tuple[Any | None, s
         return None, type(exc).__name__
 
 
+def _binding_lookup_report_fields(
+    binding: Any | None,
+    binding_lookup_error: str,
+    *,
+    recovered: bool = False,
+    fallback_source: str = "",
+) -> dict[str, object]:
+    lookup_error = str(binding_lookup_error or "").strip()
+    recovered_after_error = bool(lookup_error and recovered)
+    status = (
+        "degraded_sidecar_fallback"
+        if recovered_after_error
+        else "error"
+        if lookup_error
+        else "found"
+        if binding is not None
+        else "missing"
+    )
+    fields: dict[str, object] = {
+        "binding_lookup_status": status,
+        "binding_lookup_error": lookup_error,
+        "binding_lookup_recovered": recovered_after_error,
+    }
+    if recovered_after_error:
+        fields["binding_lookup_fallback_source"] = str(fallback_source or "sidecar").strip()
+    return fields
+
+
 def _session_headers_from_binding(binding: Any | None) -> dict[str, str]:
     headers = {"Content-Type": "application/json"}
     if binding is not None:
@@ -3530,17 +3558,22 @@ def resolve_whatsapp(phone_hint: str, *, args: argparse.Namespace) -> dict[str, 
         status = "blocked"
     if not conversations_ready and status != "resolved":
         status = "blocked"
-    binding_lookup_status = "error" if binding_lookup_error else "found" if binding is not None else "missing"
+    binding_lookup_recovered = bool(binding_lookup_error and routes_ready and (conversations_ready or status == "resolved"))
+    binding_lookup_reason = "" if binding_lookup_recovered else binding_lookup_error
     return {
         "status": status,
-        "reason": route_reason if not routes_ready else sidecar_reason if not conversations_ready else binding_lookup_error,
+        "reason": route_reason if not routes_ready else sidecar_reason if not conversations_ready else binding_lookup_reason,
         "phone_hint": str(phone_hint or ""),
         "recipient_digits": recipient_digits,
         "binding_id": str(getattr(binding, "binding_id", "") or ""),
         "principal_id": str(getattr(binding, "principal_id", "") or ""),
         "session_ref": _session_ref(binding, str(getattr(args, "session_ref", "") or "").strip()),
-        "binding_lookup_status": binding_lookup_status,
-        "binding_lookup_error": binding_lookup_error,
+        **_binding_lookup_report_fields(
+            binding,
+            binding_lookup_error,
+            recovered=binding_lookup_recovered,
+            fallback_source="whatsapp_web_session_sidecar",
+        ),
         "route_key": str(route.get("route_key") or "").strip(),
         "ai_key": str(route.get("ai_key") or "").strip(),
         "ai_name": str(route.get("ai_name") or "").strip(),
@@ -3936,8 +3969,12 @@ def probe_whatsapp_pairing(
         "reason": reason,
         "next_action": next_action,
         "session_ref": session_ref,
-        "binding_lookup_status": "error" if binding_lookup_error else "found" if binding is not None else "missing",
-        "binding_lookup_error": binding_lookup_error,
+        **_binding_lookup_report_fields(
+            binding,
+            binding_lookup_error,
+            recovered=bool(binding_lookup_error and ok),
+            fallback_source="whatsapp_web_session_sidecar_qr",
+        ),
         "sidecar_status": sidecar_status,
         "qr_present": qr_present,
         "qr_required": qr_required,
