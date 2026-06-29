@@ -15,7 +15,13 @@ import pytest
 from fastapi import HTTPException
 
 
-def _write_minimal_epub(path: Path) -> None:
+def _write_minimal_epub(
+    path: Path,
+    *,
+    title: str = "Test Book",
+    author: str = "A. Writer",
+    language: str = "en-US",
+) -> None:
     with zipfile.ZipFile(path, "w") as book:
         book.writestr("mimetype", "application/epub+zip")
         book.writestr(
@@ -30,12 +36,12 @@ def _write_minimal_epub(path: Path) -> None:
         )
         book.writestr(
             "OEBPS/content.opf",
-            """<?xml version="1.0" encoding="utf-8"?>
+            f"""<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid" version="2.0">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-    <dc:title>Test Book</dc:title>
-    <dc:creator>A. Writer</dc:creator>
-    <dc:language>en-US</dc:language>
+    <dc:title>{title}</dc:title>
+    <dc:creator>{author}</dc:creator>
+    <dc:language>{language}</dc:language>
   </metadata>
   <manifest>
     <item id="chap1" href="chapters/chapter-1.xhtml" media-type="application/xhtml+xml"/>
@@ -2927,7 +2933,7 @@ def test_voice_selection_uses_author_gender_as_soft_signal(monkeypatch, tmp_path
     chapter_dir.mkdir()
     text = "This nonfiction chapter explains the process in a calm practical way."
     (chapter_dir / "001 - Test.txt").write_text(text, encoding="utf-8")
-    metadata = EpubMetadata(title="Calm Guide", author="Andreas Knuf", language="en-US", source_filename="book.epub", source_sha256="sha")
+    metadata = EpubMetadata(title="Calm Guide", author="Knuf, Andreas", language="en-US", source_filename="book.epub", source_sha256="sha")
     chapter = EpubChapter(index=1, title="Test", source_href="test.xhtml", text_path="001 - Test.txt", audio_filename="001 - Test.wav", char_count=len(text), sha256="sha")
 
     selection = select_unmixr_voice_for_book(metadata=metadata, chapters=(chapter,), job_dir=tmp_path)
@@ -3326,6 +3332,89 @@ def test_voice_audition_batch_prefers_book_language_matches(monkeypatch, tmp_pat
     assert all(row["language_match"] is True for row in voice_selection["pending_batch"])
     assert "English perfect tag fit" not in labels
     assert "english-best-tags" not in json.dumps(job)
+
+
+def test_voice_audition_batch_dedupes_display_voice_family(monkeypatch, tmp_path: Path) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+    from app.services.audiobook_epub_pipeline import create_job_from_epub
+
+    monkeypatch.setenv("EA_AUDIOBOOK_ALLOW_NON_DURABLE_STORAGE", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(tmp_path / "jobs"))
+    monkeypatch.setenv("EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_AUTO_RENDER", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED", "0")
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+        json.dumps(
+            [
+                {"voice_id": "seraphina-express-id", "label": "Seraphina (Express)", "language": "en-US", "tags": ["audiobook", "narration", "clear"]},
+                {"voice_id": "seraphina-standard-id", "label": "Seraphina", "language": "en-US", "tags": ["audiobook", "narration", "clear"]},
+                {"voice_id": "gretchen-id", "label": "Gretchen", "language": "en-US", "tags": ["audiobook", "narration", "clear"]},
+                {"voice_id": "conrad-id", "label": "Conrad", "language": "en-US", "tags": ["audiobook", "narration", "clear"]},
+            ]
+        ),
+    )
+    tones: dict[str, bytes] = {}
+    for index, voice_id in enumerate(("seraphina-express-id", "gretchen-id", "conrad-id"), start=1):
+        tone = tmp_path / f"{voice_id}.wav"
+        _write_tone_wav(tone, seconds=0.10 + index * 0.02)
+        tones[voice_id] = tone.read_bytes()
+    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", lambda **kwargs: (tones[str(kwargs["voice_id"])], "audio/wav"))
+    monkeypatch.setattr(pipeline, "_normalize_rendered_audio_file", lambda path: path)
+    epub = tmp_path / "book.epub"
+    _write_minimal_epub(epub)
+
+    job = create_job_from_epub(epub_path=epub, original_filename="book.epub", principal_id="principal-1")
+
+    voice_selection = job["provider"]["voice_selection"]
+    labels = [row["label"] for row in voice_selection["pending_batch"]]
+    family_keys = [pipeline._voice_label_family_key(label) for label in labels]
+    assert labels == ["Seraphina (Express)", "Gretchen", "Conrad"]
+    assert len(family_keys) == len(set(family_keys))
+    assert "Seraphina" not in labels[1:]
+    assert voice_selection["sample_generation_failed_count"] == 0
+
+
+def test_voice_audition_prefers_author_gender_batch_for_comma_author(monkeypatch, tmp_path: Path) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+    from app.services.audiobook_epub_pipeline import create_job_from_epub
+
+    monkeypatch.setenv("EA_AUDIOBOOK_ALLOW_NON_DURABLE_STORAGE", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(tmp_path / "jobs"))
+    monkeypatch.setenv("EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_AUTO_RENDER", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED", "0")
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+        json.dumps(
+            [
+                {"voice_id": "seraphina-id", "label": "Seraphina", "language": "de-DE", "tags": ["audiobook", "narration", "clear", "female"]},
+                {"voice_id": "gisela-id", "label": "Gisela", "language": "de-DE", "tags": ["audiobook", "narration", "warm", "female"]},
+                {"voice_id": "amala-id", "label": "Amala", "language": "de-DE", "tags": ["audiobook", "narration", "female"]},
+                {"voice_id": "florian-id", "label": "Florian", "language": "de-DE", "tags": ["general", "male"]},
+                {"voice_id": "hans-id", "label": "Hans", "language": "de-DE", "tags": ["general", "male"]},
+                {"voice_id": "dieter-id", "label": "Dieter", "language": "de-DE", "tags": ["general", "male"]},
+            ]
+        ),
+    )
+    tones: dict[str, bytes] = {}
+    for index, voice_id in enumerate(("florian-id", "hans-id", "dieter-id"), start=1):
+        tone = tmp_path / f"{voice_id}.wav"
+        _write_tone_wav(tone, seconds=0.10 + index * 0.02)
+        tones[voice_id] = tone.read_bytes()
+    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", lambda **kwargs: (tones[str(kwargs["voice_id"])], "audio/wav"))
+    monkeypatch.setattr(pipeline, "_normalize_rendered_audio_file", lambda path: path)
+    epub = tmp_path / "book.epub"
+    _write_minimal_epub(epub, author="Knuf, Andreas", language="de")
+
+    job = create_job_from_epub(epub_path=epub, original_filename="book.epub", principal_id="principal-1")
+
+    voice_selection = job["provider"]["voice_selection"]
+    labels = [row["label"] for row in voice_selection["pending_batch"]]
+    assert voice_selection["book_profile"]["author_gender_signal"] == "male"
+    assert voice_selection["author_gender_preference_used"] is True
+    assert labels == ["Florian", "Hans", "Dieter"]
+    assert all("male" in row["tags"] for row in voice_selection["pending_batch"])
 
 
 def test_voice_audition_expands_discovery_when_language_pool_is_underfilled(monkeypatch, tmp_path: Path) -> None:
@@ -4220,6 +4309,51 @@ def test_epub_voice_audition_dismiss_replaces_voice_immediately(monkeypatch, tmp
     assert labels == ["Voice 3", "Voice 4", "Voice 5"]
 
 
+def test_epub_voice_audition_dismiss_replacement_skips_same_display_family(monkeypatch, tmp_path: Path) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+    from app.services.audiobook_epub_pipeline import apply_audiobook_voice_audition_action, create_job_from_epub
+
+    monkeypatch.setenv("EA_AUDIOBOOK_ALLOW_NON_DURABLE_STORAGE", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(tmp_path / "jobs"))
+    monkeypatch.setenv("EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_AUTO_RENDER", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_VOICE_DISCOVERY_ENABLED", "0")
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+        json.dumps(
+            [
+                {"voice_id": "seraphina-express-id", "label": "Seraphina (Express)", "language": "en-US", "tags": ["audiobook", "narration", "clear"]},
+                {"voice_id": "seraphina-standard-id", "label": "Seraphina", "language": "en-US", "tags": ["audiobook", "narration", "clear"]},
+                {"voice_id": "gretchen-id", "label": "Gretchen", "language": "en-US", "tags": ["audiobook", "narration", "clear"]},
+                {"voice_id": "conrad-id", "label": "Conrad", "language": "en-US", "tags": ["audiobook", "narration", "clear"]},
+                {"voice_id": "florian-id", "label": "Florian", "language": "en-US", "tags": ["audiobook", "narration", "clear"]},
+            ]
+        ),
+    )
+    tones: dict[str, bytes] = {}
+    for index, voice_id in enumerate(("seraphina-express-id", "gretchen-id", "conrad-id", "florian-id"), start=1):
+        tone = tmp_path / f"{voice_id}.wav"
+        _write_tone_wav(tone, seconds=0.10 + index * 0.02)
+        tones[voice_id] = tone.read_bytes()
+    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", lambda **kwargs: (tones[str(kwargs["voice_id"])], "audio/wav"))
+    monkeypatch.setattr(pipeline, "_normalize_rendered_audio_file", lambda path: path)
+    epub = tmp_path / "book.epub"
+    _write_minimal_epub(epub)
+
+    job = create_job_from_epub(epub_path=epub, original_filename="book.epub", principal_id="principal-1")
+    first = job["provider"]["voice_selection"]["pending_batch"][0]
+    assert first["label"] == "Seraphina (Express)"
+
+    job = apply_audiobook_voice_audition_action(callback_token=first["callback_token"], action="dismiss")
+
+    selection = job["provider"]["voice_selection"]
+    labels = [row["label"] for row in selection["pending_batch"]]
+    assert labels == ["Gretchen", "Conrad", "Florian"]
+    assert "Seraphina" not in labels
+    assert "label_family:seraphina" in selection["dismissed_voice_identity_keys"]
+    assert selection["last_action"]["replacement_count"] == 1
+
+
 def test_epub_voice_audition_dismiss_survives_replacement_tts_failure(monkeypatch, tmp_path: Path) -> None:
     from app.services import audiobook_epub_pipeline as pipeline
     from app.services.audiobook_epub_pipeline import apply_audiobook_voice_audition_action, create_job_from_epub
@@ -4787,6 +4921,54 @@ def test_telegram_send_audiobook_voice_samples_returns_per_sample_failures(monke
     assert len(receipts) == 3
     assert {row["status"] for row in receipts} == {"failed"}
     assert {row["reason"] for row in receipts} == {"RuntimeError"}
+
+
+def test_telegram_send_audiobook_voice_samples_records_inline_controls(monkeypatch, tmp_path: Path) -> None:
+    from app.api.routes import channels
+    from app.services import audiobook_epub_pipeline as pipeline
+    from app.services.audiobook_epub_pipeline import create_job_from_epub
+
+    monkeypatch.setenv("EA_AUDIOBOOK_ALLOW_NON_DURABLE_STORAGE", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(tmp_path / "jobs"))
+    monkeypatch.setenv("EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_UNMIXR_AUTO_RENDER", "1")
+    monkeypatch.setenv(
+        "EA_AUDIOBOOK_UNMIXR_VOICE_PRESETS_JSON",
+        json.dumps(
+            [
+                {"voice_id": f"voice-{index}", "label": f"Voice {index}", "language": "en-US", "tags": ["audiobook", "narration"]}
+                for index in range(1, 4)
+            ]
+        ),
+    )
+    tone = tmp_path / "tone.wav"
+    _write_tone_wav(tone)
+    monkeypatch.setattr(pipeline, "unmixr_synthesize_request", lambda **kwargs: (tone.read_bytes(), "audio/wav"))
+    monkeypatch.setattr(pipeline, "_normalize_rendered_audio_file", lambda path: path)
+
+    sent_payloads: list[dict[str, object]] = []
+
+    def fake_send_audio(**kwargs):
+        sent_payloads.append(kwargs)
+        return {"ok": True, "result": {"message_id": 4200 + len(sent_payloads)}}
+
+    monkeypatch.setattr(channels, "_telegram_send_audio", fake_send_audio)
+    epub = tmp_path / "book.epub"
+    _write_minimal_epub(epub)
+    job = create_job_from_epub(epub_path=epub, original_filename="book.epub", principal_id="principal-1", chat_id="42")
+
+    receipts = channels._telegram_send_audiobook_voice_samples(
+        bot_config={"token": "bot-token", "secret": "callback-secret"},
+        chat_id="42",
+        job=job,
+    )
+
+    assert len(receipts) == 3
+    assert {row["status"] for row in receipts} == {"sent"}
+    assert {row["button_count"] for row in receipts} == {2}
+    assert {row["control_kind"] for row in receipts} == {"inline_keyboard"}
+    assert all(row["media_message_id_sha256"] for row in receipts)
+    assert all(payload["inline_buttons"] for payload in sent_payloads)
 
 
 def test_epub_cover_is_extracted_and_passed_to_m4b_tool(monkeypatch, tmp_path: Path) -> None:
@@ -6780,6 +6962,87 @@ def test_telegram_epub_turn_decision_routes_file_id_before_generic_document(monk
     assert decision.async_payload["telegram_file_id"] == "file-1"
 
 
+def test_telegram_epub_turn_decision_routes_top_level_document_metadata(monkeypatch) -> None:
+    from app.api.routes import channels
+    from app.services.telegram_session_service import TelegramTurnContext
+
+    monkeypatch.setenv("EA_AUDIOBOOK_INSTANT_SENDER_WHITELIST", "telegram:42")
+    ctx = TelegramTurnContext(
+        container=object(),
+        principal_id="principal-1",
+        text="Document: book.epub",
+        payload={
+            "kind": "document",
+            "message_id": "7",
+            "file_id": "file-1",
+            "file_name": "book.epub",
+            "mime_type": "application/epub+zip",
+            "file_size": 2048,
+        },
+        bot_handle="",
+        preferred_onemin_labels=(),
+        current_message_id="7",
+        chat_id="42",
+        normalized="Document: book.epub",
+        lower="document: book.epub",
+        alpha_words=("document", "book", "epub"),
+        is_completion_cue=False,
+    )
+
+    decision = channels._telegram_audiobook_epub_turn_decision(ctx)
+
+    assert decision.schedule_async is True
+    assert decision.suppress_async_ack is True
+    assert decision.reply_text == ""
+    assert decision.async_payload["kind"] == "audiobook_epub_document"
+    assert decision.async_payload["source_epub_file_size"] == 2048
+    assert decision.async_payload["telegram_file_id"] == "file-1"
+
+
+def test_telegram_epub_turn_decision_routes_raw_document_metadata(monkeypatch) -> None:
+    from app.api.routes import channels
+    from app.services.telegram_session_service import TelegramTurnContext
+
+    monkeypatch.setenv("EA_AUDIOBOOK_INSTANT_SENDER_WHITELIST", "telegram:42")
+    ctx = TelegramTurnContext(
+        container=object(),
+        principal_id="principal-1",
+        text="Document",
+        payload={
+            "kind": "document",
+            "message_id": "7",
+            "message_metadata": {"file_id": "file-1"},
+            "raw": {
+                "message": {
+                    "caption": "audiobook plz",
+                    "document": {
+                        "file_name": "book.epub",
+                        "mime_type": "application/octet-stream",
+                        "file_size": 2048,
+                    },
+                },
+            },
+        },
+        bot_handle="",
+        preferred_onemin_labels=(),
+        current_message_id="7",
+        chat_id="42",
+        normalized="Document",
+        lower="document",
+        alpha_words=("document",),
+        is_completion_cue=False,
+    )
+
+    decision = channels._telegram_audiobook_epub_turn_decision(ctx)
+
+    assert decision.schedule_async is True
+    assert decision.suppress_async_ack is True
+    assert decision.reply_text == ""
+    assert decision.async_payload["kind"] == "audiobook_epub_document"
+    assert decision.async_payload["source_epub_filename"] == "book.epub"
+    assert decision.async_payload["caption"] == "audiobook plz"
+
+
 def test_telegram_azw3_turn_decision_routes_as_audiobook_source(monkeypatch) -> None:
     from app.api.routes import channels
     from app.services.telegram_session_service import TelegramTurnContext
@@ -6858,6 +7121,48 @@ def test_telegram_epub_turn_decision_requires_approval_for_unknown_sender(monkey
     assert decision.async_payload["kind"] == "audiobook_access_approval_request"
     assert decision.async_payload["sender_ref"] == "telegram:42"
     assert "operator approval" in decision.reply_text
+
+
+def test_telegram_epub_turn_decision_trusts_registered_telegram_principal(monkeypatch) -> None:
+    from app.api.routes import channels
+    from app.services.telegram_session_service import TelegramTurnContext
+
+    monkeypatch.delenv("EA_AUDIOBOOK_INSTANT_SENDER_WHITELIST", raising=False)
+    monkeypatch.delenv("EA_AUDIOBOOK_INSTANT_PHONE_WHITELIST", raising=False)
+    container = SimpleNamespace(
+        tool_runtime=SimpleNamespace(list_connector_bindings_for_connector=lambda *_args, **_kwargs: []),
+        onboarding=SimpleNamespace(status=lambda **_kwargs: {"status": "active"}),
+    )
+    ctx = TelegramTurnContext(
+        container=container,
+        principal_id="principal-1",
+        text="Document: book.epub",
+        payload={
+            "kind": "document",
+            "message_id": "7",
+            "message_metadata": {
+                "file_id": "file-1",
+                "file_name": "book.epub",
+                "mime_type": "application/epub+zip",
+                "file_size": 2048,
+            },
+        },
+        bot_handle="",
+        preferred_onemin_labels=(),
+        current_message_id="7",
+        chat_id="42",
+        normalized="Document: book.epub",
+        lower="document: book.epub",
+        alpha_words=("document", "book", "epub"),
+        is_completion_cue=False,
+    )
+
+    decision = channels._telegram_audiobook_epub_turn_decision(ctx)
+
+    assert decision.schedule_async is True
+    assert decision.suppress_async_ack is True
+    assert decision.reply_text == ""
+    assert decision.async_payload["kind"] == "audiobook_epub_document"
 
 
 def test_telegram_audiobook_epub_payload_rejects_non_telegram_urls() -> None:

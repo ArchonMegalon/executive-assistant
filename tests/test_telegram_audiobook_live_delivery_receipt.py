@@ -350,6 +350,8 @@ def test_live_telegram_audiobook_delivery_receipt_ignores_superseded_replacement
     module = _load_script("materialize_telegram_audiobook_live_delivery_receipt")
     selected = _job_receipt(job_id="selected-needs-render", voice_selected_by_user=True)
     selected["assembly"]["output_file_ready"] = False
+    selected["audiobookshelf_import"]["target_file_ready"] = False
+    selected["audiobookshelf_import"]["target_file_sha256"] = ""
     selected["audiobookshelf_import"]["public_share_playback_e2e_status"] = ""
     selected["audiobookshelf_import"]["public_share_playback_e2e_track_response_status"] = 0
     selected["audiobookshelf_import"]["public_share_playback_e2e_track_content_type"] = ""
@@ -379,6 +381,66 @@ def test_live_telegram_audiobook_delivery_receipt_ignores_superseded_replacement
     assert "m4b_output_file_not_ready" in receipt["failed_codes"]
     assert "machine_playback_e2e_not_verified" in receipt["failed_codes"]
     assert receipt["next_action"] == "resume_or_rebuild_telegram_audiobook_render_before_public_share_delivery"
+
+
+def test_live_telegram_audiobook_delivery_receipt_does_not_mark_delivery_only_gap_as_voice_pending(
+    tmp_path: Path,
+) -> None:
+    module = _load_script("materialize_telegram_audiobook_live_delivery_receipt")
+
+    receipt = module.build_receipt(
+        output_path=tmp_path / "selected-delivery-only.generated.json",
+        job_receipts=[
+            _job_receipt(
+                job_id="selected-needs-telegram-send",
+                telegram_delivery_status="",
+                telegram_message_present=False,
+                voice_selected_by_user=True,
+            )
+        ],
+        generated_at="2026-06-21T08:10:00Z",
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["live_delivery_claim_allowed"] is False
+    assert receipt["pending_user_selected_voice_job_count"] == 0
+    assert "user_selected_voice_delivery_not_ready" not in receipt["failed_codes"]
+    assert "m4b_output_file_not_ready" not in receipt["failed_codes"]
+    assert "player_scoped_reference_not_ready" not in receipt["failed_codes"]
+    assert "telegram_public_share_delivery_not_sent" in receipt["failed_codes"]
+    assert receipt["next_action"] == "wait_for_scheduler_to_send_audiobookshelf_public_share_link_or_fix_telegram_delivery"
+
+
+def test_live_telegram_audiobook_delivery_receipt_surfaces_initial_voice_choice(
+    tmp_path: Path,
+) -> None:
+    module = _load_script("materialize_telegram_audiobook_live_delivery_receipt")
+    pending = _job_receipt(
+        job_id="initial-voice-choice",
+        status="waiting_voice_selection",
+        render_status="waiting_voice_selection",
+        public_share_status="",
+        telegram_delivery_status="",
+        telegram_message_present=False,
+        replacement_choice_pending=True,
+    )
+    pending["render"]["voice_selection"]["reason"] = ""
+
+    receipt = module.build_receipt(
+        output_path=tmp_path / "initial-voice-choice.generated.json",
+        job_receipts=[pending],
+        generated_at="2026-06-21T08:12:00Z",
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["live_delivery_claim_allowed"] is False
+    assert receipt["pending_user_selected_voice_job_count"] == 1
+    assert receipt["pending_user_selected_voice_jobs"][0]["voice_choice_pending"] is True
+    assert receipt["pending_user_selected_voice_jobs"][0]["voice_choice_candidate_count"] == 1
+    assert receipt["pending_user_selected_voice_jobs"][0]["replacement_choice_pending"] is False
+    assert "audiobook_voice_choice_pending" in receipt["failed_codes"]
+    assert "explicit_replacement_voice_choice_pending" not in receipt["failed_codes"]
+    assert receipt["next_action"] == "choose_one_telegram_audiobook_voice_sample"
 
 
 def test_live_telegram_audiobook_delivery_receipt_surfaces_explicit_replacement_choice_pending(
@@ -473,6 +535,61 @@ def test_live_telegram_audiobook_delivery_receipt_blocks_missing_share_or_telegr
         "wait_for_audiobookshelf_scan_then_rerun_share_followup",
         "inspect_failed_audiobook_delivery_candidates",
     }
+
+
+def test_live_telegram_audiobook_delivery_receipt_ignores_origin_dossier_jobs(
+    tmp_path: Path,
+) -> None:
+    module = _load_script("materialize_telegram_audiobook_live_delivery_receipt")
+    origin = _job_receipt(job_id="origin-dossier-delivered")
+    origin["source"]["kind"] = "origin_dossier_story"
+    origin["source"]["source_filename"] = "Kestrel - Origin Story.txt"
+    blocked_epub = _job_receipt(
+        job_id="telegram-epub-needs-share",
+        public_share_status="waiting_for_audiobookshelf_scan",
+        telegram_delivery_status="",
+        telegram_message_present=False,
+    )
+
+    receipt = module.build_receipt(
+        output_path=tmp_path / "origin-filtered.generated.json",
+        job_receipts=[origin, blocked_epub],
+        generated_at="2026-06-29T19:45:00Z",
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["live_delivery_claim_allowed"] is False
+    assert receipt["candidate_count"] == 1
+    assert receipt["ignored_non_telegram_audiobook_candidate_count"] == 1
+    assert receipt["ignored_non_telegram_audiobook_source_kinds"] == ["origin_dossier_story"]
+    assert receipt["selected_delivery"]["job_id_sha256"] == _sha256("telegram-epub-needs-share")
+    assert receipt["selected_delivery"]["source_kind"] == "epub"
+    assert "audiobookshelf_public_share_not_ready" in receipt["failed_codes"]
+
+
+def test_scan_job_receipts_uses_pipeline_discovery_manifests(monkeypatch, tmp_path: Path) -> None:
+    module = _load_script("materialize_telegram_audiobook_live_delivery_receipt")
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    first = tmp_path / "first" / "job-a"
+    second = tmp_path / "second" / "job-b"
+    first.mkdir(parents=True)
+    second.mkdir(parents=True)
+    (first / "job.json").write_text("{}", encoding="utf-8")
+    (second / "job.json").write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(
+        pipeline,
+        "iter_audiobook_job_manifests",
+        lambda *, newest_first=False: (second / "job.json", first / "job.json"),
+    )
+    monkeypatch.setattr(pipeline, "audiobook_job_discovery_roots", lambda: (tmp_path / "first", tmp_path / "second"))
+    monkeypatch.setattr(pipeline, "build_audiobook_job_receipt", lambda *, job_dir: _job_receipt(job_id=job_dir.name))
+
+    receipts, errors = module._scan_job_receipts(10)
+
+    assert errors == []
+    assert [receipt["job_id"] for receipt in receipts] == ["job-b", "job-a"]
 
 
 def test_live_telegram_audiobook_delivery_receipt_cli_accepts_sanitized_job_receipts_json(

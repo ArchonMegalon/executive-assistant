@@ -909,7 +909,22 @@ def _telegram_send_audiobook_voice_samples(
             continue
         sent = bool(receipt) and bool(dict(receipt).get("ok", True))
         reason = str(dict(receipt).get("description") or "").strip() if receipt else "telegram_audio_send_skipped"
-        receipts.append({"token": token, "status": "sent" if sent else "skipped", "reason": "" if sent else reason})
+        result = dict(dict(receipt).get("result") or {}) if isinstance(receipt, dict) else {}
+        media_message_id = str(result.get("message_id") or "").strip()
+        controls_ready = bool(use_callback and dismiss_callback)
+        receipts.append(
+            {
+                "token": token,
+                "status": "sent" if sent else "skipped",
+                "reason": "" if sent else reason,
+                "media_message_id_sha256": hashlib.sha256(media_message_id.encode("utf-8")).hexdigest()
+                if media_message_id
+                else "",
+                "button_count": 2 if controls_ready else 0,
+                "buttons_fallback": False,
+                "control_kind": "inline_keyboard" if controls_ready else "",
+            }
+        )
     return receipts
 
 
@@ -6558,6 +6573,16 @@ def _telegram_audiobook_sender_ref(ctx: TelegramTurnContext) -> str:
     return f"telegram:{chat_id}" if chat_id else ""
 
 
+def _telegram_audiobook_sender_trusted(ctx: TelegramTurnContext, *, sender_ref: str) -> bool:
+    if audiobook_access_approval.is_instant_sender(sender_ref=sender_ref, channel="telegram"):
+        return True
+    if not str(ctx.chat_id or "").strip() or not str(ctx.principal_id or "").strip():
+        return False
+    with contextlib.suppress(Exception):
+        return _telegram_principal_is_registered_user(ctx.container, ctx.principal_id)
+    return False
+
+
 def _telegram_start_approved_audiobook_request(
     *,
     bot_config: dict[str, object],
@@ -7303,7 +7328,7 @@ def _telegram_property_pdf_document_payload(ctx: TelegramTurnContext) -> dict[st
     payload = dict(ctx.payload or {})
     if str(payload.get("kind") or "").strip().lower() != "document":
         return {}
-    metadata = dict(payload.get("message_metadata") or {})
+    metadata = _telegram_document_metadata(ctx)
     filename = str(metadata.get("file_name") or "").strip()
     download_url = str(metadata.get("download_url") or "").strip()
     if not filename.lower().endswith(".pdf") or not download_url:
@@ -7344,11 +7369,28 @@ def _telegram_property_pdf_document_payload(ctx: TelegramTurnContext) -> dict[st
     }
 
 
-def _telegram_audiobook_epub_document_metadata(ctx: TelegramTurnContext) -> dict[str, object]:
+def _telegram_document_metadata(ctx: TelegramTurnContext) -> dict[str, object]:
     payload = dict(ctx.payload or {})
     if str(payload.get("kind") or "").strip().lower() != "document":
         return {}
     metadata = dict(payload.get("message_metadata") or {})
+    raw = dict(payload.get("raw") or {}) if isinstance(payload.get("raw"), dict) else {}
+    raw_message = dict(raw.get("message") or {}) if isinstance(raw.get("message"), dict) else {}
+    raw_document = dict(raw_message.get("document") or {}) if isinstance(raw_message.get("document"), dict) else {}
+    payload_document = dict(payload.get("document") or {}) if isinstance(payload.get("document"), dict) else {}
+    for source in (payload_document, raw_document, payload):
+        for key in ("file_id", "file_name", "mime_type", "file_size", "download_url"):
+            if metadata.get(key) in {None, ""} and source.get(key) not in {None, ""}:
+                metadata[key] = source.get(key)
+    if metadata.get("caption") in {None, ""}:
+        caption = str(payload.get("caption") or raw_message.get("caption") or ctx.normalized or "").strip()
+        if caption:
+            metadata["caption"] = caption
+    return metadata
+
+
+def _telegram_audiobook_epub_document_metadata(ctx: TelegramTurnContext) -> dict[str, object]:
+    metadata = _telegram_document_metadata(ctx)
     filename = str(metadata.get("file_name") or "").strip()
     mime_type = str(metadata.get("mime_type") or "").strip()
     if not is_epub_document(filename=filename, mime_type=mime_type):
@@ -7367,9 +7409,7 @@ def _telegram_audiobook_epub_document_payload(ctx: TelegramTurnContext) -> dict[
     download_url = str(metadata.get("download_url") or "").strip()
     file_id = str(metadata.get("file_id") or "").strip()
     if download_url and not is_telegram_epub_download_url_allowed(download_url):
-        if not file_id:
-            return {}
-        download_url = ""
+        return {}
     if not download_url and not file_id:
         return {}
     raw_size = metadata.get("file_size")
@@ -7409,7 +7449,10 @@ def _telegram_audiobook_epub_turn_decision(ctx: TelegramTurnContext) -> Telegram
         return TelegramTurnDecision()
     filename = str(epub_payload.get("source_epub_filename") or "book.epub").strip() or "book.epub"
     sender_ref = _telegram_audiobook_sender_ref(ctx)
-    if audiobook_access_approval.approval_required(sender_ref=sender_ref, channel="telegram"):
+    approval_required = audiobook_access_approval.approval_required(sender_ref=sender_ref, channel="telegram")
+    if approval_required and _telegram_audiobook_sender_trusted(ctx, sender_ref=sender_ref):
+        approval_required = False
+    if approval_required:
         approval_payload = {
             **epub_payload,
             "kind": "audiobook_access_approval_request",

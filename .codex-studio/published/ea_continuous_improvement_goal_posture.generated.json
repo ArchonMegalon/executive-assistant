@@ -128,7 +128,7 @@
       "evidence_kind": "live_delivery_receipt",
       "key": "telegram_audiobook_live_delivery",
       "lens": "deliver",
-      "next_action": "resume_or_rebuild_telegram_audiobook_render_before_public_share_delivery",
+      "next_action": "choose_one_telegram_audiobook_voice_sample",
       "required_next_receipt": "passing Telegram audiobook live delivery receipt",
       "source_receipts": [
         {
@@ -161,7 +161,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-06-29T18:31:46Z",
+  "generated_at": "2026-06-29T19:20:03Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",

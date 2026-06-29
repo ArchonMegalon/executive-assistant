@@ -1651,7 +1651,12 @@ def _book_topic_from_profile(*, signal_scores: dict[str, int], fiction_score: in
 
 
 def _infer_author_gender(author: str) -> str:
-    normalized = " ".join(str(author or "").replace(",", " ").split()).strip()
+    raw_author = str(author or "").strip()
+    if "," in raw_author:
+        parts = [part.strip() for part in raw_author.split(",") if part.strip()]
+        if len(parts) >= 2:
+            raw_author = f"{parts[1]} {parts[0]}"
+    normalized = " ".join(raw_author.replace(",", " ").split()).strip()
     if not normalized:
         return ""
     first = re.sub(r"[^A-Za-zÀ-ÿ-]+", "", normalized.split()[0]).strip("-").lower()
@@ -2212,6 +2217,68 @@ def _voice_candidate_has_tag(row: dict[str, object], tag: str) -> bool:
     return normalized in {_normalize_tag(item) for item in list(row.get("tags") or []) if _normalize_tag(item)}
 
 
+_VOICE_LABEL_VARIANT_SUFFIXES = {
+    "express",
+    "fast",
+    "high",
+    "hq",
+    "neural",
+    "plus",
+    "premium",
+    "pro",
+    "standard",
+    "v1",
+    "v2",
+    "v3",
+    "wavenet",
+}
+
+
+def _voice_label_family_key(label: object) -> str:
+    without_parenthetical = re.sub(r"\([^)]*\)", " ", str(label or ""))
+    parts = [part for part in _normalize_tag(without_parenthetical).split("_") if part]
+    while len(parts) > 1 and parts[-1] in _VOICE_LABEL_VARIANT_SUFFIXES:
+        parts.pop()
+    return "_".join(parts)
+
+
+def _voice_candidate_identity_keys(row: dict[str, object]) -> set[str]:
+    keys: set[str] = set()
+    preset_key = str(row.get("preset_key") or row.get("candidate_key") or "").strip()
+    if preset_key:
+        keys.add(f"preset:{preset_key}")
+    voice_id_sha = str(row.get("voice_id_sha256") or "").strip()
+    if not voice_id_sha and str(row.get("_voice_id") or "").strip():
+        voice_id_sha = _sha256_bytes(str(row.get("_voice_id") or "").strip().encode("utf-8"))
+    if voice_id_sha:
+        keys.add(f"voice:{voice_id_sha}")
+    label_key = _voice_label_family_key(row.get("label"))
+    if label_key:
+        keys.add(f"label_family:{label_key}")
+    return keys
+
+
+def _voice_candidate_identity_keys_from_private_candidates(
+    *,
+    private_candidates: dict[object, object],
+    candidate_keys: set[str],
+) -> set[str]:
+    identities: set[str] = set()
+    if not candidate_keys:
+        return identities
+    for candidate in private_candidates.values():
+        if not isinstance(candidate, dict):
+            continue
+        candidate_key = str(candidate.get("candidate_key") or "").strip()
+        public = dict(candidate.get("public") or {})
+        public_key = str(public.get("preset_key") or "").strip()
+        if candidate_key not in candidate_keys and public_key not in candidate_keys:
+            continue
+        row = {**public, "candidate_key": candidate_key}
+        identities.update(_voice_candidate_identity_keys(row))
+    return identities
+
+
 def _prefer_nonpremium_after_dismissals(
     *,
     candidate_rows: list[dict[str, object]],
@@ -2384,23 +2451,47 @@ def prepare_audiobook_voice_audition(*, job_dir: Path, batch_size: int = 3, refi
         for item in list(current_selection.get("pending_candidate_keys") or [])
         if str(item or "").strip()
     ]
+    private_payload = _load_voice_audition_private(job_dir)
+    private_candidates = dict(private_payload.get("candidates") or {})
+    dismissed_identity_keys = {
+        str(item or "").strip()
+        for item in list(current_selection.get("dismissed_voice_identity_keys") or [])
+        if str(item or "").strip()
+    }
+    dismissed_identity_keys.update(
+        _voice_candidate_identity_keys_from_private_candidates(
+            private_candidates=private_candidates,
+            candidate_keys=dismissed_keys,
+        )
+    )
     pending_still_active = [key for key in pending_keys if key not in dismissed_keys]
-    current_pending_batch = [
+    current_pending_batch_raw = [
         row
         for row in list(current_selection.get("pending_batch") or [])
         if isinstance(row, dict) and str(row.get("preset_key") or "").strip() in pending_still_active
         and _voice_candidate_allowed_for_audition(row)
     ]
+    current_pending_batch: list[dict[str, object]] = []
+    active_identity_keys: set[str] = set()
+    for row in current_pending_batch_raw:
+        identity_keys = _voice_candidate_identity_keys(row)
+        if identity_keys and identity_keys.intersection(dismissed_identity_keys | active_identity_keys):
+            continue
+        current_pending_batch.append(row)
+        active_identity_keys.update(identity_keys)
     pending_still_active = [
         str(row.get("preset_key") or "").strip()
         for row in current_pending_batch
         if isinstance(row, dict) and str(row.get("preset_key") or "").strip()
     ]
-    if pending_still_active and current_pending_batch and not refill_pending:
+    requested_batch_size = max(batch_size, 1)
+    if pending_still_active and current_pending_batch and not refill_pending and len(current_pending_batch) >= requested_batch_size:
         job["status"] = "waiting_voice_selection"
         job["next_action"] = "choose_audiobook_voice"
         _write_job(job_dir, job)
         return job
+    if pending_still_active and current_pending_batch and not refill_pending:
+        refill_pending = True
 
     audition_strategy = (
         "generic_voice_discovery_then_book_profile_voice_audition"
@@ -2423,8 +2514,10 @@ def prepare_audiobook_voice_audition(*, job_dir: Path, batch_size: int = 3, refi
 
     active_key_set = set(pending_still_active) if refill_pending else set()
     replacement_count = max(max(batch_size, 1) - len(current_pending_batch), 0) if refill_pending else max(batch_size, 1)
-    requested_batch_size = max(batch_size, 1)
     exclude_key_set = dismissed_keys | active_key_set
+    exclude_identity_key_set = set(dismissed_identity_keys) | (set(active_identity_keys) if refill_pending else set())
+    author_gender_signal = str(profile.get("author_gender_signal") or "").strip().lower()
+    author_gender_preference_used = False
     prefer_nonpremium_after_dismissals = _prefer_nonpremium_after_dismissals(
         candidate_rows=candidate_rows,
         dismissed_keys=dismissed_keys,
@@ -2436,21 +2529,29 @@ def prepare_audiobook_voice_audition(*, job_dir: Path, batch_size: int = 3, refi
         source_rows: list[dict[str, object]],
         *,
         exclude_keys: set[str],
+        exclude_identity_keys: set[str],
         limit: int,
         require_language_match: bool = True,
         prefer_nonpremium: bool = False,
+        require_author_gender_match: bool = False,
     ) -> list[dict[str, object]]:
         selected_rows: list[dict[str, object]] = []
         selected_set: set[str] = set()
+        selected_identity_keys: set[str] = set()
         if limit <= 0:
             return selected_rows
         for row in source_rows:
             preset_key = str(row.get("preset_key") or "").strip()
             if not preset_key or preset_key in exclude_keys or preset_key in selected_set:
                 continue
+            identity_keys = _voice_candidate_identity_keys(row)
+            if identity_keys and identity_keys.intersection(exclude_identity_keys | selected_identity_keys):
+                continue
             if not _voice_candidate_allowed_for_audition(row):
                 continue
             if prefer_nonpremium and _voice_candidate_has_tag(row, "premium"):
+                continue
+            if require_author_gender_match and author_gender_signal and not _voice_candidate_has_tag(row, author_gender_signal):
                 continue
             if require_language_match and not _voice_language_matches(
                 metadata.language,
@@ -2460,15 +2561,75 @@ def prepare_audiobook_voice_audition(*, job_dir: Path, batch_size: int = 3, refi
                 continue
             selected_rows.append(row)
             selected_set.add(preset_key)
+            selected_identity_keys.update(identity_keys)
             if len(selected_rows) >= limit:
                 break
         return selected_rows
+
+    def _pick_gender_fit_then_general_rows(
+        source_rows: list[dict[str, object]],
+        *,
+        exclude_keys: set[str],
+        exclude_identity_keys: set[str],
+        limit: int,
+        require_language_match: bool = True,
+        prefer_nonpremium: bool = False,
+    ) -> list[dict[str, object]]:
+        nonlocal author_gender_preference_used
+        if not author_gender_signal:
+            return _pick_pending_rows(
+                source_rows,
+                exclude_keys=exclude_keys,
+                exclude_identity_keys=exclude_identity_keys,
+                limit=limit,
+                require_language_match=require_language_match,
+                prefer_nonpremium=prefer_nonpremium,
+            )
+        preferred_rows = _pick_pending_rows(
+            source_rows,
+            exclude_keys=exclude_keys,
+            exclude_identity_keys=exclude_identity_keys,
+            limit=limit,
+            require_language_match=require_language_match,
+            prefer_nonpremium=prefer_nonpremium,
+            require_author_gender_match=True,
+        )
+        if len(preferred_rows) < max(1, replacement_count):
+            return _pick_pending_rows(
+                source_rows,
+                exclude_keys=exclude_keys,
+                exclude_identity_keys=exclude_identity_keys,
+                limit=limit,
+                require_language_match=require_language_match,
+                prefer_nonpremium=prefer_nonpremium,
+            )
+        author_gender_preference_used = True
+        if len(preferred_rows) >= limit:
+            return preferred_rows
+        preferred_keys = {
+            str(row.get("preset_key") or "").strip()
+            for row in preferred_rows
+            if str(row.get("preset_key") or "").strip()
+        }
+        preferred_identities: set[str] = set()
+        for row in preferred_rows:
+            preferred_identities.update(_voice_candidate_identity_keys(row))
+        general_rows = _pick_pending_rows(
+            source_rows,
+            exclude_keys=exclude_keys | preferred_keys,
+            exclude_identity_keys=exclude_identity_keys | preferred_identities,
+            limit=limit - len(preferred_rows),
+            require_language_match=require_language_match,
+            prefer_nonpremium=prefer_nonpremium,
+        )
+        return [*preferred_rows, *general_rows]
 
     discovery_expanded_target_count = 0
 
     def _expand_discovery_when_candidate_pool_is_thin() -> None:
         nonlocal candidate_rows
         nonlocal discovery_expanded_target_count
+        nonlocal author_gender_signal
         nonlocal prefer_nonpremium_after_dismissals
         nonlocal profile
         nonlocal ranking
@@ -2503,6 +2664,7 @@ def prepare_audiobook_voice_audition(*, job_dir: Path, batch_size: int = 3, refi
         ranking = expanded_ranking
         candidate_rows = expanded_rows
         profile = dict(ranking.get("profile") or {})
+        author_gender_signal = str(profile.get("author_gender_signal") or "").strip().lower()
         ranking_target_count = expanded_target
         discovery_expanded_target_count = expanded_target
         prefer_nonpremium_after_dismissals = _prefer_nonpremium_after_dismissals(
@@ -2514,30 +2676,34 @@ def prepare_audiobook_voice_audition(*, job_dir: Path, batch_size: int = 3, refi
 
     attempt_budget = audiobook_voice_sample_generation_max_attempts(batch_size=requested_batch_size)
     replacement_attempt_limit = max(max(replacement_count, 1), attempt_budget)
-    next_rows: list[dict[str, object]] = _pick_pending_rows(
+    next_rows: list[dict[str, object]] = _pick_gender_fit_then_general_rows(
         candidate_rows,
         exclude_keys=exclude_key_set,
+        exclude_identity_keys=exclude_identity_key_set,
         limit=replacement_attempt_limit,
         prefer_nonpremium=prefer_nonpremium_after_dismissals,
     )
     if not next_rows and prefer_nonpremium_after_dismissals:
-        next_rows = _pick_pending_rows(
+        next_rows = _pick_gender_fit_then_general_rows(
             candidate_rows,
             exclude_keys=exclude_key_set,
+            exclude_identity_keys=exclude_identity_key_set,
             limit=replacement_attempt_limit,
         )
     if len(next_rows) < replacement_attempt_limit:
         _expand_discovery_when_candidate_pool_is_thin()
-        next_rows = _pick_pending_rows(
+        next_rows = _pick_gender_fit_then_general_rows(
             candidate_rows,
             exclude_keys=exclude_key_set,
+            exclude_identity_keys=exclude_identity_key_set,
             limit=replacement_attempt_limit,
             prefer_nonpremium=prefer_nonpremium_after_dismissals,
         )
         if not next_rows and prefer_nonpremium_after_dismissals:
-            next_rows = _pick_pending_rows(
+            next_rows = _pick_gender_fit_then_general_rows(
                 candidate_rows,
                 exclude_keys=exclude_key_set,
+                exclude_identity_keys=exclude_identity_key_set,
                 limit=replacement_attempt_limit,
             )
     language_fallback_used = False
@@ -2555,6 +2721,7 @@ def prepare_audiobook_voice_audition(*, job_dir: Path, batch_size: int = 3, refi
         )
         candidate_rows = [dict(row) for row in list(ranking.get("candidate_rows") or []) if isinstance(row, dict)]
         profile = dict(ranking.get("profile") or {})
+        author_gender_signal = str(profile.get("author_gender_signal") or "").strip().lower()
         exclude_key_set = dismissed_keys | active_key_set
         prefer_nonpremium_after_dismissals = _prefer_nonpremium_after_dismissals(
             candidate_rows=candidate_rows,
@@ -2562,27 +2729,35 @@ def prepare_audiobook_voice_audition(*, job_dir: Path, batch_size: int = 3, refi
             exclude_keys=exclude_key_set,
             replacement_count=replacement_count,
         )
-        next_rows = _pick_pending_rows(
+        next_rows = _pick_gender_fit_then_general_rows(
             candidate_rows,
             exclude_keys=exclude_key_set,
+            exclude_identity_keys=exclude_identity_key_set,
             limit=replacement_attempt_limit,
             prefer_nonpremium=prefer_nonpremium_after_dismissals,
         )
         if not next_rows and prefer_nonpremium_after_dismissals:
-            next_rows = _pick_pending_rows(candidate_rows, exclude_keys=exclude_key_set, limit=replacement_attempt_limit)
+            next_rows = _pick_gender_fit_then_general_rows(
+                candidate_rows,
+                exclude_keys=exclude_key_set,
+                exclude_identity_keys=exclude_identity_key_set,
+                limit=replacement_attempt_limit,
+            )
 
     if not next_rows and refill_pending and dismissed_keys:
-        next_rows = _pick_pending_rows(
+        next_rows = _pick_gender_fit_then_general_rows(
             candidate_rows,
             exclude_keys=exclude_key_set,
+            exclude_identity_keys=exclude_identity_key_set,
             limit=replacement_attempt_limit,
             require_language_match=False,
             prefer_nonpremium=prefer_nonpremium_after_dismissals,
         )
         if not next_rows and prefer_nonpremium_after_dismissals:
-            next_rows = _pick_pending_rows(
+            next_rows = _pick_gender_fit_then_general_rows(
                 candidate_rows,
                 exclude_keys=exclude_key_set,
+                exclude_identity_keys=exclude_identity_key_set,
                 limit=replacement_attempt_limit,
                 require_language_match=False,
             )
@@ -2595,6 +2770,7 @@ def prepare_audiobook_voice_audition(*, job_dir: Path, batch_size: int = 3, refi
             "status": "exhausted",
             "strategy": audition_strategy,
             "dismissed_candidate_keys": sorted(dismissed_keys),
+            "dismissed_voice_identity_keys": sorted(dismissed_identity_keys),
             "pending_candidate_keys": [],
             "pending_batch": [],
             "reason": "voice_catalog_exhausted",
@@ -2607,9 +2783,11 @@ def prepare_audiobook_voice_audition(*, job_dir: Path, batch_size: int = 3, refi
 
     sample_dir = _voice_audition_dir(job_dir) / "samples"
     sample_dir.mkdir(parents=True, exist_ok=True)
-    private_payload = _load_voice_audition_private(job_dir)
-    private_candidates = dict(private_payload.get("candidates") or {})
     pending_batch: list[dict[str, object]] = list(current_pending_batch) if refill_pending else []
+    pending_identity_keys: set[str] = set()
+    for row in pending_batch:
+        if isinstance(row, dict):
+            pending_identity_keys.update(_voice_candidate_identity_keys(row))
     pending_sample_hashes = {
         str(row.get("sample_sha256") or "").strip()
         for row in pending_batch
@@ -2636,6 +2814,15 @@ def prepare_audiobook_voice_audition(*, job_dir: Path, batch_size: int = 3, refi
         preset_key = str(row.get("preset_key") or "").strip()
         voice_id = str(row.get("_voice_id") or "").strip()
         voice_id_sha = str(row.get("voice_id_sha256") or "").strip() or _sha256_bytes(voice_id.encode("utf-8"))
+        identity_keys = _voice_candidate_identity_keys(row)
+        if identity_keys and identity_keys.intersection(pending_identity_keys):
+            sample_generation_failures.append(
+                {
+                    "preset_key_sha256": _sha256_bytes(preset_key.encode("utf-8")) if preset_key else "",
+                    "reason": "duplicate_voice_identity",
+                }
+            )
+            continue
         token = _voice_audition_token(job_id=str(job.get("job_id") or job_dir.name), preset_key=preset_key, voice_id_sha256=voice_id_sha)
         target = sample_dir / f"{token}.wav"
         try:
@@ -2677,6 +2864,7 @@ def prepare_audiobook_voice_audition(*, job_dir: Path, batch_size: int = 3, refi
         pending_batch.append(public_candidate)
         if sample_sha256:
             pending_sample_hashes.add(sample_sha256)
+        pending_identity_keys.update(_voice_candidate_identity_keys(public_candidate))
         replacement_keys.append(preset_key)
         private_candidates[token] = {
             "candidate_key": preset_key,
@@ -2714,6 +2902,9 @@ def prepare_audiobook_voice_audition(*, job_dir: Path, batch_size: int = 3, refi
                 str(row.get("preset_key") or "").strip() == duplicate_preset_key for row in pending_batch
             ):
                 continue
+            duplicate_identity_keys = _voice_candidate_identity_keys(duplicate_row)
+            if duplicate_identity_keys and duplicate_identity_keys.intersection(pending_identity_keys):
+                continue
             public_candidate = _safe_public_voice_candidate(
                 duplicate_row,
                 token=duplicate_token,
@@ -2722,6 +2913,7 @@ def prepare_audiobook_voice_audition(*, job_dir: Path, batch_size: int = 3, refi
             if duplicate_preset_key:
                 used_duplicate_preset_keys.add(duplicate_preset_key)
             pending_batch.append(public_candidate)
+            pending_identity_keys.update(_voice_candidate_identity_keys(public_candidate))
             replacement_keys.append(duplicate_preset_key)
             private_candidates[duplicate_token] = {
                 "candidate_key": duplicate_preset_key,
@@ -2805,14 +2997,17 @@ def prepare_audiobook_voice_audition(*, job_dir: Path, batch_size: int = 3, refi
         "sample_generation_failures": sample_generation_failures[:5],
         "sample_generation_attempt_limit": replacement_attempt_limit,
         "premium_dismissal_diversity_used": prefer_nonpremium_after_dismissals,
+        "author_gender_preference_used": author_gender_preference_used,
         "language_relaxed_after_dismissals": language_fallback_used,
         "pending_candidate_keys": [
             str(row.get("preset_key") or "").strip()
             for row in pending_batch
             if isinstance(row, dict) and str(row.get("preset_key") or "").strip()
         ],
+        "pending_voice_identity_keys": sorted(pending_identity_keys),
         "replacement_candidate_keys": replacement_keys,
         "dismissed_candidate_keys": sorted(dismissed_keys),
+        "dismissed_voice_identity_keys": sorted(dismissed_identity_keys),
         "pending_batch": pending_batch,
         "selected": {},
         "raw_voice_ids_exposed": False,
@@ -4054,8 +4249,14 @@ def apply_audiobook_voice_audition_action(*, callback_token: str, action: str) -
             for item in list(voice_selection.get("dismissed_candidate_keys") or [])
             if str(item or "").strip()
         }
+        dismissed_identity_keys = {
+            str(item or "").strip()
+            for item in list(voice_selection.get("dismissed_voice_identity_keys") or [])
+            if str(item or "").strip()
+        }
         if candidate_key:
             dismissed.add(candidate_key)
+        dismissed_identity_keys.update(_voice_candidate_identity_keys({**public_candidate, "candidate_key": candidate_key}))
         feedback = record_audiobook_voice_feedback(job=job, candidate=candidate, action="dismiss")
         pending_keys = [
             str(item or "").strip()
@@ -4063,11 +4264,18 @@ def apply_audiobook_voice_audition_action(*, callback_token: str, action: str) -
             if str(item or "").strip()
         ]
         voice_selection["dismissed_candidate_keys"] = sorted(dismissed)
+        voice_selection["dismissed_voice_identity_keys"] = sorted(dismissed_identity_keys)
         active_pending = [key for key in pending_keys if key not in dismissed]
         remaining_batch = [
             row
             for row in list(voice_selection.get("pending_batch") or [])
             if isinstance(row, dict) and str(row.get("preset_key") or "").strip() in active_pending
+            and not _voice_candidate_identity_keys(row).intersection(dismissed_identity_keys)
+        ]
+        active_pending = [
+            str(row.get("preset_key") or "").strip()
+            for row in remaining_batch
+            if isinstance(row, dict) and str(row.get("preset_key") or "").strip()
         ]
         voice_selection["pending_candidate_keys"] = active_pending
         voice_selection["pending_batch"] = remaining_batch

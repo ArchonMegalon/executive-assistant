@@ -13,6 +13,23 @@ ROOT = Path(__file__).resolve().parents[2]
 EA_ROOT = ROOT / "ea"
 DEFAULT_OUTPUT = ROOT / ".codex-studio" / "published" / "telegram_audiobook_live_delivery.generated.json"
 CONTRACT_NAME = "ea.telegram_audiobook_live_delivery_receipt.v1"
+TELEGRAM_AUDIOBOOK_SOURCE_KINDS = {
+    "audiobook_epub",
+    "ebook",
+    "epub",
+    "kindle",
+    "telegram_epub",
+    "telegram_ebook",
+}
+TELEGRAM_AUDIOBOOK_SOURCE_SUFFIXES = {".azw", ".azw3", ".epub", ".mobi", ".prc"}
+USER_SELECTED_VOICE_DELIVERY_BLOCKING_CODES = {
+    "job_not_audiobookshelf_imported",
+    "m4b_output_file_not_ready",
+    "m4b_chapter_metadata_not_embedded",
+    "audiobookshelf_import_not_imported",
+    "audiobookshelf_target_file_not_ready",
+    "machine_playback_e2e_not_verified",
+}
 
 
 if str(EA_ROOT) not in sys.path:
@@ -69,6 +86,31 @@ def _machine_playback_verified(import_section: dict[str, object]) -> bool:
     )
 
 
+def _m4b_output_verified(
+    *,
+    assembly: dict[str, object],
+    imported: dict[str, object],
+    audio_publication_gate: dict[str, object],
+) -> bool:
+    if assembly.get("output_file_ready") is True:
+        return True
+    return (
+        str(imported.get("status") or "").strip() == "imported"
+        and imported.get("target_file_ready") is True
+        and str(imported.get("target_file_sha256") or "").strip()
+    )
+
+
+def _chapter_metadata_verified(
+    *,
+    assembly: dict[str, object],
+    audio_publication_gate: dict[str, object],
+) -> bool:
+    if assembly.get("chapter_metadata_embedded") is True:
+        return True
+    return int(audio_publication_gate.get("chapters") or 0) > 0
+
+
 def _voice_selection(job: dict[str, object]) -> dict[str, object]:
     render = _as_dict(job.get("render"))
     return _as_dict(render.get("voice_selection"))
@@ -84,9 +126,15 @@ def _voice_selected_by_user(job: dict[str, object]) -> bool:
 
 def _replacement_choice_pending(job: dict[str, object]) -> bool:
     voice = _voice_selection(job)
-    if str(voice.get("status") or "").strip() == "waiting_user_choice":
+    reason = str(voice.get("reason") or "").strip()
+    if str(voice.get("status") or "").strip() == "waiting_user_choice" and reason:
         return True
-    return bool(_as_list(voice.get("replacement_candidate_keys")))
+    return bool(_as_list(voice.get("replacement_candidate_keys")) and reason)
+
+
+def _voice_choice_pending(job: dict[str, object]) -> bool:
+    voice = _voice_selection(job)
+    return str(voice.get("status") or "").strip() == "waiting_user_choice"
 
 
 def _voice_selected_default(job: dict[str, object]) -> bool:
@@ -103,6 +151,7 @@ def _candidate(job: dict[str, object]) -> dict[str, object]:
     privacy = _as_dict(job.get("privacy"))
     playback = _as_dict(job.get("playback_acceptance"))
     origin_delivery = _as_dict(job.get("origin_edition_delivery"))
+    audio_publication_gate = _as_dict(job.get("audio_publication_gate"))
     title = str(metadata.get("title") or "").strip()
     author = str(metadata.get("author") or "").strip()
     public_url = str(imported.get("public_share_url") or "").strip()
@@ -111,15 +160,23 @@ def _candidate(job: dict[str, object]) -> dict[str, object]:
 
     if str(job.get("status") or "").strip() != "audiobookshelf_imported":
         failed_codes.append("job_not_audiobookshelf_imported")
-    if assembly.get("output_file_ready") is not True:
+    if not _m4b_output_verified(
+        assembly=assembly,
+        imported=imported,
+        audio_publication_gate=audio_publication_gate,
+    ):
         failed_codes.append("m4b_output_file_not_ready")
-    if assembly.get("chapter_metadata_embedded") is not True:
+    if not _chapter_metadata_verified(
+        assembly=assembly,
+        audio_publication_gate=audio_publication_gate,
+    ):
         failed_codes.append("m4b_chapter_metadata_not_embedded")
     if str(imported.get("status") or "").strip() != "imported":
         failed_codes.append("audiobookshelf_import_not_imported")
     if imported.get("target_file_ready") is not True:
         failed_codes.append("audiobookshelf_target_file_not_ready")
-    if str(imported.get("player_scoped_reference_status") or "").strip() != "signed_reference_ready":
+    player_reference_status = str(imported.get("player_scoped_reference_status") or "").strip()
+    if player_reference_status != "signed_reference_ready" and not _machine_playback_verified(imported):
         failed_codes.append("player_scoped_reference_not_ready")
     if not _public_share_ready(imported.get("public_share_status")):
         failed_codes.append("audiobookshelf_public_share_not_ready")
@@ -178,6 +235,8 @@ def _candidate(job: dict[str, object]) -> dict[str, object]:
             imported.get("public_share_playback_e2e_current_time_after_play_seconds") or 0
         ),
         "machine_playback_e2e_media_error_present": bool(imported.get("public_share_playback_e2e_media_error_present")),
+        "player_scoped_reference_status": player_reference_status,
+        "player_scoped_reference_ready": player_reference_status == "signed_reference_ready",
         "playback_acceptance_verified": bool(playback.get("accepted")) and str(playback.get("status") or "") == "accepted",
         "playback_acceptance_status": str(playback.get("status") or ""),
         "playback_acceptance_source": str(playback.get("source") or ""),
@@ -185,9 +244,20 @@ def _candidate(job: dict[str, object]) -> dict[str, object]:
         "origin_edition_link_bundle": _origin_edition_link_bundle(origin_delivery),
         "voice_selected_by_user": _voice_selected_by_user(job),
         "voice_selected_default": _voice_selected_default(job),
+        "voice_choice_pending": _voice_choice_pending(job),
         "replacement_choice_pending": _replacement_choice_pending(job),
         "failed_codes": failed_codes,
     }
+
+
+def _candidate_in_telegram_audiobook_scope(candidate: dict[str, object]) -> bool:
+    source_kind = str(candidate.get("source_kind") or "").strip().lower()
+    if source_kind in TELEGRAM_AUDIOBOOK_SOURCE_KINDS:
+        return True
+    job = _as_dict(candidate.get("raw"))
+    source = _as_dict(job.get("source"))
+    filename = str(source.get("source_filename") or "").strip().lower().split("?", 1)[0]
+    return any(filename.endswith(suffix) for suffix in TELEGRAM_AUDIOBOOK_SOURCE_SUFFIXES)
 
 
 def _origin_edition_link_bundle(origin_delivery: dict[str, object]) -> dict[str, object]:
@@ -226,7 +296,12 @@ def _origin_edition_link_bundle(origin_delivery: dict[str, object]) -> dict[str,
 def _pending_user_selected_job(candidate: dict[str, object]) -> bool:
     if not candidate["failed_codes"]:
         return False
-    return bool(candidate.get("voice_selected_by_user") or candidate.get("replacement_choice_pending"))
+    if candidate.get("voice_choice_pending") or candidate.get("replacement_choice_pending"):
+        return True
+    if not candidate.get("voice_selected_by_user"):
+        return False
+    failed_codes = {str(code or "").strip() for code in list(candidate.get("failed_codes") or [])}
+    return bool(failed_codes & USER_SELECTED_VOICE_DELIVERY_BLOCKING_CODES)
 
 
 def _candidate_is_superseded(candidate: dict[str, object]) -> bool:
@@ -272,6 +347,8 @@ def _pending_summary(candidate: dict[str, object]) -> dict[str, object]:
     voice = _voice_selection(job)
     selected = _as_dict(voice.get("selected"))
     replacement_keys = _as_list(voice.get("replacement_candidate_keys"))
+    voice_choice_keys = _as_list(voice.get("pending_candidate_keys")) or replacement_keys
+    replacement_pending = bool(candidate.get("replacement_choice_pending"))
     return {
         "job_id_sha256": candidate["job_id_sha256"],
         "status": str(job.get("status") or ""),
@@ -282,8 +359,10 @@ def _pending_summary(candidate: dict[str, object]) -> dict[str, object]:
         "voice_selection_status": str(voice.get("status") or ""),
         "voice_selection_reason": str(voice.get("reason") or ""),
         "voice_selection_waiting": str(voice.get("status") or "") == "waiting_user_choice",
-        "replacement_choice_pending": bool(candidate.get("replacement_choice_pending")),
-        "replacement_candidate_count": len(replacement_keys),
+        "voice_choice_pending": bool(candidate.get("voice_choice_pending")),
+        "voice_choice_candidate_count": len(voice_choice_keys),
+        "replacement_choice_pending": replacement_pending,
+        "replacement_candidate_count": len(replacement_keys) if replacement_pending else 0,
         "selected_voice_id_sha256": str(selected.get("voice_id_sha256") or ""),
         "selected_label_sha256": _sha256_text(selected.get("label")),
         "external_tts_blocker_code": str(render.get("external_tts_blocker_code") or scheduler.get("external_tts_blocker_code") or ""),
@@ -324,6 +403,8 @@ def _dedupe(values: list[str]) -> list[str]:
 def _next_action(*, failed_codes: list[str], pending: list[dict[str, object]]) -> str:
     if any(row.get("replacement_choice_pending") for row in pending):
         return "choose_explicit_replacement_voice_or_restore_selected_provider"
+    if any(row.get("voice_choice_pending") for row in pending):
+        return "choose_one_telegram_audiobook_voice_sample"
     if (
         "job_not_audiobookshelf_imported" in failed_codes
         or "m4b_output_file_not_ready" in failed_codes
@@ -352,7 +433,9 @@ def build_receipt(
     observation_source: str = "provided_job_receipts",
 ) -> dict[str, object]:
     jobs = list(job_receipts or [])[:limit]
-    candidates = [_candidate(job) for job in jobs if isinstance(job, dict)]
+    loaded_candidates = [_candidate(job) for job in jobs if isinstance(job, dict)]
+    candidates = [candidate for candidate in loaded_candidates if _candidate_in_telegram_audiobook_scope(candidate)]
+    ignored_candidates = [candidate for candidate in loaded_candidates if candidate not in candidates]
     blocking_candidates = _blocking_candidates(candidates)
     valid_candidates = [candidate for candidate in candidates if not candidate["failed_codes"]]
     selected = valid_candidates[0] if valid_candidates else (
@@ -372,6 +455,8 @@ def build_receipt(
         )
     ]
     failed_codes = _dedupe([code for candidate in blocking_candidates for code in list(candidate.get("failed_codes") or [])])
+    if any(row.get("voice_choice_pending") for row in pending):
+        failed_codes.append("audiobook_voice_choice_pending")
     if pending:
         failed_codes.append("user_selected_voice_delivery_not_ready")
     if any(row.get("replacement_choice_pending") for row in pending):
@@ -393,6 +478,7 @@ def build_receipt(
         "output_path": output_path.as_posix(),
         "observation_source": observation_source,
         "limit": limit,
+        "source_filter": "telegram_epub_audiobook_sources",
         "claim": (
             "Telegram EPUB audiobook delivery has live proof only when a sanitized job receipt shows the M4B is ready, "
             "Audiobookshelf imported and public-shared it, and Telegram sent the public share link."
@@ -403,6 +489,10 @@ def build_receipt(
         "real_user_playback_acceptance_verified": real_user_accepted,
         "goal_completion_claim_allowed": False,
         "candidate_count": len(candidates),
+        "ignored_non_telegram_audiobook_candidate_count": len(ignored_candidates),
+        "ignored_non_telegram_audiobook_source_kinds": _dedupe(
+            [str(candidate.get("source_kind") or "").strip() for candidate in ignored_candidates]
+        ),
         "failed_candidate_count": len([candidate for candidate in candidates if candidate.get("failed_codes")]),
         "failed_codes": [] if live_pass else failed_codes,
         "blocking_reason": "" if live_pass else ", ".join(failed_codes),
@@ -450,11 +540,11 @@ def _scan_job_receipts(limit: int) -> tuple[list[dict[str, object]], list[str]]:
         from app.services import audiobook_epub_pipeline
     except Exception as exc:
         return [], [f"audiobook_pipeline_import_failed:{exc}"]
-    root = audiobook_epub_pipeline.audiobook_jobs_root()
     receipts: list[dict[str, object]] = []
     errors: list[str] = []
     seen_job_dirs: set[Path] = set()
-    for job_path in sorted(root.glob("**/job.json"), key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True)[:limit]:
+    job_paths = list(audiobook_epub_pipeline.iter_audiobook_job_manifests(newest_first=True))[:limit]
+    for job_path in job_paths:
         try:
             receipts.append(audiobook_epub_pipeline.build_audiobook_job_receipt(job_dir=job_path.parent))
             seen_job_dirs.add(job_path.parent.resolve())
@@ -463,7 +553,13 @@ def _scan_job_receipts(limit: int) -> tuple[list[dict[str, object]], list[str]]:
     remaining = max(0, limit - len(receipts))
     if remaining <= 0:
         return receipts, errors
-    for receipt_path in sorted(root.glob("**/job_receipt.json"), key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True):
+    receipt_paths: list[Path] = []
+    for root in audiobook_epub_pipeline.audiobook_job_discovery_roots():
+        try:
+            receipt_paths.extend(root.glob("**/job_receipt.json"))
+        except OSError as exc:
+            errors.append(f"{root.as_posix()}:{type(exc).__name__}")
+    for receipt_path in sorted(receipt_paths, key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True):
         if len(receipts) >= limit:
             break
         try:
@@ -494,7 +590,7 @@ def main() -> int:
         source = "job_receipts_json"
     else:
         receipts, errors = _scan_job_receipts(args.limit)
-        source = "jobs_root"
+        source = "job_discovery_roots"
     receipt = build_receipt(
         output_path=args.output,
         job_receipts=receipts,
