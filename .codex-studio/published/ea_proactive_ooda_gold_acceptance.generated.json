@@ -53,11 +53,11 @@
     },
     "operator_status": {
       "contract_name": "ea.proactive_ooda_operator_status.v1",
-      "generated_at": "2026-06-29T12:50:16Z",
+      "generated_at": "2026-06-29T13:13:11Z",
       "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
       "present": true,
-      "source_git_head": "5104db2a49e448574281ac8cb2708cb1621d4cb7",
-      "source_state_fingerprint": "11c9d9dde549a4ab338c6591423d58b32fddec0d11e8fb2a0eb980f1b5a2f19e",
+      "source_git_head": "7fc6f1060092d52091747bd8aadc6b35b228e949",
+      "source_state_fingerprint": "ca1d1d9ffc0d1fd6432e685bfe6f9709c564d6f28e92279e57da47eb8b4b3d6f",
       "status": "ready_with_live_receipt"
     },
     "run_receipt": {
@@ -80,7 +80,7 @@
       "source": "docker_compose_exec"
     }
   },
-  "generated_at": "2026-06-29T12:50:17Z",
+  "generated_at": "2026-06-29T13:13:19Z",
   "generated_by": "scripts/materialize_proactive_ooda_gold_acceptance.py",
   "goal_completion_claim_allowed": false,
   "gold_claim_allowed": false,
@@ -105,7 +105,7 @@
       "quiet_receipt_item_count": 5,
       "quiet_receipt_message_count": 0,
       "quiet_receipt_notification_status": "deferred",
-      "quiet_receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+      "quiet_receipt_path": "/data/provider-ledger/proactive_ooda_run_receipts/20260629T130415_802897_0000-deferred-8ab16dd46f2a.json",
       "quiet_receipt_present": true,
       "quiet_receipt_proves_action_required_only": true,
       "run_notification_status": "sent",
@@ -244,8 +244,8 @@
     "Raw packet text, private links, actor identity, packet refs, and staged artifact refs must stay out of this published receipt; only hashes and coarse status may appear.",
     "Teable remains an admin projection and audit mirror rather than canonical queue or product truth."
   ],
-  "source_git_head": "5104db2a49e448574281ac8cb2708cb1621d4cb7",
-  "source_state_fingerprint": "11c9d9dde549a4ab338c6591423d58b32fddec0d11e8fb2a0eb980f1b5a2f19e",
+  "source_git_head": "7fc6f1060092d52091747bd8aadc6b35b228e949",
+  "source_state_fingerprint": "ca1d1d9ffc0d1fd6432e685bfe6f9709c564d6f28e92279e57da47eb8b4b3d6f",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready_for_approval_outcome_capture",
   "summary": "A proactive OODA packet has local gold-proof runtime evidence and a live Telegram approval capture surface; capture the redacted approval outcome next.",
