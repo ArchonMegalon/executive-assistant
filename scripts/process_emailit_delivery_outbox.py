@@ -17,6 +17,41 @@ DEFAULT_SENDER_NAME = "Executive Assistant"
 EMAILIT_API_BASE = "https://api.emailit.com/v2/emails"
 
 
+class EmailitRateLimitedError(RuntimeError):
+    def __init__(self, *, retry_after_seconds: int, provider_error: str = "", detail: str = "") -> None:
+        self.retry_after_seconds = max(int(retry_after_seconds or 0), 0)
+        self.provider_error = str(provider_error or "").strip()
+        self.detail = str(detail or "").strip()
+        label = self.provider_error or "rate_limited"
+        super().__init__(f"emailit_rate_limited:{label}:retry_after={self.retry_after_seconds}")
+
+
+def emailit_max_429_sleep_seconds() -> int:
+    raw = str(os.environ.get("EA_EMAILIT_MAX_429_SLEEP_SECONDS") or "").strip()
+    if not raw:
+        return 30
+    try:
+        return max(int(raw), 0)
+    except ValueError:
+        return 30
+
+
+def emailit_error_payload(detail: str) -> dict[str, object]:
+    try:
+        parsed = json.loads(str(detail or "").strip() or "{}")
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def emailit_retry_after_seconds(detail: str, *, fallback: int = 1) -> int:
+    payload = emailit_error_payload(detail)
+    try:
+        return max(int(payload.get("retry_after") or fallback), 0)
+    except Exception:
+        return max(int(fallback), 0)
+
+
 def request_json(
     *,
     method: str,
@@ -84,11 +119,14 @@ def emailit_send(
             detail = exc.read().decode("utf-8", errors="replace")
             last_error = f"{exc.code}:{detail[:600]}"
             if exc.code == 429:
-                retry_after = 1
-                try:
-                    retry_after = int(json.loads(detail).get("retry_after") or 1)
-                except Exception:
-                    retry_after = 1
+                retry_after = emailit_retry_after_seconds(detail)
+                if retry_after > emailit_max_429_sleep_seconds():
+                    payload = emailit_error_payload(detail)
+                    raise EmailitRateLimitedError(
+                        retry_after_seconds=retry_after,
+                        provider_error=str(payload.get("error") or "too_many_requests"),
+                        detail=detail[:600],
+                    ) from exc
                 time.sleep(max(1, retry_after))
                 continue
             raise RuntimeError(last_error) from exc
@@ -121,14 +159,26 @@ def mark_sent(host: str, api_token: str, delivery_id: str, receipt_json: dict[st
     )
 
 
-def mark_failed(host: str, api_token: str, delivery_id: str, error: str, *, dead_letter: bool) -> dict[str, object]:
+def mark_failed(
+    host: str,
+    api_token: str,
+    delivery_id: str,
+    error: str,
+    *,
+    dead_letter: bool,
+    retry_in_seconds: int = 60,
+) -> dict[str, object]:
     url = f"{host.rstrip('/')}/v1/delivery/outbox/{delivery_id}/failed"
     return dict(
         request_json(
             method="POST",
             url=url,
             api_token=api_token,
-            payload={"error": error[:1000], "retry_in_seconds": 60, "dead_letter": dead_letter},
+            payload={
+                "error": error[:1000],
+                "retry_in_seconds": max(0, min(int(retry_in_seconds or 60), 86400)),
+                "dead_letter": dead_letter,
+            },
         )
         or {}
     )
@@ -193,6 +243,23 @@ def main() -> int:
             )
             mark_sent(args.host, args.api_token, delivery_id, receipt_json={"transport": "emailit", "response": receipt})
             processed.append({"delivery_id": delivery_id, "status": "sent", "subject": subject, "emailit_id": receipt.get("id")})
+        except EmailitRateLimitedError as exc:
+            updated = mark_failed(
+                args.host,
+                args.api_token,
+                delivery_id,
+                str(exc),
+                dead_letter=False,
+                retry_in_seconds=exc.retry_after_seconds or 60,
+            )
+            processed.append(
+                {
+                    "delivery_id": delivery_id,
+                    "status": str(updated.get("status") or "retry"),
+                    "error": str(exc),
+                    "retry_in_seconds": exc.retry_after_seconds,
+                }
+            )
         except Exception as exc:
             updated = mark_failed(
                 args.host,
@@ -200,6 +267,7 @@ def main() -> int:
                 delivery_id,
                 str(exc),
                 dead_letter=int(row.get("attempt_count") or 0) >= 3,
+                retry_in_seconds=60,
             )
             processed.append(
                 {
