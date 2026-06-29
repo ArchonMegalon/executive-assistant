@@ -310,12 +310,21 @@ def _candidate(job: dict[str, object]) -> dict[str, object]:
 
 def _candidate_in_telegram_audiobook_scope(candidate: dict[str, object]) -> bool:
     source_kind = str(candidate.get("source_kind") or "").strip().lower()
-    if source_kind in TELEGRAM_AUDIOBOOK_SOURCE_KINDS:
+    if source_kind not in TELEGRAM_AUDIOBOOK_SOURCE_KINDS:
+        return False
+    if source_kind in {"telegram_epub", "telegram_ebook"}:
         return True
     job = _as_dict(candidate.get("raw"))
     source = _as_dict(job.get("source"))
+    telegram = _as_dict(job.get("telegram"))
     filename = str(source.get("source_filename") or "").strip().lower().split("?", 1)[0]
-    return any(filename.endswith(suffix) for suffix in TELEGRAM_AUDIOBOOK_SOURCE_SUFFIXES)
+    if not any(filename.endswith(suffix) for suffix in TELEGRAM_AUDIOBOOK_SOURCE_SUFFIXES):
+        return False
+    return bool(
+        telegram.get("chat_bound")
+        or telegram.get("message_bound")
+        or str(source.get("source_url_sha256") or "").strip()
+    )
 
 
 def _origin_edition_link_bundle(origin_delivery: dict[str, object]) -> dict[str, object]:

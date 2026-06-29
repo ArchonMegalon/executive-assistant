@@ -1,9 +1,9 @@
 {
   "blocking_reason": "valid_live_audiobook_delivery_missing, job_not_audiobookshelf_imported, m4b_output_file_not_ready, m4b_chapter_metadata_not_embedded, audiobookshelf_import_not_imported, audiobookshelf_target_file_not_ready, player_scoped_reference_not_ready, audiobookshelf_public_share_not_ready, audiobookshelf_public_share_url_missing, telegram_public_share_delivery_not_sent, telegram_public_share_message_id_missing, machine_playback_e2e_not_verified, user_selected_voice_delivery_not_ready",
-  "candidate_count": 8,
+  "candidate_count": 4,
   "claim": "Telegram EPUB audiobook delivery has live proof only when a sanitized job receipt shows the M4B is ready, Audiobookshelf imported and public-shared it, and Telegram sent the public share link.",
   "contract_name": "ea.telegram_audiobook_live_delivery_receipt.v1",
-  "failed_candidate_count": 8,
+  "failed_candidate_count": 4,
   "failed_candidates": [
     {
       "failed_codes": [
@@ -28,31 +28,6 @@
     },
     {
       "failed_codes": [
-        "telegram_public_share_delivery_not_sent",
-        "telegram_public_share_message_id_missing"
-      ],
-      "job_id_sha256": "1a7a76f41c3bd81a974d309bb59ff80837451843917026aacc130b70729f0837",
-      "public_share_status": "public_share_ready",
-      "status": "audiobookshelf_imported",
-      "telegram_delivery_status": "",
-      "title_present": true,
-      "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4"
-    },
-    {
-      "failed_codes": [
-        "job_not_audiobookshelf_imported",
-        "telegram_public_share_delivery_not_sent",
-        "telegram_public_share_message_id_missing"
-      ],
-      "job_id_sha256": "275975b4fb3c037ac9ce727bfbc307f69b8729ed5469790fdaaff43fa77047c1",
-      "public_share_status": "public_share_ready",
-      "status": "superseded_duplicate",
-      "telegram_delivery_status": "",
-      "title_present": true,
-      "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4"
-    },
-    {
-      "failed_codes": [
         "job_not_audiobookshelf_imported"
       ],
       "job_id_sha256": "fe1ae63672b07afd42ae5c3a13e4a7867ef66441ffd28bccc310cb0792cb1865",
@@ -61,48 +36,6 @@
       "telegram_delivery_status": "sent",
       "title_present": true,
       "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4"
-    },
-    {
-      "failed_codes": [
-        "job_not_audiobookshelf_imported",
-        "m4b_output_file_not_ready",
-        "m4b_chapter_metadata_not_embedded",
-        "audiobookshelf_import_not_imported",
-        "audiobookshelf_target_file_not_ready",
-        "player_scoped_reference_not_ready",
-        "audiobookshelf_public_share_not_ready",
-        "audiobookshelf_public_share_url_missing",
-        "telegram_public_share_delivery_not_sent",
-        "telegram_public_share_message_id_missing",
-        "machine_playback_e2e_not_verified"
-      ],
-      "job_id_sha256": "19694841d0205f8edb7a3cab55ca588218bdff291ec68cc92d6d1c66e9b56d42",
-      "public_share_status": "",
-      "status": "superseded_duplicate",
-      "telegram_delivery_status": "",
-      "title_present": true,
-      "title_sha256": "05b3508f18aca729b725c0cea8285d8ecc15708815a9b18c74492ae3899b5dc1"
-    },
-    {
-      "failed_codes": [
-        "job_not_audiobookshelf_imported",
-        "m4b_output_file_not_ready",
-        "m4b_chapter_metadata_not_embedded",
-        "audiobookshelf_import_not_imported",
-        "audiobookshelf_target_file_not_ready",
-        "player_scoped_reference_not_ready",
-        "audiobookshelf_public_share_not_ready",
-        "audiobookshelf_public_share_url_missing",
-        "telegram_public_share_delivery_not_sent",
-        "telegram_public_share_message_id_missing",
-        "machine_playback_e2e_not_verified"
-      ],
-      "job_id_sha256": "81df91d38515999f3846a7ffc8db184c5cd091925914dfa1c8b6d5b5b26c6378",
-      "public_share_status": "",
-      "status": "superseded_duplicate",
-      "telegram_delivery_status": "",
-      "title_present": true,
-      "title_sha256": "05b3508f18aca729b725c0cea8285d8ecc15708815a9b18c74492ae3899b5dc1"
     },
     {
       "failed_codes": [
@@ -152,20 +85,21 @@
     "machine_playback_e2e_not_verified",
     "user_selected_voice_delivery_not_ready"
   ],
-  "generated_at": "2026-06-29T20:47:27.640464Z",
+  "generated_at": "2026-06-29T22:31:17.676591Z",
   "generated_by": "ea/scripts/materialize_telegram_audiobook_live_delivery_receipt.py",
   "goal_completion_claim_allowed": false,
-  "ignored_non_telegram_audiobook_candidate_count": 5,
+  "ignored_non_telegram_audiobook_candidate_count": 9,
   "ignored_non_telegram_audiobook_source_kinds": [
+    "epub",
     "origin_dossier_story"
   ],
   "limit": 100,
   "live_delivery_claim_allowed": false,
   "load_errors": [],
-  "machine_playback_e2e_verified": true,
-  "next_action": "finish_user_selected_voice_audiobook_before_sending_public_share_link",
-  "next_action_href": "/integrations/telegram",
-  "next_action_label": "Open Telegram",
+  "machine_playback_e2e_verified": false,
+  "next_action": "resume_or_rebuild_telegram_audiobook_render_before_public_share_delivery",
+  "next_action_href": "/app/channel-loop",
+  "next_action_label": "Open channel loop",
   "next_action_method": "get",
   "observation_source": "job_discovery_roots",
   "output_path": "/docker/EA/.codex-studio/published/telegram_audiobook_live_delivery.generated.json",
@@ -210,39 +144,48 @@
     "author_present": true,
     "author_sha256": "74173ef36073182ba309b157c36465d17f728d7f6f555e32802b93a9428eb77c",
     "failed_codes": [
+      "job_not_audiobookshelf_imported",
+      "m4b_output_file_not_ready",
+      "m4b_chapter_metadata_not_embedded",
+      "audiobookshelf_import_not_imported",
+      "audiobookshelf_target_file_not_ready",
+      "player_scoped_reference_not_ready",
+      "audiobookshelf_public_share_not_ready",
+      "audiobookshelf_public_share_url_missing",
       "telegram_public_share_delivery_not_sent",
-      "telegram_public_share_message_id_missing"
+      "telegram_public_share_message_id_missing",
+      "machine_playback_e2e_not_verified"
     ],
-    "job_id_sha256": "1a7a76f41c3bd81a974d309bb59ff80837451843917026aacc130b70729f0837",
-    "machine_playback_e2e_browser": "chromium_playwright",
-    "machine_playback_e2e_current_time_after_play_seconds": 2.962141,
-    "machine_playback_e2e_duration_seconds": 14559.48,
+    "job_id_sha256": "abb3a43fdbd6baf3c54781c3b953915593fc855fe3fc6cde8ea08de66280904e",
+    "machine_playback_e2e_browser": "",
+    "machine_playback_e2e_current_time_after_play_seconds": 0.0,
+    "machine_playback_e2e_duration_seconds": 0.0,
     "machine_playback_e2e_media_error_present": false,
-    "machine_playback_e2e_status": "pass",
-    "machine_playback_e2e_track_content_type": "audio/mp4",
-    "machine_playback_e2e_track_response_status": 206,
-    "machine_playback_e2e_verified": true,
+    "machine_playback_e2e_status": "",
+    "machine_playback_e2e_track_content_type": "",
+    "machine_playback_e2e_track_response_status": 0,
+    "machine_playback_e2e_verified": false,
     "origin_edition_link_bundle": {
       "status": "not_applicable"
     },
-    "playback_acceptance_feedback_sha256": "1d45152882a62b5ba66ed6536bc6d9e04e462e9c32942ceb83959bc8dec0e36a",
-    "playback_acceptance_source": "whatsapp_button_recovered",
-    "playback_acceptance_status": "rejected",
+    "playback_acceptance_feedback_sha256": "",
+    "playback_acceptance_source": "",
+    "playback_acceptance_status": "not_recorded",
     "playback_acceptance_verified": false,
     "player_scoped_reference_ready": false,
-    "player_scoped_reference_status": "blocked",
-    "public_share_host": "audiobookshelf.girschele.com",
-    "public_share_status": "public_share_ready",
-    "public_share_url_present": true,
+    "player_scoped_reference_status": "",
+    "public_share_host": "",
+    "public_share_status": "",
+    "public_share_url_present": false,
     "replacement_choice_pending": false,
     "source_kind": "epub",
-    "status": "audiobookshelf_imported",
-    "telegram_chat_bound": false,
+    "status": "blocked_external_tts",
+    "telegram_chat_bound": true,
     "telegram_delivery_message_id_present": false,
     "telegram_delivery_status": "",
-    "telegram_message_bound": false,
+    "telegram_message_bound": true,
     "title_present": true,
-    "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4",
+    "title_sha256": "2cc6c5f48874e36d71b7eb06bdc5a3ba271d642a3ca72b23fb0846383d6aff3a",
     "voice_choice_pending": false,
     "voice_selected_by_user": true,
     "voice_selected_default": false

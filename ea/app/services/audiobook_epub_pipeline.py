@@ -462,6 +462,11 @@ def _cinematic_track_signature(*, chapter_inputs: tuple[tuple[EpubChapter, str],
 
 
 _CINEMATIC_MASTER_SINGLE_PASS_MODE = "unmixr_cinematic_single_pass"
+_CINEMATIC_MASTER_SEGMENTED_FALLBACK_MODE = "unmixr_cinematic_segmented_fallback"
+_CINEMATIC_MASTER_VALID_MODES = {
+    _CINEMATIC_MASTER_SINGLE_PASS_MODE,
+    _CINEMATIC_MASTER_SEGMENTED_FALLBACK_MODE,
+}
 
 
 def _discover_or_build_cinematic_master_audio(
@@ -497,7 +502,7 @@ def _discover_or_build_cinematic_master_audio(
             cinematic_signature_cached = ""
 
     if (
-        cinematic_mode != _CINEMATIC_MASTER_SINGLE_PASS_MODE
+        cinematic_mode not in _CINEMATIC_MASTER_VALID_MODES
         or not cinematic_signature_cached
         or cinematic_signature_cached != cinematic_signature_expected
     ):
@@ -5194,6 +5199,21 @@ def _unmixr_retryable_error(exc: BaseException) -> bool:
     )
 
 
+def _unmixr_input_too_long_error(detail: object) -> bool:
+    normalized = str(detail or "").strip().lower()
+    if not normalized:
+        return False
+    return any(
+        marker in normalized
+        for marker in (
+            "input too long",
+            "limit your input",
+            "request entity too large",
+            "payload too large",
+        )
+    )
+
+
 def _synthesize_unmixr_with_retries(
     *,
     text: str,
@@ -5264,7 +5284,7 @@ def render_unmixr_chapter_audio(*, job_dir: Path, chapters: tuple[EpubChapter, .
                 cinematic_cached_signature = ""
         if (
             cinematic_master.is_file()
-            and cinematic_mode == _CINEMATIC_MASTER_SINGLE_PASS_MODE
+            and cinematic_mode in _CINEMATIC_MASTER_VALID_MODES
             and cinematic_cached_signature == cinematic_track_signature
         ):
             if cinematic_master.is_file() and cinematic_master.stat().st_size > 0:
@@ -5352,72 +5372,104 @@ def render_unmixr_chapter_audio(*, job_dir: Path, chapters: tuple[EpubChapter, .
         cinematic_text = " ".join(source_text for _, source_text in cinematic_track_chapters)
         if _audiobook_cinematic_single_pass():
             segment_rows = ({"text": cinematic_text, "paragraph_break_after": False},)
+            cinematic_render_mode = _CINEMATIC_MASTER_SINGLE_PASS_MODE
         else:
             segment_rows = tuple(
                 {"text": segment, "paragraph_break_after": False}
                 for segment in _chapter_text_segments(cinematic_text, max_chars=cinematic_max_chars)
             )
+            cinematic_render_mode = _CINEMATIC_MASTER_SEGMENTED_FALLBACK_MODE
         if not segment_rows:
             for chapter, _ in cinematic_track_chapters:
                 rendered.append({"chapter": chapter.index, "status": "skipped_empty"})
             return {"status": "rendered", "chapters": rendered, "voice_selection": dict(voice_selection.get("public") or {})}
 
-        part_dir = audio_dir / "_cinematic-parts"
-        segment_paths: list[Path] = []
-        content_types: list[str] = []
-        retry_errors: list[str] = []
-        segment_audio_quality: list[dict[str, object]] = []
+        while True:
+            part_dir = audio_dir / "_cinematic-parts"
+            segment_paths: list[Path] = []
+            content_types: list[str] = []
+            retry_errors: list[str] = []
+            segment_audio_quality: list[dict[str, object]] = []
+            retry_with_segmented_fallback = False
 
-        for segment_index, segment_row in enumerate(segment_rows, start=1):
-            segment = str(segment_row.get("text") or "").strip()
-            if not segment:
-                continue
-            segment_target = cinematic_master if _audiobook_cinematic_single_pass() else part_dir / f"_cinematic-{segment_index:03d}.wav"
-            if segment_target.is_file() and segment_target.stat().st_size > 0:
-                segment_paths.append(segment_target)
-                content_types.append("existing")
-                segment_audio_quality.append(_rendered_audio_quality_report(segment_target))
-                continue
-            if bool(pacing_policy.get("enabled")) and segments_rendered_this_run >= int(pacing_policy.get("max_segments_per_run") or 0):
-                wait_seconds = int(pacing_policy.get("wait_seconds") or 0)
-                return {
-                    "status": "provider_pacing_wait",
-                    "reason": "unmixr_segment_pacing_limit",
-                    "provider": "unmixr",
-                    "provider_wait_seconds": wait_seconds,
-                    "provider_retry_after": (datetime.now(UTC) + timedelta(seconds=wait_seconds)).isoformat().replace("+00:00", "Z"),
-                    "chapter_index": cinematic_track_chapters[0][0].index,
-                    "segment_index": segment_index,
-                    "segment_count": len(segment_rows),
-                    "segments_rendered_this_run": segments_rendered_this_run,
-                    "pacing": pacing_policy,
-                    "voice_selection": dict(voice_selection.get("public") or {}),
-                }
-            try:
-                audio_bytes, content_type, segment_retry_errors = _synthesize_unmixr_with_retries(
-                    text=segment,
-                    voice_id=voice_id,
-                    lang=render_language,
-                    speaking_rate=unmixr_speaking_rate(),
-                    speaking_pitch=unmixr_speaking_pitch(),
-                    speaking_volume=unmixr_speaking_volume(),
+            for segment_index, segment_row in enumerate(segment_rows, start=1):
+                segment = str(segment_row.get("text") or "").strip()
+                if not segment:
+                    continue
+                segment_target = (
+                    cinematic_master
+                    if cinematic_render_mode == _CINEMATIC_MASTER_SINGLE_PASS_MODE
+                    else part_dir / f"_cinematic-{segment_index:03d}.wav"
                 )
-            except Exception as exc:
-                detail = _exception_detail(exc)
-                wait_seconds = _provider_wait_seconds_from_text(detail)
-                if wait_seconds:
+                if segment_target.is_file() and segment_target.stat().st_size > 0:
+                    segment_paths.append(segment_target)
+                    content_types.append("existing")
+                    segment_audio_quality.append(_rendered_audio_quality_report(segment_target))
+                    continue
+                if bool(pacing_policy.get("enabled")) and segments_rendered_this_run >= int(pacing_policy.get("max_segments_per_run") or 0):
+                    wait_seconds = int(pacing_policy.get("wait_seconds") or 0)
                     return {
-                        "status": "provider_throttled",
-                        "reason": detail,
+                        "status": "provider_pacing_wait",
+                        "reason": "unmixr_segment_pacing_limit",
                         "provider": "unmixr",
                         "provider_wait_seconds": wait_seconds,
                         "provider_retry_after": (datetime.now(UTC) + timedelta(seconds=wait_seconds)).isoformat().replace("+00:00", "Z"),
                         "chapter_index": cinematic_track_chapters[0][0].index,
                         "segment_index": segment_index,
                         "segment_count": len(segment_rows),
+                        "segments_rendered_this_run": segments_rendered_this_run,
+                        "pacing": pacing_policy,
                         "voice_selection": dict(voice_selection.get("public") or {}),
                     }
-                if _provider_balance_blocker(detail):
+                try:
+                    audio_bytes, content_type, segment_retry_errors = _synthesize_unmixr_with_retries(
+                        text=segment,
+                        voice_id=voice_id,
+                        lang=render_language,
+                        speaking_rate=unmixr_speaking_rate(),
+                        speaking_pitch=unmixr_speaking_pitch(),
+                        speaking_volume=unmixr_speaking_volume(),
+                    )
+                except Exception as exc:
+                    detail = _exception_detail(exc)
+                    if (
+                        cinematic_render_mode == _CINEMATIC_MASTER_SINGLE_PASS_MODE
+                        and len(segment_rows) == 1
+                        and _unmixr_input_too_long_error(detail)
+                    ):
+                        fallback_rows = tuple(
+                            {"text": chunk, "paragraph_break_after": False}
+                            for chunk in _chapter_text_segments(cinematic_text, max_chars=max_chars)
+                        )
+                        if len(fallback_rows) > 1:
+                            segment_rows = fallback_rows
+                            cinematic_render_mode = _CINEMATIC_MASTER_SEGMENTED_FALLBACK_MODE
+                            retry_with_segmented_fallback = True
+                            break
+                    wait_seconds = _provider_wait_seconds_from_text(detail)
+                    if wait_seconds:
+                        return {
+                            "status": "provider_throttled",
+                            "reason": detail,
+                            "provider": "unmixr",
+                            "provider_wait_seconds": wait_seconds,
+                            "provider_retry_after": (datetime.now(UTC) + timedelta(seconds=wait_seconds)).isoformat().replace("+00:00", "Z"),
+                            "chapter_index": cinematic_track_chapters[0][0].index,
+                            "segment_index": segment_index,
+                            "segment_count": len(segment_rows),
+                            "voice_selection": dict(voice_selection.get("public") or {}),
+                        }
+                    if _provider_balance_blocker(detail):
+                        return {
+                            "status": "blocked",
+                            "reason": detail or "unmixr_tts_failed",
+                            "provider": "unmixr",
+                            "chapter_index": cinematic_track_chapters[0][0].index,
+                            "segment_index": segment_index,
+                            "segment_count": len(segment_rows),
+                            "voice_selection": dict(voice_selection.get("public") or {}),
+                            "replacement_voice_required": True,
+                        }
                     return {
                         "status": "blocked",
                         "reason": detail or "unmixr_tts_failed",
@@ -5426,29 +5478,32 @@ def render_unmixr_chapter_audio(*, job_dir: Path, chapters: tuple[EpubChapter, .
                         "segment_index": segment_index,
                         "segment_count": len(segment_rows),
                         "voice_selection": dict(voice_selection.get("public") or {}),
-                        "replacement_voice_required": True,
+                        "replacement_voice_required": False,
                     }
-                return {
-                    "status": "blocked",
-                    "reason": detail or "unmixr_tts_failed",
-                    "provider": "unmixr",
-                    "chapter_index": cinematic_track_chapters[0][0].index,
-                    "segment_index": segment_index,
-                    "segment_count": len(segment_rows),
-                    "voice_selection": dict(voice_selection.get("public") or {}),
-                    "replacement_voice_required": False,
-                }
-            retry_errors.extend(segment_retry_errors)
-            rendered_segment = _write_provider_audio_file(
-                audio_bytes=audio_bytes,
-                content_type=content_type,
-                target_wav=segment_target,
-            )
-            segments_rendered_this_run += 1
-            segment_paths.append(rendered_segment)
-            content_types.append(content_type)
-            segment_audio_quality.append(_rendered_audio_quality_report(rendered_segment))
+                retry_errors.extend(segment_retry_errors)
+                rendered_segment = _write_provider_audio_file(
+                    audio_bytes=audio_bytes,
+                    content_type=content_type,
+                    target_wav=segment_target,
+                )
+                segments_rendered_this_run += 1
+                segment_paths.append(rendered_segment)
+                content_types.append(content_type)
+                segment_audio_quality.append(_rendered_audio_quality_report(rendered_segment))
+            if retry_with_segmented_fallback:
+                continue
+            break
         if not _audiobook_cinematic_single_pass() and not _merge_audio_segments_to_wav(segment_paths=tuple(segment_paths), target=cinematic_master):
+            return {
+                "status": "blocked",
+                "reason": "cinematic_master_merge_failed",
+                "segment_count": len(segment_paths),
+                "segment_merge_input_count": len(segment_paths),
+            }
+        if (
+            cinematic_render_mode == _CINEMATIC_MASTER_SEGMENTED_FALLBACK_MODE
+            and not _merge_audio_segments_to_wav(segment_paths=tuple(segment_paths), target=cinematic_master)
+        ):
             return {
                 "status": "blocked",
                 "reason": "cinematic_master_merge_failed",
@@ -5457,7 +5512,7 @@ def render_unmixr_chapter_audio(*, job_dir: Path, chapters: tuple[EpubChapter, .
             }
         cinematic_audio_quality = _rendered_audio_quality_report(cinematic_master)
         try:
-            cinematic_mode_path.write_text(_CINEMATIC_MASTER_SINGLE_PASS_MODE, encoding="utf-8")
+            cinematic_mode_path.write_text(cinematic_render_mode, encoding="utf-8")
             cinematic_signature_path = _cinematic_master_audio_signature_path(audio_dir)
             cinematic_signature_path.write_text(cinematic_track_signature, encoding="utf-8")
         except OSError:

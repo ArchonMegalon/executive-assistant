@@ -308,13 +308,43 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
         self.assertEqual(result["status"], "rendered")
         self.assertEqual(segment_rows.call_count, 1)
 
+    def test_render_unmixr_chapter_audio_falls_back_to_segmented_cinematic_pass_when_provider_input_is_too_long(self) -> None:
+        with self._base_context() as (job_dir, chapters, metadata):
+            source_text = (job_dir / "chapters" / chapters[0].text_path).read_text(encoding="utf-8")
+            segment_calls: list[str] = []
+
+            def synthesize(*, text: str, **kwargs: object) -> tuple[bytes, str, list[str]]:
+                if text == source_text:
+                    raise RuntimeError("Input too long. Please limit your input to under 2000 characters.")
+                segment_calls.append(text)
+                return (b"audio-blob", "audio/wav", [])
+
+            with (
+                self._voice_context(),
+                patch.object(audiobook_epub_pipeline, "_synthesize_unmixr_with_retries", side_effect=synthesize) as synthesize_mock,
+                patch.object(audiobook_epub_pipeline, "_rendered_audio_quality_report", return_value={"status": "pass"}),
+                patch.object(audiobook_epub_pipeline, "_write_provider_audio_file", side_effect=self._write_audio_file),
+                patch.object(audiobook_epub_pipeline, "_merge_audio_segments_to_wav", side_effect=self._merge_master),
+            ):
+                result = audiobook_epub_pipeline.render_unmixr_chapter_audio(
+                    job_dir=job_dir,
+                    chapters=chapters,
+                    metadata=metadata,
+                )
+
+        self.assertEqual(result["status"], "rendered")
+        self.assertGreater(synthesize_mock.call_count, 1)
+        self.assertEqual(synthesize_mock.call_args_list[0].kwargs["text"], source_text)
+        self.assertTrue(all(len(text) < len(source_text) for text in segment_calls))
+        self.assertEqual(result["chapters"][0]["segment_count"], len(segment_calls))
+
     def test_render_unmixr_chapter_audio_blocks_when_single_pass_fails_in_cinematic_mode(self) -> None:
         with self._base_context() as (job_dir, chapters, metadata):
             source_text = (job_dir / "chapters" / chapters[0].text_path).read_text(encoding="utf-8")
 
             def synthesize(*, text: str, **kwargs: object) -> tuple[bytes, str, list[str]]:
                 if text == source_text:
-                    raise RuntimeError("request entity too large")
+                    raise RuntimeError("provider internal failure")
                 return (b"audio-blob", "audio/wav", [])
 
             with (
@@ -331,7 +361,7 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
                 )
 
         self.assertEqual(result["status"], "blocked")
-        self.assertEqual(result["reason"], "request entity too large")
+        self.assertEqual(result["reason"], "provider internal failure")
         self.assertEqual(synthesize_mock.call_count, 1)
 
     def test_merge_m4b_if_ready_rebuilds_continuous_cinematic_track(self) -> None:
