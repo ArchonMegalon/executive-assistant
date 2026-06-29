@@ -1,0 +1,17 @@
+services:
+  home-girschele-hass:
+    profiles:
+      - home-assistant
+    image: "ghcr.io/home-assistant/home-assistant:${HOME_GIRSCHELE_HASS_IMAGE_TAG:-stable}"
+    container_name: home-girschele-hass
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      TZ: ${HOME_GIRSCHELE_TZ:-Europe/Vienna}
+    volumes:
+      - "${HOME_GIRSCHELE_HASS_CONFIG_DIR:-/docker/EA/.state/home-girschele/homeassistant-config}:/config"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
