@@ -36,6 +36,92 @@ def test_verify_proactive_ooda_live_receipt_accepts_redacted_sent_receipt(tmp_pa
     assert report["delivery_next_action"] == "scan_whatsapp_web_qr"
 
 
+def test_verify_proactive_ooda_live_receipt_uses_archived_sent_receipt_when_latest_is_quiet(tmp_path) -> None:
+    receipt = tmp_path / "proactive_ooda_latest_run.generated.json"
+    archive_receipt = tmp_path / "proactive_ooda_run_receipts" / "20260629T103000Z-sent.json"
+    receipt.write_text(
+        json.dumps(
+            {
+                "dry_run": False,
+                "error_code": "no_user_action_required",
+                "generated_at": "2026-06-29T10:40:00+00:00",
+                "item_count": 4,
+                "notification_status": "deferred",
+                "telegram_message_ids": [],
+                "delivery_message_ids": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    archive_receipt.parent.mkdir(parents=True, exist_ok=True)
+    archive_receipt.write_text(
+        json.dumps(
+            {
+                "dry_run": False,
+                "error_code": "",
+                "generated_at": "2026-06-29T10:30:00+00:00",
+                "item_count": 1,
+                "notification_status": "sent",
+                "notified_ref_hashes": ["a" * 64],
+                "principal_id_hash": "b" * 64,
+                "telegram_message_ids": ["3201"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = verify_receipt(receipt)
+
+    assert report["ok"] is True
+    assert report["archived_sent_receipt_used"] is True
+    assert report["receipt_path"] == str(archive_receipt)
+    assert report["latest_receipt_path"] == str(receipt)
+    assert report["latest_notification_status"] == "deferred"
+    assert report["quiet_receipt_error_code"] == "no_user_action_required"
+
+
+def test_verify_proactive_ooda_live_receipt_rejects_raw_fields_in_quiet_latest_receipt(tmp_path) -> None:
+    receipt = tmp_path / "proactive_ooda_latest_run.generated.json"
+    archive_receipt = tmp_path / "proactive_ooda_run_receipts" / "20260629T103000Z-sent.json"
+    receipt.write_text(
+        json.dumps(
+            {
+                "dry_run": False,
+                "error_code": "no_user_action_required",
+                "generated_at": "2026-06-29T10:40:00+00:00",
+                "item_count": 4,
+                "notification_status": "deferred",
+                "telegram_message_ids": [],
+                "delivery_message_ids": [],
+                "chat_id": "raw-chat-id",
+            }
+        ),
+        encoding="utf-8",
+    )
+    archive_receipt.parent.mkdir(parents=True, exist_ok=True)
+    archive_receipt.write_text(
+        json.dumps(
+            {
+                "dry_run": False,
+                "error_code": "",
+                "generated_at": "2026-06-29T10:30:00+00:00",
+                "item_count": 1,
+                "notification_status": "sent",
+                "notified_ref_hashes": ["a" * 64],
+                "principal_id_hash": "b" * 64,
+                "telegram_message_ids": ["3201"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = verify_receipt(receipt)
+
+    assert report["ok"] is False
+    assert report["archived_sent_receipt_used"] is True
+    assert "quiet_receipt_contains_raw_chat_id" in report["errors"]
+
+
 def test_verify_proactive_ooda_live_receipt_rejects_raw_fields(tmp_path) -> None:
     receipt = tmp_path / "receipt.json"
     receipt.write_text(
