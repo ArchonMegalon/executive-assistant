@@ -1,4 +1,147 @@
 {
+  "acceptance_proof_requirements": [
+    {
+      "capture_surfaces": [
+        ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
+        ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json"
+      ],
+      "claim_boundary": "does_not_prove_good_executive_assistant_until_real_operator_or_principal_acceptance_is_recorded",
+      "evidence_kind": "real_operator_acceptance",
+      "key": "morning_brief_operator_acceptance",
+      "lens": "prove",
+      "next_action": "record_redacted_operator_acceptance_for_real_morning_brief",
+      "required_next_receipt": "real operator acceptance that the morning brief was worth reading",
+      "source_receipts": [
+        {
+          "contract_name": "ea.executive_assistant_quality_readiness.v1",
+          "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
+          "present": true,
+          "status": "blocked_real_world_acceptance"
+        }
+      ],
+      "status": "pending_real_world_evidence",
+      "title": "Morning brief operator acceptance"
+    },
+    {
+      "capture_surfaces": [
+        ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json"
+      ],
+      "claim_boundary": "does_not_prove_signal_loop_value_until_a_real_operator_review_is_recorded",
+      "evidence_kind": "real_review_acceptance",
+      "key": "weekly_signal_to_decision_review_acceptance",
+      "lens": "detect",
+      "next_action": "record_weekly_signal_to_decision_review_acceptance",
+      "required_next_receipt": "real weekly signal-to-decision review acceptance receipt",
+      "source_receipts": [
+        {
+          "contract_name": "ea.whole_project_signal_to_decision_receipt.v1",
+          "path": ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
+          "present": true,
+          "status": "ready_local_packet_pending_operator_acceptance"
+        }
+      ],
+      "status": "pending_real_world_evidence",
+      "title": "Weekly signal-to-decision review acceptance"
+    },
+    {
+      "capture_surfaces": [
+        ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
+        ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
+      ],
+      "claim_boundary": "does_not_prove_assistant_grade_proactive_ooda_until_a_real_approval_outcome_is_captured",
+      "evidence_kind": "approval_outcome",
+      "key": "proactive_ooda_packet_acceptance",
+      "lens": "decide",
+      "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
+      "required_next_receipt": "real proactive OODA packet accepted with action-required-only routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome",
+      "source_receipts": [
+        {
+          "contract_name": "ea.proactive_ooda_gold_acceptance.v1",
+          "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
+          "present": true,
+          "status": "ready_for_approval_outcome_capture"
+        },
+        {
+          "contract_name": "ea.proactive_ooda_operator_status.v1",
+          "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
+          "present": true,
+          "status": "ready_with_live_receipt"
+        }
+      ],
+      "status": "pending_real_world_evidence",
+      "title": "Proactive OODA packet approval outcome"
+    },
+    {
+      "capture_surfaces": [
+        ".codex-studio/published/teable_env_recovery_readiness.generated.json"
+      ],
+      "claim_boundary": "does_not_prove_recovery_readiness_until_fresh_host_drill_evidence_is_mirrored",
+      "evidence_kind": "fresh_host_recovery_drill",
+      "key": "fresh_host_teable_recovery_drill",
+      "lens": "recover",
+      "next_action": "run_shell_seeded_fresh_host_probe_and_mirror_drill_evidence",
+      "required_next_receipt": "fresh-host Teable recovery drill receipt mirrored into the repo",
+      "source_receipts": [
+        {
+          "contract_name": "ea.teable_env_recovery_readiness.v1",
+          "path": ".codex-studio/published/teable_env_recovery_readiness.generated.json",
+          "present": true,
+          "status": "ready_local_audit"
+        }
+      ],
+      "status": "pending_real_world_evidence",
+      "title": "Fresh-host Teable recovery drill"
+    },
+    {
+      "capture_surfaces": [
+        ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json"
+      ],
+      "claim_boundary": "does_not_prove_realtime_speech_delivery_until_a_consented_room_conversation_receipt_passes",
+      "evidence_kind": "consented_realtime_media_proof",
+      "key": "manfred_stt_tts_realtime_conversation",
+      "lens": "deliver",
+      "next_action": "capture_consented_manfred_stt_tts_realtime_proof",
+      "required_next_receipt": "consented Manfred STT/TTS realtime conversation proof",
+      "source_receipts": [
+        {
+          "contract_name": "ea.manfred_realtime_conversation_readiness.v1",
+          "path": ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
+          "present": true,
+          "status": "blocked_realtime_prerequisites"
+        }
+      ],
+      "status": "pending_real_world_evidence",
+      "title": "Consented Manfred realtime conversation proof"
+    },
+    {
+      "capture_surfaces": [
+        ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
+        ".codex-studio/published/telegram_audiobook_live_readiness.generated.json"
+      ],
+      "claim_boundary": "does_not_prove_telegram_audiobook_delivery_until_live_delivery_and_playback_receipts_pass",
+      "evidence_kind": "live_delivery_receipt",
+      "key": "telegram_audiobook_live_delivery",
+      "lens": "deliver",
+      "next_action": "choose_explicit_replacement_voice_or_restore_selected_provider",
+      "required_next_receipt": "passing Telegram audiobook live delivery receipt",
+      "source_receipts": [
+        {
+          "contract_name": "ea.telegram_audiobook_live_delivery_receipt.v1",
+          "path": ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
+          "present": true,
+          "status": "blocked"
+        },
+        {
+          "contract_name": "ea.telegram_audiobook_live_readiness_checklist.v1",
+          "path": ".codex-studio/published/telegram_audiobook_live_readiness.generated.json",
+          "present": true,
+          "status": "ready_for_live_epub_delivery_test"
+        }
+      ],
+      "status": "pending_real_world_evidence",
+      "title": "Telegram audiobook live delivery receipt"
+    }
+  ],
   "blocking_reasons": [
     "deliver:manfred_speech=blocked_realtime_prerequisites",
     "deliver:telegram_audiobook=blocked",
@@ -12,7 +155,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-06-29T16:53:56Z",
+  "generated_at": "2026-06-29T17:24:04Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -229,7 +372,8 @@
     "real weekly signal-to-decision review acceptance receipt",
     "real proactive OODA packet accepted with action-required-only routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome",
     "fresh-host Teable recovery drill receipt mirrored into the repo",
-    "consented Manfred STT/TTS realtime conversation proof"
+    "consented Manfred STT/TTS realtime conversation proof",
+    "passing Telegram audiobook live delivery receipt"
   ],
   "rules": [
     "Local route receipts and operator commands may guide work, but they do not by themselves prove real daily usefulness.",
@@ -241,5 +385,5 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "5b6cd9fe1265a11bba76c7e592dabf50dfffb7bb"
+  "source_git_head": "c77a67a5f84cf5155889d6ac3caf581cd8b0ab53"
 }
