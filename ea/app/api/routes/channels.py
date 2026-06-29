@@ -1736,6 +1736,41 @@ def _telegram_should_suppress_whatsapp_pairing_followup(ctx: TelegramTurnContext
     return False
 
 
+def _record_telegram_whatsapp_pairing_followup_suppressed(
+    container: AppContainer,
+    *,
+    principal_id: str,
+    chat_id: str,
+    dedupe_key: str,
+    current_message_id: str,
+    source_text: str,
+    source_kind: str,
+) -> None:
+    fallback_marker = ""
+    if str(chat_id or "").strip() and str(current_message_id or "").strip():
+        fallback_marker = f"telegram:{chat_id}:{current_message_id}"
+    marker_base = str(dedupe_key or "").strip() or fallback_marker
+    marker = f"{marker_base}:whatsapp_pairing_followup_suppressed" if marker_base else ""
+    container.channel_runtime.ingest_observation(
+        principal_id=principal_id,
+        channel="telegram",
+        event_type="telegram.reply_suppressed",
+        payload={
+            "chat_id": str(chat_id or "").strip(),
+            "prompt_text": str(source_text or "").strip(),
+            "source_kind": str(source_kind or "").strip(),
+            "stage": "whatsapp_pairing_followup_suppressed",
+            "reason": "whatsapp_pairing_followup_retry_later",
+            "user_action_required": False,
+            "prior_context": "whatsapp_web_pairing_qr_required",
+            "next_operator_action": "retry_whatsapp_pairing_prompt_after_cooldown",
+        },
+        source_id=f"telegram:{chat_id}" if chat_id else "telegram",
+        external_id=str(current_message_id or "").strip(),
+        dedupe_key=marker,
+    )
+
+
 _TELEGRAM_RENDERED_VIDEO_DIRECT_MARKERS = (
     "send me a video",
     "send a video",
@@ -9388,6 +9423,7 @@ def _telegram_session_turn(
     preferred_onemin_labels: tuple[str, ...] = (),
     current_message_id: str = "",
     chat_id: str = "",
+    dedupe_key: str = "",
 ) -> TelegramTurnDecision:
     initial_ctx = build_turn_context(
         container=container,
@@ -9401,6 +9437,15 @@ def _telegram_session_turn(
         completion_cue_predicate=_telegram_low_signal_followup_cue,
     )
     if _telegram_should_suppress_whatsapp_pairing_followup(initial_ctx):
+        _record_telegram_whatsapp_pairing_followup_suppressed(
+            container,
+            principal_id=principal_id,
+            chat_id=chat_id,
+            dedupe_key=dedupe_key,
+            current_message_id=current_message_id,
+            source_text=text,
+            source_kind=str(dict(payload or {}).get("kind") or "").strip(),
+        )
         return TelegramTurnDecision()
     audiobook_epub_decision = _telegram_audiobook_epub_turn_decision(initial_ctx)
     if audiobook_epub_decision.reply_text or audiobook_epub_decision.schedule_async:
@@ -9541,6 +9586,7 @@ def ingest_telegram(
         ),
         current_message_id=str(message_payload.get("message_id") or ""),
         chat_id=chat_id,
+        dedupe_key=dedupe_key,
     )
     if str(message_payload.get("kind") or "").strip().lower() == "callback_query":
         try:
