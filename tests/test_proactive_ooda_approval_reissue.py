@@ -9,9 +9,10 @@ from app.services.proactive_ooda_approval_reissue import (
 )
 
 
-def _bundle(*, live_pending: int = 0) -> dict[str, object]:
+def _bundle(*, live_pending: int = 0, live_pending_age_seconds: int = 0) -> dict[str, object]:
     return {
         "current_packet_live_pending_count": live_pending,
+        "current_packet_callback_latest_age_seconds": live_pending_age_seconds,
         "stage_packet": {
             "packet_ref": "stage_packet:packet-1",
             "approval": {"required": True},
@@ -74,7 +75,47 @@ def test_reissue_current_proactive_ooda_approval_skips_when_current_surface_is_l
     )
 
     assert result["status"] == "already_live_pending"
+    assert result["current_packet_callback_latest_age_seconds"] == 0
+    assert result["reissue_after_seconds"] == 0
+    assert result["reissue_eligible"] is False
     assert send_calls == []
+
+
+def test_reissue_current_proactive_ooda_approval_skips_fresh_live_surface_below_threshold(tmp_path) -> None:
+    send_calls: list[dict[str, object]] = []
+
+    result = reissue_current_proactive_ooda_approval(
+        principal_id="exec",
+        root=tmp_path,
+        state_path="state/proactive_ooda_notified.json",
+        reissue_after_seconds=3600,
+        bundle_loader=lambda **_kwargs: _bundle(live_pending=1, live_pending_age_seconds=120),
+        sender=lambda **kwargs: send_calls.append(dict(kwargs)),
+    )
+
+    assert result["status"] == "already_live_pending"
+    assert result["current_packet_callback_latest_age_seconds"] == 120
+    assert result["reissue_after_seconds"] == 3600
+    assert result["reissue_eligible"] is False
+    assert send_calls == []
+
+
+def test_reissue_current_proactive_ooda_approval_dry_run_allows_stale_live_surface_threshold(tmp_path) -> None:
+    result = reissue_current_proactive_ooda_approval(
+        principal_id="exec",
+        root=tmp_path,
+        state_path="state/proactive_ooda_notified.json",
+        reissue_after_seconds=3600,
+        dry_run=True,
+        bundle_loader=lambda **_kwargs: _bundle(live_pending=1, live_pending_age_seconds=7200),
+    )
+
+    assert result["status"] == "dry_run"
+    assert result["reason"] == "approval_surface_ready_to_reissue"
+    assert result["current_packet_live_pending_count"] == 1
+    assert result["current_packet_callback_latest_age_seconds"] == 7200
+    assert result["reissue_after_seconds"] == 3600
+    assert result["reissue_eligible"] is True
 
 
 def test_reissue_current_proactive_ooda_approval_skips_when_current_packet_already_decided(tmp_path) -> None:
@@ -163,3 +204,33 @@ def test_reissue_current_proactive_ooda_approval_sends_telegram_action_surface(t
     assert sent[0]["approval_request"]["packet_ref"] == "stage_packet:packet-1"
     assert sent[0]["approval_request"]["staged_artifact_ref"] == "safe_work_result:result-1"
     assert sent[0]["text"] == "Approve whether EA should keep this staged packet."
+
+
+def test_reissue_current_proactive_ooda_approval_sends_stale_live_surface_after_threshold(tmp_path) -> None:
+    sent: list[dict[str, object]] = []
+
+    def _sender(**kwargs):
+        sent.append(dict(kwargs))
+        return SimpleNamespace(
+            channel="telegram",
+            delivery_transport="telegram",
+            message_ids=("tg-1",),
+            approval_surface={"present": True, "status": "pending", "message_ids": ("tg-1",)},
+        )
+
+    result = reissue_current_proactive_ooda_approval(
+        principal_id="exec",
+        root=tmp_path,
+        state_path="state/proactive_ooda_notified.json",
+        reissue_after_seconds=3600,
+        container=SimpleNamespace(tool_runtime="tool", channel_runtime="channel", memory_runtime="memory"),
+        bundle_loader=lambda **_kwargs: _bundle(live_pending=1, live_pending_age_seconds=7200),
+        sender=_sender,
+    )
+
+    assert result["status"] == "sent"
+    assert result["current_packet_live_pending_count_before"] == 1
+    assert result["current_packet_callback_latest_age_seconds"] == 7200
+    assert result["reissue_after_seconds"] == 3600
+    assert result["reissue_eligible"] is True
+    assert sent

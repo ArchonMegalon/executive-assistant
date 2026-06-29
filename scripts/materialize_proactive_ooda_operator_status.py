@@ -576,6 +576,18 @@ def _approval_capture_surface(
     current_packet_live_pending_count = int(artifact_probe.get("current_packet_live_pending_count") or 0)
     current_packet_callback_latest_status = str(artifact_probe.get("current_packet_callback_latest_status") or "").strip()
     current_packet_callback_latest_expired = bool(artifact_probe.get("current_packet_callback_latest_expired"))
+    current_packet_callback_latest_created_at = str(
+        artifact_probe.get("current_packet_callback_latest_created_at") or ""
+    ).strip()
+    current_packet_callback_latest_expires_at = str(
+        artifact_probe.get("current_packet_callback_latest_expires_at") or ""
+    ).strip()
+    current_packet_callback_latest_age_seconds = int(
+        artifact_probe.get("current_packet_callback_latest_age_seconds") or 0
+    )
+    current_packet_callback_latest_seconds_until_expiry = int(
+        artifact_probe.get("current_packet_callback_latest_seconds_until_expiry") or 0
+    )
     ready = (
         bool(delivery_route.get("ready"))
         and bool(dict(report.get("stage_packets") or {}).get("ready"))
@@ -618,6 +630,10 @@ def _approval_capture_surface(
         "current_packet_live_pending_count": current_packet_live_pending_count,
         "current_packet_callback_latest_status": current_packet_callback_latest_status,
         "current_packet_callback_latest_expired": current_packet_callback_latest_expired,
+        "current_packet_callback_latest_created_at": current_packet_callback_latest_created_at,
+        "current_packet_callback_latest_expires_at": current_packet_callback_latest_expires_at,
+        "current_packet_callback_latest_age_seconds": current_packet_callback_latest_age_seconds,
+        "current_packet_callback_latest_seconds_until_expiry": current_packet_callback_latest_seconds_until_expiry,
         "source": str(artifact_probe.get("source") or "").strip() or "",
     }
 
@@ -666,6 +682,12 @@ def _local_artifact_probe(
         "current_packet_live_pending_count": int(bundle.get("current_packet_live_pending_count") or 0),
         "current_packet_callback_latest_status": str(bundle.get("current_packet_callback_latest_status") or "").strip(),
         "current_packet_callback_latest_expired": bool(bundle.get("current_packet_callback_latest_expired")),
+        "current_packet_callback_latest_created_at": str(bundle.get("current_packet_callback_latest_created_at") or "").strip(),
+        "current_packet_callback_latest_expires_at": str(bundle.get("current_packet_callback_latest_expires_at") or "").strip(),
+        "current_packet_callback_latest_age_seconds": int(bundle.get("current_packet_callback_latest_age_seconds") or 0),
+        "current_packet_callback_latest_seconds_until_expiry": int(
+            bundle.get("current_packet_callback_latest_seconds_until_expiry") or 0
+        ),
     }
 
 

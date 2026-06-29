@@ -18,6 +18,7 @@ def reissue_current_proactive_ooda_approval(
     stage_packet_dir: str | Path = "",
     safe_work_result_dir: str | Path = "",
     force: bool = False,
+    reissue_after_seconds: int = 0,
     dry_run: bool = False,
     container: Any | None = None,
     container_factory: Callable[[], Any] | None = None,
@@ -59,11 +60,24 @@ def reissue_current_proactive_ooda_approval(
             **_redacted_request_summary(approval_request),
         }
     live_pending_count = int(bundle.get("current_packet_live_pending_count") or 0)
-    if live_pending_count > 0 and not force:
+    live_pending_age_seconds = int(bundle.get("current_packet_callback_latest_age_seconds") or 0)
+    reissue_threshold_seconds = max(int(reissue_after_seconds or 0), 0)
+    reissue_eligible = bool(force) or (
+        live_pending_count > 0
+        and reissue_threshold_seconds > 0
+        and live_pending_age_seconds >= reissue_threshold_seconds
+    )
+    reissue_context = {
+        "current_packet_callback_latest_age_seconds": live_pending_age_seconds,
+        "reissue_after_seconds": reissue_threshold_seconds,
+        "reissue_eligible": reissue_eligible,
+    }
+    if live_pending_count > 0 and not force and not reissue_eligible:
         return {
             "status": "already_live_pending",
             "reason": "current_packet_approval_surface_already_live",
             "current_packet_live_pending_count": live_pending_count,
+            **reissue_context,
             **_redacted_request_summary(approval_request),
         }
     if dry_run:
@@ -71,6 +85,7 @@ def reissue_current_proactive_ooda_approval(
             "status": "dry_run",
             "reason": "approval_surface_ready_to_reissue",
             "current_packet_live_pending_count": live_pending_count,
+            **reissue_context,
             **_redacted_request_summary(approval_request),
         }
     resolved_container = container
@@ -98,6 +113,7 @@ def reissue_current_proactive_ooda_approval(
         "status": "sent",
         "reason": "approval_surface_reissued",
         "current_packet_live_pending_count_before": live_pending_count,
+        **reissue_context,
         "message_count": len(message_ids),
         "message_ids": message_ids,
         "delivery_channel": _receipt_text(receipt, "channel"),

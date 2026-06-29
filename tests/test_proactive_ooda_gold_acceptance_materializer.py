@@ -1370,6 +1370,10 @@ def test_materialize_proactive_ooda_gold_acceptance_treats_expired_current_packe
             "current_packet_live_pending_count": 0,
             "current_packet_callback_latest_status": "pending",
             "current_packet_callback_latest_expired": True,
+            "current_packet_callback_latest_created_at": "2026-06-26T18:00:00Z",
+            "current_packet_callback_latest_expires_at": "2000-01-01T00:00:00Z",
+            "current_packet_callback_latest_age_seconds": 3600,
+            "current_packet_callback_latest_seconds_until_expiry": 0,
             "stage_packet_path": "/data/provider-ledger/proactive_ooda_stage_packets/pkt-live.json",
             "safe_work_result_path": "/data/provider-ledger/proactive_ooda_safe_work_results/res-live.json",
             "run_receipt": {
@@ -1435,6 +1439,10 @@ def test_materialize_proactive_ooda_gold_acceptance_treats_expired_current_packe
     assert surface["current_packet_callback_record_count"] == 1
     assert surface["current_packet_live_pending_count"] == 0
     assert surface["current_packet_callback_latest_expired"] is True
+    assert surface["current_packet_callback_latest_created_at"] == "2026-06-26T18:00:00Z"
+    assert surface["current_packet_callback_latest_expires_at"] == "2000-01-01T00:00:00Z"
+    assert surface["current_packet_callback_latest_age_seconds"] == 3600
+    assert surface["current_packet_callback_latest_seconds_until_expiry"] == 0
     assert surface["ready"] is False
     assert receipt["next_action"] == "record_proactive_ooda_approval_outcome"
 

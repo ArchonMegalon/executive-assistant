@@ -422,6 +422,38 @@ def test_probe_whatsapp_readiness_failure_reports_exception_type_without_secret(
     assert "whatsapp_readiness status=probe_failed" in str(report["operator_text"])
 
 
+def test_operator_text_for_telegram_readiness_keeps_secret_material_out() -> None:
+    module = _module()
+
+    text = module._operator_text_for_telegram_readiness(
+        {
+            "status": "ready",
+            "ready": True,
+            "principal_id": "principal-1",
+            "binding_id": "binding-1",
+            "chat_ref_present": True,
+            "chat_ref_sha256": "a" * 64,
+            "bot_token_present": True,
+            "bot_key": "default",
+            "bot_handle": "@ea_bot",
+            "observed_at": "2026-06-29T13:00:00Z",
+            "source": "runtime_container_exec:telegram_delivery.resolve_primary_telegram_binding",
+            "raw_chat_ref": "123456789",
+            "raw_bot_token": "telegram-secret-token",
+        }
+    )
+
+    assert "telegram_readiness status=ready" in text
+    assert "ready=true" in text
+    assert "chat_ref_present=true" in text
+    assert "bot_token_present=true" in text
+    assert "principal=principal-1" in text
+    assert "binding=binding-1" in text
+    assert "telegram-secret-token" not in text
+    assert "123456789" not in text
+    assert "chat_ref_sha256" not in text
+
+
 def test_probe_proactive_route_normalizes_live_runtime_route_status(monkeypatch) -> None:
     module = _module()
     receipt_paths: list[str] = []

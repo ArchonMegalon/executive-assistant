@@ -737,3 +737,7 @@ def test_materialize_proactive_ooda_operator_status_uses_local_callback_surface_
     assert receipt["approval_capture_surface"]["callback_dir_exists"] is True
     assert receipt["approval_capture_surface"]["current_packet_callback_record_count"] == 1
     assert receipt["approval_capture_surface"]["current_packet_live_pending_count"] == 1
+    assert receipt["approval_capture_surface"]["current_packet_callback_latest_created_at"] == "2026-06-28T14:00:00Z"
+    assert receipt["approval_capture_surface"]["current_packet_callback_latest_expires_at"] == "2099-01-01T00:00:00Z"
+    assert isinstance(receipt["approval_capture_surface"]["current_packet_callback_latest_age_seconds"], int)
+    assert receipt["approval_capture_surface"]["current_packet_callback_latest_seconds_until_expiry"] > 0

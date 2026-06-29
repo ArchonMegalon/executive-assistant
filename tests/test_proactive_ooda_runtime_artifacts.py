@@ -389,6 +389,10 @@ def test_load_runtime_artifact_bundle_includes_current_packet_approval_callback_
     assert bundle["current_packet_live_pending_count"] == 1
     assert bundle["current_packet_callback_latest_status"] == "pending"
     assert bundle["current_packet_callback_latest_expired"] is False
+    assert bundle["current_packet_callback_latest_created_at"] == "2026-06-28T14:00:00Z"
+    assert bundle["current_packet_callback_latest_expires_at"] == "2099-01-01T00:00:00Z"
+    assert isinstance(bundle["current_packet_callback_latest_age_seconds"], int)
+    assert bundle["current_packet_callback_latest_seconds_until_expiry"] > 0
 
 
 def test_select_current_approval_outcome_ignores_stale_saved_artifact() -> None:

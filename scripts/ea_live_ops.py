@@ -808,6 +808,115 @@ def _operator_text_for_whatsapp_readiness(report: Mapping[str, object]) -> str:
     return "; ".join(str(item) for item in pieces if str(item).strip())
 
 
+def _operator_text_for_telegram_readiness(report: Mapping[str, object]) -> str:
+    pieces = [
+        f"telegram_readiness status={report.get('status') or 'unknown'}",
+        f"ready={str(bool(report.get('ready'))).lower()}",
+    ]
+    if report.get("reason"):
+        pieces.append(f"reason={report['reason']}")
+    if report.get("next_action"):
+        pieces.append(f"next={report['next_action']}")
+    if report.get("principal_id"):
+        pieces.append(f"principal={report['principal_id']}")
+    if report.get("binding_id"):
+        pieces.append(f"binding={report['binding_id']}")
+    pieces.append(f"chat_ref_present={str(bool(report.get('chat_ref_present'))).lower()}")
+    pieces.append(f"bot_token_present={str(bool(report.get('bot_token_present'))).lower()}")
+    if report.get("bot_key"):
+        pieces.append(f"bot_key={report['bot_key']}")
+    if report.get("bot_handle"):
+        pieces.append(f"bot_handle={report['bot_handle']}")
+    if report.get("observed_at"):
+        pieces.append(f"observed_at={report['observed_at']}")
+    if report.get("source"):
+        pieces.append(f"source={report['source']}")
+    return "; ".join(str(item) for item in pieces if str(item).strip())
+
+
+def probe_telegram_readiness(
+    *,
+    principal_id: str,
+    output_format: str = "json",
+) -> dict[str, object]:
+    observed_at = _utc_now()
+    source = "runtime_container_exec:telegram_delivery.resolve_primary_telegram_binding"
+    code = (
+        "import hashlib, json\n"
+        "principal_id = "
+        + json.dumps(str(principal_id or "").strip())
+        + "\n"
+        "try:\n"
+        "    from app.container import build_container\n"
+        "    from app.services.telegram_delivery import resolve_primary_telegram_binding, _telegram_bot_registry\n"
+        "    container = build_container()\n"
+        "    binding = resolve_primary_telegram_binding(container.tool_runtime, principal_id=principal_id)\n"
+        "    if binding is None:\n"
+        "        print(json.dumps({'ok': True, 'ready': False, 'status': 'blocked', 'reason': 'telegram_binding_not_found'}))\n"
+        "    else:\n"
+        "        metadata = dict(getattr(binding, 'auth_metadata_json', None) or {})\n"
+        "        chat_ref = str(metadata.get('default_chat_ref') or getattr(binding, 'external_account_ref', '') or '').strip()\n"
+        "        bot_key = str(metadata.get('bot_key') or 'default').strip() or 'default'\n"
+        "        config = dict((_telegram_bot_registry().get(bot_key) or {}))\n"
+        "        token_present = bool(str(config.get('token') or '').strip())\n"
+        "        bot_handle = str(metadata.get('bot_handle') or config.get('handle') or '').strip()\n"
+        "        reason = ''\n"
+        "        if not chat_ref:\n"
+        "            reason = 'telegram_chat_ref_missing'\n"
+        "        elif not token_present:\n"
+        "            reason = 'telegram_bot_token_missing'\n"
+        "        ready = not reason\n"
+        "        payload = {\n"
+        "            'ok': True,\n"
+        "            'ready': ready,\n"
+        "            'status': 'ready' if ready else 'blocked',\n"
+        "            'reason': reason,\n"
+        "            'binding_id': str(getattr(binding, 'binding_id', '') or '').strip(),\n"
+        "            'principal_id': str(getattr(binding, 'principal_id', '') or principal_id or '').strip(),\n"
+        "            'binding_status': str(getattr(binding, 'status', '') or '').strip(),\n"
+        "            'chat_ref_present': bool(chat_ref),\n"
+        "            'chat_ref_sha256': hashlib.sha256(chat_ref.encode('utf-8')).hexdigest() if chat_ref else '',\n"
+        "            'bot_key': bot_key,\n"
+        "            'bot_handle': bot_handle,\n"
+        "            'bot_token_present': token_present,\n"
+        "        }\n"
+        "        print(json.dumps(payload, sort_keys=True))\n"
+        "except Exception as exc:\n"
+        "    print(json.dumps({'ok': False, 'ready': False, 'status': 'probe_failed', 'reason': type(exc).__name__}, sort_keys=True))\n"
+    )
+    exit_code, payload, runtime_container = _runtime_container_exec_json(code=code, timeout_seconds=20.0)
+    report = {
+        "probe_ok": exit_code == 0 and bool(payload),
+        "ready": bool(payload.get("ready")) if exit_code == 0 else False,
+        "status": str(payload.get("status") or "probe_failed").strip() or "probe_failed",
+        "reason": str(payload.get("reason") or "").strip() or (f"runtime_container_exec_exit_{exit_code}" if exit_code else ""),
+        "next_action": "",
+        "principal_id": str(payload.get("principal_id") or principal_id or "").strip(),
+        "binding_id": str(payload.get("binding_id") or "").strip(),
+        "binding_status": str(payload.get("binding_status") or "").strip(),
+        "chat_ref_present": bool(payload.get("chat_ref_present")),
+        "chat_ref_sha256": str(payload.get("chat_ref_sha256") or "").strip(),
+        "bot_key": str(payload.get("bot_key") or "").strip(),
+        "bot_handle": str(payload.get("bot_handle") or "").strip(),
+        "bot_token_present": bool(payload.get("bot_token_present")),
+        "runtime_container": runtime_container,
+        "observed_at": observed_at,
+        "source": source,
+    }
+    if report["status"] == "blocked":
+        if report["reason"] == "telegram_binding_not_found":
+            report["next_action"] = "connect_telegram_identity_binding"
+        elif report["reason"] == "telegram_chat_ref_missing":
+            report["next_action"] = "repair_telegram_chat_binding"
+        elif report["reason"] == "telegram_bot_token_missing":
+            report["next_action"] = "configure_telegram_bot_token"
+    elif report["status"] == "probe_failed":
+        report["next_action"] = "inspect_telegram_readiness_runtime_probe"
+    if output_format == "operator":
+        report["operator_text"] = _operator_text_for_telegram_readiness(report)
+    return report
+
+
 def probe_whatsapp_readiness(
     *,
     refresh: bool = True,
@@ -1313,6 +1422,26 @@ def probe_proactive_artifacts(
             "]\n"
             "current_packet_rows.sort(key=lambda row: str(row.get('created_at') or ''))\n"
             "current_packet_latest = current_packet_rows[-1] if current_packet_rows else {}\n"
+            "def _parse_dt(value):\n"
+            "    text = str(value or '').strip()\n"
+            "    if not text:\n"
+            "        return None\n"
+            "    normalized = text[:-1] + '+00:00' if text.endswith('Z') else text\n"
+            "    try:\n"
+            "        parsed = datetime.fromisoformat(normalized)\n"
+            "    except Exception:\n"
+            "        return None\n"
+            "    if parsed.tzinfo is None:\n"
+            "        parsed = parsed.replace(tzinfo=timezone.utc)\n"
+            "    return parsed.astimezone(timezone.utc)\n"
+            "def _age_seconds(value):\n"
+            "    parsed = _parse_dt(value)\n"
+            "    return max(int((datetime.now(timezone.utc) - parsed).total_seconds()), 0) if parsed else 0\n"
+            "def _seconds_until(value):\n"
+            "    parsed = _parse_dt(value)\n"
+            "    return max(int((parsed - datetime.now(timezone.utc)).total_seconds()), 0) if parsed else 0\n"
+            "current_latest_created_at = str(current_packet_latest.get('created_at') or '').strip()\n"
+            "current_latest_expires_at = str(current_packet_latest.get('expires_at') or '').strip()\n"
             "pending_rows = [row for row in callback_rows if _status(row) == 'pending']\n"
             "current_live_pending_rows = [row for row in current_packet_rows if _is_live_pending(row)]\n"
             "unexpired_pending_rows = [row for row in pending_rows if _is_live(row)]\n"
@@ -1362,6 +1491,10 @@ def probe_proactive_artifacts(
             "  'current_packet_live_pending_count': sum(1 for row in current_packet_rows if _is_live_pending(row)),\n"
             "  'current_packet_callback_latest_status': str(current_packet_latest.get('status') or '').strip(),\n"
             "  'current_packet_callback_latest_expired': bool(current_packet_latest) and (not _is_live(current_packet_latest)),\n"
+            "  'current_packet_callback_latest_created_at': current_latest_created_at,\n"
+            "  'current_packet_callback_latest_expires_at': current_latest_expires_at,\n"
+            "  'current_packet_callback_latest_age_seconds': _age_seconds(current_latest_created_at),\n"
+            "  'current_packet_callback_latest_seconds_until_expiry': _seconds_until(current_latest_expires_at),\n"
             "  'current_packet_callback_outcome': bundle.get('current_packet_callback_outcome') or {},\n"
             "  'stage_packet_path': _text(bundle.get('stage_packet_path')),\n"
             "  'safe_work_result_path': _text(bundle.get('safe_work_result_path')),\n"
@@ -1437,6 +1570,12 @@ def probe_proactive_artifacts(
         "current_packet_live_pending_count": int(payload.get("current_packet_live_pending_count") or 0),
         "current_packet_callback_latest_status": str(payload.get("current_packet_callback_latest_status") or "").strip(),
         "current_packet_callback_latest_expired": bool(payload.get("current_packet_callback_latest_expired")),
+        "current_packet_callback_latest_created_at": str(payload.get("current_packet_callback_latest_created_at") or "").strip(),
+        "current_packet_callback_latest_expires_at": str(payload.get("current_packet_callback_latest_expires_at") or "").strip(),
+        "current_packet_callback_latest_age_seconds": int(payload.get("current_packet_callback_latest_age_seconds") or 0),
+        "current_packet_callback_latest_seconds_until_expiry": int(
+            payload.get("current_packet_callback_latest_seconds_until_expiry") or 0
+        ),
         "current_packet_callback_outcome": dict(payload.get("current_packet_callback_outcome") or {}),
         "stage_packet_path": str(payload.get("stage_packet_path") or "").strip(),
         "safe_work_result_path": str(payload.get("safe_work_result_path") or "").strip(),
@@ -2959,6 +3098,10 @@ def parse_args() -> argparse.Namespace:
     whatsapp_readiness.add_argument("--receipt-path", default="")
     whatsapp_readiness.add_argument("--no-refresh", dest="refresh", action="store_false", default=True)
 
+    telegram_readiness = subparsers.add_parser("probe-telegram-readiness", help="Probe Telegram operator delivery readiness without sending a message.")
+    telegram_readiness.add_argument("--principal-id", dest="telegram_principal_id", default=_default_proactive_principal_id())
+    telegram_readiness.add_argument("--format", choices=("json", "operator"), default="json")
+
     proactive_route = subparsers.add_parser("probe-proactive-route", help="Probe the live proactive OODA delivery route.")
     proactive_route.add_argument("--principal-id", dest="proactive_principal_id", default=_default_proactive_principal_id())
     proactive_route.add_argument("--format", choices=("json", "operator"), default="json")
@@ -3066,6 +3209,16 @@ def main() -> int:
         report = probe_whatsapp_readiness(
             refresh=bool(getattr(args, "refresh", True)),
             receipt_path=str(getattr(args, "receipt_path", "") or "").strip(),
+            output_format=args.format,
+        )
+        if args.format == "operator":
+            print(str(report.get("operator_text") or ""))
+        else:
+            print(_json_dumps(report))
+        return 0 if bool(report.get("probe_ok")) else 2
+    if args.command == "probe-telegram-readiness":
+        report = probe_telegram_readiness(
+            principal_id=str(getattr(args, "telegram_principal_id", "") or "").strip(),
             output_format=args.format,
         )
         if args.format == "operator":

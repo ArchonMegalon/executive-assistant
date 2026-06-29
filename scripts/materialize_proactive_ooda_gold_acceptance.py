@@ -698,6 +698,18 @@ def _approval_capture_surface_receipt(
         current_packet_live_pending_count = int(bundle.get("current_packet_live_pending_count") or 0)
         current_packet_callback_latest_status = str(bundle.get("current_packet_callback_latest_status") or "").strip()
         current_packet_callback_latest_expired = bool(bundle.get("current_packet_callback_latest_expired"))
+        current_packet_callback_latest_created_at = str(
+            bundle.get("current_packet_callback_latest_created_at") or ""
+        ).strip()
+        current_packet_callback_latest_expires_at = str(
+            bundle.get("current_packet_callback_latest_expires_at") or ""
+        ).strip()
+        current_packet_callback_latest_age_seconds = int(
+            bundle.get("current_packet_callback_latest_age_seconds") or 0
+        )
+        current_packet_callback_latest_seconds_until_expiry = int(
+            bundle.get("current_packet_callback_latest_seconds_until_expiry") or 0
+        )
     else:
         callback_dir_exists = bool(callback_dir_path and callback_dir_path.is_dir())
         callback_dir_writable = bool(callback_dir_path and _dir_writable(callback_dir_path))
@@ -712,6 +724,10 @@ def _approval_capture_surface_receipt(
             current_packet_live_pending_count,
             current_packet_callback_latest_status,
             current_packet_callback_latest_expired,
+            current_packet_callback_latest_created_at,
+            current_packet_callback_latest_expires_at,
+            current_packet_callback_latest_age_seconds,
+            current_packet_callback_latest_seconds_until_expiry,
         ) = _matching_callback_stats(
             callback_dir_path,
             stage_packet=stage_packet,
@@ -780,6 +796,10 @@ def _approval_capture_surface_receipt(
             "current_packet_live_pending_count": current_packet_live_pending_count,
             "current_packet_callback_latest_status": current_packet_callback_latest_status,
             "current_packet_callback_latest_expired": current_packet_callback_latest_expired,
+            "current_packet_callback_latest_created_at": current_packet_callback_latest_created_at,
+            "current_packet_callback_latest_expires_at": current_packet_callback_latest_expires_at,
+            "current_packet_callback_latest_age_seconds": current_packet_callback_latest_age_seconds,
+            "current_packet_callback_latest_seconds_until_expiry": current_packet_callback_latest_seconds_until_expiry,
             "source": "docker_compose_exec" if used_live_runtime_probe else "local_filesystem",
         },
         ready,
@@ -810,13 +830,13 @@ def _matching_callback_stats(
     *,
     stage_packet: Mapping[str, Any],
     safe_work_result: Mapping[str, Any],
-) -> tuple[int, int, int, int, int, str, bool]:
+) -> tuple[int, int, int, int, int, str, bool, str, str, int, int]:
     if path is None or not path.is_dir():
-        return 0, 0, 0, 0, 0, "", False
+        return 0, 0, 0, 0, 0, "", False, "", "", 0, 0
     packet_ref = _stage_packet_ref(stage_packet)
     artifact_ref = _safe_work_result_ref(safe_work_result)
     if not packet_ref or not artifact_ref:
-        return 0, 0, 0, 0, 0, "", False
+        return 0, 0, 0, 0, 0, "", False, "", "", 0, 0
     rows: list[dict[str, Any]] = []
     try:
         for candidate in path.glob("*.json"):
@@ -829,9 +849,11 @@ def _matching_callback_stats(
             ):
                 rows.append(payload)
     except Exception:
-        return 0, 0, 0, 0, 0, "", False
+        return 0, 0, 0, 0, 0, "", False, "", "", 0, 0
     rows.sort(key=lambda row: str(row.get("created_at") or ""))
     latest = rows[-1] if rows else {}
+    latest_created_at = str(latest.get("created_at") or "").strip()
+    latest_expires_at = str(latest.get("expires_at") or "").strip()
     live_rows = [row for row in rows if not _callback_expired(row)]
     live_pending_rows = [row for row in rows if str(row.get("status") or "").strip() == "pending" and not _callback_expired(row)]
     return (
@@ -842,6 +864,10 @@ def _matching_callback_stats(
         len(live_pending_rows),
         str(latest.get("status") or "").strip(),
         bool(latest) and _callback_expired(latest),
+        latest_created_at,
+        latest_expires_at,
+        _callback_age_seconds(latest_created_at),
+        _callback_seconds_until(latest_expires_at),
     )
 
 
@@ -849,14 +875,38 @@ def _callback_expired(row: Mapping[str, Any]) -> bool:
     text = str(row.get("expires_at") or "").strip()
     if not text:
         return False
+    expires_at = _parse_callback_datetime(text)
+    if expires_at is None:
+        return False
+    return expires_at <= datetime.now(UTC)
+
+
+def _callback_age_seconds(value: str) -> int:
+    parsed = _parse_callback_datetime(value)
+    if parsed is None:
+        return 0
+    return max(int((datetime.now(UTC) - parsed).total_seconds()), 0)
+
+
+def _callback_seconds_until(value: str) -> int:
+    parsed = _parse_callback_datetime(value)
+    if parsed is None:
+        return 0
+    return max(int((parsed - datetime.now(UTC)).total_seconds()), 0)
+
+
+def _parse_callback_datetime(value: str) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
     normalized = text[:-1] + "+00:00" if text.endswith("Z") else text
     try:
-        expires_at = datetime.fromisoformat(normalized)
+        parsed = datetime.fromisoformat(normalized)
     except Exception:
-        return False
-    if expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=UTC)
-    return expires_at <= datetime.now(UTC)
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def _runtime_artifact_bundle(
@@ -925,6 +975,12 @@ def _runtime_artifact_bundle(
             "current_packet_live_pending_count": int(live_report.get("current_packet_live_pending_count") or 0),
             "current_packet_callback_latest_status": str(live_report.get("current_packet_callback_latest_status") or "").strip(),
             "current_packet_callback_latest_expired": bool(live_report.get("current_packet_callback_latest_expired")),
+            "current_packet_callback_latest_created_at": str(live_report.get("current_packet_callback_latest_created_at") or "").strip(),
+            "current_packet_callback_latest_expires_at": str(live_report.get("current_packet_callback_latest_expires_at") or "").strip(),
+            "current_packet_callback_latest_age_seconds": int(live_report.get("current_packet_callback_latest_age_seconds") or 0),
+            "current_packet_callback_latest_seconds_until_expiry": int(
+                live_report.get("current_packet_callback_latest_seconds_until_expiry") or 0
+            ),
             "current_packet_callback_outcome": dict(live_report.get("current_packet_callback_outcome") or {}),
             "stage_packet_path": _path_from_text(ROOT, str(live_report.get("stage_packet_path") or "")),
             "stage_packet": dict(live_report.get("stage_packet") or {}),

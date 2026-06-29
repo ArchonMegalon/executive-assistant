@@ -333,6 +333,8 @@ def approval_callback_runtime_summary(
         for row in current_packet_rows
         if _approval_callback_status(row) == "pending" and not _approval_callback_expired(row)
     ]
+    latest_created_at = str(latest_current_packet.get("created_at") or "").strip()
+    latest_expires_at = str(latest_current_packet.get("expires_at") or "").strip()
     stale_pending_rows = [
         row
         for row in pending_rows
@@ -365,6 +367,10 @@ def approval_callback_runtime_summary(
         "current_packet_live_pending_count": len(live_pending_current_packet_rows),
         "current_packet_callback_latest_status": str(latest_current_packet.get("status") or "").strip(),
         "current_packet_callback_latest_expired": bool(latest_current_packet) and _approval_callback_expired(latest_current_packet),
+        "current_packet_callback_latest_created_at": latest_created_at,
+        "current_packet_callback_latest_expires_at": latest_expires_at,
+        "current_packet_callback_latest_age_seconds": _age_seconds(latest_created_at),
+        "current_packet_callback_latest_seconds_until_expiry": _seconds_until(latest_expires_at),
         "current_packet_callback_outcome": _approval_callback_outcome_row(
             current_decision_rows[-1] if current_decision_rows else {},
         ),
@@ -740,14 +746,38 @@ def _approval_callback_expired(row: Mapping[str, Any]) -> bool:
     text = str(row.get("expires_at") or "").strip()
     if not text:
         return False
+    expires_at = _parse_callback_datetime(text)
+    if expires_at is None:
+        return False
+    return expires_at <= datetime.now(UTC)
+
+
+def _age_seconds(value: str) -> int:
+    parsed = _parse_callback_datetime(value)
+    if parsed is None:
+        return 0
+    return max(int((datetime.now(UTC) - parsed).total_seconds()), 0)
+
+
+def _seconds_until(value: str) -> int:
+    parsed = _parse_callback_datetime(value)
+    if parsed is None:
+        return 0
+    return max(int((parsed - datetime.now(UTC)).total_seconds()), 0)
+
+
+def _parse_callback_datetime(value: str) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
     normalized = text[:-1] + "+00:00" if text.endswith("Z") else text
     try:
-        expires_at = datetime.fromisoformat(normalized)
+        parsed = datetime.fromisoformat(normalized)
     except Exception:
-        return False
-    if expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=UTC)
-    return expires_at <= datetime.now(UTC)
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def _dir_writable(path: Path) -> bool:
