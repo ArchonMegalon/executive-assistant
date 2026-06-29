@@ -1298,6 +1298,11 @@ def test_whatsapp_web_action_processor_readiness_scripts_help_and_wiring() -> No
     ) in compose
     assert "./docker-compose.whatsapp-web-session.yml:/app/docker-compose.whatsapp-web-session.yml:ro" in compose
     assert "ea_whatsapp_web_actions:/data/whatsapp-actions" in compose
+    assert "EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET_FILE=/run/secrets/whatsapp_audiobook_callback_secret" in compose
+    assert (
+        "${EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET_RUNTIME_FILE:-./.runtime/secrets/whatsapp_audiobook_callback_secret}:"
+        "/run/secrets/whatsapp_audiobook_callback_secret:ro"
+    ) in compose
 
 
 def test_proactive_ooda_operator_status_scripts_help_and_wiring() -> None:

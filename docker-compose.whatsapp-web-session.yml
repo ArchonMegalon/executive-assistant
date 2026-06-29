@@ -168,6 +168,7 @@ services:
       - EA_AUDIOBOOK_ACCESS_SIGNING_SECRET=${EA_SIGNING_SECRET:-}
       - EA_AUDIOBOOK_ACCESS_EXPIRES_DAYS=${EA_AUDIOBOOK_ACCESS_EXPIRES_DAYS:-30}
       - EA_AUDIOBOOK_PLAYER_ACCESS_BASE_URL=${EA_AUDIOBOOK_PLAYER_ACCESS_BASE_URL:-}
+      - EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET_FILE=/run/secrets/whatsapp_audiobook_callback_secret
       - EA_RESPONSES_PROVIDER_LEDGER_DIR=/data/whatsapp-actions
       - PYTHONPATH=/app/ea
       - TZ=Europe/Vienna
@@ -175,6 +176,7 @@ services:
       - host.docker.internal:host-gateway
     volumes:
       - ./:/app:ro
+      - ${EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET_RUNTIME_FILE:-./.runtime/secrets/whatsapp_audiobook_callback_secret}:/run/secrets/whatsapp_audiobook_callback_secret:ro
       - ea_whatsapp_web_actions:/data/whatsapp-actions
       - ${EA_DURABLE_AUDIOBOOK_HOST_ROOT:-./data/audiobooks}:/data/audiobooks
       - ${EA_AUDIOBOOK_JOBS_HOST_ROOT:-./data/audiobooks/jobs}:/data/audiobooks/jobs

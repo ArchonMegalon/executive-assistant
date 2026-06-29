@@ -1609,6 +1609,7 @@ def test_deploy_script_materializes_release_manifest_after_health() -> None:
     assert 'require_non_placeholder_secret "EA_SIGNING_SECRET" "${signing_secret_value}"' in deploy
     assert 'ensure_runtime_readable_file_projection() {' in deploy
     assert 'ensure_runtime_readable_file_projection "ONEMIN_DIRECT_API_KEYS_JSON_FILE"' in deploy
+    assert 'scripts/materialize_whatsapp_callback_secret_runtime_projection.py" >/dev/null' in deploy
     assert 'setfacl -m u:10001:r "${resolved_path}"' in deploy
     assert 'chmod a+r,go-w "${resolved_path}"' in deploy
     assert "Refusing to deploy without production auth." in deploy

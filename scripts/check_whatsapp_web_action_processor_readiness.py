@@ -36,10 +36,12 @@ HOST_SECRET_FILE_CANDIDATES = (
     ROOT / "config" / "whatsapp_audiobook_callback_secret.local",
 )
 API_CONTAINER_SECRET_FILES = (
+    "/run/secrets/whatsapp_audiobook_callback_secret",
     "/config/whatsapp_audiobook_callback_secret",
     "/config/whatsapp_audiobook_callback_secret.local",
 )
 PROCESSOR_CONTAINER_SECRET_FILES = (
+    "/run/secrets/whatsapp_audiobook_callback_secret",
     "/app/config/whatsapp_audiobook_callback_secret",
     "/app/config/whatsapp_audiobook_callback_secret.local",
 )

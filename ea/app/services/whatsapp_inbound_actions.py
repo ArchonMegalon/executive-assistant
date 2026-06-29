@@ -12,6 +12,7 @@ from app.services import audiobook_epub_pipeline
 
 
 DEFAULT_CALLBACK_SECRET_FILES = (
+    "/run/secrets/whatsapp_audiobook_callback_secret",
     "/config/whatsapp_audiobook_callback_secret",
     "/app/config/whatsapp_audiobook_callback_secret",
 )

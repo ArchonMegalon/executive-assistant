@@ -104,6 +104,7 @@ services:
       - EA_AUDIOBOOK_ACCESS_SIGNING_SECRET=${EA_SIGNING_SECRET:-}
       - EA_AUDIOBOOK_ACCESS_EXPIRES_DAYS=${EA_AUDIOBOOK_ACCESS_EXPIRES_DAYS:-30}
       - EA_AUDIOBOOK_PLAYER_ACCESS_BASE_URL=${EA_AUDIOBOOK_PLAYER_ACCESS_BASE_URL:-}
+      - EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET_FILE=/run/secrets/whatsapp_audiobook_callback_secret
       - HOME=/home/ea
       - EA_UI_SERVICE_SHARED_TEMP_ROOT=${EA_UI_SERVICE_SHARED_TEMP_ROOT:-/data/artifacts/browseract_ui_worker_shared}
       - VOICEWAVE_RUNTIME_TMP_ROOT=${VOICEWAVE_RUNTIME_TMP_ROOT:-/data/artifacts/voicewave_runtime_tmp}
@@ -115,6 +116,7 @@ services:
     volumes:
       - ./config:/config:ro
       - ./config:/app/config:ro
+      - ${EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET_RUNTIME_FILE:-./.runtime/secrets/whatsapp_audiobook_callback_secret}:/run/secrets/whatsapp_audiobook_callback_secret:ro
       - ${EA_GEMINI_VORTEX_CONFIG_HOST_DIR:-/home/tibor/.gemini}:/run/ea-gemini-cli-config:ro
       - ./.codex-design:/app/.codex-design:ro
       - ./.codex-studio:/app/.codex-studio:ro

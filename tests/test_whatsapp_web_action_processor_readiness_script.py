@@ -685,6 +685,8 @@ def test_build_report_marks_container_volume_state_unverified_when_processor_con
 
 def test_build_report_accepts_host_and_container_secret_files(tmp_path: Path) -> None:
     module = _module()
+    assert "/run/secrets/whatsapp_audiobook_callback_secret" in module.API_CONTAINER_SECRET_FILES
+    assert "/run/secrets/whatsapp_audiobook_callback_secret" in module.PROCESSOR_CONTAINER_SECRET_FILES
     env_file = tmp_path / "file-secret.env"
     secret_file = tmp_path / "whatsapp_audiobook_callback_secret"
     secret_file.write_text("file-secret\n", encoding="utf-8")

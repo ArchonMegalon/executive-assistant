@@ -126,6 +126,11 @@ def test_compose_override_declares_whatsapp_web_session_sidecar() -> None:
     assert "pathlib.Path('/app/scripts/watch_whatsapp_web_session_activation.py')" in compose
     assert "python /app/scripts/check_whatsapp_web_action_processor_readiness.py --probe-sidecar" in compose
     assert "ea_whatsapp_web_actions:/data/whatsapp-actions" in compose
+    assert "EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET_FILE=/run/secrets/whatsapp_audiobook_callback_secret" in compose
+    assert (
+        "${EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET_RUNTIME_FILE:-./.runtime/secrets/whatsapp_audiobook_callback_secret}:"
+        "/run/secrets/whatsapp_audiobook_callback_secret:ro"
+    ) in compose
     assert "ea_whatsapp_web_teable_sync:/data/whatsapp-teable-sync" in compose
     assert "${EA_AUDIOBOOK_JOBS_HOST_ROOT:-./data/audiobooks/jobs}:/data/audiobooks/jobs" in compose
     assert (
@@ -684,6 +689,7 @@ def test_channels_wire_audiobook_voice_buttons_to_whatsapp_router() -> None:
     assert 'buttons=[[("Use this", use_callback), ("Dismiss", dismiss_callback)]]' in channels_source
     assert "EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET" in channels_source
     assert "EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET_FILE" in channels_source
+    assert "/run/secrets/whatsapp_audiobook_callback_secret" in channels_source
     assert "/config/whatsapp_audiobook_callback_secret" in channels_source
 
 

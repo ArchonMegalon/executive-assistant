@@ -942,7 +942,8 @@ def _whatsapp_send_audiobook_voice_samples(
                     "reason": (
                         "EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET or "
                         "EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET_FILE missing "
-                        "(/config/whatsapp_audiobook_callback_secret); whatsapp_callback_encoding_failed"
+                        "(/run/secrets/whatsapp_audiobook_callback_secret or "
+                        "/config/whatsapp_audiobook_callback_secret); whatsapp_callback_encoding_failed"
                     ),
                     "transport": "whatsapp",
                 }
