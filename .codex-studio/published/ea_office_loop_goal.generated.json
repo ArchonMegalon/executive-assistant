@@ -217,7 +217,7 @@
     }
   },
   "external_provider_runtime_verified": false,
-  "generated_at": "2026-06-29T20:19:28Z",
+  "generated_at": "2026-06-29T20:21:12Z",
   "goal_completion_claim_allowed": false,
   "live_daily_use_verified": false,
   "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
