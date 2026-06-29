@@ -27,6 +27,11 @@ REQUIRED_LIVE_PROOF_AFTER_READINESS = [
 SCRIPT_PATH = Path(__file__).resolve()
 REPO_ROOT = SCRIPT_PATH.parents[2]
 DEFAULT_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "manfred_realtime_conversation_readiness.generated.json"
+MANFRED_VOICE_GOLD_PATH = "/admin/memorials/manfred/gold"
+MANFRED_VOICE_GOLD_LABEL = "Open voice gold"
+MANFRED_PROOF_PATH = "/memorials/manfred/voice-config"
+MANFRED_PROOF_LABEL = "Spoken conversation proof"
+ACTION_METHOD = "get"
 
 
 def _now() -> str:
@@ -61,6 +66,48 @@ def _default_operator_status() -> dict[str, Any]:
     }
 
 
+def _next_action_surface(
+    *,
+    ready: bool,
+    blocked_checks: list[str],
+    stt: dict[str, Any],
+    diagnostic: dict[str, Any],
+    tts: dict[str, Any],
+    attestation: dict[str, Any],
+) -> dict[str, str]:
+    if ready:
+        return {
+            "next_action": "review_realtime_conversation_in_real_room",
+            "next_action_href": MANFRED_PROOF_PATH,
+            "next_action_label": MANFRED_PROOF_LABEL,
+            "next_action_method": ACTION_METHOD,
+        }
+
+    room_audio_blocked = bool(
+        {"room_audio_receipt_passed", "manual_room_checks_confirmed"}.intersection(blocked_checks)
+    )
+    if room_audio_blocked:
+        action = str(attestation.get("next_action") or tts.get("next_action") or "collect_real_room_audio_attestation").strip()
+        return {
+            "next_action": action,
+            "next_action_href": MANFRED_PROOF_PATH,
+            "next_action_label": MANFRED_PROOF_LABEL,
+            "next_action_method": ACTION_METHOD,
+        }
+
+    diagnostic_action = str(
+        diagnostic.get("next_action")
+        or stt.get("next_action")
+        or "rerun_operator_local_full_text_benchmark_or_correct_ground_truth_transcript"
+    ).strip()
+    return {
+        "next_action": diagnostic_action,
+        "next_action_href": MANFRED_VOICE_GOLD_PATH,
+        "next_action_label": MANFRED_VOICE_GOLD_LABEL,
+        "next_action_method": ACTION_METHOD,
+    }
+
+
 def materialize_manfred_realtime_conversation_readiness(
     *,
     receipt_path: str | Path,
@@ -90,6 +137,14 @@ def materialize_manfred_realtime_conversation_readiness(
     ):
         blocked.append("manual_room_checks_confirmed")
     ready = not blocked
+    next_action_surface = _next_action_surface(
+        ready=ready,
+        blocked_checks=blocked,
+        stt=stt,
+        diagnostic=diagnostic,
+        tts=tts,
+        attestation=attestation,
+    )
     receipt = {
         "contract_name": "ea.manfred_realtime_conversation_readiness.v1",
         "status": "ready_for_realtime_conversation_review" if ready else "blocked_realtime_prerequisites",
@@ -113,6 +168,7 @@ def materialize_manfred_realtime_conversation_readiness(
             "candidate_raw_text_fields": False,
             "redacted_text_fields": True,
         },
+        **next_action_surface,
     }
     _write(receipt_path, receipt)
     return receipt

@@ -379,7 +379,8 @@ materialize-telegram-audiobook-live-delivery-receipt:
 	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_telegram_audiobook_live_delivery_receipt.py
 
 verify-telegram-audiobook-live-delivery-receipt:
-	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_telegram_audiobook_live_delivery_receipt.py --require-pass
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_telegram_audiobook_live_delivery_receipt.py
+	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/verify_telegram_audiobook_live_delivery_receipt.py
 
 materialize-whatsapp-audiobook-local-intake-proof:
 	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_whatsapp_audiobook_local_intake_proof.py

@@ -225,6 +225,7 @@ def test_makefile_exposes_telegram_audiobook_live_delivery_receipt_targets() -> 
     assert "materialize-telegram-audiobook-live-delivery-receipt:" in makefile
     assert "ea/scripts/materialize_telegram_audiobook_live_delivery_receipt.py" in makefile
     assert "verify-telegram-audiobook-live-delivery-receipt:" in makefile
+    assert "ea/scripts/verify_telegram_audiobook_live_delivery_receipt.py" in makefile
     assert "materialize-whatsapp-audiobook-local-intake-proof:" in makefile
     assert "ea/scripts/materialize_whatsapp_audiobook_local_intake_proof.py" in makefile
     assert "verify-whatsapp-audiobook-local-intake-proof:" in makefile

@@ -194,6 +194,10 @@ def test_live_telegram_audiobook_delivery_receipt_passes_with_redacted_job_recei
     assert receipt["machine_playback_e2e_verified"] is True
     assert receipt["real_user_playback_acceptance_verified"] is False
     assert receipt["goal_completion_claim_allowed"] is False
+    assert receipt["next_action"] == "capture_real_user_playback_acceptance_or_close_operator_loop"
+    assert receipt["next_action_href"] == "/integrations/telegram"
+    assert receipt["next_action_label"] == "Open Telegram"
+    assert receipt["next_action_method"] == "get"
     selected = receipt["selected_delivery"]
     assert selected["public_share_url_present"] is True
     assert selected["public_share_host"] == "abs.example.com"
@@ -231,6 +235,10 @@ def test_live_telegram_audiobook_delivery_receipt_surfaces_playback_acceptance(
     assert receipt["machine_playback_e2e_verified"] is True
     assert receipt["real_user_playback_acceptance_verified"] is True
     assert receipt["goal_completion_claim_allowed"] is False
+    assert receipt["next_action"] == "close_operator_loop"
+    assert receipt["next_action_href"] == "/app/channel-loop"
+    assert receipt["next_action_label"] == "Open channel loop"
+    assert receipt["next_action_method"] == "get"
     selected = receipt["selected_delivery"]
     assert selected["playback_acceptance_verified"] is True
     assert selected["playback_acceptance_status"] == "accepted"
@@ -294,6 +302,9 @@ def test_live_telegram_audiobook_delivery_receipt_blocks_default_voice_when_user
     assert receipt["live_delivery_claim_allowed"] is False
     assert "user_selected_voice_delivery_not_ready" in receipt["failed_codes"]
     assert receipt["next_action"] == "finish_user_selected_voice_audiobook_before_sending_public_share_link"
+    assert receipt["next_action_href"] == "/integrations/telegram"
+    assert receipt["next_action_label"] == "Open Telegram"
+    assert receipt["next_action_method"] == "get"
     assert receipt["pending_user_selected_voice_job_count"] == 1
     pending = receipt["pending_user_selected_voice_jobs"][0]
     assert pending["render_chapter_index"] == 11
@@ -409,6 +420,9 @@ def test_live_telegram_audiobook_delivery_receipt_does_not_mark_delivery_only_ga
     assert "player_scoped_reference_not_ready" not in receipt["failed_codes"]
     assert "telegram_public_share_delivery_not_sent" in receipt["failed_codes"]
     assert receipt["next_action"] == "wait_for_scheduler_to_send_audiobookshelf_public_share_link_or_fix_telegram_delivery"
+    assert receipt["next_action_href"] == "/app/channel-loop"
+    assert receipt["next_action_label"] == "Open channel loop"
+    assert receipt["next_action_method"] == "get"
 
 
 def test_live_telegram_audiobook_delivery_receipt_surfaces_initial_voice_choice(
@@ -441,6 +455,9 @@ def test_live_telegram_audiobook_delivery_receipt_surfaces_initial_voice_choice(
     assert "audiobook_voice_choice_pending" in receipt["failed_codes"]
     assert "explicit_replacement_voice_choice_pending" not in receipt["failed_codes"]
     assert receipt["next_action"] == "choose_one_telegram_audiobook_voice_sample"
+    assert receipt["next_action_href"] == "/integrations/telegram"
+    assert receipt["next_action_label"] == "Open Telegram"
+    assert receipt["next_action_method"] == "get"
 
 
 def test_live_telegram_audiobook_delivery_receipt_surfaces_explicit_replacement_choice_pending(
@@ -506,6 +523,9 @@ def test_live_telegram_audiobook_delivery_receipt_surfaces_replacement_choice_wi
     assert "valid_live_audiobook_delivery_missing" in receipt["failed_codes"]
     assert "explicit_replacement_voice_choice_pending" in receipt["failed_codes"]
     assert receipt["next_action"] == "choose_explicit_replacement_voice_or_restore_selected_provider"
+    assert receipt["next_action_href"] == "/integrations/telegram"
+    assert receipt["next_action_label"] == "Open Telegram"
+    assert receipt["next_action_method"] == "get"
     assert receipt["pending_user_selected_voice_job_count"] == 1
     assert receipt["pending_user_selected_voice_jobs"][0]["replacement_choice_pending"] is True
 

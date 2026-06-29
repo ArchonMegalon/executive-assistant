@@ -134,6 +134,10 @@ def test_manfred_realtime_readiness_blocks_real_stt_and_room_audio_without_overc
     assert receipt["room_audio_attestation"]["ci_must_not_auto_assert"] is True
     assert "interruption_behavior_confirmed" in receipt["room_audio_attestation"]["required_check_ids"]
     assert receipt["privacy"]["raw_private_context_exposed"] is False
+    assert receipt["next_action"] == "collect_real_room_audio_attestation"
+    assert receipt["next_action_href"] == "/memorials/manfred/voice-config"
+    assert receipt["next_action_label"] == "Spoken conversation proof"
+    assert receipt["next_action_method"] == "get"
 
     verification = verifier.verify_manfred_realtime_conversation_readiness(receipt_path)
 
@@ -160,6 +164,10 @@ def test_manfred_realtime_readiness_can_be_ready_without_closing_whole_goal(tmp_
     assert receipt["blocked_checks"] == []
     assert receipt["interaction_acceptance"]["ongoing_cinematic_narration_not_scene_bound"] is True
     assert "operator acceptance that this behaves like an ongoing spoken conversation" in receipt["required_live_proof_after_readiness"]
+    assert receipt["next_action"] == "review_realtime_conversation_in_real_room"
+    assert receipt["next_action_href"] == "/memorials/manfred/voice-config"
+    assert receipt["next_action_label"] == "Spoken conversation proof"
+    assert receipt["next_action_method"] == "get"
 
     verification = verifier.verify_manfred_realtime_conversation_readiness(receipt_path)
 
@@ -182,6 +190,9 @@ def test_manfred_realtime_readiness_verifier_rejects_overclaims(tmp_path: Path) 
     receipt["captured_candidate_diagnostic"]["promotion_allowed"] = True
     receipt["privacy"]["candidate_raw_text_fields"] = True
     receipt["required_live_proof_after_readiness"] = []
+    receipt["next_action_href"] = ""
+    receipt["next_action_label"] = ""
+    receipt["next_action_method"] = ""
     receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     verification = verifier.verify_manfred_realtime_conversation_readiness(receipt_path)
@@ -192,6 +203,9 @@ def test_manfred_realtime_readiness_verifier_rejects_overclaims(tmp_path: Path) 
     assert "manfred_realtime_captured_diagnostic_overclaim" in verification["issues"]
     assert "manfred_realtime_privacy_flag_not_false:candidate_raw_text_fields" in verification["issues"]
     assert "manfred_realtime_required_live_proof_incomplete" in verification["issues"]
+    assert "manfred_realtime_next_action_method_missing" in verification["issues"]
+    assert "manfred_realtime_blocked_next_action_href_drift" in verification["issues"]
+    assert "manfred_realtime_blocked_next_action_label_drift" in verification["issues"]
 
 
 def test_manfred_realtime_readiness_clis_work(tmp_path: Path) -> None:

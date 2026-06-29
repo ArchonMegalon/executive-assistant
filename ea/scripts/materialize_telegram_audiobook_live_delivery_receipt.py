@@ -13,6 +13,11 @@ ROOT = Path(__file__).resolve().parents[2]
 EA_ROOT = ROOT / "ea"
 DEFAULT_OUTPUT = ROOT / ".codex-studio" / "published" / "telegram_audiobook_live_delivery.generated.json"
 CONTRACT_NAME = "ea.telegram_audiobook_live_delivery_receipt.v1"
+TELEGRAM_INTEGRATION_PATH = "/integrations/telegram"
+TELEGRAM_INTEGRATION_LABEL = "Open Telegram"
+CHANNEL_LOOP_PATH = "/app/channel-loop"
+CHANNEL_LOOP_LABEL = "Open channel loop"
+ACTION_METHOD = "get"
 TELEGRAM_AUDIOBOOK_SOURCE_KINDS = {
     "audiobook_epub",
     "ebook",
@@ -29,6 +34,59 @@ USER_SELECTED_VOICE_DELIVERY_BLOCKING_CODES = {
     "audiobookshelf_import_not_imported",
     "audiobookshelf_target_file_not_ready",
     "machine_playback_e2e_not_verified",
+}
+
+TELEGRAM_ACTION_SURFACES = {
+    "capture_real_user_playback_acceptance_or_close_operator_loop": (
+        TELEGRAM_INTEGRATION_PATH,
+        TELEGRAM_INTEGRATION_LABEL,
+        ACTION_METHOD,
+    ),
+    "choose_one_telegram_audiobook_voice_sample": (
+        TELEGRAM_INTEGRATION_PATH,
+        TELEGRAM_INTEGRATION_LABEL,
+        ACTION_METHOD,
+    ),
+    "choose_explicit_replacement_voice_or_restore_selected_provider": (
+        TELEGRAM_INTEGRATION_PATH,
+        TELEGRAM_INTEGRATION_LABEL,
+        ACTION_METHOD,
+    ),
+    "finish_user_selected_voice_audiobook_before_sending_public_share_link": (
+        TELEGRAM_INTEGRATION_PATH,
+        TELEGRAM_INTEGRATION_LABEL,
+        ACTION_METHOD,
+    ),
+    "wait_for_scheduler_to_send_audiobookshelf_public_share_link_or_fix_telegram_delivery": (
+        CHANNEL_LOOP_PATH,
+        CHANNEL_LOOP_LABEL,
+        ACTION_METHOD,
+    ),
+    "run_public_share_machine_playback_e2e_before_claiming_live_delivery": (
+        CHANNEL_LOOP_PATH,
+        CHANNEL_LOOP_LABEL,
+        ACTION_METHOD,
+    ),
+    "resume_or_rebuild_telegram_audiobook_render_before_public_share_delivery": (
+        CHANNEL_LOOP_PATH,
+        CHANNEL_LOOP_LABEL,
+        ACTION_METHOD,
+    ),
+    "wait_for_audiobookshelf_scan_then_rerun_share_followup": (
+        CHANNEL_LOOP_PATH,
+        CHANNEL_LOOP_LABEL,
+        ACTION_METHOD,
+    ),
+    "inspect_failed_audiobook_delivery_candidates": (
+        CHANNEL_LOOP_PATH,
+        CHANNEL_LOOP_LABEL,
+        ACTION_METHOD,
+    ),
+    "close_operator_loop": (
+        CHANNEL_LOOP_PATH,
+        CHANNEL_LOOP_LABEL,
+        ACTION_METHOD,
+    ),
 }
 
 
@@ -424,6 +482,13 @@ def _next_action(*, failed_codes: list[str], pending: list[dict[str, object]]) -
     return "inspect_failed_audiobook_delivery_candidates"
 
 
+def _next_action_surface(next_action: str) -> tuple[str, str, str]:
+    return TELEGRAM_ACTION_SURFACES.get(
+        str(next_action or "").strip(),
+        (CHANNEL_LOOP_PATH, CHANNEL_LOOP_LABEL, ACTION_METHOD),
+    )
+
+
 def build_receipt(
     *,
     output_path: Path = DEFAULT_OUTPUT,
@@ -470,6 +535,16 @@ def build_receipt(
     selected_failed_codes = list(selected.get("failed_codes") or []) if selected else failed_codes
     if not valid_candidates and "valid_live_audiobook_delivery_missing" not in failed_codes:
         failed_codes.insert(0, "valid_live_audiobook_delivery_missing")
+    next_action = (
+        "close_operator_loop"
+        if live_pass and real_user_accepted
+        else (
+            "capture_real_user_playback_acceptance_or_close_operator_loop"
+            if live_pass
+            else _next_action(failed_codes=selected_failed_codes, pending=pending)
+        )
+    )
+    next_action_href, next_action_label, next_action_method = _next_action_surface(next_action)
 
     receipt = {
         "contract_name": CONTRACT_NAME,
@@ -496,9 +571,10 @@ def build_receipt(
         "failed_candidate_count": len([candidate for candidate in candidates if candidate.get("failed_codes")]),
         "failed_codes": [] if live_pass else failed_codes,
         "blocking_reason": "" if live_pass else ", ".join(failed_codes),
-        "next_action": "capture_real_user_playback_acceptance_or_close_operator_loop"
-        if live_pass
-        else _next_action(failed_codes=selected_failed_codes, pending=pending),
+        "next_action": next_action,
+        "next_action_href": next_action_href,
+        "next_action_label": next_action_label,
+        "next_action_method": next_action_method,
         "selected_delivery": _candidate_public(selected) if selected else {},
         "failed_candidates": [_failed_candidate_public(candidate) for candidate in candidates if candidate.get("failed_codes")],
         "pending_user_selected_voice_job_count": len(pending),
