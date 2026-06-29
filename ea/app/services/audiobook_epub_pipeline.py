@@ -2484,6 +2484,19 @@ def prepare_audiobook_voice_audition(*, job_dir: Path, batch_size: int = 3, refi
         for row in current_pending_batch
         if isinstance(row, dict) and str(row.get("preset_key") or "").strip()
     ]
+    stored_book_profile = dict(current_selection.get("book_profile") or {})
+    stored_author_gender_signal = str(stored_book_profile.get("author_gender_signal") or "").strip().lower()
+    refreshed_author_gender_signal = str(profile.get("author_gender_signal") or "").strip().lower()
+    refresh_pending_batch_for_author_gender_signal = (
+        str(current_selection.get("status") or "").strip() == "waiting_user_choice"
+        and bool(current_pending_batch)
+        and bool(refreshed_author_gender_signal)
+        and refreshed_author_gender_signal != stored_author_gender_signal
+    )
+    if refresh_pending_batch_for_author_gender_signal:
+        current_pending_batch = []
+        active_identity_keys = set()
+        pending_still_active = []
     requested_batch_size = max(batch_size, 1)
     if pending_still_active and current_pending_batch and not refill_pending and len(current_pending_batch) >= requested_batch_size:
         job["status"] = "waiting_voice_selection"
@@ -2594,7 +2607,7 @@ def prepare_audiobook_voice_audition(*, job_dir: Path, batch_size: int = 3, refi
             prefer_nonpremium=prefer_nonpremium,
             require_author_gender_match=True,
         )
-        if len(preferred_rows) < max(1, replacement_count):
+        if not preferred_rows:
             return _pick_pending_rows(
                 source_rows,
                 exclude_keys=exclude_keys,
