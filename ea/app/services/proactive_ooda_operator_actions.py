@@ -10,6 +10,7 @@ DEFAULT_GOOGLE_REAUTH_SCOPE_BUNDLE = "full_workspace"
 DEFAULT_WHATSAPP_RECOVERY_PATH = "/integrations/whatsapp"
 DEFAULT_APPROVAL_CAPTURE_PATH = "/admin/proactive-ooda/approval"
 DEFAULT_QUEUE_REVIEW_PATH = "/app/queue"
+DEFAULT_POCKET_SYNC_PATH = "/app/api/signals/pocket/sync?limit=10"
 
 
 def _absolute_public_href(path: str, *, public_base_url: str = "") -> str:
@@ -58,5 +59,11 @@ def proactive_next_action_surface(action: str, *, public_base_url: str = "") -> 
             "href": _absolute_public_href(DEFAULT_QUEUE_REVIEW_PATH, public_base_url=public_base_url),
             "label": "Open queue",
             "method": "get",
+        }
+    if normalized == "sync_pocket_ai_audio_transcripts":
+        return {
+            "href": _absolute_public_href(DEFAULT_POCKET_SYNC_PATH, public_base_url=public_base_url),
+            "label": "Sync Pocket transcripts",
+            "method": "post",
         }
     return {"href": "", "label": "", "method": ""}

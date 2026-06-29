@@ -35,6 +35,16 @@ def test_proactive_next_action_surface_maps_approval_capture() -> None:
     }
 
 
+def test_proactive_next_action_surface_maps_pocket_transcript_sync() -> None:
+    surface = proactive_next_action_surface("sync_pocket_ai_audio_transcripts")
+
+    assert surface == {
+        "href": "https://myexternalbrain.com/app/api/signals/pocket/sync?limit=10",
+        "label": "Sync Pocket transcripts",
+        "method": "post",
+    }
+
+
 def test_proactive_next_action_surface_returns_blank_for_unknown_action() -> None:
     surface = proactive_next_action_surface("unknown_action")
 

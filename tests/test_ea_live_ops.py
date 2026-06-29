@@ -1118,6 +1118,115 @@ def test_probe_proactive_source_coverage_reports_required_lanes_without_raw_payl
     assert "/mnt/pcloud" not in serialized
 
 
+def test_parse_args_sync_pocket_transcripts_uses_proactive_principal_default(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setenv("EA_PROACTIVE_OODA_PRINCIPAL_ID", "cf-email:test@example.com")
+    monkeypatch.setattr(sys, "argv", ["ea_live_ops.py", "sync-pocket-transcripts", "--mode", "backfill", "--limit", "25"])
+
+    args = module.parse_args()
+
+    assert args.command == "sync-pocket-transcripts"
+    assert args.proactive_principal_id == "cf-email:test@example.com"
+    assert args.mode == "backfill"
+    assert args.limit == 25
+
+
+def test_sync_pocket_transcripts_reports_counts_without_raw_transcript_or_paths(monkeypatch) -> None:
+    module = _module()
+
+    def _fake_exec_json(**_kwargs: object) -> tuple[int, dict[str, object], str, str]:
+        return (
+            0,
+            {
+                "ok": True,
+                "assistant_auto_actions": "manual_followup,none",
+                "dangerous_auto_actions_enabled": False,
+                "summary": {
+                    "generated_at": "2026-06-29T08:02:00Z",
+                    "mode": "incremental",
+                    "recording_total": 2,
+                    "total": 1,
+                    "synced_total": 1,
+                    "deduplicated_total": 0,
+                    "suppressed_total": 1,
+                    "failed_total": 0,
+                    "archived_total": 1,
+                    "archive_dismissed_total": 0,
+                    "archive_failed_total": 0,
+                    "teable_index_status": "synced",
+                    "teable_index_row_total": 1,
+                    "teable_index_sync_attempted": True,
+                    "assistant_trigger_total": 1,
+                    "assistant_trigger_executed_total": 1,
+                    "assistant_trigger_blocked_total": 0,
+                    "cursor_used": True,
+                    "cursor_persisted": True,
+                    "cursor_advanced": True,
+                    "scan_truncated": False,
+                    "location_matched_total": 1,
+                    "location_unmatched_total": 0,
+                },
+            },
+            "",
+            "",
+        )
+
+    monkeypatch.setattr(module, "_docker_compose_exec_json", _fake_exec_json)
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-06-29T08:03:00Z")
+
+    report = module.sync_pocket_transcripts(
+        principal_id="exec-1",
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+    )
+
+    assert report["probe_ok"] is True
+    assert report["status"] == "synced"
+    assert report["recording_total"] == 2
+    assert report["synced_total"] == 1
+    assert report["archived_total"] == 1
+    assert report["assistant_auto_actions"] == "manual_followup,none"
+    assert report["dangerous_auto_actions_enabled"] is False
+    assert report["raw_payload_exposed"] is False
+    assert report["raw_transcript_text_exposed"] is False
+    assert report["raw_archive_path_exposed"] is False
+    assert report["raw_credential_exposed"] is False
+    serialized = json.dumps(report, sort_keys=True)
+    assert "Order flowers" not in serialized
+    assert "/mnt/pcloud" not in serialized
+
+
+def test_sync_pocket_transcripts_maps_missing_api_key_to_blocked_next_action(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(
+        module,
+        "_docker_compose_exec_json",
+        lambda **_kwargs: (
+            0,
+            {
+                "ok": False,
+                "reason": "RuntimeError:pocket_api_key_missing",
+                "assistant_auto_actions": "manual_followup,none",
+                "dangerous_auto_actions_enabled": False,
+            },
+            "",
+            "",
+        ),
+    )
+
+    report = module.sync_pocket_transcripts(
+        principal_id="exec-1",
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+    )
+
+    assert report["probe_ok"] is True
+    assert report["synced"] is False
+    assert report["status"] == "blocked"
+    assert report["blocking_reason"] == "RuntimeError:pocket_api_key_missing"
+    assert report["next_action"] == "configure_pocket_api_key"
+
+
 def test_parse_args_record_proactive_approval_uses_proactive_principal_default(monkeypatch) -> None:
     module = _module()
     monkeypatch.setenv("EA_PROACTIVE_OODA_PRINCIPAL_ID", "cf-email:test@example.com")

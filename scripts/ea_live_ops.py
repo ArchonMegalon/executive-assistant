@@ -1565,6 +1565,242 @@ def probe_proactive_source_coverage(
     return report
 
 
+def _pocket_transcript_sync_next_action(reason: str) -> str:
+    normalized = str(reason or "").strip()
+    detail = normalized.split(":", 1)[1].strip() if ":" in normalized else normalized
+    if detail == "pocket_api_key_missing":
+        return "configure_pocket_api_key"
+    if detail.startswith("pocket_api_http_429:") or normalized.startswith("RuntimeError:pocket_api_http_429:"):
+        return "retry_pocket_sync_after_provider_cooldown"
+    if detail.startswith("pocket_api_unreachable:") or normalized.startswith("RuntimeError:pocket_api_unreachable:"):
+        return "inspect_pocket_api_connectivity"
+    if normalized:
+        return "inspect_pocket_sync_runtime"
+    return ""
+
+
+def sync_pocket_transcripts(
+    *,
+    principal_id: str,
+    mode: str = "incremental",
+    limit: int = 10,
+    compose_file: str = "",
+    runtime_service: str = "",
+    timeout_seconds: float = 120.0,
+    output_format: str = "json",
+) -> dict[str, object]:
+    effective_compose_file = str(compose_file or _env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE))).strip()
+    effective_runtime_service = str(runtime_service or _env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE)).strip()
+    observed_at = _utc_now()
+    normalized_mode = str(mode or "incremental").strip().lower()
+    if normalized_mode not in {"incremental", "backfill"}:
+        normalized_mode = "incremental"
+    bounded_limit = max(0 if normalized_mode == "backfill" else 1, min(int(limit or 10), 250 if normalized_mode == "backfill" else 100))
+    if not effective_compose_file or not effective_runtime_service:
+        report = {
+            "probe_ok": False,
+            "synced": False,
+            "status": "probe_failed",
+            "principal_id": str(principal_id or "").strip(),
+            "mode": normalized_mode,
+            "limit": bounded_limit,
+            "compose_file": effective_compose_file,
+            "runtime_service": effective_runtime_service,
+            "observed_at": observed_at,
+            "source": "docker_compose_exec",
+            "blocking_reason": "runtime_probe_configuration_missing",
+            "next_action": "configure_proactive_runtime_probe",
+            "raw_payload_exposed": False,
+            "raw_transcript_text_exposed": False,
+            "raw_archive_path_exposed": False,
+            "raw_credential_exposed": False,
+        }
+        report.update(_next_action_surface_fields(str(report.get("next_action") or "")))
+        if output_format == "operator":
+            report["operator_text"] = "pocket_transcript_sync status=probe_failed; next=configure_proactive_runtime_probe"
+        return report
+
+    command = [
+        "python",
+        "-c",
+        (
+            "import json, os, sys\n"
+            "from app.container import build_container\n"
+            "from app.product.service import build_product_service\n"
+            "payload = json.loads(sys.argv[1])\n"
+            "os.environ['EA_POCKET_ASSISTANT_AUTO_ACTIONS'] = 'manual_followup,none'\n"
+            "os.environ['EA_POCKET_ASSISTANT_DANGEROUS_AUTO_ACTIONS'] = ''\n"
+            "container = build_container()\n"
+            "service = build_product_service(container)\n"
+            "def _safe_reason(exc):\n"
+            "    text = ' '.join(str(exc or '').split())[:200]\n"
+            "    for secret_name in ('POCKET_API_KEY', 'EA_POCKET_API_KEY'):\n"
+            "        secret = str(os.environ.get(secret_name) or '').strip()\n"
+            "        if secret:\n"
+            "            text = text.replace(secret, '[redacted]')\n"
+            "    return f'{type(exc).__name__}:{text}' if text else type(exc).__name__\n"
+            "principal_id = str(payload.get('principal_id') or '').strip()\n"
+            "actor = str(payload.get('actor') or 'ea-live-ops').strip()\n"
+            "mode = str(payload.get('mode') or 'incremental').strip()\n"
+            "limit = int(payload.get('limit') or 10)\n"
+            "keys = (\n"
+            "    'generated_at','mode','total','synced_total','deduplicated_total','suppressed_total','failed_total',\n"
+            "    'recording_total','staging_suppressed_total','archived_total','archive_dismissed_total','archive_failed_total',\n"
+            "    'teable_index_status','teable_index_blocked_reason','teable_index_row_total','teable_index_sync_attempted',\n"
+            "    'preference_evidence_total','preference_evidence_applied_total','assistant_trigger_total',\n"
+            "    'assistant_trigger_executed_total','assistant_trigger_blocked_total','cursor_used','cursor_persisted',\n"
+            "    'cursor_updated_at','cursor_recording_id','cursor_advanced','scan_truncated','location_matched_total',\n"
+            "    'location_unmatched_total'\n"
+            ")\n"
+            "try:\n"
+            "    if mode == 'backfill':\n"
+            "        result = service.backfill_pocket_recordings(principal_id=principal_id, actor=actor, limit=limit)\n"
+            "    else:\n"
+            "        result = service.sync_pocket_recordings(principal_id=principal_id, actor=actor, limit=limit)\n"
+            "    summary = {key: result.get(key) for key in keys if key in result}\n"
+            "    print(json.dumps({\n"
+            "        'ok': True,\n"
+            "        'summary': summary,\n"
+            "        'assistant_auto_actions': 'manual_followup,none',\n"
+            "        'dangerous_auto_actions_enabled': False,\n"
+            "    }, sort_keys=True))\n"
+            "except RuntimeError as exc:\n"
+            "    print(json.dumps({\n"
+            "        'ok': False,\n"
+            "        'reason': _safe_reason(exc),\n"
+            "        'assistant_auto_actions': 'manual_followup,none',\n"
+            "        'dangerous_auto_actions_enabled': False,\n"
+            "    }, sort_keys=True))\n"
+            "except Exception as exc:\n"
+            "    print(json.dumps({\n"
+            "        'ok': False,\n"
+            "        'reason': _safe_reason(exc),\n"
+            "        'assistant_auto_actions': 'manual_followup,none',\n"
+            "        'dangerous_auto_actions_enabled': False,\n"
+            "    }, sort_keys=True))\n"
+        ),
+        _json_dumps(
+            {
+                "principal_id": str(principal_id or "").strip(),
+                "actor": "ea-live-ops",
+                "mode": normalized_mode,
+                "limit": bounded_limit,
+            }
+        ),
+    ]
+    code, payload, stdout, stderr = _docker_compose_exec_json(
+        compose_file=effective_compose_file,
+        service=effective_runtime_service,
+        command=command,
+        timeout_seconds=timeout_seconds,
+    )
+    if not payload:
+        report = {
+            "probe_ok": False,
+            "synced": False,
+            "status": "probe_failed",
+            "principal_id": str(principal_id or "").strip(),
+            "mode": normalized_mode,
+            "limit": bounded_limit,
+            "compose_file": effective_compose_file,
+            "runtime_service": effective_runtime_service,
+            "observed_at": observed_at,
+            "source": "docker_compose_exec",
+            "blocking_reason": f"runtime_pocket_transcript_sync_failed:exit_{code}",
+            "next_action": "inspect_pocket_sync_runtime",
+            "stdout_excerpt": stdout.strip()[:200],
+            "stderr_excerpt": stderr.strip()[:200],
+            "raw_payload_exposed": False,
+            "raw_transcript_text_exposed": False,
+            "raw_archive_path_exposed": False,
+            "raw_credential_exposed": False,
+        }
+        report.update(_next_action_surface_fields(str(report.get("next_action") or "")))
+        if output_format == "operator":
+            report["operator_text"] = f"pocket_transcript_sync status=probe_failed; next=inspect_pocket_sync_runtime"
+        return report
+
+    summary = dict(payload.get("summary") or {})
+    reason = str(payload.get("reason") or "").strip()
+    ok = bool(payload.get("ok"))
+    failed_total = int(summary.get("failed_total") or 0)
+    archive_failed_total = int(summary.get("archive_failed_total") or 0)
+    recording_total = int(summary.get("recording_total") or 0)
+    teable_status = str(summary.get("teable_index_status") or "").strip()
+    teable_blocked_reason = str(summary.get("teable_index_blocked_reason") or "").strip()
+    if not ok:
+        status = "throttled" if "pocket_api_http_429:" in reason else "blocked"
+    elif failed_total or archive_failed_total or teable_status == "blocked":
+        status = "completed_with_gaps"
+    elif recording_total == 0:
+        status = "no_new_recordings"
+    else:
+        status = "synced"
+    next_action = _pocket_transcript_sync_next_action(reason)
+    if ok and status == "completed_with_gaps":
+        next_action = "inspect_pocket_sync_runtime"
+    if ok and status in {"synced", "no_new_recordings"}:
+        next_action = "probe_proactive_source_coverage"
+    if teable_status == "blocked" and teable_blocked_reason:
+        next_action = "inspect_teable_projection"
+    report = {
+        "probe_ok": True,
+        "synced": ok,
+        "status": status,
+        "principal_id": str(principal_id or "").strip(),
+        "mode": normalized_mode,
+        "limit": bounded_limit,
+        "compose_file": effective_compose_file,
+        "runtime_service": effective_runtime_service,
+        "observed_at": observed_at,
+        "source": "docker_compose_exec",
+        "blocking_reason": reason or teable_blocked_reason,
+        "next_action": next_action,
+        "recording_total": recording_total,
+        "synced_total": int(summary.get("synced_total") or 0),
+        "deduplicated_total": int(summary.get("deduplicated_total") or 0),
+        "suppressed_total": int(summary.get("suppressed_total") or 0),
+        "failed_total": failed_total,
+        "archived_total": int(summary.get("archived_total") or 0),
+        "archive_dismissed_total": int(summary.get("archive_dismissed_total") or 0),
+        "archive_failed_total": archive_failed_total,
+        "teable_index_status": teable_status,
+        "teable_index_row_total": int(summary.get("teable_index_row_total") or 0),
+        "teable_index_sync_attempted": bool(summary.get("teable_index_sync_attempted")),
+        "assistant_trigger_total": int(summary.get("assistant_trigger_total") or 0),
+        "assistant_trigger_executed_total": int(summary.get("assistant_trigger_executed_total") or 0),
+        "assistant_trigger_blocked_total": int(summary.get("assistant_trigger_blocked_total") or 0),
+        "assistant_auto_actions": str(payload.get("assistant_auto_actions") or "").strip(),
+        "dangerous_auto_actions_enabled": bool(payload.get("dangerous_auto_actions_enabled")),
+        "cursor_used": bool(summary.get("cursor_used")),
+        "cursor_persisted": bool(summary.get("cursor_persisted")),
+        "cursor_advanced": bool(summary.get("cursor_advanced")),
+        "scan_truncated": bool(summary.get("scan_truncated")),
+        "location_matched_total": int(summary.get("location_matched_total") or 0),
+        "location_unmatched_total": int(summary.get("location_unmatched_total") or 0),
+        "raw_payload_exposed": False,
+        "raw_transcript_text_exposed": False,
+        "raw_archive_path_exposed": False,
+        "raw_credential_exposed": False,
+    }
+    report.update(_next_action_surface_fields(str(report.get("next_action") or "")))
+    if output_format == "operator":
+        pieces = [
+            f"pocket_transcript_sync status={status}",
+            f"mode={normalized_mode}",
+            f"recordings={recording_total}",
+            f"synced={int(report['synced_total'])}",
+            f"archived={int(report['archived_total'])}",
+            f"teable={teable_status or 'unknown'}",
+        ]
+        if reason or teable_blocked_reason:
+            pieces.append(f"reason={reason or teable_blocked_reason}")
+        if str(report.get("next_action") or "").strip():
+            pieces.append(f"next={report['next_action']}")
+        report["operator_text"] = "; ".join(pieces)
+    return report
+
+
 def record_proactive_approval(
     *,
     principal_id: str,
@@ -2228,6 +2464,17 @@ def parse_args() -> argparse.Namespace:
     proactive_source_coverage.add_argument("--runtime-service", default=_env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE))
     proactive_source_coverage.add_argument("--observation-limit", type=int, default=400)
 
+    pocket_sync = subparsers.add_parser(
+        "sync-pocket-transcripts",
+        help="Run an operator-safe Pocket.ai transcript sync in the live EA runtime.",
+    )
+    pocket_sync.add_argument("--principal-id", dest="proactive_principal_id", default=_default_proactive_principal_id())
+    pocket_sync.add_argument("--format", choices=("json", "operator"), default="json")
+    pocket_sync.add_argument("--compose-file", default=_env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE)))
+    pocket_sync.add_argument("--runtime-service", default=_env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE))
+    pocket_sync.add_argument("--mode", choices=("incremental", "backfill"), default="incremental")
+    pocket_sync.add_argument("--limit", type=int, default=10)
+
     proactive_approval = subparsers.add_parser(
         "record-proactive-approval",
         help="Record the explicit approval outcome for the current live proactive OODA packet.",
@@ -2332,6 +2579,21 @@ def main() -> int:
         else:
             print(_json_dumps(report))
         return 0 if bool(report.get("probe_ok")) else 2
+    if args.command == "sync-pocket-transcripts":
+        report = sync_pocket_transcripts(
+            principal_id=str(getattr(args, "proactive_principal_id", "") or "").strip(),
+            mode=str(args.mode or "incremental").strip(),
+            limit=int(args.limit or 10),
+            compose_file=str(args.compose_file or "").strip(),
+            runtime_service=str(args.runtime_service or "").strip(),
+            timeout_seconds=float(args.timeout_seconds or 120.0),
+            output_format=args.format,
+        )
+        if args.format == "operator":
+            print(str(report.get("operator_text") or ""))
+        else:
+            print(_json_dumps(report))
+        return 0 if bool(report.get("probe_ok")) and str(report.get("status") or "") not in {"blocked", "probe_failed"} else 2
     if args.command == "record-proactive-approval":
         report = record_proactive_approval(
             principal_id=str(getattr(args, "proactive_principal_id", "") or "").strip(),
