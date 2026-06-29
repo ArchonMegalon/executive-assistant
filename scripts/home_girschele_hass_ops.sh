@@ -301,7 +301,7 @@ ensure_proxy_config() {
     return 0
   fi
 
-  docker run --rm \
+  docker run --rm -i \
     --entrypoint /bin/sh \
     -v "$CONFIG_DIR:/config" \
     "ghcr.io/home-assistant/home-assistant:${HOME_GIRSCHELE_HASS_IMAGE_TAG:-stable}" \
@@ -659,7 +659,7 @@ backup_config() {
   tmp_manifest="$BACKUP_DIR/.homeassistant-config-$timestamp.manifest.json.tmp"
   rm -f "$tmp_archive" "$tmp_manifest"
 
-  docker run --rm \
+  docker run --rm -i \
     --entrypoint python \
     -v "$CONFIG_DIR:/config:ro" \
     -v "$BACKUP_DIR:/backup" \
