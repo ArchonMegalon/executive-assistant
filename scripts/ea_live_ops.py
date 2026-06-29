@@ -185,6 +185,19 @@ def _request_json(
     return dict(payload) if isinstance(payload, dict) else {}
 
 
+def _request_bytes(
+    *,
+    method: str,
+    url: str,
+    headers: dict[str, str] | None = None,
+    timeout: float = 15.0,
+) -> tuple[bytes, str]:
+    request = urllib.request.Request(url, headers=headers or {}, method=method)
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        content_type = str(response.headers.get("Content-Type") or "").strip()
+        return response.read(), content_type
+
+
 def _json_from_stdout(stdout: str) -> dict[str, Any]:
     text = str(stdout or "").strip()
     try:
@@ -804,6 +817,39 @@ def _operator_text_for_whatsapp_readiness(report: Mapping[str, object]) -> str:
     pieces.append(f"state_fresh={str(bool(report.get('state_fresh'))).lower()}")
     if report.get("generated_at"):
         pieces.append(f"generated_at={report['generated_at']}")
+    if report.get("source"):
+        pieces.append(f"source={report['source']}")
+    return "; ".join(str(item) for item in pieces if str(item).strip())
+
+
+def _operator_text_for_whatsapp_pairing(report: Mapping[str, object]) -> str:
+    pieces = [
+        f"whatsapp_pairing status={report.get('status') or 'unknown'}",
+        f"ready={str(bool(report.get('ready'))).lower()}",
+    ]
+    if report.get("reason"):
+        pieces.append(f"reason={report['reason']}")
+    if report.get("next_action"):
+        pieces.append(f"next={report['next_action']}")
+    if report.get("session_ref"):
+        pieces.append(f"session={report['session_ref']}")
+    if report.get("sidecar_status"):
+        pieces.append(f"sidecar={report['sidecar_status']}")
+    pieces.append(f"qr_present={str(bool(report.get('qr_present'))).lower()}")
+    pieces.append(f"qr_required={str(bool(report.get('qr_required'))).lower()}")
+    if report.get("qr_age_seconds") is not None:
+        pieces.append(f"qr_age_seconds={int(report.get('qr_age_seconds') or 0)}")
+    pieces.append(f"qr_fresh={str(bool(report.get('qr_fresh'))).lower()}")
+    if report.get("pair_url_scope"):
+        pieces.append(f"pair_url_scope={report['pair_url_scope']}")
+    if report.get("qr_svg_written") is not None:
+        pieces.append(f"qr_svg_written={str(bool(report.get('qr_svg_written'))).lower()}")
+    if report.get("telegram_sent") is not None:
+        pieces.append(f"telegram_sent={str(bool(report.get('telegram_sent'))).lower()}")
+    if report.get("telegram_reason"):
+        pieces.append(f"telegram_reason={report['telegram_reason']}")
+    if report.get("observed_at"):
+        pieces.append(f"observed_at={report['observed_at']}")
     if report.get("source"):
         pieces.append(f"source={report['source']}")
     return "; ".join(str(item) for item in pieces if str(item).strip())
@@ -3263,6 +3309,19 @@ def _sidecar_get(*, binding: Any | None, suffix: str, session_api_base_url: str 
     )
 
 
+def _sidecar_bytes(*, binding: Any | None, suffix: str, session_api_base_url: str = "", session_ref: str = "", timeout_seconds: float = 15.0) -> tuple[bytes, str, str]:
+    base_url = _session_api_base_url(binding, session_api_base_url)
+    effective_session_ref = urllib.parse.quote(_session_ref(binding, session_ref), safe="")
+    url = f"{base_url}/sessions/{effective_session_ref}/{suffix.lstrip('/')}"
+    payload, content_type = _request_bytes(
+        method="GET",
+        url=url,
+        headers=_session_headers_from_binding(binding),
+        timeout=timeout_seconds,
+    )
+    return payload, content_type, url
+
+
 def _sidecar_post(*, binding: Any | None, suffix: str, body: dict[str, object], session_api_base_url: str = "", session_ref: str = "", timeout_seconds: float = 15.0) -> dict[str, Any]:
     base_url = _session_api_base_url(binding, session_api_base_url)
     effective_session_ref = urllib.parse.quote(_session_ref(binding, session_ref), safe="")
@@ -3545,6 +3604,287 @@ def send_whatsapp(*, phone_hint: str, text: str, args: argparse.Namespace) -> di
     }
 
 
+def _sidecar_pairing_url(*, binding: Any | None, session_api_base_url: str = "", session_ref: str = "", suffix: str = "pair") -> str:
+    base_url = _session_api_base_url(binding, session_api_base_url)
+    effective_session_ref = urllib.parse.quote(_session_ref(binding, session_ref), safe="")
+    return f"{base_url}/sessions/{effective_session_ref}/{suffix.lstrip('/')}"
+
+
+def _url_scope(url: str) -> str:
+    parsed = urllib.parse.urlparse(str(url or ""))
+    host = str(parsed.hostname or "").strip().lower()
+    if host in {"", "localhost", "127.0.0.1", "::1", "0.0.0.0"}:
+        return "host_local"
+    if "." not in host or host.endswith(".local") or host.endswith(".internal"):
+        return "internal_network"
+    return "public"
+
+
+def _pairing_qr_output_path(session_ref: str, output_dir: str = "") -> Path:
+    safe_ref = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(session_ref or "default").strip()).strip("-") or "default"
+    root = Path(output_dir or _env("EA_WHATSAPP_WEB_PAIRING_QR_DIR", str(ROOT / ".runtime" / "whatsapp-pairing")))
+    return root / f"{safe_ref}.svg"
+
+
+def _write_pairing_qr_svg(path: Path, payload: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp.{os.getpid()}")
+    tmp.write_bytes(payload)
+    tmp.chmod(0o600)
+    os.replace(tmp, path)
+
+
+def _qr_age_seconds(last_qr_at: object, *, now: datetime | None = None) -> int | None:
+    raw = str(last_qr_at or "").strip()
+    if not raw:
+        return None
+    normalized = raw[:-1] + "+00:00" if raw.endswith("Z") else raw
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    current = now or datetime.now(UTC)
+    return max(0, int((current - parsed.astimezone(UTC)).total_seconds()))
+
+
+def send_telegram_document(
+    *,
+    principal_id: str,
+    document_ref: str,
+    caption: str = "",
+    dry_run: bool = False,
+) -> dict[str, object]:
+    normalized_principal_id = str(principal_id or "").strip()
+    normalized_document_ref = str(document_ref or "").strip()
+    normalized_caption = str(caption or "").strip()
+    observed_at = _utc_now()
+    if not normalized_document_ref:
+        return {
+            "sent": False,
+            "reason": "document_ref_missing",
+            "principal_id": normalized_principal_id,
+            "delivery_transport": "telegram_bot",
+            "observed_at": observed_at,
+            "source": "runtime_container_exec:telegram_delivery.send_telegram_document_for_principal",
+        }
+    if dry_run:
+        readiness = probe_telegram_readiness(principal_id=normalized_principal_id, output_format="json")
+        return {
+            "sent": False,
+            "reason": "dry_run",
+            "ready": bool(readiness.get("ready")),
+            "readiness_status": str(readiness.get("status") or "").strip(),
+            "readiness_reason": str(readiness.get("reason") or "").strip(),
+            "principal_id": str(readiness.get("principal_id") or normalized_principal_id).strip(),
+            "binding_id": str(readiness.get("binding_id") or "").strip(),
+            "chat_ref_present": bool(readiness.get("chat_ref_present")),
+            "chat_ref_sha256": str(readiness.get("chat_ref_sha256") or "").strip(),
+            "bot_key": str(readiness.get("bot_key") or "").strip(),
+            "bot_handle": str(readiness.get("bot_handle") or "").strip(),
+            "bot_token_present": bool(readiness.get("bot_token_present")),
+            "document_ref_present": bool(normalized_document_ref),
+            "caption_present": bool(normalized_caption),
+            "delivery_transport": "telegram_bot",
+            "runtime_container": str(readiness.get("runtime_container") or "").strip(),
+            "observed_at": observed_at,
+            "source": "runtime_container_exec:telegram_delivery.send_telegram_document_for_principal",
+        }
+    code = (
+        "import hashlib, json\n"
+        "principal_id = "
+        + json.dumps(normalized_principal_id)
+        + "\n"
+        "document_ref = "
+        + json.dumps(normalized_document_ref)
+        + "\n"
+        "caption = "
+        + json.dumps(normalized_caption)
+        + "\n"
+        "try:\n"
+        "    from app.container import build_container\n"
+        "    from app.services.telegram_delivery import send_telegram_document_for_principal\n"
+        "    container = build_container()\n"
+        "    receipt = send_telegram_document_for_principal(container.tool_runtime, principal_id=principal_id, document_ref=document_ref, caption=caption)\n"
+        "    chat_ref = str(getattr(receipt, 'chat_id', '') or '').strip()\n"
+        "    message_ids = [str(item or '').strip() for item in (getattr(receipt, 'message_ids', ()) or ()) if str(item or '').strip()]\n"
+        "    print(json.dumps({\n"
+        "        'ok': True,\n"
+        "        'sent': True,\n"
+        "        'reason': 'sent',\n"
+        "        'principal_id': str(getattr(receipt, 'principal_id', '') or principal_id or '').strip(),\n"
+        "        'chat_ref_present': bool(chat_ref),\n"
+        "        'chat_ref_sha256': hashlib.sha256(chat_ref.encode('utf-8')).hexdigest() if chat_ref else '',\n"
+        "        'bot_key': str(getattr(receipt, 'bot_key', '') or '').strip(),\n"
+        "        'bot_handle': str(getattr(receipt, 'bot_handle', '') or '').strip(),\n"
+        "        'message_ids': message_ids,\n"
+        "    }, sort_keys=True))\n"
+        "except Exception as exc:\n"
+        "    reason = (str(exc).strip() or type(exc).__name__)[:160]\n"
+        "    print(json.dumps({'ok': False, 'sent': False, 'reason': reason}, sort_keys=True))\n"
+    )
+    exit_code, payload, runtime_container = _runtime_container_exec_json(code=code, timeout_seconds=45.0)
+    payload_ok = bool(payload.get("ok", False))
+    sent = exit_code == 0 and payload_ok and bool(payload.get("sent"))
+    reason = str(payload.get("reason") or "").strip() or (f"runtime_container_exec_exit_{exit_code}" if exit_code else "send_failed")
+    message_ids = [str(item or "").strip() for item in payload.get("message_ids") or [] if str(item or "").strip()]
+    return {
+        "sent": sent,
+        "reason": "sent" if sent else reason,
+        "principal_id": str(payload.get("principal_id") or normalized_principal_id).strip(),
+        "chat_ref_present": bool(payload.get("chat_ref_present")),
+        "chat_ref_sha256": str(payload.get("chat_ref_sha256") or "").strip(),
+        "bot_key": str(payload.get("bot_key") or "").strip(),
+        "bot_handle": str(payload.get("bot_handle") or "").strip(),
+        "delivery_transport": "telegram_bot",
+        "message_ids": message_ids,
+        "message_count": len(message_ids),
+        "runtime_container": runtime_container,
+        "observed_at": observed_at,
+        "source": "runtime_container_exec:telegram_delivery.send_telegram_document_for_principal",
+    }
+
+
+def probe_whatsapp_pairing(
+    *,
+    args: argparse.Namespace,
+    output_format: str = "json",
+    send_telegram_to_principal: str = "",
+    dry_run: bool = False,
+    write_qr_svg: bool = True,
+    output_dir: str = "",
+) -> dict[str, object]:
+    observed_at = _utc_now()
+    binding, binding_lookup_error = _safe_load_whatsapp_binding(args)
+    base_url = _session_api_base_url(binding, str(getattr(args, "session_api_base_url", "") or "").strip())
+    session_ref = _session_ref(binding, str(getattr(args, "session_ref", "") or "").strip())
+    pair_url = _sidecar_pairing_url(binding=binding, session_api_base_url=base_url, session_ref=session_ref, suffix="pair")
+    qr_svg_url = _sidecar_pairing_url(binding=binding, session_api_base_url=base_url, session_ref=session_ref, suffix="qr.svg")
+    try:
+        payload = _sidecar_get(
+            binding=binding,
+            suffix="qr",
+            session_api_base_url=base_url,
+            session_ref=session_ref,
+            timeout_seconds=float(getattr(args, "timeout_seconds", 15.0) or 15.0),
+        )
+    except urllib.error.HTTPError as exc:
+        payload = _http_error_payload(exc)
+    except Exception as exc:
+        payload = {"ok": False, "reason": type(exc).__name__, "status": "unavailable"}
+
+    ok = bool(payload.get("ok", True))
+    ready = bool(payload.get("ready"))
+    qr_present = bool(payload.get("qr_present"))
+    qr_required = bool(payload.get("qr_required"))
+    sidecar_status = str(payload.get("status") or "").strip()
+    reason = "" if ok else str(payload.get("reason") or "sidecar_qr_probe_failed").strip()
+    age_seconds = _qr_age_seconds(payload.get("last_qr_at"))
+    qr_fresh_seconds = 120
+    qr_fresh = age_seconds is not None and age_seconds <= qr_fresh_seconds
+    if ready:
+        status = "ready"
+        next_action = ""
+    elif qr_present:
+        status = "available"
+        next_action = "scan_whatsapp_web_qr"
+    elif ok:
+        status = "waiting"
+        next_action = "wait_for_whatsapp_web_qr"
+    else:
+        status = "blocked"
+        next_action = "inspect_whatsapp_web_session_sidecar"
+
+    qr_svg_path = _pairing_qr_output_path(session_ref, output_dir=output_dir)
+    qr_svg_written = False
+    qr_svg_error = ""
+    if write_qr_svg and qr_present:
+        try:
+            svg_payload, content_type, _ = _sidecar_bytes(
+                binding=binding,
+                suffix="qr.svg",
+                session_api_base_url=base_url,
+                session_ref=session_ref,
+                timeout_seconds=float(getattr(args, "timeout_seconds", 15.0) or 15.0),
+            )
+            if svg_payload:
+                _write_pairing_qr_svg(qr_svg_path, svg_payload)
+                qr_svg_written = True
+            else:
+                qr_svg_error = "empty_qr_svg"
+        except Exception as exc:
+            content_type = ""
+            qr_svg_error = type(exc).__name__
+    else:
+        content_type = ""
+
+    report: dict[str, object] = {
+        "probe_ok": ok,
+        "status": status,
+        "ready": ready,
+        "reason": reason,
+        "next_action": next_action,
+        "session_ref": session_ref,
+        "binding_lookup_status": "error" if binding_lookup_error else "found" if binding is not None else "missing",
+        "binding_lookup_error": binding_lookup_error,
+        "sidecar_status": sidecar_status,
+        "qr_present": qr_present,
+        "qr_required": qr_required,
+        "last_qr_at": str(payload.get("last_qr_at") or "").strip(),
+        "qr_age_seconds": age_seconds,
+        "qr_fresh": qr_fresh,
+        "qr_fresh_seconds": qr_fresh_seconds,
+        "pair_url": pair_url,
+        "pair_url_scope": _url_scope(pair_url),
+        "qr_svg_url": qr_svg_url,
+        "qr_svg_content_type": content_type,
+        "qr_svg_written": qr_svg_written,
+        "qr_svg_path": str(qr_svg_path) if qr_svg_written else "",
+        "qr_svg_error": qr_svg_error,
+        "observed_at": observed_at,
+        "source": "whatsapp_web_session_sidecar.qr",
+    }
+
+    if send_telegram_to_principal:
+        caption = (
+            "EA WhatsApp Web pairing is required.\n"
+            f"session={session_ref}\n"
+            f"status={sidecar_status or status}\n"
+            f"qr_age_seconds={age_seconds if age_seconds is not None else 'unknown'}\n"
+            f"pair_url={pair_url}\n"
+            f"pair_url_scope={report['pair_url_scope']}"
+        )
+        if not qr_svg_written:
+            telegram = {
+                "sent": False,
+                "reason": qr_svg_error or "qr_svg_not_written",
+                "principal_id": str(send_telegram_to_principal or "").strip(),
+                "delivery_transport": "telegram_bot",
+            }
+        else:
+            telegram = send_telegram_document(
+                principal_id=str(send_telegram_to_principal or "").strip(),
+                document_ref=str(qr_svg_path),
+                caption=caption,
+                dry_run=dry_run,
+            )
+        report.update(
+            {
+                "telegram_sent": bool(telegram.get("sent")),
+                "telegram_reason": str(telegram.get("reason") or "").strip(),
+                "telegram_principal_id": str(telegram.get("principal_id") or send_telegram_to_principal or "").strip(),
+                "telegram_message_count": int(telegram.get("message_count") or 0),
+                "telegram_chat_ref_present": bool(telegram.get("chat_ref_present")),
+                "telegram_chat_ref_sha256": str(telegram.get("chat_ref_sha256") or "").strip(),
+                "telegram_delivery_transport": str(telegram.get("delivery_transport") or "").strip(),
+            }
+        )
+    if output_format == "operator":
+        report["operator_text"] = _operator_text_for_whatsapp_pairing(report)
+    return report
+
+
 def send_telegram(
     *,
     principal_id: str,
@@ -3655,6 +3995,14 @@ def parse_args() -> argparse.Namespace:
     whatsapp_readiness.add_argument("--receipt-path", default="")
     whatsapp_readiness.add_argument("--no-refresh", dest="refresh", action="store_false", default=True)
     whatsapp_readiness.add_argument("--volatile", action="store_true", help="Refresh through a temporary receipt file instead of the published receipt.")
+
+    whatsapp_pairing = subparsers.add_parser("probe-whatsapp-pairing", help="Probe and optionally send the live WhatsApp Web pairing QR recovery artifact.")
+    whatsapp_pairing.add_argument("--format", choices=("json", "operator"), default="json")
+    whatsapp_pairing.add_argument("--telegram-principal-id", default=_default_proactive_principal_id())
+    whatsapp_pairing.add_argument("--send-telegram", action="store_true")
+    whatsapp_pairing.add_argument("--dry-run", action="store_true")
+    whatsapp_pairing.add_argument("--output-dir", default="")
+    whatsapp_pairing.add_argument("--no-write-qr-svg", dest="write_qr_svg", action="store_false", default=True)
 
     telegram_readiness = subparsers.add_parser("probe-telegram-readiness", help="Probe Telegram operator delivery readiness without sending a message.")
     telegram_readiness.add_argument("--principal-id", dest="telegram_principal_id", default=_default_proactive_principal_id())
@@ -3768,6 +4116,12 @@ def parse_args() -> argparse.Namespace:
     send_telegram_parser.add_argument("--text", required=True)
     send_telegram_parser.add_argument("--dry-run", action="store_true")
 
+    send_telegram_document_parser = subparsers.add_parser("send-telegram-document", help="Send a local document over Telegram.")
+    send_telegram_document_parser.add_argument("--principal-id", dest="telegram_principal_id", default=_default_proactive_principal_id())
+    send_telegram_document_parser.add_argument("--document-ref", required=True)
+    send_telegram_document_parser.add_argument("--caption", default="")
+    send_telegram_document_parser.add_argument("--dry-run", action="store_true")
+
     return parser.parse_args()
 
 
@@ -3786,6 +4140,24 @@ def main() -> int:
             receipt_path=str(getattr(args, "receipt_path", "") or "").strip(),
             output_format=args.format,
             volatile=bool(getattr(args, "volatile", False)),
+        )
+        if args.format == "operator":
+            print(str(report.get("operator_text") or ""))
+        else:
+            print(_json_dumps(report))
+        return 0 if bool(report.get("probe_ok")) else 2
+    if args.command == "probe-whatsapp-pairing":
+        report = probe_whatsapp_pairing(
+            args=args,
+            output_format=args.format,
+            send_telegram_to_principal=(
+                str(getattr(args, "telegram_principal_id", "") or "").strip()
+                if bool(getattr(args, "send_telegram", False))
+                else ""
+            ),
+            dry_run=bool(getattr(args, "dry_run", False)),
+            write_qr_svg=bool(getattr(args, "write_qr_svg", True)),
+            output_dir=str(getattr(args, "output_dir", "") or "").strip(),
         )
         if args.format == "operator":
             print(str(report.get("operator_text") or ""))
@@ -3958,6 +4330,15 @@ def main() -> int:
         report = send_telegram(
             principal_id=str(getattr(args, "telegram_principal_id", "") or "").strip(),
             text=str(getattr(args, "text", "") or ""),
+            dry_run=bool(getattr(args, "dry_run", False)),
+        )
+        print(_json_dumps(report))
+        return 0 if bool(report.get("sent")) or str(report.get("reason") or "") == "dry_run" else 2
+    if args.command == "send-telegram-document":
+        report = send_telegram_document(
+            principal_id=str(getattr(args, "telegram_principal_id", "") or "").strip(),
+            document_ref=str(getattr(args, "document_ref", "") or "").strip(),
+            caption=str(getattr(args, "caption", "") or ""),
             dry_run=bool(getattr(args, "dry_run", False)),
         )
         print(_json_dumps(report))

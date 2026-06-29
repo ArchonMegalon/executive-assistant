@@ -389,6 +389,12 @@ verify-whatsapp-web-action-processor-readiness:
 	$(PYTHON_BIN) scripts/materialize_whatsapp_web_action_processor_readiness.py
 	$(PYTHON_BIN) scripts/verify_whatsapp_web_action_processor_readiness.py
 
+probe-whatsapp-pairing:
+	$(PYTHON_BIN) scripts/ea_live_ops.py probe-whatsapp-pairing --format operator
+
+send-whatsapp-pairing-telegram:
+	$(PYTHON_BIN) scripts/ea_live_ops.py probe-whatsapp-pairing --send-telegram --format operator
+
 materialize-whatsapp-audiobook-operator-proof-bundle:
 	PYTHONPATH=ea $(PYTHON_BIN) ea/scripts/materialize_whatsapp_audiobook_operator_proof_bundle.py
 

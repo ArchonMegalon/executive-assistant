@@ -121,6 +121,8 @@ def test_operator_summary_lists_ltd_release_gates() -> None:
     assert "tg audiobook live: make verify-telegram-audiobook-live-delivery-receipt" in operator_summary
     assert "wa audio local:    make verify-whatsapp-audiobook-local-intake-proof" in operator_summary
     assert "wa action ready:   make verify-whatsapp-web-action-processor-readiness" in operator_summary
+    assert "wa pairing:        make probe-whatsapp-pairing" in operator_summary
+    assert "wa pairing tg:     make send-whatsapp-pairing-telegram" in operator_summary
     assert "wa audio bundle:   make verify-whatsapp-audiobook-operator-proof-bundle" in operator_summary
     assert "wa audiobook live: make verify-whatsapp-audiobook-live-delivery-receipt" in operator_summary
     assert "wa share play:     make verify-whatsapp-audiobook-public-share-playback" in operator_summary
@@ -231,6 +233,10 @@ def test_makefile_exposes_telegram_audiobook_live_delivery_receipt_targets() -> 
     assert "scripts/materialize_whatsapp_web_action_processor_readiness.py" in makefile
     assert "verify-whatsapp-web-action-processor-readiness:" in makefile
     assert "scripts/verify_whatsapp_web_action_processor_readiness.py" in makefile
+    assert "probe-whatsapp-pairing:" in makefile
+    assert "scripts/ea_live_ops.py probe-whatsapp-pairing --format operator" in makefile
+    assert "send-whatsapp-pairing-telegram:" in makefile
+    assert "scripts/ea_live_ops.py probe-whatsapp-pairing --send-telegram --format operator" in makefile
     assert "materialize-whatsapp-audiobook-operator-proof-bundle:" in makefile
     assert "ea/scripts/materialize_whatsapp_audiobook_operator_proof_bundle.py" in makefile
     assert "verify-whatsapp-audiobook-operator-proof-bundle:" in makefile
@@ -1303,6 +1309,10 @@ def test_whatsapp_web_action_processor_readiness_scripts_help_and_wiring() -> No
         "${EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET_RUNTIME_FILE:-./.runtime/secrets/whatsapp_audiobook_callback_secret}:"
         "/run/secrets/whatsapp_audiobook_callback_secret:ro"
     ) in compose
+    assert "probe-whatsapp-pairing:" in makefile
+    assert "scripts/ea_live_ops.py probe-whatsapp-pairing --format operator" in makefile
+    assert "send-whatsapp-pairing-telegram:" in makefile
+    assert "scripts/ea_live_ops.py probe-whatsapp-pairing --send-telegram --format operator" in makefile
 
 
 def test_proactive_ooda_operator_status_scripts_help_and_wiring() -> None:

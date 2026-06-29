@@ -434,6 +434,133 @@ def test_probe_whatsapp_readiness_can_read_existing_receipt_without_refresh(tmp_
     assert report["output_path"] == str(receipt_path)
 
 
+def test_probe_whatsapp_pairing_writes_qr_svg_without_serializing_raw_qr(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_safe_load_whatsapp_binding", lambda _args: (None, ""))
+    monkeypatch.setattr(module, "_qr_age_seconds", lambda _value: 35)
+
+    def _fake_sidecar_get(**kwargs):
+        assert kwargs["suffix"] == "qr"
+        return {
+            "ok": True,
+            "ready": False,
+            "status": "qr_required",
+            "qr_present": True,
+            "qr_required": True,
+            "last_qr_at": "2026-06-29T14:00:00Z",
+            "qr": "raw-secret-qr",
+        }
+
+    def _fake_sidecar_bytes(**kwargs):
+        assert kwargs["suffix"] == "qr.svg"
+        return b"<svg>raw-qr-shape</svg>", "image/svg+xml", "https://wa-web.test/sessions/session-1/qr.svg"
+
+    monkeypatch.setattr(module, "_sidecar_get", _fake_sidecar_get)
+    monkeypatch.setattr(module, "_sidecar_bytes", _fake_sidecar_bytes)
+
+    report = module.probe_whatsapp_pairing(
+        args=_args(session_ref="session-1"),
+        output_format="operator",
+        output_dir=str(tmp_path),
+    )
+    serialized = json.dumps(report, sort_keys=True)
+
+    assert report["status"] == "available"
+    assert report["next_action"] == "scan_whatsapp_web_qr"
+    assert report["qr_svg_written"] is True
+    assert report["qr_svg_content_type"] == "image/svg+xml"
+    assert Path(str(report["qr_svg_path"])).read_text(encoding="utf-8") == "<svg>raw-qr-shape</svg>"
+    assert "whatsapp_pairing status=available" in str(report["operator_text"])
+    assert "raw-secret-qr" not in serialized
+    assert "raw-qr-shape" not in serialized
+
+
+def test_probe_whatsapp_pairing_can_dry_run_telegram_document_send(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    observed: dict[str, object] = {}
+    monkeypatch.setattr(module, "_safe_load_whatsapp_binding", lambda _args: (None, ""))
+    monkeypatch.setattr(module, "_qr_age_seconds", lambda _value: 12)
+    monkeypatch.setattr(
+        module,
+        "_sidecar_get",
+        lambda **_kwargs: {
+            "ok": True,
+            "ready": False,
+            "status": "qr_required",
+            "qr_present": True,
+            "qr_required": True,
+            "last_qr_at": "2026-06-29T14:00:00Z",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "_sidecar_bytes",
+        lambda **_kwargs: (b"<svg>qr</svg>", "image/svg+xml", "https://wa-web.test/sessions/session-1/qr.svg"),
+    )
+
+    def _fake_send_document(*, principal_id: str, document_ref: str, caption: str, dry_run: bool):
+        observed.update(
+            {
+                "principal_id": principal_id,
+                "document_ref": document_ref,
+                "caption": caption,
+                "dry_run": dry_run,
+            }
+        )
+        return {
+            "sent": False,
+            "reason": "dry_run",
+            "principal_id": principal_id,
+            "chat_ref_present": True,
+            "chat_ref_sha256": "e" * 64,
+            "delivery_transport": "telegram_bot",
+        }
+
+    monkeypatch.setattr(module, "send_telegram_document", _fake_send_document)
+
+    report = module.probe_whatsapp_pairing(
+        args=_args(session_ref="session-1"),
+        output_format="operator",
+        send_telegram_to_principal="principal-1",
+        dry_run=True,
+        output_dir=str(tmp_path),
+    )
+
+    assert report["telegram_sent"] is False
+    assert report["telegram_reason"] == "dry_run"
+    assert report["telegram_chat_ref_sha256"] == "e" * 64
+    assert observed["principal_id"] == "principal-1"
+    assert observed["dry_run"] is True
+    assert "pair_url=https://wa-web.test/sessions/session-1/pair" in str(observed["caption"])
+    assert Path(str(observed["document_ref"])).is_file()
+    assert "telegram_sent=false" in str(report["operator_text"])
+
+
+def test_main_probe_whatsapp_pairing_prints_operator_text(monkeypatch, capsys) -> None:
+    module = _module()
+    monkeypatch.setattr(
+        module,
+        "parse_args",
+        lambda: Namespace(
+            command="probe-whatsapp-pairing",
+            format="operator",
+            telegram_principal_id="principal-1",
+            send_telegram=False,
+            dry_run=False,
+            write_qr_svg=True,
+            output_dir="",
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_whatsapp_pairing",
+        lambda **_kwargs: {"probe_ok": True, "operator_text": "whatsapp_pairing status=available"},
+    )
+
+    assert module.main() == 0
+    assert capsys.readouterr().out.strip() == "whatsapp_pairing status=available"
+
+
 def test_probe_whatsapp_readiness_failure_reports_exception_type_without_secret(monkeypatch) -> None:
     module = _module()
 
@@ -2887,6 +3014,43 @@ def test_send_telegram_executes_runtime_without_exposing_chat_secret(monkeypatch
     assert report["chat_ref_sha256"] == "d" * 64
     assert "123456789" not in serialized
     assert "telegram-token" not in serialized
+
+
+def test_send_telegram_document_dry_run_reuses_readiness_without_exposing_document(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-06-29T14:02:00Z")
+    monkeypatch.setattr(
+        module,
+        "probe_telegram_readiness",
+        lambda principal_id, output_format="json": {
+            "ready": True,
+            "status": "ready",
+            "reason": "",
+            "principal_id": principal_id,
+            "binding_id": "binding-1",
+            "chat_ref_present": True,
+            "chat_ref_sha256": "a" * 64,
+            "bot_key": "default",
+            "bot_handle": "ea_concierge_bot",
+            "bot_token_present": True,
+            "runtime_container": "ea-api",
+        },
+    )
+
+    report = module.send_telegram_document(
+        principal_id="principal-1",
+        document_ref="/tmp/secret-qr.svg",
+        caption="pairing",
+        dry_run=True,
+    )
+
+    assert report["sent"] is False
+    assert report["reason"] == "dry_run"
+    assert report["ready"] is True
+    assert report["document_ref_present"] is True
+    assert report["caption_present"] is True
+    assert report["observed_at"] == "2026-06-29T14:02:00Z"
+    assert "/tmp/secret-qr.svg" not in json.dumps(report, sort_keys=True)
 
 
 def test_main_send_telegram_emits_json(monkeypatch, capsys) -> None:
