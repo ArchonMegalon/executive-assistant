@@ -500,6 +500,9 @@ def test_materialize_proactive_ooda_gold_acceptance_falls_back_to_live_runtime_a
         lambda **_kwargs: {
             "probe_ok": True,
             "run_receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+            "action_required_only_quiet_receipt_path": (
+                "/data/provider-ledger/proactive_ooda_run_receipts/20260629T090000-deferred-quiet.json"
+            ),
             "stage_packet_dir": "/data/provider-ledger/proactive_ooda_stage_packets",
             "safe_work_result_dir": "/data/provider-ledger/proactive_ooda_safe_work_results",
             "approval_outcome_path": "/data/provider-ledger/proactive_ooda_latest_approval_outcome.generated.json",
@@ -537,6 +540,14 @@ def test_materialize_proactive_ooda_gold_acceptance_falls_back_to_live_runtime_a
                     },
                     "missing_tables": [],
                 },
+            },
+            "action_required_only_quiet_receipt": {
+                "notification_status": "deferred",
+                "error_code": "no_user_action_required",
+                "dry_run": False,
+                "item_count": 2,
+                "telegram_message_ids": [],
+                "delivery_message_ids": [],
             },
             "stage_packet": {
                 "schema": "proactive_ooda.stage_packet.v1",
@@ -583,6 +594,9 @@ def test_materialize_proactive_ooda_gold_acceptance_falls_back_to_live_runtime_a
     assert receipt["proofs"]["chosen_candidate"]["present"] is True
     assert receipt["proofs"]["staged_reversible_artifact"]["present"] is True
     assert receipt["proofs"]["teable_projection"]["present"] is True
+    assert receipt["proofs"]["action_required_only_delivery"]["present"] is True
+    assert receipt["proofs"]["action_required_only_delivery"]["quiet_receipt_proves_action_required_only"] is True
+    assert receipt["proofs"]["action_required_only_delivery"]["quiet_receipt_path"].endswith("deferred-quiet.json")
     assert receipt["next_action"] == "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome"
     assert receipt["next_action_href"] == "https://myexternalbrain.com/admin/proactive-ooda/approval"
     assert receipt["next_action_label"] == "Open approval capture"

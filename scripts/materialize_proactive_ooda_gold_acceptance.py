@@ -347,6 +347,15 @@ def _string_list(value: object) -> list[str]:
     return [text] if text else []
 
 
+def _delivery_message_count(receipt: Mapping[str, Any]) -> int:
+    values = receipt.get("delivery_message_ids")
+    if not isinstance(values, list) or not values:
+        values = receipt.get("telegram_message_ids")
+    if not isinstance(values, list):
+        return 0
+    return len([item for item in values if str(item or "").strip()])
+
+
 def _stage_payload_and_input(stage_packet: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     stage = _as_mapping(stage_packet.get("stage"))
     payload = _as_mapping(stage.get("payload"))
@@ -875,15 +884,22 @@ def _runtime_artifact_bundle(
         live_report = ea_live_ops.probe_proactive_artifacts(output_format="json")
         if bool(live_report.get("probe_ok")):
             live_bundle = {
-        "run_receipt_path": _path_from_text(ROOT, str(live_report.get("run_receipt_path") or "")),
-        "run_receipt": dict(live_report.get("run_receipt") or {}),
-        "stage_packet_dir": _path_from_text(ROOT, str(live_report.get("stage_packet_dir") or "")),
-        "safe_work_result_dir": _path_from_text(ROOT, str(live_report.get("safe_work_result_dir") or "")),
-        "approval_outcome_path": _path_from_text(ROOT, str(live_report.get("approval_outcome_path") or "")),
-        "approval_callback_dir": _path_from_text(ROOT, str(live_report.get("approval_callback_dir") or "")),
-            "approval_callback_dir_exists": bool(live_report.get("approval_callback_dir_exists")),
-            "approval_callback_dir_writable": bool(live_report.get("approval_callback_dir_writable")),
-            "approval_callback_record_count": int(live_report.get("approval_callback_record_count") or 0),
+                "run_receipt_path": _path_from_text(ROOT, str(live_report.get("run_receipt_path") or "")),
+                "run_receipt": dict(live_report.get("run_receipt") or {}),
+                "action_required_only_quiet_receipt_path": _path_from_text(
+                    ROOT,
+                    str(live_report.get("action_required_only_quiet_receipt_path") or ""),
+                ),
+                "action_required_only_quiet_receipt": dict(
+                    live_report.get("action_required_only_quiet_receipt") or {}
+                ),
+                "stage_packet_dir": _path_from_text(ROOT, str(live_report.get("stage_packet_dir") or "")),
+                "safe_work_result_dir": _path_from_text(ROOT, str(live_report.get("safe_work_result_dir") or "")),
+                "approval_outcome_path": _path_from_text(ROOT, str(live_report.get("approval_outcome_path") or "")),
+                "approval_callback_dir": _path_from_text(ROOT, str(live_report.get("approval_callback_dir") or "")),
+                "approval_callback_dir_exists": bool(live_report.get("approval_callback_dir_exists")),
+                "approval_callback_dir_writable": bool(live_report.get("approval_callback_dir_writable")),
+                "approval_callback_record_count": int(live_report.get("approval_callback_record_count") or 0),
             "approval_callback_pending_count": int(live_report.get("approval_callback_pending_count") or 0),
             "approval_callback_raw_pending_count": int(live_report.get("approval_callback_raw_pending_count") or live_report.get("approval_callback_pending_count") or 0),
             "approval_callback_live_pending_count": int(live_report.get("approval_callback_live_pending_count") or live_report.get("approval_callback_pending_count") or 0),
@@ -914,8 +930,8 @@ def _runtime_artifact_bundle(
             "stage_packet": dict(live_report.get("stage_packet") or {}),
             "safe_work_result_path": _path_from_text(ROOT, str(live_report.get("safe_work_result_path") or "")),
             "safe_work_result": dict(live_report.get("safe_work_result") or {}),
-        "approval_outcome": dict(live_report.get("approval_outcome") or {}),
-        "state_path": _path_from_text(ROOT, str(live_report.get("state_path") or "")),
+                "approval_outcome": dict(live_report.get("approval_outcome") or {}),
+                "state_path": _path_from_text(ROOT, str(live_report.get("state_path") or "")),
             }
             if not live_bundle["approval_outcome"] and local_bundle.get("approval_outcome"):
                 live_bundle["approval_outcome"] = dict(local_bundle.get("approval_outcome") or {})
@@ -964,6 +980,8 @@ def materialize_proactive_ooda_gold_acceptance(
     )
     run_path = bundle.get("run_receipt_path")
     run_receipt = dict(bundle.get("run_receipt") or {})
+    quiet_receipt_path = bundle.get("action_required_only_quiet_receipt_path")
+    quiet_receipt = dict(bundle.get("action_required_only_quiet_receipt") or {})
     resolved_stage_dir = bundle.get("stage_packet_dir")
     resolved_safe_dir = bundle.get("safe_work_result_dir")
     stage_path = bundle.get("stage_packet_path")
@@ -1168,10 +1186,18 @@ def materialize_proactive_ooda_gold_acceptance(
         and runtime_actionable_count == 0
         and not bool(delivery_guard.get("has_high_priority"))
     )
+    quiet_receipt_message_count = _delivery_message_count(quiet_receipt)
+    quiet_receipt_proves_action_required_only = (
+        str(quiet_receipt.get("notification_status") or "").strip() == "deferred"
+        and str(quiet_receipt.get("error_code") or "").strip() == "no_user_action_required"
+        and int(quiet_receipt.get("item_count") or 0) > 0
+        and not bool(quiet_receipt.get("dry_run"))
+        and quiet_receipt_message_count == 0
+    )
     action_required_delivery_present = bool(
         delivery_present
         and sent_packet_had_user_action_surface
-        and current_guard_is_quiet_without_action
+        and (current_guard_is_quiet_without_action or quiet_receipt_proves_action_required_only)
     )
     action_required_delivery_proof = _proof_row(
         present=action_required_delivery_present,
@@ -1186,6 +1212,13 @@ def materialize_proactive_ooda_gold_acceptance(
             "current_delivery_state": delivery_state,
             "runtime_actionable_count": runtime_actionable_count,
             "current_guard_is_quiet_without_action": current_guard_is_quiet_without_action,
+            "quiet_receipt_present": bool(quiet_receipt),
+            "quiet_receipt_path": display_path(ROOT, quiet_receipt_path),
+            "quiet_receipt_notification_status": str(quiet_receipt.get("notification_status") or "").strip(),
+            "quiet_receipt_error_code": str(quiet_receipt.get("error_code") or "").strip(),
+            "quiet_receipt_item_count": int(quiet_receipt.get("item_count") or 0),
+            "quiet_receipt_message_count": quiet_receipt_message_count,
+            "quiet_receipt_proves_action_required_only": quiet_receipt_proves_action_required_only,
             "interruption_budget_exhausted": bool(delivery_guard.get("interruption_budget_exhausted")),
             "quiet_hours_active": bool(delivery_guard.get("quiet_hours_active")),
             "packet_artifacts_match_run_receipt": packet_artifacts_match_run_receipt,

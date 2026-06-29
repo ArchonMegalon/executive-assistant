@@ -95,6 +95,9 @@ def test_load_runtime_artifact_bundle_keeps_sent_packet_when_primary_is_newer_no
     state_path = "state/proactive_ooda_notified.json"
     primary_receipt_path = tmp_path / "state" / "proactive_ooda_latest_run.generated.json"
     archive_receipt_path = tmp_path / "state" / "proactive_ooda_run_receipts" / "20260629T110000Z-sent-proof.json"
+    delivered_deferred_receipt_path = (
+        tmp_path / "state" / "proactive_ooda_run_receipts" / "20260629T110500Z-delivered-deferred.json"
+    )
     stage_dir = tmp_path / "state" / "proactive_ooda_stage_packets"
     safe_dir = tmp_path / "state" / "proactive_ooda_safe_work_results"
 
@@ -169,11 +172,27 @@ def test_load_runtime_artifact_bundle_keeps_sent_packet_when_primary_is_newer_no
             "telegram_message_ids": [],
         },
     )
+    _write_json(
+        delivered_deferred_receipt_path,
+        {
+            "notification_status": "deferred",
+            "error_code": "no_user_action_required",
+            "item_count": 9,
+            "stage_packet_output_dir": str(stage_dir),
+            "safe_work_result_output_dir": str(safe_dir),
+            "stage_packet_ref_hashes": [_sha256(noop_stage["packet_ref"])],
+            "safe_work_result_ref_hashes": [_sha256(noop_safe["result_ref"])],
+            "telegram_message_ids": [],
+            "delivery_message_ids": ["delivered-message-1"],
+        },
+    )
 
     bundle = load_runtime_artifact_bundle(root=tmp_path, state_path=state_path)
 
     assert bundle["run_receipt_path"] == archive_receipt_path
     assert bundle["run_receipt"]["notification_status"] == "sent"
+    assert bundle["action_required_only_quiet_receipt_path"] == primary_receipt_path
+    assert bundle["action_required_only_quiet_receipt"]["error_code"] == "no_user_action_required"
     assert bundle["stage_packet"]["packet_ref"] == "stage_packet:pkt-actionable"
     assert bundle["safe_work_result"]["result_ref"] == "safe_work_result:res-actionable"
 

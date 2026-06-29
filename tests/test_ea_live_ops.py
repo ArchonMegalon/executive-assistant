@@ -520,6 +520,9 @@ def test_probe_proactive_artifacts_reads_runtime_bundle(monkeypatch) -> None:
                 "probe_ok": True,
                 "state_path": "/data/provider-ledger/proactive_ooda_notified.json",
                 "run_receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+                "action_required_only_quiet_receipt_path": (
+                    "/data/provider-ledger/proactive_ooda_run_receipts/20260629T090000-deferred-quiet.json"
+                ),
                 "stage_packet_dir": "/data/provider-ledger/proactive_ooda_stage_packets",
                 "safe_work_result_dir": "/data/provider-ledger/proactive_ooda_safe_work_results",
                 "approval_outcome_path": "/data/provider-ledger/proactive_ooda_latest_approval_outcome.generated.json",
@@ -539,6 +542,13 @@ def test_probe_proactive_artifacts_reads_runtime_bundle(monkeypatch) -> None:
                 "stage_packet_path": "/data/provider-ledger/proactive_ooda_stage_packets/pkt-1.json",
                 "safe_work_result_path": "/data/provider-ledger/proactive_ooda_safe_work_results/res-1.json",
                 "run_receipt": {"notification_status": "sent"},
+                "action_required_only_quiet_receipt": {
+                    "notification_status": "deferred",
+                    "error_code": "no_user_action_required",
+                    "item_count": 1,
+                    "telegram_message_ids": [],
+                    "delivery_message_ids": [],
+                },
                 "stage_packet": {
                     "schema": "proactive_ooda.stage_packet.v1",
                     "packet_ref": "stage_packet:pkt-1",
@@ -578,6 +588,8 @@ def test_probe_proactive_artifacts_reads_runtime_bundle(monkeypatch) -> None:
     assert report["status"] == "ok"
     assert report["observed_at"] == "2026-06-26T20:10:00Z"
     assert report["run_receipt_path"] == "/data/provider-ledger/proactive_ooda_latest_run.generated.json"
+    assert report["action_required_only_quiet_receipt_path"].endswith("deferred-quiet.json")
+    assert report["action_required_only_quiet_receipt"]["error_code"] == "no_user_action_required"
     assert report["approval_outcome_path"] == "/data/provider-ledger/proactive_ooda_latest_approval_outcome.generated.json"
     assert report["approval_callback_dir"] == "/data/provider-ledger/proactive_ooda_approval_callbacks"
     assert report["approval_callback_dir_writable"] is True

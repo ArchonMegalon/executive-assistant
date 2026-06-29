@@ -157,11 +157,18 @@ def load_runtime_artifact_bundle(
         stage_packet=stage_packet,
         safe_work_result=safe_work_result,
     )
+    quiet_receipt_path, quiet_receipt = choose_action_required_only_quiet_receipt(
+        primary_run_receipt_path=primary_run_receipt_path,
+        primary_run_receipt=primary_run_receipt,
+        run_receipt_dir=run_receipt_dir,
+    )
     return {
         "state_path": _path_from_value(root, state_path),
         "run_receipt_path": run_receipt_path,
         "run_receipt_dir": run_receipt_dir,
         "run_receipt": run_receipt,
+        "action_required_only_quiet_receipt_path": quiet_receipt_path,
+        "action_required_only_quiet_receipt": quiet_receipt,
         "stage_packet_dir": resolved_stage_dir,
         "safe_work_result_dir": resolved_safe_dir,
         "stage_packet_path": stage_packet_path,
@@ -191,6 +198,49 @@ def choose_best_run_receipt_for_artifact_selection(
     if best is None:
         return primary_run_receipt_path, primary_run_receipt
     return best[0], best[1]
+
+
+def choose_action_required_only_quiet_receipt(
+    *,
+    primary_run_receipt_path: Path | None,
+    primary_run_receipt: dict[str, Any],
+    run_receipt_dir: Path,
+) -> tuple[Path | None, dict[str, Any]]:
+    best: tuple[Path | None, dict[str, Any], float] | None = None
+    best_score: tuple[int, int, float] | None = None
+    for path, payload, mtime in _run_receipt_candidates(
+        primary_run_receipt_path=primary_run_receipt_path,
+        primary_run_receipt=primary_run_receipt,
+        run_receipt_dir=run_receipt_dir,
+    ):
+        if not _receipt_proves_action_required_only_quiet_delivery(payload):
+            continue
+        stage_hash_count = len(_run_receipt_ref_hash_sets(payload)[0])
+        score = (
+            1 if stage_hash_count > 0 else 0,
+            int(payload.get("item_count") or 0),
+            mtime,
+        )
+        if best_score is None or score > best_score:
+            best = (path, payload, mtime)
+            best_score = score
+    if best is None:
+        return None, {}
+    return best[0], best[1]
+
+
+def _receipt_proves_action_required_only_quiet_delivery(payload: Mapping[str, Any]) -> bool:
+    if not payload:
+        return False
+    if bool(payload.get("dry_run")):
+        return False
+    if str(payload.get("notification_status") or "").strip().lower() != "deferred":
+        return False
+    if str(payload.get("error_code") or "").strip() != "no_user_action_required":
+        return False
+    if int(payload.get("item_count") or 0) <= 0:
+        return False
+    return _message_id_count(dict(payload)) == 0
 
 
 def approval_callback_runtime_summary(

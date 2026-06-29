@@ -1047,6 +1047,7 @@ def probe_proactive_artifacts(
             "  'probe_ok': True,\n"
             "  'state_path': _text(bundle.get('state_path')),\n"
             "  'run_receipt_path': _text(bundle.get('run_receipt_path')),\n"
+            "  'action_required_only_quiet_receipt_path': _text(bundle.get('action_required_only_quiet_receipt_path')),\n"
             "  'stage_packet_dir': _text(bundle.get('stage_packet_dir')),\n"
             "  'safe_work_result_dir': _text(bundle.get('safe_work_result_dir')),\n"
             "  'approval_outcome_path': _text(bundle.get('approval_outcome_path')),\n"
@@ -1081,6 +1082,7 @@ def probe_proactive_artifacts(
             "  'stage_packet_path': _text(bundle.get('stage_packet_path')),\n"
             "  'safe_work_result_path': _text(bundle.get('safe_work_result_path')),\n"
             "  'run_receipt': bundle.get('run_receipt') or {},\n"
+            "  'action_required_only_quiet_receipt': bundle.get('action_required_only_quiet_receipt') or {},\n"
             "  'stage_packet': bundle.get('stage_packet') or {},\n"
             "  'safe_work_result': bundle.get('safe_work_result') or {},\n"
             "  'approval_outcome': bundle.get('approval_outcome') or {},\n"
@@ -1118,6 +1120,7 @@ def probe_proactive_artifacts(
         "source": "docker_compose_exec",
         "state_path": str(payload.get("state_path") or "").strip(),
         "run_receipt_path": str(payload.get("run_receipt_path") or "").strip(),
+        "action_required_only_quiet_receipt_path": str(payload.get("action_required_only_quiet_receipt_path") or "").strip(),
         "stage_packet_dir": str(payload.get("stage_packet_dir") or "").strip(),
         "safe_work_result_dir": str(payload.get("safe_work_result_dir") or "").strip(),
         "approval_outcome_path": str(payload.get("approval_outcome_path") or "").strip(),
@@ -1154,6 +1157,7 @@ def probe_proactive_artifacts(
         "stage_packet_path": str(payload.get("stage_packet_path") or "").strip(),
         "safe_work_result_path": str(payload.get("safe_work_result_path") or "").strip(),
         "run_receipt": dict(payload.get("run_receipt") or {}),
+        "action_required_only_quiet_receipt": dict(payload.get("action_required_only_quiet_receipt") or {}),
         "stage_packet": dict(payload.get("stage_packet") or {}),
         "safe_work_result": dict(payload.get("safe_work_result") or {}),
         "approval_outcome": dict(payload.get("approval_outcome") or {}),
