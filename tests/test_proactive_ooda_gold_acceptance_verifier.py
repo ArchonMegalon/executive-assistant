@@ -38,6 +38,18 @@ def _base_payload() -> dict[str, object]:
             "chosen_candidate": {"present": True, "status": "pass"},
             "staged_reversible_artifact": {"present": True, "status": "pass"},
             "teable_projection": {"present": True, "status": "pass"},
+            "approval_capture_readiness": {
+                "present": True,
+                "status": "pass",
+                "required": False,
+                "checked": False,
+                "ready": False,
+                "raw_callback_token_exposed": False,
+                "raw_principal_id_exposed": False,
+                "raw_chat_ref_exposed": False,
+                "raw_packet_ref_exposed": False,
+                "raw_staged_artifact_ref_exposed": False,
+            },
             "approval_outcome": {
                 "present": False,
                 "accepted": False,

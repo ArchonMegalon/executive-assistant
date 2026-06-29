@@ -25,8 +25,51 @@ def _sha256(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def _approval_capture_ready() -> dict[str, object]:
+    return {
+        "checked": True,
+        "probe_ok": True,
+        "ready": True,
+        "status": "ready",
+        "source": "docker_compose_exec:proactive_approval_capture",
+        "runtime_service": "ea-proactive-ooda",
+        "observed_at": "2026-06-29T06:55:20Z",
+        "blocking_reason": "",
+        "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
+        "callback_dir_exists": True,
+        "callback_record_count": 1,
+        "current_packet_ref_sha256": "a" * 64,
+        "current_staged_artifact_ref_sha256": "b" * 64,
+        "current_packet_refs_present": True,
+        "current_packet_callback_record_count": 1,
+        "current_packet_live_pending_count": 1,
+        "current_packet_callback_latest_status": "pending",
+        "current_packet_callback_latest_expired": False,
+        "current_packet_callback_latest_age_seconds": 91,
+        "current_packet_callback_latest_seconds_until_expiry": 1200,
+        "callback_principal_hash_present": True,
+        "candidate_principal_hash_count": 3,
+        "principal_match_ready": True,
+        "telegram_binding_ready": True,
+        "telegram_blocking_reason": "",
+        "telegram_chat_ref_present": True,
+        "telegram_chat_ref_sha256": "c" * 64,
+        "telegram_bot_key_present": True,
+        "telegram_bot_token_present": True,
+        "privacy": {
+            "raw_callback_token_exposed": False,
+            "raw_principal_id_exposed": False,
+            "raw_chat_ref_exposed": False,
+            "raw_packet_ref_exposed": False,
+            "raw_staged_artifact_ref_exposed": False,
+        },
+    }
+
+
 def _write_json(path: Path, payload: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    if path.name == "ea_proactive_ooda_operator_status.generated.json" and "approval_capture" not in payload:
+        payload = {**payload, "approval_capture": _approval_capture_ready()}
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
@@ -605,6 +648,8 @@ def test_materialize_proactive_ooda_gold_acceptance_falls_back_to_live_runtime_a
     assert receipt["evidence_receipts"]["approval_capture_surface"]["callback_record_count"] == 1
     assert receipt["evidence_receipts"]["approval_capture_surface"]["current_packet_callback_record_count"] == 1
     assert receipt["evidence_receipts"]["approval_capture_surface"]["current_packet_live_pending_count"] == 1
+    assert receipt["proofs"]["approval_capture_readiness"]["present"] is True
+    assert receipt["evidence_receipts"]["approval_capture"]["principal_match_ready"] is True
     assert receipt["evidence_receipts"]["run_receipt"]["source"] == "docker_compose_exec"
     assert receipt["evidence_receipts"]["stage_packet"]["path"] == "/data/provider-ledger/proactive_ooda_stage_packets/pkt-live.json"
 

@@ -107,6 +107,61 @@ def _verify_source_coverage(receipt: dict[str, Any], issues: list[str]) -> None:
         issues.append("pocket_ai_audio_transcripts lane must not expose raw transcript text")
 
 
+def _verify_approval_capture(approval_capture: dict[str, Any], issues: list[str], *, required: bool) -> None:
+    if not approval_capture:
+        if required:
+            issues.append("ready approval_capture_surface requires redacted approval_capture readiness proof")
+        return
+    privacy = dict(approval_capture.get("privacy") or {})
+    for flag in (
+        "raw_callback_token_exposed",
+        "raw_principal_id_exposed",
+        "raw_chat_ref_exposed",
+        "raw_packet_ref_exposed",
+        "raw_staged_artifact_ref_exposed",
+    ):
+        if bool(privacy.get(flag)):
+            issues.append(f"approval_capture.privacy.{flag} must remain false")
+    if not required:
+        return
+    if bool(approval_capture.get("checked")) is not True:
+        issues.append("ready approval_capture_surface requires approval_capture.checked=true")
+    if not str(approval_capture.get("source") or "").strip():
+        issues.append("ready approval_capture_surface requires approval_capture.source")
+    if not str(approval_capture.get("observed_at") or "").strip():
+        issues.append("ready approval_capture_surface requires approval_capture.observed_at")
+    if bool(approval_capture.get("ready")) is not True:
+        if not str(approval_capture.get("blocking_reason") or "").strip():
+            issues.append("blocked approval_capture requires blocking_reason")
+        if not str(approval_capture.get("next_action") or "").strip():
+            issues.append("blocked approval_capture requires next_action")
+        return
+    if bool(approval_capture.get("probe_ok")) is not True:
+        issues.append("ready approval_capture_surface requires approval_capture.probe_ok=true")
+    if str(approval_capture.get("status") or "").strip() != "ready":
+        issues.append("ready approval_capture_surface requires approval_capture.status=ready")
+    if bool(approval_capture.get("current_packet_refs_present")) is not True:
+        issues.append("ready approval_capture_surface requires approval_capture.current_packet_refs_present=true")
+    if int(approval_capture.get("current_packet_callback_record_count") or 0) <= 0:
+        issues.append("ready approval_capture_surface requires approval_capture.current_packet_callback_record_count>0")
+    if int(approval_capture.get("current_packet_live_pending_count") or 0) <= 0:
+        issues.append("ready approval_capture_surface requires approval_capture.current_packet_live_pending_count>0")
+    if str(approval_capture.get("current_packet_callback_latest_status") or "").strip() != "pending":
+        issues.append("ready approval_capture_surface requires approval_capture.current_packet_callback_latest_status=pending")
+    if bool(approval_capture.get("callback_principal_hash_present")) is not True:
+        issues.append("ready approval_capture_surface requires approval_capture.callback_principal_hash_present=true")
+    if int(approval_capture.get("candidate_principal_hash_count") or 0) <= 0:
+        issues.append("ready approval_capture_surface requires approval_capture.candidate_principal_hash_count>0")
+    if bool(approval_capture.get("principal_match_ready")) is not True:
+        issues.append("ready approval_capture_surface requires approval_capture.principal_match_ready=true")
+    if bool(approval_capture.get("telegram_binding_ready")) is not True:
+        issues.append("ready approval_capture_surface requires approval_capture.telegram_binding_ready=true")
+    if bool(approval_capture.get("telegram_chat_ref_present")) is not True:
+        issues.append("ready approval_capture_surface requires approval_capture.telegram_chat_ref_present=true")
+    if bool(approval_capture.get("telegram_bot_token_present")) is not True:
+        issues.append("ready approval_capture_surface requires approval_capture.telegram_bot_token_present=true")
+
+
 def _json(path: Path) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -235,7 +290,10 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
         issues.append("deferred status requires delivery_guard.delivery_state=deferred")
 
     approval_capture_surface = dict(receipt.get("approval_capture_surface") or {})
+    approval_capture = dict(receipt.get("approval_capture") or {})
     if approval_capture_surface:
+        approval_capture_required = bool(approval_capture_surface.get("ready"))
+        approval_capture_ready = bool(approval_capture.get("ready"))
         if bool(approval_capture_surface.get("ready")):
             if str(approval_capture_surface.get("selected_channel") or "").strip() != "telegram":
                 issues.append("ready approval_capture_surface requires selected_channel=telegram")
@@ -247,7 +305,7 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
                 issues.append("ready approval_capture_surface requires callback_dir")
             if int(approval_capture_surface.get("current_packet_live_pending_count") or 0) <= 0:
                 issues.append("ready approval_capture_surface requires current_packet_live_pending_count>0")
-            if status == "ready_with_live_receipt":
+            if status == "ready_with_live_receipt" and approval_capture_ready:
                 if str(receipt.get("next_action") or "").strip() != "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome":
                     issues.append("ready approval_capture_surface with ready_with_live_receipt requires approval-capture next_action")
                 if str(receipt.get("operator_action_state") or "").strip() != "approval_capture_pending":
@@ -258,6 +316,15 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
                     issues.append("ready approval_capture_surface with ready_with_live_receipt requires delivery_guard.user_action_required=true")
                 if int(receipt.get("actionable_count") or 0) < int(approval_capture_surface.get("current_packet_live_pending_count") or 0):
                     issues.append("ready approval_capture_surface with ready_with_live_receipt requires actionable_count to include pending approval surfaces")
+            if status == "ready_with_live_receipt" and approval_capture and not approval_capture_ready:
+                expected_next_action = str(approval_capture.get("next_action") or "").strip()
+                if expected_next_action and str(receipt.get("next_action") or "").strip() != expected_next_action:
+                    issues.append("blocked approval_capture requires receipt.next_action to match approval_capture.next_action")
+                if str(receipt.get("operator_action_state") or "").strip() != "recovery_required":
+                    issues.append("blocked approval_capture with ready_with_live_receipt requires operator_action_state=recovery_required")
+        _verify_approval_capture(approval_capture, issues, required=approval_capture_required)
+    elif approval_capture:
+        _verify_approval_capture(approval_capture, issues, required=False)
 
     commands = [str(item).strip() for item in list(receipt.get("verifier_commands") or []) if str(item).strip()]
     for expected in (

@@ -662,6 +662,10 @@ env-local-status-teable:
 probe-teable-recovery:
 	$(PYTHON_BIN) scripts/ea_live_ops.py probe-teable-recovery --format operator
 
+.PHONY: probe-operator-readiness
+probe-operator-readiness:
+	$(PYTHON_BIN) scripts/ea_live_ops.py probe-operator-readiness --format operator
+
 env-probe-teable:
 	@scripts/bootstrap_from_teable.sh --probe
 

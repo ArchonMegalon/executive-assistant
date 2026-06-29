@@ -113,6 +113,46 @@ def _fake_source_coverage_probe(**_kwargs: object) -> dict[str, object]:
     }
 
 
+def _fake_approval_capture_probe(**_kwargs: object) -> dict[str, object]:
+    return {
+        "probe_ok": True,
+        "ready": True,
+        "status": "ready",
+        "source": "docker_compose_exec:proactive_approval_capture",
+        "runtime_service": "ea-proactive-ooda",
+        "observed_at": "2026-06-29T06:55:20Z",
+        "blocking_reason": "",
+        "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
+        "callback_dir_exists": True,
+        "callback_record_count": 1,
+        "current_packet_ref_sha256": "a" * 64,
+        "current_staged_artifact_ref_sha256": "b" * 64,
+        "current_packet_refs_present": True,
+        "current_packet_callback_record_count": 1,
+        "current_packet_live_pending_count": 1,
+        "current_packet_callback_latest_status": "pending",
+        "current_packet_callback_latest_expired": False,
+        "current_packet_callback_latest_age_seconds": 91,
+        "current_packet_callback_latest_seconds_until_expiry": 1200,
+        "callback_principal_hash_present": True,
+        "candidate_principal_hash_count": 3,
+        "principal_match_ready": True,
+        "telegram_binding_ready": True,
+        "telegram_blocking_reason": "",
+        "telegram_chat_ref_present": True,
+        "telegram_chat_ref_sha256": "c" * 64,
+        "telegram_bot_key_present": True,
+        "telegram_bot_token_present": True,
+        "privacy": {
+            "raw_callback_token_exposed": False,
+            "raw_principal_id_exposed": False,
+            "raw_chat_ref_exposed": False,
+            "raw_packet_ref_exposed": False,
+            "raw_staged_artifact_ref_exposed": False,
+        },
+    }
+
+
 def test_materialize_proactive_ooda_operator_status_writes_recovery_receipt(tmp_path: Path, monkeypatch) -> None:
     module = _load_script()
     monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
@@ -262,6 +302,7 @@ def test_materialize_proactive_ooda_operator_status_prefers_live_route_probe_whe
             "current_packet_callback_latest_expired": False,
         },
     )
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_approval_capture", _fake_approval_capture_probe)
     monkeypatch.setattr(
         module.ea_live_ops,
         "probe_proactive_gmail_draft",
@@ -318,6 +359,11 @@ def test_materialize_proactive_ooda_operator_status_prefers_live_route_probe_whe
     assert receipt["approval_capture_surface"]["callback_dir_writable"] is True
     assert receipt["approval_capture_surface"]["current_packet_callback_record_count"] == 1
     assert receipt["approval_capture_surface"]["current_packet_live_pending_count"] == 1
+    assert receipt["approval_capture"]["checked"] is True
+    assert receipt["approval_capture"]["ready"] is True
+    assert receipt["approval_capture"]["principal_match_ready"] is True
+    assert receipt["approval_capture"]["telegram_bot_token_present"] is True
+    assert receipt["approval_capture"]["privacy"]["raw_callback_token_exposed"] is False
     assert receipt["gmail_draft_followthrough"]["status"] == "already_executed"
     assert receipt["gmail_draft_followthrough"]["action"] == "save_gmail_draft"
     assert receipt["gmail_draft_followthrough"]["execution_observation_present"] is True
@@ -394,6 +440,7 @@ def test_materialize_proactive_ooda_operator_status_counts_pending_approval_as_u
             "current_packet_callback_latest_expired": False,
         },
     )
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_approval_capture", _fake_approval_capture_probe)
     monkeypatch.setattr(
         module.ea_live_ops,
         "probe_proactive_gmail_draft",
@@ -433,6 +480,10 @@ def test_materialize_proactive_ooda_operator_status_counts_pending_approval_as_u
     assert receipt["delivery_guard"]["user_action_required"] is True
     assert receipt["delivery_guard"]["pending_approval_surface"] is True
     assert receipt["delivery_guard"]["current_packet_live_pending_count"] == 1
+    assert receipt["approval_capture"]["checked"] is True
+    assert receipt["approval_capture"]["ready"] is True
+    assert receipt["approval_capture"]["current_packet_live_pending_count"] == 1
+    assert receipt["approval_capture"]["privacy"]["raw_principal_id_exposed"] is False
     assert receipt["source_coverage"]["observed_lane_count"] == 3
 
 
@@ -504,6 +555,7 @@ def test_materialize_proactive_ooda_operator_status_blocks_when_live_route_probe
             "current_packet_callback_latest_expired": False,
         },
     )
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_approval_capture", _fake_approval_capture_probe)
     monkeypatch.setattr(
         module.ea_live_ops,
         "probe_proactive_gmail_draft",

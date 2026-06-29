@@ -3968,6 +3968,290 @@ def probe_whatsapp_pairing(
     return report
 
 
+OPERATOR_READINESS_DETAIL_FIELDS: dict[str, tuple[str, ...]] = {
+    "telegram": (
+        "principal_id",
+        "binding_id",
+        "binding_status",
+        "chat_ref_present",
+        "bot_key",
+        "bot_handle",
+        "bot_token_present",
+        "runtime_container",
+    ),
+    "whatsapp": (
+        "effective_session_ref",
+        "effective_session_ref_source",
+        "sidecar_status",
+        "sidecar_qr_required",
+        "sidecar_qr_present",
+        "sidecar_qr_age_seconds",
+        "sidecar_qr_fresh",
+        "processor_container_enabled",
+        "state_fresh",
+    ),
+    "whatsapp_pairing": (
+        "session_ref",
+        "binding_lookup_status",
+        "sidecar_status",
+        "qr_present",
+        "qr_required",
+        "qr_age_seconds",
+        "qr_fresh",
+        "pair_url_scope",
+        "qr_svg_written",
+    ),
+    "teable_recovery": (
+        "verify_status",
+        "local_status",
+        "table_id_present",
+        "expected_rows",
+        "same_hash",
+        "root_restore_count",
+        "local_restore_count",
+        "service_restore_count",
+        "referenced_file_restore_count",
+        "missing_count",
+        "missing_artifact_count",
+        "wrong_mode_count",
+        "different_hash_count",
+        "missing_secret_value_count",
+        "extra_restorable_count",
+        "uncovered_local_secret_file_count",
+    ),
+    "proactive_route": (
+        "principal_id",
+        "runtime_service",
+        "delivery_route_ready",
+        "selected_channel",
+        "selected_transport",
+        "selected_by",
+        "available_channels",
+        "blocking_reason",
+        "approval_capture_surface_ready",
+        "approval_capture_surface_pending_count",
+    ),
+    "proactive_artifacts": (
+        "runtime_service",
+        "run_receipt_path",
+        "action_required_only_quiet_receipt_path",
+        "approval_callback_dir_exists",
+        "approval_callback_dir_writable",
+        "approval_callback_record_count",
+        "approval_callback_live_pending_count",
+        "approval_callback_stale_pending_count",
+        "current_packet_live_pending_count",
+        "current_packet_callback_latest_status",
+        "approval_outcome_matches_current_packet",
+    ),
+}
+
+OPERATOR_READINESS_READY_STATUSES: dict[str, set[str]] = {
+    "telegram": {"ready"},
+    "whatsapp": {"ready"},
+    "whatsapp_pairing": {"ready"},
+    "teable_recovery": {"ready"},
+    "proactive_route": {"ready", "ready_with_recovery_action"},
+    "proactive_artifacts": {"ok"},
+}
+
+
+def _operator_readiness_component(
+    *,
+    key: str,
+    label: str,
+    report: Mapping[str, object],
+) -> dict[str, object]:
+    status = str(report.get("status") or "unknown").strip() or "unknown"
+    ready = bool(report.get("ready")) or status in OPERATOR_READINESS_READY_STATUSES.get(key, {"ready"})
+    probe_ok = bool(report.get("probe_ok", status not in {"probe_failed", "unavailable"}))
+    details: dict[str, object] = {}
+    for field in OPERATOR_READINESS_DETAIL_FIELDS.get(key, ()):
+        value = report.get(field)
+        if value is None:
+            continue
+        if isinstance(value, str):
+            cleaned = value.strip()
+            if not cleaned:
+                continue
+            details[field] = cleaned
+        else:
+            details[field] = value
+    return {
+        "key": key,
+        "label": label,
+        "probe_ok": probe_ok,
+        "ready": ready,
+        "status": status,
+        "reason": str(report.get("reason") or report.get("blocking_reason") or "").strip(),
+        "next_action": str(report.get("next_action") or "").strip(),
+        "observed_at": str(report.get("observed_at") or "").strip(),
+        "source": str(report.get("source") or "").strip(),
+        "details": details,
+    }
+
+
+def _operator_readiness_failed_component(key: str, label: str, reason: str) -> dict[str, object]:
+    return {
+        "key": key,
+        "label": label,
+        "probe_ok": False,
+        "ready": False,
+        "status": "probe_failed",
+        "reason": str(reason or "probe_failed").strip() or "probe_failed",
+        "next_action": f"inspect_{key}_probe",
+        "observed_at": _utc_now(),
+        "source": "ea_live_ops.aggregate",
+        "details": {},
+    }
+
+
+def _operator_text_for_operator_readiness(report: Mapping[str, object]) -> str:
+    components = [dict(item) for item in list(report.get("components") or []) if isinstance(item, dict)]
+    component_states = ",".join(
+        f"{item.get('key')}:{item.get('status')}" for item in components if str(item.get("key") or "").strip()
+    )
+    pieces = [
+        f"operator_readiness status={report.get('status') or 'unknown'}",
+        f"ready={str(bool(report.get('ready'))).lower()}",
+        f"components={len(components)}",
+        f"attention={int(report.get('attention_required_count') or 0)}",
+        f"blocked={int(report.get('blocked_count') or 0)}",
+        f"probe_failed={int(report.get('probe_failed_count') or 0)}",
+    ]
+    if component_states:
+        pieces.append(f"states={component_states}")
+    next_actions = [dict(item) for item in list(report.get("next_actions") or []) if isinstance(item, dict)]
+    if next_actions:
+        first = next_actions[0]
+        pieces.append(f"next={first.get('component_key')}:{first.get('action')}")
+    if report.get("observed_at"):
+        pieces.append(f"observed_at={report['observed_at']}")
+    if report.get("source"):
+        pieces.append(f"source={report['source']}")
+    return "; ".join(str(item) for item in pieces if str(item).strip())
+
+
+def probe_operator_readiness(
+    *,
+    args: argparse.Namespace,
+    telegram_principal_id: str,
+    proactive_principal_id: str,
+    compose_file: str = "",
+    runtime_service: str = "",
+    receipt_path: str = "",
+    timeout_seconds: float = 30.0,
+    include_proactive: bool = True,
+    include_pairing: bool = True,
+    output_format: str = "json",
+) -> dict[str, object]:
+    observed_at = _utc_now()
+    components: list[dict[str, object]] = []
+
+    def append_component(key: str, label: str, callback: Any) -> dict[str, object]:
+        try:
+            report = callback()
+            component = _operator_readiness_component(key=key, label=label, report=report if isinstance(report, Mapping) else {})
+        except Exception as exc:
+            component = _operator_readiness_failed_component(key, label, type(exc).__name__)
+        components.append(component)
+        return component
+
+    append_component(
+        "telegram",
+        "Telegram operator delivery",
+        lambda: probe_telegram_readiness(principal_id=str(telegram_principal_id or "").strip(), output_format="json"),
+    )
+    whatsapp_component = append_component(
+        "whatsapp",
+        "WhatsApp Web action processor",
+        lambda: probe_whatsapp_readiness(refresh=True, output_format="json", volatile=True),
+    )
+    if include_pairing and (
+        not bool(whatsapp_component.get("ready"))
+        or bool(dict(whatsapp_component.get("details") or {}).get("sidecar_qr_required"))
+        or bool(dict(whatsapp_component.get("details") or {}).get("sidecar_qr_present"))
+    ):
+        append_component(
+            "whatsapp_pairing",
+            "WhatsApp Web pairing recovery",
+            lambda: probe_whatsapp_pairing(
+                args=args,
+                output_format="json",
+                write_qr_svg=False,
+            ),
+        )
+    append_component(
+        "teable_recovery",
+        "Teable env recovery",
+        lambda: probe_teable_recovery(output_format="json", timeout_seconds=timeout_seconds),
+    )
+    if include_proactive:
+        append_component(
+            "proactive_route",
+            "Proactive OODA delivery route",
+            lambda: probe_proactive_route(
+                principal_id=str(proactive_principal_id or "").strip(),
+                compose_file=str(compose_file or "").strip(),
+                runtime_service=str(runtime_service or "").strip(),
+                receipt_path=str(receipt_path or "").strip(),
+                timeout_seconds=timeout_seconds,
+                output_format="json",
+            ),
+        )
+        append_component(
+            "proactive_artifacts",
+            "Proactive OODA artifacts",
+            lambda: probe_proactive_artifacts(
+                compose_file=str(compose_file or "").strip(),
+                runtime_service=str(runtime_service or "").strip(),
+                timeout_seconds=timeout_seconds,
+                output_format="json",
+            ),
+        )
+
+    probe_failed_count = sum(1 for item in components if not bool(item.get("probe_ok")))
+    blocked_count = sum(1 for item in components if bool(item.get("probe_ok")) and not bool(item.get("ready")))
+    attention_required_count = sum(
+        1
+        for item in components
+        if (not bool(item.get("probe_ok"))) or (not bool(item.get("ready"))) or bool(str(item.get("next_action") or "").strip())
+    )
+    next_actions = [
+        {
+            "component_key": str(item.get("key") or "").strip(),
+            "component_label": str(item.get("label") or "").strip(),
+            "action": str(item.get("next_action") or "").strip(),
+            "reason": str(item.get("reason") or "").strip(),
+        }
+        for item in components
+        if str(item.get("next_action") or "").strip()
+    ]
+    if probe_failed_count:
+        status = "probe_failed"
+    elif attention_required_count:
+        status = "ready_with_actions"
+    else:
+        status = "ready"
+    report = {
+        "contract_name": "ea.operator_readiness.v1",
+        "probe_ok": probe_failed_count == 0,
+        "ready": status == "ready",
+        "status": status,
+        "component_count": len(components),
+        "attention_required_count": attention_required_count,
+        "blocked_count": blocked_count,
+        "probe_failed_count": probe_failed_count,
+        "components": components,
+        "next_actions": next_actions,
+        "observed_at": observed_at,
+        "source": "ea_live_ops.aggregate",
+    }
+    if output_format == "operator":
+        report["operator_text"] = _operator_text_for_operator_readiness(report)
+    return report
+
+
 def send_telegram(
     *,
     principal_id: str,
@@ -4093,6 +4377,16 @@ def parse_args() -> argparse.Namespace:
 
     teable_recovery = subparsers.add_parser("probe-teable-recovery", help="Probe Teable env backup/restore posture without exposing secret values.")
     teable_recovery.add_argument("--format", choices=("json", "operator"), default="json")
+
+    operator_readiness = subparsers.add_parser("probe-operator-readiness", help="Probe aggregate EA operator readiness without exposing secret values.")
+    operator_readiness.add_argument("--format", choices=("json", "operator"), default="json")
+    operator_readiness.add_argument("--telegram-principal-id", default=_default_proactive_principal_id())
+    operator_readiness.add_argument("--proactive-principal-id", default=_default_proactive_principal_id())
+    operator_readiness.add_argument("--compose-file", default=_env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE)))
+    operator_readiness.add_argument("--runtime-service", default=_env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE))
+    operator_readiness.add_argument("--receipt-path", default=_env("EA_PROACTIVE_OODA_LIVE_RECEIPT_PATH"))
+    operator_readiness.add_argument("--no-proactive", dest="include_proactive", action="store_false", default=True)
+    operator_readiness.add_argument("--no-pairing", dest="include_pairing", action="store_false", default=True)
 
     proactive_route = subparsers.add_parser("probe-proactive-route", help="Probe the live proactive OODA delivery route.")
     proactive_route.add_argument("--principal-id", dest="proactive_principal_id", default=_default_proactive_principal_id())
@@ -4267,6 +4561,24 @@ def main() -> int:
         else:
             print(_json_dumps(report))
         return 0 if bool(report.get("ready")) else 2
+    if args.command == "probe-operator-readiness":
+        report = probe_operator_readiness(
+            args=args,
+            telegram_principal_id=str(getattr(args, "telegram_principal_id", "") or "").strip(),
+            proactive_principal_id=str(getattr(args, "proactive_principal_id", "") or "").strip(),
+            compose_file=str(getattr(args, "compose_file", "") or "").strip(),
+            runtime_service=str(getattr(args, "runtime_service", "") or "").strip(),
+            receipt_path=str(getattr(args, "receipt_path", "") or "").strip(),
+            timeout_seconds=float(args.timeout_seconds or 30.0),
+            include_proactive=bool(getattr(args, "include_proactive", True)),
+            include_pairing=bool(getattr(args, "include_pairing", True)),
+            output_format=args.format,
+        )
+        if args.format == "operator":
+            print(str(report.get("operator_text") or ""))
+        else:
+            print(_json_dumps(report))
+        return 0 if bool(report.get("probe_ok")) else 2
     if args.command == "probe-proactive-route":
         report = probe_proactive_route(
             principal_id=str(getattr(args, "proactive_principal_id", "") or "").strip(),

@@ -599,6 +599,7 @@ def _next_action(
     chosen_present: bool,
     staged_present: bool,
     teable_present: bool,
+    approval_capture_readiness_present: bool,
     approval_row: Mapping[str, Any],
     approval_capture_surface_ready: bool,
 ) -> str:
@@ -618,6 +619,9 @@ def _next_action(
         return "persist_one_reversible_staged_artifact"
     if not teable_present:
         return "mirror_the_proactive_packet_into_teable"
+    if not approval_capture_readiness_present:
+        approval_capture = dict(operator_status.get("approval_capture") or {})
+        return str(approval_capture.get("next_action") or "repair_proactive_approval_capture").strip() or "repair_proactive_approval_capture"
     if not bool(approval_row.get("approval_outcome_recorded")):
         if approval_capture_surface_ready:
             return "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome"
@@ -640,6 +644,7 @@ def _remaining_external_proofs(
     chosen_present: bool,
     staged_present: bool,
     teable_present: bool,
+    approval_capture_readiness_present: bool,
     approval_row: Mapping[str, Any],
 ) -> list[str]:
     remaining: list[str] = []
@@ -661,11 +666,86 @@ def _remaining_external_proofs(
         remaining.append("staged reversible artifact proof for a real proactive OODA packet")
     if not teable_present:
         remaining.append("mirrored Teable projection for the proactive OODA packet")
+    if not approval_capture_readiness_present:
+        remaining.append("redacted approval-capture readiness for the proactive OODA packet")
     if not bool(approval_row.get("approval_outcome_recorded")):
         remaining.append("redacted explicit approval outcome for the proactive OODA packet")
     elif not bool(approval_row.get("accepted")):
         remaining.append("real proactive OODA packet accepted under ordinary use")
     return remaining
+
+
+def _approval_capture_readiness_proof(
+    *,
+    operator_status: Mapping[str, Any],
+    required: bool,
+) -> tuple[dict[str, Any], bool]:
+    approval_capture = dict(operator_status.get("approval_capture") or {})
+    privacy = dict(approval_capture.get("privacy") or {})
+    checked = bool(approval_capture.get("checked"))
+    raw_exposure = any(
+        bool(privacy.get(key))
+        for key in (
+            "raw_callback_token_exposed",
+            "raw_principal_id_exposed",
+            "raw_chat_ref_exposed",
+            "raw_packet_ref_exposed",
+            "raw_staged_artifact_ref_exposed",
+        )
+    )
+    ready = bool(approval_capture.get("ready"))
+    present = (
+        (not required and not checked)
+        or (
+            checked
+            and bool(approval_capture.get("probe_ok"))
+            and ready
+            and not raw_exposure
+            and bool(approval_capture.get("current_packet_refs_present"))
+            and int(approval_capture.get("current_packet_live_pending_count") or 0) > 0
+            and int(approval_capture.get("current_packet_callback_record_count") or 0) > 0
+            and bool(approval_capture.get("callback_principal_hash_present"))
+            and int(approval_capture.get("candidate_principal_hash_count") or 0) > 0
+            and bool(approval_capture.get("principal_match_ready"))
+            and bool(approval_capture.get("telegram_binding_ready"))
+            and bool(approval_capture.get("telegram_chat_ref_present"))
+            and bool(approval_capture.get("telegram_bot_token_present"))
+        )
+    )
+    return (
+        _proof_row(
+            present=present,
+            detail={
+                "required": required,
+                "checked": checked,
+                "probe_ok": bool(approval_capture.get("probe_ok")),
+                "ready": ready,
+                "capture_status": str(approval_capture.get("status") or "").strip(),
+                "source": str(approval_capture.get("source") or "").strip(),
+                "observed_at": str(approval_capture.get("observed_at") or "").strip(),
+                "blocking_reason": str(approval_capture.get("blocking_reason") or "").strip(),
+                "next_action": str(approval_capture.get("next_action") or "").strip(),
+                "current_packet_refs_present": bool(approval_capture.get("current_packet_refs_present")),
+                "current_packet_callback_record_count": int(approval_capture.get("current_packet_callback_record_count") or 0),
+                "current_packet_live_pending_count": int(approval_capture.get("current_packet_live_pending_count") or 0),
+                "current_packet_callback_latest_status": str(
+                    approval_capture.get("current_packet_callback_latest_status") or ""
+                ).strip(),
+                "callback_principal_hash_present": bool(approval_capture.get("callback_principal_hash_present")),
+                "candidate_principal_hash_count": int(approval_capture.get("candidate_principal_hash_count") or 0),
+                "principal_match_ready": bool(approval_capture.get("principal_match_ready")),
+                "telegram_binding_ready": bool(approval_capture.get("telegram_binding_ready")),
+                "telegram_chat_ref_present": bool(approval_capture.get("telegram_chat_ref_present")),
+                "telegram_bot_token_present": bool(approval_capture.get("telegram_bot_token_present")),
+                "raw_callback_token_exposed": bool(privacy.get("raw_callback_token_exposed")),
+                "raw_principal_id_exposed": bool(privacy.get("raw_principal_id_exposed")),
+                "raw_chat_ref_exposed": bool(privacy.get("raw_chat_ref_exposed")),
+                "raw_packet_ref_exposed": bool(privacy.get("raw_packet_ref_exposed")),
+                "raw_staged_artifact_ref_exposed": bool(privacy.get("raw_staged_artifact_ref_exposed")),
+            },
+        ),
+        present,
+    )
 
 
 def _approval_capture_surface_receipt(
@@ -1093,6 +1173,11 @@ def materialize_proactive_ooda_gold_acceptance(
         approval_outcome_path=resolved_approval_outcome_path,
         used_live_runtime_probe=used_live_runtime_probe,
     )
+    approval_capture_readiness_required = approval_capture_surface_ready and not bool(approval_row.get("approval_outcome_recorded"))
+    approval_capture_readiness_proof, approval_capture_readiness_present = _approval_capture_readiness_proof(
+        operator_status=operator_status,
+        required=approval_capture_readiness_required,
+    )
 
     delivery_route = dict(operator_status.get("delivery_route") or {})
     live_receipt = dict(operator_status.get("live_receipt") or {})
@@ -1334,6 +1419,7 @@ def materialize_proactive_ooda_gold_acceptance(
             chosen_present,
             staged_present,
             teable_present,
+            approval_capture_readiness_present,
         )
     )
     if not operator_runtime_ready:
@@ -1361,6 +1447,7 @@ def materialize_proactive_ooda_gold_acceptance(
         chosen_present=chosen_present,
         staged_present=staged_present,
         teable_present=teable_present,
+        approval_capture_readiness_present=approval_capture_readiness_present,
         approval_row=approval_row,
         approval_capture_surface_ready=approval_capture_surface_ready,
     )
@@ -1390,6 +1477,7 @@ def materialize_proactive_ooda_gold_acceptance(
             "chosen_candidate": chosen_candidate_proof,
             "staged_reversible_artifact": staged_proof,
             "teable_projection": teable_proof,
+            "approval_capture_readiness": approval_capture_readiness_proof,
             "approval_outcome": approval_row,
         },
         "evidence_receipts": {
@@ -1442,6 +1530,7 @@ def materialize_proactive_ooda_gold_acceptance(
                 "source": "docker_compose_exec" if used_live_runtime_probe else "local_filesystem",
             },
             "approval_capture_surface": approval_capture_surface,
+            "approval_capture": dict(operator_status.get("approval_capture") or {}),
         },
         "remaining_external_proofs": _remaining_external_proofs(
             operator_runtime_ready=operator_runtime_ready,
@@ -1453,6 +1542,7 @@ def materialize_proactive_ooda_gold_acceptance(
             chosen_present=chosen_present,
             staged_present=staged_present,
             teable_present=teable_present,
+            approval_capture_readiness_present=approval_capture_readiness_present,
             approval_row=approval_row,
         ),
         "verifier_commands": [

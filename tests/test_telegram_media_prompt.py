@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from types import SimpleNamespace
+
 from app.api.routes import channels as channels_route
 
 
@@ -50,3 +53,43 @@ def test_telegram_media_acknowledgement_reply_keeps_old_text_variants() -> None:
 def test_telegram_media_acknowledgement_reply_ignores_non_media() -> None:
     text_reply = channels_route._telegram_media_acknowledgement_reply({"kind": "photo", "text": ""}, text="")
     assert text_reply == ""
+
+
+def test_telegram_whatsapp_pairing_followup_suppresses_generic_media_noise() -> None:
+    recent_pairing_reply = SimpleNamespace(
+        channel="telegram",
+        event_type="telegram.reply_sent",
+        created_at=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        payload={
+            "chat_id": "chat-1",
+            "reply_text": (
+                "EA WhatsApp Web pairing is required. session=tibor-wa-web "
+                "status=qr_required pair_url=http://127.0.0.1:8098/sessions/tibor-wa-web/pair"
+            ),
+        },
+    )
+    container = SimpleNamespace(
+        channel_runtime=SimpleNamespace(list_recent_observations=lambda **_kwargs: [recent_pairing_reply])
+    )
+
+    text_reply, schedule_async, _retry_budget, _suppress_async_ack = channels_route._telegram_command_reply_text(
+        container=container,
+        principal_id="exec-1",
+        text="couldnt link device try again later",
+        payload={"kind": "text", "text": "couldnt link device try again later"},
+        bot_handle="",
+        chat_id="chat-1",
+    )
+    assert text_reply == ""
+    assert schedule_async is False
+
+    video_reply, schedule_async, _retry_budget, _suppress_async_ack = channels_route._telegram_command_reply_text(
+        container=container,
+        principal_id="exec-1",
+        text="Video Message",
+        payload={"kind": "video", "text": "Video Message"},
+        bot_handle="",
+        chat_id="chat-1",
+    )
+    assert video_reply == ""
+    assert schedule_async is False

@@ -1597,6 +1597,76 @@ def _telegram_media_acknowledgement_reply(
     return ""
 
 
+_WHATSAPP_PAIRING_CONTEXT_MARKERS = (
+    "ea whatsapp web pairing is required",
+    "whatsapp web pairing is required",
+    "whatsapp_pairing status=",
+    "pair_url=",
+    "qr_required",
+)
+_WHATSAPP_PAIRING_FOLLOWUP_MARKERS = (
+    "couldn't link device",
+    "couldnt link device",
+    "could not link device",
+    "can't link device",
+    "cant link device",
+    "link device try again later",
+    "try again later",
+)
+
+
+def _telegram_recent_whatsapp_pairing_context(
+    container: AppContainer,
+    *,
+    principal_id: str,
+    chat_id: str,
+    window_seconds: int = 900,
+) -> bool:
+    normalized_chat = str(chat_id or "").strip()
+    cutoff = datetime.now(ZoneInfo("UTC")).timestamp() - max(int(window_seconds), 1)
+    try:
+        rows = container.channel_runtime.list_recent_observations(limit=80, principal_id=principal_id)
+    except Exception:
+        return False
+    for row in rows:
+        if str(getattr(row, "channel", "") or "").strip() != "telegram":
+            continue
+        if str(getattr(row, "event_type", "") or "").strip() not in {"telegram.reply_sent", "telegram.reply_async_sent"}:
+            continue
+        payload = dict(getattr(row, "payload", {}) or {})
+        if normalized_chat and str(payload.get("chat_id") or "").strip() != normalized_chat:
+            continue
+        created_at = _parse_isoish_datetime(getattr(row, "created_at", "") or "")
+        if created_at is not None and created_at.timestamp() < cutoff:
+            continue
+        reply_text = " ".join(str(payload.get("reply_text") or "").strip().lower().split())
+        if any(marker in reply_text for marker in _WHATSAPP_PAIRING_CONTEXT_MARKERS):
+            return True
+    return False
+
+
+def _telegram_whatsapp_pairing_followup_text(text: str) -> bool:
+    normalized = " ".join(str(text or "").strip().lower().split())
+    if not normalized:
+        return False
+    return any(marker in normalized for marker in _WHATSAPP_PAIRING_FOLLOWUP_MARKERS)
+
+
+def _telegram_should_suppress_whatsapp_pairing_followup(ctx: TelegramTurnContext) -> bool:
+    if not _telegram_recent_whatsapp_pairing_context(
+        ctx.container,
+        principal_id=ctx.principal_id,
+        chat_id=ctx.chat_id,
+    ):
+        return False
+    kind = str(dict(ctx.payload or {}).get("kind") or "").strip().lower()
+    if _telegram_whatsapp_pairing_followup_text(ctx.normalized):
+        return True
+    if kind in {"photo", "video"} and ctx.normalized.lower() in {"", "photo", "video", "video message"}:
+        return True
+    return False
+
+
 _TELEGRAM_RENDERED_VIDEO_DIRECT_MARKERS = (
     "send me a video",
     "send a video",
@@ -9117,6 +9187,8 @@ def _telegram_command_reply_text(
             scout_update_decision.retry_budget,
             bool(scout_update_decision.suppress_async_ack),
         )
+    if _telegram_should_suppress_whatsapp_pairing_followup(ctx):
+        return "", False, fallback_retry_budget, False
     link_decision = _telegram_link_turn_decision(ctx)
     if link_decision.reply_text or link_decision.schedule_async:
         return (
@@ -9417,6 +9489,7 @@ def ingest_telegram(
     proactive_stage_result: dict[str, object] = {}
     if (
         (not reply_text or _telegram_reply_is_generic_task_fallback(reply_text))
+        and not schedule_async
         and not inline_buttons
         and str(message_payload.get("kind") or "").strip().lower() in {"", "text", "voice"}
         and str(message_payload.get("text") or "").strip()

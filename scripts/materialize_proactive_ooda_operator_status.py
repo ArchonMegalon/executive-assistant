@@ -143,6 +143,121 @@ def _source_coverage_probe(principal_id: str) -> dict[str, Any]:
         return {}
 
 
+def _approval_capture_probe(principal_id: str) -> dict[str, Any]:
+    try:
+        return ea_live_ops.probe_proactive_approval_capture(
+            principal_id=principal_id,
+            output_format="json",
+        )
+    except Exception as exc:
+        reason = type(exc).__name__
+        return {
+            "probe_ok": False,
+            "ready": False,
+            "status": "probe_failed",
+            "source": "docker_compose_exec:proactive_approval_capture",
+            "observed_at": _utc_now(),
+            "blocking_reason": reason,
+            "next_action": "inspect_proactive_approval_capture_runtime_probe",
+            "privacy": {
+                "raw_callback_token_exposed": False,
+                "raw_principal_id_exposed": False,
+                "raw_chat_ref_exposed": False,
+                "raw_packet_ref_exposed": False,
+                "raw_staged_artifact_ref_exposed": False,
+            },
+        }
+
+
+def _approval_capture_summary(probe: Mapping[str, Any]) -> dict[str, Any]:
+    if not probe:
+        return {
+            "checked": False,
+            "probe_ok": False,
+            "ready": False,
+            "status": "not_checked",
+            "source": "",
+            "runtime_service": "",
+            "observed_at": "",
+            "blocking_reason": "",
+            "next_action": "",
+            "next_action_href": "",
+            "next_action_label": "",
+            "next_action_method": "",
+            "callback_dir_exists": False,
+            "callback_record_count": 0,
+            "current_packet_ref_sha256": "",
+            "current_staged_artifact_ref_sha256": "",
+            "current_packet_refs_present": False,
+            "current_packet_callback_record_count": 0,
+            "current_packet_live_pending_count": 0,
+            "current_packet_callback_latest_status": "",
+            "current_packet_callback_latest_expired": False,
+            "current_packet_callback_latest_age_seconds": 0,
+            "current_packet_callback_latest_seconds_until_expiry": 0,
+            "callback_principal_hash_present": False,
+            "candidate_principal_hash_count": 0,
+            "principal_match_ready": False,
+            "telegram_binding_ready": False,
+            "telegram_blocking_reason": "",
+            "telegram_chat_ref_present": False,
+            "telegram_chat_ref_sha256": "",
+            "telegram_bot_key_present": False,
+            "telegram_bot_token_present": False,
+            "privacy": {
+                "raw_callback_token_exposed": False,
+                "raw_principal_id_exposed": False,
+                "raw_chat_ref_exposed": False,
+                "raw_packet_ref_exposed": False,
+                "raw_staged_artifact_ref_exposed": False,
+            },
+        }
+    privacy = dict(probe.get("privacy") or {})
+    return {
+        "checked": True,
+        "probe_ok": bool(probe.get("probe_ok")),
+        "ready": bool(probe.get("ready")),
+        "status": str(probe.get("status") or "").strip() or "unknown",
+        "source": str(probe.get("source") or "").strip(),
+        "runtime_service": str(probe.get("runtime_service") or "").strip(),
+        "observed_at": str(probe.get("observed_at") or "").strip(),
+        "blocking_reason": str(probe.get("blocking_reason") or "").strip(),
+        "next_action": str(probe.get("next_action") or "").strip(),
+        "next_action_href": str(probe.get("next_action_href") or "").strip(),
+        "next_action_label": str(probe.get("next_action_label") or "").strip(),
+        "next_action_method": str(probe.get("next_action_method") or "").strip(),
+        "callback_dir_exists": bool(probe.get("callback_dir_exists")),
+        "callback_record_count": int(probe.get("callback_record_count") or 0),
+        "current_packet_ref_sha256": str(probe.get("current_packet_ref_sha256") or "").strip(),
+        "current_staged_artifact_ref_sha256": str(probe.get("current_staged_artifact_ref_sha256") or "").strip(),
+        "current_packet_refs_present": bool(probe.get("current_packet_refs_present")),
+        "current_packet_callback_record_count": int(probe.get("current_packet_callback_record_count") or 0),
+        "current_packet_live_pending_count": int(probe.get("current_packet_live_pending_count") or 0),
+        "current_packet_callback_latest_status": str(probe.get("current_packet_callback_latest_status") or "").strip(),
+        "current_packet_callback_latest_expired": bool(probe.get("current_packet_callback_latest_expired")),
+        "current_packet_callback_latest_age_seconds": int(probe.get("current_packet_callback_latest_age_seconds") or 0),
+        "current_packet_callback_latest_seconds_until_expiry": int(
+            probe.get("current_packet_callback_latest_seconds_until_expiry") or 0
+        ),
+        "callback_principal_hash_present": bool(probe.get("callback_principal_hash_present")),
+        "candidate_principal_hash_count": int(probe.get("candidate_principal_hash_count") or 0),
+        "principal_match_ready": bool(probe.get("principal_match_ready")),
+        "telegram_binding_ready": bool(probe.get("telegram_binding_ready")),
+        "telegram_blocking_reason": str(probe.get("telegram_blocking_reason") or "").strip(),
+        "telegram_chat_ref_present": bool(probe.get("telegram_chat_ref_present")),
+        "telegram_chat_ref_sha256": str(probe.get("telegram_chat_ref_sha256") or "").strip(),
+        "telegram_bot_key_present": bool(probe.get("telegram_bot_key_present")),
+        "telegram_bot_token_present": bool(probe.get("telegram_bot_token_present")),
+        "privacy": {
+            "raw_callback_token_exposed": bool(privacy.get("raw_callback_token_exposed")),
+            "raw_principal_id_exposed": bool(privacy.get("raw_principal_id_exposed")),
+            "raw_chat_ref_exposed": bool(privacy.get("raw_chat_ref_exposed")),
+            "raw_packet_ref_exposed": bool(privacy.get("raw_packet_ref_exposed")),
+            "raw_staged_artifact_ref_exposed": bool(privacy.get("raw_staged_artifact_ref_exposed")),
+        },
+    }
+
+
 def _gmail_draft_followthrough_summary(probe: Mapping[str, Any]) -> dict[str, Any]:
     if not probe:
         return {
@@ -301,16 +416,52 @@ def _approval_capture_surface_ready(surface: Mapping[str, Any] | None) -> bool:
     return bool(dict(surface or {}).get("ready"))
 
 
+def _approval_capture_checked(probe: Mapping[str, Any] | None) -> bool:
+    return bool(dict(probe or {}).get("checked"))
+
+
+def _approval_capture_probe_ready(probe: Mapping[str, Any] | None) -> bool:
+    normalized = dict(probe or {})
+    if not bool(normalized.get("checked")):
+        return True
+    return bool(normalized.get("ready"))
+
+
+def _approval_capture_probe_blocks_followthrough(
+    *,
+    status: str,
+    live_receipt: Mapping[str, Any],
+    live_receipt_checked: bool,
+    approval_capture_surface: Mapping[str, Any] | None,
+    approval_capture: Mapping[str, Any] | None,
+) -> bool:
+    if status in {"blocked_local_runtime", "blocked_delivery_route", "deferred", "ready_with_recovery_action"}:
+        return False
+    return (
+        _approval_capture_surface_ready(approval_capture_surface)
+        and live_receipt_checked
+        and bool(live_receipt.get("ok"))
+        and _approval_capture_checked(approval_capture)
+        and not _approval_capture_probe_ready(approval_capture)
+    )
+
+
 def _approval_followthrough_ready(
     status: str,
     *,
     live_receipt: Mapping[str, Any],
     live_receipt_checked: bool,
     approval_capture_surface: Mapping[str, Any] | None,
+    approval_capture: Mapping[str, Any] | None,
 ) -> bool:
     if status in {"blocked_local_runtime", "blocked_delivery_route", "deferred", "ready_with_recovery_action"}:
         return False
-    return _approval_capture_surface_ready(approval_capture_surface) and live_receipt_checked and bool(live_receipt.get("ok"))
+    return (
+        _approval_capture_surface_ready(approval_capture_surface)
+        and live_receipt_checked
+        and bool(live_receipt.get("ok"))
+        and _approval_capture_probe_ready(approval_capture)
+    )
 
 
 def _default_live_receipt_path() -> Path | None:
@@ -414,14 +565,24 @@ def _operator_followthrough_next_action(
     live_receipt: dict[str, Any],
     live_receipt_checked: bool,
     approval_capture_surface: Mapping[str, Any] | None,
+    approval_capture: Mapping[str, Any] | None,
 ) -> str:
     if _approval_followthrough_ready(
         status,
         live_receipt=live_receipt,
         live_receipt_checked=live_receipt_checked,
         approval_capture_surface=approval_capture_surface,
+        approval_capture=approval_capture,
     ):
         return "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome"
+    if _approval_capture_probe_blocks_followthrough(
+        status=status,
+        live_receipt=live_receipt,
+        live_receipt_checked=live_receipt_checked,
+        approval_capture_surface=approval_capture_surface,
+        approval_capture=approval_capture,
+    ):
+        return str(dict(approval_capture or {}).get("next_action") or "repair_proactive_approval_capture").strip()
     return _next_action(report, live_receipt=live_receipt, live_receipt_checked=live_receipt_checked)
 
 
@@ -432,6 +593,7 @@ def _summary(
     live_receipt: dict[str, Any],
     live_receipt_checked: bool,
     approval_capture_surface: dict[str, Any] | None = None,
+    approval_capture: dict[str, Any] | None = None,
 ) -> str:
     route = dict(report.get("delivery_route") or {})
     route_error = str(route.get("route_error") or "").strip()
@@ -466,6 +628,15 @@ def _summary(
             )
         return "Proactive OODA routing is available, but stage-packet or safe-work runtime posture is still blocked."
     if status == "ready_with_live_receipt":
+        if _approval_capture_probe_blocks_followthrough(
+            status=status,
+            live_receipt=live_receipt,
+            live_receipt_checked=live_receipt_checked,
+            approval_capture_surface=approval_capture_surface,
+            approval_capture=approval_capture,
+        ):
+            reason = str(dict(approval_capture or {}).get("blocking_reason") or "approval_capture_not_ready").strip()
+            return f"Proactive OODA route, packet runtime, and latest host-visible live receipt are ready, but approval capture needs recovery: {reason}."
         if bool(dict(approval_capture_surface or {}).get("ready")):
             return "Proactive OODA route, packet runtime, latest host-visible live receipt, and Telegram approval capture surface are ready for operator follow-through."
         return "Proactive OODA route, packet runtime, and latest host-visible live receipt are ready for operator follow-through."
@@ -493,14 +664,24 @@ def _operator_followthrough_action_state(
     live_receipt: dict[str, Any],
     live_receipt_checked: bool,
     approval_capture_surface: Mapping[str, Any] | None,
+    approval_capture: Mapping[str, Any] | None,
 ) -> str:
     if _approval_followthrough_ready(
         status,
         live_receipt=live_receipt,
         live_receipt_checked=live_receipt_checked,
         approval_capture_surface=approval_capture_surface,
+        approval_capture=approval_capture,
     ):
         return "approval_capture_pending"
+    if _approval_capture_probe_blocks_followthrough(
+        status=status,
+        live_receipt=live_receipt,
+        live_receipt_checked=live_receipt_checked,
+        approval_capture_surface=approval_capture_surface,
+        approval_capture=approval_capture,
+    ):
+        return "recovery_required"
     return _operator_action_state(status, report=report)
 
 
@@ -511,6 +692,7 @@ def _operator_delivery_guard(
     live_receipt: Mapping[str, Any],
     live_receipt_checked: bool,
     approval_capture_surface: Mapping[str, Any] | None,
+    approval_capture: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
     guard = dict(report.get("delivery_guard") or {})
     if not _approval_followthrough_ready(
@@ -518,6 +700,7 @@ def _operator_delivery_guard(
         live_receipt=live_receipt,
         live_receipt_checked=live_receipt_checked,
         approval_capture_surface=approval_capture_surface,
+        approval_capture=approval_capture,
     ):
         return guard
     runtime_delivery_state = str(guard.get("delivery_state") or "").strip()
@@ -539,6 +722,7 @@ def _operator_actionable_count(
     live_receipt: Mapping[str, Any],
     live_receipt_checked: bool,
     approval_capture_surface: Mapping[str, Any] | None,
+    approval_capture: Mapping[str, Any] | None,
 ) -> int:
     runtime_count = int(report.get("actionable_count") or 0)
     if not _approval_followthrough_ready(
@@ -546,6 +730,7 @@ def _operator_actionable_count(
         live_receipt=live_receipt,
         live_receipt_checked=live_receipt_checked,
         approval_capture_surface=approval_capture_surface,
+        approval_capture=approval_capture,
     ):
         return runtime_count
     pending_count = int(dict(approval_capture_surface or {}).get("current_packet_live_pending_count") or 0)
@@ -702,6 +887,7 @@ def build_proactive_ooda_operator_status(
     effective_report_args = report_args or _default_report_args()
     route_probe: dict[str, Any] = {}
     artifact_probe: dict[str, Any] = {}
+    approval_capture_probe: dict[str, Any] = {}
     gmail_draft_probe: dict[str, Any] = {}
     source_coverage_probe: dict[str, Any] = {}
     principal_id = str(getattr(effective_report_args, "principal_id", "") or proactive_verifier._default_principal_id()).strip()
@@ -716,6 +902,7 @@ def build_proactive_ooda_operator_status(
             artifact_probe = ea_live_ops.probe_proactive_artifacts(output_format="json")
         except Exception:
             artifact_probe = {}
+        approval_capture_probe = _approval_capture_probe(principal_id)
         gmail_draft_probe = _gmail_draft_followthrough_probe(principal_id)
         source_coverage_probe = _source_coverage_probe(principal_id)
 
@@ -756,12 +943,22 @@ def build_proactive_ooda_operator_status(
     status = _status(report, live_receipt=live_receipt, live_receipt_checked=live_receipt_checked)
     reason = _reason(report, live_receipt=live_receipt, live_receipt_checked=live_receipt_checked)
     approval_capture_surface = _approval_capture_surface(report=report, artifact_probe=artifact_probe)
+    approval_capture = _approval_capture_summary(approval_capture_probe)
+    if _approval_capture_probe_blocks_followthrough(
+        status=status,
+        live_receipt=live_receipt,
+        live_receipt_checked=live_receipt_checked,
+        approval_capture_surface=approval_capture_surface,
+        approval_capture=approval_capture,
+    ):
+        reason = str(approval_capture.get("blocking_reason") or "approval_capture_not_ready").strip()
     next_action = _operator_followthrough_next_action(
         status,
         report,
         live_receipt=live_receipt,
         live_receipt_checked=live_receipt_checked,
         approval_capture_surface=approval_capture_surface,
+        approval_capture=approval_capture,
     )
     next_action_surface = _next_action_surface_fields(next_action)
     summary = _summary(
@@ -770,6 +967,7 @@ def build_proactive_ooda_operator_status(
         live_receipt=live_receipt,
         live_receipt_checked=live_receipt_checked,
         approval_capture_surface=approval_capture_surface,
+        approval_capture=approval_capture,
     )
     operator_delivery_guard = _operator_delivery_guard(
         status,
@@ -777,6 +975,7 @@ def build_proactive_ooda_operator_status(
         live_receipt=live_receipt,
         live_receipt_checked=live_receipt_checked,
         approval_capture_surface=approval_capture_surface,
+        approval_capture=approval_capture,
     )
     runtime_actionable_count = int(report.get("actionable_count") or 0)
     receipt = {
@@ -799,6 +998,7 @@ def build_proactive_ooda_operator_status(
             live_receipt=live_receipt,
             live_receipt_checked=live_receipt_checked,
             approval_capture_surface=approval_capture_surface,
+            approval_capture=approval_capture,
         ),
         "route_probe_source": str(route_probe.get("source") or "host_verifier").strip() or "host_verifier",
         "route_probe_runtime_service": str(route_probe.get("runtime_service") or "").strip(),
@@ -823,11 +1023,13 @@ def build_proactive_ooda_operator_status(
             live_receipt=live_receipt,
             live_receipt_checked=live_receipt_checked,
             approval_capture_surface=approval_capture_surface,
+            approval_capture=approval_capture,
         ),
         "source_mode": str(report.get("source_mode") or "").strip(),
         "live_receipt_checked": live_receipt_checked,
         "live_receipt": dict(live_receipt or {}),
         "approval_capture_surface": approval_capture_surface,
+        "approval_capture": approval_capture,
         "gmail_draft_followthrough": _gmail_draft_followthrough_summary(gmail_draft_probe),
         "source_coverage": _source_coverage_summary(source_coverage_probe),
         "remaining_external_proofs": [

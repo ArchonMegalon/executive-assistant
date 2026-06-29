@@ -849,6 +849,210 @@ def test_main_probe_telegram_readiness_operator_prints_plain_text(monkeypatch, c
     assert capsys.readouterr().out.strip() == "telegram ok"
 
 
+def test_probe_operator_readiness_aggregates_components_without_raw_secrets(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-06-29T15:00:00Z")
+    monkeypatch.setattr(
+        module,
+        "probe_telegram_readiness",
+        lambda principal_id, output_format="json": {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "principal_id": principal_id,
+            "binding_id": "binding-1",
+            "binding_status": "enabled",
+            "chat_ref_present": True,
+            "chat_ref_sha256": "a" * 64,
+            "bot_key": "default",
+            "bot_handle": "ea_concierge_bot",
+            "bot_token_present": True,
+            "raw_chat_id": "123456789",
+            "raw_bot_token": "telegram-token",
+            "observed_at": "2026-06-29T14:55:00Z",
+            "source": "telegram_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_whatsapp_readiness",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": False,
+            "status": "blocked",
+            "reason": "sidecar_not_ready",
+            "next_action": "restore_whatsapp_web_session_sidecar_readiness",
+            "effective_session_ref": "tibor-wa-web",
+            "sidecar_status": "qr_required",
+            "sidecar_qr_required": True,
+            "sidecar_qr_present": True,
+            "sidecar_qr_age_seconds": 42,
+            "sidecar_qr_fresh": True,
+            "processor_container_enabled": True,
+            "state_fresh": True,
+            "raw_qr": "raw-secret-qr",
+            "observed_at": "2026-06-29T14:55:01Z",
+            "source": "whatsapp_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_whatsapp_pairing",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": False,
+            "status": "available",
+            "next_action": "scan_whatsapp_web_qr",
+            "session_ref": "tibor-wa-web",
+            "sidecar_status": "qr_required",
+            "qr_present": True,
+            "qr_required": True,
+            "qr_age_seconds": 40,
+            "qr_fresh": True,
+            "pair_url": "https://wa-web.test/sessions/tibor-wa-web/pair",
+            "qr_svg_url": "https://wa-web.test/sessions/tibor-wa-web/qr.svg",
+            "pair_url_scope": "host_local",
+            "observed_at": "2026-06-29T14:55:02Z",
+            "source": "whatsapp_pairing_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_teable_recovery",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "verify_status": "pass",
+            "local_status": "pass",
+            "table_id": "tbl-secret-id",
+            "table_id_sha256": "b" * 64,
+            "table_id_present": True,
+            "expected_rows": 535,
+            "same_hash": 535,
+            "root_restore_count": 420,
+            "local_restore_count": 100,
+            "service_restore_count": 9,
+            "referenced_file_restore_count": 6,
+            "observed_at": "2026-06-29T14:55:03Z",
+            "source": "teable_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_proactive_route",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "status": "ready_with_recovery_action",
+            "next_action": "scan_whatsapp_web_qr",
+            "principal_id": "principal-1",
+            "runtime_service": "ea-proactive-ooda",
+            "delivery_route_ready": True,
+            "selected_channel": "telegram",
+            "selected_transport": "telegram",
+            "selected_by": "tool_runtime_binding",
+            "available_channels": ["telegram"],
+            "blocking_reason": "whatsapp_web_session_not_ready:qr_required",
+            "approval_capture_surface_ready": False,
+            "approval_capture_surface_pending_count": 0,
+            "route_report": {"raw": "large-private-payload"},
+            "observed_at": "2026-06-29T14:55:04Z",
+            "source": "proactive_route_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_proactive_artifacts",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "status": "ok",
+            "runtime_service": "ea-proactive-ooda",
+            "run_receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+            "approval_callback_dir_exists": True,
+            "approval_callback_dir_writable": True,
+            "approval_callback_record_count": 1,
+            "approval_callback_live_pending_count": 0,
+            "approval_callback_stale_pending_count": 0,
+            "current_packet_live_pending_count": 0,
+            "current_packet_callback_latest_status": "",
+            "approval_outcome_matches_current_packet": False,
+            "stage_packet": {"private": "large-private-payload"},
+            "observed_at": "2026-06-29T14:55:05Z",
+            "source": "proactive_artifacts_probe",
+        },
+    )
+
+    report = module.probe_operator_readiness(
+        args=_args(session_ref="tibor-wa-web"),
+        telegram_principal_id="principal-1",
+        proactive_principal_id="principal-1",
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+        receipt_path="/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+        timeout_seconds=7.0,
+        output_format="operator",
+    )
+    serialized = json.dumps(report, sort_keys=True)
+
+    assert report["contract_name"] == "ea.operator_readiness.v1"
+    assert report["probe_ok"] is True
+    assert report["ready"] is False
+    assert report["status"] == "ready_with_actions"
+    assert report["component_count"] == 6
+    assert [item["key"] for item in report["components"]] == [
+        "telegram",
+        "whatsapp",
+        "whatsapp_pairing",
+        "teable_recovery",
+        "proactive_route",
+        "proactive_artifacts",
+    ]
+    assert report["blocked_count"] == 2
+    assert report["attention_required_count"] == 3
+    assert {"component_key": "whatsapp", "component_label": "WhatsApp Web action processor", "action": "restore_whatsapp_web_session_sidecar_readiness", "reason": "sidecar_not_ready"} in report["next_actions"]
+    assert {"component_key": "whatsapp_pairing", "component_label": "WhatsApp Web pairing recovery", "action": "scan_whatsapp_web_qr", "reason": ""} in report["next_actions"]
+    assert "operator_readiness status=ready_with_actions" in str(report["operator_text"])
+    assert "next=whatsapp:restore_whatsapp_web_session_sidecar_readiness" in str(report["operator_text"])
+    assert "raw-secret-qr" not in serialized
+    assert "123456789" not in serialized
+    assert "telegram-token" not in serialized
+    assert "tbl-secret-id" not in serialized
+    assert "https://wa-web.test/sessions/tibor-wa-web/pair" not in serialized
+    assert "large-private-payload" not in serialized
+
+
+def test_main_probe_operator_readiness_operator_prints_plain_text(monkeypatch, capsys) -> None:
+    module = _module()
+    monkeypatch.setattr(
+        module,
+        "parse_args",
+        lambda: Namespace(
+            command="probe-operator-readiness",
+            format="operator",
+            telegram_principal_id="principal-1",
+            proactive_principal_id="principal-1",
+            compose_file="/docker/EA/docker-compose.yml",
+            runtime_service="ea-proactive-ooda",
+            receipt_path="",
+            include_proactive=True,
+            include_pairing=True,
+            timeout_seconds=5.0,
+        ),
+    )
+
+    def _fake_probe_operator_readiness(**kwargs):
+        assert kwargs["telegram_principal_id"] == "principal-1"
+        assert kwargs["proactive_principal_id"] == "principal-1"
+        assert kwargs["timeout_seconds"] == 5.0
+        assert kwargs["output_format"] == "operator"
+        return {"probe_ok": True, "operator_text": "operator readiness ok"}
+
+    monkeypatch.setattr(module, "probe_operator_readiness", _fake_probe_operator_readiness)
+
+    assert module.main() == 0
+    assert capsys.readouterr().out.strip() == "operator readiness ok"
+
+
 def test_probe_proactive_route_normalizes_live_runtime_route_status(monkeypatch) -> None:
     module = _module()
     receipt_paths: list[str] = []
