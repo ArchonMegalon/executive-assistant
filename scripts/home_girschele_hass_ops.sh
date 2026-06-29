@@ -1676,6 +1676,7 @@ incident_drill() {
     "restore-replica-drill|prove fresh-container restore from replica" \
     "drift|verify drift invariants" \
     "health|verify public and local HA health" \
+    "alert-check|deliver operator alert if health, drift, or disk receipts failed" \
     "status|refresh status board"; do
     command="${step%%|*}"
     log_path="$drill_dir/${command}.log"
@@ -1829,15 +1830,37 @@ case "${1:-health}" in
   backup)
     backup_config
     ;;
+  replicate-backup)
+    replicate_backup
+    ;;
   restore-drill)
     shift || true
     restore_drill "${1:-}"
+    ;;
+  restore-replica-drill)
+    shift || true
+    restore_replica_drill "${1:-}"
     ;;
   drift)
     drift_check
     ;;
   disk-log)
     disk_log_check
+    ;;
+  snapshot-cloudflare)
+    snapshot_cloudflare
+    ;;
+  alert-check)
+    alert_check
+    ;;
+  alert-drill)
+    alert_check drill
+    ;;
+  status)
+    status_board
+    ;;
+  incident-drill)
+    incident_drill
     ;;
   scheduled-health)
     scheduled_health
@@ -1852,12 +1875,17 @@ case "${1:-health}" in
     restore_access
     backup_config
     restore_drill
+    replicate_backup
+    restore_replica_drill
+    snapshot_cloudflare
     drift_check
     disk_log_check
     health
+    alert_check
+    status_board
     ;;
   *)
-    echo "usage: $0 {migrate-config|up|restore-access|health|backup|restore-drill|drift|disk-log|scheduled-health|install-scheduled-health|harden}" >&2
+    echo "usage: $0 {migrate-config|up|restore-access|health|backup|replicate-backup|restore-drill|restore-replica-drill|drift|disk-log|snapshot-cloudflare|alert-check|alert-drill|status|incident-drill|scheduled-health|install-scheduled-health|harden}" >&2
     exit 2
     ;;
 esac
