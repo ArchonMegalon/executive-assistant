@@ -1782,6 +1782,77 @@ def profile_book_for_voice(*, metadata: EpubMetadata, chapters: tuple[EpubChapte
     }
 
 
+def _public_book_profile(profile: dict[str, object]) -> dict[str, object]:
+    return {
+        "language": profile.get("language"),
+        "topic": profile.get("topic"),
+        "author_gender_signal": profile.get("author_gender_signal", ""),
+        "dialogue_ratio": profile.get("dialogue_ratio"),
+        "fiction_score": profile.get("fiction_score"),
+        "nonfiction_score": profile.get("nonfiction_score"),
+        "recommended_tags": list(profile.get("recommended_tags") or []),
+        "sample_sha256": profile.get("sample_sha256"),
+    }
+
+
+def _backfill_voice_selection_book_profile(
+    *,
+    voice_selection: dict[str, object],
+    metadata: EpubMetadata,
+    chapters: tuple[EpubChapter, ...],
+    job_dir: Path,
+) -> tuple[dict[str, object], bool]:
+    normalized_selection = dict(voice_selection or {})
+    existing_profile = dict(normalized_selection.get("book_profile") or {})
+    fresh_profile = _public_book_profile(profile_book_for_voice(metadata=metadata, chapters=chapters, job_dir=job_dir))
+    merged_profile = dict(existing_profile)
+    changed = False
+    for key, value in fresh_profile.items():
+        current_value = merged_profile.get(key)
+        if key == "recommended_tags":
+            if not list(current_value or []) and list(value or []):
+                merged_profile[key] = list(value or [])
+                changed = True
+            continue
+        if current_value in (None, "") and value not in (None, ""):
+            merged_profile[key] = value
+            changed = True
+    if changed:
+        normalized_selection["book_profile"] = merged_profile
+    return normalized_selection, changed
+
+
+def _select_author_gender_preferred_candidate(
+    candidate_rows: list[dict[str, object]],
+    *,
+    author_gender_signal: str,
+) -> tuple[dict[str, object], bool]:
+    if not candidate_rows:
+        return {}, False
+
+    def _first_match(*, require_author_gender_match: bool, require_language_match: bool) -> dict[str, object]:
+        for row in candidate_rows:
+            if require_author_gender_match and not bool(row.get("author_gender_match")):
+                continue
+            if require_language_match and not bool(row.get("language_match")):
+                continue
+            return dict(row)
+        return {}
+
+    normalized_author_gender_signal = str(author_gender_signal or "").strip().lower()
+    if normalized_author_gender_signal:
+        selected = _first_match(require_author_gender_match=True, require_language_match=True)
+        if selected:
+            return selected, True
+        selected = _first_match(require_author_gender_match=True, require_language_match=False)
+        if selected:
+            return selected, True
+    selected = _first_match(require_author_gender_match=False, require_language_match=True)
+    if selected:
+        return selected, False
+    return dict(candidate_rows[0]), False
+
+
 def _voice_language_score(book_language: str, voice_language: str, supported_languages: tuple[str, ...] = ()) -> int:
     book = _normalize_language(book_language)
     voice = _normalize_language(voice_language)
@@ -2127,25 +2198,23 @@ def select_unmixr_voice_for_book(
                 "strategy": "book_profile_voice_selection",
             },
         }
-    selected = dict(candidate_rows[0])
+    profile = dict(ranking.get("profile") or {})
+    selected, author_gender_preference_used = _select_author_gender_preferred_candidate(
+        candidate_rows,
+        author_gender_signal=str(profile.get("author_gender_signal") or ""),
+    )
+    if not selected:
+        selected = dict(candidate_rows[0])
+        author_gender_preference_used = False
     voice_id = str(selected.pop("_voice_id") or "")
     for row in candidate_rows:
         row.pop("_voice_id", None)
-    profile = dict(ranking.get("profile") or {})
     public = {
         "status": "selected" if len(candidate_rows) > 1 else "single_configured_voice",
         "strategy": "book_profile_voice_selection",
+        "author_gender_preference_used": author_gender_preference_used,
         "selected": selected,
-        "book_profile": {
-            "language": profile["language"],
-            "topic": profile["topic"],
-            "author_gender_signal": profile.get("author_gender_signal", ""),
-            "dialogue_ratio": profile["dialogue_ratio"],
-            "fiction_score": profile["fiction_score"],
-            "nonfiction_score": profile["nonfiction_score"],
-            "recommended_tags": list(profile["recommended_tags"]),
-            "sample_sha256": profile["sample_sha256"],
-        },
+        "book_profile": _public_book_profile(profile),
         "candidate_count": len(candidate_rows),
         "candidate_scores": candidate_rows[:8],
     }
@@ -2384,6 +2453,18 @@ def prepare_audiobook_voice_audition(*, job_dir: Path, batch_size: int = 3, refi
     provider_payload = dict(job.get("provider") or {})
     current_selection = dict(provider_payload.get("voice_selection") or {})
     if str(current_selection.get("status") or "") == "selected_by_user":
+        repaired_selection, repaired = _backfill_voice_selection_book_profile(
+            voice_selection=current_selection,
+            metadata=metadata,
+            chapters=chapters,
+            job_dir=job_dir,
+        )
+        if repaired:
+            provider_payload["voice_selection"] = repaired_selection
+            job["provider"] = provider_payload
+            job["updated_at"] = _now_iso()
+            _write_job(job_dir, job)
+            _write_current_job_receipt_best_effort(job_dir)
         return job
     min_candidates = audiobook_voice_audition_min_candidates()
     ranking_target_count = _coerce_voice_discovery_target_count(
@@ -2419,16 +2500,7 @@ def prepare_audiobook_voice_audition(*, job_dir: Path, batch_size: int = 3, refi
             "target_catalog_count": audiobook_voice_discovery_target_count(),
             "discovery_enabled": audiobook_voice_discovery_enabled(),
             "discovery_providers": list(_voice_discovery_providers()),
-            "book_profile": {
-                "language": profile.get("language"),
-                "topic": profile.get("topic"),
-                "author_gender_signal": profile.get("author_gender_signal"),
-                "dialogue_ratio": profile.get("dialogue_ratio"),
-                "fiction_score": profile.get("fiction_score"),
-                "nonfiction_score": profile.get("nonfiction_score"),
-                "recommended_tags": list(profile.get("recommended_tags") or []),
-                "sample_sha256": profile.get("sample_sha256"),
-            },
+            "book_profile": _public_book_profile(profile),
             "pending_candidate_keys": [],
             "pending_batch": [],
             "raw_voice_ids_exposed": False,
@@ -2990,16 +3062,7 @@ def prepare_audiobook_voice_audition(*, job_dir: Path, batch_size: int = 3, refi
             "discovery_providers": list(_voice_discovery_providers()),
             "target_catalog_count": ranking_target_count,
             "discovery_expanded_target_count": discovery_expanded_target_count,
-            "book_profile": {
-            "language": profile.get("language"),
-            "topic": profile.get("topic"),
-            "author_gender_signal": profile.get("author_gender_signal"),
-            "dialogue_ratio": profile.get("dialogue_ratio"),
-            "fiction_score": profile.get("fiction_score"),
-            "nonfiction_score": profile.get("nonfiction_score"),
-            "recommended_tags": list(profile.get("recommended_tags") or []),
-            "sample_sha256": profile.get("sample_sha256"),
-        },
+            "book_profile": _public_book_profile(profile),
         "candidate_count": len(candidate_rows),
         "language_matched_candidate_count": language_matched_candidate_count,
         "requested_batch_size": requested_batch_size,
@@ -3262,6 +3325,21 @@ def selected_unmixr_voice_for_job(job_dir: Path) -> dict[str, object]:
     except Exception:
         return {}
     voice_selection = dict(dict(job.get("provider") or {}).get("voice_selection") or {})
+    metadata = _metadata_from_job(job)
+    chapters = _chapters_from_job(job)
+    repaired_selection, repaired = _backfill_voice_selection_book_profile(
+        voice_selection=voice_selection,
+        metadata=metadata,
+        chapters=chapters,
+        job_dir=job_dir,
+    )
+    if repaired:
+        provider_payload = dict(job.get("provider") or {})
+        provider_payload["voice_selection"] = repaired_selection
+        job["provider"] = provider_payload
+        job["updated_at"] = _now_iso()
+        _write_job(job_dir, job)
+        voice_selection = repaired_selection
     private_payload = _load_voice_audition_private(job_dir)
     recovered_token = str(private_payload.get("selected_callback_token") or "").strip()
     if str(voice_selection.get("status") or "") != "selected_by_user" and recovered_token:

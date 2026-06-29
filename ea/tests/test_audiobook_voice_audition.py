@@ -204,3 +204,95 @@ def test_prepare_audiobook_voice_audition_refreshes_stale_batch_when_gender_sign
     assert [item.get("label") for item in pending_batch] == ["Hans", "Jurgen", "Seraphina"]
     assert dict(voice_selection.get("book_profile") or {}).get("author_gender_signal") == "male"
     assert voice_selection.get("status") == "waiting_user_choice"
+
+
+def test_select_unmixr_voice_for_book_prefers_author_gender_match() -> None:
+    job_dir = _create_job_dir()
+    metadata = audiobook_epub_pipeline.EpubMetadata(
+        title="Widerstand zwecklos",
+        author="Knuf, Andreas",
+        language="de",
+        source_filename="widerstand-zwecklos.epub",
+        source_sha256="source-sha",
+    )
+    chapter = audiobook_epub_pipeline.EpubChapter(
+        index=1,
+        title="Kapitel 1",
+        source_href="chapter-001.xhtml",
+        text_path="001 - Kapitel.txt",
+        audio_filename="001 - Kapitel.wav",
+        char_count=100,
+        sha256="chapter-sha",
+    )
+    ranking = {
+        "status": "ranked",
+        "profile": {
+            "language": "de",
+            "title": "Widerstand zwecklos",
+            "author": "Knuf, Andreas",
+            "author_gender_signal": "male",
+            "topic": "technical nonfiction",
+            "dialogue_ratio": 0.11,
+            "fiction_score": 1,
+            "nonfiction_score": 3,
+            "recommended_tags": ["nonfiction", "warm", "german"],
+            "sample_sha256": "sample-sha",
+        },
+        "candidate_rows": [
+            _candidate(preset_key="female-top", label="Seraphina", gender="female", score=70),
+            _candidate(preset_key="male-one", label="Hans", gender="male", score=68),
+            _candidate(preset_key="female-second", label="Amala", gender="female", score=67),
+        ],
+    }
+    with patch.object(audiobook_epub_pipeline, "_ranked_unmixr_voice_candidates", return_value=ranking):
+        selection = audiobook_epub_pipeline.select_unmixr_voice_for_book(
+            metadata=metadata,
+            chapters=(chapter,),
+            job_dir=job_dir,
+        )
+
+    public = dict(selection.get("public") or {})
+    selected = dict(public.get("selected") or {})
+    assert selected.get("label") == "Hans"
+    assert public.get("author_gender_preference_used") is True
+    assert dict(public.get("book_profile") or {}).get("author_gender_signal") == "male"
+
+
+def test_selected_unmixr_voice_for_job_backfills_legacy_author_gender_signal() -> None:
+    current_selection = {
+        "status": "selected_by_user",
+        "selected": {
+            "preset_key": "unmixr_seraphina_express_9827708d",
+            "label": "Seraphina (Express)",
+            "tags": ["audiobook", "narration", "female", "warm"],
+        },
+        "selected_callback_token": "callback-token-1",
+        "book_profile": {"author_gender_signal": ""},
+    }
+    job_dir = _create_job_dir(current_voice_selection=current_selection)
+    private_payload = {
+        "contract_name": audiobook_epub_pipeline.VOICE_AUDITION_CONTRACT_NAME,
+        "job_id": "test-job",
+        "updated_at": "2026-06-29T00:00:00Z",
+        "candidates": {
+            "callback-token-1": {
+                "candidate_key": "unmixr_seraphina_express_9827708d",
+                "voice_id": "voice-seraphina",
+                "voice_id_sha256": hashlib.sha256(b"voice-seraphina").hexdigest(),
+                "public": {
+                    "preset_key": "unmixr_seraphina_express_9827708d",
+                    "label": "Seraphina (Express)",
+                    "tags": ["audiobook", "narration", "female", "warm"],
+                },
+            }
+        },
+    }
+    audiobook_epub_pipeline._write_voice_audition_private(job_dir, private_payload)  # noqa: SLF001
+
+    selection = audiobook_epub_pipeline.selected_unmixr_voice_for_job(job_dir)
+
+    public = dict(selection.get("public") or {})
+    assert dict(public.get("book_profile") or {}).get("author_gender_signal") == "male"
+    stored_job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
+    stored_selection = dict(dict(stored_job.get("provider") or {}).get("voice_selection") or {})
+    assert dict(stored_selection.get("book_profile") or {}).get("author_gender_signal") == "male"
