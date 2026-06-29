@@ -358,6 +358,46 @@ def _action_id(*, session_ref: str, message_id: str, callback_data: str) -> str:
     return _sha(f"{session_ref}:{message_id}:{callback_data}")
 
 
+def _callback_action_retryable_without_reply(action: dict[str, Any]) -> bool:
+    return (
+        str(dict(action).get("status") or "").strip() == "failed"
+        and not bool(dict(action).get("reply_sent"))
+    )
+
+
+def _callback_action_retryable_missing_secret(action: dict[str, Any]) -> bool:
+    return (
+        str(dict(action).get("status") or "").strip() == "ignored"
+        and str(dict(action).get("reason") or "").strip() == "missing_secret"
+        and not bool(dict(action).get("reply_sent"))
+    )
+
+
+def _existing_callback_action_by_hash(
+    actions: dict[str, Any],
+    *,
+    callback_hash: str,
+    exclude_action_id: str = "",
+) -> tuple[str, dict[str, Any]]:
+    normalized_hash = str(callback_hash or "").strip()
+    if not normalized_hash:
+        return "", {}
+    chosen_action_id = ""
+    chosen_action: dict[str, Any] = {}
+    chosen_processed_at = ""
+    for candidate_action_id, candidate in dict(actions or {}).items():
+        if candidate_action_id == exclude_action_id or not isinstance(candidate, dict):
+            continue
+        if str(candidate.get("callback_hash") or "").strip() != normalized_hash:
+            continue
+        processed_at = str(candidate.get("processed_at") or "").strip()
+        if not chosen_action_id or processed_at >= chosen_processed_at:
+            chosen_action_id = str(candidate_action_id or "").strip()
+            chosen_action = dict(candidate)
+            chosen_processed_at = processed_at
+    return chosen_action_id, chosen_action
+
+
 def _headers(*, token: str, auth_header_name: str, auth_header_prefix: str) -> dict[str, str]:
     headers = {"Accept": "application/json", "Content-Type": "application/json"}
     if token:
@@ -4634,18 +4674,41 @@ def build_report(
         callback_data = _message_callback_data(message)
         message_id = str(message.get("id") or "").strip()
         action_id = _action_id(session_ref=session_ref, message_id=message_id, callback_data=callback_data)
+        callback_hash = _sha(callback_data)
         existing_action = actions.get(action_id) if isinstance(actions.get(action_id), dict) else {}
-        retry_failed_without_reply = (
-            str(dict(existing_action).get("status") or "").strip() == "failed"
-            and not bool(dict(existing_action).get("reply_sent"))
-        )
-        retry_ignored_missing_secret = (
-            str(dict(existing_action).get("status") or "").strip() == "ignored"
-            and str(dict(existing_action).get("reason") or "").strip() == "missing_secret"
-            and not bool(dict(existing_action).get("reply_sent"))
-        )
+        retry_failed_without_reply = _callback_action_retryable_without_reply(dict(existing_action))
+        retry_ignored_missing_secret = _callback_action_retryable_missing_secret(dict(existing_action))
         if action_id in actions and not retry_failed_without_reply and not retry_ignored_missing_secret:
             skipped_processed += 1
+            continue
+        existing_callback_action_id, existing_callback_action = _existing_callback_action_by_hash(
+            actions,
+            callback_hash=callback_hash,
+            exclude_action_id=action_id,
+        )
+        retry_duplicate_failed_without_reply = _callback_action_retryable_without_reply(existing_callback_action)
+        retry_duplicate_missing_secret = _callback_action_retryable_missing_secret(existing_callback_action)
+        if (
+            existing_callback_action_id
+            and not retry_duplicate_failed_without_reply
+            and not retry_duplicate_missing_secret
+        ):
+            actions[action_id] = {
+                "callback_hash": callback_hash,
+                "duplicate_of_action_id": existing_callback_action_id,
+                "kind": str(
+                    message.get("selected_button_kind")
+                    or dict(existing_callback_action).get("kind")
+                    or ""
+                ).strip(),
+                "message_hash": _sha(message_id),
+                "processed_at": now,
+                "reply_sent": False,
+                "status": "duplicate",
+                "reason": "duplicate_callback_data",
+            }
+            skipped_processed += 1
+            _save_state(state_path, state)
             continue
         if bool(args.dry_run):
             dry_run_candidates += 1
@@ -4686,7 +4749,7 @@ def build_report(
         status = str(result.get("status") or "unknown").strip() or "unknown"
         result_kind = str(result.get("kind") or message.get("selected_button_kind") or "").strip()
         actions[action_id] = {
-            "callback_hash": _sha(callback_data),
+            "callback_hash": callback_hash,
             "kind": result_kind,
             "message_hash": _sha(message_id),
             "processed_at": now,

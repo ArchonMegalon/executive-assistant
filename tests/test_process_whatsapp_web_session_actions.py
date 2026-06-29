@@ -3708,6 +3708,58 @@ def test_build_report_sends_only_one_recent_stale_callback_reply(monkeypatch, tm
     }
 
 
+def test_build_report_dedupes_duplicate_callback_data_across_message_ids(tmp_path: Path) -> None:
+    module = _module()
+    requests: list[dict[str, object]] = []
+    handled: list[dict[str, object]] = []
+    first = _selected_message(id="wamid.inbound.1", selected_button_id="ab|d|voice-token-1|1v7j5c0|sig")
+    second = _selected_message(id="wamid.inbound.2", selected_button_id="ab|d|voice-token-1|1v7j5c0|sig")
+
+    def _fake_request_json(**kwargs: object) -> dict[str, object]:
+        requests.append(dict(kwargs))
+        if kwargs["method"] == "GET":
+            return {"messages": [first, second], "ok": True}
+        return {"ok": True, "message_id": f"wamid.out.{len(requests)}"}
+
+    def _fake_handle_callback(**kwargs: object) -> dict[str, object]:
+        handled.append(dict(kwargs))
+        return {
+            "status": "applied",
+            "kind": "audiobook_voice",
+            "action": "dismiss",
+            "reply_text": "Dismissed. I sent 1 replacement audiobook voice sample.",
+        }
+
+    report = module.build_report(
+        _args(tmp_path),
+        request_json=_fake_request_json,
+        handle_callback=_fake_handle_callback,
+    )
+
+    first_action_id = module._action_id(
+        session_ref="session-1",
+        message_id=str(first["id"]),
+        callback_data=str(first["selected_button_id"]),
+    )
+    second_action_id = module._action_id(
+        session_ref="session-1",
+        message_id=str(second["id"]),
+        callback_data=str(second["selected_button_id"]),
+    )
+
+    assert report["processed"] == 1
+    assert report["skipped_processed"] == 1
+    assert report["reply_sent"] == 1
+    assert len(handled) == 1
+    posts = [row for row in requests if row["method"] == "POST"]
+    assert len(posts) == 1
+    state = json.loads((tmp_path / "wa-actions.json").read_text(encoding="utf-8"))
+    assert state["actions"][first_action_id]["status"] == "applied"
+    assert state["actions"][second_action_id]["status"] == "duplicate"
+    assert state["actions"][second_action_id]["reason"] == "duplicate_callback_data"
+    assert state["actions"][second_action_id]["duplicate_of_action_id"] == first_action_id
+
+
 def test_build_report_retries_ignored_missing_secret_callback(tmp_path: Path) -> None:
     module = _module()
     requests: list[dict[str, object]] = []
