@@ -53,10 +53,10 @@
     },
     "operator_status": {
       "contract_name": "ea.proactive_ooda_operator_status.v1",
-      "generated_at": "2026-06-29T11:14:40Z",
+      "generated_at": "2026-06-29T11:17:13Z",
       "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
       "present": true,
-      "source_git_head": "d3ae89f0b5ade1a8e6b0386b95abcba9ba6388c9",
+      "source_git_head": "855ed9e6b6ee60e16f03976145af43e5738b3c8f",
       "source_state_fingerprint": "4d1afff9555fd22c9b0b3cf8b929e1ea4c17f5ef5ff3389e4ad51a2e0d68168e",
       "status": "ready_with_live_receipt"
     },
@@ -80,7 +80,7 @@
       "source": "docker_compose_exec"
     }
   },
-  "generated_at": "2026-06-29T11:14:41Z",
+  "generated_at": "2026-06-29T11:17:14Z",
   "generated_by": "scripts/materialize_proactive_ooda_gold_acceptance.py",
   "goal_completion_claim_allowed": false,
   "gold_claim_allowed": false,
@@ -210,7 +210,7 @@
     "Raw packet text, private links, actor identity, packet refs, and staged artifact refs must stay out of this published receipt; only hashes and coarse status may appear.",
     "Teable remains an admin projection and audit mirror rather than canonical queue or product truth."
   ],
-  "source_git_head": "d3ae89f0b5ade1a8e6b0386b95abcba9ba6388c9",
+  "source_git_head": "855ed9e6b6ee60e16f03976145af43e5738b3c8f",
   "source_state_fingerprint": "4d1afff9555fd22c9b0b3cf8b929e1ea4c17f5ef5ff3389e4ad51a2e0d68168e",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready_for_approval_outcome_capture",
