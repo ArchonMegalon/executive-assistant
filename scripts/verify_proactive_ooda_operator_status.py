@@ -148,6 +148,25 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
     if "ready" not in safe_work_results:
         issues.append("safe_work_results.ready missing")
 
+    gmail_draft_followthrough = dict(receipt.get("gmail_draft_followthrough") or {})
+    if "checked" not in gmail_draft_followthrough:
+        issues.append("gmail_draft_followthrough.checked missing")
+    if not str(gmail_draft_followthrough.get("status") or "").strip():
+        issues.append("gmail_draft_followthrough.status missing")
+    if gmail_draft_followthrough.get("raw_execution_payload_exposed") is not False:
+        issues.append("gmail_draft_followthrough.raw_execution_payload_exposed must remain false")
+    gmail_status = str(gmail_draft_followthrough.get("status") or "").strip()
+    if gmail_status == "already_executed":
+        if str(gmail_draft_followthrough.get("action") or "").strip() != "save_gmail_draft":
+            issues.append("already_executed gmail_draft_followthrough requires action=save_gmail_draft")
+        if str(gmail_draft_followthrough.get("execution_status") or "").strip() != "executed":
+            issues.append("already_executed gmail_draft_followthrough requires execution_status=executed")
+        if gmail_draft_followthrough.get("execution_observation_present") is not True:
+            issues.append("already_executed gmail_draft_followthrough requires execution_observation_present=true")
+        if gmail_draft_followthrough.get("gmail_draft_id_hash_present") is not True:
+            issues.append("already_executed gmail_draft_followthrough requires gmail_draft_id_hash_present=true")
+    _verify_next_action_surface(gmail_draft_followthrough, issues)
+
     live_receipt_checked = bool(receipt.get("live_receipt_checked"))
     live_receipt = dict(receipt.get("live_receipt") or {})
     if live_receipt_checked:

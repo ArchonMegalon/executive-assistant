@@ -670,6 +670,14 @@ def test_probe_proactive_gmail_draft_reports_live_google_blocker(monkeypatch) ->
                 "google_reauth_required_reason": "google_oauth_invalid_grant",
                 "google_gmail_draft_scope_present": True,
                 "google_account_count": 1,
+                "execution_observation_present": True,
+                "execution_status": "executed",
+                "execution_saved_at": "2026-06-28T18:09:00Z",
+                "recipient_email_sha256_present": True,
+                "gmail_draft_id_sha256_present": True,
+                "gmail_message_id_sha256_present": True,
+                "draft_folder_url_sha256_present": True,
+                "raw_execution_payload_exposed": False,
                 "telegram_primary_binding_principal_id": "cf-email:tibor.girschele@gmail.com",
                 "telegram_primary_chat_id": "246813579",
                 "telegram_proactive_chat_id": "246813579",
@@ -700,6 +708,13 @@ def test_probe_proactive_gmail_draft_reports_live_google_blocker(monkeypatch) ->
     assert report["next_action_label"] == "Reconnect Google"
     assert report["google_account_email"] == "manfred.hoza@gmail.com"
     assert report["expected_google_account_email"] == "tibor.girschele@gmail.com"
+    assert report["execution_observation_present"] is True
+    assert report["execution_status"] == "executed"
+    assert report["recipient_email_hash_present"] is True
+    assert report["gmail_draft_id_hash_present"] is True
+    assert report["gmail_message_id_hash_present"] is True
+    assert report["draft_folder_url_hash_present"] is True
+    assert report["raw_execution_payload_exposed"] is False
     assert report["telegram_primary_chat_id"] == "246813579"
     assert report["telegram_proactive_chat_id"] == "246813579"
 

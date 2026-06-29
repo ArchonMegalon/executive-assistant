@@ -38,6 +38,27 @@ def _base_payload() -> dict[str, object]:
         "safe_work_results": {"ready": True},
         "live_receipt_checked": False,
         "live_receipt": {"ok": False, "receipt_path": ""},
+        "gmail_draft_followthrough": {
+            "checked": False,
+            "status": "not_checked",
+            "source": "",
+            "observed_at": "",
+            "blocking_reason": "",
+            "next_action": "",
+            "next_action_href": "",
+            "next_action_label": "",
+            "next_action_method": "",
+            "action": "",
+            "work_type": "",
+            "execution_observation_present": False,
+            "execution_status": "",
+            "execution_saved_at": "",
+            "recipient_email_hash_present": False,
+            "gmail_draft_id_hash_present": False,
+            "gmail_message_id_hash_present": False,
+            "draft_folder_url_hash_present": False,
+            "raw_execution_payload_exposed": False,
+        },
         "verifier_commands": [
             "make verify-proactive-ooda",
             "make verify-proactive-ooda-live-receipt",
@@ -115,6 +136,32 @@ def test_proactive_ooda_operator_status_verifier_rejects_live_receipt_overclaim(
     issues = verifier.verify(receipt, root=tmp_path)
 
     assert "ready_with_live_receipt status requires live_receipt.ok=true" in issues
+
+
+def test_proactive_ooda_operator_status_verifier_rejects_gmail_draft_execution_overclaim(
+    tmp_path: Path, monkeypatch
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
+    payload = _base_payload()
+    payload["source_git_head"] = "source-head-123"
+    payload["gmail_draft_followthrough"] = {
+        **dict(payload["gmail_draft_followthrough"]),
+        "status": "already_executed",
+        "action": "save_gmail_draft",
+        "execution_status": "",
+        "execution_observation_present": False,
+        "gmail_draft_id_hash_present": False,
+        "raw_execution_payload_exposed": True,
+    }
+    _write_receipt(receipt, **payload)
+    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
+
+    issues = verifier.verify(receipt, root=tmp_path)
+
+    assert "gmail_draft_followthrough.raw_execution_payload_exposed must remain false" in issues
+    assert "already_executed gmail_draft_followthrough requires execution_status=executed" in issues
+    assert "already_executed gmail_draft_followthrough requires execution_observation_present=true" in issues
+    assert "already_executed gmail_draft_followthrough requires gmail_draft_id_hash_present=true" in issues
 
 
 def test_proactive_ooda_operator_status_verifier_rejects_incomplete_docker_probe_metadata(

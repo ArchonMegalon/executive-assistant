@@ -171,6 +171,26 @@ def test_materialize_proactive_ooda_operator_status_prefers_live_route_probe_whe
         },
     )
     monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_gmail_draft",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "status": "already_executed",
+            "source": "docker_compose_exec",
+            "observed_at": "2026-06-26T18:00:30Z",
+            "action": "save_gmail_draft",
+            "work_type": "draft",
+            "execution_observation_present": True,
+            "execution_status": "executed",
+            "execution_saved_at": "2026-06-26T17:58:00Z",
+            "recipient_email_hash_present": True,
+            "gmail_draft_id_hash_present": True,
+            "gmail_message_id_hash_present": True,
+            "draft_folder_url_hash_present": True,
+            "raw_execution_payload_exposed": False,
+        },
+    )
+    monkeypatch.setattr(
         module.proactive_verifier,
         "_build_report",
         lambda _args: (_ for _ in ()).throw(AssertionError("host verifier fallback should not run")),
@@ -205,6 +225,11 @@ def test_materialize_proactive_ooda_operator_status_prefers_live_route_probe_whe
     assert receipt["approval_capture_surface"]["callback_dir_writable"] is True
     assert receipt["approval_capture_surface"]["current_packet_callback_record_count"] == 1
     assert receipt["approval_capture_surface"]["current_packet_live_pending_count"] == 1
+    assert receipt["gmail_draft_followthrough"]["status"] == "already_executed"
+    assert receipt["gmail_draft_followthrough"]["action"] == "save_gmail_draft"
+    assert receipt["gmail_draft_followthrough"]["execution_observation_present"] is True
+    assert receipt["gmail_draft_followthrough"]["gmail_draft_id_hash_present"] is True
+    assert receipt["gmail_draft_followthrough"]["raw_execution_payload_exposed"] is False
 
 
 def test_materialize_proactive_ooda_operator_status_counts_pending_approval_as_user_action(
@@ -272,6 +297,16 @@ def test_materialize_proactive_ooda_operator_status_counts_pending_approval_as_u
             "current_packet_live_pending_count": 1,
             "current_packet_callback_latest_status": "pending",
             "current_packet_callback_latest_expired": False,
+        },
+    )
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_gmail_draft",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "status": "no_pending_draft",
+            "source": "docker_compose_exec",
+            "observed_at": "2026-06-29T06:55:30Z",
         },
     )
     monkeypatch.setattr(
@@ -370,6 +405,22 @@ def test_materialize_proactive_ooda_operator_status_blocks_when_live_route_probe
             "current_packet_live_pending_count": 1,
             "current_packet_callback_latest_status": "pending",
             "current_packet_callback_latest_expired": False,
+        },
+    )
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_gmail_draft",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "status": "blocked",
+            "source": "docker_compose_exec",
+            "observed_at": "2026-06-28T13:50:30Z",
+            "blocking_reason": "google_oauth_invalid_grant",
+            "next_action": "reauthorize_google_workspace_binding",
+            "next_action_href": "https://myexternalbrain.com/app/actions/google/connect?scope_bundle=full_workspace",
+            "next_action_label": "Reconnect Google workspace",
+            "next_action_method": "get",
+            "raw_execution_payload_exposed": False,
         },
     )
 

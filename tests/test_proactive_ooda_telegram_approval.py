@@ -150,6 +150,76 @@ def test_apply_proactive_ooda_telegram_approval_callback_accepts_principal_alias
     assert calls["kwargs"]["principal_id"] == "exec-1"
 
 
+def test_inspect_latest_telegram_gmail_draft_followthrough_reports_redacted_execution_observation(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import google_oauth as google_oauth_service
+    from app.services import proactive_ooda_telegram_approval as approval
+
+    packet_ref = "stage_packet:packet-draft-1"
+    staged_artifact_ref = "safe_work_result:result-draft-1"
+    rows = [
+        SimpleNamespace(
+            created_at="2026-06-28T18:00:00Z",
+            event_type="telegram.proactive_ooda_task_staged",
+            observation_id="obs-stage-1",
+            principal_id="cf-email:tibor.girschele@gmail.com",
+            payload={
+                "work_type": "draft",
+                "approval_required": False,
+                "stage_packet_ref": packet_ref,
+                "safe_work_result_ref": staged_artifact_ref,
+            },
+        ),
+        SimpleNamespace(
+            created_at="2026-06-28T18:01:00Z",
+            event_type="proactive_ooda.approved_action_execution",
+            observation_id="obs-exec-1",
+            principal_id="cf-email:tibor.girschele@gmail.com",
+            payload={
+                "packet_ref_sha256": hashlib.sha256(packet_ref.encode("utf-8")).hexdigest(),
+                "staged_artifact_ref_sha256": hashlib.sha256(staged_artifact_ref.encode("utf-8")).hexdigest(),
+                "status": "executed",
+                "action": "save_gmail_draft",
+                "work_type": "draft",
+                "saved_at": "2026-06-28T18:01:00Z",
+                "recipient_email_sha256": "recipient-hash",
+                "gmail_draft_id_sha256": "draft-hash",
+                "gmail_message_id_sha256": "message-hash",
+                "draft_folder_url_sha256": "folder-hash",
+                "raw_execution_payload_exposed": False,
+            },
+        ),
+    ]
+    container = SimpleNamespace(
+        channel_runtime=SimpleNamespace(list_recent_observations=lambda **_kwargs: rows),
+    )
+    monkeypatch.setattr(
+        google_oauth_service,
+        "_google_binding_principal_ids",
+        lambda **_kwargs: ("cf-email:tibor.girschele@gmail.com",),
+    )
+
+    report = approval.inspect_latest_telegram_gmail_draft_followthrough(
+        container=container,
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        root=tmp_path,
+    )
+
+    assert report["status"] == "already_executed"
+    assert report["action"] == "save_gmail_draft"
+    assert report["execution_status"] == "executed"
+    assert report["execution_observation_present"] is True
+    assert report["recipient_email_sha256_present"] is True
+    assert report["gmail_draft_id_sha256_present"] is True
+    assert report["gmail_message_id_sha256_present"] is True
+    assert report["draft_folder_url_sha256_present"] is True
+    assert report["raw_execution_payload_exposed"] is False
+    assert "recipient_email" not in report
+    assert "gmail_draft_id" not in report
+
+
 def test_apply_proactive_ooda_telegram_approval_callback_falls_back_when_materialization_module_is_missing(
     monkeypatch,
     tmp_path: Path,

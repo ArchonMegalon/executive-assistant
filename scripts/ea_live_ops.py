@@ -1117,6 +1117,14 @@ def probe_proactive_gmail_draft(
         "google_reauth_required_reason": str(payload.get("google_reauth_required_reason") or "").strip(),
         "google_gmail_draft_scope_present": bool(payload.get("google_gmail_draft_scope_present")),
         "google_account_count": int(payload.get("google_account_count") or 0),
+        "execution_observation_present": bool(payload.get("execution_observation_present")),
+        "execution_status": str(payload.get("execution_status") or "").strip(),
+        "execution_saved_at": str(payload.get("execution_saved_at") or "").strip(),
+        "recipient_email_hash_present": bool(payload.get("recipient_email_sha256_present")),
+        "gmail_draft_id_hash_present": bool(payload.get("gmail_draft_id_sha256_present")),
+        "gmail_message_id_hash_present": bool(payload.get("gmail_message_id_sha256_present")),
+        "draft_folder_url_hash_present": bool(payload.get("draft_folder_url_sha256_present")),
+        "raw_execution_payload_exposed": bool(payload.get("raw_execution_payload_exposed")),
         "telegram_primary_binding_principal_id": str(payload.get("telegram_primary_binding_principal_id") or "").strip(),
         "telegram_primary_chat_id": str(payload.get("telegram_primary_chat_id") or "").strip(),
         "telegram_proactive_chat_id": str(payload.get("telegram_proactive_chat_id") or "").strip(),
@@ -1137,6 +1145,10 @@ def probe_proactive_gmail_draft(
             pieces.append(f"expected={report['expected_google_account_email']}")
         if str(report.get("google_token_status") or "").strip():
             pieces.append(f"token={report['google_token_status']}")
+        if bool(report.get("execution_observation_present")):
+            pieces.append(f"execution={str(report.get('execution_status') or '').strip() or 'recorded'}")
+        if bool(report.get("gmail_draft_id_hash_present")):
+            pieces.append("draft_hash=true")
         if str(report.get("telegram_proactive_chat_id") or "").strip():
             pieces.append(f"proactive_chat={report['telegram_proactive_chat_id']}")
         if str(report.get("blocking_reason") or "").strip():

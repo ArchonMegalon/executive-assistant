@@ -123,6 +123,62 @@ def _has_only_workspace_health_errors(report: Mapping[str, Any]) -> bool:
     return len(_google_workspace_health_error_items(report)) == len(errors)
 
 
+def _gmail_draft_followthrough_probe(principal_id: str) -> dict[str, Any]:
+    try:
+        return ea_live_ops.probe_proactive_gmail_draft(
+            principal_id=principal_id,
+            output_format="json",
+        )
+    except Exception:
+        return {}
+
+
+def _gmail_draft_followthrough_summary(probe: Mapping[str, Any]) -> dict[str, Any]:
+    if not probe:
+        return {
+            "checked": False,
+            "status": "not_checked",
+            "source": "",
+            "observed_at": "",
+            "blocking_reason": "",
+            "next_action": "",
+            "next_action_href": "",
+            "next_action_label": "",
+            "next_action_method": "",
+            "action": "",
+            "work_type": "",
+            "execution_observation_present": False,
+            "execution_status": "",
+            "execution_saved_at": "",
+            "recipient_email_hash_present": False,
+            "gmail_draft_id_hash_present": False,
+            "gmail_message_id_hash_present": False,
+            "draft_folder_url_hash_present": False,
+            "raw_execution_payload_exposed": False,
+        }
+    return {
+        "checked": bool(probe.get("probe_ok")),
+        "status": str(probe.get("status") or "").strip() or "unknown",
+        "source": str(probe.get("source") or "").strip(),
+        "observed_at": str(probe.get("observed_at") or "").strip(),
+        "blocking_reason": str(probe.get("blocking_reason") or "").strip(),
+        "next_action": str(probe.get("next_action") or "").strip(),
+        "next_action_href": str(probe.get("next_action_href") or "").strip(),
+        "next_action_label": str(probe.get("next_action_label") or "").strip(),
+        "next_action_method": str(probe.get("next_action_method") or "").strip(),
+        "action": str(probe.get("action") or "").strip(),
+        "work_type": str(probe.get("work_type") or "").strip(),
+        "execution_observation_present": bool(probe.get("execution_observation_present")),
+        "execution_status": str(probe.get("execution_status") or "").strip(),
+        "execution_saved_at": str(probe.get("execution_saved_at") or "").strip(),
+        "recipient_email_hash_present": bool(probe.get("recipient_email_hash_present")),
+        "gmail_draft_id_hash_present": bool(probe.get("gmail_draft_id_hash_present")),
+        "gmail_message_id_hash_present": bool(probe.get("gmail_message_id_hash_present")),
+        "draft_folder_url_hash_present": bool(probe.get("draft_folder_url_hash_present")),
+        "raw_execution_payload_exposed": bool(probe.get("raw_execution_payload_exposed")),
+    }
+
+
 def _report_errors(report: Mapping[str, Any]) -> list[str]:
     return [str(item).strip() for item in list(report.get("errors") or []) if str(item).strip()]
 
@@ -529,10 +585,12 @@ def build_proactive_ooda_operator_status(
     effective_report_args = report_args or _default_report_args()
     route_probe: dict[str, Any] = {}
     artifact_probe: dict[str, Any] = {}
+    gmail_draft_probe: dict[str, Any] = {}
+    principal_id = str(getattr(effective_report_args, "principal_id", "") or proactive_verifier._default_principal_id()).strip()
     if allow_live_route_probe and live_receipt_path is None:
         try:
             route_probe = ea_live_ops.probe_proactive_route(
-                principal_id=str(getattr(effective_report_args, "principal_id", "") or proactive_verifier._default_principal_id()).strip(),
+                principal_id=principal_id,
             )
         except Exception:
             route_probe = {}
@@ -540,6 +598,7 @@ def build_proactive_ooda_operator_status(
             artifact_probe = ea_live_ops.probe_proactive_artifacts(output_format="json")
         except Exception:
             artifact_probe = {}
+        gmail_draft_probe = _gmail_draft_followthrough_probe(principal_id)
 
     if bool(route_probe.get("probe_ok")) and isinstance(route_probe.get("route_report"), dict):
         report = dict(route_probe.get("route_report") or {})
@@ -650,6 +709,7 @@ def build_proactive_ooda_operator_status(
         "live_receipt_checked": live_receipt_checked,
         "live_receipt": dict(live_receipt or {}),
         "approval_capture_surface": approval_capture_surface,
+        "gmail_draft_followthrough": _gmail_draft_followthrough_summary(gmail_draft_probe),
         "remaining_external_proofs": [
             REMAINING_EXTERNAL_PROOF,
         ],

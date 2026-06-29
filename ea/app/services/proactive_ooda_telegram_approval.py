@@ -730,13 +730,15 @@ def inspect_latest_telegram_gmail_draft_followthrough(
     if not packet_ref or not staged_artifact_ref:
         inspection["status"] = "staged_refs_missing"
         return inspection
-    if _approved_action_execution_recorded(
+    execution_record = _approved_action_execution_record(
         container=container,
         principal_id=staged_principal_id,
         packet_ref=packet_ref,
         staged_artifact_ref=staged_artifact_ref,
         status="executed",
-    ):
+    )
+    if execution_record:
+        inspection.update(_execution_record_inspection_fields(execution_record))
         inspection["status"] = "already_executed"
         return inspection
 
@@ -1158,6 +1160,25 @@ def _approved_action_execution_recorded(
     staged_artifact_ref: str,
     status: str = "",
 ) -> bool:
+    return bool(
+        _approved_action_execution_record(
+            container=container,
+            principal_id=principal_id,
+            packet_ref=packet_ref,
+            staged_artifact_ref=staged_artifact_ref,
+            status=status,
+        )
+    )
+
+
+def _approved_action_execution_record(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    packet_ref: str,
+    staged_artifact_ref: str,
+    status: str = "",
+) -> dict[str, Any]:
     packet_hash = _hash_value(packet_ref)
     artifact_hash = _hash_value(staged_artifact_ref)
     normalized_status = str(status or "").strip().lower()
@@ -1174,8 +1195,23 @@ def _approved_action_execution_recorded(
             row_status = str(payload.get("status") or "").strip().lower()
             if normalized_status and row_status != normalized_status:
                 continue
-            return True
-    return False
+            return payload
+    return {}
+
+
+def _execution_record_inspection_fields(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "execution_observation_present": True,
+        "action": str(payload.get("action") or "").strip(),
+        "work_type": str(payload.get("work_type") or "").strip(),
+        "execution_saved_at": str(payload.get("saved_at") or "").strip(),
+        "execution_status": str(payload.get("status") or "").strip(),
+        "recipient_email_sha256_present": bool(str(payload.get("recipient_email_sha256") or "").strip()),
+        "gmail_draft_id_sha256_present": bool(str(payload.get("gmail_draft_id_sha256") or "").strip()),
+        "gmail_message_id_sha256_present": bool(str(payload.get("gmail_message_id_sha256") or "").strip()),
+        "draft_folder_url_sha256_present": bool(str(payload.get("draft_folder_url_sha256") or "").strip()),
+        "raw_execution_payload_exposed": bool(payload.get("raw_execution_payload_exposed")),
+    }
 
 
 def _load_matching_artifacts(
