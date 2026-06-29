@@ -17,6 +17,20 @@ CLOUDFLARE_ENV_FILE="${HOME_GIRSCHELE_CLOUDFLARE_ENV_FILE:-$REPO_ROOT/.env}"
 CF_ACCESS_ENV_FILE="${HOME_GIRSCHELE_CF_ACCESS_ENV_FILE:-/docker/fleet/secrets/codexliz-cf-access.env}"
 CF_ZONE_ID="${HOME_GIRSCHELE_CLOUDFLARE_ZONE_ID:-}"
 ACCESS_EMAILS="${HOME_GIRSCHELE_ACCESS_EMAILS:-}"
+STATE_DIR="${HOME_GIRSCHELE_STATE_DIR:-$REPO_ROOT/.state/home-girschele}"
+BACKUP_DIR="${HOME_GIRSCHELE_BACKUP_DIR:-$STATE_DIR/backups}"
+BACKUP_RECEIPT_PATH="${HOME_GIRSCHELE_BACKUP_RECEIPT:-$STATE_DIR/homeassistant-backup.receipt.json}"
+RESTORE_RECEIPT_PATH="${HOME_GIRSCHELE_RESTORE_RECEIPT:-$STATE_DIR/homeassistant-restore-drill.receipt.json}"
+DRIFT_RECEIPT_PATH="${HOME_GIRSCHELE_DRIFT_RECEIPT:-$STATE_DIR/homeassistant-drift.receipt.json}"
+DISK_LOG_RECEIPT_PATH="${HOME_GIRSCHELE_DISK_LOG_RECEIPT:-$STATE_DIR/homeassistant-disk-log.receipt.json}"
+SCHEDULE_RECEIPT_PATH="${HOME_GIRSCHELE_SCHEDULE_RECEIPT:-$STATE_DIR/homeassistant-scheduled-health.receipt.json}"
+SCHEDULE_LOG_PATH="${HOME_GIRSCHELE_SCHEDULE_LOG:-$STATE_DIR/scheduled-health.log}"
+SYSTEMD_USER_DIR="${HOME_GIRSCHELE_SYSTEMD_USER_DIR:-$HOME/.config/systemd/user}"
+SYSTEMD_SERVICE_NAME="${HOME_GIRSCHELE_SYSTEMD_SERVICE_NAME:-home-girschele-health.service}"
+SYSTEMD_TIMER_NAME="${HOME_GIRSCHELE_SYSTEMD_TIMER_NAME:-home-girschele-health.timer}"
+EXPECTED_TUNNEL_ORIGIN="${HOME_GIRSCHELE_EXPECTED_TUNNEL_ORIGIN:-http://172.17.0.1:8123}"
+MIN_FREE_BYTES="${HOME_GIRSCHELE_MIN_FREE_BYTES:-2147483648}"
+MAX_DOCKER_LOG_BYTES="${HOME_GIRSCHELE_MAX_DOCKER_LOG_BYTES:-67108864}"
 
 require_tool() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -33,6 +47,25 @@ read_env_value() {
   fi
   sed -n "s/^${key}=//p" "$file" | tail -n 1 | tr -d '\r'
 }
+
+load_home_girschele_private_defaults() {
+  if [[ -z "$CF_ZONE_ID" ]]; then
+    CF_ZONE_ID="$(read_env_value "$CLOUDFLARE_ENV_FILE" HOME_GIRSCHELE_CLOUDFLARE_ZONE_ID)"
+  fi
+  if [[ -z "$ACCESS_EMAILS" ]]; then
+    ACCESS_EMAILS="$(read_env_value "$CLOUDFLARE_ENV_FILE" HOME_GIRSCHELE_ACCESS_EMAILS)"
+  fi
+  if [[ "$CLOUDFLARE_ENV_FILE" != "$ENV_FILE" ]]; then
+    if [[ -z "$CF_ZONE_ID" ]]; then
+      CF_ZONE_ID="$(read_env_value "$ENV_FILE" HOME_GIRSCHELE_CLOUDFLARE_ZONE_ID)"
+    fi
+    if [[ -z "$ACCESS_EMAILS" ]]; then
+      ACCESS_EMAILS="$(read_env_value "$ENV_FILE" HOME_GIRSCHELE_ACCESS_EMAILS)"
+    fi
+  fi
+}
+
+load_home_girschele_private_defaults
 
 compose_args() {
   if [[ -f "$ENV_FILE" ]]; then
@@ -52,6 +85,47 @@ container_running() {
 
 container_config_source() {
   docker inspect "$SERVICE_NAME" --format '{{range .Mounts}}{{if eq .Destination "/config"}}{{.Source}}{{end}}{{end}}' 2>/dev/null || true
+}
+
+container_network_mode() {
+  docker inspect "$SERVICE_NAME" --format '{{.HostConfig.NetworkMode}}' 2>/dev/null || true
+}
+
+container_log_option() {
+  local key="$1"
+  docker inspect "$SERVICE_NAME" --format "{{index .HostConfig.LogConfig.Config \"$key\"}}" 2>/dev/null || true
+}
+
+container_log_path() {
+  docker inspect "$SERVICE_NAME" --format '{{.LogPath}}' 2>/dev/null || true
+}
+
+json_bool() {
+  if [[ "$1" == true ]]; then
+    printf 'true'
+  else
+    printf 'false'
+  fi
+}
+
+latest_backup_archive() {
+  find "$BACKUP_DIR" -maxdepth 1 -type f -name 'homeassistant-config-*.tar.gz' 2>/dev/null | sort | tail -n 1
+}
+
+cloudflare_credentials() {
+  CF_EMAIL="$(read_env_value "$CLOUDFLARE_ENV_FILE" CLOUDFLARE_EMAIL)"
+  CF_API_KEY="$(read_env_value "$CLOUDFLARE_ENV_FILE" CLOUDFLARE_GLOBAL_API_KEY)"
+  if [[ -z "$CF_EMAIL" || -z "$CF_API_KEY" || -z "$CF_ZONE_ID" ]]; then
+    return 1
+  fi
+}
+
+cloudflare_access_apps() {
+  cloudflare_credentials || return 1
+  curl -fsS "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/access/apps?per_page=200" \
+    -H "X-Auth-Email: $CF_EMAIL" \
+    -H "X-Auth-Key: $CF_API_KEY" \
+    -H "Content-Type: application/json"
 }
 
 migrate_config() {
@@ -381,6 +455,198 @@ health() {
   fi
 }
 
+backup_config() {
+  require_tool python3
+  require_tool jq
+  require_tool sha256sum
+
+  if [[ ! -d "$CONFIG_DIR" || ! -f "$CONFIG_DIR/configuration.yaml" ]]; then
+    echo "missing HA config directory at $CONFIG_DIR" >&2
+    exit 1
+  fi
+
+  mkdir -p "$BACKUP_DIR" "$(dirname "$BACKUP_RECEIPT_PATH")"
+  local timestamp archive manifest archive_sha archive_size file_count required_json required_ok
+  timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  archive="$BACKUP_DIR/homeassistant-config-$timestamp.tar.gz"
+  manifest="$BACKUP_DIR/homeassistant-config-$timestamp.manifest.json"
+
+  python3 - "$CONFIG_DIR" "$archive" "$manifest" <<'PY'
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+import sys
+import tarfile
+
+root = Path(sys.argv[1]).resolve()
+archive = Path(sys.argv[2])
+manifest = Path(sys.argv[3])
+
+excluded_names = {".ha_run.lock"}
+excluded_prefixes = ("home-assistant.log",)
+entries: list[dict[str, object]] = []
+
+with tarfile.open(archive, "w:gz") as tar:
+    for path in sorted(root.rglob("*")):
+        rel = path.relative_to(root).as_posix()
+        if not rel or path.is_dir():
+            continue
+        if path.name in excluded_names or any(path.name.startswith(prefix) for prefix in excluded_prefixes):
+            continue
+        tar.add(path, arcname=rel, recursive=False)
+        if path.is_file():
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            entries.append({"path": rel, "size": path.stat().st_size, "sha256": digest})
+        else:
+            entries.append({"path": rel, "size": 0, "sha256": ""})
+
+required = [
+    "configuration.yaml",
+    ".storage/auth",
+    ".storage/core.config_entries",
+    "home-assistant_v2.db",
+]
+present = {entry["path"] for entry in entries}
+manifest.write_text(
+    json.dumps(
+        {
+            "root": str(root),
+            "archive": str(archive),
+            "fileCount": len(entries),
+            "requiredPaths": [{"path": item, "present": item in present} for item in required],
+            "files": entries,
+        },
+        indent=2,
+    )
+    + "\n",
+    encoding="utf-8",
+)
+PY
+
+  archive_sha="$(sha256sum "$archive" | awk '{print $1}')"
+  archive_size="$(stat -c '%s' "$archive")"
+  file_count="$(jq -r '.fileCount' "$manifest")"
+  required_json="$(jq -c '.requiredPaths' "$manifest")"
+  required_ok="$(jq -r 'all(.requiredPaths[]; .present == true)' "$manifest")"
+
+  jq -n \
+    --arg generatedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg configDir "$CONFIG_DIR" \
+    --arg archivePath "$archive" \
+    --arg manifestPath "$manifest" \
+    --arg archiveSha256 "$archive_sha" \
+    --argjson archiveSize "$archive_size" \
+    --argjson fileCount "$file_count" \
+    --argjson requiredPaths "$required_json" \
+    --argjson requiredOk "$(json_bool "$required_ok")" \
+    '{
+      contractName: "home.girschele.home_assistant.backup.v1",
+      generatedAt: $generatedAt,
+      status: (if $requiredOk and ($archiveSize > 0) and ($fileCount > 0) then "pass" else "fail" end),
+      configDir: $configDir,
+      archive: {
+        path: $archivePath,
+        sha256: $archiveSha256,
+        sizeBytes: $archiveSize,
+        fileCount: $fileCount,
+        manifestPath: $manifestPath
+      },
+      requiredPaths: $requiredPaths,
+      excludes: ["home-assistant.log*", ".ha_run.lock"]
+    }' > "$BACKUP_RECEIPT_PATH"
+
+  jq -r '"home.girschele.com backup: " + .status + " " + .archive.path' "$BACKUP_RECEIPT_PATH"
+  if [[ "$(jq -r '.status' "$BACKUP_RECEIPT_PATH")" != "pass" ]]; then
+    jq '.' "$BACKUP_RECEIPT_PATH"
+    exit 1
+  fi
+}
+
+restore_drill() {
+  require_tool docker
+  require_tool jq
+  require_tool tar
+  require_tool sha256sum
+
+  local archive="${1:-}"
+  if [[ -z "$archive" ]]; then
+    archive="$(latest_backup_archive)"
+  fi
+  if [[ -z "$archive" || ! -f "$archive" ]]; then
+    backup_config
+    archive="$(latest_backup_archive)"
+  fi
+
+  local tmp_dir restore_dir archive_sha expected_sha archive_size required_ok config_ok config_exit
+  tmp_dir="$(mktemp -d)"
+  restore_dir="$tmp_dir/config"
+  mkdir -p "$restore_dir" "$(dirname "$RESTORE_RECEIPT_PATH")"
+  trap 'rm -rf "$tmp_dir"' RETURN
+
+  tar -xzf "$archive" -C "$restore_dir"
+  archive_sha="$(sha256sum "$archive" | awk '{print $1}')"
+  expected_sha="$(jq -r '.archive.sha256 // empty' "$BACKUP_RECEIPT_PATH" 2>/dev/null || true)"
+  archive_size="$(stat -c '%s' "$archive")"
+
+  if [[ -f "$restore_dir/configuration.yaml" &&
+        -f "$restore_dir/.storage/auth" &&
+        -f "$restore_dir/.storage/core.config_entries" &&
+        -f "$restore_dir/home-assistant_v2.db" ]]; then
+    required_ok=true
+  else
+    required_ok=false
+  fi
+
+  set +e
+  docker run --rm \
+    --entrypoint python \
+    -v "$restore_dir:/config" \
+    "ghcr.io/home-assistant/home-assistant:${HOME_GIRSCHELE_HASS_IMAGE_TAG:-stable}" \
+    -m homeassistant --script check_config --config /config >/tmp/home-girschele-restore-check.log 2>&1
+  config_exit=$?
+  set -e
+  if [[ "$config_exit" == "0" ]]; then
+    config_ok=true
+  else
+    config_ok=false
+  fi
+
+  jq -n \
+    --arg generatedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg archivePath "$archive" \
+    --arg archiveSha256 "$archive_sha" \
+    --arg expectedSha256 "$expected_sha" \
+    --argjson archiveSize "$archive_size" \
+    --argjson requiredOk "$(json_bool "$required_ok")" \
+    --argjson configOk "$(json_bool "$config_ok")" \
+    --argjson configExit "$config_exit" \
+    '{
+      contractName: "home.girschele.home_assistant.restore_drill.v1",
+      generatedAt: $generatedAt,
+      status: (if $requiredOk and $configOk and ($archiveSize > 0) then "pass" else "fail" end),
+      drillType: "non_destructive_temp_extract",
+      archive: {
+        path: $archivePath,
+        sha256: $archiveSha256,
+        expectedSha256: $expectedSha256,
+        sizeBytes: $archiveSize
+      },
+      checks: {
+        requiredStateFilesPresent: $requiredOk,
+        homeAssistantCheckConfig: {exitCode: $configExit, ok: $configOk}
+      }
+    }' > "$RESTORE_RECEIPT_PATH"
+
+  jq -r '"home.girschele.com restore drill: " + .status + " " + .archive.path' "$RESTORE_RECEIPT_PATH"
+  if [[ "$(jq -r '.status' "$RESTORE_RECEIPT_PATH")" != "pass" ]]; then
+    jq '.checks' "$RESTORE_RECEIPT_PATH"
+    cat /tmp/home-girschele-restore-check.log >&2 || true
+    exit 1
+  fi
+}
+
 case "${1:-health}" in
   migrate-config)
     migrate_config
@@ -395,15 +661,24 @@ case "${1:-health}" in
   health)
     health
     ;;
+  backup)
+    backup_config
+    ;;
+  restore-drill)
+    shift || true
+    restore_drill "${1:-}"
+    ;;
   harden)
     migrate_config
     ensure_proxy_config
     up_service
     restore_access
+    backup_config
+    restore_drill
     health
     ;;
   *)
-    echo "usage: $0 {migrate-config|up|restore-access|health|harden}" >&2
+    echo "usage: $0 {migrate-config|up|restore-access|health|backup|restore-drill|harden}" >&2
     exit 2
     ;;
 esac
