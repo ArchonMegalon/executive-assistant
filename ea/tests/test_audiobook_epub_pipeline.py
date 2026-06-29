@@ -364,6 +364,48 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
         self.assertEqual(result["reason"], "provider internal failure")
         self.assertEqual(synthesize_mock.call_count, 1)
 
+    def test_render_unmixr_chapter_audio_blocks_for_selected_voice_author_gender_mismatch(self) -> None:
+        with self._base_context() as (job_dir, chapters, metadata):
+            voice_selection = {
+                "status": "selected",
+                "voice_id": "cinematic-voice-id",
+                "public": {
+                    "status": "selected_by_user",
+                    "selected": {
+                        "provider": "unmixr",
+                        "voice_id": "cinematic-voice-id",
+                        "label": "Seraphina",
+                        "language": "de-de",
+                        "supported_languages": ["de-de"],
+                        "tags": ["audiobook", "narration", "female", "warm"],
+                    },
+                    "book_profile": {"author_gender_signal": "male"},
+                },
+            }
+            with (
+                patch.object(audiobook_epub_pipeline, "selected_unmixr_voice_for_job", return_value=voice_selection),
+                patch.object(audiobook_epub_pipeline, "select_unmixr_voice_for_book", return_value=voice_selection),
+                patch.object(audiobook_epub_pipeline, "_selected_voice_language_mismatch", return_value={}),
+                patch.object(
+                    audiobook_epub_pipeline,
+                    "_selected_voice_author_gender_mismatch",
+                    return_value={
+                        "author_gender_signal": "male",
+                        "selected_gender": "female",
+                        "replacement_candidate_count": 2,
+                    },
+                ),
+            ):
+                result = audiobook_epub_pipeline.render_unmixr_chapter_audio(
+                    job_dir=job_dir,
+                    chapters=chapters,
+                    metadata=metadata,
+                )
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["reason"], "selected_voice_author_gender_mismatch")
+        self.assertEqual(result["voice_author_gender_mismatch"]["author_gender_signal"], "male")
+
     def test_merge_m4b_if_ready_rebuilds_continuous_cinematic_track(self) -> None:
         with self._base_context(chapter_count=4) as (job_dir, chapters, metadata):
             audio_dir = job_dir / "audio"

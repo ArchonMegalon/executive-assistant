@@ -2027,13 +2027,22 @@ def _voice_language_matches(book_language: str, voice_language: str, supported_l
     return _voice_language_score(book_language, voice_language, supported_languages) >= 24
 
 
-def _selected_voice_language_mismatch(*, metadata: EpubMetadata, voice_selection: dict[str, object]) -> dict[str, object]:
-    if _env_bool("EA_AUDIOBOOK_ALLOW_VOICE_LANGUAGE_MISMATCH", False):
-        return {}
-    public = dict(voice_selection.get("public") or {})
+def _public_selected_voice_payload(voice_selection: dict[str, object]) -> tuple[dict[str, object], dict[str, object]]:
+    public = (
+        dict(voice_selection.get("public") or {})
+        if isinstance(voice_selection.get("public"), dict)
+        else dict(voice_selection or {})
+    )
     selected = dict(public.get("selected") or {})
     if not selected:
         selected = dict(public)
+    return public, selected
+
+
+def _selected_voice_language_mismatch(*, metadata: EpubMetadata, voice_selection: dict[str, object]) -> dict[str, object]:
+    if _env_bool("EA_AUDIOBOOK_ALLOW_VOICE_LANGUAGE_MISMATCH", False):
+        return {}
+    public, selected = _public_selected_voice_payload(voice_selection)
     if (
         bool(voice_selection.get("voice_language_override_by_user"))
         or bool(public.get("voice_language_override_by_user"))
@@ -2051,6 +2060,147 @@ def _selected_voice_language_mismatch(*, metadata: EpubMetadata, voice_selection
         "book_language": book_language,
         "voice_language": voice_language,
         "supported_languages": list(supported_languages[:20]),
+        "selected_label_sha256": _sha256_bytes(str(selected.get("label") or "").encode("utf-8"))
+        if str(selected.get("label") or "").strip()
+        else "",
+        "selected_voice_id_sha256": str(selected.get("voice_id_sha256") or "").strip(),
+    }
+
+
+def _selected_voice_author_gender_signal(*, metadata: EpubMetadata, voice_selection: dict[str, object]) -> str:
+    public, _selected = _public_selected_voice_payload(voice_selection)
+    profile = dict(public.get("book_profile") or voice_selection.get("book_profile") or {})
+    author_gender_signal = str(profile.get("author_gender_signal") or "").strip().lower()
+    if author_gender_signal in {"male", "female"}:
+        return author_gender_signal
+    return _infer_author_gender(metadata.author)
+
+
+def _author_gender_mismatch_replacement_candidates(
+    *,
+    job_dir: Path,
+    metadata: EpubMetadata,
+    voice_selection: dict[str, object],
+    limit: int = 3,
+    include_current_selected: bool = False,
+) -> tuple[str, list[dict[str, object]]]:
+    public, selected = _public_selected_voice_payload(voice_selection)
+    author_gender_signal = _selected_voice_author_gender_signal(metadata=metadata, voice_selection=voice_selection)
+    if author_gender_signal not in {"male", "female"} or limit <= 0:
+        return author_gender_signal, []
+    selected_key = str(public.get("selected_candidate_key") or selected.get("preset_key") or "").strip()
+    selected_token = str(public.get("selected_callback_token") or selected.get("callback_token") or "").strip()
+    selected_identities = _voice_candidate_identity_keys(selected)
+    dismissed_keys = {
+        str(item or "").strip()
+        for item in list(public.get("dismissed_candidate_keys") or [])
+        if str(item or "").strip()
+    }
+    dismissed_identity_keys = {
+        str(item or "").strip()
+        for item in list(public.get("dismissed_voice_identity_keys") or [])
+        if str(item or "").strip()
+    }
+    private_payload = _load_voice_audition_private(job_dir)
+    private_candidates = dict(private_payload.get("candidates") or {})
+    sample_dir = _voice_audition_dir(job_dir) / "samples"
+    current_selected_public: dict[str, object] = {}
+    replacement_rows: list[dict[str, object]] = []
+    seen_preset_keys: set[str] = set()
+    seen_identity_keys: set[str] = set()
+    for token, candidate in private_candidates.items():
+        if not isinstance(candidate, dict):
+            continue
+        candidate_public = dict(candidate.get("public") or {})
+        preset_key = str(candidate_public.get("preset_key") or candidate.get("candidate_key") or "").strip()
+        if not preset_key:
+            continue
+        token_value = str(candidate_public.get("callback_token") or token).strip()
+        sample_file = Path(str(candidate_public.get("sample_file") or "")).name
+        if not sample_file or not token_value:
+            continue
+        sample_path = sample_dir / sample_file
+        if not sample_path.is_file():
+            continue
+        if not _voice_candidate_allowed_for_audition(candidate_public):
+            continue
+        candidate_public["callback_token"] = token_value
+        identity_keys = _voice_candidate_identity_keys(candidate_public)
+        if identity_keys and identity_keys.intersection(dismissed_identity_keys):
+            continue
+        if preset_key in dismissed_keys:
+            continue
+        matches_selected = bool(
+            (selected_token and token_value == selected_token)
+            or (selected_key and preset_key == selected_key)
+            or (selected_identities and identity_keys.intersection(selected_identities))
+        )
+        if matches_selected:
+            current_selected_public = dict(candidate_public)
+            continue
+        if _voice_candidate_gender(candidate_public) != author_gender_signal:
+            continue
+        if not _voice_language_matches(
+            metadata.language,
+            str(candidate_public.get("language") or ""),
+            _split_languages(candidate_public.get("supported_languages") or candidate_public.get("language")),
+        ):
+            continue
+        if preset_key in seen_preset_keys:
+            continue
+        if identity_keys and identity_keys.intersection(seen_identity_keys):
+            continue
+        replacement_rows.append(candidate_public)
+        seen_preset_keys.add(preset_key)
+        seen_identity_keys.update(identity_keys)
+    replacement_rows.sort(
+        key=lambda row: (
+            bool(row.get("language_match")),
+            int(row.get("score") or 0),
+            bool(_voice_candidate_has_tag(row, "premium")),
+        ),
+        reverse=True,
+    )
+    available_slots = max(limit - (1 if include_current_selected and current_selected_public else 0), 0)
+    selected_rows = replacement_rows[:available_slots]
+    if include_current_selected and current_selected_public:
+        selected_rows.append(current_selected_public)
+    return author_gender_signal, selected_rows
+
+
+def _selected_voice_author_gender_mismatch(
+    *,
+    job_dir: Path,
+    metadata: EpubMetadata,
+    voice_selection: dict[str, object],
+) -> dict[str, object]:
+    if _env_bool("EA_AUDIOBOOK_ALLOW_VOICE_AUTHOR_GENDER_MISMATCH", False):
+        return {}
+    public, selected = _public_selected_voice_payload(voice_selection)
+    if (
+        bool(voice_selection.get("voice_author_gender_override_by_user"))
+        or bool(public.get("voice_author_gender_override_by_user"))
+        or bool(selected.get("voice_author_gender_override_by_user"))
+    ):
+        return {}
+    author_gender_signal = _selected_voice_author_gender_signal(metadata=metadata, voice_selection=voice_selection)
+    if author_gender_signal not in {"male", "female"}:
+        return {}
+    selected_gender = _voice_candidate_gender(selected)
+    if selected_gender not in {"male", "female"} or selected_gender == author_gender_signal:
+        return {}
+    _signal, replacement_rows = _author_gender_mismatch_replacement_candidates(
+        job_dir=job_dir,
+        metadata=metadata,
+        voice_selection=voice_selection,
+        limit=3,
+    )
+    if not replacement_rows:
+        return {}
+    return {
+        "author_gender_signal": author_gender_signal,
+        "selected_gender": selected_gender,
+        "replacement_candidate_count": len(replacement_rows),
         "selected_label_sha256": _sha256_bytes(str(selected.get("label") or "").encode("utf-8"))
         if str(selected.get("label") or "").strip()
         else "",
@@ -3478,6 +3628,67 @@ def reopen_audiobook_voice_selection_for_language_mismatch(*, job_dir: Path, lim
     return job
 
 
+def reopen_audiobook_voice_selection_for_author_gender_mismatch(*, job_dir: Path, limit: int = 3) -> dict[str, object]:
+    job = _load_job(job_dir)
+    metadata = _metadata_from_job(job)
+    provider_payload = dict(job.get("provider") or {})
+    current_selection = dict(provider_payload.get("voice_selection") or {})
+    author_gender_signal, selected_rows = _author_gender_mismatch_replacement_candidates(
+        job_dir=job_dir,
+        metadata=metadata,
+        voice_selection=current_selection,
+        limit=max(2, int(limit or 3)),
+        include_current_selected=True,
+    )
+    if author_gender_signal not in {"male", "female"} or len(selected_rows) < 2:
+        return job
+    pending_keys = [
+        str(row.get("preset_key") or "").strip()
+        for row in selected_rows
+        if str(row.get("preset_key") or "").strip()
+    ]
+    reopened_selection = {
+        **current_selection,
+        "contract_name": VOICE_AUDITION_CONTRACT_NAME,
+        "status": "waiting_user_choice",
+        "reason": "selected_voice_author_gender_mismatch",
+        "pending_candidate_keys": pending_keys,
+        "pending_batch": selected_rows,
+        "selected": {},
+        "selected_candidate_key": "",
+        "selected_callback_token": "",
+        "voice_author_gender_override_by_user": False,
+        "raw_voice_ids_exposed": False,
+        "sample_text_exposed": False,
+        "last_action": {
+            "action": "reopen",
+            "status": "replacement_ready",
+            "reason": "selected_voice_author_gender_mismatch",
+            "replacement_count": len(selected_rows),
+            "replacement_candidate_keys": pending_keys,
+            "author_gender_signal": author_gender_signal,
+        },
+    }
+    provider_payload["voice_selection"] = reopened_selection
+    provider_payload["raw_book_text_leaves_ea"] = False
+    job["provider"] = provider_payload
+    job["status"] = "waiting_voice_selection"
+    job["next_action"] = "choose_audiobook_voice"
+    job["render_result"] = {
+        "status": "waiting_voice_selection",
+        "reason": "selected_voice_author_gender_mismatch",
+        "voice_selection": reopened_selection,
+        "voice_author_gender_mismatch": {
+            "author_gender_signal": author_gender_signal,
+            "replacement_candidate_count": len(selected_rows),
+        },
+    }
+    job["updated_at"] = _now_iso()
+    _write_job(job_dir, job)
+    _write_current_job_receipt_best_effort(job_dir)
+    return job
+
+
 def _audiobook_voice_sample_delivery_summary(
     *,
     expected_count: int,
@@ -4483,7 +4694,9 @@ def apply_audiobook_voice_audition_action(*, callback_token: str, action: str) -
     )
     mismatch_recovery = (
         str(voice_selection.get("reason") or "").strip() == "selected_voice_language_mismatch"
+        or str(voice_selection.get("reason") or "").strip() == "selected_voice_author_gender_mismatch"
         or str((job.get("render_result") or {}).get("reason") or "").strip() == "selected_voice_language_mismatch"
+        or str((job.get("render_result") or {}).get("reason") or "").strip() == "selected_voice_author_gender_mismatch"
     )
     if (
         normalized_action in {"use", "select", "use_this"}
@@ -4522,6 +4735,23 @@ def apply_audiobook_voice_audition_action(*, callback_token: str, action: str) -
         explicit_language_override = bool(voice_selection.get("voice_language_override_by_user")) or bool(
             selected.get("voice_language_override_by_user")
         )
+        author_gender_signal = _selected_voice_author_gender_signal(
+            metadata=_metadata_from_job(job),
+            voice_selection=voice_selection,
+        )
+        selected_gender = _voice_candidate_gender(selected)
+        explicit_author_gender_override = bool(voice_selection.get("voice_author_gender_override_by_user")) or bool(
+            selected.get("voice_author_gender_override_by_user")
+        )
+        if (
+            str(voice_selection.get("reason") or "").strip() == "selected_voice_author_gender_mismatch"
+            or str((job.get("render_result") or {}).get("reason") or "").strip() == "selected_voice_author_gender_mismatch"
+        ):
+            explicit_author_gender_override = bool(
+                author_gender_signal in {"male", "female"}
+                and selected_gender in {"male", "female"}
+                and selected_gender != author_gender_signal
+            )
         voice_selection.update(
             {
                 "contract_name": VOICE_AUDITION_CONTRACT_NAME,
@@ -4533,6 +4763,7 @@ def apply_audiobook_voice_audition_action(*, callback_token: str, action: str) -
                 "pending_candidate_keys": [],
                 "pending_batch": [],
                 "voice_language_override_by_user": explicit_language_override,
+                "voice_author_gender_override_by_user": explicit_author_gender_override,
                 "raw_voice_ids_exposed": False,
                 "sample_text_exposed": False,
                 "last_action": {
@@ -5351,6 +5582,19 @@ def render_unmixr_chapter_audio(*, job_dir: Path, chapters: tuple[EpubChapter, .
             "provider": "unmixr",
             "voice_selection": dict(voice_selection.get("public") or {}),
             "voice_language_mismatch": language_mismatch,
+        }
+    author_gender_mismatch = _selected_voice_author_gender_mismatch(
+        job_dir=job_dir,
+        metadata=metadata,
+        voice_selection=voice_selection,
+    )
+    if author_gender_mismatch:
+        return {
+            "status": "blocked",
+            "reason": "selected_voice_author_gender_mismatch",
+            "provider": "unmixr",
+            "voice_selection": dict(voice_selection.get("public") or {}),
+            "voice_author_gender_mismatch": author_gender_mismatch,
         }
     # This path uses Unmixr's short TTS endpoint. Keep segments conservative; long-form
     # Studio/Narration imports are a separate provider workflow.
@@ -9446,6 +9690,23 @@ def continue_job(job_dir: Path) -> dict[str, object]:
         payload = reopened_job
     if (
         str(render_result.get("status") or "").strip() == "blocked"
+        and str(render_result.get("reason") or "").strip() == "selected_voice_author_gender_mismatch"
+    ):
+        payload.update(
+            {
+                "status": "blocked_external_tts",
+                "updated_at": _now_iso(),
+                "render_result": render_result,
+                "next_action": "selected_voice_author_gender_mismatch",
+            }
+        )
+        _write_job(job_dir, payload)
+        reopened_job = reopen_audiobook_voice_selection_for_author_gender_mismatch(job_dir=job_dir)
+        if str(reopened_job.get("status") or "").strip() == "waiting_voice_selection":
+            return reopened_job
+        payload = reopened_job
+    if (
+        str(render_result.get("status") or "").strip() == "blocked"
         and bool(render_result.get("replacement_voice_required"))
         and _provider_balance_blocker(render_result.get("reason"))
     ):
@@ -9642,6 +9903,28 @@ def telegram_epub_reply_text(job: dict[str, object]) -> str:
                 "I stopped before publishing the book with a different voice. "
                 f"{sample_line} Use it only if you want that replacement voice; otherwise restore the provider and I will render the selected voice.{voice_line}"
             )
+        if str(voice_selection.get("reason") or "").strip() == "selected_voice_author_gender_mismatch":
+            pending = list(voice_selection.get("pending_batch") or [])
+            replacement_labels = [
+                str(dict(row).get("label") or "").strip()
+                for row in pending
+                if isinstance(row, dict) and str(dict(row).get("label") or "").strip()
+            ]
+            suggested_labels = ", ".join(replacement_labels[:2])
+            keep_line = (
+                f" You can also keep {selected_voice.get('label')} if that is the intended voice."
+                if selected_voice.get("label")
+                else ""
+            )
+            suggestion_line = (
+                f" I staged better-matching alternatives: {suggested_labels}."
+                if suggested_labels
+                else " I staged better-matching voice alternatives."
+            )
+            return (
+                f"The current selected voice for {title} does not match the author gender signal, so I stopped before finishing the book with the stale voice choice."
+                f"{suggestion_line}{keep_line} Choose 'Use this' on the one you want."
+            )
         profile = dict(voice_selection.get("book_profile") or {})
         topic = str(profile.get("topic") or "").strip()
         language = str(profile.get("language") or "").strip()
@@ -9801,6 +10084,12 @@ def telegram_epub_reply_text(job: dict[str, object]) -> str:
                         "The selected voice does not match the book language, so I stopped before finishing it with the wrong voice. "
                         f"Choose another voice and I can continue from there.{voice_line}"
                     )
+                if blocker_code == "selected_voice_author_gender_mismatch":
+                    return (
+                        f"I accepted the source ebook and extracted {chapter_count} chapters for {title}. "
+                        "The selected voice does not match the author gender signal, so I stopped before finishing it with the stale voice choice. "
+                        f"Choose one of the staged replacement voices, or keep the current one explicitly if that is what you want.{voice_line}"
+                    )
                 retry_at = _audiobook_job_external_tts_retry_at(job)
                 retry_line = (
                     f" I will retry after {retry_at.isoformat().replace('+00:00', 'Z')}."
@@ -9876,6 +10165,8 @@ def _external_tts_blocker_is_retryable(reason: object) -> bool:
         return False
     if "selected_voice_language_mismatch" in normalized:
         return False
+    if "selected_voice_author_gender_mismatch" in normalized:
+        return False
     if _external_tts_blocker_cooldown_seconds(normalized) > 0:
         return True
     retryable_markers = (
@@ -9904,6 +10195,8 @@ def _external_tts_blocker_code(reason: object) -> str:
         return "external_tts_disabled"
     if "selected_voice_language_mismatch" in normalized:
         return "selected_voice_language_mismatch"
+    if "selected_voice_author_gender_mismatch" in normalized:
+        return "selected_voice_author_gender_mismatch"
     if "insufficient api balance" in normalized or "insufficient balance" in normalized or "prebuilt character" in normalized:
         return "provider_balance_or_prebuilt_characters"
     if "quota" in normalized:
