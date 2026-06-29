@@ -195,6 +195,117 @@ def test_probe_provider_unmixr_prefers_runtime_container_preflight(monkeypatch) 
     assert report["raw"]["preflight_status"] == "warn"
 
 
+def test_probe_provider_onemin_prefers_runtime_container_aggregate(monkeypatch) -> None:
+    module = _module()
+
+    def _fail_host_container():
+        raise RuntimeError("postgresql://private-value@ea-db")
+
+    def _fake_runtime_exec_json(**kwargs):
+        assert "aggregate_snapshot" in kwargs["code"]
+        return (
+            0,
+            {
+                "ok": True,
+                "aggregate": {
+                    "state": "ready",
+                    "live_remaining_credits_total": 123456,
+                    "account_count": 2,
+                    "live_positive_balance_account_count": 1,
+                    "estimated_hours_remaining_at_current_pace": 9.5,
+                    "scope": "all_accounts",
+                    "accounts": [
+                        {
+                            "last_billing_snapshot_at": "2026-06-29T12:00:00Z",
+                            "next_topup_at": "2026-07-01T00:00:00Z",
+                        }
+                    ],
+                },
+            },
+            "ea-api",
+        )
+
+    monkeypatch.setattr(module, "_container", _fail_host_container)
+    monkeypatch.setattr(module, "_runtime_container_exec_json", _fake_runtime_exec_json)
+
+    report = module.probe_provider("onemin", output_format="operator")
+
+    assert report["provider_key"] == "onemin"
+    assert report["status"] == "ready"
+    assert report["remaining"] == 123456
+    assert report["refresh_at"] == "2026-07-01T00:00:00Z"
+    assert report["observed_at"] == "2026-06-29T12:00:00Z"
+    assert report["source"] == "runtime_container_exec:onemin_manager.aggregate_snapshot"
+    assert report["raw"]["probe"]["runtime_container"] == "ea-api"
+    assert "remaining=123456 credits" in str(report["operator_text"])
+    serialized = json.dumps(report)
+    assert "private-value" not in serialized
+    assert "ea-db" not in serialized
+    assert "postgresql://" not in serialized
+
+
+def test_probe_provider_onemin_falls_back_to_host_aggregate(monkeypatch) -> None:
+    module = _module()
+
+    class _OneminManager:
+        def aggregate_snapshot(self, **_kwargs):
+            return {
+                "state": "ready",
+                "sum_free_credits": 456,
+                "account_count": 1,
+                "live_positive_balance_account_count": 1,
+                "estimated_hours_remaining_at_current_pace": 1.25,
+                "scope": "host_fallback",
+                "accounts": [{"last_billing_snapshot_at": "2026-06-29T12:15:00Z"}],
+            }
+
+    monkeypatch.setattr(
+        module,
+        "_runtime_container_exec_json",
+        lambda **_kwargs: (1, {"ok": False, "reason": "runtime_container_exec_exit_1"}, "ea-api"),
+    )
+    monkeypatch.setattr(module, "_provider_health_report", lambda: {"providers": {"onemin": {"state": "ready"}}})
+    monkeypatch.setattr(module, "_container", lambda: SimpleNamespace(onemin_manager=_OneminManager()))
+    monkeypatch.setattr(module, "_provider_display_name", lambda _provider_key: "1min.AI")
+
+    report = module.probe_provider("onemin")
+
+    assert report["status"] == "ready"
+    assert report["remaining"] == 456
+    assert report["source"] == "host_app_container:onemin_manager.aggregate_snapshot"
+    assert report["raw"]["probe"]["runtime_probe"]["reason"] == "runtime_container_exec_exit_1"
+    assert report["raw"]["probe"]["host_probe"]["reason"] == ""
+
+
+def test_probe_provider_onemin_reports_no_secret_failure_when_all_paths_fail(monkeypatch) -> None:
+    module = _module()
+
+    def _fail_host_container():
+        raise RuntimeError("postgresql://private-value@ea-db")
+
+    monkeypatch.setattr(
+        module,
+        "_runtime_container_exec_json",
+        lambda **_kwargs: (1, {"ok": False, "reason": "runtime_container_exec_exit_1"}, "ea-api"),
+    )
+    monkeypatch.setattr(module, "_provider_health_report", lambda: {"providers": {"onemin": {"state": "unknown"}}})
+    monkeypatch.setattr(module, "_container", _fail_host_container)
+
+    report = module.probe_provider("onemin", output_format="operator")
+
+    assert report["status"] == "probe_failed"
+    assert report["remaining"] is None
+    assert report["raw"]["reason"] == "runtime_container_exec_exit_1"
+    assert report["raw"]["runtime_probe"]["reason"] == "runtime_container_exec_exit_1"
+    assert report["raw"]["host_probe"]["reason"] == "RuntimeError"
+    assert "state=probe_failed" in str(report["operator_text"])
+    serialized = json.dumps(report)
+    assert "private-value" not in serialized
+    assert "ea-db" not in serialized
+    assert "postgresql://" not in serialized
+    assert "Traceback" not in serialized
+
+
 def test_probe_whatsapp_readiness_refreshes_receipt_and_formats_operator_text(monkeypatch, tmp_path: Path) -> None:
     module = _module()
     output_path = tmp_path / "whatsapp-readiness.json"
@@ -647,6 +758,10 @@ def test_probe_proactive_artifacts_reads_runtime_bundle(monkeypatch) -> None:
                 "current_packet_live_pending_count": 1,
                 "current_packet_callback_latest_status": "pending",
                 "current_packet_callback_latest_expired": False,
+                "current_packet_callback_latest_created_at": "2026-06-26T18:00:00Z",
+                "current_packet_callback_latest_expires_at": "2099-01-01T00:00:00Z",
+                "current_packet_callback_latest_age_seconds": 3600,
+                "current_packet_callback_latest_seconds_until_expiry": 1000,
                 "stage_packet_path": "/data/provider-ledger/proactive_ooda_stage_packets/pkt-1.json",
                 "safe_work_result_path": "/data/provider-ledger/proactive_ooda_safe_work_results/res-1.json",
                 "run_receipt": {"notification_status": "sent"},
@@ -705,6 +820,10 @@ def test_probe_proactive_artifacts_reads_runtime_bundle(monkeypatch) -> None:
     assert report["current_packet_callback_record_count"] == 1
     assert report["current_packet_live_pending_count"] == 1
     assert report["current_packet_callback_latest_status"] == "pending"
+    assert report["current_packet_callback_latest_created_at"] == "2026-06-26T18:00:00Z"
+    assert report["current_packet_callback_latest_expires_at"] == "2099-01-01T00:00:00Z"
+    assert report["current_packet_callback_latest_age_seconds"] == 3600
+    assert report["current_packet_callback_latest_seconds_until_expiry"] == 1000
     assert report["stage_packet_path"].endswith("pkt-1.json")
     assert report["safe_work_result_path"].endswith("res-1.json")
     assert report["run_receipt"]["notification_status"] == "sent"

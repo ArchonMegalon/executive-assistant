@@ -185,10 +185,19 @@ def _request_json(
 
 
 def _json_from_stdout(stdout: str) -> dict[str, Any]:
+    text = str(stdout or "").strip()
     try:
-        payload = json.loads(str(stdout or "").strip())
+        payload = json.loads(text)
     except Exception:
-        return {}
+        payload = None
+        for line in reversed(text.splitlines()):
+            try:
+                payload = json.loads(line.strip())
+                break
+            except Exception:
+                continue
+        if payload is None:
+            return {}
     return dict(payload) if isinstance(payload, dict) else {}
 
 
@@ -409,30 +418,41 @@ def _runtime_container_name() -> str:
     return _env("EA_RUNTIME_CONTAINER", DEFAULT_RUNTIME_CONTAINER)
 
 
-def _runtime_container_preflight() -> dict[str, object]:
+def _runtime_container_exec_json(
+    *,
+    code: str,
+    timeout_seconds: float = 20.0,
+) -> tuple[int, dict[str, Any], str]:
     container = _runtime_container_name()
     if not container:
-        return {}
-    code = (
-        "import json\n"
-        "from app.services.audiobook_epub_pipeline import audiobook_runtime_preflight\n"
-        "print(json.dumps(audiobook_runtime_preflight(), sort_keys=True))\n"
-    )
+        return 127, {"ok": False, "reason": "runtime_container_unconfigured"}, ""
     try:
         proc = subprocess.run(
             ["docker", "exec", container, "python3", "-c", code],
             text=True,
             capture_output=True,
             check=False,
-            timeout=20,
+            timeout=timeout_seconds,
         )
-    except Exception:
-        return {}
-    if proc.returncode != 0:
-        return {}
-    try:
-        payload = json.loads(str(proc.stdout or "").strip())
-    except Exception:
+    except subprocess.TimeoutExpired:
+        return 124, {"ok": False, "reason": f"TimeoutExpired:{float(timeout_seconds):g}s"}, container
+    except Exception as exc:
+        return 127, {"ok": False, "reason": type(exc).__name__}, container
+    payload = _json_from_stdout(str(proc.stdout or ""))
+    if int(proc.returncode or 0) != 0:
+        payload.setdefault("ok", False)
+        payload.setdefault("reason", f"runtime_container_exec_exit_{int(proc.returncode or 0)}")
+    return int(proc.returncode or 0), payload, container
+
+
+def _runtime_container_preflight() -> dict[str, object]:
+    code = (
+        "import json\n"
+        "from app.services.audiobook_epub_pipeline import audiobook_runtime_preflight\n"
+        "print(json.dumps(audiobook_runtime_preflight(), sort_keys=True))\n"
+    )
+    exit_code, payload, _container_name = _runtime_container_exec_json(code=code, timeout_seconds=20.0)
+    if exit_code != 0:
         return {}
     return dict(payload) if isinstance(payload, dict) else {}
 
@@ -507,41 +527,144 @@ def _unmixr_runtime_operational_status(preflight: dict[str, object]) -> str:
     return "pass"
 
 
-def probe_provider(provider: str, *, output_format: str = "json") -> dict[str, object]:
-    provider_key = _normalize_provider_key(provider)
-    if provider_key == "onemin":
+def _runtime_container_onemin_aggregate() -> tuple[dict[str, object], dict[str, object]]:
+    code = (
+        "import json\n"
+        "try:\n"
+        "    from app.container import build_container\n"
+        "    from app.services.responses_upstream import _provider_health_report\n"
+        "    container = build_container()\n"
+        "    aggregate = container.onemin_manager.aggregate_snapshot(\n"
+        "        provider_health=_provider_health_report(), binding_rows=[], principal_id=''\n"
+        "    )\n"
+        "    print(json.dumps({'ok': True, 'aggregate': aggregate}, sort_keys=True, default=str))\n"
+        "except Exception as exc:\n"
+        "    print(json.dumps({'ok': False, 'reason': type(exc).__name__}, sort_keys=True))\n"
+    )
+    exit_code, payload, container_name = _runtime_container_exec_json(code=code, timeout_seconds=30.0)
+    probe = {
+        "source": "runtime_container_exec",
+        "runtime_container": container_name,
+        "exit_code": exit_code,
+        "reason": str(payload.get("reason") or "").strip(),
+    }
+    if exit_code == 0 and bool(payload.get("ok")) and isinstance(payload.get("aggregate"), dict):
+        return dict(payload["aggregate"]), probe
+    if not probe["reason"]:
+        probe["reason"] = "runtime_onemin_aggregate_unavailable"
+    return {}, probe
+
+
+def _host_onemin_aggregate() -> tuple[dict[str, object], dict[str, object]]:
+    try:
         provider_health = _provider_health_report()
         aggregate = _container().onemin_manager.aggregate_snapshot(
             provider_health=provider_health,
             binding_rows=[],
             principal_id="",
         )
-        accounts = [dict(row) for row in aggregate.get("accounts") or [] if isinstance(row, dict)]
-        latest_snapshot = max(
-            (str(row.get("last_billing_snapshot_at") or "").strip() for row in accounts if str(row.get("last_billing_snapshot_at") or "").strip()),
-            default="",
-        )
-        next_topup = min(
-            (str(row.get("next_topup_at") or "").strip() for row in accounts if str(row.get("next_topup_at") or "").strip()),
-            default="",
-        )
-        report = {
-            "provider_key": "onemin",
-            "display_name": _provider_display_name("onemin"),
-            "status": str(aggregate.get("state") or "unknown").strip() or "unknown",
-            "remaining": aggregate.get("live_remaining_credits_total", aggregate.get("sum_free_credits")),
-            "unit": "credits",
-            "refresh_at": next_topup or latest_snapshot,
-            "observed_at": latest_snapshot or "",
-            "account_label": "",
-            "source": "app.services.responses_upstream._provider_health_report + onemin_manager.aggregate_snapshot",
-            "raw": {
-                "account_count": aggregate.get("account_count"),
-                "live_positive_balance_account_count": aggregate.get("live_positive_balance_account_count"),
-                "estimated_hours_remaining_at_current_pace": aggregate.get("estimated_hours_remaining_at_current_pace"),
-                "scope": aggregate.get("scope"),
-            },
+    except Exception as exc:
+        return {}, {
+            "source": "host_app_container",
+            "reason": type(exc).__name__,
         }
+    return dict(aggregate) if isinstance(aggregate, dict) else {}, {
+        "source": "host_app_container",
+        "reason": "",
+    }
+
+
+def _onemin_report_from_aggregate(
+    aggregate: Mapping[str, object],
+    *,
+    source: str,
+    observed_at: str,
+    raw_probe: Mapping[str, object],
+) -> dict[str, object]:
+    accounts = [dict(row) for row in aggregate.get("accounts") or [] if isinstance(row, dict)]
+    latest_snapshot = max(
+        (str(row.get("last_billing_snapshot_at") or "").strip() for row in accounts if str(row.get("last_billing_snapshot_at") or "").strip()),
+        default="",
+    )
+    next_topup = min(
+        (str(row.get("next_topup_at") or "").strip() for row in accounts if str(row.get("next_topup_at") or "").strip()),
+        default="",
+    )
+    return {
+        "provider_key": "onemin",
+        "display_name": _provider_display_name("onemin"),
+        "status": str(aggregate.get("state") or "unknown").strip() or "unknown",
+        "remaining": aggregate.get("live_remaining_credits_total", aggregate.get("sum_free_credits")),
+        "unit": "credits",
+        "refresh_at": next_topup or latest_snapshot,
+        "observed_at": latest_snapshot or observed_at,
+        "account_label": "",
+        "source": source,
+        "raw": {
+            "account_count": aggregate.get("account_count"),
+            "live_positive_balance_account_count": aggregate.get("live_positive_balance_account_count"),
+            "estimated_hours_remaining_at_current_pace": aggregate.get("estimated_hours_remaining_at_current_pace"),
+            "scope": aggregate.get("scope"),
+            "probe": dict(raw_probe),
+        },
+    }
+
+
+def _onemin_probe_failed_report(
+    *,
+    observed_at: str,
+    runtime_probe: Mapping[str, object],
+    host_probe: Mapping[str, object],
+) -> dict[str, object]:
+    runtime_reason = str(runtime_probe.get("reason") or "").strip()
+    host_reason = str(host_probe.get("reason") or "").strip()
+    reason = runtime_reason or host_reason or "onemin_probe_unavailable"
+    return {
+        "provider_key": "onemin",
+        "display_name": _provider_display_name("onemin"),
+        "status": "probe_failed",
+        "remaining": None,
+        "unit": "credits",
+        "refresh_at": "",
+        "observed_at": observed_at,
+        "account_label": "",
+        "source": "runtime_container_exec + host_app_container_fallback",
+        "raw": {
+            "probe_ok": False,
+            "reason": reason,
+            "runtime_probe": dict(runtime_probe),
+            "host_probe": dict(host_probe),
+        },
+    }
+
+
+def probe_provider(provider: str, *, output_format: str = "json") -> dict[str, object]:
+    provider_key = _normalize_provider_key(provider)
+    if provider_key == "onemin":
+        observed_at = _utc_now()
+        aggregate, runtime_probe = _runtime_container_onemin_aggregate()
+        if aggregate:
+            report = _onemin_report_from_aggregate(
+                aggregate,
+                source="runtime_container_exec:onemin_manager.aggregate_snapshot",
+                observed_at=observed_at,
+                raw_probe=runtime_probe,
+            )
+        else:
+            aggregate, host_probe = _host_onemin_aggregate()
+            if aggregate:
+                report = _onemin_report_from_aggregate(
+                    aggregate,
+                    source="host_app_container:onemin_manager.aggregate_snapshot",
+                    observed_at=observed_at,
+                    raw_probe={"runtime_probe": dict(runtime_probe), "host_probe": dict(host_probe)},
+                )
+            else:
+                report = _onemin_probe_failed_report(
+                    observed_at=observed_at,
+                    runtime_probe=runtime_probe,
+                    host_probe=host_probe,
+                )
     elif provider_key == "unmixr":
         preflight = _runtime_container_preflight() or audiobook_runtime_preflight()
         provider_payload = dict(preflight.get("provider") or {})
