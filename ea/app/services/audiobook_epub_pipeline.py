@@ -688,28 +688,56 @@ def _normalize_person_name_token(value: object) -> str:
     return re.sub(r"[^A-Za-z-]+", "", stripped).strip("-").lower()
 
 
-def _person_first_name(value: object) -> str:
+def _person_name_tokens(value: object) -> tuple[str, ...]:
     raw = str(value or "").strip()
     if not raw:
-        return ""
+        return ()
     if "," in raw:
         parts = [part.strip() for part in raw.split(",") if part.strip()]
         if len(parts) >= 2:
             raw = f"{parts[1]} {parts[0]}"
+    tokens: list[str] = []
     for part in raw.replace(",", " ").split():
         token = _normalize_person_name_token(part)
         if not token or token in _PERSON_NAME_TITLES or len(token) <= 1:
             continue
-        return token
-    return ""
+        tokens.append(token)
+    return tuple(tokens)
+
+
+def _person_first_name(value: object) -> str:
+    tokens = _person_name_tokens(value)
+    return tokens[0] if tokens else ""
+
+
+def _person_gender_candidate_tokens(value: object) -> tuple[str, ...]:
+    expanded: list[str] = []
+    seen: set[str] = set()
+    for token in _person_name_tokens(value):
+        for candidate in (token, *[part for part in token.split("-") if part]):
+            if candidate and candidate not in seen:
+                seen.add(candidate)
+                expanded.append(candidate)
+    return tuple(expanded)
 
 
 def _infer_person_name_gender(value: object) -> str:
-    first = _person_first_name(value)
+    candidates = _person_gender_candidate_tokens(value)
+    if not candidates:
+        return ""
+    first = candidates[0]
     if first in _KNOWN_FEMALE_FIRST_NAMES:
         return "female"
     if first in _KNOWN_MALE_FIRST_NAMES:
         return "male"
+    inferred: set[str] = set()
+    for token in candidates:
+        if token in _KNOWN_FEMALE_FIRST_NAMES:
+            inferred.add("female")
+        if token in _KNOWN_MALE_FIRST_NAMES:
+            inferred.add("male")
+    if len(inferred) == 1:
+        return next(iter(inferred))
     return ""
 
 
@@ -2405,6 +2433,14 @@ def _voice_candidate_has_tag(row: dict[str, object], tag: str) -> bool:
     return normalized in {_normalize_tag(item) for item in list(row.get("tags") or []) if _normalize_tag(item)}
 
 
+def _voice_candidate_gender(row: dict[str, object]) -> str:
+    for gender in ("male", "female"):
+        if _voice_candidate_has_tag(row, gender):
+            return gender
+    inferred = _infer_person_name_gender(row.get("label"))
+    return inferred if inferred in {"male", "female"} else ""
+
+
 _VOICE_LABEL_VARIANT_SUFFIXES = {
     "express",
     "fast",
@@ -2493,6 +2529,89 @@ def _prefer_nonpremium_after_dismissals(
         ):
             available_nonpremium_count += 1
     return dismissed_premium_count >= dismissed_premium_threshold and available_nonpremium_count >= replacement_count
+
+
+def _rebalance_voice_rows_for_gender_diversity(
+    *,
+    source_rows: list[dict[str, object]],
+    selected_rows: list[dict[str, object]],
+    book_language: str,
+    exclude_keys: set[str],
+    exclude_identity_keys: set[str],
+    prefer_nonpremium: bool,
+    require_language_match: bool,
+    limit: int,
+    frontload_count: int,
+) -> tuple[list[dict[str, object]], bool]:
+    if limit <= 1 or len(selected_rows) <= 1:
+        return selected_rows, False
+    target_prefix_count = max(2, min(frontload_count, limit, len(selected_rows)))
+    prefix_rows = selected_rows[:target_prefix_count]
+    selected_genders = []
+    for row in prefix_rows:
+        gender = _voice_candidate_gender(row)
+        if gender in {"male", "female"}:
+            selected_genders.append(gender)
+    if not selected_genders or len(set(selected_genders)) != 1:
+        return selected_rows, False
+    dominant_gender = selected_genders[0]
+    alternate_gender = "male" if dominant_gender == "female" else "female"
+    selected_keys = {
+        str(row.get("preset_key") or "").strip()
+        for row in selected_rows
+        if str(row.get("preset_key") or "").strip()
+    }
+    selected_identity_keys: set[str] = set()
+    for row in selected_rows:
+        selected_identity_keys.update(_voice_candidate_identity_keys(row))
+    alternate_row: dict[str, object] = {}
+    for row in selected_rows[1:]:
+        if _voice_candidate_gender(row) == alternate_gender:
+            alternate_row = dict(row)
+            break
+    for row in source_rows:
+        if alternate_row:
+            break
+        preset_key = str(row.get("preset_key") or "").strip()
+        if not preset_key or preset_key in exclude_keys or preset_key in selected_keys:
+            continue
+        identity_keys = _voice_candidate_identity_keys(row)
+        if identity_keys and identity_keys.intersection(exclude_identity_keys | selected_identity_keys):
+            continue
+        if not _voice_candidate_allowed_for_audition(row):
+            continue
+        if prefer_nonpremium and _voice_candidate_has_tag(row, "premium"):
+            continue
+        if _voice_candidate_gender(row) != alternate_gender:
+            continue
+        if require_language_match and not _voice_language_matches(
+            book_language,
+            str(row.get("language") or ""),
+            _split_languages(row.get("supported_languages") or row.get("language")),
+        ):
+            continue
+        alternate_row = dict(row)
+        break
+    if not alternate_row:
+        return selected_rows, False
+    diversified: list[dict[str, object]] = [selected_rows[0]]
+    alternate_inserted = False
+    alternate_identities = _voice_candidate_identity_keys(alternate_row)
+    alternate_key = str(alternate_row.get("preset_key") or "").strip()
+    for row in selected_rows[1:]:
+        row_key = str(row.get("preset_key") or "").strip()
+        if row_key and row_key == alternate_key:
+            continue
+        row_identities = _voice_candidate_identity_keys(row)
+        if row_identities and row_identities.intersection(alternate_identities):
+            continue
+        if not alternate_inserted and len(diversified) < target_prefix_count:
+            diversified.append(alternate_row)
+            alternate_inserted = True
+        diversified.append(row)
+    if not alternate_inserted and len(diversified) < limit:
+        diversified.insert(min(1, len(diversified)), alternate_row)
+    return diversified[:limit], True
 
 
 def _metadata_from_job(job: dict[str, object]) -> EpubMetadata:
@@ -2781,7 +2900,7 @@ def prepare_audiobook_voice_audition(*, job_dir: Path, batch_size: int = 3, refi
     ) -> list[dict[str, object]]:
         nonlocal author_gender_preference_used
         if not author_gender_signal:
-            return _pick_pending_rows(
+            selected_rows = _pick_pending_rows(
                 source_rows,
                 exclude_keys=exclude_keys,
                 exclude_identity_keys=exclude_identity_keys,
@@ -2789,6 +2908,18 @@ def prepare_audiobook_voice_audition(*, job_dir: Path, batch_size: int = 3, refi
                 require_language_match=require_language_match,
                 prefer_nonpremium=prefer_nonpremium,
             )
+            selected_rows, _gender_diversity_used = _rebalance_voice_rows_for_gender_diversity(
+                source_rows=source_rows,
+                selected_rows=selected_rows,
+                book_language=metadata.language,
+                exclude_keys=exclude_keys,
+                exclude_identity_keys=exclude_identity_keys,
+                prefer_nonpremium=prefer_nonpremium,
+                require_language_match=require_language_match,
+                limit=limit,
+                frontload_count=requested_batch_size,
+            )
+            return selected_rows
         preferred_rows = _pick_pending_rows(
             source_rows,
             exclude_keys=exclude_keys,

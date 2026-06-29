@@ -50,7 +50,11 @@ def _write_rendered_audio(*, target_wav: Path, **_: object) -> Path:
     return target_wav
 
 
-def _create_job_dir(*, current_voice_selection: dict[str, object] | None = None) -> Path:
+def _create_job_dir(
+    *,
+    current_voice_selection: dict[str, object] | None = None,
+    author: str = "Knuf, Andreas",
+) -> Path:
     tmpdir = Path(tempfile.mkdtemp(prefix="ea-audiobook-voice-audition-"))
     job_dir = tmpdir / "job"
     chapters_dir = job_dir / "chapters"
@@ -60,7 +64,7 @@ def _create_job_dir(*, current_voice_selection: dict[str, object] | None = None)
     text_path.write_text(chapter_text + "\n", encoding="utf-8")
     metadata = audiobook_epub_pipeline.EpubMetadata(
         title="Widerstand zwecklos",
-        author="Knuf, Andreas",
+        author=author,
         language="de",
         source_filename="widerstand-zwecklos.epub",
         source_sha256="source-sha",
@@ -258,6 +262,46 @@ def test_select_unmixr_voice_for_book_prefers_author_gender_match() -> None:
     assert dict(public.get("book_profile") or {}).get("author_gender_signal") == "male"
 
 
+def test_prepare_audiobook_voice_audition_diversifies_unknown_author_gender_batch() -> None:
+    job_dir = _create_job_dir(author="A. B. Example")
+    ranking = {
+        "status": "ranked",
+        "profile": {
+            "language": "de",
+            "title": "Widerstand zwecklos",
+            "author": "A. B. Example",
+            "author_gender_signal": "",
+            "topic": "technical nonfiction",
+            "dialogue_ratio": 0.11,
+            "fiction_score": 1,
+            "nonfiction_score": 3,
+            "recommended_tags": ["nonfiction", "warm", "german"],
+            "sample_sha256": "sample-sha",
+        },
+        "candidate_rows": [
+            _candidate(preset_key="female-top", label="Seraphina", gender="female", score=70),
+            _candidate(preset_key="female-second", label="Amala", gender="female", score=69),
+            _candidate(preset_key="female-third", label="Gisela", gender="female", score=68),
+            _candidate(preset_key="male-one", label="Hans", gender="male", score=67),
+        ],
+    }
+    with (
+        patch.dict(os.environ, {"EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED": "1", "EA_AUDIOBOOK_UNMIXR_AUTO_RENDER": "1"}, clear=False),
+        patch.object(audiobook_epub_pipeline, "_ranked_unmixr_voice_candidates", return_value=ranking),
+        patch.object(audiobook_epub_pipeline, "_voice_sample_text", return_value="Kurzprobe."),
+        patch.object(audiobook_epub_pipeline, "_synthesize_unmixr_with_retries", return_value=(b"audio", "audio/wav", [])),
+        patch.object(audiobook_epub_pipeline, "_write_provider_audio_file", side_effect=_write_rendered_audio),
+        patch.object(audiobook_epub_pipeline, "_write_current_job_receipt_best_effort"),
+    ):
+        job = audiobook_epub_pipeline.prepare_audiobook_voice_audition(job_dir=job_dir)
+
+    voice_selection = dict(dict(job.get("provider") or {}).get("voice_selection") or {})
+    pending_batch = [dict(item) for item in list(voice_selection.get("pending_batch") or []) if isinstance(item, dict)]
+    assert [item.get("label") for item in pending_batch] == ["Seraphina", "Hans", "Amala"]
+    assert voice_selection.get("author_gender_preference_used") is False
+    assert dict(voice_selection.get("book_profile") or {}).get("author_gender_signal") == ""
+
+
 def test_selected_unmixr_voice_for_job_backfills_legacy_author_gender_signal() -> None:
     current_selection = {
         "status": "selected_by_user",
@@ -367,6 +411,7 @@ def test_infer_author_gender_handles_common_english_and_international_names() ->
     assert audiobook_epub_pipeline._infer_author_gender("James Clear") == "male"  # noqa: SLF001
     assert audiobook_epub_pipeline._infer_author_gender("Yuval Noah Harari") == "male"  # noqa: SLF001
     assert audiobook_epub_pipeline._infer_author_gender("Le Guin, Ursula") == "female"  # noqa: SLF001
+    assert audiobook_epub_pipeline._infer_author_gender("Meyer, Hans-Peter") == "male"  # noqa: SLF001
 
 
 def test_voice_preset_from_unmixr_row_infers_gender_from_character_name_when_missing() -> None:
