@@ -80,7 +80,7 @@
       "source": "docker_compose_exec"
     }
   },
-  "generated_at": "2026-06-29T11:51:33Z",
+  "generated_at": "2026-06-29T11:54:29Z",
   "generated_by": "scripts/materialize_proactive_ooda_gold_acceptance.py",
   "goal_completion_claim_allowed": false,
   "gold_claim_allowed": false,
@@ -233,8 +233,8 @@
     "Raw packet text, private links, actor identity, packet refs, and staged artifact refs must stay out of this published receipt; only hashes and coarse status may appear.",
     "Teable remains an admin projection and audit mirror rather than canonical queue or product truth."
   ],
-  "source_git_head": "bc7a62ca335649bb9024f5ca436ae284fb53414a",
-  "source_state_fingerprint": "17cbfaa615c971a226867bf749a4cc6f5e103869e8bc336af9789f9e2bd0e493",
+  "source_git_head": "d5cfb965f4ff38be8e2adf91b2bc57c82d4c38d1",
+  "source_state_fingerprint": "9dc6ad87a55bd4b4c609ff51fb30d2e662a6b55778beaafe77a577a3ddace95b",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "blocked_low_quality_packet_evidence",
   "summary": "The proactive OODA mechanics have evidence, but the selected packet is not assistant-grade enough to prove production readiness.",
