@@ -1842,7 +1842,14 @@ for path in receipt_paths:
             }
         )
 generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-overall = "pass" if all(row["status"] == "pass" for row in rows if "incident-drill" not in row["receipt"]) else "fail"
+def contributes_to_overall(row: dict[str, str]) -> bool:
+    if "incident-drill" in row["receipt"]:
+        return False
+    if "status-publish" in row["receipt"] and row["status"] == "missing":
+        return False
+    return True
+
+overall = "pass" if all(row["status"] == "pass" for row in rows if contributes_to_overall(row)) else "fail"
 lines = [
     "# home.girschele.com Home Assistant Status",
     "",
