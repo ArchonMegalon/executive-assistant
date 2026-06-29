@@ -229,6 +229,15 @@ def _pending_user_selected_job(candidate: dict[str, object]) -> bool:
     return bool(candidate.get("voice_selected_by_user") or candidate.get("replacement_choice_pending"))
 
 
+def _candidate_is_superseded(candidate: dict[str, object]) -> bool:
+    return str(candidate.get("status") or "").strip() == "superseded_duplicate"
+
+
+def _blocking_candidates(candidates: list[dict[str, object]]) -> list[dict[str, object]]:
+    current = [candidate for candidate in candidates if not _candidate_is_superseded(candidate)]
+    return current or candidates
+
+
 def _candidate_source_key(candidate: dict[str, object]) -> str:
     job = _as_dict(candidate.get("raw"))
     source = _as_dict(job.get("source"))
@@ -249,6 +258,8 @@ def _pending_user_selected_job_still_blocks(
     valid_user_selected_source_keys: set[str],
 ) -> bool:
     if not _pending_user_selected_job(candidate):
+        return False
+    if _candidate_is_superseded(candidate):
         return False
     source_key = _candidate_source_key(candidate)
     return not source_key or source_key not in valid_user_selected_source_keys
@@ -313,12 +324,22 @@ def _dedupe(values: list[str]) -> list[str]:
 def _next_action(*, failed_codes: list[str], pending: list[dict[str, object]]) -> str:
     if any(row.get("replacement_choice_pending") for row in pending):
         return "choose_explicit_replacement_voice_or_restore_selected_provider"
+    if (
+        "job_not_audiobookshelf_imported" in failed_codes
+        or "m4b_output_file_not_ready" in failed_codes
+        or "m4b_chapter_metadata_not_embedded" in failed_codes
+        or "audiobookshelf_import_not_imported" in failed_codes
+        or "audiobookshelf_target_file_not_ready" in failed_codes
+    ):
+        return "resume_or_rebuild_telegram_audiobook_render_before_public_share_delivery"
     if pending:
         return "finish_user_selected_voice_audiobook_before_sending_public_share_link"
     if "audiobookshelf_public_share_not_ready" in failed_codes and "telegram_public_share_delivery_not_sent" not in failed_codes:
         return "wait_for_audiobookshelf_scan_then_rerun_share_followup"
     if "telegram_public_share_delivery_not_sent" in failed_codes or "telegram_public_share_message_id_missing" in failed_codes:
         return "wait_for_scheduler_to_send_audiobookshelf_public_share_link_or_fix_telegram_delivery"
+    if "machine_playback_e2e_not_verified" in failed_codes:
+        return "run_public_share_machine_playback_e2e_before_claiming_live_delivery"
     return "inspect_failed_audiobook_delivery_candidates"
 
 
@@ -332,9 +353,10 @@ def build_receipt(
 ) -> dict[str, object]:
     jobs = list(job_receipts or [])[:limit]
     candidates = [_candidate(job) for job in jobs if isinstance(job, dict)]
+    blocking_candidates = _blocking_candidates(candidates)
     valid_candidates = [candidate for candidate in candidates if not candidate["failed_codes"]]
     selected = valid_candidates[0] if valid_candidates else (
-        min(candidates, key=lambda candidate: len(list(candidate.get("failed_codes") or []))) if candidates else {}
+        min(blocking_candidates, key=lambda candidate: len(list(candidate.get("failed_codes") or []))) if blocking_candidates else {}
     )
     valid_user_selected_source_keys = {
         key
@@ -349,7 +371,7 @@ def build_receipt(
             valid_user_selected_source_keys=valid_user_selected_source_keys,
         )
     ]
-    failed_codes = _dedupe([code for candidate in candidates for code in list(candidate.get("failed_codes") or [])])
+    failed_codes = _dedupe([code for candidate in blocking_candidates for code in list(candidate.get("failed_codes") or [])])
     if pending:
         failed_codes.append("user_selected_voice_delivery_not_ready")
     if any(row.get("replacement_choice_pending") for row in pending):
@@ -360,6 +382,7 @@ def build_receipt(
     machine_verified = bool(selected.get("machine_playback_e2e_verified")) if selected else any(
         bool(candidate.get("machine_playback_e2e_verified")) for candidate in candidates
     )
+    selected_failed_codes = list(selected.get("failed_codes") or []) if selected else failed_codes
     if not valid_candidates and "valid_live_audiobook_delivery_missing" not in failed_codes:
         failed_codes.insert(0, "valid_live_audiobook_delivery_missing")
 
@@ -383,7 +406,9 @@ def build_receipt(
         "failed_candidate_count": len([candidate for candidate in candidates if candidate.get("failed_codes")]),
         "failed_codes": [] if live_pass else failed_codes,
         "blocking_reason": "" if live_pass else ", ".join(failed_codes),
-        "next_action": "capture_real_user_playback_acceptance_or_close_operator_loop" if live_pass else _next_action(failed_codes=failed_codes, pending=pending),
+        "next_action": "capture_real_user_playback_acceptance_or_close_operator_loop"
+        if live_pass
+        else _next_action(failed_codes=selected_failed_codes, pending=pending),
         "selected_delivery": _candidate_public(selected) if selected else {},
         "failed_candidates": [_failed_candidate_public(candidate) for candidate in candidates if candidate.get("failed_codes")],
         "pending_user_selected_voice_job_count": len(pending),

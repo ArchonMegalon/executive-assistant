@@ -344,6 +344,43 @@ def test_live_telegram_audiobook_delivery_receipt_ignores_duplicate_pending_afte
     assert selected["voice_selected_default"] is False
 
 
+def test_live_telegram_audiobook_delivery_receipt_ignores_superseded_replacement_when_selected_needs_render(
+    tmp_path: Path,
+) -> None:
+    module = _load_script("materialize_telegram_audiobook_live_delivery_receipt")
+    selected = _job_receipt(job_id="selected-needs-render", voice_selected_by_user=True)
+    selected["assembly"]["output_file_ready"] = False
+    selected["audiobookshelf_import"]["public_share_playback_e2e_status"] = ""
+    selected["audiobookshelf_import"]["public_share_playback_e2e_track_response_status"] = 0
+    selected["audiobookshelf_import"]["public_share_playback_e2e_track_content_type"] = ""
+    selected["audiobookshelf_import"]["public_share_playback_e2e_duration_seconds"] = 0
+    selected["audiobookshelf_import"]["public_share_playback_e2e_current_time_after_play_seconds"] = 0
+    superseded = _job_receipt(
+        job_id="old-superseded-replacement",
+        status="superseded_duplicate",
+        render_status="waiting_voice_selection",
+        public_share_status="",
+        telegram_delivery_status="",
+        telegram_message_present=False,
+        replacement_choice_pending=True,
+    )
+
+    receipt = module.build_receipt(
+        output_path=tmp_path / "selected-render-blocker.generated.json",
+        job_receipts=[selected, superseded],
+        generated_at="2026-06-21T08:05:00Z",
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["live_delivery_claim_allowed"] is False
+    assert receipt["pending_user_selected_voice_job_count"] == 1
+    assert receipt["pending_user_selected_voice_jobs"][0]["replacement_choice_pending"] is False
+    assert "explicit_replacement_voice_choice_pending" not in receipt["failed_codes"]
+    assert "m4b_output_file_not_ready" in receipt["failed_codes"]
+    assert "machine_playback_e2e_not_verified" in receipt["failed_codes"]
+    assert receipt["next_action"] == "resume_or_rebuild_telegram_audiobook_render_before_public_share_delivery"
+
+
 def test_live_telegram_audiobook_delivery_receipt_surfaces_explicit_replacement_choice_pending(
     tmp_path: Path,
 ) -> None:
