@@ -3619,6 +3619,54 @@ def _operator_whatsapp_sidecar_body(*, resolution: dict[str, object], text: str)
     return body
 
 
+def _whatsapp_send_binding_lookup_fields(
+    *,
+    binding: Any | None,
+    binding_lookup_error: str,
+    resolution: Mapping[str, object],
+) -> dict[str, object]:
+    recovered = bool(
+        binding_lookup_error
+        and str(resolution.get("status") or "").strip() == "resolved"
+    )
+    return _binding_lookup_report_fields(
+        binding,
+        binding_lookup_error,
+        recovered=recovered,
+        fallback_source="whatsapp_web_session_sidecar_send",
+    )
+
+
+def _whatsapp_send_failure_report(
+    *,
+    reason: str,
+    resolution: dict[str, object],
+    binding: Any | None,
+    binding_lookup_error: str,
+    recipient_digits: str,
+    chat_ref: str,
+    retry_attempted: bool = False,
+) -> dict[str, object]:
+    return {
+        "sent": False,
+        "reason": str(reason or "send_failed").strip() or "send_failed",
+        "binding_id": str(getattr(binding, "binding_id", "") or ""),
+        "principal_id": str(getattr(binding, "principal_id", "") or ""),
+        **_whatsapp_send_binding_lookup_fields(
+            binding=binding,
+            binding_lookup_error=binding_lookup_error,
+            resolution=resolution,
+        ),
+        "recipient_digits": recipient_digits,
+        "delivery_transport": "whatsapp_web_session_sidecar",
+        "message_ids": [],
+        "request_url_present": False,
+        "chat_ref_used": bool(chat_ref),
+        "retry_attempted": retry_attempted,
+        "resolution": resolution,
+    }
+
+
 def send_whatsapp(*, phone_hint: str, text: str, args: argparse.Namespace) -> dict[str, object]:
     resolution = resolve_whatsapp(phone_hint, args=args)
     binding, binding_lookup_error = _safe_load_whatsapp_binding(args)
@@ -3629,14 +3677,22 @@ def send_whatsapp(*, phone_hint: str, text: str, args: argparse.Namespace) -> di
             "sent": False,
             "reason": "recipient_unresolved",
             "resolution": resolution,
-            "binding_lookup_error": binding_lookup_error,
+            **_whatsapp_send_binding_lookup_fields(
+                binding=binding,
+                binding_lookup_error=binding_lookup_error,
+                resolution=resolution,
+            ),
         }
     if str(resolution.get("status") or "").strip() == "blocked" and not bool(resolution.get("route_lookup_ready", True)):
         return {
             "sent": False,
             "reason": "route_lookup_unavailable",
             "resolution": resolution,
-            "binding_lookup_error": binding_lookup_error,
+            **_whatsapp_send_binding_lookup_fields(
+                binding=binding,
+                binding_lookup_error=binding_lookup_error,
+                resolution=resolution,
+            ),
         }
     if bool(getattr(args, "dry_run", False)):
         return {
@@ -3645,41 +3701,70 @@ def send_whatsapp(*, phone_hint: str, text: str, args: argparse.Namespace) -> di
             "resolution": resolution,
             "binding_id": str(getattr(binding, "binding_id", "") or ""),
             "principal_id": str(getattr(binding, "principal_id", "") or ""),
-            "binding_lookup_error": binding_lookup_error,
+            **_whatsapp_send_binding_lookup_fields(
+                binding=binding,
+                binding_lookup_error=binding_lookup_error,
+                resolution=resolution,
+            ),
             "recipient_digits": recipient_digits,
         }
-    payload = _sidecar_post(
-        binding=binding,
-        suffix="messages",
-        body=_operator_whatsapp_sidecar_body(resolution=resolution, text=text),
-        session_api_base_url=str(getattr(args, "session_api_base_url", "") or "").strip(),
-        session_ref=str(getattr(args, "session_ref", "") or "").strip(),
-        timeout_seconds=float(getattr(args, "timeout_seconds", 15.0) or 15.0),
-    )
-    if not bool(payload.get("ok", True)) and chat_ref and recipient_digits and str(payload.get("reason") or "").strip() == "chat_ref_not_found":
+    try:
         payload = _sidecar_post(
             binding=binding,
             suffix="messages",
-            body={
-                "to": recipient_digits,
-                "text": str(text or ""),
-                "pre_reply_delay_min_seconds": 0,
-                "pre_reply_delay_max_seconds": 0,
-                "typing_delay_ms": 0,
-                "typing_delay_ms_per_character": 0,
-                "typing_status_enabled": False,
-            },
+            body=_operator_whatsapp_sidecar_body(resolution=resolution, text=text),
             session_api_base_url=str(getattr(args, "session_api_base_url", "") or "").strip(),
             session_ref=str(getattr(args, "session_ref", "") or "").strip(),
             timeout_seconds=float(getattr(args, "timeout_seconds", 15.0) or 15.0),
         )
+    except Exception as exc:
+        return _whatsapp_send_failure_report(
+            reason=type(exc).__name__,
+            resolution=resolution,
+            binding=binding,
+            binding_lookup_error=binding_lookup_error,
+            recipient_digits=recipient_digits,
+            chat_ref=chat_ref,
+        )
+    if not bool(payload.get("ok", True)) and chat_ref and recipient_digits and str(payload.get("reason") or "").strip() == "chat_ref_not_found":
+        try:
+            payload = _sidecar_post(
+                binding=binding,
+                suffix="messages",
+                body={
+                    "to": recipient_digits,
+                    "text": str(text or ""),
+                    "pre_reply_delay_min_seconds": 0,
+                    "pre_reply_delay_max_seconds": 0,
+                    "typing_delay_ms": 0,
+                    "typing_delay_ms_per_character": 0,
+                    "typing_status_enabled": False,
+                },
+                session_api_base_url=str(getattr(args, "session_api_base_url", "") or "").strip(),
+                session_ref=str(getattr(args, "session_ref", "") or "").strip(),
+                timeout_seconds=float(getattr(args, "timeout_seconds", 15.0) or 15.0),
+            )
+        except Exception as exc:
+            return _whatsapp_send_failure_report(
+                reason=type(exc).__name__,
+                resolution=resolution,
+                binding=binding,
+                binding_lookup_error=binding_lookup_error,
+                recipient_digits=recipient_digits,
+                chat_ref=chat_ref,
+                retry_attempted=True,
+            )
     message_ids = [str(value or "").strip() for value in payload.get("message_ids") or [] if str(value or "").strip()]
     return {
         "sent": bool(payload.get("ok", True)),
         "reason": "sent" if bool(payload.get("ok", True)) else str(payload.get("reason") or "send_failed").strip(),
         "binding_id": str(getattr(binding, "binding_id", "") or ""),
         "principal_id": str(getattr(binding, "principal_id", "") or ""),
-        "binding_lookup_error": binding_lookup_error,
+        **_whatsapp_send_binding_lookup_fields(
+            binding=binding,
+            binding_lookup_error=binding_lookup_error,
+            resolution=resolution,
+        ),
         "recipient_digits": recipient_digits,
         "delivery_transport": "whatsapp_web_session_sidecar",
         "message_ids": message_ids,

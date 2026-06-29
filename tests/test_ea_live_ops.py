@@ -3168,6 +3168,39 @@ def test_send_whatsapp_without_binding_posts_to_sidecar(monkeypatch) -> None:
     }
 
 
+def test_send_whatsapp_reports_degraded_binding_fallback_without_secret(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(
+        module,
+        "_load_whatsapp_binding",
+        lambda _args: (_ for _ in ()).throw(RuntimeError("postgresql://user:secret@ea-db/ea")),
+    )
+    monkeypatch.setattr(
+        module,
+        "resolve_whatsapp",
+        lambda _phone_hint, args: {
+            "status": "resolved",
+            "recipient_digits": "436647916419",
+            "route_key": "436647916419",
+            "session_ref": "tibor-wa-web",
+            "chat_ref": "chat-ref-1",
+        },
+    )
+    monkeypatch.setattr(module, "_sidecar_post", lambda **_kwargs: {"ok": True, "message_ids": ["wamid.1"]})
+
+    report = module.send_whatsapp(phone_hint="*6419", text="status update", args=_args())
+    serialized = json.dumps(report)
+
+    assert report["sent"] is True
+    assert report["binding_lookup_status"] == "degraded_sidecar_fallback"
+    assert report["binding_lookup_error"] == "RuntimeError"
+    assert report["binding_lookup_recovered"] is True
+    assert report["binding_lookup_fallback_source"] == "whatsapp_web_session_sidecar_send"
+    assert "secret" not in serialized
+    assert "postgresql://" not in serialized
+    assert "ea-db" not in serialized
+
+
 def test_send_whatsapp_with_binding_uses_sidecar_chat_ref_first(monkeypatch) -> None:
     module = _module()
     binding = SimpleNamespace(binding_id="binding-1", principal_id="principal-1")
@@ -3209,6 +3242,42 @@ def test_send_whatsapp_with_binding_uses_sidecar_chat_ref_first(monkeypatch) -> 
     }
 
 
+def test_send_whatsapp_sidecar_exception_returns_no_secret_failure_receipt(monkeypatch) -> None:
+    module = _module()
+    binding = SimpleNamespace(binding_id="binding-1", principal_id="principal-1")
+    monkeypatch.setattr(module, "_load_whatsapp_binding", lambda _args: binding)
+    monkeypatch.setattr(
+        module,
+        "resolve_whatsapp",
+        lambda _phone_hint, args: {
+            "status": "resolved",
+            "recipient_digits": "436647916419",
+            "route_key": "436647916419",
+            "chat_ref": "chat-ref-1",
+            "session_ref": "tibor-wa-web",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "_sidecar_post",
+        lambda **_kwargs: (_ for _ in ()).throw(OSError("https://wa-web.test/token secret")),
+    )
+
+    report = module.send_whatsapp(phone_hint="*6419", text="status update", args=_args())
+    serialized = json.dumps(report)
+
+    assert report["sent"] is False
+    assert report["reason"] == "OSError"
+    assert report["binding_lookup_status"] == "found"
+    assert report["request_url_present"] is False
+    assert report["message_ids"] == []
+    assert report["chat_ref_used"] is True
+    assert report["retry_attempted"] is False
+    assert "status update" not in serialized
+    assert "token secret" not in serialized
+    assert "wa-web.test" not in serialized
+
+
 def test_send_whatsapp_retries_with_recipient_when_chat_ref_is_stale(monkeypatch) -> None:
     module = _module()
     binding = SimpleNamespace(binding_id="binding-1", principal_id="principal-1")
@@ -3242,6 +3311,45 @@ def test_send_whatsapp_retries_with_recipient_when_chat_ref_is_stale(monkeypatch
     assert captured[1]["body"]["to"] == "436647916419"
     assert "chat_ref" not in captured[1]["body"]
     assert report["message_ids"] == ["wamid.2"]
+
+
+def test_send_whatsapp_retry_exception_returns_no_secret_failure_receipt(monkeypatch) -> None:
+    module = _module()
+    binding = SimpleNamespace(binding_id="binding-1", principal_id="principal-1")
+    monkeypatch.setattr(module, "_load_whatsapp_binding", lambda _args: binding)
+    monkeypatch.setattr(
+        module,
+        "resolve_whatsapp",
+        lambda _phone_hint, args: {
+            "status": "resolved",
+            "recipient_digits": "436647916419",
+            "route_key": "436647916419",
+            "chat_ref": "chat-ref-1",
+            "session_ref": "tibor-wa-web",
+        },
+    )
+    calls = 0
+
+    def _fake_sidecar_post(**_kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return {"ok": False, "reason": "chat_ref_not_found"}
+        raise TimeoutError("sidecar bearer token secret")
+
+    monkeypatch.setattr(module, "_sidecar_post", _fake_sidecar_post)
+
+    report = module.send_whatsapp(phone_hint="*6419", text="status update", args=_args())
+    serialized = json.dumps(report)
+
+    assert report["sent"] is False
+    assert report["reason"] == "TimeoutError"
+    assert report["retry_attempted"] is True
+    assert report["request_url_present"] is False
+    assert calls == 2
+    assert "status update" not in serialized
+    assert "bearer token" not in serialized
+    assert "secret" not in serialized
 
 
 def test_send_telegram_dry_run_reuses_readiness_probe_without_sending(monkeypatch) -> None:
