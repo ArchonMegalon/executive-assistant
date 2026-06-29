@@ -210,7 +210,7 @@
       "real_provider_failure_recovered"
     ],
     "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
-    "generated_at": "2026-06-29T18:06:26Z",
+    "generated_at": "2026-06-29T18:19:12Z",
     "generated_by": "ea/scripts/materialize_executive_assistant_acceptance_evidence.py",
     "goal_completion_claim_allowed": false,
     "next_action": "collect_redacted_real_world_acceptance_evidence",
@@ -243,7 +243,7 @@
     "bytes": 8746,
     "exists": true,
     "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
-    "sha256": "b0e69191f9174ecabe05a345966ffcfff624f25f5dbd09385df9afc4bd12e7f9"
+    "sha256": "1d4bcb9c69961d1c82a96485dbd94a4f098c72ab8e219ebde24fda33a132b210"
   },
   "blocked_checks": [
     "real_daily_morning_brief_accepted",
@@ -263,7 +263,7 @@
     "real_approved_action_audited",
     "real_provider_failure_recovered"
   ],
-  "generated_at": "2026-06-29T18:06:26Z",
+  "generated_at": "2026-06-29T18:19:12Z",
   "generated_by": "ea/scripts/materialize_executive_assistant_quality_readiness.py",
   "goal_completion_claim_allowed": false,
   "good_executive_assistant_claim_allowed": false,
@@ -326,7 +326,7 @@
     "bytes": 11434,
     "exists": true,
     "path": ".codex-studio/published/ea_office_loop_goal.generated.json",
-    "sha256": "6c0e358282cdfd51c6b0c060924b674c72f38a770eb9a905fcb8ac41e9c50004"
+    "sha256": "e67b23fb0b9e6822f0f6141b911e8d01ad1bde32b92cf08214f7ad671533443a"
   },
   "status": "blocked_real_world_acceptance"
 }

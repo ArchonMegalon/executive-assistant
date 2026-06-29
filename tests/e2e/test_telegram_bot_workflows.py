@@ -598,6 +598,7 @@ def test_telegram_epub_webhook_sends_three_voice_samples_with_inline_controls(
     monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-e2e-audiobook")
     monkeypatch.setenv("EA_TELEGRAM_CALLBACK_SECRET", "callback-secret")
+    monkeypatch.setenv("EA_AUDIOBOOK_INSTANT_SENDER_WHITELIST", "telegram:1354554303")
     monkeypatch.setenv("EA_AUDIOBOOK_ALLOW_NON_DURABLE_STORAGE", "1")
     monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(tmp_path / "jobs"))
     monkeypatch.setenv("EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED", "1")
@@ -718,8 +719,8 @@ def test_telegram_epub_webhook_sends_three_voice_samples_with_inline_controls(
         }
     )
 
-    assert response["reply_sent"] is True
-    assert "preparing an audiobook job" in str(response["reply_text"])
+    assert response["reply_sent"] is False
+    assert response["reply_text"] == ""
     assert len(sent_audio_bodies) == 3
     assert any("I sent 3 short voice samples" in str(message.get("text") or "") for message in sent_messages)
     for body in sent_audio_bodies:
@@ -780,6 +781,7 @@ def test_telegram_epub_webhook_dismiss_replaces_voice_sample_immediately(
     monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-e2e-audiobook-replace")
     monkeypatch.setenv("EA_TELEGRAM_CALLBACK_SECRET", "callback-secret")
+    monkeypatch.setenv("EA_AUDIOBOOK_INSTANT_SENDER_WHITELIST", "telegram:1354554303")
     monkeypatch.setenv("EA_AUDIOBOOK_ALLOW_NON_DURABLE_STORAGE", "1")
     monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(tmp_path / "jobs"))
     monkeypatch.setenv("EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED", "1")
@@ -868,8 +870,8 @@ def test_telegram_epub_webhook_dismiss_replaces_voice_sample_immediately(
         }
     )
 
-    assert response["reply_sent"] is True
-    assert "preparing an audiobook job" in str(response["reply_text"])
+    assert response["reply_sent"] is False
+    assert response["reply_text"] == ""
     assert len(sent_audio_bodies) == 3
 
     dismiss_callback = _extract_dismiss_callback(sent_audio_bodies[0])
@@ -973,6 +975,7 @@ def test_telegram_epub_webhook_dismiss_replaces_voice_sample_immediately_with_sm
     monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-e2e-audiobook-replace-small")
     monkeypatch.setenv("EA_TELEGRAM_CALLBACK_SECRET", "callback-secret")
+    monkeypatch.setenv("EA_AUDIOBOOK_INSTANT_SENDER_WHITELIST", "telegram:1354554303")
     monkeypatch.setenv("EA_AUDIOBOOK_ALLOW_NON_DURABLE_STORAGE", "1")
     monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(tmp_path / "jobs"))
     monkeypatch.setenv("EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED", "1")
@@ -1056,8 +1059,8 @@ def test_telegram_epub_webhook_dismiss_replaces_voice_sample_immediately_with_sm
         }
     )
 
-    assert response["reply_sent"] is True
-    assert "preparing an audiobook job" in str(response["reply_text"])
+    assert response["reply_sent"] is False
+    assert response["reply_text"] == ""
     assert len(sent_audio_bodies) == 3
 
     def dismiss_latest() -> str:
@@ -1099,6 +1102,7 @@ def test_telegram_epub_webhook_uses_supplied_knuf_epub_for_german_voice_samples(
     monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-e2e-knuf-audiobook")
     monkeypatch.setenv("EA_TELEGRAM_CALLBACK_SECRET", "callback-secret")
+    monkeypatch.setenv("EA_AUDIOBOOK_INSTANT_SENDER_WHITELIST", "telegram:1354554303")
     monkeypatch.setenv("EA_AUDIOBOOK_ALLOW_NON_DURABLE_STORAGE", "1")
     monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(tmp_path / "jobs"))
     monkeypatch.setenv("EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED", "1")
@@ -1184,8 +1188,8 @@ def test_telegram_epub_webhook_uses_supplied_knuf_epub_for_german_voice_samples(
         }
     )
 
-    assert response["reply_sent"] is True
-    assert "preparing an audiobook job" in str(response["reply_text"])
+    assert response["reply_sent"] is False
+    assert response["reply_text"] == ""
     assert len(sent_audio_bodies) == 3
     assert any("I sent 3 short voice samples" in str(message.get("text") or message.get("raw") or "") for message in sent_messages)
     job_paths = sorted((tmp_path / "jobs").glob("epub-audiobook-*/job.json"))

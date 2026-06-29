@@ -6736,9 +6736,48 @@ def test_telegram_epub_turn_decision_routes_before_generic_document(monkeypatch)
 
     assert decision.schedule_async is True
     assert decision.suppress_async_ack is True
+    assert decision.reply_text == ""
     assert decision.async_payload["kind"] == "audiobook_epub_document"
     assert decision.async_payload["source_epub_file_size"] == 2048
-    assert "audiobook job" in decision.reply_text
+
+
+def test_telegram_epub_turn_decision_routes_file_id_before_generic_document(monkeypatch) -> None:
+    from app.api.routes import channels
+    from app.services.telegram_session_service import TelegramTurnContext
+
+    monkeypatch.setenv("EA_AUDIOBOOK_INSTANT_SENDER_WHITELIST", "telegram:42")
+    ctx = TelegramTurnContext(
+        container=object(),
+        principal_id="principal-1",
+        text="Document: book.epub",
+        payload={
+            "kind": "document",
+            "message_id": "7",
+            "message_metadata": {
+                "file_id": "file-1",
+                "file_name": "book.epub",
+                "mime_type": "application/epub+zip",
+                "file_size": 2048,
+            },
+        },
+        bot_handle="",
+        preferred_onemin_labels=(),
+        current_message_id="7",
+        chat_id="42",
+        normalized="Document: book.epub",
+        lower="document: book.epub",
+        alpha_words=("document", "book", "epub"),
+        is_completion_cue=False,
+    )
+
+    decision = channels._telegram_audiobook_epub_turn_decision(ctx)
+
+    assert decision.schedule_async is True
+    assert decision.suppress_async_ack is True
+    assert decision.reply_text == ""
+    assert decision.async_payload["kind"] == "audiobook_epub_document"
+    assert decision.async_payload["source_epub_url"] == ""
+    assert decision.async_payload["telegram_file_id"] == "file-1"
 
 
 def test_telegram_azw3_turn_decision_routes_as_audiobook_source(monkeypatch) -> None:
@@ -6775,10 +6814,10 @@ def test_telegram_azw3_turn_decision_routes_as_audiobook_source(monkeypatch) -> 
 
     assert decision.schedule_async is True
     assert decision.suppress_async_ack is True
+    assert decision.reply_text == ""
     assert decision.async_payload["kind"] == "audiobook_epub_document"
     assert decision.async_payload["source_epub_filename"] == "kindle-book.azw3"
     assert decision.async_payload["source_epub_file_size"] == 4096
-    assert "kindle-book.azw3" in decision.reply_text
 
 
 def test_telegram_epub_turn_decision_requires_approval_for_unknown_sender(monkeypatch) -> None:

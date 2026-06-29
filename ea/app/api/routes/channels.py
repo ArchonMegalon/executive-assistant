@@ -1751,24 +1751,30 @@ def _record_telegram_whatsapp_pairing_followup_suppressed(
         fallback_marker = f"telegram:{chat_id}:{current_message_id}"
     marker_base = str(dedupe_key or "").strip() or fallback_marker
     marker = f"{marker_base}:whatsapp_pairing_followup_suppressed" if marker_base else ""
-    container.channel_runtime.ingest_observation(
-        principal_id=principal_id,
-        channel="telegram",
-        event_type="telegram.reply_suppressed",
-        payload={
-            "chat_id": str(chat_id or "").strip(),
-            "prompt_text": str(source_text or "").strip(),
-            "source_kind": str(source_kind or "").strip(),
-            "stage": "whatsapp_pairing_followup_suppressed",
-            "reason": "whatsapp_pairing_followup_retry_later",
-            "user_action_required": False,
-            "prior_context": "whatsapp_web_pairing_qr_required",
-            "next_operator_action": "retry_whatsapp_pairing_prompt_after_cooldown",
-        },
-        source_id=f"telegram:{chat_id}" if chat_id else "telegram",
-        external_id=str(current_message_id or "").strip(),
-        dedupe_key=marker,
-    )
+    ingest = getattr(getattr(container, "channel_runtime", None), "ingest_observation", None)
+    if not callable(ingest):
+        return
+    try:
+        ingest(
+            principal_id=principal_id,
+            channel="telegram",
+            event_type="telegram.reply_suppressed",
+            payload={
+                "chat_id": str(chat_id or "").strip(),
+                "prompt_text": str(source_text or "").strip(),
+                "source_kind": str(source_kind or "").strip(),
+                "stage": "whatsapp_pairing_followup_suppressed",
+                "reason": "whatsapp_pairing_followup_retry_later",
+                "user_action_required": False,
+                "prior_context": "whatsapp_web_pairing_qr_required",
+                "next_operator_action": "retry_whatsapp_pairing_prompt_after_cooldown",
+            },
+            source_id=f"telegram:{chat_id}" if chat_id else "telegram",
+            external_id=str(current_message_id or "").strip(),
+            dedupe_key=marker,
+        )
+    except Exception:
+        pass
 
 
 _TELEGRAM_RENDERED_VIDEO_DIRECT_MARKERS = (
@@ -2189,6 +2195,34 @@ def _telegram_hydrate_instructional_video_download_url(
         error_code = raw_error.split(":", 1)[0].strip().lower().replace(" ", "_") or "video_resolve_failed"
         resolved["video_resolve_status"] = "failed"
         resolved["video_resolve_error_code"] = error_code[:80]
+    return resolved
+
+
+def _telegram_hydrate_audiobook_epub_download_url(
+    payload: dict[str, object],
+    *,
+    bot_token: str,
+) -> dict[str, object]:
+    resolved = dict(payload or {})
+    if str(resolved.get("kind") or "").strip().lower() not in {
+        "audiobook_epub_document",
+        "audiobook_access_approval_request",
+    }:
+        return resolved
+    if str(resolved.get("source_epub_url") or "").strip():
+        return resolved
+    file_id = str(resolved.get("telegram_file_id") or "").strip()
+    token = str(bot_token or "").strip()
+    if not file_id or not token:
+        return resolved
+    try:
+        resolved["source_epub_url"] = _telegram_file_download_url(bot_token=token, file_id=file_id)
+        resolved["source_epub_resolve_status"] = "ok"
+    except Exception as exc:
+        raw_error = str(exc or "").strip()
+        error_code = raw_error.split(":", 1)[0].strip().lower().replace(" ", "_") or "epub_resolve_failed"
+        resolved["source_epub_resolve_status"] = "failed"
+        resolved["source_epub_resolve_error_code"] = error_code[:80]
     return resolved
 
 
@@ -7310,19 +7344,33 @@ def _telegram_property_pdf_document_payload(ctx: TelegramTurnContext) -> dict[st
     }
 
 
-def _telegram_audiobook_epub_document_payload(ctx: TelegramTurnContext) -> dict[str, object]:
-    if not telegram_epub_skill_enabled():
-        return {}
+def _telegram_audiobook_epub_document_metadata(ctx: TelegramTurnContext) -> dict[str, object]:
     payload = dict(ctx.payload or {})
     if str(payload.get("kind") or "").strip().lower() != "document":
         return {}
     metadata = dict(payload.get("message_metadata") or {})
     filename = str(metadata.get("file_name") or "").strip()
     mime_type = str(metadata.get("mime_type") or "").strip()
-    download_url = str(metadata.get("download_url") or "").strip()
-    if not is_epub_document(filename=filename, mime_type=mime_type) or not download_url:
+    if not is_epub_document(filename=filename, mime_type=mime_type):
         return {}
-    if not is_telegram_epub_download_url_allowed(download_url):
+    return metadata
+
+
+def _telegram_audiobook_epub_document_payload(ctx: TelegramTurnContext) -> dict[str, object]:
+    if not telegram_epub_skill_enabled():
+        return {}
+    metadata = _telegram_audiobook_epub_document_metadata(ctx)
+    if not metadata:
+        return {}
+    filename = str(metadata.get("file_name") or "").strip()
+    mime_type = str(metadata.get("mime_type") or "").strip()
+    download_url = str(metadata.get("download_url") or "").strip()
+    file_id = str(metadata.get("file_id") or "").strip()
+    if download_url and not is_telegram_epub_download_url_allowed(download_url):
+        if not file_id:
+            return {}
+        download_url = ""
+    if not download_url and not file_id:
         return {}
     raw_size = metadata.get("file_size")
     file_size = None
@@ -7347,6 +7395,15 @@ def _telegram_audiobook_epub_document_payload(ctx: TelegramTurnContext) -> dict[
 
 
 def _telegram_audiobook_epub_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDecision:
+    epub_metadata = _telegram_audiobook_epub_document_metadata(ctx)
+    if epub_metadata and not telegram_epub_skill_enabled():
+        filename = str(epub_metadata.get("file_name") or "book.epub").strip() or "book.epub"
+        return TelegramTurnDecision(
+            reply_text=(
+                f"I got the ebook `{filename}`, but Telegram audiobook intake is disabled. "
+                "Current blocker: telegram_epub_enabled=false."
+            )
+        )
     epub_payload = _telegram_audiobook_epub_document_payload(ctx)
     if not epub_payload:
         return TelegramTurnDecision()
@@ -7372,9 +7429,6 @@ def _telegram_audiobook_epub_turn_decision(ctx: TelegramTurnContext) -> Telegram
             retry_budget=0,
         )
     return TelegramTurnDecision(
-        reply_text=(
-            f"Got the ebook `{filename}`. I am preparing an audiobook job now and will report the ETA or blocker here."
-        ),
         schedule_async=True,
         async_text=f"Audiobook ebook upload: {filename}",
         async_message_id=ctx.current_message_id,
@@ -8009,6 +8063,10 @@ def _telegram_async_assistant_reply_worker(
         )
         return
     if str(payload.get("kind") or "").strip().lower() == "audiobook_access_approval_request":
+        payload = _telegram_hydrate_audiobook_epub_download_url(
+            payload,
+            bot_token=str(bot_config.get("token") or ""),
+        )
         filename = str(payload.get("source_epub_filename") or "book.epub").strip() or "book.epub"
         sender_ref = str(payload.get("sender_ref") or (f"telegram:{chat_id}" if chat_id else "")).strip()
         try:
@@ -8077,6 +8135,10 @@ def _telegram_async_assistant_reply_worker(
             )
         return
     if str(payload.get("kind") or "").strip().lower() == "audiobook_epub_document":
+        payload = _telegram_hydrate_audiobook_epub_download_url(
+            payload,
+            bot_token=str(bot_config.get("token") or ""),
+        )
         try:
             job = process_telegram_epub_audiobook_job(
                 download_url=str(payload.get("source_epub_url") or "").strip(),
