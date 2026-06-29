@@ -595,6 +595,156 @@ def test_materialize_proactive_ooda_gold_acceptance_falls_back_to_live_runtime_a
     assert receipt["evidence_receipts"]["stage_packet"]["path"] == "/data/provider-ledger/proactive_ooda_stage_packets/pkt-live.json"
 
 
+def test_materialize_proactive_ooda_gold_acceptance_blocks_noisy_transcript_language_reference(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    module = _load_script()
+    monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
+    noisy_query = "[Mikrofonger\u00e4usche] Wir gehen jetzt, glaube ich auf die Kinderspielh\u00fcgge."
+    noisy_query_with_tail = f"{noisy_query} Stimmt schauen anschauen mitgeht"
+
+    operator_status_path = tmp_path / "ea_proactive_ooda_operator_status.generated.json"
+    _write_json(
+        operator_status_path,
+        {
+            "contract_name": "ea.proactive_ooda_operator_status.v1",
+            "status": "ready_with_live_receipt",
+            "delivery_route_ready": True,
+            "live_receipt_checked": True,
+            "route_probe_source": "docker_compose_exec",
+            "route_probe_runtime_service": "ea-proactive-ooda",
+            "delivery_route": {"selected_channel": "telegram"},
+            "live_receipt": {"ok": True, "receipt_path": "/data/provider-ledger/proactive_ooda_live_sent_receipt.json"},
+            "delivery_guard": {
+                "delivery_state": "no_actionable_items",
+                "has_high_priority": False,
+                "interruption_budget_exhausted": False,
+                "quiet_hours_active": False,
+            },
+            "runtime_actionable_count": 0,
+        },
+    )
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_artifacts",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "run_receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+            "stage_packet_dir": "/data/provider-ledger/proactive_ooda_stage_packets",
+            "safe_work_result_dir": "/data/provider-ledger/proactive_ooda_safe_work_results",
+            "approval_outcome_path": "/data/provider-ledger/proactive_ooda_latest_approval_outcome.generated.json",
+            "approval_callback_dir": "/data/provider-ledger/proactive_ooda_approval_callbacks",
+            "approval_callback_dir_exists": True,
+            "approval_callback_dir_writable": True,
+            "approval_callback_record_count": 0,
+            "approval_callback_pending_count": 0,
+            "approval_callback_recorded_count": 0,
+            "current_packet_callback_record_count": 0,
+            "current_packet_callback_pending_count": 0,
+            "current_packet_callback_recorded_count": 0,
+            "current_packet_live_callback_record_count": 0,
+            "current_packet_live_pending_count": 0,
+            "current_packet_callback_latest_status": "",
+            "current_packet_callback_latest_expired": False,
+            "stage_packet_path": "/data/provider-ledger/proactive_ooda_stage_packets/pkt-noise.json",
+            "safe_work_result_path": "/data/provider-ledger/proactive_ooda_safe_work_results/res-noise.json",
+            "run_receipt": {
+                "notification_status": "sent",
+                "item_count": 1,
+                "stage_packet_ref_hashes": [_sha256("stage_packet:pkt-noise")],
+                "safe_work_result_ref_hashes": [_sha256("safe_work_result:res-noise")],
+                "teable_sync": {
+                    "status": "synced",
+                    "sync_attempted": True,
+                    "projection_summary": {
+                        "record_count": 3,
+                        "tables": {
+                            "proactive_ooda_runs": {"record_count": 1},
+                            "proactive_ooda_safe_work": {"record_count": 1},
+                            "proactive_ooda_items": {"record_count": 1},
+                        },
+                    },
+                    "missing_tables": [],
+                },
+            },
+            "stage_packet": {
+                "schema": "proactive_ooda.stage_packet.v1",
+                "packet_ref": "stage_packet:pkt-noise",
+                "stage": {
+                    "kind": "research_packet",
+                    "payload": {
+                        "adapter_hint": "transcript_signal",
+                        "work_type": "compare_options",
+                        "research_query": noisy_query,
+                        "search_queries": [
+                            noisy_query_with_tail,
+                            noisy_query,
+                        ],
+                    },
+                },
+                "approval": {"required": True},
+                "safe_work_order": {
+                    "work_type": "compare_options",
+                    "input_contract": {
+                        "research_query": noisy_query,
+                    },
+                    "tool_hints": {"adapter_hint": "transcript_signal"},
+                    "handoff_policy": {
+                        "safe_to_execute_before_approval": True,
+                        "external_actions_remain_staged_only": True,
+                    },
+                },
+            },
+            "safe_work_result": {
+                "schema": "proactive_ooda.safe_work_result.v1",
+                "result_ref": "safe_work_result:res-noise",
+                "status": "staged_for_user_decision",
+                "work_type": "compare_options",
+                "recommended_option_or_draft": {
+                    "kind": "shortlist_candidate",
+                    "value": {
+                        "label": "Google Translate",
+                        "url": "https://translate.google.at/?hl=en",
+                        "final_url": "https://translate.google.at/?hl=en&ucbcb=1",
+                        "snippet": "Translate words and phrases.",
+                    },
+                },
+                "shortlist": [{"label": "Google Translate"}],
+                "approval": {"required": True},
+                "audit": {"status": "pass", "issues": []},
+                "execution_receipt": {
+                    "network_fetch_count": 6,
+                    "network_fetch_success_count": 6,
+                    "page_checks": [{"url": "https://translate.google.at/?hl=en", "reachable": True}],
+                    "irreversible_actions_attempted": [],
+                },
+            },
+        },
+    )
+
+    output = tmp_path / ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json"
+    receipt = module.materialize_proactive_ooda_gold_acceptance(
+        output_path=output,
+        operator_status_path=operator_status_path,
+        generated_at="2026-06-29T10:50:00Z",
+        allow_live_runtime_probe=True,
+    )
+
+    quality = receipt["proofs"]["assistant_grade_packet_quality"]
+    assert receipt["status"] == "blocked_low_quality_packet_evidence"
+    assert receipt["gold_claim_allowed"] is False
+    assert receipt["next_action"] == "stage_fresh_assistant_grade_proactive_packet"
+    assert quality["present"] is False
+    assert quality["raw_request_exposed"] is False
+    assert quality["raw_candidate_exposed"] is False
+    assert quality["issues"] == [
+        "transcript_signal_lacks_action_intent",
+        "transcript_signal_noise_like_query",
+        "candidate_reference_page_not_aligned_with_request",
+    ]
+
+
 def test_materialize_proactive_ooda_gold_acceptance_requires_teable_approval_surface_projection_when_surface_ready(
     tmp_path: Path,
     monkeypatch,

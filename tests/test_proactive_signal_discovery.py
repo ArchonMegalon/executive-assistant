@@ -1077,6 +1077,40 @@ def test_pocket_background_transcript_without_action_intent_stays_quiet_context(
     assert digest.items == ()
 
 
+def test_pocket_unicode_microphone_noise_fragment_does_not_stage_research() -> None:
+    signal = observation_row_to_signal(
+        observation_id="obs-pocket-live-noise",
+        principal_id="exec",
+        channel="product",
+        event_type="pocket_recording_archive_indexed",
+        payload={
+            "recording_id": "rec-live-noise",
+            "title": "Pocket recording",
+            "recording_at": "2026-06-29T09:30:00+00:00",
+            "archive_status": "archived",
+            "summary_markdown": "[Mikrofongeräusche] Wir gehen jetzt, glaube ich auf die Kinderspielhügge.",
+            "transcript_excerpt": (
+                "[Mikrofongeräusche] Wir gehen jetzt, glaube ich auf die Kinderspielhügge. "
+                "Stimmt schauen anschauen mitgeht"
+            ),
+            "transcript_text": (
+                "[Mikrofongeräusche] Wir gehen jetzt, glaube ich auf die Kinderspielhügge. "
+                "Stimmt schauen anschauen mitgeht"
+            ),
+            "topic_keywords_csv": "mikrofongeräusche,family,background",
+        },
+        created_at="2026-06-29T10:00:00+00:00",
+        source_id="pocket-recording:rec-live-noise",
+    )
+
+    assert signal is not None
+    assert signal.payload is not None
+    assert signal.payload["ooda_loop"] == {}
+
+    digest = ProactiveOodaService().build_digest(principal_id="exec", signals=[signal])
+    assert digest.items == ()
+
+
 def test_observation_mapper_turns_alexa_history_index_into_transcript_signal() -> None:
     signal = observation_row_to_signal(
         observation_id="obs-alexa",

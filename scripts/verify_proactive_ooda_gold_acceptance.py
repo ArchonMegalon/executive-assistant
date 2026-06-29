@@ -137,12 +137,11 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
         issues.append("proof keys drifted")
         return issues
 
-    required_runtime_proofs = [
+    packet_runtime_proofs = [
         str(proofs[key].get("present")).lower() == "true"
         for key in (
             "operator_runtime_posture",
             "routed_delivery",
-            "action_required_only_delivery",
             "assistant_grade_packet_quality",
             "browser_action_contract",
             "live_browse_evidence",
@@ -151,6 +150,9 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
             "teable_projection",
         )
         if isinstance(proofs.get(key), dict)
+    ]
+    pass_runtime_proofs = packet_runtime_proofs + [
+        str(dict(proofs.get("action_required_only_delivery") or {}).get("present")).lower() == "true"
     ]
     approval = dict(proofs.get("approval_outcome") or {})
     if approval.get("raw_evidence_exposed") is not False:
@@ -184,18 +186,18 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
             issues.append(f"verifier_commands missing: {expected}")
 
     if status == "pass":
-        if not all(required_runtime_proofs):
+        if not all(pass_runtime_proofs):
             issues.append("pass requires all runtime proofs present")
         if not approval_accepted:
             issues.append("pass requires approval_outcome.accepted=true")
         if list(receipt.get("remaining_external_proofs") or []):
             issues.append("pass must not retain remaining_external_proofs")
-    if status == "ready_for_approval_outcome_capture" and not all(required_runtime_proofs):
+    if status == "ready_for_approval_outcome_capture" and not all(packet_runtime_proofs):
         issues.append("ready_for_approval_outcome_capture requires the runtime proofs to be present")
     if status == "ready_for_approval_outcome_capture" and approval_recorded:
         issues.append("ready_for_approval_outcome_capture must not already have a recorded approval outcome")
     if status == "blocked_not_accepted_under_ordinary_use":
-        if not all(required_runtime_proofs):
+        if not all(packet_runtime_proofs):
             issues.append("blocked_not_accepted_under_ordinary_use requires the runtime proofs to be present")
         if not approval_recorded or approval_accepted:
             issues.append("blocked_not_accepted_under_ordinary_use requires a recorded non-accepted approval outcome")

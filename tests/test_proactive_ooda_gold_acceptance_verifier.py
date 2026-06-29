@@ -158,6 +158,23 @@ def test_proactive_ooda_gold_acceptance_verifier_rejects_pass_without_accepted_o
     assert "pass requires approval_outcome.accepted=true" in issues
 
 
+def test_proactive_ooda_gold_acceptance_verifier_allows_ready_state_before_action_required_proof(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json"
+    payload = _base_payload()
+    payload["proofs"]["action_required_only_delivery"] = {"present": False, "status": "blocked"}
+    payload["remaining_external_proofs"] = [
+        "action-required-only Telegram delivery proof for the proactive OODA packet",
+        "redacted explicit approval outcome for the proactive OODA packet",
+    ]
+    _write_receipt(receipt, **payload)
+    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
+
+    assert verifier.verify(receipt, root=tmp_path) == []
+
+
 def test_proactive_ooda_gold_acceptance_verifier_rejects_linked_operator_status_drift(
     tmp_path: Path,
     monkeypatch,
