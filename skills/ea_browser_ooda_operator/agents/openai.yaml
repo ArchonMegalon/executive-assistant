@@ -1,0 +1,4 @@
+interface:
+  display_name: "EA Browser OODA Operator"
+  short_description: "Generic governed OODA workflow for reversible website tasks."
+  default_prompt: "Use EA Browser OODA Operator to log into a website with scoped credentials, apply known user context, perform only reversible OODA browser tasks, stop before irreversible actions, notify only when action is needed, and produce a receipt or handoff."
