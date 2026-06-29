@@ -3053,6 +3053,61 @@ def test_send_telegram_document_dry_run_reuses_readiness_without_exposing_docume
     assert "/tmp/secret-qr.svg" not in json.dumps(report, sort_keys=True)
 
 
+def test_send_telegram_document_stages_local_file_into_runtime_container(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    document = tmp_path / "pairing.svg"
+    document.write_text("<svg>qr</svg>", encoding="utf-8")
+    removed: list[tuple[str, str]] = []
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-06-29T14:03:00Z")
+    monkeypatch.setattr(
+        module,
+        "_runtime_container_stage_file",
+        lambda path, timeout_seconds=20.0: (True, "ea-api", "/tmp/ea-live-ops-document.svg", ""),
+    )
+    monkeypatch.setattr(
+        module,
+        "_runtime_container_remove_file",
+        lambda container, remote_path, timeout_seconds=10.0: removed.append((container, remote_path)),
+    )
+
+    def _fake_exec_json(*, code: str, timeout_seconds: float):
+        assert str(document) not in code
+        assert "/tmp/ea-live-ops-document.svg" in code
+        assert "send_telegram_document_for_principal" in code
+        return (
+            0,
+            {
+                "ok": True,
+                "sent": True,
+                "reason": "sent",
+                "principal_id": "principal-1",
+                "chat_ref_present": True,
+                "chat_ref_sha256": "f" * 64,
+                "bot_key": "default",
+                "bot_handle": "ea_concierge_bot",
+                "message_ids": ["2001"],
+            },
+            "ea-api",
+        )
+
+    monkeypatch.setattr(module, "_runtime_container_exec_json", _fake_exec_json)
+
+    report = module.send_telegram_document(
+        principal_id="principal-1",
+        document_ref=str(document),
+        caption="pairing",
+        dry_run=False,
+    )
+    serialized = json.dumps(report, sort_keys=True)
+
+    assert report["sent"] is True
+    assert report["reason"] == "sent"
+    assert report["message_ids"] == ["2001"]
+    assert report["local_file_staged"] is True
+    assert removed == [("ea-api", "/tmp/ea-live-ops-document.svg")]
+    assert str(document) not in serialized
+
+
 def test_main_send_telegram_emits_json(monkeypatch, capsys) -> None:
     module = _module()
     monkeypatch.setattr(

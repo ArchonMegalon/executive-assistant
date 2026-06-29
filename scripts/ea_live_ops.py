@@ -459,6 +459,58 @@ def _runtime_container_exec_json(
     return int(proc.returncode or 0), payload, container
 
 
+def _runtime_container_stage_file(
+    local_path: Path,
+    *,
+    timeout_seconds: float = 20.0,
+) -> tuple[bool, str, str, str]:
+    container = _runtime_container_name()
+    if not container:
+        return False, "", "", "runtime_container_unconfigured"
+    try:
+        resolved = local_path.resolve()
+        stat = resolved.stat()
+    except OSError:
+        return False, container, "", "local_file_missing"
+    suffix = re.sub(r"[^A-Za-z0-9_.-]+", "-", resolved.suffix or ".bin")[:24] or ".bin"
+    digest = hashlib.sha256(f"{resolved}:{stat.st_size}:{stat.st_mtime_ns}".encode("utf-8")).hexdigest()[:16]
+    remote_path = f"/tmp/ea-live-ops-document-{digest}{suffix}"
+    try:
+        payload = resolved.read_bytes()
+    except OSError:
+        return False, container, "", "local_file_unreadable"
+    try:
+        write_proc = subprocess.run(
+            ["docker", "exec", "-i", container, "sh", "-lc", f"cat > {remote_path!r} && chmod 600 {remote_path!r}"],
+            input=payload,
+            capture_output=True,
+            check=False,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        return False, container, "", f"stage_write_timeout:{float(timeout_seconds):g}s"
+    except Exception as exc:
+        return False, container, "", type(exc).__name__
+    if int(write_proc.returncode or 0) != 0:
+        return False, container, remote_path, f"stage_write_exit_{int(write_proc.returncode or 0)}"
+    return True, container, remote_path, ""
+
+
+def _runtime_container_remove_file(container: str, remote_path: str, *, timeout_seconds: float = 10.0) -> None:
+    if not str(container or "").strip() or not str(remote_path or "").strip():
+        return
+    try:
+        subprocess.run(
+            ["docker", "exec", container, "rm", "-f", str(remote_path)],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=timeout_seconds,
+        )
+    except Exception:
+        return
+
+
 def _runtime_container_preflight() -> dict[str, object]:
     code = (
         "import json\n"
@@ -3691,13 +3743,38 @@ def send_telegram_document(
             "observed_at": observed_at,
             "source": "runtime_container_exec:telegram_delivery.send_telegram_document_for_principal",
         }
+    document_ref_for_runtime = normalized_document_ref
+    staged_container = ""
+    staged_remote_path = ""
+    local_file_staged = False
+    if Path(normalized_document_ref).is_file():
+        staged, staged_container, staged_remote_path, stage_reason = _runtime_container_stage_file(
+            Path(normalized_document_ref),
+            timeout_seconds=20.0,
+        )
+        if not staged:
+            if staged_remote_path:
+                _runtime_container_remove_file(staged_container, staged_remote_path)
+            return {
+                "sent": False,
+                "reason": stage_reason or "telegram_document_stage_failed",
+                "principal_id": normalized_principal_id,
+                "delivery_transport": "telegram_bot",
+                "document_ref_present": True,
+                "local_file_staged": False,
+                "runtime_container": staged_container,
+                "observed_at": observed_at,
+                "source": "runtime_container_exec:telegram_delivery.send_telegram_document_for_principal",
+            }
+        document_ref_for_runtime = staged_remote_path
+        local_file_staged = True
     code = (
         "import hashlib, json\n"
         "principal_id = "
         + json.dumps(normalized_principal_id)
         + "\n"
         "document_ref = "
-        + json.dumps(normalized_document_ref)
+        + json.dumps(document_ref_for_runtime)
         + "\n"
         "caption = "
         + json.dumps(normalized_caption)
@@ -3724,7 +3801,11 @@ def send_telegram_document(
         "    reason = (str(exc).strip() or type(exc).__name__)[:160]\n"
         "    print(json.dumps({'ok': False, 'sent': False, 'reason': reason}, sort_keys=True))\n"
     )
-    exit_code, payload, runtime_container = _runtime_container_exec_json(code=code, timeout_seconds=45.0)
+    try:
+        exit_code, payload, runtime_container = _runtime_container_exec_json(code=code, timeout_seconds=45.0)
+    finally:
+        if staged_remote_path:
+            _runtime_container_remove_file(staged_container, staged_remote_path)
     payload_ok = bool(payload.get("ok", False))
     sent = exit_code == 0 and payload_ok and bool(payload.get("sent"))
     reason = str(payload.get("reason") or "").strip() or (f"runtime_container_exec_exit_{exit_code}" if exit_code else "send_failed")
@@ -3741,6 +3822,8 @@ def send_telegram_document(
         "message_ids": message_ids,
         "message_count": len(message_ids),
         "runtime_container": runtime_container,
+        "document_ref_present": True,
+        "local_file_staged": local_file_staged,
         "observed_at": observed_at,
         "source": "runtime_container_exec:telegram_delivery.send_telegram_document_for_principal",
     }
