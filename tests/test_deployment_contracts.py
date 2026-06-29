@@ -841,6 +841,57 @@ def test_release_manifest_reads_deploy_context_commit_binding(monkeypatch: objec
     assert manifest["release_label"] == "weekly-2026-06-23"
 
 
+def test_release_manifest_regenerates_stale_local_fallback_deployment_id_from_old_deploy_context(
+    monkeypatch: object, tmp_path: Path
+) -> None:
+    module = _load_script("materialize_release_manifest")
+    output_path = tmp_path / "release_manifest.generated.json"
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    monkeypatch.setattr(module, "_ENV_FILE_CACHE", {})
+    monkeypatch.setattr(module, "_DEPLOY_CONTEXT_CACHE", {})
+    monkeypatch.delenv("EA_DEPLOYMENT_ID", raising=False)
+    monkeypatch.delenv("DEPLOYMENT_ID", raising=False)
+    monkeypatch.delenv("RENDER_GIT_COMMIT", raising=False)
+    monkeypatch.delenv("EA_RELEASE_LABEL", raising=False)
+    monkeypatch.delenv("RELEASE_LABEL", raising=False)
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://ea.example.test")
+    monkeypatch.setattr(
+        module,
+        "_git",
+        lambda *args: {
+            ("rev-parse", "--abbrev-ref", "HEAD"): "main",
+            ("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"): "origin/main",
+            ("rev-parse", "HEAD"): "newcommit1234567890abcdef1234567890abcdef",
+            ("status", "--short"): " M .codex-studio/published/release_manifest.generated.json\n",
+            ("remote", "get-url", "origin"): "https://github.com/ArchonMegalon/executive-assistant.git",
+        }.get(tuple(args), ""),
+    )
+    deploy_context_path = tmp_path / ".codex-studio" / "published" / "deploy_context.generated.json"
+    deploy_context_path.parent.mkdir(parents=True, exist_ok=True)
+    deploy_context_path.write_text(
+        json.dumps(
+            {
+                "contract_name": "ea.deploy_context.v1",
+                "deployment_id": "local-20260629T015658001260Z-oldcommit1234",
+                "deployment_id_source": "local_fallback",
+                "release_label": "local-20260629T015658001260Z-oldcommit1234",
+                "commit_sha": "oldcommit1234567890abcdef1234567890abcdef",
+                "branch": "main",
+                "tracking_branch": "origin/main",
+                "generated_at": "2026-06-29T01:56:58.001260Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    manifest = module.build_manifest(output_path=output_path, generated_at="2026-06-30T08:15:00Z")
+
+    assert manifest["deployment_id"] == "local-20260630T081500Z-newcommit123"
+    assert manifest["deployment_id_source"] == "local_fallback"
+    assert manifest["release_label"] == "newcommit123"
+    assert manifest["deploy_context_commit_sha"] == "oldcommit1234567890abcdef1234567890abcdef"
+
+
 def test_release_manifest_ignores_invalid_deploy_context_contract(monkeypatch: object, tmp_path: Path) -> None:
     module = _load_script("materialize_release_manifest")
     output_path = tmp_path / "release_manifest.generated.json"

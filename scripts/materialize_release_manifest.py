@@ -256,11 +256,18 @@ def _public_origin() -> tuple[str, str]:
     return "", "missing"
 
 
+def _deploy_context_local_fallback_stale(*, deploy_context: dict[str, Any], commit_sha: str) -> bool:
+    deployment_id_source = str(deploy_context.get("deployment_id_source") or "").strip()
+    if deployment_id_source != "local_fallback":
+        return False
+    context_commit_sha = str(deploy_context.get("commit_sha") or "").strip()
+    return bool(context_commit_sha and commit_sha and context_commit_sha != commit_sha)
+
+
 def _deployment_id(commit_sha: str, generated_at: str) -> tuple[str, str]:
     deploy_context = _deploy_context()
     explicit = str(
         _env_value("EA_DEPLOYMENT_ID")
-        or str(deploy_context.get("deployment_id") or "").strip()
         or _env_value("DEPLOYMENT_ID")
         or _env_value("RENDER_GIT_COMMIT")
         or ""
@@ -268,7 +275,14 @@ def _deployment_id(commit_sha: str, generated_at: str) -> tuple[str, str]:
     if explicit:
         if _env_value("EA_DEPLOYMENT_ID") or _env_value("DEPLOYMENT_ID") or _env_value("RENDER_GIT_COMMIT"):
             return explicit, "explicit"
-        return explicit, str(deploy_context.get("deployment_id_source") or "deploy_context").strip() or "deploy_context"
+        return explicit, "explicit"
+    context_deployment_id = str(deploy_context.get("deployment_id") or "").strip()
+    context_deployment_id_source = str(deploy_context.get("deployment_id_source") or "deploy_context").strip() or "deploy_context"
+    if context_deployment_id and not _deploy_context_local_fallback_stale(
+        deploy_context=deploy_context,
+        commit_sha=commit_sha,
+    ):
+        return context_deployment_id, context_deployment_id_source
     stamp = generated_at.replace(":", "").replace("-", "").replace(".", "").replace("T", "T")
     commit_fragment = (commit_sha[:12] if commit_sha else "unknowncommit") or "unknowncommit"
     return f"local-{stamp}-{commit_fragment}", "local_fallback"
@@ -359,8 +373,12 @@ def build_manifest(*, output_path: Path = DEFAULT_OUTPUT, generated_at: str | No
     enabled_project_modes = _enabled_project_modes()
     compose_files = _compose_files()
     compose_overrides = _compose_overrides()
+    stale_local_fallback_context = _deploy_context_local_fallback_stale(
+        deploy_context=deploy_context,
+        commit_sha=commit_sha,
+    )
     release_label = str(
-        str(deploy_context.get("release_label") or "").strip()
+        ("" if stale_local_fallback_context else str(deploy_context.get("release_label") or "").strip())
         or _env_value("EA_RELEASE_LABEL")
         or _env_value("RELEASE_LABEL")
         or (commit_sha[:12] if commit_sha else "")
