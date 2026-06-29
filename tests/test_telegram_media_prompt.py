@@ -95,6 +95,60 @@ def test_telegram_whatsapp_pairing_followup_suppresses_generic_media_noise() -> 
     assert schedule_async is False
 
 
+def test_telegram_whatsapp_pairing_followup_suppresses_session_video_lane() -> None:
+    container = SimpleNamespace(channel_runtime=SimpleNamespace(list_recent_observations=lambda **_kwargs: []))
+
+    decision = channels_route._telegram_session_turn(
+        container=container,
+        principal_id="exec-1",
+        text="couldn't link device try again later",
+        payload={
+            "kind": "video",
+            "text": "couldn't link device try again later",
+            "message_metadata": {
+                "caption": "couldn't link device try again later",
+                "file_id": "video-file-1",
+                "duration": 56,
+            },
+            "transcription_status": "deferred",
+            "message_id": "msg-1",
+        },
+        bot_handle="",
+        current_message_id="msg-1",
+        chat_id="chat-1",
+    )
+
+    assert decision.reply_text == ""
+    assert decision.schedule_async is False
+    assert not decision.async_payload
+
+
+def test_telegram_whatsapp_pairing_recent_failure_suppresses_session_media_placeholders() -> None:
+    recent_failure = SimpleNamespace(
+        channel="telegram",
+        event_type="telegram.message",
+        source_id="telegram:chat-1",
+        created_at=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        payload={"kind": "text", "text": "couldnt link device try again later"},
+    )
+    container = SimpleNamespace(channel_runtime=SimpleNamespace(list_recent_observations=lambda **_kwargs: [recent_failure]))
+
+    for kind, text in (("video", "Video Message"), ("photo", "Photo")):
+        decision = channels_route._telegram_session_turn(
+            container=container,
+            principal_id="exec-1",
+            text=text,
+            payload={"kind": kind, "text": text, "message_id": f"{kind}-1"},
+            bot_handle="",
+            current_message_id=f"{kind}-1",
+            chat_id="chat-1",
+        )
+
+        assert decision.reply_text == ""
+        assert decision.schedule_async is False
+        assert not decision.async_payload
+
+
 def test_telegram_whatsapp_pairing_followup_suppresses_explicit_failure_without_context() -> None:
     container = SimpleNamespace(channel_runtime=SimpleNamespace(list_recent_observations=lambda **_kwargs: []))
 

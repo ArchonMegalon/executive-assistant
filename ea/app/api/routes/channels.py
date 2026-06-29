@@ -9400,6 +9400,8 @@ def _telegram_session_turn(
         chat_id=chat_id,
         completion_cue_predicate=_telegram_low_signal_followup_cue,
     )
+    if _telegram_should_suppress_whatsapp_pairing_followup(initial_ctx):
+        return TelegramTurnDecision()
     audiobook_epub_decision = _telegram_audiobook_epub_turn_decision(initial_ctx)
     if audiobook_epub_decision.reply_text or audiobook_epub_decision.schedule_async:
         return audiobook_epub_decision
