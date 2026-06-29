@@ -20,6 +20,7 @@ import uuid
 from datetime import datetime, timedelta
 from importlib import import_module
 from pathlib import Path
+from typing import Mapping
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Body, Depends, Request
@@ -1613,6 +1614,25 @@ _WHATSAPP_PAIRING_FOLLOWUP_MARKERS = (
     "link device try again later",
     "try again later",
 )
+_WHATSAPP_PAIRING_STRONG_FOLLOWUP_MARKERS = tuple(
+    marker
+    for marker in _WHATSAPP_PAIRING_FOLLOWUP_MARKERS
+    if marker != "try again later"
+)
+
+
+def _telegram_observation_matches_chat(row: object, *, chat_id: str, payload: Mapping[str, object] | None = None) -> bool:
+    normalized_chat = str(chat_id or "").strip()
+    if not normalized_chat:
+        return True
+    payload_dict = dict(payload or getattr(row, "payload", {}) or {})
+    candidate_chat = str(payload_dict.get("chat_id") or getattr(row, "chat_id", "") or "").strip()
+    if candidate_chat == normalized_chat:
+        return True
+    source_id = str(getattr(row, "source_id", "") or "").strip()
+    if source_id == f"telegram:{normalized_chat}":
+        return True
+    return False
 
 
 def _telegram_recent_whatsapp_pairing_context(
@@ -1622,7 +1642,6 @@ def _telegram_recent_whatsapp_pairing_context(
     chat_id: str,
     window_seconds: int = 900,
 ) -> bool:
-    normalized_chat = str(chat_id or "").strip()
     cutoff = datetime.now(ZoneInfo("UTC")).timestamp() - max(int(window_seconds), 1)
     try:
         rows = container.channel_runtime.list_recent_observations(limit=80, principal_id=principal_id)
@@ -1634,7 +1653,7 @@ def _telegram_recent_whatsapp_pairing_context(
         if str(getattr(row, "event_type", "") or "").strip() not in {"telegram.reply_sent", "telegram.reply_async_sent"}:
             continue
         payload = dict(getattr(row, "payload", {}) or {})
-        if normalized_chat and str(payload.get("chat_id") or "").strip() != normalized_chat:
+        if not _telegram_observation_matches_chat(row, chat_id=chat_id, payload=payload):
             continue
         created_at = _parse_isoish_datetime(getattr(row, "created_at", "") or "")
         if created_at is not None and created_at.timestamp() < cutoff:
@@ -1652,17 +1671,67 @@ def _telegram_whatsapp_pairing_followup_text(text: str) -> bool:
     return any(marker in normalized for marker in _WHATSAPP_PAIRING_FOLLOWUP_MARKERS)
 
 
+def _telegram_strong_whatsapp_pairing_followup_text(text: str) -> bool:
+    normalized = " ".join(str(text or "").strip().lower().split())
+    if not normalized:
+        return False
+    if "link device" in normalized and "try again later" in normalized:
+        return True
+    if not any(marker in normalized for marker in ("whatsapp", "qr", "pairing", "wa web", "whatsapp web")):
+        return False
+    return any(marker in normalized for marker in _WHATSAPP_PAIRING_STRONG_FOLLOWUP_MARKERS)
+
+
+def _telegram_recent_whatsapp_pairing_followup_signal(
+    container: AppContainer,
+    *,
+    principal_id: str,
+    chat_id: str,
+    window_seconds: int = 900,
+) -> bool:
+    cutoff = datetime.now(ZoneInfo("UTC")).timestamp() - max(int(window_seconds), 1)
+    try:
+        rows = container.channel_runtime.list_recent_observations(limit=80, principal_id=principal_id)
+    except Exception:
+        return False
+    for row in rows:
+        if str(getattr(row, "channel", "") or "").strip() != "telegram":
+            continue
+        if str(getattr(row, "event_type", "") or "").strip() != "telegram.message":
+            continue
+        payload = dict(getattr(row, "payload", {}) or {})
+        if not _telegram_observation_matches_chat(row, chat_id=chat_id, payload=payload):
+            continue
+        created_at = _parse_isoish_datetime(getattr(row, "created_at", "") or "")
+        if created_at is not None and created_at.timestamp() < cutoff:
+            continue
+        if _telegram_strong_whatsapp_pairing_followup_text(str(payload.get("text") or "")):
+            return True
+    return False
+
+
 def _telegram_should_suppress_whatsapp_pairing_followup(ctx: TelegramTurnContext) -> bool:
-    if not _telegram_recent_whatsapp_pairing_context(
+    has_recent_pairing_context = _telegram_recent_whatsapp_pairing_context(
         ctx.container,
         principal_id=ctx.principal_id,
         chat_id=ctx.chat_id,
-    ):
-        return False
+    )
+    has_current_strong_followup = _telegram_strong_whatsapp_pairing_followup_text(ctx.normalized)
+    has_recent_followup_signal = _telegram_recent_whatsapp_pairing_followup_signal(
+        ctx.container,
+        principal_id=ctx.principal_id,
+        chat_id=ctx.chat_id,
+    )
     kind = str(dict(ctx.payload or {}).get("kind") or "").strip().lower()
-    if _telegram_whatsapp_pairing_followup_text(ctx.normalized):
+    if has_current_strong_followup:
         return True
-    if kind in {"photo", "video"} and ctx.normalized.lower() in {"", "photo", "video", "video message"}:
+    if has_recent_pairing_context and _telegram_whatsapp_pairing_followup_text(ctx.normalized):
+        return True
+    if (
+        kind in {"photo", "video"}
+        and ctx.normalized.lower() in {"", "photo", "video", "video message"}
+        and (has_recent_pairing_context or has_current_strong_followup or has_recent_followup_signal)
+    ):
         return True
     return False
 

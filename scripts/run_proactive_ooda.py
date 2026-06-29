@@ -541,6 +541,8 @@ def _proactive_ooda_auto_execute_candidates(
         stage_packet_paths=stage_packet_paths,
         safe_work_result_paths=safe_work_result_paths,
     ):
+        if not _safe_work_allows_delivery_or_auto_execution(result):
+            continue
         packet_ref = ""
         result_ref = str(result.get("result_ref") or "").strip()
         if not result_ref:
@@ -752,6 +754,8 @@ def _notification_approval_request(
 
 
 def _safe_work_requires_user_action(result: Mapping[str, Any]) -> bool:
+    if not _safe_work_allows_delivery_or_auto_execution(result):
+        return False
     status = str(result.get("status") or "").strip()
     if status == "staged_for_user_decision":
         return True
@@ -761,6 +765,13 @@ def _safe_work_requires_user_action(result: Mapping[str, Any]) -> bool:
     if not isinstance(browser_receipt, Mapping):
         return False
     return bool(browser_receipt.get("user_action_required"))
+
+
+def _safe_work_allows_delivery_or_auto_execution(result: Mapping[str, Any]) -> bool:
+    audit = result.get("audit")
+    if isinstance(audit, Mapping):
+        return str(audit.get("status") or "").strip().lower() == "pass"
+    return False
 
 
 def _notification_requires_user_action(approval_request: Mapping[str, Any] | None) -> bool:

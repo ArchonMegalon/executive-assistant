@@ -450,7 +450,7 @@ def _assistant_grade_packet_quality_proof(
     audit = _as_mapping(safe_work_result.get("audit"))
     audit_status = str(audit.get("status") or "").strip().lower()
     audit_issue_codes = _safe_work_audit_issue_codes(audit)
-    if audit_status in {"blocked", "fail", "failed", "error"}:
+    if audit_status != "pass":
         issues.append("safe_work_audit_not_pass")
     recommended = _as_mapping(safe_work_result.get("recommended_option_or_draft"))
     candidate_text = _candidate_text_for_quality(recommended)

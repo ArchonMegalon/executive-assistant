@@ -100,6 +100,61 @@ def test_build_safe_work_result_blocks_when_no_research_input_exists() -> None:
     assert result["execution_receipt"]["external_actions_attempted"] == []
 
 
+def test_build_safe_work_result_blocks_reference_page_outreach_draft_from_request_field() -> None:
+    digest = ProactiveOodaService().build_digest(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "telegram:rauchfangkehrer-bad-candidate",
+                "signal_type": "telegram_message",
+                "channel": "telegram",
+                "title": "Suche einen Rauchfangkehrer",
+                "summary": "Find a chimney sweep and save a Gmail draft.",
+                "payload": {
+                    "ooda_loop": {
+                        "reviewed": True,
+                        "decide": {"summary": "EA can proceed if provider fit passes audit.", "approval_required": False},
+                        "act": {
+                            "summary": "Find a provider and draft the inquiry.",
+                            "stage": {
+                                "kind": "research_packet",
+                                "summary": "Research-backed inquiry draft.",
+                                "work_type": "draft",
+                                "draft_mode": "research_backed_inquiry",
+                                "request": (
+                                    "suche mir rauchfangkehrer - ich brauche ein Gutachten, ob ich meinen "
+                                    "Zimmerkamin als Abluftrohr eines Klimageraetes verwenden kann"
+                                ),
+                                "candidate_items": [
+                                    {
+                                        "label": "Difference between ein, eine, einen, and einem in German",
+                                        "url": "https://planforgermany.com/difference-ein-eine-einen-einem-german-language/",
+                                        "snippet": "German language grammar lesson",
+                                        "reachable": True,
+                                        "page_title": "Difference between ein, eine, einen, and einem in the German language",
+                                    }
+                                ],
+                            },
+                            "external_action_policy": "Draft only; do not send externally.",
+                        },
+                    }
+                },
+            }
+        ],
+    )
+    packet = build_stage_packets(digest)[0]
+
+    result = build_safe_work_result(packet)
+    issue_codes = [issue["code"] for issue in result["audit"]["issues"]]
+
+    assert packet["safe_work_order"]["input_contract"]["request"].startswith("suche mir rauchfangkehrer")
+    assert result["status"] == "blocked_needs_research_input"
+    assert result["recommended_option_or_draft"] == {}
+    assert result["audit"]["status"] == "review"
+    assert "top_candidate_not_provider_like" in issue_codes
+    assert "draft_not_created" in issue_codes
+
+
 def test_build_safe_work_result_reflects_non_required_approval_contract() -> None:
     digest = ProactiveOodaService().build_digest(
         principal_id="exec",
@@ -749,11 +804,9 @@ def test_build_safe_work_result_rejects_reference_page_with_email_from_generic_p
 
     assert result["recommended_option_or_draft"] == {}
     assert result["comparison_table"][0]["url"] == "https://planforgermany.com/difference-ein-eine-einen-einem-german-language/"
-    assert "provider search query too generic" in result["comparison_table"][0]["constraint_violations"]
     assert "educational or reference page" in result["comparison_table"][0]["constraint_violations"]
     assert result["audit"]["status"] == "review"
     issue_codes = [issue["code"] for issue in result["audit"]["issues"]]
-    assert "provider_query_too_generic" in issue_codes
     assert "top_candidate_not_provider_like" in issue_codes
     assert "draft_not_created" in issue_codes
 

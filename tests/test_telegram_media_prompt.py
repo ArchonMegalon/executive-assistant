@@ -93,3 +93,57 @@ def test_telegram_whatsapp_pairing_followup_suppresses_generic_media_noise() -> 
     )
     assert video_reply == ""
     assert schedule_async is False
+
+
+def test_telegram_whatsapp_pairing_followup_suppresses_explicit_failure_without_context() -> None:
+    container = SimpleNamespace(channel_runtime=SimpleNamespace(list_recent_observations=lambda **_kwargs: []))
+
+    assert channels_route._telegram_strong_whatsapp_pairing_followup_text("couldn't link device try again later")
+    assert not channels_route._telegram_strong_whatsapp_pairing_followup_text(
+        "couldn't link my Alexa device, can you help?"
+    )
+
+    text_reply, schedule_async, _retry_budget, _suppress_async_ack = channels_route._telegram_command_reply_text(
+        container=container,
+        principal_id="exec-1",
+        text="couldn't link device try again later",
+        payload={"kind": "text", "text": "couldn't link device try again later"},
+        bot_handle="",
+        chat_id="chat-1",
+    )
+
+    assert text_reply == ""
+    assert schedule_async is False
+
+
+def test_telegram_whatsapp_pairing_recent_failure_suppresses_following_media() -> None:
+    recent_failure = SimpleNamespace(
+        channel="telegram",
+        event_type="telegram.message",
+        source_id="telegram:chat-1",
+        created_at=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        payload={"kind": "text", "text": "couldnt link device try again later"},
+    )
+    container = SimpleNamespace(channel_runtime=SimpleNamespace(list_recent_observations=lambda **_kwargs: [recent_failure]))
+
+    video_reply, schedule_async, _retry_budget, _suppress_async_ack = channels_route._telegram_command_reply_text(
+        container=container,
+        principal_id="exec-1",
+        text="Video Message",
+        payload={"kind": "video", "text": "Video Message"},
+        bot_handle="",
+        chat_id="chat-1",
+    )
+    assert video_reply == ""
+    assert schedule_async is False
+
+    photo_reply, schedule_async, _retry_budget, _suppress_async_ack = channels_route._telegram_command_reply_text(
+        container=container,
+        principal_id="exec-1",
+        text="Photo",
+        payload={"kind": "photo", "text": "Photo"},
+        bot_handle="",
+        chat_id="chat-1",
+    )
+    assert photo_reply == ""
+    assert schedule_async is False

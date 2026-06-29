@@ -103,6 +103,7 @@ _LOW_INFORMATION_QUERY_TOKENS = {
     "du",
     "einem",
     "einen",
+    "eine",
     "einer",
     "email",
     "emailanfrage",
@@ -122,6 +123,7 @@ _LOW_INFORMATION_QUERY_TOKENS = {
     "me",
     "mein",
     "meine",
+    "meiner",
     "mir",
     "my",
     "need",
@@ -137,10 +139,14 @@ _LOW_INFORMATION_QUERY_TOKENS = {
     "save",
     "search",
     "send",
+    "schicke",
+    "speicher",
+    "sie",
     "such",
     "suche",
     "the",
     "to",
+    "und",
     "vendor",
     "visible",
     "wenn",
@@ -814,6 +820,7 @@ def _candidate_evaluation_context(
     provider_query_texts = _provider_query_texts(input_contract=input_contract, stage_payload=stage_payload)
     provider_query_terms = _informative_provider_query_terms(provider_query_texts)
     all_text = tuple(dict.fromkeys((*selection_criteria, *comparison_dimensions, *preferences, *requirements)))
+    provider_relevance_text = tuple(dict.fromkeys((*all_text, *provider_query_texts)))
     return {
         "selection_criteria": selection_criteria,
         "comparison_dimensions": comparison_dimensions,
@@ -856,7 +863,7 @@ def _candidate_evaluation_context(
                     "quote",
                 ),
             )
-            for term in all_text
+            for term in provider_relevance_text
         ),
     }
 
@@ -1381,8 +1388,16 @@ def _outreach_request_text_has_actionable_content(text: str) -> bool:
 def _draft_request_text(*, input_contract: Mapping[str, Any], stage_payload: Mapping[str, Any]) -> str:
     for value in (
         stage_payload.get("draft_request_text"),
+        stage_payload.get("request"),
+        stage_payload.get("request_text"),
+        stage_payload.get("user_request"),
+        stage_payload.get("task_request"),
         stage_payload.get("research_query"),
         input_contract.get("draft_request_text"),
+        input_contract.get("request"),
+        input_contract.get("request_text"),
+        input_contract.get("user_request"),
+        input_contract.get("task_request"),
         input_contract.get("research_query"),
         _first_string(input_contract.get("search_queries")),
     ):
@@ -1615,7 +1630,7 @@ def _candidate_search_text(candidate: Mapping[str, Any]) -> str:
 
 def _provider_query_texts(*, input_contract: Mapping[str, Any], stage_payload: Mapping[str, Any]) -> tuple[str, ...]:
     texts: list[str] = []
-    for key in ("search_queries", "research_query", "subject_hint"):
+    for key in ("search_queries", "research_query", "request", "request_text", "user_request", "task_request", "draft_request_text", "subject_hint"):
         value = _stage_or_input(stage_payload=stage_payload, input_contract=input_contract, key=key)
         if isinstance(value, (list, tuple)):
             texts.extend(_string_list(value))
@@ -1644,13 +1659,17 @@ def _candidate_has_provider_signal(search_text: str) -> bool:
 
 
 def _candidate_has_strong_provider_signal(search_text: str, *, context: Mapping[str, Any]) -> bool:
-    if _text_mentions(search_text, _STRONG_PROVIDER_PAGE_MARKERS):
+    if _candidate_has_strong_provider_marker(search_text):
         return True
     normalized = _ascii_fold_text(search_text)
     for term in tuple(context.get("provider_query_terms") or ()):
         if str(term or "").strip() and str(term).strip().lower() in normalized:
             return True
     return False
+
+
+def _candidate_has_strong_provider_marker(search_text: str) -> bool:
+    return _text_mentions(search_text, _STRONG_PROVIDER_PAGE_MARKERS)
 
 
 def _candidate_is_educational_reference(search_text: str) -> bool:
@@ -1865,11 +1884,12 @@ def _candidate_suitable_for_outreach_draft(candidate: Mapping[str, Any], *, cont
     contact_email = _candidate_contact_email(candidate)
     provider_signal = _candidate_has_provider_signal(search_text)
     strong_provider_signal = _candidate_has_strong_provider_signal(search_text, context=context)
+    strong_provider_marker = _candidate_has_strong_provider_marker(search_text)
     if candidate_host.endswith("wikipedia.org"):
         return False
-    if _candidate_is_educational_reference(search_text) and not strong_provider_signal:
+    if _candidate_is_educational_reference(search_text) and not strong_provider_marker:
         return False
-    if _candidate_is_non_provider_reference(search_text) and not strong_provider_signal:
+    if _candidate_is_non_provider_reference(search_text) and not strong_provider_marker:
         return False
     if context.get("provider_search_query_too_generic") and not strong_provider_signal:
         return False
@@ -2160,6 +2180,11 @@ def _search_queries(
     for value in (
         _stage_or_input(stage_payload=stage_payload, input_contract=input_contract, key="search_queries"),
         _stage_or_input(stage_payload=stage_payload, input_contract=input_contract, key="research_query"),
+        _stage_or_input(stage_payload=stage_payload, input_contract=input_contract, key="request"),
+        _stage_or_input(stage_payload=stage_payload, input_contract=input_contract, key="request_text"),
+        _stage_or_input(stage_payload=stage_payload, input_contract=input_contract, key="user_request"),
+        _stage_or_input(stage_payload=stage_payload, input_contract=input_contract, key="task_request"),
+        _stage_or_input(stage_payload=stage_payload, input_contract=input_contract, key="draft_request_text"),
     ):
         if isinstance(value, (list, tuple)):
             base_queries.extend(_string_list(value))

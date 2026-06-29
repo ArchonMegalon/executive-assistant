@@ -786,6 +786,60 @@ def test_runner_archives_each_receipt_next_to_state_path(tmp_path, monkeypatch) 
     assert archived_receipt["item_count"] == 1
 
 
+def test_runner_auto_execute_candidates_require_safe_work_audit_pass(tmp_path) -> None:
+    stage_path = tmp_path / "packets" / "pkt.json"
+    result_path = tmp_path / "results" / "res.json"
+    packet_ref = "stage_packet:pkt"
+    result_ref = "safe_work_result:res"
+    stage_path.parent.mkdir(parents=True)
+    result_path.parent.mkdir(parents=True)
+    stage_path.write_text(
+        json.dumps(
+            {
+                "packet_ref": packet_ref,
+                "item_index": 1,
+                "approval": {"required": False},
+                "stage": {"payload": {"auto_execute_action": "save_gmail_draft"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    result_path.write_text(
+        json.dumps(
+            {
+                "result_ref": result_ref,
+                "source_packet_ref_hash": runner._hash_value(packet_ref),
+                "status": "staged_for_user_decision",
+                "audit": {
+                    "status": "review",
+                    "issues": [{"code": "top_candidate_not_provider_like"}],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert runner._proactive_ooda_auto_execute_candidates(
+        stage_packet_paths=(stage_path,),
+        safe_work_result_paths=(result_path,),
+    ) == ()
+
+    payload = json.loads(result_path.read_text(encoding="utf-8"))
+    payload["audit"] = {"status": "pass", "issues": []}
+    result_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert runner._proactive_ooda_auto_execute_candidates(
+        stage_packet_paths=(stage_path,),
+        safe_work_result_paths=(result_path,),
+    ) == (
+        {
+            "packet_ref": packet_ref,
+            "staged_artifact_ref": result_ref,
+            "result_id": result_ref,
+        },
+    )
+
+
 def test_runner_main_preserves_safe_delivery_error_detail_in_receipt(tmp_path, monkeypatch) -> None:
     signal_file = tmp_path / "signals.json"
     signal_file.write_text(
