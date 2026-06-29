@@ -12,7 +12,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-06-29T06:49:23Z",
+  "generated_at": "2026-06-29T13:59:44Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -194,6 +194,7 @@
       "verifier_commands": [
         "make verify-teable-env-recovery-readiness",
         "make verify-env-teable-recovery",
+        "make probe-teable-recovery",
         "make env-check-teable",
         "make env-fresh-host-teable",
         "make env-probe-teable"
@@ -240,5 +241,5 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "d6204f8bb6f7e9b528c5c4482788144d2881bb9c"
+  "source_git_head": "374f2399ff7e8d4f3f5dcb7595365c66bd424092"
 }
