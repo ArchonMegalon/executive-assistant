@@ -8,8 +8,10 @@ from typing import Any
 
 try:
     from scripts.source_state_head import resolve_source_state_head
+    from scripts.source_state_head import resolve_source_worktree_fingerprint
 except ModuleNotFoundError:  # pragma: no cover - script execution path
     from source_state_head import resolve_source_state_head
+    from source_state_head import resolve_source_worktree_fingerprint
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -74,6 +76,10 @@ def _git_head(path: Path = ROOT) -> str:
     return resolve_source_state_head(path)
 
 
+def _source_fingerprint(path: Path = ROOT) -> str:
+    return resolve_source_worktree_fingerprint(path)
+
+
 def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
     issues: list[str] = []
     receipt = _json(path)
@@ -85,8 +91,20 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
     if receipt.get("generated_by") != "scripts/materialize_teable_env_recovery_readiness.py":
         issues.append("generated_by must point at the teable env recovery readiness materializer")
     current_head = _git_head(root)
-    if current_head and str(receipt.get("source_git_head") or "").strip() != current_head:
+    current_fingerprint = _source_fingerprint(root)
+    recorded_head = str(receipt.get("source_git_head") or "").strip()
+    recorded_fingerprint = str(receipt.get("source_state_fingerprint") or "").strip()
+    fingerprint_matches = bool(current_fingerprint and recorded_fingerprint and current_fingerprint == recorded_fingerprint)
+    if not recorded_head:
+        issues.append("source_git_head missing")
+    elif current_head and recorded_head != current_head and not fingerprint_matches:
         issues.append("receipt is stale relative to current source HEAD")
+    if receipt.get("source_state_fingerprint_semantics") != "worktree_source_files_sha256_excluding_generated_only_paths":
+        issues.append("source_state_fingerprint_semantics must describe the source worktree fingerprint")
+    if not recorded_fingerprint:
+        issues.append("source_state_fingerprint missing")
+    elif current_fingerprint and recorded_fingerprint != current_fingerprint:
+        issues.append("receipt is stale relative to current source fingerprint")
 
     status = str(receipt.get("status") or "").strip()
     if status not in {"ready_local_audit", "blocked"}:

@@ -476,11 +476,40 @@ def _default_live_receipt_path() -> Path | None:
     return live_receipt_verifier.default_receipt_path()
 
 
-def _status(report: dict[str, Any], *, live_receipt: dict[str, Any], live_receipt_checked: bool) -> str:
+def _normalized_delivery_route(report: Mapping[str, Any]) -> dict[str, Any]:
     route = dict(report.get("delivery_route") or {})
+    route.setdefault("ready", False)
+    route.setdefault("route_error", "")
+    route.setdefault("recovery_hint", "")
+    route.setdefault("next_action", "")
+    return route
+
+
+def _normalized_delivery_guard(report: Mapping[str, Any]) -> dict[str, Any]:
     guard = dict(report.get("delivery_guard") or {})
+    guard.setdefault("delivery_state", "")
+    return guard
+
+
+def _normalized_stage_packets(report: Mapping[str, Any]) -> dict[str, Any]:
     stage_packets = dict(report.get("stage_packets") or {})
+    stage_packets.setdefault("ready", False)
+    stage_packets.setdefault("errors", [])
+    return stage_packets
+
+
+def _normalized_safe_work_results(report: Mapping[str, Any]) -> dict[str, Any]:
     safe_work = dict(report.get("safe_work_results") or {})
+    safe_work.setdefault("ready", False)
+    safe_work.setdefault("errors", [])
+    return safe_work
+
+
+def _status(report: dict[str, Any], *, live_receipt: dict[str, Any], live_receipt_checked: bool) -> str:
+    route = _normalized_delivery_route(report)
+    guard = _normalized_delivery_guard(report)
+    stage_packets = _normalized_stage_packets(report)
+    safe_work = _normalized_safe_work_results(report)
     route_ready = bool(route.get("ready"))
     route_error = str(route.get("route_error") or "").strip()
     delivery_state = str(guard.get("delivery_state") or "").strip()
@@ -502,10 +531,10 @@ def _status(report: dict[str, Any], *, live_receipt: dict[str, Any], live_receip
 
 
 def _reason(report: dict[str, Any], *, live_receipt: dict[str, Any], live_receipt_checked: bool) -> str:
-    route = dict(report.get("delivery_route") or {})
-    guard = dict(report.get("delivery_guard") or {})
-    stage_packets = dict(report.get("stage_packets") or {})
-    safe_work = dict(report.get("safe_work_results") or {})
+    route = _normalized_delivery_route(report)
+    guard = _normalized_delivery_guard(report)
+    stage_packets = _normalized_stage_packets(report)
+    safe_work = _normalized_safe_work_results(report)
     route_error = str(route.get("route_error") or "").strip()
     if route_error:
         return route_error
@@ -529,10 +558,10 @@ def _reason(report: dict[str, Any], *, live_receipt: dict[str, Any], live_receip
 
 
 def _next_action(report: dict[str, Any], *, live_receipt: dict[str, Any], live_receipt_checked: bool) -> str:
-    route = dict(report.get("delivery_route") or {})
-    guard = dict(report.get("delivery_guard") or {})
-    stage_packets = dict(report.get("stage_packets") or {})
-    safe_work = dict(report.get("safe_work_results") or {})
+    route = _normalized_delivery_route(report)
+    guard = _normalized_delivery_guard(report)
+    stage_packets = _normalized_stage_packets(report)
+    safe_work = _normalized_safe_work_results(report)
     next_action = str(route.get("next_action") or "").strip()
     if next_action:
         return next_action
@@ -694,7 +723,7 @@ def _operator_delivery_guard(
     approval_capture_surface: Mapping[str, Any] | None,
     approval_capture: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
-    guard = dict(report.get("delivery_guard") or {})
+    guard = _normalized_delivery_guard(report)
     if not _approval_followthrough_ready(
         status,
         live_receipt=live_receipt,
@@ -742,7 +771,7 @@ def _approval_capture_surface(
     report: dict[str, Any],
     artifact_probe: dict[str, Any],
 ) -> dict[str, Any]:
-    delivery_route = dict(report.get("delivery_route") or {})
+    delivery_route = _normalized_delivery_route(report)
     selected_channel = str(delivery_route.get("selected_channel") or "").strip()
     callback_dir = str(artifact_probe.get("approval_callback_dir") or "").strip()
     approval_outcome_path = str(artifact_probe.get("approval_outcome_path") or "").strip()
@@ -1006,15 +1035,15 @@ def build_proactive_ooda_operator_status(
         "claim_limit": "operator_runtime_posture_not_real_daily_acceptance",
         "goal_completion_claim_allowed": False,
         "live_delivery_claim_allowed": False,
-        "route_ready_claim_allowed": bool(dict(report.get("delivery_route") or {}).get("ready")),
-        "delivery_route_ready": bool(dict(report.get("delivery_route") or {}).get("ready")),
-        "delivery_route_error": str(dict(report.get("delivery_route") or {}).get("route_error") or "").strip(),
-        "delivery_recovery_hint": str(dict(report.get("delivery_route") or {}).get("recovery_hint") or "").strip(),
-        "delivery_next_action": str(dict(report.get("delivery_route") or {}).get("next_action") or "").strip(),
-        "delivery_route": dict(report.get("delivery_route") or {}),
+        "route_ready_claim_allowed": bool(_normalized_delivery_route(report).get("ready")),
+        "delivery_route_ready": bool(_normalized_delivery_route(report).get("ready")),
+        "delivery_route_error": str(_normalized_delivery_route(report).get("route_error") or "").strip(),
+        "delivery_recovery_hint": str(_normalized_delivery_route(report).get("recovery_hint") or "").strip(),
+        "delivery_next_action": str(_normalized_delivery_route(report).get("next_action") or "").strip(),
+        "delivery_route": _normalized_delivery_route(report),
         "delivery_guard": operator_delivery_guard,
-        "stage_packets": dict(report.get("stage_packets") or {}),
-        "safe_work_results": dict(report.get("safe_work_results") or {}),
+        "stage_packets": _normalized_stage_packets(report),
+        "safe_work_results": _normalized_safe_work_results(report),
         "receipt_observation_count": int(report.get("receipt_observation_count") or 0),
         "runtime_actionable_count": runtime_actionable_count,
         "actionable_count": _operator_actionable_count(

@@ -17,6 +17,9 @@ def test_materialize_teable_env_recovery_proof_sanitizes_runtime_paths(monkeypat
     raw_secret_path.write_text('{"api_key":"super-secret"}', encoding="utf-8")
     monkeypatch.setenv("TEABLE_API_KEY", "seeded-teable-key")
     monkeypatch.setattr(proof_module, "_git_head", lambda path: "fresh-head")
+    monkeypatch.setattr(proof_module, "_source_fingerprint", lambda path: "source-fingerprint")
+    monkeypatch.setattr(verifier_module, "_git_head", lambda path=tmp_path: "fresh-head")
+    monkeypatch.setattr(verifier_module, "_source_fingerprint", lambda path=tmp_path: "source-fingerprint")
     monkeypatch.setattr(
         proof_module.sync_env_to_teable,
         "discover_table_id",
@@ -128,6 +131,8 @@ def test_teable_env_recovery_proof_verifier_flags_stale_receipt(tmp_path: Path, 
                 "contract_name": "ea.teable_env_recovery_proof.v1",
                 "generated_by": "scripts/materialize_teable_env_recovery_proof.py",
                 "source_git_head": "old-head",
+                "source_state_fingerprint": "old-source-fingerprint",
+                "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
                 "status": "pass",
                 "recovery_status": "recovered",
                 "fresh_host_api_key_source": "process_env",
@@ -196,7 +201,96 @@ def test_teable_env_recovery_proof_verifier_flags_stale_receipt(tmp_path: Path, 
         encoding="utf-8",
     )
     monkeypatch.setattr(verifier_module, "_git_head", lambda path=tmp_path: "fresh-head")
+    monkeypatch.setattr(verifier_module, "_source_fingerprint", lambda path=tmp_path: "fresh-source-fingerprint")
 
     issues = verify(output, root=tmp_path)
 
     assert "receipt is stale relative to current source HEAD" in issues
+    assert "receipt is stale relative to current source fingerprint" in issues
+
+
+def test_teable_env_recovery_proof_verifier_accepts_post_commit_head_change_when_source_fingerprint_matches(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    output = tmp_path / ".codex-studio/published/teable_env_recovery_proof.generated.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        json.dumps(
+            {
+                "contract_name": "ea.teable_env_recovery_proof.v1",
+                "generated_by": "scripts/materialize_teable_env_recovery_proof.py",
+                "source_git_head": "old-head",
+                "source_state_fingerprint": "source-fingerprint",
+                "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
+                "status": "pass",
+                "recovery_status": "recovered",
+                "fresh_host_api_key_source": "process_env",
+                "secret_values_redacted": True,
+                "drill_output_removed": True,
+                "privacy": {
+                    "raw_paths_exposed": False,
+                    "raw_table_id_exposed": False,
+                    "raw_api_key_exposed": False,
+                    "secret_values_exposed": False,
+                },
+                "env_files": [
+                    {
+                        "scope": "ea_root",
+                        "path_sha256": "1",
+                        "path_recorded": True,
+                        "restored": 1,
+                        "hash_verified": 1,
+                        "hash_mismatch_count": 0,
+                        "backup_created": False,
+                        "mode": "0o600",
+                    },
+                    {
+                        "scope": "ea_root_local",
+                        "path_sha256": "2",
+                        "path_recorded": True,
+                        "restored": 1,
+                        "hash_verified": 1,
+                        "hash_mismatch_count": 0,
+                        "backup_created": False,
+                        "mode": "0o600",
+                    },
+                    {
+                        "scope": "ea_service",
+                        "path_sha256": "3",
+                        "path_recorded": True,
+                        "restored": 1,
+                        "hash_verified": 1,
+                        "hash_mismatch_count": 0,
+                        "backup_created": False,
+                        "mode": "0o600",
+                    },
+                ],
+                "referenced_files": {
+                    "restored": 0,
+                    "hash_verified": 0,
+                    "hash_mismatch_count": 0,
+                    "backup_count": 0,
+                    "path_count": 0,
+                    "path_sha256": [],
+                    "modes": [],
+                },
+                "verification": {
+                    "status": "pass",
+                    "expected_rows": 3,
+                    "same_hash": 3,
+                    "missing_count": 0,
+                    "different_hash_count": 0,
+                    "missing_secret_value_count": 0,
+                    "extra_restorable_count": 0,
+                },
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(verifier_module, "_git_head", lambda path=tmp_path: "new-head")
+    monkeypatch.setattr(verifier_module, "_source_fingerprint", lambda path=tmp_path: "source-fingerprint")
+
+    assert verify(output, root=tmp_path) == []

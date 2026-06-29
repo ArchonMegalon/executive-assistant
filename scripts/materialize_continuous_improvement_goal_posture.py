@@ -9,8 +9,10 @@ from typing import Any
 
 try:
     from scripts.source_state_head import resolve_source_state_head
+    from scripts.source_state_head import resolve_source_worktree_fingerprint
 except ModuleNotFoundError:  # pragma: no cover - script execution path
     from source_state_head import resolve_source_state_head
+    from source_state_head import resolve_source_worktree_fingerprint
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -54,6 +56,10 @@ def _git_head(path: Path) -> str:
     return resolve_source_state_head(path)
 
 
+def _source_fingerprint(path: Path) -> str:
+    return resolve_source_worktree_fingerprint(path)
+
+
 def _json(path: Path) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -90,7 +96,13 @@ def _load_receipt(root: Path, path: Path) -> tuple[dict[str, Any], str]:
     return {}, _display_path(root, path)
 
 
-def _source_receipt(path_text: str, payload: dict[str, Any], *, current_source_head: str = "") -> dict[str, Any]:
+def _source_receipt(
+    path_text: str,
+    payload: dict[str, Any],
+    *,
+    current_source_head: str = "",
+    current_source_fingerprint: str = "",
+) -> dict[str, Any]:
     receipt = {
         "path": path_text,
         "present": bool(payload),
@@ -98,10 +110,16 @@ def _source_receipt(path_text: str, payload: dict[str, Any], *, current_source_h
         "status": _status(payload),
     }
     source_head = str(payload.get("source_git_head") or "").strip()
+    source_fingerprint = str(payload.get("source_state_fingerprint") or "").strip()
     if source_head:
         receipt["source_git_head"] = source_head
-        if current_source_head:
-            receipt["source_fresh_to_current_source"] = source_head == current_source_head
+    if source_fingerprint:
+        receipt["source_state_fingerprint"] = source_fingerprint
+    if current_source_head or current_source_fingerprint:
+        receipt["source_fresh_to_current_source"] = bool(
+            (source_head and current_source_head and source_head == current_source_head)
+            or (source_fingerprint and current_source_fingerprint and source_fingerprint == current_source_fingerprint)
+        )
     return receipt
 
 
@@ -185,6 +203,7 @@ def build_goal_posture(
     generated_at: str | None = None,
 ) -> dict[str, Any]:
     current_source_head = _git_head(root)
+    current_source_fingerprint = _source_fingerprint(root)
     office, office_path = _load_receipt(root, root / DEFAULT_OFFICE_RECEIPT.relative_to(ROOT))
     signal, signal_path = _load_receipt(root, root / DEFAULT_SIGNAL_RECEIPT.relative_to(ROOT))
     media, media_path = _load_receipt(root, root / DEFAULT_MEDIA_RECEIPT.relative_to(ROOT))
@@ -212,7 +231,14 @@ def build_goal_posture(
             "make verify-whole-project-signal-to-decision-receipt",
             "make verify-proactive-ooda",
         ],
-        source_receipts=[_source_receipt(signal_path, signal, current_source_head=current_source_head)],
+        source_receipts=[
+            _source_receipt(
+                signal_path,
+                signal,
+                current_source_head=current_source_head,
+                current_source_fingerprint=current_source_fingerprint,
+            )
+        ],
     )
 
     decide_lens = _lens(
@@ -224,7 +250,14 @@ def build_goal_posture(
         verifier_commands=[
             "make verify-office-loop-goal-receipt",
         ],
-        source_receipts=[_source_receipt(office_path, office, current_source_head=current_source_head)],
+        source_receipts=[
+            _source_receipt(
+                office_path,
+                office,
+                current_source_head=current_source_head,
+                current_source_fingerprint=current_source_fingerprint,
+            )
+        ],
     )
 
     tg_summary = (
@@ -248,7 +281,14 @@ def build_goal_posture(
                 media.get("next_action"),
                 default="collect_external_provider_and_public_route_proofs_before_any_gold_or_live_provider_claim",
             ),
-            receipts=[_source_receipt(media_path, media, current_source_head=current_source_head)],
+            receipts=[
+                _source_receipt(
+                    media_path,
+                    media,
+                    current_source_head=current_source_head,
+                    current_source_fingerprint=current_source_fingerprint,
+                )
+            ],
         ),
         _deliver_component(
             key="manfred_speech",
@@ -259,7 +299,14 @@ def build_goal_posture(
                 manfred.get("next_action"),
                 default="promote only a consented real captured STT fixture that passes the provider benchmark",
             ),
-            receipts=[_source_receipt(manfred_path, manfred, current_source_head=current_source_head)],
+            receipts=[
+                _source_receipt(
+                    manfred_path,
+                    manfred,
+                    current_source_head=current_source_head,
+                    current_source_fingerprint=current_source_fingerprint,
+                )
+            ],
         ),
         _deliver_component(
             key="telegram_audiobook",
@@ -268,8 +315,18 @@ def build_goal_posture(
             summary=tg_summary,
             next_action="keep live Telegram audiobook delivery passing while widening playback acceptance evidence",
             receipts=[
-                _source_receipt(tg_ready_path, tg_ready, current_source_head=current_source_head),
-                _source_receipt(tg_live_path, tg_live, current_source_head=current_source_head),
+                _source_receipt(
+                    tg_ready_path,
+                    tg_ready,
+                    current_source_head=current_source_head,
+                    current_source_fingerprint=current_source_fingerprint,
+                ),
+                _source_receipt(
+                    tg_live_path,
+                    tg_live,
+                    current_source_head=current_source_head,
+                    current_source_fingerprint=current_source_fingerprint,
+                ),
             ],
         ),
         _deliver_component(
@@ -279,11 +336,36 @@ def build_goal_posture(
             summary=wa_summary,
             next_action="clear blocked WhatsApp live delivery and keep share-link playback plus voice-selection flow honest",
             receipts=[
-                _source_receipt(wa_intake_path, wa_intake, current_source_head=current_source_head),
-                _source_receipt(wa_bundle_path, wa_bundle, current_source_head=current_source_head),
-                _source_receipt(wa_live_path, wa_live, current_source_head=current_source_head),
-                _source_receipt(wa_share_path, wa_share, current_source_head=current_source_head),
-                _source_receipt(wa_voice_path, wa_voice, current_source_head=current_source_head),
+                _source_receipt(
+                    wa_intake_path,
+                    wa_intake,
+                    current_source_head=current_source_head,
+                    current_source_fingerprint=current_source_fingerprint,
+                ),
+                _source_receipt(
+                    wa_bundle_path,
+                    wa_bundle,
+                    current_source_head=current_source_head,
+                    current_source_fingerprint=current_source_fingerprint,
+                ),
+                _source_receipt(
+                    wa_live_path,
+                    wa_live,
+                    current_source_head=current_source_head,
+                    current_source_fingerprint=current_source_fingerprint,
+                ),
+                _source_receipt(
+                    wa_share_path,
+                    wa_share,
+                    current_source_head=current_source_head,
+                    current_source_fingerprint=current_source_fingerprint,
+                ),
+                _source_receipt(
+                    wa_voice_path,
+                    wa_voice,
+                    current_source_head=current_source_head,
+                    current_source_fingerprint=current_source_fingerprint,
+                ),
             ],
         ),
     ]
@@ -338,8 +420,18 @@ def build_goal_posture(
                 "make env-probe-teable",
             ],
             source_receipts=[
-                _source_receipt(recovery_path, recovery, current_source_head=current_source_head),
-                _source_receipt(recovery_proof_path, recovery_proof, current_source_head=current_source_head),
+                _source_receipt(
+                    recovery_path,
+                    recovery,
+                    current_source_head=current_source_head,
+                    current_source_fingerprint=current_source_fingerprint,
+                ),
+                _source_receipt(
+                    recovery_proof_path,
+                    recovery_proof,
+                    current_source_head=current_source_head,
+                    current_source_fingerprint=current_source_fingerprint,
+                ),
             ],
         )
     elif recovery:
@@ -366,8 +458,18 @@ def build_goal_posture(
                 "make env-probe-teable",
             ],
             source_receipts=[
-                _source_receipt(recovery_path, recovery, current_source_head=current_source_head),
-                _source_receipt(recovery_proof_path, recovery_proof, current_source_head=current_source_head),
+                _source_receipt(
+                    recovery_path,
+                    recovery,
+                    current_source_head=current_source_head,
+                    current_source_fingerprint=current_source_fingerprint,
+                ),
+                _source_receipt(
+                    recovery_proof_path,
+                    recovery_proof,
+                    current_source_head=current_source_head,
+                    current_source_fingerprint=current_source_fingerprint,
+                ),
             ],
         )
     else:
@@ -401,7 +503,14 @@ def build_goal_posture(
         verifier_commands=[
             "make verify-executive-assistant-quality-readiness",
         ],
-        source_receipts=[_source_receipt(quality_path, quality, current_source_head=current_source_head)],
+        source_receipts=[
+            _source_receipt(
+                quality_path,
+                quality,
+                current_source_head=current_source_head,
+                current_source_fingerprint=current_source_fingerprint,
+            )
+        ],
     )
 
     lenses = [detect_lens, decide_lens, deliver_lens, recover_lens, prove_lens]
@@ -435,7 +544,14 @@ def build_goal_posture(
             ],
             next_action="record_redacted_operator_acceptance_for_real_morning_brief",
             claim_boundary="does_not_prove_good_executive_assistant_until_real_operator_or_principal_acceptance_is_recorded",
-            source_receipts=[_source_receipt(quality_path, quality, current_source_head=current_source_head)],
+            source_receipts=[
+                _source_receipt(
+                    quality_path,
+                    quality,
+                    current_source_head=current_source_head,
+                    current_source_fingerprint=current_source_fingerprint,
+                )
+            ],
         ),
         _acceptance_proof_requirement(
             key="weekly_signal_to_decision_review_acceptance",
@@ -446,7 +562,14 @@ def build_goal_posture(
             capture_surfaces=[signal_path],
             next_action="record_weekly_signal_to_decision_review_acceptance",
             claim_boundary="does_not_prove_signal_loop_value_until_a_real_operator_review_is_recorded",
-            source_receipts=[_source_receipt(signal_path, signal, current_source_head=current_source_head)],
+            source_receipts=[
+                _source_receipt(
+                    signal_path,
+                    signal,
+                    current_source_head=current_source_head,
+                    current_source_fingerprint=current_source_fingerprint,
+                )
+            ],
         ),
         _acceptance_proof_requirement(
             key="proactive_ooda_packet_acceptance",
@@ -458,8 +581,18 @@ def build_goal_posture(
             next_action="tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
             claim_boundary="does_not_prove_assistant_grade_proactive_ooda_until_a_real_approval_outcome_is_captured",
             source_receipts=[
-                _source_receipt(ooda_gold_path, ooda_gold, current_source_head=current_source_head),
-                _source_receipt(ooda_status_path, ooda_status, current_source_head=current_source_head),
+                _source_receipt(
+                    ooda_gold_path,
+                    ooda_gold,
+                    current_source_head=current_source_head,
+                    current_source_fingerprint=current_source_fingerprint,
+                ),
+                _source_receipt(
+                    ooda_status_path,
+                    ooda_status,
+                    current_source_head=current_source_head,
+                    current_source_fingerprint=current_source_fingerprint,
+                ),
             ],
         ),
     ]
@@ -475,8 +608,18 @@ def build_goal_posture(
                 next_action="run_shell_seeded_fresh_host_probe_and_mirror_drill_evidence",
                 claim_boundary="does_not_prove_recovery_readiness_until_fresh_host_drill_evidence_is_mirrored",
                 source_receipts=[
-                    _source_receipt(recovery_path, recovery, current_source_head=current_source_head),
-                    _source_receipt(recovery_proof_path, recovery_proof, current_source_head=current_source_head),
+                    _source_receipt(
+                        recovery_path,
+                        recovery,
+                        current_source_head=current_source_head,
+                        current_source_fingerprint=current_source_fingerprint,
+                    ),
+                    _source_receipt(
+                        recovery_proof_path,
+                        recovery_proof,
+                        current_source_head=current_source_head,
+                        current_source_fingerprint=current_source_fingerprint,
+                    ),
                 ],
             )
         )
@@ -491,7 +634,14 @@ def build_goal_posture(
                 capture_surfaces=[manfred_path],
                 next_action="capture_consented_manfred_stt_tts_realtime_proof",
                 claim_boundary="does_not_prove_realtime_speech_delivery_until_a_consented_room_conversation_receipt_passes",
-                source_receipts=[_source_receipt(manfred_path, manfred, current_source_head=current_source_head)],
+                source_receipts=[
+                    _source_receipt(
+                        manfred_path,
+                        manfred,
+                        current_source_head=current_source_head,
+                        current_source_fingerprint=current_source_fingerprint,
+                    )
+                ],
             )
         )
     if any(reason.startswith("deliver:telegram_audiobook") for reason in blocking_reasons):
@@ -509,8 +659,18 @@ def build_goal_posture(
                 ),
                 claim_boundary="does_not_prove_telegram_audiobook_delivery_until_live_delivery_and_playback_receipts_pass",
                 source_receipts=[
-                    _source_receipt(tg_live_path, tg_live, current_source_head=current_source_head),
-                    _source_receipt(tg_ready_path, tg_ready, current_source_head=current_source_head),
+                    _source_receipt(
+                        tg_live_path,
+                        tg_live,
+                        current_source_head=current_source_head,
+                        current_source_fingerprint=current_source_fingerprint,
+                    ),
+                    _source_receipt(
+                        tg_ready_path,
+                        tg_ready,
+                        current_source_head=current_source_head,
+                        current_source_fingerprint=current_source_fingerprint,
+                    ),
                 ],
             )
         )
@@ -526,10 +686,30 @@ def build_goal_posture(
                 next_action="capture_passing_whatsapp_audiobook_live_delivery_receipt",
                 claim_boundary="does_not_prove_whatsapp_delivery_until_live_delivery_and_playback_receipts_pass",
                 source_receipts=[
-                    _source_receipt(wa_live_path, wa_live, current_source_head=current_source_head),
-                    _source_receipt(wa_bundle_path, wa_bundle, current_source_head=current_source_head),
-                    _source_receipt(wa_share_path, wa_share, current_source_head=current_source_head),
-                    _source_receipt(wa_voice_path, wa_voice, current_source_head=current_source_head),
+                    _source_receipt(
+                        wa_live_path,
+                        wa_live,
+                        current_source_head=current_source_head,
+                        current_source_fingerprint=current_source_fingerprint,
+                    ),
+                    _source_receipt(
+                        wa_bundle_path,
+                        wa_bundle,
+                        current_source_head=current_source_head,
+                        current_source_fingerprint=current_source_fingerprint,
+                    ),
+                    _source_receipt(
+                        wa_share_path,
+                        wa_share,
+                        current_source_head=current_source_head,
+                        current_source_fingerprint=current_source_fingerprint,
+                    ),
+                    _source_receipt(
+                        wa_voice_path,
+                        wa_voice,
+                        current_source_head=current_source_head,
+                        current_source_fingerprint=current_source_fingerprint,
+                    ),
                 ],
             )
         )
@@ -545,6 +725,8 @@ def build_goal_posture(
         "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
         "source_git_head": current_source_head,
         "head_semantics": "source_state",
+        "source_state_fingerprint": current_source_fingerprint,
+        "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
         "output_path": _display_path(root, output_path),
         "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
         "goal_shorthand": "Make EA the user's dependable executive operating system: paid-human-assistant-grade proactive OODA with transcript-aware ingest, auditor-passed decision-ready packets, staged follow-through, Teable-mirrored current/stale state, self-healing, and governed by owning truth planes rather than assistant-local lore.",

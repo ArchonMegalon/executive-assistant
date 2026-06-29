@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from scripts.materialize_continuous_improvement_goal_posture import build_goal_posture
+import scripts.materialize_continuous_improvement_goal_posture as posture_module
 import scripts.verify_continuous_improvement_goal_posture as verifier_module
 from scripts.verify_continuous_improvement_goal_posture import verify
 
@@ -16,8 +17,22 @@ def _write_receipt(root: Path, relative_path: str, *, status: str, **extra: obje
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
-def _write_proactive_ooda_receipts(root: Path, *, source_git_head: str = "source-head") -> None:
+def _set_source_state(monkeypatch, *, head: str = "source-head", fingerprint: str = "source-fingerprint") -> None:
+    monkeypatch.setattr(posture_module, "_git_head", lambda _root: head)
+    monkeypatch.setattr(posture_module, "_source_fingerprint", lambda _root: fingerprint)
+    monkeypatch.setattr(verifier_module, "_git_head", lambda _root: head)
+    monkeypatch.setattr(verifier_module, "_source_fingerprint", lambda _root: fingerprint)
+
+
+def _write_proactive_ooda_receipts(
+    root: Path,
+    *,
+    source_git_head: str = "source-head",
+    source_state_fingerprint: str = "source-fingerprint",
+) -> None:
     extra = {"source_git_head": source_git_head} if source_git_head else {}
+    if source_state_fingerprint:
+        extra["source_state_fingerprint"] = source_state_fingerprint
     _write_receipt(
         root,
         ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
@@ -103,7 +118,8 @@ def _write_teable_recovery_proof_receipt(root: Path, *, status: str = "pass", so
     )
 
 
-def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_path: Path) -> None:
+def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_path: Path, monkeypatch) -> None:
+    _set_source_state(monkeypatch)
     _write_receipt(
         tmp_path,
         ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
@@ -264,7 +280,8 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     )
 
 
-def test_build_goal_posture_marks_recover_pass_when_mirrored_fresh_host_proof_exists(tmp_path: Path) -> None:
+def test_build_goal_posture_marks_recover_pass_when_mirrored_fresh_host_proof_exists(tmp_path: Path, monkeypatch) -> None:
+    _set_source_state(monkeypatch)
     _write_receipt(
         tmp_path,
         ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
@@ -347,7 +364,8 @@ def test_build_goal_posture_marks_recover_pass_when_mirrored_fresh_host_proof_ex
     assert "fresh-host Teable recovery drill receipt mirrored into the repo" not in receipt["required_next_receipts"]
 
 
-def test_goal_posture_verifier_accepts_materialized_receipt(tmp_path: Path) -> None:
+def test_goal_posture_verifier_accepts_materialized_receipt(tmp_path: Path, monkeypatch) -> None:
+    _set_source_state(monkeypatch)
     _write_receipt(
         tmp_path,
         ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
@@ -432,7 +450,8 @@ def test_goal_posture_verifier_accepts_materialized_receipt(tmp_path: Path) -> N
     assert issues == []
 
 
-def test_goal_posture_verifier_rejects_uncovered_acceptance_proof_requirement(tmp_path: Path) -> None:
+def test_goal_posture_verifier_rejects_uncovered_acceptance_proof_requirement(tmp_path: Path, monkeypatch) -> None:
+    _set_source_state(monkeypatch)
     _write_receipt(
         tmp_path,
         ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
@@ -525,7 +544,7 @@ def test_goal_posture_verifier_rejects_stale_proactive_ooda_source_receipts(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setattr(verifier_module, "_git_head", lambda _root: "fresh-source-head")
+    _set_source_state(monkeypatch, head="fresh-source-head", fingerprint="fresh-source-fingerprint")
     _write_receipt(
         tmp_path,
         ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
@@ -594,7 +613,11 @@ def test_goal_posture_verifier_rejects_stale_proactive_ooda_source_receipts(
         ".codex-studio/published/whatsapp_audiobook_live_voice_selection_shadow.generated.json",
         status="pass",
     )
-    _write_proactive_ooda_receipts(tmp_path, source_git_head="stale-source-head")
+    _write_proactive_ooda_receipts(
+        tmp_path,
+        source_git_head="stale-source-head",
+        source_state_fingerprint="stale-source-fingerprint",
+    )
 
     output = tmp_path / ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"
     receipt = build_goal_posture(root=tmp_path, output_path=output, generated_at="2026-06-22T15:25:00Z")
@@ -612,7 +635,8 @@ def test_goal_posture_verifier_rejects_stale_proactive_ooda_source_receipts(
     )
 
 
-def test_goal_posture_verifier_accepts_waiting_for_live_epub_component_status(tmp_path: Path) -> None:
+def test_goal_posture_verifier_accepts_waiting_for_live_epub_component_status(tmp_path: Path, monkeypatch) -> None:
+    _set_source_state(monkeypatch)
     _write_receipt(
         tmp_path,
         ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
@@ -695,3 +719,96 @@ def test_goal_posture_verifier_accepts_waiting_for_live_epub_component_status(tm
 
     issues = verify(output)
     assert issues == []
+
+
+def test_goal_posture_verifier_accepts_post_commit_head_change_when_source_fingerprint_matches(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _set_source_state(monkeypatch, head="new-head", fingerprint="source-fingerprint")
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
+        status="ready_local_packet_pending_operator_acceptance",
+        next_action="review packet with operator",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_office_loop_goal.generated.json",
+        status="ready_local_evidence",
+        next_action="collect office-loop acceptance",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/active_media_ltd_goal_bundle.generated.json",
+        status="ready_local_evidence",
+        next_action="collect external media proofs",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
+        status="blocked_real_world_acceptance",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/teable_env_recovery_readiness.generated.json",
+        status="ready_local_audit",
+    )
+    _write_teable_recovery_proof_receipt(
+        tmp_path,
+        status="pass",
+        source_git_head="old-head",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/telegram_audiobook_live_readiness.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_local_intake_proof.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_public_share_playback.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_live_voice_selection_shadow.generated.json",
+        status="pass",
+    )
+    _write_proactive_ooda_receipts(
+        tmp_path,
+        source_git_head="old-head",
+        source_state_fingerprint="source-fingerprint",
+    )
+
+    output = tmp_path / ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"
+    receipt = build_goal_posture(root=tmp_path, output_path=output, generated_at="2026-06-22T15:40:00Z")
+    receipt["source_git_head"] = "old-head"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+
+    assert verify(output, root=tmp_path) == []

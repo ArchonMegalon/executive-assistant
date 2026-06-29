@@ -16,6 +16,7 @@
           "contract_name": "ea.executive_assistant_quality_readiness.v1",
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
+          "source_fresh_to_current_source": false,
           "status": "blocked_real_world_acceptance"
         }
       ],
@@ -37,6 +38,7 @@
           "contract_name": "ea.whole_project_signal_to_decision_receipt.v1",
           "path": ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
           "present": true,
+          "source_fresh_to_current_source": false,
           "status": "ready_local_packet_pending_operator_acceptance"
         }
       ],
@@ -60,7 +62,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "ce1d44daa0bbac2b69511c7ac2d9947ee64b7d52",
+          "source_git_head": "375ca72dc45444ec65e6a4aeb0128d491e99c0e6",
+          "source_state_fingerprint": "fd4f1123b2ab0b2721b00b7b0be6493de18d9a03f635d0af71cc1329aa9578a5",
           "status": "ready_for_approval_outcome_capture"
         },
         {
@@ -68,7 +71,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "ce1d44daa0bbac2b69511c7ac2d9947ee64b7d52",
+          "source_git_head": "375ca72dc45444ec65e6a4aeb0128d491e99c0e6",
+          "source_state_fingerprint": "fd4f1123b2ab0b2721b00b7b0be6493de18d9a03f635d0af71cc1329aa9578a5",
           "status": "ready_with_live_receipt"
         }
       ],
@@ -90,6 +94,7 @@
           "contract_name": "ea.manfred_realtime_conversation_readiness.v1",
           "path": ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
           "present": true,
+          "source_fresh_to_current_source": false,
           "status": "blocked_realtime_prerequisites"
         }
       ],
@@ -112,12 +117,14 @@
           "contract_name": "ea.telegram_audiobook_live_delivery_receipt.v1",
           "path": ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
           "present": true,
+          "source_fresh_to_current_source": false,
           "status": "blocked"
         },
         {
           "contract_name": "ea.telegram_audiobook_live_readiness_checklist.v1",
           "path": ".codex-studio/published/telegram_audiobook_live_readiness.generated.json",
           "present": true,
+          "source_fresh_to_current_source": false,
           "status": "ready_for_live_epub_delivery_test"
         }
       ],
@@ -138,7 +145,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-06-29T19:46:37Z",
+  "generated_at": "2026-06-29T20:09:26Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -154,6 +161,7 @@
           "contract_name": "ea.whole_project_signal_to_decision_receipt.v1",
           "path": ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
           "present": true,
+          "source_fresh_to_current_source": false,
           "status": "ready_local_packet_pending_operator_acceptance"
         }
       ],
@@ -175,6 +183,7 @@
           "contract_name": "ea.office_loop_goal_receipt.v1",
           "path": ".codex-studio/published/ea_office_loop_goal.generated.json",
           "present": true,
+          "source_fresh_to_current_source": false,
           "status": "ready_local_evidence"
         }
       ],
@@ -196,6 +205,7 @@
               "contract_name": "ea.active_media_ltd_goal_bundle.v1",
               "path": ".codex-studio/published/active_media_ltd_goal_bundle.generated.json",
               "present": true,
+              "source_fresh_to_current_source": false,
               "status": "ready_local_evidence"
             }
           ],
@@ -212,6 +222,7 @@
               "contract_name": "ea.manfred_realtime_conversation_readiness.v1",
               "path": ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
               "present": true,
+              "source_fresh_to_current_source": false,
               "status": "blocked_realtime_prerequisites"
             }
           ],
@@ -228,12 +239,14 @@
               "contract_name": "ea.telegram_audiobook_live_readiness_checklist.v1",
               "path": ".codex-studio/published/telegram_audiobook_live_readiness.generated.json",
               "present": true,
+              "source_fresh_to_current_source": false,
               "status": "ready_for_live_epub_delivery_test"
             },
             {
               "contract_name": "ea.telegram_audiobook_live_delivery_receipt.v1",
               "path": ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
               "present": true,
+              "source_fresh_to_current_source": false,
               "status": "blocked"
             }
           ],
@@ -250,30 +263,35 @@
               "contract_name": "ea.whatsapp_audiobook_local_epub_intake_proof.v1",
               "path": ".codex-studio/published/whatsapp_audiobook_local_intake_proof.generated.json",
               "present": true,
+              "source_fresh_to_current_source": false,
               "status": "pass"
             },
             {
               "contract_name": "ea.whatsapp_audiobook_operator_proof_bundle.v1",
               "path": ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json",
               "present": true,
+              "source_fresh_to_current_source": false,
               "status": "pass"
             },
             {
               "contract_name": "ea.whatsapp_audiobook_live_delivery_receipt.v1",
               "path": ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
               "present": true,
+              "source_fresh_to_current_source": false,
               "status": "pass"
             },
             {
               "contract_name": "ea.whatsapp_audiobook_public_share_playback_e2e.v1",
               "path": ".codex-studio/published/whatsapp_audiobook_public_share_playback.generated.json",
               "present": true,
+              "source_fresh_to_current_source": false,
               "status": "pass"
             },
             {
               "contract_name": "ea.whatsapp_audiobook_live_voice_selection_shadow.v1",
               "path": ".codex-studio/published/whatsapp_audiobook_live_voice_selection_shadow.generated.json",
               "present": true,
+              "source_fresh_to_current_source": false,
               "status": "waiting"
             }
           ],
@@ -311,7 +329,8 @@
           "path": ".codex-studio/published/teable_env_recovery_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "ce1d44daa0bbac2b69511c7ac2d9947ee64b7d52",
+          "source_git_head": "375ca72dc45444ec65e6a4aeb0128d491e99c0e6",
+          "source_state_fingerprint": "fd4f1123b2ab0b2721b00b7b0be6493de18d9a03f635d0af71cc1329aa9578a5",
           "status": "ready_local_audit"
         },
         {
@@ -319,7 +338,8 @@
           "path": ".codex-studio/published/teable_env_recovery_proof.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "ce1d44daa0bbac2b69511c7ac2d9947ee64b7d52",
+          "source_git_head": "375ca72dc45444ec65e6a4aeb0128d491e99c0e6",
+          "source_state_fingerprint": "fd4f1123b2ab0b2721b00b7b0be6493de18d9a03f635d0af71cc1329aa9578a5",
           "status": "pass"
         }
       ],
@@ -347,6 +367,7 @@
           "contract_name": "ea.executive_assistant_quality_readiness.v1",
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
+          "source_fresh_to_current_source": false,
           "status": "blocked_real_world_acceptance"
         }
       ],
@@ -379,5 +400,7 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "ce1d44daa0bbac2b69511c7ac2d9947ee64b7d52"
+  "source_git_head": "375ca72dc45444ec65e6a4aeb0128d491e99c0e6",
+  "source_state_fingerprint": "fd4f1123b2ab0b2721b00b7b0be6493de18d9a03f635d0af71cc1329aa9578a5",
+  "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }

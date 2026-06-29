@@ -6,6 +6,8 @@ from pathlib import Path
 
 from scripts.materialize_teable_env_recovery_readiness import build_teable_env_recovery_readiness
 from scripts.verify_teable_env_recovery_readiness import verify
+import scripts.materialize_teable_env_recovery_readiness as readiness_module
+import scripts.verify_teable_env_recovery_readiness as readiness_verifier_module
 
 
 def _write_contract_surface(root: Path) -> None:
@@ -73,8 +75,12 @@ def _write_contract_surface(root: Path) -> None:
     )
 
 
-def test_teable_env_recovery_readiness_materializes_local_command_surface_without_overclaiming(tmp_path: Path) -> None:
+def test_teable_env_recovery_readiness_materializes_local_command_surface_without_overclaiming(tmp_path: Path, monkeypatch) -> None:
     _write_contract_surface(tmp_path)
+    monkeypatch.setattr(readiness_module, "_git_head", lambda path: "source-head")
+    monkeypatch.setattr(readiness_module, "_source_fingerprint", lambda path: "source-fingerprint")
+    monkeypatch.setattr(readiness_verifier_module, "_git_head", lambda path=tmp_path: "source-head")
+    monkeypatch.setattr(readiness_verifier_module, "_source_fingerprint", lambda path=tmp_path: "source-fingerprint")
 
     output = tmp_path / ".codex-studio/published/teable_env_recovery_readiness.generated.json"
     receipt = build_teable_env_recovery_readiness(root=tmp_path, output_path=output, generated_at="2026-06-22T15:00:00Z")
@@ -89,9 +95,11 @@ def test_teable_env_recovery_readiness_materializes_local_command_surface_withou
     assert verify(output, root=tmp_path) == []
 
 
-def test_teable_env_recovery_readiness_blocks_missing_contract_surface(tmp_path: Path) -> None:
+def test_teable_env_recovery_readiness_blocks_missing_contract_surface(tmp_path: Path, monkeypatch) -> None:
     _write_contract_surface(tmp_path)
     (tmp_path / "README.md").write_text("make env-check-teable\n", encoding="utf-8")
+    monkeypatch.setattr(readiness_module, "_git_head", lambda path: "source-head")
+    monkeypatch.setattr(readiness_module, "_source_fingerprint", lambda path: "source-fingerprint")
 
     receipt = build_teable_env_recovery_readiness(
         root=tmp_path,
@@ -104,9 +112,14 @@ def test_teable_env_recovery_readiness_blocks_missing_contract_surface(tmp_path:
     assert "readme_contract_missing:fresh_host_doc" in receipt["issues"]
 
 
-def test_teable_env_recovery_readiness_cli_writes_receipt(tmp_path: Path) -> None:
+def test_teable_env_recovery_readiness_cli_writes_receipt(tmp_path: Path, monkeypatch) -> None:
     _write_contract_surface(tmp_path)
     output = tmp_path / ".codex-studio/published/teable_env_recovery_readiness.generated.json"
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=tmp_path, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=tmp_path, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, check=True, capture_output=True, text=True)
 
     subprocess.run(
         [
@@ -125,3 +138,57 @@ def test_teable_env_recovery_readiness_cli_writes_receipt(tmp_path: Path) -> Non
 
     issues = verify(output, root=tmp_path)
     assert issues == []
+
+
+def test_teable_env_recovery_readiness_verifier_accepts_post_commit_head_change_when_source_fingerprint_matches(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _write_contract_surface(tmp_path)
+    output = tmp_path / ".codex-studio/published/teable_env_recovery_readiness.generated.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        json.dumps(
+            {
+                "contract_name": "ea.teable_env_recovery_readiness.v1",
+                "generated_by": "scripts/materialize_teable_env_recovery_readiness.py",
+                "source_git_head": "old-head",
+                "source_state_fingerprint": "source-fingerprint",
+                "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
+                "status": "ready_local_audit",
+                "command_surface_ready": True,
+                "fresh_host_drill_receipt_mirrored": False,
+                "claim_limit": "local_command_contract_readiness_not_fresh_host_drill",
+                "verifier_commands": sorted(
+                    [
+                        "make verify-teable-env-recovery-readiness",
+                        "make verify-env-teable-recovery",
+                        "make env-check-teable",
+                        "make env-probe-teable",
+                        "make env-fresh-host-teable",
+                    ]
+                ),
+                "required_next_receipts": ["fresh_host_teable_recovery_drill_receipt"],
+                "rules": [
+                    "This receipt proves local command and documentation readiness only; it does not prove a fresh-host recovery drill happened.",
+                    "Do not claim Teable recovery pass from this receipt alone.",
+                    "A seeded fresh-host probe or drill receipt must be mirrored separately before the recover lens can claim pass.",
+                ],
+                "checks": {
+                    "makefile": {key: True for key in readiness_verifier_module.EXPECTED_CHECK_KEYS["makefile"]},
+                    "readme": {key: True for key in readiness_verifier_module.EXPECTED_CHECK_KEYS["readme"]},
+                    "bootstrap_script": {key: True for key in readiness_verifier_module.EXPECTED_CHECK_KEYS["bootstrap_script"]},
+                    "sync_script": {key: True for key in readiness_verifier_module.EXPECTED_CHECK_KEYS["sync_script"]},
+                },
+                "issues": [],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(readiness_verifier_module, "_git_head", lambda path=tmp_path: "new-head")
+    monkeypatch.setattr(readiness_verifier_module, "_source_fingerprint", lambda path=tmp_path: "source-fingerprint")
+
+    assert verify(output, root=tmp_path) == []

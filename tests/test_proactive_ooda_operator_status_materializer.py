@@ -235,6 +235,72 @@ def test_materialize_proactive_ooda_operator_status_writes_recovery_receipt(tmp_
     assert persisted["next_action"] == "scan_whatsapp_web_qr"
 
 
+def test_materialize_proactive_ooda_operator_status_normalizes_missing_delivery_shapes(
+    tmp_path: Path, monkeypatch
+) -> None:
+    module = _load_script()
+    monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
+    monkeypatch.setattr(module, "_source_fingerprint", lambda path=module.ROOT: "source-fingerprint-123")
+    monkeypatch.setattr(
+        module.proactive_verifier,
+        "_build_report",
+        lambda _args: {
+            "ok": False,
+            "errors": ["delivery_route_unavailable"],
+            "receipt_observation_count": 0,
+            "actionable_count": 0,
+            "source_mode": "signals_json",
+        },
+    )
+    monkeypatch.setattr(
+        module.live_receipt_verifier,
+        "verify_receipt",
+        lambda _path: {
+            "ok": False,
+            "errors": ["receipt_missing"],
+            "receipt_path": str(tmp_path / "live-receipt.json"),
+            "notification_status": "",
+            "delivery_channel": "",
+            "delivery_message_count": 0,
+            "telegram_message_count": 0,
+            "delivery_route_error": "",
+            "delivery_recovery_hint": "",
+            "delivery_next_action": "",
+            "generated_at": "",
+        },
+    )
+
+    output = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
+    receipt = module.build_proactive_ooda_operator_status(
+        output_path=output,
+        generated_at="2026-06-29T22:05:00Z",
+        report_args=Namespace(),
+        live_receipt_path=tmp_path / "live-receipt.json",
+    )
+
+    assert receipt["status"] == "blocked_delivery_route"
+    assert receipt["reason"] == "delivery_route_unavailable"
+    assert receipt["next_action"] == "repair_proactive_stage_packet_runtime"
+    assert receipt["delivery_route"] == {
+        "ready": False,
+        "route_error": "",
+        "recovery_hint": "",
+        "next_action": "",
+    }
+    assert receipt["delivery_guard"]["delivery_state"] == ""
+    assert receipt["stage_packets"] == {"ready": False, "errors": []}
+    assert receipt["safe_work_results"] == {"ready": False, "errors": []}
+    assert receipt["delivery_route_ready"] is False
+    assert receipt["delivery_route_error"] == ""
+    assert receipt["delivery_next_action"] == ""
+
+    persisted = json.loads(output.read_text(encoding="utf-8"))
+    assert persisted["delivery_route"]["ready"] is False
+    assert persisted["delivery_guard"]["delivery_state"] == ""
+    assert persisted["stage_packets"]["ready"] is False
+    assert persisted["safe_work_results"]["ready"] is False
+
+
 def test_materialize_proactive_ooda_operator_status_prefers_live_route_probe_when_available(
     tmp_path: Path, monkeypatch
 ) -> None:

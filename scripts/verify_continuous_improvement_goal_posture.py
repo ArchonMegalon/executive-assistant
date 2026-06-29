@@ -8,8 +8,10 @@ from typing import Any
 
 try:
     from scripts.source_state_head import resolve_source_state_head
+    from scripts.source_state_head import resolve_source_worktree_fingerprint
 except ModuleNotFoundError:  # pragma: no cover - script execution path
     from source_state_head import resolve_source_state_head
+    from source_state_head import resolve_source_worktree_fingerprint
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -81,6 +83,10 @@ def _git_head(path: Path = ROOT) -> str:
     return resolve_source_state_head(path)
 
 
+def _source_fingerprint(path: Path = ROOT) -> str:
+    return resolve_source_worktree_fingerprint(path)
+
+
 def _fresh_enough(recorded_head: str, *, current_head: str) -> bool:
     recorded = str(recorded_head or "").strip()
     return bool(recorded and current_head and recorded == current_head)
@@ -114,8 +120,20 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
         issues.append("goal_shorthand must keep the proactive OODA posture explicit")
 
     current_head = _git_head(repo_root)
-    if current_head and not _fresh_enough(str(receipt.get("source_git_head") or ""), current_head=current_head):
+    current_fingerprint = _source_fingerprint(repo_root)
+    recorded_head = str(receipt.get("source_git_head") or "").strip()
+    recorded_fingerprint = str(receipt.get("source_state_fingerprint") or "").strip()
+    fingerprint_matches = bool(current_fingerprint and recorded_fingerprint and current_fingerprint == recorded_fingerprint)
+    if not recorded_head:
+        issues.append("goal posture receipt missing source_git_head")
+    elif current_head and not _fresh_enough(recorded_head, current_head=current_head) and not fingerprint_matches:
         issues.append("goal posture receipt is stale relative to current HEAD")
+    if receipt.get("source_state_fingerprint_semantics") != "worktree_source_files_sha256_excluding_generated_only_paths":
+        issues.append("goal posture source_state_fingerprint_semantics drifted")
+    if not recorded_fingerprint:
+        issues.append("goal posture receipt missing source_state_fingerprint")
+    elif current_fingerprint and recorded_fingerprint != current_fingerprint:
+        issues.append("goal posture receipt is stale relative to current source fingerprint")
 
     execution_lenses = list(receipt.get("execution_lenses") or [])
     if execution_lenses != REQUIRED_LENSES:
@@ -319,11 +337,24 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                     continue
                 source_payload = _json(source_path)
                 source_head = str(source.get("source_git_head") or source_payload.get("source_git_head") or "").strip()
+                source_fingerprint = str(
+                    source.get("source_state_fingerprint")
+                    or source_payload.get("source_state_fingerprint")
+                    or ""
+                ).strip()
+                source_fingerprint_matches = bool(
+                    current_fingerprint and source_fingerprint and source_fingerprint == current_fingerprint
+                )
                 if not source_head:
                     issues.append(f"proactive_ooda_packet_acceptance source receipt missing source_git_head: {path_text}")
-                elif current_head and source_head != current_head:
+                elif current_head and source_head != current_head and not source_fingerprint_matches:
                     issues.append(f"proactive_ooda_packet_acceptance source receipt stale: {path_text}")
-                if current_head and "source_fresh_to_current_source" in source and source.get("source_fresh_to_current_source") is not True:
+                if (
+                    current_head
+                    and "source_fresh_to_current_source" in source
+                    and source.get("source_fresh_to_current_source") is not True
+                    and not source_fingerprint_matches
+                ):
                     issues.append(f"proactive_ooda_packet_acceptance source receipt freshness flag false: {path_text}")
     if proof_receipts != required_next_receipts:
         issues.append("acceptance_proof_requirements must cover every required_next_receipts item exactly")

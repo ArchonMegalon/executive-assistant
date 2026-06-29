@@ -18,8 +18,10 @@ except ModuleNotFoundError:  # pragma: no cover - script execution path
 
 try:
     from scripts.source_state_head import resolve_source_state_head
+    from scripts.source_state_head import resolve_source_worktree_fingerprint
 except ModuleNotFoundError:  # pragma: no cover - script execution path
     from source_state_head import resolve_source_state_head
+    from source_state_head import resolve_source_worktree_fingerprint
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,6 +35,10 @@ def _utc_now() -> str:
 
 def _git_head(path: Path) -> str:
     return resolve_source_state_head(path)
+
+
+def _source_fingerprint(path: Path) -> str:
+    return resolve_source_worktree_fingerprint(path)
 
 
 def _sha256_text(value: object) -> str:
@@ -142,6 +148,8 @@ def build_teable_env_recovery_proof(
             "generated_by": "scripts/materialize_teable_env_recovery_proof.py",
             "source_git_head": _git_head(root),
             "head_semantics": "source_state",
+            "source_state_fingerprint": _source_fingerprint(root),
+            "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
             "output_path": str(output_path if output_path.is_absolute() else output_path.as_posix()),
             "status": status,
             "recovery_status": str(result.get("status") or "").strip(),
