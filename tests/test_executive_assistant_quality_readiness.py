@@ -133,6 +133,11 @@ def test_executive_assistant_acceptance_evidence_hashes_raw_inputs(tmp_path: Pat
     assert receipt["real_daily_use_verified"] is True
     assert receipt["real_principal_acceptance_verified"] is True
     assert receipt["goal_completion_claim_allowed"] is False
+    assert receipt["acceptance_capture_surface"]["path"] == "/admin/actions/acceptance-evidence"  # type: ignore[index]
+    assert receipt["acceptance_capture_surface"]["raw_input_not_persisted"] is True  # type: ignore[index]
+    assert len(receipt["acceptance_capture_requirements"]) == 5
+    assert receipt["acceptance_capture_requirements"][0]["status"] == "accepted_redacted"  # type: ignore[index]
+    assert receipt["acceptance_capture_requirements"][0]["capture_path"] == "/admin/actions/acceptance-evidence"  # type: ignore[index]
     assert "Morning brief accepted" not in serialized
     assert "principal name" not in serialized
     assert receipt["acceptance_keys"]["real_daily_morning_brief_accepted"]["raw_evidence_exposed"] is False  # type: ignore[index]
@@ -161,6 +166,10 @@ def test_executive_assistant_acceptance_evidence_preserves_existing_redacted_row
     assert first["status"] == "partial_real_world_acceptance_evidence"
     assert second["status"] == "partial_real_world_acceptance_evidence"
     assert second["accepted_keys"] == ["real_daily_morning_brief_accepted"]
+    requirements = {item["key"]: item for item in second["acceptance_capture_requirements"]}  # type: ignore[index]
+    assert requirements["real_daily_morning_brief_accepted"]["status"] == "accepted_redacted"
+    assert requirements["real_decision_cleared"]["status"] == "pending_real_world_evidence"
+    assert requirements["real_decision_cleared"]["next_action"] == "record_redacted_acceptance_evidence:real_decision_cleared"
     assert second["acceptance_keys"]["real_daily_morning_brief_accepted"]["evidence_sha256"] == first["acceptance_keys"]["real_daily_morning_brief_accepted"]["evidence_sha256"]  # type: ignore[index]
     assert "Morning brief accepted because" not in receipt_path.read_text(encoding="utf-8")
 
@@ -171,6 +180,27 @@ def test_executive_assistant_acceptance_evidence_preserves_existing_redacted_row
     )
     assert reset["status"] == "blocked_missing_real_world_acceptance_evidence"
     assert reset["accepted_keys"] == []
+
+
+def test_executive_assistant_acceptance_verifier_requires_capture_contract(tmp_path: Path) -> None:
+    materializer = _load_script("materialize_executive_assistant_acceptance_evidence")
+    verifier = _load_script("verify_executive_assistant_acceptance_evidence")
+    receipt_path = tmp_path / "tampered-acceptance.generated.json"
+    materializer.materialize_executive_assistant_acceptance_evidence(
+        receipt_path=receipt_path,
+        input_payload={"proofs": [_raw_acceptance_input()["proofs"][0]]},  # type: ignore[index]
+        generated_at=GENERATED_AT,
+    )
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt.pop("acceptance_capture_surface")
+    receipt["acceptance_capture_requirements"] = []
+    receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    verification = verifier.verify_executive_assistant_acceptance_evidence(receipt_path)
+
+    assert verification["status"] == "fail"
+    assert "ea_acceptance_capture_surface_path_missing" in verification["issues"]
+    assert "ea_acceptance_capture_requirement_missing:real_daily_morning_brief_accepted" in verification["issues"]
 
 
 def test_executive_assistant_quality_readiness_blocks_real_world_acceptance_without_overclaiming(tmp_path: Path) -> None:

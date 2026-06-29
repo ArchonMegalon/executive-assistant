@@ -1,4 +1,143 @@
 {
+  "acceptance_capture_requirements": [
+    {
+      "accepted": false,
+      "capture_method": "POST",
+      "capture_path": "/admin/actions/acceptance-evidence",
+      "claim_boundary": "does_not_prove_good_executive_assistant_until_all_required_acceptance_keys_are_accepted",
+      "key": "real_daily_morning_brief_accepted",
+      "label": "real daily morning brief acceptance",
+      "next_action": "record_redacted_acceptance_evidence:real_daily_morning_brief_accepted",
+      "proof_key": "real_daily_morning_brief_accepted",
+      "raw_actor_exposed": false,
+      "raw_evidence_exposed": false,
+      "raw_input_not_persisted": true,
+      "raw_object_ref_exposed": false,
+      "required_form_fields": [
+        "proof_key",
+        "source_kind",
+        "evidence",
+        "object_ref"
+      ],
+      "server_actor_source": "authenticated_operator_context",
+      "status": "pending_real_world_evidence",
+      "stored_evidence_shape": "sha256_only"
+    },
+    {
+      "accepted": false,
+      "capture_method": "POST",
+      "capture_path": "/admin/actions/acceptance-evidence",
+      "claim_boundary": "does_not_prove_good_executive_assistant_until_all_required_acceptance_keys_are_accepted",
+      "key": "real_decision_cleared",
+      "label": "real decision cleared by the principal or operator",
+      "next_action": "record_redacted_acceptance_evidence:real_decision_cleared",
+      "proof_key": "real_decision_cleared",
+      "raw_actor_exposed": false,
+      "raw_evidence_exposed": false,
+      "raw_input_not_persisted": true,
+      "raw_object_ref_exposed": false,
+      "required_form_fields": [
+        "proof_key",
+        "source_kind",
+        "evidence",
+        "object_ref"
+      ],
+      "server_actor_source": "authenticated_operator_context",
+      "status": "pending_real_world_evidence",
+      "stored_evidence_shape": "sha256_only"
+    },
+    {
+      "accepted": false,
+      "capture_method": "POST",
+      "capture_path": "/admin/actions/acceptance-evidence",
+      "claim_boundary": "does_not_prove_good_executive_assistant_until_all_required_acceptance_keys_are_accepted",
+      "key": "real_commitment_recovered_or_closed",
+      "label": "real commitment recovered or closed with an evidence receipt",
+      "next_action": "record_redacted_acceptance_evidence:real_commitment_recovered_or_closed",
+      "proof_key": "real_commitment_recovered_or_closed",
+      "raw_actor_exposed": false,
+      "raw_evidence_exposed": false,
+      "raw_input_not_persisted": true,
+      "raw_object_ref_exposed": false,
+      "required_form_fields": [
+        "proof_key",
+        "source_kind",
+        "evidence",
+        "object_ref"
+      ],
+      "server_actor_source": "authenticated_operator_context",
+      "status": "pending_real_world_evidence",
+      "stored_evidence_shape": "sha256_only"
+    },
+    {
+      "accepted": false,
+      "capture_method": "POST",
+      "capture_path": "/admin/actions/acceptance-evidence",
+      "claim_boundary": "does_not_prove_good_executive_assistant_until_all_required_acceptance_keys_are_accepted",
+      "key": "real_approved_action_audited",
+      "label": "real approved outbound action with audit trail",
+      "next_action": "record_redacted_acceptance_evidence:real_approved_action_audited",
+      "proof_key": "real_approved_action_audited",
+      "raw_actor_exposed": false,
+      "raw_evidence_exposed": false,
+      "raw_input_not_persisted": true,
+      "raw_object_ref_exposed": false,
+      "required_form_fields": [
+        "proof_key",
+        "source_kind",
+        "evidence",
+        "object_ref"
+      ],
+      "server_actor_source": "authenticated_operator_context",
+      "status": "pending_real_world_evidence",
+      "stored_evidence_shape": "sha256_only"
+    },
+    {
+      "accepted": false,
+      "capture_method": "POST",
+      "capture_path": "/admin/actions/acceptance-evidence",
+      "claim_boundary": "does_not_prove_good_executive_assistant_until_all_required_acceptance_keys_are_accepted",
+      "key": "real_provider_failure_recovered",
+      "label": "real provider failure recovered with operator-grade reason",
+      "next_action": "record_redacted_acceptance_evidence:real_provider_failure_recovered",
+      "proof_key": "real_provider_failure_recovered",
+      "raw_actor_exposed": false,
+      "raw_evidence_exposed": false,
+      "raw_input_not_persisted": true,
+      "raw_object_ref_exposed": false,
+      "required_form_fields": [
+        "proof_key",
+        "source_kind",
+        "evidence",
+        "object_ref"
+      ],
+      "server_actor_source": "authenticated_operator_context",
+      "status": "pending_real_world_evidence",
+      "stored_evidence_shape": "sha256_only"
+    }
+  ],
+  "acceptance_capture_surface": {
+    "admin_only": true,
+    "claim_boundary": "capture_surface_collects_redacted_acceptance_evidence_only_not_goal_completion",
+    "method": "POST",
+    "operator_context_required": true,
+    "path": "/admin/actions/acceptance-evidence",
+    "privacy_contract": {
+      "credential_values_persisted": false,
+      "raw_acceptance_text_persisted": false,
+      "raw_actor_identity_persisted": false,
+      "raw_object_reference_persisted": false
+    },
+    "raw_input_not_persisted": true,
+    "required_form_fields": [
+      "proof_key",
+      "source_kind",
+      "evidence",
+      "object_ref"
+    ],
+    "server_actor_source": "authenticated_operator_context",
+    "stored_evidence_shape": "sha256_only"
+  },
   "acceptance_keys": {
     "real_approved_action_audited": {
       "accepted": false,
@@ -70,7 +209,7 @@
     "real_provider_failure_recovered"
   ],
   "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
-  "generated_at": "2026-06-26T11:46:33Z",
+  "generated_at": "2026-06-29T17:52:10Z",
   "generated_by": "ea/scripts/materialize_executive_assistant_acceptance_evidence.py",
   "goal_completion_claim_allowed": false,
   "next_action": "collect_redacted_real_world_acceptance_evidence",

@@ -28,6 +28,10 @@ REMAINING_PROOF_LABELS = {
     "real_provider_failure_recovered": "real provider failure recovered with operator-grade reason",
 }
 
+ACCEPTANCE_CAPTURE_PATH = "/admin/actions/acceptance-evidence"
+ACCEPTANCE_CAPTURE_METHOD = "POST"
+ACCEPTANCE_CAPTURE_FORM_FIELDS = ["proof_key", "source_kind", "evidence", "object_ref"]
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -62,6 +66,17 @@ def _empty_row() -> dict[str, Any]:
     }
 
 
+def _normalized_existing_row(row: dict[str, Any]) -> dict[str, Any]:
+    normalized = _empty_row()
+    normalized.update(dict(row or {}))
+    if normalized.get("accepted") is True:
+        normalized["status"] = "accepted_redacted"
+    normalized["raw_evidence_exposed"] = False
+    normalized["raw_actor_exposed"] = False
+    normalized["raw_object_ref_exposed"] = False
+    return normalized
+
+
 def _row_from_proof(proof: dict[str, Any]) -> dict[str, Any]:
     accepted = bool(proof.get("accepted"))
     evidence = str(proof.get("evidence") or "")
@@ -80,6 +95,56 @@ def _row_from_proof(proof: dict[str, Any]) -> dict[str, Any]:
         "raw_actor_exposed": False,
         "raw_object_ref_exposed": False,
     }
+
+
+def _acceptance_capture_surface() -> dict[str, Any]:
+    return {
+        "method": ACCEPTANCE_CAPTURE_METHOD,
+        "path": ACCEPTANCE_CAPTURE_PATH,
+        "admin_only": True,
+        "operator_context_required": True,
+        "required_form_fields": ACCEPTANCE_CAPTURE_FORM_FIELDS,
+        "server_actor_source": "authenticated_operator_context",
+        "raw_input_not_persisted": True,
+        "stored_evidence_shape": "sha256_only",
+        "privacy_contract": {
+            "raw_acceptance_text_persisted": False,
+            "raw_actor_identity_persisted": False,
+            "raw_object_reference_persisted": False,
+            "credential_values_persisted": False,
+        },
+        "claim_boundary": "capture_surface_collects_redacted_acceptance_evidence_only_not_goal_completion",
+    }
+
+
+def _acceptance_capture_requirement(key: str, row: dict[str, Any]) -> dict[str, Any]:
+    accepted = dict(row or {}).get("accepted") is True
+    return {
+        "key": key,
+        "label": REMAINING_PROOF_LABELS[key],
+        "status": "accepted_redacted" if accepted else "pending_real_world_evidence",
+        "accepted": accepted,
+        "capture_method": ACCEPTANCE_CAPTURE_METHOD,
+        "capture_path": ACCEPTANCE_CAPTURE_PATH,
+        "proof_key": key,
+        "required_form_fields": ACCEPTANCE_CAPTURE_FORM_FIELDS,
+        "server_actor_source": "authenticated_operator_context",
+        "raw_input_not_persisted": True,
+        "stored_evidence_shape": "sha256_only",
+        "raw_evidence_exposed": False,
+        "raw_actor_exposed": False,
+        "raw_object_ref_exposed": False,
+        "next_action": (
+            f"review_redacted_acceptance_evidence:{key}"
+            if accepted
+            else f"record_redacted_acceptance_evidence:{key}"
+        ),
+        "claim_boundary": "does_not_prove_good_executive_assistant_until_all_required_acceptance_keys_are_accepted",
+    }
+
+
+def acceptance_capture_requirements(rows: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    return [_acceptance_capture_requirement(key, dict(rows.get(key) or {})) for key in REQUIRED_ACCEPTANCE_KEYS]
 
 
 def _existing_rows(receipt_path: Path, preserve_existing: bool) -> dict[str, dict[str, Any]]:
@@ -104,7 +169,7 @@ def materialize_executive_assistant_acceptance_evidence(
     rows: dict[str, dict[str, Any]] = {key: _empty_row() for key in REQUIRED_ACCEPTANCE_KEYS}
     for key, row in _existing_rows(target, preserve_existing).items():
         if key in rows and dict(row).get("accepted") is True:
-            rows[key] = dict(row)
+            rows[key] = _normalized_existing_row(dict(row))
     for proof in list((input_payload or {}).get("proofs") or []):
         if not isinstance(proof, dict):
             continue
@@ -128,6 +193,8 @@ def materialize_executive_assistant_acceptance_evidence(
         "goal_completion_claim_allowed": False,
         "public_or_premium_claim_allowed": False,
         "acceptance_keys": rows,
+        "acceptance_capture_surface": _acceptance_capture_surface(),
+        "acceptance_capture_requirements": acceptance_capture_requirements(rows),
         "accepted_keys": accepted_keys,
         "blocked_keys": blocked_keys,
         "real_daily_use_verified": not blocked_keys,

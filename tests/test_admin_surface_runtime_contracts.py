@@ -841,7 +841,13 @@ def test_admin_acceptance_capture_records_redacted_goal_evidence(
     assert acceptance["status"] == "partial_real_world_acceptance_evidence"
     assert acceptance["accepted_keys"] == ["real_daily_morning_brief_accepted"]
     assert acceptance["acceptance_keys"]["real_daily_morning_brief_accepted"]["accepted"] is True
+    assert acceptance["acceptance_keys"]["real_daily_morning_brief_accepted"]["status"] == "accepted_redacted"
     assert acceptance["acceptance_keys"]["real_daily_morning_brief_accepted"]["source_kind"] == "principal"
+    assert acceptance["acceptance_capture_surface"]["path"] == "/admin/actions/acceptance-evidence"
+    requirements = {item["key"]: item for item in acceptance["acceptance_capture_requirements"]}
+    assert requirements["real_daily_morning_brief_accepted"]["status"] == "accepted_redacted"
+    assert requirements["real_decision_cleared"]["status"] == "pending_real_world_evidence"
+    assert requirements["real_decision_cleared"]["raw_input_not_persisted"] is True
     assert acceptance["privacy"]["raw_acceptance_text_exposed"] is False
     acceptance_text = acceptance_receipt.read_text(encoding="utf-8")
     assert raw_note not in acceptance_text

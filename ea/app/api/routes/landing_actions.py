@@ -56,6 +56,25 @@ def _sha256(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest() if value else ""
 
 
+_ACCEPTANCE_KEYS = (
+    "real_daily_morning_brief_accepted",
+    "real_decision_cleared",
+    "real_commitment_recovered_or_closed",
+    "real_approved_action_audited",
+    "real_provider_failure_recovered",
+)
+_ACCEPTANCE_PROOF_LABELS = {
+    "real_daily_morning_brief_accepted": "real daily morning brief acceptance",
+    "real_decision_cleared": "real decision cleared by the principal or operator",
+    "real_commitment_recovered_or_closed": "real commitment recovered or closed with an evidence receipt",
+    "real_approved_action_audited": "real approved outbound action with audit trail",
+    "real_provider_failure_recovered": "real provider failure recovered with operator-grade reason",
+}
+_ACCEPTANCE_CAPTURE_PATH = "/admin/actions/acceptance-evidence"
+_ACCEPTANCE_CAPTURE_METHOD = "POST"
+_ACCEPTANCE_CAPTURE_FORM_FIELDS = ["proof_key", "source_kind", "evidence", "object_ref"]
+
+
 def _load_json(path: Path) -> dict[str, object]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -69,34 +88,83 @@ def _write_json(path: Path, payload: dict[str, object]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def _acceptance_capture_surface() -> dict[str, object]:
+    return {
+        "method": _ACCEPTANCE_CAPTURE_METHOD,
+        "path": _ACCEPTANCE_CAPTURE_PATH,
+        "admin_only": True,
+        "operator_context_required": True,
+        "required_form_fields": list(_ACCEPTANCE_CAPTURE_FORM_FIELDS),
+        "server_actor_source": "authenticated_operator_context",
+        "raw_input_not_persisted": True,
+        "stored_evidence_shape": "sha256_only",
+        "privacy_contract": {
+            "raw_acceptance_text_persisted": False,
+            "raw_actor_identity_persisted": False,
+            "raw_object_reference_persisted": False,
+            "credential_values_persisted": False,
+        },
+        "claim_boundary": "capture_surface_collects_redacted_acceptance_evidence_only_not_goal_completion",
+    }
+
+
+def _empty_acceptance_row() -> dict[str, object]:
+    return {
+        "accepted": False,
+        "status": "missing_or_invalid",
+        "source_kind": "unknown",
+        "evidence_sha256": "",
+        "actor_sha256": "",
+        "object_ref_sha256": "",
+        "raw_evidence_exposed": False,
+        "raw_actor_exposed": False,
+        "raw_object_ref_exposed": False,
+    }
+
+
+def _acceptance_capture_requirements(acceptance_keys: dict[str, object]) -> list[dict[str, object]]:
+    requirements: list[dict[str, object]] = []
+    for key in _ACCEPTANCE_KEYS:
+        row = dict(acceptance_keys.get(key) or {})
+        accepted = row.get("accepted") is True
+        requirements.append(
+            {
+                "key": key,
+                "label": _ACCEPTANCE_PROOF_LABELS[key],
+                "status": "accepted_redacted" if accepted else "pending_real_world_evidence",
+                "accepted": accepted,
+                "capture_method": _ACCEPTANCE_CAPTURE_METHOD,
+                "capture_path": _ACCEPTANCE_CAPTURE_PATH,
+                "proof_key": key,
+                "required_form_fields": list(_ACCEPTANCE_CAPTURE_FORM_FIELDS),
+                "server_actor_source": "authenticated_operator_context",
+                "raw_input_not_persisted": True,
+                "stored_evidence_shape": "sha256_only",
+                "raw_evidence_exposed": False,
+                "raw_actor_exposed": False,
+                "raw_object_ref_exposed": False,
+                "next_action": (
+                    f"review_redacted_acceptance_evidence:{key}"
+                    if accepted
+                    else f"record_redacted_acceptance_evidence:{key}"
+                ),
+                "claim_boundary": "does_not_prove_good_executive_assistant_until_all_required_acceptance_keys_are_accepted",
+            }
+        )
+    return requirements
+
+
 def _default_acceptance_receipt() -> dict[str, object]:
-    keys = (
-        "real_daily_morning_brief_accepted",
-        "real_decision_cleared",
-        "real_commitment_recovered_or_closed",
-        "real_approved_action_audited",
-        "real_provider_failure_recovered",
-    )
+    acceptance_keys = {key: _empty_acceptance_row() for key in _ACCEPTANCE_KEYS}
     return {
         "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
         "status": "blocked_missing_real_world_acceptance_evidence",
         "goal_completion_claim_allowed": False,
         "accepted_keys": [],
-        "blocked_keys": list(keys),
-        "acceptance_keys": {
-            key: {
-                "accepted": False,
-                "status": "missing_or_invalid",
-                "source_kind": "unknown",
-                "evidence_sha256": "",
-                "actor_sha256": "",
-                "object_ref_sha256": "",
-                "raw_evidence_exposed": False,
-                "raw_actor_exposed": False,
-                "raw_object_ref_exposed": False,
-            }
-            for key in keys
-        },
+        "blocked_keys": list(_ACCEPTANCE_KEYS),
+        "acceptance_keys": acceptance_keys,
+        "acceptance_capture_surface": _acceptance_capture_surface(),
+        "acceptance_capture_requirements": _acceptance_capture_requirements(acceptance_keys),
         "privacy": {
             "raw_private_context_exposed": False,
             "raw_acceptance_text_exposed": False,
@@ -104,13 +172,7 @@ def _default_acceptance_receipt() -> dict[str, object]:
             "raw_object_reference_exposed": False,
             "credential_values_exposed": False,
         },
-        "remaining_external_proofs": [
-            "real daily morning brief acceptance",
-            "real decision cleared by the principal or operator",
-            "real commitment recovered or closed with an evidence receipt",
-            "real approved outbound action with audit trail",
-            "real provider failure recovered with operator-grade reason",
-        ],
+        "remaining_external_proofs": [_ACCEPTANCE_PROOF_LABELS[key] for key in _ACCEPTANCE_KEYS],
     }
 
 
@@ -331,14 +393,20 @@ async def admin_record_acceptance_evidence(
     evidence = _form_value(body, "evidence", "")
     object_ref = _form_value(body, "object_ref", "")
     actor = str(context.operator_id or context.access_email or context.principal_id or "operator").strip()
+    if proof_key not in _ACCEPTANCE_KEYS:
+        raise HTTPException(status_code=400, detail="acceptance_proof_key_invalid")
+    if not evidence.strip() or not object_ref.strip():
+        raise HTTPException(status_code=400, detail="acceptance_evidence_and_object_ref_required")
 
     receipt = _load_json(EA_ACCEPTANCE_EVIDENCE_RECEIPT) or _default_acceptance_receipt()
     acceptance_keys = dict(receipt.get("acceptance_keys") or {})
+    for key in _ACCEPTANCE_KEYS:
+        acceptance_keys.setdefault(key, _empty_acceptance_row())
     row = dict(acceptance_keys.get(proof_key) or {})
     row.update(
         {
             "accepted": True,
-            "status": "accepted",
+            "status": "accepted_redacted",
             "source_kind": source_kind,
             "recorded_at": _now_iso(),
             "evidence_sha256": _sha256(evidence),
@@ -351,11 +419,13 @@ async def admin_record_acceptance_evidence(
     )
     acceptance_keys[proof_key] = row
     receipt["acceptance_keys"] = acceptance_keys
-    accepted_keys = sorted(key for key, value in acceptance_keys.items() if bool(dict(value).get("accepted")))
+    accepted_keys = [key for key in _ACCEPTANCE_KEYS if bool(dict(acceptance_keys.get(key) or {}).get("accepted"))]
     receipt["accepted_keys"] = accepted_keys
-    receipt["blocked_keys"] = [key for key in acceptance_keys if key not in accepted_keys]
+    receipt["blocked_keys"] = [key for key in _ACCEPTANCE_KEYS if key not in accepted_keys]
     receipt["status"] = "ready_real_world_acceptance_evidence" if not receipt["blocked_keys"] else "partial_real_world_acceptance_evidence"
     receipt["goal_completion_claim_allowed"] = False
+    receipt["acceptance_capture_surface"] = _acceptance_capture_surface()
+    receipt["acceptance_capture_requirements"] = _acceptance_capture_requirements(acceptance_keys)
     receipt["privacy"] = {
         "raw_private_context_exposed": False,
         "raw_acceptance_text_exposed": False,
@@ -363,17 +433,7 @@ async def admin_record_acceptance_evidence(
         "raw_object_reference_exposed": False,
         "credential_values_exposed": False,
     }
-    receipt["remaining_external_proofs"] = [
-        label
-        for key, label in (
-            ("real_daily_morning_brief_accepted", "real daily morning brief acceptance"),
-            ("real_decision_cleared", "real decision cleared by the principal or operator"),
-            ("real_commitment_recovered_or_closed", "real commitment recovered or closed with an evidence receipt"),
-            ("real_approved_action_audited", "real approved outbound action with audit trail"),
-            ("real_provider_failure_recovered", "real provider failure recovered with operator-grade reason"),
-        )
-        if key not in accepted_keys
-    ]
+    receipt["remaining_external_proofs"] = [_ACCEPTANCE_PROOF_LABELS[key] for key in _ACCEPTANCE_KEYS if key not in accepted_keys]
     _write_json(EA_ACCEPTANCE_EVIDENCE_RECEIPT, receipt)
     _update_quality_receipt_from_acceptance(receipt)
     _update_scope_gap_evidence()
