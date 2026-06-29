@@ -1038,6 +1038,86 @@ def test_parse_args_probe_proactive_gmail_draft_uses_proactive_principal_default
     assert args.format == "json"
 
 
+def test_parse_args_probe_proactive_source_coverage_uses_proactive_principal_default(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setenv("EA_PROACTIVE_OODA_PRINCIPAL_ID", "cf-email:test@example.com")
+    monkeypatch.setattr(sys, "argv", ["ea_live_ops.py", "probe-proactive-source-coverage"])
+
+    args = module.parse_args()
+
+    assert args.command == "probe-proactive-source-coverage"
+    assert args.proactive_principal_id == "cf-email:test@example.com"
+    assert args.observation_limit == 400
+
+
+def test_probe_proactive_source_coverage_reports_required_lanes_without_raw_payload(monkeypatch) -> None:
+    module = _module()
+
+    def _fake_exec_json(**_kwargs: object) -> tuple[int, dict[str, object], str, str]:
+        return (
+            0,
+            {
+                "probe_ok": True,
+                "observation_repository": "PostgresObservationEventRepository",
+                "rows": [
+                    {
+                        "channel": "product",
+                        "event_type": "pocket_recording_archive_indexed",
+                        "created_at": "2026-06-29T07:58:00Z",
+                        "payload_keys": ["recording_id", "transcript_text", "location_name"],
+                        "hints": [
+                            "pocket_ai_audio_transcripts",
+                            "shopping_and_vendor_signals",
+                            "durable_profile_and_location_context",
+                        ],
+                        "source_id_sha256_present": True,
+                        "raw_payload_exposed": False,
+                    },
+                    {
+                        "channel": "gmail",
+                        "event_type": "gmail.message",
+                        "created_at": "2026-06-29T07:59:00Z",
+                        "payload_keys": ["subject_sha256", "sender_sha256"],
+                        "hints": ["google_workspace", "commitment_and_deadline_signals"],
+                        "source_id_sha256_present": True,
+                        "raw_payload_exposed": False,
+                    },
+                    {
+                        "channel": "calendar",
+                        "event_type": "calendar.event",
+                        "created_at": "2026-06-29T08:00:00Z",
+                        "payload_keys": ["event_id_sha256"],
+                        "hints": ["calendar_and_renewal_signals"],
+                        "source_id_sha256_present": True,
+                        "raw_payload_exposed": False,
+                    },
+                ],
+            },
+            "",
+            "",
+        )
+
+    monkeypatch.setattr(module, "_docker_compose_exec_json", _fake_exec_json)
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-06-29T08:01:00Z")
+
+    report = module.probe_proactive_source_coverage(
+        principal_id="exec-1",
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+    )
+
+    assert report["probe_ok"] is True
+    assert report["status"] == "ready_with_gaps"
+    assert report["observed_lane_count"] == 7
+    assert "pocket_ai_audio_transcripts" not in report["missing_lane_keys"]
+    assert report["privacy"]["raw_payload_exposed"] is False
+    assert report["privacy"]["raw_transcript_text_exposed"] is False
+    assert report["privacy"]["raw_credential_exposed"] is False
+    serialized = json.dumps(report, sort_keys=True)
+    assert "Order flowers" not in serialized
+    assert "/mnt/pcloud" not in serialized
+
+
 def test_parse_args_record_proactive_approval_uses_proactive_principal_default(monkeypatch) -> None:
     module = _module()
     monkeypatch.setenv("EA_PROACTIVE_OODA_PRINCIPAL_ID", "cf-email:test@example.com")

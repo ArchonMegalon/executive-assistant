@@ -252,6 +252,25 @@ def test_proactive_ooda_operator_status_verifier_rejects_gmail_draft_execution_o
     assert "already_executed gmail_draft_followthrough requires gmail_draft_id_hash_present=true" in issues
 
 
+def test_proactive_ooda_operator_status_verifier_rejects_raw_source_coverage_exposure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
+    payload = _base_payload()
+    payload["source_git_head"] = "source-head-123"
+    source_coverage = dict(payload["source_coverage"])
+    privacy = dict(source_coverage["privacy"])
+    privacy["raw_transcript_text_exposed"] = True
+    source_coverage["privacy"] = privacy
+    payload["source_coverage"] = source_coverage
+    _write_receipt(receipt, **payload)
+    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
+
+    issues = verifier.verify(receipt, root=tmp_path)
+
+    assert "source_coverage.privacy.raw_transcript_text_exposed must remain false" in issues
+
+
 def test_proactive_ooda_operator_status_verifier_rejects_incomplete_docker_probe_metadata(
     tmp_path: Path, monkeypatch
 ) -> None:
