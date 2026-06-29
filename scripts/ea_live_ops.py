@@ -885,10 +885,12 @@ def probe_telegram_readiness(
         "    print(json.dumps({'ok': False, 'ready': False, 'status': 'probe_failed', 'reason': type(exc).__name__}, sort_keys=True))\n"
     )
     exit_code, payload, runtime_container = _runtime_container_exec_json(code=code, timeout_seconds=20.0)
+    payload_status = str(payload.get("status") or "probe_failed").strip() or "probe_failed"
+    payload_ok = bool(payload.get("ok", payload_status != "probe_failed"))
     report = {
-        "probe_ok": exit_code == 0 and bool(payload),
+        "probe_ok": exit_code == 0 and bool(payload) and payload_ok and payload_status != "probe_failed",
         "ready": bool(payload.get("ready")) if exit_code == 0 else False,
-        "status": str(payload.get("status") or "probe_failed").strip() or "probe_failed",
+        "status": payload_status,
         "reason": str(payload.get("reason") or "").strip() or (f"runtime_container_exec_exit_{exit_code}" if exit_code else ""),
         "next_action": "",
         "principal_id": str(payload.get("principal_id") or principal_id or "").strip(),

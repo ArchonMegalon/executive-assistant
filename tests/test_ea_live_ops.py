@@ -454,6 +454,131 @@ def test_operator_text_for_telegram_readiness_keeps_secret_material_out() -> Non
     assert "chat_ref_sha256" not in text
 
 
+def test_probe_telegram_readiness_runtime_reports_ready_without_chat_secret(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-06-29T13:40:00Z")
+
+    def _fake_exec_json(*, code: str, timeout_seconds: float):
+        assert "resolve_primary_telegram_binding" in code
+        assert timeout_seconds == 20.0
+        return (
+            0,
+            {
+                "ok": True,
+                "ready": True,
+                "status": "ready",
+                "reason": "",
+                "binding_id": "binding-1",
+                "principal_id": "principal-1",
+                "binding_status": "enabled",
+                "chat_ref_present": True,
+                "chat_ref_sha256": "a" * 64,
+                "bot_key": "default",
+                "bot_handle": "ea_concierge_bot",
+                "bot_token_present": True,
+            },
+            "ea-api",
+        )
+
+    monkeypatch.setattr(module, "_runtime_container_exec_json", _fake_exec_json)
+
+    report = module.probe_telegram_readiness(principal_id="principal-1", output_format="operator")
+    serialized = json.dumps(report, sort_keys=True)
+
+    assert report["probe_ok"] is True
+    assert report["ready"] is True
+    assert report["status"] == "ready"
+    assert report["observed_at"] == "2026-06-29T13:40:00Z"
+    assert report["runtime_container"] == "ea-api"
+    assert report["chat_ref_sha256"] == "a" * 64
+    assert "chat_ref_present=true" in str(report["operator_text"])
+    assert "bot_token_present=true" in str(report["operator_text"])
+    assert "246813579" not in serialized
+    assert "telegram-token" not in serialized
+
+
+def test_probe_telegram_readiness_reports_missing_token_next_action(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-06-29T13:41:00Z")
+
+    def _fake_exec_json(*, code: str, timeout_seconds: float):
+        return (
+            0,
+            {
+                "ok": True,
+                "ready": False,
+                "status": "blocked",
+                "reason": "telegram_bot_token_missing",
+                "binding_id": "binding-1",
+                "principal_id": "principal-1",
+                "binding_status": "enabled",
+                "chat_ref_present": True,
+                "chat_ref_sha256": "b" * 64,
+                "bot_key": "default",
+                "bot_handle": "ea_concierge_bot",
+                "bot_token_present": False,
+            },
+            "ea-api",
+        )
+
+    monkeypatch.setattr(module, "_runtime_container_exec_json", _fake_exec_json)
+
+    report = module.probe_telegram_readiness(principal_id="principal-1", output_format="operator")
+
+    assert report["probe_ok"] is True
+    assert report["ready"] is False
+    assert report["status"] == "blocked"
+    assert report["reason"] == "telegram_bot_token_missing"
+    assert report["next_action"] == "configure_telegram_bot_token"
+    assert "reason=telegram_bot_token_missing" in str(report["operator_text"])
+    assert "next=configure_telegram_bot_token" in str(report["operator_text"])
+
+
+def test_probe_telegram_readiness_runtime_failure_is_not_probe_ok(monkeypatch) -> None:
+    module = _module()
+
+    def _fake_exec_json(*, code: str, timeout_seconds: float):
+        return (
+            0,
+            {
+                "ok": False,
+                "ready": False,
+                "status": "probe_failed",
+                "reason": "RuntimeError",
+            },
+            "ea-api",
+        )
+
+    monkeypatch.setattr(module, "_runtime_container_exec_json", _fake_exec_json)
+
+    report = module.probe_telegram_readiness(principal_id="principal-1", output_format="operator")
+
+    assert report["probe_ok"] is False
+    assert report["ready"] is False
+    assert report["status"] == "probe_failed"
+    assert report["reason"] == "RuntimeError"
+    assert report["next_action"] == "inspect_telegram_readiness_runtime_probe"
+
+
+def test_main_probe_telegram_readiness_operator_prints_plain_text(monkeypatch, capsys) -> None:
+    module = _module()
+    monkeypatch.setattr(
+        module,
+        "parse_args",
+        lambda: Namespace(command="probe-telegram-readiness", telegram_principal_id="principal-1", format="operator"),
+    )
+
+    def _fake_probe_telegram_readiness(*, principal_id: str, output_format: str):
+        assert principal_id == "principal-1"
+        assert output_format == "operator"
+        return {"probe_ok": True, "operator_text": "telegram ok"}
+
+    monkeypatch.setattr(module, "probe_telegram_readiness", _fake_probe_telegram_readiness)
+
+    assert module.main() == 0
+    assert capsys.readouterr().out.strip() == "telegram ok"
+
+
 def test_probe_proactive_route_normalizes_live_runtime_route_status(monkeypatch) -> None:
     module = _module()
     receipt_paths: list[str] = []
