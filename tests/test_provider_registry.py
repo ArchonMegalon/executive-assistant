@@ -10,6 +10,7 @@ from app.repositories.provider_bindings import InMemoryProviderBindingRepository
 from app.repositories.task_contracts import InMemoryTaskContractRepository
 from app.services.brain_router import BrainRouterService
 from app.services.planner import PlannerService
+from app.services import provider_registry
 from app.services.provider_registry import ProviderRegistryService
 from app.services.task_contracts import TaskContractService
 from app.services.tool_execution_common import ToolExecutionError
@@ -458,6 +459,134 @@ def test_provider_registry_exposes_executable_magixai_structured_generate_bindin
     assert state.auth_mode == "api_key"
     assert state.state == "ready"
     assert "structured_generate" in state.capabilities
+
+
+def test_provider_registry_amazon_secret_file_auth_mode_detects_configured_secret_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    password_file = tmp_path / "amazon_password"
+    password_file.write_text("fixture-password\n", encoding="utf-8")
+
+    monkeypatch.setenv("AMAZON_AUTH_MODE", "secret_file")
+    monkeypatch.setenv("AMAZON_ACCOUNT_EMAIL", "amazon-user@example.test")
+    monkeypatch.setenv("AMAZON_PASSWORD_FILE", str(password_file))
+
+    registry = ProviderRegistryService()
+    state = registry.binding_state("amazon")
+
+    assert state is not None
+    assert state.auth_mode == "secret_file"
+    assert state.secret_configured is True
+    assert state.state == "ready"
+
+
+def test_provider_registry_amazon_secret_file_auth_mode_rejects_empty_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    password_file = tmp_path / "amazon_password"
+    password_file.write_text("   \n", encoding="utf-8")
+
+    monkeypatch.setenv("AMAZON_AUTH_MODE", "secret_file")
+    monkeypatch.setenv("AMAZON_ACCOUNT_EMAIL", "amazon-user@example.test")
+    monkeypatch.setenv("AMAZON_PASSWORD_FILE", str(password_file))
+
+    registry = ProviderRegistryService()
+    state = registry.binding_state("amazon")
+
+    assert state is not None
+    assert state.auth_mode == "secret_file"
+    assert state.secret_configured is False
+
+
+def test_provider_registry_amazon_secret_file_auth_mode_requires_existing_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    missing = tmp_path / "does-not-exist"
+
+    monkeypatch.setenv("AMAZON_AUTH_MODE", "secret_file")
+    monkeypatch.setenv("AMAZON_ACCOUNT_EMAIL", "amazon-user@example.test")
+    monkeypatch.setenv("AMAZON_PASSWORD_FILE", str(missing))
+
+    registry = ProviderRegistryService()
+    state = registry.binding_state("amazon")
+
+    assert state is not None
+    assert state.auth_mode == "secret_file"
+    assert state.secret_configured is False
+
+
+
+def test_provider_registry_amazon_secret_file_auth_mode_uses_fallback_filename(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fallback_root = tmp_path / "repo_root"
+    fallback_file = fallback_root / "config" / "amazon_archon_password"
+    fallback_file.parent.mkdir(parents=True)
+    fallback_file.write_text("fallback-password\n", encoding="utf-8")
+
+    monkeypatch.setattr(provider_registry, "_repo_root", lambda: fallback_root)
+    monkeypatch.setenv("AMAZON_AUTH_MODE", "secret_file")
+    monkeypatch.setenv("AMAZON_ACCOUNT_EMAIL", "amazon-user@example.test")
+    monkeypatch.setenv("AMAZON_PASSWORD_FILE", "/run/secrets/amazon_archon_password")
+
+    registry = ProviderRegistryService()
+    state = registry.binding_state("amazon")
+
+    assert state is not None
+    assert state.auth_mode == "secret_file"
+    assert state.secret_configured is True
+
+
+def test_provider_registry_amazon_secret_file_auth_mode_uses_default_filename_when_password_file_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fallback_root = tmp_path / "repo_root"
+    fallback_file = fallback_root / "config" / "amazon_archon_password"
+    fallback_file.parent.mkdir(parents=True)
+    fallback_file.write_text("defaulted-password\n", encoding="utf-8")
+
+    monkeypatch.setattr(provider_registry, "_repo_root", lambda: fallback_root)
+    monkeypatch.delenv("AMAZON_PASSWORD_FILE", raising=False)
+    monkeypatch.setenv("AMAZON_AUTH_MODE", "secret_file")
+    monkeypatch.setenv("AMAZON_ACCOUNT_EMAIL", "amazon-user@example.test")
+
+    registry = ProviderRegistryService()
+    state = registry.binding_state("amazon")
+
+    assert state is not None
+    assert state.auth_mode == "secret_file"
+    assert state.secret_configured is True
+
+
+def test_provider_registry_amazon_secret_file_auth_mode_uses_parented_relative_filename(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fallback_root = tmp_path / "repo_root"
+    fallback_file = fallback_root / "config" / "amazon_archon_password"
+    fallback_file.parent.mkdir(parents=True)
+    fallback_file.write_text("parented-password\n", encoding="utf-8")
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    monkeypatch.chdir(run_dir)
+    monkeypatch.setenv("AMAZON_AUTH_MODE", "secret_file")
+    monkeypatch.setenv("AMAZON_ACCOUNT_EMAIL", "amazon-user@example.test")
+    monkeypatch.setenv("AMAZON_PASSWORD_FILE", "../config/amazon_archon_password")
+
+    monkeypatch.setattr(provider_registry, "_repo_root", lambda: fallback_root)
+
+    registry = ProviderRegistryService()
+    state = registry.binding_state("amazon")
+
+    assert state is not None
+    assert state.auth_mode == "secret_file"
+    assert state.secret_configured is True
 
 
 def test_provider_registry_route_tool_respects_principal_binding_state() -> None:

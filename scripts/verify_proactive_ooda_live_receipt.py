@@ -3,16 +3,40 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 
-DEFAULT_RECEIPT = "/data/provider-ledger/proactive_ooda_live_sent_receipt.json"
+ROOT = Path(__file__).resolve().parents[1]
+LEGACY_DEFAULT_RECEIPT = "/data/provider-ledger/proactive_ooda_live_sent_receipt.json"
+CURRENT_DEFAULT_RECEIPT_NAME = "proactive_ooda_latest_run.generated.json"
+
+
+def default_receipt_path() -> Path:
+    explicit = str(
+        os.getenv("EA_PROACTIVE_OODA_LIVE_RECEIPT_PATH")
+        or os.getenv("EA_PROACTIVE_OODA_RECEIPT_PATH")
+        or ""
+    ).strip()
+    if explicit:
+        return Path(explicit)
+    state_path = str(os.getenv("EA_PROACTIVE_OODA_STATE_PATH") or "").strip()
+    if state_path:
+        return Path(state_path).expanduser().resolve().parent / CURRENT_DEFAULT_RECEIPT_NAME
+    repo_state_path = ROOT / "state" / "proactive_ooda_notified.json"
+    repo_receipt_path = repo_state_path.parent / CURRENT_DEFAULT_RECEIPT_NAME
+    if repo_receipt_path.exists() or repo_state_path.exists():
+        return repo_receipt_path
+    return Path(LEGACY_DEFAULT_RECEIPT)
+
+
+DEFAULT_RECEIPT = str(default_receipt_path())
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Verify the proactive OODA live Telegram delivery receipt.")
-    parser.add_argument("--receipt-path", default=DEFAULT_RECEIPT)
+    parser.add_argument("--receipt-path", default=str(default_receipt_path()))
     parser.add_argument("--pretty", action="store_true")
     args = parser.parse_args()
 
@@ -62,6 +86,10 @@ def verify_receipt(path: Path) -> dict[str, Any]:
         for key in ("principal_id", "chat_id", "chat_ref", "recipient_ref", "recipient", "text", "message_text", "source_ref"):
             if key in payload:
                 errors.append(f"receipt_contains_raw_{key}")
+        approval_surface = dict(payload.get("approval_surface") or {})
+        for key in ("callback_token", "packet_ref", "staged_artifact_ref", "approval_prompt", "staged_action_url"):
+            if key in approval_surface:
+                errors.append(f"receipt_contains_raw_approval_surface_{key}")
 
     return {
         "ok": not errors,

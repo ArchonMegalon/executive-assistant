@@ -49,6 +49,7 @@ GOOGLE_ONBOARDING_BUNDLE_ALIASES = {
     "send": "send",
     "verify": "verify",
     "all": "all",
+    "everything": "everything",
     "core": "core",
     "full_workspace": "full_workspace",
 }
@@ -353,6 +354,7 @@ class OnboardingService(AssistantOnboardingService):
         redirect_uri_override: str | None = None,
         return_to: str | None = None,
         browser_source: str | None = None,
+        expected_google_email: str | None = None,
     ) -> dict[str, object]:
         requested_bundle = str(scope_bundle or "identity").strip().lower() or "identity"
         if requested_bundle not in GOOGLE_ONBOARDING_BUNDLE_ALIASES:
@@ -370,6 +372,7 @@ class OnboardingService(AssistantOnboardingService):
                 redirect_uri_override=redirect_uri_override,
                 return_to=return_to,
                 browser_source=browser_source,
+                expected_google_email=expected_google_email,
             )
             google_pref["status"] = "ready_to_connect"
             google_pref["requested_scopes"] = list(packet.requested_scopes)
@@ -873,7 +876,12 @@ class OnboardingService(AssistantOnboardingService):
     def _connectors_for_status(self, *, principal_id: str) -> list[ConnectorBinding]:
         merged: list[ConnectorBinding] = []
         seen: set[str] = set()
-        for candidate_principal_id in _telegram_binding_principal_candidates(principal_id):
+        candidates = list(_telegram_binding_principal_candidates(principal_id))
+        # Status should surface the legacy bootstrap Telegram binding when no
+        # explicit principal/default env survived the current request context.
+        if "principal-default" not in candidates:
+            candidates.append("principal-default")
+        for candidate_principal_id in candidates:
             for binding in self._tool_runtime.list_connector_bindings(candidate_principal_id, limit=100):
                 binding_id = str(binding.binding_id or "").strip()
                 if binding_id and binding_id in seen:

@@ -1982,6 +1982,13 @@ def app_google_connect(
 ) -> RedirectResponse:
     return_to = _normalize_browser_return_to(request.query_params.get("return_to"), default="/app/settings/google")
     scope_bundle = str(request.query_params.get("scope_bundle") or "identity").strip() or "identity"
+    expected_google_email = str(request.query_params.get("expected_google_email") or "").strip().lower()
+    if "@" not in expected_google_email:
+        expected_google_email = _google_connect_email_recipient(
+            principal_id=context.principal_id,
+            access_email=str(context.access_email or ""),
+            primary_email=google_oauth_service._principal_db_email(container=container, principal_id=context.principal_id),
+        )
     separator = "&" if "?" in return_to else "?"
     try:
         started = container.onboarding.start_google(
@@ -1992,6 +1999,7 @@ def app_google_connect(
             ),
             return_to=return_to,
             browser_source="settings_google",
+            expected_google_email=expected_google_email,
         )
     except RuntimeError as exc:
         error_value = urllib.parse.quote(str(exc or "google_connect_failed"), safe="")

@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.telegram_video_delivery_operator_receipt",
-  "generated_at": "2026-06-25T16:18:22Z",
+  "generated_at": "2026-06-29T01:56:10Z",
   "generated_by": "scripts/materialize_telegram_video_delivery_receipt.py",
-  "source_git_head": "a36f2efbf30ff0da35ebf1ee0d8c140cd3579829",
+  "source_git_head": "d6204f8bb6f7e9b528c5c4482788144d2881bb9c",
   "head_semantics": "source_state",
   "status": "bounded_pass",
   "claim": "Telegram video replies have a bounded, governed local source-video lane and durable delivery receipts; live operator Telegram delivery still requires a message-ID receipt.",

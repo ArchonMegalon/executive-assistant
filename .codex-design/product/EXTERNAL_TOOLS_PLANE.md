@@ -98,7 +98,7 @@ Important current distinctions:
 * Paperguide - workspace integration Tier 3, vendor license plan Tier 4
 * Prompt Architects - workspace integration Tier 3, vendor license plan Tier 4
 * PayFunnels - workspace integration Tier 3 until test-billing receipts and entitlement-event simulation gates are complete
-* Subscribr.ai - workspace integration Tier 3, vendor license plan Tier 7; high-capacity creator preproduction lane only, not publication truth
+* Subscribr.ai - workspace integration Tier 3, vendor license plan Tier 7; high-capacity creator, runbook, tutorial, and origin-dossier preproduction lane only, not publication truth
 
 Chummer routing, rollout, and architectural ownership should follow workspace integration tier and system-of-record safety rules, not marketing or license-plan tier labels.
 
@@ -114,7 +114,8 @@ Current horizon-facing posture:
 * `karma-forge` - governed house-rule discovery may use `Icanpreneur` for interviews and synthesis, `Deftform` for pre-screening, `Lunacal` for follow-up clinics, `MetaSurvey` for quant validation, `Teable` for candidate review boards and AdminIntent entry, `NextStep` for sprint/process execution, and bounded `FacePop` / `Signitic` / `Emailit` / `vidBoard` / `Taja` for recruitment, closeout, and approved discovery explainers
 * `community-hub` - open-run discovery and scheduling may use `Lunacal`, `Deftform`, `FacePop`, `Teable`, `NextStep`, `MetaSurvey`, `Emailit`, and bounded `Signitic` / `vidBoard` / `Taja` for recruiting, application review, invite delivery, and recap projection; `hedy.ai` and `Nonverbia` may assist GM-private or consent-gated debrief flows only; Discord, Teams, generic meeting URLs, Foundry, Roll20, and comparable play surfaces remain projection-only handoff or export targets and may not own run, roster, consent, or resolution truth
 * `runsite` - explorable location artifacts may use `Crezlo Tours`, `AvoMap`, and `PeekShot`; orientation-host clips may use `vidBoard`; optional narration may use `Soundmadeseen`; bounded capture/reference packets may use `Browserly`; route, map, and tour siblings stay first-party inspectable truth and the media layer may not become tactical authority
-* `runbook-press` - long-form authoring and export may use `First Book ai`, `MarkupGo`, and `Documentation.AI`; campaign primer and module explainer videos may use `vidBoard`; narrated companion assets may use `Soundmadeseen`; bounded candidate voice or reference capture may use `Unmixr AI` and `Browserly`
+* `origin-dossier` - approved origin narration, intro scripts, shot lists, and video-ready storyboards may use `Subscribr.ai`; dossier PDFs may use `MarkupGo`; video companions may use `vidBoard`; narrated companion assets may use `Soundmadeseen`; premium long-form dossier books may use `First Book ai`; bounded candidate voice or reference capture may use `Unmixr AI` and `Browserly`
+* `runbook-press` - approved runbook, tutorial, and explainer drafts may use `Subscribr.ai`; premium long-form authoring and export may use `First Book ai`, `MarkupGo`, and `Documentation.AI`; campaign primer and module explainer videos may use `vidBoard`; narrated companion assets may use `Soundmadeseen`; bounded candidate voice or reference capture may use `Unmixr AI` and `Browserly`
 * `table-pulse-aftermath` - post-session coaching packets may use `Nonverbia` as the primary analysis lane, `hedy.ai` as the bounded session-structure and debrief helper lane, with later bounded player-safe recap / GM-private debrief video from `vidBoard`, plus bounded narrated/report outputs from `Soundmadeseen`, `Unmixr AI`, `MarkupGo`, and `PeekShot`; this entry governs Table Pulse Aftermath only, not the live world-heat packet rail
 
 ## Public trust and concierge posture
@@ -133,7 +134,7 @@ Current public-surface posture:
 * public concierge flows may use `vidBoard`, `MarkupGo`, `PeekShot`, and `Soundmadeseen` as sibling explainer and artifact lanes, but those companions remain downstream of Chummer-owned release, support, invite, and publication truth
 * public feature ideas, votes, roadmap projection, changelog projection, and voter closeout may use `ProductLift` only as a projection of Chummer-owned design, milestone, release, and closeout truth
 * public guide readability, SEO, AI-search visibility, and article-draft work may use `Katteb` only against approved source packets; accepted changes must flow upstream into `chummer6-design` or public-guide source registries before generated guide output changes
-* public tutorial, creator, and launch-video preproduction may use `Subscribr.ai` only against approved source packets; scripts, hooks, descriptions, tags, and thumbnail briefs must return to Chummer-owned review before publication
+* public tutorial, creator, runbook, and launch-video preproduction may use `Subscribr.ai` only against approved source packets; scripts, hooks, descriptions, tags, narration drafts, and thumbnail briefs must return to Chummer-owned review before publication
 * public site crawl health, technical SEO, metadata/schema coverage, broken-link checks, internal-link suggestions, and AI-search visibility measurement may use `ClickRank` only as audit and recommendation output; accepted changes still patch Chummer-owned source first
 
 ## Classification model
@@ -1243,7 +1244,7 @@ Bounded video-render adapter.
 
 ### Role
 
-Long-form authoring and blueprint support.
+Premium long-form book and manual treatment after an approved packet already exists.
 
 ### Architectural use
 
@@ -1253,6 +1254,8 @@ Long-form authoring and blueprint support.
 * convention module drafts
 * district guides
 * season recap books
+* origin dossier books
+* Chummer beginner manuals
 
 ### Owner
 
@@ -1264,6 +1267,7 @@ Long-form authoring and blueprint support.
 * not source-of-truth for canon
 * not approval truth
 * not publication truth by itself
+* not a substitute for Subscribr's day-to-day script and production-draft lane
 
 ## AvoMap
 

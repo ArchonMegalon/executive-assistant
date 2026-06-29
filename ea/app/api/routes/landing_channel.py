@@ -35,6 +35,22 @@ _PUBLIC_CHANNEL_LIMITS = {
 }
 
 
+def _request_header_value(request: Request, name: str) -> str:
+    headers = getattr(request, "headers", {}) or {}
+    value = str(headers.get(name) or "").strip()
+    if value:
+        return value
+    lower_name = str(name or "").strip().lower()
+    try:
+        items = headers.items()
+    except Exception:
+        return ""
+    for key, candidate in items:
+        if str(key or "").strip().lower() == lower_name:
+            return str(candidate or "").strip()
+    return ""
+
+
 def _enforce_public_channel_rate_limit(*, request: Request, bucket: str, scope_hint: str) -> None:
     limit, window_seconds = _PUBLIC_CHANNEL_LIMITS[bucket]
     try:
@@ -241,10 +257,14 @@ def app_channel_action(
     except HTTPException:
         authenticated_context = None
     actor_context = authenticated_context or RequestContext(principal_id="", authenticated=False)
+    explicit_principal_header = bool(
+        _request_header_value(request, "x-ea-principal-id")
+        or _request_header_value(request, "x-principal-id")
+    )
     trusted_browser = (
         access_identity is not None
         or workspace_session is not None
-        or bool(authenticated_context and authenticated_context.authenticated)
+        or (explicit_principal_header and authenticated_context is not None)
     )
     if request.method == "HEAD":
         return _render_channel_action_confirmation(request, token=token, preview=preview)

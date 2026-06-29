@@ -32,6 +32,68 @@ def _repo_root() -> Path:
     return current.parents[3]
 
 
+def _secret_file_candidates(raw_path: str) -> tuple[Path, ...]:
+    normalized = str(raw_path or "").strip()
+    if not normalized:
+        return tuple()
+    configured = Path(normalized).expanduser()
+    filename = configured.name
+    cwd = Path.cwd()
+    parent_cwd = cwd.parent
+    config_root = _config_root()
+    if configured.is_absolute():
+        return (
+            configured,
+            _repo_root() / "config" / configured.name,
+            _repo_root() / "secrets" / configured.name,
+            cwd / "config" / configured.name,
+            cwd / "secrets" / configured.name,
+            parent_cwd / "config" / configured.name,
+            parent_cwd / "secrets" / configured.name,
+            config_root / configured.name,
+        )
+    return (
+        _repo_root() / configured,
+        _repo_root() / "config" / filename,
+        _repo_root() / "secrets" / filename,
+        configured,
+        cwd / configured,
+        cwd / "config" / filename,
+        cwd / "secrets" / filename,
+        parent_cwd / configured,
+        parent_cwd / "config" / filename,
+        parent_cwd / "secrets" / filename,
+        config_root / filename,
+    )
+
+
+def _secret_file_path(raw_path: str) -> Path | None:
+    for candidate in _secret_file_candidates(raw_path):
+        try:
+            normalized = candidate.resolve(strict=False)
+        except Exception:
+            normalized = candidate
+        if not normalized.is_file():
+            continue
+        try:
+            if not os.access(normalized, os.R_OK):
+                continue
+        except Exception:
+            continue
+        return normalized
+    return None
+
+
+def _secret_file_value(raw_path: str) -> str:
+    candidate = _secret_file_path(raw_path)
+    if candidate is None:
+        return ""
+    try:
+        return candidate.read_text(encoding="utf-8").strip()
+    except Exception:
+        return ""
+
+
 def _config_root() -> Path:
     raw = str(os.environ.get("EA_CONFIG_ROOT") or "").strip()
     if raw:
@@ -193,24 +255,56 @@ def _onemin_manifest_account_names() -> tuple[str, ...]:
 def _onemin_secret_env_names() -> tuple[str, ...]:
     fallback_numbers: set[int] = set()
     indexed_names: dict[int, str] = {}
-    for env_name in os.environ:
-        normalized_env_name = str(env_name or "").strip()
-        fallback_match = _ONEMIN_FALLBACK_ENV_RE.match(normalized_env_name)
-        indexed_match = _ONEMIN_INDEXED_ENV_RE.match(normalized_env_name)
-        if fallback_match is None and indexed_match is None:
-            continue
-        try:
-            if fallback_match is not None:
-                fallback_numbers.add(int(fallback_match.group(1)))
-            elif indexed_match is not None:
-                index = int(indexed_match.group(1))
-                if index >= 1:
-                    indexed_names[index] = normalized_env_name
-        except Exception:
-            continue
-    for env_var in ("EA_RESPONSES_ONEMIN_ACTIVE_SLOTS", "EA_RESPONSES_ONEMIN_RESERVE_SLOTS"):
-        for slot_name in str(os.environ.get(env_var) or "").split(","):
-            for slot_number in _onemin_fallback_slot_numbers(slot_name):
+    has_slot_config = bool(active_slots_config := str(os.environ.get("EA_RESPONSES_ONEMIN_ACTIVE_SLOTS") or "").strip()) or bool(
+        reserve_slots_config := str(os.environ.get("EA_RESPONSES_ONEMIN_RESERVE_SLOTS") or "").strip()
+    )
+    # Keep strict compatibility with explicit slot selection by only surfacing declared
+    # slots when active/reserve settings are provided, rather than all discovered slots.
+    restrict_to_declared_slots = has_slot_config
+    active_slots_config = str(os.environ.get("EA_RESPONSES_ONEMIN_ACTIVE_SLOTS") or "").strip()
+    reserve_slots_config = str(os.environ.get("EA_RESPONSES_ONEMIN_RESERVE_SLOTS") or "").strip()
+    has_slot_config = bool(active_slots_config or reserve_slots_config)
+    if not has_slot_config:
+        for env_name in os.environ:
+            normalized_env_name = str(env_name or "").strip()
+            fallback_match = _ONEMIN_FALLBACK_ENV_RE.match(normalized_env_name)
+            indexed_match = _ONEMIN_INDEXED_ENV_RE.match(normalized_env_name)
+            if fallback_match is None and indexed_match is None:
+                continue
+            try:
+                if fallback_match is not None:
+                    fallback_numbers.add(int(fallback_match.group(1)))
+                elif indexed_match is not None:
+                    index = int(indexed_match.group(1))
+                    if index >= 1:
+                        indexed_names[index] = normalized_env_name
+            except Exception:
+                continue
+    else:
+        active_slots = tuple(value.strip() for value in active_slots_config.split(",") if value.strip())
+        reserve_slots = tuple(value.strip() for value in reserve_slots_config.split(",") if value.strip())
+        slot_values = (*active_slots, *reserve_slots)
+        for slot_value in slot_values:
+            normalized_slot = str(slot_value or "").strip().lower()
+            if normalized_slot in {"all", "*", "configured"}:
+                restrict_to_declared_slots = False
+                for env_name in os.environ:
+                    normalized_env_name = str(env_name or "").strip()
+                    fallback_match = _ONEMIN_FALLBACK_ENV_RE.match(normalized_env_name)
+                    indexed_match = _ONEMIN_INDEXED_ENV_RE.match(normalized_env_name)
+                    if fallback_match is None and indexed_match is None:
+                        continue
+                    try:
+                        if fallback_match is not None:
+                            fallback_numbers.add(int(fallback_match.group(1)))
+                        elif indexed_match is not None:
+                            index = int(indexed_match.group(1))
+                            if index >= 1:
+                                indexed_names[index] = normalized_env_name
+                    except Exception:
+                        continue
+                continue
+            for slot_number in _onemin_fallback_slot_numbers(slot_value):
                 fallback_numbers.add(slot_number)
     manifest_by_slot: dict[int, str] = {}
     trailing_names: list[str] = []
@@ -219,8 +313,12 @@ def _onemin_secret_env_names() -> tuple[str, ...]:
             continue
         slot_number = _onemin_fallback_slot_number(account_name)
         if slot_number is not None:
+            if restrict_to_declared_slots and slot_number not in fallback_numbers:
+                continue
             fallback_numbers.add(slot_number)
             manifest_by_slot[slot_number] = account_name
+            continue
+        if restrict_to_declared_slots and not fallback_numbers:
             continue
         trailing_names.append(account_name)
     primary_name = "ONEMIN_AI_API_KEY"
@@ -515,6 +613,20 @@ class ProviderRegistryService:
                         tool_name="artifact_repository",
                     ),
                 ),
+            ),
+            ProviderBinding(
+                provider_key="amazon",
+                display_name="Amazon",
+                executable=True,
+                capabilities=(
+                    ProviderCapability(
+                        provider_key="amazon",
+                        capability_key="amazon_login",
+                        tool_name="provider.amazon.login",
+                        executable=True,
+                    ),
+                ),
+                source="catalog",
             ),
             ProviderBinding(
                 provider_key="browseract",
@@ -1140,6 +1252,12 @@ class ProviderRegistryService:
                 "EA_GOOGLE_OAUTH_STATE_SECRET",
                 "EA_PROVIDER_SECRET_KEY",
             ),
+            "amazon": (
+                "AMAZON_AUTH_MODE",
+                "AMAZON_ACCOUNT_EMAIL",
+                "AMAZON_PASSWORD",
+                "AMAZON_PASSWORD_FILE",
+            ),
             "magixai": ("AI_MAGICX_API_KEY",),
             "markupgo": ("MARKUPGO_API_KEY",),
             "onemin": _onemin_secret_env_names(),
@@ -1160,6 +1278,10 @@ class ProviderRegistryService:
             return "cli"
         if binding.provider_key == "google_gmail":
             return "oauth"
+        if binding.provider_key == "amazon":
+            auth_mode = str(os.environ.get("AMAZON_AUTH_MODE") or "").strip().lower().replace("-", "_")
+            if auth_mode == "secret_file":
+                return "secret_file"
         if self._secret_env_names(binding.provider_key):
             return "api_key"
         return "catalog"
@@ -1184,6 +1306,25 @@ class ProviderRegistryService:
                     "EA_PROVIDER_SECRET_KEY",
                 )
             )
+        if auth_mode == "secret_file" and binding.provider_key == "amazon":
+            password_file = str(os.environ.get("AMAZON_PASSWORD_FILE") or "").strip()
+            if password_file:
+                loaded = _secret_file_value(password_file)
+                if not loaded:
+                    return False
+            else:
+                for fallback in (
+                    "config/amazon_archon_password",
+                    "config/amazon_password",
+                    "secrets/amazon_archon_password",
+                    "secrets/amazon_password",
+                ):
+                    loaded = _secret_file_value(fallback)
+                    if loaded:
+                        break
+                else:
+                    return False
+            return bool(str(os.environ.get("AMAZON_ACCOUNT_EMAIL") or "").strip())
         return any(str(os.environ.get(name) or "").strip() for name in self._secret_env_names(binding.provider_key))
 
     def binding_state(

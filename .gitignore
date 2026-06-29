@@ -34,8 +34,11 @@ config/*client_secret*.json.*.bak
 config/*oauth*secret*.json
 config/*oauth*secret*.json.*.bak
 config/*secret*
+config/amazon_archon_password
+config/amazon_password
 config/*credential*.json.*.bak
 config/*secret*.json.*.bak
+secrets/
 ea-teable-recovery-drill-*/
 .teable-recovery-drill/
 teable-recovery-drill/
@@ -47,6 +50,12 @@ ea/.micromamba/
 ea/.piper/
 ea/third_party/
 memorial_data/
+state/proactive_ooda_latest_approval_outcome.generated.json
+state/proactive_ooda_latest_run.generated.json
+state/proactive_ooda_notified.json
+state/proactive_ooda_run_receipts/
+state/proactive_ooda_safe_work_results/
+state/proactive_ooda_stage_packets/
 
 # Editor/OS noise
 .DS_Store
@@ -68,6 +77,12 @@ feedback/*github-review-pr.md
 # Local smoke/test scratch
 .smoke_tmp/
 .tools/
+tmp_amazon*
+tmp_baagl*
+tmp_default_wishlist.png
+tmp_move_dropdown.png
+tmp_noah_after_one_move.png
+tmp_yourlists.png
 api_rewrite_artifact_details.json
 combined_sort_seed.json
 multi_priority_filter_seed.json

@@ -4,18 +4,21 @@ import json
 
 import scripts.bootstrap_proactive_ooda_teable_tables as teable_bootstrap
 import scripts.run_proactive_ooda as runner
+from app.services.proactive_ooda_approval_outcomes import build_proactive_ooda_approval_outcome_payload
 from app.services.proactive_ooda_safe_work import build_safe_work_result
 from app.services.proactive_ooda_service import ProactiveOodaService, build_run_receipt
 from app.services.proactive_ooda_stage_packets import build_stage_packets
 from app.services.proactive_ooda_teable_sync import (
+    build_proactive_ooda_approval_outcome_projection_records,
     build_proactive_ooda_teable_projection_records,
     build_proactive_ooda_teable_projection_summary,
+    sync_proactive_ooda_approval_outcome_to_teable,
     sync_proactive_ooda_to_teable,
 )
 from app.services.tool_execution_teable_adapter import TeableToolAdapter
 
 
-def _digest_and_safe_work():
+def _digest_and_safe_work(*, include_approval_surface: bool = False):
     digest = ProactiveOodaService().build_digest(
         principal_id="exec",
         signals=[
@@ -51,15 +54,45 @@ def _digest_and_safe_work():
     )
     packet = build_stage_packets(digest)[0]
     result = build_safe_work_result(packet)
+    result["execution_receipt"]["network_fetch_enabled"] = True
+    result["execution_receipt"]["search_candidate_count"] = 2
+    result["execution_receipt"]["search_queries_used"] = [
+        "site:example.test vendor approval packet",
+        "best reversible vendor option",
+    ]
+    notification_result = {
+        "message_id": 123,
+        "route_error": "whatsapp_web_session_not_ready:qr_required",
+        "recovery_hint": "Scan the WhatsApp Web QR code and re-activate the session before preferring WhatsApp again.",
+        "next_action": "scan_whatsapp_web_qr",
+    }
+    if include_approval_surface:
+        notification_result["approval_surface"] = {
+            "present": True,
+            "channel": "telegram",
+            "status": "pending",
+            "callback_token_sha256": "b" * 64,
+            "expires_at": "2026-07-05T10:00:00Z",
+            "packet_ref_sha256": "c" * 64,
+            "staged_artifact_sha256": "d" * 64,
+            "approval_prompt_sha256": "e" * 64,
+            "staged_action_url_sha256": "f" * 64,
+            "inline_button_count": 3,
+            "url_button_count": 1,
+            "message_ids": ["124"],
+            "delivery_error_code": "",
+            "privacy": {
+                "raw_callback_token_stored": False,
+                "raw_packet_ref_stored": False,
+                "raw_staged_artifact_ref_stored": False,
+                "raw_approval_prompt_stored": False,
+                "raw_staged_action_url_stored": False,
+            },
+        }
     receipt = build_run_receipt(
         digest=digest,
         dry_run=False,
-        notification_result={
-            "message_id": 123,
-            "route_error": "whatsapp_web_session_not_ready:qr_required",
-            "recovery_hint": "Scan the WhatsApp Web QR code and re-activate the session before preferring WhatsApp again.",
-            "next_action": "scan_whatsapp_web_qr",
-        },
+        notification_result=notification_result,
         stage_packet_refs=("stage_packet:vendor-approval",),
         safe_work_result_refs=(str(result.get("result_ref") or ""),),
     )
@@ -88,11 +121,51 @@ def test_proactive_ooda_teable_projection_keeps_important_artifacts_without_raw_
     assert records["proactive_ooda_runs"][0]["delivery_message_ids"] == ["123"]
     assert records["proactive_ooda_runs"][0]["delivery_route_error"] == "whatsapp_web_session_not_ready:qr_required"
     assert records["proactive_ooda_runs"][0]["delivery_next_action"] == "scan_whatsapp_web_qr"
+    assert records["proactive_ooda_runs"][0]["delivery_next_action_href"] == "https://myexternalbrain.com/integrations/whatsapp"
+    assert records["proactive_ooda_runs"][0]["delivery_next_action_label"] == "Open WhatsApp pairing"
+    assert records["proactive_ooda_runs"][0]["delivery_next_action_method"] == "get"
     assert records["proactive_ooda_items"][0]["stage_kind"] == "approval_packet"
     assert records["proactive_ooda_items"][0]["staged_action_url"] == "https://example.test/approve/vendor-a"
     assert records["proactive_ooda_items"][0]["recommended_label"] == "Vendor A"
+    assert records["proactive_ooda_items"][0]["search_candidate_count"] == 2
+    assert records["proactive_ooda_items"][0]["search_query_count"] == 2
     assert records["proactive_ooda_safe_work"][0]["recommended_url"] == "https://example.test/vendor-a"
     assert records["proactive_ooda_safe_work"][0]["shortlist_count"] == 2
+    assert records["proactive_ooda_safe_work"][0]["network_fetch_enabled"] is True
+    assert records["proactive_ooda_safe_work"][0]["search_candidate_count"] == 2
+    assert records["proactive_ooda_safe_work"][0]["search_query_count"] == 2
+    assert records["proactive_ooda_safe_work"][0]["search_queries_used"] == [
+        "site:example.test vendor approval packet",
+        "best reversible vendor option",
+    ]
+
+
+def test_proactive_ooda_teable_projection_includes_pending_approval_surface_without_raw_refs() -> None:
+    digest, result, receipt = _digest_and_safe_work(include_approval_surface=True)
+
+    records = build_proactive_ooda_teable_projection_records(
+        digest=digest,
+        receipt=receipt,
+        safe_work_results=(result,),
+    )
+    serialized = json.dumps(records, sort_keys=True)
+
+    assert set(records) == {
+        "proactive_ooda_runs",
+        "proactive_ooda_items",
+        "proactive_ooda_safe_work",
+        "proactive_ooda_approval_surfaces",
+    }
+    run_row = records["proactive_ooda_runs"][0]
+    surface_row = records["proactive_ooda_approval_surfaces"][0]
+    assert run_row["approval_surface_present"] is True
+    assert run_row["approval_surface_status"] == "pending"
+    assert run_row["approval_surface_message_count"] == 1
+    assert surface_row["status"] == "pending"
+    assert surface_row["callback_token_sha256"] == "b" * 64
+    assert surface_row["message_ids"] == ["124"]
+    assert '"callback_token":' not in serialized
+    assert "stage_packet:vendor-approval" not in serialized
 
 
 def test_proactive_ooda_teable_bootstrap_schema_includes_delivery_route_fields() -> None:
@@ -108,6 +181,148 @@ def test_proactive_ooda_teable_bootstrap_schema_includes_delivery_route_fields()
     assert "delivery_route_error" in run_fields
     assert "delivery_recovery_hint" in run_fields
     assert "delivery_next_action" in run_fields
+    assert "delivery_next_action_href" in run_fields
+    assert "delivery_next_action_label" in run_fields
+    assert "delivery_next_action_method" in run_fields
+
+
+def test_proactive_ooda_teable_bootstrap_schema_includes_search_projection_fields() -> None:
+    item_fields = [field["name"] for field in teable_bootstrap.PROACTIVE_OODA_TABLES["proactive_ooda_items"]]
+    safe_work_fields = [field["name"] for field in teable_bootstrap.PROACTIVE_OODA_TABLES["proactive_ooda_safe_work"]]
+
+    assert "search_candidate_count" in item_fields
+    assert "search_query_count" in item_fields
+    assert "network_fetch_enabled" in safe_work_fields
+    assert "search_candidate_count" in safe_work_fields
+    assert "search_query_count" in safe_work_fields
+    assert "search_queries_used" in safe_work_fields
+
+
+def test_proactive_ooda_teable_bootstrap_schema_includes_approval_outcome_projection_fields() -> None:
+    run_fields = [field["name"] for field in teable_bootstrap.PROACTIVE_OODA_TABLES["proactive_ooda_runs"]]
+    safe_work_fields = [field["name"] for field in teable_bootstrap.PROACTIVE_OODA_TABLES["proactive_ooda_safe_work"]]
+    approval_surface_fields = [field["name"] for field in teable_bootstrap.PROACTIVE_OODA_TABLES["proactive_ooda_approval_surfaces"]]
+    approval_fields = [field["name"] for field in teable_bootstrap.PROACTIVE_OODA_TABLES["proactive_ooda_approval_outcomes"]]
+
+    assert "approval_outcome_recorded" in run_fields
+    assert "approval_outcome_accepted" in run_fields
+    assert "approval_surface_present" in run_fields
+    assert "approval_surface_status" in run_fields
+    assert "approval_outcome_status" in safe_work_fields
+    assert "approval_outcome_source_kind" in safe_work_fields
+    assert "callback_token_sha256" in approval_surface_fields
+    assert "decision_recorded" in approval_surface_fields
+    assert "decision_recorded_at" in approval_surface_fields
+    assert "run_projection_id" in approval_fields
+    assert "safe_work_projection_id" in approval_fields
+    assert "packet_ref_sha256" in approval_fields
+    assert "staged_artifact_sha256" in approval_fields
+
+
+def test_proactive_ooda_approval_outcome_projection_records_link_run_and_safe_work_without_raw_refs() -> None:
+    _digest, result, receipt = _digest_and_safe_work(include_approval_surface=True)
+    approval_outcome = build_proactive_ooda_approval_outcome_payload(
+        principal_id="exec",
+        outcome="approved",
+        source_kind="operator",
+        evidence="Approved after reviewing the live shortlist.",
+        actor="operator-admin-1",
+        packet_ref="stage_packet:vendor-approval",
+        staged_artifact_ref=str(result.get("result_ref") or "safe_work_result:res-1"),
+        recorded_at="2026-06-27T10:00:00Z",
+    )
+
+    records = build_proactive_ooda_approval_outcome_projection_records(
+        receipt=receipt,
+        safe_work_result=result,
+        approval_outcome=approval_outcome,
+    )
+    serialized = json.dumps(records, sort_keys=True)
+
+    assert set(records) == {
+        "proactive_ooda_runs",
+        "proactive_ooda_safe_work",
+        "proactive_ooda_approval_surfaces",
+        "proactive_ooda_approval_outcomes",
+    }
+    run_row = records["proactive_ooda_runs"][0]
+    safe_work_row = records["proactive_ooda_safe_work"][0]
+    approval_surface_row = records["proactive_ooda_approval_surfaces"][0]
+    approval_row = records["proactive_ooda_approval_outcomes"][0]
+    assert run_row["approval_outcome_recorded"] is True
+    assert run_row["approval_outcome_accepted"] is True
+    assert run_row["delivery_next_action"] == "scan_whatsapp_web_qr"
+    assert run_row["delivery_next_action_href"] == "https://myexternalbrain.com/integrations/whatsapp"
+    assert run_row["approval_surface_status"] == "approved"
+    assert safe_work_row["approval_outcome_status"] == "accepted_redacted"
+    assert approval_surface_row["status"] == "approved"
+    assert approval_surface_row["decision_recorded"] is True
+    assert approval_row["accepted"] is True
+    assert approval_row["run_projection_id"] == run_row["projection_id"]
+    assert approval_row["safe_work_projection_id"] == safe_work_row["projection_id"]
+    assert "Approved after reviewing the live shortlist." not in serialized
+    assert "operator-admin-1" not in serialized
+    assert "stage_packet:vendor-approval" not in serialized
+
+
+def test_proactive_ooda_approval_outcome_sync_can_sync_available_tables_and_report_missing_ones(monkeypatch) -> None:
+    _digest, result, receipt = _digest_and_safe_work(include_approval_surface=True)
+    approval_outcome = build_proactive_ooda_approval_outcome_payload(
+        principal_id="exec",
+        outcome="approved",
+        source_kind="operator",
+        evidence="Approved after reviewing the live shortlist.",
+        actor="operator-admin-1",
+        packet_ref="stage_packet:vendor-approval",
+        staged_artifact_ref=str(result.get("result_ref") or "safe_work_result:res-1"),
+        recorded_at="2026-06-27T10:00:00Z",
+    )
+    monkeypatch.setenv("TEABLE_API_KEY", "test-teable-key")
+    monkeypatch.setenv(
+        "TEABLE_TABLE_SYNC_CONFIG_JSON",
+        json.dumps(
+            {
+                "proactive_ooda_runs": {
+                    "table_id": "tbl_proactive_ooda_runs",
+                    "key_field": "projection_id",
+                    "field_key_type": "name",
+                },
+                "proactive_ooda_approval_outcomes": {
+                    "table_id": "tbl_proactive_ooda_approval_outcomes",
+                    "key_field": "projection_id",
+                    "field_key_type": "name",
+                },
+            }
+        ),
+    )
+    observed: list[tuple[str, str, dict[str, object] | None]] = []
+
+    def _request_json(self, *, method: str, url: str, api_key: str, body: dict[str, object] | None = None) -> dict[str, object]:
+        assert api_key == "test-teable-key"
+        observed.append((method, url, body))
+        if method == "GET":
+            return {"records": []}
+        if method == "POST":
+            return {"records": [{"id": "rec-1"}]}
+        raise AssertionError(f"unexpected method {method}")
+
+    monkeypatch.setattr(TeableToolAdapter, "_request_json", _request_json)
+
+    sync = sync_proactive_ooda_approval_outcome_to_teable(
+        receipt=receipt,
+        safe_work_result=result,
+        approval_outcome=approval_outcome,
+    )
+
+    assert sync["status"] == "partial"
+    assert sync["sync_attempted"] is True
+    assert sync["missing_tables"] == ["proactive_ooda_approval_surfaces", "proactive_ooda_safe_work"]
+    assert sync["tool_execution"]["output_json"]["synced_tables"] == [
+        "proactive_ooda_runs",
+        "proactive_ooda_approval_outcomes",
+    ]
+    assert any("/api/table/tbl_proactive_ooda_runs/record?" in item[1] for item in observed)
+    assert any("/api/table/tbl_proactive_ooda_approval_outcomes/record?" in item[1] for item in observed)
 
 
 def test_proactive_ooda_teable_bootstrap_adds_missing_fields_with_direct_field_payload(monkeypatch) -> None:
@@ -136,7 +351,7 @@ def test_proactive_ooda_teable_bootstrap_adds_missing_fields_with_direct_field_p
 
 
 def test_proactive_ooda_teable_sync_can_sync_available_tables_and_report_missing_ones(monkeypatch) -> None:
-    digest, result, receipt = _digest_and_safe_work()
+    digest, result, receipt = _digest_and_safe_work(include_approval_surface=True)
     monkeypatch.setenv("TEABLE_API_KEY", "test-teable-key")
     monkeypatch.setenv(
         "TEABLE_TABLE_SYNC_CONFIG_JSON",
@@ -177,7 +392,7 @@ def test_proactive_ooda_teable_sync_can_sync_available_tables_and_report_missing
 
     assert sync["status"] == "partial"
     assert sync["sync_attempted"] is True
-    assert sync["missing_tables"] == ["proactive_ooda_safe_work"]
+    assert sync["missing_tables"] == ["proactive_ooda_approval_surfaces", "proactive_ooda_safe_work"]
     assert sync["tool_execution"]["output_json"]["synced_tables"] == ["proactive_ooda_runs", "proactive_ooda_items"]
     assert any("/api/table/tbl_proactive_ooda_runs/record?" in item[1] for item in observed)
     assert any("/api/table/tbl_proactive_ooda_items/record?" in item[1] for item in observed)
@@ -225,6 +440,8 @@ def test_runner_main_emits_teable_sync_result_when_enabled(tmp_path, monkeypatch
             str(signal_file),
             "--state-path",
             str(tmp_path / "state.json"),
+            "--armed-send",
+            "--no-action-required-delivery-only",
             "--skip-observation-source",
             "--skip-workspace-source",
         ],

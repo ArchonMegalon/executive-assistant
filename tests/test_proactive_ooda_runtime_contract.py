@@ -15,17 +15,22 @@ def test_proactive_ooda_has_deployable_lightweight_service_and_operator_targets(
     assert "image: ea-runtime:latest" in compose
     assert "python /app/scripts/run_proactive_ooda.py" in compose
     assert "EA_PROACTIVE_OODA_ENABLED=${EA_PROACTIVE_OODA_ENABLED:-0}" in compose
+    assert "EA_PROACTIVE_OODA_ARMED_SEND=${EA_PROACTIVE_OODA_CONTAINER_ARMED_SEND:-1}" in compose
     assert "EA_PROACTIVE_OODA_STATE_PATH=${EA_PROACTIVE_OODA_CONTAINER_STATE_PATH:-/data/provider-ledger/proactive_ooda_notified.json}" in compose
+    assert "EA_PROACTIVE_OODA_RECEIPT_PATH=${EA_PROACTIVE_OODA_CONTAINER_RECEIPT_PATH:-/data/provider-ledger/proactive_ooda_latest_run.generated.json}" in compose
     assert "EA_PROACTIVE_OODA_TEABLE_SYNC_ENABLED=${EA_PROACTIVE_OODA_TEABLE_SYNC_ENABLED:-0}" in compose
     assert "DATABASE_URL=${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD}@ea-db:5432/ea}" in compose
-    assert "ea_proactive_ooda_state:" in compose
-    assert "ea_proactive_ooda_state:/data" in compose
+    assert "ea_provider_ledger:/data/provider-ledger" in compose
     assert "ea-proactive-ooda" in makefile
     assert "proactive-ooda-safe-work:" in makefile
     assert "verify-proactive-ooda:" in makefile
     assert "verify-proactive-ooda-live-receipt:" in makefile
     assert "EA_PROACTIVE_OODA_DISCOVERY_JSON=" in env_example
     assert "EA_PROACTIVE_OODA_OPPORTUNITY_RULES_JSON=" in env_example
+    assert "EA_PROACTIVE_OODA_ARMED_SEND=0" in env_example
+    assert "EA_PROACTIVE_OODA_CONTAINER_ARMED_SEND=1" in env_example
+    assert "EA_PROACTIVE_OODA_RECEIPT_PATH=" in env_example
+    assert "EA_PROACTIVE_OODA_CONTAINER_RECEIPT_PATH=/data/provider-ledger/proactive_ooda_latest_run.generated.json" in env_example
     assert "EA_PROACTIVE_OODA_STAGE_PACKETS_ENABLED=1" in env_example
     assert "EA_PROACTIVE_OODA_STAGE_PACKET_DIR=" in env_example
     assert "EA_PROACTIVE_OODA_SAFE_WORK_RESULTS_ENABLED=1" in env_example

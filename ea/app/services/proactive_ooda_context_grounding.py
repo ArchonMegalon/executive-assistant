@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any, Callable, Mapping
+import re
 
 from app.services.proactive_ooda_service import OodaInk, ProactiveOodaDigest
 
@@ -39,6 +40,65 @@ def ground_digest_with_context(
     if not changed:
         return digest
     return replace(digest, items=tuple(grounded_items))
+
+
+def ground_digest_for_principal(
+    digest: ProactiveOodaDigest,
+    *,
+    principal_id: str,
+    memory_runtime: Any,
+    preference_profiles: Any,
+    task_key: str = "proactive_ooda",
+    goal: str = "Ground proactive assistant decisions against current context and commitments.",
+    limit: int = 5,
+) -> ProactiveOodaDigest:
+    if not digest.items:
+        return digest
+    try:
+        from app.services.memory_reasoning_service import MemoryReasoningService
+    except Exception:
+        return digest
+    try:
+        context_pack = MemoryReasoningService(memory_runtime).build_context_pack(
+            principal_id=principal_id,
+            task_key=task_key,
+            goal=goal,
+            limit=limit,
+        ).as_dict()
+    except Exception:
+        context_pack = {}
+    try:
+        preference_bundle = preference_profiles.get_profile_bundle(principal_id=principal_id, person_id="self")
+    except Exception:
+        preference_bundle = {}
+
+    def _assess_candidate(
+        domain: str,
+        object_type: str,
+        object_id: str,
+        object_payload: dict[str, object],
+    ) -> dict[str, object] | None:
+        try:
+            assessment = preference_profiles.assess_candidate(
+                principal_id=principal_id,
+                person_id="self",
+                domain=domain,
+                object_type=object_type,
+                object_id=object_id,
+                object_payload=object_payload,
+                persist=False,
+                require_existing_profile=False,
+            )
+        except Exception:
+            return None
+        return dict(assessment or {}) if isinstance(assessment, dict) else None
+
+    return ground_digest_with_context(
+        digest,
+        context_pack=context_pack,
+        preference_bundle=preference_bundle,
+        assess_candidate=_assess_candidate,
+    )
 
 
 def _ground_stage_payload(
@@ -270,9 +330,10 @@ def _earliest_context_deadline(context_pack: Mapping[str, Any]) -> str:
 def _recipient_context(context_pack: Mapping[str, Any]) -> dict[str, Any]:
     stakeholders = [dict(row) for row in list(context_pack.get("stakeholders") or [])[:3] if isinstance(row, Mapping)]
     follow_ups = [dict(row) for row in list(context_pack.get("follow_ups") or [])[:3] if isinstance(row, Mapping)]
-    if not stakeholders and not follow_ups:
+    location = _recipient_location_context(context_pack)
+    if not stakeholders and not follow_ups and not location:
         return {}
-    return {
+    payload: dict[str, Any] = {
         "stakeholders": [
             {
                 "display_name": str(row.get("display_name") or "").strip(),
@@ -292,6 +353,123 @@ def _recipient_context(context_pack: Mapping[str, Any]) -> dict[str, Any]:
             if str(row.get("topic") or "").strip()
         ],
     }
+    if location:
+        payload["location"] = location
+    return payload
+
+
+def _recipient_location_context(context_pack: Mapping[str, Any]) -> dict[str, Any]:
+    phrases: list[str] = []
+    city_terms: list[str] = []
+    postal_codes: list[str] = []
+    country_codes: list[str] = []
+    country_names: list[str] = []
+    for row in list(context_pack.get("memory_items") or [])[:8]:
+        if not isinstance(row, Mapping):
+            continue
+        _collect_location_fields(
+            row.get("fact_json"),
+            key_hint="",
+            phrases=phrases,
+            city_terms=city_terms,
+            postal_codes=postal_codes,
+            country_codes=country_codes,
+            country_names=country_names,
+        )
+    if not any((phrases, city_terms, postal_codes, country_codes, country_names)):
+        return {}
+    return {
+        "phrases": list(dict.fromkeys(phrases))[:4],
+        "city_terms": list(dict.fromkeys(city_terms))[:3],
+        "postal_codes": list(dict.fromkeys(postal_codes))[:3],
+        "country_codes": list(dict.fromkeys(country_codes))[:2],
+        "country_names": list(dict.fromkeys(country_names))[:2],
+    }
+
+
+def _collect_location_fields(
+    value: Any,
+    *,
+    key_hint: str,
+    phrases: list[str],
+    city_terms: list[str],
+    postal_codes: list[str],
+    country_codes: list[str],
+    country_names: list[str],
+) -> None:
+    normalized_key = _normalized_text(key_hint)
+    if isinstance(value, Mapping):
+        for nested_key, nested_value in value.items():
+            _collect_location_fields(
+                nested_value,
+                key_hint=str(nested_key),
+                phrases=phrases,
+                city_terms=city_terms,
+                postal_codes=postal_codes,
+                country_codes=country_codes,
+                country_names=country_names,
+            )
+        return
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            _collect_location_fields(
+                item,
+                key_hint=key_hint,
+                phrases=phrases,
+                city_terms=city_terms,
+                postal_codes=postal_codes,
+                country_codes=country_codes,
+                country_names=country_names,
+            )
+        return
+    text = " ".join(str(value or "").split()).strip()
+    if not text:
+        return
+    if normalized_key in {"country_code", "country"}:
+        if normalized_key == "country_code":
+            normalized_code = re.sub(r"[^A-Za-z]", "", text).upper()
+            if 2 <= len(normalized_code) <= 3:
+                country_codes.append(normalized_code)
+        elif text:
+            country_names.append(text)
+        return
+    locationish_key = normalized_key in {
+        "address",
+        "address_line",
+        "address_lines",
+        "city",
+        "district",
+        "home",
+        "home_city",
+        "location",
+        "location_name",
+        "postal_name",
+        "postal_code",
+        "postcode",
+        "residence",
+        "zip",
+    }
+    if not locationish_key:
+        return
+    postal_match = re.search(r"\b(\d{4,5})\b", text)
+    if postal_match is not None:
+        postal_codes.append(postal_match.group(1))
+        if not (normalized_key in {"postal_code", "postcode", "zip"} and re.fullmatch(r"\d{4,5}", text)):
+            phrases.append(text)
+        remainder = re.sub(r"^\D*", "", text)
+        city_match = re.search(r"\b\d{4,5}\s+(.+)$", remainder)
+        if city_match is not None:
+            city = city_match.group(1).strip(" ,")
+            if city:
+                city_terms.append(city)
+        return
+    if normalized_key in {"city", "district", "location", "location_name", "home_city", "residence"}:
+        city_terms.append(text)
+        return
+    if normalized_key in {"address", "address_line", "address_lines"}:
+        return
+    if text and len(text) <= 80:
+        phrases.append(text)
 
 
 def _candidate_domain(candidate: Mapping[str, Any], *, stage_payload: Mapping[str, Any]) -> str:

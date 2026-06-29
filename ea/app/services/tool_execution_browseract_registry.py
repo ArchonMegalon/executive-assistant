@@ -14,6 +14,61 @@ from app.services.tool_runtime import ToolRuntimeService
 ToolExecutionHandler = Callable[[ToolInvocationRequest, object], ToolInvocationResult]
 
 
+def register_builtin_amazon_login(
+    *,
+    tool_runtime: ToolRuntimeService,
+    register_handler: Callable[[str, ToolExecutionHandler], None],
+    browseract_adapter: BrowserActToolAdapter,
+) -> None:
+    if tool_runtime.get_tool("provider.amazon.login") is None:
+        tool_runtime.upsert_tool(
+            tool_name="provider.amazon.login",
+            version="v1",
+            input_schema_json={
+                "type": "object",
+                "properties": {
+                    "login_url": {"type": "string"},
+                    "account_url": {"type": "string"},
+                    "timeout_seconds": {"type": "integer"},
+                    "proxy_result": {"type": "boolean"},
+                    "login_email": {"type": "string"},
+                    "login_password": {"type": "string"},
+                    "browseract_username": {"type": "string"},
+                    "browseract_password": {"type": "string"},
+                },
+            },
+            output_schema_json={
+                "type": "object",
+                "required": [
+                    "tool_name",
+                    "action_kind",
+                    "provider_backend",
+                    "render_status",
+                    "login_state",
+                    "requested_url",
+                ],
+                "properties": {
+                    "provider_backend": {"type": "string"},
+                    "render_status": {"type": "string"},
+                    "login_state": {"type": "string"},
+                    "requested_url": {"type": "string"},
+                    "editor_url": {"type": ["string", "null"]},
+                    "title": {"type": ["string", "null"]},
+                    "url": {"type": ["string", "null"]},
+                    "body_text": {"type": ["string", "null"]},
+                    "labels": {"type": "array", "items": {"type": "string"}},
+                    "buttons": {"type": "array", "items": {"type": "string"}},
+                    "links": {"type": "array"},
+                    "structured_output_json": {"type": "object"},
+                },
+            },
+            policy_json={"builtin": True, "action_kind": "account.login", "provider": "amazon"},
+            approval_default="none",
+            enabled=True,
+        )
+    register_handler("provider.amazon.login", browseract_adapter.execute_amazon_login)
+
+
 def register_builtin_browseract_extract(
     *,
     tool_runtime: ToolRuntimeService,

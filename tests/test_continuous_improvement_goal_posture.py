@@ -101,8 +101,14 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert receipt["overall_status"] == "blocked_real_world_acceptance"
     assert receipt["goal_completion_claim_allowed"] is False
     assert receipt["real_use_claim_allowed"] is False
-    assert "proactive OODA" in receipt["goal_shorthand"]
-    assert "real proactive OODA packet accepted and mirrored into Teable" in receipt["required_next_receipts"]
+    assert "paid-human-assistant-grade proactive OODA" in receipt["goal_shorthand"]
+    assert "transcript-aware ingest" in receipt["goal_shorthand"]
+    assert "auditor-passed decision-ready packets" in receipt["goal_shorthand"]
+    assert "Teable-mirrored current/stale state" in receipt["goal_shorthand"]
+    assert "real proactive OODA packet accepted with action-required-only routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome" in receipt["required_next_receipts"]
+    assert "Telegram is an action surface, not a progress log; proactive delivery must stay quiet unless the user needs to approve, choose, unblock, review, or answer something." in receipt["rules"]
+    assert "Proactive OODA packets must pass a context/provider-fit auditor before user delivery; reachable URLs, extracted email addresses, or generic search hits are not sufficient." in receipt["rules"]
+    assert "Pocket.ai or other consented audio transcripts may feed OODA only as approved signals with privacy, retention, source, and current/stale status preserved." in receipt["rules"]
     assert "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth." in receipt["rules"]
 
     lenses = {lens["key"]: lens for lens in receipt["lenses"]}

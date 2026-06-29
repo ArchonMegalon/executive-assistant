@@ -10,6 +10,13 @@ from fastapi.responses import PlainTextResponse, RedirectResponse
 
 from app.api.dependencies import RequestContext, get_container, get_request_context
 from app.api.routes.product_api_contracts import (
+    AlexaHistoryDetailOut,
+    AlexaHistoryImportIn,
+    AlexaHistoryImportOut,
+    AlexaHistoryQueryTelegramDeliveryOut,
+    AlexaHistorySearchOut,
+    AlexaHistorySyncOut,
+    AlexaHistoryTelegramDeliveryOut,
     ChannelDigestDeliveryCreateIn,
     ChannelDigestDeliveryOut,
     ChannelLoopOut,
@@ -264,6 +271,160 @@ def import_pocket_saved_links_from_local_path(
         status_code = 404 if detail == "pocket_import_path_not_found" else 400
         raise HTTPException(status_code=status_code, detail=detail) from exc
     return PocketSignalImportOut(**payload)
+
+
+@router.post("/signals/alexa/history/import-local", response_model=AlexaHistoryImportOut)
+def import_alexa_history_from_local_path(
+    body: AlexaHistoryImportIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> AlexaHistoryImportOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "office_api").strip()
+    try:
+        payload = service.import_alexa_history_from_local_path(
+            principal_id=context.principal_id,
+            path=body.path,
+            counterparty=body.counterparty,
+            actor=actor,
+        )
+    except RuntimeError as exc:
+        detail = str(exc)
+        if detail == "alexa_history_import_path_not_found":
+            status_code = 404
+        elif detail == "alexa_history_import_path_not_allowed":
+            status_code = 403
+        else:
+            status_code = 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    return AlexaHistoryImportOut(**payload)
+
+
+@router.post("/signals/alexa/history/sync", response_model=AlexaHistorySyncOut)
+def sync_alexa_history_from_import_root(
+    limit: int = Query(default=25, ge=1, le=500),
+    force: bool = Query(default=False),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> AlexaHistorySyncOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "office_api").strip()
+    try:
+        payload = service.sync_alexa_history_from_import_root(
+            principal_id=context.principal_id,
+            actor=actor,
+            limit=limit,
+            force=force,
+        )
+    except RuntimeError as exc:
+        detail = str(exc)
+        if detail == "alexa_history_import_root_not_configured":
+            status_code = 409
+        elif detail == "alexa_history_import_root_not_found":
+            status_code = 404
+        else:
+            status_code = 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    return AlexaHistorySyncOut(**payload)
+
+
+@router.get("/signals/alexa/history/search", response_model=AlexaHistorySearchOut)
+def search_alexa_history(
+    q: str = Query(default=""),
+    before: str = Query(default=""),
+    after: str = Query(default=""),
+    limit: int = Query(default=10, ge=1, le=100),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> AlexaHistorySearchOut:
+    service = build_product_service(container)
+    payload = service.search_alexa_history(
+        principal_id=context.principal_id,
+        actor=str(context.operator_id or context.access_email or context.principal_id or "office_api").strip(),
+        query=q,
+        before=before,
+        after=after,
+        limit=limit,
+    )
+    return AlexaHistorySearchOut(**payload)
+
+
+@router.get("/signals/alexa/history/{history_entry_id}", response_model=AlexaHistoryDetailOut)
+def get_alexa_history_detail(
+    history_entry_id: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> AlexaHistoryDetailOut:
+    service = build_product_service(container)
+    try:
+        payload = service.get_alexa_history_detail(
+            history_entry_id=history_entry_id,
+            principal_id=context.principal_id,
+            actor=str(context.operator_id or context.access_email or context.principal_id or "office_api").strip(),
+        )
+    except RuntimeError as exc:
+        detail = str(exc)
+        status_code = 404 if detail == "alexa_history_entry_not_found" else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    return AlexaHistoryDetailOut(**payload)
+
+
+@router.post("/signals/alexa/history/{history_entry_id}/deliver-telegram", response_model=AlexaHistoryTelegramDeliveryOut)
+def deliver_alexa_history_to_telegram(
+    history_entry_id: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> AlexaHistoryTelegramDeliveryOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "office_api").strip()
+    try:
+        payload = service.deliver_alexa_history_to_telegram(
+            principal_id=context.principal_id,
+            actor=actor,
+            history_entry_id=history_entry_id,
+        )
+    except RuntimeError as exc:
+        detail = str(exc)
+        if detail == "alexa_history_entry_not_found":
+            status_code = 404
+        elif detail in {"telegram_binding_not_found", "telegram_chat_ref_missing", "telegram_bot_token_missing"}:
+            status_code = 409
+        else:
+            status_code = 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    return AlexaHistoryTelegramDeliveryOut(**payload)
+
+
+@router.post("/signals/alexa/history/deliver-telegram", response_model=AlexaHistoryQueryTelegramDeliveryOut)
+def deliver_alexa_history_search_to_telegram(
+    q: str = Query(default=""),
+    before: str = Query(default=""),
+    after: str = Query(default=""),
+    limit: int = Query(default=10, ge=1, le=100),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> AlexaHistoryQueryTelegramDeliveryOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "office_api").strip()
+    try:
+        payload = service.deliver_alexa_history_search_to_telegram(
+            principal_id=context.principal_id,
+            actor=actor,
+            query=q,
+            before=before,
+            after=after,
+            limit=limit,
+        )
+    except RuntimeError as exc:
+        detail = str(exc)
+        if detail == "alexa_history_search_match_not_found":
+            status_code = 404
+        elif detail in {"telegram_binding_not_found", "telegram_chat_ref_missing", "telegram_bot_token_missing"}:
+            status_code = 409
+        else:
+            status_code = 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    return AlexaHistoryQueryTelegramDeliveryOut(**payload)
 
 
 @router.post("/signals/noneverbia/import-local", response_model=NoneverbiaSignalImportOut)

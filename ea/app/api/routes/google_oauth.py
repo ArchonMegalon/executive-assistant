@@ -18,6 +18,7 @@ from app.services.google_oauth import (
     run_google_gmail_smoke_test,
     upgrade_google_oauth_scope,
 )
+from app.services.proactive_ooda_telegram_approval import resume_latest_telegram_gmail_draft_after_google_connect
 
 router = APIRouter(prefix="/v1/providers/google", tags=["providers-google"])
 
@@ -139,6 +140,14 @@ def google_oauth_callback(
             "google_subject": str(account.google_subject or "").strip(),
         },
     )
+    if str(account.consent_stage or "").strip().lower() != "identity":
+        try:
+            resume_latest_telegram_gmail_draft_after_google_connect(
+                container=container,
+                principal_id=account.binding.principal_id,
+            )
+        except Exception:
+            pass
     return _account_out(account)
 
 

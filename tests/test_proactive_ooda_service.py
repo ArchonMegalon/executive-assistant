@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 
+from app.services.proactive_ooda_safe_work import build_safe_work_result
 from app.services.proactive_ooda_service import (
     JsonOodaStateStore,
     ProactiveOodaService,
     build_run_receipt,
     format_telegram_digest,
 )
+from app.services.proactive_ooda_stage_packets import build_stage_packets
 
 
 def test_proactive_ooda_notifies_only_actionable_signals_and_keeps_evidence(tmp_path) -> None:
@@ -46,6 +48,98 @@ def test_proactive_ooda_notifies_only_actionable_signals_and_keeps_evidence(tmp_
     assert sent and sent[0][0] == "exec"
     assert "If ignored:" in sent[0][1]
     assert "Evidence:" in sent[0][1]
+
+
+def test_proactive_ooda_treats_assistant_task_verbs_as_actionable() -> None:
+    service = ProactiveOodaService()
+
+    digest = service.build_digest(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "observation:alexa-history-1",
+                "signal_type": "alexa_transcript",
+                "channel": "product",
+                "title": "Kitchen note",
+                "summary": "Compare florist options for next week and stage the best candidate.",
+                "counterparty": "Alexa",
+            },
+            {
+                "source_ref": "observation:alexa-history-2",
+                "signal_type": "alexa_transcript",
+                "channel": "product",
+                "title": "Timer note",
+                "summary": "Tea timer update.",
+                "counterparty": "Alexa",
+            },
+        ],
+    )
+
+    assert [item.signal_ref for item in digest.items] == ["observation:alexa-history-1"]
+    assert digest.items[0].priority == "normal"
+    assert digest.items[0].approval_required is False
+
+
+def test_proactive_ooda_suppresses_low_signal_gmail_social_promotions_and_auto_alerts() -> None:
+    service = ProactiveOodaService()
+
+    digest = service.build_digest(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "gmail:social-update",
+                "signal_type": "email_thread",
+                "channel": "gmail",
+                "title": "Stefan Stacher hat ein Update gepostet",
+                "summary": "Stefan posted an update on a social network.",
+                "counterparty": "Stefan auf Facebook",
+                "payload": {"labels": ["INBOX", "CATEGORY_SOCIAL"]},
+            },
+            {
+                "source_ref": "gmail:promo-pay",
+                "signal_type": "email_thread",
+                "channel": "gmail",
+                "title": "Neu: Vela Pilates - die schoensten Reformer fuer zu Hause",
+                "summary": "Newsletter promotion. Dutch Design Sale. Pay later and shop the newest product line.",
+                "counterparty": "Westwing",
+                "payload": {"labels": ["CATEGORY_PROMOTIONS"], "list_unsubscribe": "<mailto:unsubscribe@example.test>"},
+            },
+            {
+                "source_ref": "gmail:auto-alert",
+                "signal_type": "email_thread",
+                "channel": "gmail",
+                "title": "[Alert] Tunnel propertyquarry is now down",
+                "summary": "Automated monitoring alert. Review the event in the dashboard.",
+                "counterparty": "Cloudflare",
+                "payload": {"auto_submitted": "auto-generated"},
+            },
+        ],
+    )
+
+    assert digest.items == ()
+
+
+def test_proactive_ooda_allows_low_signal_gmail_only_when_action_is_explicit() -> None:
+    service = ProactiveOodaService()
+
+    digest = service.build_digest(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "gmail:promo-action-required",
+                "signal_type": "email_thread",
+                "channel": "gmail",
+                "title": "Action required: contract signature deadline today",
+                "summary": "Please approve the contract before the deadline.",
+                "counterparty": "Vendor Portal",
+                "payload": {"labels": ["CATEGORY_UPDATES"], "list_unsubscribe": "<mailto:unsubscribe@example.test>"},
+            },
+        ],
+    )
+
+    assert [item.signal_ref for item in digest.items] == ["gmail:promo-action-required"]
+    assert digest.items[0].approval_required is True
+    assert digest.items[0].priority == "high"
 
 
 def test_proactive_ooda_dedupes_previously_notified_signals(tmp_path) -> None:
@@ -353,3 +447,48 @@ def test_format_telegram_digest_is_minimal_but_decision_ready() -> None:
     assert "Guardrail:" in text
     assert "Evidence:" in text
     assert "checks" not in text.lower()
+
+
+def test_format_telegram_digest_can_embed_safe_work_preview() -> None:
+    digest = ProactiveOodaService().build_digest(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "opportunity:vendor-approval",
+                "signal_type": "opportunity",
+                "channel": "assistant_opportunity",
+                "title": "Prepare one vendor approval packet",
+                "summary": "A reversible vendor choice is ready.",
+                "payload": {
+                    "ooda_loop": {
+                        "reviewed": True,
+                        "observe": {"summary": "Review the vendor shortlist."},
+                        "orient": {"summary": "A reversible option can be staged before approval."},
+                        "decide": {"summary": "Approve whether EA should proceed.", "approval_required": True},
+                        "act": {
+                            "summary": "Prepare the best approval link.",
+                            "stage": {
+                                "kind": "approval_packet",
+                                "summary": "One vendor candidate ready for approval.",
+                                "approval_url": "https://example.test/approve/vendor-a",
+                                "candidate_items": [
+                                    {"label": "Vendor A", "url": "https://example.test/vendor-a"},
+                                    {"label": "Vendor B", "url": "https://example.test/vendor-b"},
+                                ],
+                            },
+                            "external_action_policy": "Do not buy, book, send, cancel, post, or commit without explicit approval.",
+                        },
+                    }
+                },
+            }
+        ],
+    )
+    result = build_safe_work_result(build_stage_packets(digest)[0])
+
+    text = format_telegram_digest(digest, safe_work_results=(result,))
+
+    assert "Prepared: One vendor candidate ready for approval." in text
+    assert "Recommended: shortlist candidate: Vendor A | https://example.test/vendor-a" in text
+    assert "Link: https://example.test/approve/vendor-a" in text
+    assert "Shortlist: Vendor A - https://example.test/vendor-a" in text
+    assert "Approve: Approve whether EA should proceed with this staged shortlist candidate." in text

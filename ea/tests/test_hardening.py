@@ -32,6 +32,7 @@ from app.services import provider_registry
 from app.services import public_clickrank
 from app.services import public_rybbit
 from app.services import tool_execution_gemini_vortex_adapter as gemini_vortex_adapter
+from app.services import tool_execution_browseract_adapter
 from app.settings import (
     AuthSettings,
     ChannelSettings,
@@ -176,6 +177,44 @@ class HardeningTests(unittest.TestCase):
         )
         with patch.dict(os.environ, {"PROPERTYQUARRY_TRUST_X_FORWARDED_HOST": "1"}, clear=False):
             self.assertTrue(landing_browser._workspace_session_cookie_kwargs(request)["secure"])
+
+    def test_provider_secret_file_candidates_finds_parent_config_path_for_relative_password_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            repo_root = base / "repo"
+            repo_root.mkdir()
+            cwd = base / "runtime"
+            cwd.mkdir()
+            (base / "config").mkdir()
+            password_file = base / "config" / "amazon_archon_password"
+            password_file.write_text("fixture-secret-value", encoding="utf-8")
+            original_cwd = Path.cwd()
+            try:
+                os.chdir(cwd)
+                with patch.object(provider_registry, "_repo_root", return_value=repo_root):
+                    loaded = provider_registry._secret_file_value("../config/amazon_archon_password")
+                self.assertEqual(loaded, "fixture-secret-value")
+            finally:
+                os.chdir(original_cwd)
+
+    def test_browseract_secret_file_candidates_finds_parent_config_path_for_relative_password_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            repo_root = base / "repo"
+            repo_root.mkdir()
+            cwd = base / "runtime"
+            cwd.mkdir()
+            (base / "config").mkdir()
+            password_file = base / "config" / "amazon_archon_password"
+            password_file.write_text("fixture-secret-value", encoding="utf-8")
+            original_cwd = Path.cwd()
+            try:
+                os.chdir(cwd)
+                with patch.object(tool_execution_browseract_adapter, "_repo_root", return_value=repo_root):
+                    loaded = tool_execution_browseract_adapter._secret_file_value("../config/amazon_archon_password")
+                self.assertEqual(loaded, "fixture-secret-value")
+            finally:
+                os.chdir(original_cwd)
 
     def test_memorial_route_probe_collects_fast_and_failed_probes(self) -> None:
         def probe(url: str, timeout_seconds: float = 5.0) -> dict[str, object]:

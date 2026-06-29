@@ -45,6 +45,30 @@ def test_continuous_improvement_goal_keeps_acceptance_evidence_in_scope() -> Non
     assert "partial evidence must reduce the remaining blocker list" in goal_text
 
 
+def test_continuous_improvement_goal_keeps_paid_assistant_ooda_scope() -> None:
+    goal_text = (Path(__file__).resolve().parents[1] / ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md").read_text(
+        encoding="utf-8"
+    ).lower()
+
+    assert "smart paid human assistant" in goal_text
+    assert "paid-human-assistant-grade ooda loop" in goal_text
+    assert "filled carts" in goal_text
+    assert "inspect live sites" in goal_text
+    assert "decision-ready packet the user can approve, dismiss, or defer in seconds" in goal_text
+    assert "do not stop at a raw link dump" in goal_text
+    assert "approval-ready handoff" in goal_text
+    assert "staged link, approval state, delivery route, blockers, and follow-through receipt" in goal_text
+    assert "resume later without repeating research" in goal_text
+    assert "teable as an admin projection" in goal_text
+    assert "pocket.ai or other consented audio transcript stream" in goal_text
+    assert "audit before delivery" in goal_text
+    assert "provider/category fit" in goal_text
+    assert "1200 wien" in goal_text
+    assert "gmail draft" in goal_text
+    assert "telegram is an action surface, not a progress log" in goal_text
+    assert "stale-approval cleanup" in goal_text
+
+
 def test_continuous_improvement_goal_keeps_media_acceptance_in_scope() -> None:
     goal_text = (Path(__file__).resolve().parents[1] / ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md").read_text(
         encoding="utf-8"
@@ -132,6 +156,18 @@ def test_release_materialization_service_runs_expected_scripts_in_order(monkeypa
         for _, name, command, env in calls
     )
     assert any(
+        name == "proactive_ooda_operator_status"
+        and command == ("scripts/materialize_proactive_ooda_operator_status.py",)
+        and env is None
+        for _, name, command, env in calls
+    )
+    assert any(
+        name == "proactive_ooda_gold_acceptance"
+        and command == ("scripts/materialize_proactive_ooda_gold_acceptance.py",)
+        and env is None
+        for _, name, command, env in calls
+    )
+    assert any(
         name == "runtime_dependency_evidence"
         and command == ("scripts/materialize_runtime_dependency_evidence.py",)
         and env is None
@@ -148,7 +184,10 @@ def test_release_materialization_service_runs_expected_scripts_in_order(monkeypa
     assert names.index("telegram_video_delivery_live_receipt") < names.index("whole_project_gold_map")
     assert names.index("ea_provider_contract_receipts") < names.index("whole_project_gold_map")
     assert names.index("whole_project_gold_map") < names.index("teable_env_recovery_readiness")
-    assert names.index("teable_env_recovery_readiness") < names.index("continuous_improvement_goal_posture")
+    assert names.index("teable_env_recovery_readiness") < names.index("whatsapp_web_action_processor_readiness")
+    assert names.index("whatsapp_web_action_processor_readiness") < names.index("proactive_ooda_operator_status")
+    assert names.index("proactive_ooda_operator_status") < names.index("proactive_ooda_gold_acceptance")
+    assert names.index("proactive_ooda_gold_acceptance") < names.index("continuous_improvement_goal_posture")
     assert names.index("memorial_stt_provider_benchmark") < names.index("memorial_operator_status")
     assert names.index("runtime_dependency_evidence") < names.index("deploy_context")
     assert names.index("deploy_context") < names.index("release_manifest")

@@ -52,7 +52,11 @@ capability_slots:
     vendor_plan_tier: License Tier 7 / Scale 3
     workspace_tier: Tier 4 until provider proof and source-bound roundtrip pass
     contract: SUBSCRIBR_SCRIPT_FACTORY_PROVIDER_BOUNDARY.md
-    boundary: approved_source_packet_only; no repo credentials; no rules_truth; no_release_truth; no_private_campaign_truth; no_direct_publish; scripts, hooks, metadata, and thumbnail briefs return to Chummer-owned review before publication
+    boundary: approved_source_packet_only; no repo credentials; no rules_truth; no_release_truth; no_origin_canon_truth; no_private_campaign_truth; no_direct_publish; runbook scripts, tutorial drafts, origin-dossier narration, hooks, metadata, and thumbnail briefs return to Chummer-owned review before publication
+  premium_long_form_authoring:
+    primary: First Book ai
+    contract: ORIGIN_BOOK_STUDIO.md
+    boundary: approved_packet_set_only; chapter_review_required; no_rules_truth; no_origin_canon_truth; no_publication_truth; exports return to Chummer-owned validation before release
   discovery_research:
     primary:
       - Icanpreneur

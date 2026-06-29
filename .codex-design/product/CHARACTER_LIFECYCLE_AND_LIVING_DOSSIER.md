@@ -117,19 +117,20 @@ The current desktop dossier lane may generate an optional `Origin Dossier Bundle
 The bundle can include:
 
 * approved origin canon
-* humanized player-facing origin text that is checked against the approved canon facts
+* a Chummer-owned source packet plus accepted Subscribr narration or script export that is checked against the approved canon facts
 * dossier PDF
 * portrait candidate set and one selected portrait
 * scene candidate set and one selected scene
-* a selectable narration posture with a default narration packet and an alternate narration packet
+* a selectable narration posture with provider-bound narration variants when approved
 * video storyboard and vidBoard packet
 * local media-factory render requests and receipts
+* optional First Book ai premium dossier-book packet refs after separate approval
 
 The origin bundle is downstream of the runner dossier.
 It can inform ALICE suggestions, but it must not become the source of legality, nuyen, ware entitlement, or quality truth.
 GM allowances and requirements may seed the origin bundle, including extra gear, ware, availability exceptions, required magical activity, required addiction hooks, minimum attribute posture, or table-specific starting resources.
 Those inputs are table context until the player or GM commits matching mechanical edits through the normal character workflow.
-`Undetectable Humanizer LTD` output is presentation only: if it drops, adds, or mutates an approved canon or GM-steer fact, Chummer discards the humanized version and keeps the canonical draft.
+Any `Undetectable Humanizer LTD` pass is presentation only and stays downstream of the approved packet or accepted provider draft: if it drops, adds, or mutates an approved canon or GM-steer fact, Chummer discards it and keeps the canonical version.
 
 ## User-safe promise
 

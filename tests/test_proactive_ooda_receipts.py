@@ -68,6 +68,57 @@ def test_receipt_payload_is_redacted_and_keeps_delivery_facts() -> None:
     assert "Approve renewal today" not in serialized
 
 
+def test_receipt_payload_keeps_redacted_approval_surface_facts() -> None:
+    digest = ProactiveOodaService().build_digest(
+        principal_id="cf-email:user@example.test",
+        signals=[
+            {
+                "source_ref": "telegram:raw-source",
+                "signal_type": "operator_signal",
+                "channel": "telegram",
+                "title": "Action required: approve renewal",
+                "summary": "Approve renewal today.",
+            }
+        ],
+    )
+    receipt = build_run_receipt(
+        digest=digest,
+        dry_run=False,
+        notification_result={
+            "message_id": 42,
+            "approval_surface": {
+                "present": True,
+                "channel": "telegram",
+                "status": "pending",
+                "callback_token_sha256": "b" * 64,
+                "packet_ref_sha256": "c" * 64,
+                "staged_artifact_sha256": "d" * 64,
+                "approval_prompt_sha256": "e" * 64,
+                "staged_action_url_sha256": "f" * 64,
+                "message_ids": ["43"],
+                "privacy": {
+                    "raw_callback_token_stored": False,
+                    "raw_packet_ref_stored": False,
+                    "raw_staged_artifact_ref_stored": False,
+                    "raw_approval_prompt_stored": False,
+                    "raw_staged_action_url_stored": False,
+                },
+            },
+        },
+    )
+
+    payload = proactive_ooda_receipt_payload(digest=digest, receipt=receipt)
+    serialized = json.dumps(payload, sort_keys=True)
+
+    assert payload["approval_surface_present"] is True
+    assert payload["approval_surface_status"] == "pending"
+    assert payload["approval_surface_message_count"] == 1
+    assert payload["approval_surface"]["callback_token_sha256"] == "b" * 64
+    assert payload["approval_surface"]["message_ids"] == ("43",)
+    assert '"callback_token":' not in serialized
+    assert "stage_packet:packet-1" not in serialized
+
+
 def test_receipt_payload_keeps_redacted_stage_telemetry() -> None:
     digest = ProactiveOodaService().build_digest(
         principal_id="cf-email:user@example.test",

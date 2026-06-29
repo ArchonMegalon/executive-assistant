@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 
 from app.container import AppContainer
 from app.product.commercial import workspace_plan_for_mode
+
+_OPERATOR_BOOTSTRAP_SLUG_RE = re.compile(r"[^a-z0-9]+")
 
 
 def _repo_root() -> Path:
@@ -43,6 +46,94 @@ def _default_operator_id_for_browser(container: AppContainer, *, principal_id: s
     if not operators:
         return ""
     return str(operators[0].operator_id or "").strip()
+
+
+def operator_bootstrap_needed(container: AppContainer, *, principal_id: str) -> bool:
+    operators = container.orchestrator.list_operator_profiles(principal_id=principal_id, status="active", limit=1)
+    return not bool(operators)
+
+
+def operator_bootstrap_defaults(*, principal_id: str, access_email: str = "") -> dict[str, str]:
+    email_hint = str(access_email or _principal_email_hint(principal_id)).strip().lower()
+    operator_id = _operator_id_from_email(email_hint) if email_hint else _operator_id_from_principal(principal_id)
+    display_name = _display_name_from_email(email_hint) if email_hint else "Workspace Operator"
+    return {
+        "email_hint": email_hint,
+        "operator_id": operator_id,
+        "display_name": display_name,
+    }
+
+
+def bootstrap_initial_operator_profile(
+    container: AppContainer,
+    *,
+    principal_id: str,
+    access_email: str = "",
+    operator_id: str = "",
+    display_name: str = "",
+    notes: str = "",
+):
+    normalized_principal = str(principal_id or "").strip()
+    if not normalized_principal:
+        raise ValueError("principal_id_required")
+    if not operator_bootstrap_needed(container, principal_id=normalized_principal):
+        raise ValueError("operator_profile_bootstrap_not_allowed")
+    defaults = operator_bootstrap_defaults(principal_id=normalized_principal, access_email=access_email)
+    resolved_operator_id = str(operator_id or defaults["operator_id"]).strip()
+    resolved_display_name = str(display_name or defaults["display_name"]).strip()
+    if not resolved_operator_id:
+        raise ValueError("operator_id_required")
+    if not resolved_display_name:
+        raise ValueError("display_name_required")
+    status = container.onboarding.status(principal_id=normalized_principal)
+    workspace = dict(status.get("workspace") or {})
+    plan = workspace_plan_for_mode(str(workspace.get("mode") or "personal"))
+    active = container.orchestrator.list_operator_profiles(principal_id=normalized_principal, status="active", limit=500)
+    if len(active) >= plan.entitlements.operator_seats:
+        raise ValueError("operator_seat_limit_reached")
+    email_hint = str(defaults.get("email_hint") or "").strip()
+    default_notes = "Bootstrapped the first operator profile for this workspace."
+    if email_hint:
+        default_notes = f"{default_notes} Email hint: {email_hint}."
+    return container.orchestrator.upsert_operator_profile(
+        principal_id=normalized_principal,
+        operator_id=resolved_operator_id,
+        display_name=resolved_display_name,
+        roles=("operator", "reviewer"),
+        trust_tier="standard",
+        status="active",
+        notes=str(notes or default_notes).strip() or default_notes,
+    )
+
+
+def _principal_email_hint(principal_id: str) -> str:
+    normalized = str(principal_id or "").strip()
+    if normalized.startswith("cf-email:"):
+        candidate = normalized.partition(":")[2].strip().lower()
+        if "@" in candidate:
+            return candidate
+    return ""
+
+
+def _display_name_from_email(value: str) -> str:
+    normalized = str(value or "").strip().lower()
+    local = normalized.split("@", 1)[0] if "@" in normalized else normalized
+    parts = [part for part in re.split(r"[._+-]+", local) if part]
+    label = " ".join(part[:1].upper() + part[1:] for part in parts)
+    return label or "Workspace Operator"
+
+
+def _operator_id_from_email(value: str) -> str:
+    normalized = str(value or "").strip().lower()
+    local = normalized.split("@", 1)[0] if "@" in normalized else normalized
+    slug = _OPERATOR_BOOTSTRAP_SLUG_RE.sub("-", local).strip("-")
+    return f"operator-{slug or 'workspace'}"
+
+
+def _operator_id_from_principal(value: str) -> str:
+    normalized = str(value or "").strip().lower().replace(":", "-")
+    slug = _OPERATOR_BOOTSTRAP_SLUG_RE.sub("-", normalized).strip("-")
+    return f"operator-{slug or 'workspace'}"
 
 
 def _app_live_feed(container: AppContainer, *, principal_id: str) -> dict[str, object]:

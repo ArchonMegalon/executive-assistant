@@ -93,9 +93,9 @@ horizons:
   - dossier_media_packet
   - alice_followup_context
   - player_scoped_origin_audiobook
-  proof_gate: Origin Dossier packets must prove approved canon, bundle lineage, GM/player approval, media provenance, scoped audiobook access, and non-mutating mechanics posture before any public claim widens.
+  proof_gate: Origin Dossier packets must prove approved canon, mechanics snapshot lineage, GM/player approval, provider export validation, media provenance, scoped audiobook access, and non-mutating mechanics posture before any public claim widens.
   public_claim_posture: Public copy may describe Origin Dossier as a shipped desktop ALICE lane for approved origin canon, dossier-media packets, and optional player-scoped origin-story audiobooks; it must not claim mechanical mutation, automatic legality, provider-owned character truth, or broad Audiobookshelf access.
-  stop_condition: Stop promotion if approved canon can mutate sheet mechanics, if GM steer becomes automatic entitlement, if media output loses source and approval lineage, or if the desktop can reach a global Audiobookshelf library instead of a scoped EA reference.
+  stop_condition: Stop promotion if approved canon can mutate sheet mechanics, if GM steer becomes automatic entitlement, if provider output loses source or approval lineage, or if the desktop can reach a global Audiobookshelf library instead of a scoped EA reference.
   milestone_family: H3
   release_blocking: false
   foundations:
@@ -107,6 +107,8 @@ horizons:
     promoted:
     - ALICE
     bounded:
+    - Subscribr.ai
+    - First Book ai
     - vidBoard
     - MagicFit
     - Unmixr AI
@@ -115,7 +117,7 @@ horizons:
   success_signals:
   - Blank-state and active-runner origin drafts can become approved canon without hidden sheet mutation.
   - GM allowances and hard requirements remain advisory until normal character editing commits matching mechanics.
-  - Dossier media packets preserve source hashes, approval state, selected assets, narration posture, and render receipts.
+  - Dossier media and narration packets preserve source hashes, approval state, selected assets, provider receipts, and render receipts.
   - Later ALICE answers can reference approved origin canon while still citing Chummer-owned mechanics truth for rules claims.
   artifact_types:
   - approved origin canon
@@ -448,9 +450,9 @@ horizons:
   - creator_press_preview
   - long_form_source_pack
   - publication_manifest_preview
-  proof_gate: Runbook Press packets must prove source-pack approval, editorial review, compatibility metadata, publication manifests, and revocation before any publishing claim widens.
+  proof_gate: Runbook Press packets must prove source-pack approval, provider export validation, editorial review, compatibility metadata, publication manifests, and revocation before any publishing claim widens.
   public_claim_posture: Public copy may describe RUNBOOK PRESS as a shipped first-party primer and campaign-book lane; it must not claim finished marketplace or license authority beyond Chummer-owned publication truth.
-  stop_condition: Stop promotion if source packs, compatibility metadata, editorial approval, or publication manifests are missing or stale.
+  stop_condition: Stop promotion if source packets, compatibility metadata, provider review, editorial approval, or publication manifests are missing or stale.
   milestone_family: H3
   release_blocking: false
   foundations:
@@ -459,6 +461,7 @@ horizons:
   - E2b
   tool_posture:
     promoted:
+    - Subscribr.ai
     - First Book ai
     - MarkupGo
     - Documentation.AI
@@ -467,7 +470,7 @@ horizons:
     - Soundmadeseen
     - Unmixr AI
   success_signals:
-  - Long-form outputs keep publication manifests, source packs, and editorial approvals aligned.
+  - Runbook and manual outputs keep publication manifests, source packets, provider receipts, and editorial approvals aligned.
   - The lane remains distinct from JACKPOINT short-form artifact work.
   artifact_types:
   - player primer

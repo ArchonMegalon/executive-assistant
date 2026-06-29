@@ -28,13 +28,13 @@ It does not imply that every owned tool must be integrated.
 * `Soundmadeseen` - narrated media, recap, and briefing clips
 * `Signitic` - passive outreach and signature-campaign projection lane
 * `Emailit` - outbound delivery provider candidate for Hub-owned lifecycle, digest, and closeout mail
-* `Subscribr.ai` - Tier 7 YouTube idea, script, hook, metadata, and thumbnail-brief lane for approved creator/public-growth source packets
+* `Subscribr.ai` - Tier 7 runbook, tutorial, origin-dossier, and YouTube script lane for approved source packets
 * `Taja` - approved media repurposing and distribution lane
 * `Teable` - operator admin projection and AdminIntent workbench, never system of record
 * `vidBoard` - structured presenter-video and multilingual walkthrough lane
 * `Crezlo Tours` - explorable GM run-site artifacts
 * `Deftform` - structured intake and concierge handoff lane
-* `First Book ai` - long-form player, GM, and creator authoring lane
+* `First Book ai` - premium long-form player, GM, and creator book or manual lane after approved packet review
 * `Lunacal` - invitation-only scheduling lane for creator consults, press/research, GM office hours, and rare publisher or premium review sessions; not normal Chummer support
 * `MarkupGo` - bounded document rendering and formatted artifact output
 * `AvoMap` - route and location visualization lane
@@ -100,7 +100,7 @@ Working rule:
 * `Taja` may repurpose approved media only after claim and publication approval; it does not become artifact truth.
 * `ProductLift` may collect public ideas, votes, and reactions, but Chummer-owned packets and Product Governor decisions remain canonical.
 * `Katteb` may draft or optimize public content only from approved source packets; accepted changes return to Chummer-owned source before publication.
-* `Subscribr.ai` may turn approved public-growth, creator, or tutorial source packets into YouTube ideas, scripts, hooks, metadata, and thumbnail briefs, but accepted copy still returns to Chummer-owned source and publication review before release.
+* `Subscribr.ai` may turn approved public-growth, creator, tutorial, runbook, or origin-dossier source packets into ideas, scripts, hooks, metadata, narration drafts, and thumbnail briefs, but accepted copy still returns to Chummer-owned source and publication review before release.
 * `ClickRank` may audit public crawl health, metadata, schema, internal links, and AI-search visibility, but Chummer-owned source and Product Governor/content-owner review remain canonical.
 
 ## Public concierge / trust posture
@@ -134,6 +134,7 @@ Working rule:
 * `NextStep` - `fleet` for governed process execution and mirrored operator runbooks
 * `Signitic` - `chummer6-hub` for destination shaping, segment routing, UTM naming, and public recruitment/release/world-tick campaign routing; `chummer6-design` for public-safe claim boundaries; `fleet` for bounded measurement review
 * `Subscribr.ai` - `chummer6-media-factory` for creator/video preproduction drafts, `chummer6-design` for approved source-packet boundaries, and `executive-assistant` for channel brief normalization; credentials stay in the external account vault and are not repo content
+* `First Book ai` - `chummer6-hub` for premium packet shaping and review workflow, `chummer6-hub-registry` for export refs and publication gating, and `executive-assistant` for bounded operator-side export fallback when needed
 * `Taja` - `chummer6-media-factory` for approved media repurposing and distribution only
 * `hedy.ai` - `chummer6-hub` for consent-gated coaching packet orchestration, `chummer6-media-factory` for transcript prep and rendered recap packet support
 * `Nonverbia` - `chummer6-hub` for coaching analysis and privacy gating, `chummer6-media-factory` for bounded rendered outputs
@@ -177,9 +178,15 @@ Do not chase more generic AI writers, support widgets, no-code databases, meetin
   `Crezlo Tours`, `AvoMap`, and `PeekShot` are the promoted explorable/location lanes.
   `Soundmadeseen` is an optional narration layer.
   `Browserly` is bounded capture and reference support only.
+* `origin-dossier`
+  `Subscribr.ai` is the promoted narration, video-script, and production-board lane from approved origin packets.
+  `First Book ai` is the premium chaptered dossier-book lane after player and GM approval.
+  `MarkupGo`, `vidBoard`, and `Soundmadeseen` are promoted packaging and media companions.
+  `Unmixr AI` and `Browserly` remain bounded helper lanes only.
 * `runbook-press`
+  `Subscribr.ai` is the promoted runbook, tutorial, and explainer-script lane from approved source packets.
   `vidBoard` is the promoted campaign primer and module explainer video lane.
-  `First Book ai`, `MarkupGo`, and `Documentation.AI` are the promoted authoring/export lanes.
+  `First Book ai`, `MarkupGo`, and `Documentation.AI` are the promoted premium authoring/export lanes.
   `Soundmadeseen` is the promoted narrated companion lane.
   `Unmixr AI` and `Browserly` remain bounded helper lanes only.
 * `karma-forge`

@@ -352,6 +352,242 @@ def test_telegram_bot_workflow_media_prompts(monkeypatch: pytest.MonkeyPatch) ->
     assert len(sent) == 7
 
 
+def test_telegram_bot_workflow_stages_inline_proactive_task_packet(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-inline-proactive")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-inline-proactive")
+    monkeypatch.setenv("EA_TELEGRAM_CALLBACK_SECRET", "callback-secret")
+    monkeypatch.setenv("EA_PROACTIVE_OODA_SAFE_WORK_NETWORK_FETCH_ENABLED", "0")
+    monkeypatch.setenv("EA_PROACTIVE_OODA_STAGE_PACKET_DIR", str(tmp_path / "stage-packets"))
+    monkeypatch.setenv("EA_PROACTIVE_OODA_SAFE_WORK_RESULT_DIR", str(tmp_path / "safe-work"))
+    monkeypatch.setenv("EA_PROACTIVE_OODA_STATE_PATH", str(tmp_path / "state" / "notified.json"))
+    monkeypatch.setenv("EA_PROACTIVE_OODA_RECEIPT_PATH", str(tmp_path / "state" / "inline-receipt.generated.json"))
+
+    from app.api.routes import channels as channels_route
+
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 9902}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        payload = json.loads(request.data.decode("utf-8"))
+        sent.append(payload)
+        return _FakeResponse()
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+
+    client = _client(principal_id="")
+    agent = _TelegramScenarioAgent(client, secret="tg-secret")
+
+    response = agent.ask("When you find a chimney sweep, draft an email inquiry and save it for approval.")
+    assert response["reply_sent"] is True
+    assert "Saved. I staged this as a reversible next step." in str(response["reply_text"])
+    assert "Queue: https://myexternalbrain.com/app/queue" in str(response["reply_text"])
+    assert "Draft preview:" in str(response["reply_text"])
+
+    assert len(sent) == 1
+    reply_markup = dict(sent[0].get("reply_markup") or {})
+    inline_keyboard = list(reply_markup.get("inline_keyboard") or [])
+    assert inline_keyboard
+    first_row = [dict(button) for button in inline_keyboard[0]]
+    assert [button.get("text") for button in first_row] == ["Approve", "Reject", "Later"]
+    assert all(str(button.get("callback_data") or "").startswith("po|") for button in first_row)
+
+    stage_paths = list((tmp_path / "stage-packets").glob("*.json"))
+    safe_work_paths = list((tmp_path / "safe-work").glob("*.json"))
+    callback_paths = list((tmp_path / "state" / "proactive_ooda_approval_callbacks").glob("*.json"))
+    assert len(stage_paths) == 1
+    assert len(safe_work_paths) == 1
+    assert len(callback_paths) == 1
+
+    stage_packet = json.loads(stage_paths[0].read_text(encoding="utf-8"))
+    safe_work_result = json.loads(safe_work_paths[0].read_text(encoding="utf-8"))
+    callback_record = json.loads(callback_paths[0].read_text(encoding="utf-8"))
+
+    assert stage_packet["approval"]["required"] is True
+    assert stage_packet["stage"]["kind"] == "approval_packet"
+    assert safe_work_result["work_type"] == "draft"
+    assert safe_work_result["status"] == "staged_for_user_decision"
+    assert safe_work_result["recommended_option_or_draft"]["kind"] == "draft_text"
+    assert callback_record["status"] == "pending"
+    assert callback_record["prompt_message_count"] == 1
+
+
+def test_telegram_bot_inline_proactive_overrides_generic_async_task(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-inline-proactive-async")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-inline-proactive-async")
+    monkeypatch.setenv("EA_TELEGRAM_CALLBACK_SECRET", "callback-secret")
+    monkeypatch.setenv("EA_PROACTIVE_OODA_SAFE_WORK_NETWORK_FETCH_ENABLED", "0")
+    monkeypatch.setenv("EA_PROACTIVE_OODA_STAGE_PACKET_DIR", str(tmp_path / "stage-packets"))
+    monkeypatch.setenv("EA_PROACTIVE_OODA_SAFE_WORK_RESULT_DIR", str(tmp_path / "safe-work"))
+    monkeypatch.setenv("EA_PROACTIVE_OODA_STATE_PATH", str(tmp_path / "state" / "notified.json"))
+    monkeypatch.setenv("EA_PROACTIVE_OODA_RECEIPT_PATH", str(tmp_path / "state" / "inline-receipt.generated.json"))
+
+    from app.api.routes import channels as channels_route
+
+    sent: list[dict[str, object]] = []
+    scheduled: list[dict[str, object]] = []
+    acks: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 9903}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        payload = json.loads(request.data.decode("utf-8"))
+        sent.append(payload)
+        return _FakeResponse()
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(
+        channels_route,
+        "_telegram_session_turn",
+        lambda **kwargs: channels_route.TelegramTurnDecision(
+            reply_text="Working on it.",
+            schedule_async=True,
+            async_text=str(dict(kwargs.get("payload") or {}).get("text") or ""),
+            async_message_id=str(dict(kwargs.get("payload") or {}).get("message_id") or ""),
+            async_payload={"kind": "generic_task"},
+        ),
+    )
+    monkeypatch.setattr(channels_route, "_telegram_send_processing_ack", lambda **kwargs: acks.append(kwargs))
+    monkeypatch.setattr(channels_route, "_telegram_schedule_async_assistant_reply", lambda **kwargs: scheduled.append(kwargs))
+
+    client = _client(principal_id="")
+    agent = _TelegramScenarioAgent(client, secret="tg-secret")
+
+    response = agent.ask("When you find a chimney sweep, draft an email inquiry and save it for approval.")
+    assert response["reply_sent"] is True
+    assert "Saved. I staged this as a reversible next step." in str(response["reply_text"])
+    assert "Queue: https://myexternalbrain.com/app/queue" in str(response["reply_text"])
+    assert not acks
+    assert not scheduled
+
+    assert len(sent) == 1
+    reply_markup = dict(sent[0].get("reply_markup") or {})
+    inline_keyboard = list(reply_markup.get("inline_keyboard") or [])
+    assert inline_keyboard
+
+    stage_paths = list((tmp_path / "stage-packets").glob("*.json"))
+    safe_work_paths = list((tmp_path / "safe-work").glob("*.json"))
+    assert len(stage_paths) == 1
+    assert len(safe_work_paths) == 1
+
+
+def test_telegram_bot_followup_draft_reuses_recent_search_context_and_auto_executes_gmail_draft(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-inline-proactive-followup")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-inline-proactive-followup")
+    monkeypatch.setenv("EA_TELEGRAM_CALLBACK_SECRET", "callback-secret")
+    monkeypatch.setenv("EA_PROACTIVE_OODA_SAFE_WORK_NETWORK_FETCH_ENABLED", "0")
+    monkeypatch.setenv("EA_PROACTIVE_OODA_STAGE_PACKET_DIR", str(tmp_path / "stage-packets"))
+    monkeypatch.setenv("EA_PROACTIVE_OODA_SAFE_WORK_RESULT_DIR", str(tmp_path / "safe-work"))
+    monkeypatch.setenv("EA_PROACTIVE_OODA_STATE_PATH", str(tmp_path / "state" / "notified.json"))
+    monkeypatch.setenv("EA_PROACTIVE_OODA_RECEIPT_PATH", str(tmp_path / "state" / "inline-receipt.generated.json"))
+
+    from app.api.routes import channels as channels_route
+
+    sent: list[dict[str, object]] = []
+    executions: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 9904}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        payload = json.loads(request.data.decode("utf-8"))
+        sent.append(payload)
+        return _FakeResponse()
+
+    def _fake_execute(**kwargs):
+        executions.append(kwargs)
+        return {
+            "status": "executed",
+            "action": "save_gmail_draft",
+            "work_type": "draft",
+            "gmail_draft_id": "gmail-draft-followup-1",
+            "draft_folder_url": "https://mail.google.com/mail/u/0/#drafts",
+        }
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(channels_route, "execute_proactive_ooda_action", _fake_execute)
+
+    client = _client(principal_id="")
+    agent = _TelegramScenarioAgent(client, secret="tg-secret")
+
+    first = agent.ask("suche mir rauchfangkehrer - ich brauche ein Gutachten, ob ich meinen Zimmerkamin als Abluftrohr eines Klimageraets verwenden kann")
+    assert first["reply_sent"] is True
+    assert "Saved. I staged this as a reversible next step." in str(first["reply_text"])
+
+    followup = agent.ask("wenn du einen gefunden hast formuliere eine emailanfrage und speicher sie als draft in meiner inbox. schicke mir hier den link zu ihr.")
+    assert followup["reply_sent"] is True
+    assert "Saved. I created the Gmail draft." in str(followup["reply_text"])
+    assert "Open Drafts: https://mail.google.com/mail/u/0/#drafts" in str(followup["reply_text"])
+    assert executions
+
+    stage_paths = sorted((tmp_path / "stage-packets").glob("*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
+    assert len(stage_paths) >= 2
+    latest_stage = json.loads(stage_paths[0].read_text(encoding="utf-8"))
+    input_contract = dict(latest_stage["safe_work_order"]["input_contract"])
+
+    assert latest_stage["approval"]["required"] is False
+    assert latest_stage["stage"]["payload"]["auto_execute_action"] == "save_gmail_draft"
+    assert input_contract["draft_mode"] == "research_backed_inquiry"
+    assert "suche mir rauchfangkehrer" in input_contract["draft_request_text"].lower()
+    assert "speicher sie als draft in meiner inbox" in input_contract["draft_request_text"].lower()
+    assert input_contract["research_query"] == "rauchfangkehrer"
+    assert input_contract["search_queries"][0].startswith("rauchfangkehrer ")
+    assert "Gutachten" in input_contract["search_queries"][0]
+    assert input_contract["search_queries"][1] == "rauchfangkehrer Gutachten Zimmerkamin Abluftrohr"
+    assert input_contract["search_queries"][-1] == "rauchfangkehrer"
+    assert executions[0]["packet_ref"] == latest_stage["packet_ref"]
+    reply_markup = dict(sent[-1].get("reply_markup") or {})
+    inline_keyboard = list(reply_markup.get("inline_keyboard") or [])
+    assert inline_keyboard
+    callback_dir = tmp_path / "state" / "proactive_ooda_approval_callbacks"
+    callback_rows = [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in callback_dir.glob("*.json")
+    ]
+    assert any(row.get("packet_ref") == latest_stage["packet_ref"] for row in callback_rows)
+
+
 def test_telegram_epub_webhook_sends_three_voice_samples_with_inline_controls(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -26,8 +26,12 @@ def app_shell(
 
 
 @router.get("/admin", response_class=HTMLResponse)
-def admin_root(_: None = Depends(deps.require_operator_context)) -> RedirectResponse:
-    return support.admin_root()
+def admin_root(
+    request: Request,
+    container: deps.AppContainer = Depends(deps.get_container),
+    context: deps.RequestContext = Depends(deps.get_request_context),
+) -> RedirectResponse:
+    return support.admin_root(request=request, container=container, context=context)
 
 
 @router.get("/admin/{section}", response_class=HTMLResponse)
@@ -36,9 +40,28 @@ def admin_shell(
     request: Request,
     container: deps.AppContainer = Depends(deps.get_container),
     context: deps.RequestContext = Depends(deps.get_request_context),
-    _: None = Depends(deps.require_operator_context),
 ) -> HTMLResponse:
+    if section == "bootstrap-operator":
+        return support.admin_operator_bootstrap(request=request, container=container, context=context)
     return support.admin_shell(section=section, request=request, container=container, context=context)
+
+
+@router.get("/admin/bootstrap-operator", response_class=HTMLResponse, response_model=None)
+def admin_operator_bootstrap(
+    request: Request,
+    container: deps.AppContainer = Depends(deps.get_container),
+    context: deps.RequestContext = Depends(deps.get_request_context),
+):
+    return support.admin_operator_bootstrap(request=request, container=container, context=context)
+
+
+@router.get("/admin/proactive-ooda/approval", response_class=HTMLResponse, response_model=None)
+def admin_proactive_ooda_approval_capture(
+    request: Request,
+    container: deps.AppContainer = Depends(deps.get_container),
+    context: deps.RequestContext = Depends(deps.get_request_context),
+):
+    return support.admin_proactive_ooda_approval_capture(request=request, container=container, context=context)
 
 
 @router.get("/setup")

@@ -5,14 +5,305 @@ import json
 import os
 import re
 import time
+import unicodedata
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 from xml.etree import ElementTree
 
 from app.services.proactive_ooda_service import JsonOodaStateStore, ProactiveSignal
+
+_TRANSCRIPT_REQUEST_MARKERS = (
+    "book",
+    "buy",
+    "can you",
+    "compare",
+    "could you",
+    "finde",
+    "find",
+    "formuliere",
+    "brauch",
+    "brauche",
+    "ich brauche",
+    "kannst du",
+    "koenntest du",
+    "need to",
+    "order",
+    "please",
+    "remember to",
+    "renew",
+    "reply",
+    "reserve",
+    "respond",
+    "review",
+    "schedule",
+    "schick",
+    "schicke",
+    "schreib",
+    "schreibe",
+    "shop",
+    "should",
+    "such",
+    "suche",
+    "wenn du",
+    "write",
+)
+_TRANSCRIPT_DRAFT_TERMS = (
+    "draft",
+    "e-mail",
+    "email",
+    "entwurf",
+    "formuliere",
+    "inbox",
+    "mail",
+    "message",
+    "reply",
+    "respond",
+    "schicke",
+    "schreibe",
+    "text back",
+    "write back",
+)
+_TRANSCRIPT_DRAFT_SAVE_TERMS = (
+    "als draft in meiner inbox",
+    "als entwurf in meiner inbox",
+    "draft in meiner inbox",
+    "draft in my inbox",
+    "save it as a draft",
+    "save it as draft",
+    "save the draft in my inbox",
+    "save this as a draft",
+    "save this as draft",
+    "save to my inbox",
+    "speicher den entwurf in meiner inbox",
+    "speicher es als draft",
+    "speicher es als entwurf",
+    "speicher es in meiner inbox",
+    "speicher ihn als draft",
+    "speicher ihn als entwurf",
+    "speicher sie als draft",
+    "speicher sie als entwurf",
+    "speichere den entwurf in meiner inbox",
+    "speichere es als draft",
+    "speichere es als entwurf",
+    "speichere es in meiner inbox",
+    "speichere ihn als draft",
+    "speichere ihn als entwurf",
+    "speichere sie als draft",
+    "speichere sie als entwurf",
+)
+_TRANSCRIPT_BOOKING_TERMS = (
+    "appointment",
+    "book",
+    "booking",
+    "buch",
+    "buche",
+    "flight",
+    "hotel",
+    "reservation",
+    "reserve",
+    "restaurant",
+    "schedule",
+    "termin",
+    "table",
+    "viewing",
+    "visit",
+)
+_TRANSCRIPT_COMPARE_TERMS = (
+    "buy",
+    "candidate",
+    "compare",
+    "finde",
+    "find",
+    "florist",
+    "gift",
+    "kandidat",
+    "kandidaten",
+    "option",
+    "order",
+    "provider",
+    "renew",
+    "renewal",
+    "search",
+    "such",
+    "suche",
+    "shop",
+    "shopping",
+    "shortlist",
+    "supplier",
+    "vendor",
+)
+_TRANSCRIPT_SERVICE_PROVIDER_MARKERS = (
+    "befund",
+    "befundung",
+    "chimney sweep",
+    "contractor",
+    "estimate",
+    "expert",
+    "gutachten",
+    "inspection",
+    "provider",
+    "quote",
+    "rauchfangkehrer",
+    "repair",
+    "schornsteinfeger",
+    "specialist",
+    "technician",
+    "vendor",
+)
+_TRANSCRIPT_SHOPPING_MARKERS = (
+    "buy",
+    "flowers",
+    "gift",
+    "hotel",
+    "order",
+    "restaurant",
+    "shop",
+    "shopping",
+)
+_TRANSCRIPT_SEARCH_QUERY_STOPWORDS = {
+    "a",
+    "als",
+    "an",
+    "approval",
+    "ask",
+    "bitte",
+    "brauch",
+    "brauche",
+    "can",
+    "could",
+    "draft",
+    "du",
+    "eines",
+    "einen",
+    "eine",
+    "einem",
+    "einer",
+    "email",
+    "emailanfrage",
+    "find",
+    "finde",
+    "finden",
+    "found",
+    "formuliere",
+    "gefunden",
+    "hast",
+    "here",
+    "ich",
+    "ihnen",
+    "in",
+    "inbox",
+    "inquiry",
+    "it",
+    "ihr",
+    "ihre",
+    "ihren",
+    "kannst",
+    "koenntest",
+    "link",
+    "me",
+    "mein",
+    "meine",
+    "meinen",
+    "meinem",
+    "meiner",
+    "mir",
+    "my",
+    "ob",
+    "of",
+    "one",
+    "please",
+    "reply",
+    "save",
+    "schicke",
+    "schreibe",
+    "send",
+    "sie",
+    "speicher",
+    "suche",
+    "such",
+    "the",
+    "to",
+    "use",
+    "verwenden",
+    "want",
+    "we",
+    "wenn",
+    "you",
+}
+_TRANSCRIPT_HIGH_RISK_TERMS = (
+    "beauftrage",
+    "book",
+    "buy",
+    "cancel",
+    "commit",
+    "kaufe",
+    "order",
+    "pay",
+    "sende",
+    "purchase",
+    "reply",
+    "reserve",
+    "respond",
+    "schick",
+    "schicke",
+    "send",
+    "sign",
+    "write back",
+)
+_TRANSCRIPT_SUPPRESSION_PATTERNS = (
+    re.compile(r"\b(?:stop|no more|quit)\b(?:\s+(?:with|about|regarding|on))?\s+(?P<topic>.+)", re.IGNORECASE),
+    re.compile(r"\b(?:do not|don't)\b(?:\s+(?:send|research|compare|shop|buy|book|look for|talk about))?(?:\s+(?:with|about|regarding|on))?\s+(?P<topic>.+)", re.IGNORECASE),
+    re.compile(r"\b(?:hor auf|hoer auf|hore auf)\b(?:\s+mit)?\s+(?P<topic>.+)", re.IGNORECASE),
+)
+_TRANSCRIPT_SUPPRESSION_STOPWORDS = {
+    "about",
+    "bitte",
+    "das",
+    "dem",
+    "den",
+    "der",
+    "die",
+    "diesem",
+    "dieser",
+    "do",
+    "dont",
+    "for",
+    "it",
+    "jetzt",
+    "mit",
+    "more",
+    "on",
+    "please",
+    "regarding",
+    "the",
+    "this",
+    "topic",
+    "uber",
+    "ueber",
+    "und",
+    "with",
+}
+_TRANSCRIPT_SUPPRESSION_TOKEN_MAP = {
+    "mic": "microphone",
+    "mics": "microphone",
+    "microfon": "microphone",
+    "microfone": "microphone",
+    "microfonen": "microphone",
+    "microphones": "microphone",
+    "mikrofon": "microphone",
+    "mikrofone": "microphone",
+    "mikrofonen": "microphone",
+    "unter": "under",
+    "unterwand": "underwall",
+    "wallbox": "wallbox",
+    "wande": "wall",
+    "wand": "wall",
+    "waende": "wall",
+}
 
 
 @dataclass(frozen=True)
@@ -237,42 +528,820 @@ def discover_postgres_observation_signals(
         "commitment_candidate_staged",
         "property_scout_sync_completed",
         "telegram.message",
+        "alexa_history_indexed",
+        "pocket_recording_archive_indexed",
     )
     principals = _candidate_principals(principal_id)
     try:
         with psycopg.connect(url, connect_timeout=5) as connection:
             with connection.cursor() as cursor:
-                cursor.execute(
-                    """
+                query = """
                     select observation_id, principal_id, channel, event_type, payload_json, created_at, source_id, external_id, dedupe_key
                     from observation_events
                     where principal_id = any(%s)
                       and event_type = any(%s)
-                      and created_at >= now() - (%s || ' hours')::interval
+                """
+                query_params: list[Any] = [principals, list(event_types)]
+                if int(lookback_hours) > 0:
+                    query += " and created_at >= now() - (%s || ' hours')::interval"
+                    query_params.append(int(lookback_hours))
+                query += """
                     order by created_at desc
                     limit %s
-                    """,
-                    (principals, list(event_types), int(lookback_hours), int(limit)),
+                    """
+                query_params.append(int(limit))
+                cursor.execute(
+                    query,
+                    tuple(query_params),
                 )
                 rows = cursor.fetchall()
     except Exception:
         return []
     signals: list[ProactiveSignal] = []
+    coalesced_keys: set[str] = set()
     for row in rows:
+        event_type = str(row[3] or "")
+        payload = row[4] if isinstance(row[4], Mapping) else {}
         signal = observation_row_to_signal(
             observation_id=str(row[0] or ""),
             principal_id=str(row[1] or ""),
             channel=str(row[2] or ""),
-            event_type=str(row[3] or ""),
-            payload=row[4] if isinstance(row[4], Mapping) else {},
+            event_type=event_type,
+            payload=payload,
             created_at=str(row[5] or ""),
             source_id=str(row[6] or ""),
             external_id=str(row[7] or ""),
             dedupe_key=str(row[8] or ""),
         )
-        if signal:
-            signals.append(signal)
+        if not signal:
+            continue
+        coalescing_key = _observation_coalescing_key(event_type=event_type, payload=payload)
+        if coalescing_key:
+            if coalescing_key in coalesced_keys:
+                continue
+            coalesced_keys.add(coalescing_key)
+        signals.append(signal)
     return signals
+
+
+def _pocket_recording_payload_fields(payload: Mapping[str, Any] | None) -> dict[str, str]:
+    normalized: dict[str, str] = {}
+    if not isinstance(payload, Mapping):
+        return normalized
+    for key in (
+        "recording_id",
+        "title",
+        "recording_at",
+        "archive_status",
+        "archive_path",
+        "archive_sha256",
+        "summary_markdown",
+        "transcript_excerpt",
+        "transcript_text",
+        "topic_keywords_csv",
+        "tags_csv",
+        "location_name",
+        "location_address",
+        "location_confidence",
+        "location_match_status",
+        "location_match_reason",
+    ):
+        value = _clean_text(str(payload.get(key) or "")).strip()
+        if value:
+            normalized[key] = value
+    return normalized
+
+
+def _pocket_recording_source_context(
+    *,
+    payload: Mapping[str, Any] | None,
+    fields: Mapping[str, str],
+    source_id: str,
+    created_at: str,
+) -> dict[str, Any]:
+    transcript_text = _clean_text(str((payload or {}).get("transcript_text") or "")).strip() if isinstance(payload, Mapping) else ""
+    transcript_excerpt = _clean_text(str((payload or {}).get("transcript_excerpt") or "")).strip() if isinstance(payload, Mapping) else ""
+    summary_markdown = _clean_text(str((payload or {}).get("summary_markdown") or "")).strip() if isinstance(payload, Mapping) else ""
+    archive_path = str(fields.get("archive_path") or "").strip()
+    freshness_context = _pocket_recording_freshness_context(
+        recording_at=str(fields.get("recording_at") or "").strip(),
+        indexed_at=str(created_at or "").strip(),
+    )
+    retention_status = str(fields.get("archive_status") or "").strip() or "unknown"
+    context: dict[str, Any] = {
+        "provider": "pocket.ai",
+        "source_id": str(source_id or "").strip(),
+        "indexed_at": str(created_at or "").strip(),
+        "recording_id": str(fields.get("recording_id") or "").strip(),
+        "recording_at": str(fields.get("recording_at") or "").strip(),
+        "archive_status": str(fields.get("archive_status") or "").strip(),
+        "archive_sha256": str(fields.get("archive_sha256") or "").strip(),
+        "archive_path_sha256": _sha256_text(archive_path),
+        "retention_class": "pocket_audio_archive_index",
+        "retention_status": retention_status,
+        "retention_payload": "redacted_source_metadata",
+        "topic_keywords_csv": str(fields.get("topic_keywords_csv") or "").strip(),
+        "tags_csv": str(fields.get("tags_csv") or "").strip(),
+        "location_name": str(fields.get("location_name") or "").strip(),
+        "location_address": str(fields.get("location_address") or "").strip(),
+        "location_confidence": str(fields.get("location_confidence") or "").strip(),
+        "location_match_status": str(fields.get("location_match_status") or "").strip(),
+        "location_match_reason": str(fields.get("location_match_reason") or "").strip(),
+        "summary_markdown_sha256": _sha256_text(summary_markdown),
+        "transcript_excerpt_sha256": _sha256_text(transcript_excerpt),
+        "transcript_text_sha256": _sha256_text(transcript_text),
+        "summary_markdown_char_count": len(summary_markdown),
+        "transcript_excerpt_char_count": len(transcript_excerpt),
+        "transcript_text_char_count": len(transcript_text),
+        "privacy": {
+            "raw_archive_path_stored": False,
+            "raw_summary_markdown_stored": False,
+            "raw_transcript_excerpt_stored": False,
+            "raw_transcript_text_stored": False,
+        },
+    }
+    context.update(freshness_context)
+    return {
+        key: value
+        for key, value in context.items()
+        if value != "" and not (value == 0 and key not in {"source_lag_hours"})
+    }
+
+
+def _pocket_recording_freshness_context(*, recording_at: str, indexed_at: str) -> dict[str, Any]:
+    recording_time = _parse_iso_datetime(recording_at)
+    indexed_time = _parse_iso_datetime(indexed_at)
+    context: dict[str, Any] = {
+        "source_freshness_basis": "recording_at_to_indexed_at",
+        "source_stale_after_hours": 168.0,
+    }
+    if not recording_time or not indexed_time:
+        context["source_current_status"] = "unknown"
+        return context
+    lag_hours = round((indexed_time - recording_time).total_seconds() / 3600.0, 2)
+    context["source_lag_hours"] = lag_hours
+    if lag_hours < -1.0:
+        context["source_current_status"] = "clock_skew"
+    elif lag_hours <= 168.0:
+        context["source_current_status"] = "current"
+    else:
+        context["source_current_status"] = "stale"
+    return context
+
+
+def _pocket_transcript_text(payload: Mapping[str, Any] | None) -> str:
+    fields = _pocket_recording_payload_fields(payload)
+    for key in ("summary_markdown", "transcript_excerpt", "transcript_text"):
+        value = fields.get(key, "")
+        if value:
+            return value
+    return fields.get("title", "")
+
+
+def _alexa_history_payload_fields(payload: Mapping[str, Any] | None) -> dict[str, str]:
+    normalized: dict[str, str] = {}
+    if not isinstance(payload, Mapping):
+        return normalized
+    for key in (
+        "history_entry_id",
+        "source_ref",
+        "title",
+        "occurred_at",
+        "summary_markdown",
+        "utterance_text",
+        "response_text",
+        "transcript_text",
+        "transcript_excerpt",
+        "device_name",
+        "skill_name",
+        "locale",
+        "activity_status",
+        "import_source_path",
+        "import_archive_member",
+    ):
+        value = _clean_text(str(payload.get(key) or "")).strip()
+        if value:
+            normalized[key] = value
+    return normalized
+
+
+def _alexa_transcript_text(payload: Mapping[str, Any] | None) -> str:
+    fields = _alexa_history_payload_fields(payload)
+    for key in ("utterance_text", "summary_markdown", "transcript_excerpt", "transcript_text", "response_text"):
+        value = fields.get(key, "")
+        if value:
+            return value
+    return fields.get("title", "")
+
+
+def _transcript_request_text(*values: Any) -> str:
+    parts: list[str] = []
+    lowered_parts: list[str] = []
+    for value in values:
+        normalized = _clean_text(str(value or "")).strip()
+        lowered = normalized.lower()
+        if not normalized:
+            continue
+        if any(lowered == existing or lowered in existing for existing in lowered_parts):
+            continue
+        contained_indexes = [index for index, existing in enumerate(lowered_parts) if existing in lowered]
+        for index in reversed(contained_indexes):
+            parts.pop(index)
+            lowered_parts.pop(index)
+        parts.append(normalized)
+        lowered_parts.append(lowered)
+    return " ".join(parts).strip()
+
+
+def _transcript_delivery_window_days(text: str) -> float | None:
+    lowered = str(text or "").strip().lower()
+    if not lowered:
+        return None
+    if any(marker in lowered for marker in ("today", "tonight")):
+        return 1.0
+    if "tomorrow" in lowered:
+        return 1.0
+    if "weekend" in lowered:
+        return 3.0
+    if "next week" in lowered:
+        return 7.0
+    return None
+
+
+def _draft_text_from_request(request_text: str) -> str:
+    normalized = _clean_text(request_text).strip()
+    if not normalized:
+        return ""
+    return f"Draft to review:\n\n{normalized}"
+
+
+def _research_query_from_request(request_text: str) -> str:
+    normalized = _clean_text(request_text).strip()
+    if not normalized:
+        return ""
+    lowered = normalized.lower()
+    split_markers = (
+        " draft ",
+        " email inquiry",
+        " emailanfrage",
+        " formuliere ",
+        " schreibe ",
+        " schicke ",
+        " save it ",
+        " save the draft",
+        " save as draft",
+        " speicher ",
+        " als draft",
+        " in meiner inbox",
+        " in my inbox",
+        " for approval",
+        " zur freigabe",
+    )
+    cut = len(normalized)
+    for marker in split_markers:
+        index = lowered.find(marker)
+        if index > 0:
+            cut = min(cut, index)
+    trimmed = normalized[:cut].strip(" ,")
+    sentence_match = re.search(r"\A(.+?[.!?])(?:\s|$)", trimmed)
+    if sentence_match:
+        candidate = sentence_match.group(1).strip(" ,")
+    else:
+        segments = [segment.strip(" ,") for segment in re.split(r"[;]+", trimmed) if segment.strip(" ,")]
+        candidate = segments[0] if segments else trimmed
+    candidate = re.sub(r"^(when you|if you|please|can you|could you|would you)\s+", "", candidate, flags=re.IGNORECASE).strip()
+    candidate = re.sub(r"^(wenn du|falls du|bitte|kannst du|koenntest du)\s+", "", candidate, flags=re.IGNORECASE).strip()
+    candidate = re.sub(r"\b(gefunden hast|found one|found)\b", "", candidate, flags=re.IGNORECASE).strip(" ,")
+    compacted_candidate = re.sub(
+        r"^(find me|find|look for|search for|suche mir|suche|such|finde)\s+",
+        "",
+        candidate,
+        flags=re.IGNORECASE,
+    )
+    compacted = compacted_candidate != candidate
+    candidate = compacted_candidate.strip()
+    candidate = re.sub(r"^(a|an|the|einen|eine|einer|einem|den|die|das)\s+", "", candidate, flags=re.IGNORECASE).strip()
+    if compacted:
+        candidate = candidate.strip(" ,.-")
+    lowered_candidate = candidate.lower()
+    explanatory_markers = (
+        " - ich brauche",
+        " - ich benoetige",
+        " - i need",
+        ", ich brauche",
+        ", ich benoetige",
+        ", i need",
+        " ich brauche ",
+        " ich benoetige ",
+        " i need ",
+        " ob ich ",
+        " whether i ",
+    )
+    cut = len(candidate)
+    for marker in explanatory_markers:
+        index = lowered_candidate.find(marker)
+        if index > 0:
+            cut = min(cut, index)
+    candidate = candidate[:cut].strip(" ,")
+    candidate = re.sub(r"\s+", " ", candidate).strip(" ,")
+    return candidate or trimmed or normalized
+
+
+def _search_queries_from_request(*, research_query: str, request_text: str) -> list[str]:
+    base = str(research_query or "").strip()
+    if not base:
+        return []
+    queries = [base]
+    base_terms = {
+        _ascii_fold_text(token).lower()
+        for token in re.findall(r"[A-Za-z0-9]+", base)
+        if _ascii_fold_text(token).strip()
+    }
+    context_terms: list[str] = []
+    seen_context: set[str] = set()
+    for token in re.findall(r"[A-Za-z0-9]+", _clean_text(request_text)):
+        normalized = _ascii_fold_text(token).lower()
+        if (
+            not normalized
+            or len(normalized) < 5
+            or normalized in base_terms
+            or normalized in _TRANSCRIPT_SEARCH_QUERY_STOPWORDS
+            or normalized in seen_context
+        ):
+            continue
+        seen_context.add(normalized)
+        context_terms.append(str(token).strip())
+    if context_terms:
+        longest = " ".join([base, *context_terms[:4]]).strip()
+        if longest:
+            queries.insert(0, longest)
+        shorter = " ".join([base, *context_terms[:3]]).strip()
+        if shorter:
+            queries.insert(1, shorter if longest else shorter)
+    return list(dict.fromkeys(query for query in queries if query))
+
+
+def _transcript_request_locale(request_text: str) -> str:
+    lowered = _ascii_fold_text(_clean_text(request_text).strip().lower())
+    if any(
+        marker in lowered
+        for marker in (
+            "wenn du",
+            "brauch",
+            "brauche",
+            "kannst du",
+            "koenntest du",
+            "rauchfangkehrer",
+            "formuliere",
+            "schreibe",
+            "schicke",
+            "suche",
+            "finde",
+        )
+    ):
+        return "de"
+    return "en"
+
+
+def _transcript_save_gmail_draft_requested(lowered_request: str) -> bool:
+    normalized = f" {str(lowered_request or '').strip()} "
+    return any(marker in normalized for marker in _TRANSCRIPT_DRAFT_SAVE_TERMS)
+
+
+def _transcript_service_provider_request(lowered_request: str) -> bool:
+    normalized = f" {str(lowered_request or '').strip()} "
+    if any(marker in normalized for marker in _TRANSCRIPT_SERVICE_PROVIDER_MARKERS):
+        return True
+    if (
+        any(marker in normalized for marker in (" suche mir ", " suche ", " find me ", " find ", " search for "))
+        and any(marker in normalized for marker in (" ich brauche ", " i need ", " brauche ", " need "))
+        and not any(marker in normalized for marker in _TRANSCRIPT_SHOPPING_MARKERS)
+    ):
+        return True
+    return False
+
+
+def _transcript_stage_notes(*values: Any) -> list[str]:
+    notes: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        normalized = _clean_text(str(value or "")).strip()
+        lowered = normalized.lower()
+        if not normalized or lowered in seen:
+            continue
+        seen.add(lowered)
+        notes.append(normalized)
+    return notes[:4]
+
+
+def _ascii_fold_text(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", str(value or ""))
+    return normalized.encode("ascii", "ignore").decode("ascii")
+
+
+def _sha256_text(value: str) -> str:
+    normalized = str(value or "").strip()
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest() if normalized else ""
+
+
+def _parse_iso_datetime(value: str) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _normalize_topic_token(token: str) -> str:
+    normalized = _ascii_fold_text(_clean_text(token).strip().lower())
+    if not normalized:
+        return ""
+    return _TRANSCRIPT_SUPPRESSION_TOKEN_MAP.get(normalized, normalized)
+
+
+def _topic_terms_from_fragment(fragment: str) -> tuple[str, ...]:
+    terms: list[str] = []
+    seen: set[str] = set()
+    for token in re.findall(r"[a-z0-9]+", _ascii_fold_text(fragment).lower()):
+        normalized = _normalize_topic_token(token)
+        if not normalized or normalized in _TRANSCRIPT_SUPPRESSION_STOPWORDS or len(normalized) < 3:
+            continue
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        terms.append(normalized)
+    return tuple(terms[:6])
+
+
+def _transcript_suppression_terms(text: str) -> tuple[str, ...]:
+    normalized = _ascii_fold_text(_clean_text(text).strip().lower())
+    if not normalized:
+        return ()
+    for pattern in _TRANSCRIPT_SUPPRESSION_PATTERNS:
+        match = pattern.search(normalized)
+        if match is None:
+            continue
+        topic = _clean_text(str(match.groupdict().get("topic") or "")).strip()
+        terms = _topic_terms_from_fragment(topic)
+        if terms:
+            return terms
+    return ()
+
+
+def _transcript_topic_suppression(
+    *,
+    request_text: str,
+    title: str = "",
+    channel: str,
+    signal_type: str,
+    counterparty: str,
+    observed_at: str,
+) -> dict[str, Any] | None:
+    terms = _transcript_suppression_terms(request_text)
+    if not terms:
+        return None
+    return {
+        "schema": "ea.proactive_topic_suppression.v1",
+        "scope": "topic",
+        "topic_hint": " ".join(terms),
+        "terms": list(terms),
+        "source_channel": channel,
+        "source_signal_type": signal_type,
+        "counterparty": counterparty,
+        "observed_at": str(observed_at or "").strip(),
+    }
+
+
+def extract_proactive_suppression_directive(row: Mapping[str, Any]) -> dict[str, Any] | None:
+    payload = row.get("payload") if isinstance(row.get("payload"), Mapping) else {}
+    directive = payload.get("proactive_suppression") if isinstance(payload, Mapping) else None
+    if not isinstance(directive, Mapping):
+        return None
+    terms = [
+        _normalize_topic_token(str(item or ""))
+        for item in list(directive.get("terms") or [])
+        if _normalize_topic_token(str(item or ""))
+    ]
+    if not terms:
+        return None
+    return {
+        "source_ref": str(row.get("source_ref") or "").strip(),
+        "topic_hint": str(directive.get("topic_hint") or "").strip(),
+        "terms": tuple(dict.fromkeys(terms)),
+        "observed_at": str(directive.get("observed_at") or "").strip(),
+    }
+
+
+def signal_matches_proactive_suppression(row: Mapping[str, Any], suppression: Mapping[str, Any]) -> bool:
+    search_text = _signal_search_text(row)
+    if not search_text:
+        return False
+    normalized_text = _ascii_fold_text(_clean_text(search_text).lower())
+    collapsed_text = re.sub(r"\s+", "", normalized_text)
+    search_terms = {
+        normalized
+        for normalized in (
+            _normalize_topic_token(token) for token in re.findall(r"[a-z0-9]+", normalized_text)
+        )
+        if normalized
+    }
+    suppression_terms = [
+        _normalize_topic_token(str(item or ""))
+        for item in list(suppression.get("terms") or [])
+        if _normalize_topic_token(str(item or ""))
+    ]
+    if not suppression_terms:
+        return False
+    matched_terms: set[str] = set()
+    for term in suppression_terms:
+        if term in search_terms or term in normalized_text or term in collapsed_text:
+            matched_terms.add(term)
+    for index in range(len(suppression_terms) - 1):
+        pair = f"{suppression_terms[index]}{suppression_terms[index + 1]}"
+        if pair and pair in collapsed_text:
+            matched_terms.add(suppression_terms[index])
+            matched_terms.add(suppression_terms[index + 1])
+    minimum_matches = 1 if len(suppression_terms) == 1 else 2
+    return len(matched_terms) >= minimum_matches
+
+
+def _signal_search_text(row: Mapping[str, Any]) -> str:
+    payload = row.get("payload") if isinstance(row.get("payload"), Mapping) else {}
+    ooda_loop = payload.get("ooda_loop") if isinstance(payload.get("ooda_loop"), Mapping) else {}
+    act = ooda_loop.get("act") if isinstance(ooda_loop.get("act"), Mapping) else {}
+    stage = act.get("stage") if isinstance(act.get("stage"), Mapping) else {}
+    candidate_items = []
+    for candidate in list(stage.get("candidate_items") or []) + list(stage.get("candidates") or []):
+        if isinstance(candidate, Mapping):
+            candidate_items.append(_first_text(candidate.get("label"), candidate.get("url")))
+    parts = [
+        row.get("title"),
+        row.get("summary"),
+        row.get("counterparty"),
+        payload.get("event_type"),
+        ooda_loop.get("summary"),
+        act.get("summary"),
+        stage.get("summary"),
+        stage.get("research_query"),
+        stage.get("requested_outcome"),
+        " ".join(candidate_items),
+        " ".join(str(item or "") for item in list(stage.get("selection_criteria") or [])),
+    ]
+    return " ".join(_clean_text(str(part or "")).strip() for part in parts if _clean_text(str(part or "")).strip())
+
+
+def _transcript_assistant_ooda(
+    *,
+    request_text: str,
+    title: str,
+    channel: str,
+    signal_type: str,
+    counterparty: str,
+    notes: Iterable[str] = (),
+) -> dict[str, Any]:
+    normalized_request = _clean_text(request_text).strip()
+    lowered = normalized_request.lower()
+    if not normalized_request or not any(marker in lowered for marker in _TRANSCRIPT_REQUEST_MARKERS):
+        return {}
+    note_list = [str(item).strip() for item in notes if str(item).strip()][:4]
+    delivery_window = _transcript_delivery_window_days(lowered)
+    base_policy = "Research, compare, or draft only; require explicit approval before purchase, booking, cancellation, sending, posting, or commitment."
+    draft_like = any(marker in lowered for marker in _TRANSCRIPT_DRAFT_TERMS)
+    save_gmail_draft = _transcript_save_gmail_draft_requested(lowered)
+    booking_like = any(marker in lowered for marker in _TRANSCRIPT_BOOKING_TERMS)
+    compare_like = booking_like or any(marker in lowered for marker in _TRANSCRIPT_COMPARE_TERMS)
+    discovery_like = any(marker in lowered for marker in _TRANSCRIPT_COMPARE_TERMS) or "gefunden" in lowered or " found " in f" {lowered} "
+    if draft_like and discovery_like:
+        research_query = _research_query_from_request(normalized_request)
+        search_queries = _search_queries_from_request(research_query=research_query, request_text=normalized_request)
+        locale = _transcript_request_locale(normalized_request)
+        subject_prefix = "Anfrage" if locale == "de" else "Inquiry"
+        selection_criteria = ["reversible before approval", "contact details visible", "reachability"]
+        if booking_like:
+            selection_criteria.extend(["availability", "timing"])
+        else:
+            selection_criteria.extend(["availability", "timing", "fit to request"])
+        stage_summary = (
+            "One researched inquiry draft saved to Gmail for review."
+            if save_gmail_draft
+            else "One researched inquiry draft ready for review before any send."
+        )
+        return {
+            "reviewed": True,
+            "observe": {
+                "summary": _first_sentence(title or normalized_request),
+                "channel": channel or "product",
+                "signal_type": signal_type,
+                "counterparty": counterparty,
+            },
+            "orient": {
+                "summary": "This transcript sounds like a research task that should end in one reviewable draft once EA finds a plausible contact.",
+                "tags": ["transcript", "research", "draft", "reversible"],
+            },
+            "decide": {
+                "summary": (
+                    "Decide whether EA should research candidates, draft one inquiry, and save it as a Gmail draft."
+                    if save_gmail_draft
+                    else "Decide whether EA should research candidates, draft one inquiry, and hold it for approval."
+                ),
+                "recommended_actions": [
+                    "Research a shortlist, prepare one inquiry draft, and save it as a Gmail draft."
+                    if save_gmail_draft
+                    else "Research a shortlist, prepare one inquiry draft, and hold it for approval."
+                ],
+                "approval_required": not save_gmail_draft,
+                "ignored_consequence": (
+                    "A useful outreach draft may stay unsaved until the request becomes urgent."
+                    if save_gmail_draft
+                    else "A useful outreach draft may stay unstaged until the request becomes urgent."
+                ),
+            },
+            "act": {
+                "summary": (
+                    "Research candidates, prepare one inquiry draft, and save it as a Gmail draft."
+                    if save_gmail_draft
+                    else "Research candidates, prepare one inquiry draft, and stage it for approval."
+                ),
+                "action_plan": [
+                    "Clarify the candidate search from the transcript",
+                    "Research a small reversible option set",
+                    "Prepare one inquiry draft using the best reachable contact found",
+                    "Save the draft to Gmail without sending it"
+                    if save_gmail_draft
+                    else "Hold the draft for explicit approval before any send",
+                ],
+                "external_action_policy": "Do not send the draft externally without explicit approval.",
+                "stage": {
+                    "kind": "research_packet" if save_gmail_draft else "approval_packet",
+                    "summary": stage_summary,
+                    "artifacts": ["shortlist", "comparison_table", "draft_text", "approval_prompt"],
+                    "work_type": "draft",
+                    "draft_mode": "research_backed_inquiry",
+                    "draft_request_text": normalized_request,
+                    "post_approval_action": "save_gmail_draft",
+                    "auto_execute_action": "save_gmail_draft" if save_gmail_draft else "",
+                    "subject_hint": f"{subject_prefix}: {_first_sentence(research_query or normalized_request)[:96]}",
+                    "research_query": research_query or normalized_request,
+                    "search_queries": search_queries or [research_query or normalized_request],
+                    "selection_criteria": selection_criteria,
+                    "comparison_dimensions": ["reachability", "contact details", "timing"],
+                    "delivery_window": delivery_window if delivery_window is not None else "",
+                    "locale": locale,
+                    "notes": note_list,
+                    "worker_hint": "browser_research",
+                    "adapter_hint": "transcript_signal",
+                },
+            },
+        }
+    if draft_like:
+        return {
+            "reviewed": True,
+            "observe": {
+                "summary": _first_sentence(title or normalized_request),
+                "channel": channel or "product",
+                "signal_type": signal_type,
+                "counterparty": counterparty,
+            },
+            "orient": {
+                "summary": "This transcript sounds like a reply or message task that EA can draft safely before any send.",
+                "tags": ["transcript", "draft", "reversible"],
+            },
+            "decide": {
+                "summary": (
+                    "Decide whether EA should prepare a concise draft and save it as a Gmail draft."
+                    if save_gmail_draft
+                    else "Decide whether EA should prepare a concise draft for review."
+                ),
+                "recommended_actions": [
+                    "Draft a concise reply and save it as a Gmail draft."
+                    if save_gmail_draft
+                    else "Draft a concise reply for approval."
+                ],
+                "approval_required": not save_gmail_draft,
+                "ignored_consequence": (
+                    "A useful draft may stay unsaved until the thread becomes urgent."
+                    if save_gmail_draft
+                    else "A useful reply may stay unsent until the thread becomes urgent."
+                ),
+            },
+            "act": {
+                "summary": (
+                    "Draft a concise reply and save it as a Gmail draft."
+                    if save_gmail_draft
+                    else "Draft a concise reply and stage it for approval."
+                ),
+                "action_plan": [
+                    "Capture the requested reply from the transcript",
+                    "Prepare one concise draft",
+                    "Save the draft to Gmail without sending it"
+                    if save_gmail_draft
+                    else "Hold the draft for explicit approval before any send",
+                ],
+                "external_action_policy": "Do not send the draft externally without explicit approval.",
+                "stage": {
+                    "kind": "research_packet" if save_gmail_draft else "approval_packet",
+                    "summary": (
+                        "One draft reply saved to Gmail for review."
+                        if save_gmail_draft
+                        else "One draft reply ready for review before any send."
+                    ),
+                    "artifacts": ["draft_text", "approval_prompt"],
+                    "work_type": "draft",
+                    "post_approval_action": "save_gmail_draft",
+                    "auto_execute_action": "save_gmail_draft" if save_gmail_draft else "",
+                    "subject_hint": _first_sentence(title or normalized_request)[:120],
+                    "draft_text": _draft_text_from_request(normalized_request),
+                    "selection_criteria": ["match transcript intent", "keep it concise"],
+                    "notes": note_list,
+                },
+            },
+        }
+    approval_required = any(marker in lowered for marker in _TRANSCRIPT_HIGH_RISK_TERMS)
+    service_provider_like = _transcript_service_provider_request(lowered)
+    review_or_approval = "approval" if approval_required else "review"
+    stage_summary = (
+        f"Research booking candidates and stage one reversible option for {review_or_approval}."
+        if booking_like
+        else f"Research a shortlist and stage one reversible option for {review_or_approval}."
+        if compare_like
+        else "Research the request and stage the smallest reversible next step."
+    )
+    stage_research_query = normalized_request
+    stage_search_queries = [normalized_request]
+    if booking_like or compare_like:
+        compact_query = _research_query_from_request(normalized_request)
+        if compact_query:
+            stage_research_query = compact_query
+            stage_search_queries = _search_queries_from_request(
+                research_query=compact_query,
+                request_text=normalized_request,
+            ) or [compact_query]
+    selection_criteria = ["reversible before approval"]
+    comparison_dimensions: list[str] = []
+    if booking_like:
+        selection_criteria.extend(["availability", "cancellation flexibility"])
+        comparison_dimensions.extend(["availability", "timing", "cancellation flexibility"])
+    elif service_provider_like:
+        selection_criteria.extend(["contact details visible", "reachability", "fit to request"])
+        comparison_dimensions.extend(["reachability", "contact details", "timing"])
+    elif compare_like:
+        selection_criteria.extend(["price", "availability"])
+        comparison_dimensions.extend(["price", "availability", "timing"])
+    if delivery_window is not None:
+        selection_criteria.append("fit the timing window stated in the transcript")
+    return {
+        "reviewed": True,
+        "observe": {
+            "summary": _first_sentence(title or normalized_request),
+            "channel": channel or "product",
+            "signal_type": signal_type,
+            "counterparty": counterparty,
+        },
+        "orient": {
+            "summary": "This transcript sounds like a task EA can research safely before any irreversible external action.",
+            "tags": ["transcript", "assistant_task", "reversible"],
+        },
+        "decide": {
+            "summary": "Decide whether EA should research options and stage one reversible next step.",
+            "recommended_actions": [stage_summary],
+            "approval_required": approval_required,
+            "ignored_consequence": "A useful assistant task may slip until it turns into an urgent manual chore.",
+        },
+        "act": {
+            "summary": stage_summary,
+            "action_plan": [
+                "Clarify the request from the transcript",
+                "Research a small reversible option set",
+                "Stage one recommended next step for review",
+            ],
+            "external_action_policy": base_policy,
+            "stage": {
+                "kind": "research_packet",
+                "summary": stage_summary,
+                "artifacts": (
+                    ["booking_candidate", "comparison_table", "approval_prompt"]
+                    if booking_like
+                    else ["shortlist", "comparison_table", "approval_prompt"]
+                    if compare_like
+                    else ["research_summary", "approval_prompt"]
+                ),
+                "work_type": "compare_options" if compare_like else "research",
+                "research_query": stage_research_query,
+                "search_queries": stage_search_queries,
+                "selection_criteria": selection_criteria,
+                "comparison_dimensions": comparison_dimensions,
+                "delivery_window": delivery_window if delivery_window is not None else "",
+                "notes": note_list,
+                "worker_hint": "browser_research",
+                "adapter_hint": "transcript_signal",
+            },
+        },
+    }
 
 
 def observation_row_to_signal(
@@ -288,6 +1357,9 @@ def observation_row_to_signal(
     dedupe_key: str = "",
 ) -> ProactiveSignal | None:
     ooda_loop = _normalize_ooda_loop(payload.get("ooda_loop")) if isinstance(payload.get("ooda_loop"), Mapping) else {}
+    extra_payload: dict[str, Any] = {}
+    extra_payload_key = ""
+    proactive_suppression: dict[str, Any] | None = None
     if event_type == "office_signal_ooda_evaluated":
         observe = ooda_loop.get("observe") if isinstance(ooda_loop.get("observe"), Mapping) else {}
         decide = ooda_loop.get("decide") if isinstance(ooda_loop.get("decide"), Mapping) else {}
@@ -325,17 +1397,33 @@ def observation_row_to_signal(
         due_at = ""
     elif event_type == "property_scout_sync_completed":
         status = str(payload.get("status") or "processed").strip()
-        high_fit_total = _safe_int(payload.get("high_fit_total"))
-        review_total = _safe_int(payload.get("review_created_total")) + _safe_int(payload.get("review_existing_total"))
-        notified_total = _safe_int(payload.get("notified_total")) + _safe_int(payload.get("watch_notified_total"))
-        failed_total = _safe_int(payload.get("failed_total"))
-        if not (high_fit_total or review_total or notified_total or failed_total):
+        scout_totals = _property_scout_sync_totals(payload)
+        high_fit_total = scout_totals["high_fit_total"]
+        review_total = scout_totals["review_total"]
+        notified_total = scout_totals["notified_total"]
+        failed_total = scout_totals["failed_total"]
+        scanned_total = scout_totals["scanned_total"]
+        filtered_low_fit_total = scout_totals["filtered_low_fit_total"]
+        if high_fit_total or review_total or notified_total or failed_total:
+            title = "Property scout needs attention" if failed_total else "Property scout found items to review"
+            summary = (
+                f"Property scout {status}: {high_fit_total} high-fit, {review_total} review, "
+                f"{notified_total} notified, {failed_total} failed."
+            )
+        elif scanned_total > 0 or filtered_low_fit_total > 0:
+            title = "Property scout found no viable matches"
+            summary = (
+                f"Property scout {status}: {scanned_total} scanned, {filtered_low_fit_total} filtered low-fit, "
+                "0 review, 0 notified."
+            )
+            ooda_loop = _property_scout_zero_match_ooda(
+                payload,
+                scanned_total=scanned_total,
+                filtered_low_fit_total=filtered_low_fit_total,
+            )
+            external_id = external_id or _property_scout_zero_match_external_id(payload, created_at=created_at)
+        else:
             return None
-        title = "Property scout needs attention" if failed_total else "Property scout found items to review"
-        summary = (
-            f"Property scout {status}: {high_fit_total} high-fit, {review_total} review, "
-            f"{notified_total} notified, {failed_total} failed."
-        )
         counterparty = "Property Scout"
         signal_type = "property_scout"
         due_at = ""
@@ -345,11 +1433,134 @@ def observation_row_to_signal(
         counterparty = "Telegram"
         signal_type = "telegram_message"
         due_at = ""
+        transcript_request = _transcript_request_text(
+            payload.get("text"),
+            payload.get("analysis_summary"),
+            title,
+        )
+        if not ooda_loop:
+            ooda_loop = _transcript_assistant_ooda(
+                request_text=transcript_request,
+                title=title,
+                channel=channel,
+                signal_type=signal_type,
+                counterparty=counterparty,
+            )
+        proactive_suppression = _transcript_topic_suppression(
+            request_text=transcript_request,
+            title=title,
+            channel=channel,
+            signal_type=signal_type,
+            counterparty=counterparty,
+            observed_at=created_at,
+        )
+    elif event_type == "alexa_history_indexed":
+        alexa_fields = _alexa_history_payload_fields(payload)
+        title = _first_text(alexa_fields.get("title"), _first_sentence(_alexa_transcript_text(payload), limit=140), "Alexa history")
+        summary = _first_text(_alexa_transcript_text(payload), title)
+        if not summary:
+            summary = title
+        counterparty = "Alexa"
+        signal_type = "alexa_transcript"
+        due_at = ""
+        external_id = external_id or alexa_fields.get("history_entry_id", "") or source_id.removeprefix("alexa-history:")
+        extra_payload_key = "alexa_history"
+        if source_id:
+            extra_payload["source_id"] = source_id
+        if alexa_fields.get("history_entry_id"):
+            extra_payload["history_entry_id"] = alexa_fields.get("history_entry_id", "")
+        if alexa_fields.get("device_name"):
+            extra_payload["device_name"] = alexa_fields.get("device_name", "")
+        if alexa_fields.get("skill_name"):
+            extra_payload["skill_name"] = alexa_fields.get("skill_name", "")
+        transcript_request = _transcript_request_text(
+            alexa_fields.get("utterance_text"),
+            alexa_fields.get("transcript_excerpt"),
+            alexa_fields.get("transcript_text"),
+            title,
+        )
+        if not ooda_loop:
+            ooda_loop = _transcript_assistant_ooda(
+                request_text=transcript_request,
+                title=title,
+                channel=channel,
+                signal_type=signal_type,
+                counterparty=counterparty,
+                notes=_transcript_stage_notes(
+                    f"Device: {alexa_fields.get('device_name', '')}" if alexa_fields.get("device_name") else "",
+                    f"Skill: {alexa_fields.get('skill_name', '')}" if alexa_fields.get("skill_name") else "",
+                    f"Locale: {alexa_fields.get('locale', '')}" if alexa_fields.get("locale") else "",
+                ),
+            )
+        proactive_suppression = _transcript_topic_suppression(
+            request_text=transcript_request,
+            title=title,
+            channel=channel,
+            signal_type=signal_type,
+            counterparty=counterparty,
+            observed_at=created_at,
+        )
+    elif event_type == "pocket_recording_archive_indexed":
+        pocket_fields = _pocket_recording_payload_fields(payload)
+        title = _first_text(pocket_fields.get("title"), "Pocket recording")
+        summary = _first_text(_pocket_transcript_text(payload), title)
+        if not summary:
+            summary = title
+        counterparty = "Pocket"
+        signal_type = "pocket_transcript"
+        due_at = ""
+        external_id = external_id or pocket_fields.get("recording_id", "") or source_id.removeprefix("pocket-recording:")
+        extra_payload_key = "pocket_recording"
+        extra_payload.update(
+            _pocket_recording_source_context(
+                payload=payload,
+                fields=pocket_fields,
+                source_id=source_id,
+                created_at=created_at,
+            )
+        )
+        transcript_request = _transcript_request_text(
+            pocket_fields.get("transcript_excerpt"),
+            pocket_fields.get("transcript_text"),
+            pocket_fields.get("summary_markdown"),
+            title,
+        )
+        if not ooda_loop:
+            ooda_loop = _transcript_assistant_ooda(
+                request_text=transcript_request,
+                title=title,
+                channel=channel,
+                signal_type=signal_type,
+                counterparty=counterparty,
+                notes=_transcript_stage_notes(
+                    f"Topic keywords: {pocket_fields.get('topic_keywords_csv', '')}" if pocket_fields.get("topic_keywords_csv") else "",
+                    f"Tags: {pocket_fields.get('tags_csv', '')}" if pocket_fields.get("tags_csv") else "",
+                    f"Location: {pocket_fields.get('location_name', '')}" if pocket_fields.get("location_name") else "",
+                ),
+            )
+        proactive_suppression = _transcript_topic_suppression(
+            request_text=transcript_request,
+            title=title,
+            channel=channel,
+            signal_type=signal_type,
+            counterparty=counterparty,
+            observed_at=created_at,
+        )
     else:
         return None
     if not title and not summary:
         return None
     source_ref = dedupe_key or external_id or source_id or observation_id
+    signal_payload = {
+        "observation_id": observation_id,
+        "principal_id": principal_id,
+        "event_type": event_type,
+        "created_at": created_at,
+        "ooda_loop": ooda_loop,
+        **({extra_payload_key: extra_payload} if extra_payload and extra_payload_key else {}),
+    }
+    if proactive_suppression is not None:
+        signal_payload["proactive_suppression"] = proactive_suppression
     return ProactiveSignal(
         source_ref=f"observation:{source_ref}",
         signal_type=signal_type,
@@ -359,14 +1570,187 @@ def observation_row_to_signal(
         counterparty=counterparty,
         due_at=due_at or None,
         external_id=external_id or observation_id,
-        payload={
-            "observation_id": observation_id,
-            "principal_id": principal_id,
-            "event_type": event_type,
-            "created_at": created_at,
-            "ooda_loop": ooda_loop,
-        },
+        payload=signal_payload,
     )
+
+
+def _property_scout_zero_match_ooda(
+    payload: Mapping[str, Any],
+    *,
+    scanned_total: int,
+    filtered_low_fit_total: int,
+) -> dict[str, Any]:
+    candidate_items = _property_scout_review_candidate_items(payload)
+    source_urls = [str(item.get("url") or "").strip() for item in candidate_items if str(item.get("url") or "").strip()]
+    summary = (
+        f"Property scout scanned {scanned_total} listings and filtered out {filtered_low_fit_total} as low-fit, "
+        "so the current search may need a deliberate filter review before the market shifts again."
+    )
+    action = "Review the strongest live source first and stage a reversible filter-adjustment recommendation."
+    policy = "Do not change search criteria, contact brokers, schedule viewings, or commit without explicit approval."
+    return {
+        "reviewed": True,
+        "observe": {
+            "summary": summary,
+            "channel": "product",
+            "signal_type": "property_scout_gap",
+            "counterparty": "Property Scout",
+        },
+        "orient": {
+            "summary": "A paid assistant should surface when real inventory exists but current preferences produce no viable matches.",
+            "tags": ["property_scout", "zero_match", "review_filters"],
+        },
+        "decide": {
+            "summary": "Approve whether EA should stage one filter-review packet from the strongest live source.",
+            "recommended_actions": [action],
+            "approval_required": True,
+            "ignored_consequence": "Good inventory may slip by while outdated filters or preferences stay unchallenged.",
+        },
+        "act": {
+            "summary": action,
+            "action_plan": [
+                "Inspect the live source pages that still show active supply",
+                "Compare whether the current fit threshold looks too strict",
+                "Stage one reversible recommendation before any preference or outreach change",
+            ],
+            "stage": {
+                "kind": "research_packet",
+                "summary": "One filter-review packet with the best source to inspect first.",
+                "status": "planned",
+                "approval_gate": policy,
+                "artifacts": ["shortlist", "candidate_link", "approval_prompt"],
+                "candidate_items": candidate_items,
+                "target_sites": source_urls,
+                "selection_criteria": ["active_supply", "reversibility", "signal_freshness"],
+                "work_type": "compare_options",
+                "research_query": "Review why the current property scout filters produced zero viable matches and which live source should be inspected first.",
+            },
+            "external_action_policy": policy,
+        },
+    }
+
+
+def _property_scout_review_candidate_items(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for source in payload.get("sources") or []:
+        if not isinstance(source, Mapping):
+            continue
+        url = str(source.get("source_url") or "").strip()
+        label = str(source.get("source_label") or source.get("platform") or "Property source").strip()
+        scanned = max(_safe_int(source.get("listing_total")), _safe_int(source.get("scanned_listing_total")), _safe_int(source.get("raw_listing_total")))
+        filtered = _safe_int(source.get("filtered_low_fit_total"))
+        if not url:
+            continue
+        rows.append(
+            {
+                "label": label,
+                "url": url,
+                "scanned_listing_total": scanned,
+                "filtered_low_fit_total": filtered,
+                "reason": f"{scanned} scanned, {filtered} low-fit",
+            }
+        )
+    rows.sort(
+        key=lambda item: (
+            int(item.get("scanned_listing_total") or 0),
+            -int(item.get("filtered_low_fit_total") or 0),
+            str(item.get("label") or ""),
+        ),
+        reverse=True,
+    )
+    return rows[:5]
+
+
+def _property_scout_sync_totals(payload: Mapping[str, Any]) -> dict[str, int]:
+    return {
+        "high_fit_total": _safe_int(payload.get("high_fit_total")),
+        "review_total": _safe_int(payload.get("review_created_total")) + _safe_int(payload.get("review_existing_total")),
+        "notified_total": _safe_int(payload.get("notified_total")) + _safe_int(payload.get("watch_notified_total")),
+        "failed_total": _safe_int(payload.get("failed_total")),
+        "scanned_total": max(
+            _safe_int(payload.get("listing_total")),
+            _safe_int(payload.get("scanned_listing_total")),
+            _safe_int(payload.get("raw_listing_total")),
+        ),
+        "filtered_low_fit_total": _safe_int(payload.get("filtered_low_fit_total")),
+    }
+
+
+def _property_scout_zero_match_external_id(payload: Mapping[str, Any], *, created_at: str = "") -> str:
+    urls = [str(item.get("url") or "") for item in _property_scout_review_candidate_items(payload)]
+    material_parts = [url for url in urls if url]
+    generated_day = _day_bucket(_first_text(payload.get("generated_at"), created_at))
+    if generated_day:
+        material_parts.append(f"day:{generated_day}")
+    scanned_total = max(
+        _safe_int(payload.get("listing_total")),
+        _safe_int(payload.get("scanned_listing_total")),
+        _safe_int(payload.get("raw_listing_total")),
+    )
+    filtered_low_fit_total = _safe_int(payload.get("filtered_low_fit_total"))
+    material_parts.append(f"scanned:{scanned_total}")
+    material_parts.append(f"low_fit:{filtered_low_fit_total}")
+    material = "|".join(part for part in material_parts if part)
+    if not material:
+        material = "property_scout_zero_match"
+    return f"property_scout_zero_match:{hashlib.sha256(material.encode('utf-8')).hexdigest()[:24]}"
+
+
+def _observation_coalescing_key(*, event_type: str, payload: Mapping[str, Any]) -> str:
+    if str(event_type or "").strip() != "property_scout_sync_completed":
+        return ""
+    scout_totals = _property_scout_sync_totals(payload)
+    has_attention_items = any(
+        scout_totals[key] > 0
+        for key in ("high_fit_total", "review_total", "notified_total", "failed_total")
+    )
+    if has_attention_items or (
+        scout_totals["scanned_total"] <= 0 and scout_totals["filtered_low_fit_total"] <= 0
+    ):
+        return ""
+    return _property_scout_zero_match_family_key(payload)
+
+
+def _property_scout_zero_match_family_key(payload: Mapping[str, Any]) -> str:
+    candidate_items = _property_scout_review_candidate_items(payload)
+    material_parts = [
+        str(item.get("url") or "").strip()
+        for item in candidate_items
+        if str(item.get("url") or "").strip()
+    ]
+    if not material_parts:
+        material_parts.extend(
+            sorted(
+                {
+                    str(source.get("platform") or source.get("source_label") or "").strip()
+                    for source in payload.get("sources") or []
+                    if isinstance(source, Mapping) and str(source.get("platform") or source.get("source_label") or "").strip()
+                }
+            )
+        )
+    location_query = _clean_text(str(payload.get("location_query") or "")).strip().lower()
+    if location_query:
+        material_parts.append(f"location:{location_query}")
+    country_code = _clean_text(str(payload.get("country_code") or "")).strip().lower()
+    if country_code:
+        material_parts.append(f"country:{country_code}")
+    selected_platforms = [
+        _clean_text(str(item or "")).strip().lower()
+        for item in list(payload.get("selected_platforms") or [])
+        if _clean_text(str(item or "")).strip()
+    ]
+    material_parts.extend(f"platform:{item}" for item in sorted(set(selected_platforms)))
+    material = "|".join(part for part in material_parts if part)
+    if not material:
+        material = "property_scout_zero_match"
+    return f"property_scout_zero_match_family:{hashlib.sha256(material.encode('utf-8')).hexdigest()[:24]}"
+
+
+def _day_bucket(value: str) -> str:
+    text = str(value or "").strip()
+    if len(text) >= 10 and text[4] == "-" and text[7] == "-":
+        return text[:10]
+    return ""
 
 
 def _load_json_source(source: SignalSource, *, base_dir: Path, timeout_seconds: int) -> list[ProactiveSignal]:
@@ -654,6 +2038,8 @@ def _opportunity_rule_stage(
         "links",
         "draft",
         "draft_text",
+        "draft_mode",
+        "draft_request_text",
         "cart_url",
         "approval_url",
         "booking_options",
@@ -674,6 +2060,10 @@ def _opportunity_rule_stage(
         "deadline",
         "delivery_window",
         "recipient_context",
+        "recipient_email",
+        "recipient",
+        "delivery_recipient_email",
+        "counterparty_email",
         "locale",
         "currency",
         "quantity",
@@ -681,6 +2071,20 @@ def _opportunity_rule_stage(
         "requirements",
         "exclusions",
         "notes",
+        "subject",
+        "subject_hint",
+        "post_approval_action",
+        "auto_execute_action",
+        "approved_action",
+        "gmail_thread_id",
+        "thread_id",
+        "gmail_in_reply_to",
+        "in_reply_to",
+        "gmail_references",
+        "references",
+        "google_binding_id",
+        "google_account_email",
+        "account_email",
     ):
         if key in raw_stage:
             stage[key] = raw_stage.get(key)

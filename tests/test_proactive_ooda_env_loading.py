@@ -8,9 +8,21 @@ from types import SimpleNamespace
 from app.services.proactive_ooda_safe_work import build_safe_work_result
 from app.services.proactive_ooda_service import JsonOodaStateStore, ProactiveOodaService, build_run_receipt
 from app.services.proactive_ooda_stage_packets import build_stage_packets
+from app.services.proactive_signal_discovery import observation_row_to_signal
 
 import scripts.run_proactive_ooda as runner
 import scripts.verify_proactive_ooda as verifier
+
+
+def test_env_example_includes_pending_approval_projection_tables() -> None:
+    env_path = runner.ROOT / ".env.example"
+    raw = env_path.read_text(encoding="utf-8")
+    prefix = "TEABLE_TABLE_SYNC_CONFIG_JSON="
+    config_line = next(line for line in raw.splitlines() if line.startswith(prefix))
+    config = json.loads(config_line[len(prefix) :])
+
+    assert "proactive_ooda_approval_surfaces" in config
+    assert "proactive_ooda_approval_outcomes" in config
 
 
 def test_dotenv_loader_fills_missing_values_without_overriding(tmp_path, monkeypatch) -> None:
@@ -122,6 +134,51 @@ def test_runner_ingests_all_available_sources_when_workspace_scan_fails(tmp_path
     assert any(ref.startswith("proactive_source_error:google_workspace:") for ref in source_refs)
 
 
+def test_runner_skips_unconfigured_workspace_source_without_noise(tmp_path, monkeypatch) -> None:
+    signal_file = tmp_path / "signals.json"
+    signal_file.write_text(
+        json.dumps(
+            [
+                {
+                    "source_ref": "manual:1",
+                    "title": "Decision needed today",
+                    "summary": "Approve the action.",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    from app import container as app_container
+    from app.services import google_oauth
+
+    monkeypatch.setattr(app_container, "build_container", lambda: object())
+    monkeypatch.setattr(
+        google_oauth,
+        "list_recent_workspace_signals",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("google_oauth_binding_not_found")),
+    )
+
+    rows = runner._load_signals(
+        SimpleNamespace(
+            signals_json=str(signal_file),
+            discovery_json="",
+            opportunity_rules_json="",
+            skip_observation_source=True,
+            principal_id="exec",
+            observation_limit=0,
+            observation_lookback_hours=0,
+            email_limit=1,
+            calendar_limit=1,
+            gmail_query="",
+        )
+    )
+
+    source_refs = {str(row.get("source_ref") or "") for row in rows}
+    assert source_refs == {"manual:1"}
+    assert not any(ref.startswith("proactive_source_error:google_workspace:") for ref in source_refs)
+
+
 def test_runner_load_signals_reuses_opportunity_occurrence_until_condition_resets(tmp_path) -> None:
     state_store = JsonOodaStateStore(tmp_path / "state.json")
     args = SimpleNamespace(
@@ -180,6 +237,58 @@ def test_runner_load_signals_reuses_opportunity_occurrence_until_condition_reset
     assert [row["source_ref"] for row in second] == ["opportunity:cool-weather-window:occurrence-1"]
     assert warm == []
     assert [row["source_ref"] for row in third] == ["opportunity:cool-weather-window:occurrence-2"]
+
+
+def test_runner_load_signals_suppresses_matching_topic_after_stop_message(tmp_path, monkeypatch) -> None:
+    signal_file = tmp_path / "signals.json"
+    signal_file.write_text(
+        json.dumps(
+            [
+                {
+                    "source_ref": "manual:mic",
+                    "title": "Research under-wall microphone options",
+                    "summary": "Compare small wall-box Wi-Fi microphone nodes.",
+                },
+                {
+                    "source_ref": "manual:flowers",
+                    "title": "Review florist shortlist",
+                    "summary": "Compare two florist options for next week.",
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+    suppression_signal = observation_row_to_signal(
+        observation_id="obs-stop-topic",
+        principal_id="exec",
+        channel="telegram",
+        event_type="telegram.message",
+        payload={"text": "Höre auf mit den unter Wand microfonen."},
+        created_at="2026-06-20T10:00:00+00:00",
+    )
+    assert suppression_signal is not None
+    monkeypatch.setattr(runner, "discover_postgres_observation_signals", lambda **_kwargs: [suppression_signal])
+
+    rows = runner._load_signals(
+        SimpleNamespace(
+            signals_json=str(signal_file),
+            discovery_json="",
+            opportunity_rules_json="",
+            skip_observation_source=False,
+            skip_workspace_source=True,
+            principal_id="exec",
+            observation_limit=10,
+            observation_lookback_hours=24,
+            email_limit=0,
+            calendar_limit=0,
+            gmail_query="",
+        )
+    )
+
+    source_refs = {str(row.get("source_ref") or "") for row in rows}
+    assert "manual:mic" not in source_refs
+    assert "manual:flowers" in source_refs
+    assert any(ref.startswith("observation:obs-stop-topic") for ref in source_refs)
 
 
 def test_runner_notification_text_includes_safe_work_preview() -> None:
@@ -288,6 +397,7 @@ def test_runner_main_sends_safe_work_preview_to_telegram(tmp_path, monkeypatch, 
             str(tmp_path / "packets"),
             "--safe-work-result-dir",
             str(tmp_path / "results"),
+            "--armed-send",
             "--skip-observation-source",
             "--skip-workspace-source",
         ],
@@ -443,11 +553,236 @@ def test_runner_operator_pause_defers_actionable_digest() -> None:
     assert receipt.notified_ref_hashes == ()
 
 
+def test_runner_unarmed_send_defers_actionable_digest() -> None:
+    digest = ProactiveOodaService().build_digest(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "opportunity:unarmed",
+                "signal_type": "opportunity",
+                "channel": "assistant_opportunity",
+                "title": "Review vendor options",
+                "summary": "Review the provider notes.",
+            }
+        ],
+    )
+    args = SimpleNamespace(armed_send=False)
+
+    reason = runner._unarmed_send_defer_reason(args, digest)
+    deferred = runner._without_notified_refs(digest)
+    receipt = build_run_receipt(digest=deferred, dry_run=False, error_code=reason)
+
+    assert reason == "deferred_by_unarmed_send"
+    assert deferred.notified_refs == ()
+    assert deferred.notified_markers == ()
+    assert receipt.notification_status == "deferred"
+    assert receipt.notified_ref_hashes == ()
+
+
 def test_runner_stage_packet_dir_defaults_next_to_state_path(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(runner, "ROOT", tmp_path)
     args = SimpleNamespace(stage_packet_dir="", state_path="state/proactive_ooda_notified.json")
 
     assert runner._stage_packet_dir(args) == tmp_path / "state" / "proactive_ooda_stage_packets"
+
+
+def test_runner_defaults_receipt_path_next_to_state_path(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(runner, "ROOT", tmp_path)
+    monkeypatch.setattr(
+        runner.sys,
+        "argv",
+        [
+            "run_proactive_ooda.py",
+            "--principal-id",
+            "exec",
+            "--signals-json",
+            str(tmp_path / "signals.json"),
+            "--state-path",
+            str(tmp_path / "state.json"),
+            "--skip-observation-source",
+            "--skip-workspace-source",
+        ],
+    )
+    (tmp_path / "signals.json").write_text("[]\n", encoding="utf-8")
+    monkeypatch.setattr(runner, "persist_proactive_ooda_receipt", lambda **_kwargs: None)
+    monkeypatch.setattr(runner, "sync_proactive_ooda_to_teable", lambda **_kwargs: {"status": "disabled", "sync_attempted": False, "blocked_reason": ""})
+
+    assert runner.main() == 0
+
+    receipt = json.loads((tmp_path / "proactive_ooda_latest_run.generated.json").read_text(encoding="utf-8"))
+    assert receipt["notification_status"] == "skipped_no_items"
+
+
+def test_runner_main_unarmed_send_stages_without_notifying(tmp_path, monkeypatch, capsys) -> None:
+    signal_file = tmp_path / "signals.json"
+    signal_file.write_text(
+        json.dumps(
+            [
+                {
+                    "source_ref": "manual:stage-only",
+                    "title": "Decision needed today",
+                    "summary": "Approve the staged vendor comparison.",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    sent: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        runner,
+        "_deliver_notification",
+        lambda principal_id, text, *, digest=None: sent.append((principal_id, text, digest)) or {"message_id": "telegram-should-not-send"},
+    )
+    monkeypatch.setattr(runner, "persist_proactive_ooda_receipt", lambda **_kwargs: None)
+    monkeypatch.setattr(runner, "sync_proactive_ooda_to_teable", lambda **_kwargs: {"status": "disabled", "sync_attempted": False, "blocked_reason": ""})
+    monkeypatch.setattr(
+        runner.sys,
+        "argv",
+        [
+            "run_proactive_ooda.py",
+            "--principal-id",
+            "exec",
+            "--signals-json",
+            str(signal_file),
+            "--state-path",
+            str(tmp_path / "state.json"),
+            "--stage-packet-dir",
+            str(tmp_path / "packets"),
+            "--safe-work-result-dir",
+            str(tmp_path / "results"),
+            "--skip-observation-source",
+            "--skip-workspace-source",
+        ],
+    )
+
+    assert runner.main() == 0
+
+    captured = capsys.readouterr()
+    receipt = json.loads((tmp_path / "proactive_ooda_latest_run.generated.json").read_text(encoding="utf-8"))
+    assert sent == []
+    assert receipt["notification_status"] == "deferred"
+    assert receipt["error_code"] == "deferred_by_unarmed_send"
+    assert list((tmp_path / "packets").glob("*.json"))
+    assert '"notification_status": "deferred"' in captured.out
+
+
+def test_runner_main_defers_when_safe_work_has_no_decision_ready_material(tmp_path, monkeypatch, capsys) -> None:
+    signal_file = tmp_path / "signals.json"
+    signal_file.write_text(
+        json.dumps(
+            [
+                {
+                    "source_ref": "manual:empty-safe-work",
+                    "signal_type": "opportunity",
+                    "channel": "assistant_opportunity",
+                    "title": "FYI only",
+                    "summary": "A notification happened, but there is no useful next action.",
+                    "payload": {
+                        "ooda_loop": {
+                            "reviewed": True,
+                            "observe": {"summary": "A notification happened."},
+                            "orient": {"summary": "No useful next action is available yet."},
+                            "decide": {"summary": "Do nothing unless more context appears.", "approval_required": False},
+                            "act": {
+                                "summary": "Draft a concise reply or follow-up, but do not send without instruction.",
+                                "stage": {"kind": "decision_packet", "summary": "No useful staged material."},
+                            },
+                        }
+                    },
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    sent: list[tuple[str, str, object]] = []
+    monkeypatch.setattr(
+        runner,
+        "_deliver_notification",
+        lambda principal_id, text, *, digest=None: sent.append((principal_id, text, digest)) or {"message_id": "telegram-should-not-send"},
+    )
+    monkeypatch.setattr(runner, "persist_proactive_ooda_receipt", lambda **_kwargs: None)
+    monkeypatch.setattr(runner, "sync_proactive_ooda_to_teable", lambda **_kwargs: {"status": "disabled", "sync_attempted": False, "blocked_reason": ""})
+    monkeypatch.setattr(
+        runner.sys,
+        "argv",
+        [
+            "run_proactive_ooda.py",
+            "--principal-id",
+            "exec",
+            "--signals-json",
+            str(signal_file),
+            "--state-path",
+            str(tmp_path / "state.json"),
+            "--stage-packet-dir",
+            str(tmp_path / "packets"),
+            "--safe-work-result-dir",
+            str(tmp_path / "results"),
+            "--skip-observation-source",
+            "--skip-workspace-source",
+            "--armed-send",
+        ],
+    )
+
+    assert runner.main() == 0
+
+    captured = capsys.readouterr()
+    receipt = json.loads((tmp_path / "proactive_ooda_latest_run.generated.json").read_text(encoding="utf-8"))
+    safe_work = json.loads(next((tmp_path / "results").glob("*.json")).read_text(encoding="utf-8"))
+    assert sent == []
+    assert receipt["notification_status"] == "deferred"
+    assert receipt["error_code"] == "no_decision_ready_safe_work"
+    assert safe_work["status"] == "blocked_needs_research_input"
+    assert safe_work["audit"]["issues"][0]["code"] == "no_decision_ready_material"
+    assert '"notification_status": "deferred"' in captured.out
+
+
+def test_runner_archives_each_receipt_next_to_state_path(tmp_path, monkeypatch) -> None:
+    signal_file = tmp_path / "signals.json"
+    signal_file.write_text(
+        json.dumps(
+            [
+                {
+                    "source_ref": "manual:archive-proof",
+                    "title": "Decision needed today",
+                    "summary": "Approve the staged vendor comparison.",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        runner,
+        "_deliver_notification",
+        lambda principal_id, text, *, digest=None: {"message_id": "telegram-archive-1"},
+    )
+    monkeypatch.setattr(runner, "persist_proactive_ooda_receipt", lambda **_kwargs: None)
+    monkeypatch.setattr(runner, "sync_proactive_ooda_to_teable", lambda **_kwargs: {"status": "disabled", "sync_attempted": False, "blocked_reason": ""})
+    monkeypatch.setattr(
+        runner.sys,
+        "argv",
+        [
+            "run_proactive_ooda.py",
+            "--principal-id",
+            "exec",
+            "--signals-json",
+            str(signal_file),
+            "--state-path",
+            str(tmp_path / "state.json"),
+            "--armed-send",
+            "--skip-observation-source",
+            "--skip-workspace-source",
+        ],
+    )
+
+    assert runner.main() == 0
+
+    archive_dir = tmp_path / "proactive_ooda_run_receipts"
+    archives = sorted(archive_dir.glob("*.json"))
+    assert len(archives) == 1
+    archived_receipt = json.loads(archives[0].read_text(encoding="utf-8"))
+    assert archived_receipt["notification_status"] == "deferred"
+    assert archived_receipt["error_code"] == "no_user_action_required"
+    assert archived_receipt["item_count"] == 1
 
 
 def test_runner_main_preserves_safe_delivery_error_detail_in_receipt(tmp_path, monkeypatch) -> None:
@@ -485,6 +820,8 @@ def test_runner_main_preserves_safe_delivery_error_detail_in_receipt(tmp_path, m
             str(tmp_path / "state.json"),
             "--receipt-path",
             str(receipt_path),
+            "--armed-send",
+            "--no-action-required-delivery-only",
             "--skip-observation-source",
             "--skip-workspace-source",
         ],
@@ -500,6 +837,37 @@ def test_runner_main_preserves_safe_delivery_error_detail_in_receipt(tmp_path, m
     assert receipt["error_code"] == "whatsapp_web_session_not_ready:qr_required"
     assert receipt["delivery_route_error"] == "whatsapp_web_session_not_ready:qr_required"
     assert receipt["delivery_next_action"] == "scan_whatsapp_web_qr"
+
+
+def test_deliver_notification_falls_back_when_build_container_bootstrap_fails(monkeypatch) -> None:
+    from app import container as app_container
+
+    calls: list[dict[str, object]] = []
+
+    def _raise_bootstrap_failure():
+        raise RuntimeError("provider_registry_bootstrap_failed")
+
+    def _fallback_send(**kwargs):
+        calls.append(dict(kwargs))
+        return {"message_id": "telegram-1"}
+
+    monkeypatch.setattr(app_container, "build_container", _raise_bootstrap_failure)
+    monkeypatch.setattr(runner, "send_proactive_ooda_notification", _fallback_send)
+
+    receipt = runner._deliver_notification(
+        "exec",
+        "Decision packet text",
+        digest=SimpleNamespace(items=(), principal_id="exec"),
+    )
+
+    assert receipt == {"message_id": "telegram-1"}
+    assert calls == [
+        {
+            "principal_id": "exec",
+            "text": "Decision packet text",
+            "digest": SimpleNamespace(items=(), principal_id="exec"),
+        }
+    ]
 
 
 def test_runner_stage_packet_dir_accepts_relative_override(tmp_path, monkeypatch) -> None:
@@ -619,3 +987,38 @@ def test_runner_interruption_budget_records_and_prunes_window(tmp_path) -> None:
         "2026-06-26T10:00:00+00:00",
         "2026-06-26T12:00:00+00:00",
     )
+
+
+def test_verifier_delivery_guard_reports_unarmed_send_state(tmp_path) -> None:
+    state_store = JsonOodaStateStore(tmp_path / "state.json")
+    digest = ProactiveOodaService().build_digest(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "opportunity:guard",
+                "signal_type": "opportunity",
+                "channel": "assistant_opportunity",
+                "title": "Review vendor options",
+                "summary": "Review the provider notes.",
+            }
+        ],
+    )
+    args = SimpleNamespace(
+        principal_id="exec",
+        paused=False,
+        pause_reason="",
+        armed_send=False,
+        quiet_hours_start="",
+        quiet_hours_end="",
+        quiet_hours_timezone="UTC",
+        quiet_hours_allow_high_priority=True,
+        interruption_budget_limit=0,
+        interruption_budget_window_hours=24,
+        interruption_budget_allow_high_priority=True,
+    )
+
+    status = verifier._delivery_guard_status(args, state_store=state_store, digest=digest)
+
+    assert status["delivery_state"] == "deferred"
+    assert status["deferred_reason"] == "deferred_by_unarmed_send"
+    assert status["armed_send"] is False

@@ -82,15 +82,40 @@
       "protected_signal_sources": [
         "commitment_and_deadline_signals",
         "relationship_and_occasion_signals",
+        "calendar_and_renewal_signals",
         "shopping_and_vendor_signals",
+        "preference_budget_and_quiet_hours_state",
+        "durable_profile_and_location_context",
+        "pocket_ai_audio_transcripts",
+        "browser_and_vendor_page_evidence",
+        "context_and_locality_constraints",
         "delivery_route_readiness",
+        "route_blocker_and_recovery_state",
+        "approval_and_follow_through_state",
+        "gmail_draft_execution_state",
+        "telegram_interruption_action_required_state",
+        "current_packet_and_stale_approval_state",
         "provider_runtime_failures"
       ],
       "requires": [
         "approved_signal_ingest",
+        "pocket_ai_audio_transcript_signal_ingest",
         "generic_safe_work_packets",
+        "context_aware_auditor_before_user_delivery",
+        "candidate_provider_fit_and_locality_validation",
+        "live_browse_backed_candidate_research",
+        "reversible_candidate_staging",
+        "gmail_draft_staging_when_requested",
+        "action_required_only_telegram_delivery",
+        "route_selection_and_blocked_fallback_honesty",
         "consent_gated_irreversible_actions",
         "teable_projection_of_run_facts",
+        "teable_projection_of_delivery_and_decision_facts",
+        "teable_projection_of_pending_approval_surface",
+        "current_packet_and_stale_approval_telemetry",
+        "stale_approval_cleanup_or_expiry",
+        "approval_outcome_capture_and_follow_through_receipts",
+        "resume_without_repeat_research",
         "real_operator_acceptance_before_gold_claim"
       ],
       "source_path": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -146,13 +171,74 @@
       "memo",
       "approvals",
       "operator"
-    ]
+    ],
+    "proactive_followthrough_status": "pass"
+  },
+  "evidence_receipts": {
+    "executive_assistant_acceptance_evidence": {
+      "accepted_keys_count": 0,
+      "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
+      "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
+      "present": true,
+      "status": "blocked_missing_real_world_acceptance_evidence"
+    },
+    "proactive_ooda_gold_acceptance": {
+      "approval_capture_surface_ready": false,
+      "approval_outcome_accepted": true,
+      "approval_outcome_recorded": true,
+      "contract_name": "ea.proactive_ooda_gold_acceptance.v1",
+      "next_action": "maintain_proactive_ooda_gold_acceptance_evidence",
+      "next_action_href": "",
+      "next_action_label": "",
+      "next_action_method": "",
+      "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
+      "present": true,
+      "status": "pass",
+      "summary": "A proactive OODA packet has routed delivery, live browse evidence, a chosen candidate, a staged reversible artifact, mirrored Teable facts, and a redacted approved outcome."
+    },
+    "proactive_ooda_operator_status": {
+      "contract_name": "ea.proactive_ooda_operator_status.v1",
+      "next_action": "maintain_proactive_ooda_runtime",
+      "next_action_href": "",
+      "next_action_label": "",
+      "next_action_method": "",
+      "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
+      "present": true,
+      "status": "ready_with_live_receipt",
+      "summary": "Proactive OODA route, packet runtime, and latest host-visible live receipt are ready for operator follow-through."
+    },
+    "whole_project_signal_to_decision": {
+      "closed_loop_followthrough_receipt_verified": false,
+      "contract_name": "ea.whole_project_signal_to_decision_receipt.v1",
+      "path": ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
+      "present": true,
+      "real_weekly_operator_review_accepted": false,
+      "status": "ready_local_packet_pending_operator_acceptance"
+    }
   },
   "external_provider_runtime_verified": false,
-  "generated_at": "2026-06-26T16:55:38Z",
+  "generated_at": "2026-06-29T08:30:59Z",
   "goal_completion_claim_allowed": false,
   "live_daily_use_verified": false,
-  "next_action": "collect a real proactive OODA packet with accepted outcome, routed delivery proof, and mirrored Teable projection",
+  "next_action": "maintain_proactive_ooda_gold_acceptance_evidence",
+  "next_action_href": "",
+  "next_action_label": "",
+  "next_action_method": "",
+  "proactive_ooda_followthrough_posture": {
+    "approval_capture_surface_ready": false,
+    "approval_outcome_accepted": true,
+    "approval_outcome_recorded": true,
+    "closed_loop_followthrough_receipt_verified": false,
+    "gold_acceptance_status": "pass",
+    "next_action": "maintain_proactive_ooda_gold_acceptance_evidence",
+    "next_action_href": "",
+    "next_action_label": "",
+    "next_action_method": "",
+    "operator_runtime_status": "ready_with_live_receipt",
+    "real_weekly_operator_review_accepted": false,
+    "status": "pass",
+    "summary": "A proactive OODA packet has routed delivery, live browse evidence, a chosen candidate, a staged reversible artifact, mirrored Teable facts, and a redacted approved outcome."
+  },
   "real_operator_acceptance_verified": false,
   "remaining_external_proofs": [
     "real daily morning brief acceptance",
@@ -160,11 +246,18 @@
     "real commitment recovered or closed with an evidence receipt",
     "real approved outbound action with audit trail",
     "real provider failure recovered with operator-grade reason",
-    "real proactive OODA packet accepted with routed delivery and mirrored Teable projection",
-    "real whole-project scope gap audit reviewed against the current product spine",
-    "real weekly signal-to-decision review accepted by the operator"
+    "real weekly signal-to-decision review accepted by the operator",
+    "closed-loop signal-to-decision follow-through receipt accepted by the operator",
+    "real whole-project scope gap audit reviewed against the current product spine"
   ],
   "route_snapshots": {
+    "proactive_ooda": {
+      "marker_results": {
+        "Proactive OODA gold receipt": true,
+        "Proactive OODA operator receipt": true
+      },
+      "markers_pass": true
+    },
     "queue": {
       "marker_results": {
         "Queue": true

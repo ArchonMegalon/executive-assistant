@@ -19,6 +19,8 @@ GENERATED_ARTIFACTS = (
     Path(".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json"),
     Path(".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json"),
     Path(".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"),
+    Path(".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json"),
+    Path(".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"),
     Path(".codex-studio/published/teable_env_recovery_readiness.generated.json"),
     Path(".codex-studio/published/telegram_video_delivery_operator.generated.json"),
     Path(".codex-studio/published/whatsapp_web_action_processor_readiness.generated.json"),
@@ -31,6 +33,8 @@ MATERIALIZER_COMMANDS = (
     ("scripts/materialize_whole_project_gold_map.py",),
     ("scripts/materialize_teable_env_recovery_readiness.py",),
     ("scripts/materialize_whatsapp_web_action_processor_readiness.py",),
+    ("scripts/materialize_proactive_ooda_operator_status.py",),
+    ("scripts/materialize_proactive_ooda_gold_acceptance.py",),
     ("scripts/materialize_ea_browser_workflow_proof.py",),
     ("scripts/materialize_continuous_improvement_goal_posture.py",),
     ("scripts/materialize_telegram_video_delivery_receipt.py",),
@@ -40,6 +44,7 @@ VOLATILE_KEYS = {
     "generated_at",
     "as_of",
     "created_at",
+    "observed_at",
     "current_head",
     "evidence_heads",
     "mtime_utc",
@@ -78,6 +83,7 @@ def _normalize(value: Any) -> Any:
                 or key_str.endswith("_ms_total")
                 or key_str.endswith("_ms_std")
                 or key_str.endswith("_updated_at")
+                or key_str.endswith("_observed_at")
                 or key_str.endswith("_age_seconds")
             ):
                 continue

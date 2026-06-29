@@ -5,10 +5,19 @@ import json
 import os
 import urllib.request
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import Any, Mapping
 
+from app.services.proactive_ooda_telegram_approval import (
+    prepare_proactive_ooda_telegram_approval,
+    record_proactive_ooda_telegram_approval_delivery,
+)
 from app.services.proactive_telegram_binding import proactive_telegram_ready, resolve_proactive_telegram_chat_id
-from app.services.telegram_delivery import _telegram_bot_registry, resolve_primary_telegram_binding, send_telegram_message_for_principal
+from app.services.telegram_delivery import (
+    _telegram_bot_registry,
+    _telegram_send_json,
+    resolve_primary_telegram_binding,
+    send_telegram_message_for_principal,
+)
 from app.services.whatsapp_delivery import resolve_whatsapp_delivery_config
 from app.services.whatsapp_delivery_router import WEB_SESSION_CONNECTOR, send_whatsapp_delivery_text
 from app.services.whatsapp_web_session_readiness import check_whatsapp_web_session_readiness
@@ -68,6 +77,7 @@ class ProactiveOodaDeliveryReceipt:
     route_error: str = ""
     recovery_hint: str = ""
     next_action: str = ""
+    approval_surface: Mapping[str, Any] | None = None
 
 
 def resolve_proactive_ooda_delivery_status(
@@ -220,6 +230,7 @@ def send_proactive_ooda_notification(
     channel_runtime: Any | None = None,
     memory_runtime: Any | None = None,
     digest: Any | None = None,
+    approval_request: Mapping[str, Any] | None = None,
 ) -> ProactiveOodaDeliveryReceipt:
     route = resolve_proactive_ooda_delivery_status(
         principal_id=principal_id,
@@ -259,6 +270,7 @@ def send_proactive_ooda_notification(
             principal_id=principal_id,
             text=text,
             tool_runtime=tool_runtime,
+            approval_request=approval_request,
         )
     except Exception as exc:
         if channel_runtime is not None and outbox_row is not None:
@@ -301,6 +313,7 @@ def _send_via_route(
     principal_id: str,
     text: str,
     tool_runtime: Any | None,
+    approval_request: Mapping[str, Any] | None,
 ) -> object:
     if route.selected_channel == "whatsapp":
         return send_whatsapp_delivery_text(
@@ -310,13 +323,13 @@ def _send_via_route(
             text=text,
             binding_id=route.binding_id,
         )
-    if tool_runtime is not None and route.selected_by != "env_telegram_fallback":
-        return send_telegram_message_for_principal(
-            tool_runtime,
-            principal_id=principal_id,
-            text=text,
-        )
-    return _send_telegram_message_from_env(principal_id=principal_id, text=text)
+    return _send_telegram_via_route(
+        route=route,
+        principal_id=principal_id,
+        text=text,
+        tool_runtime=tool_runtime,
+        approval_request=approval_request,
+    )
 
 
 def _channel_route_status(
@@ -496,25 +509,263 @@ def _normalize_delivery_receipt(
         route_error=route.route_error,
         recovery_hint=route.recovery_hint,
         next_action=route.next_action,
+        approval_surface=_extract_approval_surface(raw_receipt),
     )
 
 
-def _send_telegram_message_from_env(*, principal_id: str, text: str) -> dict[str, object]:
+def _send_telegram_via_route(
+    *,
+    route: ProactiveOodaDeliveryStatus,
+    principal_id: str,
+    text: str,
+    tool_runtime: Any | None,
+    approval_request: Mapping[str, Any] | None,
+) -> dict[str, object]:
+    receipts: list[object] = []
+    prompt = _proactive_ooda_approval_prompt(
+        route=route,
+        principal_id=principal_id,
+        tool_runtime=tool_runtime,
+        approval_request=approval_request,
+    )
+    prompt_text = str(prompt.get("prompt_text") or "").strip()
+    inline_buttons = list(prompt.get("inline_buttons") or [])
+    url_buttons = list(prompt.get("url_buttons") or [])
+    approval_surface = dict(prompt.get("approval_surface") or {})
+    record_path = str(prompt.get("record_path") or "").strip()
+    if prompt_text and (inline_buttons or url_buttons):
+        try:
+            prompt_receipt = _send_telegram_message_for_route(
+                route=route,
+                principal_id=principal_id,
+                text=prompt_text,
+                tool_runtime=tool_runtime,
+                inline_buttons=inline_buttons,
+                url_buttons=url_buttons,
+            )
+            prompt_message_ids = _receipt_message_ids(prompt_receipt)
+            if record_path:
+                record_proactive_ooda_telegram_approval_delivery(
+                    record_path=record_path,
+                    message_ids=prompt_message_ids,
+                    status="pending",
+                )
+            if approval_surface:
+                approval_surface["message_ids"] = prompt_message_ids
+                approval_surface["message_count"] = len(prompt_message_ids)
+            receipts.append(prompt_receipt)
+        except Exception:
+            if record_path:
+                try:
+                    record_proactive_ooda_telegram_approval_delivery(
+                        record_path=record_path,
+                        message_ids=(),
+                        status="delivery_failed",
+                        delivery_error_code="telegram_approval_prompt_delivery_failed",
+                    )
+                except Exception:
+                    pass
+            if approval_surface:
+                approval_surface["status"] = "delivery_failed"
+                approval_surface["message_ids"] = ()
+                approval_surface["message_count"] = 0
+                approval_surface["delivery_error_code"] = "telegram_approval_prompt_delivery_failed"
+            raise RuntimeError("telegram_approval_prompt_delivery_failed")
+    elif _approval_request_requires_telegram_action(approval_request):
+        raise RuntimeError("proactive_ooda_action_surface_unavailable")
+    else:
+        receipts.append(_send_telegram_message_for_route(route=route, principal_id=principal_id, text=text, tool_runtime=tool_runtime))
+    message_ids: list[str] = []
+    for receipt in receipts:
+        message_ids.extend(_receipt_message_ids(receipt))
+    return {"message_ids": tuple(message_ids), "approval_surface": approval_surface}
+
+
+def _approval_request_requires_telegram_action(approval_request: Mapping[str, Any] | None) -> bool:
+    request = dict(approval_request or {})
+    return bool(
+        str(request.get("packet_ref") or "").strip()
+        and str(request.get("staged_artifact_ref") or "").strip()
+    )
+
+
+def _send_telegram_message_for_route(
+    *,
+    route: ProactiveOodaDeliveryStatus,
+    principal_id: str,
+    text: str,
+    tool_runtime: Any | None,
+    inline_buttons: list[list[tuple[str, str]]] | None = None,
+    url_buttons: list[list[tuple[str, str]]] | None = None,
+) -> object:
+    if tool_runtime is not None and route.selected_by != "env_telegram_fallback":
+        if inline_buttons or url_buttons:
+            return send_telegram_message_for_principal(
+                tool_runtime,
+                principal_id=principal_id,
+                text=text,
+                inline_buttons=inline_buttons,
+                url_buttons=url_buttons,
+            )
+        return send_telegram_message_for_principal(
+            tool_runtime,
+            principal_id=principal_id,
+            text=text,
+        )
+    return _send_telegram_message_from_env(
+        principal_id=principal_id,
+        text=text,
+        inline_buttons=inline_buttons,
+        url_buttons=url_buttons,
+    )
+
+
+def _send_telegram_message_from_env(
+    *,
+    principal_id: str,
+    text: str,
+    inline_buttons: list[list[tuple[str, str]]] | None = None,
+    url_buttons: list[list[tuple[str, str]]] | None = None,
+) -> dict[str, object]:
     token = str(os.getenv("EA_TELEGRAM_BOT_TOKEN") or "").strip()
     chat_id = resolve_proactive_telegram_chat_id(principal_id=principal_id)
     if not token or not chat_id:
         raise RuntimeError("telegram_notification_not_configured")
-    request = urllib.request.Request(
-        f"https://api.telegram.org/bot{token}/sendMessage",
-        data=json.dumps({"chat_id": chat_id, "text": text}).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
+    payload: dict[str, object] = {"chat_id": chat_id, "text": text}
+    keyboard_rows: list[list[dict[str, str]]] = []
+    for row in list(inline_buttons or []):
+        buttons = [
+            {"text": str(label or "").strip(), "callback_data": str(callback_data or "").strip()}
+            for label, callback_data in row
+            if str(label or "").strip() and str(callback_data or "").strip()
+        ]
+        if buttons:
+            keyboard_rows.append(buttons)
+    for row in list(url_buttons or []):
+        buttons = [
+            {"text": str(label or "").strip(), "url": str(url or "").strip()}
+            for label, url in row
+            if str(label or "").strip() and str(url or "").strip()
+        ]
+        if buttons:
+            keyboard_rows.append(buttons)
+    if keyboard_rows:
+        payload["reply_markup"] = {"inline_keyboard": keyboard_rows}
+    return _telegram_send_json(
+        token=token,
+        method="sendMessage",
+        payload=payload,
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        payload = json.loads(response.read().decode("utf-8"))
-    if not bool(payload.get("ok")):
-        raise RuntimeError("telegram_sendmessage_failed")
-    return dict(payload.get("result") or {})
+
+
+def _receipt_message_ids(receipt: object) -> tuple[str, ...]:
+    if hasattr(receipt, "message_ids"):
+        return tuple(str(item or "").strip() for item in getattr(receipt, "message_ids", ()) if str(item or "").strip())
+    if isinstance(receipt, dict):
+        raw_ids = receipt.get("message_ids")
+        if isinstance(raw_ids, (list, tuple)):
+            return tuple(str(item or "").strip() for item in raw_ids if str(item or "").strip())
+        message_id = str(receipt.get("message_id") or "").strip()
+        return (message_id,) if message_id else ()
+    return ()
+
+
+def _extract_approval_surface(raw_receipt: object) -> dict[str, Any]:
+    if hasattr(raw_receipt, "approval_surface"):
+        value = getattr(raw_receipt, "approval_surface")
+        return dict(value) if isinstance(value, Mapping) else {}
+    if isinstance(raw_receipt, dict):
+        value = raw_receipt.get("approval_surface")
+        return dict(value) if isinstance(value, Mapping) else {}
+    return {}
+
+
+def _proactive_ooda_approval_prompt(
+    *,
+    route: ProactiveOodaDeliveryStatus,
+    principal_id: str,
+    tool_runtime: Any | None,
+    approval_request: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    request = dict(approval_request or {})
+    packet_ref = str(request.get("packet_ref") or "").strip()
+    staged_artifact_ref = str(request.get("staged_artifact_ref") or "").strip()
+    if route.selected_channel != "telegram" or not packet_ref or not staged_artifact_ref:
+        return {"prompt_text": "", "inline_buttons": [], "url_buttons": [], "approval_surface": {}, "record_path": ""}
+    chat_id, bot_token = _telegram_route_identity(route=route, principal_id=principal_id, tool_runtime=tool_runtime)
+    if not chat_id or not bot_token:
+        return {"prompt_text": "", "inline_buttons": [], "url_buttons": [], "approval_surface": {}, "record_path": ""}
+    prepared = prepare_proactive_ooda_telegram_approval(
+        principal_id=principal_id,
+        packet_ref=packet_ref,
+        staged_artifact_ref=staged_artifact_ref,
+        approval_prompt=str(request.get("approval_prompt") or "").strip(),
+        staged_action_url=str(request.get("staged_action_url") or "").strip(),
+        approved_execution_mode=str(request.get("approved_execution_mode") or "").strip(),
+        approved_action=str(request.get("approved_action") or "").strip(),
+        chat_id=chat_id,
+        bot_token=bot_token,
+        state_path=os.getenv("EA_PROACTIVE_OODA_STATE_PATH", "state/proactive_ooda_notified.json"),
+        receipt_path=os.getenv("EA_PROACTIVE_OODA_RECEIPT_PATH", ""),
+    )
+    inline_buttons = list(prepared.get("inline_buttons") or [])
+    url_buttons = list(prepared.get("url_buttons") or [])
+    if not inline_buttons and not url_buttons:
+        return {"prompt_text": "", "inline_buttons": [], "url_buttons": [], "approval_surface": {}, "record_path": ""}
+    prompt_text = str(request.get("approval_prompt") or "").strip()
+    if not prompt_text:
+        prompt_text = "Record your proactive OODA decision for this staged packet. No purchase, booking, or send will happen without explicit approval."
+    approval_surface = {
+        "present": True,
+        "channel": "telegram",
+        "status": str(prepared.get("status") or "pending").strip() or "pending",
+        "callback_token_sha256": str(prepared.get("callback_token_sha256") or "").strip(),
+        "expires_at": str(prepared.get("expires_at") or "").strip(),
+        "packet_ref_sha256": str(prepared.get("packet_ref_sha256") or "").strip(),
+        "staged_artifact_sha256": str(prepared.get("staged_artifact_ref_sha256") or "").strip(),
+        "approval_prompt_sha256": str(prepared.get("approval_prompt_sha256") or "").strip(),
+        "staged_action_url_sha256": str(prepared.get("staged_action_url_sha256") or "").strip(),
+        "inline_button_count": sum(len(row) for row in inline_buttons),
+        "url_button_count": sum(len(row) for row in url_buttons),
+        "message_ids": (),
+        "message_count": 0,
+        "delivery_error_code": "",
+        "privacy": {
+            "raw_callback_token_stored": False,
+            "raw_packet_ref_stored": False,
+            "raw_staged_artifact_ref_stored": False,
+            "raw_approval_prompt_stored": False,
+            "raw_staged_action_url_stored": False,
+        },
+    }
+    return {
+        "prompt_text": prompt_text,
+        "inline_buttons": inline_buttons,
+        "url_buttons": url_buttons,
+        "approval_surface": approval_surface,
+        "record_path": str(prepared.get("record_path") or ""),
+    }
+
+
+def _telegram_route_identity(
+    *,
+    route: ProactiveOodaDeliveryStatus,
+    principal_id: str,
+    tool_runtime: Any | None,
+) -> tuple[str, str]:
+    if tool_runtime is not None and route.selected_by != "env_telegram_fallback":
+        try:
+            binding = resolve_primary_telegram_binding(tool_runtime, principal_id=principal_id)
+        except Exception:
+            binding = None
+        if binding is not None:
+            metadata = dict(getattr(binding, "auth_metadata_json", {}) or {})
+            bot_key = str(metadata.get("bot_key") or "default").strip() or "default"
+            token = str(dict(_telegram_bot_registry().get(bot_key) or {}).get("token") or "").strip()
+            chat_id = str(metadata.get("default_chat_ref") or getattr(binding, "external_account_ref", "") or "").strip()
+            if chat_id and token:
+                return chat_id, token
+    return resolve_proactive_telegram_chat_id(principal_id=principal_id), str(os.getenv("EA_TELEGRAM_BOT_TOKEN") or "").strip()
 
 
 def _active_delivery_preferences(memory_runtime: Any | None, *, principal_id: str) -> list[Any]:
@@ -705,6 +956,30 @@ def _guidance_for_delivery_error(error_code: str) -> ProactiveOodaDeliveryRecove
             route_error=normalized,
             recovery_hint="Link Telegram delivery or set the proactive Telegram chat so Telegram can be used as the fallback route.",
             next_action="configure_telegram_proactive_delivery",
+        )
+    if normalized.startswith("telegram_sendmessage_http_401"):
+        return ProactiveOodaDeliveryRecovery(
+            route_error=normalized,
+            recovery_hint="Refresh the Telegram bot token and confirm the configured bot registry entry still matches the intended bot before retrying.",
+            next_action="rotate_telegram_bot_token",
+        )
+    if normalized.startswith("telegram_sendmessage_http_429"):
+        return ProactiveOodaDeliveryRecovery(
+            route_error=normalized,
+            recovery_hint="Telegram rate-limited the proactive send. Wait for the limit to clear, then retry the delivery.",
+            next_action="wait_for_telegram_rate_limit_reset",
+        )
+    if normalized.startswith("telegram_sendmessage_http_400") or normalized.startswith("telegram_sendmessage_http_403"):
+        return ProactiveOodaDeliveryRecovery(
+            route_error=normalized,
+            recovery_hint="Open the Telegram chat with the configured bot, press Start if needed, and confirm the proactive chat binding still points at the intended chat before retrying.",
+            next_action="repair_telegram_proactive_delivery",
+        )
+    if normalized.startswith("telegram_sendmessage_"):
+        return ProactiveOodaDeliveryRecovery(
+            route_error=normalized,
+            recovery_hint="Inspect the Telegram delivery binding, bot registry, and target chat before retrying proactive delivery.",
+            next_action="inspect_telegram_proactive_delivery",
         )
     if normalized.startswith("delivery_channel_unsupported:"):
         return ProactiveOodaDeliveryRecovery(

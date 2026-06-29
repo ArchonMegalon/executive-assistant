@@ -4275,7 +4275,7 @@ def test_telegram_reinforces_active_intent_to_admin_followup_from_reply_text() -
     )
 
 
-def test_telegram_async_worker_sends_last_resort_reply_when_real_ea_reply_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_telegram_async_worker_suppresses_last_resort_reply_when_real_ea_reply_fails(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-fallback")
@@ -4310,11 +4310,14 @@ def test_telegram_async_worker_sends_last_resort_reply_when_real_ea_reply_fails(
         text="tell me more",
         current_message_id="21",
     )
-    assert sent
-    assert sent[-1]["text"] == "I'm here. Give me a concrete task."
+    assert sent == []
+    observations = list(client.app.state.container.channel_runtime.list_recent_observations(limit=12, principal_id="exec-telegram-fallback"))
+    payload = next(dict(row.payload or {}) for row in observations if str(row.event_type) == "telegram.reply_async_failed")
+    assert payload["stage"] == "fallback_suppressed_no_user_action"
+    assert payload["error"] == "telegram_action_required_only"
 
 
-def test_telegram_async_worker_keeps_fallback_reply_free_of_stale_intent(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_telegram_async_worker_suppresses_fallback_reply_without_stale_intent(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-fallback-intent")
@@ -4347,13 +4350,12 @@ def test_telegram_async_worker_keeps_fallback_reply_free_of_stale_intent(monkeyp
         current_message_id="31",
     )
     observations = list(client.app.state.container.channel_runtime.list_recent_observations(limit=12, principal_id="exec-telegram-fallback-intent"))
-    payload = next(dict(row.payload or {}) for row in observations if str(row.event_type) == "telegram.reply_async_sent")
-    assert payload.get("reply_text") == "I'm here. Ask directly."
-    assert dict(payload.get("intent_state") or {}) == {}
-    assert dict(payload.get("comparison_state") or {}) == {}
+    payload = next(dict(row.payload or {}) for row in observations if str(row.event_type) == "telegram.reply_async_failed")
+    assert payload["stage"] == "fallback_suppressed_no_user_action"
+    assert payload["error"] == "telegram_action_required_only"
 
 
-def test_telegram_async_worker_sends_probe_fallback_when_real_ea_reply_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_telegram_async_worker_suppresses_probe_fallback_when_real_ea_reply_empty(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-probe-fallback")
@@ -4390,12 +4392,13 @@ def test_telegram_async_worker_sends_probe_fallback_when_real_ea_reply_empty(mon
         current_message_id="991001",
     )
     observations = list(client.app.state.container.channel_runtime.list_recent_observations(limit=12, principal_id="exec-telegram-probe-fallback"))
-    assert any(str(row.event_type) == "telegram.reply_async_sent" for row in observations)
-    assert sent
-    assert "I'm here. Ask directly." in sent[-1]["body"]
+    payload = next(dict(row.payload or {}) for row in observations if str(row.event_type) == "telegram.reply_async_failed")
+    assert payload["stage"] == "fallback_suppressed_no_user_action"
+    assert payload["error"] == "telegram_action_required_only"
+    assert sent == []
 
 
-def test_telegram_ingest_answers_question_mark_probe_immediately(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_telegram_ingest_suppresses_question_mark_probe_in_action_required_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-question-probe")
@@ -4437,12 +4440,16 @@ def test_telegram_ingest_answers_question_mark_probe_immediately(monkeypatch: py
     )
     assert response.status_code == 200
     body = response.json()
-    assert body["reply_sent"] is True
-    assert body["reply_text"] == "Ask directly."
-    assert sent[-1]["text"] == "Ask directly."
+    assert body["reply_sent"] is False
+    assert body["reply_text"] == ""
+    assert sent == []
     observations = list(client.app.state.container.channel_runtime.list_recent_observations(limit=12, principal_id="exec-telegram-question-probe"))
-    assert any(str(row.event_type) == "telegram.reply_sent" for row in observations)
+    assert not any(str(row.event_type) == "telegram.reply_sent" for row in observations)
     assert not any(str(row.event_type) == "telegram.reply_async_started" for row in observations)
+    payload = next(dict(row.payload or {}) for row in observations if str(row.event_type) == "telegram.reply_suppressed")
+    assert payload["stage"] == "sync_fallback_suppressed_no_user_action"
+    assert payload["reason"] == "telegram_action_required_only"
+    assert payload["suppressed_reply_text"] == "Ask directly."
 
 
 def test_telegram_ingest_answers_google_photos_capability_request_from_grounded_state(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -5765,7 +5772,7 @@ def test_telegram_ingest_surfaces_google_photos_picker_service_disabled(monkeypa
     assert "https://console.developers.google.com/apis/api/photospicker.googleapis.com/overview?project=357214671780" in body["reply_text"]
 
 
-def test_telegram_ingest_answers_meta_assistant_prompt_immediately(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_telegram_ingest_suppresses_meta_fallback_chatter_in_action_required_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-meta")
@@ -5806,16 +5813,32 @@ def test_telegram_ingest_answers_meta_assistant_prompt_immediately(monkeypatch: 
     )
     assert response.status_code == 200
     body = response.json()
-    assert body["reply_sent"] is True
-    assert body["reply_text"] == "I'm here. Give me a concrete task."
-    assert sent[-1]["text"] == "I'm here. Give me a concrete task."
+    assert body["reply_sent"] is False
+    assert body["reply_text"] == ""
+    assert sent == []
     observations = list(client.app.state.container.channel_runtime.list_recent_observations(limit=12, principal_id="exec-telegram-meta"))
-    assert any(str(row.event_type) == "telegram.reply_sent" for row in observations)
+    assert not any(str(row.event_type) == "telegram.reply_sent" for row in observations)
     assert not any(str(row.event_type) == "telegram.reply_async_started" for row in observations)
-    payload = next(dict(row.payload or {}) for row in observations if str(row.event_type) == "telegram.reply_sent")
-    assert dict(payload.get("active_object_map") or {}) == {}
-    assert dict(payload.get("intent_state") or {}) == {}
-    assert dict(payload.get("comparison_state") or {}) == {}
+    payload = next(dict(row.payload or {}) for row in observations if str(row.event_type) == "telegram.reply_suppressed")
+    assert payload["stage"] == "sync_fallback_suppressed_no_user_action"
+    assert payload["reason"] == "telegram_action_required_only"
+    assert payload["suppressed_reply_text"] == "I'm here. Give me a concrete task."
+
+
+def test_telegram_sync_suppresses_internal_proof_packets_even_with_action_surface(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_ACTION_REQUIRED_ONLY", "1")
+    from app.api.routes import channels as channels_route
+
+    assert channels_route._telegram_should_suppress_sync_nonaction_reply(
+        reply_text="Approve whether EA should preserve this proof packet as the canonical live check.",
+        has_action_surface=True,
+    )
+    assert not channels_route._telegram_should_suppress_sync_nonaction_reply(
+        reply_text="Approve whether EA should keep this saved Gmail draft as the chosen next step.",
+        has_action_surface=True,
+    )
 
 
 def test_telegram_ingest_schedules_async_codex_reply_for_generic_plain_chat(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1363,6 +1363,113 @@ class PocketSignalImportOut(BaseModel):
     parsed_entry_total: int = 0
 
 
+class AlexaHistoryImportIn(BaseModel):
+    path: str = Field(min_length=1)
+    counterparty: str = "Alexa"
+
+
+class AlexaHistoryImportOut(BaseModel):
+    generated_at: str
+    source_path: str
+    source_formats: list[str] = Field(default_factory=list)
+    items: list[OfficeSignalResultOut] = Field(default_factory=list)
+    total: int = 0
+    synced_total: int = 0
+    deduplicated_total: int = 0
+    suppressed_total: int = 0
+    parsed_entry_total: int = 0
+    teable_index_status: str = ""
+    teable_index_blocked_reason: str = ""
+    teable_index_row_total: int = 0
+    teable_index_sync_attempted: bool = False
+
+
+class AlexaHistorySyncOut(BaseModel):
+    generated_at: str
+    root_path: str
+    source_total: int = 0
+    processed_source_total: int = 0
+    skipped_source_total: int = 0
+    source_limit: int = 0
+    force: bool = False
+    items: list[OfficeSignalResultOut] = Field(default_factory=list)
+    total: int = 0
+    synced_total: int = 0
+    deduplicated_total: int = 0
+    suppressed_total: int = 0
+    parsed_entry_total: int = 0
+    teable_index_status: str = ""
+    teable_index_blocked_reason: str = ""
+    teable_index_row_total: int = 0
+    teable_index_sync_attempted: bool = False
+
+
+class AlexaHistorySearchItemOut(BaseModel):
+    history_entry_id: str
+    source_ref: str = ""
+    title: str = ""
+    occurred_at: str = ""
+    summary_markdown: str = ""
+    transcript_excerpt: str = ""
+    device_name: str = ""
+    skill_name: str = ""
+    locale: str = ""
+    activity_status: str = ""
+    import_source_path: str = ""
+    import_archive_member: str = ""
+    match_score: float = 0.0
+
+
+class AlexaHistorySearchOut(BaseModel):
+    generated_at: str
+    query: str = ""
+    before: str = ""
+    after: str = ""
+    total: int = 0
+    items: list[AlexaHistorySearchItemOut] = Field(default_factory=list)
+
+
+class AlexaHistoryDetailOut(BaseModel):
+    history_entry_id: str
+    source_ref: str = ""
+    title: str = ""
+    occurred_at: str = ""
+    summary_markdown: str = ""
+    utterance_text: str = ""
+    response_text: str = ""
+    transcript_text: str = ""
+    transcript_excerpt: str = ""
+    device_name: str = ""
+    skill_name: str = ""
+    locale: str = ""
+    activity_status: str = ""
+    import_source_path: str = ""
+    import_archive_member: str = ""
+
+
+class AlexaHistoryTelegramDeliveryOut(BaseModel):
+    history_entry_id: str
+    source_ref: str = ""
+    title: str = ""
+    occurred_at: str = ""
+    device_name: str = ""
+    skill_name: str = ""
+    telegram_delivery_status: str = ""
+    telegram_delivery_error: str = ""
+    telegram_message_ids: list[str] = Field(default_factory=list)
+    telegram_chat_ref: str = ""
+    utterance_text: str = ""
+    response_text: str = ""
+    transcript_excerpt: str = ""
+
+
+class AlexaHistoryQueryTelegramDeliveryOut(AlexaHistoryTelegramDeliveryOut):
+    query: str = ""
+    before: str = ""
+    after: str = ""
+    matched_total: int = 0
+
+
 class GoogleLocationHistoryImportIn(BaseModel):
     path: str = Field(min_length=1)
 

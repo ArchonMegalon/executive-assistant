@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import io
 import json
+from urllib.error import HTTPError
 
 from app.repositories.connector_bindings import InMemoryConnectorBindingRepository
 from app.repositories.tool_registry import InMemoryToolRegistryRepository
@@ -674,6 +676,47 @@ def test_send_telegram_message_retries_transient_failure(monkeypatch) -> None:
     receipt = send_telegram_message_for_principal(runtime, principal_id="exec-telegram-retry", text="Retry me")
     assert receipt.message_ids == ("15",)
     assert attempts["count"] == 2
+
+
+def test_send_telegram_message_for_principal_surfaces_http_error_detail(monkeypatch) -> None:
+    runtime = _tool_runtime()
+    runtime.upsert_connector_binding(
+        principal_id="exec-telegram-http-error",
+        connector_name="telegram_identity",
+        external_account_ref="42",
+        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    monkeypatch.setenv("EA_TELEGRAM_BOT_REGISTRY_JSON", json.dumps({"default": {"token": "telegram-token"}}))
+    monkeypatch.setenv("EA_TELEGRAM_DELIVERY_MAX_ATTEMPTS", "2")
+    monkeypatch.setattr("app.services.telegram_delivery.time.sleep", lambda *_args, **_kwargs: None)
+
+    def _fake_urlopen(request, timeout=30):
+        raise HTTPError(
+            request.full_url,
+            403,
+            "Forbidden",
+            hdrs=None,
+            fp=io.BytesIO(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error_code": 403,
+                        "description": "Forbidden: bot was blocked by the user",
+                    }
+                ).encode("utf-8")
+            ),
+        )
+
+    monkeypatch.setattr("app.services.telegram_delivery.urllib.request.urlopen", _fake_urlopen)
+
+    try:
+        send_telegram_message_for_principal(runtime, principal_id="exec-telegram-http-error", text="Hello")
+    except RuntimeError as exc:
+        assert str(exc) == "telegram_sendmessage_http_403:bot_was_blocked_by_the_user"
+    else:
+        raise AssertionError("expected telegram_sendmessage_http_403:bot_was_blocked_by_the_user")
 
 
 def test_send_telegram_audio_rejects_unreachable_remote_ref(monkeypatch) -> None:

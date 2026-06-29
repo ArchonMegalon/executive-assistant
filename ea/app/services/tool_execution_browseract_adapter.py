@@ -39,6 +39,61 @@ def _repo_root() -> Path:
     return current.parents[3]
 
 
+def _secret_file_candidates(raw_path: str) -> tuple[Path, ...]:
+    normalized = str(raw_path or "").strip()
+    if not normalized:
+        return tuple()
+    configured = Path(normalized).expanduser()
+    filename = configured.name
+    cwd = Path.cwd()
+    parent_cwd = cwd.parent
+    raw_config_root = str(os.environ.get("EA_CONFIG_ROOT") or "").strip()
+    base_config_root = Path(raw_config_root).expanduser() if raw_config_root else _repo_root() / "config"
+    if configured.is_absolute():
+        return (
+            configured,
+            _repo_root() / "config" / configured.name,
+            _repo_root() / "secrets" / configured.name,
+            cwd / "config" / configured.name,
+            cwd / "secrets" / configured.name,
+            parent_cwd / "config" / configured.name,
+            parent_cwd / "secrets" / configured.name,
+            base_config_root / configured.name,
+        )
+    return (
+        _repo_root() / configured,
+        _repo_root() / "config" / filename,
+        _repo_root() / "secrets" / filename,
+        configured,
+        cwd / configured,
+        cwd / "config" / filename,
+        cwd / "secrets" / filename,
+        parent_cwd / configured,
+        parent_cwd / "config" / filename,
+        parent_cwd / "secrets" / filename,
+        base_config_root / filename,
+    )
+
+
+def _secret_file_value(raw_path: str) -> str:
+    normalized = str(raw_path or "").strip()
+    if not normalized:
+        return ""
+    for candidate in _secret_file_candidates(normalized):
+        try:
+            if not os.access(candidate, os.R_OK):
+                continue
+            if not candidate.is_file():
+                continue
+        except Exception:
+            continue
+        try:
+            return candidate.read_text(encoding="utf-8").strip()
+        except Exception:
+            continue
+    return ""
+
+
 def _extract_textish(value: object) -> str:
     if value is None:
         return ""
@@ -2776,6 +2831,7 @@ class BrowserActToolAdapter:
         service = browseract_ui_service_by_service_key(normalized)
         if service is None:
             builtin_service_map = {
+                "amazon_login": BrowserActToolAdapter._amazon_login_ui_service,
                 "onemin_billing_usage": BrowserActToolAdapter._onemin_billing_usage_ui_service,
                 "onemin_member_reconciliation": BrowserActToolAdapter._onemin_member_reconciliation_ui_service,
             }
@@ -2783,6 +2839,7 @@ class BrowserActToolAdapter:
             if builder is not None:
                 service = builder()
         env_map = {
+            "amazon_login": "EA_BROWSERACT_TEMPLATE_SERVICE_WORKER",
             "mootion_movie": "EA_MOOTION_MOVIE_WORKER",
             "avomap_flyover": "EA_AVOMAP_FLYOVER_WORKER",
             "booka_book": "EA_BOOKA_BOOK_WORKER",
@@ -2791,6 +2848,7 @@ class BrowserActToolAdapter:
             "onemin_member_reconciliation": "EA_BROWSERACT_TEMPLATE_SERVICE_WORKER",
         }
         filename_map = {
+            "amazon_login": "browseract_template_service_worker.py",
             "mootion_movie": "mootion_movie_worker.py",
             "avomap_flyover": "avomap_flyover_worker.py",
             "booka_book": "booka_book_worker.py",
@@ -2813,6 +2871,322 @@ class BrowserActToolAdapter:
             if candidate.exists():
                 return candidate
         return resolved.parents[0] / "scripts" / filename
+
+    @staticmethod
+    def _amazon_login_ui_service() -> BrowserActUiServiceDefinition:
+        return BrowserActUiServiceDefinition(
+            service_key="amazon_login",
+            capability_key="amazon_login",
+            tool_name="provider.amazon.login",
+            skill_key="amazon_login",
+            task_key="amazon_login",
+            name="Amazon Login",
+            description="Sign in to Amazon with EA-managed credentials and verify the authenticated account surface.",
+            deliverable_type="amazon_login_session",
+            action_kind="account.login",
+            output_label="amazon account",
+            browseract_service_names=("Amazon",),
+            tags=("browseract", "amazon", "login", "account"),
+            aliases=("amazon", "amazon_login", "provider.amazon.login"),
+            binding_workflow_id_keys=(),
+            binding_run_url_keys=(),
+            required_top_level_inputs=(),
+            required_runtime_inputs=(),
+            payload_to_runtime_inputs={},
+            input_properties={
+                "login_url": {"type": "string"},
+                "account_url": {"type": "string"},
+            },
+            worker_script_name="browseract_template_service_worker.py",
+            template_key="amazon_login_live",
+        )
+
+    @staticmethod
+    def _amazon_login_password() -> str:
+        auth_mode = str(os.getenv("AMAZON_AUTH_MODE") or "").strip().lower().replace("-", "_")
+        if auth_mode == "secret_file":
+            password_file = str(os.getenv("AMAZON_PASSWORD_FILE") or "").strip()
+            if password_file:
+                loaded = _secret_file_value(password_file)
+                if loaded:
+                    return loaded
+            for fallback in (
+                "config/amazon_archon_password",
+                "config/amazon_password",
+                "secrets/amazon_archon_password",
+                "secrets/amazon_password",
+            ):
+                loaded = _secret_file_value(fallback)
+                if loaded:
+                    return loaded
+
+        inline = str(os.getenv("AMAZON_PASSWORD") or "").strip()
+        if inline:
+            return inline
+        password_file = str(os.getenv("AMAZON_PASSWORD_FILE") or "").strip()
+        if password_file:
+            loaded = _secret_file_value(password_file)
+            if loaded:
+                return loaded
+        for fallback in (
+            "config/amazon_archon_password",
+            "config/amazon_password",
+            "secrets/amazon_archon_password",
+            "secrets/amazon_password",
+        ):
+            loaded = _secret_file_value(fallback)
+            if loaded:
+                return loaded
+        return ""
+
+    @staticmethod
+    def _amazon_login_workflow_spec(*, login_url: str, account_url: str) -> dict[str, object]:
+        nodes: list[dict[str, object]] = [
+            {
+                "id": "open_login",
+                "type": "visit_page",
+                "label": "Open Login",
+                "config": {
+                    "url": login_url,
+                    "post_load_wait_ms": 1800,
+                },
+            },
+            {
+                "id": "wait_email",
+                "type": "wait",
+                "label": "Wait Email",
+                "config": {
+                    "selector": "input#ap_email, input[name='email'], input[type='email']",
+                    "timeout_ms": 45000,
+                },
+            },
+            {
+                "id": "email",
+                "type": "input_text",
+                "label": "Email",
+                "config": {
+                    "selector": "input#ap_email, input[name='email'], input[type='email']",
+                    "value_from_secret": "browseract_username",
+                },
+            },
+            {
+                "id": "continue",
+                "type": "click",
+                "label": "Continue",
+                "config": {
+                    "selector": "input#continue, button#continue, button[name='continue'], input[name='continue']",
+                    "optional": True,
+                    "post_click_wait_ms": 1400,
+                },
+            },
+            {
+                "id": "wait_password",
+                "type": "wait",
+                "label": "Wait Password",
+                "config": {
+                    "selector": "input#ap_password, input[name='password'], input[type='password']",
+                    "timeout_ms": 45000,
+                },
+            },
+            {
+                "id": "password",
+                "type": "input_text",
+                "label": "Password",
+                "config": {
+                    "selector": "input#ap_password, input[name='password'], input[type='password']",
+                    "value_from_secret": "browseract_password",
+                },
+            },
+            {
+                "id": "submit",
+                "type": "submit_login_form",
+                "label": "Submit Login",
+                "config": {
+                    "selector": "input#signInSubmit, button#signInSubmit, input[type='submit'], button[type='submit']",
+                    "password_selector": "input#ap_password, input[name='password'], input[type='password']",
+                    "auth_failure_code": "invalid_credentials",
+                    "auth_failure_selectors": [
+                        "#auth-error-message-box .a-alert-content",
+                        "#auth-warning-message-box .a-alert-content",
+                        ".a-alert-content",
+                        "body",
+                    ],
+                    "auth_failure_text_markers": [
+                        "there was a problem",
+                        "your password is incorrect",
+                        "we cannot find an account",
+                        "incorrect",
+                        "enter a valid email",
+                    ],
+                },
+            },
+            {
+                "id": "wait_authenticated",
+                "type": "wait",
+                "label": "Wait Authenticated",
+                "config": {
+                    "selector": "input#ap_password, input[name='password'], input[type='password']",
+                    "state": "hidden",
+                    "timeout_ms": 45000,
+                    "optional": True,
+                },
+            },
+        ]
+        if account_url:
+            nodes.append(
+                {
+                    "id": "open_account",
+                    "type": "visit_page",
+                    "label": "Open Account",
+                    "config": {
+                        "url": account_url,
+                        "post_load_wait_ms": 2000,
+                    },
+                }
+            )
+        nodes.extend(
+            [
+                {
+                    "id": "capture_body",
+                    "type": "extract",
+                    "label": "Capture Body",
+                    "config": {
+                        "selector": "body",
+                        "field_name": "account_page",
+                    },
+                },
+                {
+                    "id": "output",
+                    "type": "output",
+                    "label": "Output",
+                    "config": {
+                        "field_name": "account_page",
+                    },
+                },
+            ]
+        )
+        return {
+            "workflow_name": "Amazon Login",
+            "description": "Sign in to Amazon and capture the authenticated account surface.",
+            "publish": False,
+            "mcp_ready": False,
+            "inputs": (),
+            "nodes": nodes,
+            "edges": [],
+            "meta": {
+                "slug": "amazon_login_live",
+                "auth_flow": "direct",
+                "workflow_kind": "page_extract",
+                "result_field_name": "account_page",
+            },
+        }
+
+    def execute_amazon_login(self, request: ToolInvocationRequest, definition: ToolDefinition) -> ToolInvocationResult:
+        payload = dict(request.payload_json or {})
+        principal_id = self._resolve_principal_id(request, payload)
+        login_email = self._first_nonempty_text(
+            payload.get("login_email"),
+            payload.get("browseract_username"),
+            os.getenv("AMAZON_ACCOUNT_EMAIL"),
+        )
+        login_password = self._first_nonempty_text(
+            payload.get("login_password"),
+            payload.get("browseract_password"),
+            self._amazon_login_password(),
+        )
+        if not login_email:
+            raise ToolExecutionError("amazon_account_email_missing")
+        if not login_password:
+            raise ToolExecutionError("amazon_password_missing")
+        login_url = str(payload.get("login_url") or "https://www.amazon.de/ap/signin").strip() or "https://www.amazon.de/ap/signin"
+        account_url = str(payload.get("account_url") or "https://www.amazon.de/gp/css/homepage.html").strip()
+        try:
+            timeout_seconds = max(120, min(1800, int(payload.get("timeout_seconds") or 360)))
+        except Exception:
+            timeout_seconds = 360
+
+        service = self._amazon_login_ui_service()
+        request_payload = dict(payload)
+        request_payload.update(
+            {
+                "login_email": login_email,
+                "login_password": login_password,
+                "browseract_username": login_email,
+                "browseract_password": login_password,
+                "proxy_result": bool(payload.get("proxy_result", False)),
+                "timeout_seconds": timeout_seconds,
+            }
+        )
+        request_payload.update(self._browser_proxy_settings(request_payload, binding_metadata={}))
+        response = self._execute_ui_service_worker_direct(
+            service_key=service.service_key,
+            request_payload=request_payload,
+            requested_inputs={
+                "browseract_username": login_email,
+                "browseract_password": login_password,
+            },
+            binding_metadata={},
+            service=service,
+            workflow_id="",
+            run_url="",
+            extra_packet={
+                "template_key": service.template_key,
+                "workflow_spec_json": self._amazon_login_workflow_spec(
+                    login_url=login_url,
+                    account_url=account_url,
+                ),
+            },
+            allow_force_local=True,
+        )
+        title = str(response.get("title") or "").strip()
+        current_url = str(response.get("url") or "").strip()
+        render_status = str(response.get("render_status") or "completed").strip() or "completed"
+        body_text = str(response.get("bodyText") or response.get("outputText") or "").strip()
+        action_kind = str(request.action_kind or "account.login") or "account.login"
+        structured_output_json = {
+            "title": title or None,
+            "url": current_url or None,
+            "body_text_excerpt": body_text[:5000] if body_text else "",
+            "labels": list(response.get("labels") or []),
+            "buttons": list(response.get("buttons") or []),
+            "links": list(response.get("links") or []),
+            "extracts": dict(response.get("extracts") or {}),
+            "requested_login_url": login_url,
+            "requested_account_url": account_url or None,
+        }
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind=action_kind,
+            target_ref=f"amazon:{principal_id}:login",
+            output_json={
+                "tool_name": definition.tool_name,
+                "action_kind": action_kind,
+                "provider_backend": "amazon_browseract_template",
+                "render_status": render_status,
+                "login_state": "authenticated",
+                "requested_url": str(response.get("requested_url") or f"browseract-template://{service.template_key}").strip(),
+                "editor_url": current_url or account_url or login_url,
+                "title": title or None,
+                "url": current_url or None,
+                "body_text": body_text or None,
+                "labels": list(response.get("labels") or []),
+                "buttons": list(response.get("buttons") or []),
+                "links": list(response.get("links") or []),
+                "structured_output_json": structured_output_json,
+            },
+            receipt_json={
+                "handler_key": definition.tool_name,
+                "invocation_contract": "tool.v1",
+                "principal_id": principal_id,
+                "provider_key": "amazon",
+                "auth_mode": "secret_file_or_inline",
+                "login_email_present": bool(login_email),
+                "password_present": bool(login_password),
+                "requested_login_url": login_url,
+                "requested_account_url": account_url or "",
+                "tool_version": definition.version,
+            },
+        )
 
     @staticmethod
     def _ui_service_publisher_script_path() -> Path:

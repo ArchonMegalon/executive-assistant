@@ -59,6 +59,23 @@ from app.services.audiobook_epub_pipeline import (
 from app.services.ltd_runtime_catalog import LtdRuntimeCatalogService
 from app.services.ltd_runtime_skill_projection import projected_task_key, projected_task_key_for_request
 from app.services.property_billing import property_commercial_snapshot
+from app.services.public_urls import ea_public_app_base_url
+from app.services.proactive_ooda_approval_outcomes import default_proactive_ooda_artifact_dir
+from app.services.proactive_ooda_context_grounding import ground_digest_for_principal
+from app.services.proactive_ooda_receipts import persist_proactive_ooda_receipt
+from app.services.proactive_ooda_safe_work import (
+    build_safe_work_result,
+    default_safe_work_result_dir,
+    persist_safe_work_results_from_paths,
+)
+from app.services.proactive_ooda_telegram_policy import (
+    approval_request_needs_telegram_user_action,
+    telegram_ooda_text_is_internal_noise,
+)
+from app.services.proactive_ooda_service import ProactiveOodaService, build_run_receipt
+from app.services.proactive_ooda_stage_packets import build_stage_packets, default_stage_packet_dir, persist_stage_packets
+from app.services.proactive_ooda_teable_sync import sync_proactive_ooda_to_teable, teable_sync_enabled
+from app.services.proactive_signal_discovery import observation_row_to_signal
 from app.services.telegram_video_effects import render_local_source_video_edit
 from app.services.telegram_video_effects import extract_source_video_reference_packet
 from app.services.telegram_video_effects import source_video_edit_enabled
@@ -80,6 +97,14 @@ from app.services.telegram_delivery import send_telegram_video_for_principal
 from app.services.telegram_delivery import decode_telegram_feedback_callback_data
 from app.services.telegram_delivery import record_telegram_video_delivery_receipt as shared_record_telegram_video_delivery_receipt
 from app.services.telegram_delivery import telegram_video_source_receipt_context
+from app.services.proactive_ooda_telegram_approval import (
+    apply_proactive_ooda_telegram_approval_callback,
+    build_reversible_execution_approval_prompt,
+    decode_proactive_ooda_telegram_callback,
+    execute_proactive_ooda_action,
+    prepare_proactive_ooda_telegram_approval,
+    record_proactive_ooda_telegram_approval_delivery,
+)
 
 router = APIRouter(prefix="/v1/channels", tags=["channels"])
 _telegram = TelegramObservationAdapter()
@@ -106,6 +131,7 @@ _TELEGRAM_FREE_RENDER_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
 )
 _TELEGRAM_WEATHER_URL = "https://api.open-meteo.com/v1/forecast"
 _URL_RE = re.compile(r"https?://[^\s<>\"]+")
+_EA_ROOT = Path(__file__).resolve().parents[3]
 _MATH_WORD_NUMBERS = {
     "zero": "0",
     "one": "1",
@@ -302,7 +328,10 @@ def _resolve_telegram_principal(container: AppContainer, chat_id: str, *, bot_ke
             default_chat_ref = str(metadata.get("default_chat_ref") or "").strip()
             external_account_ref = str(binding.external_account_ref or "").strip()
             if normalized_chat_id in {default_chat_ref, external_account_ref}:
-                matches.append(binding.principal_id)
+                matches.append(
+                    _canonical_telegram_principal_id(container, str(binding.principal_id or "").strip())
+                    or str(binding.principal_id or "").strip()
+                )
     principals = sorted({principal_id for principal_id in matches if str(principal_id or "").strip()})
     if len(principals) == 1:
         return principals[0]
@@ -315,7 +344,15 @@ def _telegram_principal_is_registered_user(container: AppContainer, principal_id
     normalized = str(principal_id or "").strip()
     if not normalized:
         return False
-    if normalized == _telegram_default_principal_id():
+    default_principals = {
+        value
+        for value in (
+            _telegram_default_principal_id(),
+            _canonical_telegram_principal_id(container, _telegram_default_principal_id()),
+        )
+        if str(value or "").strip()
+    }
+    if normalized in default_principals:
         return True
     for connector_name in (TELEGRAM_OFFICIAL_BOT_CONNECTOR, TELEGRAM_IDENTITY_CONNECTOR):
         for binding in container.tool_runtime.list_connector_bindings_for_connector(connector_name, limit=500):
@@ -346,6 +383,21 @@ def _telegram_property_render_priority(container: AppContainer, principal_id: st
     return "paid" if _telegram_property_render_plan_key(container=container, principal_id=principal_id) in {"plus", "agent"} else "free"
 
 
+def _canonical_telegram_principal_id(container: AppContainer, principal_id: str) -> str:
+    normalized = str(principal_id or "").strip()
+    if not normalized:
+        return ""
+    for candidate in google_oauth_service._principal_alias_candidates(
+        container=container,
+        principal_ids=(normalized,),
+        include_local_user=False,
+    ):
+        resolved = str(candidate or "").strip()
+        if resolved and resolved != normalized and not resolved.startswith("cf-email:"):
+            return resolved
+    return normalized
+
+
 def _telegram_default_principal_id() -> str:
     return str(os.getenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID") or "").strip()
 
@@ -366,7 +418,8 @@ def _telegram_inline_async_accelerator_enabled() -> bool:
 
 def _auto_bind_telegram_chat(container: AppContainer, chat_id: str, *, config: dict[str, object]) -> str:
     normalized_chat_id = str(chat_id or "").strip()
-    principal_id = str(config.get("default_principal_id") or _telegram_default_principal_id() or "").strip()
+    configured_principal_id = str(config.get("default_principal_id") or _telegram_default_principal_id() or "").strip()
+    principal_id = _canonical_telegram_principal_id(container, configured_principal_id) or configured_principal_id
     auto_bind = config.get("auto_bind_unknown_chat")
     if auto_bind is None:
         auto_bind_enabled = _telegram_auto_bind_unknown_chat_enabled()
@@ -374,10 +427,18 @@ def _auto_bind_telegram_chat(container: AppContainer, chat_id: str, *, config: d
         auto_bind_enabled = bool(auto_bind)
     if not normalized_chat_id or not principal_id or not auto_bind_enabled:
         return ""
-    registry_principals = {
+    registry_principals: set[str] = set()
+    for raw_principal_id in (
         str(config.get("default_principal_id") or "").strip(),
         _telegram_default_principal_id(),
-    }
+    ):
+        normalized = str(raw_principal_id or "").strip()
+        if not normalized:
+            continue
+        registry_principals.add(normalized)
+        canonical = _canonical_telegram_principal_id(container, normalized)
+        if canonical:
+            registry_principals.add(canonical)
     if principal_id not in registry_principals and not _telegram_principal_is_registered_user(container=container, principal_id=principal_id):
         return ""
     connector = container.tool_runtime.upsert_connector_binding(
@@ -2109,9 +2170,11 @@ def _telegram_video_delivery_message_ids(delivery: dict[str, object]) -> list[st
 
 def _telegram_video_delivery_sent(delivery: dict[str, object]) -> bool:
     delivery_dict = dict(delivery or {})
+    kind = str(delivery_dict.get("kind") or "").strip().lower()
+    provider = str(delivery_dict.get("provider") or "").strip().lower()
     return (
         str(delivery_dict.get("status") or "").strip().lower() == "sent"
-        and str(delivery_dict.get("kind") or "").strip().lower() == "video"
+        and (kind == "video" or (not kind and provider in {"magicfit", "local_source_video_fx"}))
         and bool(_telegram_video_delivery_message_ids(delivery_dict))
     )
 
@@ -3149,6 +3212,92 @@ def _telegram_last_resort_reply_text(text: str) -> str:
     if word_count <= 2:
         return "Ask directly."
     return "I'm here. Give me a concrete task."
+
+
+def _telegram_action_required_only_mode() -> bool:
+    raw = str(os.getenv("EA_TELEGRAM_ACTION_REQUIRED_ONLY", "1") or "1").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+def _telegram_processing_acks_enabled() -> bool:
+    raw = str(os.getenv("EA_TELEGRAM_SEND_PROCESSING_ACKS", "0") or "0").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+def _telegram_should_suppress_async_fallback_reply(
+    *,
+    reply_text: str,
+    used_fallback_only: bool,
+    probe_reply: str,
+    last_resort_reply: str,
+) -> bool:
+    if not _telegram_action_required_only_mode() or not used_fallback_only:
+        return False
+    normalized = " ".join(str(reply_text or "").strip().split())
+    if not normalized:
+        return False
+    fallback_texts = {
+        " ".join(str(probe_reply or "").strip().split()),
+        " ".join(str(last_resort_reply or "").strip().split()),
+        "Ask directly.",
+    }
+    if normalized in fallback_texts:
+        return True
+    lowered = normalized.lower()
+    return lowered.startswith("i'm here.") or lowered.startswith("working on it.") or lowered.startswith("saved.")
+
+
+def _telegram_should_suppress_sync_nonaction_reply(*, reply_text: str, has_action_surface: bool) -> bool:
+    if not _telegram_action_required_only_mode():
+        return False
+    if telegram_ooda_text_is_internal_noise(reply_text):
+        return True
+    if has_action_surface:
+        return False
+    normalized = " ".join(str(reply_text or "").strip().split())
+    if not normalized:
+        return False
+    lowered = normalized.lower()
+    if lowered in {
+        "ask directly.",
+        "i'm here. ask directly.",
+        "i'm here. give me a concrete task.",
+        "let me check that and get back to you here.",
+    }:
+        return True
+    return (
+        lowered.startswith("working on it.")
+        or lowered.startswith("saved. ea is processing")
+        or lowered.startswith("saved. i staged")
+    )
+
+
+def _record_telegram_sync_reply_suppressed(
+    container: AppContainer,
+    *,
+    principal_id: str,
+    chat_id: str,
+    dedupe_key: str,
+    current_message_id: str,
+    source_text: str,
+    reply_text: str,
+) -> None:
+    marker = f"{str(dedupe_key or '').strip()}:reply_suppressed_no_user_action" if str(dedupe_key or "").strip() else ""
+    container.channel_runtime.ingest_observation(
+        principal_id=principal_id,
+        channel="telegram",
+        event_type="telegram.reply_suppressed",
+        payload={
+            "chat_id": str(chat_id or "").strip(),
+            "prompt_text": str(source_text or "").strip(),
+            "suppressed_reply_text": str(reply_text or "").strip(),
+            "stage": "sync_fallback_suppressed_no_user_action",
+            "reason": "telegram_action_required_only",
+        },
+        source_id=f"telegram:{chat_id}" if chat_id else "telegram",
+        external_id=str(current_message_id or "").strip(),
+        dedupe_key=marker,
+    )
 
 
 def _telegram_meta_assistant_reply_text(text: str) -> str:
@@ -6514,6 +6663,78 @@ def _telegram_callback_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDe
             chat_id=ctx.chat_id,
         )
         return TelegramTurnDecision(reply_text=str(result.get("reply_text") or "Noted.").strip() or "Noted.")
+    if callback_data.startswith("po|"):
+        callback_packet = decode_proactive_ooda_telegram_callback(
+            callback_data=callback_data,
+            chat_id=ctx.chat_id,
+            bot_token=str(dict(ctx.payload.get("_bot_config") or {}).get("token") or "").strip(),
+        )
+        if not bool(callback_packet.get("ok")):
+            reason = str(callback_packet.get("reason") or "").strip().lower()
+            if reason == "expired":
+                return TelegramTurnDecision(reply_text="That proactive OODA approval button expired. Ask EA for a fresh packet if you still want to decide.")
+            return TelegramTurnDecision(reply_text="That proactive OODA approval button is no longer valid.")
+        try:
+            result = apply_proactive_ooda_telegram_approval_callback(
+                callback_token=str(callback_packet.get("callback_token") or "").strip(),
+                outcome=str(callback_packet.get("action") or "").strip(),
+                principal_id=ctx.principal_id,
+                actor=f"telegram:{ctx.chat_id}",
+                message_id=ctx.current_message_id,
+                container=ctx.container,
+                state_path=os.getenv("EA_PROACTIVE_OODA_STATE_PATH", "state/proactive_ooda_notified.json"),
+                receipt_path=os.getenv("EA_PROACTIVE_OODA_RECEIPT_PATH", ""),
+                stage_packet_dir=os.getenv("EA_PROACTIVE_OODA_STAGE_PACKET_DIR", ""),
+                safe_work_result_dir=os.getenv("EA_PROACTIVE_OODA_SAFE_WORK_RESULT_DIR", ""),
+            )
+        except Exception as exc:
+            reason = str(exc).strip()
+            if reason == "proactive_ooda_approval_callback_token_not_found":
+                return TelegramTurnDecision(reply_text="That proactive OODA decision button is stale, so I ignored it.")
+            return TelegramTurnDecision(
+                reply_text=(
+                    "I could not record that proactive OODA decision. "
+                    f"Current blocker: {compact_text(str(exc), fallback='proactive_ooda_approval_capture_failed', limit=140)}."
+                )
+            )
+        recorded_outcome = str(result.get("outcome") or "").strip()
+        if str(result.get("status") or "").strip() == "already_recorded":
+            return TelegramTurnDecision(reply_text=f"That proactive OODA decision is already recorded as {recorded_outcome}.")
+        if recorded_outcome == "approved":
+            execution = dict(result.get("execution") or {})
+            execution_status = str(execution.get("status") or "").strip().lower()
+            execution_action = str(execution.get("action") or "").strip().lower()
+            if execution_status == "executed" and execution_action == "save_gmail_draft":
+                lines = ["Approved. I saved the draft in Gmail."]
+                draft_folder_url = str(execution.get("draft_folder_url") or "").strip()
+                if draft_folder_url:
+                    lines.append(f"Open Drafts: {draft_folder_url}")
+                gmail_draft_id = str(execution.get("gmail_draft_id") or "").strip()
+                if gmail_draft_id:
+                    lines.append(f"Draft ID: {gmail_draft_id}")
+                return TelegramTurnDecision(reply_text="\n".join(lines))
+            if execution_status == "already_executed" and execution_action == "save_gmail_draft":
+                return TelegramTurnDecision(reply_text="Approved. The Gmail draft was already saved.")
+            if execution_status == "blocked":
+                lines = ["Approved, but I could not execute the staged next step yet."]
+                reason = compact_text(
+                    str(execution.get("reason") or "").strip(),
+                    fallback="approved_action_blocked",
+                    limit=140,
+                )
+                if reason:
+                    lines.append(f"Current blocker: {reason}.")
+                next_action = dict(execution.get("next_action_surface") or {})
+                href = str(next_action.get("href") or "").strip()
+                if href:
+                    lines.append(f"Next action: {href}")
+                return TelegramTurnDecision(reply_text="\n".join(lines))
+            return TelegramTurnDecision(reply_text="Recorded as approved. EA kept the action staged; no purchase, booking, or send was executed.")
+        if recorded_outcome == "rejected":
+            return TelegramTurnDecision(reply_text="Recorded as rejected. EA will keep this proactive OODA action staged only.")
+        if recorded_outcome == "deferred":
+            return TelegramTurnDecision(reply_text="Recorded as deferred. EA will leave this proactive OODA action staged for later review.")
+        return TelegramTurnDecision(reply_text=f"Recorded that proactive OODA decision as {recorded_outcome}.")
     callback_packet = _telegram_decode_callback_data(
         bot_config=dict(ctx.payload.get("_bot_config") or {}),
         callback_data=callback_data,
@@ -8046,6 +8267,22 @@ def _telegram_async_assistant_reply_worker(
             error="no_reply_text",
         )
         return
+    if _telegram_should_suppress_async_fallback_reply(
+        reply_text=reply_text,
+        used_fallback_only=used_fallback_only,
+        probe_reply=probe_reply,
+        last_resort_reply=last_resort_reply,
+    ):
+        _record_telegram_async_failed(
+            container,
+            principal_id=principal_id,
+            chat_id=chat_id,
+            current_message_id=current_message_id,
+            prompt_text=text,
+            stage="fallback_suppressed_no_user_action",
+            error="telegram_action_required_only",
+        )
+        return
     _telegram_send_and_record_reply(
         container=container,
         principal_id=principal_id,
@@ -8218,6 +8455,627 @@ def _telegram_schedule_async_assistant_reply(
             retry_budget=retry_budget,
             async_payload=dict(async_payload or {}),
         )
+
+
+def _telegram_inline_proactive_network_fetch_enabled() -> bool:
+    raw = str(os.getenv("EA_PROACTIVE_OODA_SAFE_WORK_NETWORK_FETCH_ENABLED") or "1").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+def _telegram_inline_proactive_network_fetch_limit() -> int:
+    raw = str(os.getenv("EA_PROACTIVE_OODA_SAFE_WORK_NETWORK_FETCH_LIMIT") or "4").strip()
+    try:
+        return max(int(raw or "4"), 1)
+    except Exception:
+        return 4
+
+
+def _telegram_inline_proactive_network_fetch_timeout_seconds() -> int:
+    raw = str(os.getenv("EA_PROACTIVE_OODA_SAFE_WORK_NETWORK_FETCH_TIMEOUT_SECONDS") or "8").strip()
+    try:
+        return max(int(raw or "8"), 1)
+    except Exception:
+        return 8
+
+
+def _telegram_inline_proactive_stage_packet_dir() -> Path:
+    configured = str(os.getenv("EA_PROACTIVE_OODA_STAGE_PACKET_DIR") or "").strip()
+    if configured:
+        path = Path(configured)
+        return path if path.is_absolute() else _EA_ROOT / path
+    artifact_dir = default_proactive_ooda_artifact_dir(root=_EA_ROOT, preferred=_EA_ROOT / "state")
+    return artifact_dir / "proactive_ooda_stage_packets"
+
+
+def _telegram_inline_proactive_safe_work_result_dir(stage_packet_dir: Path) -> Path:
+    configured = str(os.getenv("EA_PROACTIVE_OODA_SAFE_WORK_RESULT_DIR") or "").strip()
+    if configured:
+        path = Path(configured)
+        return path if path.is_absolute() else _EA_ROOT / path
+    return default_safe_work_result_dir(stage_packet_dir)
+
+
+def _load_json_object(path: str | Path) -> dict[str, object]:
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _telegram_inline_proactive_recommended_preview(result: dict[str, object]) -> tuple[str, str, str]:
+    recommended = dict(result.get("recommended_option_or_draft") or {})
+    kind = str(recommended.get("kind") or "").strip()
+    value = recommended.get("value")
+    if kind == "draft_text":
+        preview = compact_text(str(value or "").strip(), fallback="", limit=220)
+        return "Draft preview", preview, ""
+    if isinstance(value, dict):
+        label = compact_text(
+            str(value.get("label") or value.get("name") or value.get("title") or "").strip(),
+            fallback="Recommended option",
+            limit=120,
+        )
+        detail = compact_text(
+            str(value.get("snippet") or value.get("reason") or value.get("summary") or "").strip(),
+            fallback="",
+            limit=180,
+        )
+        url = compact_text(str(value.get("url") or value.get("href") or "").strip(), fallback="", limit=220)
+        return label, detail, url
+    detail = compact_text(str(value or "").strip(), fallback="", limit=180)
+    return ("Recommended option" if detail else "", detail, "")
+
+
+def _telegram_inline_proactive_stage_reply_text(
+    *,
+    safe_work_result: dict[str, object],
+    approval_required: bool,
+) -> str:
+    lines = ["Saved. I staged this as a reversible next step."]
+    summary = compact_text(str(safe_work_result.get("summary") or "").strip(), fallback="", limit=260)
+    if summary:
+        lines.append(summary)
+    preview_label, preview_detail, preview_url = _telegram_inline_proactive_recommended_preview(safe_work_result)
+    if preview_label and preview_detail:
+        lines.append(f"{preview_label}: {preview_detail}")
+    elif preview_detail:
+        lines.append(preview_detail)
+    staged_action_url = compact_text(str(safe_work_result.get("staged_action_url") or preview_url).strip(), fallback="", limit=220)
+    if staged_action_url:
+        lines.append(f"Candidate: {staged_action_url}")
+    lines.append(f"Queue: {ea_public_app_base_url().rstrip('/')}/app/queue")
+    if approval_required:
+        approval_prompt = compact_text(
+            str(safe_work_result.get("approval_prompt") or "").strip(),
+            fallback="No send, booking, purchase, or commitment will happen without explicit approval.",
+            limit=220,
+        )
+        lines.append(approval_prompt)
+    return "\n".join(line for line in lines if line).strip()
+
+
+_TELEGRAM_REFERENTIAL_DRAFT_MARKERS = (
+    "if you find one",
+    "when you find one",
+    "when you found one",
+    "wenn du einen gefunden hast",
+    "wenn du einen findest",
+    "wenn du eine gefunden hast",
+    "wenn du eine findest",
+)
+
+
+def _telegram_referential_draft_followup(text: str) -> bool:
+    lowered = " ".join(str(text or "").strip().lower().split())
+    return any(marker in lowered for marker in _TELEGRAM_REFERENTIAL_DRAFT_MARKERS)
+
+
+def _telegram_contextual_proactive_request_text(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    chat_id: str,
+    current_message_id: str,
+    message_payload: dict[str, object],
+) -> str:
+    request_text = str(message_payload.get("analysis_summary") or message_payload.get("text") or "").strip()
+    if not _telegram_referential_draft_followup(request_text):
+        return request_text
+    prior_request = _telegram_recent_discovery_request_text(
+        container=container,
+        principal_id=principal_id,
+        chat_id=chat_id,
+        current_message_id=current_message_id,
+    )
+    if not prior_request:
+        return request_text
+    separator = "" if prior_request.endswith((".", "!", "?")) else "."
+    combined = f"{prior_request}{separator} {request_text}".strip()
+    return combined if len(combined) > len(request_text) else request_text
+
+
+def _telegram_recent_discovery_request_text(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    chat_id: str,
+    current_message_id: str,
+) -> str:
+    rows = list(container.channel_runtime.list_recent_observations(limit=40, principal_id=principal_id))
+    rows.sort(key=lambda row: (str(row.created_at or ""), str(row.observation_id or "")), reverse=True)
+    normalized_chat_id = str(chat_id or "").strip()
+    normalized_current_message_id = str(current_message_id or "").strip()
+    for row in rows:
+        if str(row.channel or "").strip().lower() != "telegram":
+            continue
+        if str(row.event_type or "").strip().lower() != "telegram.message":
+            continue
+        if normalized_current_message_id and str(row.external_id or "").strip() == normalized_current_message_id:
+            continue
+        if normalized_chat_id and str(row.source_id or "").strip() not in {f"telegram:{normalized_chat_id}", "telegram"}:
+            continue
+        payload = dict(row.payload or {})
+        prior_text = str(payload.get("text") or "").strip()
+        if not prior_text:
+            continue
+        prior_signal = observation_row_to_signal(
+            observation_id=str(getattr(row, "observation_id", "") or "").strip(),
+            principal_id=principal_id,
+            channel=str(getattr(row, "channel", "") or "telegram").strip(),
+            event_type=str(getattr(row, "event_type", "") or "telegram.message").strip(),
+            payload=payload,
+            created_at=str(getattr(row, "created_at", "") or "").strip(),
+            source_id=str(getattr(row, "source_id", "") or "").strip(),
+            external_id=str(getattr(row, "external_id", "") or "").strip(),
+            dedupe_key=str(getattr(row, "dedupe_key", "") or "").strip(),
+        )
+        if prior_signal is None:
+            continue
+        ooda_loop = dict(dict(prior_signal.payload or {}).get("ooda_loop") or {})
+        stage = dict(dict(ooda_loop.get("act") or {}).get("stage") or {})
+        work_type = str(stage.get("work_type") or "").strip()
+        draft_mode = str(stage.get("draft_mode") or "").strip()
+        if work_type in {"research", "compare_options"}:
+            return prior_text
+        if work_type == "draft" and draft_mode == "research_backed_inquiry":
+            return prior_text
+    return ""
+
+
+def _telegram_inline_proactive_execution_reply_text(
+    *,
+    safe_work_result: dict[str, object],
+    execution: dict[str, object],
+    principal_id: str,
+) -> str:
+    action = str(execution.get("action") or "").strip().lower()
+    status = str(execution.get("status") or "").strip().lower()
+    if status == "executed" and action == "save_gmail_draft":
+        lines = ["Saved. I created the Gmail draft."]
+        summary = compact_text(str(safe_work_result.get("summary") or "").strip(), fallback="", limit=220)
+        if summary:
+            lines.append(summary)
+        audit = dict(safe_work_result.get("audit") or {})
+        if str(audit.get("status") or "").strip().lower() == "review":
+            issues = [dict(item) for item in list(audit.get("issues") or []) if isinstance(item, dict)]
+            if issues:
+                detail = compact_text(str(issues[0].get("detail") or "").strip(), fallback="", limit=180)
+                if detail:
+                    lines.append(f"Audit: {detail}")
+        draft_folder_url = str(execution.get("draft_folder_url") or "").strip()
+        if draft_folder_url:
+            lines.append(f"Open Drafts: {draft_folder_url}")
+        gmail_draft_id = str(execution.get("gmail_draft_id") or "").strip()
+        if gmail_draft_id:
+            lines.append(f"Draft ID: {gmail_draft_id}")
+        return "\n".join(lines)
+    if status == "blocked":
+        lines = ["I prepared the draft, but I could not save it in Gmail yet."]
+        reason = _telegram_inline_proactive_execution_reason(execution=execution)
+        if reason:
+            lines.append(f"Current blocker: {reason}.")
+        connected_google_email = str(execution.get("google_account_email") or "").strip().lower()
+        expected_google_email = str(execution.get("expected_google_account_email") or _principal_email_hint(principal_id)).strip().lower()
+        if connected_google_email and expected_google_email and connected_google_email != expected_google_email:
+            lines.append(f"Connected Google account: {connected_google_email}")
+            lines.append(f"Expected inbox account: {expected_google_email}")
+        elif connected_google_email:
+            lines.append(f"Connected Google account: {connected_google_email}")
+        next_action = dict(execution.get("next_action_surface") or {})
+        href = str(next_action.get("href") or "").strip()
+        if href:
+            lines.append(f"Next action: {href}")
+        return "\n".join(lines)
+    return _telegram_inline_proactive_stage_reply_text(
+        safe_work_result=safe_work_result,
+        approval_required=False,
+    )
+
+
+def _telegram_inline_proactive_execution_reason(*, execution: dict[str, object]) -> str:
+    reason = str(execution.get("reason") or "").strip().lower()
+    if reason == "audit_review_required":
+        return "the staged draft needs review before EA auto-saves it"
+    if reason == "approved_draft_recipient_missing":
+        return "I could not resolve a recipient from the request context"
+    if reason == "approved_draft_body_missing":
+        return "the draft body is still empty"
+    if reason == "google_oauth_binding_not_found":
+        return "no Google workspace is connected for this tenant"
+    if reason in {"google_oauth_invalid_grant", "google_oauth_refresh_failed"}:
+        return "the connected Google account needs reauthorization"
+    if reason == "google_oauth_account_mismatch":
+        return "the connected Google account does not match the tenant inbox"
+    if reason == "google_gmail_draft_scope_missing":
+        return "the connected Google account does not have Gmail draft scope"
+    return compact_text(reason, fallback="", limit=160)
+
+
+def _telegram_inline_proactive_user_action_required(
+    *,
+    safe_work_result: dict[str, object],
+    execution_result: dict[str, object],
+    approval_request: dict[str, object],
+    reply_text: str,
+) -> bool:
+    if telegram_ooda_text_is_internal_noise(reply_text, safe_work_result.get("summary"), safe_work_result.get("approval_prompt")):
+        return False
+    execution_status = str(execution_result.get("status") or "").strip().lower()
+    execution_action = str(execution_result.get("action") or "").strip().lower()
+    if execution_status == "blocked":
+        return True
+    if execution_status == "executed" and execution_action == "save_gmail_draft":
+        return bool(
+            str(execution_result.get("draft_folder_url") or "").strip()
+            or str(execution_result.get("gmail_draft_id") or "").strip()
+        )
+    if approval_request_needs_telegram_user_action(approval_request):
+        return True
+    status = str(safe_work_result.get("status") or "").strip().lower()
+    if status == "blocked_needs_research_input":
+        return True
+    lowered = " ".join(str(reply_text or "").strip().lower().split())
+    return any(marker in lowered for marker in ("next action:", "current blocker:", "open drafts:", "approve "))
+
+
+def _principal_email_hint(principal_id: str) -> str:
+    normalized = str(principal_id or "").strip().lower()
+    if normalized.startswith("cf-email:"):
+        return normalized.split(":", 1)[1].strip().lower()
+    return ""
+
+
+def _telegram_reply_is_generic_task_fallback(reply_text: str) -> bool:
+    lowered = " ".join(str(reply_text or "").strip().lower().split())
+    if not lowered:
+        return True
+    return lowered.startswith(
+        (
+            "i do not see ",
+            "i do not have ",
+            "let me check that and get back to you here.",
+            "working on it.",
+            "saved. ea is processing this asynchronously now.",
+            "i am still working on that last message.",
+        )
+    )
+
+
+def _telegram_stage_inline_proactive_task(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    bot_config: dict[str, object],
+    chat_id: str,
+    event,
+    dedupe_key: str,
+    message_payload: dict[str, object],
+) -> dict[str, object]:
+    if str(getattr(event, "event_type", "") or "").strip().lower() != "telegram.message":
+        return {}
+    message_payload = dict(message_payload or {})
+    kind = str(message_payload.get("kind") or "").strip().lower()
+    if kind not in {"", "text", "voice"}:
+        return {}
+    text = str(message_payload.get("text") or "").strip()
+    if not text or _telegram_supported_property_link(text):
+        return {}
+    contextual_request = _telegram_contextual_proactive_request_text(
+        container=container,
+        principal_id=principal_id,
+        chat_id=chat_id,
+        current_message_id=str(message_payload.get("message_id") or getattr(event, "external_id", "") or "").strip(),
+        message_payload=message_payload,
+    )
+    if contextual_request and len(contextual_request) > len(str(message_payload.get("analysis_summary") or "").strip()):
+        message_payload["analysis_summary"] = contextual_request
+    signal = observation_row_to_signal(
+        observation_id=str(getattr(event, "observation_id", "") or "").strip(),
+        principal_id=principal_id,
+        channel=str(getattr(event, "channel", "") or "telegram").strip(),
+        event_type=str(getattr(event, "event_type", "") or "telegram.message").strip(),
+        payload=message_payload,
+        created_at=str(getattr(event, "created_at", "") or "").strip(),
+        source_id=str(getattr(event, "source_id", "") or "").strip(),
+        external_id=str(getattr(event, "external_id", "") or "").strip(),
+        dedupe_key=dedupe_key,
+    )
+    if signal is None:
+        return {}
+    signal_payload = dict(signal.payload or {})
+    ooda_loop = dict(signal_payload.get("ooda_loop") or {})
+    act_section = dict(ooda_loop.get("act") or {})
+    stage_section = dict(act_section.get("stage") or {})
+    if not stage_section:
+        return {}
+
+    office_signal_result: dict[str, object] = {}
+    try:
+        office_signal_result = build_product_service(container).ingest_office_signal(
+            principal_id=principal_id,
+            signal_type="telegram_message",
+            channel="telegram",
+            title=str(signal.title or "").strip(),
+            summary=str(signal.summary or "").strip(),
+            text=text,
+            source_ref=str(getattr(event, "source_id", "") or "").strip() or f"telegram:{chat_id}:{message_payload.get('message_id') or ''}",
+            external_id=str(getattr(event, "external_id", "") or "").strip(),
+            counterparty=str(signal.counterparty or "Telegram").strip(),
+            payload={
+                "chat_id": str(chat_id or "").strip(),
+                "message_id": str(message_payload.get("message_id") or "").strip(),
+                "dedupe_key": dedupe_key,
+                "kind": kind or "text",
+            },
+            actor="telegram_inline_proactive_stage",
+        )
+    except Exception:
+        office_signal_result = {}
+
+    digest = ProactiveOodaService(max_items=1).build_digest(
+        principal_id=principal_id,
+        signals=(signal,),
+        already_notified_refs=set(),
+    )
+    digest = ground_digest_for_principal(
+        digest,
+        principal_id=principal_id,
+        memory_runtime=container.memory_runtime,
+        preference_profiles=container.preference_profiles,
+    )
+    if not digest.items:
+        return {}
+
+    stage_packet_dir = _telegram_inline_proactive_stage_packet_dir()
+    safe_work_result_dir = _telegram_inline_proactive_safe_work_result_dir(stage_packet_dir)
+    stage_result = persist_stage_packets(digest=digest, output_dir=stage_packet_dir)
+    packet_paths = tuple(stage_result.paths)
+    packet_refs = tuple(stage_result.packet_refs)
+    if packet_paths:
+        packet = _load_json_object(packet_paths[0])
+    else:
+        built_packets = build_stage_packets(digest)
+        packet = dict(built_packets[0]) if built_packets else {}
+        packet_ref = str(packet.get("packet_ref") or "").strip()
+        if packet_ref and not packet_refs:
+            packet_refs = (packet_ref,)
+    if not packet:
+        return {}
+
+    safe_work_write = persist_safe_work_results_from_paths(
+        stage_packet_paths=packet_paths or (),
+        result_dir=safe_work_result_dir,
+        network_fetch_enabled=_telegram_inline_proactive_network_fetch_enabled(),
+        network_fetch_limit=_telegram_inline_proactive_network_fetch_limit(),
+        network_fetch_timeout_seconds=_telegram_inline_proactive_network_fetch_timeout_seconds(),
+    ) if packet_paths else None
+    safe_work_paths = tuple(getattr(safe_work_write, "paths", ()) or ())
+    safe_work_refs = tuple(getattr(safe_work_write, "result_refs", ()) or ())
+    if safe_work_paths:
+        safe_work_result = _load_json_object(safe_work_paths[0])
+    else:
+        safe_work_result = build_safe_work_result(
+            packet,
+            network_fetch_enabled=_telegram_inline_proactive_network_fetch_enabled(),
+            network_fetch_limit=_telegram_inline_proactive_network_fetch_limit(),
+            network_fetch_timeout_seconds=_telegram_inline_proactive_network_fetch_timeout_seconds(),
+        )
+        result_ref = str(safe_work_result.get("result_ref") or "").strip()
+        if result_ref and not safe_work_refs:
+            safe_work_refs = (result_ref,)
+
+    approval_required = bool(dict(packet.get("approval") or {}).get("required"))
+    stage_payload = dict(dict(packet.get("stage") or {}).get("payload") or {})
+    auto_execute_action = str(stage_payload.get("auto_execute_action") or "").strip().lower()
+    execution_result: dict[str, object] = {}
+    if not approval_required and auto_execute_action == "save_gmail_draft" and packet_refs and safe_work_refs:
+        execution_result = execute_proactive_ooda_action(
+            container=container,
+            principal_id=principal_id,
+            packet_ref=packet_refs[0],
+            staged_artifact_ref=safe_work_refs[0],
+            root=_EA_ROOT,
+            state_path=os.getenv("EA_PROACTIVE_OODA_STATE_PATH", "state/proactive_ooda_notified.json"),
+            receipt_path=os.getenv("EA_PROACTIVE_OODA_RECEIPT_PATH", ""),
+            stage_packet_dir=stage_packet_dir,
+            safe_work_result_dir=safe_work_result_dir,
+        )
+        reply_text = _telegram_inline_proactive_execution_reply_text(
+            safe_work_result=safe_work_result,
+            execution=execution_result,
+            principal_id=principal_id,
+        )
+    else:
+        reply_text = _telegram_inline_proactive_stage_reply_text(
+            safe_work_result=safe_work_result,
+            approval_required=approval_required,
+        )
+    approval_request = {
+        "packet_ref": packet_refs[0] if packet_refs else "",
+        "staged_artifact_ref": safe_work_refs[0] if safe_work_refs else "",
+        "approval_prompt": str(safe_work_result.get("approval_prompt") or "").strip(),
+        "staged_action_url": str(safe_work_result.get("staged_action_url") or "").strip(),
+    }
+    inline_buttons: list[list[tuple[str, str]]] = []
+    approval_surface: dict[str, object] = {}
+    approval_record_path = ""
+    staged_action_url = str(safe_work_result.get("staged_action_url") or "").strip()
+    execution_status = str(execution_result.get("status") or "").strip().lower()
+    execution_action = str(execution_result.get("action") or "").strip().lower()
+    user_action_required = _telegram_inline_proactive_user_action_required(
+        safe_work_result=safe_work_result,
+        execution_result=execution_result,
+        approval_request=approval_request,
+        reply_text=reply_text,
+    )
+    approval_surface_needed = bool(packet_refs and safe_work_refs) and (
+        str(safe_work_result.get("status") or "").strip() == "staged_for_user_decision"
+    ) and user_action_required
+    if approval_surface_needed:
+        approval_prompt = str(safe_work_result.get("approval_prompt") or "").strip()
+        approved_execution_mode = ""
+        approved_action = ""
+        if not approval_required:
+            approval_prompt = build_reversible_execution_approval_prompt(action=execution_action)
+            approved_execution_mode = "record_outcome_only"
+            approved_action = execution_action
+        approval_request["approval_prompt"] = approval_prompt
+        approval_request["approved_execution_mode"] = approved_execution_mode
+        approval_request["approved_action"] = approved_action
+        if not approval_request_needs_telegram_user_action(approval_request):
+            approval_surface_needed = False
+            user_action_required = False
+        else:
+            prepared = prepare_proactive_ooda_telegram_approval(
+                principal_id=principal_id,
+                packet_ref=packet_refs[0],
+                staged_artifact_ref=safe_work_refs[0],
+                approval_prompt=approval_prompt,
+                staged_action_url=staged_action_url,
+                approved_execution_mode=approved_execution_mode,
+                approved_action=approved_action,
+                chat_id=str(chat_id or "").strip(),
+                bot_token=str(bot_config.get("token") or "").strip(),
+                root=_EA_ROOT,
+                state_path=os.getenv("EA_PROACTIVE_OODA_STATE_PATH", "state/proactive_ooda_notified.json"),
+                receipt_path=os.getenv("EA_PROACTIVE_OODA_RECEIPT_PATH", ""),
+            )
+            inline_buttons = [
+                [(str(label or "").strip(), str(value or "").strip()) for label, value in row if str(label or "").strip() and str(value or "").strip()]
+                for row in list(prepared.get("inline_buttons") or [])
+                if row
+            ]
+            approval_surface = {
+                "present": True,
+                "channel": "telegram",
+                "status": str(prepared.get("status") or "pending").strip() or "pending",
+                "callback_token_sha256": str(prepared.get("callback_token_sha256") or "").strip(),
+                "expires_at": str(prepared.get("expires_at") or "").strip(),
+                "packet_ref_sha256": str(prepared.get("packet_ref_sha256") or "").strip(),
+                "staged_artifact_sha256": str(prepared.get("staged_artifact_ref_sha256") or "").strip(),
+                "approval_prompt_sha256": str(prepared.get("approval_prompt_sha256") or "").strip(),
+                "staged_action_url_sha256": str(prepared.get("staged_action_url_sha256") or "").strip(),
+                "inline_button_count": sum(len(row) for row in inline_buttons),
+                "url_button_count": 0,
+                "message_ids": (),
+                "message_count": 0,
+                "delivery_error_code": "",
+            }
+            approval_record_path = str(prepared.get("record_path") or "").strip()
+
+    marker = f"{dedupe_key}:inline_proactive_ooda_task_staged" if dedupe_key else ""
+    if marker and container.channel_runtime.find_observation_by_dedupe(marker, principal_id=principal_id) is None:
+        container.channel_runtime.ingest_observation(
+            principal_id=principal_id,
+            channel="telegram",
+            event_type="telegram.proactive_ooda_task_staged",
+            payload={
+                "chat_id": str(chat_id or "").strip(),
+                "message_id": str(message_payload.get("message_id") or "").strip(),
+                "text": text,
+                "signal_ref": str(digest.items[0].signal_ref or "").strip(),
+                "stage_packet_ref": packet_refs[0] if packet_refs else "",
+                "safe_work_result_ref": safe_work_refs[0] if safe_work_refs else "",
+                "approval_required": approval_required,
+                "work_type": str(safe_work_result.get("work_type") or "").strip(),
+                "summary": str(safe_work_result.get("summary") or "").strip(),
+                "staged_action_url": staged_action_url,
+                "office_signal_observation_id": str(office_signal_result.get("observation_id") or "").strip(),
+            },
+            source_id=str(getattr(event, "source_id", "") or "").strip() or f"telegram:{chat_id}",
+            external_id=str(getattr(event, "external_id", "") or "").strip(),
+            dedupe_key=marker,
+        )
+    return {
+        "digest": digest,
+        "safe_work_results": (safe_work_result,),
+        "reply_text": reply_text,
+        "inline_buttons": inline_buttons,
+        "approval_surface": approval_surface,
+        "approval_record_path": approval_record_path,
+        "stage_packet_refs": packet_refs,
+        "safe_work_result_refs": safe_work_refs,
+        "user_action_required": user_action_required or bool(inline_buttons),
+    }
+
+
+def _telegram_finalize_inline_proactive_task(
+    *,
+    stage_result: dict[str, object],
+    send_receipt: dict[str, object],
+    principal_id: str,
+) -> None:
+    if not stage_result:
+        return
+    message_id = str(send_receipt.get("message_id") or "").strip()
+    send_status = str(send_receipt.get("status") or "").strip()
+    approval_surface = dict(stage_result.get("approval_surface") or {})
+    record_path = str(stage_result.get("approval_record_path") or "").strip()
+    if record_path:
+        try:
+            record_proactive_ooda_telegram_approval_delivery(
+                record_path=record_path,
+                message_ids=(message_id,) if message_id else (),
+                status="pending" if send_status == "sent" and message_id else "delivery_failed",
+                delivery_error_code="" if send_status == "sent" and message_id else "telegram_inline_approval_delivery_failed",
+            )
+        except Exception:
+            pass
+        if approval_surface:
+            approval_surface["status"] = "pending" if send_status == "sent" and message_id else "delivery_failed"
+            approval_surface["message_ids"] = (message_id,) if message_id else ()
+            approval_surface["message_count"] = 1 if message_id else 0
+            approval_surface["delivery_error_code"] = "" if send_status == "sent" and message_id else "telegram_inline_approval_delivery_failed"
+    notification_result = {
+        "channel": "telegram",
+        "message_id": message_id,
+        "message_ids": (message_id,) if message_id else (),
+        "approval_surface": approval_surface,
+    } if send_status == "sent" else None
+    error_code = "" if notification_result is not None else "telegram_inline_proactive_reply_failed"
+    digest = stage_result.get("digest")
+    if digest is None:
+        return
+    receipt = build_run_receipt(
+        digest=digest,
+        dry_run=False,
+        notification_result=notification_result,
+        error_code=error_code,
+        stage_packet_refs=tuple(stage_result.get("stage_packet_refs") or ()),
+        safe_work_result_refs=tuple(stage_result.get("safe_work_result_refs") or ()),
+    )
+    persist_proactive_ooda_receipt(principal_id=principal_id, digest=digest, receipt=receipt)
+    if teable_sync_enabled():
+        try:
+            sync_proactive_ooda_to_teable(
+                principal_id=principal_id,
+                digest=digest,
+                receipt=receipt,
+                safe_work_results=tuple(stage_result.get("safe_work_results") or ()),
+            )
+        except Exception:
+            pass
 
 
 def _telegram_command_reply_text(
@@ -8554,28 +9412,91 @@ def ingest_telegram(
     async_text = str(decision.async_text or "").strip() or str(message_payload.get("text") or "")
     async_message_id = str(decision.async_message_id or "").strip() or str(message_payload.get("message_id") or "")
     async_payload = dict(decision.async_payload or {})
+    inline_buttons = decision.inline_buttons
+    proactive_stage_result: dict[str, object] = {}
+    if (
+        (not reply_text or _telegram_reply_is_generic_task_fallback(reply_text))
+        and not inline_buttons
+        and str(message_payload.get("kind") or "").strip().lower() in {"", "text", "voice"}
+        and str(message_payload.get("text") or "").strip()
+    ):
+        proactive_stage_result = _telegram_stage_inline_proactive_task(
+            container=container,
+            principal_id=principal_id,
+            bot_config=bot_config,
+            chat_id=chat_id,
+            event=event,
+            dedupe_key=dedupe_key,
+            message_payload=message_payload,
+        )
+        staged_reply_text = str(proactive_stage_result.get("reply_text") or "").strip()
+        staged_inline_buttons = proactive_stage_result.get("inline_buttons")
+        if staged_reply_text:
+            reply_text = staged_reply_text
+            schedule_async = False
+            async_text = ""
+            async_message_id = ""
+            async_payload = {}
+            if isinstance(staged_inline_buttons, list):
+                inline_buttons = staged_inline_buttons
+    if reply_text and _telegram_should_suppress_sync_nonaction_reply(
+        reply_text=reply_text,
+        has_action_surface=bool(inline_buttons) or bool(proactive_stage_result.get("user_action_required")),
+    ):
+        _record_telegram_sync_reply_suppressed(
+            container,
+            principal_id=principal_id,
+            chat_id=chat_id,
+            dedupe_key=dedupe_key,
+            current_message_id=str(message_payload.get("message_id") or ""),
+            source_text=str(message_payload.get("text") or ""),
+            reply_text=reply_text,
+        )
+        reply_text = ""
+        inline_buttons = None
     reply_sent = False
+    send_receipt: dict[str, object] = {}
     if reply_text and chat_id and not _telegram_reply_already_sent(container, principal_id=principal_id, dedupe_key=dedupe_key):
         try:
-            reply_sent = _telegram_send_and_record_reply(
-                container=container,
-                principal_id=principal_id,
-                bot_config=bot_config,
-                chat_id=chat_id,
-                dedupe_key=dedupe_key,
-                reply_text=reply_text,
-                source_text=str(message_payload.get("text") or ""),
-                inline_buttons=decision.inline_buttons,
-            )
+            if proactive_stage_result or inline_buttons:
+                send_receipt = _telegram_send_and_record_reply_receipt(
+                    container=container,
+                    principal_id=principal_id,
+                    bot_config=bot_config,
+                    chat_id=chat_id,
+                    dedupe_key=dedupe_key,
+                    reply_text=reply_text,
+                    source_text=str(message_payload.get("text") or ""),
+                    inline_buttons=inline_buttons,
+                )
+                reply_sent = str(send_receipt.get("status") or "").strip() == "sent"
+            else:
+                reply_sent = _telegram_send_and_record_reply(
+                    container=container,
+                    principal_id=principal_id,
+                    bot_config=bot_config,
+                    chat_id=chat_id,
+                    dedupe_key=dedupe_key,
+                    reply_text=reply_text,
+                    source_text=str(message_payload.get("text") or ""),
+                )
+                send_receipt = {"status": "sent" if reply_sent else "failed"}
         except Exception:
             reply_sent = False
+            send_receipt = {"status": "failed", "reason": "send_exception"}
+    if proactive_stage_result and send_receipt:
+        _telegram_finalize_inline_proactive_task(
+            stage_result=proactive_stage_result,
+            send_receipt=send_receipt,
+            principal_id=principal_id,
+        )
     if schedule_async and chat_id:
         async_retry_budget = int(decision.retry_budget)
         async_text_priority = (
             _telegram_property_render_priority(container=container, principal_id=principal_id)
             if _telegram_supported_property_link(str(message_payload.get("text") or "")) else "free"
         )
-        if not decision.suppress_async_ack:
+        if not decision.suppress_async_ack and _telegram_processing_acks_enabled():
             try:
                 _telegram_send_processing_ack(
                     container=container,

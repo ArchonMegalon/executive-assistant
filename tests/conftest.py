@@ -28,6 +28,7 @@ _REPO_ASSET_RESTORE_PATHS = (
     ".codex-design/product/TELEGRAM_FLAGSHIP_RUNTIME_DESIGN.md",
     ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
     ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json",
+    ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
 )
 
 

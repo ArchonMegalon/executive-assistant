@@ -117,6 +117,19 @@ def proactive_ooda_receipt_payload(
     payload["stage_packet_error_count"] = receipt.stage_packet_error_count
     payload["safe_work_result_count"] = len(receipt.safe_work_result_ref_hashes)
     payload["safe_work_result_error_count"] = receipt.safe_work_result_error_count
+    approval_surface = dict(receipt.approval_surface or {})
+    if approval_surface:
+        message_ids = tuple(
+            str(item or "").strip()
+            for item in list(approval_surface.get("message_ids") or [])
+            if str(item or "").strip()
+        )
+        approval_surface["message_ids"] = message_ids
+        approval_surface["message_count"] = len(message_ids)
+        payload["approval_surface"] = approval_surface
+        payload["approval_surface_present"] = bool(approval_surface.get("present"))
+        payload["approval_surface_status"] = str(approval_surface.get("status") or "").strip()
+        payload["approval_surface_message_count"] = len(message_ids)
     payload["privacy"] = {
         "raw_principal_id_stored": False,
         "raw_chat_id_stored": False,
@@ -155,6 +168,8 @@ def _receipt_dedupe_key(receipt: ProactiveOodaRunReceipt) -> str:
             receipt.delivery_route_error,
             ",".join(receipt.delivery_message_ids),
             ",".join(receipt.telegram_message_ids),
+            str(dict(receipt.approval_surface or {}).get("callback_token_sha256") or "").strip(),
+            str(dict(receipt.approval_surface or {}).get("status") or "").strip(),
         )
     )
     return f"proactive-ooda-receipt:{_hash_value(material)}"

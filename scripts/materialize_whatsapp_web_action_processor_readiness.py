@@ -4,6 +4,8 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
+import shutil
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -24,6 +26,8 @@ except ModuleNotFoundError:  # pragma: no cover - script execution path
 CHECK_SCRIPT = ROOT / "scripts" / "check_whatsapp_web_action_processor_readiness.py"
 DEFAULT_OUTPUT = ROOT / ".codex-studio" / "published" / "whatsapp_web_action_processor_readiness.generated.json"
 CONTRACT_NAME = "ea.whatsapp_web_action_processor_readiness.v1"
+READINESS_PATH_ENV = "EA_WHATSAPP_WEB_ACTION_PROCESSOR_READINESS_PATH"
+PROVIDER_LEDGER_DIR_ENV = "EA_RESPONSES_PROVIDER_LEDGER_DIR"
 
 
 def _utc_now() -> str:
@@ -32,6 +36,57 @@ def _utc_now() -> str:
 
 def _git_head(path: Path = ROOT) -> str:
     return resolve_source_state_head(path)
+
+
+def _docker_container_checks_available() -> bool:
+    if shutil.which("docker") is None:
+        return False
+    try:
+        completed = subprocess.run(
+            ["docker", "ps", "--format", "{{.Names}}"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=2,
+        )
+    except Exception:
+        return False
+    return completed.returncode == 0
+
+
+def _runtime_output_path() -> Path:
+    ledger_dir = str(os.getenv(PROVIDER_LEDGER_DIR_ENV) or "/data/provider-ledger").strip() or "/data/provider-ledger"
+    return Path(ledger_dir) / "provider-health-cache" / DEFAULT_OUTPUT.name
+
+
+def _path_parent_writable(path: Path) -> bool:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        probe = path.parent / f".{path.name}.write-probe"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        return True
+    except OSError:
+        return False
+
+
+def resolve_whatsapp_web_action_processor_readiness_output_path(output_path: Path) -> Path:
+    requested = Path(output_path)
+    if requested != DEFAULT_OUTPUT:
+        return requested
+    configured = str(os.getenv(READINESS_PATH_ENV) or "").strip()
+    candidates: list[Path] = []
+    if configured:
+        candidates.append(Path(configured))
+    candidates.append(DEFAULT_OUTPUT)
+    runtime_output = _runtime_output_path()
+    if runtime_output not in candidates:
+        candidates.append(runtime_output)
+    for candidate in candidates:
+        if _path_parent_writable(candidate):
+            return candidate
+    return candidates[0]
 
 
 def _load_check_module():
@@ -45,6 +100,7 @@ def _load_check_module():
 
 
 def _default_args(module, *, output: Path) -> argparse.Namespace:
+    docker_available = _docker_container_checks_available()
     return argparse.Namespace(
         output=output,
         env_file=module._env("EA_WHATSAPP_WEB_ACTION_ENV_FILE", str(module.DEFAULT_ENV_FILE)),
@@ -58,7 +114,7 @@ def _default_args(module, *, output: Path) -> argparse.Namespace:
         state_file=module._env("EA_WHATSAPP_WEB_ACTION_STATE_FILE", module.DEFAULT_ACTION_STATE_FILE),
         state_stale_seconds=module._int_value(module._env("EA_WHATSAPP_WEB_ACTION_STATE_STALE_SECONDS", "600"), 600),
         probe_sidecar=True,
-        check_containers=True,
+        check_containers=docker_available,
         api_container=module._env("EA_API_CONTAINER", "ea-api"),
         processor_container=module._env("EA_WHATSAPP_WEB_ACTION_PROCESSOR_CONTAINER", "ea-whatsapp-web-action-processor"),
     )
@@ -111,13 +167,15 @@ def build_whatsapp_web_action_processor_readiness(
         run=run,
     )
     ready = bool(report.get("ready"))
+    resolved_output_path = resolve_whatsapp_web_action_processor_readiness_output_path(output_path)
     receipt = {
         "contract_name": CONTRACT_NAME,
         "generated_at": generated_at or _utc_now(),
         "generated_by": "scripts/materialize_whatsapp_web_action_processor_readiness.py",
         "source_git_head": _git_head(ROOT),
         "head_semantics": "source_state",
-        "output_path": output_path.as_posix(),
+        "output_path": resolved_output_path.as_posix(),
+        "canonical_output_path": DEFAULT_OUTPUT.as_posix(),
         "status": "ready" if ready else "blocked",
         "claim": (
             "This receipt proves only that the WhatsApp Web action processor runtime is ready to receive and process "
@@ -136,8 +194,8 @@ def build_whatsapp_web_action_processor_readiness(
         ],
         **report,
     }
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    resolved_output_path.parent.mkdir(parents=True, exist_ok=True)
+    resolved_output_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return receipt
 
 
@@ -179,7 +237,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--probe-sidecar", dest="probe_sidecar", action="store_true", default=True)
     parser.add_argument("--no-probe-sidecar", dest="probe_sidecar", action="store_false")
-    parser.add_argument("--check-containers", dest="check_containers", action="store_true", default=True)
+    parser.add_argument(
+        "--check-containers",
+        dest="check_containers",
+        action="store_true",
+        default=_docker_container_checks_available(),
+    )
     parser.add_argument("--no-check-containers", dest="check_containers", action="store_false")
     parser.add_argument("--api-container", default=module._env("EA_API_CONTAINER", "ea-api"))
     parser.add_argument(

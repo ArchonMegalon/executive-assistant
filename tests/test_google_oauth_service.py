@@ -111,6 +111,29 @@ def test_google_signal_loader_retries_without_q_for_metadata_scope(monkeypatch: 
     ]
 
 
+def test_exchange_google_code_for_tokens_maps_invalid_grant(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import google_oauth as google_service
+
+    def _raise_invalid_grant(request, timeout=30):  # type: ignore[no-untyped-def]
+        raise urllib.error.HTTPError(
+            google_service.GOOGLE_TOKEN_ENDPOINT,
+            400,
+            "Bad Request",
+            None,
+            io.BytesIO(b'{"error":"invalid_grant","error_description":"Bad Request"}'),
+        )
+
+    monkeypatch.setattr(google_service.urllib.request, "urlopen", _raise_invalid_grant)
+
+    with pytest.raises(RuntimeError, match="google_oauth_invalid_grant"):
+        google_service._exchange_google_code_for_tokens(
+            code="code-123",
+            client_id="client-id",
+            client_secret="client-secret",
+            redirect_uri="https://assistant.example.test/google/callback",
+        )
+
+
 def test_google_raw_export_uses_query_without_inbox_label(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.services import google_oauth as google_service
 
@@ -896,6 +919,7 @@ def test_google_workspace_signal_sync_reads_all_connected_google_accounts(monkey
     monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://ea.example/v1/providers/google/oauth/callback")
     monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "google-state-secret")
     monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "provider-secret-key")
+    monkeypatch.setenv("EA_DEFAULT_PRINCIPAL_ID", "principal-default")
 
     class _Registry:
         def __init__(self) -> None:
@@ -1163,6 +1187,7 @@ def test_list_recent_workspace_signals_falls_back_to_local_user_bindings(
     monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://ea.example/v1/providers/google/oauth/callback")
     monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "google-state-secret")
     monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "provider-secret-key")
+    monkeypatch.setenv("EA_DEFAULT_PRINCIPAL_ID", "principal-default")
 
     class _Registry:
         def __init__(self) -> None:
@@ -1269,6 +1294,286 @@ def test_list_recent_workspace_signals_falls_back_to_local_user_bindings(
     ]
 
 
+def test_list_google_accounts_uses_principal_email_aliases_for_cf_email_principal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.domain.models import ConnectorBinding, ProviderBindingRecord
+    from app.services import google_oauth as google_service
+
+    class _Registry:
+        def list_persisted_binding_records(self, *, principal_id: str, limit: int = 100):
+            if principal_id != "exec-1":
+                return tuple()
+            return (
+                ProviderBindingRecord(
+                    binding_id="exec-1:google_gmail",
+                    principal_id="exec-1",
+                    provider_key="google_gmail",
+                    status="enabled",
+                    priority=80,
+                    probe_state="ready",
+                    probe_details_json={},
+                    scope_json={"bundle": "full_workspace"},
+                    auth_metadata_json={
+                        "google_subject": "google-sub-1",
+                        "google_email": "tibor.girschele@gmail.com",
+                        "google_hosted_domain": "",
+                        "granted_scopes": [google_service.GOOGLE_SCOPE_GMAIL_MODIFY],
+                        "refresh_token_ref": "refresh-token",
+                        "token_status": "active",
+                    },
+                    created_at="2026-06-28T16:00:00Z",
+                    updated_at="2026-06-28T16:00:00Z",
+                ),
+            )[:limit]
+
+    class _ToolRuntime:
+        def list_connector_bindings(self, principal_id: str, limit: int = 100):
+            if principal_id != "exec-1":
+                return tuple()
+            return (
+                ConnectorBinding(
+                    binding_id="connector-google-1",
+                    principal_id="exec-1",
+                    connector_name="google_workspace",
+                    external_account_ref="tibor.girschele@gmail.com",
+                    scope_json={"bundle": "full_workspace"},
+                    auth_metadata_json={
+                        "google_email": "tibor.girschele@gmail.com",
+                        "google_subject": "google-sub-1",
+                    },
+                    status="enabled",
+                    created_at="2026-06-28T16:00:00Z",
+                    updated_at="2026-06-28T16:00:00Z",
+                ),
+            )[:limit]
+
+    monkeypatch.setattr(
+        google_service,
+        "_principal_db_ids_for_email",
+        lambda **kwargs: ("exec-1",) if kwargs["email"] == "tibor.girschele@gmail.com" else tuple(),
+    )
+    monkeypatch.setattr(google_service, "_principal_db_email", lambda **kwargs: "")
+
+    accounts = google_service.list_google_accounts(
+        container=SimpleNamespace(
+            provider_registry=_Registry(),
+            tool_runtime=_ToolRuntime(),
+        ),
+        principal_id="cf-email:tibor.girschele@gmail.com",
+    )
+
+    assert len(accounts) == 1
+    assert accounts[0].binding.principal_id == "exec-1"
+    assert accounts[0].google_email == "tibor.girschele@gmail.com"
+
+
+def test_load_google_draft_context_uses_principal_email_aliases_for_canonical_principal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.domain.models import ProviderBindingRecord
+    from app.services import google_oauth as google_service
+
+    binding = ProviderBindingRecord(
+        binding_id="cf-email:tibor.girschele@gmail.com:google_gmail",
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        provider_key="google_gmail",
+        status="enabled",
+        priority=80,
+        probe_state="ready",
+        probe_details_json={},
+        scope_json={"bundle": "full_workspace"},
+        auth_metadata_json={
+            "google_subject": "google-sub-1",
+            "google_email": "tibor.girschele@gmail.com",
+            "granted_scopes": [google_service.GOOGLE_SCOPE_GMAIL_MODIFY],
+            "refresh_token_ref": "refresh-token",
+            "token_status": "active",
+        },
+        created_at="2026-06-28T16:00:00Z",
+        updated_at="2026-06-28T16:00:00Z",
+    )
+
+    class _Registry:
+        def get_persisted_binding_record(self, *, binding_id: str, principal_id: str | None = None):
+            if binding_id == "cf-email:tibor.girschele@gmail.com:google_gmail" and principal_id == "cf-email:tibor.girschele@gmail.com":
+                return binding
+            return None
+
+    monkeypatch.setattr(
+        google_service,
+        "_principal_db_email",
+        lambda **kwargs: "tibor.girschele@gmail.com" if kwargs["principal_id"] == "exec-1" else "",
+    )
+    monkeypatch.setattr(
+        google_service,
+        "_principal_db_ids_for_email",
+        lambda **kwargs: ("exec-1",) if kwargs["email"] == "tibor.girschele@gmail.com" else tuple(),
+    )
+    monkeypatch.setattr(
+        google_service,
+        "load_google_oauth_config",
+        lambda: SimpleNamespace(
+            provider_secret_key="secret",
+            client_id="client-id",
+            client_secret="client-secret",
+        ),
+    )
+    monkeypatch.setattr(google_service, "_decrypt_secret", lambda value, key: value)
+    monkeypatch.setattr(
+        google_service,
+        "_refresh_google_access_token",
+        lambda **kwargs: {"access_token": "token-123", "expires_in": 3600},
+    )
+
+    resolved_binding, metadata, token_payload, access_token, sender_email = google_service._load_google_draft_context(
+        container=SimpleNamespace(provider_registry=_Registry()),
+        principal_id="exec-1",
+    )
+
+    assert resolved_binding.binding_id == binding.binding_id
+    assert metadata["google_email"] == "tibor.girschele@gmail.com"
+    assert token_payload["access_token"] == "token-123"
+    assert access_token == "token-123"
+    assert sender_email == "tibor.girschele@gmail.com"
+
+
+def test_complete_google_oauth_callback_prefers_existing_principal_for_sign_in_email(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services import google_oauth as google_service
+
+    upserts: list[dict[str, object]] = []
+    connector_upserts: list[dict[str, object]] = []
+
+    class _Registry:
+        def get_persisted_binding_record(self, *, binding_id: str, principal_id: str | None = None):
+            return None
+
+        def upsert_binding_record(self, **kwargs):  # type: ignore[no-untyped-def]
+            upserts.append(dict(kwargs))
+            return SimpleNamespace(**kwargs)
+
+    class _ToolRuntime:
+        def upsert_connector_binding(self, **kwargs):  # type: ignore[no-untyped-def]
+            connector_upserts.append(dict(kwargs))
+            return SimpleNamespace(**kwargs)
+
+    monkeypatch.setattr(
+        google_service,
+        "load_google_oauth_config",
+        lambda: SimpleNamespace(
+            client_id="client-id",
+            client_secret="client-secret",
+            redirect_uri="https://ea.example.test/google/callback",
+            state_secret="state-secret",
+            provider_secret_key="provider-secret",
+        ),
+    )
+    monkeypatch.setattr(
+        google_service,
+        "_decode_signed_state",
+        lambda state, secret: {
+            "browser_source": "sign_in",
+            "scope_bundle": "identity",
+            "redirect_uri": "https://ea.example.test/google/callback",
+        },
+    )
+    monkeypatch.setattr(
+        google_service,
+        "_exchange_google_code_for_tokens",
+        lambda **kwargs: {
+            "access_token": "access-token",
+            "refresh_token": "refresh-token",
+            "scope": "openid email profile",
+            "expires_in": 3600,
+        },
+    )
+    monkeypatch.setattr(
+        google_service,
+        "_fetch_google_userinfo",
+        lambda access_token: {
+            "sub": "google-sub-1",
+            "email": "tibor.girschele@gmail.com",
+        },
+    )
+    monkeypatch.setattr(google_service, "_encrypt_secret", lambda value, key: f"enc:{value}")
+    monkeypatch.setattr(
+        google_service,
+        "_principal_db_ids_for_email",
+        lambda **kwargs: ("exec-1",) if kwargs["email"] == "tibor.girschele@gmail.com" else tuple(),
+    )
+
+    account = google_service.complete_google_oauth_callback(
+        container=SimpleNamespace(
+            provider_registry=_Registry(),
+            tool_runtime=_ToolRuntime(),
+        ),
+        code="code-123",
+        state="state-123",
+    )
+
+    assert account.binding.principal_id == "exec-1"
+    assert upserts[0]["principal_id"] == "exec-1"
+    assert connector_upserts[0]["principal_id"] == "exec-1"
+
+
+def test_complete_google_oauth_callback_rejects_wrong_expected_google_email(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services import google_oauth as google_service
+
+    monkeypatch.setattr(
+        google_service,
+        "load_google_oauth_config",
+        lambda: SimpleNamespace(
+            client_id="client-id",
+            client_secret="client-secret",
+            redirect_uri="https://ea.example.test/google/callback",
+            state_secret="state-secret",
+            provider_secret_key="provider-secret",
+        ),
+    )
+    monkeypatch.setattr(
+        google_service,
+        "_decode_signed_state",
+        lambda state, secret: {
+            "principal_id": "exec-1",
+            "scope_bundle": "full_workspace",
+            "redirect_uri": "https://ea.example.test/google/callback",
+            "expected_google_email": "tibor.girschele@gmail.com",
+        },
+    )
+    monkeypatch.setattr(
+        google_service,
+        "_exchange_google_code_for_tokens",
+        lambda **kwargs: {
+            "access_token": "access-token",
+            "refresh_token": "refresh-token",
+            "scope": "openid email profile https://www.googleapis.com/auth/gmail.modify",
+            "expires_in": 3600,
+        },
+    )
+    monkeypatch.setattr(
+        google_service,
+        "_fetch_google_userinfo",
+        lambda access_token: {
+            "sub": "google-sub-1",
+            "email": "manfred.hoza@gmail.com",
+        },
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="Expected tibor\\.girschele@gmail\\.com but received manfred\\.hoza@gmail\\.com",
+    ):
+        google_service.complete_google_oauth_callback(
+            container=SimpleNamespace(),
+            code="code-123",
+            state="state-123",
+        )
+
+
 def test_list_recent_workspace_signals_marks_binding_reauth_required_on_invalid_grant(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1343,6 +1648,117 @@ def test_list_recent_workspace_signals_marks_binding_reauth_required_on_invalid_
     assert registry.upserts[0]["auth_metadata_json"]["reauth_required_reason"] == "google_oauth_invalid_grant"
 
 
+def test_list_recent_workspace_signals_isolates_per_binding_fetch_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services import google_oauth as google_service
+
+    class _Binding(SimpleNamespace):
+        pass
+
+    class _Registry:
+        def __init__(self) -> None:
+            self.upserts: list[dict[str, object]] = []
+
+        def upsert_binding_record(self, **kwargs):  # type: ignore[no-untyped-def]
+            self.upserts.append(dict(kwargs))
+            return kwargs
+
+    monkeypatch.setattr(
+        google_service,
+        "_list_google_binding_records",
+        lambda **_: [
+            _Binding(
+                binding_id="binding-bad",
+                principal_id="exec-google",
+                status="enabled",
+                priority=80,
+                scope_json={},
+                probe_details_json={},
+                auth_metadata_json={
+                    "google_email": "bad@example.test",
+                    "refresh_token_ref": "refresh-bad",
+                    "granted_scopes": [google_service.GOOGLE_SCOPE_METADATA],
+                    "token_status": "active",
+                    "reauth_required_reason": "",
+                },
+            ),
+            _Binding(
+                binding_id="binding-good",
+                principal_id="exec-google",
+                status="enabled",
+                priority=80,
+                scope_json={},
+                probe_details_json={},
+                auth_metadata_json={
+                    "google_email": "good@example.test",
+                    "refresh_token_ref": "refresh-good",
+                    "granted_scopes": [google_service.GOOGLE_SCOPE_METADATA],
+                    "token_status": "active",
+                    "reauth_required_reason": "",
+                },
+            ),
+        ],
+    )
+    monkeypatch.setattr(
+        google_service,
+        "load_google_oauth_config",
+        lambda: SimpleNamespace(
+            provider_secret_key="secret",
+            client_id="client-id",
+            client_secret="client-secret",
+        ),
+    )
+    monkeypatch.setattr(google_service, "_decrypt_secret", lambda value, key: value)
+    monkeypatch.setattr(
+        google_service,
+        "_refresh_google_access_token",
+        lambda **kwargs: {"access_token": f"token-{kwargs['refresh_token']}", "expires_in": 3600},
+    )
+
+    def _fake_gmail_signals(**kwargs):  # type: ignore[no-untyped-def]
+        if kwargs["account_email"] == "bad@example.test":
+            raise urllib.error.HTTPError(
+                "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+                403,
+                "Forbidden",
+                None,
+                io.BytesIO(b'{"error":{"message":"forbidden"}}'),
+            )
+        return [
+            google_service.GoogleWorkspaceSignal(
+                signal_type="email_thread",
+                channel="gmail",
+                title="Healthy mailbox",
+                summary="",
+                text="",
+                source_ref="gmail-thread:good@example.test:thread-1",
+                external_id="gmail-message:good@example.test:msg-1",
+                counterparty="Counterparty",
+                due_at=None,
+                payload={"account_email": "good@example.test"},
+            )
+        ]
+
+    monkeypatch.setattr(google_service, "_list_recent_gmail_signals", _fake_gmail_signals)
+    monkeypatch.setattr(google_service, "_list_recent_calendar_signals", lambda **kwargs: [])
+
+    registry = _Registry()
+    packet = google_service.list_recent_workspace_signals(
+        container=SimpleNamespace(provider_registry=registry),
+        principal_id="exec-google",
+        email_limit=5,
+        calendar_limit=0,
+    )
+
+    assert packet.account_emails == ("good@example.test",)
+    assert [row.source_ref for row in packet.signals] == ["gmail-thread:good@example.test:thread-1"]
+    assert registry.upserts[0]["binding_id"] == "binding-bad"
+    assert registry.upserts[0]["probe_state"] == "degraded"
+    assert registry.upserts[1]["binding_id"] == "binding-good"
+    assert registry.upserts[1]["probe_state"] == "ready"
+
+
 def test_send_google_gmail_message_marks_binding_reauth_required_on_invalid_grant(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1414,3 +1830,59 @@ def test_send_google_gmail_message_marks_binding_reauth_required_on_invalid_gran
     assert registry.upserts[0]["probe_state"] == "degraded"
     assert registry.upserts[0]["auth_metadata_json"]["token_status"] == "reauth_required"
     assert registry.upserts[0]["auth_metadata_json"]["reauth_required_reason"] == "google_oauth_invalid_grant"
+
+
+def test_build_google_oauth_start_forces_account_prompt_when_expected_google_email_is_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services import google_oauth as google_service
+
+    monkeypatch.setattr(
+        google_service,
+        "load_google_oauth_config",
+        lambda: SimpleNamespace(
+            client_id="client-id",
+            client_secret="client-secret",
+            redirect_uri="https://ea.example.test/google/callback",
+            state_secret="state-secret",
+            provider_secret_key="provider-secret",
+        ),
+    )
+
+    started = google_service.build_google_oauth_start(
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        scope_bundle="full_workspace",
+        expected_google_email="tibor.girschele@gmail.com",
+    )
+
+    parsed = urllib.parse.urlparse(started.auth_url)
+    query = urllib.parse.parse_qs(parsed.query)
+    assert query["prompt"] == ["select_account consent"]
+
+
+def test_build_google_oauth_start_keeps_identity_account_selector_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services import google_oauth as google_service
+
+    monkeypatch.setattr(
+        google_service,
+        "load_google_oauth_config",
+        lambda: SimpleNamespace(
+            client_id="client-id",
+            client_secret="client-secret",
+            redirect_uri="https://ea.example.test/google/callback",
+            state_secret="state-secret",
+            provider_secret_key="provider-secret",
+        ),
+    )
+
+    started = google_service.build_google_oauth_start(
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        scope_bundle="identity",
+        expected_google_email="",
+    )
+
+    parsed = urllib.parse.urlparse(started.auth_url)
+    query = urllib.parse.parse_qs(parsed.query)
+    assert query["prompt"] == ["select_account"]

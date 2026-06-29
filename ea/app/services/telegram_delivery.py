@@ -6,6 +6,7 @@ import hmac
 import json
 import mimetypes
 import os
+import re
 import subprocess
 import tempfile
 import time
@@ -18,6 +19,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from app.domain.models import ConnectorBinding
+from app.services import google_oauth as google_oauth_service
 from app.services.telegram_onboarding_service import TELEGRAM_IDENTITY_CONNECTOR
 
 if TYPE_CHECKING:
@@ -34,6 +36,7 @@ _TELEGRAM_FEEDBACK_KEY_ALIASES = {
     "dislike_property": "dp",
 }
 _TELEGRAM_FEEDBACK_KEY_BY_ALIAS = {value: key for key, value in _TELEGRAM_FEEDBACK_KEY_ALIASES.items()}
+_TELEGRAM_ERROR_SLUG_RE = re.compile(r"[^a-z0-9]+")
 
 
 def _telegram_max_attempts() -> int:
@@ -159,14 +162,17 @@ def _telegram_send_json(*, token: str, method: str, payload: dict[str, object], 
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 body = json.loads(response.read().decode("utf-8"))
             if not bool(body.get("ok")):
-                raise RuntimeError(f"telegram_{method.lower()}_failed")
+                raise RuntimeError(_telegram_api_error_code(method=method, body=body))
             return dict(body.get("result") or {})
         except Exception as exc:
             last_error = exc
+            error_code = _telegram_api_error_code_for_exception(method=method, exc=exc)
+            if attempt >= _telegram_max_attempts() or not _telegram_error_retryable(error_code):
+                raise RuntimeError(error_code) from exc
             if attempt >= _telegram_max_attempts():
                 break
             time.sleep(_telegram_retry_backoff_seconds() * attempt)
-    raise RuntimeError(f"telegram_{method.lower()}_failed") from last_error
+    raise RuntimeError(_telegram_api_error_code_for_exception(method=method, exc=last_error)) from last_error
 
 
 def _telegram_send_multipart(
@@ -219,14 +225,92 @@ def _telegram_send_multipart(
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 body = json.loads(response.read().decode("utf-8"))
             if not bool(body.get("ok")):
-                raise RuntimeError(f"telegram_{method.lower()}_failed")
+                raise RuntimeError(_telegram_api_error_code(method=method, body=body))
             return dict(body.get("result") or {})
         except Exception as exc:
             last_error = exc
+            error_code = _telegram_api_error_code_for_exception(method=method, exc=exc)
+            if attempt >= _telegram_max_attempts() or not _telegram_error_retryable(error_code):
+                raise RuntimeError(error_code) from exc
             if attempt >= _telegram_max_attempts():
                 break
             time.sleep(_telegram_retry_backoff_seconds() * attempt)
-    raise RuntimeError(f"telegram_{method.lower()}_failed") from last_error
+    raise RuntimeError(_telegram_api_error_code_for_exception(method=method, exc=last_error)) from last_error
+
+
+def _telegram_api_error_code(method: str, *, body: object) -> str:
+    prefix = f"telegram_{str(method or '').strip().lower() or 'request'}"
+    if not isinstance(body, dict):
+        return f"{prefix}_failed"
+    raw_status = body.get("error_code")
+    try:
+        status_code = int(raw_status)
+    except Exception:
+        status_code = 0
+    detail = _telegram_error_slug(body.get("description") or body.get("message") or body.get("error"))
+    if status_code > 0:
+        return f"{prefix}_http_{status_code}" + (f":{detail}" if detail else "")
+    if detail:
+        return f"{prefix}_api_error:{detail}"
+    return f"{prefix}_failed"
+
+
+def _telegram_api_error_code_for_exception(method: str, exc: Exception | None) -> str:
+    prefix = f"telegram_{str(method or '').strip().lower() or 'request'}"
+    if exc is None:
+        return f"{prefix}_failed"
+    if isinstance(exc, RuntimeError):
+        existing = str(exc or "").strip()
+        if existing:
+            return existing
+    if isinstance(exc, HTTPError):
+        body = _telegram_http_error_body(exc)
+        if body:
+            return _telegram_api_error_code(method, body=body)
+        detail = _telegram_error_slug(getattr(exc, "reason", "") or getattr(exc, "msg", "") or "")
+        return f"{prefix}_http_{int(exc.code or 0)}" + (f":{detail}" if detail else "")
+    if isinstance(exc, URLError):
+        detail = _telegram_error_slug(getattr(exc, "reason", "") or str(exc))
+        return f"{prefix}_url_error" + (f":{detail}" if detail else "")
+    detail = _telegram_error_slug(str(exc))
+    return f"{prefix}_failed" + (f":{detail}" if detail else "")
+
+
+def _telegram_http_error_body(exc: HTTPError) -> dict[str, object]:
+    try:
+        raw = exc.read()
+    except Exception:
+        return {}
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw.decode("utf-8"))
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _telegram_error_slug(value: object) -> str:
+    normalized = str(value or "").strip().lower()
+    if not normalized:
+        return ""
+    for prefix in ("bad request:", "forbidden:", "unauthorized:", "too many requests:"):
+        if normalized.startswith(prefix):
+            normalized = normalized[len(prefix) :].strip()
+    slug = _TELEGRAM_ERROR_SLUG_RE.sub("_", normalized).strip("_")
+    return slug[:96]
+
+
+def _telegram_error_retryable(error_code: str) -> bool:
+    normalized = str(error_code or "").strip().lower()
+    if not normalized:
+        return True
+    if "_http_429" in normalized:
+        return True
+    for status in ("400", "401", "403", "404"):
+        if f"_http_{status}" in normalized:
+            return False
+    return True
 
 
 def _telegram_video_has_audio(video_ref: str) -> bool:
@@ -535,29 +619,31 @@ def _telegram_remote_ref_reachable(file_ref: str) -> bool:
 
 
 def _telegram_binding_principal_candidates(principal_id: str) -> tuple[str, ...]:
-    ordered: list[str] = []
-    for candidate in (
-        str(principal_id or "").strip(),
-        str(os.getenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID") or "").strip(),
-        str(os.getenv("EA_DEFAULT_PRINCIPAL_ID") or "").strip(),
-        "local-user",
-    ):
-        if candidate and candidate not in ordered:
-            ordered.append(candidate)
-    return tuple(ordered)
+    return google_oauth_service._principal_alias_candidates(
+        container=None,
+        principal_ids=(
+            str(principal_id or "").strip(),
+            str(os.getenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID") or "").strip(),
+            str(os.getenv("EA_DEFAULT_PRINCIPAL_ID") or "").strip(),
+        ),
+        include_local_user=True,
+    )
 
 
 def resolve_primary_telegram_binding(tool_runtime: "ToolRuntimeService", *, principal_id: str) -> ConnectorBinding | None:
-    def _sort_key(item: ConnectorBinding) -> tuple[int, int, str]:
-        metadata = dict(item.auth_metadata_json or {})
-        chat_ref = str(metadata.get("default_chat_ref") or item.external_account_ref or "").strip()
+    from app.services import proactive_telegram_binding
+
+    def _sort_key(item: tuple[int, ConnectorBinding]) -> tuple[int, int, int, str]:
+        candidate_index, binding = item
+        metadata = dict(binding.auth_metadata_json or {})
+        chat_ref = str(metadata.get("default_chat_ref") or binding.external_account_ref or "").strip()
         numeric = 1 if chat_ref.isdigit() else 0
         plausible_numeric = 1 if numeric and int(chat_ref) > 1000 else 0
-        return (plausible_numeric, numeric, str(item.updated_at or ""))
+        return (plausible_numeric, numeric, -candidate_index, str(binding.updated_at or ""))
 
-    for binding_principal_id in _telegram_binding_principal_candidates(principal_id):
+    ranked_candidates: list[tuple[int, ConnectorBinding]] = []
+    for candidate_index, binding_principal_id in enumerate(_telegram_binding_principal_candidates(principal_id)):
         rows = tool_runtime.list_connector_bindings(binding_principal_id, limit=200)
-        candidates: list[ConnectorBinding] = []
         for row in rows:
             if str(row.connector_name or "").strip() != TELEGRAM_IDENTITY_CONNECTOR:
                 continue
@@ -567,10 +653,18 @@ def resolve_primary_telegram_binding(tool_runtime: "ToolRuntimeService", *, prin
             chat_ref = str(metadata.get("default_chat_ref") or row.external_account_ref or "").strip()
             if not chat_ref:
                 continue
-            candidates.append(row)
-        candidates.sort(key=_sort_key, reverse=True)
-        if candidates:
-            return candidates[0]
+            ranked_candidates.append((candidate_index, row))
+    ranked_candidates.sort(key=_sort_key, reverse=True)
+    if len(ranked_candidates) > 1:
+        for _candidate_index, row in ranked_candidates:
+            metadata = dict(row.auth_metadata_json or {})
+            chat_ref = str(metadata.get("default_chat_ref") or row.external_account_ref or "").strip()
+            bot_key = str(metadata.get("bot_key") or "default").strip() or "default"
+            token = str(dict(_telegram_bot_registry().get(bot_key) or {}).get("token") or "").strip()
+            if token and proactive_telegram_binding._telegram_chat_reachable(chat_id=chat_ref, token=token):
+                return row
+    if ranked_candidates:
+        return ranked_candidates[0][1]
     return None
 
 

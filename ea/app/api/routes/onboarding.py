@@ -21,6 +21,7 @@ from app.services.google_oauth import (
     complete_google_oauth_callback,
     GOOGLE_PROVIDER_KEY,
 )
+from app.services.proactive_ooda_telegram_approval import resume_latest_telegram_gmail_draft_after_google_connect
 from app.services.registration_email import send_registration_email
 
 router = APIRouter(prefix="/v1/onboarding", tags=["onboarding"])
@@ -373,6 +374,14 @@ def _complete_onboarding_google_callback(
         account = complete_google_oauth_callback(container=container, code=code, state=state)
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if str(account.consent_stage or "").strip().lower() != "identity":
+        try:
+            resume_latest_telegram_gmail_draft_after_google_connect(
+                container=container,
+                principal_id=account.binding.principal_id,
+            )
+        except Exception:
+            pass
     return _google_callback_payload(account)
 
 

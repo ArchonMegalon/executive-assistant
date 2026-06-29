@@ -184,12 +184,24 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
         str(item) for item in list(receipt.get("rules") or [])
     ):
         issues.append("missing proactive OODA consent-gate rule")
+    if "Telegram is an action surface, not a progress log; proactive delivery must stay quiet unless the user needs to approve, choose, unblock, review, or answer something." not in "\n".join(
+        str(item) for item in list(receipt.get("rules") or [])
+    ):
+        issues.append("missing action-required-only Telegram rule")
+    if "Proactive OODA packets must pass a context/provider-fit auditor before user delivery; reachable URLs, extracted email addresses, or generic search hits are not sufficient." not in "\n".join(
+        str(item) for item in list(receipt.get("rules") or [])
+    ):
+        issues.append("missing proactive OODA auditor-before-delivery rule")
+    if "Pocket.ai or other consented audio transcripts may feed OODA only as approved signals with privacy, retention, source, and current/stale status preserved." not in "\n".join(
+        str(item) for item in list(receipt.get("rules") or [])
+    ):
+        issues.append("missing transcript-ingest rule")
     if "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth." not in "\n".join(
         str(item) for item in list(receipt.get("rules") or [])
     ):
         issues.append("missing Teable projection rule for proactive OODA")
     required_next_receipts = set(str(item) for item in list(receipt.get("required_next_receipts") or []) if str(item).strip())
-    if "real proactive OODA packet accepted and mirrored into Teable" not in required_next_receipts:
+    if "real proactive OODA packet accepted with action-required-only routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome" not in required_next_receipts:
         issues.append("required_next_receipts must include proactive OODA Teable proof")
     if by_key.get("recover", {}).get("status") == "command_backed_no_published_receipt" and "recover=command_backed_no_published_receipt" not in blocking_reasons:
         issues.append("blocking_reasons must include the command-backed recover posture")

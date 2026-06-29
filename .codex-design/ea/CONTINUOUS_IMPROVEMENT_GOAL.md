@@ -76,20 +76,35 @@ Keep this goal open until evidence exists for all of these outcomes:
 
 ## Proactive OODA Gold-Production Goal
 
-EA must behave like a smart paid human assistant, not a reminder bot. The flower example is only one instance. The real goal is a reusable proactive OODA loop that notices relationship, calendar, deadline, renewal, property, vendor, shopping, and follow-through opportunities and then moves them toward decision-ready outcomes.
+EA must behave like a smart paid human assistant, not a reminder bot. The flower example is only one instance. The real goal is a generic paid-human-assistant-grade OODA loop that notices relationship, calendar, deadline, renewal, property, vendor, shopping, and follow-through opportunities and then advances them into decision-ready outcomes.
+The unit of value is not another reminder. It is a decision-ready packet the user can approve, dismiss, or defer in seconds.
 
 The target behavior is explicit:
 
-- observe: ingest every approved reachable signal source and provider posture that can help the user, while keeping EA downstream of the owning truth planes;
-- orient: combine timing, commitments, preferences, budgets, quiet hours, past outcomes, open loops, and channel readiness before deciding to interrupt;
-- decide: produce generic assistant-grade packets such as shortlists, carts, booking candidates, drafted replies, reminders, vendor comparisons, approval links, and recovery steps;
-- act: route the packet over the best viable channel, browse when useful, and stage reversible next steps, but keep purchases, bookings, outbound commitments, cancellations, and sent messages behind explicit approval;
-- remember: mirror important run facts, blockers, staged options, delivery posture, and follow-through receipts into Teable as an admin projection, not canonical truth;
-- improve: use live acceptance, ignored or accepted outcomes, and provider failures to tune the loop without widening claims prematurely.
+- observe: ingest every approved reachable signal source, provider posture, Pocket.ai or other consented audio transcript stream, and browser- or vendor-page evidence that can help the user, while keeping EA downstream of the owning truth planes;
+- orient: combine timing, commitments, relationship context, durable profile facts such as city/home context, preferences, budgets, quiet hours, past outcomes, open loops, channel readiness, and live browse findings before deciding to interrupt;
+- decide: produce small assistant-grade packets the user can clear quickly: a recommendation, a few alternatives, why now, why this choice, expected cost or effort, and a reversible next step; typical outputs include shortlists, filled carts, booking candidates, Gmail drafts, reminders, vendor comparisons, approval links, and recovery steps;
+- audit before delivery: no packet may reach the user as a recommendation unless an auditor validates intent fit, provider/category fit, locality/context fit, source quality, contact usability, reversible action safety, and low-noise value; the auditor must reject reference pages, generic search artifacts, stale packets, workflow-instruction echoes, and candidates that contradict known context such as living in 1200 Wien;
+- act: when browsing is useful, inspect live sites, choose the best candidate, and stage the smallest reversible next step such as a chosen product page, prefilled basket, booking candidate, Gmail draft reply, or approval-ready handoff; do not stop at a raw link dump when a better staged artifact is possible; route the packet over the best viable channel and stay explicit about blocked fallbacks;
+- remember: mirror important projected facts into Teable as an admin projection, not canonical truth, including signal kind, why-now reason, candidate set, chosen candidate, staged link or draft ref, approval state, delivery route, blockers, follow-through receipt, current/stale packet status, and resume cursor so the loop can resume later without repeating research;
+- mirror the exact fields "staged link, approval state, delivery route, blockers, and follow-through receipt" (or the nearest equivalent when staged artifact differs from a link) into Teable projections so recovery and replay remain explicit;
+- interrupt: Telegram is an action surface, not a progress log; send there only when Tibor needs to approve, choose, unblock, review, or answer something, and keep FYI/debug/progress details in receipts, Teable, queue, or admin surfaces;
+- improve: use accepted, ignored, retried, and failed packets to tune interruption quality, ranking, browsing quality, route choice, and follow-through without widening claims prematurely.
 
-Acceptance rule: this goal is not complete until real proactive OODA packets are accepted under ordinary use, generic delivery routing stays honest about blockers, Teable holds the important projected facts, and irreversible actions remain consent-gated.
+Gold-production bar: this goal stays open until real proactive OODA packets are accepted under ordinary use, at least one packet reaches the full chain of transcript or approved-source signal, live browse evidence, auditor-passed chosen candidate, reversible staged artifact such as a Gmail draft or cart, mirrored Teable facts, action-required-only Telegram delivery, current-packet telemetry, stale-approval cleanup, and explicit approval outcome, route selection stays honest about blocked fallbacks, and purchases, bookings, cancellations, outbound commitments, and sent messages remain consent-gated.
 
-Idle priority rule: when signal intake is broad but outcomes are weak, improve orientation, packet quality, delivery routing, or Teable projection before adding another source or demo.
+Execution ladder for gold:
+
+1. observe a real opportunity from approved sources and normalize it into a reusable packet seed;
+2. orient with timing, relationship, budget, quiet-hours, route-readiness, durable profile/location context, and history context;
+3. browse or compare live options when useful, choose a best candidate, and run the semantic auditor before staging or notifying;
+4. stage the smallest reversible next step, including Gmail drafts when explicitly requested, without sending, buying, booking, cancelling, posting, or committing before approval;
+5. route a concise decision-ready packet over the best viable channel only when the user has a concrete action to take, and mirror the delivery, approval, stale/current packet, and decision facts into Teable so the packet can be resumed later;
+6. capture the approval, defer, dismiss, or blocked outcome plus the follow-through receipt without repeating the same research.
+
+Blocked rule: if the loop can notice an opportunity but cannot yet ingest approved transcripts, browse well, audit provider/context fit, choose a candidate, stage a reversible artifact, mirror the important facts into Teable, distinguish stale from current approval surfaces, or capture the approval outcome, the goal remains open even if reminders and digests are working.
+
+Idle priority rule: when signal intake is broad but outcomes are weak, or the loop notices opportunities without advancing them to an auditor-passed decision-ready artifact, improve orientation quality, browsing and comparison quality, staging quality, Gmail draft execution, action-required Telegram gating, delivery-route honesty, stale-packet cleanup, or Teable projection before adding another source or demo.
 
 ## Life and Work Operating System Goal
 

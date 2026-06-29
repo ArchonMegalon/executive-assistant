@@ -5,7 +5,7 @@ trust_pages:
   - id: help
     eyebrow: "Help"
     heading: "Get help without guessing"
-    intro: "Start here for downloads, sign-in recovery, and support."
+    intro: "Pick the closest path. Keep public ideas, private bugs, and downloads separate."
     effective_date: "2026-03-25"
     updated_date: "2026-03-25"
     summary_points:
@@ -25,36 +25,32 @@ trust_pages:
     sections:
       - id: install-update
         eyebrow: "Install or update"
-        heading: "Start with Downloads"
-        body: "Downloads has Stable and Nightly installers for Windows and Linux. Use Help when install or update does not behave as expected."
+        heading: "Downloads"
+        body: "Get the current public build."
         bullets:
-          - "Stable is the calm default."
-          - "Nightly is the newest published build."
-          - "Create an account only when you want saved help history or recovery."
+          - "Stable for normal use."
+          - "Source build for Linux users who want to compile it themselves."
       - id: sign-in-recovery
-        eyebrow: "Sign-in or account recovery"
-        heading: "Use Account for recovery"
-        body: "Sign in when you want help history, recovery, and install return tied to your account."
+        eyebrow: "Account recovery"
+        heading: "Account"
+        body: "Claim your copy only when you want recovery or linked installs."
         bullets:
-          - "Guest use is allowed."
-          - "Account help keeps follow-up in one place."
-          - "Recovery should stay boring."
+          - "Guest use is fine."
+          - "Claim only when you want recovery."
       - id: product-bug
-        eyebrow: "Product bug"
-        heading: "Send bugs through Contact"
-        body: "Use Contact for install trouble, product bugs, and practical feedback. Public feedback is optional."
+        eyebrow: "Bug report"
+        heading: "Private support"
+        body: "Use Contact when logs, screenshots, crash details, or account details are involved."
         bullets:
-          - "Use Contact for install trouble, product bugs, or UX friction."
-          - "Use Account > Support if you want your help history saved in one place."
-          - "Use public feedback only when the bug should stay public."
+          - "One issue per message."
+          - "Discord is better for normal questions."
       - id: product-question
-        eyebrow: "Product question or UX confusion"
-        heading: "Ask Chummer first"
-        body: "FAQ and Help should answer the normal questions without making you dig through project details."
+        eyebrow: "Product question"
+        heading: "FAQ"
+        body: "Read the short answers before opening a support case."
         bullets:
-          - "FAQ answers normal product questions in plain language."
-          - "Support stays separate from public feedback."
-          - "You do not need another account to ask for help."
+          - "No account needed."
+          - "Support stays private."
   - id: privacy
     eyebrow: "Privacy"
     heading: "What Chummer stores, and what it does not"
@@ -127,36 +123,36 @@ trust_pages:
   - id: contact
     eyebrow: "Contact"
     heading: "Contact Chummer"
-    intro: "Choose public feedback for ideas. Use support for install trouble, bugs, or anything with logs or account detail."
+    intro: "For normal questions, reach me on Discord in the Chummer5 server. Use the form only for private install trouble, crashes, logs, or account detail."
     effective_date: "2026-03-25"
     updated_date: "2026-03-25"
     summary_points:
-      - "Support form"
-      - "Guest submissions allowed"
-      - "Tracked follow-up with an account"
+      - "Discord first"
+      - "Private form for logs"
+      - "Account history when needed"
     actions:
-      - label: "Open support"
-        href: "/contact#support-intake"
+      - label: "Open Discord"
+        href: "https://discord.gg/chummer"
         tone: primary
-      - label: "Open account support"
-        href: "/signup?next=%2Faccount%2Fsupport"
+      - label: "Private support"
+        href: "/contact#support-intake"
         tone: secondary
       - label: "Read help first"
         href: "/help"
         tone: ghost
     sections:
-      - id: right-lane
-        eyebrow: "Route it cleanly"
-        heading: "Choose the closest problem"
-        body: "Use install or update for setup trouble, product bug for broken behavior, and feedback for roadmap or UX friction that slows the table down."
+      - id: discord
+        eyebrow: "Discord"
+        heading: "Use the Chummer5 server for normal contact"
+        body: "Questions, quick feedback, and normal discussion belong in Discord where the Chummer community already is."
       - id: tracked-support
-        eyebrow: "Tracked follow-up"
-        heading: "Create an account when you want help history inside Chummer"
-        body: "You can submit help here without another account. Create a Chummer account if you want to see your help history later in one place."
+        eyebrow: "Private"
+        heading: "Use the form only when Discord is the wrong place"
+        body: "Install failures, crashes, screenshots, logs, or account details should stay private. The form is for those cases."
       - id: public-issues
         eyebrow: "Public feedback"
-        heading: "Use public feedback only when the report should be public"
-        body: "Most people should start with Help or Contact. Public feedback is only for technical reports you want discussed in public."
+        heading: "Use Participate for roadmap items"
+        body: "Ideas and public UX feedback should go to Participate, not the private support form."
 faq_pages:
   - id: faq
     eyebrow: "FAQ"
@@ -169,7 +165,7 @@ faq_pages:
       - label: "Open support"
         href: "/contact#support-intake"
         tone: secondary
-      - label: "Create account"
+      - label: "Claim your copy"
         href: "/signup?next=/home"
         tone: ghost
     sections:
@@ -180,11 +176,11 @@ faq_pages:
           - question: "Why would I trust what Chummer shows me?"
             answer: "Because Chummer keeps results and explanations close together in the product."
           - question: "What does account creation give me right away?"
-            answer: "Account creation gives you recovery, help history in Account, and a cleaner return path when linked installs are available."
+            answer: "Claiming your copy gives you a recovery path and linked installs when you want them."
       - title: "Downloads and installs"
         entries:
           - question: "Do I need an account to download the current release?"
-            answer: "No. The current Linux package is open public. Create an account when you want recovery, saved help history, and a cleaner return path when linked downloads are available."
+            answer: "No. The current public package stays open. Claim your copy only when you want recovery or linked installs."
           - question: "Does the account change the download file?"
             answer: "No. The published package stays the same for everyone. Account linking is separate from the file itself."
           - question: "Where do I go if install or update goes sideways?"
@@ -194,4 +190,4 @@ faq_pages:
           - question: "Do I need to participate to help or report a bug?"
             answer: "No. Support and feedback stand on their own. Participation is optional and separate from the normal customer help path."
           - question: "Can I get help without another account?"
-            answer: "Yes. Support is the default help path. Create a Chummer account if you want saved help history inside your account."
+            answer: "Yes. Use Discord for normal questions and Contact for private details. Claim your copy only when recovery matters."

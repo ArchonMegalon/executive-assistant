@@ -1282,6 +1282,7 @@ def test_whatsapp_web_action_processor_readiness_scripts_help_and_wiring() -> No
     )
     smoke_help = (ROOT / "scripts/smoke_help.sh").read_text(encoding="utf-8")
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
 
     assert "Materialize the WhatsApp Web action processor readiness receipt." in materialize.stdout
     assert "Verify the WhatsApp Web action processor readiness receipt." in verify.stdout
@@ -1289,6 +1290,72 @@ def test_whatsapp_web_action_processor_readiness_scripts_help_and_wiring() -> No
     assert "scripts/verify_whatsapp_web_action_processor_readiness.py" in smoke_help
     assert "scripts/materialize_whatsapp_web_action_processor_readiness.py" in makefile
     assert "scripts/verify_whatsapp_web_action_processor_readiness.py" in makefile
+    assert (
+        "./scripts/materialize_whatsapp_web_action_processor_readiness.py:"
+        "/app/scripts/materialize_whatsapp_web_action_processor_readiness.py:ro"
+    ) in compose
+    assert "./docker-compose.whatsapp-web-session.yml:/app/docker-compose.whatsapp-web-session.yml:ro" in compose
+    assert "ea_whatsapp_web_actions:/data/whatsapp-actions" in compose
+
+
+def test_proactive_ooda_operator_status_scripts_help_and_wiring() -> None:
+    materialize = subprocess.run(
+        ["python3", "scripts/materialize_proactive_ooda_operator_status.py", "--help"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    verify = subprocess.run(
+        ["python3", "scripts/verify_proactive_ooda_operator_status.py", "--help"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    smoke_help = (ROOT / "scripts/smoke_help.sh").read_text(encoding="utf-8")
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+
+    assert "Materialize the proactive OODA operator-status receipt." in materialize.stdout
+    assert "Verify the proactive OODA operator-status receipt." in verify.stdout
+    assert "scripts/materialize_proactive_ooda_operator_status.py" in smoke_help
+    assert "scripts/verify_proactive_ooda_operator_status.py" in smoke_help
+    assert "materialize-proactive-ooda-operator-status:" in makefile
+    assert "verify-proactive-ooda-operator-status:" in makefile
+    assert "scripts/materialize_proactive_ooda_operator_status.py" in makefile
+    assert "scripts/verify_proactive_ooda_operator_status.py" in makefile
+    release_preflight_body = makefile.split("release-preflight:\n", 1)[1].split("\n\n", 1)[0]
+    assert "$(MAKE) verify-proactive-ooda-operator-status" in release_preflight_body
+
+
+def test_proactive_ooda_gold_acceptance_scripts_help_and_wiring() -> None:
+    materialize = subprocess.run(
+        ["python3", "scripts/materialize_proactive_ooda_gold_acceptance.py", "--help"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    verify = subprocess.run(
+        ["python3", "scripts/verify_proactive_ooda_gold_acceptance.py", "--help"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    smoke_help = (ROOT / "scripts/smoke_help.sh").read_text(encoding="utf-8")
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+
+    assert "Materialize the proactive OODA gold-acceptance receipt." in materialize.stdout
+    assert "Verify the proactive OODA gold-acceptance receipt." in verify.stdout
+    assert "scripts/materialize_proactive_ooda_gold_acceptance.py" in smoke_help
+    assert "scripts/verify_proactive_ooda_gold_acceptance.py" in smoke_help
+    assert "materialize-proactive-ooda-gold-acceptance:" in makefile
+    assert "verify-proactive-ooda-gold-acceptance:" in makefile
+    assert "scripts/materialize_proactive_ooda_gold_acceptance.py" in makefile
+    assert "scripts/verify_proactive_ooda_gold_acceptance.py" in makefile
+    release_preflight_body = makefile.split("release-preflight:\n", 1)[1].split("\n\n", 1)[0]
+    assert "$(MAKE) verify-proactive-ooda-gold-acceptance" in release_preflight_body
 
 
 def test_postgres_contract_and_fastestvpn_helpers_support_standalone_paths() -> None:

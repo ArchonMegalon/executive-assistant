@@ -38,8 +38,6 @@ def _load_dotenv_if_present(path: Path) -> None:
         os.environ[key] = normalized
 
 
-_load_dotenv_if_present(ROOT / ".env")
-
 import scripts.run_proactive_ooda as runner  # noqa: E402
 
 from app.services.proactive_ooda_service import JsonOodaStateStore, ProactiveOodaService, digest_to_dict  # noqa: E402
@@ -67,6 +65,7 @@ def _default_principal_id() -> str:
 
 
 def main() -> int:
+    _load_dotenv_if_present(ROOT / ".env")
     parser = argparse.ArgumentParser(description="Verify proactive OODA signal ingestion and notification readiness.")
     parser.add_argument("--principal-id", default=_default_principal_id())
     parser.add_argument("--signals-json", default=os.getenv("EA_PROACTIVE_OODA_SIGNALS_JSON", ""))
@@ -93,6 +92,11 @@ def main() -> int:
         "--paused",
         action=argparse.BooleanOptionalAction,
         default=_env_truthy("EA_PROACTIVE_OODA_PAUSED"),
+    )
+    parser.add_argument(
+        "--armed-send",
+        action=argparse.BooleanOptionalAction,
+        default=_env_truthy("EA_PROACTIVE_OODA_ARMED_SEND", default=False),
     )
     parser.add_argument("--pause-reason", default=os.getenv("EA_PROACTIVE_OODA_PAUSE_REASON", ""))
     parser.add_argument("--quiet-hours-start", default=os.getenv("EA_PROACTIVE_OODA_QUIET_HOURS_START", ""))
@@ -211,6 +215,8 @@ def _build_report(args: argparse.Namespace) -> dict[str, Any]:
             signals.extend(signal.__dict__ for signal in observation_signals)
     workspace_source_checked = False
     workspace_source_healthy = False
+    workspace_source_status = "not_checked"
+    workspace_source_reason = ""
     if not bool(getattr(args, "skip_workspace_source", True)):
         workspace_source_checked = True
         try:
@@ -228,9 +234,15 @@ def _build_report(args: argparse.Namespace) -> dict[str, Any]:
             source_modes.append("google_workspace")
             signals.extend(loaded)
             workspace_source_healthy = True
+            workspace_source_status = "ready"
         except Exception as exc:
-            source_modes.append("google_workspace_error")
-            errors.append(f"google_workspace_signal_source_unhealthy:{exc.__class__.__name__}")
+            workspace_source_reason = runner._workspace_source_error_detail(exc)
+            if runner._workspace_source_not_configured(exc):
+                workspace_source_status = "not_configured"
+            else:
+                workspace_source_status = "unhealthy"
+                source_modes.append("google_workspace_error")
+                errors.append(f"google_workspace_signal_source_unhealthy:{workspace_source_reason}")
     source_mode = "+".join(source_modes) if source_modes else "none"
     if args.require_source and source_mode == "none":
         errors.append("no_signal_source_configured")
@@ -287,6 +299,8 @@ def _build_report(args: argparse.Namespace) -> dict[str, Any]:
         "receipt_observation_count": receipt_observation_count,
         "workspace_source_checked": workspace_source_checked,
         "workspace_source_healthy": workspace_source_healthy,
+        "workspace_source_status": workspace_source_status,
+        "workspace_source_reason": workspace_source_reason,
         "state_path": args.state_path,
         "delivery_route": delivery_route_status,
         "delivery_guard": guard_status,
@@ -378,6 +392,7 @@ def _delivery_guard_status(
     paused = bool(getattr(args, "paused", False))
     quiet_active = _quiet_hours_active(args, now=now)
     quiet_allows_high = bool(getattr(args, "quiet_hours_allow_high_priority", True))
+    armed_send = bool(getattr(args, "armed_send", False))
     budget_limit = max(_safe_int(getattr(args, "interruption_budget_limit", 0), default=0), 0)
     budget_window_hours = max(_safe_int(getattr(args, "interruption_budget_window_hours", 24), default=24), 1)
     budget_used = len(
@@ -401,10 +416,14 @@ def _delivery_guard_status(
     elif has_items and budget_exhausted and not (budget_allows_high and has_high_priority):
         delivery_state = "deferred"
         deferred_reason = "deferred_by_interruption_budget"
+    elif has_items and not armed_send:
+        delivery_state = "deferred"
+        deferred_reason = "deferred_by_unarmed_send"
 
     return {
         "delivery_state": delivery_state,
         "deferred_reason": deferred_reason,
+        "armed_send": armed_send,
         "operator_paused": paused,
         "pause_reason_present": bool(str(getattr(args, "pause_reason", "") or "").strip()),
         "quiet_hours_configured": _quiet_hours_configured(args),
@@ -707,9 +726,17 @@ def _format_report(report: dict[str, Any]) -> str:
 
 
 def _workspace_status(report: dict[str, Any]) -> str:
-    if not report.get("workspace_source_checked"):
-        return "not checked"
-    return "ready" if report.get("workspace_source_healthy") else "unhealthy"
+    status = str(report.get("workspace_source_status") or "").strip()
+    if not status:
+        if not report.get("workspace_source_checked"):
+            status = "not_checked"
+        else:
+            status = "ready" if report.get("workspace_source_healthy") else "unhealthy"
+    reason = str(report.get("workspace_source_reason") or "").strip()
+    normalized = status.replace("_", " ")
+    if reason and status in {"not_configured", "unhealthy"}:
+        return f"{normalized} ({reason})"
+    return normalized
 
 
 def _delivery_route_summary(report: dict[str, Any]) -> str:
@@ -760,7 +787,8 @@ def _delivery_guard_summary(report: dict[str, Any]) -> str:
     budget = f", budget {budget_used}/{budget_limit}" if budget_limit > 0 else ""
     paused = ", paused" if guard.get("operator_paused") else ""
     quiet = ", quiet-active" if guard.get("quiet_hours_active") else ""
-    return f"{state}{f' ({reason})' if reason else ''}{paused}{quiet}{budget}"
+    unarmed = ", unarmed" if state != "no_actionable_items" and not bool(guard.get("armed_send", True)) else ""
+    return f"{state}{f' ({reason})' if reason else ''}{paused}{quiet}{budget}{unarmed}"
 
 
 def _context_grounding_summary(report: dict[str, Any]) -> str:

@@ -19,6 +19,7 @@ from app.api.dependencies import (
     get_cloudflare_access_identity,
     get_container,
     get_request_context,
+    is_operator_context,
     require_operator_context,
 )
 from app.api.routes.landing_browser import (
@@ -80,6 +81,8 @@ from app.api.routes.landing_shared_support import (
     _load_project_mode_payloads,
     _repo_root,
     _workspace_plan,
+    operator_bootstrap_defaults,
+    operator_bootstrap_needed,
 )
 from app.api.routes.landing_view_models import (
     app_section_payload as _app_section_payload,
@@ -117,6 +120,7 @@ from app.services.property_market_catalog import (
     property_type_options as property_type_options_catalog,
     provider_options as property_provider_options,
 )
+from app.services.proactive_ooda_runtime_artifacts import load_runtime_artifact_bundle
 from app.services.public_branding import request_brand
 from app.services.registration_email import email_delivery_enabled
 
@@ -1442,7 +1446,19 @@ def app_shell(
 
 
 @router.get("/admin", response_class=HTMLResponse)
-def admin_root(_: None = Depends(require_operator_context)) -> RedirectResponse:
+def admin_root(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    redirect = _admin_operator_bootstrap_redirect(
+        request,
+        container=container,
+        context=context,
+        return_to="/admin/policies",
+    )
+    if redirect is not None:
+        return redirect
     return RedirectResponse("/admin/policies", status_code=307)
 
 
@@ -1452,8 +1468,17 @@ def admin_shell(
     request: Request,
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
-    _: None = Depends(require_operator_context),
 ) -> HTMLResponse:
+    if section == "bootstrap-operator":
+        return admin_operator_bootstrap(request, container=container, context=context)
+    redirect = _admin_operator_bootstrap_redirect(
+        request,
+        container=container,
+        context=context,
+        return_to=f"/admin/{section}",
+    )
+    if redirect is not None:
+        return redirect
     allowed = {row["key"] for group in ADMIN_NAV_GROUPS for row in group["items"]}
     if section not in allowed:
         raise HTTPException(status_code=404, detail="admin_section_not_found")
@@ -1481,6 +1506,202 @@ def admin_shell(
             cards=list(payload["cards"]),
             stats=list(payload["stats"]),
         ),
+    )
+
+
+@router.get("/admin/bootstrap-operator", response_class=HTMLResponse, response_model=None)
+def admin_operator_bootstrap(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+):
+    return_to = _normalize_browser_return_to(
+        str(request.query_params.get("return_to") or "/admin/policies").strip(),
+        default="/admin/policies",
+    )
+    if is_operator_context(context):
+        return RedirectResponse(return_to, status_code=303)
+    if not context.authenticated:
+        raise HTTPException(status_code=403, detail="auth_required")
+    if not operator_bootstrap_needed(container, principal_id=context.principal_id):
+        raise HTTPException(status_code=409, detail="operator_profile_bootstrap_not_allowed")
+    defaults = operator_bootstrap_defaults(
+        principal_id=context.principal_id,
+        access_email=str(context.access_email or "").strip().lower(),
+    )
+    email_hint = str(defaults.get("email_hint") or "").strip()
+    return _render_console_object_detail(
+        request=request,
+        context=context,
+        workspace_label="Operator Center",
+        page_title=f"{request_brand(request)['name']} Operator Bootstrap",
+        current_nav="policies",
+        console_title="Create the first operator profile",
+        console_summary="Admin surfaces need one active operator profile before operator-grade actions can run.",
+        object_kind="Operator bootstrap",
+        object_title="Enable operator access for this workspace",
+        object_summary="This creates the first active operator profile for the current principal so admin review, approval capture, and handoff actions can authenticate cleanly.",
+        object_meta=[
+            {"label": "Principal", "value": context.principal_id},
+            {"label": "Suggested operator ID", "value": str(defaults.get("operator_id") or "")},
+            {"label": "Email hint", "value": email_hint or "None"},
+            {"label": "Roles", "value": "operator, reviewer"},
+        ],
+        object_ooda_title="Why this exists",
+        object_ooda_copy="The runtime can auto-authorize loopback operator access once an active operator profile exists. Without that first profile, admin pages and approval capture stay blocked.",
+        object_ooda_rows=[
+            _object_detail_row(
+                "What gets created",
+                "One active operator profile bound to this principal with operator and reviewer roles.",
+                "Bootstrap",
+            ),
+            _object_detail_row(
+                "What changes next",
+                "The next admin request can resolve operator context automatically on loopback and reach the approval surfaces.",
+                "Ready",
+            ),
+        ],
+        object_sidebar_title="Bootstrap action",
+        object_sidebar_copy="Review the suggested identity, then create the first operator profile for this workspace.",
+        object_sidebar_rows=[
+            _object_detail_row("Return after create", return_to, "Route"),
+            _object_detail_row("Trust tier", "standard", "Policy"),
+        ],
+        object_sidebar_form={
+            "eyebrow": "Bootstrap",
+            "title": "Create operator profile",
+            "copy": "This is the only path needed before admin pages can accept operator actions for this principal.",
+            "method": "post",
+            "action": "/admin/actions/bootstrap-operator",
+            "submit_label": "Create operator profile",
+            "fields": [
+                {"type": "hidden", "name": "return_to", "value": return_to},
+                {"type": "text", "name": "display_name", "label": "Display name", "value": str(defaults.get("display_name") or "")},
+                {"type": "text", "name": "operator_id", "label": "Operator ID", "value": str(defaults.get("operator_id") or "")},
+            ],
+        },
+    )
+
+
+@router.get("/admin/proactive-ooda/approval", response_class=HTMLResponse, response_model=None)
+def admin_proactive_ooda_approval_capture(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+):
+    redirect = _admin_operator_bootstrap_redirect(
+        request,
+        container=container,
+        context=context,
+        return_to="/admin/proactive-ooda/approval",
+    )
+    if redirect is not None:
+        return redirect
+    bundle = load_runtime_artifact_bundle(
+        root=_repo_root(),
+        state_path=os.getenv("EA_PROACTIVE_OODA_STATE_PATH", "state/proactive_ooda_notified.json"),
+        receipt_path=os.getenv("EA_PROACTIVE_OODA_RECEIPT_PATH", ""),
+    )
+    stage_packet = dict(bundle.get("stage_packet") or {})
+    safe_work_result = dict(bundle.get("safe_work_result") or {})
+    approval_outcome = dict(bundle.get("approval_outcome") or {})
+    run_receipt = dict(bundle.get("run_receipt") or {})
+    packet_ref = str(stage_packet.get("packet_ref") or "").strip()
+    staged_artifact_ref = str(safe_work_result.get("result_ref") or "").strip()
+    staged_action_url = str(safe_work_result.get("staged_action_url") or "").strip()
+    recommended = _admin_proactive_recommended_label(safe_work_result.get("recommended_option_or_draft"))
+    approval_recorded = bool(approval_outcome.get("approval_outcome_recorded"))
+    approval_status = str(approval_outcome.get("status") or "").strip() if approval_recorded else "missing"
+    evidence_rows = _admin_proactive_evidence_rows(safe_work_result)
+    return _render_console_object_detail(
+        request=request,
+        context=context,
+        workspace_label="Operator Center",
+        page_title=f"{request_brand(request)['name']} Proactive OODA Approval",
+        current_nav="goals",
+        console_title="Record proactive OODA outcome",
+        console_summary="Capture the redacted human approval outcome for the current staged packet.",
+        object_kind="Proactive OODA",
+        object_title="Approval capture",
+        object_summary="Use this form after reviewing the staged packet and its safe-work result. The runtime stores only redacted hashes for the evidence note, actor, packet ref, and staged artifact ref.",
+        object_meta=[
+            {"label": "Notification status", "value": str(run_receipt.get("notification_status") or "unknown")},
+            {"label": "Packet ref", "value": packet_ref or "Missing"},
+            {"label": "Staged artifact", "value": staged_artifact_ref or "Missing"},
+            {"label": "Recorded outcome", "value": approval_status},
+        ],
+        object_ooda_title="Current staged decision",
+        object_ooda_copy="This surface is grounded in the latest runtime packet, safe-work result, and redacted approval-outcome artifact on disk.",
+        object_ooda_rows=[
+            _object_detail_row("Recommended result", recommended or "No recommended option is staged yet.", "Decision"),
+            _object_detail_row(
+                "Staged action URL",
+                staged_action_url or "No staged action URL is present for the current packet.",
+                "Link",
+                href=staged_action_url,
+            ),
+            _object_detail_row(
+                "Approval receipt",
+                str(bundle.get("approval_outcome_path") or "") or "No approval receipt path resolved.",
+                "Runtime",
+            ),
+        ],
+        object_sidebar_title="Capture form",
+        object_sidebar_copy="Record the decision outcome with a short redacted note. Do not paste secrets, full private packet text, or raw identifiers.",
+        object_sidebar_rows=[
+            _object_detail_row("Run receipt", str(bundle.get("run_receipt_path") or "") or "Missing", "Runtime"),
+            _object_detail_row("Stage packet", str(bundle.get("stage_packet_path") or "") or "Missing", "Runtime"),
+            _object_detail_row("Safe-work result", str(bundle.get("safe_work_result_path") or "") or "Missing", "Runtime"),
+        ],
+        object_sections=[
+            {
+                "eyebrow": "Evidence",
+                "title": "Live packet evidence",
+                "items": evidence_rows
+                or [_object_detail_row("No live evidence rows", "The current safe-work result did not expose evidence refs.", "Waiting")],
+            }
+        ],
+        object_sidebar_form={
+            "eyebrow": "Approval",
+            "title": "Record outcome",
+            "copy": "This writes a redacted runtime artifact and rematerializes the proactive OODA gold receipt.",
+            "method": "post",
+            "action": "/admin/actions/proactive-ooda-evidence",
+            "submit_label": "Record proactive outcome",
+            "fields": [
+                {"type": "hidden", "name": "return_to", "value": "/admin/goals"},
+                {
+                    "type": "select",
+                    "name": "outcome",
+                    "label": "Outcome",
+                    "options": [
+                        {"value": "approved", "label": "Approved", "selected": not approval_recorded or str(approval_outcome.get("outcome") or "").strip() == "approved"},
+                        {"value": "rejected", "label": "Rejected", "selected": str(approval_outcome.get("outcome") or "").strip() == "rejected"},
+                        {"value": "deferred", "label": "Deferred", "selected": str(approval_outcome.get("outcome") or "").strip() == "deferred"},
+                        {"value": "dismissed", "label": "Dismissed", "selected": str(approval_outcome.get("outcome") or "").strip() == "dismissed"},
+                    ],
+                },
+                {
+                    "type": "select",
+                    "name": "source_kind",
+                    "label": "Source",
+                    "options": [
+                        {"value": "operator", "label": "Operator", "selected": str(approval_outcome.get("source_kind") or "operator").strip() in {"", "operator"}},
+                        {"value": "principal", "label": "Principal", "selected": str(approval_outcome.get("source_kind") or "").strip() == "principal"},
+                        {"value": "channel_link", "label": "Channel link", "selected": str(approval_outcome.get("source_kind") or "").strip() == "channel_link"},
+                    ],
+                },
+                {
+                    "type": "textarea",
+                    "name": "evidence",
+                    "label": "Redacted note",
+                    "value": "",
+                    "placeholder": "Short redacted reason, for example: Approved after reviewing the staged shortlist and live comparison.",
+                },
+                {"type": "text", "name": "packet_ref", "label": "Packet ref", "value": packet_ref},
+                {"type": "text", "name": "staged_artifact_ref", "label": "Staged artifact ref", "value": staged_artifact_ref},
+            ],
+        },
     )
 
 
@@ -1535,6 +1756,60 @@ def commitment_candidate_review(
         surface=f"candidate:{candidate_id}",
         actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
     )
+
+
+def _admin_operator_bootstrap_redirect(
+    request: Request,
+    *,
+    container: AppContainer,
+    context: RequestContext,
+    return_to: str,
+) -> RedirectResponse | None:
+    if is_operator_context(context):
+        return None
+    if operator_bootstrap_needed(container, principal_id=context.principal_id):
+        target = f"/admin/bootstrap-operator?return_to={urllib.parse.quote(return_to, safe='')}"
+        return RedirectResponse(target, status_code=303)
+    raise HTTPException(status_code=403, detail="operator_scope_required")
+
+
+def _admin_proactive_recommended_label(value: Any) -> str:
+    if not isinstance(value, dict):
+        return str(value or "").strip()
+    kind = str(value.get("kind") or "result").replace("_", " ").strip()
+    raw = value.get("value")
+    if isinstance(raw, dict):
+        parts = [
+            str(raw.get("label") or raw.get("title") or "").strip(),
+            str(raw.get("page_title") or "").strip(),
+            str(raw.get("url") or raw.get("link") or raw.get("href") or "").strip(),
+        ]
+        detail = " | ".join(part for part in parts if part)
+        return f"{kind}: {detail}" if detail else kind
+    detail = str(raw or "").strip()
+    return f"{kind}: {detail}" if detail else kind
+
+
+def _admin_proactive_evidence_rows(safe_work_result: dict[str, Any]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for ref in list(safe_work_result.get("evidence_refs") or []):
+        if not isinstance(ref, dict):
+            continue
+        label = str(ref.get("label") or ref.get("kind") or "Evidence").strip()
+        detail_parts = [
+            str(ref.get("url") or "").strip(),
+            str(ref.get("page_title") or "").strip(),
+            "reachable" if ref.get("reachable") is True else "",
+        ]
+        rows.append(
+            _object_detail_row(
+                label,
+                " · ".join(part for part in detail_parts if part) or "No detail",
+                str(ref.get("kind") or "Evidence").strip() or "Evidence",
+                href=str(ref.get("final_url") or ref.get("url") or "").strip(),
+            )
+        )
+    return rows
     return _render_public_template(
         request,
         "app/commitment_candidate_review.html",

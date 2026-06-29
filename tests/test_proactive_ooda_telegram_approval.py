@@ -1,0 +1,420 @@
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+from types import SimpleNamespace
+
+
+def test_prepare_proactive_ooda_telegram_approval_writes_callback_record_and_decodes(tmp_path) -> None:
+    from app.services import proactive_ooda_telegram_approval as approval
+
+    prepared = approval.prepare_proactive_ooda_telegram_approval(
+        principal_id="exec",
+        packet_ref="stage_packet:packet-1",
+        staged_artifact_ref="safe_work_result:result-1",
+        approval_prompt="Approve this staged shortlist.",
+        staged_action_url="https://example.com/candidate",
+        chat_id="42",
+        bot_token="telegram-token",
+        root=tmp_path,
+        state_path="state/proactive_ooda_notified.json",
+        receipt_path="provider-ledger/proactive_ooda_latest_run.generated.json",
+        created_at="2026-06-28T10:00:00Z",
+    )
+
+    assert prepared["callback_token"]
+    assert prepared["record_path"].is_file()
+    assert prepared["inline_buttons"]
+    assert prepared["url_buttons"] == [[("Open candidate", "https://example.com/candidate")]]
+    decoded = approval.decode_proactive_ooda_telegram_callback(
+        callback_data=prepared["inline_buttons"][0][0][1],
+        chat_id="42",
+        bot_token="telegram-token",
+    )
+
+    assert decoded["ok"] is True
+    assert decoded["action"] == "approved"
+    assert decoded["callback_token"] == prepared["callback_token"]
+
+
+def test_apply_proactive_ooda_telegram_approval_callback_finalizes_and_marks_record(monkeypatch, tmp_path: Path) -> None:
+    from app.services import proactive_ooda_telegram_approval as approval
+
+    prepared = approval.prepare_proactive_ooda_telegram_approval(
+        principal_id="exec",
+        packet_ref="stage_packet:packet-2",
+        staged_artifact_ref="safe_work_result:result-2",
+        approval_prompt="Approve this staged shortlist.",
+        staged_action_url="https://example.com/candidate",
+        chat_id="42",
+        bot_token="telegram-token",
+        root=tmp_path,
+        state_path="state/proactive_ooda_notified.json",
+        receipt_path="provider-ledger/proactive_ooda_latest_run.generated.json",
+    )
+    calls: dict[str, object] = {}
+
+    def fake_finalize(**kwargs):
+        calls["kwargs"] = kwargs
+        return {
+            "approval_outcome": {
+                "outcome_id": "approval-1",
+                "accepted": True,
+                "outcome": "approved",
+            },
+            "gold_acceptance_path": tmp_path / ".codex-studio" / "published" / "ea_proactive_ooda_gold_acceptance.generated.json",
+        }
+
+    monkeypatch.setattr(approval, "finalize_proactive_ooda_approval_outcome", fake_finalize)
+
+    result = approval.apply_proactive_ooda_telegram_approval_callback(
+        callback_token=prepared["callback_token"],
+        outcome="approved",
+        principal_id="exec",
+        actor="telegram:42",
+        message_id="message-1",
+        root=tmp_path,
+        state_path="state/proactive_ooda_notified.json",
+        receipt_path="provider-ledger/proactive_ooda_latest_run.generated.json",
+    )
+
+    assert result["status"] == "recorded"
+    assert result["outcome"] == "approved"
+    assert calls["kwargs"]["packet_ref"] == "stage_packet:packet-2"
+    assert calls["kwargs"]["staged_artifact_ref"] == "safe_work_result:result-2"
+    assert calls["kwargs"]["source_kind"] == "telegram_button"
+    stored = prepared["record_path"].read_text(encoding="utf-8")
+    assert "telegram:42" not in stored
+    assert "message-1" not in stored
+    assert "approval-1" in stored
+
+
+def test_apply_proactive_ooda_telegram_approval_callback_accepts_principal_alias_match(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import google_oauth as google_oauth_service
+    from app.services import proactive_ooda_telegram_approval as approval
+
+    prepared = approval.prepare_proactive_ooda_telegram_approval(
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        packet_ref="stage_packet:packet-alias-1",
+        staged_artifact_ref="safe_work_result:result-alias-1",
+        approval_prompt="Approve this staged draft.",
+        staged_action_url="https://example.com/drafts",
+        chat_id="42",
+        bot_token="telegram-token",
+        root=tmp_path,
+        state_path="state/proactive_ooda_notified.json",
+        receipt_path="provider-ledger/proactive_ooda_latest_run.generated.json",
+        approved_execution_mode="record_outcome_only",
+        approved_action="save_gmail_draft",
+    )
+    calls: dict[str, object] = {}
+
+    def fake_finalize(**kwargs):
+        calls["kwargs"] = kwargs
+        return {
+            "approval_outcome": {
+                "outcome_id": "approval-alias-1",
+                "accepted": True,
+                "outcome": "approved",
+            },
+            "gold_acceptance_path": tmp_path / ".codex-studio" / "published" / "ea_proactive_ooda_gold_acceptance.generated.json",
+        }
+
+    monkeypatch.setattr(approval, "finalize_proactive_ooda_approval_outcome", fake_finalize)
+    monkeypatch.setattr(
+        google_oauth_service,
+        "_principal_alias_candidates",
+        lambda **kwargs: ("exec-1", "cf-email:tibor.girschele@gmail.com"),
+    )
+
+    result = approval.apply_proactive_ooda_telegram_approval_callback(
+        callback_token=prepared["callback_token"],
+        outcome="approved",
+        principal_id="exec-1",
+        actor="telegram:42",
+        message_id="message-alias-1",
+        container=SimpleNamespace(channel_runtime=SimpleNamespace(ingest_observation=lambda **kwargs: None)),
+        root=tmp_path,
+        state_path="state/proactive_ooda_notified.json",
+        receipt_path="provider-ledger/proactive_ooda_latest_run.generated.json",
+    )
+
+    assert result["status"] == "recorded"
+    assert result["outcome"] == "approved"
+    assert result["execution"]["status"] == "already_executed"
+    assert result["execution"]["action"] == "save_gmail_draft"
+    assert calls["kwargs"]["principal_id"] == "exec-1"
+
+
+def test_apply_proactive_ooda_telegram_approval_callback_falls_back_when_materialization_module_is_missing(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import proactive_ooda_telegram_approval as approval
+
+    prepared = approval.prepare_proactive_ooda_telegram_approval(
+        principal_id="exec",
+        packet_ref="stage_packet:packet-missing-module",
+        staged_artifact_ref="safe_work_result:result-missing-module",
+        approval_prompt="Approve this staged shortlist.",
+        staged_action_url="https://example.com/candidate",
+        chat_id="42",
+        bot_token="telegram-token",
+        root=tmp_path,
+        state_path="state/proactive_ooda_notified.json",
+        receipt_path="provider-ledger/proactive_ooda_latest_run.generated.json",
+    )
+
+    calls: dict[str, int] = {"finalize": 0}
+
+    def _materialization_failure_then_success(**_kwargs):
+        calls["finalize"] += 1
+        if calls["finalize"] == 1:
+            raise ModuleNotFoundError("No module named 'scripts.materialize_proactive_ooda_operator_status'")
+        return {
+            "approval_outcome": {
+                "outcome_id": "approval-2",
+                "accepted": True,
+                "outcome": "approved",
+            },
+            "gold_acceptance_path": tmp_path / ".codex-studio" / "published" / "ea_proactive_ooda_gold_acceptance.generated.json",
+            "operator_status_materialization": {
+                "status": "failed",
+                "error": "ModuleNotFoundError: scripts.materialize_proactive_ooda_operator_status",
+                "path": tmp_path / ".codex-studio" / "published" / "ea_proactive_ooda_operator_status.generated.json",
+            },
+            "gold_acceptance_materialization": {
+                "status": "skipped",
+                "error": "operator_status_materialization_failed",
+                "path": tmp_path / ".codex-studio" / "published" / "ea_proactive_ooda_gold_acceptance.generated.json",
+            },
+        }
+
+    monkeypatch.setattr(approval, "finalize_proactive_ooda_approval_outcome", _materialization_failure_then_success)
+
+    result = approval.apply_proactive_ooda_telegram_approval_callback(
+        callback_token=prepared["callback_token"],
+        outcome="approved",
+        principal_id="exec",
+        actor="telegram:42",
+        message_id="message-1b",
+        root=tmp_path,
+        state_path="state/proactive_ooda_notified.json",
+        receipt_path="provider-ledger/proactive_ooda_latest_run.generated.json",
+    )
+
+    assert result["status"] == "recorded"
+    assert result["outcome"] == "approved"
+    assert calls["finalize"] == 2
+
+
+def test_expire_stale_proactive_ooda_telegram_approval_callbacks_marks_only_expired_pending_records(
+    tmp_path: Path,
+) -> None:
+    from app.services import proactive_ooda_telegram_approval as approval
+
+    old_pending = approval.prepare_proactive_ooda_telegram_approval(
+        principal_id="exec",
+        packet_ref="stage_packet:packet-expire-old",
+        staged_artifact_ref="safe_work_result:result-expire-old",
+        approval_prompt="Approve old.",
+        chat_id="42",
+        bot_token="telegram-token",
+        root=tmp_path,
+        state_path="state/proactive_ooda_notified.json",
+        receipt_path="provider-ledger/proactive_ooda_latest_run.generated.json",
+        created_at="2026-06-28T10:00:00Z",
+    )
+    live_pending = approval.prepare_proactive_ooda_telegram_approval(
+        principal_id="exec",
+        packet_ref="stage_packet:packet-expire-live",
+        staged_artifact_ref="safe_work_result:result-expire-live",
+        approval_prompt="Approve live.",
+        chat_id="42",
+        bot_token="telegram-token",
+        root=tmp_path,
+        state_path="state/proactive_ooda_notified.json",
+        receipt_path="provider-ledger/proactive_ooda_latest_run.generated.json",
+        created_at="2026-06-28T11:00:00Z",
+    )
+    recorded = approval.prepare_proactive_ooda_telegram_approval(
+        principal_id="exec",
+        packet_ref="stage_packet:packet-expire-recorded",
+        staged_artifact_ref="safe_work_result:result-expire-recorded",
+        approval_prompt="Approve recorded.",
+        chat_id="42",
+        bot_token="telegram-token",
+        root=tmp_path,
+        state_path="state/proactive_ooda_notified.json",
+        receipt_path="provider-ledger/proactive_ooda_latest_run.generated.json",
+        created_at="2026-06-28T12:00:00Z",
+    )
+    other_pending = approval.prepare_proactive_ooda_telegram_approval(
+        principal_id="exec",
+        packet_ref="stage_packet:packet-expire-other",
+        staged_artifact_ref="safe_work_result:result-expire-other",
+        approval_prompt="Approve other.",
+        chat_id="42",
+        bot_token="telegram-token",
+        root=tmp_path,
+        state_path="state/proactive_ooda_notified.json",
+        receipt_path="provider-ledger/proactive_ooda_latest_run.generated.json",
+        created_at="2026-06-28T13:00:00Z",
+    )
+
+    old_record = json.loads(old_pending["record_path"].read_text(encoding="utf-8"))
+    old_record["expires_at"] = "2000-01-01T00:00:00Z"
+    old_pending["record_path"].write_text(json.dumps(old_record, indent=2) + "\n", encoding="utf-8")
+    live_record = json.loads(live_pending["record_path"].read_text(encoding="utf-8"))
+    live_record["expires_at"] = "2099-01-01T00:00:00Z"
+    live_pending["record_path"].write_text(json.dumps(live_record, indent=2) + "\n", encoding="utf-8")
+    recorded_record = json.loads(recorded["record_path"].read_text(encoding="utf-8"))
+    recorded_record["status"] = "approved"
+    recorded_record["expires_at"] = "2000-01-01T00:00:00Z"
+    recorded["record_path"].write_text(json.dumps(recorded_record, indent=2) + "\n", encoding="utf-8")
+    other_record = json.loads(other_pending["record_path"].read_text(encoding="utf-8"))
+    other_record["expires_at"] = "2099-01-01T00:00:00Z"
+    other_pending["record_path"].write_text(json.dumps(other_record, indent=2) + "\n", encoding="utf-8")
+
+    result = approval.expire_stale_proactive_ooda_telegram_approval_callbacks(
+        root=tmp_path,
+        state_path="state/proactive_ooda_notified.json",
+        receipt_path="provider-ledger/proactive_ooda_latest_run.generated.json",
+        supersede_noncurrent=True,
+        active_packet_ref="stage_packet:packet-expire-live",
+        active_staged_artifact_ref="safe_work_result:result-expire-live",
+    )
+
+    assert result["status"] == "ok"
+    assert result["inspected_count"] == 4
+    assert result["expired_count"] == 1
+    assert result["superseded_count"] == 1
+    assert result["skipped_count"] == 2
+    assert json.loads(old_pending["record_path"].read_text(encoding="utf-8"))["status"] == "expired"
+    assert json.loads(live_pending["record_path"].read_text(encoding="utf-8"))["status"] == "pending"
+    assert json.loads(recorded["record_path"].read_text(encoding="utf-8"))["status"] == "approved"
+    assert json.loads(other_pending["record_path"].read_text(encoding="utf-8"))["status"] == "superseded"
+
+
+def test_apply_proactive_ooda_telegram_approval_callback_expires_old_pending_record_without_finalize(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import proactive_ooda_telegram_approval as approval
+
+    prepared = approval.prepare_proactive_ooda_telegram_approval(
+        principal_id="exec",
+        packet_ref="stage_packet:packet-old-button",
+        staged_artifact_ref="safe_work_result:result-old-button",
+        approval_prompt="Approve old button.",
+        chat_id="42",
+        bot_token="telegram-token",
+        root=tmp_path,
+        state_path="state/proactive_ooda_notified.json",
+        receipt_path="provider-ledger/proactive_ooda_latest_run.generated.json",
+    )
+    record = json.loads(prepared["record_path"].read_text(encoding="utf-8"))
+    record["expires_at"] = "2000-01-01T00:00:00Z"
+    prepared["record_path"].write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    monkeypatch.setattr(
+        approval,
+        "finalize_proactive_ooda_approval_outcome",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("expired callback must not finalize")),
+    )
+
+    result = approval.apply_proactive_ooda_telegram_approval_callback(
+        callback_token=prepared["callback_token"],
+        outcome="approved",
+        principal_id="exec",
+        actor="telegram:42",
+        message_id="message-old-button",
+        root=tmp_path,
+        state_path="state/proactive_ooda_notified.json",
+        receipt_path="provider-ledger/proactive_ooda_latest_run.generated.json",
+    )
+
+    stored = json.loads(prepared["record_path"].read_text(encoding="utf-8"))
+    assert result["status"] == "expired"
+    assert result["outcome"] == "expired"
+    assert stored["status"] == "expired"
+    assert stored["previous_status"] == "pending"
+    assert stored["expiration_reason"] == "callback_ttl_elapsed"
+
+
+def test_apply_proactive_ooda_telegram_approval_callback_supersedes_noncurrent_pending_record_without_finalize(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import proactive_ooda_telegram_approval as approval
+
+    prepared = approval.prepare_proactive_ooda_telegram_approval(
+        principal_id="exec",
+        packet_ref="stage_packet:old-packet",
+        staged_artifact_ref="safe_work_result:old-result",
+        approval_prompt="Approve old packet.",
+        chat_id="42",
+        bot_token="telegram-token",
+        root=tmp_path,
+        state_path="state/proactive_ooda_notified.json",
+        receipt_path="provider-ledger/proactive_ooda_latest_run.generated.json",
+    )
+    stage_dir = tmp_path / "state" / "proactive_ooda_stage_packets"
+    safe_dir = tmp_path / "state" / "proactive_ooda_safe_work_results"
+    stage_dir.mkdir(parents=True, exist_ok=True)
+    safe_dir.mkdir(parents=True, exist_ok=True)
+    current_packet_ref = "stage_packet:current-packet"
+    (stage_dir / "current.json").write_text(
+        json.dumps(
+            {
+                "schema": "proactive_ooda.stage_packet.v1",
+                "packet_ref": current_packet_ref,
+                "stage": {"kind": "approval_packet"},
+                "approval": {"required": True},
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (safe_dir / "current.json").write_text(
+        json.dumps(
+            {
+                "schema": "proactive_ooda.safe_work_result.v1",
+                "result_ref": "safe_work_result:current-result",
+                "source_packet_ref_hash": hashlib.sha256(current_packet_ref.encode("utf-8")).hexdigest(),
+                "status": "staged_for_user_decision",
+                "approval": {"required": True},
+                "recommended_option_or_draft": {"kind": "draft", "value": "Current"},
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        approval,
+        "finalize_proactive_ooda_approval_outcome",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("superseded callback must not finalize")),
+    )
+
+    result = approval.apply_proactive_ooda_telegram_approval_callback(
+        callback_token=prepared["callback_token"],
+        outcome="approved",
+        principal_id="exec",
+        actor="telegram:42",
+        message_id="message-old-packet",
+        root=tmp_path,
+        state_path="state/proactive_ooda_notified.json",
+        receipt_path="provider-ledger/proactive_ooda_latest_run.generated.json",
+    )
+
+    stored = json.loads(prepared["record_path"].read_text(encoding="utf-8"))
+    assert result["status"] == "superseded"
+    assert result["outcome"] == "superseded"
+    assert stored["status"] == "superseded"
+    assert stored["previous_status"] == "pending"
+    assert stored["superseded_reason"] == "not_current_proactive_ooda_packet"

@@ -48,6 +48,17 @@ def test_ground_digest_with_context_merges_preferences_deadlines_and_candidate_a
         digest,
         context_pack={
             "summary": "2 active commitments, 1 commitment risk",
+            "memory_items": [
+                {
+                    "item_id": "memory-home",
+                    "category": "profile",
+                    "summary": "Home context",
+                    "fact_json": {
+                        "address_lines": ["Brigittaplatz 1", "1200 Wien"],
+                        "country_code": "AT",
+                    },
+                }
+            ],
             "commitment_risks": [
                 {
                     "summary": "Anniversary delivery window needs attention.",
@@ -122,4 +133,35 @@ def test_ground_digest_with_context_merges_preferences_deadlines_and_candidate_a
     assert any("2 active commitments" in value for value in payload["notes"])
     assert any("Anniversary delivery window needs attention." in value for value in payload["notes"])
     assert payload["recipient_context"]["stakeholders"][0]["display_name"] == "Partner"
+    assert payload["recipient_context"]["location"]["phrases"][0] == "1200 Wien"
+    assert payload["recipient_context"]["location"]["postal_codes"] == ["1200"]
+    assert payload["recipient_context"]["location"]["country_codes"] == ["AT"]
     assert payload["candidate_items"][0]["preference_assessment"]["fit_score"] == 82.0
+
+
+def test_ground_digest_with_context_keeps_bare_postal_code_out_of_location_phrases() -> None:
+    digest = _digest_with_stage()
+
+    grounded = ground_digest_with_context(
+        digest,
+        context_pack={
+            "memory_items": [
+                {
+                    "item_id": "memory-home",
+                    "category": "profile",
+                    "summary": "Home context",
+                    "fact_json": {
+                        "postal_code": "1200",
+                        "postal_name": "1200 Wien",
+                        "city": "Wien",
+                        "country_code": "AT",
+                    },
+                }
+            ],
+        },
+    )
+
+    location = grounded.items[0].stage_payload["recipient_context"]["location"]
+    assert location["postal_codes"] == ["1200"]
+    assert "1200 Wien" in location["phrases"]
+    assert "1200" not in location["phrases"]

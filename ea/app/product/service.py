@@ -232,6 +232,12 @@ _EA_DELIVERY_TEXT_MARKERS = (
     "google is connected after sign-up as a workspace data source",
 )
 _WILLHABEN_HOST_MARKERS = ("willhaben.at",)
+_ONEDRIVE_FLOORPLAN_QUERY_MARKERS = (
+    "floorplan",
+    "floor plan",
+    "grundriss",
+    "lageplan",
+)
 _ONEDRIVE_DOCUMENT_QUERY_STOPWORDS = {
     "a",
     "an",
@@ -4178,6 +4184,70 @@ def _property_image_ocr_address_hint(image_urls: tuple[str, ...], *, source_text
         findings.update(_property_research_nearby_pois(lat, lon))
         return findings
     return {}
+
+
+def _onedrive_query_mentions_floorplan(query: str) -> bool:
+    normalized = " ".join(str(query or "").strip().lower().split())
+    if not normalized:
+        return False
+    return any(marker in normalized for marker in _ONEDRIVE_FLOORPLAN_QUERY_MARKERS)
+
+
+@lru_cache(maxsize=256)
+def _onedrive_pdf_ocr_text_cached(path_str: str, mtime_ns: int, size: int, max_pages: int) -> str:
+    del mtime_ns, size
+    if Image is None or pytesseract is None or not shutil.which("tesseract") or not shutil.which("gs"):
+        return ""
+    pdf_path = Path(path_str)
+    if not pdf_path.is_file():
+        return ""
+    page_count = max(1, min(int(max_pages or 1), 4))
+    with tempfile.TemporaryDirectory(prefix="ea-onedrive-pdf-ocr-") as tmpdir:
+        output_pattern = str(Path(tmpdir) / "page-%03d.png")
+        command = [
+            "gs",
+            "-q",
+            "-dSAFER",
+            "-dNOPAUSE",
+            "-dBATCH",
+            "-sDEVICE=pnggray",
+            "-r144",
+            "-dFirstPage=1",
+            f"-dLastPage={page_count}",
+            f"-sOutputFile={output_pattern}",
+            str(pdf_path),
+        ]
+        try:
+            completed = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, timeout=90)
+        except Exception:
+            return ""
+        if completed.returncode != 0:
+            return ""
+        texts: list[str] = []
+        for page_path in sorted(Path(tmpdir).glob("page-*.png"))[:page_count]:
+            try:
+                with Image.open(page_path) as image:
+                    gray = image.convert("L")
+                    text = pytesseract.image_to_string(gray, config="--psm 11")
+            except Exception:
+                continue
+            cleaned = " ".join(str(text or "").split())
+            if cleaned:
+                texts.append(cleaned)
+        return "\n".join(texts)
+
+
+def _onedrive_pdf_ocr_text(path: Path, *, max_pages: int = 2) -> str:
+    try:
+        stat = path.stat()
+    except OSError:
+        return ""
+    return _onedrive_pdf_ocr_text_cached(
+        str(path.resolve()),
+        int(getattr(stat, "st_mtime_ns", 0) or 0),
+        int(getattr(stat, "st_size", 0) or 0),
+        max_pages,
+    )
 
 
 def _property_schoolatlas_wfs_base_url() -> str:
@@ -9080,6 +9150,359 @@ def _saved_link_import_records_from_source(source: dict[str, object]) -> tuple[d
     return tuple(records)
 
 
+def _alexa_history_text_from(value: object) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        for key in (
+            "text",
+            "transcript",
+            "utterance",
+            "value",
+            "title",
+            "label",
+            "displayText",
+            "plainText",
+            "content",
+            "description",
+            "prompt",
+            "name",
+        ):
+            text = _alexa_history_text_from(value.get(key))
+            if text:
+                return text
+        return ""
+    if isinstance(value, list):
+        parts = [_alexa_history_text_from(item) for item in value]
+        return " ".join(part for part in parts if part).strip()
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _alexa_history_row_looks_like_entry(row: dict[str, object]) -> bool:
+    if not isinstance(row, dict):
+        return False
+    has_text = any(
+        _alexa_history_text_from(row.get(key))
+        for key in (
+            "utterance",
+            "utterance_text",
+            "transcript",
+            "transcript_text",
+            "request",
+            "request_text",
+            "spoken_text",
+            "customer_request",
+            "response",
+            "response_text",
+            "alexa_response",
+            "answer",
+            "content",
+        )
+    )
+    if not has_text:
+        return False
+    has_identity = any(
+        _first_non_empty_text(
+            row.get("recordKey"),
+            row.get("record_id"),
+            row.get("id"),
+            row.get("activityId"),
+            row.get("utteranceId"),
+            row.get("entryId"),
+            row.get("timestamp"),
+            row.get("created_at"),
+            row.get("time"),
+            row.get("occurred_at"),
+        )
+    )
+    has_explicit_context = any(
+        key in row
+        for key in (
+            "utterance",
+            "transcript",
+            "response",
+            "request",
+            "device",
+            "deviceName",
+            "device_name",
+            "timestamp",
+            "created_at",
+            "occurred_at",
+        )
+    )
+    return has_identity or has_explicit_context
+
+
+def _alexa_history_entries_from_json(payload: object) -> tuple[dict[str, object], ...]:
+    if isinstance(payload, list):
+        rows = [dict(item) for item in payload if isinstance(item, dict) and _alexa_history_row_looks_like_entry(item)]
+        return tuple(rows)
+    if not isinstance(payload, dict):
+        return ()
+    if _alexa_history_row_looks_like_entry(payload):
+        return (dict(payload),)
+    for key in (
+        "activities",
+        "history",
+        "voiceHistory",
+        "voice_history",
+        "alexaHistory",
+        "records",
+        "entries",
+        "items",
+        "interactions",
+        "utterances",
+        "data",
+        "content",
+    ):
+        nested = payload.get(key)
+        rows = _alexa_history_entries_from_json(nested)
+        if rows:
+            return rows
+    for nested in payload.values():
+        rows = _alexa_history_entries_from_json(nested)
+        if rows:
+            return rows
+    return ()
+
+
+def _alexa_history_entries_from_csv(text: str) -> tuple[dict[str, object], ...]:
+    reader = csv.DictReader(text.splitlines())
+    rows: list[dict[str, object]] = []
+    for row in reader:
+        normalized = {str(key or "").strip(): value for key, value in dict(row).items()}
+        if _alexa_history_row_looks_like_entry(normalized):
+            rows.append(normalized)
+    return tuple(rows)
+
+
+def _alexa_history_archive_sources(path: Path) -> tuple[dict[str, object], ...]:
+    suffix = path.suffix.lower()
+    if suffix == ".zip":
+        sources: list[dict[str, object]] = []
+        with zipfile.ZipFile(path) as archive:
+            for info in archive.infolist():
+                if info.is_dir():
+                    continue
+                member_suffix = Path(info.filename).suffix.lower()
+                if member_suffix not in {".json", ".csv"}:
+                    continue
+                sources.append(
+                    {
+                        "name": info.filename,
+                        "format": _saved_link_archive_format_name(member_suffix),
+                        "text": _decode_saved_link_archive_bytes(archive.read(info.filename)),
+                    }
+                )
+        return tuple(sources)
+    if suffix not in {".json", ".csv"}:
+        return ()
+    return (
+        {
+            "name": path.name,
+            "format": _saved_link_archive_format_name(suffix),
+            "text": _decode_saved_link_archive_bytes(path.read_bytes()),
+        },
+    )
+
+
+def _alexa_history_import_records_from_source(source: dict[str, object]) -> tuple[dict[str, object], ...]:
+    format_name = str(source.get("format") or "").strip().lower()
+    text = str(source.get("text") or "")
+    if format_name == "json":
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            return ()
+        rows = _alexa_history_entries_from_json(payload)
+    elif format_name == "csv":
+        rows = _alexa_history_entries_from_csv(text)
+    else:
+        rows = ()
+    records: list[dict[str, object]] = []
+    for row in rows:
+        utterance_text = _first_non_empty_text(
+            _alexa_history_text_from(row.get("utterance")),
+            _alexa_history_text_from(row.get("utterance_text")),
+            _alexa_history_text_from(row.get("transcript")),
+            _alexa_history_text_from(row.get("transcript_text")),
+            _alexa_history_text_from(row.get("request")),
+            _alexa_history_text_from(row.get("request_text")),
+            _alexa_history_text_from(row.get("spoken_text")),
+            _alexa_history_text_from(row.get("customer_request")),
+            _alexa_history_text_from(row.get("text")),
+        )
+        response_text = _first_non_empty_text(
+            _alexa_history_text_from(row.get("response")),
+            _alexa_history_text_from(row.get("response_text")),
+            _alexa_history_text_from(row.get("alexa_response")),
+            _alexa_history_text_from(row.get("answer")),
+            _alexa_history_text_from(row.get("content")),
+        )
+        if not utterance_text and not response_text:
+            continue
+        device_name = _first_non_empty_text(
+            _alexa_history_text_from(row.get("device_name")),
+            _alexa_history_text_from(row.get("deviceName")),
+            _alexa_history_text_from(row.get("device")),
+            _alexa_history_text_from(row.get("deviceInfo")),
+        )
+        occurred_at = _first_non_empty_text(
+            _saved_link_reference_at(row.get("timestamp")),
+            _saved_link_reference_at(row.get("created_at")),
+            _saved_link_reference_at(row.get("time")),
+            _saved_link_reference_at(row.get("occurred_at")),
+            _saved_link_reference_at(row.get("activity_time")),
+            _saved_link_reference_at(row.get("date")),
+        )
+        activity_status = _first_non_empty_text(
+            row.get("activity_status"),
+            row.get("activityStatus"),
+            row.get("status"),
+            row.get("result"),
+            row.get("state"),
+        )
+        locale = _first_non_empty_text(row.get("locale"), row.get("language"))
+        skill_name = _first_non_empty_text(
+            _alexa_history_text_from(row.get("skill_name")),
+            _alexa_history_text_from(row.get("skillName")),
+            _alexa_history_text_from(row.get("skill")),
+        )
+        record_id = _first_non_empty_text(
+            row.get("recordKey"),
+            row.get("record_id"),
+            row.get("id"),
+            row.get("activityId"),
+            row.get("utteranceId"),
+            row.get("entryId"),
+        )
+        title_text = _first_sentence(utterance_text or response_text or "Alexa voice history")
+        summary_text = _first_non_empty_text(response_text, utterance_text, title_text)
+        identity_material = "|".join(
+            part
+            for part in (record_id, occurred_at, utterance_text, response_text, device_name, skill_name)
+            if part
+        )
+        resolved_id = record_id or _saved_link_fallback_id(identity_material)
+        combined_text = " ".join(
+            part
+            for part in (
+                utterance_text,
+                response_text,
+                f"Device: {device_name}" if device_name else "",
+                f"Skill: {skill_name}" if skill_name else "",
+                f"Locale: {locale}" if locale else "",
+            )
+            if part
+        ).strip()
+        records.append(
+            {
+                "item_id": resolved_id,
+                "title": title_text,
+                "summary": summary_text,
+                "text": combined_text or summary_text,
+                "utterance_text": utterance_text,
+                "response_text": response_text,
+                "device_name": device_name,
+                "skill_name": skill_name,
+                "locale": locale,
+                "activity_status": activity_status,
+                "occurred_at": occurred_at,
+                "payload": {
+                    "utterance_text": utterance_text,
+                    "response_text": response_text,
+                    "transcript_text": compact_text(utterance_text or response_text, fallback="", limit=12000),
+                    "transcript_excerpt": compact_text(utterance_text or response_text, fallback="", limit=4000),
+                    "summary_markdown": summary_text,
+                    "device_name": device_name,
+                    "skill_name": skill_name,
+                    "locale": locale,
+                    "activity_status": activity_status,
+                    "received_at": occurred_at,
+                },
+            }
+        )
+    return tuple(records)
+
+
+def _alexa_history_index_rows(
+    *,
+    principal_id: str,
+    records: Sequence[dict[str, object]],
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for record in records:
+        item_id = str(record.get("item_id") or "").strip()
+        if not item_id:
+            continue
+        payload = dict(record.get("payload") or {})
+        rows.append(
+            {
+                "projection_key": f"{principal_id}:{item_id}",
+                "principal_id": principal_id,
+                "history_entry_id": item_id,
+                "source_ref": f"alexa-history:{item_id}",
+                "title": str(record.get("title") or "").strip(),
+                "summary_markdown": str(record.get("summary") or payload.get("summary_markdown") or "").strip(),
+                "utterance_text": str(record.get("utterance_text") or payload.get("utterance_text") or "").strip(),
+                "response_text": str(record.get("response_text") or payload.get("response_text") or "").strip(),
+                "transcript_text": compact_text(str(payload.get("transcript_text") or record.get("text") or "").strip(), fallback="", limit=12000),
+                "transcript_excerpt": compact_text(str(payload.get("transcript_excerpt") or record.get("text") or "").strip(), fallback="", limit=1200),
+                "device_name": str(record.get("device_name") or payload.get("device_name") or "").strip(),
+                "skill_name": str(record.get("skill_name") or payload.get("skill_name") or "").strip(),
+                "locale": str(record.get("locale") or payload.get("locale") or "").strip(),
+                "activity_status": str(record.get("activity_status") or payload.get("activity_status") or "").strip(),
+                "occurred_at": str(record.get("occurred_at") or payload.get("received_at") or "").strip(),
+                "import_source_path": str(payload.get("import_source_path") or "").strip(),
+                "import_archive_member": str(payload.get("import_archive_member") or "").strip(),
+                "updated_at": _now_iso(),
+            }
+        )
+    return rows
+
+
+def _alexa_history_telegram_text(
+    payload: dict[str, object],
+    *,
+    query: str = "",
+    matched_total: int = 0,
+) -> str:
+    normalized_query = compact_text(str(query or "").strip(), fallback="", limit=240)
+    title = compact_text(str(payload.get("title") or "").strip(), fallback="Alexa history entry", limit=240)
+    occurred_at = compact_text(str(payload.get("occurred_at") or "").strip(), fallback="", limit=64)
+    device_name = compact_text(str(payload.get("device_name") or "").strip(), fallback="", limit=160)
+    skill_name = compact_text(str(payload.get("skill_name") or "").strip(), fallback="", limit=160)
+    activity_status = compact_text(str(payload.get("activity_status") or "").strip(), fallback="", limit=80)
+    utterance_text = compact_text(str(payload.get("utterance_text") or "").strip(), fallback="", limit=1200)
+    response_text = compact_text(str(payload.get("response_text") or "").strip(), fallback="", limit=1200)
+    transcript_excerpt = compact_text(str(payload.get("transcript_excerpt") or "").strip(), fallback="", limit=1200)
+    lines = [
+        f"Alexa history match for query: {normalized_query}" if normalized_query else "Alexa history match.",
+    ]
+    if matched_total > 0:
+        lines.append(f"Matched entries: {matched_total}")
+    lines.append(f"Title: {title}")
+    if occurred_at:
+        lines.append(f"When: {occurred_at}")
+    if device_name:
+        lines.append(f"Device: {device_name}")
+    if skill_name:
+        lines.append(f"Skill: {skill_name}")
+    if activity_status:
+        lines.append(f"Status: {activity_status}")
+    if utterance_text:
+        lines.extend(("", "Utterance:", utterance_text))
+    if response_text:
+        lines.extend(("", "Response:", response_text))
+    normalized_excerpt = transcript_excerpt.strip()
+    transcript_is_redundant = normalized_excerpt and normalized_excerpt in {utterance_text.strip(), response_text.strip()}
+    if normalized_excerpt and not transcript_is_redundant:
+        lines.extend(("", "Transcript:", normalized_excerpt))
+    return "\n".join(lines).strip()
+
+
 def _pocket_api_key() -> str:
     configured = str(os.environ.get("POCKET_API_KEY") or "").strip()
     if not configured:
@@ -10078,6 +10501,9 @@ def _repo_root() -> Path:
         if candidate.exists():
             return candidate
     service_path = Path(__file__).resolve()
+    for parent in service_path.parents:
+        if (parent / ".git").is_dir() or (parent / ".codex-design").is_dir():
+            return parent
     if len(service_path.parents) >= 3:
         container_like_root = service_path.parents[2]
         if (container_like_root / "app").exists() and (container_like_root / "scripts").exists():
@@ -12762,6 +13188,14 @@ def _first_non_empty_text(*values: object) -> str:
     return ""
 
 
+def _first_sentence(value: str, limit: int = 140) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    first = re.split(r"(?<=[.!?])\s+", normalized, maxsplit=1)[0].strip() or normalized
+    return compact_text(first, fallback="", limit=limit)
+
+
 def _tag_summary_text(value: object) -> str:
     if isinstance(value, dict):
         parts: list[str] = []
@@ -15019,6 +15453,7 @@ class ProductService:
         tokens = self._onedrive_document_query_tokens(query)
         if not tokens:
             return []
+        needs_floorplan_ocr = _onedrive_query_mentions_floorplan(query)
         candidates: list[dict[str, object]] = []
         seen_paths: set[str] = set()
         for root in self._onedrive_scanned_document_roots():
@@ -15028,7 +15463,16 @@ class ProductService:
                 iterator = root.rglob("*.pdf")
             except Exception:
                 continue
+            scanned_paths: list[tuple[float, str, Path]] = []
             for path in iterator:
+                try:
+                    stat = path.stat()
+                except OSError:
+                    continue
+                scanned_paths.append((float(stat.st_mtime), str(path), path))
+            if needs_floorplan_ocr:
+                scanned_paths.sort(key=lambda item: (item[0], item[1]))
+            for mtime, _path_key, path in scanned_paths:
                 normalized_path = str(path.resolve())
                 if normalized_path in seen_paths:
                     continue
@@ -15039,6 +15483,15 @@ class ProductService:
                         score += 8.0
                     elif token in blob:
                         score += 3.0
+                if needs_floorplan_ocr:
+                    ocr_blob = self._normalize_onedrive_document_text(_onedrive_pdf_ocr_text(path))
+                    if ocr_blob:
+                        for marker in _ONEDRIVE_FLOORPLAN_QUERY_MARKERS:
+                            if marker in ocr_blob:
+                                score += 12.0
+                        for token in tokens:
+                            if token in ocr_blob:
+                                score += 5.0
                 if score <= 0:
                     continue
                 seen_paths.add(normalized_path)
@@ -15046,6 +15499,7 @@ class ProductService:
                     {
                         "source": "filesystem",
                         "score": score,
+                        "mtime": mtime,
                         "filename": path.name,
                         "path": normalized_path,
                         "download_url": "",
@@ -15057,7 +15511,13 @@ class ProductService:
                     break
             if len(candidates) >= max(int(limit or 10) * 10, 100):
                 break
-        candidates.sort(key=lambda item: (-float(item.get("score") or 0.0), str(item.get("filename") or "")))
+        candidates.sort(
+            key=lambda item: (
+                -float(item.get("score") or 0.0),
+                float(item.get("mtime") or 0.0) if needs_floorplan_ocr else 0.0,
+                str(item.get("filename") or ""),
+            )
+        )
         return candidates[: max(1, int(limit or 10))]
 
     def deliver_onedrive_document_search_to_telegram(
@@ -15856,6 +16316,28 @@ class ProductService:
             event_type="pocket_recording_archive_indexed",
             payload=payload,
             source_id=f"pocket-recording:{recording_id}",
+            dedupe_key=dedupe_key,
+        )
+
+    def _record_alexa_history_index(
+        self,
+        *,
+        principal_id: str,
+        row: dict[str, object],
+    ) -> None:
+        history_entry_id = str(row.get("history_entry_id") or "").strip()
+        if not history_entry_id:
+            return
+        payload = dict(row)
+        dedupe_material = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+        dedupe_key = f"{principal_id}|alexa-history-indexed|{hashlib.sha256(dedupe_material.encode('utf-8')).hexdigest()}"
+        if self._container.channel_runtime.find_observation_by_dedupe(dedupe_key, principal_id=principal_id) is not None:
+            return
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="alexa_history_indexed",
+            payload=payload,
+            source_id=f"alexa-history:{history_entry_id}",
             dedupe_key=dedupe_key,
         )
 
@@ -26833,6 +27315,274 @@ class ProductService:
             "parsed_entry_total": len(records),
         }
 
+    def import_alexa_history_from_local_path(
+        self,
+        *,
+        principal_id: str,
+        path: str,
+        counterparty: str = "Alexa",
+        actor: str = "",
+    ) -> dict[str, object]:
+        candidate_path = self._resolve_alexa_history_import_path(path)
+        if not candidate_path.exists():
+            raise RuntimeError("alexa_history_import_path_not_found")
+
+        source_paths: list[Path] = []
+        supported_suffixes = {".json", ".csv", ".zip"}
+        if candidate_path.is_file() and candidate_path.suffix.lower() in supported_suffixes:
+            source_paths.append(candidate_path)
+        elif candidate_path.is_dir():
+            source_paths.extend(
+                sorted(path for path in candidate_path.rglob("*") if path.is_file() and path.suffix.lower() in supported_suffixes)
+            )
+        else:
+            raise RuntimeError("alexa_history_import_format_unsupported")
+        if not source_paths:
+            raise RuntimeError("alexa_history_import_entries_not_found")
+
+        records: list[dict[str, object]] = []
+        source_formats: list[str] = []
+        for source_path in source_paths:
+            sources = _alexa_history_archive_sources(source_path)
+            for source in sources:
+                format_name = str(source.get("format") or "").strip().lower()
+                if format_name and format_name not in source_formats:
+                    source_formats.append(format_name)
+                for record in _alexa_history_import_records_from_source(source):
+                    payload_json = {
+                        **dict(record.get("payload") or {}),
+                        "import_source_path": str(source_path),
+                        "import_archive_member": str(source.get("name") or "").strip(),
+                        "import_channel": "alexa_history_export",
+                        "history_entry_id": str(record.get("item_id") or "").strip(),
+                        "received_at": str(record.get("occurred_at") or "").strip(),
+                    }
+                    records.append(
+                        {
+                            **record,
+                            "payload": payload_json,
+                        }
+                    )
+        if not records:
+            raise RuntimeError("alexa_history_import_entries_not_found")
+
+        items: list[dict[str, object]] = []
+        for record in records:
+            item_id = str(record.get("item_id") or "").strip()
+            source_ref = f"alexa-history:{item_id}" if item_id else ""
+            item = self.ingest_office_signal(
+                principal_id=principal_id,
+                signal_type="audio_recording",
+                channel="alexa",
+                title=str(record.get("title") or "").strip(),
+                summary=str(record.get("summary") or "").strip(),
+                text=str(record.get("text") or "").strip(),
+                source_ref=source_ref,
+                external_id=item_id,
+                counterparty=str(counterparty or "").strip() or "Alexa",
+                payload=dict(record.get("payload") or {}),
+                actor=str(actor or "").strip() or "alexa_history_import",
+            )
+            items.append(item)
+
+        index_rows = _alexa_history_index_rows(
+            principal_id=principal_id,
+            records=records,
+        )
+        for row in index_rows:
+            self._record_alexa_history_index(
+                principal_id=principal_id,
+                row=row,
+            )
+        teable_index_result = self._sync_alexa_history_index_to_teable(
+            principal_id=principal_id,
+            rows=index_rows,
+        )
+        deduplicated_total = sum(1 for item in items if bool(item.get("deduplicated")))
+        synced_total = len(items) - deduplicated_total
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="alexa_history_import_completed",
+            payload={
+                "source_path": str(candidate_path),
+                "source_formats": list(source_formats),
+                "source_file_total": len(source_paths),
+                "processed_total": len(items),
+                "parsed_entry_total": len(records),
+                "synced_total": synced_total,
+                "deduplicated_total": deduplicated_total,
+                "teable_index_status": str(teable_index_result.get("status") or "").strip(),
+                "teable_index_blocked_reason": str(teable_index_result.get("blocked_reason") or "").strip(),
+                "teable_index_row_total": int(teable_index_result.get("row_total") or 0),
+                "teable_index_sync_attempted": bool(teable_index_result.get("sync_attempted")),
+            },
+            source_id=str(candidate_path),
+            dedupe_key=f"{principal_id}|alexa-history-import|{candidate_path}|{len(records)}|{_now_iso()}",
+        )
+        return {
+            "generated_at": _now_iso(),
+            "source_path": str(candidate_path),
+            "source_formats": list(source_formats),
+            "items": items,
+            "total": len(items),
+            "synced_total": synced_total,
+            "deduplicated_total": deduplicated_total,
+            "suppressed_total": 0,
+            "parsed_entry_total": len(records),
+            "teable_index_status": str(teable_index_result.get("status") or "").strip(),
+            "teable_index_blocked_reason": str(teable_index_result.get("blocked_reason") or "").strip(),
+            "teable_index_row_total": int(teable_index_result.get("row_total") or 0),
+            "teable_index_sync_attempted": bool(teable_index_result.get("sync_attempted")),
+        }
+
+    def sync_alexa_history_from_import_root(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        limit: int = 25,
+        force: bool = False,
+    ) -> dict[str, object]:
+        root_path = self._configured_alexa_history_import_root()
+        supported_suffixes = {".json", ".csv", ".zip"}
+        source_entries: list[tuple[int, str, Path]] = []
+        if root_path.is_file():
+            if root_path.suffix.lower() in supported_suffixes:
+                stat = root_path.stat()
+                source_entries.append((int(getattr(stat, "st_mtime_ns", 0) or 0), str(root_path), root_path))
+        elif root_path.is_dir():
+            for source_path in root_path.rglob("*"):
+                if not source_path.is_file() or source_path.suffix.lower() not in supported_suffixes:
+                    continue
+                try:
+                    stat = source_path.stat()
+                except OSError:
+                    continue
+                source_entries.append((int(getattr(stat, "st_mtime_ns", 0) or 0), str(source_path), source_path))
+        source_entries.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        selected_entries = source_entries[: max(1, int(limit or 25))]
+
+        items: list[dict[str, object]] = []
+        processed_source_total = 0
+        skipped_source_total = 0
+        synced_total = 0
+        deduplicated_total = 0
+        suppressed_total = 0
+        parsed_entry_total = 0
+        teable_index_row_total = 0
+        teable_sync_attempted = False
+        teable_statuses: list[str] = []
+        teable_blocked_reasons: list[str] = []
+        for mtime_ns, _, source_path in selected_entries:
+            try:
+                stat = source_path.stat()
+            except OSError:
+                continue
+            fingerprint = (
+                f"{principal_id}|alexa-history-source-sync|{str(source_path.resolve())}|"
+                f"{mtime_ns}|{int(getattr(stat, 'st_size', 0) or 0)}"
+            )
+            if not force and self._container.channel_runtime.find_observation_by_dedupe(fingerprint, principal_id=principal_id) is not None:
+                skipped_source_total += 1
+                continue
+            result = self.import_alexa_history_from_local_path(
+                principal_id=principal_id,
+                path=str(source_path),
+                counterparty="Alexa",
+                actor=actor,
+            )
+            processed_source_total += 1
+            source_items = list(result.get("items") or [])
+            items.extend(source_items)
+            synced_total += int(result.get("synced_total") or 0)
+            deduplicated_total += int(result.get("deduplicated_total") or 0)
+            suppressed_total += int(result.get("suppressed_total") or 0)
+            parsed_entry_total += int(result.get("parsed_entry_total") or 0)
+            teable_index_row_total += int(result.get("teable_index_row_total") or 0)
+            teable_sync_attempted = teable_sync_attempted or bool(result.get("teable_index_sync_attempted"))
+            teable_status = str(result.get("teable_index_status") or "").strip()
+            if teable_status:
+                teable_statuses.append(teable_status)
+            blocked_reason = str(result.get("teable_index_blocked_reason") or "").strip()
+            if blocked_reason and blocked_reason not in teable_blocked_reasons:
+                teable_blocked_reasons.append(blocked_reason)
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="alexa_history_source_synced",
+                payload={
+                    "root_path": str(root_path),
+                    "source_path": str(source_path),
+                    "mtime_ns": mtime_ns,
+                    "size_bytes": int(getattr(stat, "st_size", 0) or 0),
+                    "total": int(result.get("total") or 0),
+                    "synced_total": int(result.get("synced_total") or 0),
+                    "deduplicated_total": int(result.get("deduplicated_total") or 0),
+                    "suppressed_total": int(result.get("suppressed_total") or 0),
+                    "parsed_entry_total": int(result.get("parsed_entry_total") or 0),
+                    "teable_index_status": str(result.get("teable_index_status") or "").strip(),
+                    "teable_index_blocked_reason": str(result.get("teable_index_blocked_reason") or "").strip(),
+                    "teable_index_row_total": int(result.get("teable_index_row_total") or 0),
+                    "teable_index_sync_attempted": bool(result.get("teable_index_sync_attempted")),
+                    "actor": str(actor or "").strip() or "office_api",
+                },
+                source_id=str(source_path),
+                dedupe_key=fingerprint,
+            )
+        if "blocked" in teable_statuses and "synced" in teable_statuses:
+            teable_index_status = "partial"
+        elif "blocked" in teable_statuses:
+            teable_index_status = "blocked"
+        elif "synced" in teable_statuses:
+            teable_index_status = "synced"
+        elif "noop" in teable_statuses or (not teable_statuses and teable_index_row_total == 0):
+            teable_index_status = "noop"
+        else:
+            teable_index_status = teable_statuses[0] if teable_statuses else ""
+        summary = {
+            "generated_at": _now_iso(),
+            "root_path": str(root_path),
+            "source_total": len(source_entries),
+            "processed_source_total": processed_source_total,
+            "skipped_source_total": skipped_source_total,
+            "source_limit": max(1, int(limit or 25)),
+            "force": bool(force),
+            "items": items,
+            "total": len(items),
+            "synced_total": synced_total,
+            "deduplicated_total": deduplicated_total,
+            "suppressed_total": suppressed_total,
+            "parsed_entry_total": parsed_entry_total,
+            "teable_index_status": teable_index_status,
+            "teable_index_blocked_reason": ", ".join(teable_blocked_reasons),
+            "teable_index_row_total": teable_index_row_total,
+            "teable_index_sync_attempted": teable_sync_attempted,
+        }
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="alexa_history_root_sync_completed",
+            payload={
+                "root_path": str(root_path),
+                "source_total": len(source_entries),
+                "processed_source_total": processed_source_total,
+                "skipped_source_total": skipped_source_total,
+                "source_limit": max(1, int(limit or 25)),
+                "force": bool(force),
+                "total": len(items),
+                "synced_total": synced_total,
+                "deduplicated_total": deduplicated_total,
+                "suppressed_total": suppressed_total,
+                "parsed_entry_total": parsed_entry_total,
+                "teable_index_status": teable_index_status,
+                "teable_index_blocked_reason": ", ".join(teable_blocked_reasons),
+                "teable_index_row_total": teable_index_row_total,
+                "teable_index_sync_attempted": teable_sync_attempted,
+                "actor": str(actor or "").strip() or "office_api",
+            },
+            source_id=str(root_path),
+            dedupe_key=f"{principal_id}|alexa-history-root-sync|{root_path}|{_now_iso()}",
+        )
+        return summary
+
     def import_noneverbia_meetings_from_local_path(
         self,
         *,
@@ -27072,6 +27822,40 @@ class ProductService:
             "preference_evidence_total": preference_evidence_total,
             "preference_evidence_applied_total": preference_evidence_applied_total,
         }
+
+    def _resolve_alexa_history_import_path(self, path: str) -> Path:
+        raw = str(path or "").strip()
+        if not raw:
+            raise RuntimeError("alexa_history_import_path_not_found")
+        original = Path(raw).expanduser()
+        if original.is_absolute():
+            candidate_path = original.resolve()
+        else:
+            candidate_path = (_repo_root() / original).resolve()
+        configured_root = str(os.getenv("EA_ALEXA_HISTORY_IMPORT_ROOT") or "").strip()
+        if configured_root:
+            allowed_root = Path(configured_root).expanduser().resolve()
+            try:
+                candidate_path.relative_to(allowed_root)
+            except ValueError as exc:
+                raise RuntimeError("alexa_history_import_path_not_allowed") from exc
+            return candidate_path
+        if original.is_absolute():
+            raise RuntimeError("alexa_history_import_path_not_allowed")
+        try:
+            candidate_path.relative_to(_repo_root())
+        except ValueError as exc:
+            raise RuntimeError("alexa_history_import_path_not_allowed") from exc
+        return candidate_path
+
+    def _configured_alexa_history_import_root(self) -> Path:
+        configured_root = str(os.getenv("EA_ALEXA_HISTORY_IMPORT_ROOT") or "").strip()
+        if not configured_root:
+            raise RuntimeError("alexa_history_import_root_not_configured")
+        candidate_path = Path(configured_root).expanduser().resolve()
+        if not candidate_path.exists():
+            raise RuntimeError("alexa_history_import_root_not_found")
+        return candidate_path
 
     def _resolve_noneverbia_import_path(self, path: str) -> Path:
         raw = str(path or "").strip()
@@ -29276,6 +30060,111 @@ class ProductService:
             },
         }
 
+    def _alexa_history_index_teable_preview(
+        self,
+        *,
+        principal_id: str,
+        rows: list[dict[str, object]],
+    ) -> dict[str, object]:
+        provider_state = self._container.provider_registry.binding_state("teable", principal_id=principal_id)
+        teable_base_url = str(os.environ.get("TEABLE_BASE_URL") or "https://app.teable.ai").strip().rstrip("/")
+        table_sync_config_raw = str(os.environ.get("TEABLE_TABLE_SYNC_CONFIG_JSON") or "").strip()
+        parsed_table_sync: dict[str, object] = {}
+        if table_sync_config_raw:
+            try:
+                loaded = json.loads(table_sync_config_raw)
+            except Exception:
+                loaded = {}
+            if isinstance(loaded, dict):
+                parsed_table_sync = dict(loaded)
+        table_name = "alexa_history_index"
+        table_sync_configured = table_name in parsed_table_sync
+        candidate_routes = tuple(
+            route
+            for route in self._container.provider_registry.candidate_routes_by_capability_with_context(
+                capability_key="table_sync",
+                principal_id=principal_id,
+                require_executable=False,
+            )
+            if str(route.provider_key or "").strip().lower() == "teable"
+        )
+        provider_state_value = str(getattr(provider_state, "state", "") or "catalog_only").strip().lower() or "catalog_only"
+        provider_routable = provider_state_value not in {"catalog_only", "unconfigured", "disabled", "maintenance"}
+        runtime_reachable = False
+        runtime_blocked_reason = ""
+        if provider_routable and table_sync_configured and bool(getattr(provider_state, "secret_configured", False)):
+            runtime_reachable, runtime_blocked_reason = self._teable_sync_runtime_available(base_url=teable_base_url)
+        executable_route = next(
+            (
+                route
+                for route in candidate_routes
+                if bool(route.executable) and provider_routable and table_sync_configured and runtime_reachable
+            ),
+            None,
+        )
+        return {
+            "status": "ready" if executable_route is not None else "blocked",
+            "blocked_reason": (
+                ""
+                if executable_route is not None
+                else (
+                    "teable_table_sync_config_missing"
+                    if not table_sync_configured
+                    else (runtime_blocked_reason or "teable_table_sync_unavailable")
+                )
+            ),
+            "route_tool_name": str(getattr(executable_route, "tool_name", "") or "provider.teable.table_sync").strip(),
+            "table_name": table_name,
+            "rows": [dict(row) for row in rows],
+        }
+
+    def _sync_alexa_history_index_to_teable(
+        self,
+        *,
+        principal_id: str,
+        rows: list[dict[str, object]],
+    ) -> dict[str, object]:
+        if not rows:
+            return {"status": "noop", "sync_attempted": False, "row_total": 0, "blocked_reason": ""}
+        preview = self._alexa_history_index_teable_preview(
+            principal_id=principal_id,
+            rows=rows,
+        )
+        if str(preview.get("status") or "").strip().lower() != "ready":
+            return {
+                "status": "blocked",
+                "sync_attempted": False,
+                "row_total": len(rows),
+                "blocked_reason": str(preview.get("blocked_reason") or "").strip(),
+            }
+        invocation = ToolInvocationRequest(
+            session_id=f"alexa-history-teable-sync:{uuid4()}",
+            step_id=f"alexa-history-teable-sync-step:{uuid4()}",
+            tool_name=str(preview.get("route_tool_name") or "provider.teable.table_sync").strip(),
+            action_kind="table.sync",
+            payload_json={
+                "projection_scope": "alexa_history",
+                "tables_json": {
+                    str(preview.get("table_name") or "alexa_history_index"): [dict(row) for row in rows],
+                },
+            },
+            context_json={"principal_id": principal_id},
+        )
+        result = self._container.tool_execution.execute_invocation(invocation)
+        return {
+            "status": "synced",
+            "sync_attempted": True,
+            "row_total": len(rows),
+            "blocked_reason": "",
+            "tool_execution": {
+                "tool_name": result.tool_name,
+                "action_kind": result.action_kind,
+                "target_ref": result.target_ref,
+                "output_json": dict(result.output_json or {}),
+                "receipt_json": dict(result.receipt_json or {}),
+            },
+        }
+
     def reset_pocket_recording_sync_cursor(
         self,
         *,
@@ -29860,6 +30749,247 @@ class ProductService:
             "after": str(after or "").strip(),
             "total": len(items[:bounded_limit]),
             "items": items[:bounded_limit],
+        }
+
+    def search_alexa_history(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        query: str = "",
+        before: str = "",
+        after: str = "",
+        limit: int = 10,
+    ) -> dict[str, object]:
+        del actor
+        normalized_query = compact_text(str(query or "").strip(), fallback="", limit=240)
+        query_tokens = _google_location_query_tokens(normalized_query)
+        before_at = _parse_utcish(before)
+        after_at = _parse_utcish(after)
+        latest_by_entry: dict[str, dict[str, object]] = {}
+        for row in self._container.channel_runtime.list_recent_observations(
+            limit=_POCKET_RECORDING_INDEX_LOOKBACK,
+            principal_id=principal_id,
+        ):
+            if str(getattr(row, "channel", "") or "").strip() != "product":
+                continue
+            if str(getattr(row, "event_type", "") or "").strip() != "alexa_history_indexed":
+                continue
+            payload = dict(getattr(row, "payload", {}) or {})
+            history_entry_id = str(payload.get("history_entry_id") or "").strip()
+            if history_entry_id and history_entry_id not in latest_by_entry:
+                latest_by_entry[history_entry_id] = payload
+        items: list[dict[str, object]] = []
+        for payload in latest_by_entry.values():
+            occurred_at = _parse_utcish(str(payload.get("occurred_at") or "").strip())
+            if before_at is not None and occurred_at is not None and occurred_at >= before_at:
+                continue
+            if after_at is not None and occurred_at is not None and occurred_at <= after_at:
+                continue
+            haystack = " ".join(
+                part
+                for part in (
+                    str(payload.get("title") or "").strip(),
+                    str(payload.get("summary_markdown") or "").strip(),
+                    str(payload.get("transcript_text") or "").strip(),
+                    str(payload.get("transcript_excerpt") or "").strip(),
+                    str(payload.get("utterance_text") or "").strip(),
+                    str(payload.get("response_text") or "").strip(),
+                    str(payload.get("device_name") or "").strip(),
+                    str(payload.get("skill_name") or "").strip(),
+                    str(payload.get("locale") or "").strip(),
+                    str(payload.get("activity_status") or "").strip(),
+                )
+                if part
+            ).lower()
+            match_score = 0.0
+            if normalized_query:
+                if normalized_query.lower() in haystack:
+                    match_score += 2.0
+                token_hits = sum(1 for token in query_tokens if token in haystack)
+                if token_hits == 0 and match_score <= 0.0:
+                    continue
+                match_score += float(token_hits)
+            items.append(
+                {
+                    "history_entry_id": str(payload.get("history_entry_id") or "").strip(),
+                    "source_ref": str(payload.get("source_ref") or "").strip(),
+                    "title": str(payload.get("title") or "").strip(),
+                    "occurred_at": str(payload.get("occurred_at") or "").strip(),
+                    "summary_markdown": str(payload.get("summary_markdown") or "").strip(),
+                    "transcript_excerpt": str(payload.get("transcript_excerpt") or "").strip(),
+                    "device_name": str(payload.get("device_name") or "").strip(),
+                    "skill_name": str(payload.get("skill_name") or "").strip(),
+                    "locale": str(payload.get("locale") or "").strip(),
+                    "activity_status": str(payload.get("activity_status") or "").strip(),
+                    "import_source_path": str(payload.get("import_source_path") or "").strip(),
+                    "import_archive_member": str(payload.get("import_archive_member") or "").strip(),
+                    "match_score": match_score,
+                }
+            )
+        items.sort(
+            key=lambda item: (
+                float(item.get("match_score") or 0.0),
+                str(item.get("occurred_at") or ""),
+                str(item.get("history_entry_id") or ""),
+            ),
+            reverse=True,
+        )
+        bounded_limit = max(1, min(int(limit or 10), 100))
+        return {
+            "generated_at": _now_iso(),
+            "query": normalized_query,
+            "before": str(before or "").strip(),
+            "after": str(after or "").strip(),
+            "total": len(items[:bounded_limit]),
+            "items": items[:bounded_limit],
+        }
+
+    def get_alexa_history_detail(
+        self,
+        *,
+        history_entry_id: str,
+        principal_id: str,
+        actor: str,
+    ) -> dict[str, object]:
+        del actor
+        normalized_entry_id = str(history_entry_id or "").strip()
+        if not normalized_entry_id:
+            raise RuntimeError("alexa_history_entry_not_found")
+        for row in self._container.channel_runtime.list_recent_observations(
+            limit=_POCKET_RECORDING_INDEX_LOOKBACK,
+            principal_id=principal_id,
+        ):
+            if str(getattr(row, "channel", "") or "").strip() != "product":
+                continue
+            if str(getattr(row, "event_type", "") or "").strip() != "alexa_history_indexed":
+                continue
+            payload = dict(getattr(row, "payload", {}) or {})
+            if str(payload.get("history_entry_id") or "").strip() != normalized_entry_id:
+                continue
+            return {
+                "history_entry_id": normalized_entry_id,
+                "source_ref": str(payload.get("source_ref") or "").strip(),
+                "title": str(payload.get("title") or "").strip(),
+                "occurred_at": str(payload.get("occurred_at") or "").strip(),
+                "summary_markdown": str(payload.get("summary_markdown") or "").strip(),
+                "utterance_text": str(payload.get("utterance_text") or "").strip(),
+                "response_text": str(payload.get("response_text") or "").strip(),
+                "transcript_text": str(payload.get("transcript_text") or "").strip(),
+                "transcript_excerpt": str(payload.get("transcript_excerpt") or "").strip(),
+                "device_name": str(payload.get("device_name") or "").strip(),
+                "skill_name": str(payload.get("skill_name") or "").strip(),
+                "locale": str(payload.get("locale") or "").strip(),
+                "activity_status": str(payload.get("activity_status") or "").strip(),
+                "import_source_path": str(payload.get("import_source_path") or "").strip(),
+                "import_archive_member": str(payload.get("import_archive_member") or "").strip(),
+            }
+        raise RuntimeError("alexa_history_entry_not_found")
+
+    def deliver_alexa_history_to_telegram(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        history_entry_id: str,
+        query: str = "",
+        before: str = "",
+        after: str = "",
+        matched_total: int = 0,
+    ) -> dict[str, object]:
+        payload = self.get_alexa_history_detail(
+            history_entry_id=history_entry_id,
+            principal_id=principal_id,
+            actor=actor,
+        )
+        receipt = send_telegram_message_for_principal(
+            self._container.tool_runtime,
+            principal_id=principal_id,
+            text=_alexa_history_telegram_text(
+                payload,
+                query=query,
+                matched_total=matched_total,
+            ),
+        )
+        response = {
+            "history_entry_id": str(payload.get("history_entry_id") or "").strip(),
+            "source_ref": str(payload.get("source_ref") or "").strip(),
+            "title": str(payload.get("title") or "").strip(),
+            "occurred_at": str(payload.get("occurred_at") or "").strip(),
+            "device_name": str(payload.get("device_name") or "").strip(),
+            "skill_name": str(payload.get("skill_name") or "").strip(),
+            "telegram_delivery_status": "sent",
+            "telegram_delivery_error": "",
+            "telegram_message_ids": list(receipt.message_ids),
+            "telegram_chat_ref": str(receipt.chat_id or "").strip(),
+            "utterance_text": str(payload.get("utterance_text") or "").strip(),
+            "response_text": str(payload.get("response_text") or "").strip(),
+            "transcript_excerpt": str(payload.get("transcript_excerpt") or "").strip(),
+            "query": str(query or "").strip(),
+            "before": str(before or "").strip(),
+            "after": str(after or "").strip(),
+            "matched_total": int(matched_total or 0),
+        }
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="alexa_history_telegram_sent",
+            payload={
+                "history_entry_id": str(payload.get("history_entry_id") or "").strip(),
+                "source_ref": str(payload.get("source_ref") or "").strip(),
+                "title": str(payload.get("title") or "").strip(),
+                "occurred_at": str(payload.get("occurred_at") or "").strip(),
+                "device_name": str(payload.get("device_name") or "").strip(),
+                "skill_name": str(payload.get("skill_name") or "").strip(),
+                "telegram_chat_ref": str(receipt.chat_id or "").strip(),
+                "telegram_message_ids": list(receipt.message_ids),
+                "actor": str(actor or "").strip() or "office_api",
+                "query": str(query or "").strip(),
+                "before": str(before or "").strip(),
+                "after": str(after or "").strip(),
+                "matched_total": int(matched_total or 0),
+            },
+            source_id=str(payload.get("source_ref") or f"alexa-history:{history_entry_id}").strip() or f"alexa-history:{history_entry_id}",
+            dedupe_key="",
+        )
+        return response
+
+    def deliver_alexa_history_search_to_telegram(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        query: str = "",
+        before: str = "",
+        after: str = "",
+        limit: int = 10,
+    ) -> dict[str, object]:
+        search = self.search_alexa_history(
+            principal_id=principal_id,
+            actor=actor,
+            query=query,
+            before=before,
+            after=after,
+            limit=limit,
+        )
+        items = list(search.get("items") or [])
+        if not items:
+            raise RuntimeError("alexa_history_search_match_not_found")
+        best_match = dict(items[0] or {})
+        delivered = self.deliver_alexa_history_to_telegram(
+            principal_id=principal_id,
+            actor=actor,
+            history_entry_id=str(best_match.get("history_entry_id") or "").strip(),
+            query=str(search.get("query") or "").strip(),
+            before=str(search.get("before") or "").strip(),
+            after=str(search.get("after") or "").strip(),
+            matched_total=int(search.get("total") or 0),
+        )
+        return {
+            **delivered,
+            "query": str(search.get("query") or "").strip(),
+            "before": str(search.get("before") or "").strip(),
+            "after": str(search.get("after") or "").strip(),
+            "matched_total": int(search.get("total") or 0),
         }
 
     def list_workspace_invitations(

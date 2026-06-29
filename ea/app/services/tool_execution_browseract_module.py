@@ -5,6 +5,7 @@ from typing import Callable
 from app.domain.models import ToolDefinition, ToolInvocationRequest, ToolInvocationResult
 from app.services.tool_execution_browseract_adapter import BrowserActToolAdapter
 from app.services.tool_execution_browseract_registry import (
+    register_builtin_amazon_login,
     register_builtin_browseract_crezlo_property_tour,
     register_builtin_browseract_gemini_web_generate,
     register_builtin_browseract_extract,
@@ -88,6 +89,13 @@ class BrowserActToolExecutionModule:
 
     def register_extract(self, register_handler: Callable[[str, ToolExecutionHandler], None]) -> None:
         register_builtin_browseract_extract(
+            tool_runtime=self._tool_runtime,
+            register_handler=register_handler,
+            browseract_adapter=self._adapter,
+        )
+
+    def register_amazon_login(self, register_handler: Callable[[str, ToolExecutionHandler], None]) -> None:
+        register_builtin_amazon_login(
             tool_runtime=self._tool_runtime,
             register_handler=register_handler,
             browseract_adapter=self._adapter,

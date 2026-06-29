@@ -16,10 +16,10 @@ hero_ctas:
   href: /now
   emphasis: secondary
 guest_shell_actions:
-- label: Sign in
+- label: Open Chummer
   href: /login?next=/home
   emphasis: secondary
-- label: Create account
+- label: Claim your copy
   href: /signup?next=/home
   emphasis: primary
 secondary_highlights:
@@ -448,6 +448,33 @@ public_routes:
   must_exist: true
   placeholder_allowed: false
   placeholder_requirements: named signed-in starter desk and typed starter/recovery contract only
+- path: /onramp/receipts/guided-starter.json
+  title: ONRAMP starter receipt
+  audience: public
+  purpose: product_surface_receipt
+  requires_auth: false
+  guest_fallback: /onramp
+  must_exist: true
+  placeholder_allowed: false
+  placeholder_requirements: JSON receipt for the public starter and recovery lane
+- path: /onramp/packets/{packetId}.md
+  title: ONRAMP packet markdown
+  audience: public
+  purpose: product_surface_packet
+  requires_auth: false
+  guest_fallback: /onramp
+  must_exist: true
+  placeholder_allowed: false
+  placeholder_requirements: markdown packet for known starter or recovery lane IDs only
+- path: /onramp/packets/{packetId}.json
+  title: ONRAMP packet JSON
+  audience: public
+  purpose: product_surface_packet
+  requires_auth: false
+  guest_fallback: /onramp
+  must_exist: true
+  placeholder_allowed: false
+  placeholder_requirements: JSON packet for known starter or recovery lane IDs only
 - path: /edition-studio
   title: EDITION STUDIO
   audience: public
@@ -466,6 +493,33 @@ public_routes:
   must_exist: true
   placeholder_allowed: false
   placeholder_requirements: named signed-in edition desk and typed edition-head contract only
+- path: /edition-studio/receipts/ruleset-heads.json
+  title: EDITION STUDIO ruleset receipt
+  audience: public
+  purpose: product_surface_receipt
+  requires_auth: false
+  guest_fallback: /edition-studio
+  must_exist: true
+  placeholder_allowed: false
+  placeholder_requirements: JSON receipt for public edition-head status
+- path: /edition-studio/packets/{packetId}.md
+  title: EDITION STUDIO packet markdown
+  audience: public
+  purpose: product_surface_packet
+  requires_auth: false
+  guest_fallback: /edition-studio
+  must_exist: true
+  placeholder_allowed: false
+  placeholder_requirements: markdown packet for known edition-head IDs only
+- path: /edition-studio/packets/{packetId}.json
+  title: EDITION STUDIO packet JSON
+  audience: public
+  purpose: product_surface_packet
+  requires_auth: false
+  guest_fallback: /edition-studio
+  must_exist: true
+  placeholder_allowed: false
+  placeholder_requirements: JSON packet for known edition-head IDs only
 - path: /quicksilver
   title: Quicksilver
   audience: public
@@ -484,6 +538,33 @@ public_routes:
   must_exist: true
   placeholder_allowed: false
   placeholder_requirements: named signed-in command deck and typed jump-target contract only
+- path: /quicksilver/receipts/command-network.json
+  title: Quicksilver command receipt
+  audience: public
+  purpose: product_surface_receipt
+  requires_auth: false
+  guest_fallback: /quicksilver
+  must_exist: true
+  placeholder_allowed: false
+  placeholder_requirements: JSON receipt for public command-deck status
+- path: /quicksilver/packets/{packetId}.md
+  title: Quicksilver packet markdown
+  audience: public
+  purpose: product_surface_packet
+  requires_auth: false
+  guest_fallback: /quicksilver
+  must_exist: true
+  placeholder_allowed: false
+  placeholder_requirements: markdown packet for known command-deck or jump-target IDs only
+- path: /quicksilver/packets/{packetId}.json
+  title: Quicksilver packet JSON
+  audience: public
+  purpose: product_surface_packet
+  requires_auth: false
+  guest_fallback: /quicksilver
+  must_exist: true
+  placeholder_allowed: false
+  placeholder_requirements: JSON packet for known command-deck or jump-target IDs only
 - path: /passport
   title: Runner Passport
   audience: public
@@ -1116,7 +1197,7 @@ public_routes:
   placeholder_requirements: receipt-backed optional-acceleration contract only
 auth_routes:
 - path: /login
-  title: Sign in
+  title: Open Chummer
   audience: public
   purpose: guest_auth_entry
   requires_auth: false
@@ -1125,7 +1206,7 @@ auth_routes:
   placeholder_allowed: false
   placeholder_requirements: first-wave auth entry
 - path: /signup
-  title: Create account
+  title: Claim your copy
   audience: public
   purpose: guest_auth_entry
   requires_auth: false

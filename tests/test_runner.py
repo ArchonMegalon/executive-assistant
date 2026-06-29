@@ -527,6 +527,54 @@ def test_scheduler_pocket_signal_sync_runs_for_default_principal(
     assert calls == ["principal-default|scheduler|7"]
 
 
+def test_scheduler_alexa_history_sync_runs_for_default_principal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _load_runner_module(monkeypatch)
+    monkeypatch.setenv("EA_ALEXA_HISTORY_IMPORT_ROOT", "/tmp/alexa-history")
+    monkeypatch.setenv("EA_SCHEDULER_ALEXA_HISTORY_SYNC_LIMIT", "9")
+
+    calls: list[str] = []
+
+    class _FakeService:
+        def sync_alexa_history_from_import_root(self, *, principal_id: str, actor: str, limit: int, force: bool):
+            calls.append(f"{principal_id}|{actor}|{limit}|{force}")
+            return {
+                "synced_total": 4,
+                "processed_source_total": 2,
+                "skipped_source_total": 3,
+                "teable_index_status": "synced",
+                "teable_index_blocked_reason": "",
+            }
+
+    container = SimpleNamespace(
+        settings=SimpleNamespace(
+            auth=SimpleNamespace(default_principal_id="principal-default"),
+        ),
+    )
+
+    monkeypatch.setitem(
+        sys.modules,
+        "app.product.service",
+        SimpleNamespace(build_product_service=lambda _container: _FakeService()),
+    )
+
+    summary = runner._run_scheduler_alexa_history_sync(container, logging.getLogger("test.runner"))
+
+    assert summary == {
+        "ran": True,
+        "attempted": 5,
+        "synced": 4,
+        "errors": 0,
+        "principal_id": "principal-default",
+        "processed_source_total": 2,
+        "skipped_source_total": 3,
+        "teable_index_status": "synced",
+        "teable_index_blocked_reason": "",
+    }
+    assert calls == ["principal-default|scheduler|9|False"]
+
+
 def test_scheduler_property_scout_runs_for_configured_principals(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

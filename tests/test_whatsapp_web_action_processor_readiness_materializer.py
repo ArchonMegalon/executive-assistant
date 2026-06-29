@@ -137,3 +137,49 @@ def test_materialize_whatsapp_web_action_processor_readiness_maps_blocked_runtim
     assert receipt["ready"] is False
     assert receipt["reason"] == "callback_secret_missing"
     assert receipt["next_action"] == "seed_whatsapp_callback_secret_and_rerun_readiness"
+
+
+def test_resolve_whatsapp_web_action_processor_readiness_output_path_falls_back_to_runtime_cache(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    module = _load_script()
+    runtime_output = tmp_path / "provider-ledger" / "provider-health-cache" / "whatsapp_web_action_processor_readiness.generated.json"
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(tmp_path / "provider-ledger"))
+    monkeypatch.setattr(module, "_path_parent_writable", lambda path: path == runtime_output)
+
+    resolved = module.resolve_whatsapp_web_action_processor_readiness_output_path(module.DEFAULT_OUTPUT)
+
+    assert resolved == runtime_output
+
+
+def test_default_args_skip_container_checks_when_docker_is_unavailable(monkeypatch, tmp_path: Path) -> None:
+    module = _load_script()
+    checker = module._load_check_module()
+    monkeypatch.setattr(module.shutil, "which", lambda name: None if name == "docker" else "/usr/bin/tool")
+
+    args = module._default_args(checker, output=tmp_path / "receipt.json")
+
+    assert args.check_containers is False
+
+
+def test_default_args_skip_container_checks_when_docker_daemon_is_unavailable(monkeypatch, tmp_path: Path) -> None:
+    module = _load_script()
+    checker = module._load_check_module()
+    monkeypatch.setattr(module.shutil, "which", lambda name: "/usr/bin/docker" if name == "docker" else None)
+    monkeypatch.setattr(module.subprocess, "run", lambda **_kwargs: None)
+
+    args = module._default_args(checker, output=tmp_path / "receipt.json")
+
+    assert args.check_containers is False
+
+
+def test_default_args_enable_container_checks_when_docker_is_available(monkeypatch, tmp_path: Path) -> None:
+    module = _load_script()
+    checker = module._load_check_module()
+    monkeypatch.setattr(module.shutil, "which", lambda name: "/usr/bin/docker" if name == "docker" else None)
+    monkeypatch.setattr(module.subprocess, "run", lambda *args, **kwargs: type("Completed", (), {"returncode": 0})())
+
+    args = module._default_args(checker, output=tmp_path / "receipt.json")
+
+    assert args.check_containers is True

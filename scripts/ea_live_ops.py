@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+from datetime import UTC, datetime
+import hashlib
 import json
 import os
 import re
@@ -12,7 +14,7 @@ import urllib.parse
 import urllib.request
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,20 +23,60 @@ for path in (ROOT / "ea", ROOT, SCRIPT_DIR):
     if path.exists() and str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
+
+def _load_dotenv_if_present(path: Path) -> None:
+    if not path.exists():
+        return
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not key or key in os.environ:
+            continue
+        normalized = value.strip()
+        if len(normalized) >= 2 and normalized[0] == normalized[-1] and normalized[0] in {"'", '"'}:
+            normalized = normalized[1:-1]
+        os.environ[key] = normalized
+
+
+_load_dotenv_if_present(ROOT / ".env")
+
 import check_whatsapp_web_session_readiness as readiness_script  # noqa: E402
 from app.container import build_container  # noqa: E402
 from app.services import whatsapp_web_session_delivery  # noqa: E402
 from app.services.audiobook_epub_pipeline import audiobook_runtime_preflight  # noqa: E402
+from app.services.proactive_ooda_operator_actions import proactive_next_action_surface  # noqa: E402
 from app.services.responses_upstream import _provider_health_report  # noqa: E402
 
 
 DEFAULT_SESSION_API_BASE_URL = "http://127.0.0.1:8098"
-DEFAULT_READINESS_RECEIPT_PATH = ROOT / ".codex-studio" / "published" / "whatsapp_web_action_processor_readiness.generated.json"
+DEFAULT_READINESS_RECEIPT_FILENAME = "whatsapp_web_action_processor_readiness.generated.json"
+DEFAULT_READINESS_RECEIPT_PATH = ROOT / ".codex-studio" / "published" / DEFAULT_READINESS_RECEIPT_FILENAME
 DEFAULT_RUNTIME_CONTAINER = "ea-api"
+DEFAULT_PROACTIVE_OODA_COMPOSE_FILE = ROOT / "docker-compose.yml"
+DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE = "ea-proactive-ooda"
 
 
 def _env(name: str, default: str = "") -> str:
     return str(os.environ.get(name) or default).strip()
+
+
+def _default_whatsapp_principal_id() -> str:
+    return _env("EA_WHATSAPP_WEB_DEFAULT_PRINCIPAL_ID") or _env("EA_WHATSAPP_DEFAULT_PRINCIPAL_ID", "principal-default")
+
+
+def _default_proactive_principal_id() -> str:
+    return _env("EA_PROACTIVE_OODA_PRINCIPAL_ID") or _env("EA_DEFAULT_PRINCIPAL_ID") or _default_whatsapp_principal_id()
+
+
+def _utc_now() -> str:
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _digits(value: object) -> str:
@@ -58,6 +100,26 @@ def _read_json_file(path: Path) -> dict[str, object]:
     return dict(payload) if isinstance(payload, dict) else {}
 
 
+def _runtime_readiness_receipt_path() -> Path:
+    configured = _env("EA_WHATSAPP_WEB_ACTION_PROCESSOR_READINESS_PATH")
+    if configured:
+        return Path(configured)
+    ledger_dir = _env("EA_RESPONSES_PROVIDER_LEDGER_DIR", "/data/provider-ledger") or "/data/provider-ledger"
+    return Path(ledger_dir) / "provider-health-cache" / DEFAULT_READINESS_RECEIPT_FILENAME
+
+
+def _whatsapp_readiness_receipt() -> dict[str, object]:
+    ordered: list[Path] = []
+    for candidate in (_runtime_readiness_receipt_path(), DEFAULT_READINESS_RECEIPT_PATH):
+        if candidate not in ordered:
+            ordered.append(candidate)
+    for candidate in ordered:
+        payload = _read_json_file(candidate)
+        if payload:
+            return payload
+    return {}
+
+
 def _request_json(
     *,
     method: str,
@@ -75,6 +137,47 @@ def _request_json(
     with urllib.request.urlopen(request, timeout=timeout) as response:
         payload = json.loads(response.read().decode("utf-8"))
     return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _json_from_stdout(stdout: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(str(stdout or "").strip())
+    except Exception:
+        return {}
+    return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _compact_text(value: object, *, limit: int = 140) -> str:
+    text = " ".join(str(value or "").strip().split())
+    if not text:
+        return ""
+    if len(text) <= max(int(limit or 1), 1):
+        return text
+    clipped = max(int(limit or 1) - 3, 1)
+    return f"{text[:clipped].rstrip()}..."
+
+
+def _docker_compose_exec_json(
+    *,
+    compose_file: str,
+    service: str,
+    command: list[str],
+    timeout_seconds: float,
+) -> tuple[int, dict[str, Any], str, str]:
+    completed = subprocess.run(
+        ["docker", "compose", "-f", compose_file, "exec", "-T", service, *command],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=timeout_seconds,
+    )
+    return (
+        int(completed.returncode or 0),
+        _json_from_stdout(str(completed.stdout or "")),
+        str(completed.stdout or ""),
+        str(completed.stderr or ""),
+    )
 
 
 def _http_error_payload(exc: urllib.error.HTTPError) -> dict[str, Any]:
@@ -126,18 +229,26 @@ def _container():
 
 
 def _provider_display_name(provider_key: str) -> str:
-    state = _container().provider_registry.binding_state(provider_key)
+    try:
+        state = _container().provider_registry.binding_state(provider_key)
+    except Exception:
+        state = None
     if state is not None and str(state.display_name or "").strip():
         return str(state.display_name)
     return provider_key.replace("_", " ")
 
 
 def _normalize_provider_key(value: object) -> str:
-    registry = _container().provider_registry
-    normalizer = getattr(registry, "_normalize_provider_key", None)
+    fallback = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    try:
+        registry = _container().provider_registry
+        normalizer = getattr(registry, "_normalize_provider_key", None)
+    except Exception:
+        return fallback
     if callable(normalizer):
-        return str(normalizer(value) or "").strip()
-    return str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+        normalized = str(normalizer(value) or "").strip()
+        return normalized or fallback
+    return fallback
 
 
 def _operator_text_for_provider(report: dict[str, object]) -> str:
@@ -265,6 +376,1094 @@ def probe_provider(provider: str, *, output_format: str = "json") -> dict[str, o
     return report
 
 
+def probe_proactive_route(
+    *,
+    principal_id: str,
+    compose_file: str = "",
+    runtime_service: str = "",
+    receipt_path: str = "",
+    timeout_seconds: float = 30.0,
+    output_format: str = "json",
+) -> dict[str, object]:
+    effective_compose_file = str(compose_file or _env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE))).strip()
+    effective_runtime_service = str(runtime_service or _env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE)).strip()
+    observed_at = _utc_now()
+    artifact_probe: dict[str, object] = {}
+    if not effective_compose_file or not effective_runtime_service:
+        next_action = "configure_proactive_runtime_probe"
+        report = {
+            "probe_ok": False,
+            "status": "probe_failed",
+            "principal_id": str(principal_id or "").strip(),
+            "compose_file": effective_compose_file,
+            "runtime_service": effective_runtime_service,
+            "observed_at": observed_at,
+            "source": "docker_compose_exec",
+            "blocking_reason": "runtime_probe_configuration_missing",
+            "next_action": next_action,
+            "route_report": {},
+            "live_receipt": {},
+            "live_receipt_checked": False,
+        }
+        report.update(_next_action_surface_fields(next_action))
+        if output_format == "operator":
+            report["operator_text"] = "proactive route probe failed; configure runtime probe inputs"
+        return report
+
+    route_code, route_payload, route_stdout, route_stderr = _docker_compose_exec_json(
+        compose_file=effective_compose_file,
+        service=effective_runtime_service,
+        command=[
+            "python",
+            "/app/scripts/verify_proactive_ooda.py",
+            "--principal-id",
+            str(principal_id or "").strip(),
+            "--skip-observation-source",
+            "--no-require-source",
+            "--no-require-telegram",
+        ],
+        timeout_seconds=timeout_seconds,
+    )
+    if not route_payload:
+        next_action = "inspect_proactive_runtime_container"
+        report = {
+            "probe_ok": False,
+            "status": "probe_failed",
+            "principal_id": str(principal_id or "").strip(),
+            "compose_file": effective_compose_file,
+            "runtime_service": effective_runtime_service,
+            "observed_at": observed_at,
+            "source": "docker_compose_exec",
+            "blocking_reason": f"runtime_route_probe_failed:exit_{route_code}",
+            "next_action": next_action,
+            "route_report": {},
+            "live_receipt": {},
+            "live_receipt_checked": False,
+            "stderr_excerpt": route_stderr.strip()[:200],
+            "stdout_excerpt": route_stdout.strip()[:200],
+        }
+        report.update(_next_action_surface_fields(next_action))
+        if output_format == "operator":
+            report["operator_text"] = f"proactive route probe failed; inspect {effective_runtime_service}"
+        return report
+
+    effective_receipt_path = str(receipt_path or "").strip()
+    try:
+        artifact_probe = probe_proactive_artifacts(
+            compose_file=effective_compose_file,
+            runtime_service=effective_runtime_service,
+            timeout_seconds=timeout_seconds,
+            output_format="json",
+        )
+    except Exception:
+        artifact_probe = {}
+    if not effective_receipt_path:
+        if bool(artifact_probe.get("probe_ok")) and str(artifact_probe.get("run_receipt_path") or "").strip():
+            effective_receipt_path = str(artifact_probe.get("run_receipt_path") or "").strip()
+
+    receipt_command = [
+        "python",
+        "/app/scripts/verify_proactive_ooda_live_receipt.py",
+    ]
+    if effective_receipt_path:
+        receipt_command.extend(["--receipt-path", effective_receipt_path])
+    _, live_receipt_payload, _, _ = _docker_compose_exec_json(
+        compose_file=effective_compose_file,
+        service=effective_runtime_service,
+        command=receipt_command,
+        timeout_seconds=timeout_seconds,
+    )
+    delivery_route = dict(route_payload.get("delivery_route") or {})
+    delivery_guard = dict(route_payload.get("delivery_guard") or {})
+    runtime_errors = [str(item).strip() for item in list(route_payload.get("errors") or []) if str(item).strip()]
+    route_ready = bool(delivery_route.get("ready"))
+    route_error = str(delivery_route.get("route_error") or "").strip()
+    delivery_state = str(delivery_guard.get("delivery_state") or "").strip()
+    deferred_reason = str(delivery_guard.get("deferred_reason") or "").strip()
+    if delivery_state == "deferred":
+        status = "deferred"
+    elif runtime_errors or route_payload.get("ok") is False:
+        status = "blocked_local_runtime"
+    elif route_ready and route_error:
+        status = "ready_with_recovery_action"
+    elif route_ready:
+        status = "ready"
+    else:
+        status = "blocked"
+    followthrough_next_action = _proactive_approval_followthrough_next_action(
+        artifact_probe=artifact_probe,
+        route_ready=route_ready,
+        selected_channel=str(delivery_route.get("selected_channel") or "").strip(),
+        live_receipt_payload=live_receipt_payload,
+    )
+    route_next_action = str(delivery_route.get("next_action") or "").strip()
+    guard_next_action = _proactive_guard_next_action(deferred_reason)
+    runtime_next_action = _proactive_runtime_error_next_action(runtime_errors)
+    live_receipt_next_action = str(live_receipt_payload.get("delivery_next_action") or "").strip()
+    if delivery_state == "deferred":
+        next_action = str(
+            guard_next_action
+            or route_next_action
+            or runtime_next_action
+            or live_receipt_next_action
+            or "inspect_proactive_delivery_route"
+        ).strip()
+    elif runtime_errors or route_payload.get("ok") is False:
+        next_action = str(
+            runtime_next_action
+            or route_next_action
+            or live_receipt_next_action
+            or "repair_proactive_runtime_inputs"
+        ).strip()
+    else:
+        next_action = str(
+            followthrough_next_action
+            or route_next_action
+            or guard_next_action
+            or runtime_next_action
+            or live_receipt_next_action
+            or "inspect_proactive_delivery_route"
+        ).strip()
+    blocking_reason = str(route_error or deferred_reason or (runtime_errors[0] if runtime_errors else "") or "").strip()
+    report = {
+        "probe_ok": True,
+        "status": status,
+        "principal_id": str(principal_id or "").strip(),
+        "compose_file": effective_compose_file,
+        "runtime_service": effective_runtime_service,
+        "observed_at": observed_at,
+        "source": "docker_compose_exec",
+        "delivery_route_ready": route_ready,
+        "selected_channel": str(delivery_route.get("selected_channel") or "").strip(),
+        "selected_transport": str(delivery_route.get("selected_transport") or "").strip(),
+        "selected_by": str(delivery_route.get("selected_by") or "").strip(),
+        "available_channels": [str(item or "").strip() for item in list(delivery_route.get("available_channels") or []) if str(item or "").strip()],
+        "blocking_reason": blocking_reason,
+        "recovery_hint": str(delivery_route.get("recovery_hint") or "").strip(),
+        "next_action": next_action,
+        "approval_capture_surface_ready": bool(artifact_probe.get("current_packet_live_pending_count") or 0) > 0,
+        "approval_capture_surface_pending_count": int(artifact_probe.get("current_packet_live_pending_count") or 0),
+        "route_report": route_payload,
+        "live_receipt": live_receipt_payload,
+        "live_receipt_checked": bool(live_receipt_payload),
+    }
+    report.update(_next_action_surface_fields(next_action))
+    if output_format == "operator":
+        route_label = str(delivery_route.get("selected_channel") or "none").strip() or "none"
+        recovery = str(delivery_route.get("recovery_hint") or "").strip()
+        tail = f"; next={next_action}" if next_action else ""
+        if recovery:
+            tail = f"{tail}; recovery={recovery}"
+        report["operator_text"] = (
+            f"proactive_route status={status}; route={route_label}; "
+            f"ready={str(route_ready).lower()}; source=docker_compose_exec{tail}"
+        )
+    return report
+
+
+def _proactive_guard_next_action(reason: str) -> str:
+    normalized = str(reason or "").strip()
+    if normalized == "deferred_by_operator_pause":
+        return "clear_proactive_operator_pause"
+    if normalized == "deferred_by_quiet_hours":
+        return "resume_after_quiet_hours"
+    if normalized == "deferred_by_interruption_budget":
+        return "wait_for_interruption_budget_window"
+    if normalized == "deferred_by_unarmed_send":
+        return "arm_proactive_send_for_live_delivery"
+    return ""
+
+
+def _proactive_runtime_error_next_action(errors: list[str]) -> str:
+    first = str(errors[0] if errors else "").strip()
+    if first.startswith("google_workspace_signal_source_unhealthy:"):
+        return "reauthorize_google_workspace_binding"
+    if first:
+        return "repair_proactive_runtime_inputs"
+    return ""
+
+
+def _next_action_surface_fields(action: str) -> dict[str, str]:
+    surface = proactive_next_action_surface(action)
+    return {
+        "next_action_href": str(surface.get("href") or "").strip(),
+        "next_action_label": str(surface.get("label") or "").strip(),
+        "next_action_method": str(surface.get("method") or "").strip(),
+    }
+
+
+def _proactive_approval_followthrough_next_action(
+    *,
+    artifact_probe: Mapping[str, object],
+    route_ready: bool,
+    selected_channel: str,
+    live_receipt_payload: Mapping[str, object],
+) -> str:
+    if not route_ready:
+        return ""
+    if str(selected_channel or "").strip() != "telegram":
+        return ""
+    if not bool(live_receipt_payload.get("ok")):
+        return ""
+    if int(artifact_probe.get("current_packet_live_pending_count") or 0) <= 0:
+        return ""
+    return "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome"
+
+
+def _sha256_text(value: str) -> str:
+    normalized = str(value or "").strip()
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest() if normalized else ""
+
+
+def _approval_outcome_matches_current_packet(
+    *,
+    approval_outcome: Mapping[str, object],
+    stage_packet: Mapping[str, object],
+    safe_work_result: Mapping[str, object],
+) -> bool:
+    if not bool(approval_outcome.get("approval_outcome_recorded")):
+        return False
+    packet_ref = _proactive_stage_packet_ref(stage_packet)
+    staged_artifact_ref = _proactive_staged_artifact_ref(safe_work_result)
+    expected_packet_hash = _sha256_text(packet_ref)
+    expected_artifact_hash = _sha256_text(staged_artifact_ref)
+    outcome_packet_hash = str(approval_outcome.get("packet_ref_sha256") or "").strip()
+    outcome_artifact_hash = str(approval_outcome.get("staged_artifact_sha256") or "").strip()
+    if not outcome_packet_hash and not outcome_artifact_hash:
+        return False
+    if outcome_packet_hash and outcome_packet_hash != expected_packet_hash:
+        return False
+    if outcome_artifact_hash and outcome_artifact_hash != expected_artifact_hash:
+        return False
+    return bool((outcome_packet_hash and expected_packet_hash) or (outcome_artifact_hash and expected_artifact_hash))
+
+
+def _proactive_current_packet_summary(
+    *,
+    stage_packet: Mapping[str, object],
+    safe_work_result: Mapping[str, object],
+    approval_outcome: Mapping[str, object],
+    current_packet_callback_outcome: Mapping[str, object] | None = None,
+    current_packet_live_pending_count: int,
+    current_packet_callback_record_count: int,
+    current_packet_callback_latest_status: str,
+) -> dict[str, object]:
+    stage = dict(stage_packet.get("stage") or {}) if isinstance(stage_packet, Mapping) else {}
+    stage_payload = dict(stage.get("payload") or {}) if isinstance(stage.get("payload"), Mapping) else {}
+    recommended = dict(safe_work_result.get("recommended_option_or_draft") or {}) if isinstance(safe_work_result, Mapping) else {}
+    recommended_value = dict(recommended.get("value") or {}) if isinstance(recommended.get("value"), Mapping) else {}
+    shortlist = [dict(row) for row in list(safe_work_result.get("shortlist") or []) if isinstance(row, Mapping)]
+    outcome_recorded = _approval_outcome_matches_current_packet(
+        approval_outcome=approval_outcome,
+        stage_packet=stage_packet,
+        safe_work_result=safe_work_result,
+    )
+    if not outcome_recorded and current_packet_callback_outcome:
+        outcome_recorded = _approval_outcome_matches_current_packet(
+            approval_outcome=current_packet_callback_outcome,
+            stage_packet=stage_packet,
+            safe_work_result=safe_work_result,
+        )
+    if outcome_recorded:
+        status = str(approval_outcome.get("status") or "recorded").strip() or "recorded"
+    elif int(current_packet_live_pending_count or 0) > 0:
+        status = "pending_approval"
+    elif int(current_packet_callback_record_count or 0) > 0:
+        status = str(current_packet_callback_latest_status or "callback_recorded").strip() or "callback_recorded"
+    elif stage_packet or safe_work_result:
+        status = "staged"
+    else:
+        status = "missing"
+    recommended_label = _compact_text(
+        recommended_value.get("label")
+        or recommended_value.get("title")
+        or recommended.get("value")
+        or "",
+        limit=80,
+    )
+    recommended_url = _compact_text(
+        recommended_value.get("final_url")
+        or recommended_value.get("url")
+        or recommended_value.get("link")
+        or safe_work_result.get("staged_action_url")
+        or stage_payload.get("approval_url")
+        or "",
+        limit=180,
+    )
+    return {
+        "present": bool(stage_packet or safe_work_result),
+        "status": status,
+        "packet_ref": _proactive_stage_packet_ref(stage_packet),
+        "staged_artifact_ref": _proactive_staged_artifact_ref(safe_work_result),
+        "observe": _compact_text(stage_packet.get("observe"), limit=160),
+        "decide": _compact_text(stage_packet.get("decide"), limit=160),
+        "act": _compact_text(stage_packet.get("act"), limit=160),
+        "stage_kind": _compact_text(stage.get("kind"), limit=60),
+        "stage_summary": _compact_text(stage.get("summary") or safe_work_result.get("summary"), limit=180),
+        "approval_prompt": _compact_text(
+            safe_work_result.get("approval_prompt")
+            or stage_payload.get("approval_prompt")
+            or "",
+            limit=220,
+        ),
+        "recommended_label": recommended_label,
+        "recommended_url": recommended_url,
+        "staged_action_url": _compact_text(
+            safe_work_result.get("staged_action_url")
+            or stage_payload.get("approval_url")
+            or "",
+            limit=180,
+        ),
+        "shortlist_count": len(shortlist),
+        "approval_outcome_matches_current_packet": outcome_recorded,
+    }
+
+
+def probe_proactive_artifacts(
+    *,
+    compose_file: str = "",
+    runtime_service: str = "",
+    timeout_seconds: float = 30.0,
+    output_format: str = "json",
+) -> dict[str, object]:
+    effective_compose_file = str(compose_file or _env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE))).strip()
+    effective_runtime_service = str(runtime_service or _env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE)).strip()
+    observed_at = _utc_now()
+    if not effective_compose_file or not effective_runtime_service:
+        report = {
+            "probe_ok": False,
+            "status": "probe_failed",
+            "compose_file": effective_compose_file,
+            "runtime_service": effective_runtime_service,
+            "observed_at": observed_at,
+            "source": "docker_compose_exec",
+            "blocking_reason": "runtime_probe_configuration_missing",
+        }
+        if output_format == "operator":
+            report["operator_text"] = "proactive artifact probe failed; configure runtime probe inputs"
+        return report
+
+    command = [
+        "python",
+        "-c",
+        (
+            "import json, os\n"
+            "from datetime import datetime, timezone\n"
+            "from pathlib import Path\n"
+            "from app.services.proactive_ooda_runtime_artifacts import load_runtime_artifact_bundle\n"
+            "from app.services.proactive_ooda_telegram_approval import default_proactive_ooda_telegram_approval_callback_dir\n"
+            "root = Path('/app')\n"
+            "state_path = os.getenv('EA_PROACTIVE_OODA_STATE_PATH') or '/data/provider-ledger/proactive_ooda_notified.json'\n"
+            "receipt_path = os.getenv('EA_PROACTIVE_OODA_RECEIPT_PATH') or ''\n"
+            "stage_packet_dir = os.getenv('EA_PROACTIVE_OODA_STAGE_PACKET_DIR') or ''\n"
+            "safe_work_result_dir = os.getenv('EA_PROACTIVE_OODA_SAFE_WORK_RESULT_DIR') or ''\n"
+            "bundle = load_runtime_artifact_bundle(root=root, state_path=state_path, receipt_path=receipt_path, stage_packet_dir=stage_packet_dir, safe_work_result_dir=safe_work_result_dir)\n"
+            "callback_dir = default_proactive_ooda_telegram_approval_callback_dir(root=root, state_path=state_path, receipt_path=receipt_path)\n"
+            "def _text(path):\n"
+            "    return '' if path is None else path.as_posix()\n"
+            "def _dir_writable(path):\n"
+            "    probe = path if path.exists() else path.parent\n"
+            "    while not probe.exists() and probe != probe.parent:\n"
+            "        probe = probe.parent\n"
+            "    try:\n"
+            "        return os.access(probe, os.W_OK)\n"
+            "    except Exception:\n"
+            "        return False\n"
+            "def _expires_at_ts(value):\n"
+            "    text = str(value or '').strip()\n"
+            "    if not text:\n"
+            "        return 0.0\n"
+            "    if text.endswith('Z'):\n"
+            "        text = text[:-1] + '+00:00'\n"
+            "    try:\n"
+            "        return datetime.fromisoformat(text).timestamp()\n"
+            "    except Exception:\n"
+            "        return 0.0\n"
+            "now_ts = datetime.now(timezone.utc).timestamp()\n"
+            "def _is_live(row):\n"
+            "    expires = _expires_at_ts(row.get('expires_at'))\n"
+            "    return expires <= 0.0 or expires > now_ts\n"
+            "def _is_live_pending(row):\n"
+            "    return str(row.get('status') or '').strip() == 'pending' and _is_live(row)\n"
+            "def _status(row):\n"
+            "    return str(row.get('status') or '').strip().lower()\n"
+            "def _matches_current(row):\n"
+            "    return (\n"
+            "        bool(current_packet_ref and current_artifact_ref)\n"
+            "        and str(row.get('packet_ref') or '').strip() == current_packet_ref\n"
+            "        and str(row.get('staged_artifact_ref') or '').strip() == current_artifact_ref\n"
+            "    )\n"
+            "callback_rows = []\n"
+            "if callback_dir.is_dir():\n"
+            "    for candidate in callback_dir.glob('*.json'):\n"
+            "        try:\n"
+            "            payload = json.loads(candidate.read_text(encoding='utf-8'))\n"
+            "        except Exception:\n"
+            "            continue\n"
+            "        if isinstance(payload, dict):\n"
+            "            callback_rows.append(payload)\n"
+            "stage_packet = dict(bundle.get('stage_packet') or {})\n"
+            "safe_work_result = dict(bundle.get('safe_work_result') or {})\n"
+            "current_packet_ref = str(stage_packet.get('packet_ref') or stage_packet.get('packet_id') or '').strip()\n"
+            "current_artifact_ref = str(safe_work_result.get('result_ref') or '').strip()\n"
+            "if not current_artifact_ref:\n"
+            "    result_id = str(safe_work_result.get('result_id') or '').strip()\n"
+            "    current_artifact_ref = f'safe_work_result:{result_id}' if result_id else ''\n"
+            "current_packet_rows = [\n"
+            "    row for row in callback_rows\n"
+            "    if str(row.get('packet_ref') or '').strip() == current_packet_ref\n"
+            "    and str(row.get('staged_artifact_ref') or '').strip() == current_artifact_ref\n"
+            "]\n"
+            "current_packet_rows.sort(key=lambda row: str(row.get('created_at') or ''))\n"
+            "current_packet_latest = current_packet_rows[-1] if current_packet_rows else {}\n"
+            "pending_rows = [row for row in callback_rows if _status(row) == 'pending']\n"
+            "current_live_pending_rows = [row for row in current_packet_rows if _is_live_pending(row)]\n"
+            "unexpired_pending_rows = [row for row in pending_rows if _is_live(row)]\n"
+            "expired_pending_rows = [row for row in pending_rows if not _is_live(row)]\n"
+            "noncurrent_pending_rows = [row for row in pending_rows if not _matches_current(row)]\n"
+            "stale_pending_rows = [row for row in pending_rows if (not _is_live(row)) or (not _matches_current(row))]\n"
+            "recorded_rows = [row for row in callback_rows if _status(row) in ('approved','rejected','deferred','dismissed')]\n"
+            "expired_rows = [row for row in callback_rows if _status(row) == 'expired']\n"
+            "superseded_rows = [row for row in callback_rows if _status(row) == 'superseded']\n"
+            "terminal_rows = [row for row in callback_rows if _status(row) in ('approved','rejected','deferred','dismissed','expired','superseded')]\n"
+            "current_pending_rows = [row for row in current_packet_rows if _status(row) == 'pending']\n"
+            "current_expired_pending_rows = [row for row in current_pending_rows if not _is_live(row)]\n"
+            "current_expired_rows = [row for row in current_packet_rows if _status(row) == 'expired']\n"
+            "current_superseded_rows = [row for row in current_packet_rows if _status(row) == 'superseded']\n"
+            "print(json.dumps({\n"
+            "  'probe_ok': True,\n"
+            "  'state_path': _text(bundle.get('state_path')),\n"
+            "  'run_receipt_path': _text(bundle.get('run_receipt_path')),\n"
+            "  'stage_packet_dir': _text(bundle.get('stage_packet_dir')),\n"
+            "  'safe_work_result_dir': _text(bundle.get('safe_work_result_dir')),\n"
+            "  'approval_outcome_path': _text(bundle.get('approval_outcome_path')),\n"
+            "  'approval_callback_dir': _text(callback_dir),\n"
+            "  'approval_callback_dir_exists': callback_dir.is_dir(),\n"
+            "  'approval_callback_dir_writable': _dir_writable(callback_dir),\n"
+            "  'approval_callback_record_count': len(callback_rows),\n"
+            "  'approval_callback_pending_count': len(current_live_pending_rows),\n"
+            "  'approval_callback_raw_pending_count': len(pending_rows),\n"
+            "  'approval_callback_live_pending_count': len(current_live_pending_rows),\n"
+            "  'approval_callback_unexpired_pending_count': len(unexpired_pending_rows),\n"
+            "  'approval_callback_noncurrent_pending_count': len(noncurrent_pending_rows),\n"
+            "  'approval_callback_expired_pending_count': len(expired_pending_rows),\n"
+            "  'approval_callback_stale_pending_count': len(stale_pending_rows),\n"
+            "  'approval_callback_recorded_count': len(recorded_rows),\n"
+            "  'approval_callback_expired_count': len(expired_rows),\n"
+            "  'approval_callback_superseded_count': len(superseded_rows),\n"
+            "  'approval_callback_terminal_count': len(terminal_rows),\n"
+            "  'current_packet_callback_record_count': len(current_packet_rows),\n"
+            "  'current_packet_callback_pending_count': len(current_pending_rows),\n"
+            "  'current_packet_callback_raw_pending_count': len(current_pending_rows),\n"
+            "  'current_packet_callback_expired_pending_count': len(current_expired_pending_rows),\n"
+            "  'current_packet_callback_stale_pending_count': len(current_expired_pending_rows),\n"
+            "  'current_packet_callback_recorded_count': sum(1 for row in current_packet_rows if _status(row) in ('approved','rejected','deferred','dismissed')),\n"
+            "  'current_packet_callback_expired_count': len(current_expired_rows),\n"
+            "  'current_packet_callback_superseded_count': len(current_superseded_rows),\n"
+            "  'current_packet_live_callback_record_count': sum(1 for row in current_packet_rows if _is_live(row)),\n"
+            "  'current_packet_live_pending_count': sum(1 for row in current_packet_rows if _is_live_pending(row)),\n"
+            "  'current_packet_callback_latest_status': str(current_packet_latest.get('status') or '').strip(),\n"
+            "  'current_packet_callback_latest_expired': bool(current_packet_latest) and (not _is_live(current_packet_latest)),\n"
+            "  'current_packet_callback_outcome': bundle.get('current_packet_callback_outcome') or {},\n"
+            "  'stage_packet_path': _text(bundle.get('stage_packet_path')),\n"
+            "  'safe_work_result_path': _text(bundle.get('safe_work_result_path')),\n"
+            "  'run_receipt': bundle.get('run_receipt') or {},\n"
+            "  'stage_packet': bundle.get('stage_packet') or {},\n"
+            "  'safe_work_result': bundle.get('safe_work_result') or {},\n"
+            "  'approval_outcome': bundle.get('approval_outcome') or {},\n"
+            "}, sort_keys=True))\n"
+        ),
+    ]
+    code, payload, stdout, stderr = _docker_compose_exec_json(
+        compose_file=effective_compose_file,
+        service=effective_runtime_service,
+        command=command,
+        timeout_seconds=timeout_seconds,
+    )
+    if not payload:
+        report = {
+            "probe_ok": False,
+            "status": "probe_failed",
+            "compose_file": effective_compose_file,
+            "runtime_service": effective_runtime_service,
+            "observed_at": observed_at,
+            "source": "docker_compose_exec",
+            "blocking_reason": f"runtime_artifact_probe_failed:exit_{code}",
+            "stdout_excerpt": stdout.strip()[:200],
+            "stderr_excerpt": stderr.strip()[:200],
+        }
+        if output_format == "operator":
+            report["operator_text"] = f"proactive artifact probe failed; inspect {effective_runtime_service}"
+        return report
+
+    report = {
+        "probe_ok": True,
+        "status": "ok",
+        "compose_file": effective_compose_file,
+        "runtime_service": effective_runtime_service,
+        "observed_at": observed_at,
+        "source": "docker_compose_exec",
+        "state_path": str(payload.get("state_path") or "").strip(),
+        "run_receipt_path": str(payload.get("run_receipt_path") or "").strip(),
+        "stage_packet_dir": str(payload.get("stage_packet_dir") or "").strip(),
+        "safe_work_result_dir": str(payload.get("safe_work_result_dir") or "").strip(),
+        "approval_outcome_path": str(payload.get("approval_outcome_path") or "").strip(),
+        "approval_callback_dir": str(payload.get("approval_callback_dir") or "").strip(),
+        "approval_callback_dir_exists": bool(payload.get("approval_callback_dir_exists")),
+        "approval_callback_dir_writable": bool(payload.get("approval_callback_dir_writable")),
+        "approval_callback_record_count": int(payload.get("approval_callback_record_count") or 0),
+        "approval_callback_pending_count": int(payload.get("approval_callback_pending_count") or 0),
+        "approval_callback_raw_pending_count": int(payload.get("approval_callback_raw_pending_count") or payload.get("approval_callback_pending_count") or 0),
+        "approval_callback_live_pending_count": int(payload.get("approval_callback_live_pending_count") or payload.get("approval_callback_pending_count") or 0),
+        "approval_callback_unexpired_pending_count": int(payload.get("approval_callback_unexpired_pending_count") or payload.get("approval_callback_live_pending_count") or 0),
+        "approval_callback_noncurrent_pending_count": int(payload.get("approval_callback_noncurrent_pending_count") or 0),
+        "approval_callback_expired_pending_count": int(payload.get("approval_callback_expired_pending_count") or 0),
+        "approval_callback_stale_pending_count": int(payload.get("approval_callback_stale_pending_count") or 0),
+        "approval_callback_recorded_count": int(payload.get("approval_callback_recorded_count") or 0),
+        "approval_callback_expired_count": int(payload.get("approval_callback_expired_count") or 0),
+        "approval_callback_superseded_count": int(payload.get("approval_callback_superseded_count") or 0),
+        "approval_callback_terminal_count": int(payload.get("approval_callback_terminal_count") or 0),
+        "current_packet_callback_record_count": int(payload.get("current_packet_callback_record_count") or 0),
+        "current_packet_callback_pending_count": int(payload.get("current_packet_callback_pending_count") or 0),
+        "current_packet_callback_raw_pending_count": int(
+            payload.get("current_packet_callback_raw_pending_count") or payload.get("current_packet_callback_pending_count") or 0
+        ),
+        "current_packet_callback_expired_pending_count": int(payload.get("current_packet_callback_expired_pending_count") or 0),
+        "current_packet_callback_stale_pending_count": int(payload.get("current_packet_callback_stale_pending_count") or 0),
+        "current_packet_callback_recorded_count": int(payload.get("current_packet_callback_recorded_count") or 0),
+        "current_packet_callback_expired_count": int(payload.get("current_packet_callback_expired_count") or 0),
+        "current_packet_callback_superseded_count": int(payload.get("current_packet_callback_superseded_count") or 0),
+        "current_packet_live_callback_record_count": int(payload.get("current_packet_live_callback_record_count") or 0),
+        "current_packet_live_pending_count": int(payload.get("current_packet_live_pending_count") or 0),
+        "current_packet_callback_latest_status": str(payload.get("current_packet_callback_latest_status") or "").strip(),
+        "current_packet_callback_latest_expired": bool(payload.get("current_packet_callback_latest_expired")),
+        "current_packet_callback_outcome": dict(payload.get("current_packet_callback_outcome") or {}),
+        "stage_packet_path": str(payload.get("stage_packet_path") or "").strip(),
+        "safe_work_result_path": str(payload.get("safe_work_result_path") or "").strip(),
+        "run_receipt": dict(payload.get("run_receipt") or {}),
+        "stage_packet": dict(payload.get("stage_packet") or {}),
+        "safe_work_result": dict(payload.get("safe_work_result") or {}),
+        "approval_outcome": dict(payload.get("approval_outcome") or {}),
+    }
+    report["current_packet"] = _proactive_current_packet_summary(
+        stage_packet=dict(report.get("stage_packet") or {}),
+        safe_work_result=dict(report.get("safe_work_result") or {}),
+        approval_outcome=dict(report.get("approval_outcome") or {}),
+        current_packet_callback_outcome=dict(report.get("current_packet_callback_outcome") or {}),
+        current_packet_live_pending_count=int(report.get("current_packet_live_pending_count") or 0),
+        current_packet_callback_record_count=int(report.get("current_packet_callback_record_count") or 0),
+        current_packet_callback_latest_status=str(report.get("current_packet_callback_latest_status") or "").strip(),
+    )
+    report["approval_outcome_matches_current_packet"] = bool(
+        dict(report.get("current_packet") or {}).get("approval_outcome_matches_current_packet")
+    )
+    if output_format == "operator":
+        current_packet = dict(report.get("current_packet") or {})
+        detail_parts = [
+            f"packet_status={str(current_packet.get('status') or '').strip() or 'missing'}",
+        ]
+        if str(current_packet.get("decide") or "").strip():
+            detail_parts.append(f"decide={str(current_packet.get('decide') or '').strip()}")
+        if str(current_packet.get("recommended_label") or "").strip():
+            detail_parts.append(f"recommend={str(current_packet.get('recommended_label') or '').strip()}")
+        if str(current_packet.get("staged_action_url") or "").strip():
+            detail_parts.append(f"link={str(current_packet.get('staged_action_url') or '').strip()}")
+        report["operator_text"] = (
+            "proactive_artifacts "
+            f"run_receipt={str(bool(report['run_receipt'])).lower()} "
+            f"stage_packet={str(bool(report['stage_packet'])).lower()} "
+            f"safe_work_result={str(bool(report['safe_work_result'])).lower()} "
+            f"approval_outcome={str(bool(report['approval_outcome'])).lower()} "
+            f"approval_outcome_current={str(bool(report['approval_outcome_matches_current_packet'])).lower()} "
+            f"approval_surface={str(bool(report['approval_callback_dir_writable'] and report['approval_callback_dir'] and int(report['current_packet_live_pending_count']) > 0)).lower()} "
+            f"callback_records={int(report['approval_callback_record_count'])} "
+            f"callback_live_pending={int(report['approval_callback_live_pending_count'])} "
+            f"callback_stale_pending={int(report['approval_callback_stale_pending_count'])} "
+            f"callback_noncurrent_pending={int(report['approval_callback_noncurrent_pending_count'])} "
+            f"callback_expired={int(report['approval_callback_expired_count'])} "
+            f"callback_superseded={int(report['approval_callback_superseded_count'])} "
+            f"current_packet_callbacks={int(report['current_packet_callback_record_count'])} "
+            f"current_packet_live_pending={int(report['current_packet_live_pending_count'])} "
+            + " ".join(detail_parts)
+        )
+    return report
+
+
+def probe_proactive_gmail_draft(
+    *,
+    principal_id: str,
+    compose_file: str = "",
+    runtime_service: str = "",
+    state_path: str = "",
+    receipt_path: str = "",
+    stage_packet_dir: str = "",
+    safe_work_result_dir: str = "",
+    timeout_seconds: float = 30.0,
+    output_format: str = "json",
+) -> dict[str, object]:
+    effective_compose_file = str(compose_file or _env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE))).strip()
+    effective_runtime_service = str(runtime_service or _env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE)).strip()
+    observed_at = _utc_now()
+    if not effective_compose_file or not effective_runtime_service:
+        report = {
+            "probe_ok": False,
+            "status": "probe_failed",
+            "principal_id": str(principal_id or "").strip(),
+            "compose_file": effective_compose_file,
+            "runtime_service": effective_runtime_service,
+            "observed_at": observed_at,
+            "source": "docker_compose_exec",
+            "blocking_reason": "runtime_probe_configuration_missing",
+            "next_action": "configure_proactive_runtime_probe",
+        }
+        report.update(_next_action_surface_fields(str(report.get("next_action") or "")))
+        if output_format == "operator":
+            report["operator_text"] = "proactive_gmail_draft probe failed; configure runtime probe inputs"
+        return report
+
+    command = [
+        "python",
+        "-c",
+        (
+            "import json, sys\n"
+            "from app.container import build_container\n"
+            "from app.services.proactive_ooda_telegram_approval import inspect_latest_telegram_gmail_draft_followthrough\n"
+            "from app.services.proactive_telegram_binding import resolve_proactive_telegram_chat_id\n"
+            "from app.services.telegram_delivery import resolve_primary_telegram_binding\n"
+            "payload = json.loads(sys.argv[1])\n"
+            "container = build_container()\n"
+            "report = inspect_latest_telegram_gmail_draft_followthrough(\n"
+            "    container=container,\n"
+            "    principal_id=str(payload.get('principal_id') or '').strip(),\n"
+            "    state_path=str(payload.get('state_path') or '').strip(),\n"
+            "    receipt_path=str(payload.get('receipt_path') or '').strip(),\n"
+            "    stage_packet_dir=str(payload.get('stage_packet_dir') or '').strip(),\n"
+            "    safe_work_result_dir=str(payload.get('safe_work_result_dir') or '').strip(),\n"
+            ")\n"
+            "binding = resolve_primary_telegram_binding(container.tool_runtime, principal_id=str(payload.get('principal_id') or '').strip())\n"
+            "metadata = dict(getattr(binding, 'auth_metadata_json', {}) or {}) if binding is not None else {}\n"
+            "primary_chat_id = str(metadata.get('default_chat_ref') or getattr(binding, 'external_account_ref', '') or '').strip() if binding is not None else ''\n"
+            "report.update({\n"
+            "    'telegram_primary_binding_principal_id': str(getattr(binding, 'principal_id', '') or '').strip() if binding is not None else '',\n"
+            "    'telegram_primary_chat_id': primary_chat_id,\n"
+            "    'telegram_proactive_chat_id': resolve_proactive_telegram_chat_id(principal_id=str(payload.get('principal_id') or '').strip()),\n"
+            "})\n"
+            "print(json.dumps(report, sort_keys=True))\n"
+        ),
+        _json_dumps(
+            {
+                "principal_id": str(principal_id or "").strip(),
+                "state_path": str(state_path or "").strip(),
+                "receipt_path": str(receipt_path or "").strip(),
+                "stage_packet_dir": str(stage_packet_dir or "").strip(),
+                "safe_work_result_dir": str(safe_work_result_dir or "").strip(),
+            }
+        ),
+    ]
+    code, payload, stdout, stderr = _docker_compose_exec_json(
+        compose_file=effective_compose_file,
+        service=effective_runtime_service,
+        command=command,
+        timeout_seconds=timeout_seconds,
+    )
+    if not payload:
+        report = {
+            "probe_ok": False,
+            "status": "probe_failed",
+            "principal_id": str(principal_id or "").strip(),
+            "compose_file": effective_compose_file,
+            "runtime_service": effective_runtime_service,
+            "observed_at": observed_at,
+            "source": "docker_compose_exec",
+            "blocking_reason": f"runtime_gmail_draft_probe_failed:exit_{code}",
+            "next_action": "inspect_proactive_runtime_container",
+            "stdout_excerpt": stdout.strip()[:200],
+            "stderr_excerpt": stderr.strip()[:200],
+        }
+        report.update(_next_action_surface_fields(str(report.get("next_action") or "")))
+        if output_format == "operator":
+            report["operator_text"] = f"proactive_gmail_draft probe failed; inspect {effective_runtime_service}"
+        return report
+
+    reason = str(payload.get("reason") or "").strip()
+    next_action = _proactive_gmail_draft_next_action(reason)
+    next_action_surface = dict(payload.get("next_action_surface") or {})
+    if not next_action_surface and next_action:
+        next_action_surface = _next_action_surface_fields(next_action)
+    report = {
+        "probe_ok": True,
+        "status": str(payload.get("status") or "").strip() or "unknown",
+        "principal_id": str(principal_id or "").strip(),
+        "compose_file": effective_compose_file,
+        "runtime_service": effective_runtime_service,
+        "observed_at": observed_at,
+        "source": "docker_compose_exec",
+        "staged_principal_id": str(payload.get("principal_id") or "").strip(),
+        "packet_ref": str(payload.get("packet_ref") or "").strip(),
+        "staged_artifact_ref": str(payload.get("staged_artifact_ref") or "").strip(),
+        "source_observation_id": str(payload.get("source_observation_id") or "").strip(),
+        "source_created_at": str(payload.get("source_created_at") or "").strip(),
+        "action": str(payload.get("action") or "").strip(),
+        "work_type": str(payload.get("work_type") or "").strip(),
+        "blocking_reason": reason,
+        "recipient_email_present": bool(str(payload.get("recipient_email") or "").strip()),
+        "draft_body_present": bool(payload.get("draft_body_present")),
+        "subject": str(payload.get("subject") or "").strip(),
+        "google_binding_id": str(payload.get("google_binding_id") or "").strip(),
+        "google_binding_principal_id": str(payload.get("google_binding_principal_id") or "").strip(),
+        "google_account_email": str(payload.get("google_account_email") or "").strip(),
+        "expected_google_account_email": str(payload.get("expected_google_account_email") or "").strip(),
+        "google_token_status": str(payload.get("google_token_status") or "").strip(),
+        "google_reauth_required_reason": str(payload.get("google_reauth_required_reason") or "").strip(),
+        "google_gmail_draft_scope_present": bool(payload.get("google_gmail_draft_scope_present")),
+        "google_account_count": int(payload.get("google_account_count") or 0),
+        "telegram_primary_binding_principal_id": str(payload.get("telegram_primary_binding_principal_id") or "").strip(),
+        "telegram_primary_chat_id": str(payload.get("telegram_primary_chat_id") or "").strip(),
+        "telegram_proactive_chat_id": str(payload.get("telegram_proactive_chat_id") or "").strip(),
+        "next_action": next_action,
+        "next_action_href": str(next_action_surface.get("href") or "").strip(),
+        "next_action_label": str(next_action_surface.get("label") or "").strip(),
+        "next_action_method": str(next_action_surface.get("method") or "").strip(),
+        "raw": payload,
+    }
+    if output_format == "operator":
+        pieces = [
+            f"proactive_gmail_draft status={report['status']}",
+            f"action={str(report.get('action') or '').strip() or 'none'}",
+        ]
+        if str(report.get("google_account_email") or "").strip():
+            pieces.append(f"account={report['google_account_email']}")
+        if str(report.get("expected_google_account_email") or "").strip():
+            pieces.append(f"expected={report['expected_google_account_email']}")
+        if str(report.get("google_token_status") or "").strip():
+            pieces.append(f"token={report['google_token_status']}")
+        if str(report.get("telegram_proactive_chat_id") or "").strip():
+            pieces.append(f"proactive_chat={report['telegram_proactive_chat_id']}")
+        if str(report.get("blocking_reason") or "").strip():
+            pieces.append(f"reason={report['blocking_reason']}")
+        if str(report.get("next_action") or "").strip():
+            pieces.append(f"next={report['next_action']}")
+        report["operator_text"] = "; ".join(pieces)
+    return report
+
+
+def _proactive_stage_packet_ref(stage_packet: Mapping[str, object]) -> str:
+    return str(stage_packet.get("packet_ref") or stage_packet.get("packet_id") or "").strip()
+
+
+def _proactive_staged_artifact_ref(safe_work_result: Mapping[str, object]) -> str:
+    result_ref = str(safe_work_result.get("result_ref") or "").strip()
+    if result_ref:
+        return result_ref
+    result_id = str(safe_work_result.get("result_id") or "").strip()
+    return f"safe_work_result:{result_id}" if result_id else ""
+
+
+def _normalize_proactive_outcome(value: str) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"approve", "approved", "accept", "accepted"}:
+        return "approved"
+    if normalized in {"reject", "rejected", "deny", "denied", "decline", "declined"}:
+        return "rejected"
+    if normalized in {"defer", "deferred", "later"}:
+        return "deferred"
+    if normalized in {"dismiss", "dismissed"}:
+        return "dismissed"
+    return normalized or "missing"
+
+
+def _proactive_gmail_draft_next_action(reason: str) -> str:
+    normalized = str(reason or "").strip().lower()
+    if normalized in {
+        "google_oauth_binding_not_found",
+        "google_oauth_invalid_grant",
+        "google_oauth_refresh_failed",
+        "google_oauth_account_mismatch",
+        "google_gmail_draft_scope_missing",
+        "google_gmail_refresh_token_missing",
+        "google_gmail_access_token_missing",
+        "google_gmail_sender_missing",
+    }:
+        return "reauthorize_google_workspace_binding"
+    if normalized in {"approved_stage_packet_missing", "approved_safe_work_result_missing", "staged_refs_missing"}:
+        return "inspect_proactive_runtime_artifacts"
+    if normalized == "approved_draft_body_missing":
+        return "inspect_proactive_runtime_artifacts"
+    return ""
+
+
+def record_proactive_approval(
+    *,
+    principal_id: str,
+    outcome: str,
+    evidence: str,
+    actor: str = "operator-cli",
+    source_kind: str = "operator",
+    packet_ref: str = "",
+    staged_artifact_ref: str = "",
+    compose_file: str = "",
+    runtime_service: str = "",
+    timeout_seconds: float = 30.0,
+    dry_run: bool = False,
+    output_format: str = "json",
+) -> dict[str, object]:
+    effective_compose_file = str(compose_file or _env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE))).strip()
+    effective_runtime_service = str(runtime_service or _env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE)).strip()
+    observed_at = _utc_now()
+    artifact_probe = probe_proactive_artifacts(
+        compose_file=effective_compose_file,
+        runtime_service=effective_runtime_service,
+        timeout_seconds=timeout_seconds,
+        output_format="json",
+    )
+    normalized_outcome = _normalize_proactive_outcome(outcome)
+    resolved_packet_ref = str(packet_ref or "").strip() or _proactive_stage_packet_ref(dict(artifact_probe.get("stage_packet") or {}))
+    resolved_staged_artifact_ref = str(staged_artifact_ref or "").strip() or _proactive_staged_artifact_ref(
+        dict(artifact_probe.get("safe_work_result") or {})
+    )
+    base_report: dict[str, object] = {
+        "recorded": False,
+        "reason": "",
+        "principal_id": str(principal_id or "").strip(),
+        "outcome": normalized_outcome,
+        "accepted": normalized_outcome == "approved",
+        "evidence_present": bool(str(evidence or "").strip()),
+        "actor": str(actor or "").strip(),
+        "source_kind": str(source_kind or "").strip() or "operator",
+        "packet_ref": resolved_packet_ref,
+        "staged_artifact_ref": resolved_staged_artifact_ref,
+        "compose_file": effective_compose_file,
+        "runtime_service": effective_runtime_service,
+        "observed_at": observed_at,
+        "artifact_probe": artifact_probe,
+        "approval_capture_surface_ready": bool(artifact_probe.get("current_packet_live_pending_count") or 0) > 0,
+        "approval_capture_surface_pending_count": int(artifact_probe.get("current_packet_live_pending_count") or 0),
+    }
+    if not bool(artifact_probe.get("probe_ok")):
+        report = {
+            **base_report,
+            "reason": "artifact_probe_failed",
+            "blocking_reason": str(artifact_probe.get("blocking_reason") or "artifact_probe_failed").strip(),
+            "next_action": "inspect_proactive_runtime_artifacts",
+        }
+        if output_format == "operator":
+            report["operator_text"] = "proactive_approval status=probe_failed; next=inspect_proactive_runtime_artifacts"
+        return report
+    if not resolved_packet_ref or not resolved_staged_artifact_ref:
+        report = {
+            **base_report,
+            "reason": "current_runtime_packet_unresolved",
+            "blocking_reason": "current_runtime_packet_unresolved",
+            "next_action": "inspect_proactive_runtime_artifacts",
+        }
+        if output_format == "operator":
+            report["operator_text"] = "proactive_approval status=unresolved; next=inspect_proactive_runtime_artifacts"
+        return report
+    if dry_run:
+        report = {
+            **base_report,
+            "reason": "dry_run",
+            "next_action": "run_without_dry_run_to_record_outcome",
+        }
+        if output_format == "operator":
+            report["operator_text"] = (
+                "proactive_approval status=dry_run; "
+                f"outcome={normalized_outcome}; packet_ref={resolved_packet_ref}"
+            )
+        return report
+
+    command = [
+        "python",
+        "-c",
+        (
+            "import json, sys\n"
+            "from pathlib import Path\n"
+            "for value in ('/app', '/app/ea', '/app/scripts'):\n"
+            "    if value not in sys.path:\n"
+            "        sys.path.insert(0, value)\n"
+            "from app.services.proactive_ooda_approval_capture import finalize_proactive_ooda_approval_outcome\n"
+            "payload = json.loads(sys.argv[1])\n"
+            "result = finalize_proactive_ooda_approval_outcome(**payload)\n"
+            "def _jsonify(value):\n"
+            "    if isinstance(value, Path):\n"
+            "        return value.as_posix()\n"
+            "    if isinstance(value, dict):\n"
+            "        return {k: _jsonify(v) for k, v in value.items()}\n"
+            "    if isinstance(value, (list, tuple)):\n"
+            "        return [_jsonify(v) for v in value]\n"
+            "    return value\n"
+            "print(json.dumps(_jsonify(result), sort_keys=True))\n"
+        ),
+        _json_dumps(
+            {
+                "principal_id": str(principal_id or "").strip(),
+                "outcome": normalized_outcome,
+                "evidence": str(evidence or "").strip(),
+                "actor": str(actor or "").strip(),
+                "packet_ref": resolved_packet_ref,
+                "staged_artifact_ref": resolved_staged_artifact_ref,
+                "source_kind": str(source_kind or "").strip() or "operator",
+                "state_path": str(artifact_probe.get("state_path") or "").strip(),
+                "receipt_path": str(artifact_probe.get("run_receipt_path") or "").strip(),
+                "stage_packet_dir": str(artifact_probe.get("stage_packet_dir") or "").strip(),
+                "safe_work_result_dir": str(artifact_probe.get("safe_work_result_dir") or "").strip(),
+                "approval_outcome_path": str(artifact_probe.get("approval_outcome_path") or "").strip(),
+            }
+        ),
+    ]
+    code, payload, stdout, stderr = _docker_compose_exec_json(
+        compose_file=effective_compose_file,
+        service=effective_runtime_service,
+        command=command,
+        timeout_seconds=timeout_seconds,
+    )
+    if not payload:
+        report = {
+            **base_report,
+            "reason": f"record_failed:exit_{code}",
+            "blocking_reason": f"record_failed:exit_{code}",
+            "next_action": "inspect_proactive_runtime_container",
+            "stdout_excerpt": stdout.strip()[:200],
+            "stderr_excerpt": stderr.strip()[:200],
+        }
+        if output_format == "operator":
+            report["operator_text"] = f"proactive_approval status=record_failed; next=inspect {effective_runtime_service}"
+        return report
+
+    approval_outcome = dict(payload.get("approval_outcome") or {})
+    teable_sync = dict(payload.get("teable_sync") or {})
+    report = {
+        **base_report,
+        "recorded": bool(approval_outcome.get("approval_outcome_recorded")),
+        "reason": "recorded" if bool(approval_outcome.get("approval_outcome_recorded")) else "record_not_confirmed",
+        "accepted": bool(approval_outcome.get("accepted")),
+        "approval_outcome": approval_outcome,
+        "approval_outcome_id": str(approval_outcome.get("outcome_id") or "").strip(),
+        "approval_outcome_status": str(approval_outcome.get("status") or "").strip(),
+        "approval_outcome_path": str(payload.get("approval_outcome_path") or "").strip(),
+        "operator_status_path": str(payload.get("operator_status_path") or "").strip(),
+        "gold_acceptance_path": str(payload.get("gold_acceptance_path") or "").strip(),
+        "teable_sync": teable_sync,
+    }
+    if output_format == "operator":
+        teable_status = str(teable_sync.get("status") or "unknown").strip() or "unknown"
+        report["operator_text"] = (
+            "proactive_approval status=recorded; "
+            f"outcome={normalized_outcome}; accepted={str(bool(approval_outcome.get('accepted'))).lower()}; "
+            f"teable={teable_status}"
+        )
+    return report
+
+
+def reissue_proactive_approval(
+    *,
+    principal_id: str,
+    compose_file: str = "",
+    runtime_service: str = "",
+    timeout_seconds: float = 30.0,
+    dry_run: bool = False,
+    force: bool = False,
+    output_format: str = "json",
+) -> dict[str, object]:
+    effective_compose_file = str(compose_file or _env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE))).strip()
+    effective_runtime_service = str(runtime_service or _env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE)).strip()
+    observed_at = _utc_now()
+    artifact_probe = probe_proactive_artifacts(
+        compose_file=effective_compose_file,
+        runtime_service=effective_runtime_service,
+        timeout_seconds=timeout_seconds,
+        output_format="json",
+    )
+    base_report: dict[str, object] = {
+        "sent": False,
+        "reason": "",
+        "principal_id": str(principal_id or "").strip(),
+        "compose_file": effective_compose_file,
+        "runtime_service": effective_runtime_service,
+        "observed_at": observed_at,
+        "artifact_probe": artifact_probe,
+        "approval_capture_surface_ready_before": bool(artifact_probe.get("current_packet_live_pending_count") or 0) > 0,
+        "approval_capture_surface_pending_count_before": int(artifact_probe.get("current_packet_live_pending_count") or 0),
+    }
+    if not bool(artifact_probe.get("probe_ok")):
+        report = {
+            **base_report,
+            "reason": "artifact_probe_failed",
+            "blocking_reason": str(artifact_probe.get("blocking_reason") or "artifact_probe_failed").strip(),
+            "next_action": "inspect_proactive_runtime_artifacts",
+        }
+        if output_format == "operator":
+            report["operator_text"] = "proactive_approval_reissue status=probe_failed; next=inspect_proactive_runtime_artifacts"
+        return report
+
+    command = [
+        "python",
+        "/app/scripts/reissue_proactive_ooda_approval.py",
+        "--principal-id",
+        str(principal_id or "").strip(),
+        "--state-path",
+        str(artifact_probe.get("state_path") or "").strip(),
+        "--receipt-path",
+        str(artifact_probe.get("run_receipt_path") or "").strip(),
+        "--stage-packet-dir",
+        str(artifact_probe.get("stage_packet_dir") or "").strip(),
+        "--safe-work-result-dir",
+        str(artifact_probe.get("safe_work_result_dir") or "").strip(),
+    ]
+    if dry_run:
+        command.append("--dry-run")
+    if force:
+        command.append("--force")
+    code, payload, stdout, stderr = _docker_compose_exec_json(
+        compose_file=effective_compose_file,
+        service=effective_runtime_service,
+        command=command,
+        timeout_seconds=timeout_seconds,
+    )
+    if not payload:
+        report = {
+            **base_report,
+            "reason": f"reissue_failed:exit_{code}",
+            "blocking_reason": f"reissue_failed:exit_{code}",
+            "next_action": "inspect_proactive_runtime_container",
+            "stdout_excerpt": stdout.strip()[:200],
+            "stderr_excerpt": stderr.strip()[:200],
+        }
+        if output_format == "operator":
+            report["operator_text"] = f"proactive_approval_reissue status=failed; next=inspect {effective_runtime_service}"
+        return report
+    status = str(payload.get("status") or "").strip()
+    report = {
+        **base_report,
+        "sent": status == "sent",
+        "reason": str(payload.get("reason") or status or "unknown").strip(),
+        "status": status,
+        "message_count": int(payload.get("message_count") or 0),
+        "message_ids": [
+            str(item or "").strip()
+            for item in list(payload.get("message_ids") or [])
+            if str(item or "").strip()
+        ],
+        "approval_surface": dict(payload.get("approval_surface") or {}),
+        "packet_ref_sha256": str(payload.get("packet_ref_sha256") or "").strip(),
+        "staged_artifact_ref_sha256": str(payload.get("staged_artifact_ref_sha256") or "").strip(),
+        "approval_prompt_sha256": str(payload.get("approval_prompt_sha256") or "").strip(),
+        "staged_action_url_sha256": str(payload.get("staged_action_url_sha256") or "").strip(),
+        "has_staged_action_url": bool(payload.get("has_staged_action_url")),
+        "stage_kind": str(payload.get("stage_kind") or "").strip(),
+        "safe_work_status": str(payload.get("safe_work_status") or "").strip(),
+    }
+    if output_format == "operator":
+        report["operator_text"] = (
+            "proactive_approval_reissue "
+            f"status={status or 'unknown'} "
+            f"sent={str(status == 'sent').lower()} "
+            f"messages={int(report['message_count'])} "
+            f"surface={str(bool(dict(report.get('approval_surface') or {}).get('present'))).lower()}"
+        )
+    return report
+
+
 def _load_whatsapp_binding(args: argparse.Namespace):
     binding_path = str(getattr(args, "binding_json", "") or "").strip()
     database_url = str(args.database_url or _env("DATABASE_URL")).strip()
@@ -336,7 +1535,7 @@ def _session_ref(binding: Any | None, explicit_session_ref: str = "") -> str:
     env_value = _env("EA_WHATSAPP_WEB_DEFAULT_SESSION_REF")
     if env_value:
         return env_value
-    receipt = _read_json_file(DEFAULT_READINESS_RECEIPT_PATH)
+    receipt = _whatsapp_readiness_receipt()
     return str(receipt.get("effective_session_ref") or receipt.get("session_ref") or "").strip()
 
 
@@ -611,10 +1810,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--database-url", default=_env("DATABASE_URL"))
     parser.add_argument("--binding-json", default=_env("EA_WHATSAPP_WEB_READINESS_BINDING_JSON"))
     parser.add_argument("--binding-id", default=_env("EA_WHATSAPP_WEB_DEFAULT_BINDING_ID", "ea-whatsapp-web-session"))
-    parser.add_argument(
-        "--principal-id",
-        default=_env("EA_WHATSAPP_WEB_DEFAULT_PRINCIPAL_ID") or _env("EA_WHATSAPP_DEFAULT_PRINCIPAL_ID", "principal-default"),
-    )
+    parser.add_argument("--principal-id", default=_default_whatsapp_principal_id())
     parser.add_argument("--session-api-base-url", default=_env("EA_WHATSAPP_WEB_SESSION_API_BASE_URL", DEFAULT_SESSION_API_BASE_URL))
     parser.add_argument("--session-ref", default=_env("EA_WHATSAPP_WEB_DEFAULT_SESSION_REF"))
     parser.add_argument("--timeout-seconds", type=float, default=15.0)
@@ -623,6 +1819,58 @@ def parse_args() -> argparse.Namespace:
     probe = subparsers.add_parser("probe-provider", help="Probe a live provider state.")
     probe.add_argument("--provider", required=True)
     probe.add_argument("--format", choices=("json", "operator"), default="json")
+
+    proactive_route = subparsers.add_parser("probe-proactive-route", help="Probe the live proactive OODA delivery route.")
+    proactive_route.add_argument("--principal-id", dest="proactive_principal_id", default=_default_proactive_principal_id())
+    proactive_route.add_argument("--format", choices=("json", "operator"), default="json")
+    proactive_route.add_argument("--compose-file", default=_env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE)))
+    proactive_route.add_argument("--runtime-service", default=_env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE))
+    proactive_route.add_argument("--receipt-path", default=_env("EA_PROACTIVE_OODA_LIVE_RECEIPT_PATH"))
+
+    proactive_artifacts = subparsers.add_parser("probe-proactive-artifacts", help="Probe the live proactive OODA runtime artifacts.")
+    proactive_artifacts.add_argument("--format", choices=("json", "operator"), default="json")
+    proactive_artifacts.add_argument("--compose-file", default=_env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE)))
+    proactive_artifacts.add_argument("--runtime-service", default=_env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE))
+
+    proactive_gmail_draft = subparsers.add_parser(
+        "probe-proactive-gmail-draft",
+        help="Probe the live Telegram to Gmail draft followthrough lane for the current staged proactive action.",
+    )
+    proactive_gmail_draft.add_argument("--principal-id", dest="proactive_principal_id", default=_default_proactive_principal_id())
+    proactive_gmail_draft.add_argument("--format", choices=("json", "operator"), default="json")
+    proactive_gmail_draft.add_argument("--compose-file", default=_env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE)))
+    proactive_gmail_draft.add_argument("--runtime-service", default=_env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE))
+    proactive_gmail_draft.add_argument("--state-path", default=_env("EA_PROACTIVE_OODA_STATE_PATH"))
+    proactive_gmail_draft.add_argument("--receipt-path", default=_env("EA_PROACTIVE_OODA_RECEIPT_PATH"))
+    proactive_gmail_draft.add_argument("--stage-packet-dir", default=_env("EA_PROACTIVE_OODA_STAGE_PACKET_DIR"))
+    proactive_gmail_draft.add_argument("--safe-work-result-dir", default=_env("EA_PROACTIVE_OODA_SAFE_WORK_RESULT_DIR"))
+
+    proactive_approval = subparsers.add_parser(
+        "record-proactive-approval",
+        help="Record the explicit approval outcome for the current live proactive OODA packet.",
+    )
+    proactive_approval.add_argument("--principal-id", dest="proactive_principal_id", default=_default_proactive_principal_id())
+    proactive_approval.add_argument("--format", choices=("json", "operator"), default="json")
+    proactive_approval.add_argument("--compose-file", default=_env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE)))
+    proactive_approval.add_argument("--runtime-service", default=_env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE))
+    proactive_approval.add_argument("--outcome", required=True)
+    proactive_approval.add_argument("--evidence", required=True)
+    proactive_approval.add_argument("--actor", default="operator-cli")
+    proactive_approval.add_argument("--source-kind", default="operator")
+    proactive_approval.add_argument("--packet-ref", default="")
+    proactive_approval.add_argument("--staged-artifact-ref", default="")
+    proactive_approval.add_argument("--dry-run", action="store_true")
+
+    proactive_reissue = subparsers.add_parser(
+        "reissue-proactive-approval",
+        help="Reissue Telegram approval buttons for the current staged proactive OODA packet.",
+    )
+    proactive_reissue.add_argument("--principal-id", dest="proactive_principal_id", default=_default_proactive_principal_id())
+    proactive_reissue.add_argument("--format", choices=("json", "operator"), default="json")
+    proactive_reissue.add_argument("--compose-file", default=_env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE)))
+    proactive_reissue.add_argument("--runtime-service", default=_env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE))
+    proactive_reissue.add_argument("--dry-run", action="store_true")
+    proactive_reissue.add_argument("--force", action="store_true")
 
     resolve = subparsers.add_parser("resolve-whatsapp", help="Resolve a WhatsApp recipient from a partial phone hint.")
     resolve.add_argument("--phone-hint", required=True)
@@ -644,6 +1892,84 @@ def main() -> int:
         else:
             print(_json_dumps(report))
         return 0
+    if args.command == "probe-proactive-route":
+        report = probe_proactive_route(
+            principal_id=str(getattr(args, "proactive_principal_id", "") or "").strip(),
+            compose_file=str(args.compose_file or "").strip(),
+            runtime_service=str(args.runtime_service or "").strip(),
+            receipt_path=str(args.receipt_path or "").strip(),
+            timeout_seconds=float(args.timeout_seconds or 15.0),
+            output_format=args.format,
+        )
+        if args.format == "operator":
+            print(str(report.get("operator_text") or ""))
+        else:
+            print(_json_dumps(report))
+        return 0 if bool(report.get("probe_ok")) else 2
+    if args.command == "probe-proactive-artifacts":
+        report = probe_proactive_artifacts(
+            compose_file=str(args.compose_file or "").strip(),
+            runtime_service=str(args.runtime_service or "").strip(),
+            timeout_seconds=float(args.timeout_seconds or 15.0),
+            output_format=args.format,
+        )
+        if args.format == "operator":
+            print(str(report.get("operator_text") or ""))
+        else:
+            print(_json_dumps(report))
+        return 0 if bool(report.get("probe_ok")) else 2
+    if args.command == "probe-proactive-gmail-draft":
+        report = probe_proactive_gmail_draft(
+            principal_id=str(getattr(args, "proactive_principal_id", "") or "").strip(),
+            compose_file=str(args.compose_file or "").strip(),
+            runtime_service=str(args.runtime_service or "").strip(),
+            state_path=str(args.state_path or "").strip(),
+            receipt_path=str(args.receipt_path or "").strip(),
+            stage_packet_dir=str(args.stage_packet_dir or "").strip(),
+            safe_work_result_dir=str(args.safe_work_result_dir or "").strip(),
+            timeout_seconds=float(args.timeout_seconds or 15.0),
+            output_format=args.format,
+        )
+        if args.format == "operator":
+            print(str(report.get("operator_text") or ""))
+        else:
+            print(_json_dumps(report))
+        return 0 if bool(report.get("probe_ok")) else 2
+    if args.command == "record-proactive-approval":
+        report = record_proactive_approval(
+            principal_id=str(getattr(args, "proactive_principal_id", "") or "").strip(),
+            outcome=str(args.outcome or "").strip(),
+            evidence=str(args.evidence or "").strip(),
+            actor=str(args.actor or "").strip(),
+            source_kind=str(args.source_kind or "").strip(),
+            packet_ref=str(args.packet_ref or "").strip(),
+            staged_artifact_ref=str(args.staged_artifact_ref or "").strip(),
+            compose_file=str(args.compose_file or "").strip(),
+            runtime_service=str(args.runtime_service or "").strip(),
+            timeout_seconds=float(args.timeout_seconds or 15.0),
+            dry_run=bool(getattr(args, "dry_run", False)),
+            output_format=args.format,
+        )
+        if args.format == "operator":
+            print(str(report.get("operator_text") or ""))
+        else:
+            print(_json_dumps(report))
+        return 0 if bool(report.get("recorded")) or str(report.get("reason") or "") == "dry_run" else 2
+    if args.command == "reissue-proactive-approval":
+        report = reissue_proactive_approval(
+            principal_id=str(getattr(args, "proactive_principal_id", "") or "").strip(),
+            compose_file=str(args.compose_file or "").strip(),
+            runtime_service=str(args.runtime_service or "").strip(),
+            timeout_seconds=float(args.timeout_seconds or 15.0),
+            dry_run=bool(getattr(args, "dry_run", False)),
+            force=bool(getattr(args, "force", False)),
+            output_format=args.format,
+        )
+        if args.format == "operator":
+            print(str(report.get("operator_text") or ""))
+        else:
+            print(_json_dumps(report))
+        return 0 if str(report.get("status") or "").strip() in {"sent", "already_live_pending", "already_decided", "dry_run"} else 2
     if args.command == "resolve-whatsapp":
         report = resolve_whatsapp(args.phone_hint, args=args)
         print(_json_dumps(report))

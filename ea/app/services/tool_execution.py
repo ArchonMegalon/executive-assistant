@@ -78,6 +78,7 @@ class ToolExecutionService:
         )
         self._builtin_capability_registrars: dict[tuple[str, str], Callable[[], None]] = {
             ("artifact_repository", "artifact_save"): self._register_builtin_artifact_repository,
+            ("amazon", "amazon_login"): self._register_builtin_amazon_login,
             ("browseract", "account_facts"): self._register_builtin_browseract_extract,
             ("browseract", "account_inventory"): self._register_builtin_browseract_inventory,
             ("browseract", "workflow_spec_build"): self._register_builtin_browseract_workflow_spec,
@@ -419,6 +420,9 @@ class ToolExecutionService:
 
     def _register_builtin_artifact_repository(self) -> None:
         self._artifact_module.register_builtin(self.register_handler)
+
+    def _register_builtin_amazon_login(self) -> None:
+        self._browseract_module.register_amazon_login(self.register_handler)
 
     def _register_builtin_browseract_extract(self) -> None:
         self._browseract_module.register_extract(self.register_handler)

@@ -57,6 +57,7 @@ services:
       - EA_ASSISTANT_OWNER_LABEL=${EA_ASSISTANT_OWNER_LABEL:-the principal}
       - EA_API_TOKEN=${EA_API_TOKEN:-}
       - EA_ALLOW_LOOPBACK_NO_AUTH=${EA_ALLOW_LOOPBACK_NO_AUTH:-0}
+      - EA_ENABLE_LEGACY_RUNTIME_SURFACES=${EA_ENABLE_LEGACY_RUNTIME_SURFACES:-1}
       - EA_ARTIFACTS_DIR=/data/artifacts
       - EA_RESPONSES_PROVIDER_LEDGER_DIR=/data/provider-ledger
       - EA_ONEDRIVE_ATTACHMENT_ROOT=/data/onedrive_attachments
@@ -134,6 +135,8 @@ services:
       - ./scripts/verify_deploy_context.py:/app/scripts/verify_deploy_context.py:ro
       - ./scripts/verify_runtime_supply_chain.py:/app/scripts/verify_runtime_supply_chain.py:ro
       - ./scripts/materialize_release_authority_status.py:/app/scripts/materialize_release_authority_status.py:ro
+      - ./scripts/materialize_whatsapp_web_action_processor_readiness.py:/app/scripts/materialize_whatsapp_web_action_processor_readiness.py:ro
+      - ./docker-compose.whatsapp-web-session.yml:/app/docker-compose.whatsapp-web-session.yml:ro
       - ./ea/app/services/whatsapp_delivery_router.py:/app/app/services/whatsapp_delivery_router.py:ro
       - ./ea/app/services/whatsapp_inbound_actions.py:/app/app/services/whatsapp_inbound_actions.py:ro
       - ./ea/app/services/whatsapp_web_session_delivery.py:/app/app/services/whatsapp_web_session_delivery.py:ro
@@ -144,6 +147,7 @@ services:
       - ea_artifacts:/data/artifacts
       - ea_public_tours:/data/public_property_tours
       - ea_provider_ledger:/data/provider-ledger
+      - ea_whatsapp_web_actions:/data/whatsapp-actions
     pids_limit: 512
     read_only: true
     cap_drop:
@@ -436,15 +440,17 @@ services:
     working_dir: /app
     environment:
       - EA_PROACTIVE_OODA_ENABLED=${EA_PROACTIVE_OODA_ENABLED:-0}
+      - EA_PROACTIVE_OODA_ARMED_SEND=${EA_PROACTIVE_OODA_CONTAINER_ARMED_SEND:-1}
       - EA_PROACTIVE_OODA_INTERVAL_SECONDS=${EA_PROACTIVE_OODA_INTERVAL_SECONDS:-900}
       - EA_PROACTIVE_OODA_STATE_PATH=${EA_PROACTIVE_OODA_CONTAINER_STATE_PATH:-/data/provider-ledger/proactive_ooda_notified.json}
+      - EA_PROACTIVE_OODA_RECEIPT_PATH=${EA_PROACTIVE_OODA_CONTAINER_RECEIPT_PATH:-/data/provider-ledger/proactive_ooda_latest_run.generated.json}
       - EA_PROACTIVE_OODA_TEABLE_SYNC_ENABLED=${EA_PROACTIVE_OODA_TEABLE_SYNC_ENABLED:-0}
       - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD}@ea-db:5432/ea}
       - PYTHONPATH=/app/ea
       - TZ=Europe/Vienna
     volumes:
       - ./:/app:ro
-      - ea_proactive_ooda_state:/data
+      - ea_provider_ledger:/data/provider-ledger
     pids_limit: 256
     read_only: true
     cap_drop:
@@ -580,9 +586,10 @@ services:
 volumes:
   ea_artifacts: {}
   ea_pgdata: {}
-  ea_proactive_ooda_state: {}
   ea_telegram_teable_sync: {}
   ea_public_tours:
     external: true
     name: property_propertyquarry_public_tours
   ea_provider_ledger: {}
+  ea_whatsapp_web_actions:
+    name: ea_whatsapp_web_actions

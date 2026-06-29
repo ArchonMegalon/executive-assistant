@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,27 +14,37 @@ ACTION_TERMS = (
     "approval",
     "approve",
     "asap",
+    "book",
     "blocked",
     "blocking",
     "budget",
+    "buy",
     "cancel",
+    "compare",
     "contract",
     "deadline",
     "decide",
     "decision",
     "due",
     "escalat",
+    "find",
     "follow up",
     "invoice",
     "launch",
     "legal",
     "meeting",
+    "order",
     "overdue",
     "pay",
     "proposal",
+    "renew",
+    "research",
     "reply",
     "review",
     "risk",
+    "schedule",
+    "shop",
+    "shopping",
     "sign",
     "today",
     "tomorrow",
@@ -59,6 +70,120 @@ APPROVAL_TERMS = (
     "legal",
     "pay",
     "sign",
+)
+
+DIRECT_REQUEST_TERMS = (
+    "action required",
+    "approval needed",
+    "approve this",
+    "bitte um",
+    "can you",
+    "could you",
+    "find me",
+    "formuliere",
+    "i need you to",
+    "ich brauche",
+    "kannst du",
+    "koenntest du",
+    "please approve",
+    "please reply",
+    "please review",
+    "please send",
+    "reply to",
+    "schick",
+    "schicke",
+    "schreib",
+    "schreibe",
+    "send me",
+    "suche",
+    "such mir",
+)
+
+STRONG_ACTION_TERMS = (
+    "book",
+    "buy",
+    "cancel",
+    "compare",
+    "contract",
+    "deadline",
+    "due",
+    "find",
+    "follow up",
+    "invoice",
+    "legal",
+    "order",
+    "overdue",
+    "pay",
+    "proposal",
+    "renew",
+    "reply",
+    "respond",
+    "schedule",
+    "shop",
+    "sign",
+)
+
+REVIEW_CONTEXT_TERMS = (
+    "budget",
+    "contract",
+    "decision",
+    "invoice",
+    "launch",
+    "legal",
+    "meeting",
+    "option",
+    "proposal",
+    "provider",
+    "renewal",
+    "vendor",
+)
+
+OPERATIONAL_RISK_TERMS = (
+    "alert",
+    "blocked",
+    "down",
+    "failed",
+    "failure",
+    "incident",
+    "offline",
+    "outage",
+    "urgent",
+)
+
+HIGH_CONFIDENCE_MAIL_ACTION_TERMS = (
+    "action required",
+    "approval needed",
+    "contract",
+    "deadline",
+    "invoice due",
+    "legal",
+    "overdue",
+    "payment overdue",
+    "please approve",
+    "requires approval",
+    "sign",
+)
+
+LOW_SIGNAL_GMAIL_LABELS = {
+    "CATEGORY_PROMOTIONS",
+    "CATEGORY_SOCIAL",
+    "CATEGORY_UPDATES",
+    "CATEGORY_FORUMS",
+}
+
+LOW_SIGNAL_MAIL_TERMS = (
+    "angebot",
+    "deal",
+    "die schönsten",
+    "hat ein update gepostet",
+    "newsletter",
+    "new post",
+    "neu:",
+    "posted an update",
+    "promotion",
+    "sale",
+    "unsubscribe",
+    "update gepostet",
 )
 
 
@@ -152,6 +277,7 @@ class ProactiveOodaRunReceipt:
     delivery_route_error: str = ""
     delivery_recovery_hint: str = ""
     delivery_next_action: str = ""
+    approval_surface: Mapping[str, Any] | None = None
 
 
 class JsonOodaStateStore:
@@ -287,12 +413,16 @@ class ProactiveOodaService:
         principal_id: str,
         signals: Iterable[ProactiveSignal | Mapping[str, Any]],
         dry_run: bool = False,
+        safe_work_results: Iterable[Mapping[str, Any]] = (),
     ) -> tuple[ProactiveOodaDigest, object | None]:
         stored_refs = self._state_store.load_notified_refs(principal_id) if self._state_store else set()
         digest = self.build_digest(principal_id=principal_id, signals=signals, already_notified_refs=stored_refs)
         notification_result: object | None = None
         if digest.items and self._notify and not dry_run:
-            notification_result = self._notify(principal_id, format_telegram_digest(digest))
+            notification_result = self._notify(
+                principal_id,
+                format_telegram_digest(digest, safe_work_results=safe_work_results),
+            )
         if digest.notified_markers and self._state_store and not dry_run:
             self._state_store.save_notified_refs(principal_id, stored_refs.union(digest.notified_markers))
         return digest, notification_result
@@ -302,11 +432,21 @@ class ProactiveOodaService:
         if structured is not None:
             return structured
         text = " ".join((signal.title, signal.summary, signal.counterparty, signal.due_at or "")).lower()
-        action_score = sum(1 for term in ACTION_TERMS if term in text)
         high_urgency = any(term in text for term in HIGH_URGENCY_TERMS)
-        approval_required = any(term in text for term in APPROVAL_TERMS)
+        raw_approval_required = any(term in text for term in APPROVAL_TERMS)
         has_due = bool(signal.due_at)
-        notify = action_score > 0 or has_due
+        low_signal_mail = _is_low_signal_mail(signal, text=text)
+        high_confidence_mail_action = _has_high_confidence_mail_action(text)
+        approval_required = raw_approval_required and not (low_signal_mail and not high_confidence_mail_action)
+        notify = _has_nonstructured_actionable_intent(
+            signal,
+            text=text,
+            approval_required=approval_required,
+            has_due=has_due,
+        )
+        if low_signal_mail and not (has_due or high_confidence_mail_action):
+            notify = False
+            approval_required = False
         priority = "high" if high_urgency or approval_required else "normal"
         if not notify:
             priority = "low"
@@ -471,16 +611,27 @@ def _structured_ooda_ink(signal: ProactiveSignal) -> OodaInk | None:
     )
 
 
-def format_telegram_digest(digest: ProactiveOodaDigest) -> str:
+def format_telegram_digest(
+    digest: ProactiveOodaDigest,
+    *,
+    safe_work_results: Iterable[Mapping[str, Any]] = (),
+) -> str:
     if not digest.items:
         return ""
     lines = ["EA OODA"]
+    safe_results = tuple(dict(row) for row in safe_work_results if isinstance(row, Mapping))
     for index, item in enumerate(digest.items, start=1):
         approval = "approval needed" if item.approval_required else "no approval needed"
         lines.extend(
             (
                 "",
                 f"{index}. {item.observe}",
+            )
+        )
+        if index - 1 < len(safe_results):
+            lines.extend(_safe_work_preview_lines(safe_results[index - 1]))
+        lines.extend(
+            (
                 f"Priority: {item.priority}; {approval}",
                 f"Why: {item.orient}",
                 f"Decision: {item.decide}",
@@ -503,8 +654,67 @@ def format_telegram_digest(digest: ProactiveOodaDigest) -> str:
                 f"If ignored: {item.ignored_consequence}",
                 f"Evidence: {', '.join(item.evidence)}",
             )
-        )
+    )
     return "\n".join(lines).strip()
+
+
+def _safe_work_preview_lines(result: Mapping[str, Any]) -> list[str]:
+    summary = _compact(str(result.get("summary") or ""), 220)
+    recommended = _recommended_preview(result.get("recommended_option_or_draft"))
+    staged_action_url = _compact(str(result.get("staged_action_url") or ""), 180)
+    shortlist = _shortlist_preview(result.get("shortlist"))
+    prompt = _compact(str(result.get("approval_prompt") or ""), 220)
+    lines: list[str] = []
+    if summary:
+        lines.append(f"Prepared: {summary}")
+    if recommended:
+        lines.append(f"Recommended: {recommended}")
+    if staged_action_url:
+        lines.append(f"Link: {staged_action_url}")
+    if shortlist:
+        lines.append(f"Shortlist: {shortlist}")
+    if prompt:
+        lines.append(f"Approve: {prompt}")
+    return lines
+
+
+def _recommended_preview(value: Any) -> str:
+    if not isinstance(value, Mapping):
+        return _compact(str(value or ""), 180)
+    kind = str(value.get("kind") or "result").replace("_", " ").strip()
+    raw = value.get("value")
+    if isinstance(raw, Mapping):
+        label = _compact(str(raw.get("label") or raw.get("title") or ""), 80)
+        url = _compact(str(raw.get("url") or raw.get("link") or raw.get("href") or ""), 120)
+        title = _compact(str(raw.get("page_title") or ""), 80)
+        parts = [part for part in (label, title, url) if part]
+        detail = " | ".join(parts)
+        return f"{kind}: {detail}" if detail else kind
+    detail = _compact(str(raw or ""), 180)
+    return f"{kind}: {detail}" if detail else kind
+
+
+def _shortlist_preview(value: Any, *, limit: int = 2) -> str:
+    if not isinstance(value, list):
+        return ""
+    parts: list[str] = []
+    for item in value[: max(int(limit or 1), 1)]:
+        if not isinstance(item, Mapping):
+            continue
+        label = _compact(str(item.get("label") or item.get("title") or ""), 60) or "candidate"
+        url = _compact(str(item.get("url") or item.get("link") or item.get("href") or ""), 100)
+        reachability = ""
+        if item.get("reachable") is True:
+            reachability = "reachable"
+        elif item.get("reachable") is False:
+            reachability = "unreachable"
+        page_title = _compact(str(item.get("page_title") or ""), 60)
+        detail = ", ".join(part for part in (reachability, page_title) if part)
+        candidate = f"{label} - {url}" if url else label
+        if detail:
+            candidate = f"{candidate} ({detail})"
+        parts.append(candidate)
+    return " | ".join(parts)
 
 
 def digest_to_dict(digest: ProactiveOodaDigest) -> dict[str, Any]:
@@ -559,11 +769,16 @@ def build_run_receipt(
         delivery_route_error=delivery_recovery["route_error"],
         delivery_recovery_hint=delivery_recovery["recovery_hint"],
         delivery_next_action=delivery_recovery["next_action"],
+        approval_surface=_extract_approval_surface(notification_result),
     )
 
 
 def _is_deferred_error(value: str) -> bool:
-    return str(value or "").startswith("deferred_by_")
+    normalized = str(value or "").strip()
+    return normalized.startswith("deferred_by_") or normalized in {
+        "no_decision_ready_safe_work",
+        "no_user_action_required",
+    }
 
 
 def receipt_to_dict(receipt: ProactiveOodaRunReceipt) -> dict[str, Any]:
@@ -670,6 +885,50 @@ def _extract_delivery_outbox_id_hash(notification_result: object | None) -> str:
     return ""
 
 
+def _extract_approval_surface(notification_result: object | None) -> dict[str, Any] | None:
+    if notification_result is None:
+        return None
+    raw: Mapping[str, Any] | None = None
+    if hasattr(notification_result, "approval_surface"):
+        candidate = getattr(notification_result, "approval_surface")
+        raw = candidate if isinstance(candidate, Mapping) else None
+    elif isinstance(notification_result, dict):
+        candidate = notification_result.get("approval_surface")
+        raw = candidate if isinstance(candidate, Mapping) else None
+    if not isinstance(raw, Mapping):
+        return None
+    message_ids = tuple(
+        str(item or "").strip()
+        for item in list(raw.get("message_ids") or [])
+        if str(item or "").strip()
+    )
+    privacy = dict(raw.get("privacy") or {})
+    normalized = {
+        "present": bool(raw.get("present")),
+        "channel": str(raw.get("channel") or "").strip().lower(),
+        "status": str(raw.get("status") or "").strip().lower(),
+        "callback_token_sha256": str(raw.get("callback_token_sha256") or "").strip(),
+        "expires_at": str(raw.get("expires_at") or "").strip(),
+        "packet_ref_sha256": str(raw.get("packet_ref_sha256") or "").strip(),
+        "staged_artifact_sha256": str(raw.get("staged_artifact_sha256") or "").strip(),
+        "approval_prompt_sha256": str(raw.get("approval_prompt_sha256") or "").strip(),
+        "staged_action_url_sha256": str(raw.get("staged_action_url_sha256") or "").strip(),
+        "inline_button_count": max(int(raw.get("inline_button_count") or 0), 0),
+        "url_button_count": max(int(raw.get("url_button_count") or 0), 0),
+        "message_ids": message_ids,
+        "message_count": len(message_ids),
+        "delivery_error_code": str(raw.get("delivery_error_code") or "").strip(),
+        "privacy": {
+            "raw_callback_token_stored": bool(privacy.get("raw_callback_token_stored")),
+            "raw_packet_ref_stored": bool(privacy.get("raw_packet_ref_stored")),
+            "raw_staged_artifact_ref_stored": bool(privacy.get("raw_staged_artifact_ref_stored")),
+            "raw_approval_prompt_stored": bool(privacy.get("raw_approval_prompt_stored")),
+            "raw_staged_action_url_stored": bool(privacy.get("raw_staged_action_url_stored")),
+        },
+    }
+    return normalized if any(normalized.values()) else None
+
+
 def _resolve_delivery_recovery(notification_result: object | None, *, error_code: str) -> dict[str, str]:
     route_error = ""
     recovery_hint = ""
@@ -727,6 +986,64 @@ def _remember_marker(marker: str, *, seen: set[str], emitted: list[str]) -> None
 def _marker_variants(marker: str) -> tuple[str, str]:
     normalized = str(marker or "").strip()
     return normalized, _state_key(normalized)
+
+
+def _has_nonstructured_actionable_intent(
+    signal: ProactiveSignal,
+    *,
+    text: str,
+    approval_required: bool,
+    has_due: bool,
+) -> bool:
+    if approval_required or has_due:
+        return True
+    if _contains_any(text, DIRECT_REQUEST_TERMS):
+        return True
+    if _contains_any(text, STRONG_ACTION_TERMS):
+        return True
+    if "review" in text and _contains_any(text, REVIEW_CONTEXT_TERMS):
+        return True
+    if _contains_any(text, HIGH_URGENCY_TERMS) and _contains_any(text, OPERATIONAL_RISK_TERMS):
+        return True
+    payload = signal.payload if isinstance(signal.payload, Mapping) else {}
+    if payload.get("attachments") and _contains_any(text, ("invoice", "contract", "proposal", "quote", "angebot")):
+        return True
+    return False
+
+
+def _is_low_signal_mail(signal: ProactiveSignal, *, text: str) -> bool:
+    if str(signal.channel or "").strip().lower() != "gmail":
+        return False
+    payload = signal.payload if isinstance(signal.payload, Mapping) else {}
+    labels = {str(item or "").strip().upper() for item in list(payload.get("labels") or []) if str(item or "").strip()}
+    if labels.intersection(LOW_SIGNAL_GMAIL_LABELS):
+        return True
+    if str(payload.get("list_unsubscribe") or "").strip():
+        return True
+    if str(payload.get("auto_submitted") or "").strip():
+        return True
+    if str(payload.get("precedence") or "").strip().lower() in {"bulk", "junk", "list"}:
+        return True
+    return _contains_any(text, LOW_SIGNAL_MAIL_TERMS)
+
+
+def _has_high_confidence_mail_action(text: str) -> bool:
+    return _contains_any(text, HIGH_CONFIDENCE_MAIL_ACTION_TERMS) or _contains_any(text, DIRECT_REQUEST_TERMS)
+
+
+def _contains_any(text: str, terms: Iterable[str]) -> bool:
+    normalized = str(text or "").lower()
+    for term in terms:
+        normalized_term = str(term or "").strip().lower()
+        if not normalized_term:
+            continue
+        if " " in normalized_term:
+            if normalized_term in normalized:
+                return True
+            continue
+        if re.search(rf"(?<![a-z0-9]){re.escape(normalized_term)}(?![a-z0-9])", normalized):
+            return True
+    return False
 
 
 def _build_orient(signal: ProactiveSignal, *, priority: str, approval_required: bool) -> str:
@@ -804,6 +1121,8 @@ def _structured_stage_payload(
         "links",
         "draft",
         "draft_text",
+        "draft_mode",
+        "draft_request_text",
         "cart_url",
         "approval_url",
         "booking_options",
@@ -826,6 +1145,10 @@ def _structured_stage_payload(
         "deadline",
         "delivery_window",
         "recipient_context",
+        "recipient_email",
+        "recipient",
+        "delivery_recipient_email",
+        "counterparty_email",
         "locale",
         "currency",
         "quantity",
@@ -833,6 +1156,20 @@ def _structured_stage_payload(
         "requirements",
         "exclusions",
         "notes",
+        "subject",
+        "subject_hint",
+        "post_approval_action",
+        "auto_execute_action",
+        "approved_action",
+        "gmail_thread_id",
+        "thread_id",
+        "gmail_in_reply_to",
+        "in_reply_to",
+        "gmail_references",
+        "references",
+        "google_binding_id",
+        "google_account_email",
+        "account_email",
     ):
         if key in stage_section:
             payload[key] = _json_safe(stage_section.get(key))

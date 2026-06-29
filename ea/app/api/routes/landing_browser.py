@@ -54,8 +54,8 @@ def _first_forwarded_https_or_first_token(raw: str) -> str:
 
 
 def _browser_request_uses_secure_scheme(request: Request) -> bool:
-    if trust_forwarded_host():
-        forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").strip().lower()
+    forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").strip().lower()
+    if trust_forwarded_host() or "," in forwarded_proto:
         normalized = _first_forwarded_https_or_first_token(forwarded_proto)
         if normalized:
             return normalized in {"https", "wss"}

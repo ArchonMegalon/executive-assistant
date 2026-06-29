@@ -56,6 +56,18 @@ def test_release_materialization_service_runs_expected_scripts_in_order(monkeypa
         for _, name, command, env in calls
     )
     assert any(
+        name == "proactive_ooda_operator_status"
+        and command == ("scripts/materialize_proactive_ooda_operator_status.py",)
+        and env is None
+        for _, name, command, env in calls
+    )
+    assert any(
+        name == "proactive_ooda_gold_acceptance"
+        and command == ("scripts/materialize_proactive_ooda_gold_acceptance.py",)
+        and env is None
+        for _, name, command, env in calls
+    )
+    assert any(
         name == "deploy_context"
         and command == ("scripts/materialize_deploy_context.py",)
         and env is None
@@ -67,6 +79,9 @@ def test_release_materialization_service_runs_expected_scripts_in_order(monkeypa
     assert names.index("ea_provider_contract_receipts") < names.index("whole_project_gold_map")
     assert names.index("whole_project_gold_map") < names.index("teable_env_recovery_readiness")
     assert names.index("teable_env_recovery_readiness") < names.index("whatsapp_web_action_processor_readiness")
+    assert names.index("whatsapp_web_action_processor_readiness") < names.index("proactive_ooda_operator_status")
+    assert names.index("proactive_ooda_operator_status") < names.index("proactive_ooda_gold_acceptance")
+    assert names.index("proactive_ooda_gold_acceptance") < names.index("continuous_improvement_goal_posture")
     assert names.index("whatsapp_web_action_processor_readiness") < names.index("continuous_improvement_goal_posture")
     assert names.index("whole_project_gold_map") < names.index("continuous_improvement_goal_posture")
     assert names.index("memorial_stt_provider_benchmark") < names.index("memorial_operator_status")

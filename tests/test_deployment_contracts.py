@@ -1281,6 +1281,34 @@ def test_release_manifest_artifact_plane_verifier_allows_core_and_memorial_mix_f
     assert issues == []
 
 
+def test_release_manifest_artifact_plane_verifier_allows_proactive_ooda_operator_status_for_ea_core() -> None:
+    module = _load_script("verify_release_manifest_artifact_plane")
+    release_manifest = {
+        "artifact_set": [
+            ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json",
+            ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
+        ]
+    }
+
+    issues = module.validate_artifact_plane(release_manifest=release_manifest, enabled_modes=["EA_CORE"])
+
+    assert issues == []
+
+
+def test_release_manifest_artifact_plane_verifier_allows_proactive_ooda_gold_acceptance_for_ea_core() -> None:
+    module = _load_script("verify_release_manifest_artifact_plane")
+    release_manifest = {
+        "artifact_set": [
+            ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json",
+            ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
+        ]
+    }
+
+    issues = module.validate_artifact_plane(release_manifest=release_manifest, enabled_modes=["EA_CORE"])
+
+    assert issues == []
+
+
 def test_release_authority_verifier_rejects_missing_public_origin() -> None:
     module = _load_script("verify_release_authority")
     release_manifest = {

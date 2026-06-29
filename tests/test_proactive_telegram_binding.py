@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from app.services.proactive_telegram_binding import _chat_id_from_row, _candidate_principal_ids
+import io
+import json
+import sys
+from urllib.error import HTTPError
+
+from app.services.proactive_telegram_binding import _chat_id_from_row, _candidate_principal_ids, resolve_proactive_telegram_chat_id
 
 
 def test_chat_id_prefers_default_chat_ref_from_metadata() -> None:
@@ -23,3 +28,130 @@ def test_candidate_principals_include_telegram_default(monkeypatch) -> None:
     monkeypatch.setenv("EA_DEFAULT_PRINCIPAL_ID", "principal-default")
 
     assert _candidate_principal_ids("principal") == ["principal", "cf-email:user@example.test", "principal-default"]
+
+
+def test_resolve_proactive_telegram_chat_id_prefers_plausible_alias_chat(monkeypatch) -> None:
+    from app.services import proactive_telegram_binding
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://example.test/ea")
+    monkeypatch.setattr(
+        proactive_telegram_binding.google_oauth_service,
+        "_principal_alias_candidates",
+        lambda **kwargs: ("exec-1", "cf-email:tibor.girschele@gmail.com"),
+    )
+
+    class _Cursor:
+        def execute(self, query, params):
+            assert params == (["exec-1", "cf-email:tibor.girschele@gmail.com"],)
+
+        def fetchall(self):
+            return [
+                ("exec-1", "telegram_identity", "42", {"default_chat_ref": "42"}, "2026-06-28T19:55:00+02:00", "2026-06-28T19:55:00+02:00"),
+                (
+                    "cf-email:tibor.girschele@gmail.com",
+                    "telegram_identity",
+                    "246813579",
+                    {"default_chat_ref": "246813579"},
+                    "2026-06-28T19:54:00+02:00",
+                    "2026-06-28T19:54:00+02:00",
+                ),
+            ]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _Connection:
+        def cursor(self):
+            return _Cursor()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _Psycopg:
+        @staticmethod
+        def connect(*args, **kwargs):
+            return _Connection()
+
+    monkeypatch.setitem(sys.modules, "psycopg", _Psycopg())
+
+    chat_id = resolve_proactive_telegram_chat_id(principal_id="exec-1")
+
+    assert chat_id == "246813579"
+
+
+def test_resolve_proactive_telegram_chat_id_prefers_reachable_chat_when_newer_candidate_is_dead(monkeypatch) -> None:
+    from app.services import proactive_telegram_binding
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://example.test/ea")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token")
+    monkeypatch.setattr(
+        proactive_telegram_binding.google_oauth_service,
+        "_principal_alias_candidates",
+        lambda **kwargs: ("exec-1",),
+    )
+    proactive_telegram_binding._CHAT_VALIDATION_CACHE.clear()
+
+    class _Cursor:
+        def execute(self, query, params):
+            assert params == (["exec-1"],)
+
+        def fetchall(self):
+            return [
+                ("exec-1", "telegram_identity", "246813579", {"default_chat_ref": "246813579"}, "2026-06-28T19:55:00+02:00", "2026-06-28T19:55:00+02:00"),
+                ("exec-1", "telegram_identity", "1354554303", {"default_chat_ref": "1354554303"}, "2026-06-17T10:37:36+02:00", "2026-06-17T10:37:36+02:00"),
+            ]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _Connection:
+        def cursor(self):
+            return _Cursor()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _Psycopg:
+        @staticmethod
+        def connect(*args, **kwargs):
+            return _Connection()
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"type": "private"}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=15):
+        if "246813579" in request.full_url:
+            raise HTTPError(
+                request.full_url,
+                400,
+                "Bad Request",
+                hdrs=None,
+                fp=io.BytesIO(json.dumps({"ok": False, "description": "Bad Request: chat not found"}).encode("utf-8")),
+            )
+        return _Response()
+
+    monkeypatch.setitem(sys.modules, "psycopg", _Psycopg())
+    monkeypatch.setattr("app.services.proactive_telegram_binding.urllib.request.urlopen", _fake_urlopen)
+
+    chat_id = resolve_proactive_telegram_chat_id(principal_id="exec-1")
+
+    assert chat_id == "1354554303"

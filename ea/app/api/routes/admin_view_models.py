@@ -24,6 +24,8 @@ EXECUTIVE_ASSISTANT_ACCEPTANCE_EVIDENCE_RECEIPT = _REPO_ROOT / ".codex-studio" /
 ACTIVE_MEDIA_LTD_GOAL_RECEIPT = _REPO_ROOT / ".codex-studio" / "published" / "active_media_ltd_goal_bundle.generated.json"
 WHOLE_PROJECT_SIGNAL_TO_DECISION_RECEIPT = _REPO_ROOT / ".codex-studio" / "published" / "ea_whole_project_signal_to_decision.generated.json"
 WHOLE_PROJECT_SCOPE_GAP_AUDIT_RECEIPT = _REPO_ROOT / ".codex-studio" / "published" / "ea_whole_project_scope_gap_audit.generated.json"
+PROACTIVE_OODA_OPERATOR_STATUS_RECEIPT = _REPO_ROOT / ".codex-studio" / "published" / "ea_proactive_ooda_operator_status.generated.json"
+PROACTIVE_OODA_GOLD_ACCEPTANCE_RECEIPT = _REPO_ROOT / ".codex-studio" / "published" / "ea_proactive_ooda_gold_acceptance.generated.json"
 
 
 def _load_receipt(path: Path) -> dict[str, object]:
@@ -141,7 +143,11 @@ def _provider_lane_rows() -> list[dict[str, str]]:
         providers = ", ".join(
             _ea_shell_provider_text(str(value)) for value in list(lane.get("providers") or []) if str(value or "").strip()
         )
-        missing = ", ".join(str(value) for value in list(lane.get("missing_checks") or []) if str(value or "").strip())
+        missing = ", ".join(
+            _ea_shell_provider_text(str(value))
+            for value in list(lane.get("missing_checks") or [])
+            if str(value or "").strip()
+        )
         allowed = ", ".join(
             _ea_shell_provider_text(str(value))
             for value in list(lane.get("allowed_inputs") or [])[:3]
@@ -151,7 +157,7 @@ def _provider_lane_rows() -> list[dict[str, str]]:
         detail = " · ".join(part for part in (providers, f"Allowed: {allowed}" if allowed else "", f"Missing proof: {missing}" if missing else "Proof gate clear", boundary) if part)
         rows.append(
             _row(
-                str(lane.get("title") or lane.get("lane_key") or "Provider lane"),
+                _ea_shell_provider_text(str(lane.get("title") or lane.get("lane_key") or "Provider lane")),
                 detail or "Provider lane is governed by receipts.",
                 _humanize(str(lane.get("lane_state") or lane.get("status") or "unknown")).title(),
             )
@@ -651,6 +657,8 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
     active_media_receipt = _load_receipt(ACTIVE_MEDIA_LTD_GOAL_RECEIPT)
     signal_receipt = _load_receipt(WHOLE_PROJECT_SIGNAL_TO_DECISION_RECEIPT)
     scope_gap_receipt = _load_receipt(WHOLE_PROJECT_SCOPE_GAP_AUDIT_RECEIPT)
+    proactive_ooda_operator_receipt = _load_receipt(PROACTIVE_OODA_OPERATOR_STATUS_RECEIPT)
+    proactive_ooda_gold_receipt = _load_receipt(PROACTIVE_OODA_GOLD_ACCEPTANCE_RECEIPT)
     workspace_rows = [
         _row("Workspace", str(diagnostics_workspace.get("name") or "Executive Workspace"), "Workspace"),
         _row("Mode", _humanize(str(diagnostics_workspace.get("mode") or "personal")).title(), "Workspace"),
@@ -1056,11 +1064,51 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
     ]
     acceptance_keys = dict(acceptance_receipt.get("acceptance_keys") or {})
     accepted_keys = {str(value) for value in list(acceptance_receipt.get("accepted_keys") or []) if str(value).strip()}
+    proactive_operator_status = str(proactive_ooda_operator_receipt.get("status") or "missing").strip()
+    proactive_operator_summary = str(
+        proactive_ooda_operator_receipt.get("summary") or "No proactive OODA operator status is mirrored."
+    ).strip()
+    proactive_operator_next_action = str(
+        proactive_ooda_operator_receipt.get("next_action") or "materialize_proactive_ooda_operator_status"
+    ).strip()
+    proactive_operator_next_action_href = str(proactive_ooda_operator_receipt.get("next_action_href") or "").strip()
+    proactive_operator_next_action_label = str(proactive_ooda_operator_receipt.get("next_action_label") or "").strip()
+    proactive_operator_next_action_method = str(proactive_ooda_operator_receipt.get("next_action_method") or "").strip()
+    proactive_operator_action_state = _humanize(
+        str(
+            proactive_ooda_operator_receipt.get("operator_action_state")
+            or proactive_ooda_operator_receipt.get("status")
+            or "watch"
+        )
+    ).title()
+    proactive_gold_status = str(proactive_ooda_gold_receipt.get("status") or "missing").strip()
+    proactive_gold_summary = str(
+        proactive_ooda_gold_receipt.get("summary") or "No proactive OODA gold-acceptance receipt is mirrored."
+    ).strip()
+    proactive_gold_next_action = str(
+        proactive_ooda_gold_receipt.get("next_action") or "materialize_proactive_ooda_gold_acceptance"
+    ).strip()
+    proactive_gold_next_action_href = str(proactive_ooda_gold_receipt.get("next_action_href") or "").strip()
+    proactive_gold_next_action_label = str(proactive_ooda_gold_receipt.get("next_action_label") or "").strip()
+    proactive_gold_next_action_method = str(proactive_ooda_gold_receipt.get("next_action_method") or "").strip()
+    proactive_gold_action_state = _humanize(
+        str(proactive_ooda_gold_receipt.get("status") or "watch")
+    ).title()
     goal_local_rows = [
         _row("Office-loop receipt", str(office_goal_receipt.get("status") or "missing"), "Local"),
         _row("Active media/LTD bundle", str(active_media_receipt.get("status") or "missing"), "Local"),
         _row("Signal-to-decision receipt", str(signal_receipt.get("status") or "missing"), "Local"),
         _row("Whole-project scope-gap audit", str(scope_gap_receipt.get("status") or "missing"), "Local"),
+        _row(
+            "Proactive OODA operator status",
+            " · ".join(part for part in (proactive_operator_status, proactive_operator_summary) if part) or "missing",
+            "Local",
+        ),
+        _row(
+            "Proactive OODA gold acceptance",
+            " · ".join(part for part in (proactive_gold_status, proactive_gold_summary) if part) or "missing",
+            "Local",
+        ),
         _row("Acceptance evidence receipt", str(acceptance_receipt.get("status") or "missing"), "Local"),
         _row(
             "Audiobook, ChatLab, cinematic, and promo local checks",
@@ -1089,6 +1137,27 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
             action_href="/admin/actions/signal-to-decision-evidence",
             action_label="Record a signal-loop outcome",
             action_method="post",
+        ),
+        _row(
+            "Proactive delivery recovery",
+            " · ".join(part for part in (proactive_operator_summary, proactive_operator_next_action) if part)
+            or "No proactive delivery recovery guidance is mirrored.",
+            proactive_operator_action_state,
+            action_href=proactive_operator_next_action_href,
+            action_label=proactive_operator_next_action_label,
+            action_method=proactive_operator_next_action_method,
+        ),
+        _row(
+            "Proactive OODA approval outcome",
+            " · ".join(part for part in (proactive_gold_summary, proactive_gold_next_action) if part)
+            or "No proactive OODA gold-acceptance guidance is mirrored.",
+            proactive_gold_action_state,
+            action_href=proactive_gold_next_action_href or "/admin/proactive-ooda/approval",
+            action_label=proactive_gold_next_action_label or "Open approval capture",
+            action_method=proactive_gold_next_action_method or "get",
+            secondary_action_href="/admin/proactive-ooda/approval" if proactive_gold_next_action_href else "",
+            secondary_action_label="Open approval capture" if proactive_gold_next_action_href else "",
+            secondary_action_method="get" if proactive_gold_next_action_href else "",
         ),
         _row(
             "Weekly operator review",

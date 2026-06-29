@@ -230,6 +230,206 @@ def test_send_proactive_notification_queues_outbox_and_returns_generic_receipt(m
     assert events["sent"]["receipt_json"]["channel"] == "telegram"
 
 
+def test_send_proactive_notification_sends_follow_up_approval_prompt_with_buttons(monkeypatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token")
+    monkeypatch.setattr(delivery, "resolve_primary_telegram_binding", lambda tool_runtime, *, principal_id: _telegram_binding())
+    monkeypatch.setattr(
+        delivery,
+        "prepare_proactive_ooda_telegram_approval",
+        lambda **kwargs: {
+            "status": "pending",
+            "callback_token_sha256": "b" * 64,
+            "expires_at": "2026-07-05T10:00:00Z",
+            "packet_ref_sha256": "c" * 64,
+            "staged_artifact_ref_sha256": "d" * 64,
+            "approval_prompt_sha256": "e" * 64,
+            "staged_action_url_sha256": "f" * 64,
+            "inline_buttons": [[("Approve", "po|a|token|1|sig")]],
+            "url_buttons": [[("Open candidate", "https://example.com/candidate")]],
+            "record_path": "/tmp/proactive-approval-record.json",
+        },
+    )
+    sent: list[dict[str, object]] = []
+    recorded: list[dict[str, object]] = []
+
+    def fake_send(tool_runtime, *, principal_id, text, inline_buttons=None, url_buttons=None):
+        sent.append(
+            {
+                "principal_id": principal_id,
+                "text": text,
+                "inline_buttons": inline_buttons,
+                "url_buttons": url_buttons,
+            }
+        )
+        return SimpleNamespace(message_ids=(f"tg-{len(sent)}",), chat_id="1354554303")
+
+    monkeypatch.setattr(delivery, "send_telegram_message_for_principal", fake_send)
+    monkeypatch.setattr(
+        delivery,
+        "record_proactive_ooda_telegram_approval_delivery",
+        lambda **kwargs: recorded.append(dict(kwargs)) or {"status": kwargs.get("status", "")},
+    )
+
+    receipt = delivery.send_proactive_ooda_notification(
+        principal_id="exec",
+        text="EA OODA packet",
+        tool_runtime=SimpleNamespace(),
+        channel_runtime=None,
+        memory_runtime=SimpleNamespace(
+            list_delivery_preferences=lambda **_kwargs: [],
+            list_communication_policies=lambda **_kwargs: [],
+            list_follow_ups=lambda **_kwargs: [],
+        ),
+        approval_request={
+            "packet_ref": "stage_packet:packet-1",
+            "staged_artifact_ref": "safe_work_result:result-1",
+            "approval_prompt": "Approve this staged shortlist.",
+            "staged_action_url": "https://example.com/candidate",
+        },
+    )
+
+    assert receipt.message_ids == ("tg-1",)
+    assert receipt.approval_surface["status"] == "pending"
+    assert receipt.approval_surface["callback_token_sha256"] == "b" * 64
+    assert receipt.approval_surface["message_ids"] == ("tg-1",)
+    assert len(sent) == 1
+    assert sent[0]["text"] == "Approve this staged shortlist."
+    assert sent[0]["inline_buttons"] == [[("Approve", "po|a|token|1|sig")]]
+    assert sent[0]["url_buttons"] == [[("Open candidate", "https://example.com/candidate")]]
+    assert recorded == [
+        {
+            "record_path": "/tmp/proactive-approval-record.json",
+            "message_ids": ("tg-1",),
+            "status": "pending",
+        }
+    ]
+
+
+def test_send_proactive_notification_marks_approval_surface_delivery_failed_when_prompt_send_fails(monkeypatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token")
+    monkeypatch.setattr(delivery, "resolve_primary_telegram_binding", lambda tool_runtime, *, principal_id: _telegram_binding())
+    monkeypatch.setattr(
+        delivery,
+        "prepare_proactive_ooda_telegram_approval",
+        lambda **kwargs: {
+            "status": "pending",
+            "callback_token_sha256": "b" * 64,
+            "expires_at": "2026-07-05T10:00:00Z",
+            "packet_ref_sha256": "c" * 64,
+            "staged_artifact_ref_sha256": "d" * 64,
+            "approval_prompt_sha256": "e" * 64,
+            "staged_action_url_sha256": "f" * 64,
+            "inline_buttons": [[("Approve", "po|a|token|1|sig")]],
+            "url_buttons": [],
+            "record_path": "/tmp/proactive-approval-record.json",
+        },
+    )
+    recorded: list[dict[str, object]] = []
+    send_count = {"count": 0}
+
+    def fake_send(tool_runtime, *, principal_id, text, inline_buttons=None, url_buttons=None):
+        send_count["count"] += 1
+        if send_count["count"] == 1:
+            raise RuntimeError("telegram_send_failed")
+        return SimpleNamespace(message_ids=("tg-1",), chat_id="1354554303")
+
+    monkeypatch.setattr(delivery, "send_telegram_message_for_principal", fake_send)
+    monkeypatch.setattr(
+        delivery,
+        "record_proactive_ooda_telegram_approval_delivery",
+        lambda **kwargs: recorded.append(dict(kwargs)) or {"status": kwargs.get("status", "")},
+    )
+
+    try:
+        delivery.send_proactive_ooda_notification(
+            principal_id="exec",
+            text="EA OODA packet",
+            tool_runtime=SimpleNamespace(),
+            channel_runtime=None,
+            memory_runtime=SimpleNamespace(
+                list_delivery_preferences=lambda **_kwargs: [],
+                list_communication_policies=lambda **_kwargs: [],
+                list_follow_ups=lambda **_kwargs: [],
+            ),
+            approval_request={
+                "packet_ref": "stage_packet:packet-1",
+                "staged_artifact_ref": "safe_work_result:result-1",
+                "approval_prompt": "Approve this staged shortlist.",
+            },
+        )
+        raise AssertionError("send should fail when the action surface cannot be delivered")
+    except RuntimeError as exc:
+        assert str(exc) == "telegram_approval_prompt_delivery_failed"
+
+    assert send_count["count"] == 1
+    assert recorded == [
+        {
+            "record_path": "/tmp/proactive-approval-record.json",
+            "message_ids": (),
+            "status": "delivery_failed",
+            "delivery_error_code": "telegram_approval_prompt_delivery_failed",
+        }
+    ]
+
+
+def test_send_proactive_notification_passes_record_outcome_only_mode_to_approval_prompt(monkeypatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token")
+    monkeypatch.setattr(delivery, "resolve_primary_telegram_binding", lambda tool_runtime, *, principal_id: _telegram_binding())
+    captured_prepare: dict[str, object] = {}
+    monkeypatch.setattr(
+        delivery,
+        "prepare_proactive_ooda_telegram_approval",
+        lambda **kwargs: captured_prepare.update(kwargs) or {
+            "status": "pending",
+            "callback_token_sha256": "b" * 64,
+            "expires_at": "2026-07-05T10:00:00Z",
+            "packet_ref_sha256": "c" * 64,
+            "staged_artifact_ref_sha256": "d" * 64,
+            "approval_prompt_sha256": "e" * 64,
+            "staged_action_url_sha256": "f" * 64,
+            "inline_buttons": [[("Approve", "po|a|token|1|sig")]],
+            "url_buttons": [],
+            "record_path": "/tmp/proactive-approval-record.json",
+        },
+    )
+    monkeypatch.setattr(
+        delivery,
+        "send_telegram_message_for_principal",
+        lambda tool_runtime, *, principal_id, text, inline_buttons=None, url_buttons=None: SimpleNamespace(
+            message_ids=("tg-1",),
+            chat_id="1354554303",
+        ),
+    )
+    monkeypatch.setattr(
+        delivery,
+        "record_proactive_ooda_telegram_approval_delivery",
+        lambda **kwargs: {"status": kwargs.get("status", "")},
+    )
+
+    receipt = delivery.send_proactive_ooda_notification(
+        principal_id="exec",
+        text="EA OODA packet",
+        tool_runtime=SimpleNamespace(),
+        channel_runtime=None,
+        memory_runtime=SimpleNamespace(
+            list_delivery_preferences=lambda **_kwargs: [],
+            list_communication_policies=lambda **_kwargs: [],
+            list_follow_ups=lambda **_kwargs: [],
+        ),
+        approval_request={
+            "packet_ref": "stage_packet:packet-1",
+            "staged_artifact_ref": "safe_work_result:result-1",
+            "approval_prompt": "Approve whether EA should keep this saved Gmail draft.",
+            "approved_execution_mode": "record_outcome_only",
+            "approved_action": "save_gmail_draft",
+        },
+    )
+
+    assert receipt.approval_surface["status"] == "pending"
+    assert captured_prepare["approved_execution_mode"] == "record_outcome_only"
+    assert captured_prepare["approved_action"] == "save_gmail_draft"
+
+
 def test_build_run_receipt_keeps_generic_delivery_fields_for_whatsapp() -> None:
     digest = ProactiveOodaService().build_digest(
         principal_id="exec",
@@ -300,3 +500,29 @@ def test_build_run_receipt_derives_delivery_recovery_from_failed_error_code() ->
     assert receipt.delivery_route_error == "whatsapp_web_session_not_ready:qr_required"
     assert receipt.delivery_next_action == "scan_whatsapp_web_qr"
     assert "Scan the WhatsApp Web QR code" in receipt.delivery_recovery_hint
+
+
+def test_build_run_receipt_derives_telegram_delivery_recovery_from_failed_error_code() -> None:
+    digest = ProactiveOodaService().build_digest(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "signal:vendor",
+                "signal_type": "opportunity",
+                "channel": "assistant_opportunity",
+                "title": "Vendor shortlist ready today",
+                "summary": "Review the shortlist.",
+            }
+        ],
+    )
+
+    receipt = build_run_receipt(
+        digest=digest,
+        dry_run=False,
+        error_code="telegram_sendmessage_http_403:bot_was_blocked_by_the_user",
+    )
+
+    assert receipt.notification_status == "failed"
+    assert receipt.delivery_route_error == "telegram_sendmessage_http_403:bot_was_blocked_by_the_user"
+    assert receipt.delivery_next_action == "repair_telegram_proactive_delivery"
+    assert "press Start if needed" in receipt.delivery_recovery_hint

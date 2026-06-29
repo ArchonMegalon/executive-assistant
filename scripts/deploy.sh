@@ -245,6 +245,14 @@ if [[ ! -f "${APP_ROOT}/.env" ]]; then
   exit 1
 fi
 
+if [[ -n "${TEABLE_API_KEY:-}" ]]; then
+  proactive_teable_base_id="$(normalize_origin_like "$(effective_value EA_ENV_TEABLE_BASE_ID)")"
+  if [[ -n "${proactive_teable_base_id}" ]]; then
+    echo "Reconciling proactive OODA Teable projection tables."
+    "${PYTHON_BIN}" "${APP_ROOT}/scripts/bootstrap_proactive_ooda_teable_tables.py" --create-missing --write-config >/dev/null
+  fi
+fi
+
 ensure_runtime_readable_file_projection "ONEMIN_DIRECT_API_KEYS_JSON_FILE"
 
 public_origin_line="$(grep -E '^(EA_PUBLIC_APP_BASE_URL|PROPERTYQUARRY_PUBLIC_BASE_URL)=' "${APP_ROOT}/.env" | tail -n1 || true)"

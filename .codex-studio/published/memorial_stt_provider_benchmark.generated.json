@@ -1,6 +1,6 @@
 {
   "contract_name": "ea.memorial_stt_provider_benchmark",
-  "status": "pass",
+  "status": "blocked",
   "scoring": {
     "pass_rule": "usable transcript + required tokens present + token_f1 >= sample min + WER <= sample max",
     "fixture_quality_rule": "ground-truth fixtures must be long enough to contain their expected transcript before provider accuracy is scored",
@@ -43,7 +43,7 @@
         ".env",
         ".env.local"
       ],
-      "loaded_count": 361,
+      "loaded_count": 398,
       "provider_families": {
         "cartesia": true,
         "onemin": true,
@@ -54,14 +54,14 @@
   "provider_ranking": [
     {
       "provider": "full_runtime",
-      "passed_samples": 4,
+      "passed_samples": 3,
       "sample_count": 4,
       "scored_samples": 4,
-      "intent_correct_samples": 4,
-      "avg_token_f1": 1.0,
-      "avg_wer": 0.0,
-      "avg_latency_ms": 312.8,
-      "production_eligible": true
+      "intent_correct_samples": 3,
+      "avg_token_f1": 0.9722,
+      "avg_wer": 0.0278,
+      "avg_latency_ms": 694.8,
+      "production_eligible": false
     },
     {
       "provider": "onemin_sample",
@@ -71,7 +71,7 @@
       "intent_correct_samples": 2,
       "avg_token_f1": 0.9445,
       "avg_wer": 0.0556,
-      "avg_latency_ms": 2586.9,
+      "avg_latency_ms": 3008.5,
       "production_eligible": false
     },
     {
@@ -82,7 +82,7 @@
       "intent_correct_samples": 0,
       "avg_token_f1": 0.0,
       "avg_wer": 1.0,
-      "avg_latency_ms": 820.1,
+      "avg_latency_ms": 834.5,
       "production_eligible": false
     }
   ],
@@ -108,7 +108,7 @@
       },
       "shadow": {
         "status": "error",
-        "ms": 820.1,
+        "ms": 834.5,
         "reason": "http_401",
         "wer": 1.0,
         "token_f1": 0.0,
@@ -132,7 +132,7 @@
       },
       "onemin_sample": {
         "status": "ok",
-        "ms": 2541.8,
+        "ms": 4153.6,
         "wer": 0.0,
         "token_f1": 1.0,
         "intent_correct": true,
@@ -224,7 +224,7 @@
       },
       "onemin_sample": {
         "status": "ok",
-        "ms": 2524.7,
+        "ms": 2267.4,
         "wer": 0.0,
         "token_f1": 1.0,
         "intent_correct": true,
@@ -247,7 +247,7 @@
       },
       "full_runtime": {
         "status": "transcribed",
-        "ms": 584.2,
+        "ms": 2169.9,
         "transcriber": "cartesia/ink-whisper+enhanced_wav",
         "detail": "",
         "wer": 0.0,
@@ -315,7 +315,7 @@
       },
       "onemin_sample": {
         "status": "ok",
-        "ms": 2792.8,
+        "ms": 3736.7,
         "wer": 0.1111,
         "token_f1": 0.8889,
         "intent_correct": false,
@@ -337,7 +337,7 @@
       },
       "full_runtime": {
         "status": "transcribed",
-        "ms": 368.6,
+        "ms": 321.3,
         "transcriber": "cartesia/ink-whisper+enhanced_wav",
         "detail": "",
         "wer": 0.0,
@@ -404,7 +404,7 @@
       },
       "onemin_sample": {
         "status": "ok",
-        "ms": 2488.5,
+        "ms": 1876.4,
         "wer": 0.1111,
         "token_f1": 0.8889,
         "intent_correct": false,
@@ -426,21 +426,21 @@
       },
       "full_runtime": {
         "status": "transcribed",
-        "ms": 298.2,
+        "ms": 287.8,
         "transcriber": "cartesia/ink-whisper+enhanced_wav",
         "detail": "",
-        "wer": 0.0,
-        "token_f1": 1.0,
-        "intent_correct": true,
+        "wer": 0.1111,
+        "token_f1": 0.8889,
+        "intent_correct": false,
         "usable": true,
-        "passed": true,
+        "passed": false,
         "min_token_f1": 0.55,
         "max_wer": 0.55,
         "text_mode": "redacted",
         "expected_text_chars": 43,
         "expected_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
         "actual_text_chars": 43,
-        "actual_text_sha256": "7a18f01552a4c72b866b7eaf73249e166fcef201d3527aa86f7b86b99a12120f",
+        "actual_text_sha256": "fa84ea621e8902472b29c592ce20469d3b3d31743c2bbd5a234e3dba145b969a",
         "required_token_count": 2,
         "required_token_sha256": [
           "118bcceae7e5255a9781271b557a70d52eea747c97e7ed0889f82c58d7b8b978",

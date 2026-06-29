@@ -29,8 +29,9 @@ def _repo_root() -> Path:
 
 
 _REPO_ROOT = _repo_root()
+_WHATSAPP_ACTION_PROCESSOR_READINESS_FILENAME = "whatsapp_web_action_processor_readiness.generated.json"
 _WHATSAPP_ACTION_PROCESSOR_READINESS_PATH = (
-    _REPO_ROOT / ".codex-studio" / "published" / "whatsapp_web_action_processor_readiness.generated.json"
+    _REPO_ROOT / ".codex-studio" / "published" / _WHATSAPP_ACTION_PROCESSOR_READINESS_FILENAME
 )
 _WHATSAPP_RUNTIME_CONTAINERS = (
     "ea-whatsapp-web-session",
@@ -151,6 +152,40 @@ def _read_json_file(path: Path) -> dict[str, object]:
     return dict(payload) if isinstance(payload, dict) else {}
 
 
+def _whatsapp_provider_ledger_dir() -> Path:
+    ledger_dir = str(os.getenv("EA_RESPONSES_PROVIDER_LEDGER_DIR") or "/data/provider-ledger").strip() or "/data/provider-ledger"
+    return Path(ledger_dir)
+
+
+def _whatsapp_action_processor_runtime_receipt_path() -> Path:
+    configured = str(os.getenv("EA_WHATSAPP_WEB_ACTION_PROCESSOR_READINESS_PATH") or "").strip()
+    if configured:
+        return Path(configured)
+    return _whatsapp_provider_ledger_dir() / "provider-health-cache" / _WHATSAPP_ACTION_PROCESSOR_READINESS_FILENAME
+
+
+def _whatsapp_action_processor_readiness_candidate_paths() -> tuple[Path, ...]:
+    ordered: list[Path] = []
+    for candidate in (
+        _whatsapp_action_processor_runtime_receipt_path(),
+        _WHATSAPP_ACTION_PROCESSOR_READINESS_PATH,
+    ):
+        if candidate not in ordered:
+            ordered.append(candidate)
+    return tuple(ordered)
+
+
+def _whatsapp_action_processor_readiness_receipt() -> tuple[Path, dict[str, object]]:
+    candidates = _whatsapp_action_processor_readiness_candidate_paths()
+    if not candidates:
+        return _WHATSAPP_ACTION_PROCESSOR_READINESS_PATH, {}
+    for candidate in candidates:
+        payload = _read_json_file(candidate)
+        if payload:
+            return candidate, payload
+    return candidates[0], {}
+
+
 def _parse_iso8601_utc(value: object) -> datetime | None:
     text = str(value or "").strip()
     if not text:
@@ -253,14 +288,14 @@ def _whatsapp_operator_recheck_after_seconds(operator_state: str) -> int:
 
 
 def _whatsapp_runtime_status() -> dict[str, object]:
-    receipt = _read_json_file(_WHATSAPP_ACTION_PROCESSOR_READINESS_PATH)
+    receipt_path, receipt = _whatsapp_action_processor_readiness_receipt()
     docker_health = _docker_container_health(_WHATSAPP_RUNTIME_CONTAINERS)
     if not receipt:
         operator_state = _whatsapp_operator_action_state(receipt_present=False, receipt_fresh=False, ready=False)
         return {
             "state": "unknown",
             "receipt_present": False,
-            "receipt_path": str(_WHATSAPP_ACTION_PROCESSOR_READINESS_PATH),
+            "receipt_path": str(receipt_path),
             "next_action": "materialize_whatsapp_web_action_processor_readiness",
             "operator_action_state": operator_state,
             "operator_recheck_after_seconds": _whatsapp_operator_recheck_after_seconds(operator_state),
@@ -288,6 +323,7 @@ def _whatsapp_runtime_status() -> dict[str, object]:
     return {
         "state": "ready" if ready else "blocked",
         "receipt_present": True,
+        "receipt_path": str(receipt_path),
         "receipt_fresh": receipt_fresh,
         "receipt_age_seconds": receipt_age_seconds,
         "receipt_fresh_seconds": _WHATSAPP_READINESS_RECEIPT_FRESH_SECONDS,

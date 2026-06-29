@@ -2618,6 +2618,190 @@ def test_telegram_feedback_callback_records_generic_notification_preference(monk
     assert evidence_rows
 
 
+def test_telegram_proactive_ooda_callback_records_redacted_approval_outcome(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import channels
+    from app.services import proactive_ooda_telegram_approval as approval
+
+    principal_id = "cf-email:proactive.ooda@example.test"
+    chat_id = "1354554303"
+    bot_token = "telegram-token-test"
+    callback_secret = "telegram-callback-secret"
+    state_path = tmp_path / "state" / "proactive_ooda_notified.json"
+    receipt_path = tmp_path / "state" / "proactive_ooda_latest_run.generated.json"
+    stage_dir = tmp_path / "state" / "proactive_ooda_stage_packets"
+    safe_dir = tmp_path / "state" / "proactive_ooda_safe_work_results"
+
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", bot_token)
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "ea_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "telegram-secret-test")
+    monkeypatch.setenv("EA_TELEGRAM_CALLBACK_SECRET", callback_secret)
+    monkeypatch.setenv("EA_PROACTIVE_OODA_TEABLE_SYNC_ENABLED", "0")
+    monkeypatch.setenv("EA_PROACTIVE_OODA_STATE_PATH", str(state_path))
+    monkeypatch.setenv("EA_PROACTIVE_OODA_RECEIPT_PATH", str(receipt_path))
+    monkeypatch.setenv("EA_PROACTIVE_OODA_STAGE_PACKET_DIR", str(stage_dir))
+    monkeypatch.setenv("EA_PROACTIVE_OODA_SAFE_WORK_RESULT_DIR", str(safe_dir))
+    monkeypatch.setattr(approval, "default_proactive_ooda_root", lambda: tmp_path)
+
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Telegram Proactive OODA Office")
+    client.app.state.container.tool_runtime.upsert_connector_binding(
+        principal_id=principal_id,
+        connector_name="telegram_identity",
+        external_account_ref=chat_id,
+        auth_metadata_json={
+            "default_chat_ref": chat_id,
+            "bot_key": "default",
+            "bot_handle": "ea_concierge_bot",
+        },
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+
+    def _write_json(path: Path, payload: dict[str, object]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    packet_ref = "stage_packet:pkt-live"
+    staged_artifact_ref = "safe_work_result:res-live"
+    stage_packet = {
+        "schema": "proactive_ooda.stage_packet.v1",
+        "packet_ref": packet_ref,
+        "packet_id": "pkt-live",
+        "status": "staged",
+        "generated_at": "2026-06-28T12:21:09Z",
+        "priority": "high",
+        "observe": "Review the staged shortlist.",
+        "orient": "A live packet is ready for approval review.",
+        "decide": "Decide whether EA should proceed with the staged candidate.",
+        "act": "Keep the action staged pending explicit approval.",
+        "stage": {"kind": "approval_packet", "summary": "One staged shortlist candidate ready for approval."},
+        "approval": {"required": True},
+    }
+    safe_work_result = {
+        "schema": "proactive_ooda.safe_work_result.v1",
+        "result_ref": staged_artifact_ref,
+        "result_id": "res-live",
+        "status": "staged_for_user_decision",
+        "source_packet_ref_hash": hashlib.sha256(packet_ref.encode("utf-8")).hexdigest(),
+        "recommended_option_or_draft": {
+            "kind": "shortlist_candidate",
+            "value": {"label": "Vendor A", "url": "https://example.test/vendor-a"},
+        },
+        "approval": {"required": True},
+        "execution_receipt": {
+            "network_fetch_count": 1,
+            "network_fetch_success_count": 1,
+            "page_checks": [{"url": "https://example.test/vendor-a", "reachable": True}],
+            "irreversible_actions_attempted": [],
+        },
+    }
+    _write_json(stage_dir / "pkt-live.json", stage_packet)
+    _write_json(safe_dir / "res-live.json", safe_work_result)
+    _write_json(
+        receipt_path,
+        {
+            "generated_at": "2026-06-28T12:21:09Z",
+            "notification_status": "sent",
+            "item_count": 1,
+            "delivery_channel": "telegram",
+            "delivery_transport": "telegram",
+            "delivery_selected_by": "tool_runtime_binding",
+            "delivery_message_ids": ["3141", "3142"],
+            "telegram_message_ids": ["3141", "3142"],
+            "stage_packet_output_dir": str(stage_dir),
+            "safe_work_result_output_dir": str(safe_dir),
+            "stage_packet_ref_hashes": [hashlib.sha256(packet_ref.encode("utf-8")).hexdigest()],
+            "safe_work_result_ref_hashes": [hashlib.sha256(staged_artifact_ref.encode("utf-8")).hexdigest()],
+            "approval_surface": {
+                "present": True,
+                "channel": "telegram",
+                "status": "pending",
+                "message_ids": ["3142"],
+                "message_count": 1,
+            },
+        },
+    )
+
+    prepared = approval.prepare_proactive_ooda_telegram_approval(
+        principal_id=principal_id,
+        packet_ref=packet_ref,
+        staged_artifact_ref=staged_artifact_ref,
+        approval_prompt="Approve this staged shortlist.",
+        staged_action_url="https://example.test/vendor-a",
+        chat_id=chat_id,
+        bot_token=bot_token,
+        root=tmp_path,
+        state_path=str(state_path),
+        receipt_path=str(receipt_path),
+        created_at="2026-06-28T12:21:10Z",
+    )
+    callback_data = str(prepared["inline_buttons"][0][0][1])
+    answered: list[dict[str, object]] = []
+    replies: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        channels,
+        "_telegram_answer_callback_query",
+        lambda *, bot_token, callback_query_id, text="": answered.append(
+            {"bot_token": bot_token, "callback_query_id": callback_query_id, "text": text}
+        ),
+    )
+    monkeypatch.setattr(
+        channels,
+        "_telegram_send_and_record_reply",
+        lambda **kwargs: replies.append({"reply_text": kwargs.get("reply_text"), "dedupe_key": kwargs.get("dedupe_key")}) or True,
+    )
+
+    response = client.post(
+        "/v1/channels/telegram/ingest",
+        headers={"x-telegram-bot-api-secret-token": "telegram-secret-test"},
+        json={
+            "update": {
+                "callback_query": {
+                    "id": "cb-proactive-1",
+                    "data": callback_data,
+                    "message": {
+                        "message_id": 3142,
+                        "text": "Approve this staged shortlist.",
+                        "chat": {"id": chat_id},
+                    },
+                }
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["reply_sent"] is True
+    assert body["reply_text"] == "Recorded as approved. EA kept the action staged; no purchase, booking, or send was executed."
+    assert answered and answered[0]["callback_query_id"] == "cb-proactive-1"
+    assert replies and replies[0]["reply_text"] == body["reply_text"]
+
+    approval_outcome_path = tmp_path / "state" / "proactive_ooda_latest_approval_outcome.generated.json"
+    approval_outcome = json.loads(approval_outcome_path.read_text(encoding="utf-8"))
+    assert approval_outcome["approval_outcome_recorded"] is True
+    assert approval_outcome["accepted"] is True
+    assert approval_outcome["status"] == "accepted_redacted"
+    assert approval_outcome["packet_ref_sha256"] == hashlib.sha256(packet_ref.encode("utf-8")).hexdigest()
+    assert approval_outcome["staged_artifact_sha256"] == hashlib.sha256(staged_artifact_ref.encode("utf-8")).hexdigest()
+    approval_text = approval_outcome_path.read_text(encoding="utf-8")
+    assert "telegram:1354554303" not in approval_text
+    assert "stage_packet:pkt-live" not in approval_text
+    assert "safe_work_result:res-live" not in approval_text
+
+    callback_record = json.loads(Path(prepared["record_path"]).read_text(encoding="utf-8"))
+    assert callback_record["status"] == "approved"
+    assert callback_record["approval_outcome_id"] == approval_outcome["outcome_id"]
+    callback_text = Path(prepared["record_path"]).read_text(encoding="utf-8")
+    assert "telegram:1354554303" not in callback_text
+    assert "3142" not in callback_text
+
+    assert (tmp_path / ".codex-studio" / "published" / "ea_proactive_ooda_operator_status.generated.json").is_file()
+    assert (tmp_path / ".codex-studio" / "published" / "ea_proactive_ooda_gold_acceptance.generated.json").is_file()
+
+
 def test_property_alert_preference_scoring_flows_through_queue_and_telegram(monkeypatch) -> None:
     principal_id = "exec-product-property-fit-end-to-end"
     client = build_product_client(principal_id=principal_id)
@@ -4835,6 +5019,33 @@ def test_property_image_ocr_address_hint_rejects_geocode_when_postcode_conflicts
     assert findings == {}
 
 
+def test_onedrive_scanned_document_search_uses_floorplan_ocr_and_prefers_older_files(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    client = build_product_client(principal_id="exec-onedrive-floorplan-search")
+    service = ProductService(client.app.state.container)
+
+    older = tmp_path / "scan-older.pdf"
+    newer = tmp_path / "scan-newer.pdf"
+    older.write_bytes(b"%PDF-1.4 old floorplan")
+    newer.write_bytes(b"%PDF-1.4 new floorplan")
+    os.utime(older, (1_000_000_000, 1_000_000_000))
+    os.utime(newer, (2_000_000_000, 2_000_000_000))
+
+    monkeypatch.setattr(service, "_onedrive_scanned_document_roots", lambda: (tmp_path,))
+    monkeypatch.setattr(
+        product_service,
+        "_onedrive_pdf_ocr_text",
+        lambda path, *, max_pages=2: "Grundriss 2 Zimmer" if path.name.endswith(".pdf") else "",
+    )
+
+    candidates = service._search_scanned_onedrive_filesystem_candidates(query="Grundriss", limit=5)
+
+    assert [item["filename"] for item in candidates[:2]] == ["scan-older.pdf", "scan-newer.pdf"]
+    assert all(float(item["score"]) > 0 for item in candidates[:2])
+
+
 def test_merge_property_facts_with_source_research_replaces_weak_values(monkeypatch) -> None:
     monkeypatch.setattr(
         product_service,
@@ -6858,6 +7069,361 @@ def test_pocket_saved_link_import_from_local_json_archive(tmp_path) -> None:
     assert repeated_body["total"] == 2
     assert repeated_body["synced_total"] == 0
     assert repeated_body["deduplicated_total"] == 2
+
+
+def test_alexa_history_import_from_local_json_archive(tmp_path, monkeypatch) -> None:
+    principal_id = "exec-product-alexa-import"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    captured_rows: list[dict[str, object]] = []
+    export_path = tmp_path / "alexa_history.json"
+    export_path.write_text(
+        json.dumps(
+            {
+                "activities": [
+                    {
+                        "id": "history-1",
+                        "timestamp": "2026-05-02T07:15:00Z",
+                        "utterance": "Remind me to order flowers when it gets cooler.",
+                        "response": "Okay, I'll remember that.",
+                        "deviceName": "Echo Show",
+                        "skillName": "Alexa",
+                        "locale": "en-US",
+                        "activityStatus": "success",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("EA_ALEXA_HISTORY_IMPORT_ROOT", str(tmp_path))
+    monkeypatch.setattr(
+        product_service.ProductService,
+        "_sync_alexa_history_index_to_teable",
+        lambda self, *, principal_id, rows: (
+            captured_rows.extend(dict(row) for row in rows) or {
+                "status": "synced",
+                "sync_attempted": True,
+                "row_total": len(rows),
+                "blocked_reason": "",
+            }
+        ),
+    )
+    imported = client.post("/app/api/signals/alexa/history/import-local", json={"path": str(export_path)})
+    assert imported.status_code == 200
+    body = imported.json()
+    assert body["source_path"] == str(export_path)
+    assert body["source_formats"] == ["json"]
+    assert body["parsed_entry_total"] == 1
+    assert body["total"] == 1
+    assert body["synced_total"] == 1
+    assert body["deduplicated_total"] == 0
+    assert body["teable_index_status"] == "synced"
+    assert body["teable_index_row_total"] == 1
+    assert body["teable_index_sync_attempted"] is True
+    assert body["items"][0]["channel"] == "alexa"
+    assert body["items"][0]["event_type"] == "office_signal_audio_recording"
+    assert body["items"][0]["source_id"] == "alexa-history:history-1"
+    assert captured_rows[0]["history_entry_id"] == "history-1"
+    assert captured_rows[0]["device_name"] == "Echo Show"
+
+    events = client.get("/app/api/events", params={"channel": "alexa"})
+    assert events.status_code == 200
+    imported_event = next(item for item in events.json()["items"] if item["source_id"] == "alexa-history:history-1")
+    assert imported_event["payload"]["import_channel"] == "alexa_history_export"
+    assert imported_event["payload"]["utterance_text"] == "Remind me to order flowers when it gets cooler."
+    assert imported_event["payload"]["response_text"] == "Okay, I'll remember that."
+    assert imported_event["payload"]["device_name"] == "Echo Show"
+    assert imported_event["payload"]["skill_name"] == "Alexa"
+    assert imported_event["payload"]["locale"] == "en-US"
+    assert imported_event["payload"]["activity_status"] == "success"
+
+    ooda_events = client.get("/app/api/events", params={"channel": "product", "event_type": "office_signal_ooda_evaluated"})
+    assert ooda_events.status_code == 200
+    assert any(
+        item["source_id"] == "alexa-history:history-1" and item["payload"]["signal_type"] == "audio_recording"
+        for item in ooda_events.json()["items"]
+    )
+
+    completion_events = client.get("/app/api/events", params={"channel": "product", "event_type": "alexa_history_import_completed"})
+    assert completion_events.status_code == 200
+    assert any(
+        item["source_id"] == str(export_path) and item["payload"]["parsed_entry_total"] == 1
+        for item in completion_events.json()["items"]
+    )
+    index_events = client.get("/app/api/events", params={"channel": "product", "event_type": "alexa_history_indexed"})
+    assert index_events.status_code == 200
+    assert any(item["payload"]["history_entry_id"] == "history-1" for item in index_events.json()["items"])
+
+    repeated = client.post("/app/api/signals/alexa/history/import-local", json={"path": str(export_path)})
+    assert repeated.status_code == 200
+    repeated_body = repeated.json()
+    assert repeated_body["total"] == 1
+    assert repeated_body["synced_total"] == 0
+    assert repeated_body["deduplicated_total"] == 1
+
+
+def test_alexa_history_import_rejects_absolute_path_outside_allowed_root(tmp_path, monkeypatch) -> None:
+    principal_id = "exec-product-alexa-import-blocked"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    allowed_root = tmp_path / "allowed"
+    allowed_root.mkdir(parents=True)
+    outside = tmp_path / "outside.json"
+    outside.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "history-1",
+                    "utterance": "Blocked path test.",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_ALEXA_HISTORY_IMPORT_ROOT", str(allowed_root))
+
+    imported = client.post("/app/api/signals/alexa/history/import-local", json={"path": str(outside)})
+    assert imported.status_code == 403
+    assert "alexa_history_import_path_not_allowed" in imported.text
+
+
+def test_alexa_history_sync_from_import_root_skips_unchanged_files(tmp_path, monkeypatch) -> None:
+    principal_id = "exec-product-alexa-sync"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    captured_rows: list[dict[str, object]] = []
+    export_path = tmp_path / "alexa_history.json"
+    export_path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "history-sync-1",
+                    "timestamp": "2026-05-03T09:00:00Z",
+                    "utterance": "Compare florist options for next week.",
+                    "response": "Okay.",
+                    "deviceName": "Echo Dot",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("EA_ALEXA_HISTORY_IMPORT_ROOT", str(tmp_path))
+    monkeypatch.setattr(
+        product_service.ProductService,
+        "_sync_alexa_history_index_to_teable",
+        lambda self, *, principal_id, rows: (
+            captured_rows.extend(dict(row) for row in rows) or {
+                "status": "synced",
+                "sync_attempted": True,
+                "row_total": len(rows),
+                "blocked_reason": "",
+            }
+        ),
+    )
+    first = client.post("/app/api/signals/alexa/history/sync", params={"limit": 10})
+    assert first.status_code == 200
+    first_body = first.json()
+    assert first_body["root_path"] == str(tmp_path)
+    assert first_body["source_total"] == 1
+    assert first_body["processed_source_total"] == 1
+    assert first_body["skipped_source_total"] == 0
+    assert first_body["source_limit"] == 10
+    assert first_body["force"] is False
+    assert first_body["total"] == 1
+    assert first_body["synced_total"] == 1
+    assert first_body["deduplicated_total"] == 0
+    assert first_body["teable_index_status"] == "synced"
+    assert first_body["teable_index_row_total"] == 1
+    assert first_body["teable_index_sync_attempted"] is True
+    assert first_body["items"][0]["source_id"] == "alexa-history:history-sync-1"
+    assert captured_rows[0]["history_entry_id"] == "history-sync-1"
+
+    second = client.post("/app/api/signals/alexa/history/sync", params={"limit": 10})
+    assert second.status_code == 200
+    second_body = second.json()
+    assert second_body["source_total"] == 1
+    assert second_body["processed_source_total"] == 0
+    assert second_body["skipped_source_total"] == 1
+    assert second_body["total"] == 0
+    assert second_body["synced_total"] == 0
+    assert second_body["deduplicated_total"] == 0
+    assert second_body["teable_index_status"] == "noop"
+    assert second_body["teable_index_row_total"] == 0
+    assert second_body["teable_index_sync_attempted"] is False
+
+
+def test_alexa_history_search_and_detail_routes_use_indexed_entries(tmp_path, monkeypatch) -> None:
+    principal_id = "exec-product-alexa-search"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    export_path = tmp_path / "alexa_history.json"
+    export_path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "history-search-1",
+                    "timestamp": "2026-05-04T10:00:00Z",
+                    "utterance": "Compare florist options for next week.",
+                    "response": "Okay, I'll compare them.",
+                    "deviceName": "Echo Dot",
+                    "skillName": "Alexa",
+                    "locale": "en-US",
+                    "activityStatus": "success",
+                },
+                {
+                    "id": "history-search-2",
+                    "timestamp": "2026-05-01T08:00:00Z",
+                    "utterance": "Set a timer for tea.",
+                    "response": "Five minutes, starting now.",
+                    "deviceName": "Echo Pop",
+                    "skillName": "Alexa",
+                    "locale": "en-US",
+                    "activityStatus": "success",
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("EA_ALEXA_HISTORY_IMPORT_ROOT", str(tmp_path))
+    monkeypatch.setattr(
+        product_service.ProductService,
+        "_sync_alexa_history_index_to_teable",
+        lambda self, *, principal_id, rows: {
+            "status": "synced",
+            "sync_attempted": True,
+            "row_total": len(rows),
+            "blocked_reason": "",
+        },
+    )
+
+    imported = client.post("/app/api/signals/alexa/history/import-local", json={"path": str(export_path)})
+    assert imported.status_code == 200
+
+    search = client.get("/app/api/signals/alexa/history/search", params={"q": "florist next week", "limit": 5})
+    assert search.status_code == 200
+    search_body = search.json()
+    assert search_body["query"] == "florist next week"
+    assert search_body["total"] == 1
+    assert search_body["items"][0]["history_entry_id"] == "history-search-1"
+    assert search_body["items"][0]["device_name"] == "Echo Dot"
+    assert search_body["items"][0]["skill_name"] == "Alexa"
+    assert search_body["items"][0]["match_score"] > 0
+
+    detail = client.get("/app/api/signals/alexa/history/history-search-1")
+    assert detail.status_code == 200
+    detail_body = detail.json()
+    assert detail_body["history_entry_id"] == "history-search-1"
+    assert detail_body["source_ref"] == "alexa-history:history-search-1"
+    assert detail_body["utterance_text"] == "Compare florist options for next week."
+    assert detail_body["response_text"] == "Okay, I'll compare them."
+    assert detail_body["device_name"] == "Echo Dot"
+    assert detail_body["import_source_path"] == str(export_path)
+
+
+def test_alexa_history_detail_and_query_delivery_routes_send_telegram_packets(tmp_path, monkeypatch) -> None:
+    principal_id = "exec-product-alexa-delivery"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    export_path = tmp_path / "alexa_history.json"
+    export_path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "history-delivery-1",
+                    "timestamp": "2026-05-04T10:00:00Z",
+                    "utterance": "Compare florist options for next week.",
+                    "response": "Okay, I'll compare them.",
+                    "deviceName": "Echo Dot",
+                    "skillName": "Alexa",
+                    "locale": "en-US",
+                    "activityStatus": "success",
+                },
+                {
+                    "id": "history-delivery-2",
+                    "timestamp": "2026-05-01T08:00:00Z",
+                    "utterance": "Set a timer for tea.",
+                    "response": "Five minutes, starting now.",
+                    "deviceName": "Echo Pop",
+                    "skillName": "Alexa",
+                    "locale": "en-US",
+                    "activityStatus": "success",
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("EA_ALEXA_HISTORY_IMPORT_ROOT", str(tmp_path))
+    monkeypatch.setattr(
+        product_service.ProductService,
+        "_sync_alexa_history_index_to_teable",
+        lambda self, *, principal_id, rows: {
+            "status": "synced",
+            "sync_attempted": True,
+            "row_total": len(rows),
+            "blocked_reason": "",
+        },
+    )
+
+    observed_messages: list[dict[str, object]] = []
+
+    class _TelegramReceipt:
+        chat_id = "1354554303"
+        message_ids = ("tg-alexa-1",)
+
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda tool_runtime, *, principal_id, text, inline_buttons=None, url_buttons=None: observed_messages.append(
+            {
+                "principal_id": principal_id,
+                "text": text,
+                "inline_buttons": inline_buttons,
+                "url_buttons": url_buttons,
+            }
+        )
+        or _TelegramReceipt(),
+    )
+
+    imported = client.post("/app/api/signals/alexa/history/import-local", json={"path": str(export_path)})
+    assert imported.status_code == 200
+
+    delivered = client.post("/app/api/signals/alexa/history/history-delivery-1/deliver-telegram")
+    assert delivered.status_code == 200
+    delivered_body = delivered.json()
+    assert delivered_body["history_entry_id"] == "history-delivery-1"
+    assert delivered_body["telegram_delivery_status"] == "sent"
+    assert delivered_body["telegram_message_ids"] == ["tg-alexa-1"]
+    assert delivered_body["telegram_chat_ref"] == "1354554303"
+    assert "Utterance:" in str(observed_messages[0]["text"])
+    assert "Compare florist options for next week." in str(observed_messages[0]["text"])
+    assert "Response:" in str(observed_messages[0]["text"])
+
+    queried = client.post(
+        "/app/api/signals/alexa/history/deliver-telegram",
+        params={"q": "florist next week", "limit": 5},
+    )
+    assert queried.status_code == 200
+    queried_body = queried.json()
+    assert queried_body["history_entry_id"] == "history-delivery-1"
+    assert queried_body["matched_total"] == 1
+    assert queried_body["query"] == "florist next week"
+    assert "Alexa history match for query: florist next week" in str(observed_messages[1]["text"])
+
+    events = client.get("/app/api/events", params={"channel": "product", "event_type": "alexa_history_telegram_sent"})
+    assert events.status_code == 200
+    sent_events = events.json()["items"]
+    assert len(sent_events) >= 2
+    assert any(
+        item["payload"]["history_entry_id"] == "history-delivery-1"
+        and item["payload"]["telegram_chat_ref"] == "1354554303"
+        and item["payload"]["query"] == "florist next week"
+        for item in sent_events
+    )
 
 
 def test_noneverbia_meeting_import_from_local_json_archive(tmp_path, monkeypatch) -> None:

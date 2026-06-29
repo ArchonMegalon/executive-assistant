@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import inspect
 import json
 import os
 import sys
@@ -40,8 +41,6 @@ def _load_dotenv_if_present(path: Path) -> None:
         os.environ[key] = normalized
 
 
-_load_dotenv_if_present(ROOT / ".env")
-
 from app.services.proactive_ooda_service import (  # noqa: E402
     JsonOodaStateStore,
     ProactiveOodaDigest,
@@ -55,9 +54,15 @@ from app.services.proactive_signal_discovery import (  # noqa: E402
     discover_opportunity_rule_signals,
     discover_postgres_observation_signals,
     discover_signals_resilient,
+    extract_proactive_suppression_directive,
     load_signal_sources_config,
+    signal_matches_proactive_suppression,
 )
 from app.services.proactive_ooda_receipts import persist_proactive_ooda_receipt  # noqa: E402
+from app.services.proactive_ooda_runtime_artifacts import (  # noqa: E402
+    default_run_receipt_dir,
+    default_run_receipt_path,
+)
 from app.services.proactive_ooda_safe_work import (  # noqa: E402
     build_safe_work_result,
     default_safe_work_result_dir,
@@ -68,11 +73,16 @@ from app.services.proactive_ooda_stage_packets import (  # noqa: E402
     default_stage_packet_dir,
     persist_stage_packets,
 )
-from app.services.proactive_ooda_context_grounding import ground_digest_with_context  # noqa: E402
+from app.services.proactive_ooda_telegram_approval import (
+    build_reversible_execution_approval_prompt,
+    execute_proactive_ooda_action,
+)
+from app.services.proactive_ooda_context_grounding import ground_digest_for_principal, ground_digest_with_context  # noqa: E402
 from app.services.proactive_ooda_delivery import (  # noqa: E402
     resolve_proactive_ooda_delivery_status,
     send_proactive_ooda_notification,
 )
+from app.services.proactive_ooda_telegram_policy import approval_request_needs_telegram_user_action  # noqa: E402
 from app.services.proactive_ooda_teable_sync import (  # noqa: E402
     sync_proactive_ooda_to_teable,
     teable_sync_enabled,
@@ -84,6 +94,7 @@ def _default_principal_id() -> str:
 
 
 def main() -> int:
+    _load_dotenv_if_present(ROOT / ".env")
     parser = argparse.ArgumentParser(description="Ingest workspace signals, build OODA ink, and notify the user.")
     parser.add_argument("--principal-id", default=_default_principal_id())
     parser.add_argument(
@@ -136,6 +147,12 @@ def main() -> int:
         default=_env_truthy("EA_PROACTIVE_OODA_PAUSED", default=False),
         help="Build and receipt the OODA packet, but defer delivery and leave refs unnotified.",
     )
+    parser.add_argument(
+        "--armed-send",
+        action=argparse.BooleanOptionalAction,
+        default=_env_truthy("EA_PROACTIVE_OODA_ARMED_SEND", default=False),
+        help="Allow this run to send on the resolved delivery route. Defaults to disabled for host/manual runs.",
+    )
     parser.add_argument("--pause-reason", default=os.getenv("EA_PROACTIVE_OODA_PAUSE_REASON", ""))
     parser.add_argument(
         "--interruption-budget-limit",
@@ -187,9 +204,17 @@ def main() -> int:
         action=argparse.BooleanOptionalAction,
         default=teable_sync_enabled(),
     )
+    parser.add_argument(
+        "--action-required-delivery-only",
+        action=argparse.BooleanOptionalAction,
+        default=_env_truthy("EA_PROACTIVE_OODA_ACTION_REQUIRED_DELIVERY_ONLY", default=True),
+        help="Only notify when the packet has a concrete user action surface; otherwise keep it in receipts/Teable.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--pretty", action="store_true")
     args = parser.parse_args()
+    if not str(args.receipt_path or "").strip():
+        args.receipt_path = str(default_run_receipt_path(root=ROOT, state_path=args.state_path))
 
     state_store = JsonOodaStateStore(ROOT / args.state_path)
     signals = _load_signals(
@@ -221,6 +246,8 @@ def main() -> int:
                 principal_id=args.principal_id,
                 digest=digest,
             )
+        if not deferred_reason:
+            deferred_reason = _unarmed_send_defer_reason(args, digest)
         if deferred_reason:
             digest = _without_notified_refs(digest)
             error_code = deferred_reason
@@ -230,8 +257,10 @@ def main() -> int:
     safe_work_result_error_count = 0
     stage_packet_paths: tuple[str, ...] = ()
     safe_work_result_paths: tuple[str, ...] = ()
+    auto_execution_results: tuple[dict[str, Any], ...] = ()
+    stage_packet_dir = _stage_packet_dir(args)
+    safe_work_result_dir = _safe_work_result_dir(args, stage_packet_dir=stage_packet_dir)
     if digest.items and not args.dry_run and bool(getattr(args, "stage_packets", True)):
-        stage_packet_dir = _stage_packet_dir(args)
         stage_result = persist_stage_packets(
             digest=digest,
             output_dir=stage_packet_dir,
@@ -242,7 +271,7 @@ def main() -> int:
         if stage_result.paths and bool(getattr(args, "safe_work_results", True)):
             safe_work_result = persist_safe_work_results_from_paths(
                 stage_packet_paths=stage_result.paths,
-                result_dir=_safe_work_result_dir(args, stage_packet_dir=stage_packet_dir),
+                result_dir=safe_work_result_dir,
                 network_fetch_enabled=bool(getattr(args, "safe_work_network_fetch", True)),
                 network_fetch_limit=max(int(getattr(args, "safe_work_network_fetch_limit", 6) or 1), 1),
                 network_fetch_timeout_seconds=max(int(getattr(args, "safe_work_network_fetch_timeout_seconds", 10) or 1), 1),
@@ -250,19 +279,70 @@ def main() -> int:
             safe_work_result_paths = safe_work_result.paths
             safe_work_result_refs = safe_work_result.result_refs
             safe_work_result_error_count = len(safe_work_result.errors)
+    if (
+        digest.items
+        and not args.dry_run
+        and not error_code
+        and stage_packet_paths
+        and safe_work_result_paths
+    ):
+        auto_execution_results = _auto_execute_proactive_ooda_actions(
+            principal_id=args.principal_id,
+            stage_packet_paths=stage_packet_paths,
+            safe_work_result_paths=safe_work_result_paths,
+            root=ROOT,
+            state_path=args.state_path,
+            receipt_path=args.receipt_path,
+            stage_packet_dir=stage_packet_dir,
+            safe_work_result_dir=safe_work_result_dir,
+        )
     safe_work_results = _notification_safe_work_previews(
         args,
         digest=digest,
         stage_packet_paths=stage_packet_paths,
         safe_work_result_paths=safe_work_result_paths,
     )
+    if (
+        digest.items
+        and not args.dry_run
+        and not error_code
+        and bool(getattr(args, "safe_work_results", True))
+        and safe_work_results
+        and not any(bool(getattr(item, "approval_required", False)) for item in digest.items)
+        and not _has_decision_ready_safe_work(safe_work_results)
+    ):
+        digest = _without_notified_refs(digest)
+        error_code = "no_decision_ready_safe_work"
     notification_text = _format_notification_text(
         digest,
         safe_work_results=safe_work_results,
     )
+    approval_request = _notification_approval_request(
+        stage_packet_paths=stage_packet_paths,
+        safe_work_result_paths=safe_work_result_paths,
+        auto_execute_results=auto_execution_results,
+    )
+    if (
+        digest.items
+        and not args.dry_run
+        and not error_code
+        and bool(getattr(args, "action_required_delivery_only", True))
+        and not _notification_requires_user_action(approval_request)
+    ):
+        digest = _without_notified_refs(digest)
+        error_code = "no_user_action_required"
     if digest.items and not args.dry_run and not error_code:
         try:
-            notification_result = _deliver_notification(args.principal_id, notification_text, digest=digest)
+            deliver_kwargs: dict[str, Any] = {
+                "digest": digest,
+            }
+            if approval_request is not None and _callable_accepts_keyword(_deliver_notification, "approval_request"):
+                deliver_kwargs["approval_request"] = approval_request
+            notification_result = _deliver_notification(
+                args.principal_id,
+                notification_text,
+                **deliver_kwargs,
+            )
             if digest.notified_markers:
                 state_store.save_notified_refs(args.principal_id, stored_refs.union(digest.notified_markers))
         except Exception as exc:
@@ -284,8 +364,6 @@ def main() -> int:
             principal_id=args.principal_id,
             occurred_at=receipt.generated_at,
         )
-    if args.receipt_path:
-        _write_receipt(Path(args.receipt_path), receipt_to_dict(receipt))
     if _env_truthy("EA_PROACTIVE_OODA_PERSIST_RECEIPTS", default=True):
         persist_proactive_ooda_receipt(principal_id=args.principal_id, digest=digest, receipt=receipt)
     teable_sync: dict[str, Any] = {
@@ -300,6 +378,16 @@ def main() -> int:
             receipt=receipt,
             safe_work_results=safe_work_results,
         )
+    if args.receipt_path:
+        receipt_payload = _receipt_payload(
+            receipt=receipt,
+            teable_sync=teable_sync,
+            stage_packet_dir=stage_packet_dir,
+            safe_work_result_dir=safe_work_result_dir,
+            auto_execute_results=auto_execution_results,
+        )
+        _write_receipt(Path(args.receipt_path), receipt_payload)
+        _write_receipt(_archived_receipt_path(args, payload=receipt_payload), receipt_payload)
     if error_code and not _is_deferred_error(error_code):
         raise RuntimeError(f"proactive_ooda_notification_failed:{error_code}")
     if args.pretty:
@@ -309,7 +397,12 @@ def main() -> int:
             json.dumps(
                 {
                     "digest": digest_to_dict(digest),
-                    "receipt": receipt_to_dict(receipt),
+                    "receipt": _receipt_payload(
+                        receipt=receipt,
+                        teable_sync=teable_sync,
+                        stage_packet_dir=stage_packet_dir,
+                        safe_work_result_dir=safe_work_result_dir,
+                    ),
                     "teable_sync": teable_sync,
                 },
                 indent=2,
@@ -324,53 +417,187 @@ def _write_receipt(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def _archived_receipt_path(args: argparse.Namespace, *, payload: Mapping[str, Any]) -> Path:
+    archive_dir = default_run_receipt_dir(
+        root=ROOT,
+        state_path=str(args.state_path or ""),
+        receipt_path=str(args.receipt_path or ""),
+    )
+    generated_at = str(payload.get("generated_at") or "").strip()
+    timestamp = (
+        generated_at.replace("-", "").replace(":", "").replace("+", "_").replace(".", "_")
+        if generated_at
+        else datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z").replace("-", "").replace(":", "")
+    )
+    status = str(payload.get("notification_status") or "unknown").strip().lower().replace(" ", "_") or "unknown"
+    material = "|".join(
+        (
+            generated_at,
+            status,
+            str(payload.get("principal_id_hash") or "").strip(),
+            ",".join(str(item or "").strip() for item in list(payload.get("notified_ref_hashes") or [])),
+            ",".join(str(item or "").strip() for item in list(payload.get("stage_packet_ref_hashes") or [])),
+            ",".join(str(item or "").strip() for item in list(payload.get("safe_work_result_ref_hashes") or [])),
+        )
+    )
+    receipt_hash = hashlib.sha256(material.encode("utf-8")).hexdigest()[:12]
+    return archive_dir / f"{timestamp}-{status}-{receipt_hash}.json"
+
+
+def _receipt_payload(
+    *,
+    receipt: Any,
+    teable_sync: Mapping[str, Any],
+    stage_packet_dir: Path,
+    safe_work_result_dir: Path,
+    auto_execute_results: Iterable[Mapping[str, Any]] = (),
+) -> dict[str, Any]:
+    payload = receipt_to_dict(receipt)
+    payload["stage_packet_output_dir"] = str(stage_packet_dir)
+    payload["safe_work_result_output_dir"] = str(safe_work_result_dir)
+    payload["auto_execute_results"] = tuple(
+        _redact_auto_execute_result(result) for result in auto_execute_results
+    )
+    payload["teable_sync"] = {
+        "status": str(teable_sync.get("status") or "").strip(),
+        "sync_attempted": bool(teable_sync.get("sync_attempted")),
+        "blocked_reason": str(teable_sync.get("blocked_reason") or "").strip(),
+        "missing_tables": [
+            str(item or "").strip()
+            for item in list(teable_sync.get("missing_tables") or [])
+            if str(item or "").strip()
+        ],
+        "projection_summary": dict(teable_sync.get("projection_summary") or {}),
+    }
+    return payload
+
+
+def _auto_execute_proactive_ooda_actions(
+    *,
+    principal_id: str,
+    stage_packet_paths: Iterable[str | Path],
+    safe_work_result_paths: Iterable[str | Path],
+    root: Path,
+    state_path: str | Path,
+    receipt_path: str | Path,
+    stage_packet_dir: Path,
+    safe_work_result_dir: Path,
+) -> tuple[dict[str, Any], ...]:
+    candidates = tuple(
+        _proactive_ooda_auto_execute_candidates(
+            stage_packet_paths=stage_packet_paths,
+            safe_work_result_paths=safe_work_result_paths,
+        )
+    )
+    if not candidates:
+        return ()
+
+    try:
+        from app.container import build_container
+
+        container = build_container()
+    except Exception:
+        return ()
+
+    results: list[dict[str, Any]] = []
+    for candidate in candidates:
+        execution = execute_proactive_ooda_action(
+            container=container,
+            principal_id=principal_id,
+            packet_ref=candidate["packet_ref"],
+            staged_artifact_ref=candidate["staged_artifact_ref"],
+            root=root,
+            state_path=state_path,
+            receipt_path=receipt_path,
+            stage_packet_dir=stage_packet_dir,
+            safe_work_result_dir=safe_work_result_dir,
+        )
+        results.append(
+            {
+                "packet_ref": candidate["packet_ref"],
+                "staged_artifact_ref": candidate["staged_artifact_ref"],
+                "execution": execution,
+                "result_id": candidate["result_id"],
+            }
+        )
+    return tuple(results)
+
+
+def _proactive_ooda_auto_execute_candidates(
+    *,
+    stage_packet_paths: Iterable[str | Path],
+    safe_work_result_paths: Iterable[str | Path],
+) -> tuple[Mapping[str, str], ...]:
+    stage_packets_by_hash = {}
+    for raw_path in stage_packet_paths:
+        stage_packet = _read_json_object(raw_path)
+        packet_ref = str(stage_packet.get("packet_ref") or "").strip()
+        if not packet_ref:
+            continue
+        stage_packets_by_hash[_hash_value(packet_ref)] = stage_packet
+
+    candidates: list[dict[str, str]] = []
+    for result in _ordered_safe_work_results_from_paths(
+        stage_packet_paths=stage_packet_paths,
+        safe_work_result_paths=safe_work_result_paths,
+    ):
+        packet_ref = ""
+        result_ref = str(result.get("result_ref") or "").strip()
+        if not result_ref:
+            continue
+        result_id = str(result.get("result_id") or "").strip()
+        stage_hash = str(result.get("source_packet_ref_hash") or "").strip()
+        stage_packet = stage_packets_by_hash.get(stage_hash)
+        if not stage_packet:
+            continue
+        packet_ref = str(stage_packet.get("packet_ref") or "").strip()
+        if not packet_ref:
+            continue
+        approval = dict(stage_packet.get("approval") or {})
+        if bool(approval.get("required")):
+            continue
+        stage_payload = dict(dict(stage_packet.get("stage") or {}).get("payload") or {})
+        auto_execute_action = str(stage_payload.get("auto_execute_action") or "").strip().lower()
+        if auto_execute_action != "save_gmail_draft":
+            continue
+        candidates.append(
+            {
+                "packet_ref": packet_ref,
+                "staged_artifact_ref": result_ref,
+                "result_id": result_id or result_ref,
+            }
+        )
+    return tuple(candidates)
+
+
+def _redact_auto_execute_result(result: Mapping[str, Any]) -> Mapping[str, Any]:
+    execution = dict(result.get("execution") or {})
+    return {
+        "packet_ref_hash": _hash_value(str(result.get("packet_ref") or "").strip()),
+        "safe_work_result_ref_hash": _hash_value(str(result.get("staged_artifact_ref") or "").strip()),
+        "status": str(execution.get("status") or "").strip(),
+        "action": str(execution.get("action") or "").strip(),
+        "reason": str(execution.get("reason") or "").strip(),
+        "result_id": str(result.get("result_id") or "").strip(),
+    }
+
+
 def _context_grounded_digest(principal_id: str, digest: ProactiveOodaDigest) -> ProactiveOodaDigest:
     if not digest.items:
         return digest
     try:
         from app.container import build_container
-        from app.services.memory_reasoning_service import MemoryReasoningService
     except Exception:
         return digest
     try:
         container = build_container()
     except Exception:
         return digest
-    try:
-        context_pack = MemoryReasoningService(container.memory_runtime).build_context_pack(
-            principal_id=principal_id,
-            task_key="proactive_ooda",
-            goal="Ground proactive assistant decisions against current context and commitments.",
-            limit=5,
-        ).as_dict()
-    except Exception:
-        context_pack = {}
-    try:
-        preference_bundle = container.preference_profiles.get_profile_bundle(principal_id=principal_id, person_id="self")
-    except Exception:
-        preference_bundle = {}
-
-    def _assess_candidate(domain: str, object_type: str, object_id: str, object_payload: dict[str, object]) -> dict[str, object] | None:
-        try:
-            assessment = container.preference_profiles.assess_candidate(
-                principal_id=principal_id,
-                person_id="self",
-                domain=domain,
-                object_type=object_type,
-                object_id=object_id,
-                object_payload=object_payload,
-                persist=False,
-                require_existing_profile=False,
-            )
-        except Exception:
-            return None
-        return dict(assessment or {}) if isinstance(assessment, dict) else None
-
-    return ground_digest_with_context(
+    return ground_digest_for_principal(
         digest,
-        context_pack=context_pack,
-        preference_bundle=preference_bundle,
-        assess_candidate=_assess_candidate,
+        principal_id=principal_id,
+        memory_runtime=container.memory_runtime,
+        preference_profiles=container.preference_profiles,
     )
 
 
@@ -420,6 +647,15 @@ def _notification_safe_work_previews(
         return ()
 
 
+def _has_decision_ready_safe_work(safe_work_results: Iterable[Mapping[str, Any]]) -> bool:
+    for result in safe_work_results:
+        if not isinstance(result, Mapping):
+            continue
+        if str(result.get("status") or "").strip() == "staged_for_user_decision":
+            return True
+    return False
+
+
 def _ordered_safe_work_results_from_paths(
     *,
     stage_packet_paths: Iterable[str | Path],
@@ -450,6 +686,75 @@ def _ordered_safe_work_results_from_paths(
     return tuple(ordered)
 
 
+def _notification_approval_request(
+    *,
+    stage_packet_paths: Iterable[str | Path],
+    safe_work_result_paths: Iterable[str | Path],
+    auto_execute_results: Iterable[Mapping[str, Any]] = (),
+) -> dict[str, Any] | None:
+    ordered_results = _ordered_safe_work_results_from_paths(
+        stage_packet_paths=stage_packet_paths,
+        safe_work_result_paths=safe_work_result_paths,
+    )
+    stage_packets_by_hash: dict[str, dict[str, Any]] = {}
+    for raw_path in stage_packet_paths:
+        payload = _read_json_object(raw_path)
+        packet_ref = str(payload.get("packet_ref") or "").strip()
+        if packet_ref:
+            stage_packets_by_hash[_hash_value(packet_ref)] = payload
+    auto_executed_pairs: set[tuple[str, str, str, str]] = set()
+    for row in auto_execute_results:
+        if not isinstance(row, Mapping):
+            continue
+        execution = dict(row.get("execution") or {})
+        action = str(execution.get("action") or row.get("action") or "").strip().lower()
+        status = str(execution.get("status") or row.get("status") or "").strip().lower()
+        packet_ref = str(row.get("packet_ref") or "").strip()
+        staged_artifact_ref = str(row.get("staged_artifact_ref") or "").strip()
+        if not packet_ref or not staged_artifact_ref or not action or not status:
+            continue
+        auto_executed_pairs.add((packet_ref, staged_artifact_ref, action, status))
+    for result in ordered_results:
+        if str(result.get("status") or "").strip() != "staged_for_user_decision":
+            continue
+        packet_hash = str(result.get("source_packet_ref_hash") or "").strip()
+        stage_packet = stage_packets_by_hash.get(packet_hash, {})
+        approval = dict(stage_packet.get("approval") or {})
+        packet_ref = str(stage_packet.get("packet_ref") or "").strip()
+        staged_artifact_ref = str(result.get("result_ref") or "").strip()
+        if not packet_ref or not staged_artifact_ref:
+            continue
+        if bool(approval.get("required")):
+            return {
+                "packet_ref": packet_ref,
+                "staged_artifact_ref": staged_artifact_ref,
+                "approval_prompt": str(result.get("approval_prompt") or "").strip(),
+                "staged_action_url": str(result.get("staged_action_url") or "").strip(),
+            }
+        stage_payload = dict(dict(stage_packet.get("stage") or {}).get("payload") or {})
+        auto_execute_action = str(stage_payload.get("auto_execute_action") or "").strip().lower()
+        if auto_execute_action and (packet_ref, staged_artifact_ref, auto_execute_action, "executed") in auto_executed_pairs:
+            return {
+                "packet_ref": packet_ref,
+                "staged_artifact_ref": staged_artifact_ref,
+                "approval_prompt": build_reversible_execution_approval_prompt(action=auto_execute_action),
+                "staged_action_url": str(result.get("staged_action_url") or "").strip(),
+                "approved_execution_mode": "record_outcome_only",
+                "approved_action": auto_execute_action,
+            }
+        return {
+            "packet_ref": packet_ref,
+            "staged_artifact_ref": staged_artifact_ref,
+            "approval_prompt": str(result.get("approval_prompt") or "").strip(),
+            "staged_action_url": str(result.get("staged_action_url") or "").strip(),
+        }
+    return None
+
+
+def _notification_requires_user_action(approval_request: Mapping[str, Any] | None) -> bool:
+    return approval_request_needs_telegram_user_action(approval_request)
+
+
 def _read_json_object(path: str | Path) -> dict[str, Any]:
     try:
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -463,93 +768,7 @@ def _format_notification_text(
     *,
     safe_work_results: Iterable[Mapping[str, Any]] = (),
 ) -> str:
-    base = format_telegram_digest(digest)
-    if not base:
-        return ""
-    results = tuple(safe_work_results)
-    if not results:
-        return base
-    lines = base.splitlines()
-    enriched: list[str] = []
-    result_index = 0
-    item_number = 0
-    for line in lines:
-        enriched.append(line)
-        stripped = line.strip()
-        if stripped and stripped[0].isdigit() and stripped[1:3] == ". ":
-            item_number += 1
-            if result_index < len(results):
-                preview_lines = _safe_work_preview_lines(results[result_index])
-                if preview_lines:
-                    enriched.extend(preview_lines)
-                result_index += 1
-    return "\n".join(enriched).strip()
-
-
-def _safe_work_preview_lines(result: Mapping[str, Any]) -> list[str]:
-    summary = _compact_text(result.get("summary"), 220)
-    recommended = _recommended_preview(result.get("recommended_option_or_draft"))
-    staged_action_url = _compact_text(result.get("staged_action_url"), 180)
-    shortlist = _shortlist_preview(result.get("shortlist"))
-    prompt = _compact_text(result.get("approval_prompt"), 220)
-    lines: list[str] = []
-    if summary:
-        lines.append(f"Prepared: {summary}")
-    if recommended:
-        lines.append(f"Recommended: {recommended}")
-    if staged_action_url:
-        lines.append(f"Link: {staged_action_url}")
-    if shortlist:
-        lines.append(f"Shortlist: {shortlist}")
-    if prompt:
-        lines.append(f"Approve: {prompt}")
-    return lines
-
-
-def _recommended_preview(value: Any) -> str:
-    if not isinstance(value, Mapping):
-        return _compact_text(value, 180)
-    kind = str(value.get("kind") or "result").replace("_", " ").strip()
-    raw = value.get("value")
-    if isinstance(raw, Mapping):
-        label = _compact_text(raw.get("label") or raw.get("title"), 80)
-        url = _compact_text(raw.get("url") or raw.get("link") or raw.get("href"), 120)
-        title = _compact_text(raw.get("page_title"), 80)
-        parts = [part for part in (label, title, url) if part]
-        detail = " | ".join(parts)
-        return f"{kind}: {detail}" if detail else kind
-    detail = _compact_text(raw, 180)
-    return f"{kind}: {detail}" if detail else kind
-
-
-def _shortlist_preview(value: Any, *, limit: int = 2) -> str:
-    if not isinstance(value, list):
-        return ""
-    parts: list[str] = []
-    for item in value[: max(int(limit or 1), 1)]:
-        if not isinstance(item, Mapping):
-            continue
-        label = _compact_text(item.get("label") or item.get("title"), 60) or "candidate"
-        url = _compact_text(item.get("url") or item.get("link") or item.get("href"), 100)
-        reachability = ""
-        if item.get("reachable") is True:
-            reachability = "reachable"
-        elif item.get("reachable") is False:
-            reachability = "unreachable"
-        page_title = _compact_text(item.get("page_title"), 60)
-        detail = ", ".join(part for part in (reachability, page_title) if part)
-        candidate = f"{label} - {url}" if url else label
-        if detail:
-            candidate = f"{candidate} ({detail})"
-        parts.append(candidate)
-    return " | ".join(parts)
-
-
-def _compact_text(value: Any, limit: int) -> str:
-    text = " ".join(str(value or "").strip().split())
-    if not text:
-        return ""
-    return text if len(text) <= limit else f"{text[: max(limit - 1, 1)].rstrip()}..."
+    return format_telegram_digest(digest, safe_work_results=safe_work_results)
 
 
 def _hash_value(value: str) -> str:
@@ -587,6 +806,12 @@ def _operator_pause_defer_reason(args: argparse.Namespace, digest: Any) -> str:
     if not getattr(digest, "items", ()):
         return ""
     return "deferred_by_operator_pause" if bool(getattr(args, "paused", False)) else ""
+
+
+def _unarmed_send_defer_reason(args: argparse.Namespace, digest: Any) -> str:
+    if not getattr(digest, "items", ()):
+        return ""
+    return "" if bool(getattr(args, "armed_send", False)) else "deferred_by_unarmed_send"
 
 
 def _without_notified_refs(digest: ProactiveOodaDigest) -> ProactiveOodaDigest:
@@ -706,7 +931,11 @@ def _is_time_within_quiet_hours(current: datetime_time, *, start: datetime_time,
 
 
 def _is_deferred_error(value: str) -> bool:
-    return str(value or "").startswith("deferred_by_")
+    normalized = str(value or "").strip()
+    return normalized.startswith("deferred_by_") or normalized in {
+        "no_decision_ready_safe_work",
+        "no_user_action_required",
+    }
 
 
 def _load_signals(
@@ -758,12 +987,14 @@ def _load_signals(
         if observation_signals:
             rows.extend(signal.__dict__ for signal in observation_signals)
     if bool(getattr(args, "skip_workspace_source", False)):
-        return rows
+        return _apply_recent_topic_suppressions(rows)
     try:
         from app.container import build_container
         from app.services.google_oauth import list_recent_workspace_signals
     except Exception as exc:  # pragma: no cover - depends on full runtime being present
-        return rows + [_workspace_source_error_signal(exc)]
+        if _workspace_source_not_configured(exc):
+            return _apply_recent_topic_suppressions(rows)
+        return _apply_recent_topic_suppressions(rows + [_workspace_source_error_signal(exc)])
     try:
         container = build_container()
         packet = list_recent_workspace_signals(
@@ -774,11 +1005,66 @@ def _load_signals(
             gmail_query=args.gmail_query,
         )
     except Exception as exc:
-        return rows + [_workspace_source_error_signal(exc)]
+        if _workspace_source_not_configured(exc):
+            return _apply_recent_topic_suppressions(rows)
+        return _apply_recent_topic_suppressions(rows + [_workspace_source_error_signal(exc)])
     for signal in packet.signals:
         if hasattr(signal, "__dict__"):
             rows.append(dict(signal.__dict__))
-    return rows
+    return _apply_recent_topic_suppressions(rows)
+
+
+def _apply_recent_topic_suppressions(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    suppressions = [
+        directive
+        for directive in (extract_proactive_suppression_directive(row) for row in rows)
+        if directive is not None
+    ]
+    if not suppressions:
+        return rows
+    filtered: list[dict[str, Any]] = []
+    for row in rows:
+        if extract_proactive_suppression_directive(row) is not None:
+            filtered.append(row)
+            continue
+        row_source_ref = str(row.get("source_ref") or "").strip()
+        row_created_at = _signal_created_at(row)
+        suppressed = False
+        for suppression in suppressions:
+            if row_source_ref and row_source_ref == str(suppression.get("source_ref") or "").strip():
+                continue
+            suppression_created_at = _parse_timestamp(str(suppression.get("observed_at") or "").strip())
+            if row_created_at is not None and suppression_created_at is not None and row_created_at > suppression_created_at:
+                continue
+            if signal_matches_proactive_suppression(row, suppression):
+                suppressed = True
+                break
+        if not suppressed:
+            filtered.append(row)
+    return filtered
+
+
+def _signal_created_at(row: Mapping[str, Any]) -> datetime | None:
+    payload = row.get("payload") if isinstance(row.get("payload"), Mapping) else {}
+    candidates = (
+        row.get("created_at"),
+        payload.get("created_at") if isinstance(payload, Mapping) else "",
+    )
+    for candidate in candidates:
+        parsed = _parse_timestamp(str(candidate or "").strip())
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _parse_timestamp(value: str) -> datetime | None:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return None
+    try:
+        return datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+    except ValueError:
+        return None
 
 
 def _source_error_signals(errors: tuple[str, ...], *, source_label: str) -> list[dict[str, Any]]:
@@ -806,9 +1092,30 @@ def _source_error_signals(errors: tuple[str, ...], *, source_label: str) -> list
     return signals
 
 
+_WORKSPACE_SOURCE_NOT_CONFIGURED_ERRORS = {
+    "google_oauth_binding_not_found",
+    "google_oauth_client_id_missing",
+    "google_oauth_client_secret_missing",
+    "google_oauth_redirect_uri_missing",
+    "google_oauth_state_secret_missing",
+    "google_oauth_provider_secret_key_missing",
+}
+
+
+def _workspace_source_error_detail(exc: Exception) -> str:
+    raw = str(exc or exc.__class__.__name__).strip()
+    if raw and all(char.isalnum() or char in {"_", ":", ".", "-", "+"} for char in raw):
+        return raw[:160]
+    return exc.__class__.__name__
+
+
+def _workspace_source_not_configured(exc: Exception) -> bool:
+    return _workspace_source_error_detail(exc) in _WORKSPACE_SOURCE_NOT_CONFIGURED_ERRORS
+
+
 def _workspace_source_error_signal(exc: Exception) -> dict[str, Any]:
     error_name = exc.__class__.__name__
-    error_text = str(exc or error_name)
+    error_text = _workspace_source_error_detail(exc)
     summary = "Google workspace scanning is failing, so EA cannot reliably inspect Gmail or Calendar for proactive nudges."
     action = "Reauthorize Google for the EA principal, then rerun the proactive OODA verifier."
     return {
@@ -818,7 +1125,10 @@ def _workspace_source_error_signal(exc: Exception) -> dict[str, Any]:
         "title": "EA cannot scan Google workspace",
         "summary": summary,
         "counterparty": "Google workspace",
-        "payload": {"ooda_loop": _source_health_ooda(summary, action)},
+        "payload": {
+            "reason_code": error_text or error_name,
+            "ooda_loop": _source_health_ooda(summary, action),
+        },
     }
 
 
@@ -846,6 +1156,17 @@ def _short_hash(value: str) -> str:
     return hashlib.sha256(str(value or "").encode("utf-8")).hexdigest()[:12]
 
 
+def _callable_accepts_keyword(fn: object, name: str) -> bool:
+    try:
+        signature = inspect.signature(fn)
+    except Exception:
+        return True
+    for parameter in signature.parameters.values():
+        if parameter.kind == inspect.Parameter.VAR_KEYWORD:
+            return True
+    return name in signature.parameters
+
+
 def _delivery_status(principal_id: str, *, digest: ProactiveOodaDigest | None = None) -> object:
     try:
         from app.container import build_container
@@ -865,24 +1186,48 @@ def _delivery_status(principal_id: str, *, digest: ProactiveOodaDigest | None = 
     )
 
 
-def _deliver_notification(principal_id: str, text: str, *, digest: ProactiveOodaDigest | None = None) -> object:
+def _deliver_notification(
+    principal_id: str,
+    text: str,
+    *,
+    digest: ProactiveOodaDigest | None = None,
+    approval_request: Mapping[str, Any] | None = None,
+) -> object:
     try:
         from app.container import build_container
     except Exception:
+        kwargs: dict[str, Any] = {
+            "principal_id": principal_id,
+            "text": text,
+            "digest": digest,
+        }
+        if approval_request is not None:
+            kwargs["approval_request"] = approval_request
         return send_proactive_ooda_notification(
-            principal_id=principal_id,
-            text=text,
-            digest=digest,
+            **kwargs,
         )
-    container = build_container()
-    return send_proactive_ooda_notification(
-        principal_id=principal_id,
-        text=text,
-        tool_runtime=container.tool_runtime,
-        channel_runtime=container.channel_runtime,
-        memory_runtime=container.memory_runtime,
-        digest=digest,
-    )
+    try:
+        container = build_container()
+    except Exception:
+        kwargs: dict[str, Any] = {
+            "principal_id": principal_id,
+            "text": text,
+            "digest": digest,
+        }
+        if approval_request is not None:
+            kwargs["approval_request"] = approval_request
+        return send_proactive_ooda_notification(**kwargs)
+    kwargs = {
+        "principal_id": principal_id,
+        "text": text,
+        "tool_runtime": container.tool_runtime,
+        "channel_runtime": container.channel_runtime,
+        "memory_runtime": container.memory_runtime,
+        "digest": digest,
+    }
+    if approval_request is not None:
+        kwargs["approval_request"] = approval_request
+    return send_proactive_ooda_notification(**kwargs)
 
 
 if __name__ == "__main__":

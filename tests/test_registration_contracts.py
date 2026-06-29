@@ -420,6 +420,37 @@ def test_register_verify_reports_google_oauth_configuration_hint_when_missing(mo
     assert "Set EA_GOOGLE_OAUTH_CLIENT_ID and EA_GOOGLE_OAUTH_CLIENT_SECRET." in google_start["detail"]
 
 
+def test_google_callback_reports_invalid_grant_instead_of_gateway_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "test-client-id")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "test-client-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://assistant.example.test/google/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "test-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "test-provider-secret")
+    client = _client(monkeypatch)
+
+    from app.services import google_oauth as google_service
+
+    packet = google_service.build_google_oauth_start(
+        principal_id="",
+        scope_bundle="identity",
+        redirect_uri_override="https://assistant.example.test/google/callback",
+        return_to="/sign-in?google_connected=1",
+        browser_source="sign_in",
+    )
+
+    monkeypatch.setattr(
+        google_service,
+        "_exchange_google_code_for_tokens",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("google_oauth_invalid_grant")),
+    )
+
+    callback = client.get("/google/callback", params={"code": "code-123", "state": packet.state})
+
+    assert callback.status_code == 400
+    assert "google_oauth_invalid_grant" in callback.text
+    assert "502 Bad Gateway" not in callback.text
+
+
 def test_registration_email_payload_stays_english_and_uses_propertyquarry_sender(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

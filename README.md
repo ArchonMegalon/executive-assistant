@@ -546,11 +546,15 @@ Safe-work results stay private next to the stage-packet state by default. They s
 Useful runtime knobs:
 
 - `EA_PROACTIVE_OODA_PRINCIPAL_ID`: principal to notify, default `principal-default`
+- `EA_PROACTIVE_OODA_ARMED_SEND`: allow the current runtime to send proactive notifications; default `0` for host/manual runs so they stage and receipt without hitting live transports
+- `EA_PROACTIVE_OODA_CONTAINER_ARMED_SEND`: container override used by `ea-proactive-ooda`, default `1`
 - `EA_PROACTIVE_OODA_EMAIL_LIMIT` / `EA_PROACTIVE_OODA_CALENDAR_LIMIT`: workspace scan bounds when the full Google adapter is available
 - `EA_PROACTIVE_OODA_GMAIL_QUERY`: optional Gmail query filter
 - `EA_PROACTIVE_OODA_MAX_ITEMS`: maximum actionable items per run
 - `EA_PROACTIVE_OODA_STATE_PATH`: dedupe state file, default `state/proactive_ooda_notified.json`
 - `EA_PROACTIVE_OODA_CONTAINER_STATE_PATH`: container dedupe state path, default `/data/provider-ledger/proactive_ooda_notified.json`
+- `EA_PROACTIVE_OODA_RECEIPT_PATH`: latest redacted run-receipt path; when unset, EA writes `proactive_ooda_latest_run.generated.json` next to the dedupe state file
+- `EA_PROACTIVE_OODA_CONTAINER_RECEIPT_PATH`: container latest run-receipt path, default `/data/provider-ledger/proactive_ooda_latest_run.generated.json`
 - `EA_PROACTIVE_OODA_STAGE_PACKETS_ENABLED`: persist private staged next-step packet files for real runs, default `1`
 - `EA_PROACTIVE_OODA_STAGE_PACKET_DIR`: override private stage-packet output directory; default is `proactive_ooda_stage_packets` next to the dedupe state file
 - `EA_PROACTIVE_OODA_SAFE_WORK_RESULTS_ENABLED`: materialize private safe-work result files for new stage packets in real runs, default `1`

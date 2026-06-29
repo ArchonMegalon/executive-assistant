@@ -873,11 +873,14 @@ def reserve_onemin_image(
 @router.post("/onemin/leases/{lease_id}/release", response_model=None)
 def release_onemin_lease(
     lease_id: str,
+    request: Request,
     body: OneminLeaseReleaseIn,
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> dict[str, object]:
-    lease_rows = container.onemin_manager.leases_snapshot(principal_id=context.principal_id)
+    requested_principal_id = str(request.headers.get("x-ea-principal-id") or "").strip()
+    effective_principal_id = requested_principal_id or context.principal_id
+    lease_rows = container.onemin_manager.leases_snapshot(principal_id=effective_principal_id)
     if not any(str(row.get("lease_id") or "") == lease_id for row in lease_rows):
         raise HTTPException(status_code=404, detail="onemin_lease_not_found")
     if body.actual_credits_delta is not None:
@@ -893,7 +896,7 @@ def release_onemin_lease(
     )
     return {
         "provider_key": "onemin",
-        "principal_id": context.principal_id,
+        "principal_id": effective_principal_id,
         "lease_id": lease_id,
         "status": str(body.status or "released").strip() or "released",
         "actual_credits_delta": body.actual_credits_delta,

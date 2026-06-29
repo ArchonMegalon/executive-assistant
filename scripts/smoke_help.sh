@@ -45,6 +45,10 @@ SCRIPTS=(
   scripts/verify_whole_project_gold_map.py
   scripts/materialize_whatsapp_web_action_processor_readiness.py
   scripts/verify_whatsapp_web_action_processor_readiness.py
+  scripts/materialize_proactive_ooda_operator_status.py
+  scripts/verify_proactive_ooda_operator_status.py
+  scripts/materialize_proactive_ooda_gold_acceptance.py
+  scripts/verify_proactive_ooda_gold_acceptance.py
   ea/scripts/verify_whatsapp_audiobook_live_delivery_receipt.py
   ea/scripts/verify_whatsapp_audiobook_operator_proof_bundle.py
   ea/scripts/verify_whatsapp_audiobook_public_share_playback.py

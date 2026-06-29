@@ -45,6 +45,7 @@ def test_verify_proactive_ooda_accepts_static_signal_source(tmp_path, monkeypatc
             observation_lookback_hours=24,
             observation_limit=50,
             skip_observation_source=True,
+            armed_send=True,
             require_source=True,
             require_telegram=False,
             require_receipt_observation=False,
@@ -165,6 +166,139 @@ def test_runner_load_signals_aggregates_configured_sources_and_observations(tmp_
     )
 
     assert [signal["source_ref"] for signal in signals] == ["static:1", "discovery:1", "observation:1"]
+
+
+def test_runner_notification_approval_request_builds_record_only_prompt_for_auto_executed_gmail_draft(
+    tmp_path,
+) -> None:
+    stage_path = tmp_path / "packet.json"
+    safe_path = tmp_path / "result.json"
+    stage_path.write_text(
+        json.dumps(
+            {
+                "schema": "proactive_ooda.stage_packet.v1",
+                "packet_ref": "stage_packet:pkt-1",
+                "item_index": 1,
+                "approval": {"required": False},
+                "stage": {
+                    "payload": {
+                        "auto_execute_action": "save_gmail_draft",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    safe_path.write_text(
+        json.dumps(
+            {
+                "schema": "proactive_ooda.safe_work_result.v1",
+                "result_ref": "safe_work_result:res-1",
+                "source_packet_ref_hash": runner._hash_value("stage_packet:pkt-1"),
+                "status": "staged_for_user_decision",
+                "approval_prompt": "old prompt should not be reused verbatim",
+                "staged_action_url": "https://example.test/vendor-a",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    approval_request = runner._notification_approval_request(
+        stage_packet_paths=(stage_path,),
+        safe_work_result_paths=(safe_path,),
+        auto_execute_results=(
+            {
+                "packet_ref": "stage_packet:pkt-1",
+                "staged_artifact_ref": "safe_work_result:res-1",
+                "execution": {
+                    "status": "executed",
+                    "action": "save_gmail_draft",
+                },
+            },
+        ),
+    )
+
+    assert approval_request == {
+        "packet_ref": "stage_packet:pkt-1",
+        "staged_artifact_ref": "safe_work_result:res-1",
+        "approval_prompt": (
+            "Approve whether EA should keep this saved Gmail draft as the chosen next step. "
+            "The draft is already saved in Gmail for review. "
+            "No external send will happen without explicit approval."
+        ),
+        "staged_action_url": "https://example.test/vendor-a",
+        "approved_execution_mode": "record_outcome_only",
+        "approved_action": "save_gmail_draft",
+    }
+
+
+def test_runner_notification_approval_request_builds_prompt_for_staged_research_packet_without_approval_gate(
+    tmp_path,
+) -> None:
+    stage_path = tmp_path / "packet-research.json"
+    safe_path = tmp_path / "result-research.json"
+    stage_path.write_text(
+        json.dumps(
+            {
+                "schema": "proactive_ooda.stage_packet.v1",
+                "packet_ref": "stage_packet:pkt-research-1",
+                "item_index": 1,
+                "approval": {"required": False},
+                "stage": {
+                    "payload": {
+                        "kind": "research_packet",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    safe_path.write_text(
+        json.dumps(
+            {
+                "schema": "proactive_ooda.safe_work_result.v1",
+                "result_ref": "safe_work_result:res-research-1",
+                "source_packet_ref_hash": runner._hash_value("stage_packet:pkt-research-1"),
+                "status": "staged_for_user_decision",
+                "approval_prompt": "Approve whether EA should keep this staged shortlist candidate.",
+                "staged_action_url": "https://example.test/research-a",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    approval_request = runner._notification_approval_request(
+        stage_packet_paths=(stage_path,),
+        safe_work_result_paths=(safe_path,),
+        auto_execute_results=(),
+    )
+
+    assert approval_request == {
+        "packet_ref": "stage_packet:pkt-research-1",
+        "staged_artifact_ref": "safe_work_result:res-research-1",
+        "approval_prompt": "Approve whether EA should keep this staged shortlist candidate.",
+        "staged_action_url": "https://example.test/research-a",
+    }
+
+
+def test_runner_notification_requires_user_action_rejects_internal_proof_packets() -> None:
+    assert not runner._notification_requires_user_action(
+        {
+            "packet_ref": "stage_packet:proof-1",
+            "staged_artifact_ref": "safe_work_result:proof-1",
+            "approval_prompt": "Approve whether EA should preserve this proof packet as the canonical live check.",
+            "staged_action_url": "https://docs.example.test/proof",
+        }
+    )
+    assert runner._notification_requires_user_action(
+        {
+            "packet_ref": "stage_packet:draft-1",
+            "staged_artifact_ref": "safe_work_result:draft-1",
+            "approval_prompt": "Approve whether EA should keep this saved Gmail draft as the chosen next step.",
+            "approved_execution_mode": "record_outcome_only",
+            "approved_action": "save_gmail_draft",
+        }
+    )
 
 
 def test_verify_proactive_ooda_warns_but_passes_when_one_discovery_source_fails(tmp_path, monkeypatch) -> None:
@@ -467,7 +601,51 @@ def test_verify_proactive_ooda_reports_unhealthy_workspace_source(tmp_path, monk
     assert report["source_mode"] == "google_workspace_error"
     assert report["workspace_source_checked"] is True
     assert report["workspace_source_healthy"] is False
-    assert report["errors"] == ["google_workspace_signal_source_unhealthy:RuntimeError"]
+    assert report["workspace_source_status"] == "unhealthy"
+    assert report["workspace_source_reason"] == "google_oauth_invalid_grant"
+    assert report["errors"] == ["google_workspace_signal_source_unhealthy:google_oauth_invalid_grant"]
+
+
+def test_verify_proactive_ooda_reports_workspace_not_configured_without_failure(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv("EA_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID", raising=False)
+
+    from app import container as app_container
+    from app.services import google_oauth
+
+    monkeypatch.setattr(app_container, "build_container", lambda: object())
+    monkeypatch.setattr(
+        google_oauth,
+        "list_recent_workspace_signals",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("google_oauth_binding_not_found")),
+    )
+
+    report = verifier._build_report(
+        Namespace(
+            principal_id="exec",
+            signals_json="",
+            discovery_json="",
+            opportunity_rules_json="",
+            state_path=str(tmp_path / "state.json"),
+            max_items=5,
+            observation_lookback_hours=24,
+            observation_limit=50,
+            skip_observation_source=True,
+            skip_workspace_source=False,
+            require_source=False,
+            require_telegram=False,
+            require_receipt_observation=False,
+        )
+    )
+
+    assert report["ok"] is True
+    assert report["source_mode"] == "none"
+    assert report["workspace_source_checked"] is True
+    assert report["workspace_source_healthy"] is False
+    assert report["workspace_source_status"] == "not_configured"
+    assert report["workspace_source_reason"] == "google_oauth_binding_not_found"
+    assert report["errors"] == []
+    assert "workspace: not configured (google_oauth_binding_not_found)" in verifier._format_report(report)
 
 
 def test_verify_proactive_ooda_reports_operator_pause_guard(tmp_path, monkeypatch) -> None:

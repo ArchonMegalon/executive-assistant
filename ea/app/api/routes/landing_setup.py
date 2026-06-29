@@ -30,6 +30,7 @@ from app.services.google_oauth import (
     read_google_oauth_state,
     read_google_oauth_state_unchecked,
 )
+from app.services.proactive_ooda_telegram_approval import resume_latest_telegram_gmail_draft_after_google_connect
 
 router = APIRouter(tags=["landing"])
 
@@ -427,6 +428,14 @@ def google_oauth_browser_callback(
             "google_subject": str(account.google_subject or "").strip(),
         },
     )
+    if str(account.consent_stage or "").strip().lower() != "identity":
+        try:
+            resume_latest_telegram_gmail_draft_after_google_connect(
+                container=container,
+                principal_id=account.binding.principal_id,
+            )
+        except Exception:
+            pass
     sync_result = _google_post_connect_sync(
         container=container,
         principal_id=account.binding.principal_id,

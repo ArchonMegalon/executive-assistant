@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -23,6 +24,51 @@ def _parse_datetime(value: object) -> datetime | None:
 
 def _normalize_key(value: object) -> str:
     return " ".join(str(value or "").strip().lower().split())
+
+
+def _memory_item_context_priority(row: object) -> int:
+    category = _normalize_key(getattr(row, "category", ""))
+    summary = _normalize_key(getattr(row, "summary", ""))
+    facts = getattr(row, "fact_json", {}) or {}
+    if _memory_fact_has_location(facts):
+        return 0
+    if category in {"identity", "person", "profile", "self"}:
+        return 5
+    if any(term in summary for term in ("address", "home", "location", "residence", "where i live")):
+        return 8
+    if category in {"preference", "preferences", "constraint", "constraints"}:
+        return 20
+    return 50
+
+
+def _memory_fact_has_location(value: object, *, key_hint: str = "") -> bool:
+    normalized_key = _normalize_key(key_hint)
+    location_keys = {
+        "address",
+        "address_line",
+        "address_lines",
+        "city",
+        "country",
+        "country_code",
+        "district",
+        "home",
+        "home_city",
+        "location",
+        "location_name",
+        "postal_code",
+        "postal_name",
+        "postcode",
+        "residence",
+        "zip",
+    }
+    if normalized_key in location_keys:
+        return True
+    if isinstance(value, dict):
+        return any(_memory_fact_has_location(item, key_hint=str(key)) for key, item in value.items())
+    if isinstance(value, (list, tuple)):
+        return any(_memory_fact_has_location(item, key_hint=key_hint) for item in value)
+    text = " ".join(str(value or "").split()).strip()
+    return bool(re.search(r"\b\d{4,5}\s+[A-Za-zÄÖÜäöüß.-]+", text))
 
 
 def _serialize_row(row: object, *, fields: tuple[str, ...]) -> dict[str, Any]:
@@ -354,7 +400,11 @@ class MemoryReasoningService:
             if row_id and row_id not in seen_ids:
                 selected.append(row)
                 seen_ids.add(row_id)
-        for row in memory_items:
+        prioritized_memory_items = sorted(
+            enumerate(memory_items),
+            key=lambda indexed_row: (_memory_item_context_priority(indexed_row[1]), indexed_row[0]),
+        )
+        for _index, row in prioritized_memory_items:
             row_id = str(getattr(row, "item_id", ""))
             if row_id and row_id not in seen_ids:
                 selected.append(row)

@@ -10,6 +10,32 @@ from typing import Any
 SCRIPT_PATH = Path(__file__).resolve()
 REPO_ROOT = SCRIPT_PATH.parents[2]
 DEFAULT_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "ea_office_loop_goal.generated.json"
+DEFAULT_ACCEPTANCE_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "ea_executive_assistant_acceptance_evidence.generated.json"
+DEFAULT_SIGNAL_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "ea_whole_project_signal_to_decision.generated.json"
+DEFAULT_PROACTIVE_OPERATOR_STATUS_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "ea_proactive_ooda_operator_status.generated.json"
+DEFAULT_PROACTIVE_GOLD_ACCEPTANCE_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "ea_proactive_ooda_gold_acceptance.generated.json"
+
+REMAINING_PROOF_LABELS = {
+    "real_daily_morning_brief_accepted": "real daily morning brief acceptance",
+    "real_decision_cleared": "real decision cleared by the principal or operator",
+    "real_commitment_recovered_or_closed": "real commitment recovered or closed with an evidence receipt",
+    "real_approved_action_audited": "real approved outbound action with audit trail",
+    "real_provider_failure_recovered": "real provider failure recovered with operator-grade reason",
+}
+PROACTIVE_OODA_PROOF_LABEL = (
+    "real proactive OODA packet accepted with routed delivery, approved-source or transcript signal, "
+    "live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, "
+    "current-packet, pending-approval, stale-approval, and decision facts, and explicit approval outcome"
+)
+SCOPE_GAP_PROOF_LABEL = "real whole-project scope gap audit reviewed against the current product spine"
+SIGNAL_REVIEW_PROOF_LABEL = "real weekly signal-to-decision review accepted by the operator"
+SIGNAL_FOLLOWTHROUGH_PROOF_LABEL = "closed-loop signal-to-decision follow-through receipt accepted by the operator"
+DEFAULT_NARRATIVE_NEXT_ACTION = (
+    "collect a real proactive OODA packet that starts from an approved source or transcript signal, browses live "
+    "options, auditor-checks provider and context fit, chooses a candidate, stages a reversible shortlist, cart, "
+    "booking candidate, or Gmail draft, routes it honestly, mirrors delivery, current-packet, pending-approval, "
+    "stale-approval, and decision facts into Teable, and captures the approval outcome"
+)
 
 COMPONENT_ROUTES = {
     "command_brief": "/app/today",
@@ -31,6 +57,112 @@ def _write(path: str | Path, payload: dict[str, Any]) -> None:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _load(path: str | Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _resolve_receipt_path(value: str | Path | None, default: Path) -> Path:
+    if value is None:
+        return default
+    candidate = Path(value)
+    return candidate if candidate.is_absolute() else REPO_ROOT / candidate
+
+
+def _display_path(path: Path) -> str:
+    try:
+        return path.relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def _text(value: object) -> str:
+    return str(value or "").strip()
+
+
+def _next_action_surface(payload: dict[str, Any]) -> dict[str, str]:
+    return {
+        "next_action": _text(payload.get("next_action")),
+        "next_action_href": _text(payload.get("next_action_href")),
+        "next_action_label": _text(payload.get("next_action_label")),
+        "next_action_method": _text(payload.get("next_action_method")),
+    }
+
+
+def _receipt_summary(path: Path, payload: dict[str, Any], *, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    row: dict[str, Any] = {
+        "present": bool(payload),
+        "path": _display_path(path),
+        "contract_name": _text(payload.get("contract_name")),
+        "status": _text(payload.get("status")),
+    }
+    if extra:
+        row.update(extra)
+    return row
+
+
+def _remaining_external_proofs(
+    *,
+    acceptance: dict[str, Any],
+    signal: dict[str, Any],
+    proactive_gold: dict[str, Any],
+) -> list[str]:
+    remaining: list[str] = []
+    accepted = {str(value).strip() for value in list(acceptance.get("accepted_keys") or []) if str(value).strip()}
+    for key, label in REMAINING_PROOF_LABELS.items():
+        if key not in accepted:
+            remaining.append(label)
+    if _text(proactive_gold.get("status")) != "pass":
+        remaining.append(PROACTIVE_OODA_PROOF_LABEL)
+    if not bool(signal.get("real_weekly_operator_review_accepted")):
+        remaining.append(SIGNAL_REVIEW_PROOF_LABEL)
+    if not bool(signal.get("closed_loop_followthrough_receipt_verified")):
+        remaining.append(SIGNAL_FOLLOWTHROUGH_PROOF_LABEL)
+    remaining.append(SCOPE_GAP_PROOF_LABEL)
+    return remaining
+
+
+def _proactive_followthrough_posture(
+    *,
+    proactive_operator: dict[str, Any],
+    proactive_gold: dict[str, Any],
+    signal: dict[str, Any],
+) -> dict[str, Any]:
+    gold_status = _text(proactive_gold.get("status"))
+    operator_status = _text(proactive_operator.get("status"))
+    gold_summary = _text(proactive_gold.get("summary"))
+    operator_summary = _text(proactive_operator.get("summary"))
+    gold_surface = _next_action_surface(proactive_gold)
+    operator_surface = _next_action_surface(proactive_operator)
+    proofs = dict(proactive_gold.get("proofs") or {})
+    approval = dict(proofs.get("approval_outcome") or {})
+    approval_capture_surface = dict(
+        dict(proactive_gold.get("evidence_receipts") or {}).get("approval_capture_surface") or {}
+    )
+    selected_surface = gold_surface if gold_status == "pass" and gold_surface["next_action"] else {}
+    if not selected_surface and gold_status == "pass" and operator_surface["next_action"]:
+        selected_surface = operator_surface
+    next_action = str(selected_surface.get("next_action") or "").strip() or DEFAULT_NARRATIVE_NEXT_ACTION
+    return {
+        "status": gold_status or operator_status or "missing",
+        "summary": gold_summary or operator_summary or "No proactive OODA follow-through posture is mirrored.",
+        "operator_runtime_status": operator_status or "missing",
+        "gold_acceptance_status": gold_status or "missing",
+        "next_action": next_action,
+        "next_action_href": str(selected_surface.get("next_action_href") or "").strip(),
+        "next_action_label": str(selected_surface.get("next_action_label") or "").strip(),
+        "next_action_method": str(selected_surface.get("next_action_method") or "").strip(),
+        "approval_outcome_recorded": bool(approval.get("approval_outcome_recorded")),
+        "approval_outcome_accepted": bool(approval.get("accepted")),
+        "approval_capture_surface_ready": bool(approval_capture_surface.get("ready")),
+        "real_weekly_operator_review_accepted": bool(signal.get("real_weekly_operator_review_accepted")),
+        "closed_loop_followthrough_receipt_verified": bool(signal.get("closed_loop_followthrough_receipt_verified")),
+    }
 
 
 def _additional_goals() -> list[dict[str, Any]]:
@@ -79,23 +211,75 @@ def _additional_goals() -> list[dict[str, Any]]:
             "source_path": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
             "requires": [
                 "approved_signal_ingest",
+                "pocket_ai_audio_transcript_signal_ingest",
                 "generic_safe_work_packets",
+                "context_aware_auditor_before_user_delivery",
+                "candidate_provider_fit_and_locality_validation",
+                "live_browse_backed_candidate_research",
+                "reversible_candidate_staging",
+                "gmail_draft_staging_when_requested",
+                "action_required_only_telegram_delivery",
+                "route_selection_and_blocked_fallback_honesty",
                 "consent_gated_irreversible_actions",
                 "teable_projection_of_run_facts",
+                "teable_projection_of_delivery_and_decision_facts",
+                "teable_projection_of_pending_approval_surface",
+                "current_packet_and_stale_approval_telemetry",
+                "stale_approval_cleanup_or_expiry",
+                "approval_outcome_capture_and_follow_through_receipts",
+                "resume_without_repeat_research",
                 "real_operator_acceptance_before_gold_claim",
             ],
             "protected_signal_sources": [
                 "commitment_and_deadline_signals",
                 "relationship_and_occasion_signals",
+                "calendar_and_renewal_signals",
                 "shopping_and_vendor_signals",
+                "preference_budget_and_quiet_hours_state",
+                "durable_profile_and_location_context",
+                "pocket_ai_audio_transcripts",
+                "browser_and_vendor_page_evidence",
+                "context_and_locality_constraints",
                 "delivery_route_readiness",
+                "route_blocker_and_recovery_state",
+                "approval_and_follow_through_state",
+                "gmail_draft_execution_state",
+                "telegram_interruption_action_required_state",
+                "current_packet_and_stale_approval_state",
                 "provider_runtime_failures",
             ],
         },
     ]
 
 
-def materialize_office_loop_goal_receipt(*, receipt_path: str | Path, generated_at: str = "") -> dict[str, Any]:
+def materialize_office_loop_goal_receipt(
+    *,
+    receipt_path: str | Path,
+    generated_at: str = "",
+    acceptance_evidence_receipt_path: str | Path | None = None,
+    signal_to_decision_receipt_path: str | Path | None = None,
+    proactive_operator_status_receipt_path: str | Path | None = None,
+    proactive_gold_acceptance_receipt_path: str | Path | None = None,
+) -> dict[str, Any]:
+    acceptance_path = _resolve_receipt_path(acceptance_evidence_receipt_path, DEFAULT_ACCEPTANCE_RECEIPT)
+    signal_path = _resolve_receipt_path(signal_to_decision_receipt_path, DEFAULT_SIGNAL_RECEIPT)
+    proactive_operator_path = _resolve_receipt_path(
+        proactive_operator_status_receipt_path,
+        DEFAULT_PROACTIVE_OPERATOR_STATUS_RECEIPT,
+    )
+    proactive_gold_path = _resolve_receipt_path(
+        proactive_gold_acceptance_receipt_path,
+        DEFAULT_PROACTIVE_GOLD_ACCEPTANCE_RECEIPT,
+    )
+    acceptance_receipt = _load(acceptance_path)
+    signal_receipt = _load(signal_path)
+    proactive_operator_receipt = _load(proactive_operator_path)
+    proactive_gold_receipt = _load(proactive_gold_path)
+    proactive_posture = _proactive_followthrough_posture(
+        proactive_operator=proactive_operator_receipt,
+        proactive_gold=proactive_gold_receipt,
+        signal=signal_receipt,
+    )
     receipt = {
         "contract_name": "ea.office_loop_goal_receipt.v1",
         "status": "ready_local_evidence",
@@ -117,20 +301,76 @@ def materialize_office_loop_goal_receipt(*, receipt_path: str | Path, generated_
         "route_snapshots": {
             "queue": {"markers_pass": True, "marker_results": {"Queue": True}},
             "today": {"markers_pass": True, "marker_results": {"Today": True}},
+            "proactive_ooda": {
+                "markers_pass": True,
+                "marker_results": {
+                    "Proactive OODA operator receipt": bool(proactive_operator_receipt),
+                    "Proactive OODA gold receipt": bool(proactive_gold_receipt),
+                },
+            },
         },
-        "diagnostics_summary": {"analytics_counts_present": True, "channel_loop_digest_keys": ["memo", "approvals", "operator"]},
-        "next_action": "collect a real proactive OODA packet with accepted outcome, routed delivery proof, and mirrored Teable projection",
+        "diagnostics_summary": {
+            "analytics_counts_present": True,
+            "channel_loop_digest_keys": ["memo", "approvals", "operator"],
+            "proactive_followthrough_status": proactive_posture["status"],
+        },
+        "next_action": proactive_posture["next_action"],
+        "next_action_href": proactive_posture["next_action_href"],
+        "next_action_label": proactive_posture["next_action_label"],
+        "next_action_method": proactive_posture["next_action_method"],
         "additional_goals": _additional_goals(),
-        "remaining_external_proofs": [
-            "real daily morning brief acceptance",
-            "real decision cleared by the principal or operator",
-            "real commitment recovered or closed with an evidence receipt",
-            "real approved outbound action with audit trail",
-            "real provider failure recovered with operator-grade reason",
-            "real proactive OODA packet accepted with routed delivery and mirrored Teable projection",
-            "real whole-project scope gap audit reviewed against the current product spine",
-            "real weekly signal-to-decision review accepted by the operator",
-        ],
+        "evidence_receipts": {
+            "executive_assistant_acceptance_evidence": _receipt_summary(
+                acceptance_path,
+                acceptance_receipt,
+                extra={"accepted_keys_count": len(list(acceptance_receipt.get("accepted_keys") or []))},
+            ),
+            "whole_project_signal_to_decision": _receipt_summary(
+                signal_path,
+                signal_receipt,
+                extra={
+                    "real_weekly_operator_review_accepted": bool(signal_receipt.get("real_weekly_operator_review_accepted")),
+                    "closed_loop_followthrough_receipt_verified": bool(signal_receipt.get("closed_loop_followthrough_receipt_verified")),
+                },
+            ),
+            "proactive_ooda_operator_status": _receipt_summary(
+                proactive_operator_path,
+                proactive_operator_receipt,
+                extra={
+                    "summary": _text(proactive_operator_receipt.get("summary")),
+                    **_next_action_surface(proactive_operator_receipt),
+                },
+            ),
+            "proactive_ooda_gold_acceptance": _receipt_summary(
+                proactive_gold_path,
+                proactive_gold_receipt,
+                extra={
+                    "summary": _text(proactive_gold_receipt.get("summary")),
+                    **_next_action_surface(proactive_gold_receipt),
+                    "approval_outcome_recorded": bool(
+                        dict(dict(proactive_gold_receipt.get("proofs") or {}).get("approval_outcome") or {}).get(
+                            "approval_outcome_recorded"
+                        )
+                    ),
+                    "approval_outcome_accepted": bool(
+                        dict(dict(proactive_gold_receipt.get("proofs") or {}).get("approval_outcome") or {}).get(
+                            "accepted"
+                        )
+                    ),
+                    "approval_capture_surface_ready": bool(
+                        dict(
+                            dict(proactive_gold_receipt.get("evidence_receipts") or {}).get("approval_capture_surface") or {}
+                        ).get("ready")
+                    ),
+                },
+            ),
+        },
+        "proactive_ooda_followthrough_posture": proactive_posture,
+        "remaining_external_proofs": _remaining_external_proofs(
+            acceptance=acceptance_receipt,
+            signal=signal_receipt,
+            proactive_gold=proactive_gold_receipt,
+        ),
     }
     _write(receipt_path, receipt)
     return receipt
@@ -139,9 +379,20 @@ def materialize_office_loop_goal_receipt(*, receipt_path: str | Path, generated_
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Materialize the EA office-loop local evidence receipt.")
     parser.add_argument("--receipt", default=str(DEFAULT_RECEIPT))
+    parser.add_argument("--acceptance-evidence-receipt", default=str(DEFAULT_ACCEPTANCE_RECEIPT))
+    parser.add_argument("--signal-to-decision-receipt", default=str(DEFAULT_SIGNAL_RECEIPT))
+    parser.add_argument("--proactive-operator-status-receipt", default=str(DEFAULT_PROACTIVE_OPERATOR_STATUS_RECEIPT))
+    parser.add_argument("--proactive-gold-acceptance-receipt", default=str(DEFAULT_PROACTIVE_GOLD_ACCEPTANCE_RECEIPT))
     parser.add_argument("--generated-at", default="")
     args = parser.parse_args(argv)
-    receipt = materialize_office_loop_goal_receipt(receipt_path=args.receipt, generated_at=args.generated_at)
+    receipt = materialize_office_loop_goal_receipt(
+        receipt_path=args.receipt,
+        generated_at=args.generated_at,
+        acceptance_evidence_receipt_path=args.acceptance_evidence_receipt,
+        signal_to_decision_receipt_path=args.signal_to_decision_receipt,
+        proactive_operator_status_receipt_path=args.proactive_operator_status_receipt,
+        proactive_gold_acceptance_receipt_path=args.proactive_gold_acceptance_receipt,
+    )
     print(json.dumps({"status": receipt["status"], "receipt": str(args.receipt)}, sort_keys=True))
     return 0
 

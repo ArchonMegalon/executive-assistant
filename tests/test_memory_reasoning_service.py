@@ -114,3 +114,35 @@ def test_memory_reasoning_builds_context_pack_with_conflicts_and_risks() -> None
     assert any(row.risk_type == "decision_window" for row in pack.commitment_risks)
     assert any(row.risk_type == "interruption_budget_exhausted" for row in pack.commitment_risks)
 
+
+def test_memory_reasoning_prioritizes_durable_location_context_inside_pack_limit() -> None:
+    runtime = _runtime()
+    home_candidate = runtime.stage_candidate(
+        principal_id="exec-1",
+        category="profile",
+        summary="Home location",
+        fact_json={"address_lines": ["Brigittaplatz 1", "1200 Wien"], "country_code": "AT"},
+        confidence=0.95,
+    )
+    promoted_home = runtime.promote_candidate(home_candidate.candidate_id, reviewer="operator-1")
+    assert promoted_home is not None
+    home_item_id = promoted_home[1].item_id
+    for index in range(8):
+        candidate = runtime.stage_candidate(
+            principal_id="exec-1",
+            category="note",
+            summary=f"Recent unrelated note {index}",
+            fact_json={"normalized_text": f"Recent unrelated note {index}"},
+            confidence=0.7,
+        )
+        assert runtime.promote_candidate(candidate.candidate_id, reviewer="operator-1") is not None
+
+    pack = MemoryReasoningService(runtime).build_context_pack(
+        principal_id="exec-1",
+        task_key="proactive_ooda",
+        goal="Ground proactive assistant decisions against current context.",
+        limit=5,
+    )
+
+    assert any(row["item_id"] == home_item_id for row in pack.memory_items)
+    assert pack.memory_items[0]["item_id"] == home_item_id

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+from collections.abc import Iterable
 from typing import Any
 import urllib.error
 import urllib.parse
@@ -18,6 +20,88 @@ def _jsonable_field_value(value: object) -> object:
     if isinstance(value, (list, tuple, dict)):
         return json.dumps(value, ensure_ascii=True, separators=(",", ":"))
     return str(value)
+
+
+def _normalize_missing_field_name(value: object) -> str:
+    return str(value or "").strip()
+
+
+def _extract_missing_fields_from_payload(payload: object, fields: set[str]) -> None:
+    if isinstance(payload, dict):
+        for raw_key, raw_value in payload.items():
+            key = str(raw_key or "").strip().lower()
+            if key in {"missedfields", "missed_fields", "missingfields", "missing_fields", "missing"}:
+                raw_items = raw_value if isinstance(raw_value, (list, tuple, set)) else ()
+                for item in raw_items:
+                    if isinstance(item, str):
+                        field_name = _normalize_missing_field_name(item)
+                    elif isinstance(item, dict):
+                        field_name = _normalize_missing_field_name(item.get("name"))
+                    else:
+                        continue
+                    if field_name:
+                        fields.add(field_name)
+            _extract_missing_fields_from_payload(raw_value, fields)
+        return
+    if isinstance(payload, (list, tuple, set)):
+        for item in payload:
+            _extract_missing_fields_from_payload(item, fields)
+
+
+def _parse_teable_http_error_missing_fields(message: str) -> list[str]:
+    if not isinstance(message, str):
+        return []
+    parts = message.split(":", 2)
+    if len(parts) < 3 or parts[0] != "teable_http_error" or parts[1].strip() != "404":
+        return []
+    detail = parts[2]
+    missing: set[str] = set()
+    try:
+        payload = json.loads(detail)
+    except Exception:
+        payload = None
+    if payload is not None:
+        _extract_missing_fields_from_payload(payload, missing)
+    if not missing:
+        missing.update(_extract_missing_fields_from_text(detail))
+    return [str(item) for item in sorted(missing) if str(item).strip()]
+
+
+def _extract_missing_fields_from_text(detail: str) -> set[str]:
+    if not isinstance(detail, str):
+        return set()
+    detail = detail.replace('\\"', '"')
+    matches = re.findall(r"Fields?\s+(.+?)\s+do(?:es)? not exist", detail, flags=re.IGNORECASE)
+    missing: set[str] = set()
+    for segment in matches:
+        for field_name in re.findall(r'"([^"]+)"', segment):
+            normalized = _normalize_missing_field_name(field_name)
+            if normalized:
+                missing.add(normalized)
+    return missing
+
+
+def _filtered_payload_with_missing_fields(
+    record: dict[str, Any],
+    missing_fields: Iterable[str],
+) -> tuple[dict[str, Any], bool]:
+    normalized_missing = {_normalize_missing_field_name(item).lower() for item in missing_fields}
+    normalized_missing = {item for item in normalized_missing if item}
+    if not normalized_missing:
+        return dict(record), False
+    fields_payload = dict(record.get("fields") or {})
+    if not fields_payload:
+        return dict(record), False
+    remaining_fields = {
+        str(field_name or "").strip(): field_value
+        for field_name, field_value in fields_payload.items()
+        if str(field_name or "").strip().lower() not in normalized_missing
+    }
+    if remaining_fields == fields_payload:
+        return dict(record), False
+    changed_record = dict(record)
+    changed_record["fields"] = remaining_fields
+    return changed_record, True
 
 
 def _fallback_table_sync_config() -> dict[str, dict[str, object]]:
@@ -259,27 +343,61 @@ class TeableToolAdapter:
                     raise ToolExecutionError(f"teable_projection_key_missing:{table_name}:{key_field}")
                 existing_record_id = str(existing.get(projection_id) or "").strip()
                 if existing_record_id:
-                    self._update_record(
-                        base_url=base_url,
-                        api_key=api_key,
-                        table_id=table_id,
-                        record_id=existing_record_id,
-                        field_key_type=field_key_type,
-                        fields=normalized_fields,
-                    )
+                    update_fields = dict(normalized_fields)
+                    while True:
+                        try:
+                            self._update_record(
+                                base_url=base_url,
+                                api_key=api_key,
+                                table_id=table_id,
+                                record_id=existing_record_id,
+                                field_key_type=field_key_type,
+                                fields=update_fields,
+                            )
+                            break
+                        except ToolExecutionError as exc:
+                            missing = _parse_teable_http_error_missing_fields(str(exc))
+                            if not missing:
+                                raise
+                            filtered, changed = _filtered_payload_with_missing_fields(
+                                record={"fields": update_fields},
+                                missing_fields=missing,
+                            )
+                            if not changed:
+                                raise
+                            update_fields = dict(filtered.get("fields") or {})
                     updated += 1
                     continue
                 pending_creates.append({"fields": normalized_fields})
             if pending_creates:
                 for start in range(0, len(pending_creates), 50):
-                    chunk = pending_creates[start : start + 50]
-                    response = self._create_records(
-                        base_url=base_url,
-                        api_key=api_key,
-                        table_id=table_id,
-                        field_key_type=field_key_type,
-                        records=chunk,
-                    )
+                    chunk = [dict(item) for item in pending_creates[start : start + 50]]
+                    while True:
+                        try:
+                            response = self._create_records(
+                                base_url=base_url,
+                                api_key=api_key,
+                                table_id=table_id,
+                                field_key_type=field_key_type,
+                                records=chunk,
+                            )
+                            break
+                        except ToolExecutionError as exc:
+                            missing = _parse_teable_http_error_missing_fields(str(exc))
+                            if not missing:
+                                raise
+                            changed = False
+                            filtered_chunk: list[dict[str, Any]] = []
+                            for item in chunk:
+                                filtered_item, did_change = _filtered_payload_with_missing_fields(
+                                    record=item,
+                                    missing_fields=missing,
+                                )
+                                filtered_chunk.append(filtered_item)
+                                changed = changed or did_change
+                            if not changed:
+                                raise
+                            chunk = filtered_chunk
                     created += len(response.get("records") or chunk)
             total_created += created
             total_updated += updated

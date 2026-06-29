@@ -67,6 +67,14 @@ def _steps() -> tuple[ReleaseMaterializerStep, ...]:
             command=("scripts/materialize_whatsapp_web_action_processor_readiness.py",),
         ),
         ReleaseMaterializerStep(
+            name="proactive_ooda_operator_status",
+            command=("scripts/materialize_proactive_ooda_operator_status.py",),
+        ),
+        ReleaseMaterializerStep(
+            name="proactive_ooda_gold_acceptance",
+            command=("scripts/materialize_proactive_ooda_gold_acceptance.py",),
+        ),
+        ReleaseMaterializerStep(
             name="continuous_improvement_goal_posture",
             command=("scripts/materialize_continuous_improvement_goal_posture.py",),
         ),

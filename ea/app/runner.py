@@ -30,6 +30,7 @@ _SCHEDULER_SCAN_INTERVAL_SECONDS = 900.0
 _SCHEDULER_ONEMIN_REFRESH_INTERVAL_SECONDS = 86400.0
 _SCHEDULER_GOOGLE_SIGNAL_SYNC_INTERVAL_SECONDS = 900.0
 _SCHEDULER_POCKET_SIGNAL_SYNC_INTERVAL_SECONDS = 900.0
+_SCHEDULER_ALEXA_HISTORY_SYNC_INTERVAL_SECONDS = 900.0
 _SCHEDULER_MORNING_MEMO_INTERVAL_SECONDS = 300.0
 _SCHEDULER_TELEGRAM_ASYNC_RECOVERY_INTERVAL_SECONDS = 5.0
 _SCHEDULER_TELEGRAM_ASYNC_RECOVERY_MIN_AGE_SECONDS = 0.0
@@ -137,6 +138,21 @@ def _scheduler_pocket_signal_sync_enabled() -> bool:
 
 def _scheduler_pocket_signal_sync_limit() -> int:
     return max(1, min(_env_int("EA_SCHEDULER_POCKET_SIGNAL_SYNC_LIMIT", 5), 100))
+
+
+def _scheduler_alexa_history_sync_interval_seconds() -> float:
+    return _env_float(
+        "EA_SCHEDULER_ALEXA_HISTORY_SYNC_INTERVAL_SECONDS",
+        _SCHEDULER_ALEXA_HISTORY_SYNC_INTERVAL_SECONDS,
+    )
+
+
+def _scheduler_alexa_history_sync_enabled() -> bool:
+    return _env_bool("EA_SCHEDULER_ALEXA_HISTORY_SYNC_ENABLED", bool(str(os.environ.get("EA_ALEXA_HISTORY_IMPORT_ROOT") or "").strip()))
+
+
+def _scheduler_alexa_history_sync_limit() -> int:
+    return max(1, min(_env_int("EA_SCHEDULER_ALEXA_HISTORY_SYNC_LIMIT", 25), 500))
 
 
 def _scheduler_morning_memo_interval_seconds() -> float:
@@ -970,6 +986,43 @@ def _run_scheduler_pocket_signal_sync(container, log: logging.Logger) -> dict[st
         return {"ran": True, "attempted": 1, "synced": 0, "errors": 1, "principal_id": principal_id}
 
 
+def _run_scheduler_alexa_history_sync(container, log: logging.Logger) -> dict[str, object]:  # type: ignore[no-untyped-def]
+    from app.product.service import build_product_service
+
+    if not str(os.environ.get("EA_ALEXA_HISTORY_IMPORT_ROOT") or "").strip():
+        return {"ran": False, "attempted": 0, "synced": 0, "errors": 0, "reason": "alexa_history_import_root_not_configured"}
+    principal_id = str(getattr(getattr(container.settings, "auth", None), "default_principal_id", "") or "").strip() or "local-user"
+    service = build_product_service(container)
+    try:
+        summary = service.sync_alexa_history_from_import_root(
+            principal_id=principal_id,
+            actor="scheduler",
+            limit=_scheduler_alexa_history_sync_limit(),
+            force=False,
+        )
+        return {
+            "ran": True,
+            "attempted": int(summary.get("processed_source_total") or 0) + int(summary.get("skipped_source_total") or 0),
+            "synced": max(int(summary.get("synced_total") or summary.get("total") or 0), 0),
+            "errors": 0,
+            "principal_id": principal_id,
+            "processed_source_total": int(summary.get("processed_source_total") or 0),
+            "skipped_source_total": int(summary.get("skipped_source_total") or 0),
+            "teable_index_status": str(summary.get("teable_index_status") or "").strip(),
+            "teable_index_blocked_reason": str(summary.get("teable_index_blocked_reason") or "").strip(),
+        }
+    except RuntimeError as exc:
+        log.info(
+            "scheduler alexa history sync skipped principal=%s reason=%s",
+            principal_id,
+            str(exc or "unknown_error"),
+        )
+        return {"ran": True, "attempted": 1, "synced": 0, "errors": 1, "principal_id": principal_id}
+    except Exception:
+        log.exception("scheduler alexa history sync failed principal=%s", principal_id)
+        return {"ran": True, "attempted": 1, "synced": 0, "errors": 1, "principal_id": principal_id}
+
+
 def _run_scheduler_morning_memo_delivery(
     container,
     log: logging.Logger,
@@ -1503,6 +1556,7 @@ def _run_execution_worker(role: str) -> None:
     last_property_scout_at = 0.0
     last_property_results_finalize_at = 0.0
     last_pocket_signal_sync_at = 0.0
+    last_alexa_history_sync_at = 0.0
     last_morning_memo_at = 0.0
     last_telegram_async_recovery_at = 0.0
     last_whatsapp_async_recovery_at = 0.0
@@ -1636,6 +1690,26 @@ def _run_execution_worker(role: str) -> None:
                 except Exception:
                     log.exception("role=%s scheduler pocket signal sync failed", role)
                     last_pocket_signal_sync_at = now
+            if not property_only_scheduler and _scheduler_alexa_history_sync_enabled() and (
+                now - last_alexa_history_sync_at >= _scheduler_alexa_history_sync_interval_seconds()
+            ):
+                try:
+                    sync_summary = _run_scheduler_alexa_history_sync(container, log)
+                    last_alexa_history_sync_at = now
+                    log.info(
+                        "role=%s scheduler alexa history sync attempted=%s synced=%s errors=%s principal=%s processed_sources=%s skipped_sources=%s teable_status=%s",
+                        role,
+                        sync_summary.get("attempted"),
+                        sync_summary.get("synced"),
+                        sync_summary.get("errors"),
+                        sync_summary.get("principal_id", ""),
+                        sync_summary.get("processed_source_total", 0),
+                        sync_summary.get("skipped_source_total", 0),
+                        sync_summary.get("teable_index_status", ""),
+                    )
+                except Exception:
+                    log.exception("role=%s scheduler alexa history sync failed", role)
+                    last_alexa_history_sync_at = now
             if not property_only_scheduler and _scheduler_morning_memo_enabled() and (
                 now - last_morning_memo_at >= _scheduler_morning_memo_interval_seconds()
             ):

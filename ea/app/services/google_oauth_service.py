@@ -14,6 +14,7 @@ class GoogleOAuthService:
         redirect_uri_override: str | None = None,
         return_to: str | None = None,
         browser_source: str | None = None,
+        expected_google_email: str | None = None,
     ):
         return build_google_oauth_start(
             principal_id=principal_id,
@@ -21,4 +22,5 @@ class GoogleOAuthService:
             redirect_uri_override=redirect_uri_override,
             return_to=return_to,
             browser_source=browser_source,
+            expected_google_email=expected_google_email,
         )

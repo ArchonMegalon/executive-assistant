@@ -9,10 +9,69 @@ from typing import Any
 SCRIPT_PATH = Path(__file__).resolve()
 REPO_ROOT = SCRIPT_PATH.parents[2]
 DEFAULT_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "ea_office_loop_goal.generated.json"
+REMAINING_PROOF_LABELS = {
+    "real_daily_morning_brief_accepted": "real daily morning brief acceptance",
+    "real_decision_cleared": "real decision cleared by the principal or operator",
+    "real_commitment_recovered_or_closed": "real commitment recovered or closed with an evidence receipt",
+    "real_approved_action_audited": "real approved outbound action with audit trail",
+    "real_provider_failure_recovered": "real provider failure recovered with operator-grade reason",
+}
+PROACTIVE_OODA_PROOF_LABEL = (
+    "real proactive OODA packet accepted with routed delivery, approved-source or transcript signal, "
+    "live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, "
+    "current-packet, pending-approval, stale-approval, and decision facts, and explicit approval outcome"
+)
+SIGNAL_REVIEW_PROOF_LABEL = "real weekly signal-to-decision review accepted by the operator"
+SIGNAL_FOLLOWTHROUGH_PROOF_LABEL = "closed-loop signal-to-decision follow-through receipt accepted by the operator"
+
+
+def _load(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _path_from_text(value: object) -> Path | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    path = Path(text)
+    return path if path.is_absolute() else REPO_ROOT / path
+
+
+def _verify_surface(
+    payload: dict[str, Any],
+    issues: list[str],
+    *,
+    prefix: str,
+) -> None:
+    action = str(payload.get("next_action") or "").strip()
+    href = str(payload.get("next_action_href") or "").strip()
+    label = str(payload.get("next_action_label") or "").strip()
+    method = str(payload.get("next_action_method") or "").strip().lower()
+    if action == "reauthorize_google_workspace_binding":
+        if "/app/actions/google/connect?" not in href:
+            issues.append(f"{prefix} reauthorize_google_workspace_binding next_action_href must target the Google connect action")
+        if label != "Reconnect Google workspace":
+            issues.append(f"{prefix} reauthorize_google_workspace_binding next_action_label drifted")
+        if method != "get":
+            issues.append(f"{prefix} reauthorize_google_workspace_binding requires next_action_method=get")
+    if action in {
+        "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
+        "record_proactive_ooda_approval_outcome",
+    }:
+        if not href.endswith("/admin/proactive-ooda/approval"):
+            issues.append(f"{prefix} approval-capture next_action_href must target /admin/proactive-ooda/approval")
+        if label != "Open approval capture":
+            issues.append(f"{prefix} approval-capture next_action_label drifted")
+        if method != "get":
+            issues.append(f"{prefix} approval-capture next_action_method must be get")
 
 
 def verify_office_loop_goal_receipt(receipt_path: str | Path) -> dict[str, Any]:
-    receipt = json.loads(Path(receipt_path).read_text(encoding="utf-8"))
+    receipt = _load(Path(receipt_path))
     issues: list[str] = []
     if receipt.get("goal_completion_claim_allowed") is True:
         issues.append("office_loop_completion_overclaim")
@@ -30,6 +89,8 @@ def verify_office_loop_goal_receipt(receipt_path: str | Path) -> dict[str, Any]:
     for key in ("approvals", "operator"):
         if key not in digests:
             issues.append(f"office_loop_channel_loop_digest_missing:{key}")
+    if not str(dict(receipt.get("diagnostics_summary") or {}).get("proactive_followthrough_status") or "").strip():
+        issues.append("office_loop_diagnostics_missing:proactive_followthrough_status")
     goals = {dict(row).get("key"): row for row in receipt.get("additional_goals") or []}
     if "approved_action_workflow" not in dict(goals.get("executive_assistant_quality_readiness") or {}).get("protected_quality_dimensions", []):
         issues.append("office_loop_executive_assistant_quality_dimension_missing:approved_action_workflow")
@@ -41,10 +102,168 @@ def verify_office_loop_goal_receipt(receipt_path: str | Path) -> dict[str, Any]:
         issues.append("office_loop_scope_gap_audit_axis_missing:run_session")
     if "provider_runtime_failures" not in dict(goals.get("whole_project_signal_to_decision_closure") or {}).get("protected_signal_sources", []):
         issues.append("office_loop_signal_to_decision_source_missing:provider_runtime_failures")
-    if "teable_projection_of_run_facts" not in dict(goals.get("proactive_ooda_gold_production") or {}).get("requires", []):
-        issues.append("office_loop_proactive_ooda_requirement_missing:teable_projection_of_run_facts")
-    if "delivery_route_readiness" not in dict(goals.get("proactive_ooda_gold_production") or {}).get("protected_signal_sources", []):
-        issues.append("office_loop_proactive_ooda_source_missing:delivery_route_readiness")
+    proactive_goal = dict(goals.get("proactive_ooda_gold_production") or {})
+    proactive_requires = list(proactive_goal.get("requires", []))
+    for key in (
+        "live_browse_backed_candidate_research",
+        "pocket_ai_audio_transcript_signal_ingest",
+        "context_aware_auditor_before_user_delivery",
+        "candidate_provider_fit_and_locality_validation",
+        "reversible_candidate_staging",
+        "gmail_draft_staging_when_requested",
+        "action_required_only_telegram_delivery",
+        "route_selection_and_blocked_fallback_honesty",
+        "teable_projection_of_run_facts",
+        "teable_projection_of_delivery_and_decision_facts",
+        "teable_projection_of_pending_approval_surface",
+        "current_packet_and_stale_approval_telemetry",
+        "stale_approval_cleanup_or_expiry",
+        "approval_outcome_capture_and_follow_through_receipts",
+        "resume_without_repeat_research",
+    ):
+        if key not in proactive_requires:
+            issues.append(f"office_loop_proactive_ooda_requirement_missing:{key}")
+    proactive_sources = list(proactive_goal.get("protected_signal_sources", []))
+    for key in (
+        "calendar_and_renewal_signals",
+        "preference_budget_and_quiet_hours_state",
+        "durable_profile_and_location_context",
+        "pocket_ai_audio_transcripts",
+        "browser_and_vendor_page_evidence",
+        "context_and_locality_constraints",
+        "delivery_route_readiness",
+        "route_blocker_and_recovery_state",
+        "approval_and_follow_through_state",
+        "gmail_draft_execution_state",
+        "telegram_interruption_action_required_state",
+        "current_packet_and_stale_approval_state",
+    ):
+        if key not in proactive_sources:
+            issues.append(f"office_loop_proactive_ooda_source_missing:{key}")
+
+    evidence_receipts = dict(receipt.get("evidence_receipts") or {})
+    required_evidence_keys = {
+        "executive_assistant_acceptance_evidence",
+        "whole_project_signal_to_decision",
+        "proactive_ooda_operator_status",
+        "proactive_ooda_gold_acceptance",
+    }
+    missing_evidence_keys = required_evidence_keys - set(evidence_receipts)
+    for key in sorted(missing_evidence_keys):
+        issues.append(f"office_loop_evidence_receipt_missing:{key}")
+
+    acceptance_evidence = dict(evidence_receipts.get("executive_assistant_acceptance_evidence") or {})
+    signal_evidence = dict(evidence_receipts.get("whole_project_signal_to_decision") or {})
+    proactive_operator_evidence = dict(evidence_receipts.get("proactive_ooda_operator_status") or {})
+    proactive_gold_evidence = dict(evidence_receipts.get("proactive_ooda_gold_acceptance") or {})
+    proactive_posture = dict(receipt.get("proactive_ooda_followthrough_posture") or {})
+    if not proactive_posture:
+        issues.append("office_loop_followthrough_posture_missing")
+    else:
+        if str(proactive_posture.get("next_action") or "").strip() != str(receipt.get("next_action") or "").strip():
+            issues.append("office_loop_next_action_drifted_from_followthrough_posture")
+        for key in ("next_action_href", "next_action_label", "next_action_method"):
+            if str(proactive_posture.get(key) or "").strip() != str(receipt.get(key) or "").strip():
+                issues.append(f"office_loop_{key}_drifted_from_followthrough_posture")
+        _verify_surface(proactive_posture, issues, prefix="office_loop_followthrough_posture")
+
+    for key, linked in (
+        ("executive_assistant_acceptance_evidence", acceptance_evidence),
+        ("whole_project_signal_to_decision", signal_evidence),
+        ("proactive_ooda_operator_status", proactive_operator_evidence),
+        ("proactive_ooda_gold_acceptance", proactive_gold_evidence),
+    ):
+        path = _path_from_text(linked.get("path"))
+        if path is None:
+            issues.append(f"office_loop_evidence_receipt_path_missing:{key}")
+            continue
+        if bool(linked.get("present")) and not path.is_file():
+            issues.append(f"office_loop_linked_receipt_missing_on_disk:{key}")
+            continue
+        if not bool(linked.get("present")):
+            continue
+        payload = _load(path)
+        if not payload:
+            issues.append(f"office_loop_linked_receipt_invalid:{key}")
+            continue
+        if str(linked.get("contract_name") or "").strip() != str(payload.get("contract_name") or "").strip():
+            issues.append(f"office_loop_linked_receipt_contract_drifted:{key}")
+        if str(linked.get("status") or "").strip() != str(payload.get("status") or "").strip():
+            issues.append(f"office_loop_linked_receipt_status_drifted:{key}")
+        if key == "whole_project_signal_to_decision":
+            if bool(linked.get("real_weekly_operator_review_accepted")) != bool(payload.get("real_weekly_operator_review_accepted")):
+                issues.append("office_loop_linked_receipt_drifted:whole_project_signal_to_decision.review")
+            if bool(linked.get("closed_loop_followthrough_receipt_verified")) != bool(
+                payload.get("closed_loop_followthrough_receipt_verified")
+            ):
+                issues.append("office_loop_linked_receipt_drifted:whole_project_signal_to_decision.followthrough")
+        if key == "proactive_ooda_operator_status":
+            if str(linked.get("summary") or "").strip() != str(payload.get("summary") or "").strip():
+                issues.append("office_loop_linked_receipt_drifted:proactive_ooda_operator_status.summary")
+            if str(linked.get("next_action") or "").strip() != str(payload.get("next_action") or "").strip():
+                issues.append("office_loop_linked_receipt_drifted:proactive_ooda_operator_status.next_action")
+            _verify_surface(linked, issues, prefix="office_loop linked proactive_ooda_operator_status")
+        if key == "proactive_ooda_gold_acceptance":
+            approval = dict(dict(payload.get("proofs") or {}).get("approval_outcome") or {})
+            approval_capture_surface = dict(dict(payload.get("evidence_receipts") or {}).get("approval_capture_surface") or {})
+            if str(linked.get("summary") or "").strip() != str(payload.get("summary") or "").strip():
+                issues.append("office_loop_linked_receipt_drifted:proactive_ooda_gold_acceptance.summary")
+            if str(linked.get("next_action") or "").strip() != str(payload.get("next_action") or "").strip():
+                issues.append("office_loop_linked_receipt_drifted:proactive_ooda_gold_acceptance.next_action")
+            if bool(linked.get("approval_outcome_recorded")) != bool(approval.get("approval_outcome_recorded")):
+                issues.append("office_loop_linked_receipt_drifted:proactive_ooda_gold_acceptance.approval_outcome_recorded")
+            if bool(linked.get("approval_outcome_accepted")) != bool(approval.get("accepted")):
+                issues.append("office_loop_linked_receipt_drifted:proactive_ooda_gold_acceptance.approval_outcome_accepted")
+            if bool(linked.get("approval_capture_surface_ready")) != bool(approval_capture_surface.get("ready")):
+                issues.append("office_loop_linked_receipt_drifted:proactive_ooda_gold_acceptance.approval_capture_surface_ready")
+            _verify_surface(linked, issues, prefix="office_loop linked proactive_ooda_gold_acceptance")
+
+    if proactive_posture:
+        if proactive_gold_evidence and bool(proactive_gold_evidence.get("present")):
+            if str(proactive_posture.get("gold_acceptance_status") or "").strip() != str(proactive_gold_evidence.get("status") or "").strip():
+                issues.append("office_loop_followthrough_posture_gold_status_drifted")
+            if bool(proactive_posture.get("approval_outcome_recorded")) != bool(proactive_gold_evidence.get("approval_outcome_recorded")):
+                issues.append("office_loop_followthrough_posture_approval_recorded_drifted")
+            if bool(proactive_posture.get("approval_outcome_accepted")) != bool(proactive_gold_evidence.get("approval_outcome_accepted")):
+                issues.append("office_loop_followthrough_posture_approval_accepted_drifted")
+            if bool(proactive_posture.get("approval_capture_surface_ready")) != bool(
+                proactive_gold_evidence.get("approval_capture_surface_ready")
+            ):
+                issues.append("office_loop_followthrough_posture_approval_capture_surface_ready_drifted")
+        if proactive_operator_evidence and bool(proactive_operator_evidence.get("present")):
+            if str(proactive_posture.get("operator_runtime_status") or "").strip() != str(proactive_operator_evidence.get("status") or "").strip():
+                issues.append("office_loop_followthrough_posture_operator_status_drifted")
+        if signal_evidence and bool(signal_evidence.get("present")):
+            if bool(proactive_posture.get("real_weekly_operator_review_accepted")) != bool(
+                signal_evidence.get("real_weekly_operator_review_accepted")
+            ):
+                issues.append("office_loop_followthrough_posture_signal_review_drifted")
+            if bool(proactive_posture.get("closed_loop_followthrough_receipt_verified")) != bool(
+                signal_evidence.get("closed_loop_followthrough_receipt_verified")
+            ):
+                issues.append("office_loop_followthrough_posture_signal_followthrough_drifted")
+
+    remaining = {str(item).strip() for item in list(receipt.get("remaining_external_proofs") or []) if str(item).strip()}
+    accepted_keys_count = int(acceptance_evidence.get("accepted_keys_count") or 0)
+    expected_acceptance_proofs = set(REMAINING_PROOF_LABELS.values()) if accepted_keys_count == 0 else set()
+    for proof in expected_acceptance_proofs:
+        if proof not in remaining:
+            issues.append(f"office_loop_remaining_external_proof_missing:{proof}")
+    proactive_status = str(proactive_gold_evidence.get("status") or "").strip()
+    if proactive_status == "pass" and PROACTIVE_OODA_PROOF_LABEL in remaining:
+        issues.append("office_loop_remaining_external_proof_stale:proactive_ooda")
+    if proactive_status != "pass" and PROACTIVE_OODA_PROOF_LABEL not in remaining:
+        issues.append("office_loop_remaining_external_proof_missing:proactive_ooda")
+    review_accepted = bool(signal_evidence.get("real_weekly_operator_review_accepted"))
+    followthrough_accepted = bool(signal_evidence.get("closed_loop_followthrough_receipt_verified"))
+    if review_accepted and SIGNAL_REVIEW_PROOF_LABEL in remaining:
+        issues.append("office_loop_remaining_external_proof_stale:signal_review")
+    if not review_accepted and SIGNAL_REVIEW_PROOF_LABEL not in remaining:
+        issues.append("office_loop_remaining_external_proof_missing:signal_review")
+    if followthrough_accepted and SIGNAL_FOLLOWTHROUGH_PROOF_LABEL in remaining:
+        issues.append("office_loop_remaining_external_proof_stale:signal_followthrough")
+    if not followthrough_accepted and SIGNAL_FOLLOWTHROUGH_PROOF_LABEL not in remaining:
+        issues.append("office_loop_remaining_external_proof_missing:signal_followthrough")
     return {"contract_name": "ea.office_loop_goal_receipt.verify.v1", "status": "pass" if not issues else "fail", "issues": issues}
 
 

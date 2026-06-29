@@ -271,6 +271,52 @@ def test_whatsapp_runtime_status_reports_action_required_when_receipt_missing(mo
     assert payload["operator_recheck_after_seconds"] == 0
 
 
+def test_whatsapp_runtime_status_prefers_runtime_receipt_over_stale_published_receipt(monkeypatch, tmp_path) -> None:
+    from app.api.routes import health
+
+    runtime_dir = tmp_path / "provider-ledger"
+    runtime_receipt = runtime_dir / "provider-health-cache" / "whatsapp_web_action_processor_readiness.generated.json"
+    runtime_receipt.parent.mkdir(parents=True, exist_ok=True)
+    runtime_receipt.write_text(
+        json.dumps(
+            {
+                "contract_name": "ea.whatsapp_web_action_processor_readiness.v1",
+                "generated_at": "2026-06-29T06:40:00Z",
+                "ready": True,
+                "status": "ready",
+                "reason": "",
+                "next_action": "send_epub_over_whatsapp_to_start_or_refresh_live_audiobook_flow",
+            }
+        ),
+        encoding="utf-8",
+    )
+    published_receipt = tmp_path / "published-stale.json"
+    published_receipt.write_text(
+        json.dumps(
+            {
+                "contract_name": "ea.whatsapp_web_action_processor_readiness.v1",
+                "generated_at": "2026-06-28T01:00:00Z",
+                "ready": False,
+                "status": "blocked",
+                "reason": "sidecar_not_ready",
+                "next_action": "restore_whatsapp_web_session_sidecar_readiness",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(runtime_dir))
+    monkeypatch.setattr(health, "_WHATSAPP_ACTION_PROCESSOR_READINESS_PATH", published_receipt)
+    monkeypatch.setattr(health, "_docker_container_health", lambda names: {"source": "test", "containers": []})
+    monkeypatch.setattr(health, "_age_seconds_since", lambda value: 42)
+
+    payload = health._whatsapp_runtime_status()
+
+    assert payload["state"] == "ready"
+    assert payload["receipt_present"] is True
+    assert payload["receipt_path"] == str(runtime_receipt)
+    assert payload["receipt_fresh"] is True
+
+
 def test_health_live_marks_slow_memorial_probe_as_degraded_for_loopback(monkeypatch) -> None:
     monkeypatch.setenv("EA_HEALTHCHECK_MEMORIAL_SLUG", "manfred")
     monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")

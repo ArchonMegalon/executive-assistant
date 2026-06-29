@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 import urllib.parse
@@ -14,17 +15,37 @@ from app.api.routes.admin_view_models import (
     ACTIVE_MEDIA_LTD_GOAL_RECEIPT as EA_ACTIVE_MEDIA_LTD_GOAL_RECEIPT,
     EXECUTIVE_ASSISTANT_ACCEPTANCE_EVIDENCE_RECEIPT as EA_ACCEPTANCE_EVIDENCE_RECEIPT,
     OFFICE_LOOP_GOAL_RECEIPT as EA_OFFICE_LOOP_GOAL_RECEIPT,
+    PROACTIVE_OODA_GOLD_ACCEPTANCE_RECEIPT as EA_PROACTIVE_OODA_GOLD_ACCEPTANCE_RECEIPT,
+    PROACTIVE_OODA_OPERATOR_STATUS_RECEIPT as EA_PROACTIVE_OODA_OPERATOR_STATUS_RECEIPT,
     WHOLE_PROJECT_SCOPE_GAP_AUDIT_RECEIPT as EA_SCOPE_GAP_AUDIT_RECEIPT,
     WHOLE_PROJECT_SIGNAL_TO_DECISION_RECEIPT as EA_SIGNAL_TO_DECISION_RECEIPT,
 )
 from app.api.routes.landing_browser import _form_value, _normalize_browser_return_to
-from app.api.routes.landing_shared_support import _default_operator_id_for_browser
+from app.api.routes.landing_shared_support import (
+    _default_operator_id_for_browser,
+    bootstrap_initial_operator_profile,
+)
 from app.container import AppContainer
 from app.product.service import build_product_service
+from app.services.proactive_ooda_approval_outcomes import (
+    default_proactive_ooda_approval_outcome_path,
+)
+from app.services.proactive_ooda_approval_capture import finalize_proactive_ooda_approval_outcome
+from app.services.proactive_ooda_runtime_artifacts import load_runtime_artifact_bundle
+from app.services.proactive_ooda_teable_sync import (
+    sync_proactive_ooda_approval_outcome_to_teable,
+    teable_sync_enabled,
+)
 
 router = APIRouter(tags=["landing"])
 
-EA_QUALITY_READINESS_RECEIPT = Path(__file__).resolve().parents[4] / ".codex-studio" / "published" / "ea_executive_assistant_quality_readiness.generated.json"
+EA_ROOT = Path(__file__).resolve().parents[4]
+EA_QUALITY_READINESS_RECEIPT = EA_ROOT / ".codex-studio" / "published" / "ea_executive_assistant_quality_readiness.generated.json"
+EA_PROACTIVE_OODA_APPROVAL_OUTCOME_RECEIPT = default_proactive_ooda_approval_outcome_path(
+    root=EA_ROOT,
+    state_path=os.getenv("EA_PROACTIVE_OODA_STATE_PATH", "state/proactive_ooda_notified.json"),
+    receipt_path=os.getenv("EA_PROACTIVE_OODA_RECEIPT_PATH", ""),
+)
 
 
 def _now_iso() -> str:
@@ -162,6 +183,37 @@ def _update_scope_gap_evidence() -> None:
     }
     scope_gap["goal_completion_claim_allowed"] = False
     _write_json(EA_SCOPE_GAP_AUDIT_RECEIPT, scope_gap)
+
+
+@router.post("/admin/actions/bootstrap-operator")
+async def admin_bootstrap_operator(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    if not context.authenticated:
+        raise HTTPException(status_code=403, detail="auth_required")
+    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    return_to = _normalize_browser_return_to(_form_value(body, "return_to", "/admin/policies"), default="/admin/policies")
+    if str(context.operator_id or "").strip():
+        separator = "&" if "?" in return_to else "?"
+        return RedirectResponse(f"{return_to}{separator}operator_bootstrap=already_ready", status_code=303)
+    try:
+        bootstrap_initial_operator_profile(
+            container,
+            principal_id=context.principal_id,
+            access_email=str(context.access_email or "").strip().lower(),
+            operator_id=_form_value(body, "operator_id", ""),
+            display_name=_form_value(body, "display_name", ""),
+            notes="Bootstrapped from the admin setup surface.",
+        )
+    except ValueError as exc:
+        detail = str(exc or "").strip() or "operator_profile_bootstrap_failed"
+        if detail in {"operator_profile_bootstrap_not_allowed", "operator_seat_limit_reached"}:
+            raise HTTPException(status_code=409, detail=detail) from exc
+        raise HTTPException(status_code=400, detail=detail) from exc
+    separator = "&" if "?" in return_to else "?"
+    return RedirectResponse(f"{return_to}{separator}operator_bootstrap=ready", status_code=303)
 
 
 @router.post("/app/actions/drafts/{draft_ref}")
@@ -382,6 +434,45 @@ async def admin_record_signal_to_decision_evidence(
     _update_scope_gap_evidence()
     separator = "&" if "?" in return_to else "?"
     return RedirectResponse(f"{return_to}{separator}signal_status=recorded", status_code=303)
+
+
+@router.post("/admin/actions/proactive-ooda-evidence")
+async def admin_record_proactive_ooda_evidence(
+    request: Request,
+    context: RequestContext = Depends(get_request_context),
+    _: None = Depends(require_operator_context),
+) -> RedirectResponse:
+    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    return_to = _normalize_browser_return_to(_form_value(body, "return_to", "/admin/goals"), default="/admin/goals")
+    outcome = _form_value(body, "outcome", "approved")
+    source_kind = _form_value(body, "source_kind", "unknown")
+    evidence = _form_value(body, "evidence", "")
+    packet_ref = _form_value(body, "packet_ref", "")
+    staged_artifact_ref = _form_value(body, "staged_artifact_ref", "")
+    actor = str(context.operator_id or context.access_email or context.principal_id or "operator").strip()
+    finalize_proactive_ooda_approval_outcome(
+        principal_id=context.principal_id,
+        outcome=outcome,
+        evidence=evidence,
+        actor=actor,
+        packet_ref=packet_ref,
+        staged_artifact_ref=staged_artifact_ref,
+        source_kind=source_kind,
+        recorded_at=_now_iso(),
+        root=EA_ROOT,
+        state_path=os.getenv("EA_PROACTIVE_OODA_STATE_PATH", "state/proactive_ooda_notified.json"),
+        receipt_path=os.getenv("EA_PROACTIVE_OODA_RECEIPT_PATH", ""),
+        stage_packet_dir=os.getenv("EA_PROACTIVE_OODA_STAGE_PACKET_DIR", ""),
+        safe_work_result_dir=os.getenv("EA_PROACTIVE_OODA_SAFE_WORK_RESULT_DIR", ""),
+        approval_outcome_path=EA_PROACTIVE_OODA_APPROVAL_OUTCOME_RECEIPT,
+        operator_status_path=EA_PROACTIVE_OODA_OPERATOR_STATUS_RECEIPT,
+        gold_acceptance_path=EA_PROACTIVE_OODA_GOLD_ACCEPTANCE_RECEIPT,
+        runtime_artifact_loader=load_runtime_artifact_bundle,
+        teable_sync_decider=teable_sync_enabled,
+        teable_syncer=sync_proactive_ooda_approval_outcome_to_teable,
+    )
+    separator = "&" if "?" in return_to else "?"
+    return RedirectResponse(f"{return_to}{separator}proactive_ooda_status=recorded", status_code=303)
 
 
 @router.post("/app/actions/commitments/extract")
