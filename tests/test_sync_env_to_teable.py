@@ -2562,10 +2562,11 @@ def test_makefile_exposes_teable_probe_operator_target() -> None:
     assert "env-ensure-local-teable:\n\t@scripts/bootstrap_from_teable.sh --ensure-local" in makefile
     assert "env-fresh-host-teable:\n\t@scripts/bootstrap_from_teable.sh --fresh-host" in makefile
     assert "env-local-status-teable:\n\t$(PYTHON_BIN) scripts/sync_env_to_teable.py local-status" in makefile
+    assert "probe-teable-recovery:\n\t$(PYTHON_BIN) scripts/ea_live_ops.py probe-teable-recovery --format operator" in makefile
     assert "env-probe-teable:\n\t@scripts/bootstrap_from_teable.sh --probe" in makefile
     assert "env-recover-teable:\n\t@scripts/bootstrap_from_teable.sh" in makefile
     assert "env-restore-teable-local:\n\t$(PYTHON_BIN) scripts/sync_env_to_teable.py restore --output-path .env.local --source-scope ea_root_local" in makefile
-    assert "scripts/bootstrap_from_teable.sh scripts/sync_env_to_teable.py" in makefile
+    assert "scripts/bootstrap_from_teable.sh scripts/sync_env_to_teable.py scripts/ea_live_ops.py" in makefile
 
 
 def test_deploy_paths_recover_missing_env_from_teable_before_template_fallback() -> None:

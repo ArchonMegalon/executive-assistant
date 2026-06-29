@@ -113,6 +113,7 @@ make env-backup-teable
 make env-history-backup-teable
 make verify-env-teable-recovery
 make env-local-status-teable
+make probe-teable-recovery
 make env-ensure-local-teable
 make env-fresh-host-teable
 make env-drill-teable
@@ -125,6 +126,7 @@ Direct backup use must choose a value mode explicitly: `scripts/sync_env_to_teab
 Backups write an append-only snapshot to `ea_environment_secrets_recovery_history` before and after the current recovery table is upserted; use `scripts/sync_env_to_teable.py history-backup` or `make env-history-backup-teable` to snapshot the current Teable records without changing the recovery table.
 `scripts/bootstrap_from_teable.sh --check` or `make env-check-teable` runs table verification and a non-destructive drill, then removes the temporary drill directory when no explicit drill output path was provided.
 `scripts/sync_env_to_teable.py local-status` or `make env-local-status-teable` verifies the current local env/config artifacts against Teable without writing anything.
+`scripts/ea_live_ops.py probe-teable-recovery --format operator` or `make probe-teable-recovery` combines Teable table verification and local restore-file posture into one no-secret operator line; it hashes the table id and reports mode/hash/missing counts without printing secret values.
 `scripts/bootstrap_from_teable.sh --ensure-local` or `make env-ensure-local-teable` fixes mode-only drift in place and performs full recovery only when content is missing or mismatched.
 `scripts/bootstrap_from_teable.sh --probe` or `make env-probe-teable` performs a fresh-host rehearsal: it clears the table-id argument, discovers the recovery table by name, restores into a throwaway private directory, verifies hashes, prints the recovery JSON, and removes the directory.
 Verification fails with `extra_restorable_count` and sample `extra_restorable_keys` when same-profile Teable rows would restore but no longer appear in the current env files.

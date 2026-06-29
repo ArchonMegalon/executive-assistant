@@ -124,6 +124,7 @@ def test_operator_summary_lists_ltd_release_gates() -> None:
     assert "wa audio bundle:   make verify-whatsapp-audiobook-operator-proof-bundle" in operator_summary
     assert "wa audiobook live: make verify-whatsapp-audiobook-live-delivery-receipt" in operator_summary
     assert "wa share play:     make verify-whatsapp-audiobook-public-share-playback" in operator_summary
+    assert "teable recovery:   make probe-teable-recovery" in operator_summary
     assert "runtime supply:    make verify-runtime-supply-chain" in operator_summary
     assert "release auth:      make verify-release-authority" in operator_summary
     assert "release runtime:   make verify-release-authority-runtime" in operator_summary
