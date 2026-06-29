@@ -2602,12 +2602,36 @@ def test_telegram_feedback_callback_records_generic_notification_preference(monk
     body = response.json()
     assert body["reply_sent"] is True
     assert body["reply_text"] == "Noted. I’ll keep this style of notification."
+    duplicate_response = client.post(
+        "/v1/channels/telegram/ingest",
+        headers={"x-telegram-bot-api-secret-token": "telegram-secret-test"},
+        json={
+            "update": {
+                "callback_query": {
+                    "id": "cb-1",
+                    "data": callback_data,
+                    "message": {
+                        "message_id": 991,
+                        "text": "Action needed",
+                        "chat": {"id": "1354554303"},
+                    },
+                }
+            }
+        },
+    )
+    assert duplicate_response.status_code == 200
+    duplicate_body = duplicate_response.json()
+    assert duplicate_body["reply_sent"] is False
+    assert duplicate_body["reply_text"] == ""
     assert answered and answered[0]["callback_query_id"] == "cb-1"
     assert replies and replies[0]["reply_text"] == "Noted. I’ll keep this style of notification."
+    assert len(replies) == 1
     feedback_events = client.get("/app/api/events", params={"channel": "product", "event_type": "notification_feedback_received"})
     assert feedback_events.status_code == 200
     feedback_payloads = [item["payload"] for item in feedback_events.json()["items"]]
-    matched_feedback = next(item for item in feedback_payloads if item["notification_key"] == prompt["notification_key"])
+    matched_rows = [item for item in feedback_payloads if item["notification_key"] == prompt["notification_key"]]
+    assert len(matched_rows) == 1
+    matched_feedback = matched_rows[0]
     assert matched_feedback["feedback_key"] == "useful"
     bundle = client.app.state.container.preference_profiles.get_profile_bundle(principal_id=principal_id, person_id="self")
     evidence_rows = [

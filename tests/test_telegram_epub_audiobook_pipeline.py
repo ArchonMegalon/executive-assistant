@@ -2430,6 +2430,8 @@ def test_telegram_playback_acceptance_callback_records_redacted_receipt(
                 "_bot_config": {"token": "telegram-token"},
             },
             chat_id="42",
+            container=object(),
+            principal_id="principal-1",
             current_message_id="202",
         )
     )
@@ -2583,6 +2585,8 @@ def test_telegram_voice_dismiss_callback_retries_refill_before_responding(
             },
             chat_id="42",
             container=object(),
+            principal_id="principal-1",
+            current_message_id="201",
         )
     )
 
@@ -2669,12 +2673,133 @@ def test_telegram_voice_use_callback_sends_explicit_replacement_sample(
             },
             chat_id="42",
             container=object(),
+            principal_id="principal-1",
+            current_message_id="301",
         )
     )
 
     assert "selected voice for Test Book is blocked" in decision.reply_text
     assert "I sent 1 replacement voice sample" in decision.reply_text
     assert sent == [["Piper German Thorsten high"]]
+
+
+def test_telegram_voice_dismiss_callback_duplicate_dedupe_key_is_ignored(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import channels
+    from app.repositories.delivery_outbox import InMemoryDeliveryOutboxRepository
+    from app.repositories.observation import InMemoryObservationEventRepository
+    from app.services.channel_runtime import ChannelRuntimeService
+
+    voice_job_no_replacement = {
+        "status": "waiting_voice_selection",
+        "provider": {
+            "voice_selection": {
+                "status": "waiting_user_choice",
+                "last_action": {"action": "dismiss"},
+                "pending_batch": [
+                    {
+                        "preset_key": "voice-two",
+                        "callback_token": "sample-token-two",
+                        "sample_file": "two.wav",
+                        "label": "Voice Two",
+                        "sample_audio_ready": True,
+                    }
+                ],
+                "replacement_candidate_keys": [],
+            }
+        },
+        "storage": {"job_dir": str(tmp_path)},
+    }
+    refilled_job = {
+        **voice_job_no_replacement,
+        "provider": {
+            "voice_selection": {
+                **voice_job_no_replacement["provider"]["voice_selection"],
+                "last_action": {
+                    "action": "dismiss",
+                    "replacement_candidate_keys": ["voice-three"],
+                },
+                "pending_batch": [
+                    {
+                        "preset_key": "voice-three",
+                        "callback_token": "sample-token-three",
+                        "sample_file": "three.wav",
+                        "label": "Voice Three",
+                        "sample_audio_ready": True,
+                    }
+                ],
+            }
+        },
+    }
+
+    monkeypatch.setenv("EA_TELEGRAM_CALLBACK_SECRET", "callback-secret")
+
+    sent: list[list[str]] = []
+
+    def fake_apply(*, callback_token: str, action: str) -> dict[str, object]:
+        assert callback_token == "sample-token-two"
+        assert action == "dismiss"
+        return voice_job_no_replacement
+
+    def fake_refill(*, job_dir: Path, refill_pending: bool = False) -> dict[str, object]:
+        assert refill_pending is True
+        return refilled_job
+
+    def fake_send_samples(*, bot_config: dict[str, object], chat_id: str, job: dict[str, object]) -> list[dict[str, object]]:
+        sent.append([row["label"] for row in job["provider"]["voice_selection"]["pending_batch"] if isinstance(row, dict)])
+        return [{"token": "sample-token-three", "status": "sent"}]
+
+    monkeypatch.setattr(channels, "apply_audiobook_voice_audition_action", fake_apply)
+    monkeypatch.setattr(channels, "prepare_audiobook_voice_audition", fake_refill)
+    monkeypatch.setattr(channels, "_telegram_send_audiobook_voice_samples", fake_send_samples)
+    monkeypatch.setattr(channels, "record_audiobook_voice_sample_delivery", lambda **kwargs: kwargs["job"])
+
+    runtime = ChannelRuntimeService(InMemoryObservationEventRepository(), InMemoryDeliveryOutboxRepository())
+    container = SimpleNamespace(channel_runtime=runtime)
+    payload = {
+        "kind": "callback_query",
+        "callback_query_id": "cb-dismiss-1",
+        "callback_data": channels._telegram_encode_audiobook_voice_callback(
+            bot_config={"token": "bot-token"},
+            action="d",
+            token="sample-token-two",
+            chat_id="42",
+        ),
+        "_bot_config": {"token": "bot-token", "secret": "callback-secret"},
+        "_dedupe_key": "telegram:42:callback:cb-dismiss-1",
+        "text": "Voice sample",
+    }
+
+    first = channels._telegram_callback_turn_decision(
+        SimpleNamespace(
+            payload=dict(payload),
+            chat_id="42",
+            container=container,
+            principal_id="principal-1",
+            current_message_id="401",
+        )
+    )
+    second = channels._telegram_callback_turn_decision(
+        SimpleNamespace(
+            payload=dict(payload),
+            chat_id="42",
+            container=container,
+            principal_id="principal-1",
+            current_message_id="401",
+        )
+    )
+
+    assert first.reply_text == "Dismissed. I sent 1 replacement audiobook voice sample."
+    assert second.reply_text == ""
+    assert sent == [["Voice Three"]]
+    processed = runtime.find_observation_by_dedupe(
+        "telegram:42:callback:cb-dismiss-1:callback_processed",
+        principal_id="principal-1",
+    )
+    assert processed is not None
+    assert processed.payload["callback_kind"] == "ab"
 
 
 def test_m4b_command_uses_chaptered_merge_shape(tmp_path: Path) -> None:

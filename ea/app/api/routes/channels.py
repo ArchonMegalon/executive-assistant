@@ -1234,6 +1234,11 @@ def _telegram_async_marker_dedupe_key(dedupe_key: str) -> str:
     return f"{normalized}:assistant_async_started" if normalized else ""
 
 
+def _telegram_callback_marker_dedupe_key(dedupe_key: str) -> str:
+    normalized = str(dedupe_key or "").strip()
+    return f"{normalized}:callback_processed" if normalized else ""
+
+
 def _telegram_reply_already_sent(container: AppContainer, *, principal_id: str, dedupe_key: str) -> bool:
     marker = _telegram_reply_marker_dedupe_key(dedupe_key)
     if not marker:
@@ -1280,6 +1285,47 @@ def _telegram_async_already_started(container: AppContainer, *, principal_id: st
     if not marker:
         return False
     return container.channel_runtime.find_observation_by_dedupe(marker, principal_id=principal_id) is not None
+
+
+def _telegram_callback_already_processed(container: AppContainer, *, principal_id: str, dedupe_key: str) -> bool:
+    marker = _telegram_callback_marker_dedupe_key(dedupe_key)
+    if not marker:
+        return False
+    return container.channel_runtime.find_observation_by_dedupe(marker, principal_id=principal_id) is not None
+
+
+def _record_telegram_callback_processed(
+    container: AppContainer,
+    *,
+    principal_id: str,
+    chat_id: str,
+    dedupe_key: str,
+    callback_query_id: str,
+    callback_kind: str,
+    reply_text: str = "",
+    current_message_id: str = "",
+    source_text: str = "",
+) -> None:
+    marker = _telegram_callback_marker_dedupe_key(dedupe_key)
+    if not marker:
+        return
+    container.channel_runtime.ingest_observation(
+        principal_id=principal_id,
+        channel="telegram",
+        event_type="telegram.callback_processed",
+        payload={
+            "chat_id": str(chat_id or "").strip(),
+            "callback_query_id": str(callback_query_id or "").strip(),
+            "callback_kind": str(callback_kind or "").strip(),
+            "reply_text": str(reply_text or "").strip(),
+            "current_message_id": str(current_message_id or "").strip(),
+            "source_text": str(source_text or "").strip(),
+            "dedupe_key": str(dedupe_key or "").strip(),
+        },
+        source_id=f"telegram:{chat_id}" if chat_id else "telegram",
+        external_id=str(callback_query_id or current_message_id or "").strip(),
+        dedupe_key=marker,
+    )
 
 
 def _telegram_similar_async_prompt_pending(
@@ -6693,6 +6739,30 @@ def _telegram_callback_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDe
     if str(ctx.payload.get("kind") or "").strip().lower() != "callback_query":
         return TelegramTurnDecision()
     callback_data = str(ctx.payload.get("callback_data") or "").strip()
+    callback_dedupe_key = str(ctx.payload.get("_dedupe_key") or "").strip()
+    callback_query_id = str(ctx.payload.get("callback_query_id") or "").strip()
+    callback_kind = callback_data.split("|", 1)[0].strip().lower() if "|" in callback_data else ""
+    if callback_dedupe_key and _telegram_callback_already_processed(
+        ctx.container,
+        principal_id=ctx.principal_id,
+        dedupe_key=callback_dedupe_key,
+    ):
+        return TelegramTurnDecision()
+
+    def _processed_callback_decision(**kwargs: object) -> TelegramTurnDecision:
+        _record_telegram_callback_processed(
+            ctx.container,
+            principal_id=ctx.principal_id,
+            chat_id=ctx.chat_id,
+            dedupe_key=callback_dedupe_key,
+            callback_query_id=callback_query_id,
+            callback_kind=callback_kind,
+            reply_text=str(kwargs.get("reply_text") or "").strip(),
+            current_message_id=ctx.current_message_id,
+            source_text=str(ctx.payload.get("text") or ctx.payload.get("message_text") or "").strip(),
+        )
+        return TelegramTurnDecision(**kwargs)
+
     if callback_data.startswith("aa|"):
         bot_config = dict(ctx.payload.get("_bot_config") or {})
         callback_packet = audiobook_access_approval.decode_telegram_approval_callback(
@@ -6727,7 +6797,7 @@ def _telegram_callback_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDe
                     chat_id=requester_chat_id,
                     text="That audiobook request was not approved.",
                 )
-            return TelegramTurnDecision(reply_text="Denied the audiobook request.")
+            return _processed_callback_decision(reply_text="Denied the audiobook request.")
         approved = audiobook_access_approval.update_status(
             approval_id,
             status="approved",
@@ -6752,8 +6822,10 @@ def _telegram_callback_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDe
                     )
                 )
             title = str(dict(job.get("metadata") or {}).get("title") or dict(approved.get("source") or {}).get("filename") or "the audiobook").strip()
-            return TelegramTurnDecision(reply_text=f"Approved and started the audiobook job for {title}.")
-        return TelegramTurnDecision(reply_text="Approved. The WhatsApp audiobook processor will start this request on its next run.")
+            return _processed_callback_decision(reply_text=f"Approved and started the audiobook job for {title}.")
+        return _processed_callback_decision(
+            reply_text="Approved. The WhatsApp audiobook processor will start this request on its next run."
+        )
     if callback_data.startswith("ap|"):
         bot_config = dict(ctx.payload.get("_bot_config") or {})
         callback_packet = _telegram_decode_audiobook_playback_callback(
@@ -6784,8 +6856,8 @@ def _telegram_callback_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDe
                 )
             )
         if accepted:
-            return TelegramTurnDecision(reply_text="Marked the audiobook playback as working.")
-        return TelegramTurnDecision(reply_text="Noted. I marked this audiobook for playback review.")
+            return _processed_callback_decision(reply_text="Marked the audiobook playback as working.")
+        return _processed_callback_decision(reply_text="Noted. I marked this audiobook for playback review.")
     if callback_data.startswith("ab|"):
         bot_config = dict(ctx.payload.get("_bot_config") or {})
         callback_packet = _telegram_decode_audiobook_voice_callback(
@@ -6843,27 +6915,35 @@ def _telegram_callback_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDe
                     job = record_audiobook_voice_sample_delivery(job=job, sample_receipts=sample_receipts)
                     sent_count = sum(1 for item in sample_receipts if str(dict(item).get("status") or "").strip() == "sent")
                     if sent_count and sent_count < len(sample_receipts):
-                        return TelegramTurnDecision(
+                        return _processed_callback_decision(
                             reply_text=f"Dismissed. I sent {sent_count} of {len(sample_receipts)} replacement audiobook voice samples; the rest are still blocked."
                         )
                     if sent_count:
                         sample_word = "sample" if sent_count == 1 else "samples"
-                        return TelegramTurnDecision(reply_text=f"Dismissed. I sent {sent_count} replacement audiobook voice {sample_word}.")
-                    return TelegramTurnDecision(reply_text="Dismissed. The replacement audiobook voice is ready, but Telegram could not deliver the sample audio.")
-                return TelegramTurnDecision(reply_text="Dismissed. The replacement audiobook voice is ready, but I could not send the sample audio.")
+                        return _processed_callback_decision(
+                            reply_text=f"Dismissed. I sent {sent_count} replacement audiobook voice {sample_word}."
+                        )
+                    return _processed_callback_decision(
+                        reply_text="Dismissed. The replacement audiobook voice is ready, but Telegram could not deliver the sample audio."
+                    )
+                return _processed_callback_decision(
+                    reply_text="Dismissed. The replacement audiobook voice is ready, but I could not send the sample audio."
+                )
             if str(voice_selection.get("status") or "").strip().lower() == "exhausted":
-                return TelegramTurnDecision(reply_text="Dismissed. No more configured audiobook voice samples are available for this book.")
+                return _processed_callback_decision(
+                    reply_text="Dismissed. No more configured audiobook voice samples are available for this book."
+                )
             remaining = int(last_action.get("remaining_in_batch") or 0)
             if remaining > 0:
                 sample_word = "sample" if remaining == 1 else "samples"
                 verb = "remains" if remaining == 1 else "remain"
-                return TelegramTurnDecision(
+                return _processed_callback_decision(
                     reply_text=(
                         f"Dismissed. {remaining} audiobook voice {sample_word} {verb} "
                         "in this audition batch, and no replacement candidates were currently available."
                     )
                 )
-            return TelegramTurnDecision(reply_text="Dismissed. No replacement audiobook voice sample is available yet.")
+            return _processed_callback_decision(reply_text="Dismissed. No replacement audiobook voice sample is available yet.")
         voice_selection = dict(dict(job.get("provider") or {}).get("voice_selection") or {})
         if str(voice_selection.get("status") or "").strip() == "waiting_user_choice":
             last_action = dict(voice_selection.get("last_action") or {})
@@ -6876,7 +6956,7 @@ def _telegram_callback_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDe
                 sample_receipts = _telegram_send_audiobook_voice_samples(bot_config=bot_config, chat_id=ctx.chat_id, job=sample_job)
                 if sample_receipts:
                     job = record_audiobook_voice_sample_delivery(job=job, sample_receipts=sample_receipts)
-        return TelegramTurnDecision(reply_text=telegram_epub_reply_text(job))
+        return _processed_callback_decision(reply_text=telegram_epub_reply_text(job))
     if callback_data.startswith("fb|"):
         callback_packet = decode_telegram_feedback_callback_data(
             bot_token=str(dict(ctx.payload.get("_bot_config") or {}).get("token") or "").strip(),
@@ -6896,7 +6976,7 @@ def _telegram_callback_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDe
             actor="telegram_feedback",
             chat_id=ctx.chat_id,
         )
-        return TelegramTurnDecision(reply_text=str(result.get("reply_text") or "Noted.").strip() or "Noted.")
+        return _processed_callback_decision(reply_text=str(result.get("reply_text") or "Noted.").strip() or "Noted.")
     if callback_data.startswith("po|"):
         callback_packet = decode_proactive_ooda_telegram_callback(
             callback_data=callback_data,
@@ -6933,7 +7013,9 @@ def _telegram_callback_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDe
             )
         recorded_outcome = str(result.get("outcome") or "").strip()
         if str(result.get("status") or "").strip() == "already_recorded":
-            return TelegramTurnDecision(reply_text=f"That proactive OODA decision is already recorded as {recorded_outcome}.")
+            return _processed_callback_decision(
+                reply_text=f"That proactive OODA decision is already recorded as {recorded_outcome}."
+            )
         if recorded_outcome == "approved":
             execution = dict(result.get("execution") or {})
             execution_status = str(execution.get("status") or "").strip().lower()
@@ -6946,9 +7028,9 @@ def _telegram_callback_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDe
                 gmail_draft_id = str(execution.get("gmail_draft_id") or "").strip()
                 if gmail_draft_id:
                     lines.append(f"Draft ID: {gmail_draft_id}")
-                return TelegramTurnDecision(reply_text="\n".join(lines))
+                return _processed_callback_decision(reply_text="\n".join(lines))
             if execution_status == "already_executed" and execution_action == "save_gmail_draft":
-                return TelegramTurnDecision(reply_text="Approved. The Gmail draft was already saved.")
+                return _processed_callback_decision(reply_text="Approved. The Gmail draft was already saved.")
             if execution_status == "blocked":
                 lines = ["Approved, but I could not execute the staged next step yet."]
                 reason = compact_text(
@@ -6962,13 +7044,19 @@ def _telegram_callback_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDe
                 href = str(next_action.get("href") or "").strip()
                 if href:
                     lines.append(f"Next action: {href}")
-                return TelegramTurnDecision(reply_text="\n".join(lines))
-            return TelegramTurnDecision(reply_text="Recorded as approved. EA kept the action staged; no purchase, booking, or send was executed.")
+                return _processed_callback_decision(reply_text="\n".join(lines))
+            return _processed_callback_decision(
+                reply_text="Recorded as approved. EA kept the action staged; no purchase, booking, or send was executed."
+            )
         if recorded_outcome == "rejected":
-            return TelegramTurnDecision(reply_text="Recorded as rejected. EA will keep this proactive OODA action staged only.")
+            return _processed_callback_decision(
+                reply_text="Recorded as rejected. EA will keep this proactive OODA action staged only."
+            )
         if recorded_outcome == "deferred":
-            return TelegramTurnDecision(reply_text="Recorded as deferred. EA will leave this proactive OODA action staged for later review.")
-        return TelegramTurnDecision(reply_text=f"Recorded that proactive OODA decision as {recorded_outcome}.")
+            return _processed_callback_decision(
+                reply_text="Recorded as deferred. EA will leave this proactive OODA action staged for later review."
+            )
+        return _processed_callback_decision(reply_text=f"Recorded that proactive OODA decision as {recorded_outcome}.")
     callback_packet = _telegram_decode_callback_data(
         bot_config=dict(ctx.payload.get("_bot_config") or {}),
         callback_data=callback_data,
@@ -6991,25 +7079,25 @@ def _telegram_callback_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDe
         status = str(snapshot.get("status") or "").strip().lower()
         failure_reason = str(snapshot.get("error") or "").strip()
         if status == "sent":
-            return TelegramTurnDecision(reply_text="EA already finished that request and sent the reply here.")
+            return _processed_callback_decision(reply_text="EA already finished that request and sent the reply here.")
         if status == "failed":
             if failure_reason:
-                return TelegramTurnDecision(
+                return _processed_callback_decision(
                     reply_text=(
                         "That request failed after processing. "
                         f"Last status: {failure_reason}. "
                         "Tap Retry to run it again."
                     )
                 )
-            return TelegramTurnDecision(reply_text="That request failed after processing. Tap Retry to run it again.")
-        return TelegramTurnDecision(
+            return _processed_callback_decision(reply_text="That request failed after processing. Tap Retry to run it again.")
+        return _processed_callback_decision(
             reply_text=(
                 "EA is still processing that request.\n"
                 "The message is persisted, deduped, and running off the webhook path."
             )
         )
     if action == "help":
-        return TelegramTurnDecision(
+        return _processed_callback_decision(
             reply_text=(
                 "Use plain language here.\n"
                 "For deterministic things EA answers directly.\n"
@@ -7019,13 +7107,17 @@ def _telegram_callback_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDe
     if action == "retry":
         status = str(snapshot.get("status") or "").strip().lower()
         if status in {"queued", "processing"}:
-            return TelegramTurnDecision(reply_text="EA is already working on that request.")
+            return _processed_callback_decision(reply_text="EA is already working on that request.")
         if status == "sent":
-            return TelegramTurnDecision(reply_text="EA already answered that request here. Send a new message if you want a fresh run.")
+            return _processed_callback_decision(
+                reply_text="EA already answered that request here. Send a new message if you want a fresh run."
+            )
         if not str(snapshot.get("prompt_text") or "").strip():
-            return TelegramTurnDecision(reply_text="EA could not recover the original request text for that button. Send the request again.")
+            return _processed_callback_decision(
+                reply_text="EA could not recover the original request text for that button. Send the request again."
+            )
         retry_message_id = f"{current_message_id}:retry:{int(time.time())}" if current_message_id else f"retry:{int(time.time())}"
-        return TelegramTurnDecision(
+        return _processed_callback_decision(
             schedule_async=True,
             async_text=str(snapshot.get("prompt_text") or "").strip(),
             async_message_id=retry_message_id,
@@ -9682,7 +9774,7 @@ def ingest_telegram(
         container=container,
         principal_id=principal_id,
         text=str(message_payload.get("text") or ""),
-        payload={**message_payload, "_bot_config": dict(bot_config)},
+        payload={**message_payload, "_bot_config": dict(bot_config), "_dedupe_key": dedupe_key},
         bot_handle=str(bot_config.get("handle") or "").strip(),
         preferred_onemin_labels=tuple(
             str(item or "").strip()
