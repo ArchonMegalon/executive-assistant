@@ -19,11 +19,11 @@
     "callback_unexpired_pending_count": 1,
     "current_packet_callback_expired_count": 0,
     "current_packet_callback_expired_pending_count": 0,
-    "current_packet_callback_latest_age_seconds": 6943,
+    "current_packet_callback_latest_age_seconds": 7130,
     "current_packet_callback_latest_created_at": "2026-06-29T12:17:46.689220Z",
     "current_packet_callback_latest_expired": false,
     "current_packet_callback_latest_expires_at": "2026-07-06T12:17:46Z",
-    "current_packet_callback_latest_seconds_until_expiry": 597856,
+    "current_packet_callback_latest_seconds_until_expiry": 597668,
     "current_packet_callback_latest_status": "pending",
     "current_packet_callback_pending_count": 1,
     "current_packet_callback_raw_pending_count": 1,
@@ -83,7 +83,7 @@
   },
   "delivery_route_error": "",
   "delivery_route_ready": true,
-  "generated_at": "2026-06-29T14:13:33Z",
+  "generated_at": "2026-06-29T14:16:41Z",
   "generated_by": "scripts/materialize_proactive_ooda_operator_status.py",
   "gmail_draft_followthrough": {
     "action": "",
@@ -99,7 +99,7 @@
     "next_action_href": "",
     "next_action_label": "",
     "next_action_method": "",
-    "observed_at": "2026-06-29T14:13:29Z",
+    "observed_at": "2026-06-29T14:16:37Z",
     "raw_execution_payload_exposed": false,
     "recipient_email_hash_present": false,
     "source": "docker_compose_exec",
@@ -140,7 +140,7 @@
   "remaining_external_proofs": [
     "real proactive OODA packet accepted with routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome"
   ],
-  "route_probe_observed_at": "2026-06-29T14:13:23Z",
+  "route_probe_observed_at": "2026-06-29T14:16:31Z",
   "route_probe_runtime_service": "ea-proactive-ooda",
   "route_probe_source": "docker_compose_exec",
   "route_ready_claim_allowed": true,
@@ -341,7 +341,7 @@
     "observation_limit": 400,
     "observation_repository": "PostgresObservationEventRepository",
     "observation_row_count": 400,
-    "observed_at": "2026-06-29T14:13:31Z",
+    "observed_at": "2026-06-29T14:16:39Z",
     "observed_lane_count": 8,
     "privacy": {
       "raw_credential_exposed": false,
@@ -353,9 +353,9 @@
     "source": "docker_compose_exec",
     "status": "ready"
   },
-  "source_git_head": "08cb217ddc4dcc67497ba15d0a8d12e2d5613f31",
+  "source_git_head": "cd40d03ca0a4eb9357415e226a6f6ba6c16f9f74",
   "source_mode": "google_workspace",
-  "source_state_fingerprint": "1009e01a737606757ef3c0d3bfc6c9886264bbd87c65b1730b47b688ef02dfd4",
+  "source_state_fingerprint": "8b5d275e26b99c238899bd4afbedb2656ac97804ad5a727a3ddb7612a3c89c42",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "stage_packets": {
     "enabled": true,
