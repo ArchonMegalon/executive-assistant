@@ -3080,8 +3080,98 @@ def send_whatsapp(*, phone_hint: str, text: str, args: argparse.Namespace) -> di
     }
 
 
+def send_telegram(
+    *,
+    principal_id: str,
+    text: str,
+    dry_run: bool = False,
+) -> dict[str, object]:
+    normalized_principal_id = str(principal_id or "").strip()
+    normalized_text = str(text or "").strip()
+    observed_at = _utc_now()
+    if not normalized_text:
+        return {
+            "sent": False,
+            "reason": "text_missing",
+            "principal_id": normalized_principal_id,
+            "delivery_transport": "telegram_bot",
+            "observed_at": observed_at,
+            "source": "runtime_container_exec:telegram_delivery.send_telegram_message_for_principal",
+        }
+    if dry_run:
+        readiness = probe_telegram_readiness(principal_id=normalized_principal_id, output_format="json")
+        return {
+            "sent": False,
+            "reason": "dry_run",
+            "ready": bool(readiness.get("ready")),
+            "readiness_status": str(readiness.get("status") or "").strip(),
+            "readiness_reason": str(readiness.get("reason") or "").strip(),
+            "principal_id": str(readiness.get("principal_id") or normalized_principal_id).strip(),
+            "binding_id": str(readiness.get("binding_id") or "").strip(),
+            "chat_ref_present": bool(readiness.get("chat_ref_present")),
+            "chat_ref_sha256": str(readiness.get("chat_ref_sha256") or "").strip(),
+            "bot_key": str(readiness.get("bot_key") or "").strip(),
+            "bot_handle": str(readiness.get("bot_handle") or "").strip(),
+            "bot_token_present": bool(readiness.get("bot_token_present")),
+            "delivery_transport": "telegram_bot",
+            "runtime_container": str(readiness.get("runtime_container") or "").strip(),
+            "observed_at": observed_at,
+            "source": "runtime_container_exec:telegram_delivery.send_telegram_message_for_principal",
+        }
+    code = (
+        "import hashlib, json\n"
+        "principal_id = "
+        + json.dumps(normalized_principal_id)
+        + "\n"
+        "text = "
+        + json.dumps(normalized_text)
+        + "\n"
+        "try:\n"
+        "    from app.container import build_container\n"
+        "    from app.services.telegram_delivery import send_telegram_message_for_principal\n"
+        "    container = build_container()\n"
+        "    receipt = send_telegram_message_for_principal(container.tool_runtime, principal_id=principal_id, text=text)\n"
+        "    chat_ref = str(getattr(receipt, 'chat_id', '') or '').strip()\n"
+        "    message_ids = [str(item or '').strip() for item in (getattr(receipt, 'message_ids', ()) or ()) if str(item or '').strip()]\n"
+        "    print(json.dumps({\n"
+        "        'ok': True,\n"
+        "        'sent': True,\n"
+        "        'reason': 'sent',\n"
+        "        'principal_id': str(getattr(receipt, 'principal_id', '') or principal_id or '').strip(),\n"
+        "        'chat_ref_present': bool(chat_ref),\n"
+        "        'chat_ref_sha256': hashlib.sha256(chat_ref.encode('utf-8')).hexdigest() if chat_ref else '',\n"
+        "        'bot_key': str(getattr(receipt, 'bot_key', '') or '').strip(),\n"
+        "        'bot_handle': str(getattr(receipt, 'bot_handle', '') or '').strip(),\n"
+        "        'message_ids': message_ids,\n"
+        "    }, sort_keys=True))\n"
+        "except Exception as exc:\n"
+        "    reason = (str(exc).strip() or type(exc).__name__)[:160]\n"
+        "    print(json.dumps({'ok': False, 'sent': False, 'reason': reason}, sort_keys=True))\n"
+    )
+    exit_code, payload, runtime_container = _runtime_container_exec_json(code=code, timeout_seconds=30.0)
+    payload_ok = bool(payload.get("ok", False))
+    sent = exit_code == 0 and payload_ok and bool(payload.get("sent"))
+    reason = str(payload.get("reason") or "").strip() or (f"runtime_container_exec_exit_{exit_code}" if exit_code else "send_failed")
+    message_ids = [str(item or "").strip() for item in payload.get("message_ids") or [] if str(item or "").strip()]
+    return {
+        "sent": sent,
+        "reason": "sent" if sent else reason,
+        "principal_id": str(payload.get("principal_id") or normalized_principal_id).strip(),
+        "chat_ref_present": bool(payload.get("chat_ref_present")),
+        "chat_ref_sha256": str(payload.get("chat_ref_sha256") or "").strip(),
+        "bot_key": str(payload.get("bot_key") or "").strip(),
+        "bot_handle": str(payload.get("bot_handle") or "").strip(),
+        "delivery_transport": "telegram_bot",
+        "message_ids": message_ids,
+        "message_count": len(message_ids),
+        "runtime_container": runtime_container,
+        "observed_at": observed_at,
+        "source": "runtime_container_exec:telegram_delivery.send_telegram_message_for_principal",
+    }
+
+
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Generic EA live-ops provider probing and WhatsApp operator delivery.")
+    parser = argparse.ArgumentParser(description="Generic EA live-ops provider probing and operator delivery.")
     parser.add_argument("--database-url", default=_env("DATABASE_URL"))
     parser.add_argument("--binding-json", default=_env("EA_WHATSAPP_WEB_READINESS_BINDING_JSON"))
     parser.add_argument("--binding-id", default=_env("EA_WHATSAPP_WEB_DEFAULT_BINDING_ID", "ea-whatsapp-web-session"))
@@ -3194,6 +3284,11 @@ def parse_args() -> argparse.Namespace:
     send.add_argument("--phone-hint", required=True)
     send.add_argument("--text", required=True)
     send.add_argument("--dry-run", action="store_true")
+
+    send_telegram_parser = subparsers.add_parser("send-telegram", help="Send a factual operator update over Telegram.")
+    send_telegram_parser.add_argument("--principal-id", dest="telegram_principal_id", default=_default_proactive_principal_id())
+    send_telegram_parser.add_argument("--text", required=True)
+    send_telegram_parser.add_argument("--dry-run", action="store_true")
 
     return parser.parse_args()
 
@@ -3355,6 +3450,14 @@ def main() -> int:
         return 0 if str(report.get("status") or "") == "resolved" else 2
     if args.command == "send-whatsapp":
         report = send_whatsapp(phone_hint=args.phone_hint, text=args.text, args=args)
+        print(_json_dumps(report))
+        return 0 if bool(report.get("sent")) or str(report.get("reason") or "") == "dry_run" else 2
+    if args.command == "send-telegram":
+        report = send_telegram(
+            principal_id=str(getattr(args, "telegram_principal_id", "") or "").strip(),
+            text=str(getattr(args, "text", "") or ""),
+            dry_run=bool(getattr(args, "dry_run", False)),
+        )
         print(_json_dumps(report))
         return 0 if bool(report.get("sent")) or str(report.get("reason") or "") == "dry_run" else 2
     raise RuntimeError(f"unsupported_command:{args.command}")

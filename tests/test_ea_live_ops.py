@@ -2465,6 +2465,104 @@ def test_send_whatsapp_retries_with_recipient_when_chat_ref_is_stale(monkeypatch
     assert report["message_ids"] == ["wamid.2"]
 
 
+def test_send_telegram_dry_run_reuses_readiness_probe_without_sending(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-06-29T14:00:00Z")
+
+    def _fake_probe_telegram_readiness(*, principal_id: str, output_format: str):
+        assert principal_id == "principal-1"
+        assert output_format == "json"
+        return {
+            "ready": True,
+            "status": "ready",
+            "reason": "",
+            "principal_id": "principal-1",
+            "binding_id": "binding-1",
+            "chat_ref_present": True,
+            "chat_ref_sha256": "c" * 64,
+            "bot_key": "default",
+            "bot_handle": "ea_concierge_bot",
+            "bot_token_present": True,
+            "runtime_container": "ea-api",
+        }
+
+    monkeypatch.setattr(module, "probe_telegram_readiness", _fake_probe_telegram_readiness)
+
+    report = module.send_telegram(principal_id="principal-1", text="status update", dry_run=True)
+    serialized = json.dumps(report, sort_keys=True)
+
+    assert report["sent"] is False
+    assert report["reason"] == "dry_run"
+    assert report["ready"] is True
+    assert report["delivery_transport"] == "telegram_bot"
+    assert report["chat_ref_sha256"] == "c" * 64
+    assert report["bot_token_present"] is True
+    assert report["observed_at"] == "2026-06-29T14:00:00Z"
+    assert "123456789" not in serialized
+    assert "telegram-token" not in serialized
+
+
+def test_send_telegram_executes_runtime_without_exposing_chat_secret(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-06-29T14:01:00Z")
+
+    def _fake_exec_json(*, code: str, timeout_seconds: float):
+        assert "send_telegram_message_for_principal" in code
+        assert timeout_seconds == 30.0
+        return (
+            0,
+            {
+                "ok": True,
+                "sent": True,
+                "reason": "sent",
+                "principal_id": "principal-1",
+                "chat_ref_present": True,
+                "chat_ref_sha256": "d" * 64,
+                "bot_key": "default",
+                "bot_handle": "ea_concierge_bot",
+                "message_ids": ["1001"],
+            },
+            "ea-api",
+        )
+
+    monkeypatch.setattr(module, "_runtime_container_exec_json", _fake_exec_json)
+
+    report = module.send_telegram(principal_id="principal-1", text="status update", dry_run=False)
+    serialized = json.dumps(report, sort_keys=True)
+
+    assert report["sent"] is True
+    assert report["reason"] == "sent"
+    assert report["delivery_transport"] == "telegram_bot"
+    assert report["message_ids"] == ["1001"]
+    assert report["message_count"] == 1
+    assert report["runtime_container"] == "ea-api"
+    assert report["observed_at"] == "2026-06-29T14:01:00Z"
+    assert report["chat_ref_sha256"] == "d" * 64
+    assert "123456789" not in serialized
+    assert "telegram-token" not in serialized
+
+
+def test_main_send_telegram_emits_json(monkeypatch, capsys) -> None:
+    module = _module()
+    monkeypatch.setattr(
+        module,
+        "parse_args",
+        lambda: Namespace(command="send-telegram", telegram_principal_id="principal-1", text="status update", dry_run=True),
+    )
+
+    def _fake_send_telegram(*, principal_id: str, text: str, dry_run: bool):
+        assert principal_id == "principal-1"
+        assert text == "status update"
+        assert dry_run is True
+        return {"sent": False, "reason": "dry_run", "delivery_transport": "telegram_bot"}
+
+    monkeypatch.setattr(module, "send_telegram", _fake_send_telegram)
+
+    assert module.main() == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {"delivery_transport": "telegram_bot", "reason": "dry_run", "sent": False}
+
+
 def test_main_probe_provider_operator_prints_plain_text(monkeypatch, capsys) -> None:
     module = _module()
     monkeypatch.setattr(module, "parse_args", lambda: Namespace(command="probe-provider", provider="unmixr", format="operator"))
