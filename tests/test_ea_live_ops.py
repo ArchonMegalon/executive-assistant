@@ -368,6 +368,40 @@ def test_probe_whatsapp_readiness_refreshes_receipt_and_formats_operator_text(mo
     assert "raw-secret-qr" not in serialized
 
 
+def test_probe_whatsapp_readiness_volatile_refresh_uses_temporary_receipt(monkeypatch) -> None:
+    module = _module()
+    captured_paths: list[Path] = []
+
+    def _fake_build_whatsapp_web_action_processor_readiness(*, output_path: Path):
+        captured_paths.append(output_path)
+        return {
+            "status": "blocked",
+            "ready": False,
+            "reason": "sidecar_not_ready",
+            "generated_at": "2026-06-29T13:10:49Z",
+            "output_path": str(output_path),
+            "sidecar_status": "qr_required",
+            "sidecar_qr_present": True,
+            "sidecar_qr_required": True,
+        }
+
+    monkeypatch.setattr(
+        module.whatsapp_action_processor_readiness,
+        "build_whatsapp_web_action_processor_readiness",
+        _fake_build_whatsapp_web_action_processor_readiness,
+    )
+
+    report = module.probe_whatsapp_readiness(refresh=True, output_format="json", volatile=True)
+
+    assert report["probe_ok"] is True
+    assert report["volatile"] is True
+    assert report["source"] == "materialize_whatsapp_web_action_processor_readiness:volatile"
+    assert captured_paths
+    assert captured_paths[0].name == module.DEFAULT_READINESS_RECEIPT_FILENAME
+    assert captured_paths[0].parent != module.DEFAULT_READINESS_RECEIPT_PATH.parent
+    assert report["output_path"] == str(captured_paths[0])
+
+
 def test_probe_whatsapp_readiness_can_read_existing_receipt_without_refresh(tmp_path: Path) -> None:
     module = _module()
     receipt_path = tmp_path / "whatsapp-readiness.json"

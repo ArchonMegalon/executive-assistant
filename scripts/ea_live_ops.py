@@ -9,6 +9,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -924,13 +925,22 @@ def probe_whatsapp_readiness(
     refresh: bool = True,
     receipt_path: str = "",
     output_format: str = "json",
+    volatile: bool = False,
 ) -> dict[str, object]:
     observed_at = _utc_now()
     source = "materialize_whatsapp_web_action_processor_readiness"
     try:
         if refresh:
-            output_path = Path(str(receipt_path or whatsapp_action_processor_readiness.DEFAULT_OUTPUT))
-            payload = whatsapp_action_processor_readiness.build_whatsapp_web_action_processor_readiness(output_path=output_path)
+            if volatile:
+                source = "materialize_whatsapp_web_action_processor_readiness:volatile"
+                with tempfile.TemporaryDirectory(prefix="ea-whatsapp-readiness-") as tmpdir:
+                    output_path = Path(tmpdir) / DEFAULT_READINESS_RECEIPT_FILENAME
+                    payload = whatsapp_action_processor_readiness.build_whatsapp_web_action_processor_readiness(
+                        output_path=output_path
+                    )
+            else:
+                output_path = Path(str(receipt_path or whatsapp_action_processor_readiness.DEFAULT_OUTPUT))
+                payload = whatsapp_action_processor_readiness.build_whatsapp_web_action_processor_readiness(output_path=output_path)
         else:
             source = "receipt_file"
             output_path = Path(str(receipt_path or DEFAULT_READINESS_RECEIPT_PATH))
@@ -961,6 +971,7 @@ def probe_whatsapp_readiness(
         "generated_at": str(receipt.get("generated_at") or "").strip(),
         "observed_at": observed_at,
         "source": source,
+        "volatile": bool(refresh and volatile),
         "output_path": str(receipt.get("output_path") or receipt_path or DEFAULT_READINESS_RECEIPT_PATH).strip(),
         "source_git_head": str(receipt.get("source_git_head") or "").strip(),
         "effective_session_ref": str(receipt.get("effective_session_ref") or "").strip(),
@@ -3189,6 +3200,7 @@ def parse_args() -> argparse.Namespace:
     whatsapp_readiness.add_argument("--format", choices=("json", "operator"), default="json")
     whatsapp_readiness.add_argument("--receipt-path", default="")
     whatsapp_readiness.add_argument("--no-refresh", dest="refresh", action="store_false", default=True)
+    whatsapp_readiness.add_argument("--volatile", action="store_true", help="Refresh through a temporary receipt file instead of the published receipt.")
 
     telegram_readiness = subparsers.add_parser("probe-telegram-readiness", help="Probe Telegram operator delivery readiness without sending a message.")
     telegram_readiness.add_argument("--principal-id", dest="telegram_principal_id", default=_default_proactive_principal_id())
@@ -3307,6 +3319,7 @@ def main() -> int:
             refresh=bool(getattr(args, "refresh", True)),
             receipt_path=str(getattr(args, "receipt_path", "") or "").strip(),
             output_format=args.format,
+            volatile=bool(getattr(args, "volatile", False)),
         )
         if args.format == "operator":
             print(str(report.get("operator_text") or ""))
