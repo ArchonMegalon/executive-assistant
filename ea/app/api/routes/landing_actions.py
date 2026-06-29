@@ -73,6 +73,21 @@ _ACCEPTANCE_PROOF_LABELS = {
 _ACCEPTANCE_CAPTURE_PATH = "/admin/actions/acceptance-evidence"
 _ACCEPTANCE_CAPTURE_METHOD = "POST"
 _ACCEPTANCE_CAPTURE_FORM_FIELDS = ["proof_key", "source_kind", "evidence", "object_ref"]
+_SIGNAL_EVIDENCE_CAPTURE_PATH = "/admin/actions/signal-to-decision-evidence"
+_SIGNAL_EVIDENCE_CAPTURE_METHOD = "POST"
+_SIGNAL_EVIDENCE_CAPTURE_FORM_FIELDS = ["evidence_part", "source_kind", "evidence", "packet_ref"]
+_SIGNAL_EVIDENCE_PARTS = {
+    "review": {
+        "label": "real weekly signal-to-decision review accepted by the operator",
+        "accepted_field": "real_weekly_operator_review_accepted",
+        "next_action": "record_redacted_signal_review_acceptance",
+    },
+    "followthrough": {
+        "label": "closed-loop signal-to-decision follow-through receipt accepted by the operator",
+        "accepted_field": "closed_loop_followthrough_receipt_verified",
+        "next_action": "record_redacted_signal_followthrough_acceptance",
+    },
+}
 
 
 def _load_json(path: Path) -> dict[str, object]:
@@ -154,6 +169,70 @@ def _acceptance_capture_requirements(acceptance_keys: dict[str, object]) -> list
     return requirements
 
 
+def _signal_evidence_capture_surface() -> dict[str, object]:
+    return {
+        "method": _SIGNAL_EVIDENCE_CAPTURE_METHOD,
+        "path": _SIGNAL_EVIDENCE_CAPTURE_PATH,
+        "admin_only": True,
+        "operator_context_required": True,
+        "required_form_fields": list(_SIGNAL_EVIDENCE_CAPTURE_FORM_FIELDS),
+        "valid_evidence_parts": list(_SIGNAL_EVIDENCE_PARTS),
+        "server_actor_source": "authenticated_operator_context",
+        "raw_input_not_persisted": True,
+        "stored_evidence_shape": "sha256_only",
+        "privacy_contract": {
+            "raw_review_text_persisted": False,
+            "raw_followthrough_text_persisted": False,
+            "raw_actor_identity_persisted": False,
+            "raw_packet_reference_persisted": False,
+            "credential_values_persisted": False,
+        },
+        "claim_boundary": "captures_redacted_signal_to_decision_acceptance_only_not_queue_or_release_truth",
+    }
+
+
+def _signal_evidence_capture_requirements(receipt: dict[str, object]) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for part, spec in _SIGNAL_EVIDENCE_PARTS.items():
+        accepted = bool(receipt.get(str(spec["accepted_field"])))
+        rows.append(
+            {
+                "evidence_part": part,
+                "label": str(spec["label"]),
+                "status": "accepted_redacted" if accepted else "pending_real_world_evidence",
+                "accepted": accepted,
+                "capture_method": _SIGNAL_EVIDENCE_CAPTURE_METHOD,
+                "capture_path": _SIGNAL_EVIDENCE_CAPTURE_PATH,
+                "required_form_fields": list(_SIGNAL_EVIDENCE_CAPTURE_FORM_FIELDS),
+                "server_actor_source": "authenticated_operator_context",
+                "raw_input_not_persisted": True,
+                "stored_evidence_shape": "sha256_only",
+                "raw_evidence_exposed": False,
+                "raw_actor_exposed": False,
+                "raw_packet_ref_exposed": False,
+                "next_action": (
+                    f"review_redacted_signal_to_decision_evidence:{part}"
+                    if accepted
+                    else str(spec["next_action"])
+                ),
+                "claim_boundary": "does_not_prove_closed_signal_to_decision_loop_until_review_and_followthrough_are_accepted",
+            }
+        )
+    return rows
+
+
+def _refresh_signal_evidence_contract(receipt: dict[str, object]) -> None:
+    receipt["signal_evidence_capture_surface"] = _signal_evidence_capture_surface()
+    receipt["signal_evidence_capture_requirements"] = _signal_evidence_capture_requirements(receipt)
+    receipt["privacy"] = {
+        "raw_review_text_exposed": False,
+        "raw_followthrough_text_exposed": False,
+        "raw_actor_identity_exposed": False,
+        "raw_packet_reference_exposed": False,
+        "raw_private_context_exposed": False,
+    }
+
+
 def _default_acceptance_receipt() -> dict[str, object]:
     acceptance_keys = {key: _empty_acceptance_row() for key in _ACCEPTANCE_KEYS}
     return {
@@ -177,17 +256,49 @@ def _default_acceptance_receipt() -> dict[str, object]:
 
 
 def _default_signal_receipt() -> dict[str, object]:
-    return {
+    receipt = {
         "contract_name": "ea.whole_project_signal_to_decision_receipt.v1",
         "status": "ready_local_packet_pending_operator_acceptance",
         "goal_completion_claim_allowed": False,
         "real_weekly_operator_review_accepted": False,
         "closed_loop_followthrough_receipt_verified": False,
+        "operator_review": {
+            "accepted": False,
+            "source_kind": "",
+            "recorded_at": "",
+            "review_sha256": "",
+            "actor_sha256": "",
+            "packet_ref_sha256": "",
+            "raw_review_exposed": False,
+            "raw_actor_exposed": False,
+            "raw_packet_ref_exposed": False,
+        },
+        "followthrough_receipt": {
+            "accepted": False,
+            "source_kind": "",
+            "recorded_at": "",
+            "followthrough_sha256": "",
+            "actor_sha256": "",
+            "packet_ref_sha256": "",
+            "raw_followthrough_exposed": False,
+            "raw_actor_exposed": False,
+            "raw_packet_ref_exposed": False,
+        },
+        "signal_evidence_capture_surface": _signal_evidence_capture_surface(),
+        "privacy": {
+            "raw_review_text_exposed": False,
+            "raw_followthrough_text_exposed": False,
+            "raw_actor_identity_exposed": False,
+            "raw_packet_reference_exposed": False,
+            "raw_private_context_exposed": False,
+        },
         "remaining_external_proofs": [
             "real weekly signal-to-decision review accepted by the operator",
             "closed-loop signal-to-decision follow-through receipt accepted by the operator",
         ],
     }
+    receipt["signal_evidence_capture_requirements"] = _signal_evidence_capture_requirements(receipt)
+    return receipt
 
 
 def _update_quality_receipt_from_acceptance(acceptance: dict[str, object]) -> None:
@@ -454,26 +565,38 @@ async def admin_record_signal_to_decision_evidence(
     evidence = _form_value(body, "evidence", "")
     packet_ref = _form_value(body, "packet_ref", "")
     actor = str(context.operator_id or context.access_email or context.principal_id or "operator").strip()
+    if evidence_part not in _SIGNAL_EVIDENCE_PARTS:
+        raise HTTPException(status_code=400, detail="signal_evidence_part_invalid")
+    if not evidence.strip() or not packet_ref.strip():
+        raise HTTPException(status_code=400, detail="signal_evidence_and_packet_ref_required")
 
     receipt = _load_json(EA_SIGNAL_TO_DECISION_RECEIPT) or _default_signal_receipt()
     if evidence_part == "review":
         receipt["operator_review"] = {
             "accepted": True,
+            "status": "accepted_redacted",
             "source_kind": source_kind,
             "recorded_at": _now_iso(),
             "review_sha256": _sha256(evidence),
             "actor_sha256": _sha256(actor),
             "packet_ref_sha256": _sha256(packet_ref),
+            "raw_review_exposed": False,
+            "raw_actor_exposed": False,
+            "raw_packet_ref_exposed": False,
         }
         receipt["real_weekly_operator_review_accepted"] = True
     elif evidence_part == "followthrough":
         receipt["followthrough_receipt"] = {
             "accepted": True,
+            "status": "accepted_redacted",
             "source_kind": source_kind,
             "recorded_at": _now_iso(),
             "followthrough_sha256": _sha256(evidence),
             "actor_sha256": _sha256(actor),
             "packet_ref_sha256": _sha256(packet_ref),
+            "raw_followthrough_exposed": False,
+            "raw_actor_exposed": False,
+            "raw_packet_ref_exposed": False,
         }
         receipt["closed_loop_followthrough_receipt_verified"] = True
     receipt["status"] = (
@@ -490,6 +613,7 @@ async def admin_record_signal_to_decision_evidence(
     if not receipt.get("closed_loop_followthrough_receipt_verified"):
         remaining.append("closed-loop signal-to-decision follow-through receipt accepted by the operator")
     receipt["remaining_external_proofs"] = remaining
+    _refresh_signal_evidence_contract(receipt)
     _write_json(EA_SIGNAL_TO_DECISION_RECEIPT, receipt)
     _update_scope_gap_evidence()
     separator = "&" if "?" in return_to else "?"

@@ -29,6 +29,27 @@ REQUIRED_SIGNAL_SOURCES = [
     "release_install_update_friction",
     "privacy_or_boundary_incidents",
 ]
+SIGNAL_EVIDENCE_CAPTURE_PATH = "/admin/actions/signal-to-decision-evidence"
+SIGNAL_EVIDENCE_CAPTURE_METHOD = "POST"
+SIGNAL_EVIDENCE_CAPTURE_FORM_FIELDS = ["evidence_part", "source_kind", "evidence", "packet_ref"]
+SIGNAL_EVIDENCE_PARTS = {
+    "review": {
+        "label": "real weekly signal-to-decision review accepted by the operator",
+        "accepted_field": "real_weekly_operator_review_accepted",
+        "receipt_field": "operator_review",
+        "hash_field": "review_sha256",
+        "input_field": "review",
+        "next_action": "record_redacted_signal_review_acceptance",
+    },
+    "followthrough": {
+        "label": "closed-loop signal-to-decision follow-through receipt accepted by the operator",
+        "accepted_field": "closed_loop_followthrough_receipt_verified",
+        "receipt_field": "followthrough_receipt",
+        "hash_field": "followthrough_sha256",
+        "input_field": "followthrough",
+        "next_action": "record_redacted_signal_followthrough_acceptance",
+    },
+}
 
 
 def _now() -> str:
@@ -56,6 +77,59 @@ def _source_row(key: str) -> dict[str, Any]:
         "owner_truth_plane": "operator_review_required",
         "journey_or_release_gate_mapping": "weekly_signal_to_decision_packet",
     }
+
+
+def _signal_evidence_capture_surface() -> dict[str, Any]:
+    return {
+        "method": SIGNAL_EVIDENCE_CAPTURE_METHOD,
+        "path": SIGNAL_EVIDENCE_CAPTURE_PATH,
+        "admin_only": True,
+        "operator_context_required": True,
+        "required_form_fields": SIGNAL_EVIDENCE_CAPTURE_FORM_FIELDS,
+        "valid_evidence_parts": list(SIGNAL_EVIDENCE_PARTS),
+        "server_actor_source": "authenticated_operator_context",
+        "raw_input_not_persisted": True,
+        "stored_evidence_shape": "sha256_only",
+        "privacy_contract": {
+            "raw_review_text_persisted": False,
+            "raw_followthrough_text_persisted": False,
+            "raw_actor_identity_persisted": False,
+            "raw_packet_reference_persisted": False,
+            "credential_values_persisted": False,
+        },
+        "claim_boundary": "captures_redacted_signal_to_decision_acceptance_only_not_queue_or_release_truth",
+    }
+
+
+def _signal_evidence_capture_requirements(*, review_accepted: bool, follow_accepted: bool) -> list[dict[str, Any]]:
+    accepted_by_part = {"review": review_accepted, "followthrough": follow_accepted}
+    rows: list[dict[str, Any]] = []
+    for part, spec in SIGNAL_EVIDENCE_PARTS.items():
+        accepted = bool(accepted_by_part[part])
+        rows.append(
+            {
+                "evidence_part": part,
+                "label": spec["label"],
+                "status": "accepted_redacted" if accepted else "pending_real_world_evidence",
+                "accepted": accepted,
+                "capture_method": SIGNAL_EVIDENCE_CAPTURE_METHOD,
+                "capture_path": SIGNAL_EVIDENCE_CAPTURE_PATH,
+                "required_form_fields": SIGNAL_EVIDENCE_CAPTURE_FORM_FIELDS,
+                "server_actor_source": "authenticated_operator_context",
+                "raw_input_not_persisted": True,
+                "stored_evidence_shape": "sha256_only",
+                "raw_evidence_exposed": False,
+                "raw_actor_exposed": False,
+                "raw_packet_ref_exposed": False,
+                "next_action": (
+                    f"review_redacted_signal_to_decision_evidence:{part}"
+                    if accepted
+                    else str(spec["next_action"])
+                ),
+                "claim_boundary": "does_not_prove_closed_signal_to_decision_loop_until_review_and_followthrough_are_accepted",
+            }
+        )
+    return rows
 
 
 def _remaining(*receipts: dict[str, Any], accepted: bool, followed: bool) -> list[str]:
@@ -101,6 +175,11 @@ def materialize_whole_project_signal_to_decision_receipt(
         "release_authority_claim_allowed": False,
         "real_weekly_operator_review_accepted": review_accepted,
         "closed_loop_followthrough_receipt_verified": follow_accepted,
+        "signal_evidence_capture_surface": _signal_evidence_capture_surface(),
+        "signal_evidence_capture_requirements": _signal_evidence_capture_requirements(
+            review_accepted=review_accepted,
+            follow_accepted=follow_accepted,
+        ),
         "boundary_posture": {
             "ea_is_product_truth": False,
             "local_signal_synthesis_not_canonical_queue_or_release_truth": True,
@@ -116,19 +195,34 @@ def materialize_whole_project_signal_to_decision_receipt(
         },
         "operator_review": {
             "accepted": review_accepted,
+            "status": "accepted_redacted" if review_accepted else "missing_or_invalid",
             "source_kind": review.get("source_kind", ""),
             "review_sha256": _hash(str(review.get("review") or "")),
             "actor_sha256": _hash(str(review.get("actor") or "")),
             "packet_ref_sha256": _hash(str(review.get("packet_ref") or "")),
             "recorded_at": review.get("recorded_at", ""),
+            "raw_review_exposed": False,
+            "raw_actor_exposed": False,
+            "raw_packet_ref_exposed": False,
         },
         "followthrough_receipt": {
             "accepted": follow_accepted,
+            "status": "accepted_redacted" if follow_accepted else "missing_or_invalid",
             "source_kind": follow.get("source_kind", ""),
             "followthrough_sha256": _hash(str(follow.get("followthrough") or "")),
             "actor_sha256": _hash(str(follow.get("actor") or "")),
             "packet_ref_sha256": _hash(str(follow.get("packet_ref") or "")),
             "recorded_at": follow.get("recorded_at", ""),
+            "raw_followthrough_exposed": False,
+            "raw_actor_exposed": False,
+            "raw_packet_ref_exposed": False,
+        },
+        "privacy": {
+            "raw_review_text_exposed": False,
+            "raw_followthrough_text_exposed": False,
+            "raw_actor_identity_exposed": False,
+            "raw_packet_reference_exposed": False,
+            "raw_private_context_exposed": False,
         },
         "evidence_receipts": {
             "office_loop": {"contract_name": office.get("contract_name"), "status": office.get("status")},

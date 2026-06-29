@@ -883,6 +883,13 @@ def test_admin_acceptance_capture_records_redacted_goal_evidence(
     assert signal["status"] == "partial_real_signal_to_decision_closure"
     assert signal["real_weekly_operator_review_accepted"] is True
     assert signal["closed_loop_followthrough_receipt_verified"] is False
+    assert signal["operator_review"]["status"] == "accepted_redacted"
+    assert signal["operator_review"]["raw_review_exposed"] is False
+    assert signal["signal_evidence_capture_surface"]["path"] == "/admin/actions/signal-to-decision-evidence"
+    signal_requirements = {item["evidence_part"]: item for item in signal["signal_evidence_capture_requirements"]}
+    assert signal_requirements["review"]["status"] == "accepted_redacted"
+    assert signal_requirements["followthrough"]["status"] == "pending_real_world_evidence"
+    assert signal_requirements["followthrough"]["raw_input_not_persisted"] is True
     signal_text = signal_receipt.read_text(encoding="utf-8")
     assert raw_review not in signal_text
     assert raw_packet_ref not in signal_text
@@ -909,6 +916,10 @@ def test_admin_acceptance_capture_records_redacted_goal_evidence(
     assert signal["closed_loop_followthrough_receipt_verified"] is True
     assert signal["operator_review"]["review_sha256"]
     assert signal["followthrough_receipt"]["followthrough_sha256"]
+    assert signal["followthrough_receipt"]["status"] == "accepted_redacted"
+    signal_requirements = {item["evidence_part"]: item for item in signal["signal_evidence_capture_requirements"]}
+    assert signal_requirements["review"]["status"] == "accepted_redacted"
+    assert signal_requirements["followthrough"]["status"] == "accepted_redacted"
     signal_text = signal_receipt.read_text(encoding="utf-8")
     assert raw_review not in signal_text
     assert raw_packet_ref not in signal_text

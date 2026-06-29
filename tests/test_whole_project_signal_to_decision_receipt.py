@@ -110,6 +110,12 @@ def test_signal_to_decision_receipt_materializes_local_packet_without_overclaim(
     assert receipt["release_authority_claim_allowed"] is False
     assert receipt["real_weekly_operator_review_accepted"] is False
     assert receipt["closed_loop_followthrough_receipt_verified"] is False
+    assert receipt["signal_evidence_capture_surface"]["path"] == "/admin/actions/signal-to-decision-evidence"  # type: ignore[index]
+    assert receipt["signal_evidence_capture_surface"]["raw_input_not_persisted"] is True  # type: ignore[index]
+    requirements = {item["evidence_part"]: item for item in receipt["signal_evidence_capture_requirements"]}  # type: ignore[index]
+    assert requirements["review"]["status"] == "pending_real_world_evidence"
+    assert requirements["followthrough"]["status"] == "pending_real_world_evidence"
+    assert requirements["review"]["raw_input_not_persisted"] is True
     assert "real weekly signal-to-decision review accepted by the operator" in receipt["remaining_external_proofs"]
     assert "closed-loop signal-to-decision follow-through receipt accepted by the operator" in receipt["remaining_external_proofs"]
     signal_sources = {row["key"]: row for row in receipt["signal_sources"]}  # type: ignore[index]
@@ -166,6 +172,13 @@ def test_signal_to_decision_receipt_hashes_operator_review_and_followthrough(tmp
     assert receipt["real_weekly_operator_review_accepted"] is True
     assert receipt["closed_loop_followthrough_receipt_verified"] is True
     assert receipt["goal_completion_claim_allowed"] is False
+    requirements = {item["evidence_part"]: item for item in receipt["signal_evidence_capture_requirements"]}  # type: ignore[index]
+    assert requirements["review"]["status"] == "accepted_redacted"
+    assert requirements["followthrough"]["status"] == "accepted_redacted"
+    assert receipt["operator_review"]["status"] == "accepted_redacted"  # type: ignore[index]
+    assert receipt["followthrough_receipt"]["status"] == "accepted_redacted"  # type: ignore[index]
+    assert receipt["operator_review"]["raw_review_exposed"] is False  # type: ignore[index]
+    assert receipt["followthrough_receipt"]["raw_followthrough_exposed"] is False  # type: ignore[index]
     receipt_text = receipt_path.read_text(encoding="utf-8")
     assert raw_review not in receipt_text
     assert raw_followthrough not in receipt_text
@@ -197,6 +210,8 @@ def test_signal_to_decision_verifier_rejects_overclaim_and_missing_source(tmp_pa
     receipt["goal_completion_claim_allowed"] = True
     receipt["queue_truth_claim_allowed"] = True
     receipt["boundary_posture"]["ea_is_product_truth"] = True
+    receipt.pop("signal_evidence_capture_surface")
+    receipt["signal_evidence_capture_requirements"] = []
     receipt["signal_sources"] = [row for row in receipt["signal_sources"] if row["key"] != "provider_runtime_failures"]
     receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -207,6 +222,8 @@ def test_signal_to_decision_verifier_rejects_overclaim_and_missing_source(tmp_pa
     assert "signal_decision_queue_truth_overclaim" in verification["issues"]
     assert "signal_decision_ea_product_truth_overclaim" in verification["issues"]
     assert "signal_decision_source_row_missing:provider_runtime_failures" in verification["issues"]
+    assert "signal_decision_capture_surface_path_missing" in verification["issues"]
+    assert "signal_decision_capture_requirement_missing:review" in verification["issues"]
 
 
 def test_signal_to_decision_clis_work(tmp_path: Path) -> None:
