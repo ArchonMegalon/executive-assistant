@@ -358,7 +358,7 @@ def audit_compose_required_env_coverage(
     for compose_path in ROOT.glob("docker-compose*.yml"):
         if not compose_path.is_file():
             continue
-        for expression in re.findall(r"\$\{([^}]+)\}", compose_path.read_text(encoding="utf-8", errors="ignore")):
+        for expression in re.findall(r"(?<!\$)\$\{([^}]+)\}", compose_path.read_text(encoding="utf-8", errors="ignore")):
             name = re.split(r"[:?+\-]", expression, 1)[0].strip()
             if not name or name in COMPOSE_REQUIRED_ENV_IGNORE:
                 continue

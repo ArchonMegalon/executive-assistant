@@ -36,6 +36,36 @@ def _args(**overrides: object) -> Namespace:
     return Namespace(**values)
 
 
+def test_runtime_container_exec_json_wraps_python_with_in_container_timeout(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_runtime_container_name", lambda: "ea-api")
+    observed: dict[str, object] = {}
+
+    def _fake_run(command, **kwargs):
+        observed["command"] = list(command)
+        observed["timeout"] = kwargs.get("timeout")
+        return SimpleNamespace(returncode=0, stdout='{"ok": true, "status": "ready"}\n', stderr="")
+
+    monkeypatch.setattr(module.subprocess, "run", _fake_run)
+
+    exit_code, payload, container = module._runtime_container_exec_json(code="print('ok')", timeout_seconds=7.0)
+
+    assert exit_code == 0
+    assert payload["ok"] is True
+    assert container == "ea-api"
+    assert observed["command"][:8] == [
+        "docker",
+        "exec",
+        "ea-api",
+        "timeout",
+        "--kill-after=2s",
+        "7s",
+        "python3",
+        "-c",
+    ]
+    assert observed["timeout"] == 12.0
+
+
 def test_proactive_source_coverage_report_classifies_sources_without_raw_payloads() -> None:
     module = _module()
     rows = [
@@ -696,7 +726,7 @@ def test_operator_text_for_telegram_readiness_keeps_secret_material_out() -> Non
             "bot_key": "default",
             "bot_handle": "@ea_bot",
             "observed_at": "2026-06-29T13:00:00Z",
-            "source": "runtime_container_exec:telegram_delivery.resolve_primary_telegram_binding",
+            "source": "runtime_container_exec:telegram_delivery.local_binding_scan",
             "raw_chat_ref": "123456789",
             "raw_bot_token": "telegram-secret-token",
         }
@@ -718,8 +748,9 @@ def test_probe_telegram_readiness_runtime_reports_ready_without_chat_secret(monk
     monkeypatch.setattr(module, "_utc_now", lambda: "2026-06-29T13:40:00Z")
 
     def _fake_exec_json(*, code: str, timeout_seconds: float):
-        assert "resolve_primary_telegram_binding" in code
-        assert timeout_seconds == 20.0
+        assert "resolve_primary_telegram_binding" not in code
+        assert "list_connector_bindings" in code
+        assert timeout_seconds == 75.0
         return (
             0,
             {

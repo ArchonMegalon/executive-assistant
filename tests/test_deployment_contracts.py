@@ -186,6 +186,9 @@ def test_property_compose_keeps_api_loopback_only_and_applies_runtime_limits() -
 
     assert scheduler.get("mem_limit") == "1g"
     assert scheduler.get("mem_reservation") == "256m"
+    scheduler_command = "\n".join(str(item) for item in list(scheduler.get("command") or []))
+    assert "nice -n 10" in scheduler_command
+    assert "ionice -c 3" in scheduler_command
     assert scheduler.get("pids_limit") == 512
     assert scheduler.get("read_only") is True
     assert set(str(item) for item in list(scheduler.get("cap_drop") or [])) == {"ALL"}

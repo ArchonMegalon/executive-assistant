@@ -119,7 +119,7 @@ def test_compose_override_declares_whatsapp_web_session_sidecar() -> None:
     assert "whatsapp_web_teable_sync_run_failed" in compose
     assert "PYTHONUNBUFFERED=1" in compose
     assert "python /app/scripts/watch_whatsapp_web_session_activation.py" in compose
-    assert "python /app/scripts/process_whatsapp_web_session_actions.py" in compose
+    assert "$${lowprio} python /app/scripts/process_whatsapp_web_session_actions.py" in compose
     assert "python /app/scripts/sync_whatsapp_web_session_to_teable.py" in compose
     assert "python /app/scripts/check_whatsapp_web_teable_sync_readiness.py" in compose
     assert "whatsapp_web_session_activator_complete" in compose
@@ -709,7 +709,7 @@ def test_env_example_points_binding_at_optional_sidecar_but_keeps_it_staged() ->
     assert env["EA_WHATSAPP_WEB_ACTIVATION_WATCH_MAX_SECONDS"] == "0"
     assert env["EA_WHATSAPP_WEB_ACTIVATION_SEND_TEST"] == "0"
     assert env["EA_WHATSAPP_WEB_ACTION_PROCESSOR_ENABLED"] == "1"
-    assert env["EA_WHATSAPP_WEB_ACTION_POLL_INTERVAL_SECONDS"] == "5"
+    assert env["EA_WHATSAPP_WEB_ACTION_POLL_INTERVAL_SECONDS"] == "30"
     assert env["EA_WHATSAPP_WEB_ACTION_STATE_FILE"] == "/data/whatsapp-actions/processed.json"
     assert env["EA_WHATSAPP_WEB_ACTION_MESSAGE_TAKE"] == "100"
     assert env["EA_WHATSAPP_WEB_ACTION_CONVERSATION_FALLBACK_NOOP_COOLDOWN_SECONDS"] == "60"

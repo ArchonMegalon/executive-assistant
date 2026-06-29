@@ -28,7 +28,7 @@ services:
     ports:
       - "127.0.0.1:${EA_HOST_PORT:-8090}:8090"
     cpu_shares: ${PROPERTYQUARRY_API_CPU_SHARES:-256}
-    cpus: ${PROPERTYQUARRY_API_CPUS:-1.0}
+    cpus: ${PROPERTYQUARRY_API_CPUS:-2.0}
     volumes:
       - ./config:/config:ro
       - ./config:/app/config:ro
@@ -52,7 +52,14 @@ services:
     image: propertyquarry-runtime:latest
     container_name: propertyquarry-scheduler
     restart: unless-stopped
-    command: ["nice", "-n", "10", "python", "-m", "app.runner"]
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        if command -v ionice >/dev/null 2>&1; then
+          exec nice -n 10 ionice -c 3 python -m app.runner;
+        fi
+        exec nice -n 10 python -m app.runner
     env_file:
       - .env
     mem_limit: 1g
@@ -67,8 +74,8 @@ services:
       DATABASE_URL: "${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD for property compose}@propertyquarry-db:5432/postgres}"
       HOME: /home/ea
       TZ: Europe/Vienna
-    cpu_shares: ${PROPERTYQUARRY_SCHEDULER_CPU_SHARES:-64}
-    cpus: ${PROPERTYQUARRY_SCHEDULER_CPUS:-1.0}
+    cpu_shares: ${PROPERTYQUARRY_SCHEDULER_CPU_SHARES:-32}
+    cpus: ${PROPERTYQUARRY_SCHEDULER_CPUS:-0.50}
     volumes:
       - ./config:/config:ro
       - ./config:/app/config:ro
@@ -96,6 +103,8 @@ services:
     restart: unless-stopped
     mem_limit: 2g
     mem_reservation: 512m
+    cpu_shares: ${PROPERTYQUARRY_DB_CPU_SHARES:-64}
+    cpus: ${PROPERTYQUARRY_DB_CPUS:-1.0}
     environment:
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD for property compose}"
     volumes:

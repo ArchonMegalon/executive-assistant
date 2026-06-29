@@ -441,6 +441,10 @@ def test_audit_compose_required_env_coverage_ignores_shell_local_variables(monke
         "services:\n  api:\n    command: |\n      - code=0;\n      - if [ \"$${code}\" -ne 0 ]; then echo $${code}; fi\n      - port=8090;\n      - curl http://127.0.0.1:$${port}/health;\n",
         encoding="utf-8",
     )
+    (tmp_path / "docker-compose.worker.yml").write_text(
+        "services:\n  worker:\n    command: |\n      lowprio='nice -n 10 ionice -c 3';\n      $${lowprio} python /app/scripts/process_whatsapp_web_session_actions.py\n",
+        encoding="utf-8",
+    )
 
     monkeypatch.setattr(module, "ROOT", tmp_path)
     monkeypatch.setattr(module, "DEFAULT_ENV_FILES", (root_env, local_env, service_env))

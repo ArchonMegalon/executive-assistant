@@ -61,6 +61,7 @@ DEFAULT_SESSION_API_BASE_URL = "http://127.0.0.1:8098"
 DEFAULT_READINESS_RECEIPT_FILENAME = "whatsapp_web_action_processor_readiness.generated.json"
 DEFAULT_READINESS_RECEIPT_PATH = ROOT / ".codex-studio" / "published" / DEFAULT_READINESS_RECEIPT_FILENAME
 DEFAULT_RUNTIME_CONTAINER = "ea-api"
+DEFAULT_TELEGRAM_READINESS_TIMEOUT_SECONDS = 75.0
 DEFAULT_WHATSAPP_WEB_COMPOSE_FILE = ROOT / "docker-compose.whatsapp-web-session.yml"
 DEFAULT_WHATSAPP_WEB_ACTION_PROCESSOR_SERVICE = "ea-whatsapp-web-action-processor"
 DEFAULT_PROACTIVE_OODA_COMPOSE_FILE = ROOT / "docker-compose.yml"
@@ -484,20 +485,24 @@ def _runtime_container_exec_json(
     container = _runtime_container_name()
     if not container:
         return 127, {"ok": False, "reason": "runtime_container_unconfigured"}, ""
+    effective_timeout = max(float(timeout_seconds or 20.0), 1.0)
     try:
         proc = subprocess.run(
-            ["docker", "exec", container, "python3", "-c", code],
+            ["docker", "exec", container, "timeout", "--kill-after=2s", f"{effective_timeout:g}s", "python3", "-c", code],
             text=True,
             capture_output=True,
             check=False,
-            timeout=timeout_seconds,
+            timeout=effective_timeout + 5.0,
         )
     except subprocess.TimeoutExpired:
-        return 124, {"ok": False, "reason": f"TimeoutExpired:{float(timeout_seconds):g}s"}, container
+        return 124, {"ok": False, "reason": f"TimeoutExpired:{effective_timeout:g}s"}, container
     except Exception as exc:
         return 127, {"ok": False, "reason": type(exc).__name__}, container
     payload = _json_from_stdout(str(proc.stdout or ""))
-    if int(proc.returncode or 0) != 0:
+    if int(proc.returncode or 0) == 124:
+        payload.setdefault("ok", False)
+        payload.setdefault("reason", f"TimeoutExpired:{effective_timeout:g}s")
+    elif int(proc.returncode or 0) != 0:
         payload.setdefault("ok", False)
         payload.setdefault("reason", f"runtime_container_exec_exit_{int(proc.returncode or 0)}")
     return int(proc.returncode or 0), payload, container
@@ -1150,7 +1155,7 @@ def probe_telegram_readiness(
     output_format: str = "json",
 ) -> dict[str, object]:
     observed_at = _utc_now()
-    source = "runtime_container_exec:telegram_delivery.resolve_primary_telegram_binding"
+    source = "runtime_container_exec:telegram_delivery.local_binding_scan"
     code = (
         "import hashlib, json\n"
         "principal_id = "
@@ -1158,9 +1163,25 @@ def probe_telegram_readiness(
         + "\n"
         "try:\n"
         "    from app.container import build_container\n"
-        "    from app.services.telegram_delivery import resolve_primary_telegram_binding, _telegram_bot_registry\n"
+        "    from app.services.telegram_delivery import TELEGRAM_IDENTITY_CONNECTOR, _telegram_binding_principal_candidates, _telegram_bot_registry\n"
         "    container = build_container()\n"
-        "    binding = resolve_primary_telegram_binding(container.tool_runtime, principal_id=principal_id)\n"
+        "    candidates = list(_telegram_binding_principal_candidates(principal_id))\n"
+        "    ranked = []\n"
+        "    for candidate_index, binding_principal_id in enumerate(candidates):\n"
+        "        for row in container.tool_runtime.list_connector_bindings(binding_principal_id, limit=200):\n"
+        "            if str(getattr(row, 'connector_name', '') or '').strip() != TELEGRAM_IDENTITY_CONNECTOR:\n"
+        "                continue\n"
+        "            if str(getattr(row, 'status', '') or '').strip().lower() != 'enabled':\n"
+        "                continue\n"
+        "            metadata = dict(getattr(row, 'auth_metadata_json', None) or {})\n"
+        "            chat_ref = str(metadata.get('default_chat_ref') or getattr(row, 'external_account_ref', '') or '').strip()\n"
+        "            if not chat_ref:\n"
+        "                continue\n"
+        "            numeric = 1 if chat_ref.isdigit() else 0\n"
+        "            plausible_numeric = 1 if numeric and int(chat_ref) > 1000 else 0\n"
+        "            ranked.append(((plausible_numeric, numeric, -candidate_index, str(getattr(row, 'updated_at', '') or '')), row))\n"
+        "    ranked.sort(key=lambda item: item[0], reverse=True)\n"
+        "    binding = ranked[0][1] if ranked else None\n"
         "    if binding is None:\n"
         "        print(json.dumps({'ok': True, 'ready': False, 'status': 'blocked', 'reason': 'telegram_binding_not_found'}))\n"
         "    else:\n"
@@ -1194,7 +1215,14 @@ def probe_telegram_readiness(
         "except Exception as exc:\n"
         "    print(json.dumps({'ok': False, 'ready': False, 'status': 'probe_failed', 'reason': type(exc).__name__}, sort_keys=True))\n"
     )
-    exit_code, payload, runtime_container = _runtime_container_exec_json(code=code, timeout_seconds=20.0)
+    try:
+        timeout_seconds = max(
+            float(_env("EA_TELEGRAM_READINESS_TIMEOUT_SECONDS", str(DEFAULT_TELEGRAM_READINESS_TIMEOUT_SECONDS))),
+            5.0,
+        )
+    except ValueError:
+        timeout_seconds = DEFAULT_TELEGRAM_READINESS_TIMEOUT_SECONDS
+    exit_code, payload, runtime_container = _runtime_container_exec_json(code=code, timeout_seconds=timeout_seconds)
     payload_status = str(payload.get("status") or "probe_failed").strip() or "probe_failed"
     payload_ok = bool(payload.get("ok", payload_status != "probe_failed"))
     report = {

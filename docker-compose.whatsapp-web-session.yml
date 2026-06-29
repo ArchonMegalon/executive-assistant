@@ -36,6 +36,8 @@ services:
       - TZ=Europe/Vienna
     ports:
       - "127.0.0.1:${EA_WHATSAPP_WEB_SESSION_HOST_PORT:-8098}:8098"
+    cpu_shares: ${EA_WHATSAPP_WEB_SESSION_CPU_SHARES:-128}
+    cpus: ${EA_WHATSAPP_WEB_SESSION_CPUS:-1.5}
     volumes:
       - ea_whatsapp_web_session:/data/session
     shm_size: "1gb"
@@ -55,6 +57,8 @@ services:
     env_file:
       - .env
     working_dir: /app
+    cpu_shares: ${EA_WHATSAPP_WEB_ACTIVATOR_CPU_SHARES:-32}
+    cpus: ${EA_WHATSAPP_WEB_ACTIVATOR_CPUS:-0.25}
     environment:
       - EA_WHATSAPP_WEB_ACTIVATOR_ENABLED=${EA_WHATSAPP_WEB_ACTIVATOR_ENABLED:-0}
       - EA_WHATSAPP_WEB_DEFAULT_BINDING_ID=${EA_WHATSAPP_WEB_DEFAULT_BINDING_ID:-ea-whatsapp-web-session}
@@ -103,9 +107,11 @@ services:
     env_file:
       - .env
     working_dir: /app
+    cpu_shares: ${EA_WHATSAPP_WEB_ACTION_PROCESSOR_CPU_SHARES:-32}
+    cpus: ${EA_WHATSAPP_WEB_ACTION_PROCESSOR_CPUS:-0.50}
     environment:
       - EA_WHATSAPP_WEB_ACTION_PROCESSOR_ENABLED=${EA_WHATSAPP_WEB_ACTION_PROCESSOR_ENABLED:-1}
-      - EA_WHATSAPP_WEB_ACTION_POLL_INTERVAL_SECONDS=${EA_WHATSAPP_WEB_ACTION_POLL_INTERVAL_SECONDS:-5}
+      - EA_WHATSAPP_WEB_ACTION_POLL_INTERVAL_SECONDS=${EA_WHATSAPP_WEB_ACTION_POLL_INTERVAL_SECONDS:-30}
       - EA_WHATSAPP_WEB_ACTION_STATE_FILE=${EA_WHATSAPP_WEB_ACTION_STATE_FILE:-/data/whatsapp-actions/processed.json}
       - EA_WHATSAPP_WEB_ACTION_STATE_STALE_SECONDS=${EA_WHATSAPP_WEB_ACTION_STATE_STALE_SECONDS:-600}
       - EA_WHATSAPP_WEB_ACTION_MESSAGE_TAKE=${EA_WHATSAPP_WEB_ACTION_MESSAGE_TAKE:-100}
@@ -189,9 +195,14 @@ services:
           echo '{"enabled":false,"event":"whatsapp_web_action_processor_idle","ok":true}';
           while :; do sleep 3600; done;
         fi
+        if command -v ionice >/dev/null 2>&1; then
+          lowprio='nice -n 10 ionice -c 3';
+        else
+          lowprio='nice -n 10';
+        fi
         while :; do
-          python /app/scripts/process_whatsapp_web_session_actions.py || true;
-          sleep "$${EA_WHATSAPP_WEB_ACTION_POLL_INTERVAL_SECONDS:-5}";
+          $${lowprio} python /app/scripts/process_whatsapp_web_session_actions.py || true;
+          sleep "$${EA_WHATSAPP_WEB_ACTION_POLL_INTERVAL_SECONDS:-30}";
         done
     depends_on:
       ea-whatsapp-web-session:
@@ -211,6 +222,8 @@ services:
     env_file:
       - .env
     working_dir: /app
+    cpu_shares: ${EA_WHATSAPP_WEB_TEABLE_SYNC_CPU_SHARES:-32}
+    cpus: ${EA_WHATSAPP_WEB_TEABLE_SYNC_CPUS:-0.50}
     environment:
       - EA_WHATSAPP_WEB_TEABLE_SYNC_ENABLED=${EA_WHATSAPP_WEB_TEABLE_SYNC_ENABLED:-0}
       - EA_WHATSAPP_WEB_TEABLE_SYNC_INTERVAL_SECONDS=${EA_WHATSAPP_WEB_TEABLE_SYNC_INTERVAL_SECONDS:-30}
