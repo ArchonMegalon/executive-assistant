@@ -1,0 +1,110 @@
+{
+  "contract_name": "ea.teable_env_recovery_proof.v1",
+  "drill_output_removed": true,
+  "env_files": [
+    {
+      "backup_created": false,
+      "hash_mismatch_count": 0,
+      "hash_verified": 420,
+      "mode": "0o600",
+      "path_recorded": true,
+      "path_sha256": "ceba87c9011cdcef9cfc1f6c947b1e355d9530e234430b05d3ee78668315bd72",
+      "restored": 420,
+      "scope": "ea_root"
+    },
+    {
+      "backup_created": false,
+      "hash_mismatch_count": 0,
+      "hash_verified": 100,
+      "mode": "0o600",
+      "path_recorded": true,
+      "path_sha256": "a90ec5af6d154be2a6d393bfb89fd21f555a0d2a8a9ecb0f6277ff98f77c8f9e",
+      "restored": 100,
+      "scope": "ea_root_local"
+    },
+    {
+      "backup_created": false,
+      "hash_mismatch_count": 0,
+      "hash_verified": 9,
+      "mode": "0o600",
+      "path_recorded": true,
+      "path_sha256": "9f255d32108d1046e48789125b4b746480087a7bfcb00c014f5056c4d69d3579",
+      "restored": 9,
+      "scope": "ea_service"
+    }
+  ],
+  "fresh_host_api_key_source": "process_env",
+  "generated_at": "2026-06-29T19:45:07Z",
+  "generated_by": "scripts/materialize_teable_env_recovery_proof.py",
+  "head_semantics": "source_state",
+  "host_profile": "ea-prod",
+  "output_path": "/docker/EA/.codex-studio/published/teable_env_recovery_proof.generated.json",
+  "privacy": {
+    "raw_api_key_exposed": false,
+    "raw_paths_exposed": false,
+    "raw_table_id_exposed": false,
+    "secret_values_exposed": false
+  },
+  "recovery_status": "recovered",
+  "referenced_files": {
+    "backup_count": 0,
+    "hash_mismatch_count": 0,
+    "hash_verified": 6,
+    "modes": [
+      {
+        "mode": "0o600",
+        "path_sha256": "7802b294c62121db6d67199764cc68b73c4aabf6ff4f6dc2d333d0bbba5cc443"
+      },
+      {
+        "mode": "0o600",
+        "path_sha256": "b2e7631c7bf76cfe5e7e5716a842b479b87c397ae96a13fbe608417e3dcf12eb"
+      },
+      {
+        "mode": "0o600",
+        "path_sha256": "d6b26867653fa293cb208f944283717004d5596b342cfcf2cc5dbdfcd0561720"
+      },
+      {
+        "mode": "0o600",
+        "path_sha256": "2e67ca0d444330af9e6f114f9643595f7f078650c432173184ae1f409c8b5221"
+      },
+      {
+        "mode": "0o600",
+        "path_sha256": "f609110642d50deafeb789b7a62fb0e95247cc5449596bc703b360e809287d71"
+      },
+      {
+        "mode": "0o600",
+        "path_sha256": "fee73591cf1a62ae657cb5bff69c14851d7113328163e9ef354f900730c598b6"
+      }
+    ],
+    "path_count": 6,
+    "path_sha256": [
+      "7802b294c62121db6d67199764cc68b73c4aabf6ff4f6dc2d333d0bbba5cc443",
+      "b2e7631c7bf76cfe5e7e5716a842b479b87c397ae96a13fbe608417e3dcf12eb",
+      "d6b26867653fa293cb208f944283717004d5596b342cfcf2cc5dbdfcd0561720",
+      "2e67ca0d444330af9e6f114f9643595f7f078650c432173184ae1f409c8b5221",
+      "f609110642d50deafeb789b7a62fb0e95247cc5449596bc703b360e809287d71",
+      "fee73591cf1a62ae657cb5bff69c14851d7113328163e9ef354f900730c598b6"
+    ],
+    "restored": 6
+  },
+  "rules": [
+    "This receipt proves a fresh-host-style Teable recovery run into a throwaway private directory and keeps secret values redacted.",
+    "Do not treat this receipt as license to store recovery truth outside Teable and mirrored evidence surfaces.",
+    "Delete throwaway recovery outputs after verification so the mirrored receipt keeps the proof while the secret material is removed from disk."
+  ],
+  "secret_values_redacted": true,
+  "source_git_head": "ce1d44daa0bbac2b69511c7ac2d9947ee64b7d52",
+  "status": "pass",
+  "table_discovery_mode": "explicit_table_id",
+  "table_id_sha256": "87a26b41641ac77a25fbd1e11c14b8fb98db0256d70ff5ebb4e9328e07831ff7",
+  "table_name": "ea_environment_secrets_recovery",
+  "verification": {
+    "different_hash_count": 0,
+    "expected_rows": 535,
+    "extra_restorable_count": 0,
+    "missing_count": 0,
+    "missing_secret_value_count": 0,
+    "same_hash": 535,
+    "status": "pass"
+  }
+}

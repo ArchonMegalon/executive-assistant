@@ -32,6 +32,77 @@ def _write_proactive_ooda_receipts(root: Path, *, source_git_head: str = "source
     )
 
 
+def _write_teable_recovery_proof_receipt(root: Path, *, status: str = "pass", source_git_head: str = "") -> None:
+    extra = {"source_git_head": source_git_head} if source_git_head else {}
+    _write_receipt(
+        root,
+        ".codex-studio/published/teable_env_recovery_proof.generated.json",
+        status=status,
+        generated_by="scripts/materialize_teable_env_recovery_proof.py",
+        recovery_status="recovered" if status == "pass" else "failed",
+        fresh_host_api_key_source="process_env",
+        secret_values_redacted=True,
+        drill_output_removed=True,
+        privacy={
+            "raw_paths_exposed": False,
+            "raw_table_id_exposed": False,
+            "raw_api_key_exposed": False,
+            "secret_values_exposed": False,
+        },
+        env_files=[
+            {
+                "scope": "ea_root",
+                "path_sha256": "1",
+                "path_recorded": True,
+                "restored": 1,
+                "hash_verified": 1,
+                "hash_mismatch_count": 0,
+                "backup_created": False,
+                "mode": "0o600",
+            },
+            {
+                "scope": "ea_root_local",
+                "path_sha256": "2",
+                "path_recorded": True,
+                "restored": 1,
+                "hash_verified": 1,
+                "hash_mismatch_count": 0,
+                "backup_created": False,
+                "mode": "0o600",
+            },
+            {
+                "scope": "ea_service",
+                "path_sha256": "3",
+                "path_recorded": True,
+                "restored": 1,
+                "hash_verified": 1,
+                "hash_mismatch_count": 0,
+                "backup_created": False,
+                "mode": "0o600",
+            },
+        ],
+        referenced_files={
+            "restored": 0,
+            "hash_verified": 0,
+            "hash_mismatch_count": 0,
+            "backup_count": 0,
+            "path_count": 0,
+            "path_sha256": [],
+            "modes": [],
+        },
+        verification={
+            "status": "pass" if status == "pass" else "fail",
+            "expected_rows": 3,
+            "same_hash": 3 if status == "pass" else 0,
+            "missing_count": 0,
+            "different_hash_count": 0,
+            "missing_secret_value_count": 0,
+            "extra_restorable_count": 0,
+        },
+        **extra,
+    )
+
+
 def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_path: Path) -> None:
     _write_receipt(
         tmp_path,
@@ -191,6 +262,89 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
         "active blocker deliver:telegram_audiobook must have acceptance proof requirement telegram_audiobook_live_delivery"
         in verify(output)
     )
+
+
+def test_build_goal_posture_marks_recover_pass_when_mirrored_fresh_host_proof_exists(tmp_path: Path) -> None:
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
+        status="ready_local_packet_pending_operator_acceptance",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_office_loop_goal.generated.json",
+        status="ready_local_evidence",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/active_media_ltd_goal_bundle.generated.json",
+        status="ready_local_evidence",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
+        status="blocked_real_world_acceptance",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/teable_env_recovery_readiness.generated.json",
+        status="ready_local_audit",
+        next_action="run_shell_seeded_fresh_host_probe_and_mirror_drill_evidence",
+    )
+    _write_teable_recovery_proof_receipt(tmp_path, status="pass")
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/telegram_audiobook_live_readiness.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_local_intake_proof.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_public_share_playback.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_live_voice_selection_shadow.generated.json",
+        status="pass",
+    )
+    _write_proactive_ooda_receipts(tmp_path)
+
+    receipt = build_goal_posture(
+        root=tmp_path,
+        output_path=Path(".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"),
+        generated_at="2026-06-29T20:00:00Z",
+    )
+
+    lenses = {lens["key"]: lens for lens in receipt["lenses"]}
+    proof_keys = {item["key"] for item in receipt["acceptance_proof_requirements"]}
+    assert lenses["recover"]["status"] == "pass"
+    assert "fresh_host_teable_recovery_drill" not in proof_keys
+    assert "fresh-host Teable recovery drill receipt mirrored into the repo" not in receipt["required_next_receipts"]
 
 
 def test_goal_posture_verifier_accepts_materialized_receipt(tmp_path: Path) -> None:

@@ -43,6 +43,7 @@ REQUIRED_PROACTIVE_OODA_RECEIPT = (
     "live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, "
     "current-packet, stale-approval, and decision facts, and explicit approval outcome"
 )
+FRESH_HOST_TEABLE_RECOVERY_RECEIPT = "fresh-host Teable recovery drill receipt mirrored into the repo"
 REQUIRED_PROOF_FIELDS = {
     "key",
     "title",
@@ -65,6 +66,7 @@ PROACTIVE_OODA_FRESH_SOURCE_RECEIPTS = {
     "ea_proactive_ooda_gold_acceptance.generated.json",
     "ea_proactive_ooda_operator_status.generated.json",
 }
+TEABLE_RECOVERY_PROOF_RECEIPT_NAME = "teable_env_recovery_proof.generated.json"
 
 
 def _json(path: Path) -> dict[str, Any]:
@@ -179,24 +181,41 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                 if status != "command_backed_no_published_receipt":
                     issues.append("recover lens without a source receipt must stay command-backed")
             else:
-                if len(sources) != 1:
-                    issues.append("recover lens must have exactly one mirrored recovery readiness receipt")
-                source = dict(sources[0]) if sources else {}
-                path_text = str(source.get("path") or "").strip()
-                if not path_text:
-                    issues.append("recover source receipt path missing")
-                else:
+                if len(sources) not in {1, 2}:
+                    issues.append("recover lens must have one readiness receipt and optional proof receipt")
+                source_names = {Path(str(source.get("path") or "")).name for source in sources if isinstance(source, dict)}
+                if "teable_env_recovery_readiness.generated.json" not in source_names:
+                    issues.append("recover lens must include the Teable recovery readiness receipt")
+                proof_present = TEABLE_RECOVERY_PROOF_RECEIPT_NAME in source_names
+                source_statuses: list[str] = []
+                for source in sources:
+                    if not isinstance(source, dict):
+                        issues.append("recover source receipts must be objects")
+                        continue
+                    path_text = str(source.get("path") or "").strip()
+                    if not path_text:
+                        issues.append("recover source receipt path missing")
+                        continue
                     source_path = repo_root / path_text
                     if bool(source.get("present")) != source_path.exists():
                         issues.append(f"recover source receipt presence drifted for {path_text}")
+                    payload_status = "missing_receipt"
                     if source_path.exists():
                         payload = _json(source_path)
                         source_status = str(source.get("status") or "").strip().lower()
                         payload_status = str(payload.get("status") or "missing_receipt").strip().lower()
                         if source_status != payload_status:
                             issues.append(f"recover source receipt status drifted for {path_text}")
-                        if status != source_status:
-                            issues.append(f"recover lens status must mirror {path_text}")
+                    source_statuses.append(payload_status)
+                if status == "pass":
+                    if not proof_present:
+                        issues.append("recover lens pass requires a mirrored Teable recovery proof receipt")
+                    if "pass" not in source_statuses:
+                        issues.append("recover lens pass requires a pass recovery proof receipt")
+                elif status not in {"ready_local_audit", "blocked"}:
+                    issues.append("recover lens with mirrored receipts must stay ready_local_audit, blocked, or pass")
+                elif str(status).lower() not in source_statuses:
+                    issues.append("recover lens non-pass status must mirror one of its source receipts")
                 if status not in {"ready_local_audit", "blocked", "pass"}:
                     issues.append("recover lens with a mirrored receipt must stay conservative")
 
@@ -329,12 +348,18 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
         if "ea_proactive_ooda_gold_acceptance.generated.json" not in capture_surfaces:
             issues.append("proactive_ooda_packet_acceptance must cite the gold acceptance receipt capture surface")
     recovery_requirement = proof_by_key.get("fresh_host_teable_recovery_drill") or {}
-    if not recovery_requirement:
-        issues.append("acceptance_proof_requirements must include fresh_host_teable_recovery_drill")
-    else:
+    recover_lens_status = str((by_key.get("recover") or {}).get("status") or "").strip().lower()
+    if recover_lens_status != "pass":
+        if not recovery_requirement:
+            issues.append("acceptance_proof_requirements must include fresh_host_teable_recovery_drill until recover passes")
+        elif recovery_requirement.get("required_next_receipt") != FRESH_HOST_TEABLE_RECOVERY_RECEIPT:
+            issues.append("fresh_host_teable_recovery_drill must cover the fresh-host recovery receipt")
+    if recovery_requirement:
         capture_surfaces = " ".join(str(surface or "") for surface in list(recovery_requirement.get("capture_surfaces") or []))
         if "teable_env_recovery_readiness.generated.json" not in capture_surfaces:
             issues.append("fresh_host_teable_recovery_drill must cite the Teable recovery readiness surface")
+    elif FRESH_HOST_TEABLE_RECOVERY_RECEIPT in required_next_receipts:
+        issues.append("required_next_receipts includes the Teable recovery receipt without a matching acceptance proof requirement")
     telegram_requirement = proof_by_key.get("telegram_audiobook_live_delivery") or {}
     if telegram_requirement:
         capture_surfaces = " ".join(str(surface or "") for surface in list(telegram_requirement.get("capture_surfaces") or []))

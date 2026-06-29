@@ -21,6 +21,7 @@ DEFAULT_MEDIA_RECEIPT = ROOT / ".codex-studio/published/active_media_ltd_goal_bu
 DEFAULT_MANFRED_RECEIPT = ROOT / ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json"
 DEFAULT_QUALITY_RECEIPT = ROOT / ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json"
 DEFAULT_TEABLE_RECOVERY_READINESS = ROOT / ".codex-studio/published/teable_env_recovery_readiness.generated.json"
+DEFAULT_TEABLE_RECOVERY_PROOF = ROOT / ".codex-studio/published/teable_env_recovery_proof.generated.json"
 DEFAULT_PROACTIVE_OODA_OPERATOR_STATUS = ROOT / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
 DEFAULT_PROACTIVE_OODA_GOLD_ACCEPTANCE = ROOT / ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json"
 DEFAULT_TELEGRAM_AUDIOBOOK_READINESS = ROOT / ".codex-studio/published/telegram_audiobook_live_readiness.generated.json"
@@ -190,6 +191,7 @@ def build_goal_posture(
     manfred, manfred_path = _load_receipt(root, root / DEFAULT_MANFRED_RECEIPT.relative_to(ROOT))
     quality, quality_path = _load_receipt(root, root / DEFAULT_QUALITY_RECEIPT.relative_to(ROOT))
     recovery, recovery_path = _load_receipt(root, root / DEFAULT_TEABLE_RECOVERY_READINESS.relative_to(ROOT))
+    recovery_proof, recovery_proof_path = _load_receipt(root, root / DEFAULT_TEABLE_RECOVERY_PROOF.relative_to(ROOT))
     ooda_status, ooda_status_path = _load_receipt(root, root / DEFAULT_PROACTIVE_OODA_OPERATOR_STATUS.relative_to(ROOT))
     ooda_gold, ooda_gold_path = _load_receipt(root, root / DEFAULT_PROACTIVE_OODA_GOLD_ACCEPTANCE.relative_to(ROOT))
     tg_ready, tg_ready_path = _load_receipt(root, root / DEFAULT_TELEGRAM_AUDIOBOOK_READINESS.relative_to(ROOT))
@@ -317,7 +319,30 @@ def build_goal_posture(
         status_class="blocking" if deliver_has_blocker else "progress",
     )
 
-    if recovery:
+    recovery_proof_status = _status(recovery_proof)
+    if recovery and recovery_proof_status == "pass":
+        recover_lens = _lens(
+            key="recover",
+            title="Fresh-host recovery",
+            status="pass",
+            summary="Fresh-host-style Teable recovery proof is mirrored and passed with redacted evidence; keep it current when env/config recovery changes.",
+            next_action="refresh_teable_recovery_proof_after_recovery_surface_or_secret_inventory_changes",
+            verifier_commands=[
+                "make verify-teable-env-recovery-readiness",
+                "make materialize-teable-env-recovery-proof",
+                "make verify-teable-env-recovery-proof",
+                "make verify-env-teable-recovery",
+                "make probe-teable-recovery",
+                "make env-check-teable",
+                "make env-fresh-host-teable",
+                "make env-probe-teable",
+            ],
+            source_receipts=[
+                _source_receipt(recovery_path, recovery, current_source_head=current_source_head),
+                _source_receipt(recovery_proof_path, recovery_proof, current_source_head=current_source_head),
+            ],
+        )
+    elif recovery:
         recover_lens = _lens(
             key="recover",
             title="Fresh-host recovery",
@@ -332,13 +357,18 @@ def build_goal_posture(
             ),
             verifier_commands=[
                 "make verify-teable-env-recovery-readiness",
+                "make materialize-teable-env-recovery-proof",
+                "make verify-teable-env-recovery-proof",
                 "make verify-env-teable-recovery",
                 "make probe-teable-recovery",
                 "make env-check-teable",
                 "make env-fresh-host-teable",
                 "make env-probe-teable",
             ],
-            source_receipts=[_source_receipt(recovery_path, recovery, current_source_head=current_source_head)],
+            source_receipts=[
+                _source_receipt(recovery_path, recovery, current_source_head=current_source_head),
+                _source_receipt(recovery_proof_path, recovery_proof, current_source_head=current_source_head),
+            ],
         )
     else:
         recover_lens = _lens(
@@ -348,6 +378,8 @@ def build_goal_posture(
             summary="Teable recovery has runnable operator commands, but no mirrored published recovery receipt is attached yet.",
             next_action="rehearse fresh-host Teable restore before widening claims",
             verifier_commands=[
+                "make materialize-teable-env-recovery-proof",
+                "make verify-teable-env-recovery-proof",
                 "make probe-teable-recovery",
                 "make env-check-teable",
                 "make env-fresh-host-teable",
@@ -430,18 +462,24 @@ def build_goal_posture(
                 _source_receipt(ooda_status_path, ooda_status, current_source_head=current_source_head),
             ],
         ),
-        _acceptance_proof_requirement(
-            key="fresh_host_teable_recovery_drill",
-            title="Fresh-host Teable recovery drill",
-            lens="recover",
-            required_next_receipt=FRESH_HOST_TEABLE_RECOVERY_RECEIPT,
-            evidence_kind="fresh_host_recovery_drill",
-            capture_surfaces=[recovery_path],
-            next_action="run_shell_seeded_fresh_host_probe_and_mirror_drill_evidence",
-            claim_boundary="does_not_prove_recovery_readiness_until_fresh_host_drill_evidence_is_mirrored",
-            source_receipts=[_source_receipt(recovery_path, recovery, current_source_head=current_source_head)],
-        ),
     ]
+    if recovery_proof_status != "pass":
+        acceptance_proof_requirements.append(
+            _acceptance_proof_requirement(
+                key="fresh_host_teable_recovery_drill",
+                title="Fresh-host Teable recovery drill",
+                lens="recover",
+                required_next_receipt=FRESH_HOST_TEABLE_RECOVERY_RECEIPT,
+                evidence_kind="fresh_host_recovery_drill",
+                capture_surfaces=[recovery_path, recovery_proof_path],
+                next_action="run_shell_seeded_fresh_host_probe_and_mirror_drill_evidence",
+                claim_boundary="does_not_prove_recovery_readiness_until_fresh_host_drill_evidence_is_mirrored",
+                source_receipts=[
+                    _source_receipt(recovery_path, recovery, current_source_head=current_source_head),
+                    _source_receipt(recovery_proof_path, recovery_proof, current_source_head=current_source_head),
+                ],
+            )
+        )
     if any(reason.startswith("deliver:manfred_speech") for reason in blocking_reasons):
         acceptance_proof_requirements.append(
             _acceptance_proof_requirement(
