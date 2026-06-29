@@ -150,6 +150,8 @@ def test_materialize_proactive_ooda_gold_acceptance_passes_with_full_proof_chain
     assert receipt["remaining_external_proofs"] == []
     assert receipt["proofs"]["routed_delivery"]["present"] is True
     assert receipt["proofs"]["action_required_only_delivery"]["present"] is True
+    assert receipt["proofs"]["browser_action_contract"]["present"] is True
+    assert receipt["proofs"]["browser_action_contract"]["required_for_selected_packet"] is False
     assert receipt["proofs"]["live_browse_evidence"]["present"] is True
     assert receipt["proofs"]["chosen_candidate"]["present"] is True
     assert receipt["proofs"]["staged_reversible_artifact"]["present"] is True
@@ -207,6 +209,136 @@ def test_materialize_proactive_ooda_gold_acceptance_blocks_without_packet_artifa
     assert "mirrored Teable projection for the proactive OODA packet" in receipt["remaining_external_proofs"]
     assert receipt["proofs"]["routed_delivery"]["present"] is False
     assert receipt["proofs"]["live_browse_evidence"]["present"] is False
+
+
+def test_materialize_proactive_ooda_gold_acceptance_accepts_browser_handoff_contract_but_not_as_gold(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    module = _load_script()
+    monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
+
+    operator_status_path = tmp_path / "ea_proactive_ooda_operator_status.generated.json"
+    run_receipt_path = tmp_path / "state" / "proactive_ooda_latest_run.generated.json"
+    stage_dir = tmp_path / "state" / "proactive_ooda_stage_packets"
+    safe_dir = tmp_path / "state" / "proactive_ooda_safe_work_results"
+    stage_dir.mkdir(parents=True, exist_ok=True)
+    safe_dir.mkdir(parents=True, exist_ok=True)
+
+    stage_packet = {
+        "schema": "proactive_ooda.stage_packet.v1",
+        "packet_id": "pkt-browser",
+        "packet_ref": "stage_packet:pkt-browser",
+        "stage": {"kind": "cart_draft", "summary": "Prepare a cart."},
+        "approval": {"required": True},
+        "safe_work_order": {
+            "handoff_policy": {
+                "safe_to_execute_before_approval": True,
+                "external_actions_remain_staged_only": True,
+            }
+        },
+    }
+    safe_work_result = {
+        "schema": "proactive_ooda.safe_work_result.v1",
+        "result_ref": "safe_work_result:res-browser",
+        "source_packet_ref_hash": _sha256(stage_packet["packet_ref"]),
+        "status": "blocked_human_handoff_required",
+        "recommended_option_or_draft": {
+            "kind": "reversible_cart_or_link",
+            "value": "https://www.pagro.at/cart",
+        },
+        "shortlist": [{"label": "Pagro cart", "url": "https://www.pagro.at/cart"}],
+        "approval": {"required": True},
+        "approval_prompt": "Complete the browser challenge, then approve resume.",
+        "browser_action_receipt": {
+            "schema": "proactive_ooda.browser_action_receipt.v1",
+            "status": "blocked_human_handoff_required",
+            "user_action_required": True,
+            "staged_artifact_present": False,
+            "handoff": {
+                "required": True,
+                "blocker_code": "cloudflare_not_cleared",
+            },
+            "security": {
+                "secret_values_stored": False,
+            },
+            "policy": {
+                "irreversible_actions_attempted": [],
+            },
+            "privacy": {
+                "raw_credentials_stored": False,
+                "raw_cookie_or_session_stored": False,
+            },
+        },
+        "execution_receipt": {
+            "network_fetch_count": 1,
+            "network_fetch_success_count": 1,
+            "page_checks": [{"url": "https://www.pagro.at", "reachable": True}],
+            "irreversible_actions_attempted": [],
+            "browser_action_user_action_required": True,
+        },
+    }
+    _write_json(stage_dir / "pkt-browser.json", stage_packet)
+    _write_json(safe_dir / "res-browser.json", safe_work_result)
+    _write_json(
+        operator_status_path,
+        {
+            "contract_name": "ea.proactive_ooda_operator_status.v1",
+            "status": "ready_with_live_receipt",
+            "generated_at": "2026-06-29T08:10:00Z",
+            "source_git_head": "source-head-123",
+            "delivery_route_ready": True,
+            "live_receipt_checked": True,
+            "delivery_route": {"selected_channel": "telegram"},
+            "live_receipt": {"ok": True, "receipt_path": "/data/provider-ledger/proactive_ooda_live_sent_receipt.json"},
+            "delivery_guard": {
+                "delivery_state": "no_actionable_items",
+                "has_high_priority": False,
+            },
+            "runtime_actionable_count": 0,
+        },
+    )
+    _write_json(
+        run_receipt_path,
+        {
+            "notification_status": "sent",
+            "item_count": 1,
+            "stage_packet_ref_hashes": [_sha256(stage_packet["packet_ref"])],
+            "safe_work_result_ref_hashes": [_sha256(safe_work_result["result_ref"])],
+            "stage_packet_output_dir": str(stage_dir),
+            "safe_work_result_output_dir": str(safe_dir),
+            "teable_sync": {
+                "status": "synced",
+                "sync_attempted": True,
+                "missing_tables": [],
+                "projection_summary": {
+                    "record_count": 3,
+                    "tables": {
+                        "proactive_ooda_runs": {"record_count": 1},
+                        "proactive_ooda_safe_work": {"record_count": 1},
+                        "proactive_ooda_items": {"record_count": 1},
+                    },
+                },
+            },
+        },
+    )
+
+    output = tmp_path / ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json"
+    receipt = module.materialize_proactive_ooda_gold_acceptance(
+        output_path=output,
+        operator_status_path=operator_status_path,
+        run_receipt_path=run_receipt_path,
+        generated_at="2026-06-29T08:11:00Z",
+    )
+
+    assert receipt["status"] == "blocked_missing_proactive_packet_evidence"
+    assert receipt["gold_claim_allowed"] is False
+    assert receipt["proofs"]["browser_action_contract"]["present"] is True
+    assert receipt["proofs"]["browser_action_contract"]["required_for_selected_packet"] is True
+    assert receipt["proofs"]["browser_action_contract"]["handoff_required"] is True
+    assert receipt["proofs"]["browser_action_contract"]["blocker_code"] == "cloudflare_not_cleared"
+    assert receipt["proofs"]["action_required_only_delivery"]["present"] is True
+    assert receipt["proofs"]["staged_reversible_artifact"]["present"] is False
 
 
 def test_materialize_proactive_ooda_gold_acceptance_blocks_when_operator_runtime_posture_is_not_ready(

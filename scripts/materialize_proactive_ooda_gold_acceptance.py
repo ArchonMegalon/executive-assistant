@@ -45,6 +45,7 @@ CONTRACT_NAME = "ea.proactive_ooda_gold_acceptance.v1"
 RULES = [
     "This receipt proves proactive OODA gold only when routed delivery, assistant-grade source intent, live browse evidence, a chosen candidate, a staged reversible artifact, mirrored Teable projection, and a redacted approval outcome are all present.",
     "Irreversible purchases, bookings, cancellations, sent messages, posts, and commitments remain consent-gated even when proactive staging is automated.",
+    "Website browser work must produce a redacted browser-action receipt; CAPTCHA, Cloudflare, MFA, passkey, or credential blockers require a human handoff and must not be counted as completed work.",
     "Raw packet text, private links, actor identity, packet refs, and staged artifact refs must stay out of this published receipt; only hashes and coarse status may appear.",
     "Teable remains an admin projection and audit mirror rather than canonical queue or product truth.",
 ]
@@ -473,6 +474,78 @@ def _assistant_grade_packet_quality_proof(
     return proof, quality_present
 
 
+def _browser_action_contract_proof(
+    *,
+    safe_work_result: Mapping[str, Any],
+    packet_artifacts_match_run_receipt: bool,
+) -> tuple[dict[str, Any], bool]:
+    receipt = _as_mapping(safe_work_result.get("browser_action_receipt"))
+    if not receipt:
+        present = bool(safe_work_result) and packet_artifacts_match_run_receipt
+        return (
+            _proof_row(
+                present=present,
+                detail={
+                    "required_for_selected_packet": False,
+                    "browser_action_receipt_present": False,
+                    "status": "not_required",
+                    "packet_artifacts_match_run_receipt": packet_artifacts_match_run_receipt,
+                },
+            ),
+            present,
+        )
+    issues: list[str] = []
+    handoff = _as_mapping(receipt.get("handoff"))
+    security = _as_mapping(receipt.get("security"))
+    policy = _as_mapping(receipt.get("policy"))
+    privacy = _as_mapping(receipt.get("privacy"))
+    blocker_code = _first_text(handoff.get("blocker_code"))
+    status = _first_text(receipt.get("status"))
+    irreversible_attempts = [str(item or "").strip() for item in list(policy.get("irreversible_actions_attempted") or []) if str(item or "").strip()]
+    if str(receipt.get("schema") or "").strip() != "proactive_ooda.browser_action_receipt.v1":
+        issues.append("browser_action_schema_invalid")
+    if not packet_artifacts_match_run_receipt:
+        issues.append("packet_artifacts_do_not_match_run_receipt")
+    if privacy.get("raw_credentials_stored") is not False:
+        issues.append("raw_credentials_storage_not_false")
+    if privacy.get("raw_cookie_or_session_stored") is not False:
+        issues.append("raw_browser_session_storage_not_false")
+    if security.get("secret_values_stored") is not False:
+        issues.append("secret_values_storage_not_false")
+    if irreversible_attempts:
+        issues.append("irreversible_browser_action_attempted")
+    if status in {"blocked_human_handoff_required", "blocked_credentials_required"}:
+        if receipt.get("user_action_required") is not True:
+            issues.append("browser_handoff_missing_user_action_flag")
+        if status == "blocked_human_handoff_required" and not blocker_code:
+            issues.append("browser_handoff_missing_blocker_code")
+    if status == "staged_for_user_decision" and not bool(receipt.get("staged_artifact_present")):
+        issues.append("browser_staged_status_without_artifact")
+    present = packet_artifacts_match_run_receipt and not issues
+    return (
+        _proof_row(
+            present=present,
+            detail={
+                "required_for_selected_packet": True,
+                "browser_action_receipt_present": True,
+                "schema": str(receipt.get("schema") or "").strip(),
+                "status": status,
+                "user_action_required": bool(receipt.get("user_action_required")),
+                "handoff_required": bool(handoff.get("required")),
+                "blocker_code": blocker_code,
+                "staged_artifact_present": bool(receipt.get("staged_artifact_present")),
+                "irreversible_actions_attempted_count": len(irreversible_attempts),
+                "raw_credentials_stored": bool(privacy.get("raw_credentials_stored")),
+                "raw_cookie_or_session_stored": bool(privacy.get("raw_cookie_or_session_stored")),
+                "secret_values_stored": bool(security.get("secret_values_stored")),
+                "packet_artifacts_match_run_receipt": packet_artifacts_match_run_receipt,
+                "issues": list(dict.fromkeys(issues)),
+            },
+        ),
+        present,
+    )
+
+
 def _summary_for_status(status: str, *, approval_capture_surface_ready: bool = False) -> str:
     if status == "pass":
         return "A proactive OODA packet has routed delivery, live browse evidence, a chosen candidate, a staged reversible artifact, mirrored Teable facts, and a redacted approved outcome."
@@ -512,6 +585,7 @@ def _next_action(
     delivery_present: bool,
     action_required_delivery_present: bool,
     assistant_grade_present: bool,
+    browser_action_contract_present: bool,
     browse_present: bool,
     chosen_present: bool,
     staged_present: bool,
@@ -525,6 +599,8 @@ def _next_action(
         return "send_or_mirror_one_real_proactive_packet_with_routed_delivery_proof"
     if not assistant_grade_present:
         return "stage_fresh_assistant_grade_proactive_packet"
+    if not browser_action_contract_present:
+        return "repair_proactive_browser_action_handoff_contract"
     if not browse_present:
         return "collect_live_browse_backed_safe_work_result"
     if not chosen_present:
@@ -550,6 +626,7 @@ def _remaining_external_proofs(
     delivery_present: bool,
     action_required_delivery_present: bool,
     assistant_grade_present: bool,
+    browser_action_contract_present: bool,
     browse_present: bool,
     chosen_present: bool,
     staged_present: bool,
@@ -565,6 +642,8 @@ def _remaining_external_proofs(
         remaining.append("action-required-only Telegram delivery proof for the proactive OODA packet")
     if not assistant_grade_present:
         remaining.append("assistant-grade source intent and candidate alignment for the proactive OODA packet")
+    if not browser_action_contract_present:
+        remaining.append("redacted browser-action handoff and consent contract for website tasks")
     if not browse_present:
         remaining.append("live browse evidence for a real proactive OODA packet")
     if not chosen_present:
@@ -1024,7 +1103,16 @@ def materialize_proactive_ooda_gold_acceptance(
     safe_work_approval = dict(safe_work_result.get("approval") or {})
     irreversible_attempts = list(execution_receipt.get("irreversible_actions_attempted") or [])
     approval_required = bool(stage_approval.get("required")) or bool(safe_work_approval.get("required"))
-    staged_for_user_decision = str(safe_work_result.get("status") or "").strip() == "staged_for_user_decision"
+    safe_work_status = str(safe_work_result.get("status") or "").strip()
+    staged_for_user_decision = safe_work_status == "staged_for_user_decision"
+    browser_action_proof, browser_action_contract_present = _browser_action_contract_proof(
+        safe_work_result=safe_work_result,
+        packet_artifacts_match_run_receipt=packet_artifacts_match_run_receipt,
+    )
+    browser_handoff_requires_user_action = bool(
+        safe_work_status == "blocked_human_handoff_required"
+        and dict(safe_work_result.get("browser_action_receipt") or {}).get("user_action_required")
+    )
     matching_auto_execute_results = _matching_auto_execute_results(
         run_receipt=run_receipt,
         stage_packet=stage_packet,
@@ -1066,7 +1154,7 @@ def materialize_proactive_ooda_gold_acceptance(
     delivery_state = str(delivery_guard.get("delivery_state") or "").strip()
     runtime_actionable_count = int(operator_status.get("runtime_actionable_count") or 0)
     sent_packet_had_user_action_surface = (
-        staged_for_user_decision
+        (staged_for_user_decision or browser_handoff_requires_user_action)
         and bool(
             approval_required
             or str(matched_auto_execute_result.get("action") or "").strip()
@@ -1092,6 +1180,7 @@ def materialize_proactive_ooda_gold_acceptance(
             "run_notification_status": str(run_receipt.get("notification_status") or "").strip(),
             "sent_packet_had_user_action_surface": sent_packet_had_user_action_surface,
             "staged_for_user_decision": staged_for_user_decision,
+            "browser_handoff_requires_user_action": browser_handoff_requires_user_action,
             "approval_required": approval_required,
             "auto_execute_action": str(matched_auto_execute_result.get("action") or "").strip(),
             "current_delivery_state": delivery_state,
@@ -1148,7 +1237,15 @@ def materialize_proactive_ooda_gold_acceptance(
     )
 
     runtime_proofs_complete = operator_runtime_ready and all(
-        (delivery_present, assistant_grade_present, browse_present, chosen_present, staged_present, teable_present)
+        (
+            delivery_present,
+            assistant_grade_present,
+            browser_action_contract_present,
+            browse_present,
+            chosen_present,
+            staged_present,
+            teable_present,
+        )
     )
     if not operator_runtime_ready:
         status = "blocked_operator_runtime_posture"
@@ -1170,6 +1267,7 @@ def materialize_proactive_ooda_gold_acceptance(
         delivery_present=delivery_present,
         action_required_delivery_present=action_required_delivery_present,
         assistant_grade_present=assistant_grade_present,
+        browser_action_contract_present=browser_action_contract_present,
         browse_present=browse_present,
         chosen_present=chosen_present,
         staged_present=staged_present,
@@ -1198,6 +1296,7 @@ def materialize_proactive_ooda_gold_acceptance(
             "routed_delivery": delivery_proof,
             "action_required_only_delivery": action_required_delivery_proof,
             "assistant_grade_packet_quality": assistant_grade_proof,
+            "browser_action_contract": browser_action_proof,
             "live_browse_evidence": browse_proof,
             "chosen_candidate": chosen_candidate_proof,
             "staged_reversible_artifact": staged_proof,
@@ -1260,6 +1359,7 @@ def materialize_proactive_ooda_gold_acceptance(
             delivery_present=delivery_present,
             action_required_delivery_present=action_required_delivery_present,
             assistant_grade_present=assistant_grade_present,
+            browser_action_contract_present=browser_action_contract_present,
             browse_present=browse_present,
             chosen_present=chosen_present,
             staged_present=staged_present,

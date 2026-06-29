@@ -28,6 +28,12 @@ def _base_payload() -> dict[str, object]:
             "routed_delivery": {"present": True, "status": "pass"},
             "action_required_only_delivery": {"present": True, "status": "pass"},
             "assistant_grade_packet_quality": {"present": True, "status": "pass", "issues": []},
+            "browser_action_contract": {
+                "present": True,
+                "status": "pass",
+                "required_for_selected_packet": False,
+                "browser_action_receipt_present": False,
+            },
             "live_browse_evidence": {"present": True, "status": "pass"},
             "chosen_candidate": {"present": True, "status": "pass"},
             "staged_reversible_artifact": {"present": True, "status": "pass"},
@@ -60,6 +66,7 @@ def _base_payload() -> dict[str, object]:
         "rules": [
             "This receipt proves proactive OODA gold only when routed delivery, assistant-grade source intent, live browse evidence, a chosen candidate, a staged reversible artifact, mirrored Teable projection, and a redacted approval outcome are all present.",
             "Irreversible purchases, bookings, cancellations, sent messages, posts, and commitments remain consent-gated even when proactive staging is automated.",
+            "Website browser work must produce a redacted browser-action receipt; CAPTCHA, Cloudflare, MFA, passkey, or credential blockers require a human handoff and must not be counted as completed work.",
             "Raw packet text, private links, actor identity, packet refs, and staged artifact refs must stay out of this published receipt; only hashes and coarse status may appear.",
             "Teable remains an admin projection and audit mirror rather than canonical queue or product truth.",
         ],

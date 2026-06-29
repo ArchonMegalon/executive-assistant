@@ -1139,6 +1139,25 @@ def _structured_stage_payload(
         "research_query",
         "search_queries",
         "target_sites",
+        "browser_task",
+        "browser_action",
+        "requires_browser_action",
+        "requires_login",
+        "browser_execution",
+        "browser_blocker",
+        "browser_operations",
+        "browser_operations_attempted",
+        "browser_login_url",
+        "login_url",
+        "site_url",
+        "target_url",
+        "credential_ref",
+        "credential_id",
+        "login_email",
+        "browseract_username",
+        "expected_account",
+        "expected_account_email",
+        "verify_account_context",
         "selection_criteria",
         "comparison_dimensions",
         "budget",
@@ -1172,7 +1191,11 @@ def _structured_stage_payload(
         "account_email",
     ):
         if key in stage_section:
-            payload[key] = _json_safe(stage_section.get(key))
+            payload[key] = (
+                _json_safe_without_browser_secrets(stage_section.get(key))
+                if key in {"browser_task", "browser_action", "browser_execution"}
+                else _json_safe(stage_section.get(key))
+            )
     return payload
 
 
@@ -1209,6 +1232,26 @@ def _json_safe(value: Any, *, depth: int = 0) -> Any:
         return {str(key): _json_safe(item, depth=depth + 1) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
         return [_json_safe(item, depth=depth + 1) for item in value]
+    return str(value)
+
+
+def _json_safe_without_browser_secrets(value: Any, *, depth: int = 0) -> Any:
+    if depth > 6:
+        return str(value)
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, Mapping):
+        safe: dict[str, Any] = {}
+        for key, item in value.items():
+            key_text = str(key)
+            lowered = key_text.lower()
+            if any(marker in lowered for marker in ("password", "token", "secret", "cookie", "session")):
+                safe[f"{key_text}_present"] = bool(str(item or "").strip())
+                continue
+            safe[key_text] = _json_safe_without_browser_secrets(item, depth=depth + 1)
+        return safe
+    if isinstance(value, (list, tuple)):
+        return [_json_safe_without_browser_secrets(item, depth=depth + 1) for item in value]
     return str(value)
 
 

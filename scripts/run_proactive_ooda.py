@@ -651,7 +651,7 @@ def _has_decision_ready_safe_work(safe_work_results: Iterable[Mapping[str, Any]]
     for result in safe_work_results:
         if not isinstance(result, Mapping):
             continue
-        if str(result.get("status") or "").strip() == "staged_for_user_decision":
+        if _safe_work_requires_user_action(result):
             return True
     return False
 
@@ -715,7 +715,7 @@ def _notification_approval_request(
             continue
         auto_executed_pairs.add((packet_ref, staged_artifact_ref, action, status))
     for result in ordered_results:
-        if str(result.get("status") or "").strip() != "staged_for_user_decision":
+        if not _safe_work_requires_user_action(result):
             continue
         packet_hash = str(result.get("source_packet_ref_hash") or "").strip()
         stage_packet = stage_packets_by_hash.get(packet_hash, {})
@@ -749,6 +749,18 @@ def _notification_approval_request(
             "staged_action_url": str(result.get("staged_action_url") or "").strip(),
         }
     return None
+
+
+def _safe_work_requires_user_action(result: Mapping[str, Any]) -> bool:
+    status = str(result.get("status") or "").strip()
+    if status == "staged_for_user_decision":
+        return True
+    if status != "blocked_human_handoff_required":
+        return False
+    browser_receipt = result.get("browser_action_receipt")
+    if not isinstance(browser_receipt, Mapping):
+        return False
+    return bool(browser_receipt.get("user_action_required"))
 
 
 def _notification_requires_user_action(approval_request: Mapping[str, Any] | None) -> bool:

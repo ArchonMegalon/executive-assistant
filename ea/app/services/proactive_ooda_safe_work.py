@@ -14,6 +14,11 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from app.services.proactive_ooda_browser_actions import (
+    browser_action_handoff_required,
+    browser_action_user_prompt,
+    build_browser_action_receipt,
+)
 from app.services.proactive_ooda_stage_packets import (
     FORBIDDEN_WITHOUT_EXPLICIT_APPROVAL,
     SAFE_WORK_ORDER_SCHEMA,
@@ -434,6 +439,10 @@ def build_safe_work_result(
         recommended=recommended,
         recommendable_candidate_items=recommendable_candidate_items,
     )
+    browser_action_receipt = build_browser_action_receipt(
+        packet,
+        generated_at=generated_at,
+    )
     has_material = bool(
         recommended.get("value")
         or (
@@ -444,6 +453,22 @@ def build_safe_work_result(
             )
         )
     )
+    status = "staged_for_user_decision" if has_material else "blocked_needs_research_input"
+    if browser_action_handoff_required(browser_action_receipt):
+        status = "blocked_human_handoff_required"
+    elif browser_action_receipt and not has_material:
+        status = "blocked_needs_browser_action"
+    summary = _summary(
+        packet=packet,
+        order=order,
+        recommended=recommended,
+        has_material=has_material,
+        page_checks=page_checks,
+    )
+    approval_prompt = _approval_prompt(packet=packet, order=order, recommended=recommended, has_material=has_material)
+    if status == "blocked_human_handoff_required":
+        summary = _browser_action_summary(browser_action_receipt) or summary
+        approval_prompt = browser_action_user_prompt(browser_action_receipt) or approval_prompt
     result_id = _result_id(packet=packet, order=order, generated_at=generated_at or "")
     return {
         "schema": SAFE_WORK_RESULT_SCHEMA,
@@ -453,19 +478,14 @@ def build_safe_work_result(
         "source_packet_ref_hash": _hash_value(str(packet.get("packet_ref") or packet.get("packet_id") or "")),
         "work_order_id_hash": _hash_value(str(order.get("work_order_id") or "")),
         "work_order_schema": str(order.get("schema") or ""),
-        "status": "staged_for_user_decision" if has_material else "blocked_needs_research_input",
+        "status": status,
         "work_type": work_type,
-        "summary": _summary(
-            packet=packet,
-            order=order,
-            recommended=recommended,
-            has_material=has_material,
-            page_checks=page_checks,
-        ),
+        "summary": summary,
         "recommended_option_or_draft": recommended,
         "staged_action_url": staged_action_url,
         "shortlist": candidate_items,
         "comparison_table": comparison_table,
+        "browser_action_receipt": browser_action_receipt,
         "audit": audit,
         "evidence_refs": _evidence_refs(
             input_contract=input_contract,
@@ -474,7 +494,7 @@ def build_safe_work_result(
             page_checks=page_checks,
         ),
         "risks_or_tradeoffs": _risks_or_tradeoffs(input_contract=input_contract, stage_payload=stage_payload),
-        "approval_prompt": _approval_prompt(packet=packet, order=order, recommended=recommended, has_material=has_material),
+        "approval_prompt": approval_prompt,
         "approval": {
             "required": approval_required,
             "gate": str(order.get("approval_gate") or _approval_gate(packet) or "").strip(),
@@ -487,6 +507,9 @@ def build_safe_work_result(
             "search_candidate_count": sum(1 for item in candidate_items if str(item.get("candidate_source") or "") == "search_result"),
             "search_queries_used": _search_queries(input_contract=input_contract, stage_payload=stage_payload, limit=network_fetch_limit),
             "page_checks": page_checks,
+            "browser_action_receipt_ref": str(browser_action_receipt.get("receipt_ref") or "").strip(),
+            "browser_action_status": str(browser_action_receipt.get("status") or "").strip(),
+            "browser_action_user_action_required": bool(browser_action_receipt.get("user_action_required")),
             "external_actions_attempted": [],
             "irreversible_actions_attempted": [],
             "forbidden_without_explicit_approval": list(FORBIDDEN_WITHOUT_EXPLICIT_APPROVAL),
@@ -1390,6 +1413,20 @@ def _summary(
     stage = packet.get("stage") if isinstance(packet.get("stage"), Mapping) else {}
     base = str(stage.get("summary") or "Safe work needs additional research input before a recommendation can be staged.").strip()
     return f"{base} {live_summary}".strip() if live_summary else base
+
+
+def _browser_action_summary(receipt: Mapping[str, Any]) -> str:
+    if not receipt:
+        return ""
+    target = receipt.get("target") if isinstance(receipt.get("target"), Mapping) else {}
+    handoff = receipt.get("handoff") if isinstance(receipt.get("handoff"), Mapping) else {}
+    host = str(target.get("site_host") or "").strip()
+    reason = str(handoff.get("reason") or "").strip()
+    if host and reason:
+        return f"Browser task for {host} needs a human handoff before EA can continue."
+    if reason:
+        return "Browser task needs a human handoff before EA can continue."
+    return ""
 
 
 def _staged_action_url(
