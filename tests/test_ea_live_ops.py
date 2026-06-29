@@ -359,7 +359,8 @@ def test_probe_whatsapp_readiness_refreshes_receipt_and_formats_operator_text(mo
     assert report["status"] == "blocked"
     assert report["ready"] is False
     assert report["reason"] == "sidecar_not_ready"
-    assert report["next_action"] == "restore_whatsapp_web_session_sidecar_readiness"
+    assert report["next_action"] == "scan_whatsapp_web_qr"
+    assert report["receipt_next_action"] == "restore_whatsapp_web_session_sidecar_readiness"
     assert report["sidecar_qr_required"] is True
     assert report["sidecar_qr_present"] is True
     assert report["processor_container_enabled"] is True
@@ -1106,10 +1107,13 @@ def test_probe_operator_readiness_aggregates_components_without_raw_secrets(monk
     ]
     assert report["blocked_count"] == 2
     assert report["attention_required_count"] == 3
-    assert {"component_key": "whatsapp", "component_label": "WhatsApp Web action processor", "action": "restore_whatsapp_web_session_sidecar_readiness", "reason": "sidecar_not_ready"} in report["next_actions"]
     assert {"component_key": "whatsapp_pairing", "component_label": "WhatsApp Web pairing recovery", "action": "scan_whatsapp_web_qr", "reason": ""} in report["next_actions"]
+    assert not any(
+        item["component_key"] == "whatsapp" and item["action"] == "scan_whatsapp_web_qr"
+        for item in report["next_actions"]
+    )
     assert "operator_readiness status=ready_with_actions" in str(report["operator_text"])
-    assert "next=whatsapp:restore_whatsapp_web_session_sidecar_readiness" in str(report["operator_text"])
+    assert "next=whatsapp_pairing:scan_whatsapp_web_qr" in str(report["operator_text"])
     assert "raw-secret-qr" not in serialized
     assert "123456789" not in serialized
     assert "telegram-token" not in serialized
@@ -1148,6 +1152,118 @@ def test_main_probe_operator_readiness_operator_prints_plain_text(monkeypatch, c
 
     assert module.main() == 0
     assert capsys.readouterr().out.strip() == "operator readiness ok"
+
+
+def test_repair_whatsapp_action_processor_starts_existing_container_without_recreating_sidecar(monkeypatch) -> None:
+    module = _module()
+    readiness_reports = [
+        {
+            "probe_ok": True,
+            "status": "blocked",
+            "ready": False,
+            "reason": "state_file_container_probe_unavailable",
+            "next_action": "start_or_repair_whatsapp_action_processor_container",
+            "processor_container_enabled": False,
+            "sidecar_status": "qr_required",
+        },
+        {
+            "probe_ok": True,
+            "status": "blocked",
+            "ready": False,
+            "reason": "sidecar_not_ready",
+            "next_action": "restore_whatsapp_web_session_sidecar_readiness",
+            "processor_container_enabled": True,
+            "sidecar_status": "qr_required",
+            "state_fresh": True,
+        },
+    ]
+    monkeypatch.setattr(module, "probe_whatsapp_readiness", lambda **_kwargs: readiness_reports.pop(0))
+    calls: list[list[str]] = []
+
+    def _fake_run(command, **_kwargs):
+        calls.append(list(command))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(module.subprocess, "run", _fake_run)
+
+    report = module.repair_whatsapp_action_processor(
+        compose_file="/docker/EA/docker-compose.whatsapp-web-session.yml",
+        service="ea-whatsapp-web-action-processor",
+    )
+
+    assert report["status"] == "repaired_with_actions"
+    assert report["repaired"] is True
+    assert report["ready"] is False
+    assert report["next_action"] == "scan_whatsapp_web_qr"
+    assert report["processor_container_enabled"] is True
+    assert report["fallback_attempted"] is False
+    assert calls == [
+        [
+            "docker",
+            "compose",
+            "-f",
+            "/docker/EA/docker-compose.whatsapp-web-session.yml",
+            "start",
+            "ea-whatsapp-web-action-processor",
+        ]
+    ]
+
+
+def test_repair_whatsapp_action_processor_falls_back_to_no_deps_up_when_start_fails(monkeypatch) -> None:
+    module = _module()
+    readiness_reports = [
+        {
+            "probe_ok": True,
+            "status": "blocked",
+            "ready": False,
+            "reason": "state_file_container_probe_unavailable",
+            "next_action": "start_or_repair_whatsapp_action_processor_container",
+            "processor_container_enabled": False,
+            "sidecar_status": "qr_required",
+        },
+        {
+            "probe_ok": True,
+            "status": "ready",
+            "ready": True,
+            "reason": "",
+            "next_action": "",
+            "processor_container_enabled": True,
+            "sidecar_status": "ready",
+            "state_fresh": True,
+        },
+    ]
+    monkeypatch.setattr(module, "probe_whatsapp_readiness", lambda **_kwargs: readiness_reports.pop(0))
+    calls: list[list[str]] = []
+
+    def _fake_run(command, **_kwargs):
+        calls.append(list(command))
+        return SimpleNamespace(returncode=1 if len(calls) == 1 else 0, stdout="container id", stderr="docker warning")
+
+    monkeypatch.setattr(module.subprocess, "run", _fake_run)
+
+    report = module.repair_whatsapp_action_processor(
+        compose_file="/docker/EA/docker-compose.whatsapp-web-session.yml",
+        service="ea-whatsapp-web-action-processor",
+    )
+
+    assert report["status"] == "repaired"
+    assert report["repaired"] is True
+    assert report["ready"] is True
+    assert report["start_exit_code"] == 1
+    assert report["fallback_attempted"] is True
+    assert report["fallback_exit_code"] == 0
+    assert report["fallback_stdout_present"] is True
+    assert report["fallback_stderr_present"] is True
+    assert calls[1] == [
+        "docker",
+        "compose",
+        "-f",
+        "/docker/EA/docker-compose.whatsapp-web-session.yml",
+        "up",
+        "-d",
+        "--no-deps",
+        "ea-whatsapp-web-action-processor",
+    ]
 
 
 def test_probe_proactive_route_normalizes_live_runtime_route_status(monkeypatch) -> None:

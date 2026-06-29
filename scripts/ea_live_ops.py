@@ -61,6 +61,8 @@ DEFAULT_SESSION_API_BASE_URL = "http://127.0.0.1:8098"
 DEFAULT_READINESS_RECEIPT_FILENAME = "whatsapp_web_action_processor_readiness.generated.json"
 DEFAULT_READINESS_RECEIPT_PATH = ROOT / ".codex-studio" / "published" / DEFAULT_READINESS_RECEIPT_FILENAME
 DEFAULT_RUNTIME_CONTAINER = "ea-api"
+DEFAULT_WHATSAPP_WEB_COMPOSE_FILE = ROOT / "docker-compose.whatsapp-web-session.yml"
+DEFAULT_WHATSAPP_WEB_ACTION_PROCESSOR_SERVICE = "ea-whatsapp-web-action-processor"
 DEFAULT_PROACTIVE_OODA_COMPOSE_FILE = ROOT / "docker-compose.yml"
 DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE = "ea-proactive-ooda"
 
@@ -415,6 +417,48 @@ def _docker_compose_exec_json(
         str(completed.stdout or ""),
         str(completed.stderr or ""),
     )
+
+
+def _docker_compose_service_command(
+    *,
+    compose_file: str,
+    command: list[str],
+    timeout_seconds: float,
+) -> dict[str, object]:
+    effective_compose_file = str(compose_file or DEFAULT_WHATSAPP_WEB_COMPOSE_FILE).strip()
+    try:
+        completed = subprocess.run(
+            ["docker", "compose", "-f", effective_compose_file, *command],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            "ok": False,
+            "exit_code": 124,
+            "reason": f"TimeoutExpired:{float(timeout_seconds):g}s",
+            "stdout_present": False,
+            "stderr_present": False,
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "exit_code": 127,
+            "reason": type(exc).__name__,
+            "stdout_present": False,
+            "stderr_present": False,
+        }
+    exit_code = int(completed.returncode or 0)
+    return {
+        "ok": exit_code == 0,
+        "exit_code": exit_code,
+        "reason": "ok" if exit_code == 0 else f"docker_compose_exit_{exit_code}",
+        "stdout_present": bool(str(completed.stdout or "").strip()),
+        "stderr_present": bool(str(completed.stderr or "").strip()),
+    }
 
 
 def _http_error_payload(exc: urllib.error.HTTPError) -> dict[str, Any]:
@@ -1255,8 +1299,141 @@ def probe_whatsapp_readiness(
         "runtime_ready_claim_allowed": bool(receipt.get("runtime_ready_claim_allowed")),
         "live_delivery_claim_allowed": bool(receipt.get("live_delivery_claim_allowed")),
     }
+    report = _normalize_whatsapp_readiness_action(report)
     if output_format == "operator":
         report["operator_text"] = _operator_text_for_whatsapp_readiness(report)
+    return report
+
+
+def _normalize_whatsapp_readiness_action(report: Mapping[str, object]) -> dict[str, object]:
+    normalized = dict(report)
+    next_action = str(normalized.get("next_action") or "").strip()
+    sidecar_status = str(normalized.get("sidecar_status") or "").strip()
+    qr_required = bool(normalized.get("sidecar_qr_required"))
+    qr_present = bool(normalized.get("sidecar_qr_present"))
+    if (
+        (qr_required or qr_present or sidecar_status == "qr_required")
+        and next_action in {"", "restore_whatsapp_web_session_sidecar_readiness"}
+    ):
+        normalized["receipt_next_action"] = next_action
+        normalized["next_action"] = "scan_whatsapp_web_qr"
+    return normalized
+
+
+def _operator_text_for_whatsapp_action_processor_repair(report: Mapping[str, object]) -> str:
+    pieces = [
+        f"whatsapp_action_processor_repair status={report.get('status') or 'unknown'}",
+        f"repaired={str(bool(report.get('repaired'))).lower()}",
+    ]
+    if report.get("reason"):
+        pieces.append(f"reason={report['reason']}")
+    if report.get("next_action"):
+        pieces.append(f"next={report['next_action']}")
+    if report.get("compose_file"):
+        pieces.append(f"compose={report['compose_file']}")
+    if report.get("service"):
+        pieces.append(f"service={report['service']}")
+    if report.get("start_exit_code") is not None:
+        pieces.append(f"start_exit={int(report.get('start_exit_code') or 0)}")
+    if report.get("fallback_exit_code") is not None:
+        pieces.append(f"fallback_exit={int(report.get('fallback_exit_code') or 0)}")
+    if report.get("processor_container_enabled") is not None:
+        pieces.append(f"processor={str(bool(report.get('processor_container_enabled'))).lower()}")
+    if report.get("sidecar_status"):
+        pieces.append(f"sidecar={report['sidecar_status']}")
+    if report.get("observed_at"):
+        pieces.append(f"observed_at={report['observed_at']}")
+    return "; ".join(str(item) for item in pieces if str(item).strip())
+
+
+def repair_whatsapp_action_processor(
+    *,
+    compose_file: str = "",
+    service: str = "",
+    dry_run: bool = False,
+    timeout_seconds: float = 60.0,
+    output_format: str = "json",
+) -> dict[str, object]:
+    observed_at = _utc_now()
+    effective_compose_file = str(compose_file or DEFAULT_WHATSAPP_WEB_COMPOSE_FILE).strip()
+    effective_service = str(service or DEFAULT_WHATSAPP_WEB_ACTION_PROCESSOR_SERVICE).strip()
+    before = _normalize_whatsapp_readiness_action(
+        probe_whatsapp_readiness(refresh=True, output_format="json", volatile=True)
+    )
+    if dry_run:
+        report = {
+            "probe_ok": True,
+            "status": "dry_run",
+            "ready": bool(before.get("ready")),
+            "repaired": False,
+            "reason": "dry_run",
+            "next_action": str(before.get("next_action") or "").strip(),
+            "compose_file": effective_compose_file,
+            "service": effective_service,
+            "before_status": str(before.get("status") or "").strip(),
+            "before_reason": str(before.get("reason") or "").strip(),
+            "processor_container_enabled": bool(before.get("processor_container_enabled")),
+            "sidecar_status": str(before.get("sidecar_status") or "").strip(),
+            "observed_at": observed_at,
+            "source": "docker_compose_repair:whatsapp_action_processor",
+        }
+        if output_format == "operator":
+            report["operator_text"] = _operator_text_for_whatsapp_action_processor_repair(report)
+        return report
+
+    start_result = _docker_compose_service_command(
+        compose_file=effective_compose_file,
+        command=["start", effective_service],
+        timeout_seconds=timeout_seconds,
+    )
+    fallback_result: dict[str, object] = {}
+    if not bool(start_result.get("ok")):
+        fallback_result = _docker_compose_service_command(
+            compose_file=effective_compose_file,
+            command=["up", "-d", "--no-deps", effective_service],
+            timeout_seconds=timeout_seconds,
+        )
+    after = _normalize_whatsapp_readiness_action(
+        probe_whatsapp_readiness(refresh=True, output_format="json", volatile=True)
+    )
+    processor_enabled = bool(after.get("processor_container_enabled"))
+    command_ok = bool(start_result.get("ok")) or bool(fallback_result.get("ok"))
+    repaired = bool(command_ok and processor_enabled)
+    if repaired and bool(after.get("ready")):
+        status = "repaired"
+    elif repaired:
+        status = "repaired_with_actions"
+    else:
+        status = "repair_failed"
+    reason = "" if repaired else str(fallback_result.get("reason") or start_result.get("reason") or after.get("reason") or "").strip()
+    report = {
+        "probe_ok": command_ok,
+        "status": status,
+        "ready": bool(after.get("ready")),
+        "repaired": repaired,
+        "reason": reason,
+        "next_action": str(after.get("next_action") or "").strip(),
+        "compose_file": effective_compose_file,
+        "service": effective_service,
+        "before_status": str(before.get("status") or "").strip(),
+        "before_reason": str(before.get("reason") or "").strip(),
+        "after_status": str(after.get("status") or "").strip(),
+        "after_reason": str(after.get("reason") or "").strip(),
+        "start_exit_code": int(start_result.get("exit_code") or 0),
+        "start_stdout_present": bool(start_result.get("stdout_present")),
+        "start_stderr_present": bool(start_result.get("stderr_present")),
+        "fallback_attempted": bool(fallback_result),
+        "fallback_exit_code": int(fallback_result.get("exit_code") or 0) if fallback_result else None,
+        "fallback_stdout_present": bool(fallback_result.get("stdout_present")) if fallback_result else False,
+        "fallback_stderr_present": bool(fallback_result.get("stderr_present")) if fallback_result else False,
+        "processor_container_enabled": processor_enabled,
+        "sidecar_status": str(after.get("sidecar_status") or "").strip(),
+        "state_fresh": bool(after.get("state_fresh")),
+        "observed_at": observed_at,
+        "source": "docker_compose_repair:whatsapp_action_processor",
+    }
+    if output_format == "operator":
+        report["operator_text"] = _operator_text_for_whatsapp_action_processor_repair(report)
     return report
 
 
@@ -4140,6 +4317,7 @@ OPERATOR_READINESS_DETAIL_FIELDS: dict[str, tuple[str, ...]] = {
         "sidecar_qr_fresh",
         "processor_container_enabled",
         "state_fresh",
+        "receipt_next_action",
     ),
     "whatsapp_pairing": (
         "session_ref",
@@ -4215,6 +4393,8 @@ def _operator_readiness_component(
     label: str,
     report: Mapping[str, object],
 ) -> dict[str, object]:
+    if key == "whatsapp":
+        report = _normalize_whatsapp_readiness_action(report)
     status = str(report.get("status") or "unknown").strip() or "unknown"
     ready = bool(report.get("ready")) or status in OPERATOR_READINESS_READY_STATUSES.get(key, {"ready"})
     probe_ok = bool(report.get("probe_ok", status not in {"probe_failed", "unavailable"}))
@@ -4370,16 +4550,27 @@ def probe_operator_readiness(
         for item in components
         if (not bool(item.get("probe_ok"))) or (not bool(item.get("ready"))) or bool(str(item.get("next_action") or "").strip())
     )
-    next_actions = [
-        {
-            "component_key": str(item.get("key") or "").strip(),
-            "component_label": str(item.get("label") or "").strip(),
-            "action": str(item.get("next_action") or "").strip(),
-            "reason": str(item.get("reason") or "").strip(),
-        }
+    has_pairing_qr_action = any(
+        str(item.get("key") or "").strip() == "whatsapp_pairing"
+        and str(item.get("next_action") or "").strip() == "scan_whatsapp_web_qr"
         for item in components
-        if str(item.get("next_action") or "").strip()
-    ]
+    )
+    next_actions = []
+    for item in components:
+        component_key = str(item.get("key") or "").strip()
+        action = str(item.get("next_action") or "").strip()
+        if not action:
+            continue
+        if has_pairing_qr_action and component_key == "whatsapp" and action == "scan_whatsapp_web_qr":
+            continue
+        next_actions.append(
+            {
+                "component_key": component_key,
+                "component_label": str(item.get("label") or "").strip(),
+                "action": action,
+                "reason": str(item.get("reason") or "").strip(),
+            }
+        )
     if probe_failed_count:
         status = "probe_failed"
     elif attention_required_count:
@@ -4515,6 +4706,21 @@ def parse_args() -> argparse.Namespace:
     whatsapp_readiness.add_argument("--receipt-path", default="")
     whatsapp_readiness.add_argument("--no-refresh", dest="refresh", action="store_false", default=True)
     whatsapp_readiness.add_argument("--volatile", action="store_true", help="Refresh through a temporary receipt file instead of the published receipt.")
+
+    whatsapp_repair = subparsers.add_parser(
+        "repair-whatsapp-action-processor",
+        help="Start or recreate only the WhatsApp Web action processor service, then re-probe readiness.",
+    )
+    whatsapp_repair.add_argument("--format", choices=("json", "operator"), default="json")
+    whatsapp_repair.add_argument(
+        "--compose-file",
+        default=_env("EA_WHATSAPP_WEB_COMPOSE_FILE", str(DEFAULT_WHATSAPP_WEB_COMPOSE_FILE)),
+    )
+    whatsapp_repair.add_argument(
+        "--service",
+        default=_env("EA_WHATSAPP_WEB_ACTION_PROCESSOR_SERVICE", DEFAULT_WHATSAPP_WEB_ACTION_PROCESSOR_SERVICE),
+    )
+    whatsapp_repair.add_argument("--dry-run", action="store_true")
 
     whatsapp_pairing = subparsers.add_parser("probe-whatsapp-pairing", help="Probe and optionally send the live WhatsApp Web pairing QR recovery artifact.")
     whatsapp_pairing.add_argument("--format", choices=("json", "operator"), default="json")
@@ -4670,6 +4876,19 @@ def main() -> int:
             receipt_path=str(getattr(args, "receipt_path", "") or "").strip(),
             output_format=args.format,
             volatile=bool(getattr(args, "volatile", False)),
+        )
+        if args.format == "operator":
+            print(str(report.get("operator_text") or ""))
+        else:
+            print(_json_dumps(report))
+        return 0 if bool(report.get("probe_ok")) else 2
+    if args.command == "repair-whatsapp-action-processor":
+        report = repair_whatsapp_action_processor(
+            compose_file=str(getattr(args, "compose_file", "") or "").strip(),
+            service=str(getattr(args, "service", "") or "").strip(),
+            dry_run=bool(getattr(args, "dry_run", False)),
+            timeout_seconds=float(args.timeout_seconds or 60.0),
+            output_format=args.format,
         )
         if args.format == "operator":
             print(str(report.get("operator_text") or ""))
