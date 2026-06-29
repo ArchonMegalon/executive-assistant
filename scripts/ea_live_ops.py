@@ -48,6 +48,7 @@ def _load_dotenv_if_present(path: Path) -> None:
 _load_dotenv_if_present(ROOT / ".env")
 
 import check_whatsapp_web_session_readiness as readiness_script  # noqa: E402
+import materialize_whatsapp_web_action_processor_readiness as whatsapp_action_processor_readiness  # noqa: E402
 from app.container import build_container  # noqa: E402
 from app.services import whatsapp_web_session_delivery  # noqa: E402
 from app.services.audiobook_epub_pipeline import audiobook_runtime_preflight  # noqa: E402
@@ -586,6 +587,101 @@ def probe_provider(provider: str, *, output_format: str = "json") -> dict[str, o
         }
     if output_format == "operator":
         report["operator_text"] = _operator_text_for_provider(report)
+    return report
+
+
+def _operator_text_for_whatsapp_readiness(report: Mapping[str, object]) -> str:
+    pieces = [
+        f"whatsapp_readiness status={report.get('status') or 'unknown'}",
+        f"ready={str(bool(report.get('ready'))).lower()}",
+    ]
+    if report.get("reason"):
+        pieces.append(f"reason={report['reason']}")
+    if report.get("next_action"):
+        pieces.append(f"next={report['next_action']}")
+    if report.get("effective_session_ref"):
+        pieces.append(f"session={report['effective_session_ref']}")
+    if report.get("sidecar_status"):
+        pieces.append(f"sidecar={report['sidecar_status']}")
+    if report.get("sidecar_qr_required") or report.get("sidecar_qr_present"):
+        pieces.append(
+            "qr="
+            f"required:{str(bool(report.get('sidecar_qr_required'))).lower()}"
+            f",present:{str(bool(report.get('sidecar_qr_present'))).lower()}"
+            f",age_seconds:{int(report.get('sidecar_qr_age_seconds') or 0)}"
+            f",fresh:{str(bool(report.get('sidecar_qr_fresh'))).lower()}"
+        )
+    pieces.append(f"processor={str(bool(report.get('processor_container_enabled'))).lower()}")
+    pieces.append(f"state_fresh={str(bool(report.get('state_fresh'))).lower()}")
+    if report.get("generated_at"):
+        pieces.append(f"generated_at={report['generated_at']}")
+    if report.get("source"):
+        pieces.append(f"source={report['source']}")
+    return "; ".join(str(item) for item in pieces if str(item).strip())
+
+
+def probe_whatsapp_readiness(
+    *,
+    refresh: bool = True,
+    receipt_path: str = "",
+    output_format: str = "json",
+) -> dict[str, object]:
+    observed_at = _utc_now()
+    source = "materialize_whatsapp_web_action_processor_readiness"
+    try:
+        if refresh:
+            output_path = Path(str(receipt_path or whatsapp_action_processor_readiness.DEFAULT_OUTPUT))
+            payload = whatsapp_action_processor_readiness.build_whatsapp_web_action_processor_readiness(output_path=output_path)
+        else:
+            source = "receipt_file"
+            output_path = Path(str(receipt_path or DEFAULT_READINESS_RECEIPT_PATH))
+            payload = _read_json_file(output_path)
+    except Exception as exc:
+        report = {
+            "probe_ok": False,
+            "status": "probe_failed",
+            "ready": False,
+            "reason": type(exc).__name__,
+            "reasons": [type(exc).__name__],
+            "next_action": "inspect_whatsapp_action_processor_readiness_probe",
+            "observed_at": observed_at,
+            "source": source,
+        }
+        if output_format == "operator":
+            report["operator_text"] = _operator_text_for_whatsapp_readiness(report)
+        return report
+
+    receipt = dict(payload) if isinstance(payload, dict) else {}
+    report = {
+        "probe_ok": bool(receipt),
+        "status": str(receipt.get("status") or "missing").strip() or "missing",
+        "ready": bool(receipt.get("ready")),
+        "reason": str(receipt.get("reason") or "").strip(),
+        "reasons": [str(item or "").strip() for item in list(receipt.get("reasons") or []) if str(item or "").strip()],
+        "next_action": str(receipt.get("next_action") or "").strip(),
+        "generated_at": str(receipt.get("generated_at") or "").strip(),
+        "observed_at": observed_at,
+        "source": source,
+        "output_path": str(receipt.get("output_path") or receipt_path or DEFAULT_READINESS_RECEIPT_PATH).strip(),
+        "source_git_head": str(receipt.get("source_git_head") or "").strip(),
+        "effective_session_ref": str(receipt.get("effective_session_ref") or "").strip(),
+        "effective_session_ref_source": str(receipt.get("effective_session_ref_source") or "").strip(),
+        "sidecar_ready": bool(receipt.get("sidecar_ready")),
+        "sidecar_status": str(receipt.get("sidecar_status") or "").strip(),
+        "sidecar_qr_required": bool(receipt.get("sidecar_qr_required")),
+        "sidecar_qr_present": bool(receipt.get("sidecar_qr_present")),
+        "sidecar_qr_age_seconds": int(receipt.get("sidecar_qr_age_seconds") or 0),
+        "sidecar_qr_fresh": bool(receipt.get("sidecar_qr_fresh")),
+        "processor_container_enabled": bool(receipt.get("processor_container_enabled")),
+        "processor_callback_secret_present": bool(receipt.get("processor_callback_secret_present")),
+        "api_callback_secret_present": bool(receipt.get("api_callback_secret_present")),
+        "state_fresh": bool(receipt.get("state_fresh")),
+        "state_age_seconds": int(receipt.get("state_age_seconds") or 0),
+        "runtime_ready_claim_allowed": bool(receipt.get("runtime_ready_claim_allowed")),
+        "live_delivery_claim_allowed": bool(receipt.get("live_delivery_claim_allowed")),
+    }
+    if output_format == "operator":
+        report["operator_text"] = _operator_text_for_whatsapp_readiness(report)
     return report
 
 
@@ -2670,6 +2766,11 @@ def parse_args() -> argparse.Namespace:
     probe.add_argument("--provider", required=True)
     probe.add_argument("--format", choices=("json", "operator"), default="json")
 
+    whatsapp_readiness = subparsers.add_parser("probe-whatsapp-readiness", help="Probe WhatsApp Web action processor readiness.")
+    whatsapp_readiness.add_argument("--format", choices=("json", "operator"), default="json")
+    whatsapp_readiness.add_argument("--receipt-path", default="")
+    whatsapp_readiness.add_argument("--no-refresh", dest="refresh", action="store_false", default=True)
+
     proactive_route = subparsers.add_parser("probe-proactive-route", help="Probe the live proactive OODA delivery route.")
     proactive_route.add_argument("--principal-id", dest="proactive_principal_id", default=_default_proactive_principal_id())
     proactive_route.add_argument("--format", choices=("json", "operator"), default="json")
@@ -2773,6 +2874,17 @@ def main() -> int:
         else:
             print(_json_dumps(report))
         return 0
+    if args.command == "probe-whatsapp-readiness":
+        report = probe_whatsapp_readiness(
+            refresh=bool(getattr(args, "refresh", True)),
+            receipt_path=str(getattr(args, "receipt_path", "") or "").strip(),
+            output_format=args.format,
+        )
+        if args.format == "operator":
+            print(str(report.get("operator_text") or ""))
+        else:
+            print(_json_dumps(report))
+        return 0 if bool(report.get("probe_ok")) else 2
     if args.command == "probe-proactive-route":
         report = probe_proactive_route(
             principal_id=str(getattr(args, "proactive_principal_id", "") or "").strip(),

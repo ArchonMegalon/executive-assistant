@@ -195,6 +195,114 @@ def test_probe_provider_unmixr_prefers_runtime_container_preflight(monkeypatch) 
     assert report["raw"]["preflight_status"] == "warn"
 
 
+def test_probe_whatsapp_readiness_refreshes_receipt_and_formats_operator_text(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    output_path = tmp_path / "whatsapp-readiness.json"
+
+    def _fake_build_whatsapp_web_action_processor_readiness(*, output_path: Path):
+        return {
+            "status": "blocked",
+            "ready": False,
+            "reason": "sidecar_not_ready",
+            "reasons": ["sidecar_not_ready"],
+            "next_action": "restore_whatsapp_web_session_sidecar_readiness",
+            "generated_at": "2026-06-29T13:10:49Z",
+            "output_path": str(output_path),
+            "source_git_head": "abc123",
+            "effective_session_ref": "tibor-wa-web",
+            "effective_session_ref_source": "state_file",
+            "sidecar_ready": False,
+            "sidecar_status": "qr_required",
+            "sidecar_qr_required": True,
+            "sidecar_qr_present": True,
+            "sidecar_qr_age_seconds": 35,
+            "sidecar_qr_fresh": True,
+            "processor_container_enabled": True,
+            "processor_callback_secret_present": True,
+            "api_callback_secret_present": True,
+            "state_fresh": True,
+            "state_age_seconds": 0,
+            "runtime_ready_claim_allowed": False,
+            "live_delivery_claim_allowed": False,
+            "qr": "raw-secret-qr",
+        }
+
+    monkeypatch.setattr(
+        module.whatsapp_action_processor_readiness,
+        "build_whatsapp_web_action_processor_readiness",
+        _fake_build_whatsapp_web_action_processor_readiness,
+    )
+
+    report = module.probe_whatsapp_readiness(refresh=True, receipt_path=str(output_path), output_format="operator")
+    serialized = json.dumps(report, sort_keys=True)
+
+    assert report["probe_ok"] is True
+    assert report["status"] == "blocked"
+    assert report["ready"] is False
+    assert report["reason"] == "sidecar_not_ready"
+    assert report["next_action"] == "restore_whatsapp_web_session_sidecar_readiness"
+    assert report["sidecar_qr_required"] is True
+    assert report["sidecar_qr_present"] is True
+    assert report["processor_container_enabled"] is True
+    assert "whatsapp_readiness status=blocked" in str(report["operator_text"])
+    assert "qr=required:true,present:true,age_seconds:35,fresh:true" in str(report["operator_text"])
+    assert "raw-secret-qr" not in serialized
+
+
+def test_probe_whatsapp_readiness_can_read_existing_receipt_without_refresh(tmp_path: Path) -> None:
+    module = _module()
+    receipt_path = tmp_path / "whatsapp-readiness.json"
+    receipt_path.write_text(
+        json.dumps(
+            {
+                "status": "ready",
+                "ready": True,
+                "reason": "ready",
+                "reasons": [],
+                "next_action": "send_epub_over_whatsapp_to_start_or_refresh_live_audiobook_flow",
+                "generated_at": "2026-06-29T13:11:00Z",
+                "output_path": str(receipt_path),
+                "effective_session_ref": "tibor-wa-web",
+                "sidecar_ready": True,
+                "sidecar_status": "ready",
+                "processor_container_enabled": True,
+                "state_fresh": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = module.probe_whatsapp_readiness(refresh=False, receipt_path=str(receipt_path), output_format="json")
+
+    assert report["probe_ok"] is True
+    assert report["status"] == "ready"
+    assert report["ready"] is True
+    assert report["source"] == "receipt_file"
+    assert report["output_path"] == str(receipt_path)
+
+
+def test_probe_whatsapp_readiness_failure_reports_exception_type_without_secret(monkeypatch) -> None:
+    module = _module()
+
+    def _fake_build_whatsapp_web_action_processor_readiness(*, output_path: Path):
+        raise RuntimeError("token secret raw QR")
+
+    monkeypatch.setattr(
+        module.whatsapp_action_processor_readiness,
+        "build_whatsapp_web_action_processor_readiness",
+        _fake_build_whatsapp_web_action_processor_readiness,
+    )
+
+    report = module.probe_whatsapp_readiness(refresh=True, output_format="operator")
+    serialized = json.dumps(report, sort_keys=True)
+
+    assert report["probe_ok"] is False
+    assert report["status"] == "probe_failed"
+    assert report["reason"] == "RuntimeError"
+    assert "token secret raw QR" not in serialized
+    assert "whatsapp_readiness status=probe_failed" in str(report["operator_text"])
+
+
 def test_probe_proactive_route_normalizes_live_runtime_route_status(monkeypatch) -> None:
     module = _module()
     receipt_paths: list[str] = []
