@@ -1580,6 +1580,82 @@ def test_resolve_whatsapp_returns_blocked_report_when_sidecar_conversations_not_
     assert report["reason"] == "session_not_ready"
 
 
+def test_resolve_whatsapp_falls_back_to_sidecar_when_binding_lookup_errors(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(
+        module,
+        "_load_whatsapp_binding",
+        lambda _args: (_ for _ in ()).throw(RuntimeError("postgresql://user:secret@ea-db/ea")),
+    )
+    monkeypatch.setattr(module, "_session_ref", lambda _binding, _explicit="": "tibor-wa-web")
+
+    def _fake_sidecar_get(*, suffix: str, **_kwargs):
+        if suffix == "heyy-ai-routes":
+            return {
+                "routes": [
+                    {"route_key": "436647916419", "inbound_number_digits": "436647916419", "ai_key": "herta", "ai_name": "Herta"},
+                ]
+            }
+        if suffix.startswith("conversations?"):
+            return {
+                "conversations": [
+                    {
+                        "chat_ref": "chat-ref-1",
+                        "updated_at": "2026-06-23T10:05:00Z",
+                        "messages": [{"sender_digits": "436647916419", "direction": "inbound", "from_me": False}],
+                    }
+                ]
+            }
+        if suffix.startswith("recipients/"):
+            return {
+                "registered": True,
+                "resolution_method": "number_id",
+                "chat_id_kind": "lid",
+                "chat_ref": "chat-ref-1",
+            }
+        raise AssertionError(suffix)
+
+    monkeypatch.setattr(module, "_sidecar_get", _fake_sidecar_get)
+
+    report = module.resolve_whatsapp("*6419", args=_args())
+    serialized = json.dumps(report)
+
+    assert report["status"] == "resolved"
+    assert report["binding_lookup_status"] == "error"
+    assert report["binding_lookup_error"] == "RuntimeError"
+    assert report["route_lookup_ready"] is True
+    assert report["chat_ref"] == "chat-ref-1"
+    assert "secret" not in serialized
+    assert "ea-db" not in serialized
+
+
+def test_resolve_whatsapp_blocks_without_traceback_when_binding_and_sidecar_route_fail(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(
+        module,
+        "_load_whatsapp_binding",
+        lambda _args: (_ for _ in ()).throw(RuntimeError("postgresql://user:secret@ea-db/ea")),
+    )
+    monkeypatch.setattr(module, "_session_ref", lambda _binding, _explicit="": "tibor-wa-web")
+    monkeypatch.setattr(
+        module,
+        "_sidecar_get",
+        lambda **_kwargs: (_ for _ in ()).throw(OSError("sidecar token secret")),
+    )
+
+    report = module.resolve_whatsapp("*6419", args=_args())
+    serialized = json.dumps(report)
+
+    assert report["status"] == "blocked"
+    assert report["reason"] == "OSError"
+    assert report["binding_lookup_status"] == "error"
+    assert report["binding_lookup_error"] == "RuntimeError"
+    assert report["route_lookup_ready"] is False
+    assert "sidecar token secret" not in serialized
+    assert "postgresql://" not in serialized
+    assert "ea-db" not in serialized
+
+
 def test_send_whatsapp_dry_run_avoids_delivery(monkeypatch) -> None:
     module = _module()
     binding = SimpleNamespace(binding_id="binding-1", principal_id="principal-1")

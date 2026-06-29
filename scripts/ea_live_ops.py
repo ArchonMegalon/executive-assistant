@@ -2304,6 +2304,13 @@ def _load_whatsapp_binding(args: argparse.Namespace):
     return binding
 
 
+def _safe_load_whatsapp_binding(args: argparse.Namespace) -> tuple[Any | None, str]:
+    try:
+        return _load_whatsapp_binding(args), ""
+    except Exception as exc:
+        return None, type(exc).__name__
+
+
 def _session_headers_from_binding(binding: Any | None) -> dict[str, str]:
     headers = {"Content-Type": "application/json"}
     if binding is not None:
@@ -2453,15 +2460,20 @@ def _recent_conversation_match(
 
 
 def resolve_whatsapp(phone_hint: str, *, args: argparse.Namespace) -> dict[str, object]:
-    binding = _load_whatsapp_binding(args)
+    binding, binding_lookup_error = _safe_load_whatsapp_binding(args)
     normalized_hint = _normalize_phone_hint(phone_hint)
-    routes_payload = _sidecar_get(
-        binding=binding,
-        suffix="heyy-ai-routes",
-        session_api_base_url=str(getattr(args, "session_api_base_url", "") or "").strip(),
-        session_ref=str(getattr(args, "session_ref", "") or "").strip(),
-        timeout_seconds=float(getattr(args, "timeout_seconds", 15.0) or 15.0),
-    )
+    try:
+        routes_payload = _sidecar_get(
+            binding=binding,
+            suffix="heyy-ai-routes",
+            session_api_base_url=str(getattr(args, "session_api_base_url", "") or "").strip(),
+            session_ref=str(getattr(args, "session_ref", "") or "").strip(),
+            timeout_seconds=float(getattr(args, "timeout_seconds", 15.0) or 15.0),
+        )
+    except urllib.error.HTTPError as exc:
+        routes_payload = _http_error_payload(exc)
+    except Exception as exc:
+        routes_payload = {"ok": False, "reason": type(exc).__name__, "status": "unavailable", "status_code": 0}
     try:
         conversations_payload = _sidecar_get(
             binding=binding,
@@ -2472,6 +2484,8 @@ def resolve_whatsapp(phone_hint: str, *, args: argparse.Namespace) -> dict[str, 
         )
     except urllib.error.HTTPError as exc:
         conversations_payload = _http_error_payload(exc)
+    except Exception as exc:
+        conversations_payload = {"ok": False, "reason": type(exc).__name__, "status": "unavailable", "status_code": 0}
     routes = [dict(row) for row in routes_payload.get("routes") or [] if isinstance(row, dict)]
     matched_routes = [row for row in routes if _match_route(row, phone_hint)]
     recent_sender_digits = _recent_sender_digits_for_hint(conversations_payload, phone_hint)
@@ -2500,6 +2514,8 @@ def resolve_whatsapp(phone_hint: str, *, args: argparse.Namespace) -> dict[str, 
         except Exception as exc:
             recipient_payload = {"registered": False, "reason": type(exc).__name__}
     chat_ref = str(recipient_payload.get("chat_ref") or "").strip() or _recent_chat_ref_for_hint(conversations_payload, phone_hint)
+    routes_ready = bool(routes_payload.get("ok", True))
+    route_reason = str(routes_payload.get("reason") or "").strip()
     conversations_ready = bool(conversations_payload.get("ok", True))
     sidecar_reason = str(conversations_payload.get("reason") or "").strip()
     status = (
@@ -2509,16 +2525,21 @@ def resolve_whatsapp(phone_hint: str, *, args: argparse.Namespace) -> dict[str, 
         if len(matched_routes) > 1
         else "unresolved"
     )
+    if not routes_ready:
+        status = "blocked"
     if not conversations_ready and status != "resolved":
         status = "blocked"
+    binding_lookup_status = "error" if binding_lookup_error else "found" if binding is not None else "missing"
     return {
         "status": status,
-        "reason": sidecar_reason if not conversations_ready else "",
+        "reason": route_reason if not routes_ready else sidecar_reason if not conversations_ready else binding_lookup_error,
         "phone_hint": str(phone_hint or ""),
         "recipient_digits": recipient_digits,
         "binding_id": str(getattr(binding, "binding_id", "") or ""),
         "principal_id": str(getattr(binding, "principal_id", "") or ""),
         "session_ref": _session_ref(binding, str(getattr(args, "session_ref", "") or "").strip()),
+        "binding_lookup_status": binding_lookup_status,
+        "binding_lookup_error": binding_lookup_error,
         "route_key": str(route.get("route_key") or "").strip(),
         "ai_key": str(route.get("ai_key") or "").strip(),
         "ai_name": str(route.get("ai_name") or "").strip(),
@@ -2527,6 +2548,9 @@ def resolve_whatsapp(phone_hint: str, *, args: argparse.Namespace) -> dict[str, 
         "registered": bool(recipient_payload.get("registered")),
         "resolution_method": str(recipient_payload.get("resolution_method") or "").strip(),
         "chat_id_kind": str(recipient_payload.get("chat_id_kind") or "").strip(),
+        "route_lookup_ready": routes_ready,
+        "route_lookup_status": str(routes_payload.get("status") or "").strip(),
+        "route_lookup_status_code": int(routes_payload.get("status_code") or 0),
         "conversation_lookup_ready": conversations_ready,
         "conversation_lookup_status": str(conversations_payload.get("status") or "").strip(),
         "conversation_lookup_status_code": int(conversations_payload.get("status_code") or 0),
@@ -2563,7 +2587,7 @@ def _operator_whatsapp_sidecar_body(*, resolution: dict[str, object], text: str)
 
 def send_whatsapp(*, phone_hint: str, text: str, args: argparse.Namespace) -> dict[str, object]:
     resolution = resolve_whatsapp(phone_hint, args=args)
-    binding = _load_whatsapp_binding(args)
+    binding, binding_lookup_error = _safe_load_whatsapp_binding(args)
     recipient_digits = str(resolution.get("recipient_digits") or "").strip()
     chat_ref = str(resolution.get("chat_ref") or "").strip()
     if not recipient_digits:
@@ -2571,6 +2595,14 @@ def send_whatsapp(*, phone_hint: str, text: str, args: argparse.Namespace) -> di
             "sent": False,
             "reason": "recipient_unresolved",
             "resolution": resolution,
+            "binding_lookup_error": binding_lookup_error,
+        }
+    if str(resolution.get("status") or "").strip() == "blocked" and not bool(resolution.get("route_lookup_ready", True)):
+        return {
+            "sent": False,
+            "reason": "route_lookup_unavailable",
+            "resolution": resolution,
+            "binding_lookup_error": binding_lookup_error,
         }
     if bool(getattr(args, "dry_run", False)):
         return {
@@ -2579,6 +2611,7 @@ def send_whatsapp(*, phone_hint: str, text: str, args: argparse.Namespace) -> di
             "resolution": resolution,
             "binding_id": str(getattr(binding, "binding_id", "") or ""),
             "principal_id": str(getattr(binding, "principal_id", "") or ""),
+            "binding_lookup_error": binding_lookup_error,
             "recipient_digits": recipient_digits,
         }
     payload = _sidecar_post(
@@ -2612,6 +2645,7 @@ def send_whatsapp(*, phone_hint: str, text: str, args: argparse.Namespace) -> di
         "reason": "sent" if bool(payload.get("ok", True)) else str(payload.get("reason") or "send_failed").strip(),
         "binding_id": str(getattr(binding, "binding_id", "") or ""),
         "principal_id": str(getattr(binding, "principal_id", "") or ""),
+        "binding_lookup_error": binding_lookup_error,
         "recipient_digits": recipient_digits,
         "delivery_transport": "whatsapp_web_session_sidecar",
         "message_ids": message_ids,
