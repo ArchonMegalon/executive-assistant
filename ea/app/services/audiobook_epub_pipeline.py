@@ -21,6 +21,7 @@ import shlex
 import subprocess
 import tempfile
 import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -31,6 +32,7 @@ import zipfile
 import xml.etree.ElementTree as ET
 
 from app.services.memorial_openvoice import (
+    piper_fast_synthesize_request,
     unmixr_language,
     unmixr_api_key,
     unmixr_api_key_slot_count,
@@ -88,6 +90,124 @@ _AUDIOBOOK_CLEANUP_MISSING_ERRNOS = {
     errno.ENOTDIR,
     getattr(errno, "ESTALE", errno.ENOENT),
     getattr(errno, "ENOTCONN", errno.ENOENT),
+}
+_PERSON_NAME_TITLES = {
+    "dr",
+    "frau",
+    "herr",
+    "ii",
+    "iii",
+    "iv",
+    "jr",
+    "lady",
+    "miss",
+    "mr",
+    "mrs",
+    "ms",
+    "phd",
+    "prof",
+    "sir",
+    "sr",
+}
+_KNOWN_FEMALE_FIRST_NAMES = {
+    "alice",
+    "anna",
+    "anne",
+    "barbara",
+    "bettina",
+    "birgit",
+    "brigitte",
+    "charlotte",
+    "christine",
+    "claudia",
+    "diana",
+    "donna",
+    "elena",
+    "elisabeth",
+    "elizabeth",
+    "emily",
+    "eva",
+    "franziska",
+    "helga",
+    "isabel",
+    "jane",
+    "jennifer",
+    "jessica",
+    "joanne",
+    "julia",
+    "katharina",
+    "katherine",
+    "laura",
+    "lisa",
+    "margaret",
+    "maria",
+    "marie",
+    "mary",
+    "nicole",
+    "patricia",
+    "rachel",
+    "rebecca",
+    "sabine",
+    "sandra",
+    "sarah",
+    "seraphina",
+    "susan",
+    "susanne",
+    "theresa",
+    "ursula",
+    "victoria",
+    "amala",
+    "gisela",
+}
+_KNOWN_MALE_FIRST_NAMES = {
+    "alexander",
+    "andreas",
+    "anthony",
+    "ben",
+    "bernd",
+    "brandon",
+    "christian",
+    "daniel",
+    "david",
+    "florian",
+    "frank",
+    "george",
+    "georg",
+    "hans",
+    "henry",
+    "james",
+    "jason",
+    "john",
+    "johannes",
+    "josef",
+    "jurgen",
+    "karl",
+    "kevin",
+    "luke",
+    "mark",
+    "markus",
+    "martin",
+    "max",
+    "michael",
+    "nassim",
+    "neil",
+    "nicholas",
+    "noah",
+    "patrick",
+    "peter",
+    "robert",
+    "robin",
+    "scott",
+    "sebastian",
+    "stefan",
+    "stephen",
+    "steve",
+    "terry",
+    "thomas",
+    "tobias",
+    "victor",
+    "wolfgang",
+    "yuval",
 }
 
 
@@ -560,6 +680,54 @@ def _split_tags(value: object) -> tuple[str, ...]:
         if tag and tag not in seen:
             seen.append(tag)
     return tuple(seen)
+
+
+def _normalize_person_name_token(value: object) -> str:
+    raw = unicodedata.normalize("NFKD", str(value or ""))
+    stripped = "".join(char for char in raw if not unicodedata.combining(char))
+    return re.sub(r"[^A-Za-z-]+", "", stripped).strip("-").lower()
+
+
+def _person_first_name(value: object) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if "," in raw:
+        parts = [part.strip() for part in raw.split(",") if part.strip()]
+        if len(parts) >= 2:
+            raw = f"{parts[1]} {parts[0]}"
+    for part in raw.replace(",", " ").split():
+        token = _normalize_person_name_token(part)
+        if not token or token in _PERSON_NAME_TITLES or len(token) <= 1:
+            continue
+        return token
+    return ""
+
+
+def _infer_person_name_gender(value: object) -> str:
+    first = _person_first_name(value)
+    if first in _KNOWN_FEMALE_FIRST_NAMES:
+        return "female"
+    if first in _KNOWN_MALE_FIRST_NAMES:
+        return "male"
+    return ""
+
+
+def _voice_tags_with_inferred_gender(
+    tags: tuple[str, ...],
+    *,
+    label: object = "",
+    gender_hint: object = "",
+) -> tuple[str, ...]:
+    normalized = list(_split_tags(tags))
+    if any(tag in {"male", "female"} for tag in normalized):
+        return tuple(normalized)
+    inferred = _normalize_tag(gender_hint)
+    if inferred not in {"male", "female"}:
+        inferred = _infer_person_name_gender(label)
+    if inferred in {"male", "female"}:
+        normalized.append(inferred)
+    return tuple(dict.fromkeys(normalized))
 
 
 def _audiobook_voice_language_from_tags(tags: tuple[str, ...]) -> str:
@@ -1278,7 +1446,11 @@ def _load_voice_presets_from_value(value: object, *, source: str) -> tuple[Voice
             or row.get("languages")
             or language
         )
-        tags = _split_tags(_row_tag_values(row))
+        tags = _voice_tags_with_inferred_gender(
+            _split_tags(_row_tag_values(row)),
+            label=label,
+            gender_hint=row.get("gender"),
+        )
         if not tags:
             tags = ("narration", "neutral")
         presets.append(
@@ -1454,7 +1626,11 @@ def _unmixr_voice_row_tags(row: dict[str, object], *, use_case: str) -> tuple[st
     }.items():
         if any(needle in description for needle in needles):
             values.append(tag)
-    return _split_tags(values)
+    return _voice_tags_with_inferred_gender(
+        _split_tags(values),
+        label=row.get("character") or row.get("label") or row.get("name"),
+        gender_hint=row.get("gender"),
+    )
 
 
 def _voice_preset_from_unmixr_row(row: dict[str, object], *, use_case: str, index: int) -> VoicePreset | None:
@@ -1582,12 +1758,16 @@ def load_unmixr_voice_presets(*, target_count: int | None = None) -> tuple[Voice
     if discovered:
         default_voice_id = unmixr_memorial_voice_id()
         if default_voice_id and all(preset.voice_id != default_voice_id for preset in discovered):
-            default_tags = _split_tags(os.getenv("EA_AUDIOBOOK_DEFAULT_VOICE_TAGS") or "narration,neutral,general")
+            default_label = str(os.getenv("EA_AUDIOBOOK_DEFAULT_VOICE_LABEL") or "Configured audio voice").strip()
+            default_tags = _voice_tags_with_inferred_gender(
+                _split_tags(os.getenv("EA_AUDIOBOOK_DEFAULT_VOICE_TAGS") or "narration,neutral,general"),
+                label=default_label,
+            )
             discovered = (
                 VoicePreset(
                     preset_key="default_env_voice",
                     voice_id=default_voice_id,
-                    label=str(os.getenv("EA_AUDIOBOOK_DEFAULT_VOICE_LABEL") or "Configured audio voice").strip(),
+                    label=default_label,
                     language=_audiobook_voice_language_from_tags(default_tags),
                     tags=default_tags,
                     supported_languages=(_audiobook_voice_language_from_tags(default_tags),),
@@ -1600,13 +1780,17 @@ def load_unmixr_voice_presets(*, target_count: int | None = None) -> tuple[Voice
     default_voice_id = unmixr_memorial_voice_id()
     if not default_voice_id:
         return ()
-    default_tags = _split_tags(os.getenv("EA_AUDIOBOOK_DEFAULT_VOICE_TAGS") or "narration,neutral,general")
+    default_label = str(os.getenv("EA_AUDIOBOOK_DEFAULT_VOICE_LABEL") or "Configured audio voice").strip()
+    default_tags = _voice_tags_with_inferred_gender(
+        _split_tags(os.getenv("EA_AUDIOBOOK_DEFAULT_VOICE_TAGS") or "narration,neutral,general"),
+        label=default_label,
+    )
     default_language = _audiobook_voice_language_from_tags(default_tags)
     return (
         VoicePreset(
             preset_key="default_env_voice",
             voice_id=default_voice_id,
-            label=str(os.getenv("EA_AUDIOBOOK_DEFAULT_VOICE_LABEL") or "Configured audio voice").strip(),
+            label=default_label,
             language=default_language,
             tags=default_tags,
             supported_languages=(default_language,),
@@ -1651,73 +1835,7 @@ def _book_topic_from_profile(*, signal_scores: dict[str, int], fiction_score: in
 
 
 def _infer_author_gender(author: str) -> str:
-    raw_author = str(author or "").strip()
-    if "," in raw_author:
-        parts = [part.strip() for part in raw_author.split(",") if part.strip()]
-        if len(parts) >= 2:
-            raw_author = f"{parts[1]} {parts[0]}"
-    normalized = " ".join(raw_author.replace(",", " ").split()).strip()
-    if not normalized:
-        return ""
-    first = re.sub(r"[^A-Za-zÀ-ÿ-]+", "", normalized.split()[0]).strip("-").lower()
-    if len(first) <= 1:
-        return ""
-    female_names = {
-        "alice",
-        "anna",
-        "anne",
-        "barbara",
-        "bettina",
-        "birgit",
-        "brigitte",
-        "christine",
-        "claudia",
-        "diana",
-        "elisabeth",
-        "eva",
-        "franziska",
-        "helga",
-        "julia",
-        "katharina",
-        "laura",
-        "lisa",
-        "maria",
-        "marie",
-        "nicole",
-        "sandra",
-        "sarah",
-        "sabine",
-        "susanne",
-    }
-    male_names = {
-        "andreas",
-        "alexander",
-        "bernd",
-        "christian",
-        "daniel",
-        "david",
-        "florian",
-        "frank",
-        "georg",
-        "hans",
-        "johannes",
-        "josef",
-        "karl",
-        "markus",
-        "martin",
-        "max",
-        "michael",
-        "peter",
-        "stefan",
-        "thomas",
-        "tobias",
-        "wolfgang",
-    }
-    if first in female_names:
-        return "female"
-    if first in male_names:
-        return "male"
-    return ""
+    return _infer_person_name_gender(author)
 
 
 def profile_book_for_voice(*, metadata: EpubMetadata, chapters: tuple[EpubChapter, ...], job_dir: Path) -> dict[str, object]:
@@ -1844,12 +1962,13 @@ def _select_author_gender_preferred_candidate(
         selected = _first_match(require_author_gender_match=True, require_language_match=True)
         if selected:
             return selected, True
-        selected = _first_match(require_author_gender_match=True, require_language_match=False)
-        if selected:
-            return selected, True
     selected = _first_match(require_author_gender_match=False, require_language_match=True)
     if selected:
         return selected, False
+    if normalized_author_gender_signal:
+        selected = _first_match(require_author_gender_match=True, require_language_match=False)
+        if selected:
+            return selected, True
     return dict(candidate_rows[0]), False
 
 

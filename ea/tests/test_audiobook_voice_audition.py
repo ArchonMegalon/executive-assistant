@@ -360,3 +360,57 @@ def test_selected_unmixr_voice_for_job_syncs_stale_render_result_voice_selection
     stored_job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
     render_voice_selection = dict(dict(stored_job.get("render_result") or {}).get("voice_selection") or {})
     assert dict(render_voice_selection.get("book_profile") or {}).get("author_gender_signal") == "male"
+
+
+def test_infer_author_gender_handles_common_english_and_international_names() -> None:
+    assert audiobook_epub_pipeline._infer_author_gender("Stephen King") == "male"  # noqa: SLF001
+    assert audiobook_epub_pipeline._infer_author_gender("James Clear") == "male"  # noqa: SLF001
+    assert audiobook_epub_pipeline._infer_author_gender("Yuval Noah Harari") == "male"  # noqa: SLF001
+    assert audiobook_epub_pipeline._infer_author_gender("Le Guin, Ursula") == "female"  # noqa: SLF001
+
+
+def test_voice_preset_from_unmixr_row_infers_gender_from_character_name_when_missing() -> None:
+    male = audiobook_epub_pipeline._voice_preset_from_unmixr_row(  # noqa: SLF001
+        {
+            "uuid": "voice-hans",
+            "character": "Hans",
+            "language": "de-DE",
+            "supported_locales": ["de-DE"],
+            "description": "Warm audiobook voice",
+        },
+        use_case="audiobook-voices",
+        index=1,
+    )
+    female = audiobook_epub_pipeline._voice_preset_from_unmixr_row(  # noqa: SLF001
+        {
+            "uuid": "voice-seraphina",
+            "character": "Seraphina",
+            "language": "en-US",
+            "supported_locales": ["en-US"],
+            "description": "Warm storytelling voice",
+        },
+        use_case="audiobook-voices",
+        index=2,
+    )
+
+    assert male is not None
+    assert female is not None
+    assert "male" in male.tags
+    assert "female" in female.tags
+
+
+def test_load_voice_presets_from_value_infers_gender_from_label_without_explicit_tags() -> None:
+    presets = audiobook_epub_pipeline._load_voice_presets_from_value(  # noqa: SLF001
+        [
+            {
+                "voice_id": "voice-robert",
+                "label": "Robert",
+                "language": "en-US",
+                "tags": ["audiobook", "narration", "warm"],
+            }
+        ],
+        source="test",
+    )
+
+    assert len(presets) == 1
+    assert "male" in presets[0].tags
