@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import tempfile
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BASE_URL = "https://app.teable.ai"
 DEFAULT_TABLE_NAME = "ea_environment_secrets_recovery"
+DEFAULT_HISTORY_TABLE_NAME = "ea_environment_secrets_recovery_history"
 DEFAULT_ENV_FILES = (ROOT / ".env", ROOT / ".env.local", ROOT / "ea" / ".env")
 REQUIRED_DEFAULT_ENV_FILES = (ROOT / ".env", ROOT / ".env.local")
 SECRET_FILE_MARKERS = ("JSON_FILE", "CREDENTIALS_FILE", "KEY_FILE", "TOKEN_FILE", "SECRET_FILE", "CONFIG_FILE")
@@ -66,6 +68,20 @@ ENV_SECRET_FIELDS: list[dict[str, object]] = [
     {"name": "restore_enabled", "type": "checkbox"},
     {"name": "last_synced_at", "type": "singleLineText"},
     {"name": "notes", "type": "longText"},
+]
+
+ENV_SECRET_FIELD_NAMES = tuple(str(field["name"]) for field in ENV_SECRET_FIELDS)
+
+ENV_SECRET_HISTORY_FIELDS: list[dict[str, object]] = [
+    {"name": "history_id", "type": "singleLineText"},
+    {"name": "history_batch_id", "type": "singleLineText"},
+    {"name": "history_recorded_at", "type": "singleLineText"},
+    {"name": "history_reason", "type": "singleLineText"},
+    {"name": "history_source_table_id", "type": "singleLineText"},
+    {"name": "history_source_table_name", "type": "singleLineText"},
+    {"name": "history_source_record_id", "type": "singleLineText"},
+    {"name": "source_fields_json_secret", "type": "longText"},
+    *ENV_SECRET_FIELDS,
 ]
 
 
@@ -472,12 +488,19 @@ def _teable_request(
     return loaded if loaded is not None else {}
 
 
-def create_table(*, base_url: str, api_key: str, base_id: str, table_name: str) -> str:
+def create_table(
+    *,
+    base_url: str,
+    api_key: str,
+    base_id: str,
+    table_name: str,
+    fields: list[dict[str, object]] | None = None,
+) -> str:
     created = _teable_request(
         method="POST",
         url=f"{base_url.rstrip('/')}/api/base/{urllib.parse.quote(base_id)}/table/",
         api_key=api_key,
-        body={"name": table_name, "fields": ENV_SECRET_FIELDS, "fieldKeyType": "name"},
+        body={"name": table_name, "fields": fields or ENV_SECRET_FIELDS, "fieldKeyType": "name"},
     )
     table_id = str(created.get("id") or "").strip()
     if not table_id:
@@ -618,7 +641,144 @@ def sync_rows(
     return {"created": created, "updated": updated, "skipped": skipped, "total": len(rows)}
 
 
-def _list_records(*, base_url: str, api_key: str, table_id: str) -> list[dict[str, Any]]:
+def _history_batch_id(*, host_profile: str, recorded_at: str | None = None) -> str:
+    return f"env-history:{host_profile}:{recorded_at or _now_iso()}:{uuid.uuid4().hex}"
+
+
+def build_history_rows(
+    *,
+    records: list[dict[str, Any]],
+    source_table_id: str,
+    source_table_name: str,
+    history_reason: str,
+    host_profile: str = "ea-prod",
+    recorded_at: str | None = None,
+    batch_id: str | None = None,
+) -> list[dict[str, object]]:
+    now = recorded_at or _now_iso()
+    resolved_batch_id = batch_id or _history_batch_id(host_profile=host_profile, recorded_at=now)
+    rows: list[dict[str, object]] = []
+    for index, record in enumerate(records):
+        source_record_id = str(record.get("id") or "").strip()
+        fields = dict(record.get("fields") or {})
+        projection_id = str(fields.get("projection_id") or "").strip()
+        source_ref = source_record_id or projection_id or str(index)
+        history_key = hashlib.sha256(
+            "|".join((resolved_batch_id, str(source_table_id), source_ref, str(index))).encode("utf-8")
+        ).hexdigest()
+        row: dict[str, object] = {
+            "history_id": f"{resolved_batch_id}:{history_key[:24]}",
+            "history_batch_id": resolved_batch_id,
+            "history_recorded_at": now,
+            "history_reason": str(history_reason or "manual_snapshot").strip() or "manual_snapshot",
+            "history_source_table_id": str(source_table_id or "").strip(),
+            "history_source_table_name": str(source_table_name or "").strip(),
+            "history_source_record_id": source_record_id,
+            "source_fields_json_secret": json.dumps(fields, ensure_ascii=True, sort_keys=True, separators=(",", ":")),
+        }
+        for field_name in ENV_SECRET_FIELD_NAMES:
+            if field_name in fields:
+                row[field_name] = fields[field_name]
+        rows.append(row)
+    return rows
+
+
+def create_history_table(*, base_url: str, api_key: str, base_id: str, table_name: str) -> str:
+    return create_table(
+        base_url=base_url,
+        api_key=api_key,
+        base_id=base_id,
+        table_name=table_name,
+        fields=ENV_SECRET_HISTORY_FIELDS,
+    )
+
+
+def ensure_history_table_id(
+    *,
+    base_url: str,
+    api_key: str,
+    base_id: str,
+    history_table_id: str,
+    history_table_name: str,
+    create_if_missing: bool = True,
+) -> str:
+    resolved = str(history_table_id or "").strip()
+    if resolved:
+        return resolved
+    resolved = discover_table_id(base_url=base_url, api_key=api_key, table_name=history_table_name)
+    if resolved:
+        return resolved
+    if not create_if_missing:
+        raise SystemExit("teable_history_table_id_missing")
+    if not str(base_id or "").strip():
+        raise SystemExit("teable_history_base_id_required_to_create_table")
+    return create_history_table(
+        base_url=base_url,
+        api_key=api_key,
+        base_id=str(base_id or "").strip(),
+        table_name=history_table_name,
+    )
+
+
+def append_history_rows(
+    *,
+    base_url: str,
+    api_key: str,
+    history_table_id: str,
+    rows: list[dict[str, object]],
+) -> dict[str, int]:
+    created = 0
+    for start in range(0, len(rows), 50):
+        chunk = [{"fields": row} for row in rows[start : start + 50]]
+        if not chunk:
+            continue
+        response = _teable_request(
+            method="POST",
+            url=f"{base_url.rstrip('/')}/api/table/{urllib.parse.quote(history_table_id)}/record",
+            api_key=api_key,
+            body={"fieldKeyType": "name", "typecast": True, "records": chunk},
+        )
+        created += len(response.get("records") or chunk)
+    return {"created": created, "total": len(rows)}
+
+
+def write_history_backup(
+    *,
+    base_url: str,
+    api_key: str,
+    source_table_id: str,
+    history_table_id: str,
+    source_table_name: str = DEFAULT_TABLE_NAME,
+    history_reason: str = "manual_snapshot",
+    host_profile: str = "ea-prod",
+) -> dict[str, Any]:
+    source_records = _list_record_items(base_url=base_url, api_key=api_key, table_id=source_table_id)
+    rows = build_history_rows(
+        records=source_records,
+        source_table_id=source_table_id,
+        source_table_name=source_table_name,
+        history_reason=history_reason,
+        host_profile=host_profile,
+    )
+    result = append_history_rows(
+        base_url=base_url,
+        api_key=api_key,
+        history_table_id=history_table_id,
+        rows=rows,
+    )
+    result.update(
+        {
+            "status": "history_snapshot_written",
+            "source_table_id": source_table_id,
+            "history_table_id": history_table_id,
+            "history_reason": str(history_reason or "manual_snapshot").strip() or "manual_snapshot",
+            "secret_values_redacted": True,
+        }
+    )
+    return result
+
+
+def _list_record_items(*, base_url: str, api_key: str, table_id: str) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     skip = 0
     take = 1000
@@ -630,11 +790,15 @@ def _list_records(*, base_url: str, api_key: str, table_id: str) -> list[dict[st
             api_key=api_key,
         )
         records = [dict(item) for item in payload.get("records") or [] if isinstance(item, dict)]
-        rows.extend([dict(item.get("fields") or {}) for item in records])
+        rows.extend(records)
         if len(records) < take:
             break
         skip += take
     return rows
+
+
+def _list_records(*, base_url: str, api_key: str, table_id: str) -> list[dict[str, Any]]:
+    return [dict(item.get("fields") or {}) for item in _list_record_items(base_url=base_url, api_key=api_key, table_id=table_id)]
 
 
 def _format_env_value(value: str) -> str:
@@ -1678,6 +1842,7 @@ def parse_args() -> argparse.Namespace:
             "verify",
             "local-status",
             "ensure-local",
+            "history-backup",
             "preview-fields",
         ),
     )
@@ -1686,7 +1851,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-id", default=_dotenv_value("EA_ENV_TEABLE_BASE_ID"))
     parser.add_argument("--table-id", default=_dotenv_value("EA_ENV_TEABLE_TABLE_ID"))
     parser.add_argument("--table-name", default=_dotenv_value("EA_ENV_TEABLE_TABLE_NAME") or DEFAULT_TABLE_NAME)
+    parser.add_argument("--history-table-id", default=_dotenv_value("EA_ENV_TEABLE_HISTORY_TABLE_ID"))
+    parser.add_argument(
+        "--history-table-name",
+        default=_dotenv_value("EA_ENV_TEABLE_HISTORY_TABLE_NAME") or DEFAULT_HISTORY_TABLE_NAME,
+    )
     parser.add_argument("--create-table", action="store_true")
+    parser.add_argument("--create-history-table", action="store_true", default=True)
+    parser.add_argument(
+        "--no-create-history-table",
+        action="store_false",
+        dest="create_history_table",
+        help="Fail instead of creating the history table when it is missing.",
+    )
+    parser.add_argument("--no-history-backup", action="store_true")
+    parser.add_argument("--history-reason", default="")
     parser.add_argument("--include-values", action="store_true")
     parser.add_argument("--metadata-only", action="store_true")
     parser.add_argument("--secrets-only", action="store_true")
@@ -1730,6 +1909,17 @@ def main() -> int:
     if not table_id:
         raise SystemExit("teable_table_id_missing")
 
+    def _resolved_history_table_id() -> str:
+        return ensure_history_table_id(
+            base_url=base_url,
+            api_key=api_key,
+            base_id=str(getattr(args, "base_id", "") or "").strip(),
+            history_table_id=str(getattr(args, "history_table_id", "") or "").strip(),
+            history_table_name=str(getattr(args, "history_table_name", "") or DEFAULT_HISTORY_TABLE_NAME).strip()
+            or DEFAULT_HISTORY_TABLE_NAME,
+            create_if_missing=bool(getattr(args, "create_history_table", True)),
+        )
+
     if args.command == "backup":
         if not args.include_values and not args.metadata_only:
             raise SystemExit("teable_backup_requires_include_values_or_metadata_only")
@@ -1742,6 +1932,21 @@ def main() -> int:
             include_referenced_files=not bool(args.no_referenced_files),
             host_profile=str(args.host_profile or "ea-prod"),
         )
+        history_enabled = not bool(getattr(args, "no_history_backup", False))
+        history_before: dict[str, Any] = {}
+        history_after: dict[str, Any] = {}
+        history_table_id = ""
+        if history_enabled:
+            history_table_id = _resolved_history_table_id()
+            history_before = write_history_backup(
+                base_url=base_url,
+                api_key=api_key,
+                source_table_id=table_id,
+                history_table_id=history_table_id,
+                source_table_name=str(args.table_name or DEFAULT_TABLE_NAME),
+                history_reason=str(getattr(args, "history_reason", "") or "pre_backup_snapshot"),
+                host_profile=str(args.host_profile or "ea-prod"),
+            )
         result = sync_rows(
             base_url=base_url,
             api_key=api_key,
@@ -1749,7 +1954,46 @@ def main() -> int:
             rows=rows,
             preserve_blank_secret_values=not include_values,
         )
+        if history_enabled:
+            history_after = write_history_backup(
+                base_url=base_url,
+                api_key=api_key,
+                source_table_id=table_id,
+                history_table_id=history_table_id,
+                source_table_name=str(args.table_name or DEFAULT_TABLE_NAME),
+                history_reason="post_backup_snapshot",
+                host_profile=str(args.host_profile or "ea-prod"),
+            )
         result.update({"status": "synced", "table_id": table_id, "secret_values_included": include_values})
+        result["history_backup"] = {
+            "enabled": history_enabled,
+            "history_table_id": history_table_id,
+            "pre_snapshot": {
+                "created": int(history_before.get("created") or 0),
+                "total": int(history_before.get("total") or 0),
+                "history_reason": str(history_before.get("history_reason") or ""),
+            },
+            "post_snapshot": {
+                "created": int(history_after.get("created") or 0),
+                "total": int(history_after.get("total") or 0),
+                "history_reason": str(history_after.get("history_reason") or ""),
+            },
+            "secret_values_redacted": True,
+        }
+        print(json.dumps(result, indent=2, ensure_ascii=True))
+        return 0
+
+    if args.command == "history-backup":
+        history_table_id = _resolved_history_table_id()
+        result = write_history_backup(
+            base_url=base_url,
+            api_key=api_key,
+            source_table_id=table_id,
+            history_table_id=history_table_id,
+            source_table_name=str(args.table_name or DEFAULT_TABLE_NAME),
+            history_reason=str(getattr(args, "history_reason", "") or "manual_history_snapshot"),
+            host_profile=str(args.host_profile or "ea-prod"),
+        )
         print(json.dumps(result, indent=2, ensure_ascii=True))
         return 0
 

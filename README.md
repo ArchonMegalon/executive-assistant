@@ -110,6 +110,7 @@ Keep the recovery table current after changing local credentials:
 
 ```bash
 make env-backup-teable
+make env-history-backup-teable
 make verify-env-teable-recovery
 make env-local-status-teable
 make env-ensure-local-teable
@@ -121,6 +122,7 @@ make env-disable-extra-teable
 ```
 
 Direct backup use must choose a value mode explicitly: `scripts/sync_env_to_teable.py backup --include-values` for disaster recovery, or `scripts/sync_env_to_teable.py backup --metadata-only` when refreshing env and referenced-file metadata without changing stored secret cells.
+Backups write an append-only snapshot to `ea_environment_secrets_recovery_history` before and after the current recovery table is upserted; use `scripts/sync_env_to_teable.py history-backup` or `make env-history-backup-teable` to snapshot the current Teable records without changing the recovery table.
 `scripts/bootstrap_from_teable.sh --check` or `make env-check-teable` runs table verification and a non-destructive drill, then removes the temporary drill directory when no explicit drill output path was provided.
 `scripts/sync_env_to_teable.py local-status` or `make env-local-status-teable` verifies the current local env/config artifacts against Teable without writing anything.
 `scripts/bootstrap_from_teable.sh --ensure-local` or `make env-ensure-local-teable` fixes mode-only drift in place and performs full recovery only when content is missing or mismatched.

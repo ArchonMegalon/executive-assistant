@@ -1926,6 +1926,7 @@ def test_main_backup_requires_explicit_value_mode(monkeypatch, tmp_path: Path) -
                 "metadata_only": False,
                 "secrets_only": False,
                 "no_referenced_files": False,
+                "no_history_backup": True,
                 "host_profile": "ea-prod",
                 "env_file": [str(env_file)],
                 "require_seeded_api_key": False,
@@ -1974,6 +1975,7 @@ def test_main_backup_metadata_only_is_explicit_and_preserves_secret_values(monke
                 "metadata_only": True,
                 "secrets_only": False,
                 "no_referenced_files": False,
+                "no_history_backup": True,
                 "host_profile": "ea-prod",
                 "env_file": [str(env_file)],
                 "require_seeded_api_key": False,
@@ -2020,6 +2022,7 @@ def test_main_backup_with_relative_env_paths_uses_normalized_repo_root_paths(mon
                 "metadata_only": True,
                 "secrets_only": False,
                 "no_referenced_files": False,
+                "no_history_backup": True,
                 "host_profile": "ea-prod",
                 "env_file": [".env", ".env.local", "ea/.env"],
                 "require_seeded_api_key": False,
@@ -2056,6 +2059,187 @@ def test_main_backup_with_relative_env_paths_uses_normalized_repo_root_paths(mon
         tmp_path / "ea" / ".env",
     )
     assert observed["env_files"] == expected_env_files
+
+
+def test_build_history_rows_preserves_source_fields_json_secret() -> None:
+    module = _module()
+
+    rows = module.build_history_rows(
+        records=[
+            {
+                "id": "rec_1",
+                "fields": {
+                    "projection_id": "ea-prod:ea_root:TEABLE_API_KEY",
+                    "env_name": "TEABLE_API_KEY",
+                    "env_value_secret": "secret-value",
+                    "value_sha256": "a" * 64,
+                    "custom_future_field": "kept",
+                },
+            }
+        ],
+        source_table_id="tbl_env",
+        source_table_name="ea_environment_secrets_recovery",
+        history_reason="unit_snapshot",
+        host_profile="ea-prod",
+        recorded_at="2026-06-29T12:00:00Z",
+        batch_id="batch-1",
+    )
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["history_id"].startswith("batch-1:")
+    assert row["history_source_record_id"] == "rec_1"
+    assert row["history_reason"] == "unit_snapshot"
+    assert row["env_value_secret"] == "secret-value"
+    assert "secret-value" not in str(row["history_id"])
+    source_fields = json.loads(str(row["source_fields_json_secret"]))
+    assert source_fields["env_value_secret"] == "secret-value"
+    assert source_fields["custom_future_field"] == "kept"
+
+
+def test_ensure_history_table_id_creates_missing_history_table(monkeypatch) -> None:
+    module = _module()
+    observed: dict[str, object] = {}
+
+    monkeypatch.setattr(module, "discover_table_id", lambda **_: "")
+
+    def _create_history_table(**kwargs):
+        observed.update(kwargs)
+        return "tbl_history"
+
+    monkeypatch.setattr(module, "create_history_table", _create_history_table)
+
+    assert (
+        module.ensure_history_table_id(
+            base_url="https://teable.example",
+            api_key="teable-key",
+            base_id="bse_env",
+            history_table_id="",
+            history_table_name="ea_environment_secrets_recovery_history",
+        )
+        == "tbl_history"
+    )
+    assert observed["base_id"] == "bse_env"
+    assert observed["table_name"] == "ea_environment_secrets_recovery_history"
+
+
+def test_main_backup_writes_pre_and_post_history_by_default(monkeypatch, tmp_path: Path, capsys) -> None:
+    module = _module()
+    env_file = tmp_path / ".env"
+    env_file.write_text("TEABLE_API_KEY=key\n", encoding="utf-8")
+    calls: list[str] = []
+
+    monkeypatch.setattr(
+        module,
+        "parse_args",
+        lambda: type(
+            "Args",
+            (),
+            {
+                "command": "backup",
+                "base_url": "https://teable.example",
+                "api_key": "teable-key",
+                "base_id": "bse_env",
+                "table_id": "tbl_env",
+                "table_name": "ea_environment_secrets_recovery",
+                "history_table_id": "",
+                "history_table_name": "ea_environment_secrets_recovery_history",
+                "create_table": False,
+                "create_history_table": True,
+                "include_values": True,
+                "metadata_only": False,
+                "secrets_only": False,
+                "no_referenced_files": False,
+                "no_history_backup": False,
+                "history_reason": "",
+                "host_profile": "ea-prod",
+                "env_file": [str(env_file)],
+                "require_seeded_api_key": False,
+            },
+        )(),
+    )
+    monkeypatch.setattr(module, "ensure_history_table_id", lambda **_: "tbl_history")
+
+    def _write_history_backup(**kwargs):
+        calls.append(f"history:{kwargs['history_reason']}")
+        return {
+            "created": 1,
+            "total": 1,
+            "history_reason": kwargs["history_reason"],
+        }
+
+    def _sync_rows(**kwargs):
+        calls.append("sync")
+        return {"created": 1, "updated": 0, "skipped": 0, "total": len(kwargs["rows"])}
+
+    monkeypatch.setattr(module, "write_history_backup", _write_history_backup)
+    monkeypatch.setattr(module, "sync_rows", _sync_rows)
+
+    assert module.main() == 0
+    assert calls == ["history:pre_backup_snapshot", "sync", "history:post_backup_snapshot"]
+    output = json.loads(capsys.readouterr().out)
+    assert output["history_backup"]["enabled"] is True
+    assert output["history_backup"]["history_table_id"] == "tbl_history"
+    assert output["history_backup"]["pre_snapshot"]["total"] == 1
+    assert output["history_backup"]["post_snapshot"]["total"] == 1
+    assert output["history_backup"]["secret_values_redacted"] is True
+
+
+def test_main_history_backup_command_snapshots_current_table(monkeypatch, capsys) -> None:
+    module = _module()
+    observed: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        module,
+        "parse_args",
+        lambda: type(
+            "Args",
+            (),
+            {
+                "command": "history-backup",
+                "base_url": "https://teable.example",
+                "api_key": "teable-key",
+                "base_id": "bse_env",
+                "table_id": "tbl_env",
+                "table_name": "ea_environment_secrets_recovery",
+                "history_table_id": "tbl_history",
+                "history_table_name": "ea_environment_secrets_recovery_history",
+                "create_table": False,
+                "create_history_table": True,
+                "include_values": False,
+                "metadata_only": False,
+                "secrets_only": False,
+                "no_referenced_files": False,
+                "no_history_backup": False,
+                "history_reason": "",
+                "host_profile": "ea-prod",
+                "env_file": [],
+                "require_seeded_api_key": False,
+            },
+        )(),
+    )
+    monkeypatch.setattr(module, "ensure_history_table_id", lambda **_: "tbl_history")
+
+    def _write_history_backup(**kwargs):
+        observed.update(kwargs)
+        return {
+            "status": "history_snapshot_written",
+            "created": 2,
+            "total": 2,
+            "history_table_id": kwargs["history_table_id"],
+            "history_reason": kwargs["history_reason"],
+            "secret_values_redacted": True,
+        }
+
+    monkeypatch.setattr(module, "write_history_backup", _write_history_backup)
+
+    assert module.main() == 0
+    assert observed["source_table_id"] == "tbl_env"
+    assert observed["history_table_id"] == "tbl_history"
+    assert observed["history_reason"] == "manual_history_snapshot"
+    output = json.loads(capsys.readouterr().out)
+    assert output["created"] == 2
+    assert output["secret_values_redacted"] is True
 
 
 def test_main_recover_discovers_table_without_seeded_table_id(monkeypatch, tmp_path: Path) -> None:

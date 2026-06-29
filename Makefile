@@ -629,6 +629,9 @@ sync-memorial-public-sources-teable:
 env-backup-teable:
 	$(PYTHON_BIN) scripts/sync_env_to_teable.py backup --include-values
 
+env-history-backup-teable:
+	$(PYTHON_BIN) scripts/sync_env_to_teable.py history-backup
+
 env-bootstrap-teable:
 	$(PYTHON_BIN) scripts/sync_env_to_teable.py bootstrap
 
