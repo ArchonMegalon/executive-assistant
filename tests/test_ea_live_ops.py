@@ -532,8 +532,71 @@ def test_probe_whatsapp_pairing_can_dry_run_telegram_document_send(monkeypatch, 
     assert observed["principal_id"] == "principal-1"
     assert observed["dry_run"] is True
     assert "pair_url=https://wa-web.test/sessions/session-1/pair" in str(observed["caption"])
+    assert report["pair_url_actionable_from_telegram"] is True
+    assert report["telegram_caption_includes_pair_url"] is True
     assert Path(str(observed["document_ref"])).is_file()
     assert "telegram_sent=false" in str(report["operator_text"])
+
+
+def test_probe_whatsapp_pairing_telegram_caption_withholds_host_local_pair_url(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    observed: dict[str, object] = {}
+    monkeypatch.setattr(module, "_safe_load_whatsapp_binding", lambda _args: (None, ""))
+    monkeypatch.setattr(module, "_qr_age_seconds", lambda _value: 10)
+    monkeypatch.setattr(
+        module,
+        "_sidecar_get",
+        lambda **_kwargs: {
+            "ok": True,
+            "ready": False,
+            "status": "qr_required",
+            "qr_present": True,
+            "qr_required": True,
+            "last_qr_at": "2026-06-29T14:00:00Z",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "_sidecar_bytes",
+        lambda **_kwargs: (b"<svg>qr</svg>", "image/svg+xml", "http://127.0.0.1:8098/sessions/session-1/qr.svg"),
+    )
+
+    def _fake_send_document(*, principal_id: str, document_ref: str, caption: str, dry_run: bool):
+        observed.update(
+            {
+                "principal_id": principal_id,
+                "document_ref": document_ref,
+                "caption": caption,
+                "dry_run": dry_run,
+            }
+        )
+        return {
+            "sent": False,
+            "reason": "dry_run",
+            "principal_id": principal_id,
+            "chat_ref_present": True,
+            "chat_ref_sha256": "e" * 64,
+            "delivery_transport": "telegram_bot",
+        }
+
+    monkeypatch.setattr(module, "send_telegram_document", _fake_send_document)
+
+    report = module.probe_whatsapp_pairing(
+        args=_args(session_api_base_url="http://127.0.0.1:8098", session_ref="session-1"),
+        output_format="operator",
+        send_telegram_to_principal="principal-1",
+        dry_run=True,
+        output_dir=str(tmp_path),
+    )
+
+    caption = str(observed["caption"])
+    assert report["pair_url_scope"] == "host_local"
+    assert report["pair_url_actionable_from_telegram"] is False
+    assert report["telegram_caption_includes_pair_url"] is False
+    assert "pair_url=http://127.0.0.1:8098" not in caption
+    assert "pair_url_scope=host_local" in caption
+    assert "scan the attached QR" in caption
+    assert Path(str(observed["document_ref"])).is_file()
 
 
 def test_main_probe_whatsapp_pairing_prints_operator_text(monkeypatch, capsys) -> None:

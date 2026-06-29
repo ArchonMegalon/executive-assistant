@@ -37,7 +37,7 @@
   "command_surface_ready": true,
   "contract_name": "ea.teable_env_recovery_readiness.v1",
   "fresh_host_drill_receipt_mirrored": false,
-  "generated_at": "2026-06-29T14:47:31Z",
+  "generated_at": "2026-06-29T14:52:37Z",
   "generated_by": "scripts/materialize_teable_env_recovery_readiness.py",
   "head_semantics": "source_state",
   "issues": [],

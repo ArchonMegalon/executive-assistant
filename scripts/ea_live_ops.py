@@ -3686,6 +3686,33 @@ def _write_pairing_qr_svg(path: Path, payload: bytes) -> None:
     os.replace(tmp, path)
 
 
+def _pair_url_actionable_from_telegram(pair_url_scope: str) -> bool:
+    return str(pair_url_scope or "").strip() == "public"
+
+
+def _whatsapp_pairing_telegram_caption(
+    *,
+    session_ref: str,
+    status: str,
+    qr_age_seconds: int | None,
+    pair_url: str,
+    pair_url_scope: str,
+) -> str:
+    lines = [
+        "EA WhatsApp Web pairing is required.",
+        f"session={str(session_ref or '').strip()}",
+        f"status={str(status or '').strip()}",
+        f"qr_age_seconds={qr_age_seconds if qr_age_seconds is not None else 'unknown'}",
+        "action=Open WhatsApp > Linked devices > Link a device, then scan the attached QR.",
+    ]
+    if _pair_url_actionable_from_telegram(pair_url_scope):
+        lines.append(f"pair_url={str(pair_url or '').strip()}")
+    else:
+        lines.append(f"pair_url_scope={str(pair_url_scope or '').strip() or 'unknown'}")
+        lines.append("pair_url_note=Local pairing URLs are only usable from the EA host; use the attached QR on your phone.")
+    return "\n".join(line for line in lines if str(line).strip()).strip()
+
+
 def _qr_age_seconds(last_qr_at: object, *, now: datetime | None = None) -> int | None:
     raw = str(last_qr_at or "").strip()
     if not raw:
@@ -3920,6 +3947,7 @@ def probe_whatsapp_pairing(
         "qr_fresh_seconds": qr_fresh_seconds,
         "pair_url": pair_url,
         "pair_url_scope": _url_scope(pair_url),
+        "pair_url_actionable_from_telegram": _pair_url_actionable_from_telegram(_url_scope(pair_url)),
         "qr_svg_url": qr_svg_url,
         "qr_svg_content_type": content_type,
         "qr_svg_written": qr_svg_written,
@@ -3930,13 +3958,13 @@ def probe_whatsapp_pairing(
     }
 
     if send_telegram_to_principal:
-        caption = (
-            "EA WhatsApp Web pairing is required.\n"
-            f"session={session_ref}\n"
-            f"status={sidecar_status or status}\n"
-            f"qr_age_seconds={age_seconds if age_seconds is not None else 'unknown'}\n"
-            f"pair_url={pair_url}\n"
-            f"pair_url_scope={report['pair_url_scope']}"
+        pair_url_scope = str(report["pair_url_scope"])
+        caption = _whatsapp_pairing_telegram_caption(
+            session_ref=session_ref,
+            status=sidecar_status or status,
+            qr_age_seconds=age_seconds,
+            pair_url=pair_url,
+            pair_url_scope=pair_url_scope,
         )
         if not qr_svg_written:
             telegram = {
@@ -3961,6 +3989,7 @@ def probe_whatsapp_pairing(
                 "telegram_chat_ref_present": bool(telegram.get("chat_ref_present")),
                 "telegram_chat_ref_sha256": str(telegram.get("chat_ref_sha256") or "").strip(),
                 "telegram_delivery_transport": str(telegram.get("delivery_transport") or "").strip(),
+                "telegram_caption_includes_pair_url": _pair_url_actionable_from_telegram(pair_url_scope),
             }
         )
     if output_format == "operator":
@@ -3999,7 +4028,9 @@ OPERATOR_READINESS_DETAIL_FIELDS: dict[str, tuple[str, ...]] = {
         "qr_age_seconds",
         "qr_fresh",
         "pair_url_scope",
+        "pair_url_actionable_from_telegram",
         "qr_svg_written",
+        "telegram_caption_includes_pair_url",
     ),
     "teable_recovery": (
         "verify_status",

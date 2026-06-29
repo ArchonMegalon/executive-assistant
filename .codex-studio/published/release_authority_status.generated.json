@@ -1,6 +1,6 @@
 {
   "contract_name": "ea.release_authority_status.v1",
-  "generated_at": "2026-06-29T14:16:06Z",
+  "generated_at": "2026-06-29T14:54:36Z",
   "state": "watch",
   "summary": "Release authority is present but still has gaps to resolve.",
   "authority_posture": "local_only_deploy_id",
