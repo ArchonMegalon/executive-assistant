@@ -647,6 +647,313 @@ restore_drill() {
   fi
 }
 
+drift_check() {
+  require_tool curl
+  require_tool docker
+  require_tool jq
+
+  mkdir -p "$(dirname "$DRIFT_RECEIPT_PATH")"
+  local source_dir network_mode log_max_size log_max_file container_running_ok mount_ok network_ok log_ok compose_ok
+  source_dir="$(container_config_source)"
+  network_mode="$(container_network_mode)"
+  log_max_size="$(container_log_option max-size)"
+  log_max_file="$(container_log_option max-file)"
+
+  container_running && container_running_ok=true || container_running_ok=false
+  [[ "$source_dir" == "$CONFIG_DIR" && "$source_dir" != /tmp/* ]] && mount_ok=true || mount_ok=false
+  [[ "$network_mode" == "host" ]] && network_ok=true || network_ok=false
+  [[ "$log_max_size" == "10m" && "$log_max_file" == "3" ]] && log_ok=true || log_ok=false
+  if [[ -f "$COMPOSE_FILE" ]] &&
+     grep -q "$SERVICE_NAME" "$COMPOSE_FILE" &&
+     grep -q 'network_mode: host' "$COMPOSE_FILE" &&
+     grep -q 'max-size: "10m"' "$COMPOSE_FILE" &&
+     grep -q 'max-file: "3"' "$COMPOSE_FILE"; then
+    compose_ok=true
+  else
+    compose_ok=false
+  fi
+
+  local tmp_dir public_headers public_body protected_headers protected_body public_status protected_status public_guard_ok protected_ok
+  tmp_dir="$(mktemp -d)"
+  trap 'rm -rf "$tmp_dir"' RETURN
+  public_headers="$tmp_dir/public.headers"
+  public_body="$tmp_dir/public.body"
+  protected_headers="$tmp_dir/protected.headers"
+  protected_body="$tmp_dir/protected.body"
+  public_status="$(curl_status "$PUBLIC_BASE_URL/" "$public_headers" "$public_body")"
+  protected_status="$(curl_status "$PUBLIC_BASE_URL/.well-known/cloudflare-access-protected-resource/" "$protected_headers" "$protected_body")"
+  grep -qi '^location: .*cloudflareaccess\.com' "$public_headers" && public_guard_ok=true || public_guard_ok=false
+  [[ "$protected_status" == "200" ]] && grep -q '"protected"[[:space:]]*:[[:space:]]*true' "$protected_body" && protected_ok=true || protected_ok=false
+
+  local tunnel_log tunnel_ok
+  tunnel_log="$(docker logs --tail 400 chummer-run-cloudflared 2>&1 || true)"
+  if grep -q "\"hostname\":\"$DOMAIN\"" <<<"$tunnel_log" && grep -q "\"service\":\"$EXPECTED_TUNNEL_ORIGIN\"" <<<"$tunnel_log"; then
+    tunnel_ok=true
+  else
+    tunnel_ok=false
+  fi
+
+  local apps access_api_ok access_app_ok service_token_policy_ok email_policy_ok app_summary
+  access_api_ok=false
+  access_app_ok=false
+  service_token_policy_ok=false
+  email_policy_ok=false
+  app_summary='{}'
+  if apps="$(cloudflare_access_apps 2>/dev/null)"; then
+    access_api_ok=true
+    app_summary="$(printf '%s' "$apps" | jq -c --arg domain "$DOMAIN" '
+      (.result // [])
+      | map(select((.domain == $domain) or ((.self_hosted_domains // []) | index($domain))))
+      | .[0] // {}
+    ')"
+    [[ "$app_summary" != "{}" ]] && access_app_ok=true || access_app_ok=false
+    if printf '%s' "$app_summary" | jq -e '
+      any(.policies[]?; .decision == "non_identity" and any(.include[]?; has("any_valid_service_token")))
+    ' >/dev/null; then
+      service_token_policy_ok=true
+    fi
+    if printf '%s' "$app_summary" | jq -e '
+      any(.policies[]?; .decision == "allow" and any(.include[]?; has("email")))
+    ' >/dev/null; then
+      email_policy_ok=true
+    fi
+  fi
+
+  local pass
+  if [[ "$container_running_ok" == true &&
+        "$mount_ok" == true &&
+        "$network_ok" == true &&
+        "$log_ok" == true &&
+        "$compose_ok" == true &&
+        "$public_guard_ok" == true &&
+        "$protected_ok" == true &&
+        "$tunnel_ok" == true &&
+        "$access_api_ok" == true &&
+        "$access_app_ok" == true &&
+        "$service_token_policy_ok" == true &&
+        "$email_policy_ok" == true ]]; then
+    pass=true
+  else
+    pass=false
+  fi
+
+  jq -n \
+    --arg generatedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg domain "$DOMAIN" \
+    --arg expectedConfigDir "$CONFIG_DIR" \
+    --arg actualConfigDir "$source_dir" \
+    --arg networkMode "$network_mode" \
+    --arg logMaxSize "$log_max_size" \
+    --arg logMaxFile "$log_max_file" \
+    --arg publicStatus "$public_status" \
+    --arg protectedStatus "$protected_status" \
+    --arg expectedTunnelOrigin "$EXPECTED_TUNNEL_ORIGIN" \
+    --argjson pass "$(json_bool "$pass")" \
+    --argjson containerRunningOk "$(json_bool "$container_running_ok")" \
+    --argjson mountOk "$(json_bool "$mount_ok")" \
+    --argjson networkOk "$(json_bool "$network_ok")" \
+    --argjson logOk "$(json_bool "$log_ok")" \
+    --argjson composeOk "$(json_bool "$compose_ok")" \
+    --argjson publicGuardOk "$(json_bool "$public_guard_ok")" \
+    --argjson protectedOk "$(json_bool "$protected_ok")" \
+    --argjson tunnelOk "$(json_bool "$tunnel_ok")" \
+    --argjson accessApiOk "$(json_bool "$access_api_ok")" \
+    --argjson accessAppOk "$(json_bool "$access_app_ok")" \
+    --argjson serviceTokenPolicyOk "$(json_bool "$service_token_policy_ok")" \
+    --argjson emailPolicyOk "$(json_bool "$email_policy_ok")" \
+    '{
+      contractName: "home.girschele.home_assistant.drift.v1",
+      generatedAt: $generatedAt,
+      status: (if $pass then "pass" else "fail" end),
+      domain: $domain,
+      checks: {
+        containerRunning: $containerRunningOk,
+        durableMount: {ok: $mountOk, expected: $expectedConfigDir, actual: $actualConfigDir},
+        hostNetwork: {ok: $networkOk, actual: $networkMode},
+        logRotation: {ok: $logOk, maxSize: $logMaxSize, maxFile: $logMaxFile},
+        composeContract: $composeOk,
+        publicAccessGuard: {httpStatus: $publicStatus, ok: $publicGuardOk},
+        protectedResource: {httpStatus: $protectedStatus, ok: $protectedOk},
+        tunnelRoute: {ok: $tunnelOk, expectedOrigin: $expectedTunnelOrigin},
+        cloudflareAccessApi: $accessApiOk,
+        cloudflareAccessApp: $accessAppOk,
+        serviceTokenPolicy: $serviceTokenPolicyOk,
+        emailAllowPolicy: $emailPolicyOk
+      }
+    }' > "$DRIFT_RECEIPT_PATH"
+
+  jq -r '"home.girschele.com drift: " + .status + " (" + .generatedAt + ")"' "$DRIFT_RECEIPT_PATH"
+  if [[ "$(jq -r '.status' "$DRIFT_RECEIPT_PATH")" != "pass" ]]; then
+    jq '.checks' "$DRIFT_RECEIPT_PATH"
+    exit 1
+  fi
+}
+
+disk_log_check() {
+  require_tool docker
+  require_tool jq
+
+  mkdir -p "$(dirname "$DISK_LOG_RECEIPT_PATH")"
+  local config_df docker_df config_free_kb docker_free_kb config_free_bytes docker_free_bytes config_dir_bytes log_path log_bytes
+  config_df="$(df -Pk "$CONFIG_DIR" | awk 'NR==2 {print $4}')"
+  docker_df="$(df -Pk /var/lib/docker | awk 'NR==2 {print $4}')"
+  config_free_kb="${config_df:-0}"
+  docker_free_kb="${docker_df:-0}"
+  config_free_bytes=$((config_free_kb * 1024))
+  docker_free_bytes=$((docker_free_kb * 1024))
+  config_dir_bytes="$(du -sb "$CONFIG_DIR" | awk '{print $1}')"
+  log_path="$(container_log_path)"
+  if [[ -n "$log_path" && -f "$log_path" ]]; then
+    log_bytes="$(stat -c '%s' "$log_path")"
+  else
+    log_bytes=0
+  fi
+
+  local log_max_size log_max_file config_free_ok docker_free_ok log_size_ok log_rotation_ok pass
+  log_max_size="$(container_log_option max-size)"
+  log_max_file="$(container_log_option max-file)"
+  [[ "$config_free_bytes" -ge "$MIN_FREE_BYTES" ]] && config_free_ok=true || config_free_ok=false
+  [[ "$docker_free_bytes" -ge "$MIN_FREE_BYTES" ]] && docker_free_ok=true || docker_free_ok=false
+  [[ "$log_bytes" -le "$MAX_DOCKER_LOG_BYTES" ]] && log_size_ok=true || log_size_ok=false
+  [[ "$log_max_size" == "10m" && "$log_max_file" == "3" ]] && log_rotation_ok=true || log_rotation_ok=false
+
+  if [[ "$config_free_ok" == true &&
+        "$docker_free_ok" == true &&
+        "$log_size_ok" == true &&
+        "$log_rotation_ok" == true ]]; then
+    pass=true
+  else
+    pass=false
+  fi
+
+  jq -n \
+    --arg generatedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg configDir "$CONFIG_DIR" \
+    --arg logPath "$log_path" \
+    --arg logMaxSize "$log_max_size" \
+    --arg logMaxFile "$log_max_file" \
+    --argjson minFreeBytes "$MIN_FREE_BYTES" \
+    --argjson maxLogBytes "$MAX_DOCKER_LOG_BYTES" \
+    --argjson configFreeBytes "$config_free_bytes" \
+    --argjson dockerFreeBytes "$docker_free_bytes" \
+    --argjson configDirBytes "$config_dir_bytes" \
+    --argjson logBytes "$log_bytes" \
+    --argjson pass "$(json_bool "$pass")" \
+    --argjson configFreeOk "$(json_bool "$config_free_ok")" \
+    --argjson dockerFreeOk "$(json_bool "$docker_free_ok")" \
+    --argjson logSizeOk "$(json_bool "$log_size_ok")" \
+    --argjson logRotationOk "$(json_bool "$log_rotation_ok")" \
+    '{
+      contractName: "home.girschele.home_assistant.disk_log.v1",
+      generatedAt: $generatedAt,
+      status: (if $pass then "pass" else "fail" end),
+      thresholds: {minFreeBytes: $minFreeBytes, maxDockerLogBytes: $maxLogBytes},
+      checks: {
+        configDiskFree: {ok: $configFreeOk, bytes: $configFreeBytes, configDir: $configDir},
+        dockerDiskFree: {ok: $dockerFreeOk, bytes: $dockerFreeBytes},
+        configDirSize: {bytes: $configDirBytes},
+        dockerLogSize: {ok: $logSizeOk, path: $logPath, bytes: $logBytes},
+        dockerLogRotation: {ok: $logRotationOk, maxSize: $logMaxSize, maxFile: $logMaxFile}
+      }
+    }' > "$DISK_LOG_RECEIPT_PATH"
+
+  jq -r '"home.girschele.com disk/log: " + .status + " (" + .generatedAt + ")"' "$DISK_LOG_RECEIPT_PATH"
+  if [[ "$(jq -r '.status' "$DISK_LOG_RECEIPT_PATH")" != "pass" ]]; then
+    jq '.checks' "$DISK_LOG_RECEIPT_PATH"
+    exit 1
+  fi
+}
+
+scheduled_health() {
+  require_tool jq
+  mkdir -p "$(dirname "$SCHEDULE_RECEIPT_PATH")" "$(dirname "$SCHEDULE_LOG_PATH")"
+  {
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] scheduled-health start"
+    health
+    drift_check
+    disk_log_check
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] scheduled-health complete"
+  } >>"$SCHEDULE_LOG_PATH" 2>&1
+
+  jq -n \
+    --arg generatedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg healthReceipt "$RECEIPT_PATH" \
+    --arg driftReceipt "$DRIFT_RECEIPT_PATH" \
+    --arg diskLogReceipt "$DISK_LOG_RECEIPT_PATH" \
+    --arg logPath "$SCHEDULE_LOG_PATH" \
+    '{
+      contractName: "home.girschele.home_assistant.scheduled_health.v1",
+      generatedAt: $generatedAt,
+      status: "pass",
+      reusedHealthReceipt: $healthReceipt,
+      driftReceipt: $driftReceipt,
+      diskLogReceipt: $diskLogReceipt,
+      logPath: $logPath
+    }' > "$SCHEDULE_RECEIPT_PATH"
+  jq -r '"home.girschele.com scheduled health: " + .status + " (" + .generatedAt + ")"' "$SCHEDULE_RECEIPT_PATH"
+}
+
+install_scheduled_health() {
+  require_tool systemctl
+  mkdir -p "$SYSTEMD_USER_DIR" "$(dirname "$SCHEDULE_RECEIPT_PATH")"
+  local service_path timer_path systemctl_status pass
+  service_path="$SYSTEMD_USER_DIR/$SYSTEMD_SERVICE_NAME"
+  timer_path="$SYSTEMD_USER_DIR/$SYSTEMD_TIMER_NAME"
+
+  cat >"$service_path" <<SERVICE
+[Unit]
+Description=home.girschele.com Home Assistant scheduled health receipt
+
+[Service]
+Type=oneshot
+WorkingDirectory=$REPO_ROOT
+ExecStart=/usr/bin/env bash $REPO_ROOT/scripts/home_girschele_hass_ops.sh scheduled-health
+SERVICE
+
+  cat >"$timer_path" <<TIMER
+[Unit]
+Description=Run home.girschele.com Home Assistant health every 15 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+TIMER
+
+  set +e
+  systemctl --user daemon-reload
+  systemctl --user enable --now "$SYSTEMD_TIMER_NAME"
+  systemctl_status=$?
+  set -e
+  [[ "$systemctl_status" == "0" ]] && pass=true || pass=false
+
+  jq -n \
+    --arg generatedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg servicePath "$service_path" \
+    --arg timerPath "$timer_path" \
+    --arg timerName "$SYSTEMD_TIMER_NAME" \
+    --argjson systemctlExit "$systemctl_status" \
+    --argjson pass "$(json_bool "$pass")" \
+    '{
+      contractName: "home.girschele.home_assistant.schedule_install.v1",
+      generatedAt: $generatedAt,
+      status: (if $pass then "pass" else "fail" end),
+      servicePath: $servicePath,
+      timerPath: $timerPath,
+      timerName: $timerName,
+      systemctlUserEnableExitCode: $systemctlExit
+    }' > "$STATE_DIR/homeassistant-schedule-install.receipt.json"
+
+  jq -r '"home.girschele.com schedule install: " + .status + " (" + .generatedAt + ")"' "$STATE_DIR/homeassistant-schedule-install.receipt.json"
+  if [[ "$pass" != true ]]; then
+    jq '.' "$STATE_DIR/homeassistant-schedule-install.receipt.json"
+    exit 1
+  fi
+}
+
 case "${1:-health}" in
   migrate-config)
     migrate_config
@@ -668,6 +975,18 @@ case "${1:-health}" in
     shift || true
     restore_drill "${1:-}"
     ;;
+  drift)
+    drift_check
+    ;;
+  disk-log)
+    disk_log_check
+    ;;
+  scheduled-health)
+    scheduled_health
+    ;;
+  install-scheduled-health)
+    install_scheduled_health
+    ;;
   harden)
     migrate_config
     ensure_proxy_config
@@ -675,10 +994,12 @@ case "${1:-health}" in
     restore_access
     backup_config
     restore_drill
+    drift_check
+    disk_log_check
     health
     ;;
   *)
-    echo "usage: $0 {migrate-config|up|restore-access|health|backup|restore-drill|harden}" >&2
+    echo "usage: $0 {migrate-config|up|restore-access|health|backup|restore-drill|drift|disk-log|scheduled-health|install-scheduled-health|harden}" >&2
     exit 2
     ;;
 esac
