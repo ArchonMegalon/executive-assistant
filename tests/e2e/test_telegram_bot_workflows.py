@@ -537,8 +537,7 @@ def test_telegram_bot_followup_draft_reuses_recent_search_context_and_auto_execu
     agent = _TelegramScenarioAgent(client, secret="tg-secret")
 
     first = agent.ask("suche mir rauchfangkehrer - ich brauche ein Gutachten, ob ich meinen Zimmerkamin als Abluftrohr eines Klimageraets verwenden kann")
-    assert first["reply_sent"] is True
-    assert "Saved. I staged this as a reversible next step." in str(first["reply_text"])
+    assert first["reply_sent"] is False
 
     followup = agent.ask("wenn du einen gefunden hast formuliere eine emailanfrage und speicher sie als draft in meiner inbox. schicke mir hier den link zu ihr.")
     assert followup["reply_sent"] is True
@@ -564,13 +563,13 @@ def test_telegram_bot_followup_draft_reuses_recent_search_context_and_auto_execu
     assert executions[0]["packet_ref"] == latest_stage["packet_ref"]
     reply_markup = dict(sent[-1].get("reply_markup") or {})
     inline_keyboard = list(reply_markup.get("inline_keyboard") or [])
-    assert inline_keyboard
+    assert not inline_keyboard
     callback_dir = tmp_path / "state" / "proactive_ooda_approval_callbacks"
     callback_rows = [
         json.loads(path.read_text(encoding="utf-8"))
         for path in callback_dir.glob("*.json")
     ]
-    assert any(row.get("packet_ref") == latest_stage["packet_ref"] for row in callback_rows)
+    assert not any(row.get("packet_ref") == latest_stage["packet_ref"] for row in callback_rows)
 
 
 def test_telegram_epub_webhook_sends_three_voice_samples_with_inline_controls(
@@ -1743,7 +1742,7 @@ def test_telegram_codex_human_audit_simulation_checks_calendar_pocket_semantic_f
     assert any(str(row.event_type) == "telegram.reply_async_started" for row in observations)
     assert any(str(row.event_type) == "telegram.reply_async_sent" for row in observations)
     assert any(str(row.event_type) == "telegram.pocket_candidate_suggestions_sent" for row in observations)
-    assert any(
+    assert not any(
         "processing this asynchronously now" in str(payload.get("text") or "")
         or "processing it asynchronously" in str(payload.get("text") or "")
         for payload in sent_payloads

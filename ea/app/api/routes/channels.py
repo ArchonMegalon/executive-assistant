@@ -9089,6 +9089,74 @@ def _telegram_inline_proactive_execution_reason(*, execution: dict[str, object])
     return compact_text(reason, fallback="", limit=160)
 
 
+def _telegram_inline_proactive_has_reviewable_material(
+    *,
+    safe_work_result: dict[str, object],
+    execution_result: dict[str, object],
+) -> bool:
+    execution_status = str(execution_result.get("status") or "").strip().lower()
+    execution_action = str(execution_result.get("action") or "").strip().lower()
+    if execution_status == "blocked":
+        return True
+    if execution_status == "executed":
+        if execution_action == "save_gmail_draft":
+            return bool(
+                str(execution_result.get("draft_folder_url") or "").strip()
+                or str(execution_result.get("gmail_draft_id") or "").strip()
+            )
+        return True
+
+    status = str(safe_work_result.get("status") or "").strip().lower()
+    if status in {"blocked_human_handoff_required", "blocked_needs_browser_action"}:
+        return True
+
+    browser_action_receipt = dict(safe_work_result.get("browser_action_receipt") or {})
+    if bool(browser_action_receipt.get("user_action_required")):
+        return True
+
+    if str(safe_work_result.get("staged_action_url") or "").strip():
+        return True
+
+    shortlist = [item for item in list(safe_work_result.get("shortlist") or []) if isinstance(item, dict)]
+    comparison_table = [item for item in list(safe_work_result.get("comparison_table") or []) if isinstance(item, dict)]
+    if shortlist or comparison_table:
+        return True
+
+    recommended = dict(safe_work_result.get("recommended_option_or_draft") or {})
+    kind = str(recommended.get("kind") or "").strip().lower()
+    value = recommended.get("value")
+    if kind == "research_query":
+        return False
+    if kind == "draft_text":
+        return bool(str(value or "").strip())
+    if kind in {"booking_candidate", "reversible_cart_or_link", "shortlist_candidate"}:
+        return bool(value)
+    return False
+
+
+def _telegram_inline_proactive_should_absorb_generic_task(
+    *,
+    safe_work_result: dict[str, object],
+    execution_result: dict[str, object],
+) -> bool:
+    if _telegram_inline_proactive_has_reviewable_material(
+        safe_work_result=safe_work_result,
+        execution_result=execution_result,
+    ):
+        return False
+    work_type = str(safe_work_result.get("work_type") or "").strip().lower()
+    status = str(safe_work_result.get("status") or "").strip().lower()
+    if status in {
+        "blocked_human_handoff_required",
+        "blocked_needs_browser_action",
+        "blocked_needs_research_input",
+    }:
+        return work_type in {"draft", "research", "prepare_booking_candidate", "prepare_cart_or_link"}
+    recommended = dict(safe_work_result.get("recommended_option_or_draft") or {})
+    kind = str(recommended.get("kind") or "").strip().lower()
+    return work_type in {"draft", "research"} and kind in {"", "research_query"}
+
+
 def _telegram_inline_proactive_user_action_required(
     *,
     safe_work_result: dict[str, object],
@@ -9103,10 +9171,12 @@ def _telegram_inline_proactive_user_action_required(
     if execution_status == "blocked":
         return True
     if execution_status == "executed" and execution_action == "save_gmail_draft":
-        return bool(
-            str(execution_result.get("draft_folder_url") or "").strip()
-            or str(execution_result.get("gmail_draft_id") or "").strip()
-        )
+        return False
+    if not _telegram_inline_proactive_has_reviewable_material(
+        safe_work_result=safe_work_result,
+        execution_result=execution_result,
+    ):
+        return False
     status = str(safe_work_result.get("status") or "").strip().lower()
     if status == "blocked_needs_research_input":
         lowered = " ".join(str(reply_text or "").strip().lower().split())
@@ -9313,6 +9383,14 @@ def _telegram_stage_inline_proactive_task(
         approval_request=approval_request,
         reply_text=reply_text,
     )
+    reviewable_material = _telegram_inline_proactive_has_reviewable_material(
+        safe_work_result=safe_work_result,
+        execution_result=execution_result,
+    )
+    absorb_generic_task = _telegram_inline_proactive_should_absorb_generic_task(
+        safe_work_result=safe_work_result,
+        execution_result=execution_result,
+    )
     approval_surface_needed = bool(packet_refs and safe_work_refs) and (
         str(safe_work_result.get("status") or "").strip() == "staged_for_user_decision"
     ) and user_action_required
@@ -9400,6 +9478,8 @@ def _telegram_stage_inline_proactive_task(
         "approval_record_path": approval_record_path,
         "stage_packet_refs": packet_refs,
         "safe_work_result_refs": safe_work_refs,
+        "reviewable_material": reviewable_material,
+        "absorb_generic_task": absorb_generic_task,
         "user_action_required": user_action_required or bool(inline_buttons),
     }
 
@@ -9831,7 +9911,9 @@ def ingest_telegram(
         )
         staged_reply_text = str(proactive_stage_result.get("reply_text") or "").strip()
         staged_inline_buttons = proactive_stage_result.get("inline_buttons")
-        if staged_reply_text:
+        reviewable_material = bool(proactive_stage_result.get("reviewable_material"))
+        absorb_generic_task = bool(proactive_stage_result.get("absorb_generic_task"))
+        if staged_reply_text and reviewable_material:
             reply_text = staged_reply_text
             schedule_async = False
             async_text = ""
@@ -9839,6 +9921,13 @@ def ingest_telegram(
             async_payload = {}
             if isinstance(staged_inline_buttons, list):
                 inline_buttons = staged_inline_buttons
+        elif absorb_generic_task:
+            reply_text = ""
+            schedule_async = False
+            async_text = ""
+            async_message_id = ""
+            async_payload = {}
+            inline_buttons = []
     if reply_text and _telegram_should_suppress_sync_nonaction_reply(
         reply_text=reply_text,
         has_action_surface=bool(inline_buttons) or bool(proactive_stage_result.get("user_action_required")),
