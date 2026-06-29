@@ -921,6 +921,28 @@ def _transcript_service_provider_request(lowered_request: str) -> bool:
     return False
 
 
+def _transcript_has_action_intent(lowered_request: str) -> bool:
+    normalized = _ascii_fold_text(_clean_text(lowered_request).strip().lower())
+    if not normalized:
+        return False
+    padded = f" {normalized} "
+    if _transcript_save_gmail_draft_requested(normalized) or _transcript_service_provider_request(normalized):
+        return True
+    direct_patterns = (
+        r"\b(?:can you|could you|please|remember to)\b",
+        r"\b(?:kannst du|koenntest du|wenn du|bitte|suche mir|such mir)\b",
+        r"\bshould\s+(?:book|buy|compare|draft|find|order|reply|research|schedule|send|shop|write)\b",
+    )
+    if any(re.search(pattern, padded) for pattern in direct_patterns):
+        return True
+    action_patterns = (
+        r"\b(?:book|buy|compare|draft|find|order|renew|reply|reserve|respond|review|schedule|search|send|shop|write)\b",
+        r"\b(?:buche|finde|formuliere|rauchfangkehrer|schicke|schick|schreibe|schreib|suche|termin)\b",
+        r"\b(?:brauch|brauche|brauchst|brauchen)\b",
+    )
+    return any(re.search(pattern, padded) for pattern in action_patterns)
+
+
 def _transcript_stage_notes(*values: Any) -> list[str]:
     notes: list[str] = []
     seen: set[str] = set()
@@ -1106,7 +1128,7 @@ def _transcript_assistant_ooda(
 ) -> dict[str, Any]:
     normalized_request = _clean_text(request_text).strip()
     lowered = normalized_request.lower()
-    if not normalized_request or not any(marker in lowered for marker in _TRANSCRIPT_REQUEST_MARKERS):
+    if not normalized_request or not _transcript_has_action_intent(lowered):
         return {}
     note_list = [str(item).strip() for item in notes if str(item).strip()][:4]
     delivery_window = _transcript_delivery_window_days(lowered)

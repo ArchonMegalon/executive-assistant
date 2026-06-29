@@ -108,8 +108,27 @@ def load_runtime_artifact_bundle(
     approval_outcome_path = paths["approval_outcome_path"]
     approval_callback_dir = paths["approval_callback_dir"]
     approval_outcome = _load_json(approval_outcome_path)
-    run_stage_dir = _path_from_value(root, str(primary_run_receipt.get("stage_packet_output_dir") or ""))
-    run_safe_dir = _path_from_value(root, str(primary_run_receipt.get("safe_work_result_output_dir") or ""))
+    _, run_receipt_for_artifacts = choose_best_run_receipt_for_artifact_selection(
+        primary_run_receipt_path=primary_run_receipt_path,
+        primary_run_receipt=primary_run_receipt,
+        run_receipt_dir=run_receipt_dir,
+    )
+    run_stage_dir = _path_from_value(
+        root,
+        str(
+            run_receipt_for_artifacts.get("stage_packet_output_dir")
+            or primary_run_receipt.get("stage_packet_output_dir")
+            or ""
+        ),
+    )
+    run_safe_dir = _path_from_value(
+        root,
+        str(
+            run_receipt_for_artifacts.get("safe_work_result_output_dir")
+            or primary_run_receipt.get("safe_work_result_output_dir")
+            or ""
+        ),
+    )
     if run_stage_dir is not None and not stage_packet_dir:
         resolved_stage_dir = run_stage_dir
     if run_safe_dir is not None and not safe_work_result_dir:
@@ -117,7 +136,7 @@ def load_runtime_artifact_bundle(
     preferred_pair = choose_stage_and_safe_work_for_run_receipt(
         stage_packet_dir=resolved_stage_dir,
         safe_work_result_dir=resolved_safe_dir,
-        run_receipt=primary_run_receipt,
+        run_receipt=run_receipt_for_artifacts,
     )
     if preferred_pair is None:
         stage_packet_path, stage_packet, safe_work_result_path, safe_work_result = choose_stage_and_safe_work(
@@ -154,6 +173,24 @@ def load_runtime_artifact_bundle(
         "approval_callback_dir": approval_callback_dir,
         **callback_summary,
     }
+
+
+def choose_best_run_receipt_for_artifact_selection(
+    *,
+    primary_run_receipt_path: Path | None,
+    primary_run_receipt: dict[str, Any],
+    run_receipt_dir: Path,
+) -> tuple[Path | None, dict[str, Any]]:
+    best = _best_run_receipt_candidate(
+        _run_receipt_candidates(
+            primary_run_receipt_path=primary_run_receipt_path,
+            primary_run_receipt=primary_run_receipt,
+            run_receipt_dir=run_receipt_dir,
+        )
+    )
+    if best is None:
+        return primary_run_receipt_path, primary_run_receipt
+    return best[0], best[1]
 
 
 def approval_callback_runtime_summary(

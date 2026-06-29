@@ -53,16 +53,16 @@
     },
     "operator_status": {
       "contract_name": "ea.proactive_ooda_operator_status.v1",
-      "generated_at": "2026-06-29T10:56:07Z",
+      "generated_at": "2026-06-29T11:14:40Z",
       "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
       "present": true,
-      "source_git_head": "1bfc9c8655a6ba0db26e01a2a47f7ca7e9569f6c",
-      "source_state_fingerprint": "a1944408ca6543fe0c20e0e49bd4239f89e2cc3f5a1e201a0fe528db0756e4e0",
+      "source_git_head": "d3ae89f0b5ade1a8e6b0386b95abcba9ba6388c9",
+      "source_state_fingerprint": "4d1afff9555fd22c9b0b3cf8b929e1ea4c17f5ef5ff3389e4ad51a2e0d68168e",
       "status": "ready_with_live_receipt"
     },
     "run_receipt": {
       "notification_status": "sent",
-      "path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+      "path": "/data/provider-ledger/proactive_ooda_run_receipts/20260629T104429_225391_0000-sent-add917f74025.json",
       "present": true,
       "source": "docker_compose_exec"
     },
@@ -80,7 +80,7 @@
       "source": "docker_compose_exec"
     }
   },
-  "generated_at": "2026-06-29T10:56:08Z",
+  "generated_at": "2026-06-29T11:14:41Z",
   "generated_by": "scripts/materialize_proactive_ooda_gold_acceptance.py",
   "goal_completion_claim_allowed": false,
   "gold_claim_allowed": false,
@@ -158,7 +158,7 @@
       "delivery_route_error": "",
       "live_receipt_checked": true,
       "live_receipt_ok": true,
-      "live_receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+      "live_receipt_path": "/data/provider-ledger/proactive_ooda_run_receipts/20260629T104429_225391_0000-sent-add917f74025.json",
       "packet_artifacts_match_run_receipt": true,
       "present": true,
       "route_probe_runtime_service": "ea-proactive-ooda",
@@ -194,7 +194,7 @@
       "packet_projection_present": true,
       "present": true,
       "projection_record_count": 12,
-      "run_receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+      "run_receipt_path": "/data/provider-ledger/proactive_ooda_run_receipts/20260629T104429_225391_0000-sent-add917f74025.json",
       "run_receipt_present": true,
       "status": "pass",
       "sync_attempted": true,
@@ -210,8 +210,8 @@
     "Raw packet text, private links, actor identity, packet refs, and staged artifact refs must stay out of this published receipt; only hashes and coarse status may appear.",
     "Teable remains an admin projection and audit mirror rather than canonical queue or product truth."
   ],
-  "source_git_head": "1bfc9c8655a6ba0db26e01a2a47f7ca7e9569f6c",
-  "source_state_fingerprint": "a1944408ca6543fe0c20e0e49bd4239f89e2cc3f5a1e201a0fe528db0756e4e0",
+  "source_git_head": "d3ae89f0b5ade1a8e6b0386b95abcba9ba6388c9",
+  "source_state_fingerprint": "4d1afff9555fd22c9b0b3cf8b929e1ea4c17f5ef5ff3389e4ad51a2e0d68168e",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready_for_approval_outcome_capture",
   "summary": "A proactive OODA packet has local gold-proof runtime evidence; capture the redacted approval outcome next.",

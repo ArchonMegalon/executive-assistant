@@ -91,6 +91,93 @@ def test_load_runtime_artifact_bundle_prefers_matching_archived_sent_receipt(tmp
     assert bundle["safe_work_result"]["result_ref"] == "safe_work_result:res-live"
 
 
+def test_load_runtime_artifact_bundle_keeps_sent_packet_when_primary_is_newer_noop(tmp_path: Path) -> None:
+    state_path = "state/proactive_ooda_notified.json"
+    primary_receipt_path = tmp_path / "state" / "proactive_ooda_latest_run.generated.json"
+    archive_receipt_path = tmp_path / "state" / "proactive_ooda_run_receipts" / "20260629T110000Z-sent-proof.json"
+    stage_dir = tmp_path / "state" / "proactive_ooda_stage_packets"
+    safe_dir = tmp_path / "state" / "proactive_ooda_safe_work_results"
+
+    actionable_stage = {
+        "schema": "proactive_ooda.stage_packet.v1",
+        "packet_ref": "stage_packet:pkt-actionable",
+        "stage": {"kind": "approval_packet"},
+        "approval": {"required": True},
+    }
+    actionable_safe = {
+        "schema": "proactive_ooda.safe_work_result.v1",
+        "result_ref": "safe_work_result:res-actionable",
+        "source_packet_ref_hash": _sha256(actionable_stage["packet_ref"]),
+        "status": "staged_for_user_decision",
+        "recommended_option_or_draft": {
+            "kind": "shortlist_candidate",
+            "value": {"label": "Vendor A", "url": "https://example.test/vendor-a"},
+        },
+        "approval": {"required": True},
+        "execution_receipt": {
+            "network_fetch_count": 1,
+            "network_fetch_success_count": 1,
+            "page_checks": [{"url": "https://example.test/vendor-a", "reachable": True}],
+            "irreversible_actions_attempted": [],
+        },
+    }
+    noop_stage = {
+        "schema": "proactive_ooda.stage_packet.v1",
+        "packet_ref": "stage_packet:pkt-noop",
+        "stage": {"kind": "approval_packet"},
+        "approval": {"required": False},
+    }
+    noop_safe = {
+        "schema": "proactive_ooda.safe_work_result.v1",
+        "result_ref": "safe_work_result:res-noop",
+        "source_packet_ref_hash": _sha256(noop_stage["packet_ref"]),
+        "status": "blocked_needs_research_input",
+        "recommended_option_or_draft": {"kind": "", "value": ""},
+        "approval": {"required": False},
+        "execution_receipt": {
+            "network_fetch_count": 0,
+            "network_fetch_success_count": 0,
+            "page_checks": [],
+            "irreversible_actions_attempted": [],
+        },
+    }
+    _write_json(stage_dir / "pkt-actionable.json", actionable_stage)
+    _write_json(safe_dir / "res-actionable.json", actionable_safe)
+    _write_json(stage_dir / "pkt-noop.json", noop_stage)
+    _write_json(safe_dir / "res-noop.json", noop_safe)
+    _write_json(
+        archive_receipt_path,
+        {
+            "notification_status": "sent",
+            "item_count": 1,
+            "stage_packet_ref_hashes": [_sha256(actionable_stage["packet_ref"])],
+            "safe_work_result_ref_hashes": [_sha256(actionable_safe["result_ref"])],
+            "telegram_message_ids": ["3130"],
+            "teable_sync": {"status": "synced", "sync_attempted": True},
+        },
+    )
+    _write_json(
+        primary_receipt_path,
+        {
+            "notification_status": "deferred",
+            "error_code": "no_user_action_required",
+            "item_count": 4,
+            "stage_packet_output_dir": str(stage_dir),
+            "safe_work_result_output_dir": str(safe_dir),
+            "stage_packet_ref_hashes": [_sha256(noop_stage["packet_ref"])],
+            "safe_work_result_ref_hashes": [_sha256(noop_safe["result_ref"])],
+            "telegram_message_ids": [],
+        },
+    )
+
+    bundle = load_runtime_artifact_bundle(root=tmp_path, state_path=state_path)
+
+    assert bundle["run_receipt_path"] == archive_receipt_path
+    assert bundle["run_receipt"]["notification_status"] == "sent"
+    assert bundle["stage_packet"]["packet_ref"] == "stage_packet:pkt-actionable"
+    assert bundle["safe_work_result"]["result_ref"] == "safe_work_result:res-actionable"
+
+
 def test_load_runtime_artifact_bundle_prefers_primary_run_linked_artifacts_over_newer_unrelated_pair(tmp_path: Path) -> None:
     state_path = "state/proactive_ooda_notified.json"
     primary_receipt_path = tmp_path / "state" / "proactive_ooda_latest_run.generated.json"

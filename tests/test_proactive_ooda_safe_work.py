@@ -657,7 +657,7 @@ def test_build_safe_work_result_does_not_count_search_query_as_candidate_localit
     assert all("location 1200 Wien" not in row["matched_criteria"] for row in result["comparison_table"])
 
 
-def test_build_safe_work_result_sanitizes_outreach_request_and_falls_back_from_reference_noise() -> None:
+def test_build_safe_work_result_blocks_outreach_draft_from_reference_noise() -> None:
     packet = _packet_with_cart_work()
     request_text = (
         "suche mir rauchfangkehrer - ich brauche ein Gutachten, ob ich meinen Zimmerkamin "
@@ -697,18 +697,14 @@ def test_build_safe_work_result_sanitizes_outreach_request_and_falls_back_from_r
 
     result = build_safe_work_result(packet)
 
-    recommended = result["recommended_option_or_draft"]
-    assert recommended["kind"] == "draft_text"
-    assert recommended["source"] == "request_fallback"
-    assert recommended.get("recipient_email", "") == ""
+    assert result["status"] == "blocked_needs_research_input"
+    assert result["recommended_option_or_draft"] == {}
     assert result["staged_action_url"] == ""
-    assert "ich brauche ein Gutachten" in recommended["value"]
-    assert "speicher sie als draft" not in recommended["value"].lower()
-    assert "schicke mir hier den link" not in recommended["value"].lower()
     assert result["audit"]["status"] == "review"
     issue_codes = [issue["code"] for issue in result["audit"]["issues"]]
     assert "operator_meta_removed_from_outreach_request" in issue_codes
-    assert "draft_used_request_fallback" in issue_codes
+    assert "top_candidate_not_provider_like" in issue_codes
+    assert "draft_not_created" in issue_codes
 
 
 def test_build_safe_work_result_rejects_reference_page_with_email_from_generic_provider_query() -> None:

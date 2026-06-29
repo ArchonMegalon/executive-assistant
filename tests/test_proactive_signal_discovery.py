@@ -1040,6 +1040,43 @@ def test_observation_mapper_pocket_archive_index_falls_back_to_excerpt_summary()
     assert signal.due_at is None
 
 
+def test_pocket_background_transcript_without_action_intent_stays_quiet_context() -> None:
+    signal = observation_row_to_signal(
+        observation_id="obs-pocket-background-noise",
+        principal_id="exec",
+        channel="product",
+        event_type="pocket_recording_archive_indexed",
+        payload={
+            "recording_id": "rec-background-noise",
+            "title": "Background walk",
+            "recording_at": "2026-06-29T09:30:00+00:00",
+            "archive_status": "archived",
+            "summary_markdown": "Mikrofongeraeusche und lockeres Gespraech beim Gehen.",
+            "transcript_excerpt": (
+                "[Mikrofongeraeusche] Wir gehen jetzt glaube ich auf die Kinderspielhuegel. "
+                "Stimmt schauen anschauen mitgeht."
+            ),
+            "transcript_text": (
+                "[Mikrofongeraeusche] Wir gehen jetzt glaube ich auf die Kinderspielhuegel. "
+                "Stimmt schauen anschauen mitgeht. Eine Person ist im Hintergrund."
+            ),
+            "topic_keywords_csv": "family,background,voices",
+        },
+        created_at="2026-06-29T10:00:00+00:00",
+        source_id="pocket-recording:rec-background-noise",
+    )
+
+    assert signal is not None
+    assert signal.payload is not None
+    assert signal.payload["ooda_loop"] == {}
+    pocket_payload = signal.payload.get("pocket_recording")
+    assert isinstance(pocket_payload, dict)
+    assert pocket_payload["transcript_text_sha256"]
+
+    digest = ProactiveOodaService().build_digest(principal_id="exec", signals=[signal])
+    assert digest.items == ()
+
+
 def test_observation_mapper_turns_alexa_history_index_into_transcript_signal() -> None:
     signal = observation_row_to_signal(
         observation_id="obs-alexa",
@@ -1162,9 +1199,9 @@ def test_combined_transcript_task_falls_back_to_a_reviewable_draft_even_before_l
     result = build_safe_work_result(packet)
 
     assert result["work_type"] == "draft"
-    assert result["recommended_option_or_draft"]["kind"] == "draft_text"
-    assert result["recommended_option_or_draft"]["source"] == "request_fallback"
-    assert "I would like to reach out" in result["recommended_option_or_draft"]["value"]
+    assert result["status"] == "blocked_needs_research_input"
+    assert result["recommended_option_or_draft"] == {}
+    assert any(issue["code"] == "draft_not_created" for issue in result["audit"]["issues"])
 
 
 def test_actionable_pocket_transcript_stages_booking_research_packet() -> None:
@@ -1263,11 +1300,10 @@ def test_pocket_transcript_vendor_request_can_auto_stage_gmail_draft_without_raw
 
     result = build_safe_work_result(packet)
     assert result["work_type"] == "draft"
-    assert result["recommended_option_or_draft"]["kind"] == "draft_text"
-    assert result["recommended_option_or_draft"]["source"] == "request_fallback"
-    assert "Guten Tag" in result["recommended_option_or_draft"]["value"]
-    assert "Unterputz-Steckdose" in result["recommended_option_or_draft"]["value"]
-    assert "speichere sie als Draft" not in result["recommended_option_or_draft"]["value"]
+    assert result["status"] == "blocked_needs_research_input"
+    assert result["recommended_option_or_draft"] == {}
+    assert any(issue["code"] == "draft_not_created" for issue in result["audit"]["issues"])
+    assert "research further" in result["approval_prompt"]
 
 
 def test_observation_mapper_skips_empty_property_scout_sync() -> None:
