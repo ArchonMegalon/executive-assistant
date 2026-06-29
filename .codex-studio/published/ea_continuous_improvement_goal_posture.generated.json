@@ -62,8 +62,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "f2587b48e308bde89275faac164aecd023fdad6a",
-          "source_state_fingerprint": "45d38e0d854c5a63216789e49c362f201b9f54430fc0df636022989d66809329",
+          "source_git_head": "8f16a14429f8469a43b3cbfa3216c080af6454c7",
+          "source_state_fingerprint": "aedc25f6a96abf45224153fb3131b570f2bd8d8606fbe8e1cda5e05f1b921fec",
           "status": "ready_for_approval_outcome_capture"
         },
         {
@@ -71,8 +71,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "f2587b48e308bde89275faac164aecd023fdad6a",
-          "source_state_fingerprint": "45d38e0d854c5a63216789e49c362f201b9f54430fc0df636022989d66809329",
+          "source_git_head": "8f16a14429f8469a43b3cbfa3216c080af6454c7",
+          "source_state_fingerprint": "aedc25f6a96abf45224153fb3131b570f2bd8d8606fbe8e1cda5e05f1b921fec",
           "status": "ready_with_live_receipt"
         }
       ],
@@ -110,7 +110,7 @@
       "evidence_kind": "live_delivery_receipt",
       "key": "telegram_audiobook_live_delivery",
       "lens": "deliver",
-      "next_action": "resume_or_rebuild_telegram_audiobook_render_before_public_share_delivery",
+      "next_action": "choose_explicit_replacement_voice_or_restore_selected_provider",
       "required_next_receipt": "passing Telegram audiobook live delivery receipt",
       "source_receipts": [
         {
@@ -145,7 +145,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-06-29T22:33:04Z",
+  "generated_at": "2026-06-29T22:54:03Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -400,7 +400,7 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "f2587b48e308bde89275faac164aecd023fdad6a",
-  "source_state_fingerprint": "45d38e0d854c5a63216789e49c362f201b9f54430fc0df636022989d66809329",
+  "source_git_head": "8f16a14429f8469a43b3cbfa3216c080af6454c7",
+  "source_state_fingerprint": "aedc25f6a96abf45224153fb3131b570f2bd8d8606fbe8e1cda5e05f1b921fec",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }

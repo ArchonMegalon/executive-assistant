@@ -10311,6 +10311,99 @@ def _audiobook_wait_kind(render_result: dict[str, object]) -> str:
     return ""
 
 
+def recover_audiobook_job_without_external_side_effects(job_dir: Path) -> dict[str, object]:
+    job = _load_job(job_dir)
+    status = str(job.get("status") or "").strip()
+    provider_payload = dict(job.get("provider") or {})
+    voice_selection = dict(provider_payload.get("voice_selection") or {})
+    if not voice_selection:
+        return {"recovered": False, "reason": "voice_selection_missing", "job": job}
+    metadata = _metadata_from_job(job)
+    render_result = dict(job.get("render_result") or {})
+    render_reason = str(render_result.get("reason") or "").strip()
+
+    language_mismatch = _selected_voice_language_mismatch(
+        metadata=metadata,
+        voice_selection={"public": voice_selection},
+    )
+    if language_mismatch and status in {"blocked_external_tts", "voice_selected"}:
+        reopened = reopen_audiobook_voice_selection_for_language_mismatch(job_dir=job_dir)
+        return {
+            "recovered": str(reopened.get("status") or "").strip() == "waiting_voice_selection",
+            "reason": "selected_voice_language_mismatch",
+            "job": reopened,
+        }
+
+    author_gender_mismatch = _selected_voice_author_gender_mismatch(
+        job_dir=job_dir,
+        metadata=metadata,
+        voice_selection={"public": voice_selection},
+    )
+    if author_gender_mismatch and status in {"blocked_external_tts", "voice_selected"}:
+        reopened = reopen_audiobook_voice_selection_for_author_gender_mismatch(job_dir=job_dir)
+        return {
+            "recovered": str(reopened.get("status") or "").strip() == "waiting_voice_selection",
+            "reason": "selected_voice_author_gender_mismatch",
+            "job": reopened,
+        }
+
+    if status == "blocked_external_tts" and render_reason in {
+        "selected_voice_language_mismatch",
+        "selected_voice_author_gender_mismatch",
+    }:
+        return {
+            "recovered": False,
+            "reason": render_reason,
+            "job": job,
+        }
+    return {"recovered": False, "reason": "", "job": job}
+
+
+def recover_stale_audiobook_jobs_without_external_side_effects(
+    *,
+    newest_first: bool = True,
+    limit: int | None = None,
+) -> dict[str, object]:
+    manifests = list(iter_audiobook_job_manifests(newest_first=newest_first))
+    if limit is not None:
+        manifests = manifests[: max(int(limit), 0)]
+    attempted = 0
+    recovered = 0
+    recovery_reasons: dict[str, int] = {}
+    changed_jobs: list[dict[str, object]] = []
+    errors: list[str] = []
+    for manifest_path in manifests:
+        attempted += 1
+        job_dir = manifest_path.parent
+        try:
+            result = recover_audiobook_job_without_external_side_effects(job_dir)
+        except Exception as exc:
+            errors.append(f"{job_dir.name}:{type(exc).__name__}:{exc}")
+            continue
+        if not bool(result.get("recovered")):
+            continue
+        recovered += 1
+        reason = str(result.get("reason") or "").strip() or "recovered"
+        recovery_reasons[reason] = int(recovery_reasons.get(reason) or 0) + 1
+        job = dict(result.get("job") or {})
+        changed_jobs.append(
+            {
+                "job_id": str(job.get("job_id") or job_dir.name),
+                "job_dir_name": job_dir.name,
+                "status": str(job.get("status") or "").strip(),
+                "next_action": str(job.get("next_action") or "").strip(),
+                "reason": reason,
+            }
+        )
+    return {
+        "attempted": attempted,
+        "recovered": recovered,
+        "recovery_reasons": dict(sorted(recovery_reasons.items())),
+        "changed_jobs": changed_jobs[:20],
+        "errors": errors[:20],
+    }
+
+
 def _audiobook_resume_mark_path(job_dir: Path) -> Path:
     return job_dir / "resume_state.json"
 
@@ -10424,16 +10517,25 @@ def resume_due_audiobook_jobs(
     operator_review_pending = 0
     operator_review_reasons: dict[str, int] = {}
     errors = 0
+    safe_recovered = 0
+    safe_recovery_reasons: dict[str, int] = {}
     for manifest_path in manifests:
         try:
-            job = json.loads(manifest_path.read_text(encoding="utf-8"))
+            job_dir = manifest_path.parent
+            recovery = recover_audiobook_job_without_external_side_effects(job_dir)
+            if bool(recovery.get("recovered")):
+                safe_recovered += 1
+                recovery_reason = str(recovery.get("reason") or "").strip() or "recovered"
+                safe_recovery_reasons[recovery_reason] = int(safe_recovery_reasons.get(recovery_reason) or 0) + 1
+            job = dict(recovery.get("job") or {})
+            if not job:
+                job = json.loads(manifest_path.read_text(encoding="utf-8"))
         except Exception:
             errors += 1
             continue
         retry_at = _audiobook_job_retry_at(job)
         if retry_at is None:
             if _audiobook_public_share_followup_pending(job):
-                job_dir = manifest_path.parent
                 if not force_public_share_followup and _recent_public_share_attempt_active(job_dir, now=observed_at):
                     share_link_pending += 1
                 else:
@@ -10460,7 +10562,6 @@ def resume_due_audiobook_jobs(
         if retry_at > observed_at:
             pending += 1
             continue
-        job_dir = manifest_path.parent
         if _recent_resume_attempt_active(job_dir, now=observed_at):
             pending += 1
             continue
@@ -10609,6 +10710,8 @@ def resume_due_audiobook_jobs(
         "completed_terminal": completed_terminal,
         "completed_terminal_reasons": dict(sorted(completed_terminal_reasons.items())),
         "errors": errors,
+        "safe_recovered": safe_recovered,
+        "safe_recovery_reasons": dict(sorted(safe_recovery_reasons.items())),
         "notifications": notifications[:10],
         "share_link_attempted": share_link_attempted,
         "share_links_ready": share_links_ready,
