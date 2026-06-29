@@ -13,6 +13,7 @@ from typing import Any
 ARCHIVED_STATUSES = {"archived", "already_archived"}
 DISMISSED_STATUSES = {"dismissed"}
 COMPLETION_EVENTS = ("pocket_recording_backfill_completed", "pocket_recording_sync_completed")
+DEFAULT_ARCHIVE_ROOT = Path(__file__).resolve().parents[1] / "data" / "pocket-ai-audio"
 
 
 def _compact_failure(value: str, *, limit: int = 240) -> str:
@@ -380,7 +381,7 @@ def main() -> int:
     parser.add_argument(
         "--archive-root",
         type=Path,
-        default=Path(os.environ.get("EA_POCKET_AUDIO_ARCHIVE_ROOT") or Path(__file__).resolve().parents[1] / "ea" / "_completion" / "pocket-ai-audio"),
+        default=Path(os.environ.get("EA_POCKET_AUDIO_ARCHIVE_ROOT") or DEFAULT_ARCHIVE_ROOT),
     )
     parser.add_argument("--postgres-container", default=os.environ.get("EA_POSTGRES_CONTAINER") or "ea-db")
     parser.add_argument("--postgres-user", default=os.environ.get("POSTGRES_USER") or "postgres")

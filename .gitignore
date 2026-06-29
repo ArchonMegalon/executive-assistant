@@ -21,6 +21,7 @@ attachments/
 logs/
 daemon-gogcli-config/
 data-*/
+data/pocket-ai-audio/
 data/audiobooks/audiobookshelf/
 data/audiobooks/jobs/voice-feedback.json
 *.log

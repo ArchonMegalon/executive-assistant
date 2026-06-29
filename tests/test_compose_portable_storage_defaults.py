@@ -25,6 +25,9 @@ def test_compose_uses_configurable_durable_storage_defaults() -> None:
     assert "/data/audiobooks" in rendered
     assert "EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-./data/onedrive_attachments" in rendered
     assert "/data/onedrive_attachments" in rendered
+    assert "EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT:-./data/pocket-ai-audio" in rendered
+    assert "EA_POCKET_AUDIO_ARCHIVE_ROOT" in rendered
+    assert "/data/pocket-ai-audio" in rendered
     assert "EA_UI_SERVICE_SHARED_TEMP_ROOT" in rendered
     assert "VOICEWAVE_RUNTIME_TMP_ROOT" in rendered
 

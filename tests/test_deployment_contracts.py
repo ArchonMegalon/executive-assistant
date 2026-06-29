@@ -63,6 +63,20 @@ def test_base_compose_applies_core_runtime_privilege_limits() -> None:
         assert set(str(item) for item in list(service.get("tmpfs") or [])) == {"/tmp", "/run"}, service_name
 
 
+def test_base_compose_gives_pocket_sync_a_writable_durable_archive() -> None:
+    compose = _load_yaml(ROOT / "docker-compose.yml")
+    services = compose.get("services") or {}
+    expected_env = "EA_POCKET_AUDIO_ARCHIVE_ROOT=${EA_POCKET_AUDIO_ARCHIVE_ROOT:-/data/pocket-ai-audio}"
+    expected_volume = "${EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT:-./data/pocket-ai-audio}:/data/pocket-ai-audio"
+
+    for service_name in ("ea-api", "ea-worker", "ea-scheduler", "ea-responses-proxy", "ea-proactive-ooda"):
+        service = services.get(service_name) or {}
+        environment = [str(item) for item in list(service.get("environment") or [])]
+        volumes = [str(item) for item in list(service.get("volumes") or [])]
+        assert expected_env in environment, service_name
+        assert expected_volume in volumes, service_name
+
+
 def test_base_compose_loads_optional_local_env_for_provider_runtime_only() -> None:
     compose = _load_yaml(ROOT / "docker-compose.yml")
     services = compose.get("services") or {}
@@ -218,7 +232,7 @@ def test_prod_compose_does_not_restore_memorial_runtime_contract() -> None:
     rendered = "\n".join(environment + volumes)
     assert service.get("environment", {}).get("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER") == "0"
     assert service.get("environment", {}).get("EA_CODEXEA_AUTHENTICATED_PRINCIPAL_ID") == "${EA_CODEXEA_AUTHENTICATED_PRINCIPAL_ID:-codexea-runtime}"
-    assert service.get("environment", {}).get("EA_ENABLE_LEGACY_RUNTIME_SURFACES") == "${EA_ENABLE_LEGACY_RUNTIME_SURFACES:-1}"
+    assert service.get("environment", {}).get("EA_ENABLE_LEGACY_RUNTIME_SURFACES") == "${EA_ENABLE_LEGACY_RUNTIME_SURFACES:-0}"
 
     for token in (
         "EA_ENABLE_PUBLIC_MEMORIALS",

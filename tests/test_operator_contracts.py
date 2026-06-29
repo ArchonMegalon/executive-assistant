@@ -406,6 +406,7 @@ def test_local_env_rotation_slots_and_gitignore_cover_browseract_and_onemin_keys
     assert ".env.*" in gitignore
     assert ".runtime/" in gitignore
     assert "ea/.runtime/" in gitignore
+    assert "data/pocket-ai-audio/" in gitignore
     assert "BROWSERACT_API_KEY" in env_example
     assert "BROWSERACT_API_KEY_FALLBACK_1" in env_example
     assert "BROWSERACT_API_KEY_FALLBACK_2" in env_example
