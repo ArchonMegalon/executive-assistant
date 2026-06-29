@@ -109,7 +109,7 @@
     "status": "ready"
   },
   "delivery_blockers": [],
-  "generated_at": "2026-06-26T11:46:40.096142Z",
+  "generated_at": "2026-06-29T18:31:02.998048Z",
   "goal_completion_claim_allowed": false,
   "live_delivery_claim_allowed": false,
   "next_action": "run_real_telegram_epub_audiobook_delivery_test",
@@ -127,7 +127,7 @@
   ],
   "privacy": {
     "env_values_exposed": false,
-    "preflight_contract_sha256": "6650a3e6b4722d8ab116d23b3bac7eff644f182f1fef05dbfef8a82ee3039bd1",
+    "preflight_contract_sha256": "306ce29e52b59dc46a9e7b99e22af18b21861f8aff8acbd523c839745a1a56f1",
     "raw_provider_voice_ids_exposed": false,
     "raw_public_share_url_included": false,
     "raw_storage_paths_included": false,
@@ -259,7 +259,7 @@
     ],
     "status": "ready",
     "voice_audition_min_candidates": 3,
-    "voice_catalog_count": 292,
+    "voice_catalog_count": 290,
     "voice_discovery_enabled": true,
     "voice_discovery_target_count": 30
   }

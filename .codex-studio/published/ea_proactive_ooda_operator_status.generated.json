@@ -7,9 +7,9 @@
     "callback_record_count": 20,
     "candidate_principal_hash_count": 3,
     "checked": true,
-    "current_packet_callback_latest_age_seconds": 21783,
+    "current_packet_callback_latest_age_seconds": 22430,
     "current_packet_callback_latest_expired": false,
-    "current_packet_callback_latest_seconds_until_expiry": 583015,
+    "current_packet_callback_latest_seconds_until_expiry": 582369,
     "current_packet_callback_latest_status": "pending",
     "current_packet_callback_record_count": 1,
     "current_packet_live_pending_count": 1,
@@ -20,7 +20,7 @@
     "next_action_href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
     "next_action_label": "Open approval capture",
     "next_action_method": "get",
-    "observed_at": "2026-06-29T18:20:47Z",
+    "observed_at": "2026-06-29T18:31:33Z",
     "principal_match_ready": true,
     "privacy": {
       "raw_callback_token_exposed": false,
@@ -60,11 +60,11 @@
     "callback_unexpired_pending_count": 1,
     "current_packet_callback_expired_count": 0,
     "current_packet_callback_expired_pending_count": 0,
-    "current_packet_callback_latest_age_seconds": 21781,
+    "current_packet_callback_latest_age_seconds": 22426,
     "current_packet_callback_latest_created_at": "2026-06-29T12:17:46.689220Z",
     "current_packet_callback_latest_expired": false,
     "current_packet_callback_latest_expires_at": "2026-07-06T12:17:46Z",
-    "current_packet_callback_latest_seconds_until_expiry": 583018,
+    "current_packet_callback_latest_seconds_until_expiry": 582372,
     "current_packet_callback_latest_status": "pending",
     "current_packet_callback_pending_count": 1,
     "current_packet_callback_raw_pending_count": 1,
@@ -124,7 +124,7 @@
   },
   "delivery_route_error": "",
   "delivery_route_ready": true,
-  "generated_at": "2026-06-29T18:20:54Z",
+  "generated_at": "2026-06-29T18:31:41Z",
   "generated_by": "scripts/materialize_proactive_ooda_operator_status.py",
   "gmail_draft_followthrough": {
     "action": "",
@@ -140,7 +140,7 @@
     "next_action_href": "",
     "next_action_label": "",
     "next_action_method": "",
-    "observed_at": "2026-06-29T18:20:50Z",
+    "observed_at": "2026-06-29T18:31:36Z",
     "raw_execution_payload_exposed": false,
     "recipient_email_hash_present": false,
     "source": "docker_compose_exec",
@@ -177,11 +177,11 @@
   "operator_action_state": "approval_capture_pending",
   "output_path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
   "reason": "ready",
-  "receipt_observation_count": 513,
+  "receipt_observation_count": 514,
   "remaining_external_proofs": [
     "real proactive OODA packet accepted with routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome"
   ],
-  "route_probe_observed_at": "2026-06-29T18:20:41Z",
+  "route_probe_observed_at": "2026-06-29T18:31:27Z",
   "route_probe_runtime_service": "ea-proactive-ooda",
   "route_probe_source": "docker_compose_exec",
   "route_ready_claim_allowed": true,
@@ -220,7 +220,7 @@
         ],
         "key": "postgres_observations",
         "label": "Postgres observations",
-        "latest_observed_at": "2026-06-29T20:19:17.376237+02:00",
+        "latest_observed_at": "2026-06-29T20:28:26.691764+02:00",
         "next_action": "",
         "observed": true,
         "raw_credential_exposed": false,
@@ -242,19 +242,18 @@
         ],
         "key": "google_workspace",
         "label": "Google workspace",
-        "latest_observed_at": "2026-06-29T20:19:17.376237+02:00",
+        "latest_observed_at": "2026-06-29T20:21:59.465093+02:00",
         "next_action": "",
         "observed": true,
         "raw_credential_exposed": false,
         "raw_payload_exposed": false,
         "raw_transcript_text_exposed": false,
-        "record_count": 341,
+        "record_count": 342,
         "status": "observed"
       },
       {
         "evidence_event_types": [
           "office_signal_email_thread",
-          "office_signal_ooda_evaluated",
           "pocket_recording_sync_completed"
         ],
         "key": "pocket_ai_audio_transcripts",
@@ -265,7 +264,7 @@
         "raw_credential_exposed": false,
         "raw_payload_exposed": false,
         "raw_transcript_text_exposed": false,
-        "record_count": 8,
+        "record_count": 6,
         "status": "observed"
       },
       {
@@ -275,13 +274,13 @@
         ],
         "key": "calendar_and_renewal_signals",
         "label": "Calendar and renewal signals",
-        "latest_observed_at": "2026-06-29T20:07:19.408414+02:00",
+        "latest_observed_at": "2026-06-29T20:21:59.465093+02:00",
         "next_action": "",
         "observed": true,
         "raw_credential_exposed": false,
         "raw_payload_exposed": false,
         "raw_transcript_text_exposed": false,
-        "record_count": 35,
+        "record_count": 36,
         "status": "observed"
       },
       {
@@ -321,7 +320,7 @@
         "raw_credential_exposed": false,
         "raw_payload_exposed": false,
         "raw_transcript_text_exposed": false,
-        "record_count": 232,
+        "record_count": 231,
         "status": "observed"
       },
       {
@@ -338,7 +337,7 @@
         "raw_credential_exposed": false,
         "raw_payload_exposed": false,
         "raw_transcript_text_exposed": false,
-        "record_count": 127,
+        "record_count": 126,
         "status": "observed"
       },
       {
@@ -358,7 +357,7 @@
         "raw_credential_exposed": false,
         "raw_payload_exposed": false,
         "raw_transcript_text_exposed": false,
-        "record_count": 213,
+        "record_count": 211,
         "status": "observed"
       }
     ],
@@ -366,7 +365,7 @@
     "observation_limit": 400,
     "observation_repository": "PostgresObservationEventRepository",
     "observation_row_count": 400,
-    "observed_at": "2026-06-29T18:20:52Z",
+    "observed_at": "2026-06-29T18:31:39Z",
     "observed_lane_count": 8,
     "privacy": {
       "raw_credential_exposed": false,
@@ -378,9 +377,9 @@
     "source": "docker_compose_exec",
     "status": "ready"
   },
-  "source_git_head": "d09c97cb510d8e1b35abf1178f4f9b7d31d42400",
+  "source_git_head": "7ed13f74d729922b47156a1873e9a8917c5c3e03",
   "source_mode": "google_workspace",
-  "source_state_fingerprint": "e23a46d2b4538209ee0a6297854e378376313091fb10bc98a39cfb94f32169b2",
+  "source_state_fingerprint": "1e64f97beded31902989ef3c32f9a081eeb9b3eec823a628e76d8cf161b01a5b",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "stage_packets": {
     "enabled": true,
