@@ -116,6 +116,7 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert lenses["decide"]["status"] == "ready_local_evidence"
     assert lenses["deliver"]["status"] == "mixed_local_progress"
     assert lenses["recover"]["status"] == "ready_local_audit"
+    assert "make probe-teable-recovery" in lenses["recover"]["verifier_commands"]
     assert lenses["prove"]["status"] == "blocked_real_world_acceptance"
     assert "proactive OODA shortlist" in lenses["detect"]["summary"]
     assert "proactive OODA packet loop" in lenses["decide"]["summary"]

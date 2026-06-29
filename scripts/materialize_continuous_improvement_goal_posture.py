@@ -285,6 +285,7 @@ def build_goal_posture(
             verifier_commands=[
                 "make verify-teable-env-recovery-readiness",
                 "make verify-env-teable-recovery",
+                "make probe-teable-recovery",
                 "make env-check-teable",
                 "make env-fresh-host-teable",
                 "make env-probe-teable",
@@ -299,6 +300,7 @@ def build_goal_posture(
             summary="Teable recovery has runnable operator commands, but no mirrored published recovery receipt is attached yet.",
             next_action="rehearse fresh-host Teable restore before widening claims",
             verifier_commands=[
+                "make probe-teable-recovery",
                 "make env-check-teable",
                 "make env-fresh-host-teable",
                 "make verify-env-teable-recovery",
