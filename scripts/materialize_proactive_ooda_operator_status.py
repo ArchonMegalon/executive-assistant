@@ -133,6 +133,16 @@ def _gmail_draft_followthrough_probe(principal_id: str) -> dict[str, Any]:
         return {}
 
 
+def _source_coverage_probe(principal_id: str) -> dict[str, Any]:
+    try:
+        return ea_live_ops.probe_proactive_source_coverage(
+            principal_id=principal_id,
+            output_format="json",
+        )
+    except Exception:
+        return {}
+
+
 def _gmail_draft_followthrough_summary(probe: Mapping[str, Any]) -> dict[str, Any]:
     if not probe:
         return {
@@ -176,6 +186,91 @@ def _gmail_draft_followthrough_summary(probe: Mapping[str, Any]) -> dict[str, An
         "gmail_message_id_hash_present": bool(probe.get("gmail_message_id_hash_present")),
         "draft_folder_url_hash_present": bool(probe.get("draft_folder_url_hash_present")),
         "raw_execution_payload_exposed": bool(probe.get("raw_execution_payload_exposed")),
+    }
+
+
+def _source_coverage_summary(probe: Mapping[str, Any]) -> dict[str, Any]:
+    if not probe:
+        return {
+            "checked": False,
+            "status": "not_checked",
+            "source": "",
+            "observed_at": "",
+            "observation_repository": "",
+            "observation_limit": 0,
+            "observation_row_count": 0,
+            "lane_count": len(ea_live_ops.PROACTIVE_SOURCE_COVERAGE_LANE_KEYS),
+            "observed_lane_count": 0,
+            "missing_lane_keys": list(ea_live_ops.PROACTIVE_SOURCE_COVERAGE_LANE_KEYS),
+            "lanes": [
+                {
+                    "key": key,
+                    "status": "not_checked",
+                    "observed": False,
+                    "record_count": 0,
+                    "latest_observed_at": "",
+                    "evidence_event_types": [],
+                    "next_action": "",
+                    "raw_payload_exposed": False,
+                    "raw_transcript_text_exposed": False,
+                    "raw_credential_exposed": False,
+                }
+                for key in ea_live_ops.PROACTIVE_SOURCE_COVERAGE_LANE_KEYS
+            ],
+            "privacy": {
+                "raw_rows_exposed": False,
+                "raw_payload_exposed": False,
+                "raw_transcript_text_exposed": False,
+                "raw_credential_exposed": False,
+                "source_ids_hashed": True,
+            },
+        }
+    lanes = []
+    for row in list(probe.get("lanes") or []):
+        lane = dict(row or {}) if isinstance(row, Mapping) else {}
+        lanes.append(
+            {
+                "key": str(lane.get("key") or "").strip(),
+                "label": str(lane.get("label") or "").strip(),
+                "status": str(lane.get("status") or "").strip() or "unknown",
+                "observed": bool(lane.get("observed")),
+                "record_count": int(lane.get("record_count") or 0),
+                "latest_observed_at": str(lane.get("latest_observed_at") or "").strip(),
+                "evidence_event_types": [
+                    str(item).strip()
+                    for item in list(lane.get("evidence_event_types") or [])
+                    if str(item).strip()
+                ][:8],
+                "next_action": str(lane.get("next_action") or "").strip(),
+                "raw_payload_exposed": bool(lane.get("raw_payload_exposed")),
+                "raw_transcript_text_exposed": bool(lane.get("raw_transcript_text_exposed")),
+                "raw_credential_exposed": bool(lane.get("raw_credential_exposed")),
+            }
+        )
+    privacy = dict(probe.get("privacy") or {})
+    return {
+        "checked": bool(probe.get("checked", probe.get("probe_ok"))),
+        "status": str(probe.get("status") or "").strip() or "unknown",
+        "source": str(probe.get("source") or "").strip(),
+        "observed_at": str(probe.get("observed_at") or "").strip(),
+        "observation_repository": str(probe.get("observation_repository") or "").strip(),
+        "observation_limit": int(probe.get("observation_limit") or 0),
+        "observation_row_count": int(probe.get("observation_row_count") or 0),
+        "lane_count": int(probe.get("lane_count") or len(lanes)),
+        "observed_lane_count": int(probe.get("observed_lane_count") or 0),
+        "missing_lane_keys": [
+            str(item).strip()
+            for item in list(probe.get("missing_lane_keys") or [])
+            if str(item).strip()
+        ],
+        "lanes": lanes,
+        "privacy": {
+            "raw_rows_exposed": bool(privacy.get("raw_rows_exposed")),
+            "raw_payload_exposed": bool(privacy.get("raw_payload_exposed")),
+            "raw_transcript_text_exposed": bool(privacy.get("raw_transcript_text_exposed")),
+            "raw_credential_exposed": bool(privacy.get("raw_credential_exposed")),
+            "source_ids_hashed": bool(privacy.get("source_ids_hashed", True)),
+        },
     }
 
 
@@ -586,6 +681,7 @@ def build_proactive_ooda_operator_status(
     route_probe: dict[str, Any] = {}
     artifact_probe: dict[str, Any] = {}
     gmail_draft_probe: dict[str, Any] = {}
+    source_coverage_probe: dict[str, Any] = {}
     principal_id = str(getattr(effective_report_args, "principal_id", "") or proactive_verifier._default_principal_id()).strip()
     if allow_live_route_probe and live_receipt_path is None:
         try:
@@ -599,6 +695,7 @@ def build_proactive_ooda_operator_status(
         except Exception:
             artifact_probe = {}
         gmail_draft_probe = _gmail_draft_followthrough_probe(principal_id)
+        source_coverage_probe = _source_coverage_probe(principal_id)
 
     if bool(route_probe.get("probe_ok")) and isinstance(route_probe.get("route_report"), dict):
         report = dict(route_probe.get("route_report") or {})
@@ -710,6 +807,7 @@ def build_proactive_ooda_operator_status(
         "live_receipt": dict(live_receipt or {}),
         "approval_capture_surface": approval_capture_surface,
         "gmail_draft_followthrough": _gmail_draft_followthrough_summary(gmail_draft_probe),
+        "source_coverage": _source_coverage_summary(source_coverage_probe),
         "remaining_external_proofs": [
             REMAINING_EXTERNAL_PROOF,
         ],

@@ -21,6 +21,98 @@ def _load_script() -> ModuleType:
     return module
 
 
+def _fake_source_coverage_probe(**_kwargs: object) -> dict[str, object]:
+    return {
+        "probe_ok": True,
+        "checked": True,
+        "status": "ready_with_gaps",
+        "source": "docker_compose_exec",
+        "observed_at": "2026-06-29T08:00:00Z",
+        "observation_repository": "PostgresObservationEventRepository",
+        "observation_limit": 400,
+        "observation_row_count": 3,
+        "lane_count": 8,
+        "observed_lane_count": 3,
+        "missing_lane_keys": [
+            "calendar_and_renewal_signals",
+            "relationship_and_occasion_signals",
+            "shopping_and_vendor_signals",
+            "commitment_and_deadline_signals",
+            "durable_profile_and_location_context",
+        ],
+        "lanes": [
+            {
+                "key": "postgres_observations",
+                "label": "Postgres observations",
+                "status": "observed",
+                "observed": True,
+                "record_count": 3,
+                "latest_observed_at": "2026-06-29T07:59:00Z",
+                "evidence_event_types": ["telegram.message"],
+                "next_action": "",
+                "raw_payload_exposed": False,
+                "raw_transcript_text_exposed": False,
+                "raw_credential_exposed": False,
+            },
+            {
+                "key": "google_workspace",
+                "label": "Google workspace",
+                "status": "observed",
+                "observed": True,
+                "record_count": 1,
+                "latest_observed_at": "2026-06-29T07:58:00Z",
+                "evidence_event_types": ["gmail.message"],
+                "next_action": "",
+                "raw_payload_exposed": False,
+                "raw_transcript_text_exposed": False,
+                "raw_credential_exposed": False,
+            },
+            {
+                "key": "pocket_ai_audio_transcripts",
+                "label": "Pocket.ai audio transcripts",
+                "status": "observed",
+                "observed": True,
+                "record_count": 1,
+                "latest_observed_at": "2026-06-29T07:57:00Z",
+                "evidence_event_types": ["pocket_recording_archive_indexed"],
+                "next_action": "",
+                "raw_payload_exposed": False,
+                "raw_transcript_text_exposed": False,
+                "raw_credential_exposed": False,
+            },
+            *[
+                {
+                    "key": key,
+                    "label": key.replace("_", " "),
+                    "status": "not_observed",
+                    "observed": False,
+                    "record_count": 0,
+                    "latest_observed_at": "",
+                    "evidence_event_types": [],
+                    "next_action": "sync_source",
+                    "raw_payload_exposed": False,
+                    "raw_transcript_text_exposed": False,
+                    "raw_credential_exposed": False,
+                }
+                for key in (
+                    "calendar_and_renewal_signals",
+                    "relationship_and_occasion_signals",
+                    "shopping_and_vendor_signals",
+                    "commitment_and_deadline_signals",
+                    "durable_profile_and_location_context",
+                )
+            ],
+        ],
+        "privacy": {
+            "raw_rows_exposed": False,
+            "raw_payload_exposed": False,
+            "raw_transcript_text_exposed": False,
+            "raw_credential_exposed": False,
+            "source_ids_hashed": True,
+        },
+    }
+
+
 def test_materialize_proactive_ooda_operator_status_writes_recovery_receipt(tmp_path: Path, monkeypatch) -> None:
     module = _load_script()
     monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
@@ -190,6 +282,7 @@ def test_materialize_proactive_ooda_operator_status_prefers_live_route_probe_whe
             "raw_execution_payload_exposed": False,
         },
     )
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_source_coverage", _fake_source_coverage_probe)
     monkeypatch.setattr(
         module.proactive_verifier,
         "_build_report",
@@ -230,6 +323,8 @@ def test_materialize_proactive_ooda_operator_status_prefers_live_route_probe_whe
     assert receipt["gmail_draft_followthrough"]["execution_observation_present"] is True
     assert receipt["gmail_draft_followthrough"]["gmail_draft_id_hash_present"] is True
     assert receipt["gmail_draft_followthrough"]["raw_execution_payload_exposed"] is False
+    assert receipt["source_coverage"]["status"] == "ready_with_gaps"
+    assert receipt["source_coverage"]["privacy"]["raw_transcript_text_exposed"] is False
 
 
 def test_materialize_proactive_ooda_operator_status_counts_pending_approval_as_user_action(
@@ -309,6 +404,7 @@ def test_materialize_proactive_ooda_operator_status_counts_pending_approval_as_u
             "observed_at": "2026-06-29T06:55:30Z",
         },
     )
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_source_coverage", _fake_source_coverage_probe)
     monkeypatch.setattr(
         module.proactive_verifier,
         "_build_report",
@@ -337,6 +433,7 @@ def test_materialize_proactive_ooda_operator_status_counts_pending_approval_as_u
     assert receipt["delivery_guard"]["user_action_required"] is True
     assert receipt["delivery_guard"]["pending_approval_surface"] is True
     assert receipt["delivery_guard"]["current_packet_live_pending_count"] == 1
+    assert receipt["source_coverage"]["observed_lane_count"] == 3
 
 
 def test_materialize_proactive_ooda_operator_status_blocks_when_live_route_probe_reports_workspace_failure(
@@ -423,6 +520,7 @@ def test_materialize_proactive_ooda_operator_status_blocks_when_live_route_probe
             "raw_execution_payload_exposed": False,
         },
     )
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_source_coverage", _fake_source_coverage_probe)
 
     output = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
     receipt = module.build_proactive_ooda_operator_status(

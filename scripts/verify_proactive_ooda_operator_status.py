@@ -25,6 +25,16 @@ EXPECTED_RULES = {
 EXPECTED_REMAINING_PROOF = (
     "real proactive OODA packet accepted with routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome"
 )
+EXPECTED_SOURCE_COVERAGE_LANES = {
+    "postgres_observations",
+    "google_workspace",
+    "pocket_ai_audio_transcripts",
+    "calendar_and_renewal_signals",
+    "relationship_and_occasion_signals",
+    "shopping_and_vendor_signals",
+    "commitment_and_deadline_signals",
+    "durable_profile_and_location_context",
+}
 KNOWN_STATUSES = {
     "blocked_delivery_route",
     "blocked_local_runtime",
@@ -57,6 +67,44 @@ def _verify_next_action_surface(receipt: dict[str, Any], issues: list[str]) -> N
         issues.append("reauthorize_google_workspace_binding requires next_action_label")
     if method != "get":
         issues.append("reauthorize_google_workspace_binding requires next_action_method=get")
+
+
+def _verify_source_coverage(receipt: dict[str, Any], issues: list[str]) -> None:
+    source_coverage = dict(receipt.get("source_coverage") or {})
+    if not source_coverage:
+        issues.append("source_coverage missing")
+        return
+    if "checked" not in source_coverage:
+        issues.append("source_coverage.checked missing")
+    if not str(source_coverage.get("status") or "").strip():
+        issues.append("source_coverage.status missing")
+    lanes = [dict(row or {}) for row in list(source_coverage.get("lanes") or []) if isinstance(row, dict)]
+    lane_keys = {str(row.get("key") or "").strip() for row in lanes if str(row.get("key") or "").strip()}
+    missing = sorted(EXPECTED_SOURCE_COVERAGE_LANES - lane_keys)
+    if missing:
+        issues.append(f"source_coverage missing required lanes: {', '.join(missing)}")
+    if int(source_coverage.get("lane_count") or 0) < len(EXPECTED_SOURCE_COVERAGE_LANES):
+        issues.append("source_coverage.lane_count must include all required lanes")
+    privacy = dict(source_coverage.get("privacy") or {})
+    for key in ("raw_rows_exposed", "raw_payload_exposed", "raw_transcript_text_exposed", "raw_credential_exposed"):
+        if privacy.get(key) is not False:
+            issues.append(f"source_coverage.privacy.{key} must remain false")
+    if privacy.get("source_ids_hashed") is not True:
+        issues.append("source_coverage.privacy.source_ids_hashed must remain true")
+    for lane in lanes:
+        lane_key = str(lane.get("key") or "").strip() or "unknown"
+        if not str(lane.get("status") or "").strip():
+            issues.append(f"source_coverage lane {lane_key} status missing")
+        if "observed" not in lane:
+            issues.append(f"source_coverage lane {lane_key} observed missing")
+        for privacy_key in ("raw_payload_exposed", "raw_transcript_text_exposed", "raw_credential_exposed"):
+            if lane.get(privacy_key) is not False:
+                issues.append(f"source_coverage lane {lane_key} {privacy_key} must remain false")
+    pocket_lane = next((row for row in lanes if str(row.get("key") or "").strip() == "pocket_ai_audio_transcripts"), {})
+    if not pocket_lane:
+        issues.append("source_coverage must include pocket_ai_audio_transcripts lane")
+    elif pocket_lane.get("raw_transcript_text_exposed") is not False:
+        issues.append("pocket_ai_audio_transcripts lane must not expose raw transcript text")
 
 
 def _json(path: Path) -> dict[str, Any]:
@@ -166,6 +214,7 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
         if gmail_draft_followthrough.get("gmail_draft_id_hash_present") is not True:
             issues.append("already_executed gmail_draft_followthrough requires gmail_draft_id_hash_present=true")
     _verify_next_action_surface(gmail_draft_followthrough, issues)
+    _verify_source_coverage(receipt, issues)
 
     live_receipt_checked = bool(receipt.get("live_receipt_checked"))
     live_receipt = dict(receipt.get("live_receipt") or {})
