@@ -36,6 +36,54 @@ def _args(**overrides: object) -> Namespace:
     return Namespace(**values)
 
 
+def test_proactive_source_coverage_report_classifies_sources_without_raw_payloads() -> None:
+    module = _module()
+    rows = [
+        {
+            "created_at": "2026-06-29T07:00:00Z",
+            "channel": "google_workspace",
+            "event_type": "gmail_draft_followthrough",
+            "payload_keys": ["gmail_thread_id_sha256", "calendar_renewal_hint"],
+            "hints": ["deadline follow-up"],
+        },
+        {
+            "created_at": "2026-06-29T07:05:00Z",
+            "channel": "pocket_ai_audio_transcripts",
+            "event_type": "pocket_recording_archive_indexed",
+            "payload_keys": ["transcript_sha256"],
+            "hints": ["relationship occasion"],
+        },
+        {
+            "created_at": "2026-06-29T07:10:00Z",
+            "channel": "vendor_research",
+            "event_type": "shopping_shortlist",
+            "payload_keys": ["supplier", "profile_location"],
+            "hints": ["Amazon purchase context"],
+        },
+    ]
+
+    report = module._proactive_source_coverage_report(
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        rows=rows,
+        observation_repository="PostgresChannelRuntimeStore",
+        observed_at="2026-06-29T07:15:00Z",
+        observation_limit=50,
+    )
+
+    assert report["status"] == "ready"
+    assert report["observation_row_count"] == 3
+    assert report["observed_lane_count"] == report["lane_count"]
+    assert report["missing_lane_keys"] == []
+    lanes = {lane["key"]: lane for lane in report["lanes"]}
+    for key in module.PROACTIVE_SOURCE_COVERAGE_LANE_KEYS:
+        assert lanes[key]["observed"] is True
+        assert lanes[key]["raw_payload_exposed"] is False
+        assert lanes[key]["raw_transcript_text_exposed"] is False
+        assert lanes[key]["raw_credential_exposed"] is False
+    assert report["privacy"]["raw_rows_exposed"] is False
+    assert report["privacy"]["source_ids_hashed"] is True
+
+
 def test_probe_provider_unmixr_operator_format_uses_runtime_preflight(monkeypatch) -> None:
     module = _module()
     monkeypatch.setattr(module, "_runtime_container_preflight", lambda: {})

@@ -62,6 +62,50 @@ DEFAULT_RUNTIME_CONTAINER = "ea-api"
 DEFAULT_PROACTIVE_OODA_COMPOSE_FILE = ROOT / "docker-compose.yml"
 DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE = "ea-proactive-ooda"
 
+PROACTIVE_SOURCE_COVERAGE_LANES: tuple[dict[str, str], ...] = (
+    {
+        "key": "postgres_observations",
+        "label": "Postgres observations",
+        "next_action": "verify_postgres_observation_source",
+    },
+    {
+        "key": "google_workspace",
+        "label": "Google workspace",
+        "next_action": "reauthorize_or_sync_google_workspace_sources",
+    },
+    {
+        "key": "pocket_ai_audio_transcripts",
+        "label": "Pocket.ai audio transcripts",
+        "next_action": "sync_pocket_ai_audio_transcripts",
+    },
+    {
+        "key": "calendar_and_renewal_signals",
+        "label": "Calendar and renewal signals",
+        "next_action": "sync_calendar_and_renewal_sources",
+    },
+    {
+        "key": "relationship_and_occasion_signals",
+        "label": "Relationship and occasion signals",
+        "next_action": "refresh_relationship_and_occasion_sources",
+    },
+    {
+        "key": "shopping_and_vendor_signals",
+        "label": "Shopping and vendor signals",
+        "next_action": "sync_shopping_and_vendor_sources",
+    },
+    {
+        "key": "commitment_and_deadline_signals",
+        "label": "Commitment and deadline signals",
+        "next_action": "sync_commitment_and_deadline_sources",
+    },
+    {
+        "key": "durable_profile_and_location_context",
+        "label": "Durable profile and location context",
+        "next_action": "refresh_principal_profile_context",
+    },
+)
+PROACTIVE_SOURCE_COVERAGE_LANE_KEYS = tuple(row["key"] for row in PROACTIVE_SOURCE_COVERAGE_LANES)
+
 
 def _env(name: str, default: str = "") -> str:
     return str(os.environ.get(name) or default).strip()
@@ -155,6 +199,165 @@ def _compact_text(value: object, *, limit: int = 140) -> str:
         return text
     clipped = max(int(limit or 1) - 3, 1)
     return f"{text[:clipped].rstrip()}..."
+
+
+def _string_list(value: object) -> list[str]:
+    if isinstance(value, (list, tuple, set)):
+        return [str(item or "").strip() for item in value if str(item or "").strip()]
+    text = str(value or "").strip()
+    return [text] if text else []
+
+
+def _proactive_source_row_terms(row: Mapping[str, object]) -> set[str]:
+    terms: set[str] = set()
+    for key in ("channel", "event_type"):
+        value = str(row.get(key) or "").strip().lower()
+        if value:
+            terms.add(value)
+    for key in ("payload_keys", "hints"):
+        for value in _string_list(row.get(key)):
+            normalized = value.strip().lower()
+            if normalized:
+                terms.add(normalized)
+    return terms
+
+
+def _terms_contain(terms: set[str], *needles: str) -> bool:
+    return any(needle in term for term in terms for needle in needles)
+
+
+def _proactive_source_lane_matches(row: Mapping[str, object], lane_key: str) -> bool:
+    terms = _proactive_source_row_terms(row)
+    channel = str(row.get("channel") or "").strip().lower()
+    event_type = str(row.get("event_type") or "").strip().lower()
+    if lane_key == "google_workspace":
+        return _terms_contain(terms, "google_workspace", "gmail", "google", "calendar")
+    if lane_key == "pocket_ai_audio_transcripts":
+        return (
+            event_type == "pocket_recording_archive_indexed"
+            or _terms_contain(terms, "pocket_ai_audio_transcripts", "pocket", "recording", "transcript")
+        )
+    if lane_key == "calendar_and_renewal_signals":
+        return _terms_contain(terms, "calendar_and_renewal_signals", "calendar", "renewal", "subscription", "appointment")
+    if lane_key == "relationship_and_occasion_signals":
+        return _terms_contain(
+            terms,
+            "relationship_and_occasion_signals",
+            "relationship",
+            "occasion",
+            "birthday",
+            "anniversary",
+            "family",
+        )
+    if lane_key == "shopping_and_vendor_signals":
+        return _terms_contain(
+            terms,
+            "shopping_and_vendor_signals",
+            "shopping",
+            "vendor",
+            "supplier",
+            "provider",
+            "purchase",
+            "amazon",
+            "draft",
+            "shortlist",
+        )
+    if lane_key == "commitment_and_deadline_signals":
+        return _terms_contain(
+            terms,
+            "commitment_and_deadline_signals",
+            "commitment",
+            "deadline",
+            "due",
+            "followup",
+            "follow-up",
+            "appointment",
+            "booking",
+        )
+    if lane_key == "durable_profile_and_location_context":
+        return _terms_contain(
+            terms,
+            "durable_profile_and_location_context",
+            "profile",
+            "preference",
+            "location",
+            "locality",
+            "address",
+            "context",
+        )
+    if lane_key == "postgres_observations":
+        return bool(channel or event_type)
+    return False
+
+
+def _latest_observed_at(rows: list[Mapping[str, object]]) -> str:
+    return max((str(row.get("created_at") or "").strip() for row in rows if str(row.get("created_at") or "").strip()), default="")
+
+
+def _event_types(rows: list[Mapping[str, object]]) -> list[str]:
+    values = sorted({str(row.get("event_type") or "").strip() for row in rows if str(row.get("event_type") or "").strip()})
+    return values[:8]
+
+
+def _proactive_source_coverage_report(
+    *,
+    principal_id: str,
+    rows: list[Mapping[str, object]],
+    observation_repository: str,
+    observed_at: str,
+    observation_limit: int,
+    source: str = "docker_compose_exec",
+) -> dict[str, object]:
+    repository = str(observation_repository or "").strip()
+    row_count = len(rows)
+    lanes: list[dict[str, object]] = []
+    for lane in PROACTIVE_SOURCE_COVERAGE_LANES:
+        lane_key = str(lane["key"])
+        if lane_key == "postgres_observations":
+            matched = list(rows) if "postgres" in repository.lower() else []
+        else:
+            matched = [row for row in rows if _proactive_source_lane_matches(row, lane_key)]
+        observed = bool(matched)
+        lanes.append(
+            {
+                "key": lane_key,
+                "label": str(lane["label"]),
+                "status": "observed" if observed else "not_observed",
+                "observed": observed,
+                "record_count": len(matched),
+                "latest_observed_at": _latest_observed_at(matched),
+                "evidence_event_types": _event_types(matched),
+                "next_action": "" if observed else str(lane["next_action"]),
+                "raw_payload_exposed": False,
+                "raw_transcript_text_exposed": False,
+                "raw_credential_exposed": False,
+            }
+        )
+    missing_lane_keys = [str(row["key"]) for row in lanes if not bool(row.get("observed"))]
+    observed_lane_count = len(lanes) - len(missing_lane_keys)
+    status = "ready" if not missing_lane_keys else "ready_with_gaps" if row_count > 0 else "no_recent_observations"
+    return {
+        "probe_ok": True,
+        "checked": True,
+        "status": status,
+        "principal_id": str(principal_id or "").strip(),
+        "source": source,
+        "observed_at": observed_at,
+        "observation_repository": repository,
+        "observation_limit": int(observation_limit or 0),
+        "observation_row_count": row_count,
+        "lane_count": len(lanes),
+        "observed_lane_count": observed_lane_count,
+        "missing_lane_keys": missing_lane_keys,
+        "lanes": lanes,
+        "privacy": {
+            "raw_rows_exposed": False,
+            "raw_payload_exposed": False,
+            "raw_transcript_text_exposed": False,
+            "raw_credential_exposed": False,
+            "source_ids_hashed": True,
+        },
+    }
 
 
 def _docker_compose_exec_json(
@@ -1204,6 +1407,164 @@ def _proactive_gmail_draft_next_action(reason: str) -> str:
     return ""
 
 
+def probe_proactive_source_coverage(
+    *,
+    principal_id: str,
+    compose_file: str = "",
+    runtime_service: str = "",
+    observation_limit: int = 400,
+    timeout_seconds: float = 30.0,
+    output_format: str = "json",
+) -> dict[str, object]:
+    effective_compose_file = str(compose_file or _env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE))).strip()
+    effective_runtime_service = str(runtime_service or _env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE)).strip()
+    observed_at = _utc_now()
+    if not effective_compose_file or not effective_runtime_service:
+        report = {
+            "probe_ok": False,
+            "checked": False,
+            "status": "probe_failed",
+            "principal_id": str(principal_id or "").strip(),
+            "compose_file": effective_compose_file,
+            "runtime_service": effective_runtime_service,
+            "observed_at": observed_at,
+            "source": "docker_compose_exec",
+            "blocking_reason": "runtime_probe_configuration_missing",
+            "next_action": "configure_proactive_runtime_probe",
+            "lanes": [],
+            "missing_lane_keys": list(PROACTIVE_SOURCE_COVERAGE_LANE_KEYS),
+        }
+        report.update(_next_action_surface_fields(str(report.get("next_action") or "")))
+        if output_format == "operator":
+            report["operator_text"] = "proactive_source_coverage probe failed; configure runtime probe inputs"
+        return report
+
+    limit = max(1, min(5000, int(observation_limit or 400)))
+    command = [
+        "python",
+        "-c",
+        (
+            "import hashlib, json, sys\n"
+            "from app.container import build_container\n"
+            "payload = json.loads(sys.argv[1])\n"
+            "principal_id = str(payload.get('principal_id') or '').strip()\n"
+            "limit = max(1, min(5000, int(payload.get('observation_limit') or 400)))\n"
+            "container = build_container()\n"
+            "runtime = container.channel_runtime\n"
+            "repo = getattr(runtime, '_observations', None)\n"
+            "def _sha(value):\n"
+            "    text = str(value or '').strip()\n"
+            "    return hashlib.sha256(text.encode('utf-8')).hexdigest() if text else ''\n"
+            "def _walk(value):\n"
+            "    if isinstance(value, dict):\n"
+            "        for key, item in value.items():\n"
+            "            yield str(key or '')\n"
+            "            yield from _walk(item)\n"
+            "    elif isinstance(value, (list, tuple, set)):\n"
+            "        for item in value:\n"
+            "            yield from _walk(item)\n"
+            "    elif isinstance(value, (str, int, float, bool)):\n"
+            "        yield str(value or '')\n"
+            "def _hints(row, payload):\n"
+            "    text = ' '.join([str(getattr(row, 'channel', '') or ''), str(getattr(row, 'event_type', '') or ''), str(getattr(row, 'source_id', '') or ''), str(getattr(row, 'external_id', '') or ''), ' '.join(_walk(payload))]).lower()\n"
+            "    specs = {\n"
+            "        'google_workspace': ('google', 'gmail', 'calendar', 'workspace'),\n"
+            "        'pocket_ai_audio_transcripts': ('pocket', 'pocket.ai', 'recording', 'transcript'),\n"
+            "        'calendar_and_renewal_signals': ('calendar', 'renewal', 'subscription', 'appointment'),\n"
+            "        'relationship_and_occasion_signals': ('relationship', 'occasion', 'birthday', 'anniversary', 'wife', 'family'),\n"
+            "        'shopping_and_vendor_signals': ('shopping', 'vendor', 'supplier', 'provider', 'purchase', 'amazon', 'shortlist', 'draft'),\n"
+            "        'commitment_and_deadline_signals': ('commitment', 'deadline', 'due', 'followup', 'follow-up', 'appointment', 'booking'),\n"
+            "        'durable_profile_and_location_context': ('profile', 'preference', 'location', 'locality', 'address', 'context'),\n"
+            "    }\n"
+            "    return sorted(key for key, needles in specs.items() if any(needle in text for needle in needles))\n"
+            "rows = []\n"
+            "for row in runtime.list_recent_observations(limit=limit, principal_id=principal_id):\n"
+            "    row_payload = dict(getattr(row, 'payload', {}) or {})\n"
+            "    rows.append({\n"
+            "        'channel': str(getattr(row, 'channel', '') or '').strip(),\n"
+            "        'event_type': str(getattr(row, 'event_type', '') or '').strip(),\n"
+            "        'created_at': str(getattr(row, 'created_at', '') or '').strip(),\n"
+            "        'payload_keys': sorted(str(key) for key in row_payload.keys()),\n"
+            "        'hints': _hints(row, row_payload),\n"
+            "        'source_id_sha256_present': bool(_sha(getattr(row, 'source_id', '') or '')),\n"
+            "        'external_id_sha256_present': bool(_sha(getattr(row, 'external_id', '') or '')),\n"
+            "        'raw_payload_exposed': False,\n"
+            "    })\n"
+            "print(json.dumps({\n"
+            "    'probe_ok': True,\n"
+            "    'observation_repository': type(repo).__name__ if repo is not None else '',\n"
+            "    'rows': rows,\n"
+            "}, sort_keys=True))\n"
+        ),
+        _json_dumps(
+            {
+                "principal_id": str(principal_id or "").strip(),
+                "observation_limit": limit,
+            }
+        ),
+    ]
+    code, payload, stdout, stderr = _docker_compose_exec_json(
+        compose_file=effective_compose_file,
+        service=effective_runtime_service,
+        command=command,
+        timeout_seconds=timeout_seconds,
+    )
+    if not payload:
+        report = {
+            "probe_ok": False,
+            "checked": False,
+            "status": "probe_failed",
+            "principal_id": str(principal_id or "").strip(),
+            "compose_file": effective_compose_file,
+            "runtime_service": effective_runtime_service,
+            "observed_at": observed_at,
+            "source": "docker_compose_exec",
+            "blocking_reason": f"runtime_source_coverage_probe_failed:exit_{code}",
+            "next_action": "inspect_proactive_runtime_container",
+            "stdout_excerpt": stdout.strip()[:200],
+            "stderr_excerpt": stderr.strip()[:200],
+            "lanes": [],
+            "missing_lane_keys": list(PROACTIVE_SOURCE_COVERAGE_LANE_KEYS),
+        }
+        report.update(_next_action_surface_fields(str(report.get("next_action") or "")))
+        if output_format == "operator":
+            report["operator_text"] = f"proactive_source_coverage probe failed; inspect {effective_runtime_service}"
+        return report
+
+    rows = [dict(row) for row in list(payload.get("rows") or []) if isinstance(row, Mapping)]
+    report = _proactive_source_coverage_report(
+        principal_id=str(principal_id or "").strip(),
+        rows=rows,
+        observation_repository=str(payload.get("observation_repository") or "").strip(),
+        observed_at=observed_at,
+        observation_limit=limit,
+    )
+    missing_next_action = next(
+        (str(dict(lane).get("next_action") or "").strip() for lane in list(report.get("lanes") or []) if not bool(dict(lane).get("observed"))),
+        "",
+    )
+    report.update(
+        {
+            "compose_file": effective_compose_file,
+            "runtime_service": effective_runtime_service,
+            "blocking_reason": "",
+            "next_action": missing_next_action,
+        }
+    )
+    report.update(_next_action_surface_fields(str(report.get("next_action") or "")))
+    if output_format == "operator":
+        missing = [str(item) for item in list(report.get("missing_lane_keys") or [])]
+        missing_text = ",".join(missing[:4])
+        if len(missing) > 4:
+            missing_text += f"+{len(missing) - 4}"
+        report["operator_text"] = (
+            f"proactive_source_coverage status={report['status']}; "
+            f"observed={int(report['observed_lane_count'])}/{int(report['lane_count'])}; "
+            f"rows={int(report['observation_row_count'])}; missing={missing_text or 'none'}"
+        )
+    return report
+
+
 def record_proactive_approval(
     *,
     principal_id: str,
@@ -1857,6 +2218,16 @@ def parse_args() -> argparse.Namespace:
     proactive_gmail_draft.add_argument("--stage-packet-dir", default=_env("EA_PROACTIVE_OODA_STAGE_PACKET_DIR"))
     proactive_gmail_draft.add_argument("--safe-work-result-dir", default=_env("EA_PROACTIVE_OODA_SAFE_WORK_RESULT_DIR"))
 
+    proactive_source_coverage = subparsers.add_parser(
+        "probe-proactive-source-coverage",
+        help="Probe sanitized live source coverage for proactive OODA signal lanes.",
+    )
+    proactive_source_coverage.add_argument("--principal-id", dest="proactive_principal_id", default=_default_proactive_principal_id())
+    proactive_source_coverage.add_argument("--format", choices=("json", "operator"), default="json")
+    proactive_source_coverage.add_argument("--compose-file", default=_env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE)))
+    proactive_source_coverage.add_argument("--runtime-service", default=_env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE))
+    proactive_source_coverage.add_argument("--observation-limit", type=int, default=400)
+
     proactive_approval = subparsers.add_parser(
         "record-proactive-approval",
         help="Record the explicit approval outcome for the current live proactive OODA packet.",
@@ -1939,6 +2310,20 @@ def main() -> int:
             receipt_path=str(args.receipt_path or "").strip(),
             stage_packet_dir=str(args.stage_packet_dir or "").strip(),
             safe_work_result_dir=str(args.safe_work_result_dir or "").strip(),
+            timeout_seconds=float(args.timeout_seconds or 15.0),
+            output_format=args.format,
+        )
+        if args.format == "operator":
+            print(str(report.get("operator_text") or ""))
+        else:
+            print(_json_dumps(report))
+        return 0 if bool(report.get("probe_ok")) else 2
+    if args.command == "probe-proactive-source-coverage":
+        report = probe_proactive_source_coverage(
+            principal_id=str(getattr(args, "proactive_principal_id", "") or "").strip(),
+            compose_file=str(args.compose_file or "").strip(),
+            runtime_service=str(args.runtime_service or "").strip(),
+            observation_limit=int(args.observation_limit or 400),
             timeout_seconds=float(args.timeout_seconds or 15.0),
             output_format=args.format,
         )
