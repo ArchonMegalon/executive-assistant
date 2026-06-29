@@ -32,6 +32,7 @@ from app.api.routes import public_memorial_operator
 from app.services import responses_upstream
 from app.services import provider_registry
 from app.services import proactive_ooda_delivery
+from app.services import proactive_ooda_safe_work
 from app.services import public_clickrank
 from app.services import public_rybbit
 from app.services import registration_email
@@ -297,6 +298,89 @@ class HardeningTests(unittest.TestCase):
         }
 
         self.assertTrue(proactive_ooda_delivery._approval_request_requires_telegram_action(request))
+
+    def test_provider_discovery_draft_blocks_without_safe_provider_candidate(self) -> None:
+        packet = {
+            "packet_ref": "packet:provider-bad",
+            "approval": {"required": False},
+            "safe_work_order": {
+                "schema": proactive_ooda_safe_work.SAFE_WORK_ORDER_SCHEMA,
+                "work_order_id": "work-provider-bad",
+                "work_type": "draft",
+                "requested_outcome": "Research candidates and prepare one inquiry draft.",
+            },
+            "stage": {
+                "payload": {
+                    "draft_mode": "research_backed_inquiry",
+                    "locale": "de",
+                    "draft_request_text": (
+                        "suche mir rauchfangkehrer - ich brauche ein Gutachten, ob ich meinen Zimmerkamin "
+                        "als Abluftrohr eines Klimageraetes verwenden kann"
+                    ),
+                    "research_query": "rauchfangkehrer gutachten klimageraet abluftrohr 1200 wien",
+                    "selection_criteria": ["contact details visible", "reachability", "fit to request"],
+                    "candidate_items": [
+                        {
+                            "label": "Difference between ein, eine, einen, and einem in the German language",
+                            "url": "https://planforgermany.com/difference-ein-eine-einen-einem-german-language/",
+                            "snippet": "German language grammar lesson and vocabulary examples.",
+                            "reachable": True,
+                            "page_title": "Difference between ein, eine, einen, and einem in the German language",
+                        }
+                    ],
+                }
+            },
+        }
+
+        result = proactive_ooda_safe_work.build_safe_work_result(packet, network_fetch_enabled=False)
+
+        self.assertEqual(result["status"], "blocked_needs_research_input")
+        self.assertEqual(result["recommended_option_or_draft"], {})
+        issue_codes = {row["code"] for row in result["audit"]["issues"]}
+        self.assertIn("top_candidate_not_provider_like", issue_codes)
+        self.assertIn("draft_not_created", issue_codes)
+
+    def test_provider_discovery_draft_uses_safe_provider_candidate(self) -> None:
+        packet = {
+            "packet_ref": "packet:provider-good",
+            "approval": {"required": False},
+            "safe_work_order": {
+                "schema": proactive_ooda_safe_work.SAFE_WORK_ORDER_SCHEMA,
+                "work_order_id": "work-provider-good",
+                "work_type": "draft",
+                "requested_outcome": "Research candidates and prepare one inquiry draft.",
+            },
+            "stage": {
+                "payload": {
+                    "draft_mode": "research_backed_inquiry",
+                    "locale": "de",
+                    "draft_request_text": (
+                        "ich brauche ein Gutachten, ob ich meinen Zimmerkamin als Abluftrohr "
+                        "eines Klimageraetes verwenden kann"
+                    ),
+                    "research_query": "rauchfangkehrer gutachten klimageraet abluftrohr 1200 wien",
+                    "selection_criteria": ["contact details visible", "reachability", "fit to request"],
+                    "candidate_items": [
+                        {
+                            "label": "Rauchfangkehrer Mayr - Befund und Gutachten Wien",
+                            "url": "https://rauchfangkehrer-mayr.at/befunde/",
+                            "snippet": "Rauchfangkehrermeister fuer Befund, Gutachten, Leistungen und Kontakt in Wien.",
+                            "contact_email": "office@example.test",
+                            "reachable": True,
+                            "page_title": "Befund vom Rauchfangkehrer",
+                        }
+                    ],
+                }
+            },
+        }
+
+        result = proactive_ooda_safe_work.build_safe_work_result(packet, network_fetch_enabled=False)
+        recommended = result["recommended_option_or_draft"]
+
+        self.assertEqual(result["status"], "staged_for_user_decision")
+        self.assertEqual(recommended["source"], "candidate_synthesis")
+        self.assertEqual(recommended["recipient_email"], "office@example.test")
+        self.assertIn("Rauchfangkehrer Mayr", recommended["value"])
 
     def test_provider_secret_file_candidates_finds_parent_config_path_for_relative_password_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

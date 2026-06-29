@@ -441,7 +441,6 @@ def build_safe_work_result(
             and (
                 not context.get("provider_discovery_relevant")
                 or bool(recommendable_candidate_items)
-                or work_type == "draft"
             )
         )
     )
@@ -1157,9 +1156,10 @@ def _draft_recommended_option_or_draft(
     context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     draft_mode = str(stage_payload.get("draft_mode") or "").strip().lower()
+    resolved_context = dict(context or _candidate_evaluation_context(input_contract=input_contract, stage_payload=stage_payload))
     preferred_candidate = _preferred_draft_candidate(
         candidate_items,
-        context=dict(context or _candidate_evaluation_context(input_contract=input_contract, stage_payload=stage_payload)),
+        context=resolved_context,
     )
     if draft_mode == "research_backed_inquiry" and preferred_candidate:
         draft_text = _research_backed_draft_text(
@@ -1180,6 +1180,8 @@ def _draft_recommended_option_or_draft(
     if draft:
         return {"kind": "draft_text", "value": _json_safe(draft), "source": "stage_payload"}
     if draft_mode == "research_backed_inquiry":
+        if resolved_context.get("provider_discovery_relevant"):
+            return {}
         fallback = _fallback_research_backed_draft_text(input_contract=input_contract, stage_payload=stage_payload)
         if fallback:
             return {"kind": "draft_text", "value": fallback, "source": "request_fallback"}
