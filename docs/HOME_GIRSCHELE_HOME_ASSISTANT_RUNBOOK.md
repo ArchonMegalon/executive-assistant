@@ -110,6 +110,7 @@ The public hostname must never expose Home Assistant onboarding or admin pages d
 4. Only after Cloudflare Access succeeds, complete Home Assistant onboarding or admin work.
 
 The testable invariant is the unauthenticated probe: `curl -k -I https://home.girschele.com/` must return a redirect to `girschele.cloudflareaccess.com`, and the protected-resource metadata must report `protected: true`.
+The `drift` receipt also probes `/onboarding.html`, `/config`, and `/lovelace` without credentials and requires all of them to redirect to Cloudflare Access.
 
 ## Recovery
 

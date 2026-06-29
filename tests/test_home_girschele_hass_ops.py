@@ -51,6 +51,8 @@ def test_home_girschele_ops_script_covers_operational_receipts() -> None:
     assert "bd452cbf817e065da8063fc21673d536" in script
     assert 'CF_TUNNEL_NAME="${HOME_GIRSCHELE_CLOUDFLARE_TUNNEL_NAME:-chummer-run}"' in script
     assert "cloudflare_tunnel_config" in script
+    assert "adminAndOnboardingPathsGuarded" in script
+    assert "/onboarding.html /config /lovelace" in script
     assert "http://172.17.0.1:8123" in script
     assert 'max-size: "10m"' in script
     assert 'max-file: "3"' in script

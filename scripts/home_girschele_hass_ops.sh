@@ -716,6 +716,31 @@ drift_check() {
   grep -qi '^location: .*cloudflareaccess\.com' "$public_headers" && public_guard_ok=true || public_guard_ok=false
   [[ "$protected_status" == "200" ]] && grep -q '"protected"[[:space:]]*:[[:space:]]*true' "$protected_body" && protected_ok=true || protected_ok=false
 
+  local admin_paths_file admin_paths_json admin_paths_guarded_ok path path_headers path_body path_status path_location path_location_host path_ok
+  admin_paths_file="$tmp_dir/admin-paths.jsonl"
+  : >"$admin_paths_file"
+  admin_paths_guarded_ok=true
+  for path in /onboarding.html /config /lovelace; do
+    path_headers="$tmp_dir/admin-${path//\//_}.headers"
+    path_body="$tmp_dir/admin-${path//\//_}.body"
+    path_status="$(curl_status "$PUBLIC_BASE_URL$path" "$path_headers" "$path_body")"
+    path_location="$(awk 'BEGIN{IGNORECASE=1} /^location:/{print $2}' "$path_headers" | tr -d '\r' | tail -n 1)"
+    path_location_host="$(printf '%s' "$path_location" | sed -E 's#^https?://([^/]+)/?.*#\1#')"
+    if [[ "$path_status" =~ ^30[12378]$ && "$path_location" == *cloudflareaccess.com* ]]; then
+      path_ok=true
+    else
+      path_ok=false
+      admin_paths_guarded_ok=false
+    fi
+    jq -cn \
+      --arg path "$path" \
+      --arg httpStatus "$path_status" \
+      --arg locationHost "$path_location_host" \
+      --argjson ok "$(json_bool "$path_ok")" \
+      '{path: $path, httpStatus: $httpStatus, locationHost: $locationHost, ok: $ok}' >>"$admin_paths_file"
+  done
+  admin_paths_json="$(jq -s '.' "$admin_paths_file")"
+
   local tunnel_config tunnel_log tunnel_ok tunnel_source
   tunnel_ok=false
   tunnel_source="cloudflare_api"
@@ -765,6 +790,7 @@ drift_check() {
         "$log_ok" == true &&
         "$compose_ok" == true &&
         "$public_guard_ok" == true &&
+        "$admin_paths_guarded_ok" == true &&
         "$protected_ok" == true &&
         "$tunnel_ok" == true &&
         "$access_api_ok" == true &&
@@ -788,6 +814,7 @@ drift_check() {
     --arg protectedStatus "$protected_status" \
     --arg expectedTunnelOrigin "$EXPECTED_TUNNEL_ORIGIN" \
     --arg tunnelSource "$tunnel_source" \
+    --argjson adminPaths "$admin_paths_json" \
     --argjson pass "$(json_bool "$pass")" \
     --argjson containerRunningOk "$(json_bool "$container_running_ok")" \
     --argjson mountOk "$(json_bool "$mount_ok")" \
@@ -795,6 +822,7 @@ drift_check() {
     --argjson logOk "$(json_bool "$log_ok")" \
     --argjson composeOk "$(json_bool "$compose_ok")" \
     --argjson publicGuardOk "$(json_bool "$public_guard_ok")" \
+    --argjson adminPathsGuardedOk "$(json_bool "$admin_paths_guarded_ok")" \
     --argjson protectedOk "$(json_bool "$protected_ok")" \
     --argjson tunnelOk "$(json_bool "$tunnel_ok")" \
     --argjson accessApiOk "$(json_bool "$access_api_ok")" \
@@ -813,6 +841,7 @@ drift_check() {
         logRotation: {ok: $logOk, maxSize: $logMaxSize, maxFile: $logMaxFile},
         composeContract: $composeOk,
         publicAccessGuard: {httpStatus: $publicStatus, ok: $publicGuardOk},
+        adminAndOnboardingPathsGuarded: {ok: $adminPathsGuardedOk, paths: $adminPaths},
         protectedResource: {httpStatus: $protectedStatus, ok: $protectedOk},
         tunnelRoute: {ok: $tunnelOk, expectedOrigin: $expectedTunnelOrigin, source: $tunnelSource},
         cloudflareAccessApi: $accessApiOk,
