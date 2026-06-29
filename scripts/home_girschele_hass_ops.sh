@@ -1451,13 +1451,7 @@ send_operator_alert() {
   whatsapp_json="$(printf '%s' "$whatsapp_output" | jq -c '.' 2>/dev/null || jq -cn --arg raw "$(printf '%s' "$whatsapp_output" | head -c 500)" --argjson exitCode "$whatsapp_exit" '{exitCode: $exitCode, raw: $raw}')"
 
   bot_token="$(read_env_value "$ENV_FILE" EA_TELEGRAM_BOT_TOKEN)"
-  chat_id="$ALERT_TELEGRAM_CHAT_ID"
-  if [[ -z "$chat_id" ]]; then
-    chat_id="$(read_env_value "$ENV_FILE" EA_WHATSAPP_WEB_TG_SUMMARY_CHAT_ID)"
-  fi
-  if [[ -z "$chat_id" ]]; then
-    chat_id="$(read_env_value "$ENV_FILE" EA_TELEGRAM_DEFAULT_CHAT_ID)"
-  fi
+  chat_id="$(resolve_telegram_chat_id)"
   if [[ -z "$bot_token" || -z "$chat_id" ]]; then
     jq -cn --argjson whatsapp "$whatsapp_json" \
       '{ok: false, transport: "none", reason: "operator_transport_not_configured", whatsappAttempt: $whatsapp}'
@@ -1515,6 +1509,35 @@ PY
   jq -cn --argjson whatsapp "$whatsapp_json" --argjson telegram "$payload_json" --arg reason "${telegram_reason:-telegram_failed}" \
     '{ok: false, transport: "telegram", reason: $reason, whatsappAttempt: $whatsapp, delivery: $telegram}'
   return 1
+}
+
+resolve_telegram_chat_id() {
+  local chat_id
+  chat_id="$ALERT_TELEGRAM_CHAT_ID"
+  if [[ -z "$chat_id" ]]; then
+    chat_id="$(read_env_value "$ENV_FILE" EA_WHATSAPP_WEB_TG_SUMMARY_CHAT_ID)"
+  fi
+  if [[ -z "$chat_id" ]]; then
+    chat_id="$(read_env_value "$ENV_FILE" EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID)"
+  fi
+  if [[ -z "$chat_id" ]]; then
+    chat_id="$(read_env_value "$ENV_FILE" EA_TELEGRAM_DEFAULT_CHAT_ID)"
+  fi
+  if [[ -z "$chat_id" ]] && command -v docker >/dev/null 2>&1 && docker inspect ea-api >/dev/null 2>&1; then
+    chat_id="$(docker exec -i ea-api python3 - <<'PY' 2>/dev/null || true
+from __future__ import annotations
+
+import os
+
+from app.services.proactive_telegram_binding import resolve_proactive_telegram_chat_id
+
+principal = os.getenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "").strip()
+chat = resolve_proactive_telegram_chat_id(principal_id=principal)
+print(str(chat or "").strip())
+PY
+)"
+  fi
+  printf '%s' "$chat_id" | tail -n 1 | tr -d '\r'
 }
 
 alert_check() {
