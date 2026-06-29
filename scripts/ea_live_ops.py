@@ -1206,6 +1206,199 @@ def probe_proactive_artifacts(
     return report
 
 
+def cleanup_proactive_approval_callbacks(
+    *,
+    compose_file: str = "",
+    runtime_service: str = "",
+    timeout_seconds: float = 30.0,
+    execute: bool = False,
+    supersede_noncurrent: bool = True,
+    output_format: str = "json",
+) -> dict[str, object]:
+    effective_compose_file = str(compose_file or _env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE))).strip()
+    effective_runtime_service = str(runtime_service or _env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE)).strip()
+    observed_at = _utc_now()
+    artifact_probe = probe_proactive_artifacts(
+        compose_file=effective_compose_file,
+        runtime_service=effective_runtime_service,
+        timeout_seconds=timeout_seconds,
+        output_format="json",
+    )
+    before = _proactive_callback_cleanup_counts(artifact_probe)
+    base_report: dict[str, object] = {
+        "probe_ok": bool(artifact_probe.get("probe_ok")),
+        "status": "probe_failed" if not bool(artifact_probe.get("probe_ok")) else "dry_run",
+        "source": "docker_compose_exec",
+        "compose_file": effective_compose_file,
+        "runtime_service": effective_runtime_service,
+        "observed_at": observed_at,
+        "execute": bool(execute),
+        "mutated": False,
+        "supersede_noncurrent": bool(supersede_noncurrent),
+        "before": before,
+        "after": {},
+        "expired_count": 0,
+        "superseded_count": 0,
+        "inspected_count": 0,
+        "skipped_count": 0,
+        "error_count": 0,
+        "would_expire_count": int(before.get("expired_pending_count") or 0),
+        "would_supersede_count": int(before.get("noncurrent_pending_count") or 0) if supersede_noncurrent else 0,
+        "callback_dir_exists": bool(artifact_probe.get("approval_callback_dir_exists")),
+        "callback_dir_writable": bool(artifact_probe.get("approval_callback_dir_writable")),
+        "callback_dir_present": bool(str(artifact_probe.get("approval_callback_dir") or "").strip()),
+    }
+    if not bool(artifact_probe.get("probe_ok")):
+        report = {
+            **base_report,
+            "blocking_reason": str(artifact_probe.get("blocking_reason") or "artifact_probe_failed").strip(),
+            "next_action": "inspect_proactive_runtime_artifacts",
+        }
+        if output_format == "operator":
+            report["operator_text"] = "proactive_callback_cleanup status=probe_failed next=inspect_proactive_runtime_artifacts"
+        return report
+    if not bool(artifact_probe.get("approval_callback_dir_writable")):
+        report = {
+            **base_report,
+            "status": "blocked",
+            "blocking_reason": "approval_callback_dir_not_writable",
+            "next_action": "restore_proactive_approval_callback_dir_write_access",
+        }
+        if output_format == "operator":
+            report["operator_text"] = "proactive_callback_cleanup status=blocked reason=approval_callback_dir_not_writable"
+        return report
+    if not execute:
+        cleanup_needed = bool(int(base_report["would_expire_count"]) or int(base_report["would_supersede_count"]))
+        report = {
+            **base_report,
+            "status": "dry_run" if cleanup_needed else "clean",
+            "next_action": (
+                "rerun_with_execute_to_expire_or_supersede_stale_callbacks"
+                if cleanup_needed
+                else "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome"
+            ),
+        }
+        if output_format == "operator":
+            report["operator_text"] = _proactive_callback_cleanup_operator_text(report)
+        return report
+
+    command = [
+        "python",
+        "-c",
+        (
+            "import json, sys\n"
+            "from pathlib import Path\n"
+            "for value in ('/app', '/app/ea', '/app/scripts'):\n"
+            "    if value not in sys.path:\n"
+            "        sys.path.insert(0, value)\n"
+            "from app.services.proactive_ooda_telegram_approval import expire_stale_proactive_ooda_telegram_approval_callbacks\n"
+            "payload = json.loads(sys.argv[1])\n"
+            "result = expire_stale_proactive_ooda_telegram_approval_callbacks(\n"
+            "    root=Path('/app'),\n"
+            "    state_path=payload.get('state_path') or '/data/provider-ledger/proactive_ooda_notified.json',\n"
+            "    receipt_path=payload.get('receipt_path') or '',\n"
+            "    callback_dir=payload.get('callback_dir') or '',\n"
+            "    supersede_noncurrent=bool(payload.get('supersede_noncurrent')),\n"
+            ")\n"
+            "print(json.dumps(result, sort_keys=True))\n"
+        ),
+        _json_dumps(
+            {
+                "state_path": str(artifact_probe.get("state_path") or "").strip(),
+                "receipt_path": str(artifact_probe.get("run_receipt_path") or "").strip(),
+                "callback_dir": str(artifact_probe.get("approval_callback_dir") or "").strip(),
+                "supersede_noncurrent": bool(supersede_noncurrent),
+            }
+        ),
+    ]
+    code, payload, stdout, stderr = _docker_compose_exec_json(
+        compose_file=effective_compose_file,
+        service=effective_runtime_service,
+        command=command,
+        timeout_seconds=timeout_seconds,
+    )
+    if not payload:
+        report = {
+            **base_report,
+            "status": "cleanup_failed",
+            "blocking_reason": f"cleanup_failed:exit_{code}",
+            "next_action": "inspect_proactive_runtime_container",
+            "stdout_excerpt": stdout.strip()[:200],
+            "stderr_excerpt": stderr.strip()[:200],
+        }
+        if output_format == "operator":
+            report["operator_text"] = f"proactive_callback_cleanup status=cleanup_failed next=inspect {effective_runtime_service}"
+        return report
+
+    after_probe = probe_proactive_artifacts(
+        compose_file=effective_compose_file,
+        runtime_service=effective_runtime_service,
+        timeout_seconds=timeout_seconds,
+        output_format="json",
+    )
+    expired_count = int(payload.get("expired_count") or 0)
+    superseded_count = int(payload.get("superseded_count") or 0)
+    report = {
+        **base_report,
+        "probe_ok": bool(after_probe.get("probe_ok")),
+        "status": "cleaned" if expired_count or superseded_count else "clean",
+        "mutated": bool(expired_count or superseded_count),
+        "cleanup_status": str(payload.get("status") or "").strip(),
+        "expired_count": expired_count,
+        "superseded_count": superseded_count,
+        "inspected_count": int(payload.get("inspected_count") or 0),
+        "skipped_count": int(payload.get("skipped_count") or 0),
+        "error_count": int(payload.get("error_count") or 0),
+        "after": _proactive_callback_cleanup_counts(after_probe),
+        "active_packet_ref_sha256": str(payload.get("active_packet_ref_sha256") or "").strip(),
+        "active_staged_artifact_ref_sha256": str(payload.get("active_staged_artifact_ref_sha256") or "").strip(),
+        "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
+    }
+    if int(report["error_count"]) > 0:
+        report["status"] = "partial"
+        report["next_action"] = "inspect_proactive_callback_cleanup_errors"
+    if output_format == "operator":
+        report["operator_text"] = _proactive_callback_cleanup_operator_text(report)
+    return report
+
+
+def _proactive_callback_cleanup_counts(report: Mapping[str, object]) -> dict[str, int]:
+    return {
+        "record_count": int(report.get("approval_callback_record_count") or 0),
+        "raw_pending_count": int(report.get("approval_callback_raw_pending_count") or report.get("approval_callback_pending_count") or 0),
+        "live_pending_count": int(report.get("approval_callback_live_pending_count") or report.get("approval_callback_pending_count") or 0),
+        "stale_pending_count": int(report.get("approval_callback_stale_pending_count") or 0),
+        "noncurrent_pending_count": int(report.get("approval_callback_noncurrent_pending_count") or 0),
+        "expired_pending_count": int(report.get("approval_callback_expired_pending_count") or 0),
+        "expired_count": int(report.get("approval_callback_expired_count") or 0),
+        "superseded_count": int(report.get("approval_callback_superseded_count") or 0),
+        "current_packet_live_pending_count": int(report.get("current_packet_live_pending_count") or 0),
+    }
+
+
+def _proactive_callback_cleanup_operator_text(report: Mapping[str, object]) -> str:
+    before = dict(report.get("before") or {})
+    after = dict(report.get("after") or {})
+    pieces = [
+        "proactive_callback_cleanup",
+        f"status={str(report.get('status') or '').strip() or 'unknown'}",
+        f"execute={str(bool(report.get('execute'))).lower()}",
+        f"stale_before={int(before.get('stale_pending_count') or 0)}",
+        f"noncurrent_before={int(before.get('noncurrent_pending_count') or 0)}",
+        f"expired={int(report.get('expired_count') or 0)}",
+        f"superseded={int(report.get('superseded_count') or 0)}",
+    ]
+    if after:
+        pieces.append(f"stale_after={int(after.get('stale_pending_count') or 0)}")
+        pieces.append(f"noncurrent_after={int(after.get('noncurrent_pending_count') or 0)}")
+    else:
+        pieces.append(f"would_expire={int(report.get('would_expire_count') or 0)}")
+        pieces.append(f"would_supersede={int(report.get('would_supersede_count') or 0)}")
+    if str(report.get("next_action") or "").strip():
+        pieces.append(f"next={str(report.get('next_action') or '').strip()}")
+    return " ".join(pieces)
+
+
 def probe_proactive_gmail_draft(
     *,
     principal_id: str,
@@ -2516,6 +2709,16 @@ def parse_args() -> argparse.Namespace:
     proactive_reissue.add_argument("--dry-run", action="store_true")
     proactive_reissue.add_argument("--force", action="store_true")
 
+    proactive_callback_cleanup = subparsers.add_parser(
+        "cleanup-proactive-approval-callbacks",
+        help="Expire or supersede stale Telegram approval callbacks for the current proactive OODA packet.",
+    )
+    proactive_callback_cleanup.add_argument("--format", choices=("json", "operator"), default="json")
+    proactive_callback_cleanup.add_argument("--compose-file", default=_env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE)))
+    proactive_callback_cleanup.add_argument("--runtime-service", default=_env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE))
+    proactive_callback_cleanup.add_argument("--execute", action="store_true")
+    proactive_callback_cleanup.add_argument("--keep-noncurrent", action="store_true")
+
     resolve = subparsers.add_parser("resolve-whatsapp", help="Resolve a WhatsApp recipient from a partial phone hint.")
     resolve.add_argument("--phone-hint", required=True)
 
@@ -2643,6 +2846,20 @@ def main() -> int:
         else:
             print(_json_dumps(report))
         return 0 if str(report.get("status") or "").strip() in {"sent", "already_live_pending", "already_decided", "dry_run"} else 2
+    if args.command == "cleanup-proactive-approval-callbacks":
+        report = cleanup_proactive_approval_callbacks(
+            compose_file=str(args.compose_file or "").strip(),
+            runtime_service=str(args.runtime_service or "").strip(),
+            timeout_seconds=float(args.timeout_seconds or 15.0),
+            execute=bool(getattr(args, "execute", False)),
+            supersede_noncurrent=not bool(getattr(args, "keep_noncurrent", False)),
+            output_format=args.format,
+        )
+        if args.format == "operator":
+            print(str(report.get("operator_text") or ""))
+        else:
+            print(_json_dumps(report))
+        return 0 if str(report.get("status") or "").strip() in {"dry_run", "clean", "cleaned"} else 2
     if args.command == "resolve-whatsapp":
         report = resolve_whatsapp(args.phone_hint, args=args)
         print(_json_dumps(report))
