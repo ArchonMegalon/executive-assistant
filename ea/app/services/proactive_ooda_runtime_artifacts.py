@@ -243,6 +243,62 @@ def _receipt_proves_action_required_only_quiet_delivery(payload: Mapping[str, An
     return _message_id_count(dict(payload)) == 0
 
 
+def approval_outcome_matches_current_artifacts(
+    approval_outcome: Mapping[str, Any],
+    *,
+    stage_packet: Mapping[str, Any],
+    safe_work_result: Mapping[str, Any],
+) -> bool:
+    outcome = dict(approval_outcome or {})
+    if not bool(outcome.get("approval_outcome_recorded")):
+        return False
+    packet_hash = str(outcome.get("packet_ref_sha256") or "").strip()
+    staged_artifact_hash = str(
+        outcome.get("staged_artifact_sha256")
+        or outcome.get("staged_artifact_ref_sha256")
+        or ""
+    ).strip()
+    return bool(
+        packet_hash
+        and staged_artifact_hash
+        and packet_hash == _packet_ref_hash(dict(stage_packet or {}))
+        and staged_artifact_hash == _safe_work_result_ref_hash(dict(safe_work_result or {}))
+    )
+
+
+def select_current_approval_outcome_for_bundle(bundle: Mapping[str, Any]) -> dict[str, Any]:
+    runtime_bundle = dict(bundle or {})
+    stage_packet = dict(runtime_bundle.get("stage_packet") or {})
+    safe_work_result = dict(runtime_bundle.get("safe_work_result") or {})
+    callback_outcome = dict(runtime_bundle.get("current_packet_callback_outcome") or {})
+    file_outcome = dict(runtime_bundle.get("approval_outcome") or {})
+    if approval_outcome_matches_current_artifacts(
+        callback_outcome,
+        stage_packet=stage_packet,
+        safe_work_result=safe_work_result,
+    ):
+        return {
+            "approval_outcome": callback_outcome,
+            "source": "current_packet_callback",
+            "stale_saved_approval_outcome_present": False,
+        }
+    if approval_outcome_matches_current_artifacts(
+        file_outcome,
+        stage_packet=stage_packet,
+        safe_work_result=safe_work_result,
+    ):
+        return {
+            "approval_outcome": file_outcome,
+            "source": "approval_outcome_artifact",
+            "stale_saved_approval_outcome_present": False,
+        }
+    return {
+        "approval_outcome": {},
+        "source": "",
+        "stale_saved_approval_outcome_present": bool(file_outcome.get("approval_outcome_recorded")),
+    }
+
+
 def approval_callback_runtime_summary(
     *,
     approval_callback_dir: Path,

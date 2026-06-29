@@ -4,7 +4,10 @@ import hashlib
 import json
 from pathlib import Path
 
-from app.services.proactive_ooda_runtime_artifacts import load_runtime_artifact_bundle
+from app.services.proactive_ooda_runtime_artifacts import (
+    load_runtime_artifact_bundle,
+    select_current_approval_outcome_for_bundle,
+)
 
 
 def _sha256(value: str) -> str:
@@ -386,3 +389,56 @@ def test_load_runtime_artifact_bundle_includes_current_packet_approval_callback_
     assert bundle["current_packet_live_pending_count"] == 1
     assert bundle["current_packet_callback_latest_status"] == "pending"
     assert bundle["current_packet_callback_latest_expired"] is False
+
+
+def test_select_current_approval_outcome_ignores_stale_saved_artifact() -> None:
+    stage_packet = {"packet_ref": "stage_packet:current"}
+    safe_work_result = {"result_ref": "safe_work_result:current"}
+
+    selected = select_current_approval_outcome_for_bundle(
+        {
+            "stage_packet": stage_packet,
+            "safe_work_result": safe_work_result,
+            "approval_outcome": {
+                "approval_outcome_recorded": True,
+                "status": "accepted_redacted",
+                "outcome": "approved",
+                "packet_ref_sha256": _sha256("stage_packet:old"),
+                "staged_artifact_sha256": _sha256("safe_work_result:old"),
+            },
+        }
+    )
+
+    assert selected["approval_outcome"] == {}
+    assert selected["source"] == ""
+    assert selected["stale_saved_approval_outcome_present"] is True
+
+
+def test_select_current_approval_outcome_prefers_current_callback_over_saved_artifact() -> None:
+    stage_packet = {"packet_ref": "stage_packet:current"}
+    safe_work_result = {"result_ref": "safe_work_result:current"}
+
+    selected = select_current_approval_outcome_for_bundle(
+        {
+            "stage_packet": stage_packet,
+            "safe_work_result": safe_work_result,
+            "current_packet_callback_outcome": {
+                "approval_outcome_recorded": True,
+                "status": "recorded_not_accepted",
+                "outcome": "deferred",
+                "packet_ref_sha256": _sha256("stage_packet:current"),
+                "staged_artifact_sha256": _sha256("safe_work_result:current"),
+            },
+            "approval_outcome": {
+                "approval_outcome_recorded": True,
+                "status": "accepted_redacted",
+                "outcome": "approved",
+                "packet_ref_sha256": _sha256("stage_packet:current"),
+                "staged_artifact_sha256": _sha256("safe_work_result:current"),
+            },
+        }
+    )
+
+    assert selected["source"] == "current_packet_callback"
+    assert selected["approval_outcome"]["outcome"] == "deferred"
+    assert selected["stale_saved_approval_outcome_present"] is False

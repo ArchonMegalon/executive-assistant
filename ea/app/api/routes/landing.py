@@ -120,7 +120,10 @@ from app.services.property_market_catalog import (
     property_type_options as property_type_options_catalog,
     provider_options as property_provider_options,
 )
-from app.services.proactive_ooda_runtime_artifacts import load_runtime_artifact_bundle
+from app.services.proactive_ooda_runtime_artifacts import (
+    load_runtime_artifact_bundle,
+    select_current_approval_outcome_for_bundle,
+)
 from app.services.public_branding import request_brand
 from app.services.registration_email import email_delivery_enabled
 
@@ -1604,14 +1607,23 @@ def admin_proactive_ooda_approval_capture(
     )
     stage_packet = dict(bundle.get("stage_packet") or {})
     safe_work_result = dict(bundle.get("safe_work_result") or {})
-    approval_outcome = dict(bundle.get("approval_outcome") or {})
+    approval_selection = select_current_approval_outcome_for_bundle(bundle)
+    approval_outcome = dict(approval_selection.get("approval_outcome") or {})
     run_receipt = dict(bundle.get("run_receipt") or {})
     packet_ref = str(stage_packet.get("packet_ref") or "").strip()
     staged_artifact_ref = str(safe_work_result.get("result_ref") or "").strip()
     staged_action_url = str(safe_work_result.get("staged_action_url") or "").strip()
     recommended = _admin_proactive_recommended_label(safe_work_result.get("recommended_option_or_draft"))
     approval_recorded = bool(approval_outcome.get("approval_outcome_recorded"))
-    approval_status = str(approval_outcome.get("status") or "").strip() if approval_recorded else "missing"
+    stale_approval_present = bool(approval_selection.get("stale_saved_approval_outcome_present"))
+    approval_status = (
+        str(approval_outcome.get("status") or "").strip()
+        if approval_recorded
+        else "stale_not_current"
+        if stale_approval_present
+        else "missing"
+    )
+    approval_source = str(approval_selection.get("source") or "").strip()
     evidence_rows = _admin_proactive_evidence_rows(safe_work_result)
     return _render_console_object_detail(
         request=request,
@@ -1629,9 +1641,14 @@ def admin_proactive_ooda_approval_capture(
             {"label": "Packet ref", "value": packet_ref or "Missing"},
             {"label": "Staged artifact", "value": staged_artifact_ref or "Missing"},
             {"label": "Recorded outcome", "value": approval_status},
+            *(
+                [{"label": "Approval source", "value": approval_source}]
+                if approval_source
+                else []
+            ),
         ],
         object_ooda_title="Current staged decision",
-        object_ooda_copy="This surface is grounded in the latest runtime packet, safe-work result, and redacted approval-outcome artifact on disk.",
+        object_ooda_copy="This surface is grounded in the latest runtime packet and safe-work result; saved approval artifacts only count when their hashes match the current packet.",
         object_ooda_rows=[
             _object_detail_row("Recommended result", recommended or "No recommended option is staged yet.", "Decision"),
             _object_detail_row(

@@ -1216,6 +1216,50 @@ def test_admin_proactive_ooda_approval_page_prefills_runtime_artifact_refs(monke
     assert "https://example.test/approve" in response.text
 
 
+def test_admin_proactive_ooda_approval_page_marks_mismatched_saved_approval_as_stale(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-admin-proactive-approval-stale"
+    client = _operator_client(principal_id=principal_id)
+    from app.api.routes import landing_console_support
+
+    monkeypatch.setattr(
+        landing_console_support,
+        "load_runtime_artifact_bundle",
+        lambda **_kwargs: {
+            "run_receipt": {"notification_status": "sent"},
+            "run_receipt_path": "state/proactive_ooda_latest_run.generated.json",
+            "stage_packet_path": "state/proactive_ooda_stage_packets/current.json",
+            "safe_work_result_path": "state/proactive_ooda_safe_work_results/current.json",
+            "approval_outcome_path": "state/proactive_ooda_latest_approval_outcome.generated.json",
+            "stage_packet": {"packet_ref": "stage_packet:current"},
+            "safe_work_result": {
+                "result_ref": "safe_work_result:current",
+                "staged_action_url": "https://example.test/current",
+                "recommended_option_or_draft": {
+                    "kind": "shortlist_candidate",
+                    "value": {"label": "Current option", "url": "https://example.test/current"},
+                },
+            },
+            "approval_outcome": {
+                "approval_outcome_recorded": True,
+                "status": "accepted_redacted",
+                "outcome": "approved",
+                "packet_ref_sha256": "a" * 64,
+                "staged_artifact_sha256": "b" * 64,
+            },
+        },
+    )
+    monkeypatch.setattr(landing_console_support, "_load_proactive_ooda_control_receipts", lambda: ({}, {}))
+
+    response = client.get("/admin/proactive-ooda/approval")
+
+    assert response.status_code == 200
+    assert "stale_not_current" in response.text
+    assert "accepted_redacted" not in response.text
+    assert "saved approval artifacts only count when their hashes match the current packet" in response.text
+
+
 def test_admin_proactive_ooda_approval_page_shows_runtime_recovery_controls(monkeypatch: pytest.MonkeyPatch) -> None:
     principal_id = "exec-admin-proactive-approval-recovery"
     client = _operator_client(principal_id=principal_id)
