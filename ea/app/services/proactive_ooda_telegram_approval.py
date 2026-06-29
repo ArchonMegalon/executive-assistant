@@ -396,24 +396,37 @@ def _approval_callback_principal_candidates(
     *,
     container: AppContainer | None,
     principal_id: str,
+    include_delivery_defaults: bool = False,
 ) -> tuple[str, ...]:
     normalized_principal_id = str(principal_id or "").strip()
-    if not normalized_principal_id:
+    principal_ids: list[str] = []
+    if normalized_principal_id:
+        principal_ids.append(normalized_principal_id)
+    if include_delivery_defaults:
+        for env_name in (
+            "EA_PROACTIVE_OODA_PRINCIPAL_ID",
+            "EA_TELEGRAM_DEFAULT_PRINCIPAL_ID",
+            "EA_DEFAULT_PRINCIPAL_ID",
+        ):
+            candidate = str(os.getenv(env_name) or "").strip()
+            if candidate and candidate not in principal_ids:
+                principal_ids.append(candidate)
+    if not principal_ids:
         return ()
     if container is None:
-        return (normalized_principal_id,)
+        return tuple(principal_ids)
     try:
         aliases = tuple(
             google_oauth_service._principal_alias_candidates(
                 container=container,
-                principal_ids=(normalized_principal_id,),
+                principal_ids=tuple(principal_ids),
                 include_local_user=False,
             )
         )
     except Exception:
         aliases = ()
     ordered: list[str] = []
-    for candidate in (normalized_principal_id, *aliases):
+    for candidate in (*principal_ids, *aliases):
         normalized = str(candidate or "").strip()
         if normalized and normalized not in ordered:
             ordered.append(normalized)
@@ -425,6 +438,7 @@ def _approval_callback_principal_matches(
     record: dict[str, Any],
     principal_id: str,
     container: AppContainer | None,
+    actor: str = "",
 ) -> bool:
     record_principal_hash = str(record.get("principal_id_hash") or "").strip()
     if not record_principal_hash:
@@ -432,10 +446,15 @@ def _approval_callback_principal_matches(
     for candidate_principal_id in _approval_callback_principal_candidates(
         container=container,
         principal_id=principal_id,
+        include_delivery_defaults=_is_telegram_actor(actor),
     ):
         if record_principal_hash == _hash_value(candidate_principal_id):
             return True
     return False
+
+
+def _is_telegram_actor(actor: str) -> bool:
+    return str(actor or "").strip().lower().startswith("telegram:")
 
 
 def apply_proactive_ooda_telegram_approval_callback(
@@ -468,6 +487,7 @@ def apply_proactive_ooda_telegram_approval_callback(
         record=record,
         principal_id=principal_id,
         container=container,
+        actor=actor,
     ):
         raise RuntimeError("proactive_ooda_approval_callback_principal_mismatch")
     existing_status = str(record.get("status") or "").strip().lower()

@@ -150,6 +150,102 @@ def test_apply_proactive_ooda_telegram_approval_callback_accepts_principal_alias
     assert calls["kwargs"]["principal_id"] == "exec-1"
 
 
+def test_apply_proactive_ooda_telegram_approval_callback_accepts_telegram_default_principal(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import proactive_ooda_telegram_approval as approval
+
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "cf-email:tibor.girschele@gmail.com")
+    prepared = approval.prepare_proactive_ooda_telegram_approval(
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        packet_ref="stage_packet:packet-default-principal",
+        staged_artifact_ref="safe_work_result:result-default-principal",
+        approval_prompt="Approve this staged packet.",
+        chat_id="42",
+        bot_token="telegram-token",
+        root=tmp_path,
+        state_path="state/proactive_ooda_notified.json",
+        receipt_path="provider-ledger/proactive_ooda_latest_run.generated.json",
+    )
+    calls: dict[str, object] = {}
+
+    def fake_finalize(**kwargs):
+        calls["kwargs"] = kwargs
+        return {
+            "approval_outcome": {
+                "outcome_id": "approval-default-principal",
+                "accepted": True,
+                "outcome": "approved",
+            },
+            "gold_acceptance_path": tmp_path / ".codex-studio" / "published" / "ea_proactive_ooda_gold_acceptance.generated.json",
+        }
+
+    monkeypatch.setattr(approval, "finalize_proactive_ooda_approval_outcome", fake_finalize)
+
+    result = approval.apply_proactive_ooda_telegram_approval_callback(
+        callback_token=prepared["callback_token"],
+        outcome="approved",
+        principal_id="local-user",
+        actor="telegram:42",
+        message_id="message-default-principal",
+        root=tmp_path,
+        state_path="state/proactive_ooda_notified.json",
+        receipt_path="provider-ledger/proactive_ooda_latest_run.generated.json",
+    )
+
+    assert result["status"] == "recorded"
+    assert result["outcome"] == "approved"
+    assert calls["kwargs"]["principal_id"] == "local-user"
+    stored = json.loads(prepared["record_path"].read_text(encoding="utf-8"))
+    assert stored["status"] == "approved"
+    assert "cf-email:tibor.girschele@gmail.com" not in json.dumps(stored)
+
+
+def test_apply_proactive_ooda_telegram_approval_callback_rejects_default_principal_for_non_telegram_actor(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import proactive_ooda_telegram_approval as approval
+
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "cf-email:tibor.girschele@gmail.com")
+    prepared = approval.prepare_proactive_ooda_telegram_approval(
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        packet_ref="stage_packet:packet-non-telegram",
+        staged_artifact_ref="safe_work_result:result-non-telegram",
+        approval_prompt="Approve this staged packet.",
+        chat_id="42",
+        bot_token="telegram-token",
+        root=tmp_path,
+        state_path="state/proactive_ooda_notified.json",
+        receipt_path="provider-ledger/proactive_ooda_latest_run.generated.json",
+    )
+    monkeypatch.setattr(
+        approval,
+        "finalize_proactive_ooda_approval_outcome",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("principal mismatch must not finalize")),
+    )
+
+    try:
+        approval.apply_proactive_ooda_telegram_approval_callback(
+            callback_token=prepared["callback_token"],
+            outcome="approved",
+            principal_id="local-user",
+            actor="api:local-user",
+            message_id="message-non-telegram",
+            root=tmp_path,
+            state_path="state/proactive_ooda_notified.json",
+            receipt_path="provider-ledger/proactive_ooda_latest_run.generated.json",
+        )
+    except RuntimeError as exc:
+        assert str(exc) == "proactive_ooda_approval_callback_principal_mismatch"
+    else:
+        raise AssertionError("expected non-Telegram actor to reject default-principal fallback")
+
+    stored = json.loads(prepared["record_path"].read_text(encoding="utf-8"))
+    assert stored["status"] == "pending"
+
+
 def test_inspect_latest_telegram_gmail_draft_followthrough_reports_redacted_execution_observation(
     monkeypatch,
     tmp_path: Path,
