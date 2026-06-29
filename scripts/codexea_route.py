@@ -133,6 +133,20 @@ def _redact_runtime_text(text: object) -> str:
     return rendered
 
 
+def _backend_error_summary(error: object, *, limit: int = 240) -> str:
+    text = " ".join(_redact_runtime_text(str(error or "")).split())
+    if not text:
+        return "unknown_error"
+    if "Traceback (most recent call last)" in text:
+        prefix = text.split(":Traceback", 1)[0].strip(": ")
+        match = re.search(r"\b([A-Za-z_][A-Za-z0-9_]*(?:Error|Exception))\b", text)
+        reason = match.group(1) if match else "runtime_traceback"
+        return f"{prefix}:{reason}" if prefix else reason
+    if len(text) <= max(1, limit):
+        return text
+    return f"{text[: max(1, limit) - 3].rstrip()}..."
+
+
 DEFAULT_PROBE_LIMIT = _env_int("CODEXEA_ONEMIN_PROBE_LIMIT", 8, minimum=0)
 DEFAULT_TIMEOUT_SECONDS = _env_int("CODEXEA_ONEMIN_TIMEOUT_SECONDS", 300, minimum=1, maximum=1800)
 DEFAULT_COOLDOWN_SECONDS = _env_int("CODEXEA_ONEMIN_PROBE_COOLDOWN_DEFAULT_SECONDS", 300, minimum=1, maximum=86400)
@@ -274,7 +288,7 @@ probe_summary: dict[str, Any] = {
 }
 
 if probe_enabled and probe_rows:
-    timeout_seconds = max(5, _as_int(request.get("timeout_seconds"), default=DEFAULT_TIMEOUT_SECONDS))
+    timeout_seconds = max(5, _as_int(request.get("timeout_seconds"), default=300))
     max_workers = max(1, min(8, _as_int(request.get("max_workers"), default=4)))
     results: list[dict[str, object]] = []
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -991,7 +1005,7 @@ def _run_live_onemin_aggregate(args: argparse.Namespace) -> dict[str, Any]:
             )
             return _finalize_onemin_probe_payload(payload, cooldown_state=cooldown_state)
         except Exception as exc:
-            errors.append(str(exc))
+            errors.append(_backend_error_summary(exc))
     if bool(request.get("probe")):
         cached_request = dict(request)
         cached_request["probe"] = False
@@ -1015,7 +1029,7 @@ def _run_live_onemin_aggregate(args: argparse.Namespace) -> dict[str, Any]:
                 payload["probe"] = payload_probe
                 return _finalize_onemin_probe_payload(payload, cooldown_state=cooldown_state)
             except Exception as exc:
-                errors.append(str(exc))
+                errors.append(_backend_error_summary(exc))
     raise RuntimeError("route_probe_failed:" + " | ".join(errors))
 
 

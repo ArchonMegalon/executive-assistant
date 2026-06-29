@@ -460,6 +460,37 @@ def test_run_live_onemin_aggregate_degrades_probe_failures_to_cached(monkeypatch
     assert payload["probe"]["backend_errors"] == ["probe_failed"]
 
 
+def test_run_live_onemin_aggregate_sanitizes_traceback_backend_errors(monkeypatch) -> None:
+    module = _load_module()
+    args = _args(probe_best_effort=True)
+
+    monkeypatch.setattr(module, "_backend_attempts", lambda request: [("ea_api_container", "subprocess", ["python"])])
+
+    def fake_run_backend_attempt(backend_name, backend_kind, command, *, request, timeout_seconds):
+        if request["probe"]:
+            raise RuntimeError(
+                "ea_api_container_failed:1:Traceback (most recent call last):\n"
+                "  File \"<string>\", line 136, in <module>\n"
+                "NameError: name 'DEFAULT_TIMEOUT_SECONDS' is not defined"
+            )
+        return {
+            "source": backend_name,
+            "sum_free_credits": 42,
+            "live_remaining_credits_total": 42,
+            "actual_free_credits_total": 40,
+            "probe": {"requested": False, "errors": []},
+        }
+
+    monkeypatch.setattr(module, "_run_backend_attempt", fake_run_backend_attempt)
+
+    payload = module._run_live_onemin_aggregate(args)
+
+    assert payload["probe"]["degraded_to_cached"] is True
+    assert payload["probe"]["backend_errors"] == ["ea_api_container_failed:1:NameError"]
+    assert "Traceback" not in json.dumps(payload["probe"]["backend_errors"])
+    assert "DEFAULT_TIMEOUT_SECONDS" not in module.CONTAINER_SCRIPT
+
+
 def test_backend_attempts_skip_local_python_without_app_tree(monkeypatch, tmp_path: Path) -> None:
     module = _load_module()
     request = module._build_route_request(_args(probe_best_effort=True), account_rows=[])
