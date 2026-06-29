@@ -38,6 +38,24 @@ KNOWN_STATUSES = {
 EXPECTED_COMPONENTS = {
     "deliver": {"promo_media", "manfred_speech", "telegram_audiobook", "whatsapp_audiobook"},
 }
+REQUIRED_PROACTIVE_OODA_RECEIPT = (
+    "real proactive OODA packet accepted with action-required-only routed delivery, approved-source or transcript signal, "
+    "live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, "
+    "current-packet, stale-approval, and decision facts, and explicit approval outcome"
+)
+REQUIRED_PROOF_FIELDS = {
+    "key",
+    "title",
+    "lens",
+    "status",
+    "required_next_receipt",
+    "evidence_kind",
+    "capture_surfaces",
+    "next_action",
+    "claim_boundary",
+    "source_receipts",
+}
+KNOWN_PROOF_STATUSES = {"pending_real_world_evidence"}
 
 
 def _json(path: Path) -> dict[str, Any]:
@@ -201,8 +219,91 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
     ):
         issues.append("missing Teable projection rule for proactive OODA")
     required_next_receipts = set(str(item) for item in list(receipt.get("required_next_receipts") or []) if str(item).strip())
-    if "real proactive OODA packet accepted with action-required-only routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome" not in required_next_receipts:
+    if REQUIRED_PROACTIVE_OODA_RECEIPT not in required_next_receipts:
         issues.append("required_next_receipts must include proactive OODA Teable proof")
+    acceptance_proof_requirements = receipt.get("acceptance_proof_requirements")
+    if not isinstance(acceptance_proof_requirements, list) or not acceptance_proof_requirements:
+        issues.append("acceptance_proof_requirements must be a non-empty list")
+        acceptance_proof_requirements = []
+    proof_receipts: set[str] = set()
+    proof_keys: set[str] = set()
+    proof_by_key: dict[str, dict[str, Any]] = {}
+    for index, requirement in enumerate(acceptance_proof_requirements):
+        if not isinstance(requirement, dict):
+            issues.append(f"acceptance_proof_requirements[{index}] must be an object")
+            continue
+        missing_fields = sorted(field for field in REQUIRED_PROOF_FIELDS if field not in requirement)
+        if missing_fields:
+            issues.append(f"acceptance proof requirement missing fields at index {index}: {', '.join(missing_fields)}")
+        key = str(requirement.get("key") or "").strip()
+        if not key:
+            issues.append(f"acceptance proof requirement key missing at index {index}")
+        elif key in proof_keys:
+            issues.append(f"duplicate acceptance proof requirement key: {key}")
+        else:
+            proof_keys.add(key)
+            proof_by_key[key] = requirement
+        lens = str(requirement.get("lens") or "").strip()
+        if lens not in REQUIRED_LENSES:
+            issues.append(f"acceptance proof requirement {key or index} uses unknown lens: {lens}")
+        status = str(requirement.get("status") or "").strip()
+        if status not in KNOWN_PROOF_STATUSES:
+            issues.append(f"acceptance proof requirement {key or index} uses unknown status: {status}")
+        required_receipt = str(requirement.get("required_next_receipt") or "").strip()
+        if required_receipt:
+            proof_receipts.add(required_receipt)
+        else:
+            issues.append(f"acceptance proof requirement {key or index} missing required_next_receipt")
+        capture_surfaces = [
+            str(surface or "").strip()
+            for surface in list(requirement.get("capture_surfaces") or [])
+            if str(surface or "").strip()
+        ]
+        if not capture_surfaces:
+            issues.append(f"acceptance proof requirement {key or index} must list capture_surfaces")
+        if "does_not_prove" not in str(requirement.get("claim_boundary") or ""):
+            issues.append(f"acceptance proof requirement {key or index} must keep an explicit does_not_prove claim boundary")
+        if not str(requirement.get("evidence_kind") or "").strip():
+            issues.append(f"acceptance proof requirement {key or index} missing evidence_kind")
+        if not str(requirement.get("next_action") or "").strip():
+            issues.append(f"acceptance proof requirement {key or index} missing next_action")
+        sources = list(requirement.get("source_receipts") or [])
+        if not sources:
+            issues.append(f"acceptance proof requirement {key or index} must include source_receipts")
+        for source in sources:
+            if not isinstance(source, dict):
+                issues.append(f"acceptance proof requirement {key or index} source_receipts must be objects")
+                continue
+            path_text = str(source.get("path") or "").strip()
+            if not path_text:
+                issues.append(f"acceptance proof requirement {key or index} source receipt path missing")
+                continue
+            source_path = repo_root / path_text
+            if bool(source.get("present")) != source_path.exists():
+                issues.append(f"acceptance proof requirement {key or index} source receipt presence drifted for {path_text}")
+    if proof_receipts != required_next_receipts:
+        issues.append("acceptance_proof_requirements must cover every required_next_receipts item exactly")
+    proactive_requirement = proof_by_key.get("proactive_ooda_packet_acceptance") or {}
+    if not proactive_requirement:
+        issues.append("acceptance_proof_requirements must include proactive_ooda_packet_acceptance")
+    else:
+        if proactive_requirement.get("required_next_receipt") != REQUIRED_PROACTIVE_OODA_RECEIPT:
+            issues.append("proactive_ooda_packet_acceptance must cover the proactive OODA proof receipt")
+        if proactive_requirement.get("evidence_kind") != "approval_outcome":
+            issues.append("proactive_ooda_packet_acceptance evidence_kind must be approval_outcome")
+        next_action = str(proactive_requirement.get("next_action") or "")
+        if "record_proactive_ooda_approval_outcome" not in next_action and "tap_proactive_telegram_approval_button" not in next_action:
+            issues.append("proactive_ooda_packet_acceptance must point at the Telegram approval outcome capture")
+        capture_surfaces = " ".join(str(surface or "") for surface in list(proactive_requirement.get("capture_surfaces") or []))
+        if "ea_proactive_ooda_gold_acceptance.generated.json" not in capture_surfaces:
+            issues.append("proactive_ooda_packet_acceptance must cite the gold acceptance receipt capture surface")
+    recovery_requirement = proof_by_key.get("fresh_host_teable_recovery_drill") or {}
+    if not recovery_requirement:
+        issues.append("acceptance_proof_requirements must include fresh_host_teable_recovery_drill")
+    else:
+        capture_surfaces = " ".join(str(surface or "") for surface in list(recovery_requirement.get("capture_surfaces") or []))
+        if "teable_env_recovery_readiness.generated.json" not in capture_surfaces:
+            issues.append("fresh_host_teable_recovery_drill must cite the Teable recovery readiness surface")
     if by_key.get("recover", {}).get("status") == "command_backed_no_published_receipt" and "recover=command_backed_no_published_receipt" not in blocking_reasons:
         issues.append("blocking_reasons must include the command-backed recover posture")
     return issues

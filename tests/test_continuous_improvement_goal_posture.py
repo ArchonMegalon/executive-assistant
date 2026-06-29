@@ -106,6 +106,27 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert "auditor-passed decision-ready packets" in receipt["goal_shorthand"]
     assert "Teable-mirrored current/stale state" in receipt["goal_shorthand"]
     assert "real proactive OODA packet accepted with action-required-only routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome" in receipt["required_next_receipts"]
+    proof_requirements = {item["key"]: item for item in receipt["acceptance_proof_requirements"]}
+    assert set(proof_requirements) == {
+        "morning_brief_operator_acceptance",
+        "weekly_signal_to_decision_review_acceptance",
+        "proactive_ooda_packet_acceptance",
+        "fresh_host_teable_recovery_drill",
+        "manfred_stt_tts_realtime_conversation",
+        "whatsapp_audiobook_live_delivery",
+    }
+    assert {item["required_next_receipt"] for item in proof_requirements.values()} == set(receipt["required_next_receipts"])
+    assert proof_requirements["proactive_ooda_packet_acceptance"]["evidence_kind"] == "approval_outcome"
+    assert (
+        proof_requirements["proactive_ooda_packet_acceptance"]["next_action"]
+        == "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome"
+    )
+    assert any(
+        "ea_proactive_ooda_gold_acceptance.generated.json" in surface
+        for surface in proof_requirements["proactive_ooda_packet_acceptance"]["capture_surfaces"]
+    )
+    assert proof_requirements["fresh_host_teable_recovery_drill"]["lens"] == "recover"
+    assert proof_requirements["fresh_host_teable_recovery_drill"]["evidence_kind"] == "fresh_host_recovery_drill"
     assert "Telegram is an action surface, not a progress log; proactive delivery must stay quiet unless the user needs to approve, choose, unblock, review, or answer something." in receipt["rules"]
     assert "Proactive OODA packets must pass a context/provider-fit auditor before user delivery; reachable URLs, extracted email addresses, or generic search hits are not sufficient." in receipt["rules"]
     assert "Pocket.ai or other consented audio transcripts may feed OODA only as approved signals with privacy, retention, source, and current/stale status preserved." in receipt["rules"]
@@ -212,6 +233,94 @@ def test_goal_posture_verifier_accepts_materialized_receipt(tmp_path: Path) -> N
 
     issues = verify(output)
     assert issues == []
+
+
+def test_goal_posture_verifier_rejects_uncovered_acceptance_proof_requirement(tmp_path: Path) -> None:
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
+        status="ready_local_packet_pending_operator_acceptance",
+        next_action="review packet with operator",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_office_loop_goal.generated.json",
+        status="ready_local_evidence",
+        next_action="collect office-loop acceptance",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/active_media_ltd_goal_bundle.generated.json",
+        status="ready_local_evidence",
+        next_action="collect external media proofs",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
+        status="pass",
+        next_action="maintain consented real STT fixture",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
+        status="blocked_real_world_acceptance",
+        next_action="collect real principal acceptance",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/teable_env_recovery_readiness.generated.json",
+        status="ready_local_audit",
+        next_action="run_shell_seeded_fresh_host_probe_and_mirror_drill_evidence",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/telegram_audiobook_live_readiness.generated.json",
+        status="ready_for_live_epub_delivery_test",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_local_intake_proof.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_public_share_playback.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_live_voice_selection_shadow.generated.json",
+        status="pass",
+    )
+
+    output = tmp_path / ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"
+    receipt = build_goal_posture(root=tmp_path, output_path=output, generated_at="2026-06-22T15:15:00Z")
+    receipt["acceptance_proof_requirements"] = [
+        item
+        for item in list(receipt["acceptance_proof_requirements"])
+        if item["key"] != "proactive_ooda_packet_acceptance"
+    ]
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+
+    issues = verify(output)
+    assert "acceptance_proof_requirements must cover every required_next_receipts item exactly" in issues
+    assert "acceptance_proof_requirements must include proactive_ooda_packet_acceptance" in issues
 
 
 def test_goal_posture_verifier_accepts_waiting_for_live_epub_component_status(tmp_path: Path) -> None:

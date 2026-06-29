@@ -21,6 +21,8 @@ DEFAULT_MEDIA_RECEIPT = ROOT / ".codex-studio/published/active_media_ltd_goal_bu
 DEFAULT_MANFRED_RECEIPT = ROOT / ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json"
 DEFAULT_QUALITY_RECEIPT = ROOT / ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json"
 DEFAULT_TEABLE_RECOVERY_READINESS = ROOT / ".codex-studio/published/teable_env_recovery_readiness.generated.json"
+DEFAULT_PROACTIVE_OODA_OPERATOR_STATUS = ROOT / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
+DEFAULT_PROACTIVE_OODA_GOLD_ACCEPTANCE = ROOT / ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json"
 DEFAULT_TELEGRAM_AUDIOBOOK_READINESS = ROOT / ".codex-studio/published/telegram_audiobook_live_readiness.generated.json"
 DEFAULT_TELEGRAM_AUDIOBOOK_DELIVERY = ROOT / ".codex-studio/published/telegram_audiobook_live_delivery.generated.json"
 DEFAULT_WHATSAPP_AUDIOBOOK_INTAKE = ROOT / ".codex-studio/published/whatsapp_audiobook_local_intake_proof.generated.json"
@@ -30,6 +32,16 @@ DEFAULT_WHATSAPP_AUDIOBOOK_SHARE = ROOT / ".codex-studio/published/whatsapp_audi
 DEFAULT_WHATSAPP_AUDIOBOOK_VOICE = ROOT / ".codex-studio/published/whatsapp_audiobook_live_voice_selection_shadow.generated.json"
 
 BLOCKING_PREFIXES = ("blocked", "fail", "missing", "waiting", "error")
+MORNING_BRIEF_ACCEPTANCE_RECEIPT = "real operator acceptance that the morning brief was worth reading"
+WEEKLY_SIGNAL_REVIEW_ACCEPTANCE_RECEIPT = "real weekly signal-to-decision review acceptance receipt"
+PROACTIVE_OODA_ACCEPTANCE_RECEIPT = (
+    "real proactive OODA packet accepted with action-required-only routed delivery, approved-source or transcript signal, "
+    "live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, "
+    "current-packet, stale-approval, and decision facts, and explicit approval outcome"
+)
+FRESH_HOST_TEABLE_RECOVERY_RECEIPT = "fresh-host Teable recovery drill receipt mirrored into the repo"
+MANFRED_REALTIME_ACCEPTANCE_RECEIPT = "consented Manfred STT/TTS realtime conversation proof"
+WHATSAPP_AUDIOBOOK_LIVE_DELIVERY_RECEIPT = "passing WhatsApp audiobook live delivery receipt"
 
 
 def _utc_now() -> str:
@@ -132,6 +144,32 @@ def _deliver_component(
     }
 
 
+def _acceptance_proof_requirement(
+    *,
+    key: str,
+    title: str,
+    lens: str,
+    required_next_receipt: str,
+    evidence_kind: str,
+    capture_surfaces: list[str],
+    next_action: str,
+    claim_boundary: str,
+    source_receipts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "key": key,
+        "title": title,
+        "lens": lens,
+        "status": "pending_real_world_evidence",
+        "required_next_receipt": required_next_receipt,
+        "evidence_kind": evidence_kind,
+        "capture_surfaces": [surface for surface in capture_surfaces if str(surface or "").strip()],
+        "next_action": next_action,
+        "claim_boundary": claim_boundary,
+        "source_receipts": source_receipts,
+    }
+
+
 def build_goal_posture(
     *,
     root: Path = ROOT,
@@ -144,6 +182,8 @@ def build_goal_posture(
     manfred, manfred_path = _load_receipt(root, root / DEFAULT_MANFRED_RECEIPT.relative_to(ROOT))
     quality, quality_path = _load_receipt(root, root / DEFAULT_QUALITY_RECEIPT.relative_to(ROOT))
     recovery, recovery_path = _load_receipt(root, root / DEFAULT_TEABLE_RECOVERY_READINESS.relative_to(ROOT))
+    ooda_status, ooda_status_path = _load_receipt(root, root / DEFAULT_PROACTIVE_OODA_OPERATOR_STATUS.relative_to(ROOT))
+    ooda_gold, ooda_gold_path = _load_receipt(root, root / DEFAULT_PROACTIVE_OODA_GOLD_ACCEPTANCE.relative_to(ROOT))
     tg_ready, tg_ready_path = _load_receipt(root, root / DEFAULT_TELEGRAM_AUDIOBOOK_READINESS.relative_to(ROOT))
     tg_live, tg_live_path = _load_receipt(root, root / DEFAULT_TELEGRAM_AUDIOBOOK_DELIVERY.relative_to(ROOT))
     wa_intake, wa_intake_path = _load_receipt(root, root / DEFAULT_WHATSAPP_AUDIOBOOK_INTAKE.relative_to(ROOT))
@@ -342,16 +382,96 @@ def build_goal_posture(
     else:
         overall_status = "ready_local_direction"
 
-    required_next_receipts = [
-        "real operator acceptance that the morning brief was worth reading",
-        "real weekly signal-to-decision review acceptance receipt",
-        "real proactive OODA packet accepted with action-required-only routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome",
-        "fresh-host Teable recovery drill receipt mirrored into the repo",
+    acceptance_proof_requirements = [
+        _acceptance_proof_requirement(
+            key="morning_brief_operator_acceptance",
+            title="Morning brief operator acceptance",
+            lens="prove",
+            required_next_receipt=MORNING_BRIEF_ACCEPTANCE_RECEIPT,
+            evidence_kind="real_operator_acceptance",
+            capture_surfaces=[
+                ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
+                quality_path,
+            ],
+            next_action="record_redacted_operator_acceptance_for_real_morning_brief",
+            claim_boundary="does_not_prove_good_executive_assistant_until_real_operator_or_principal_acceptance_is_recorded",
+            source_receipts=[_source_receipt(quality_path, quality)],
+        ),
+        _acceptance_proof_requirement(
+            key="weekly_signal_to_decision_review_acceptance",
+            title="Weekly signal-to-decision review acceptance",
+            lens="detect",
+            required_next_receipt=WEEKLY_SIGNAL_REVIEW_ACCEPTANCE_RECEIPT,
+            evidence_kind="real_review_acceptance",
+            capture_surfaces=[signal_path],
+            next_action="record_weekly_signal_to_decision_review_acceptance",
+            claim_boundary="does_not_prove_signal_loop_value_until_a_real_operator_review_is_recorded",
+            source_receipts=[_source_receipt(signal_path, signal)],
+        ),
+        _acceptance_proof_requirement(
+            key="proactive_ooda_packet_acceptance",
+            title="Proactive OODA packet approval outcome",
+            lens="decide",
+            required_next_receipt=PROACTIVE_OODA_ACCEPTANCE_RECEIPT,
+            evidence_kind="approval_outcome",
+            capture_surfaces=[ooda_gold_path, ooda_status_path],
+            next_action="tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
+            claim_boundary="does_not_prove_assistant_grade_proactive_ooda_until_a_real_approval_outcome_is_captured",
+            source_receipts=[
+                _source_receipt(ooda_gold_path, ooda_gold),
+                _source_receipt(ooda_status_path, ooda_status),
+            ],
+        ),
+        _acceptance_proof_requirement(
+            key="fresh_host_teable_recovery_drill",
+            title="Fresh-host Teable recovery drill",
+            lens="recover",
+            required_next_receipt=FRESH_HOST_TEABLE_RECOVERY_RECEIPT,
+            evidence_kind="fresh_host_recovery_drill",
+            capture_surfaces=[recovery_path],
+            next_action="run_shell_seeded_fresh_host_probe_and_mirror_drill_evidence",
+            claim_boundary="does_not_prove_recovery_readiness_until_fresh_host_drill_evidence_is_mirrored",
+            source_receipts=[_source_receipt(recovery_path, recovery)],
+        ),
     ]
     if any(reason.startswith("deliver:manfred_speech") for reason in blocking_reasons):
-        required_next_receipts.append("consented Manfred STT/TTS realtime conversation proof")
+        acceptance_proof_requirements.append(
+            _acceptance_proof_requirement(
+                key="manfred_stt_tts_realtime_conversation",
+                title="Consented Manfred realtime conversation proof",
+                lens="deliver",
+                required_next_receipt=MANFRED_REALTIME_ACCEPTANCE_RECEIPT,
+                evidence_kind="consented_realtime_media_proof",
+                capture_surfaces=[manfred_path],
+                next_action="capture_consented_manfred_stt_tts_realtime_proof",
+                claim_boundary="does_not_prove_realtime_speech_delivery_until_a_consented_room_conversation_receipt_passes",
+                source_receipts=[_source_receipt(manfred_path, manfred)],
+            )
+        )
     if any(reason.startswith("deliver:whatsapp_audiobook") for reason in blocking_reasons):
-        required_next_receipts.append("passing WhatsApp audiobook live delivery receipt")
+        acceptance_proof_requirements.append(
+            _acceptance_proof_requirement(
+                key="whatsapp_audiobook_live_delivery",
+                title="WhatsApp audiobook live delivery receipt",
+                lens="deliver",
+                required_next_receipt=WHATSAPP_AUDIOBOOK_LIVE_DELIVERY_RECEIPT,
+                evidence_kind="live_delivery_receipt",
+                capture_surfaces=[wa_live_path, wa_bundle_path, wa_share_path, wa_voice_path],
+                next_action="capture_passing_whatsapp_audiobook_live_delivery_receipt",
+                claim_boundary="does_not_prove_whatsapp_delivery_until_live_delivery_and_playback_receipts_pass",
+                source_receipts=[
+                    _source_receipt(wa_live_path, wa_live),
+                    _source_receipt(wa_bundle_path, wa_bundle),
+                    _source_receipt(wa_share_path, wa_share),
+                    _source_receipt(wa_voice_path, wa_voice),
+                ],
+            )
+        )
+    required_next_receipts = [
+        str(requirement.get("required_next_receipt") or "").strip()
+        for requirement in acceptance_proof_requirements
+        if str(requirement.get("required_next_receipt") or "").strip()
+    ]
 
     receipt = {
         "contract_name": "ea.continuous_improvement_goal_posture.v1",
@@ -369,6 +489,7 @@ def build_goal_posture(
         "lenses": lenses,
         "blocking_reasons": blocking_reasons,
         "required_next_receipts": required_next_receipts,
+        "acceptance_proof_requirements": acceptance_proof_requirements,
         "rules": [
             "Local route receipts and operator commands may guide work, but they do not by themselves prove real daily usefulness.",
             "Irreversible purchases, bookings, cancellations, outbound commitments, and sent messages must stay consent-gated even when proactive OODA staging is automated.",
