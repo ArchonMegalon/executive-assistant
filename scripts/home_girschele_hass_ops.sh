@@ -641,6 +641,7 @@ health() {
 
 backup_config() {
   require_tool python3
+  require_tool docker
   require_tool jq
   require_tool sha256sum
 
@@ -650,12 +651,20 @@ backup_config() {
   fi
 
   mkdir -p "$BACKUP_DIR" "$(dirname "$BACKUP_RECEIPT_PATH")"
-  local timestamp archive manifest archive_sha archive_size file_count required_json required_ok
+  local timestamp archive manifest tmp_archive tmp_manifest archive_sha archive_size file_count required_json required_ok
   timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
   archive="$BACKUP_DIR/homeassistant-config-$timestamp.tar.gz"
   manifest="$BACKUP_DIR/homeassistant-config-$timestamp.manifest.json"
+  tmp_archive="$BACKUP_DIR/.homeassistant-config-$timestamp.tar.gz.tmp"
+  tmp_manifest="$BACKUP_DIR/.homeassistant-config-$timestamp.manifest.json.tmp"
+  rm -f "$tmp_archive" "$tmp_manifest"
 
-  python3 - "$CONFIG_DIR" "$archive" "$manifest" <<'PY'
+  docker run --rm \
+    --entrypoint python \
+    -v "$CONFIG_DIR:/config:ro" \
+    -v "$BACKUP_DIR:/backup" \
+    "ghcr.io/home-assistant/home-assistant:${HOME_GIRSCHELE_HASS_IMAGE_TAG:-stable}" \
+    - "$CONFIG_DIR" "$archive" "$manifest" "$(basename "$tmp_archive")" "$(basename "$tmp_manifest")" <<'PY'
 from __future__ import annotations
 
 import hashlib
@@ -664,9 +673,12 @@ from pathlib import Path
 import sys
 import tarfile
 
-root = Path(sys.argv[1]).resolve()
-archive = Path(sys.argv[2])
-manifest = Path(sys.argv[3])
+host_root = sys.argv[1]
+host_archive = sys.argv[2]
+host_manifest = sys.argv[3]
+root = Path("/config")
+archive = Path("/backup") / sys.argv[4]
+manifest = Path("/backup") / sys.argv[5]
 
 excluded_names = {".ha_run.lock"}
 excluded_prefixes = ("home-assistant.log",)
@@ -696,8 +708,8 @@ present = {entry["path"] for entry in entries}
 manifest.write_text(
     json.dumps(
         {
-            "root": str(root),
-            "archive": str(archive),
+            "root": host_root,
+            "archive": host_archive,
             "fileCount": len(entries),
             "requiredPaths": [{"path": item, "present": item in present} for item in required],
             "files": entries,
@@ -708,6 +720,8 @@ manifest.write_text(
     encoding="utf-8",
 )
 PY
+  mv "$tmp_archive" "$archive"
+  mv "$tmp_manifest" "$manifest"
 
   archive_sha="$(sha256sum "$archive" | awk '{print $1}')"
   archive_size="$(stat -c '%s' "$archive")"
