@@ -62,7 +62,8 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     _write_receipt(
         tmp_path,
         ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
-        status="pass",
+        status="blocked",
+        next_action="choose_explicit_replacement_voice_or_restore_selected_provider",
     )
     _write_receipt(
         tmp_path,
@@ -113,6 +114,7 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
         "proactive_ooda_packet_acceptance",
         "fresh_host_teable_recovery_drill",
         "manfred_stt_tts_realtime_conversation",
+        "telegram_audiobook_live_delivery",
         "whatsapp_audiobook_live_delivery",
     }
     assert {item["required_next_receipt"] for item in proof_requirements.values()} == set(receipt["required_next_receipts"])
@@ -127,6 +129,11 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     )
     assert proof_requirements["fresh_host_teable_recovery_drill"]["lens"] == "recover"
     assert proof_requirements["fresh_host_teable_recovery_drill"]["evidence_kind"] == "fresh_host_recovery_drill"
+    assert proof_requirements["telegram_audiobook_live_delivery"]["evidence_kind"] == "live_delivery_receipt"
+    assert (
+        proof_requirements["telegram_audiobook_live_delivery"]["next_action"]
+        == "choose_explicit_replacement_voice_or_restore_selected_provider"
+    )
     assert "Telegram is an action surface, not a progress log; proactive delivery must stay quiet unless the user needs to approve, choose, unblock, review, or answer something." in receipt["rules"]
     assert "Proactive OODA packets must pass a context/provider-fit auditor before user delivery; reachable URLs, extracted email addresses, or generic search hits are not sufficient." in receipt["rules"]
     assert "Pocket.ai or other consented audio transcripts may feed OODA only as approved signals with privacy, retention, source, and current/stale status preserved." in receipt["rules"]
@@ -145,10 +152,27 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     deliver_components = {component["key"]: component for component in lenses["deliver"]["components"]}
     assert deliver_components["promo_media"]["status"] == "ready_local_evidence"
     assert deliver_components["manfred_speech"]["status"] == "blocked_realtime_prerequisites"
-    assert deliver_components["telegram_audiobook"]["status"] == "pass"
+    assert deliver_components["telegram_audiobook"]["status"] == "blocked"
     assert deliver_components["whatsapp_audiobook"]["status"] == "blocked"
     assert "deliver:manfred_speech=blocked_realtime_prerequisites" in receipt["blocking_reasons"]
+    assert "deliver:telegram_audiobook=blocked" in receipt["blocking_reasons"]
     assert "deliver:whatsapp_audiobook=blocked" in receipt["blocking_reasons"]
+
+    output = tmp_path / ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+    assert verify(output) == []
+
+    receipt["acceptance_proof_requirements"] = [
+        item
+        for item in list(receipt["acceptance_proof_requirements"])
+        if item["key"] != "telegram_audiobook_live_delivery"
+    ]
+    output.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+    assert (
+        "active blocker deliver:telegram_audiobook must have acceptance proof requirement telegram_audiobook_live_delivery"
+        in verify(output)
+    )
 
 
 def test_goal_posture_verifier_accepts_materialized_receipt(tmp_path: Path) -> None:

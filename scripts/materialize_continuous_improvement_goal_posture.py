@@ -41,6 +41,7 @@ PROACTIVE_OODA_ACCEPTANCE_RECEIPT = (
 )
 FRESH_HOST_TEABLE_RECOVERY_RECEIPT = "fresh-host Teable recovery drill receipt mirrored into the repo"
 MANFRED_REALTIME_ACCEPTANCE_RECEIPT = "consented Manfred STT/TTS realtime conversation proof"
+TELEGRAM_AUDIOBOOK_LIVE_DELIVERY_RECEIPT = "passing Telegram audiobook live delivery receipt"
 WHATSAPP_AUDIOBOOK_LIVE_DELIVERY_RECEIPT = "passing WhatsApp audiobook live delivery receipt"
 
 
@@ -446,6 +447,26 @@ def build_goal_posture(
                 next_action="capture_consented_manfred_stt_tts_realtime_proof",
                 claim_boundary="does_not_prove_realtime_speech_delivery_until_a_consented_room_conversation_receipt_passes",
                 source_receipts=[_source_receipt(manfred_path, manfred)],
+            )
+        )
+    if any(reason.startswith("deliver:telegram_audiobook") for reason in blocking_reasons):
+        acceptance_proof_requirements.append(
+            _acceptance_proof_requirement(
+                key="telegram_audiobook_live_delivery",
+                title="Telegram audiobook live delivery receipt",
+                lens="deliver",
+                required_next_receipt=TELEGRAM_AUDIOBOOK_LIVE_DELIVERY_RECEIPT,
+                evidence_kind="live_delivery_receipt",
+                capture_surfaces=[tg_live_path, tg_ready_path],
+                next_action=_compact(
+                    tg_live.get("next_action") or tg_ready.get("next_action"),
+                    default="capture_passing_telegram_audiobook_live_delivery_receipt",
+                ),
+                claim_boundary="does_not_prove_telegram_audiobook_delivery_until_live_delivery_and_playback_receipts_pass",
+                source_receipts=[
+                    _source_receipt(tg_live_path, tg_live),
+                    _source_receipt(tg_ready_path, tg_ready),
+                ],
             )
         )
     if any(reason.startswith("deliver:whatsapp_audiobook") for reason in blocking_reasons):

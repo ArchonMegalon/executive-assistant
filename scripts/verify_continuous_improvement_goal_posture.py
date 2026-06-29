@@ -56,6 +56,11 @@ REQUIRED_PROOF_FIELDS = {
     "source_receipts",
 }
 KNOWN_PROOF_STATUSES = {"pending_real_world_evidence"}
+DELIVER_BLOCKER_PROOF_KEYS = {
+    "deliver:manfred_speech": "manfred_stt_tts_realtime_conversation",
+    "deliver:telegram_audiobook": "telegram_audiobook_live_delivery",
+    "deliver:whatsapp_audiobook": "whatsapp_audiobook_live_delivery",
+}
 
 
 def _json(path: Path) -> dict[str, Any]:
@@ -283,6 +288,9 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                 issues.append(f"acceptance proof requirement {key or index} source receipt presence drifted for {path_text}")
     if proof_receipts != required_next_receipts:
         issues.append("acceptance_proof_requirements must cover every required_next_receipts item exactly")
+    for blocker_prefix, proof_key in DELIVER_BLOCKER_PROOF_KEYS.items():
+        if any(reason.startswith(blocker_prefix) for reason in blocking_reasons) and proof_key not in proof_by_key:
+            issues.append(f"active blocker {blocker_prefix} must have acceptance proof requirement {proof_key}")
     proactive_requirement = proof_by_key.get("proactive_ooda_packet_acceptance") or {}
     if not proactive_requirement:
         issues.append("acceptance_proof_requirements must include proactive_ooda_packet_acceptance")
@@ -304,6 +312,11 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
         capture_surfaces = " ".join(str(surface or "") for surface in list(recovery_requirement.get("capture_surfaces") or []))
         if "teable_env_recovery_readiness.generated.json" not in capture_surfaces:
             issues.append("fresh_host_teable_recovery_drill must cite the Teable recovery readiness surface")
+    telegram_requirement = proof_by_key.get("telegram_audiobook_live_delivery") or {}
+    if telegram_requirement:
+        capture_surfaces = " ".join(str(surface or "") for surface in list(telegram_requirement.get("capture_surfaces") or []))
+        if "telegram_audiobook_live_delivery.generated.json" not in capture_surfaces:
+            issues.append("telegram_audiobook_live_delivery must cite the Telegram audiobook live delivery surface")
     if by_key.get("recover", {}).get("status") == "command_backed_no_published_receipt" and "recover=command_backed_no_published_receipt" not in blocking_reasons:
         issues.append("blocking_reasons must include the command-backed recover posture")
     return issues
