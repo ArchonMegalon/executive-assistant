@@ -62,8 +62,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "ac132b85ff2ebe6f225d943eb8511737c1827e08",
-          "source_state_fingerprint": "4e09e64fd5015f2e56a8a27c3c0247e5b25e26ed14e6cc84b42e3713fcbfeb62",
+          "source_git_head": "11a26a309fe89bfcc63bb7a1371264073474312a",
+          "source_state_fingerprint": "92791a22c2d6627bc43834bbb4e46aadfe93460de338b0d38c6ff8fd121605fe",
           "status": "ready_for_approval_outcome_capture"
         },
         {
@@ -71,8 +71,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "ac132b85ff2ebe6f225d943eb8511737c1827e08",
-          "source_state_fingerprint": "4e09e64fd5015f2e56a8a27c3c0247e5b25e26ed14e6cc84b42e3713fcbfeb62",
+          "source_git_head": "11a26a309fe89bfcc63bb7a1371264073474312a",
+          "source_state_fingerprint": "92791a22c2d6627bc43834bbb4e46aadfe93460de338b0d38c6ff8fd121605fe",
           "status": "ready_with_live_receipt"
         }
       ],
@@ -110,7 +110,7 @@
       "evidence_kind": "live_delivery_receipt",
       "key": "telegram_audiobook_live_delivery",
       "lens": "deliver",
-      "next_action": "choose_one_telegram_audiobook_voice_sample",
+      "next_action": "finish_user_selected_voice_audiobook_before_sending_public_share_link",
       "required_next_receipt": "passing Telegram audiobook live delivery receipt",
       "source_receipts": [
         {
@@ -145,7 +145,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-06-29T20:29:33Z",
+  "generated_at": "2026-06-29T22:12:03Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -216,7 +216,7 @@
         },
         {
           "key": "manfred_speech",
-          "next_action": "promote only a consented real captured STT fixture that passes the provider benchmark",
+          "next_action": "collect_real_room_audio_attestation",
           "source_receipts": [
             {
               "contract_name": "ea.manfred_realtime_conversation_readiness.v1",
@@ -302,7 +302,7 @@
         }
       ],
       "key": "deliver",
-      "next_action": "promote only a consented real captured STT fixture that passes the provider benchmark",
+      "next_action": "collect_real_room_audio_attestation",
       "source_receipts": [],
       "status": "mixed_local_progress",
       "status_class": "blocking",
@@ -328,7 +328,7 @@
           "contract_name": "ea.teable_env_recovery_readiness.v1",
           "path": ".codex-studio/published/teable_env_recovery_readiness.generated.json",
           "present": true,
-          "source_fresh_to_current_source": true,
+          "source_fresh_to_current_source": false,
           "source_git_head": "ac132b85ff2ebe6f225d943eb8511737c1827e08",
           "source_state_fingerprint": "4e09e64fd5015f2e56a8a27c3c0247e5b25e26ed14e6cc84b42e3713fcbfeb62",
           "status": "ready_local_audit"
@@ -337,7 +337,7 @@
           "contract_name": "ea.teable_env_recovery_proof.v1",
           "path": ".codex-studio/published/teable_env_recovery_proof.generated.json",
           "present": true,
-          "source_fresh_to_current_source": true,
+          "source_fresh_to_current_source": false,
           "source_git_head": "ac132b85ff2ebe6f225d943eb8511737c1827e08",
           "source_state_fingerprint": "4e09e64fd5015f2e56a8a27c3c0247e5b25e26ed14e6cc84b42e3713fcbfeb62",
           "status": "pass"
@@ -361,7 +361,7 @@
     {
       "components": [],
       "key": "prove",
-      "next_action": "Collect real principal/operator acceptance that the morning brief was worth reading.",
+      "next_action": "collect_redacted_real_world_acceptance_evidence",
       "source_receipts": [
         {
           "contract_name": "ea.executive_assistant_quality_readiness.v1",
@@ -400,7 +400,7 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "ac132b85ff2ebe6f225d943eb8511737c1827e08",
-  "source_state_fingerprint": "4e09e64fd5015f2e56a8a27c3c0247e5b25e26ed14e6cc84b42e3713fcbfeb62",
+  "source_git_head": "11a26a309fe89bfcc63bb7a1371264073474312a",
+  "source_state_fingerprint": "92791a22c2d6627bc43834bbb4e46aadfe93460de338b0d38c6ff8fd121605fe",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }
