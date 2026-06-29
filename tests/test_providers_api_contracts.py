@@ -5841,6 +5841,28 @@ def test_telegram_sync_suppresses_internal_proof_packets_even_with_action_surfac
     )
 
 
+def test_telegram_sync_suppresses_generic_media_placeholders_in_action_required_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_ACTION_REQUIRED_ONLY", "1")
+    from app.api.routes import channels as channels_route
+
+    assert channels_route._telegram_should_suppress_sync_nonaction_reply(
+        reply_text=(
+            "Got the document. Add a short note (extract text, summarize, or flag action items), "
+            "and I will proceed."
+        ),
+        has_action_surface=False,
+    )
+    assert channels_route._telegram_should_suppress_sync_nonaction_reply(
+        reply_text=(
+            "Got the video. Add one short instruction (summarize it, look for risks, pull key points), "
+            "and I will run it in the next assistant step."
+        ),
+        has_action_surface=False,
+    )
+
+
 def test_telegram_ingest_schedules_async_codex_reply_for_generic_plain_chat(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")

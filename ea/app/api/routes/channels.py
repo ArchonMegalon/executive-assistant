@@ -3535,6 +3535,10 @@ def _telegram_should_suppress_sync_nonaction_reply(*, reply_text: str, has_actio
         "let me check that and get back to you here.",
     }:
         return True
+    if lowered.startswith("got the document. add a short note "):
+        return True
+    if lowered.startswith("got the video. add one short instruction "):
+        return True
     return (
         lowered.startswith("working on it.")
         or lowered.startswith("saved. ea is processing")
@@ -8906,6 +8910,7 @@ def _telegram_inline_proactive_stage_reply_text(
 ) -> str:
     lines = ["Saved. I staged this as a reversible next step."]
     summary = compact_text(str(safe_work_result.get("summary") or "").strip(), fallback="", limit=260)
+    status = str(safe_work_result.get("status") or "").strip().lower()
     if summary:
         lines.append(summary)
     preview_label, preview_detail, preview_url = _telegram_inline_proactive_recommended_preview(safe_work_result)
@@ -8917,7 +8922,7 @@ def _telegram_inline_proactive_stage_reply_text(
     if staged_action_url:
         lines.append(f"Candidate: {staged_action_url}")
     lines.append(f"Queue: {ea_public_app_base_url().rstrip('/')}/app/queue")
-    if approval_required:
+    if approval_required and status == "staged_for_user_decision":
         approval_prompt = compact_text(
             str(safe_work_result.get("approval_prompt") or "").strip(),
             fallback="No send, booking, purchase, or commitment will happen without explicit approval.",
@@ -9102,10 +9107,11 @@ def _telegram_inline_proactive_user_action_required(
             str(execution_result.get("draft_folder_url") or "").strip()
             or str(execution_result.get("gmail_draft_id") or "").strip()
         )
-    if approval_request_needs_telegram_user_action(approval_request):
-        return True
     status = str(safe_work_result.get("status") or "").strip().lower()
     if status == "blocked_needs_research_input":
+        lowered = " ".join(str(reply_text or "").strip().lower().split())
+        return any(marker in lowered for marker in ("next action:", "current blocker:", "open drafts:"))
+    if approval_request_needs_telegram_user_action(approval_request):
         return True
     lowered = " ".join(str(reply_text or "").strip().lower().split())
     return any(marker in lowered for marker in ("next action:", "current blocker:", "open drafts:", "approve "))
@@ -9132,6 +9138,12 @@ def _telegram_reply_is_generic_task_fallback(reply_text: str) -> bool:
             "i am still working on that last message.",
         )
     )
+
+
+def _telegram_async_reply_is_generic_task(async_payload: dict[str, object] | None = None) -> bool:
+    payload = dict(async_payload or {})
+    kind = " ".join(str(payload.get("kind") or "").strip().lower().split())
+    return kind in {"", "generic_task"}
 
 
 def _telegram_stage_inline_proactive_task(
@@ -9803,7 +9815,7 @@ def ingest_telegram(
     proactive_stage_result: dict[str, object] = {}
     if (
         (not reply_text or _telegram_reply_is_generic_task_fallback(reply_text))
-        and not schedule_async
+        and (not schedule_async or _telegram_async_reply_is_generic_task(async_payload))
         and not inline_buttons
         and str(message_payload.get("kind") or "").strip().lower() in {"", "text", "voice"}
         and str(message_payload.get("text") or "").strip()

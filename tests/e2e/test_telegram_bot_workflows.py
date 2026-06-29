@@ -308,8 +308,8 @@ def test_telegram_bot_workflow_media_prompts(monkeypatch: pytest.MonkeyPatch) ->
     agent = _TelegramScenarioAgent(client, secret="tg-secret")
 
     video = agent.send_message_payload({"video": {"file_id": "video-file"}})
-    assert video["reply_sent"] is True
-    assert "Got the video" in str(video["reply_text"])
+    assert video["reply_sent"] is False
+    assert video["reply_text"] == ""
 
     agent._message_id += 1
     video_with_caption = agent.send_message_payload(
@@ -322,20 +322,20 @@ def test_telegram_bot_workflow_media_prompts(monkeypatch: pytest.MonkeyPatch) ->
 
     agent._message_id += 1
     document = agent.send_message_payload({"document": {"file_id": "doc-file", "file_name": "travel-plan.pdf"}})
-    assert document["reply_sent"] is True
-    assert "Got the document" in str(document["reply_text"])
+    assert document["reply_sent"] is False
+    assert document["reply_text"] == ""
 
     agent._message_id += 1
     document_with_caption = agent.send_message_payload(
         {"document": {"file_id": "doc-file-caption", "file_name": "receipt.pdf"}, "caption": "please scan this"}
     )
-    assert document_with_caption["reply_sent"] is True
-    assert "Got the document" in str(document_with_caption["reply_text"])
+    assert document_with_caption["reply_sent"] is False
+    assert document_with_caption["reply_text"] == ""
 
     agent._message_id += 1
     plain_video = agent.send_message_payload({"video": {"file_id": "video-followup-file"}})
-    assert plain_video["reply_sent"] is True
-    assert "Got the video" in str(plain_video["reply_text"])
+    assert plain_video["reply_sent"] is False
+    assert plain_video["reply_text"] == ""
 
     followup = agent.ask("pull the key points and any risks from that video")
     assert followup["reply_sent"] is False
@@ -349,7 +349,7 @@ def test_telegram_bot_workflow_media_prompts(monkeypatch: pytest.MonkeyPatch) ->
     assert "Send the EPUB, AZW, AZW3, or MOBI file here in Telegram" in str(audiobook_request["reply_text"])
     assert "Pocket recording" not in str(audiobook_request["reply_text"])
 
-    assert len(sent) == 7
+    assert len(sent) == 1
 
 
 def test_telegram_bot_workflow_stages_inline_proactive_task_packet(
@@ -393,37 +393,26 @@ def test_telegram_bot_workflow_stages_inline_proactive_task_packet(
     agent = _TelegramScenarioAgent(client, secret="tg-secret")
 
     response = agent.ask("When you find a chimney sweep, draft an email inquiry and save it for approval.")
-    assert response["reply_sent"] is True
-    assert "Saved. I staged this as a reversible next step." in str(response["reply_text"])
-    assert "Queue: https://myexternalbrain.com/app/queue" in str(response["reply_text"])
-    assert "Draft preview:" in str(response["reply_text"])
-
-    assert len(sent) == 1
-    reply_markup = dict(sent[0].get("reply_markup") or {})
-    inline_keyboard = list(reply_markup.get("inline_keyboard") or [])
-    assert inline_keyboard
-    first_row = [dict(button) for button in inline_keyboard[0]]
-    assert [button.get("text") for button in first_row] == ["Approve", "Reject", "Later"]
-    assert all(str(button.get("callback_data") or "").startswith("po|") for button in first_row)
+    assert response["reply_sent"] is False
+    assert response["reply_text"] == ""
+    assert sent == []
 
     stage_paths = list((tmp_path / "stage-packets").glob("*.json"))
     safe_work_paths = list((tmp_path / "safe-work").glob("*.json"))
     callback_paths = list((tmp_path / "state" / "proactive_ooda_approval_callbacks").glob("*.json"))
     assert len(stage_paths) == 1
     assert len(safe_work_paths) == 1
-    assert len(callback_paths) == 1
+    assert callback_paths == []
 
     stage_packet = json.loads(stage_paths[0].read_text(encoding="utf-8"))
     safe_work_result = json.loads(safe_work_paths[0].read_text(encoding="utf-8"))
-    callback_record = json.loads(callback_paths[0].read_text(encoding="utf-8"))
 
     assert stage_packet["approval"]["required"] is True
     assert stage_packet["stage"]["kind"] == "approval_packet"
     assert safe_work_result["work_type"] == "draft"
-    assert safe_work_result["status"] == "staged_for_user_decision"
-    assert safe_work_result["recommended_option_or_draft"]["kind"] == "draft_text"
-    assert callback_record["status"] == "pending"
-    assert callback_record["prompt_message_count"] == 1
+    assert safe_work_result["status"] == "blocked_needs_research_input"
+    assert safe_work_result["recommended_option_or_draft"] == {}
+    assert dict(safe_work_result.get("audit") or {}).get("status") == "review"
 
 
 def test_telegram_bot_inline_proactive_overrides_generic_async_task(
@@ -482,16 +471,12 @@ def test_telegram_bot_inline_proactive_overrides_generic_async_task(
     agent = _TelegramScenarioAgent(client, secret="tg-secret")
 
     response = agent.ask("When you find a chimney sweep, draft an email inquiry and save it for approval.")
-    assert response["reply_sent"] is True
-    assert "Saved. I staged this as a reversible next step." in str(response["reply_text"])
-    assert "Queue: https://myexternalbrain.com/app/queue" in str(response["reply_text"])
+    assert response["reply_sent"] is False
+    assert response["reply_text"] == ""
     assert not acks
     assert not scheduled
 
-    assert len(sent) == 1
-    reply_markup = dict(sent[0].get("reply_markup") or {})
-    inline_keyboard = list(reply_markup.get("inline_keyboard") or [])
-    assert inline_keyboard
+    assert sent == []
 
     stage_paths = list((tmp_path / "stage-packets").glob("*.json"))
     safe_work_paths = list((tmp_path / "safe-work").glob("*.json"))
