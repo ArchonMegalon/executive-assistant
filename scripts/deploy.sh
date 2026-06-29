@@ -175,6 +175,39 @@ ensure_runtime_readable_file_projection() {
   chmod a+r,go-w "${resolved_path}"
 }
 
+ensure_runtime_writable_dir_projection() {
+  local env_name="$1"
+  local default_path="$2"
+  local raw_path
+  raw_path="$(effective_value "${env_name}")"
+  raw_path="$(normalize_origin_like "${raw_path}")"
+  if [[ -z "${raw_path}" ]]; then
+    raw_path="${default_path}"
+  fi
+
+  local resolved_path
+  if [[ "${raw_path}" = /* ]]; then
+    resolved_path="${raw_path}"
+  else
+    resolved_path="${APP_ROOT}/${raw_path}"
+  fi
+  mkdir -p "${resolved_path}"
+
+  # Bind-mounted writable runtime dirs must be writable by the non-root EA
+  # runtime UID. Prefer narrow ACL/chown. On ACL-less unprivileged hosts, use a
+  # sticky writable directory so Docker does not create an unwritable root-owned
+  # bind target at first deploy.
+  if command -v setfacl >/dev/null 2>&1 && setfacl -m u:10001:rwx -m d:u:10001:rwx "${resolved_path}" >/dev/null 2>&1; then
+    chmod go-w "${resolved_path}"
+    return 0
+  fi
+  if chown 10001:10001 "${resolved_path}" >/dev/null 2>&1; then
+    chmod u+rwx,go-rwx "${resolved_path}"
+    return 0
+  fi
+  chmod 1777 "${resolved_path}"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --help|-h)
@@ -254,6 +287,7 @@ if [[ -n "${TEABLE_API_KEY:-}" ]]; then
 fi
 
 ensure_runtime_readable_file_projection "ONEMIN_DIRECT_API_KEYS_JSON_FILE"
+ensure_runtime_writable_dir_projection "EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT" "./data/pocket-ai-audio"
 
 public_origin_line="$(grep -E '^(EA_PUBLIC_APP_BASE_URL|PROPERTYQUARRY_PUBLIC_BASE_URL)=' "${APP_ROOT}/.env" | tail -n1 || true)"
 public_origin_source="EA_PUBLIC_APP_BASE_URL"

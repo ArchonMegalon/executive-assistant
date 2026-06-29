@@ -367,14 +367,24 @@ def _docker_compose_exec_json(
     command: list[str],
     timeout_seconds: float,
 ) -> tuple[int, dict[str, Any], str, str]:
-    completed = subprocess.run(
-        ["docker", "compose", "-f", compose_file, "exec", "-T", service, *command],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=timeout_seconds,
-    )
+    try:
+        completed = subprocess.run(
+            ["docker", "compose", "-f", compose_file, "exec", "-T", service, *command],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout.decode("utf-8", errors="replace") if isinstance(exc.stdout, bytes) else str(exc.stdout or "")
+        stderr = exc.stderr.decode("utf-8", errors="replace") if isinstance(exc.stderr, bytes) else str(exc.stderr or "")
+        return (
+            124,
+            {"ok": False, "reason": f"TimeoutExpired:{float(timeout_seconds):g}s"},
+            stdout,
+            stderr,
+        )
     return (
         int(completed.returncode or 0),
         _json_from_stdout(str(completed.stdout or "")),
@@ -2422,7 +2432,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--principal-id", default=_default_whatsapp_principal_id())
     parser.add_argument("--session-api-base-url", default=_env("EA_WHATSAPP_WEB_SESSION_API_BASE_URL", DEFAULT_SESSION_API_BASE_URL))
     parser.add_argument("--session-ref", default=_env("EA_WHATSAPP_WEB_DEFAULT_SESSION_REF"))
-    parser.add_argument("--timeout-seconds", type=float, default=15.0)
+    parser.add_argument("--timeout-seconds", type=float, default=None)
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     probe = subparsers.add_parser("probe-provider", help="Probe a live provider state.")

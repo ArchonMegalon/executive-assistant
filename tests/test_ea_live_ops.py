@@ -1131,6 +1131,22 @@ def test_parse_args_sync_pocket_transcripts_uses_proactive_principal_default(mon
     assert args.limit == 25
 
 
+def test_main_sync_pocket_transcripts_uses_long_default_timeout(monkeypatch, capsys) -> None:
+    module = _module()
+    captured: dict[str, object] = {}
+
+    def _fake_sync_pocket_transcripts(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"probe_ok": True, "operator_text": "ok"}
+
+    monkeypatch.setattr(module, "sync_pocket_transcripts", _fake_sync_pocket_transcripts)
+    monkeypatch.setattr(sys, "argv", ["ea_live_ops.py", "sync-pocket-transcripts", "--format", "operator"])
+
+    assert module.main() == 0
+    assert captured["timeout_seconds"] == 120.0
+    assert capsys.readouterr().out.strip() == "ok"
+
+
 def test_sync_pocket_transcripts_reports_counts_without_raw_transcript_or_paths(monkeypatch) -> None:
     module = _module()
 
@@ -1225,6 +1241,34 @@ def test_sync_pocket_transcripts_maps_missing_api_key_to_blocked_next_action(mon
     assert report["status"] == "blocked"
     assert report["blocking_reason"] == "RuntimeError:pocket_api_key_missing"
     assert report["next_action"] == "configure_pocket_api_key"
+
+
+def test_sync_pocket_transcripts_maps_timeout_to_operator_blocker(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(
+        module,
+        "_docker_compose_exec_json",
+        lambda **_kwargs: (
+            124,
+            {"ok": False, "reason": "TimeoutExpired:120s"},
+            "",
+            "",
+        ),
+    )
+
+    report = module.sync_pocket_transcripts(
+        principal_id="exec-1",
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+        output_format="operator",
+    )
+
+    assert report["probe_ok"] is True
+    assert report["synced"] is False
+    assert report["status"] == "blocked"
+    assert report["blocking_reason"] == "TimeoutExpired:120s"
+    assert report["next_action"] == "inspect_pocket_sync_runtime"
+    assert "pocket_transcript_sync status=blocked" in str(report["operator_text"])
 
 
 def test_parse_args_record_proactive_approval_uses_proactive_principal_default(monkeypatch) -> None:

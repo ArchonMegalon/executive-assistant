@@ -75,7 +75,7 @@
   },
   "delivery_route_error": "",
   "delivery_route_ready": true,
-  "generated_at": "2026-06-29T09:41:12Z",
+  "generated_at": "2026-06-29T10:04:17Z",
   "generated_by": "scripts/materialize_proactive_ooda_operator_status.py",
   "gmail_draft_followthrough": {
     "action": "save_gmail_draft",
@@ -91,7 +91,7 @@
     "next_action_href": "",
     "next_action_label": "",
     "next_action_method": "",
-    "observed_at": "2026-06-29T09:41:09Z",
+    "observed_at": "2026-06-29T10:04:13Z",
     "raw_execution_payload_exposed": false,
     "recipient_email_hash_present": true,
     "source": "docker_compose_exec",
@@ -123,11 +123,11 @@
   "operator_action_state": "clear",
   "output_path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
   "reason": "ready",
-  "receipt_observation_count": 478,
+  "receipt_observation_count": 480,
   "remaining_external_proofs": [
     "real proactive OODA packet accepted with routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome"
   ],
-  "route_probe_observed_at": "2026-06-29T09:41:03Z",
+  "route_probe_observed_at": "2026-06-29T10:04:06Z",
   "route_probe_runtime_service": "ea-proactive-ooda",
   "route_probe_source": "docker_compose_exec",
   "route_ready_claim_allowed": true,
@@ -156,17 +156,17 @@
       {
         "evidence_event_types": [
           "commitment_candidate_staged",
+          "office_signal_audio_recording",
           "office_signal_ingested",
           "office_signal_ooda_evaluated",
           "office_signal_telegram_message",
-          "proactive_ooda.approval_outcome",
-          "proactive_ooda.approved_action_execution",
-          "proactive_ooda.run_receipt",
-          "property_scout_sync_completed"
+          "pocket_recording_archive_indexed",
+          "pocket_recording_audio_archive_dismissed",
+          "pocket_recording_audio_archived"
         ],
         "key": "postgres_observations",
         "label": "Postgres observations",
-        "latest_observed_at": "2026-06-29T11:34:25.215282+02:00",
+        "latest_observed_at": "2026-06-29T12:03:22.778443+02:00",
         "next_action": "",
         "observed": true,
         "raw_credential_exposed": false,
@@ -177,6 +177,9 @@
       },
       {
         "evidence_event_types": [
+          "office_signal_audio_recording",
+          "pocket_recording_archive_indexed",
+          "pocket_recording_audio_archived",
           "proactive_ooda.approved_action_execution",
           "property_scout_sync_completed",
           "telegram.proactive_ooda_task_staged",
@@ -184,122 +187,143 @@
         ],
         "key": "google_workspace",
         "label": "Google workspace",
-        "latest_observed_at": "2026-06-29T07:04:19.100021+02:00",
+        "latest_observed_at": "2026-06-29T12:03:14.647176+02:00",
         "next_action": "",
         "observed": true,
         "raw_credential_exposed": false,
         "raw_payload_exposed": false,
         "raw_transcript_text_exposed": false,
-        "record_count": 21,
+        "record_count": 49,
         "status": "observed"
       },
       {
-        "evidence_event_types": [],
+        "evidence_event_types": [
+          "commitment_candidate_staged",
+          "office_signal_audio_recording",
+          "office_signal_ingested",
+          "office_signal_ooda_evaluated",
+          "pocket_recording_archive_indexed",
+          "pocket_recording_audio_archive_dismissed",
+          "pocket_recording_audio_archived",
+          "pocket_recording_sync_completed"
+        ],
         "key": "pocket_ai_audio_transcripts",
         "label": "Pocket.ai audio transcripts",
-        "latest_observed_at": "",
-        "next_action": "sync_pocket_ai_audio_transcripts",
-        "observed": false,
+        "latest_observed_at": "2026-06-29T12:03:22.778443+02:00",
+        "next_action": "",
+        "observed": true,
         "raw_credential_exposed": false,
         "raw_payload_exposed": false,
         "raw_transcript_text_exposed": false,
-        "record_count": 0,
-        "status": "not_observed"
-      },
-      {
-        "evidence_event_types": [],
-        "key": "calendar_and_renewal_signals",
-        "label": "Calendar and renewal signals",
-        "latest_observed_at": "",
-        "next_action": "sync_calendar_and_renewal_sources",
-        "observed": false,
-        "raw_credential_exposed": false,
-        "raw_payload_exposed": false,
-        "raw_transcript_text_exposed": false,
-        "record_count": 0,
-        "status": "not_observed"
+        "record_count": 52,
+        "status": "observed"
       },
       {
         "evidence_event_types": [
+          "office_signal_audio_recording",
+          "pocket_recording_archive_indexed",
+          "pocket_recording_audio_archived"
+        ],
+        "key": "calendar_and_renewal_signals",
+        "label": "Calendar and renewal signals",
+        "latest_observed_at": "2026-06-29T12:02:32.405194+02:00",
+        "next_action": "",
+        "observed": true,
+        "raw_credential_exposed": false,
+        "raw_payload_exposed": false,
+        "raw_transcript_text_exposed": false,
+        "record_count": 6,
+        "status": "observed"
+      },
+      {
+        "evidence_event_types": [
+          "office_signal_audio_recording",
+          "office_signal_ooda_evaluated",
+          "pocket_recording_archive_indexed",
+          "pocket_recording_audio_archived",
           "property_scout_sync_completed"
         ],
         "key": "relationship_and_occasion_signals",
         "label": "Relationship and occasion signals",
-        "latest_observed_at": "2026-06-28T11:19:42.446450+02:00",
+        "latest_observed_at": "2026-06-29T12:03:05.902272+02:00",
         "next_action": "",
         "observed": true,
         "raw_credential_exposed": false,
         "raw_payload_exposed": false,
         "raw_transcript_text_exposed": false,
-        "record_count": 2,
+        "record_count": 24,
         "status": "observed"
       },
       {
         "evidence_event_types": [
           "commitment_candidate_staged",
+          "office_signal_audio_recording",
           "office_signal_ingested",
           "office_signal_ooda_evaluated",
           "office_signal_telegram_message",
-          "proactive_ooda.approved_action_execution",
-          "proactive_ooda.run_receipt",
-          "property_scout_sync_completed",
-          "telegram.callback_query"
+          "pocket_recording_archive_indexed",
+          "pocket_recording_audio_archived",
+          "proactive_ooda.approved_action_execution"
         ],
         "key": "shopping_and_vendor_signals",
         "label": "Shopping and vendor signals",
-        "latest_observed_at": "2026-06-29T07:04:19.100021+02:00",
+        "latest_observed_at": "2026-06-29T12:03:14.787466+02:00",
         "next_action": "",
         "observed": true,
         "raw_credential_exposed": false,
         "raw_payload_exposed": false,
         "raw_transcript_text_exposed": false,
-        "record_count": 179,
+        "record_count": 217,
         "status": "observed"
       },
       {
         "evidence_event_types": [
           "commitment_candidate_staged",
+          "office_signal_audio_recording",
           "office_signal_ooda_evaluated",
-          "office_signal_telegram_message"
+          "office_signal_telegram_message",
+          "pocket_recording_archive_indexed",
+          "pocket_recording_audio_archived"
         ],
         "key": "commitment_and_deadline_signals",
         "label": "Commitment and deadline signals",
-        "latest_observed_at": "2026-06-28T19:28:43.489497+02:00",
+        "latest_observed_at": "2026-06-29T12:03:14.787466+02:00",
         "next_action": "",
         "observed": true,
         "raw_credential_exposed": false,
         "raw_payload_exposed": false,
         "raw_transcript_text_exposed": false,
-        "record_count": 60,
+        "record_count": 91,
         "status": "observed"
       },
       {
         "evidence_event_types": [
+          "office_signal_audio_recording",
           "office_signal_ooda_evaluated",
           "office_signal_telegram_message",
+          "pocket_recording_archive_indexed",
+          "pocket_recording_audio_archived",
+          "pocket_recording_sync_completed",
           "property_scout_sync_completed"
         ],
         "key": "durable_profile_and_location_context",
         "label": "Durable profile and location context",
-        "latest_observed_at": "2026-06-28T19:28:43.489497+02:00",
+        "latest_observed_at": "2026-06-29T12:03:22.778443+02:00",
         "next_action": "",
         "observed": true,
         "raw_credential_exposed": false,
         "raw_payload_exposed": false,
         "raw_transcript_text_exposed": false,
-        "record_count": 42,
+        "record_count": 82,
         "status": "observed"
       }
     ],
-    "missing_lane_keys": [
-      "pocket_ai_audio_transcripts",
-      "calendar_and_renewal_signals"
-    ],
+    "missing_lane_keys": [],
     "observation_limit": 400,
     "observation_repository": "PostgresObservationEventRepository",
     "observation_row_count": 400,
-    "observed_at": "2026-06-29T09:41:11Z",
-    "observed_lane_count": 6,
+    "observed_at": "2026-06-29T10:04:15Z",
+    "observed_lane_count": 8,
     "privacy": {
       "raw_credential_exposed": false,
       "raw_payload_exposed": false,
@@ -308,11 +332,11 @@
       "source_ids_hashed": true
     },
     "source": "docker_compose_exec",
-    "status": "ready_with_gaps"
+    "status": "ready"
   },
-  "source_git_head": "3640e74def03016ad97febf5e231fb5db4dc9544",
+  "source_git_head": "a19a11b4f77a762765a190f2b67cb4028bc2cb98",
   "source_mode": "google_workspace",
-  "source_state_fingerprint": "79e7f9f934ce052a2b51e5b1d68156311442a43d5339b0da15f8669f46df0131",
+  "source_state_fingerprint": "9dd003bf151beecac24f31ada78ead7bb85295f76a70bf299888e0ec55cfa7a8",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "stage_packets": {
     "enabled": true,

@@ -304,10 +304,12 @@ def test_deploy_ea_prod_falls_back_when_onedrive_mount_is_unavailable() -> None:
     makefile = (ROOT / "Makefile").read_text()
     compose = (ROOT / "docker-compose.yml").read_text()
     prod_compose = (ROOT / "docker-compose.prod.yml").read_text()
+    deploy_script = (ROOT / "scripts/deploy.sh").read_text()
 
     deploy_target = _make_target_body(makefile, "deploy-ea-prod")
 
     assert 'EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-./data/onedrive_attachments' in compose
+    assert 'EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT:-./data/pocket-ai-audio' in compose
     assert 'EA_ALLOW_LOOPBACK_NO_AUTH: "0"' in prod_compose
     assert 'primary_path="$${EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-./data/onedrive_attachments}"' in deploy_target
     assert 'fallback_path="$${EA_ONEDRIVE_ATTACHMENTS_FALLBACK_HOST_PATH:-.runtime/onedrive_attachments_fallback}"' in deploy_target
@@ -317,6 +319,9 @@ def test_deploy_ea_prod_falls_back_when_onedrive_mount_is_unavailable() -> None:
     assert 'PROPERTYQUARRY_USE_LEGACY_STACK=1 \\' in deploy_target
     assert 'EA_DEPLOY_PRIMARY_MODE=EA_CORE \\' in deploy_target
     assert 'EA_ONEDRIVE_ATTACHMENTS_HOST_PATH="$$selected_path" \\' in deploy_target
+    assert 'ensure_runtime_writable_dir_projection "EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT" "./data/pocket-ai-audio"' in deploy_script
+    assert "setfacl -m u:10001:rwx" in deploy_script
+    assert "chmod 1777" in deploy_script
     assert 'bash scripts/deploy.sh --compose-override docker-compose.whatsapp-web-session.yml' in deploy_target
 
 
