@@ -20,11 +20,11 @@
       "callback_unexpired_pending_count": 1,
       "current_packet_callback_expired_count": 0,
       "current_packet_callback_expired_pending_count": 0,
-      "current_packet_callback_latest_age_seconds": 5388,
+      "current_packet_callback_latest_age_seconds": 5516,
       "current_packet_callback_latest_created_at": "2026-06-29T12:17:46.689220Z",
       "current_packet_callback_latest_expired": false,
       "current_packet_callback_latest_expires_at": "2026-07-06T12:17:46Z",
-      "current_packet_callback_latest_seconds_until_expiry": 599410,
+      "current_packet_callback_latest_seconds_until_expiry": 599282,
       "current_packet_callback_latest_status": "pending",
       "current_packet_callback_pending_count": 1,
       "current_packet_callback_raw_pending_count": 1,
@@ -57,11 +57,11 @@
     },
     "operator_status": {
       "contract_name": "ea.proactive_ooda_operator_status.v1",
-      "generated_at": "2026-06-29T13:47:03Z",
+      "generated_at": "2026-06-29T13:49:35Z",
       "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
       "present": true,
-      "source_git_head": "bcc9c821903600e7b9c6dc3c5a8d9593bf5b5181",
-      "source_state_fingerprint": "d5d6fa36c751c3d47f9fee6be1474f19329c22d43de4972da97c2dd7f36d9fe4",
+      "source_git_head": "3f8710142fb02bee3757d1e60018708ed21eb2f9",
+      "source_state_fingerprint": "2206faf94f7982491d3f5f5b1f7fd4df97126c9fc76a66896efbe9fbeae9e144",
       "status": "ready_with_live_receipt"
     },
     "run_receipt": {
@@ -84,7 +84,7 @@
       "source": "docker_compose_exec"
     }
   },
-  "generated_at": "2026-06-29T13:47:35Z",
+  "generated_at": "2026-06-29T13:49:43Z",
   "generated_by": "scripts/materialize_proactive_ooda_gold_acceptance.py",
   "goal_completion_claim_allowed": false,
   "gold_claim_allowed": false,
@@ -248,8 +248,8 @@
     "Raw packet text, private links, actor identity, packet refs, and staged artifact refs must stay out of this published receipt; only hashes and coarse status may appear.",
     "Teable remains an admin projection and audit mirror rather than canonical queue or product truth."
   ],
-  "source_git_head": "bcc9c821903600e7b9c6dc3c5a8d9593bf5b5181",
-  "source_state_fingerprint": "d5d6fa36c751c3d47f9fee6be1474f19329c22d43de4972da97c2dd7f36d9fe4",
+  "source_git_head": "3f8710142fb02bee3757d1e60018708ed21eb2f9",
+  "source_state_fingerprint": "2206faf94f7982491d3f5f5b1f7fd4df97126c9fc76a66896efbe9fbeae9e144",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready_for_approval_outcome_capture",
   "summary": "A proactive OODA packet has local gold-proof runtime evidence and a live Telegram approval capture surface; capture the redacted approval outcome next.",
