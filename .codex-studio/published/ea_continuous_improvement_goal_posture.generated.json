@@ -12,7 +12,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-06-29T15:27:15Z",
+  "generated_at": "2026-06-29T15:50:50Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -241,5 +241,5 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "d13c6b2ff9a784e78746807ced4433295a20e49b"
+  "source_git_head": "473a4f2f8b7f56d329c9d39f77cf53269ad2cd63"
 }
