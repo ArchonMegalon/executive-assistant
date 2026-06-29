@@ -28,6 +28,7 @@ BACKUP_RECEIPT_PATH="${HOME_GIRSCHELE_BACKUP_RECEIPT:-$STATE_DIR/homeassistant-b
 REPLICATION_RECEIPT_PATH="${HOME_GIRSCHELE_REPLICATION_RECEIPT:-$STATE_DIR/homeassistant-replication.receipt.json}"
 RESTORE_RECEIPT_PATH="${HOME_GIRSCHELE_RESTORE_RECEIPT:-$STATE_DIR/homeassistant-restore-drill.receipt.json}"
 REPLICA_RESTORE_RECEIPT_PATH="${HOME_GIRSCHELE_REPLICA_RESTORE_RECEIPT:-$STATE_DIR/homeassistant-replica-restore-drill.receipt.json}"
+REPLICA_START_RECEIPT_PATH="${HOME_GIRSCHELE_REPLICA_START_RECEIPT:-$STATE_DIR/homeassistant-replica-start-drill.receipt.json}"
 DRIFT_RECEIPT_PATH="${HOME_GIRSCHELE_DRIFT_RECEIPT:-$STATE_DIR/homeassistant-drift.receipt.json}"
 DISK_LOG_RECEIPT_PATH="${HOME_GIRSCHELE_DISK_LOG_RECEIPT:-$STATE_DIR/homeassistant-disk-log.receipt.json}"
 ALERT_RECEIPT_PATH="${HOME_GIRSCHELE_ALERT_RECEIPT:-$STATE_DIR/homeassistant-alert.receipt.json}"
@@ -36,6 +37,11 @@ CLOUDFLARE_SNAPSHOT_DIR="${HOME_GIRSCHELE_CLOUDFLARE_SNAPSHOT_DIR:-$STATE_DIR/cl
 CLOUDFLARE_SNAPSHOT_RECEIPT_PATH="${HOME_GIRSCHELE_CLOUDFLARE_SNAPSHOT_RECEIPT:-$STATE_DIR/homeassistant-cloudflare-snapshot.receipt.json}"
 STATUS_MARKDOWN_PATH="${HOME_GIRSCHELE_STATUS_MARKDOWN:-$STATE_DIR/homeassistant-status.md}"
 STATUS_RECEIPT_PATH="${HOME_GIRSCHELE_STATUS_RECEIPT:-$STATE_DIR/homeassistant-status.receipt.json}"
+STATUS_PUBLISH_DIR="${HOME_GIRSCHELE_STATUS_PUBLISH_DIR:-/mnt/pcloud/EA/home-girschele/status}"
+STATUS_PUBLISH_RECEIPT_PATH="${HOME_GIRSCHELE_STATUS_PUBLISH_RECEIPT:-$STATE_DIR/homeassistant-status-publish.receipt.json}"
+FRESHNESS_RECEIPT_PATH="${HOME_GIRSCHELE_FRESHNESS_RECEIPT:-$STATE_DIR/homeassistant-freshness.receipt.json}"
+RESTORE_INVENTORY_PATH="${HOME_GIRSCHELE_RESTORE_INVENTORY:-$STATE_DIR/homeassistant-restore-inventory.json}"
+RESTORE_INVENTORY_RECEIPT_PATH="${HOME_GIRSCHELE_RESTORE_INVENTORY_RECEIPT:-$STATE_DIR/homeassistant-restore-inventory.receipt.json}"
 INCIDENT_DRILL_RECEIPT_PATH="${HOME_GIRSCHELE_INCIDENT_DRILL_RECEIPT:-$STATE_DIR/homeassistant-incident-drill.receipt.json}"
 SCHEDULE_RECEIPT_PATH="${HOME_GIRSCHELE_SCHEDULE_RECEIPT:-$STATE_DIR/homeassistant-scheduled-health.receipt.json}"
 SCHEDULE_LOG_PATH="${HOME_GIRSCHELE_SCHEDULE_LOG:-$STATE_DIR/scheduled-health.log}"
@@ -49,7 +55,13 @@ CF_SERVICE_TOKEN_NAME="${HOME_GIRSCHELE_CF_SERVICE_TOKEN_NAME:-}"
 ALERT_PHONE_HINT="${HOME_GIRSCHELE_ALERT_PHONE_HINT:-*6419}"
 ALERT_DRY_RUN="${HOME_GIRSCHELE_ALERT_DRY_RUN:-false}"
 ALERT_TELEGRAM_CHAT_ID="${HOME_GIRSCHELE_ALERT_TELEGRAM_CHAT_ID:-}"
+ALERT_TRANSPORT_MODE="${HOME_GIRSCHELE_ALERT_TRANSPORT_MODE:-auto}"
 EA_LIVE_OPS_SCRIPT="${HOME_GIRSCHELE_EA_LIVE_OPS_SCRIPT:-$REPO_ROOT/scripts/ea_live_ops.py}"
+MAX_BACKUP_AGE_SECONDS="${HOME_GIRSCHELE_MAX_BACKUP_AGE_SECONDS:-86400}"
+MAX_REPLICA_AGE_SECONDS="${HOME_GIRSCHELE_MAX_REPLICA_AGE_SECONDS:-86400}"
+MAX_CLOUDFLARE_SNAPSHOT_AGE_SECONDS="${HOME_GIRSCHELE_MAX_CLOUDFLARE_SNAPSHOT_AGE_SECONDS:-86400}"
+MAX_SCHEDULED_HEALTH_AGE_SECONDS="${HOME_GIRSCHELE_MAX_SCHEDULED_HEALTH_AGE_SECONDS:-1800}"
+MAX_INCIDENT_DRILL_AGE_SECONDS="${HOME_GIRSCHELE_MAX_INCIDENT_DRILL_AGE_SECONDS:-604800}"
 
 require_tool() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -1059,6 +1071,124 @@ restore_replica_drill() {
   fi
 }
 
+restore_replica_start_drill() {
+  require_tool docker
+  require_tool jq
+  require_tool tar
+  require_tool curl
+  require_tool sha256sum
+
+  local archive="${1:-}"
+  if [[ -z "$archive" ]]; then
+    archive="$(latest_replica_archive)"
+  fi
+  if [[ -z "$archive" || ! -f "$archive" ]]; then
+    replicate_backup
+    archive="$(latest_replica_archive)"
+  fi
+
+  local tmp_dir restore_dir container archive_sha expected_sha archive_size required_ok container_started host_port http_status frontend_ok pass logs_tail
+  tmp_dir="$(mktemp -d)"
+  restore_dir="$tmp_dir/config"
+  container="home-girschele-replica-start-drill-$(date -u +%Y%m%d%H%M%S)"
+  mkdir -p "$restore_dir" "$(dirname "$REPLICA_START_RECEIPT_PATH")"
+  trap 'docker rm -f "$container" >/dev/null 2>&1 || true; rm -rf "${tmp_dir:-}"' RETURN
+
+  tar -xzf "$archive" -C "$restore_dir"
+  archive_sha="$(sha256sum "$archive" | awk '{print $1}')"
+  expected_sha="$(jq -r '.replica.sha256 // .archiveSha256 // empty' "$REPLICATION_RECEIPT_PATH" 2>/dev/null || true)"
+  archive_size="$(stat -c '%s' "$archive")"
+  if [[ -f "$restore_dir/configuration.yaml" &&
+        -f "$restore_dir/.storage/auth" &&
+        -f "$restore_dir/.storage/core.config_entries" &&
+        -f "$restore_dir/home-assistant_v2.db" ]]; then
+    required_ok=true
+  else
+    required_ok=false
+  fi
+
+  docker run -d \
+    --name "$container" \
+    -v "$restore_dir:/config" \
+    -p 127.0.0.1::8123 \
+    "ghcr.io/home-assistant/home-assistant:${HOME_GIRSCHELE_HASS_IMAGE_TAG:-stable}" >/dev/null
+  container_started=true
+
+  host_port=""
+  for _ in $(seq 1 20); do
+    host_port="$(docker port "$container" 8123/tcp 2>/dev/null | sed -E 's#.*:([0-9]+)$#\1#' | tail -n 1)"
+    [[ -n "$host_port" ]] && break
+    sleep 1
+  done
+
+  http_status="000"
+  frontend_ok=false
+  if [[ -n "$host_port" ]]; then
+    local body_file
+    body_file="$tmp_dir/start-drill.body"
+    for _ in $(seq 1 90); do
+      http_status="$(curl -k -sS --max-time 3 -o "$body_file" -w '%{http_code}' "http://127.0.0.1:$host_port/" || true)"
+      if [[ "$http_status" == "200" || "$http_status" == "302" ]]; then
+        if grep -qi 'Home Assistant' "$body_file" || [[ "$http_status" == "302" ]]; then
+          frontend_ok=true
+          break
+        fi
+      fi
+      if ! docker inspect "$container" --format '{{.State.Running}}' 2>/dev/null | grep -q true; then
+        break
+      fi
+      sleep 2
+    done
+  fi
+  logs_tail="$(docker logs --tail 80 "$container" 2>&1 | tail -c 3000 || true)"
+  if [[ "$required_ok" == true && "$container_started" == true && "$frontend_ok" == true ]]; then
+    pass=true
+  else
+    pass=false
+  fi
+
+  jq -n \
+    --arg generatedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg archivePath "$archive" \
+    --arg archiveSha256 "$archive_sha" \
+    --arg expectedSha256 "$expected_sha" \
+    --arg containerName "$container" \
+    --arg hostPort "$host_port" \
+    --arg httpStatus "$http_status" \
+    --arg logsTail "$logs_tail" \
+    --argjson archiveSize "$archive_size" \
+    --argjson requiredOk "$(json_bool "$required_ok")" \
+    --argjson containerStarted "$(json_bool "$container_started")" \
+    --argjson frontendOk "$(json_bool "$frontend_ok")" \
+    --argjson pass "$(json_bool "$pass")" \
+    '{
+      contractName: "home.girschele.home_assistant.replica_start_drill.v1",
+      generatedAt: $generatedAt,
+      status: (if $pass then "pass" else "fail" end),
+      drillType: "fresh_disposable_container_http_start_from_replicated_backup",
+      archive: {
+        path: $archivePath,
+        sha256: $archiveSha256,
+        expectedSha256: $expectedSha256,
+        sizeBytes: $archiveSize,
+        source: "replica"
+      },
+      checks: {
+        requiredStateFilesPresent: $requiredOk,
+        disposableContainerStarted: $containerStarted,
+        localHttpServed: {ok: $frontendOk, hostPort: $hostPort, httpStatus: $httpStatus}
+      },
+      container: {name: $containerName, removedAfterDrill: true},
+      logsTail: $logsTail
+    }' > "$REPLICA_START_RECEIPT_PATH"
+
+  jq -r '"home.girschele.com replica start drill: " + .status + " http=" + .checks.localHttpServed.httpStatus' "$REPLICA_START_RECEIPT_PATH"
+  if [[ "$pass" != true ]]; then
+    jq '.checks' "$REPLICA_START_RECEIPT_PATH"
+    exit 1
+  fi
+}
+
 drift_check() {
   require_tool curl
   require_tool docker
@@ -1424,31 +1554,71 @@ snapshot_cloudflare() {
   fi
 }
 
+whatsapp_sidecar_probe() {
+  require_tool jq
+  local status_body http_status running health_status
+  running=false
+  health_status=""
+  if command -v docker >/dev/null 2>&1 && docker inspect ea-whatsapp-web-session >/dev/null 2>&1; then
+    [[ "$(docker inspect ea-whatsapp-web-session --format '{{.State.Running}}' 2>/dev/null || true)" == "true" ]] && running=true || running=false
+    health_status="$(docker inspect ea-whatsapp-web-session --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' 2>/dev/null || true)"
+  fi
+  set +e
+  status_body="$(curl -fsS --max-time 5 http://127.0.0.1:8098/healthz 2>/dev/null)"
+  http_status=$?
+  set -e
+  if [[ "$http_status" == "0" ]] && printf '%s' "$status_body" | jq -e . >/dev/null 2>&1; then
+    printf '%s' "$status_body" | jq -c \
+      --argjson running "$(json_bool "$running")" \
+      --arg healthStatus "$health_status" \
+      '. + {containerRunning: $running, dockerHealth: $healthStatus, reachable: true}'
+  else
+    jq -cn \
+      --argjson running "$(json_bool "$running")" \
+      --arg healthStatus "$health_status" \
+      --argjson curlExit "$http_status" \
+      '{ok: false, containerRunning: $running, dockerHealth: $healthStatus, reachable: false, curlExit: $curlExit}'
+  fi
+}
+
+whatsapp_sidecar_ready() {
+  local probe="$1"
+  printf '%s' "$probe" | jq -e '
+    (.reachable == true)
+    and ((.status // "") | test("ready|authenticated|connected"; "i"))
+  ' >/dev/null 2>&1
+}
+
 send_operator_alert() {
   require_tool jq
   require_tool python3
   local text="$1"
   local dry_run="${2:-$ALERT_DRY_RUN}"
-  local whatsapp_output whatsapp_exit whatsapp_json telegram_json bot_token chat_id payload_json telegram_status telegram_reason
+  local whatsapp_output whatsapp_exit whatsapp_json whatsapp_probe telegram_json bot_token chat_id payload_json telegram_status telegram_reason
 
   if [[ "$dry_run" == true ]]; then
     jq -cn --arg transport "dry_run" --arg reason "dry_run" '{ok: true, transport: $transport, reason: $reason}'
     return 0
   fi
 
+  whatsapp_probe="$(whatsapp_sidecar_probe)"
   whatsapp_output=""
   whatsapp_exit=127
-  if [[ -f "$EA_LIVE_OPS_SCRIPT" ]]; then
+  if [[ "$ALERT_TRANSPORT_MODE" != "telegram" && -f "$EA_LIVE_OPS_SCRIPT" ]] && whatsapp_sidecar_ready "$whatsapp_probe"; then
     set +e
     whatsapp_output="$(python3 "$EA_LIVE_OPS_SCRIPT" send-whatsapp --phone-hint "$ALERT_PHONE_HINT" --text "$text" 2>&1)"
     whatsapp_exit=$?
     set -e
   fi
   if [[ "$whatsapp_exit" == "0" ]] && printf '%s' "$whatsapp_output" | jq -e '.sent == true' >/dev/null 2>&1; then
-    printf '%s' "$whatsapp_output" | jq -c '{ok: true, transport: "whatsapp", delivery: .}'
+    printf '%s' "$whatsapp_output" | jq -c --argjson probe "$whatsapp_probe" '{ok: true, transport: "whatsapp", primaryTransport: "whatsapp", telegramFallbackConfigured: true, whatsappProbe: $probe, delivery: .}'
     return 0
   fi
-  whatsapp_json="$(printf '%s' "$whatsapp_output" | jq -c '.' 2>/dev/null || jq -cn --arg raw "$(printf '%s' "$whatsapp_output" | head -c 500)" --argjson exitCode "$whatsapp_exit" '{exitCode: $exitCode, raw: $raw}')"
+  if [[ "$whatsapp_exit" == "127" && "$ALERT_TRANSPORT_MODE" != "whatsapp" ]]; then
+    whatsapp_json="$(jq -cn --argjson probe "$whatsapp_probe" '{exitCode: 127, skipped: true, reason: "whatsapp_sidecar_not_ready_or_replaced", probe: $probe}')"
+  else
+    whatsapp_json="$(printf '%s' "$whatsapp_output" | jq -c '.' 2>/dev/null || jq -cn --arg raw "$(printf '%s' "$whatsapp_output" | head -c 500)" --argjson exitCode "$whatsapp_exit" '{exitCode: $exitCode, raw: $raw}')"
+  fi
 
   bot_token="$(read_env_value "$ENV_FILE" EA_TELEGRAM_BOT_TOKEN)"
   chat_id="$(resolve_telegram_chat_id)"
@@ -1502,7 +1672,7 @@ PY
   telegram_reason="$(printf '%s' "$telegram_json" | jq -r '.reason // empty' 2>/dev/null || true)"
   if [[ "$telegram_status" == "0" ]] && printf '%s' "$telegram_json" | jq -e '.status == "sent"' >/dev/null 2>&1; then
     jq -cn --argjson whatsapp "$whatsapp_json" --argjson telegram "$telegram_json" \
-      '{ok: true, transport: "telegram", whatsappAttempt: $whatsapp, delivery: $telegram}'
+      '{ok: true, transport: "telegram", primaryTransport: "telegram", replacedTransport: "whatsapp", replacementReason: "whatsapp_unavailable_or_explicitly_replaced", telegramFallbackConfigured: true, whatsappAttempt: $whatsapp, delivery: $telegram}'
     return 0
   fi
   payload_json="$(printf '%s' "$telegram_json" | jq -c '.' 2>/dev/null || jq -cn --arg raw "$(printf '%s' "$telegram_json" | head -c 500)" '{raw: $raw}')"
@@ -1560,7 +1730,8 @@ alert_check() {
     for row in \
       "health|$RECEIPT_PATH" \
       "drift|$DRIFT_RECEIPT_PATH" \
-      "disk-log|$DISK_LOG_RECEIPT_PATH"; do
+      "disk-log|$DISK_LOG_RECEIPT_PATH" \
+      "freshness|$FRESHNESS_RECEIPT_PATH"; do
       name="${row%%|*}"
       receipt="${row#*|}"
       if [[ -f "$receipt" ]]; then
@@ -1613,7 +1784,7 @@ alert_check() {
       generatedAt: $generatedAt,
       status: (if $pass then "pass" else "fail" end),
       mode: $mode,
-      watchedReceipts: ["health", "drift", "disk-log"],
+      watchedReceipts: ["health", "drift", "disk-log", "freshness"],
       failureCount: $failureCount,
       failures: $failures,
       delivery: ($delivery + {ok: $deliveryOk, phoneHint: $phoneHint})
@@ -1632,9 +1803,10 @@ status_board() {
   mkdir -p "$(dirname "$STATUS_MARKDOWN_PATH")" "$(dirname "$STATUS_RECEIPT_PATH")"
   python3 - "$STATUS_MARKDOWN_PATH" "$STATUS_RECEIPT_PATH" \
     "$RECEIPT_PATH" "$BACKUP_RECEIPT_PATH" "$REPLICATION_RECEIPT_PATH" "$RESTORE_RECEIPT_PATH" \
-    "$REPLICA_RESTORE_RECEIPT_PATH" "$DRIFT_RECEIPT_PATH" "$DISK_LOG_RECEIPT_PATH" \
+    "$REPLICA_RESTORE_RECEIPT_PATH" "$REPLICA_START_RECEIPT_PATH" "$DRIFT_RECEIPT_PATH" "$DISK_LOG_RECEIPT_PATH" \
     "$CLOUDFLARE_ACCESS_RECEIPT_PATH" "$CLOUDFLARE_SNAPSHOT_RECEIPT_PATH" "$ALERT_RECEIPT_PATH" \
-    "$SCHEDULE_RECEIPT_PATH" "$INCIDENT_DRILL_RECEIPT_PATH" <<'PY'
+    "$SCHEDULE_RECEIPT_PATH" "$FRESHNESS_RECEIPT_PATH" "$STATUS_PUBLISH_RECEIPT_PATH" \
+    "$RESTORE_INVENTORY_RECEIPT_PATH" "$INCIDENT_DRILL_RECEIPT_PATH" <<'PY'
 from __future__ import annotations
 
 import json
@@ -1696,6 +1868,251 @@ raise SystemExit(0 if overall == "pass" else 1)
 PY
 }
 
+freshness_check() {
+  require_tool jq
+  require_tool python3
+  mkdir -p "$(dirname "$FRESHNESS_RECEIPT_PATH")"
+  python3 - "$FRESHNESS_RECEIPT_PATH" \
+    "$BACKUP_RECEIPT_PATH" "$MAX_BACKUP_AGE_SECONDS" \
+    "$REPLICATION_RECEIPT_PATH" "$MAX_REPLICA_AGE_SECONDS" \
+    "$CLOUDFLARE_SNAPSHOT_RECEIPT_PATH" "$MAX_CLOUDFLARE_SNAPSHOT_AGE_SECONDS" \
+    "$SCHEDULE_RECEIPT_PATH" "$MAX_SCHEDULED_HEALTH_AGE_SECONDS" \
+    "$INCIDENT_DRILL_RECEIPT_PATH" "$MAX_INCIDENT_DRILL_AGE_SECONDS" <<'PY'
+from __future__ import annotations
+
+from datetime import datetime, timezone
+import json
+from pathlib import Path
+import sys
+
+receipt_path = Path(sys.argv[1])
+pairs = list(zip(sys.argv[2::2], sys.argv[3::2]))
+now = datetime.now(timezone.utc)
+checks = []
+for path_text, max_age_text in pairs:
+    path = Path(path_text)
+    max_age = int(max_age_text)
+    data = {}
+    generated = ""
+    age = None
+    exists = path.exists()
+    status = "missing"
+    if exists:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            data = {}
+        generated = str(data.get("generatedAt") or "")
+        status = str(data.get("status") or "unknown")
+        if generated:
+            try:
+                dt = datetime.fromisoformat(generated.replace("Z", "+00:00"))
+                age = int((now - dt).total_seconds())
+            except ValueError:
+                age = None
+    ok = bool(exists and status == "pass" and age is not None and age <= max_age)
+    checks.append(
+        {
+            "receipt": str(path),
+            "contractName": str(data.get("contractName") or path.name),
+            "status": status,
+            "generatedAt": generated,
+            "ageSeconds": age,
+            "maxAgeSeconds": max_age,
+            "ok": ok,
+        }
+    )
+overall = all(item["ok"] for item in checks)
+payload = {
+    "contractName": "home.girschele.home_assistant.freshness.v1",
+    "generatedAt": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "status": "pass" if overall else "fail",
+    "checks": checks,
+}
+receipt_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+print(f"home.girschele.com freshness: {payload['status']}")
+raise SystemExit(0 if overall else 1)
+PY
+}
+
+publish_status() {
+  require_tool jq
+  require_tool sha256sum
+  mkdir -p "$STATUS_PUBLISH_DIR" "$(dirname "$STATUS_PUBLISH_RECEIPT_PATH")"
+  if [[ ! -f "$STATUS_MARKDOWN_PATH" || ! -f "$STATUS_RECEIPT_PATH" ]]; then
+    status_board
+  fi
+  local publish_abs mount_json mount_target mount_source mount_fstype status_target receipt_target status_sha receipt_sha status_size receipt_size visible_ok pass
+  publish_abs="$(absolute_path "$STATUS_PUBLISH_DIR")"
+  mount_json="$(mount_info_json "$publish_abs")"
+  mount_target="$(printf '%s' "$mount_json" | jq -r '.target')"
+  mount_source="$(printf '%s' "$mount_json" | jq -r '.source')"
+  mount_fstype="$(printf '%s' "$mount_json" | jq -r '.fstype')"
+  status_target="$STATUS_PUBLISH_DIR/homeassistant-status.md"
+  receipt_target="$STATUS_PUBLISH_DIR/homeassistant-status.receipt.json"
+  cp -p "$STATUS_MARKDOWN_PATH" "$status_target"
+  cp -p "$STATUS_RECEIPT_PATH" "$receipt_target"
+  status_sha="$(sha256sum "$status_target" | awk '{print $1}')"
+  receipt_sha="$(sha256sum "$receipt_target" | awk '{print $1}')"
+  status_size="$(stat -c '%s' "$status_target")"
+  receipt_size="$(stat -c '%s' "$receipt_target")"
+  if [[ "$publish_abs" == /mnt/* && -n "$mount_target" && "$mount_source" != "/dev/vda1" && "$status_size" -gt 0 && "$receipt_size" -gt 0 ]]; then
+    visible_ok=true
+    pass=true
+  else
+    visible_ok=false
+    pass=false
+  fi
+  jq -n \
+    --arg generatedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg publishDir "$publish_abs" \
+    --arg statusPath "$status_target" \
+    --arg receiptPath "$receipt_target" \
+    --arg statusSha256 "$status_sha" \
+    --arg receiptSha256 "$receipt_sha" \
+    --arg mountTarget "$mount_target" \
+    --arg mountSource "$mount_source" \
+    --arg mountFstype "$mount_fstype" \
+    --argjson statusSize "$status_size" \
+    --argjson receiptSize "$receipt_size" \
+    --argjson visibleOk "$(json_bool "$visible_ok")" \
+    --argjson pass "$(json_bool "$pass")" \
+    '{
+      contractName: "home.girschele.home_assistant.status_publish.v1",
+      generatedAt: $generatedAt,
+      status: (if $pass then "pass" else "fail" end),
+      publishDir: $publishDir,
+      files: {
+        statusMarkdown: {path: $statusPath, sha256: $statusSha256, sizeBytes: $statusSize},
+        statusReceipt: {path: $receiptPath, sha256: $receiptSha256, sizeBytes: $receiptSize}
+      },
+      operatorVisibleLocation: {
+        ok: $visibleOk,
+        mountTarget: $mountTarget,
+        mountSource: $mountSource,
+        fstype: $mountFstype
+      }
+    }' > "$STATUS_PUBLISH_RECEIPT_PATH"
+  jq -r '"home.girschele.com status publish: " + .status + " " + .publishDir' "$STATUS_PUBLISH_RECEIPT_PATH"
+  if [[ "$pass" != true ]]; then
+    jq '.operatorVisibleLocation' "$STATUS_PUBLISH_RECEIPT_PATH"
+    exit 1
+  fi
+}
+
+restore_inventory() {
+  require_tool jq
+  require_tool sha256sum
+  require_tool python3
+  mkdir -p "$(dirname "$RESTORE_INVENTORY_PATH")" "$(dirname "$RESTORE_INVENTORY_RECEIPT_PATH")"
+  python3 - "$RESTORE_INVENTORY_PATH" "$RESTORE_INVENTORY_RECEIPT_PATH" \
+    "$COMPOSE_FILE" "$0" "$REPLICATION_RECEIPT_PATH" "$CLOUDFLARE_SNAPSHOT_RECEIPT_PATH" \
+    "$CF_ACCESS_ENV_FILE" "$CLOUDFLARE_ENV_FILE" "$CONFIG_DIR" "$REPLICA_DIR" <<'PY'
+from __future__ import annotations
+
+from datetime import datetime, timezone
+import hashlib
+import json
+from pathlib import Path
+import sys
+
+inventory_path = Path(sys.argv[1])
+receipt_path = Path(sys.argv[2])
+compose_file = Path(sys.argv[3])
+script_file = Path(sys.argv[4])
+replication_receipt = Path(sys.argv[5])
+snapshot_receipt = Path(sys.argv[6])
+cf_access_env = Path(sys.argv[7])
+cloudflare_env = Path(sys.argv[8])
+config_dir = Path(sys.argv[9])
+replica_dir = Path(sys.argv[10])
+
+def sha(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() and path.is_file() else ""
+
+def file_item(path: Path, *, required: bool = True, secret: bool = False, description: str = "") -> dict[str, object]:
+    return {
+        "path": str(path),
+        "exists": path.exists(),
+        "required": required,
+        "secret": secret,
+        "description": description,
+        "sizeBytes": path.stat().st_size if path.exists() and path.is_file() else 0,
+        "sha256": "" if secret else sha(path),
+    }
+
+replication = json.loads(replication_receipt.read_text(encoding="utf-8")) if replication_receipt.exists() else {}
+snapshot = json.loads(snapshot_receipt.read_text(encoding="utf-8")) if snapshot_receipt.exists() else {}
+replica_archive = Path(str(dict(replication.get("replica") or {}).get("archive") or ""))
+replica_manifest = Path(str(dict(replication.get("replica") or {}).get("manifest") or ""))
+snapshot_files = dict(snapshot.get("files") or {})
+tunnel_snapshot = Path(str(dict(snapshot_files.get("tunnelConfig") or {}).get("path") or ""))
+access_snapshot = Path(str(dict(snapshot_files.get("accessApp") or {}).get("path") or ""))
+
+required_keys = {
+    str(cf_access_env): ["CODEXLIZ_CF_ACCESS_CLIENT_ID", "CODEXLIZ_CF_ACCESS_CLIENT_SECRET"],
+    str(cloudflare_env): ["CLOUDFLARE_EMAIL", "CLOUDFLARE_GLOBAL_API_KEY"],
+}
+secret_key_presence: dict[str, dict[str, bool]] = {}
+for path_text, keys in required_keys.items():
+    path = Path(path_text)
+    text = path.read_text(encoding="utf-8", errors="ignore") if path.exists() else ""
+    secret_key_presence[path_text] = {key: any(line.startswith(f"{key}=") for line in text.splitlines()) for key in keys}
+
+items = [
+    file_item(replica_archive, description="Latest replicated Home Assistant config/state archive"),
+    file_item(replica_manifest, description="Manifest for the replicated archive"),
+    file_item(compose_file, description="EA-owned Home Assistant compose service"),
+    file_item(script_file, description="Operations script that recreates service, Access app, checks, and receipts"),
+    file_item(tunnel_snapshot, description="Cloudflare tunnel config snapshot"),
+    file_item(access_snapshot, description="Cloudflare Access app snapshot"),
+    file_item(cf_access_env, secret=True, description="Cloudflare Access service-token client id/secret file"),
+    file_item(cloudflare_env, secret=True, description="Cloudflare API credential environment file"),
+]
+optional = [
+    {"path": str(config_dir), "exists": config_dir.exists(), "required": False, "secret": False, "description": "Live config path, useful but replaceable from replica archive"},
+    {"path": str(replica_dir), "exists": replica_dir.exists(), "required": False, "secret": False, "description": "Replica directory containing retained backup archives"},
+]
+missing_required = [item for item in items if item["required"] and not item["exists"]]
+missing_secret_keys = {
+    path: [key for key, present in keys.items() if not present]
+    for path, keys in secret_key_presence.items()
+    if any(not present for present in keys.values())
+}
+generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+inventory = {
+    "contractName": "home.girschele.home_assistant.restore_inventory.v1",
+    "generatedAt": generated_at,
+    "status": "pass" if not missing_required and not missing_secret_keys else "fail",
+    "hostLossRestoreOrder": [
+        "Install Docker and clone /docker/EA.",
+        "Restore secret env files without printing their values.",
+        "Copy or mount the replicated backup archive and manifest.",
+        "Extract the archive to HOME_GIRSCHELE_HASS_CONFIG_DIR.",
+        "Run scripts/home_girschele_hass_ops.sh restore-access, up, health, drift, and status.",
+    ],
+    "requiredFiles": items,
+    "optionalContext": optional,
+    "secretKeyPresence": secret_key_presence,
+    "missingRequiredFiles": missing_required,
+    "missingSecretKeys": missing_secret_keys,
+}
+inventory_path.write_text(json.dumps(inventory, indent=2) + "\n", encoding="utf-8")
+receipt = {
+    "contractName": "home.girschele.home_assistant.restore_inventory_receipt.v1",
+    "generatedAt": generated_at,
+    "status": inventory["status"],
+    "inventoryPath": str(inventory_path),
+    "requiredFileCount": len(items),
+    "missingRequiredFileCount": len(missing_required),
+    "missingSecretKeyFiles": list(missing_secret_keys),
+}
+receipt_path.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+print(f"home.girschele.com restore inventory: {inventory['status']} {inventory_path}")
+raise SystemExit(0 if inventory["status"] == "pass" else 1)
+PY
+}
+
 incident_drill() {
   require_tool jq
   local timestamp drill_dir steps_file step command log_path exit_code steps_json pass
@@ -1711,9 +2128,12 @@ incident_drill() {
     "backup|create local HA backup" \
     "replicate-backup|replicate backup off host" \
     "restore-replica-drill|prove fresh-container restore from replica" \
+    "restore-replica-start-drill|prove restored replica starts and serves HTTP" \
     "drift|verify drift invariants" \
     "health|verify public and local HA health" \
     "alert-check|deliver operator alert if health, drift, or disk receipts failed" \
+    "restore-inventory|write no-secret host-loss restore inventory" \
+    "freshness|verify receipt freshness SLOs" \
     "status|refresh status board"; do
     command="${step%%|*}"
     log_path="$drill_dir/${command}.log"
@@ -1765,6 +2185,7 @@ scheduled_health() {
     health
     drift_check
     disk_log_check
+    freshness_check
     alert_check
     echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] scheduled-health complete"
   } >>"$SCHEDULE_LOG_PATH" 2>&1
@@ -1774,6 +2195,7 @@ scheduled_health() {
     --arg healthReceipt "$RECEIPT_PATH" \
     --arg driftReceipt "$DRIFT_RECEIPT_PATH" \
     --arg diskLogReceipt "$DISK_LOG_RECEIPT_PATH" \
+    --arg freshnessReceipt "$FRESHNESS_RECEIPT_PATH" \
     --arg alertReceipt "$ALERT_RECEIPT_PATH" \
     --arg logPath "$SCHEDULE_LOG_PATH" \
     '{
@@ -1783,6 +2205,7 @@ scheduled_health() {
       reusedHealthReceipt: $healthReceipt,
       driftReceipt: $driftReceipt,
       diskLogReceipt: $diskLogReceipt,
+      freshnessReceipt: $freshnessReceipt,
       alertReceipt: $alertReceipt,
       logPath: $logPath
     }' > "$SCHEDULE_RECEIPT_PATH"
@@ -1878,6 +2301,10 @@ case "${1:-health}" in
     shift || true
     restore_replica_drill "${1:-}"
     ;;
+  restore-replica-start-drill)
+    shift || true
+    restore_replica_start_drill "${1:-}"
+    ;;
   drift)
     drift_check
     ;;
@@ -1895,6 +2322,15 @@ case "${1:-health}" in
     ;;
   status)
     status_board
+    ;;
+  publish-status)
+    publish_status
+    ;;
+  freshness)
+    freshness_check
+    ;;
+  restore-inventory)
+    restore_inventory
     ;;
   incident-drill)
     incident_drill
@@ -1914,15 +2350,19 @@ case "${1:-health}" in
     restore_drill
     replicate_backup
     restore_replica_drill
+    restore_replica_start_drill
     snapshot_cloudflare
     drift_check
     disk_log_check
     health
     alert_check
+    restore_inventory
+    freshness_check
     status_board
+    publish_status
     ;;
   *)
-    echo "usage: $0 {migrate-config|up|restore-access|health|backup|replicate-backup|restore-drill|restore-replica-drill|drift|disk-log|snapshot-cloudflare|alert-check|alert-drill|status|incident-drill|scheduled-health|install-scheduled-health|harden}" >&2
+    echo "usage: $0 {migrate-config|up|restore-access|health|backup|replicate-backup|restore-drill|restore-replica-drill|restore-replica-start-drill|drift|disk-log|snapshot-cloudflare|alert-check|alert-drill|status|publish-status|freshness|restore-inventory|incident-drill|scheduled-health|install-scheduled-health|harden}" >&2
     exit 2
     ;;
 esac

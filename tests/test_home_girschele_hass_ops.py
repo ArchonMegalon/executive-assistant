@@ -29,12 +29,16 @@ def test_home_girschele_ops_script_covers_operational_receipts() -> None:
         "replicate-backup)",
         "restore-drill)",
         "restore-replica-drill)",
+        "restore-replica-start-drill)",
         "drift)",
         "disk-log)",
         "snapshot-cloudflare)",
         "alert-check)",
         "alert-drill)",
         "status)",
+        "publish-status)",
+        "freshness)",
+        "restore-inventory)",
         "incident-drill)",
         "scheduled-health)",
         "install-scheduled-health)",
@@ -47,12 +51,17 @@ def test_home_girschele_ops_script_covers_operational_receipts() -> None:
         "home.girschele.home_assistant.replication.v1",
         "home.girschele.home_assistant.restore_drill.v1",
         "home.girschele.home_assistant.replica_restore_drill.v1",
+        "home.girschele.home_assistant.replica_start_drill.v1",
         "home.girschele.home_assistant.drift.v1",
         "home.girschele.home_assistant.disk_log.v1",
         "home.girschele.home_assistant.cloudflare_access.v1",
         "home.girschele.home_assistant.cloudflare_snapshot.v1",
         "home.girschele.home_assistant.alert.v1",
         "home.girschele.home_assistant.status_board.v1",
+        "home.girschele.home_assistant.status_publish.v1",
+        "home.girschele.home_assistant.freshness.v1",
+        "home.girschele.home_assistant.restore_inventory.v1",
+        "home.girschele.home_assistant.restore_inventory_receipt.v1",
         "home.girschele.home_assistant.incident_drill.v1",
         "home.girschele.home_assistant.scheduled_health.v1",
         "home.girschele.home_assistant.schedule_install.v1",
@@ -69,8 +78,11 @@ def test_home_girschele_ops_script_covers_operational_receipts() -> None:
     assert "/onboarding.html /config /lovelace" in script
     assert "http://172.17.0.1:8123" in script
     assert 'REPLICA_DIR="${HOME_GIRSCHELE_REPLICA_DIR:-/mnt/pcloud/EA/home-girschele/homeassistant-backups}"' in script
+    assert 'STATUS_PUBLISH_DIR="${HOME_GIRSCHELE_STATUS_PUBLISH_DIR:-/mnt/pcloud/EA/home-girschele/status}"' in script
     assert "service_token: {token_id: $tokenId}" in script
     assert "broadAnyValidPolicyPresent" in script
+    assert "whatsapp_sidecar_probe" in script
+    assert "fresh_disposable_container_http_start_from_replicated_backup" in script
     assert "EA_LIVE_OPS_SCRIPT" in script
     assert 'max-size: "10m"' in script
     assert 'max-file: "3"' in script
@@ -85,6 +97,8 @@ def test_home_girschele_runbook_documents_recovery_and_safe_onboarding() -> None
         "Cloudflare Snapshot And Access Recovery",
         "Alert Delivery",
         "Status Board And Incident Drill",
+        "Freshness SLOs",
+        "Host-Loss Restore Inventory",
         "Drift And Pressure Monitoring",
         "Scheduled Health",
         "Safe Onboarding/Admin Path",
@@ -93,12 +107,16 @@ def test_home_girschele_runbook_documents_recovery_and_safe_onboarding() -> None
         "homeassistant-replication.receipt.json",
         "homeassistant-restore-drill.receipt.json",
         "homeassistant-replica-restore-drill.receipt.json",
+        "homeassistant-replica-start-drill.receipt.json",
         "homeassistant-drift.receipt.json",
         "homeassistant-disk-log.receipt.json",
         "homeassistant-cloudflare-access.receipt.json",
         "homeassistant-cloudflare-snapshot.receipt.json",
         "homeassistant-alert.receipt.json",
         "homeassistant-status.md",
+        "homeassistant-status-publish.receipt.json",
+        "homeassistant-freshness.receipt.json",
+        "homeassistant-restore-inventory.receipt.json",
         "homeassistant-incident-drill.receipt.json",
         "homeassistant-scheduled-health.receipt.json",
         "home-girschele-health.timer",

@@ -52,12 +52,16 @@ bash scripts/home_girschele_hass_ops.sh backup
 bash scripts/home_girschele_hass_ops.sh replicate-backup
 bash scripts/home_girschele_hass_ops.sh restore-drill
 bash scripts/home_girschele_hass_ops.sh restore-replica-drill
+bash scripts/home_girschele_hass_ops.sh restore-replica-start-drill
 bash scripts/home_girschele_hass_ops.sh drift
 bash scripts/home_girschele_hass_ops.sh disk-log
 bash scripts/home_girschele_hass_ops.sh snapshot-cloudflare
 bash scripts/home_girschele_hass_ops.sh alert-check
 bash scripts/home_girschele_hass_ops.sh alert-drill
 bash scripts/home_girschele_hass_ops.sh status
+bash scripts/home_girschele_hass_ops.sh publish-status
+bash scripts/home_girschele_hass_ops.sh freshness
+bash scripts/home_girschele_hass_ops.sh restore-inventory
 bash scripts/home_girschele_hass_ops.sh incident-drill
 bash scripts/home_girschele_hass_ops.sh scheduled-health
 bash scripts/home_girschele_hass_ops.sh install-scheduled-health
@@ -94,6 +98,8 @@ Retention defaults:
 
 `restore-replica-drill` extracts the latest replicated archive and runs Home Assistant's config checker inside a fresh disposable Home Assistant container. It writes `.state/home-girschele/homeassistant-replica-restore-drill.receipt.json`.
 
+`restore-replica-start-drill` goes further: it extracts the latest replicated archive, starts a disposable Home Assistant container on a random localhost port, waits until the restored instance serves HTTP, writes `.state/home-girschele/homeassistant-replica-start-drill.receipt.json`, and removes the container. This proves the replicated backup can start, not only pass static config validation.
+
 ## Cloudflare Snapshot And Access Recovery
 
 `restore-access` now resolves the configured Cloudflare Access service token by the current `CODEXLIZ_CF_ACCESS_CLIENT_ID` and writes `.state/home-girschele/homeassistant-cloudflare-access.receipt.json`. The Access policy must use a named `service_token.token_id` selector; broad `any_valid_service_token` is treated as drift.
@@ -125,9 +131,18 @@ Retention defaults:
 
 `alert-drill` uses a synthetic failed receipt so the delivery route can be tested without breaking Home Assistant. Set `HOME_GIRSCHELE_ALERT_DRY_RUN=true` to prove wiring without sending a real operator message.
 
+The script probes `ea-whatsapp-web-session` before using WhatsApp. If the sidecar is stopped, unreachable, or requires QR re-authentication, the receipt explicitly records WhatsApp as replaced and sends through Telegram as the live operator transport. Re-enable WhatsApp by restoring the WhatsApp Web session, then rerun:
+
+```bash
+docker compose -f docker-compose.whatsapp-web-session.yml up -d ea-whatsapp-web-session
+bash scripts/home_girschele_hass_ops.sh alert-drill
+```
+
 ## Status Board And Incident Drill
 
 `status` writes `.state/home-girschele/homeassistant-status.md` and `.state/home-girschele/homeassistant-status.receipt.json` with the latest receipt statuses.
+
+`publish-status` copies the status markdown and receipt to `${HOME_GIRSCHELE_STATUS_PUBLISH_DIR:-/mnt/pcloud/EA/home-girschele/status}` and writes `.state/home-girschele/homeassistant-status-publish.receipt.json`. The publish receipt verifies the target is a mounted `/mnt/*` location instead of the local EA state directory.
 
 `incident-drill` runs the recovery chain as subprocesses and writes `.state/home-girschele/homeassistant-incident-drill.receipt.json`:
 
@@ -136,11 +151,36 @@ Retention defaults:
 3. create a local backup;
 4. replicate the backup off host;
 5. restore-check the replicated backup in a fresh disposable container;
-6. rerun drift, health, alert-check, and status.
+6. start the replicated backup in a disposable Home Assistant container and prove HTTP;
+7. rerun drift, health, alert-check, restore-inventory, freshness, and status.
+
+## Freshness SLOs
+
+`freshness` writes `.state/home-girschele/homeassistant-freshness.receipt.json` and fails if required receipts are missing, not `pass`, or stale.
+
+Default freshness limits:
+
+- backup receipt: `${HOME_GIRSCHELE_MAX_BACKUP_AGE_SECONDS:-86400}`
+- replicated backup receipt: `${HOME_GIRSCHELE_MAX_REPLICA_AGE_SECONDS:-86400}`
+- Cloudflare snapshot receipt: `${HOME_GIRSCHELE_MAX_CLOUDFLARE_SNAPSHOT_AGE_SECONDS:-86400}`
+- scheduled health receipt: `${HOME_GIRSCHELE_MAX_SCHEDULED_HEALTH_AGE_SECONDS:-1800}`
+- incident drill receipt: `${HOME_GIRSCHELE_MAX_INCIDENT_DRILL_AGE_SECONDS:-604800}`
+
+## Host-Loss Restore Inventory
+
+`restore-inventory` writes `.state/home-girschele/homeassistant-restore-inventory.json` and `.state/home-girschele/homeassistant-restore-inventory.receipt.json`. The inventory is no-secret: it records required paths, sizes, and hashes for non-secret artifacts, and only records presence of required secret keys for secret files.
+
+It verifies that a host-loss restore has:
+
+- the latest replicated backup archive and manifest;
+- this runbook's compose service and ops script;
+- Cloudflare tunnel and Access app snapshots;
+- the Cloudflare Access service-token env file;
+- the Cloudflare API env file.
 
 ## Scheduled Health
 
-`scheduled-health` is the cron/systemd-safe entrypoint. It reuses the normal `health` receipt contract and then runs `drift`, `disk-log`, and `alert-check`; the wrapper receipt is `.state/home-girschele/homeassistant-scheduled-health.receipt.json`.
+`scheduled-health` is the cron/systemd-safe entrypoint. It reuses the normal `health` receipt contract and then runs `drift`, `disk-log`, `freshness`, and `alert-check`; the wrapper receipt is `.state/home-girschele/homeassistant-scheduled-health.receipt.json`.
 
 `install-scheduled-health` installs a user systemd timer named `home-girschele-health.timer` that runs every 15 minutes. It writes `.state/home-girschele/homeassistant-schedule-install.receipt.json`. If a host does not support user systemd, keep the generated service/timer files as the source and install an equivalent cron entry that runs:
 
@@ -199,6 +239,8 @@ bash scripts/home_girschele_hass_ops.sh backup
 bash scripts/home_girschele_hass_ops.sh restore-drill
 bash scripts/home_girschele_hass_ops.sh replicate-backup
 bash scripts/home_girschele_hass_ops.sh restore-replica-drill
+bash scripts/home_girschele_hass_ops.sh restore-replica-start-drill
+bash scripts/home_girschele_hass_ops.sh restore-inventory
 ```
 
 Then verify the live container mount:
