@@ -208,10 +208,15 @@ def test_probe_provider_onemin_prefers_runtime_container_aggregate(monkeypatch) 
             {
                 "ok": True,
                 "aggregate": {
-                    "state": "ready",
                     "live_remaining_credits_total": 123456,
                     "account_count": 2,
+                    "ready_account_count": 2,
                     "live_positive_balance_account_count": 1,
+                    "live_ready_account_count": 1,
+                    "slot_count": 4,
+                    "global_configured_slot_count": 4,
+                    "live_positive_balance_slot_count": 2,
+                    "live_ready_slot_count": 1,
                     "estimated_hours_remaining_at_current_pace": 9.5,
                     "scope": "all_accounts",
                     "accounts": [
@@ -236,8 +241,11 @@ def test_probe_provider_onemin_prefers_runtime_container_aggregate(monkeypatch) 
     assert report["refresh_at"] == "2026-07-01T00:00:00Z"
     assert report["observed_at"] == "2026-06-29T12:00:00Z"
     assert report["source"] == "runtime_container_exec:onemin_manager.aggregate_snapshot"
+    assert report["raw"]["status_basis"] == "live_ready_slot_count"
     assert report["raw"]["probe"]["runtime_container"] == "ea-api"
     assert "remaining=123456 credits" in str(report["operator_text"])
+    assert "live_ready_slots=1" in str(report["operator_text"])
+    assert "positive_slots=2" in str(report["operator_text"])
     serialized = json.dumps(report)
     assert "private-value" not in serialized
     assert "ea-db" not in serialized

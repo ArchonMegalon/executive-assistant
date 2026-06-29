@@ -500,6 +500,14 @@ def _operator_text_for_provider(report: dict[str, object]) -> str:
         pieces.append(f"observed_at={report['observed_at']}")
     if report.get("source"):
         pieces.append(f"source={report['source']}")
+    raw = report.get("raw") if isinstance(report.get("raw"), dict) else {}
+    for field_name, label in (
+        ("live_ready_slot_count", "live_ready_slots"),
+        ("live_positive_balance_slot_count", "positive_slots"),
+        ("account_count", "accounts"),
+    ):
+        if raw.get(field_name) not in (None, ""):
+            pieces.append(f"{label}={raw[field_name]}")
     return "; ".join(str(item) for item in pieces if str(item).strip())
 
 
@@ -574,6 +582,49 @@ def _host_onemin_aggregate() -> tuple[dict[str, object], dict[str, object]]:
     }
 
 
+def _float_or_none(value: object) -> float | None:
+    try:
+        if value in (None, ""):
+            return None
+        return float(value)
+    except Exception:
+        return None
+
+
+def _int_or_none(value: object) -> int | None:
+    numeric = _float_or_none(value)
+    return None if numeric is None else int(numeric)
+
+
+def _onemin_live_ops_status(aggregate: Mapping[str, object]) -> tuple[str, str]:
+    explicit = str(aggregate.get("state") or "").strip().lower()
+    if explicit and explicit != "unknown":
+        return explicit, "aggregate_state"
+
+    live_dispatchable_slot_count = _int_or_none(aggregate.get("live_dispatchable_slot_count"))
+    if live_dispatchable_slot_count is not None:
+        if live_dispatchable_slot_count > 0:
+            return "ready", "live_dispatchable_slot_count"
+        positive_slots = _int_or_none(aggregate.get("live_positive_balance_slot_count")) or 0
+        positive_accounts = _int_or_none(aggregate.get("live_positive_balance_account_count")) or 0
+        return ("degraded", "funded_without_dispatchable_slots") if max(positive_slots, positive_accounts) > 0 else ("unavailable", "no_dispatchable_slots")
+
+    for field_name in ("live_ready_slot_count", "live_ready_account_count"):
+        value = _int_or_none(aggregate.get(field_name))
+        if value is not None and value > 0:
+            return "ready", field_name
+
+    for field_name in ("live_positive_balance_slot_count", "live_positive_balance_account_count"):
+        value = _int_or_none(aggregate.get(field_name))
+        if value is not None and value > 0:
+            return "degraded", field_name
+
+    remaining = _float_or_none(aggregate.get("live_remaining_credits_total") or aggregate.get("sum_free_credits"))
+    if remaining is not None and remaining > 0:
+        return "degraded", "positive_remaining_credits"
+    return explicit or "unknown", "aggregate_state_unknown"
+
+
 def _onemin_report_from_aggregate(
     aggregate: Mapping[str, object],
     *,
@@ -581,6 +632,7 @@ def _onemin_report_from_aggregate(
     observed_at: str,
     raw_probe: Mapping[str, object],
 ) -> dict[str, object]:
+    status, status_basis = _onemin_live_ops_status(aggregate)
     accounts = [dict(row) for row in aggregate.get("accounts") or [] if isinstance(row, dict)]
     latest_snapshot = max(
         (str(row.get("last_billing_snapshot_at") or "").strip() for row in accounts if str(row.get("last_billing_snapshot_at") or "").strip()),
@@ -593,7 +645,7 @@ def _onemin_report_from_aggregate(
     return {
         "provider_key": "onemin",
         "display_name": _provider_display_name("onemin"),
-        "status": str(aggregate.get("state") or "unknown").strip() or "unknown",
+        "status": status,
         "remaining": aggregate.get("live_remaining_credits_total", aggregate.get("sum_free_credits")),
         "unit": "credits",
         "refresh_at": next_topup or latest_snapshot,
@@ -601,8 +653,21 @@ def _onemin_report_from_aggregate(
         "account_label": "",
         "source": source,
         "raw": {
+            "status_basis": status_basis,
             "account_count": aggregate.get("account_count"),
+            "ready_account_count": aggregate.get("ready_account_count"),
             "live_positive_balance_account_count": aggregate.get("live_positive_balance_account_count"),
+            "live_ready_account_count": aggregate.get("live_ready_account_count"),
+            "slot_count": aggregate.get("slot_count"),
+            "global_configured_slot_count": aggregate.get("global_configured_slot_count"),
+            "live_positive_balance_slot_count": aggregate.get("live_positive_balance_slot_count"),
+            "live_ready_slot_count": aggregate.get("live_ready_slot_count"),
+            "live_dispatchable_slot_count": aggregate.get("live_dispatchable_slot_count"),
+            "live_remaining_percent_of_max": aggregate.get("live_remaining_percent_of_max"),
+            "actual_remaining_percent_of_max": aggregate.get("actual_remaining_percent_of_max"),
+            "current_burn_credits_per_hour": aggregate.get("current_burn_credits_per_hour"),
+            "burn_basis": aggregate.get("burn_basis"),
+            "active_lease_count": aggregate.get("active_lease_count"),
             "estimated_hours_remaining_at_current_pace": aggregate.get("estimated_hours_remaining_at_current_pace"),
             "scope": aggregate.get("scope"),
             "probe": dict(raw_probe),
