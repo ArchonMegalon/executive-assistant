@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import pytest
+
 from app.domain.models import ToolDefinition, ToolInvocationRequest
 from app.services.tool_execution_common import ToolExecutionError
+import app.services.tool_execution_teable_adapter as teable_adapter
 from app.services.tool_execution_teable_adapter import (
     TeableToolAdapter,
     _parse_teable_http_error_missing_fields,
@@ -57,6 +60,61 @@ def test_parse_teable_http_error_missing_fields_from_truncated_message_text() ->
         "delivery_next_action_label",
         "delivery_next_action_method",
     ]
+
+
+def test_teable_request_json_retries_transient_timeout_with_configured_timeout(monkeypatch) -> None:
+    monkeypatch.setenv("TEABLE_REQUEST_TIMEOUT_SECONDS", "123")
+    monkeypatch.setenv("TEABLE_REQUEST_RETRY_COUNT", "1")
+    monkeypatch.setenv("TEABLE_REQUEST_RETRY_BACKOFF_SECONDS", "0")
+    timeouts: list[float] = []
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return b'{"ok":true}'
+
+    def _urlopen(request, timeout=0):
+        timeouts.append(timeout)
+        if len(timeouts) == 1:
+            raise TimeoutError("The read operation timed out")
+        return _Response()
+
+    monkeypatch.setattr(teable_adapter.urllib.request, "urlopen", _urlopen)
+
+    payload = TeableToolAdapter()._request_json(
+        method="GET",
+        url="https://teable.test/api/table/tbl/record",
+        api_key="test-key",
+    )
+
+    assert payload == {"ok": True}
+    assert timeouts == [123.0, 123.0]
+
+
+def test_teable_request_json_does_not_retry_non_transient_failure(monkeypatch) -> None:
+    monkeypatch.setenv("TEABLE_REQUEST_RETRY_COUNT", "3")
+    monkeypatch.setenv("TEABLE_REQUEST_RETRY_BACKOFF_SECONDS", "0")
+    calls: list[str] = []
+
+    def _urlopen(request, timeout=0):
+        calls.append("call")
+        raise RuntimeError("bad payload")
+
+    monkeypatch.setattr(teable_adapter.urllib.request, "urlopen", _urlopen)
+
+    with pytest.raises(ToolExecutionError, match="teable_request_failed:bad payload"):
+        TeableToolAdapter()._request_json(
+            method="GET",
+            url="https://teable.test/api/table/tbl/record",
+            api_key="test-key",
+        )
+
+    assert calls == ["call"]
 
 
 def test_teable_table_sync_retries_create_with_missing_fields_filtered(monkeypatch) -> None:

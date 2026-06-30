@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import socket
+import time
 from collections.abc import Iterable
 from typing import Any
 import urllib.error
@@ -128,6 +130,52 @@ def _fallback_table_sync_config() -> dict[str, dict[str, object]]:
     return config
 
 
+def _teable_request_timeout_seconds() -> float:
+    raw = str(os.environ.get("TEABLE_REQUEST_TIMEOUT_SECONDS") or "").strip()
+    if not raw:
+        raw = str(os.environ.get("TEABLE_TABLE_SYNC_REQUEST_TIMEOUT_SECONDS") or "").strip()
+    try:
+        value = float(raw) if raw else 90.0
+    except (TypeError, ValueError):
+        value = 90.0
+    return min(max(value, 1.0), 300.0)
+
+
+def _teable_request_retry_count() -> int:
+    raw = str(os.environ.get("TEABLE_REQUEST_RETRY_COUNT") or "").strip()
+    if not raw:
+        raw = str(os.environ.get("TEABLE_TABLE_SYNC_REQUEST_RETRY_COUNT") or "").strip()
+    try:
+        value = int(raw) if raw else 2
+    except (TypeError, ValueError):
+        value = 2
+    return min(max(value, 0), 5)
+
+
+def _teable_request_retry_backoff_seconds() -> float:
+    raw = str(os.environ.get("TEABLE_REQUEST_RETRY_BACKOFF_SECONDS") or "").strip()
+    if not raw:
+        raw = str(os.environ.get("TEABLE_TABLE_SYNC_REQUEST_RETRY_BACKOFF_SECONDS") or "").strip()
+    try:
+        value = float(raw) if raw else 1.0
+    except (TypeError, ValueError):
+        value = 1.0
+    return min(max(value, 0.0), 30.0)
+
+
+def _teable_request_failure_message(exc: BaseException) -> str:
+    return f"teable_request_failed:{str(exc)[:400]}"
+
+
+def _is_teable_transient_request_error(exc: BaseException) -> bool:
+    if isinstance(exc, (TimeoutError, socket.timeout)):
+        return True
+    if isinstance(exc, urllib.error.URLError):
+        reason = getattr(exc, "reason", None)
+        return isinstance(reason, (TimeoutError, socket.timeout))
+    return False
+
+
 class TeableToolAdapter:
     def _api_key(self) -> str:
         return str(os.environ.get("TEABLE_API_KEY") or "").strip()
@@ -198,9 +246,26 @@ class TeableToolAdapter:
                 ),
             },
         )
+        timeout_seconds = _teable_request_timeout_seconds()
+        retry_count = _teable_request_retry_count()
+        backoff_seconds = _teable_request_retry_backoff_seconds()
+        last_error: BaseException | None = None
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                payload = response.read().decode("utf-8")
+            for attempt in range(retry_count + 1):
+                try:
+                    with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+                        payload = response.read().decode("utf-8")
+                    break
+                except urllib.error.HTTPError:
+                    raise
+                except Exception as exc:
+                    last_error = exc
+                    if attempt >= retry_count or not _is_teable_transient_request_error(exc):
+                        raise
+                    if backoff_seconds:
+                        time.sleep(backoff_seconds)
+            else:
+                raise last_error or RuntimeError("teable_request_failed")
         except urllib.error.HTTPError as exc:
             try:
                 detail = exc.read().decode("utf-8")[:500]
@@ -208,7 +273,7 @@ class TeableToolAdapter:
                 detail = str(exc)[:500]
             raise ToolExecutionError(f"teable_http_error:{exc.code}:{detail}") from exc
         except Exception as exc:
-            raise ToolExecutionError(f"teable_request_failed:{str(exc)[:400]}") from exc
+            raise ToolExecutionError(_teable_request_failure_message(exc)) from exc
         if not payload.strip():
             return {}
         try:
