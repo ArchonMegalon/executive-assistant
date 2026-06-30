@@ -414,6 +414,53 @@ def _whatsapp_playback_failure_action_context(receipt: dict[str, Any]) -> dict[s
     }
 
 
+def _whatsapp_live_playback_blocked(receipt: dict[str, Any], blocking_reasons: list[str]) -> bool:
+    if not any(str(reason or "").startswith("deliver:whatsapp_audiobook=blocked") for reason in blocking_reasons):
+        return False
+    failed_codes = {
+        str(code or "").strip()
+        for code in list(receipt.get("failed_codes") or [])
+        if str(code or "").strip()
+    }
+    selected_delivery = receipt.get("selected_delivery")
+    if isinstance(selected_delivery, dict):
+        failed_codes.update(
+            str(code or "").strip()
+            for code in list(selected_delivery.get("failed_codes") or [])
+            if str(code or "").strip()
+        )
+    next_action = str(receipt.get("next_action") or "").strip()
+    return "machine_playback_e2e_not_verified" in failed_codes or next_action == (
+        "run_public_share_machine_playback_e2e_before_claiming_live_delivery"
+    )
+
+
+def _whatsapp_live_playback_blocked_action_context(
+    *,
+    live_receipt: dict[str, Any],
+    playback_receipt: dict[str, Any],
+) -> dict[str, Any]:
+    playback_context = _whatsapp_playback_failure_action_context(playback_receipt)
+    if playback_context.get("track_response_status") or playback_context.get("track_content_type"):
+        return playback_context
+
+    selected_delivery = live_receipt.get("selected_delivery")
+    selected = dict(selected_delivery) if isinstance(selected_delivery, dict) else {}
+    return {
+        **playback_context,
+        "failed_playback_count": 1,
+        "attempted_playback_count": 1,
+        "first_failure_reason": str(
+            selected.get("machine_playback_e2e_reason") or live_receipt.get("blocking_reason") or ""
+        ).strip(),
+        "track_response_status": int(selected.get("machine_playback_e2e_track_response_status") or 0),
+        "track_content_type": str(selected.get("machine_playback_e2e_track_content_type") or "").strip(),
+        "media_error": bool(selected.get("machine_playback_e2e_media_error_present")),
+        "media_error_code": int(selected.get("machine_playback_e2e_media_error_code") or 0),
+        "public_share_host": str(selected.get("public_share_host") or "").strip(),
+    }
+
+
 def _operator_action_priority(requirement: dict[str, Any]) -> tuple[int, int, str]:
     action_context = dict(requirement.get("action_context") or {})
     if action_context.get("user_action_required") is True:
@@ -1225,6 +1272,11 @@ def build_goal_posture(
             )
         elif any(str(reason or "").startswith("deliver:whatsapp_audiobook=failed") for reason in blocking_reasons):
             whatsapp_action_context = _whatsapp_playback_failure_action_context(wa_share)
+        elif _whatsapp_live_playback_blocked(wa_live, blocking_reasons):
+            whatsapp_action_context = _whatsapp_live_playback_blocked_action_context(
+                live_receipt=wa_live,
+                playback_receipt=wa_share,
+            )
         acceptance_proof_requirements.append(
             _acceptance_proof_requirement(
                 key="whatsapp_audiobook_live_delivery",
