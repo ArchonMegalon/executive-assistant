@@ -189,6 +189,114 @@ def _sha256(value: str) -> str:
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest() if normalized else ""
 
 
+def _setup_status(*, checks: dict[str, bool], allowlist: dict[str, object], code: dict[str, object], live_probe: dict[str, object]) -> dict[str, object]:
+    code_missing = [key for key, value in code.items() if not bool(value)]
+    return {
+        "bot_credentials": {
+            "status": "pass" if checks.get("bot_token_present") and checks.get("ingest_secret_present") else "missing",
+            "required": ["bot token", "ingest secret"],
+            "missing": [
+                label
+                for key, label in (
+                    ("bot_token_present", "bot token"),
+                    ("ingest_secret_present", "ingest secret"),
+                )
+                if not checks.get(key)
+            ],
+            "raw_token_exposed": False,
+            "raw_secret_exposed": False,
+        },
+        "public_webhook": {
+            "status": "pass" if checks.get("public_app_base_url_present") else "missing",
+            "required": ["EA_PUBLIC_APP_BASE_URL"],
+            "missing": [] if checks.get("public_app_base_url_present") else ["public app base URL"],
+            "raw_webhook_url_exposed": False,
+        },
+        "principal_binding": {
+            "status": "pass" if checks.get("default_principal_present") else "missing",
+            "required": ["EA_TELEGRAM_DEFAULT_PRINCIPAL_ID or EA_DEFAULT_PRINCIPAL_ID"],
+            "missing": [] if checks.get("default_principal_present") else ["default principal binding"],
+            "raw_principal_id_exposed": False,
+        },
+        "chat_allowlist": {
+            "status": "pass" if checks.get("chat_allowlist_configured") else "missing",
+            "required": ["EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_IDS or EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_HASHES"],
+            "missing": [] if checks.get("chat_allowlist_configured") else ["allowlisted Telegram Business chats"],
+            "allowed_chat_id_count": int(allowlist.get("allowed_chat_id_count") or 0),
+            "allowed_chat_hash_count": int(allowlist.get("allowed_chat_hash_count") or 0),
+            "raw_chat_ids_exposed": False,
+            "raw_chat_hashes_exposed": False,
+        },
+        "code_contract": {
+            "status": "pass" if not code_missing else "missing",
+            "missing": code_missing,
+        },
+        "live_webhook_probe": {
+            "status": str(live_probe.get("status") or "skipped").strip(),
+            "reason": str(live_probe.get("reason") or "").strip(),
+            "raw_webhook_url_exposed": False,
+        },
+    }
+
+
+def _setup_checklist(missing: list[str]) -> list[dict[str, str]]:
+    checklist = {
+        "bot_token_present": {
+            "label": "Connect an EA Telegram bot token",
+            "how": "Set EA_TELEGRAM_BOT_TOKEN or a token in EA_TELEGRAM_BOT_REGISTRY_JSON.",
+        },
+        "ingest_secret_present": {
+            "label": "Configure the Telegram ingest secret",
+            "how": "Set EA_TELEGRAM_INGEST_SECRET or a registry secret.",
+        },
+        "public_app_base_url_present": {
+            "label": "Publish the EA webhook base URL",
+            "how": "Set EA_PUBLIC_APP_BASE_URL to the public HTTPS EA app URL.",
+        },
+        "default_principal_present": {
+            "label": "Bind Telegram signals to the workspace principal",
+            "how": "Set EA_TELEGRAM_DEFAULT_PRINCIPAL_ID or EA_DEFAULT_PRINCIPAL_ID.",
+        },
+        "chat_allowlist_configured": {
+            "label": "Choose Telegram Business chats EA may read",
+            "how": "Set EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_HASHES or EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_IDS.",
+        },
+        "live_webhook_probe_pass": {
+            "label": "Verify Telegram points at the Business ingest webhook",
+            "how": "Run scripts/bootstrap_telegram_bot.py --business --set-webhook, then rerun the readiness materializer.",
+        },
+    }
+    result: list[dict[str, str]] = []
+    for item in missing:
+        key = str(item or "").strip()
+        entry = checklist.get(key)
+        if entry:
+            result.append({"key": key, **entry})
+        elif key.startswith("code_"):
+            result.append(
+                {
+                    "key": key,
+                    "label": "Fix Telegram Business ingest code contract",
+                    "how": f"Restore the missing readiness/code check: {key.removeprefix('code_')}.",
+                }
+            )
+        elif key:
+            result.append({"key": key, "label": "Complete Telegram Business setup", "how": f"Resolve setup check: {key}."})
+    return result
+
+
+def _telegram_action_message(*, missing: list[str], setup_checklist: list[dict[str, str]]) -> str:
+    if not missing:
+        return ""
+    first_items = [str(item.get("label") or "").strip() for item in setup_checklist[:3] if str(item.get("label") or "").strip()]
+    suffix = f" Missing: {', '.join(first_items)}." if first_items else ""
+    return (
+        "Action needed: Telegram Business/Secretary ingest is not live yet. "
+        "Connect the EA bot, allowlist the selected chats, and run the Business webhook bootstrap."
+        f"{suffix}"
+    )
+
+
 def build_receipt(*, bot_key: str = "", include_env_file: Path | None = None) -> dict[str, object]:
     if include_env_file is not None:
         _load_env_file(include_env_file)
@@ -219,6 +327,8 @@ def build_receipt(*, bot_key: str = "", include_env_file: Path | None = None) ->
     if live_status == "blocked":
         missing.append("live_webhook_probe_pass")
     status = "pass" if not missing else "blocked_setup_required"
+    setup_status = _setup_status(checks=checks, allowlist=allowlist, code=code, live_probe=live_probe)
+    setup_checklist = _setup_checklist(missing)
     return {
         "contract_name": CONTRACT_NAME,
         "generated_at": _now_iso(),
@@ -243,6 +353,7 @@ def build_receipt(*, bot_key: str = "", include_env_file: Path | None = None) ->
         "chat_allowlist": allowlist,
         "code": code,
         "live_webhook_probe": live_probe,
+        "setup_status": setup_status,
         "privacy": {
             "raw_token_exposed": False,
             "raw_secret_exposed": False,
@@ -262,9 +373,26 @@ def build_receipt(*, bot_key: str = "", include_env_file: Path | None = None) ->
             "next_action_href": "/integrations/telegram",
             "next_action_label": "Open Telegram setup",
             "next_action_method": "get",
+            "missing_setup": missing,
+            "setup_checklist": setup_checklist,
+            "telegram_message": _telegram_action_message(missing=missing, setup_checklist=setup_checklist),
+            "delivery_policy": "action_required_only" if missing else "queue_only",
             "telegram_push_allowed": bool(missing),
+            "interruption_budget": "action_required" if missing else "none",
+            "quiet_hours_respected": True,
             "non_action_progress_push_allowed": False,
             "irreversible_actions_consent_gated": True,
+            "raw_private_context_exposed": False,
+            "raw_chat_ids_exposed": False,
+            "raw_token_exposed": False,
+            "raw_secret_exposed": False,
+        },
+        "telegram_notification": {
+            "should_send": bool(missing),
+            "reason": "user_action_required" if missing else "no_operator_action_required",
+            "delivery_policy": "action_required_only",
+            "non_action_progress_push_allowed": False,
+            "raw_private_context_exposed": False,
         },
         "setup_commands": [
             "python3 scripts/bootstrap_telegram_bot.py --business --show",

@@ -37,7 +37,7 @@
     "verifier_present": true
   },
   "contract_name": "ea.telegram_business_signal_readiness.v1",
-  "generated_at": "2026-06-30T07:40:41Z",
+  "generated_at": "2026-06-30T07:55:13Z",
   "generated_by": "scripts/materialize_telegram_business_signal_readiness.py",
   "head_semantics": "source_state",
   "live_webhook_probe": {
@@ -48,13 +48,31 @@
     "chat_allowlist_configured"
   ],
   "operator_action": {
+    "delivery_policy": "action_required_only",
     "instruction": "Connect the EA bot as Telegram Business/Secretary bot, allow only selected chats, configure the Business webhook, and set EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_IDS or EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_HASHES.",
+    "interruption_budget": "action_required",
     "irreversible_actions_consent_gated": true,
+    "missing_setup": [
+      "chat_allowlist_configured"
+    ],
     "next_action": "connect_telegram_business_secretary_bot_and_allowlist_chats",
     "next_action_href": "/integrations/telegram",
     "next_action_label": "Open Telegram setup",
     "next_action_method": "get",
     "non_action_progress_push_allowed": false,
+    "quiet_hours_respected": true,
+    "raw_chat_ids_exposed": false,
+    "raw_private_context_exposed": false,
+    "raw_secret_exposed": false,
+    "raw_token_exposed": false,
+    "setup_checklist": [
+      {
+        "how": "Set EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_HASHES or EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_IDS.",
+        "key": "chat_allowlist_configured",
+        "label": "Choose Telegram Business chats EA may read"
+      }
+    ],
+    "telegram_message": "Action needed: Telegram Business/Secretary ingest is not live yet. Connect the EA bot, allowlist the selected chats, and run the Business webhook bootstrap. Missing: Choose Telegram Business chats EA may read.",
     "telegram_push_allowed": true,
     "user_action_required": true
   },
@@ -71,9 +89,66 @@
     "python3 scripts/materialize_telegram_business_signal_readiness.py",
     "python3 scripts/verify_telegram_business_signal_readiness.py"
   ],
-  "source_git_head": "9f13913906bf94efcf4f4d75dde98bb05f583211",
-  "source_state_fingerprint": "d2ddf9be873f7aceb2bccbed1a0665650188d2a75c254525a9bdc59acd3e97dd",
+  "setup_status": {
+    "bot_credentials": {
+      "missing": [],
+      "raw_secret_exposed": false,
+      "raw_token_exposed": false,
+      "required": [
+        "bot token",
+        "ingest secret"
+      ],
+      "status": "pass"
+    },
+    "chat_allowlist": {
+      "allowed_chat_hash_count": 0,
+      "allowed_chat_id_count": 0,
+      "missing": [
+        "allowlisted Telegram Business chats"
+      ],
+      "raw_chat_hashes_exposed": false,
+      "raw_chat_ids_exposed": false,
+      "required": [
+        "EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_IDS or EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_HASHES"
+      ],
+      "status": "missing"
+    },
+    "code_contract": {
+      "missing": [],
+      "status": "pass"
+    },
+    "live_webhook_probe": {
+      "raw_webhook_url_exposed": false,
+      "reason": "live_probe_disabled",
+      "status": "skipped"
+    },
+    "principal_binding": {
+      "missing": [],
+      "raw_principal_id_exposed": false,
+      "required": [
+        "EA_TELEGRAM_DEFAULT_PRINCIPAL_ID or EA_DEFAULT_PRINCIPAL_ID"
+      ],
+      "status": "pass"
+    },
+    "public_webhook": {
+      "missing": [],
+      "raw_webhook_url_exposed": false,
+      "required": [
+        "EA_PUBLIC_APP_BASE_URL"
+      ],
+      "status": "pass"
+    }
+  },
+  "source_git_head": "03a8296b82a36a602d9d170215ab8701f448a152",
+  "source_state_fingerprint": "61d4b23c2cbbd6fe932a31a05fa8c8f7371fd9344caefe4f407d4030fcdbc6a3",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "blocked_setup_required",
+  "telegram_notification": {
+    "delivery_policy": "action_required_only",
+    "non_action_progress_push_allowed": false,
+    "raw_private_context_exposed": false,
+    "reason": "user_action_required",
+    "should_send": true
+  },
   "webhook_path": "/v1/channels/telegram/business/ingest"
 }

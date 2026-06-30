@@ -75,8 +75,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "9f13913906bf94efcf4f4d75dde98bb05f583211",
-          "source_state_fingerprint": "d2ddf9be873f7aceb2bccbed1a0665650188d2a75c254525a9bdc59acd3e97dd",
+          "source_git_head": "03a8296b82a36a602d9d170215ab8701f448a152",
+          "source_state_fingerprint": "61d4b23c2cbbd6fe932a31a05fa8c8f7371fd9344caefe4f407d4030fcdbc6a3",
           "status": "pass"
         },
         {
@@ -84,8 +84,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "9f13913906bf94efcf4f4d75dde98bb05f583211",
-          "source_state_fingerprint": "d2ddf9be873f7aceb2bccbed1a0665650188d2a75c254525a9bdc59acd3e97dd",
+          "source_git_head": "03a8296b82a36a602d9d170215ab8701f448a152",
+          "source_state_fingerprint": "61d4b23c2cbbd6fe932a31a05fa8c8f7371fd9344caefe4f407d4030fcdbc6a3",
           "status": "ready_with_live_receipt"
         }
       ],
@@ -120,7 +120,7 @@
           "contract_name": "ea.teable_env_recovery_proof.v1",
           "path": ".codex-studio/published/teable_env_recovery_proof.generated.json",
           "present": true,
-          "source_fresh_to_current_source": true,
+          "source_fresh_to_current_source": false,
           "source_git_head": "9f13913906bf94efcf4f4d75dde98bb05f583211",
           "source_state_fingerprint": "d2ddf9be873f7aceb2bccbed1a0665650188d2a75c254525a9bdc59acd3e97dd",
           "status": "blocked_setup_required"
@@ -154,8 +154,8 @@
           "path": ".codex-studio/published/telegram_business_signal_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "9f13913906bf94efcf4f4d75dde98bb05f583211",
-          "source_state_fingerprint": "d2ddf9be873f7aceb2bccbed1a0665650188d2a75c254525a9bdc59acd3e97dd",
+          "source_git_head": "03a8296b82a36a602d9d170215ab8701f448a152",
+          "source_state_fingerprint": "61d4b23c2cbbd6fe932a31a05fa8c8f7371fd9344caefe4f407d4030fcdbc6a3",
           "status": "blocked_setup_required"
         }
       ],
@@ -233,7 +233,7 @@
           "contract_name": "ea.telegram_audiobook_live_delivery_receipt.v1",
           "path": ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
           "present": true,
-          "source_fresh_to_current_source": true,
+          "source_fresh_to_current_source": false,
           "source_git_head": "9f13913906bf94efcf4f4d75dde98bb05f583211",
           "source_state_fingerprint": "d2ddf9be873f7aceb2bccbed1a0665650188d2a75c254525a9bdc59acd3e97dd",
           "status": "blocked"
@@ -266,7 +266,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-06-30T07:40:42Z",
+  "generated_at": "2026-06-30T07:56:02Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -301,8 +301,8 @@
           "path": ".codex-studio/published/telegram_business_signal_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "9f13913906bf94efcf4f4d75dde98bb05f583211",
-          "source_state_fingerprint": "d2ddf9be873f7aceb2bccbed1a0665650188d2a75c254525a9bdc59acd3e97dd",
+          "source_git_head": "03a8296b82a36a602d9d170215ab8701f448a152",
+          "source_state_fingerprint": "61d4b23c2cbbd6fe932a31a05fa8c8f7371fd9344caefe4f407d4030fcdbc6a3",
           "status": "blocked_setup_required"
         }
       ],
@@ -427,7 +427,7 @@
               "contract_name": "ea.telegram_audiobook_live_delivery_receipt.v1",
               "path": ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
               "present": true,
-              "source_fresh_to_current_source": true,
+              "source_fresh_to_current_source": false,
               "source_git_head": "9f13913906bf94efcf4f4d75dde98bb05f583211",
               "source_state_fingerprint": "d2ddf9be873f7aceb2bccbed1a0665650188d2a75c254525a9bdc59acd3e97dd",
               "status": "blocked"
@@ -447,8 +447,8 @@
               "path": ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json",
               "present": true,
               "source_fresh_to_current_source": true,
-              "source_git_head": "9f13913906bf94efcf4f4d75dde98bb05f583211",
-              "source_state_fingerprint": "d2ddf9be873f7aceb2bccbed1a0665650188d2a75c254525a9bdc59acd3e97dd",
+              "source_git_head": "40d1d105c198030aa3c61c99301a2050dabd015c",
+              "source_state_fingerprint": "61d4b23c2cbbd6fe932a31a05fa8c8f7371fd9344caefe4f407d4030fcdbc6a3",
               "status": "pass"
             },
             {
@@ -456,8 +456,8 @@
               "path": ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
               "present": true,
               "source_fresh_to_current_source": true,
-              "source_git_head": "9f13913906bf94efcf4f4d75dde98bb05f583211",
-              "source_state_fingerprint": "d2ddf9be873f7aceb2bccbed1a0665650188d2a75c254525a9bdc59acd3e97dd",
+              "source_git_head": "40d1d105c198030aa3c61c99301a2050dabd015c",
+              "source_state_fingerprint": "61d4b23c2cbbd6fe932a31a05fa8c8f7371fd9344caefe4f407d4030fcdbc6a3",
               "status": "pass"
             },
             {
@@ -465,8 +465,8 @@
               "path": ".codex-studio/published/whatsapp_audiobook_public_share_playback.generated.json",
               "present": true,
               "source_fresh_to_current_source": true,
-              "source_git_head": "9f13913906bf94efcf4f4d75dde98bb05f583211",
-              "source_state_fingerprint": "d2ddf9be873f7aceb2bccbed1a0665650188d2a75c254525a9bdc59acd3e97dd",
+              "source_git_head": "40d1d105c198030aa3c61c99301a2050dabd015c",
+              "source_state_fingerprint": "61d4b23c2cbbd6fe932a31a05fa8c8f7371fd9344caefe4f407d4030fcdbc6a3",
               "status": "pass"
             }
           ],
@@ -512,7 +512,7 @@
           "contract_name": "ea.teable_env_recovery_proof.v1",
           "path": ".codex-studio/published/teable_env_recovery_proof.generated.json",
           "present": true,
-          "source_fresh_to_current_source": true,
+          "source_fresh_to_current_source": false,
           "source_git_head": "9f13913906bf94efcf4f4d75dde98bb05f583211",
           "source_state_fingerprint": "d2ddf9be873f7aceb2bccbed1a0665650188d2a75c254525a9bdc59acd3e97dd",
           "status": "blocked_setup_required"
@@ -723,7 +723,7 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "9f13913906bf94efcf4f4d75dde98bb05f583211",
-  "source_state_fingerprint": "d2ddf9be873f7aceb2bccbed1a0665650188d2a75c254525a9bdc59acd3e97dd",
+  "source_git_head": "03a8296b82a36a602d9d170215ab8701f448a152",
+  "source_state_fingerprint": "61d4b23c2cbbd6fe932a31a05fa8c8f7371fd9344caefe4f407d4030fcdbc6a3",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }
