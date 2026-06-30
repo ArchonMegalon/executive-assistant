@@ -296,11 +296,22 @@ def _telegram_audiobook_action_context(receipt: dict[str, Any]) -> dict[str, Any
         for item in list(first.get("replacement_candidate_labels") or first.get("voice_choice_candidate_labels") or [])
         if str(item).strip()
     ]
+    distinct_labels = []
+    for label in labels:
+        if label not in distinct_labels:
+            distinct_labels.append(label)
     context = {
         "kind": "telegram_audiobook_voice_choice",
         "operator_action": str(receipt.get("next_action") or "").strip(),
         "candidate_count": int(first.get("replacement_candidate_count") or first.get("voice_choice_candidate_count") or 0),
         "candidate_labels": labels[:3],
+        "candidate_label_count": len(labels),
+        "distinct_candidate_label_count": len(distinct_labels),
+        "candidate_labels_distinct": len(labels) == len(distinct_labels),
+        "author_gender_signal": str(first.get("author_gender_signal") or "").strip(),
+        "author_gender_match_count": int(first.get("author_gender_match_count") or 0),
+        "author_gender_mismatch_count": int(first.get("author_gender_mismatch_count") or 0),
+        "author_gender_matched_candidates_only": bool(first.get("author_gender_matched_candidates_only")),
         "voice_sample_delivery_status": str(first.get("voice_sample_delivery_status") or "").strip(),
         "voice_sample_delivery_sent_count": int(first.get("voice_sample_delivery_sent_count") or 0),
         "voice_sample_delivery_expected_count": int(first.get("voice_sample_delivery_expected_count") or 0),
@@ -421,6 +432,24 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
                 if isinstance(item, dict)
             ],
             "telegram_message": str(action_context.get("telegram_message") or "").strip(),
+            "candidate_count": int(action_context.get("candidate_count") or 0),
+            "candidate_labels": [
+                str(item).strip()
+                for item in list(action_context.get("candidate_labels") or [])
+                if str(item).strip()
+            ],
+            "candidate_label_count": int(action_context.get("candidate_label_count") or 0),
+            "distinct_candidate_label_count": int(action_context.get("distinct_candidate_label_count") or 0),
+            "candidate_labels_distinct": bool(action_context.get("candidate_labels_distinct")),
+            "author_gender_signal": str(action_context.get("author_gender_signal") or "").strip(),
+            "author_gender_match_count": int(action_context.get("author_gender_match_count") or 0),
+            "author_gender_mismatch_count": int(action_context.get("author_gender_mismatch_count") or 0),
+            "author_gender_matched_candidates_only": bool(action_context.get("author_gender_matched_candidates_only")),
+            "voice_sample_delivery_status": str(action_context.get("voice_sample_delivery_status") or "").strip(),
+            "voice_sample_delivery_sent_count": int(action_context.get("voice_sample_delivery_sent_count") or 0),
+            "voice_sample_delivery_expected_count": int(action_context.get("voice_sample_delivery_expected_count") or 0),
+            "sent_samples_cover_expected": bool(action_context.get("sent_samples_cover_expected")),
+            "duplicate_suppression": dict(action_context.get("duplicate_suppression") or {}),
             "delivery_policy": "action_required_only" if user_action_required else "queue_only",
             "telegram_push_allowed": user_action_required,
             "interruption_budget": "action_required" if user_action_required else "none",

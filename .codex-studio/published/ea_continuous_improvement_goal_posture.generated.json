@@ -75,8 +75,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "b369752032cb32dd78bdd8802b5d93d767fad5cf",
-          "source_state_fingerprint": "9861db9d7d80cc399b802c8ae0d1d81921848fd4a732cc08348d2242e952ea99",
+          "source_git_head": "482562309116f350e79575526867f3b4c3c8f992",
+          "source_state_fingerprint": "8b7e28e3751ec6a7d6bf232d566853206f93c303a69c3fea2700474461073cfa",
           "status": "pass"
         },
         {
@@ -84,8 +84,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "b369752032cb32dd78bdd8802b5d93d767fad5cf",
-          "source_state_fingerprint": "9861db9d7d80cc399b802c8ae0d1d81921848fd4a732cc08348d2242e952ea99",
+          "source_git_head": "482562309116f350e79575526867f3b4c3c8f992",
+          "source_state_fingerprint": "8b7e28e3751ec6a7d6bf232d566853206f93c303a69c3fea2700474461073cfa",
           "status": "ready_with_live_receipt"
         }
       ],
@@ -156,11 +156,18 @@
     },
     {
       "action_context": {
+        "author_gender_match_count": 1,
+        "author_gender_matched_candidates_only": true,
+        "author_gender_mismatch_count": 0,
+        "author_gender_signal": "male",
         "callback_tokens_exposed": false,
         "candidate_count": 1,
+        "candidate_label_count": 1,
         "candidate_labels": [
           "Dieter"
         ],
+        "candidate_labels_distinct": true,
+        "distinct_candidate_label_count": 1,
         "duplicate_suppression": {
           "action_required_only": true,
           "active_pending_voice_job_count": 1,
@@ -307,7 +314,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-06-30T08:28:03Z",
+  "generated_at": "2026-06-30T08:33:36Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -341,7 +348,7 @@
           "contract_name": "ea.telegram_business_signal_readiness.v1",
           "path": ".codex-studio/published/telegram_business_signal_readiness.generated.json",
           "present": true,
-          "source_fresh_to_current_source": true,
+          "source_fresh_to_current_source": false,
           "source_git_head": "b369752032cb32dd78bdd8802b5d93d767fad5cf",
           "source_state_fingerprint": "9861db9d7d80cc399b802c8ae0d1d81921848fd4a732cc08348d2242e952ea99",
           "status": "pass"
@@ -606,8 +613,30 @@
   "next_action_method": "get",
   "operator_action_queue": [
     {
+      "author_gender_match_count": 1,
+      "author_gender_matched_candidates_only": true,
+      "author_gender_mismatch_count": 0,
+      "author_gender_signal": "male",
       "callback_tokens_exposed": false,
+      "candidate_count": 1,
+      "candidate_label_count": 1,
+      "candidate_labels": [
+        "Dieter"
+      ],
+      "candidate_labels_distinct": true,
       "delivery_policy": "action_required_only",
+      "distinct_candidate_label_count": 1,
+      "duplicate_suppression": {
+        "action_required_only": true,
+        "active_pending_voice_job_count": 1,
+        "callback_tokens_exposed": false,
+        "duplicate_active_pending_source_key_count": 0,
+        "duplicate_active_pending_source_keys_sha256": [],
+        "only_current_jobs_can_require_user_action": true,
+        "raw_voice_ids_exposed": false,
+        "superseded_duplicate_candidate_count": 3,
+        "suppressed_pending_voice_duplicate_count": 1
+      },
       "evidence_kind": "live_delivery_receipt",
       "instruction": "Choose one sent replacement voice sample in Telegram.",
       "interruption_budget": "action_required",
@@ -626,13 +655,25 @@
       "raw_token_exposed": false,
       "raw_voice_ids_exposed": false,
       "required_next_receipt": "passing Telegram audiobook live delivery receipt",
+      "sent_samples_cover_expected": true,
       "telegram_push_allowed": true,
       "title": "Telegram audiobook live delivery receipt",
-      "user_action_required": true
+      "user_action_required": true,
+      "voice_sample_delivery_expected_count": 1,
+      "voice_sample_delivery_sent_count": 1,
+      "voice_sample_delivery_status": "sent"
     },
     {
+      "author_gender_match_count": 0,
+      "author_gender_matched_candidates_only": false,
+      "author_gender_mismatch_count": 0,
       "callback_tokens_exposed": false,
+      "candidate_count": 0,
+      "candidate_label_count": 0,
+      "candidate_labels_distinct": false,
       "delivery_policy": "queue_only",
+      "distinct_candidate_label_count": 0,
+      "duplicate_suppression": {},
       "evidence_kind": "consented_realtime_media_proof",
       "interruption_budget": "none",
       "irreversible_actions_consent_gated": true,
@@ -650,13 +691,24 @@
       "raw_token_exposed": false,
       "raw_voice_ids_exposed": false,
       "required_next_receipt": "consented Manfred STT/TTS realtime conversation proof",
+      "sent_samples_cover_expected": false,
       "telegram_push_allowed": false,
       "title": "Consented Manfred realtime conversation proof",
-      "user_action_required": false
+      "user_action_required": false,
+      "voice_sample_delivery_expected_count": 0,
+      "voice_sample_delivery_sent_count": 0
     },
     {
+      "author_gender_match_count": 0,
+      "author_gender_matched_candidates_only": false,
+      "author_gender_mismatch_count": 0,
       "callback_tokens_exposed": false,
+      "candidate_count": 0,
+      "candidate_label_count": 0,
+      "candidate_labels_distinct": false,
       "delivery_policy": "queue_only",
+      "distinct_candidate_label_count": 0,
+      "duplicate_suppression": {},
       "evidence_kind": "live_delivery_receipt",
       "instruction": "Refresh source-stale proof receipts; do not ping the user for this automation-only evidence refresh.",
       "interruption_budget": "none",
@@ -682,6 +734,7 @@
         "python3 scripts/verify_continuous_improvement_goal_posture.py --pretty"
       ],
       "required_next_receipt": "passing WhatsApp audiobook live delivery receipt",
+      "sent_samples_cover_expected": false,
       "stale_source_receipts": [
         "whatsapp_audiobook_live_delivery.generated.json",
         "whatsapp_audiobook_operator_proof_bundle.generated.json",
@@ -689,11 +742,21 @@
       ],
       "telegram_push_allowed": false,
       "title": "WhatsApp audiobook live delivery receipt",
-      "user_action_required": false
+      "user_action_required": false,
+      "voice_sample_delivery_expected_count": 0,
+      "voice_sample_delivery_sent_count": 0
     },
     {
+      "author_gender_match_count": 0,
+      "author_gender_matched_candidates_only": false,
+      "author_gender_mismatch_count": 0,
       "callback_tokens_exposed": false,
+      "candidate_count": 0,
+      "candidate_label_count": 0,
+      "candidate_labels_distinct": false,
       "delivery_policy": "queue_only",
+      "distinct_candidate_label_count": 0,
+      "duplicate_suppression": {},
       "evidence_kind": "real_operator_acceptance",
       "interruption_budget": "none",
       "irreversible_actions_consent_gated": true,
@@ -711,13 +774,24 @@
       "raw_token_exposed": false,
       "raw_voice_ids_exposed": false,
       "required_next_receipt": "real operator acceptance that the morning brief was worth reading",
+      "sent_samples_cover_expected": false,
       "telegram_push_allowed": false,
       "title": "Morning brief operator acceptance",
-      "user_action_required": false
+      "user_action_required": false,
+      "voice_sample_delivery_expected_count": 0,
+      "voice_sample_delivery_sent_count": 0
     },
     {
+      "author_gender_match_count": 0,
+      "author_gender_matched_candidates_only": false,
+      "author_gender_mismatch_count": 0,
       "callback_tokens_exposed": false,
+      "candidate_count": 0,
+      "candidate_label_count": 0,
+      "candidate_labels_distinct": false,
       "delivery_policy": "queue_only",
+      "distinct_candidate_label_count": 0,
+      "duplicate_suppression": {},
       "evidence_kind": "real_review_acceptance",
       "interruption_budget": "none",
       "irreversible_actions_consent_gated": true,
@@ -735,13 +809,24 @@
       "raw_token_exposed": false,
       "raw_voice_ids_exposed": false,
       "required_next_receipt": "real weekly signal-to-decision review acceptance receipt",
+      "sent_samples_cover_expected": false,
       "telegram_push_allowed": false,
       "title": "Weekly signal-to-decision review acceptance",
-      "user_action_required": false
+      "user_action_required": false,
+      "voice_sample_delivery_expected_count": 0,
+      "voice_sample_delivery_sent_count": 0
     },
     {
+      "author_gender_match_count": 0,
+      "author_gender_matched_candidates_only": false,
+      "author_gender_mismatch_count": 0,
       "callback_tokens_exposed": false,
+      "candidate_count": 0,
+      "candidate_label_count": 0,
+      "candidate_labels_distinct": false,
       "delivery_policy": "queue_only",
+      "distinct_candidate_label_count": 0,
+      "duplicate_suppression": {},
       "evidence_kind": "fresh_host_recovery_drill",
       "interruption_budget": "none",
       "irreversible_actions_consent_gated": true,
@@ -759,9 +844,12 @@
       "raw_token_exposed": false,
       "raw_voice_ids_exposed": false,
       "required_next_receipt": "fresh-host Teable recovery drill receipt mirrored into the repo",
+      "sent_samples_cover_expected": false,
       "telegram_push_allowed": false,
       "title": "Fresh-host Teable recovery drill",
-      "user_action_required": false
+      "user_action_required": false,
+      "voice_sample_delivery_expected_count": 0,
+      "voice_sample_delivery_sent_count": 0
     }
   ],
   "operator_delivery_policy": {
@@ -794,7 +882,7 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "b369752032cb32dd78bdd8802b5d93d767fad5cf",
-  "source_state_fingerprint": "9861db9d7d80cc399b802c8ae0d1d81921848fd4a732cc08348d2242e952ea99",
+  "source_git_head": "482562309116f350e79575526867f3b4c3c8f992",
+  "source_state_fingerprint": "8b7e28e3751ec6a7d6bf232d566853206f93c303a69c3fea2700474461073cfa",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }

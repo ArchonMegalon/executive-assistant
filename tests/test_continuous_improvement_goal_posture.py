@@ -320,6 +320,10 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
             {
                 "replacement_candidate_count": 1,
                 "replacement_candidate_labels": ["Dieter"],
+                "author_gender_signal": "male",
+                "author_gender_match_count": 1,
+                "author_gender_mismatch_count": 0,
+                "author_gender_matched_candidates_only": True,
                 "voice_sample_delivery_status": "sent",
                 "voice_sample_delivery_sent_count": 1,
                 "voice_sample_delivery_expected_count": 1,
@@ -430,6 +434,13 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert telegram_action_context["instruction"] == "Choose one sent replacement voice sample in Telegram."
     assert telegram_action_context["sent_samples_cover_expected"] is True
     assert telegram_action_context["candidate_labels"] == ["Dieter"]
+    assert telegram_action_context["candidate_label_count"] == 1
+    assert telegram_action_context["distinct_candidate_label_count"] == 1
+    assert telegram_action_context["candidate_labels_distinct"] is True
+    assert telegram_action_context["author_gender_signal"] == "male"
+    assert telegram_action_context["author_gender_match_count"] == 1
+    assert telegram_action_context["author_gender_mismatch_count"] == 0
+    assert telegram_action_context["author_gender_matched_candidates_only"] is True
     assert telegram_action_context["voice_sample_delivery_status"] == "sent"
     assert telegram_action_context["raw_voice_ids_exposed"] is False
     assert telegram_action_context["callback_tokens_exposed"] is False
@@ -455,6 +466,12 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert receipt["operator_action_queue"][0]["non_action_progress_push_allowed"] is False
     assert receipt["operator_action_queue"][0]["irreversible_actions_consent_gated"] is True
     assert receipt["operator_action_queue"][0]["raw_private_context_exposed"] is False
+    assert receipt["operator_action_queue"][0]["candidate_labels"] == ["Dieter"]
+    assert receipt["operator_action_queue"][0]["candidate_labels_distinct"] is True
+    assert receipt["operator_action_queue"][0]["author_gender_signal"] == "male"
+    assert receipt["operator_action_queue"][0]["author_gender_matched_candidates_only"] is True
+    assert receipt["operator_action_queue"][0]["sent_samples_cover_expected"] is True
+    assert receipt["operator_action_queue"][0]["duplicate_suppression"]["active_pending_voice_job_count"] == 1
     telegram_business_action = next(
         item for item in receipt["operator_action_queue"] if item["key"] == "telegram_business_signal_setup"
     )

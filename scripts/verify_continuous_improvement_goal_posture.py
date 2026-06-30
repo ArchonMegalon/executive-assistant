@@ -661,8 +661,33 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                 if action_context.get("kind") == "telegram_audiobook_voice_choice":
                     if not str(action_context.get("operator_action") or "").strip():
                         issues.append("telegram audiobook voice choice action_context must include operator_action")
-                    if int(action_context.get("candidate_count") or 0) <= 0:
+                    candidate_count = int(action_context.get("candidate_count") or 0)
+                    if candidate_count <= 0:
                         issues.append("telegram audiobook voice choice action_context must include candidate_count")
+                    if action_context.get("user_action_required") is True:
+                        candidate_labels = [
+                            str(item).strip()
+                            for item in list(action_context.get("candidate_labels") or [])
+                            if str(item).strip()
+                        ]
+                        if not candidate_labels:
+                            issues.append("telegram audiobook voice choice action_context must include candidate labels")
+                        if action_context.get("candidate_labels_distinct") is not True:
+                            issues.append("telegram audiobook voice choice action_context must prove candidate labels are distinct")
+                        if int(action_context.get("distinct_candidate_label_count") or 0) != len(set(candidate_labels)):
+                            issues.append("telegram audiobook voice choice distinct label count mismatch")
+                        author_gender_signal = str(action_context.get("author_gender_signal") or "").strip()
+                        if author_gender_signal in {"male", "female"}:
+                            if action_context.get("author_gender_matched_candidates_only") is not True:
+                                issues.append(
+                                    "telegram audiobook voice choice must use only author-gender-matched candidates when author signal is known"
+                                )
+                            if int(action_context.get("author_gender_mismatch_count") or 0) != 0:
+                                issues.append("telegram audiobook voice choice must not expose mismatched author-gender samples")
+                            if int(action_context.get("author_gender_match_count") or 0) < candidate_count:
+                                issues.append("telegram audiobook voice choice author-gender match count must cover candidates")
+                        if action_context.get("sent_samples_cover_expected") is not True:
+                            issues.append("telegram audiobook voice choice must prove sent samples cover expected samples")
                     duplicate_suppression = action_context.get("duplicate_suppression")
                     if not isinstance(duplicate_suppression, dict):
                         issues.append("telegram audiobook voice choice action_context must include duplicate_suppression")
@@ -683,6 +708,28 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                             )
                         if int(duplicate_suppression.get("active_pending_voice_job_count") or 0) <= 0:
                             issues.append("telegram audiobook duplicate_suppression must include active pending voice jobs")
+                telegram_queue_row = next(
+                    (
+                        dict(row)
+                        for row in operator_action_queue
+                        if isinstance(row, dict) and str(row.get("key") or "").strip() == "telegram_audiobook_live_delivery"
+                    ),
+                    {},
+                )
+                if telegram_queue_row and telegram_queue_row.get("user_action_required") is True:
+                    if telegram_queue_row.get("candidate_labels_distinct") is not True:
+                        issues.append("telegram audiobook queue row must prove candidate labels are distinct")
+                    if telegram_queue_row.get("sent_samples_cover_expected") is not True:
+                        issues.append("telegram audiobook queue row must prove sent samples cover expected samples")
+                    queue_author_gender_signal = str(telegram_queue_row.get("author_gender_signal") or "").strip()
+                    if queue_author_gender_signal in {"male", "female"}:
+                        if telegram_queue_row.get("author_gender_matched_candidates_only") is not True:
+                            issues.append("telegram audiobook queue row must preserve author-gender matched candidate proof")
+                        if int(telegram_queue_row.get("author_gender_mismatch_count") or 0) != 0:
+                            issues.append("telegram audiobook queue row must not carry author-gender mismatched samples")
+                    queue_duplicate_suppression = telegram_queue_row.get("duplicate_suppression")
+                    if not isinstance(queue_duplicate_suppression, dict):
+                        issues.append("telegram audiobook queue row must include duplicate_suppression")
 
     whatsapp_requirement = proof_by_key.get("whatsapp_audiobook_live_delivery") or {}
     whatsapp_blocked_stale = any(
