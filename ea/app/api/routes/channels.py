@@ -41,6 +41,7 @@ from app.services import whatsapp_inbound_actions
 from app.services import whatsapp_delivery_router
 from app.services.audiobook_epub_pipeline import (
     _record_audiobookshelf_public_share_telegram_delivery,
+    _telegram_audiobook_voice_samples_pending_delivery,
     apply_audiobook_voice_audition_action,
     audiobook_jobs_root,
     audiobook_runtime_preflight,
@@ -878,7 +879,8 @@ def _telegram_send_audiobook_voice_samples(
 ) -> list[dict[str, object]]:
     bot_token = str(bot_config.get("token") or "").strip()
     receipts: list[dict[str, object]] = []
-    for sample in audiobook_voice_audition_sample_messages(job):
+    pending_samples = _telegram_audiobook_voice_samples_pending_delivery(job)
+    for sample in pending_samples:
         token = str(sample.get("token") or "").strip()
         use_callback = _telegram_encode_audiobook_voice_callback(
             bot_config=bot_config,
@@ -6935,6 +6937,13 @@ def _telegram_callback_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDe
                     )
             if replacement_keys:
                 sample_job = _telegram_audiobook_voice_sample_subset(job, replacement_keys)
+                if not _telegram_audiobook_voice_samples_pending_delivery(sample_job):
+                    return _processed_callback_decision(
+                        reply_text=(
+                            "Dismissed. The replacement audiobook voice sample is already in Telegram. "
+                            "Use the latest buttons, or reply with the voice name."
+                        )
+                    )
                 sample_receipts = _telegram_send_audiobook_voice_samples(bot_config=bot_config, chat_id=ctx.chat_id, job=sample_job)
                 if sample_receipts:
                     job = record_audiobook_voice_sample_delivery(job=job, sample_receipts=sample_receipts)

@@ -1153,6 +1153,64 @@ def test_telegram_status_needs_voice_sample_delivery_when_current_pending_tokens
     assert audiobook_epub_pipeline._telegram_status_needs_voice_sample_delivery(current_job) is True  # noqa: SLF001
 
 
+def test_telegram_route_voice_sender_skips_already_delivered_replacement_sample() -> None:
+    from app.api.routes import channels
+
+    job_dir = _create_job_dir()
+    dieter_public = _private_voice_candidate(
+        job_dir,
+        token="callback-token-dieter",
+        row=_candidate(
+            preset_key="unmixr_dieter_7f88185d",
+            label="Dieter",
+            gender="male",
+            score=67,
+        ),
+    )["public"]
+    token_sha256 = hashlib.sha256(b"callback-token-dieter").hexdigest()
+    stored_job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
+    stored_job["status"] = "waiting_voice_selection"
+    stored_job["telegram"] = {
+        "chat_id": "42",
+        "voice_sample_delivery": {
+            "status": "sent",
+            "expected_count": 1,
+            "attempted_count": 1,
+            "sent_count": 1,
+            "failed_count": 0,
+            "skipped_count": 0,
+            "token_sha256": [token_sha256],
+            "samples": [
+                {
+                    "token_sha256": token_sha256,
+                    "status": "sent",
+                    "button_count": 2,
+                    "buttons_fallback": False,
+                    "control_kind": "inline_keyboard",
+                }
+            ],
+        },
+    }
+    stored_job["provider"]["voice_selection"] = {
+        "status": "waiting_user_choice",
+        "reason": "selected_voice_author_gender_mismatch",
+        "book_profile": {"author_gender_signal": "male"},
+        "pending_candidate_keys": ["unmixr_dieter_7f88185d"],
+        "pending_batch": [dieter_public],
+        "replacement_candidate_keys": ["unmixr_dieter_7f88185d"],
+    }
+
+    with patch.object(channels, "_telegram_send_audio") as send_audio:
+        receipts = channels._telegram_send_audiobook_voice_samples(  # noqa: SLF001
+            bot_config={"token": "test-bot-token"},
+            chat_id="42",
+            job=stored_job,
+        )
+
+    assert receipts == []
+    send_audio.assert_not_called()
+
+
 def test_telegram_reply_explains_author_gender_mismatch_with_replacement_voice() -> None:
     job_dir = _create_job_dir()
     selected_public = _private_voice_candidate(
