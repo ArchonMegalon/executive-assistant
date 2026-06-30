@@ -236,6 +236,90 @@ def test_build_operator_status_uses_configured_live_probe_timeout(tmp_path: Path
     assert receipt["approval_capture"]["checked"] is False
 
 
+def test_materialize_proactive_ooda_operator_status_blocks_current_safe_work_audit_review(
+    tmp_path: Path, monkeypatch
+) -> None:
+    module = _load_script()
+    monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
+
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_route",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "source": "docker_compose_exec",
+            "runtime_service": "ea-proactive-ooda",
+            "observed_at": "2026-06-29T08:00:00Z",
+            "live_receipt_checked": True,
+            "live_receipt": {
+                "ok": True,
+                "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+                "errors": [],
+            },
+            "route_report": {
+                "ok": True,
+                "delivery_route": {"ready": True, "selected_channel": "telegram", "selected_by": "tool_runtime_binding"},
+                "delivery_guard": {"delivery_state": "eligible"},
+                "stage_packets": {"ready": True, "errors": []},
+                "safe_work_results": {"ready": True, "errors": []},
+                "receipt_observation_count": 1,
+                "actionable_count": 1,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_artifacts",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "source": "docker_compose_exec",
+            "safe_work_result": {
+                "schema": "proactive_ooda.safe_work_result.v1",
+                "status": "blocked_needs_research_input",
+                "audit": {
+                    "status": "review",
+                    "issues": [
+                        {
+                            "code": "top_candidate_not_provider_like",
+                            "severity": "warn",
+                            "detail": "Candidate details stay out of operator status.",
+                        }
+                    ],
+                },
+            },
+        },
+    )
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_gmail_draft",
+        lambda **_kwargs: {"probe_ok": True, "status": "no_pending_draft", "source": "docker_compose_exec"},
+    )
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_source_coverage", _fake_source_coverage_probe)
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_approval_capture",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("audit-blocked packets should not probe approval capture")),
+    )
+
+    receipt = module.build_proactive_ooda_operator_status(
+        output_path=tmp_path / "ea_proactive_ooda_operator_status.generated.json",
+        generated_at="2026-06-29T08:01:00Z",
+        report_args=Namespace(principal_id="exec-1"),
+    )
+
+    assert receipt["status"] == "blocked_local_runtime"
+    assert receipt["reason"] == "safe_work_audit_review"
+    assert receipt["next_action"] == "repair_proactive_safe_work_audit"
+    assert receipt["next_action_href"] == "https://myexternalbrain.com/app/queue"
+    assert receipt["operator_action_state"] == "recovery_required"
+    assert receipt["safe_work_audit"]["present"] is True
+    assert receipt["safe_work_audit"]["audit_status"] == "review"
+    assert receipt["safe_work_audit"]["delivery_allowed"] is False
+    assert receipt["safe_work_audit"]["blocks_operator_followthrough"] is True
+    assert receipt["safe_work_audit"]["issue_codes"] == ["top_candidate_not_provider_like"]
+    assert receipt["safe_work_audit"]["privacy"]["raw_issue_details_exposed"] is False
+
+
 def test_materialize_proactive_ooda_operator_status_writes_recovery_receipt(tmp_path: Path, monkeypatch) -> None:
     module = _load_script()
     monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
@@ -917,6 +1001,7 @@ def test_materialize_proactive_ooda_operator_status_uses_local_callback_surface_
                 "source_packet_ref_hash": __import__("hashlib").sha256("stage_packet:packet-1".encode("utf-8")).hexdigest(),
                 "status": "staged_for_user_decision",
                 "approval": {"required": True},
+                "audit": {"status": "pass", "issues": []},
             }
         )
         + "\n",
@@ -961,3 +1046,7 @@ def test_materialize_proactive_ooda_operator_status_uses_local_callback_surface_
     assert receipt["approval_capture_surface"]["current_packet_callback_latest_expires_at"] == "2099-01-01T00:00:00Z"
     assert isinstance(receipt["approval_capture_surface"]["current_packet_callback_latest_age_seconds"], int)
     assert receipt["approval_capture_surface"]["current_packet_callback_latest_seconds_until_expiry"] > 0
+    assert receipt["safe_work_audit"]["present"] is True
+    assert receipt["safe_work_audit"]["audit_status"] == "pass"
+    assert receipt["safe_work_audit"]["delivery_allowed"] is True
+    assert receipt["safe_work_audit"]["privacy"]["raw_issue_details_exposed"] is False

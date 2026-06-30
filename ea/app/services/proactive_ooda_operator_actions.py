@@ -67,6 +67,12 @@ def proactive_next_action_surface(action: str, *, public_base_url: str = "") -> 
             "label": "Open queue",
             "method": "get",
         }
+    if normalized == "repair_proactive_safe_work_audit":
+        return {
+            "href": _absolute_public_href(DEFAULT_QUEUE_REVIEW_PATH, public_base_url=public_base_url),
+            "label": "Review safe work",
+            "method": "get",
+        }
     if normalized == "sync_pocket_ai_audio_transcripts":
         return {
             "href": _absolute_public_href(DEFAULT_POCKET_SYNC_PATH, public_base_url=public_base_url),

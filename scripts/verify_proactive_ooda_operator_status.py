@@ -55,20 +55,22 @@ def _is_google_workspace_recovery(receipt: dict[str, Any]) -> bool:
 
 def _verify_next_action_surface(receipt: dict[str, Any], issues: list[str]) -> None:
     next_action = str(receipt.get("next_action") or "").strip()
-    if next_action == "maintain_proactive_ooda_runtime":
+    if next_action in {"maintain_proactive_ooda_runtime", "repair_proactive_safe_work_audit"}:
         if _is_google_workspace_recovery(receipt):
             return
         href = str(receipt.get("next_action_href") or "").strip()
         label = str(receipt.get("next_action_label") or "").strip()
         method = str(receipt.get("next_action_method") or "").strip().lower()
         if not href:
-            issues.append("maintain_proactive_ooda_runtime requires next_action_href")
-        elif "/app/today" not in href:
+            issues.append(f"{next_action} requires next_action_href")
+        elif next_action == "maintain_proactive_ooda_runtime" and "/app/today" not in href:
             issues.append("maintain_proactive_ooda_runtime next_action_href must target Today")
+        elif next_action == "repair_proactive_safe_work_audit" and "/app/queue" not in href:
+            issues.append("repair_proactive_safe_work_audit next_action_href must target Queue")
         if not label:
-            issues.append("maintain_proactive_ooda_runtime requires next_action_label")
+            issues.append(f"{next_action} requires next_action_label")
         if method != "get":
-            issues.append("maintain_proactive_ooda_runtime requires next_action_method=get")
+            issues.append(f"{next_action} requires next_action_method=get")
         return
     if next_action != "reauthorize_google_workspace_binding":
         return
@@ -223,6 +225,49 @@ def _source_fingerprint(path: Path = ROOT) -> str:
     return resolve_source_worktree_fingerprint(path)
 
 
+def _verify_safe_work_audit(receipt: dict[str, Any], issues: list[str]) -> None:
+    safe_work_audit = dict(receipt.get("safe_work_audit") or {})
+    if not safe_work_audit:
+        issues.append("safe_work_audit missing")
+        return
+    if "present" not in safe_work_audit:
+        issues.append("safe_work_audit.present missing")
+    privacy = dict(safe_work_audit.get("privacy") or {})
+    for key in (
+        "raw_issue_details_exposed",
+        "raw_candidate_exposed",
+        "raw_draft_text_exposed",
+        "raw_private_link_exposed",
+    ):
+        if privacy.get(key) is not False:
+            issues.append(f"safe_work_audit.privacy.{key} must remain false")
+    if not bool(safe_work_audit.get("present")):
+        return
+    if not str(safe_work_audit.get("result_status") or "").strip():
+        issues.append("present safe_work_audit requires result_status")
+    if "audit_present" not in safe_work_audit:
+        issues.append("present safe_work_audit requires audit_present")
+    if not str(safe_work_audit.get("audit_status") or "").strip():
+        issues.append("present safe_work_audit requires audit_status")
+    delivery_allowed = bool(safe_work_audit.get("delivery_allowed"))
+    audit_passed = bool(safe_work_audit.get("audit_passed"))
+    browser_handoff = bool(safe_work_audit.get("browser_handoff_user_action_required"))
+    if delivery_allowed and not (audit_passed or browser_handoff):
+        issues.append("safe_work_audit.delivery_allowed requires audit_passed or browser handoff")
+    if delivery_allowed:
+        return
+    if bool(safe_work_audit.get("blocks_operator_followthrough")) is not True:
+        issues.append("non-deliverable safe_work_audit requires blocks_operator_followthrough=true")
+    if str(receipt.get("status") or "").strip() != "blocked_local_runtime":
+        issues.append("non-deliverable safe_work_audit requires status=blocked_local_runtime")
+    if str(receipt.get("next_action") or "").strip() != "repair_proactive_safe_work_audit":
+        issues.append("non-deliverable safe_work_audit requires next_action=repair_proactive_safe_work_audit")
+    if str(receipt.get("operator_action_state") or "").strip() != "recovery_required":
+        issues.append("non-deliverable safe_work_audit requires operator_action_state=recovery_required")
+    if not str(safe_work_audit.get("blocking_reason") or "").strip():
+        issues.append("non-deliverable safe_work_audit requires blocking_reason")
+
+
 def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
     issues: list[str] = []
     receipt = _json(path)
@@ -295,6 +340,7 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
         issues.append("stage_packets.ready missing")
     if "ready" not in safe_work_results:
         issues.append("safe_work_results.ready missing")
+    _verify_safe_work_audit(receipt, issues)
 
     gmail_draft_followthrough = dict(receipt.get("gmail_draft_followthrough") or {})
     if "checked" not in gmail_draft_followthrough:

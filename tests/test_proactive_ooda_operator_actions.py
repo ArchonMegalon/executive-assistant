@@ -45,6 +45,16 @@ def test_proactive_next_action_surface_maps_pocket_transcript_sync() -> None:
     }
 
 
+def test_proactive_next_action_surface_maps_safe_work_audit_repair() -> None:
+    surface = proactive_next_action_surface("repair_proactive_safe_work_audit")
+
+    assert surface == {
+        "href": "https://myexternalbrain.com/app/queue",
+        "label": "Review safe work",
+        "method": "get",
+    }
+
+
 def test_proactive_next_action_surface_returns_blank_for_unknown_action() -> None:
     surface = proactive_next_action_surface("unknown_action")
 

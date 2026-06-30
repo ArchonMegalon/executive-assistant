@@ -24,7 +24,11 @@ def _base_payload() -> dict[str, object]:
         "goal_completion_claim_allowed": False,
         "gold_claim_allowed": False,
         "proofs": {
-            "operator_runtime_posture": {"present": True, "status": "pass"},
+            "operator_runtime_posture": {
+                "present": True,
+                "status": "pass",
+                "safe_work_audit_ready": True,
+            },
             "routed_delivery": {"present": True, "status": "pass"},
             "action_required_only_delivery": {"present": True, "status": "pass"},
             "assistant_grade_packet_quality": {"present": True, "status": "pass", "issues": []},

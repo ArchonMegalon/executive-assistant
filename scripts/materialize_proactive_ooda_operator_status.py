@@ -579,6 +579,72 @@ def _normalized_safe_work_results(report: Mapping[str, Any]) -> dict[str, Any]:
     return safe_work
 
 
+def _normalized_safe_work_audit(artifact_probe: Mapping[str, Any]) -> dict[str, Any]:
+    safe_work_result = dict(artifact_probe.get("safe_work_result") or {})
+    audit = dict(safe_work_result.get("audit") or {})
+    browser_receipt = dict(safe_work_result.get("browser_action_receipt") or {})
+    result_status = str(safe_work_result.get("status") or "").strip()
+    audit_status = str(audit.get("status") or "").strip().lower()
+    issues = [dict(item or {}) for item in list(audit.get("issues") or []) if isinstance(item, Mapping)]
+    issue_codes = [str(item.get("code") or "").strip() for item in issues if str(item.get("code") or "").strip()]
+    severity_counts: dict[str, int] = {}
+    for issue in issues:
+        severity = str(issue.get("severity") or "unknown").strip().lower() or "unknown"
+        severity_counts[severity] = severity_counts.get(severity, 0) + 1
+    browser_handoff_user_action_required = bool(
+        result_status == "blocked_human_handoff_required" and browser_receipt.get("user_action_required")
+    )
+    audit_passed = bool(audit_status == "pass")
+    delivery_allowed = bool(safe_work_result) and bool(audit_passed or browser_handoff_user_action_required)
+    blocking_reason = ""
+    if safe_work_result and not delivery_allowed:
+        blocking_reason = "safe_work_audit_not_pass"
+        if not audit:
+            blocking_reason = "safe_work_audit_missing"
+        elif audit_status:
+            blocking_reason = f"safe_work_audit_{audit_status}"
+    return {
+        "present": bool(safe_work_result),
+        "source": str(artifact_probe.get("source") or "").strip(),
+        "result_status": result_status,
+        "audit_present": bool(audit),
+        "audit_status": audit_status or ("missing" if safe_work_result else ""),
+        "audit_passed": audit_passed,
+        "issue_count": len(issues),
+        "issue_codes": issue_codes[:8],
+        "issue_severity_counts": severity_counts,
+        "browser_handoff_user_action_required": browser_handoff_user_action_required,
+        "delivery_allowed": delivery_allowed,
+        "blocks_operator_followthrough": bool(safe_work_result and not delivery_allowed),
+        "blocking_reason": blocking_reason,
+        "next_action": "repair_proactive_safe_work_audit" if blocking_reason else "",
+        "privacy": {
+            "raw_issue_details_exposed": False,
+            "raw_candidate_exposed": False,
+            "raw_draft_text_exposed": False,
+            "raw_private_link_exposed": False,
+        },
+    }
+
+
+def _safe_work_audit_blocks_operator(safe_work_audit: Mapping[str, Any]) -> bool:
+    return bool(dict(safe_work_audit or {}).get("blocks_operator_followthrough"))
+
+
+def _safe_work_audit_blocking_reason(safe_work_audit: Mapping[str, Any]) -> str:
+    return (
+        str(dict(safe_work_audit or {}).get("blocking_reason") or "").strip()
+        or "safe_work_audit_not_pass"
+    )
+
+
+def _has_explicit_artifact_dirs(report_args: argparse.Namespace) -> bool:
+    return bool(
+        str(getattr(report_args, "stage_packet_dir", "") or "").strip()
+        or str(getattr(report_args, "safe_work_result_dir", "") or "").strip()
+    )
+
+
 def _normalized_context_grounding(report: Mapping[str, Any]) -> dict[str, Any]:
     context = dict(report.get("context_grounding") or {})
     item_count = int(context.get("item_count") or report.get("actionable_count") or 0)
@@ -999,6 +1065,8 @@ def _local_artifact_probe(
         "current_packet_callback_latest_seconds_until_expiry": int(
             bundle.get("current_packet_callback_latest_seconds_until_expiry") or 0
         ),
+        "stage_packet": dict(bundle.get("stage_packet") or {}),
+        "safe_work_result": dict(bundle.get("safe_work_result") or {}),
     }
 
 
@@ -1070,12 +1138,25 @@ def build_proactive_ooda_operator_status(
             report_args=effective_report_args,
             live_receipt_path=live_receipt_path,
         )
+    safe_work_audit_probe: Mapping[str, Any] = artifact_probe
+    if (
+        live_receipt_path is not None
+        and str(artifact_probe.get("source") or "").strip() == "local_filesystem"
+        and not _has_explicit_artifact_dirs(effective_report_args)
+    ):
+        safe_work_audit_probe = {}
+    safe_work_audit = _normalized_safe_work_audit(safe_work_audit_probe)
+    safe_work_audit_blocks = _safe_work_audit_blocks_operator(safe_work_audit)
     status = _status(report, live_receipt=live_receipt, live_receipt_checked=live_receipt_checked)
     reason = _reason(report, live_receipt=live_receipt, live_receipt_checked=live_receipt_checked)
+    if safe_work_audit_blocks:
+        status = "blocked_local_runtime"
+        reason = _safe_work_audit_blocking_reason(safe_work_audit)
     approval_capture_surface = _approval_capture_surface(report=report, artifact_probe=artifact_probe)
     if (
         allow_live_route_probe
         and live_receipt_path is None
+        and not safe_work_audit_blocks
         and _approval_capture_surface_ready(approval_capture_surface)
         and live_receipt_checked
         and bool(live_receipt.get("ok"))
@@ -1090,22 +1171,30 @@ def build_proactive_ooda_operator_status(
         approval_capture=approval_capture,
     ):
         reason = str(approval_capture.get("blocking_reason") or "approval_capture_not_ready").strip()
-    next_action = _operator_followthrough_next_action(
-        status,
-        report,
-        live_receipt=live_receipt,
-        live_receipt_checked=live_receipt_checked,
-        approval_capture_surface=approval_capture_surface,
-        approval_capture=approval_capture,
+    next_action = (
+        "repair_proactive_safe_work_audit"
+        if safe_work_audit_blocks
+        else _operator_followthrough_next_action(
+            status,
+            report,
+            live_receipt=live_receipt,
+            live_receipt_checked=live_receipt_checked,
+            approval_capture_surface=approval_capture_surface,
+            approval_capture=approval_capture,
+        )
     )
     next_action_surface = _next_action_surface_fields(next_action)
-    summary = _summary(
-        status,
-        report,
-        live_receipt=live_receipt,
-        live_receipt_checked=live_receipt_checked,
-        approval_capture_surface=approval_capture_surface,
-        approval_capture=approval_capture,
+    summary = (
+        "Proactive OODA has a current safe-work artifact, but the packet-quality auditor did not pass it for operator follow-through."
+        if safe_work_audit_blocks
+        else _summary(
+            status,
+            report,
+            live_receipt=live_receipt,
+            live_receipt_checked=live_receipt_checked,
+            approval_capture_surface=approval_capture_surface,
+            approval_capture=approval_capture,
+        )
     )
     operator_delivery_guard = _operator_delivery_guard(
         status,
@@ -1130,13 +1219,17 @@ def build_proactive_ooda_operator_status(
         "summary": summary,
         "next_action": next_action,
         **next_action_surface,
-        "operator_action_state": _operator_followthrough_action_state(
-            status,
-            report=report,
-            live_receipt=live_receipt,
-            live_receipt_checked=live_receipt_checked,
-            approval_capture_surface=approval_capture_surface,
-            approval_capture=approval_capture,
+        "operator_action_state": (
+            "recovery_required"
+            if safe_work_audit_blocks
+            else _operator_followthrough_action_state(
+                status,
+                report=report,
+                live_receipt=live_receipt,
+                live_receipt_checked=live_receipt_checked,
+                approval_capture_surface=approval_capture_surface,
+                approval_capture=approval_capture,
+            )
         ),
         "route_probe_source": str(route_probe.get("source") or "host_verifier").strip() or "host_verifier",
         "route_probe_runtime_service": str(route_probe.get("runtime_service") or "").strip(),
@@ -1154,6 +1247,7 @@ def build_proactive_ooda_operator_status(
         "context_grounding": _normalized_context_grounding(report),
         "stage_packets": _normalized_stage_packets(report),
         "safe_work_results": _normalized_safe_work_results(report),
+        "safe_work_audit": safe_work_audit,
         "receipt_observation_count": int(report.get("receipt_observation_count") or 0),
         "runtime_actionable_count": runtime_actionable_count,
         "actionable_count": _operator_actionable_count(

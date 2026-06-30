@@ -606,6 +606,11 @@ def _operator_runtime_next_action(operator_status: Mapping[str, Any]) -> str:
         next_action = str(context_detail.get("next_action") or "").strip()
         if next_action:
             return next_action
+    safe_work_audit_ready, safe_work_audit_detail = _operator_runtime_safe_work_audit_posture(operator_status)
+    if not safe_work_audit_ready:
+        next_action = str(safe_work_audit_detail.get("next_action") or "").strip()
+        if next_action:
+            return next_action
     return str(operator_status.get("next_action") or "repair_proactive_operator_runtime_posture").strip() or "repair_proactive_operator_runtime_posture"
 
 
@@ -715,6 +720,44 @@ def _operator_runtime_context_grounding_posture(operator_status: Mapping[str, An
         "context_grounding_recipient_context_count": int(context.get("recipient_context_count") or 0),
         "context_grounding_recipient_location_count": int(context.get("recipient_location_count") or 0),
         "next_action": "" if ready else "repair_proactive_context_grounding",
+    }
+
+
+def _operator_runtime_safe_work_audit_posture(operator_status: Mapping[str, Any]) -> tuple[bool, dict[str, Any]]:
+    safe_work_audit = dict(operator_status.get("safe_work_audit") or {})
+    if not safe_work_audit:
+        return True, {
+            "safe_work_audit_recorded": False,
+            "safe_work_audit_present": False,
+            "safe_work_audit_ready": True,
+            "safe_work_audit_status": "",
+            "safe_work_audit_result_status": "",
+            "safe_work_audit_issue_count": 0,
+            "safe_work_audit_issue_codes": [],
+            "safe_work_audit_delivery_allowed": False,
+            "safe_work_audit_blocks_operator_followthrough": False,
+            "next_action": "",
+        }
+    present = bool(safe_work_audit.get("present"))
+    delivery_allowed = bool(safe_work_audit.get("delivery_allowed"))
+    blocks_operator = bool(safe_work_audit.get("blocks_operator_followthrough"))
+    ready = (not present) or delivery_allowed or not blocks_operator
+    return ready, {
+        "safe_work_audit_recorded": True,
+        "safe_work_audit_present": present,
+        "safe_work_audit_ready": ready,
+        "safe_work_audit_status": str(safe_work_audit.get("audit_status") or "").strip(),
+        "safe_work_audit_result_status": str(safe_work_audit.get("result_status") or "").strip(),
+        "safe_work_audit_issue_count": int(safe_work_audit.get("issue_count") or 0),
+        "safe_work_audit_issue_codes": [
+            str(item or "").strip()
+            for item in list(safe_work_audit.get("issue_codes") or [])
+            if str(item or "").strip()
+        ][:8],
+        "safe_work_audit_delivery_allowed": delivery_allowed,
+        "safe_work_audit_blocks_operator_followthrough": blocks_operator,
+        "safe_work_audit_blocking_reason": str(safe_work_audit.get("blocking_reason") or "").strip(),
+        "next_action": "" if ready else "repair_proactive_safe_work_audit",
     }
 
 
@@ -1373,7 +1416,13 @@ def materialize_proactive_ooda_gold_acceptance(
     operator_status_state = str(operator_status.get("status") or "").strip()
     source_coverage_ready, source_coverage_detail = _operator_runtime_source_coverage_posture(operator_status)
     context_grounding_ready, context_grounding_detail = _operator_runtime_context_grounding_posture(operator_status)
-    operator_runtime_ready = operator_status_state.startswith("ready") and source_coverage_ready and context_grounding_ready
+    safe_work_audit_ready, safe_work_audit_detail = _operator_runtime_safe_work_audit_posture(operator_status)
+    operator_runtime_ready = (
+        operator_status_state.startswith("ready")
+        and source_coverage_ready
+        and context_grounding_ready
+        and safe_work_audit_ready
+    )
     operator_runtime_next_action = _operator_runtime_next_action(operator_status)
     operator_runtime_proof = _proof_row(
         present=operator_runtime_ready,
@@ -1383,6 +1432,7 @@ def materialize_proactive_ooda_gold_acceptance(
             "next_action": operator_runtime_next_action,
             **source_coverage_detail,
             **context_grounding_detail,
+            **safe_work_audit_detail,
             **_next_action_surface_fields(operator_runtime_next_action),
             "path": display_path(ROOT, operator_status_path),
         },

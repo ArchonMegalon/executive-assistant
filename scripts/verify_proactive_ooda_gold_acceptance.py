@@ -48,20 +48,22 @@ EXPECTED_PROOF_KEYS = {
 
 def _verify_next_action_surface(payload: Mapping[str, Any], issues: list[str], *, prefix: str = "") -> None:
     next_action = str(payload.get("next_action") or "").strip()
-    if next_action != "reauthorize_google_workspace_binding":
+    if next_action not in {"reauthorize_google_workspace_binding", "repair_proactive_safe_work_audit"}:
         return
     href = str(payload.get("next_action_href") or "").strip()
     label = str(payload.get("next_action_label") or "").strip()
     method = str(payload.get("next_action_method") or "").strip().lower()
     context = f"{prefix} " if prefix else ""
     if not href:
-        issues.append(f"{context}reauthorize_google_workspace_binding requires next_action_href")
-    elif "/app/actions/google/connect?" not in href:
+        issues.append(f"{context}{next_action} requires next_action_href")
+    elif next_action == "reauthorize_google_workspace_binding" and "/app/actions/google/connect?" not in href:
         issues.append(f"{context}reauthorize_google_workspace_binding next_action_href must target the Google connect action")
+    elif next_action == "repair_proactive_safe_work_audit" and "/app/queue" not in href:
+        issues.append(f"{context}repair_proactive_safe_work_audit next_action_href must target Queue")
     if not label:
-        issues.append(f"{context}reauthorize_google_workspace_binding requires next_action_label")
+        issues.append(f"{context}{next_action} requires next_action_label")
     if method != "get":
-        issues.append(f"{context}reauthorize_google_workspace_binding requires next_action_method=get")
+        issues.append(f"{context}{next_action} requires next_action_method=get")
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -274,6 +276,8 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
             issues.append("pass requires no operator_runtime_posture.source_coverage_missing_lane_keys")
         if list(operator_runtime.get("source_coverage_missing_required_event_types") or []):
             issues.append("pass requires no operator_runtime_posture.source_coverage_missing_required_event_types")
+        if operator_runtime.get("safe_work_audit_ready") is not True:
+            issues.append("pass requires operator_runtime_posture.safe_work_audit_ready=true")
         if not approval_accepted:
             issues.append("pass requires approval_outcome.accepted=true")
         if list(receipt.get("remaining_external_proofs") or []):

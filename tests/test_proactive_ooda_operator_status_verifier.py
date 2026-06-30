@@ -66,6 +66,28 @@ def _base_payload() -> dict[str, object]:
         "delivery_guard": {"delivery_state": "eligible"},
         "stage_packets": {"ready": True},
         "safe_work_results": {"ready": True},
+        "safe_work_audit": {
+            "present": False,
+            "source": "",
+            "result_status": "",
+            "audit_present": False,
+            "audit_status": "",
+            "audit_passed": False,
+            "issue_count": 0,
+            "issue_codes": [],
+            "issue_severity_counts": {},
+            "browser_handoff_user_action_required": False,
+            "delivery_allowed": False,
+            "blocks_operator_followthrough": False,
+            "blocking_reason": "",
+            "next_action": "",
+            "privacy": {
+                "raw_issue_details_exposed": False,
+                "raw_candidate_exposed": False,
+                "raw_draft_text_exposed": False,
+                "raw_private_link_exposed": False,
+            },
+        },
         "live_receipt_checked": False,
         "live_receipt": {"ok": False, "receipt_path": ""},
         "gmail_draft_followthrough": {
@@ -207,6 +229,52 @@ def test_proactive_ooda_operator_status_verifier_accepts_valid_receipt(tmp_path:
     monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
 
     assert verifier.verify(receipt, root=tmp_path) == []
+
+
+def test_proactive_ooda_operator_status_verifier_rejects_clear_status_with_blocked_safe_work_audit(
+    tmp_path: Path, monkeypatch
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
+    payload = _base_payload()
+    payload["source_git_head"] = "source-head-123"
+    payload["status"] = "ready_with_live_receipt"
+    payload["next_action"] = "maintain_proactive_ooda_runtime"
+    payload["next_action_href"] = "https://myexternalbrain.com/app/today"
+    payload["next_action_label"] = "Open Today"
+    payload["next_action_method"] = "get"
+    payload["operator_action_state"] = "clear"
+    payload["live_receipt_checked"] = True
+    payload["live_receipt"] = {"ok": True, "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json"}
+    payload["safe_work_audit"] = {
+        "present": True,
+        "source": "docker_compose_exec",
+        "result_status": "blocked_needs_research_input",
+        "audit_present": True,
+        "audit_status": "review",
+        "audit_passed": False,
+        "issue_count": 1,
+        "issue_codes": ["top_candidate_not_provider_like"],
+        "issue_severity_counts": {"warn": 1},
+        "browser_handoff_user_action_required": False,
+        "delivery_allowed": False,
+        "blocks_operator_followthrough": True,
+        "blocking_reason": "safe_work_audit_review",
+        "next_action": "repair_proactive_safe_work_audit",
+        "privacy": {
+            "raw_issue_details_exposed": False,
+            "raw_candidate_exposed": False,
+            "raw_draft_text_exposed": False,
+            "raw_private_link_exposed": False,
+        },
+    }
+    _write_receipt(receipt, **payload)
+    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
+
+    issues = verifier.verify(receipt, root=tmp_path)
+
+    assert "non-deliverable safe_work_audit requires status=blocked_local_runtime" in issues
+    assert "non-deliverable safe_work_audit requires next_action=repair_proactive_safe_work_audit" in issues
+    assert "non-deliverable safe_work_audit requires operator_action_state=recovery_required" in issues
 
 
 def test_proactive_ooda_operator_status_verifier_accepts_post_commit_head_change_when_source_fingerprint_matches(
