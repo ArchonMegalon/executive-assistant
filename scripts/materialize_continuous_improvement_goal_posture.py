@@ -353,6 +353,7 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
     result: list[dict[str, Any]] = []
     for requirement in sorted(pending, key=_operator_action_priority):
         action_context = dict(requirement.get("action_context") or {})
+        user_action_required = bool(action_context.get("user_action_required"))
         row = {
             "key": str(requirement.get("key") or "").strip(),
             "title": str(requirement.get("title") or "").strip(),
@@ -363,14 +364,33 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
             "next_action_label": str(requirement.get("next_action_label") or "").strip(),
             "next_action_method": str(requirement.get("next_action_method") or "").strip(),
             "required_next_receipt": str(requirement.get("required_next_receipt") or "").strip(),
-            "user_action_required": bool(action_context.get("user_action_required")),
+            "user_action_required": user_action_required,
             "instruction": str(action_context.get("instruction") or "").strip(),
+            "delivery_policy": "action_required_only" if user_action_required else "queue_only",
+            "telegram_push_allowed": user_action_required,
+            "interruption_budget": "action_required" if user_action_required else "none",
+            "quiet_hours_respected": True,
+            "non_action_progress_push_allowed": False,
+            "irreversible_actions_consent_gated": True,
             "raw_private_context_exposed": False,
             "raw_voice_ids_exposed": bool(action_context.get("raw_voice_ids_exposed")),
             "callback_tokens_exposed": bool(action_context.get("callback_tokens_exposed")),
         }
         result.append({key: value for key, value in row.items() if value not in ("", [], None)})
     return result
+
+
+def _operator_delivery_policy(operator_action_queue: list[dict[str, Any]]) -> dict[str, Any]:
+    first = dict(operator_action_queue[0]) if operator_action_queue else {}
+    return {
+        "action_required_only": True,
+        "non_action_progress_push_allowed": False,
+        "quiet_hours_respected": True,
+        "irreversible_actions_consent_gated": True,
+        "telegram_push_allowed_for_next_action": bool(first.get("telegram_push_allowed")),
+        "next_action_requires_user": bool(first.get("user_action_required")),
+        "next_action_delivery_policy": str(first.get("delivery_policy") or "queue_only").strip(),
+    }
 
 
 def build_goal_posture(
@@ -932,6 +952,7 @@ def build_goal_posture(
     ]
     operator_action_queue = _operator_action_queue(acceptance_proof_requirements)
     next_operator_action = operator_action_queue[0] if operator_action_queue else {}
+    operator_delivery_policy = _operator_delivery_policy(operator_action_queue)
 
     receipt = {
         "contract_name": "ea.continuous_improvement_goal_posture.v1",
@@ -953,6 +974,7 @@ def build_goal_posture(
         "required_next_receipts": required_next_receipts,
         "acceptance_proof_requirements": acceptance_proof_requirements,
         "operator_action_queue": operator_action_queue,
+        "operator_delivery_policy": operator_delivery_policy,
         "next_action": str(next_operator_action.get("next_action") or "").strip(),
         "next_action_href": str(next_operator_action.get("next_action_href") or "").strip(),
         "next_action_label": str(next_operator_action.get("next_action_label") or "").strip(),

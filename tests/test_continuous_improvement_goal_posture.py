@@ -329,7 +329,29 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert receipt["next_action_instruction"] == "Choose one sent replacement voice sample in Telegram."
     assert receipt["operator_action_queue"][0]["key"] == "telegram_audiobook_live_delivery"
     assert receipt["operator_action_queue"][0]["user_action_required"] is True
+    assert receipt["operator_action_queue"][0]["delivery_policy"] == "action_required_only"
+    assert receipt["operator_action_queue"][0]["telegram_push_allowed"] is True
+    assert receipt["operator_action_queue"][0]["interruption_budget"] == "action_required"
+    assert receipt["operator_action_queue"][0]["quiet_hours_respected"] is True
+    assert receipt["operator_action_queue"][0]["non_action_progress_push_allowed"] is False
+    assert receipt["operator_action_queue"][0]["irreversible_actions_consent_gated"] is True
     assert receipt["operator_action_queue"][0]["raw_private_context_exposed"] is False
+    assert receipt["operator_delivery_policy"] == {
+        "action_required_only": True,
+        "non_action_progress_push_allowed": False,
+        "quiet_hours_respected": True,
+        "irreversible_actions_consent_gated": True,
+        "telegram_push_allowed_for_next_action": True,
+        "next_action_requires_user": True,
+        "next_action_delivery_policy": "action_required_only",
+    }
+    for row in receipt["operator_action_queue"][1:]:
+        assert row["delivery_policy"] == "queue_only"
+        assert row["telegram_push_allowed"] is False
+        assert row["interruption_budget"] == "none"
+        assert row["quiet_hours_respected"] is True
+        assert row["non_action_progress_push_allowed"] is False
+        assert row["irreversible_actions_consent_gated"] is True
     assert {item["key"] for item in receipt["operator_action_queue"]} == {
         key for key, item in proof_requirements.items() if item["status"] != "satisfied"
     }

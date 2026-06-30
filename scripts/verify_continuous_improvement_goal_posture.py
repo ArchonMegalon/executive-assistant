@@ -302,6 +302,19 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
     operator_action_queue = list(receipt.get("operator_action_queue") or [])
     if required_next_receipts and not operator_action_queue:
         issues.append("operator_action_queue must be present while required_next_receipts is nonempty")
+    operator_delivery_policy = receipt.get("operator_delivery_policy")
+    if not isinstance(operator_delivery_policy, dict):
+        issues.append("operator_delivery_policy must be present")
+        operator_delivery_policy = {}
+    else:
+        if operator_delivery_policy.get("action_required_only") is not True:
+            issues.append("operator_delivery_policy.action_required_only must be true")
+        if operator_delivery_policy.get("non_action_progress_push_allowed") is not False:
+            issues.append("operator_delivery_policy.non_action_progress_push_allowed must be false")
+        if operator_delivery_policy.get("quiet_hours_respected") is not True:
+            issues.append("operator_delivery_policy.quiet_hours_respected must be true")
+        if operator_delivery_policy.get("irreversible_actions_consent_gated") is not True:
+            issues.append("operator_delivery_policy.irreversible_actions_consent_gated must be true")
     queue_keys: set[str] = set()
     if operator_action_queue:
         first_action = dict(operator_action_queue[0]) if isinstance(operator_action_queue[0], dict) else {}
@@ -338,6 +351,31 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                 issues.append(f"operator_action_queue must not expose raw voice IDs: {action_key}")
             if row.get("callback_tokens_exposed") is not False:
                 issues.append(f"operator_action_queue must not expose callback tokens: {action_key}")
+            user_action_required = row.get("user_action_required") is True
+            expected_delivery_policy = "action_required_only" if user_action_required else "queue_only"
+            if row.get("delivery_policy") != expected_delivery_policy:
+                issues.append(f"operator_action_queue delivery_policy mismatch: {action_key}")
+            if row.get("telegram_push_allowed") is not user_action_required:
+                issues.append(f"operator_action_queue telegram_push_allowed mismatch: {action_key}")
+            if row.get("interruption_budget") != ("action_required" if user_action_required else "none"):
+                issues.append(f"operator_action_queue interruption_budget mismatch: {action_key}")
+            if row.get("quiet_hours_respected") is not True:
+                issues.append(f"operator_action_queue quiet_hours_respected must be true: {action_key}")
+            if row.get("non_action_progress_push_allowed") is not False:
+                issues.append(f"operator_action_queue non-action progress push must be false: {action_key}")
+            if row.get("irreversible_actions_consent_gated") is not True:
+                issues.append(f"operator_action_queue irreversible actions must be consent-gated: {action_key}")
+        if isinstance(operator_delivery_policy, dict) and first_action:
+            if operator_delivery_policy.get("telegram_push_allowed_for_next_action") is not bool(
+                first_action.get("telegram_push_allowed")
+            ):
+                issues.append("operator_delivery_policy.telegram_push_allowed_for_next_action must match first queue item")
+            if operator_delivery_policy.get("next_action_requires_user") is not bool(first_action.get("user_action_required")):
+                issues.append("operator_delivery_policy.next_action_requires_user must match first queue item")
+            if str(operator_delivery_policy.get("next_action_delivery_policy") or "").strip() != str(
+                first_action.get("delivery_policy") or ""
+            ).strip():
+                issues.append("operator_delivery_policy.next_action_delivery_policy must match first queue item")
     acceptance_proof_requirements = receipt.get("acceptance_proof_requirements")
     if not isinstance(acceptance_proof_requirements, list) or not acceptance_proof_requirements:
         issues.append("acceptance_proof_requirements must be a non-empty list")
