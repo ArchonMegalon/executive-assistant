@@ -321,6 +321,18 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert duplicate_suppression["duplicate_active_pending_source_key_count"] == 0
     assert duplicate_suppression["raw_voice_ids_exposed"] is False
     assert duplicate_suppression["callback_tokens_exposed"] is False
+    assert receipt["next_action_key"] == "telegram_audiobook_live_delivery"
+    assert receipt["next_action"] == "choose_sent_replacement_voice_sample"
+    assert receipt["next_action_href"] == "/integrations/telegram"
+    assert receipt["next_action_label"] == "Open Telegram"
+    assert receipt["next_action_method"] == "get"
+    assert receipt["next_action_instruction"] == "Choose one sent replacement voice sample in Telegram."
+    assert receipt["operator_action_queue"][0]["key"] == "telegram_audiobook_live_delivery"
+    assert receipt["operator_action_queue"][0]["user_action_required"] is True
+    assert receipt["operator_action_queue"][0]["raw_private_context_exposed"] is False
+    assert {item["key"] for item in receipt["operator_action_queue"]} == {
+        key for key, item in proof_requirements.items() if item["status"] != "satisfied"
+    }
     assert "Telegram is an action surface, not a progress log; proactive delivery must stay quiet unless the user needs to approve, choose, unblock, review, or answer something." in receipt["rules"]
     assert "Proactive OODA packets must pass a context/provider-fit auditor before user delivery; reachable URLs, extracted email addresses, or generic search hits are not sufficient." in receipt["rules"]
     assert "Pocket.ai or other consented audio transcripts may feed OODA only as approved signals with privacy, retention, source, and current/stale status preserved." in receipt["rules"]

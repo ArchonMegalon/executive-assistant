@@ -334,6 +334,45 @@ def _telegram_audiobook_action_context(receipt: dict[str, Any]) -> dict[str, Any
     return {key: value for key, value in context.items() if value not in ("", [], None)}
 
 
+def _operator_action_priority(requirement: dict[str, Any]) -> tuple[int, int, str]:
+    action_context = dict(requirement.get("action_context") or {})
+    if action_context.get("user_action_required") is True:
+        return (0, 0, str(requirement.get("key") or ""))
+    lens_priority = {
+        "deliver": 1,
+        "prove": 2,
+        "detect": 3,
+        "recover": 4,
+        "decide": 5,
+    }
+    return (1, lens_priority.get(str(requirement.get("lens") or ""), 9), str(requirement.get("key") or ""))
+
+
+def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    pending = [requirement for requirement in requirements if str(requirement.get("status") or "") != "satisfied"]
+    result: list[dict[str, Any]] = []
+    for requirement in sorted(pending, key=_operator_action_priority):
+        action_context = dict(requirement.get("action_context") or {})
+        row = {
+            "key": str(requirement.get("key") or "").strip(),
+            "title": str(requirement.get("title") or "").strip(),
+            "lens": str(requirement.get("lens") or "").strip(),
+            "evidence_kind": str(requirement.get("evidence_kind") or "").strip(),
+            "next_action": str(requirement.get("next_action") or "").strip(),
+            "next_action_href": str(requirement.get("next_action_href") or "").strip(),
+            "next_action_label": str(requirement.get("next_action_label") or "").strip(),
+            "next_action_method": str(requirement.get("next_action_method") or "").strip(),
+            "required_next_receipt": str(requirement.get("required_next_receipt") or "").strip(),
+            "user_action_required": bool(action_context.get("user_action_required")),
+            "instruction": str(action_context.get("instruction") or "").strip(),
+            "raw_private_context_exposed": False,
+            "raw_voice_ids_exposed": bool(action_context.get("raw_voice_ids_exposed")),
+            "callback_tokens_exposed": bool(action_context.get("callback_tokens_exposed")),
+        }
+        result.append({key: value for key, value in row.items() if value not in ("", [], None)})
+    return result
+
+
 def build_goal_posture(
     *,
     root: Path = ROOT,
@@ -891,6 +930,8 @@ def build_goal_posture(
         if str(requirement.get("required_next_receipt") or "").strip()
         and str(requirement.get("status") or "").strip() != "satisfied"
     ]
+    operator_action_queue = _operator_action_queue(acceptance_proof_requirements)
+    next_operator_action = operator_action_queue[0] if operator_action_queue else {}
 
     receipt = {
         "contract_name": "ea.continuous_improvement_goal_posture.v1",
@@ -911,6 +952,13 @@ def build_goal_posture(
         "blocking_reasons": blocking_reasons,
         "required_next_receipts": required_next_receipts,
         "acceptance_proof_requirements": acceptance_proof_requirements,
+        "operator_action_queue": operator_action_queue,
+        "next_action": str(next_operator_action.get("next_action") or "").strip(),
+        "next_action_href": str(next_operator_action.get("next_action_href") or "").strip(),
+        "next_action_label": str(next_operator_action.get("next_action_label") or "").strip(),
+        "next_action_method": str(next_operator_action.get("next_action_method") or "").strip(),
+        "next_action_key": str(next_operator_action.get("key") or "").strip(),
+        "next_action_instruction": str(next_operator_action.get("instruction") or "").strip(),
         "rules": [
             "Local route receipts and operator commands may guide work, but they do not by themselves prove real daily usefulness.",
             "Irreversible purchases, bookings, cancellations, outbound commitments, and sent messages must stay consent-gated even when proactive OODA staging is automated.",

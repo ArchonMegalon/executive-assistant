@@ -299,6 +299,45 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
     ):
         issues.append("missing Teable projection rule for proactive OODA")
     required_next_receipts = set(str(item) for item in list(receipt.get("required_next_receipts") or []) if str(item).strip())
+    operator_action_queue = list(receipt.get("operator_action_queue") or [])
+    if required_next_receipts and not operator_action_queue:
+        issues.append("operator_action_queue must be present while required_next_receipts is nonempty")
+    queue_keys: set[str] = set()
+    if operator_action_queue:
+        first_action = dict(operator_action_queue[0]) if isinstance(operator_action_queue[0], dict) else {}
+        if not first_action:
+            issues.append("operator_action_queue entries must be objects")
+        else:
+            for key, receipt_key in (
+                ("next_action", "next_action"),
+                ("next_action_href", "next_action_href"),
+                ("next_action_label", "next_action_label"),
+                ("next_action_method", "next_action_method"),
+                ("key", "next_action_key"),
+                ("instruction", "next_action_instruction"),
+            ):
+                if str(first_action.get(key) or "").strip() != str(receipt.get(receipt_key) or "").strip():
+                    issues.append(f"top-level {receipt_key} must match first operator_action_queue item")
+        for row in operator_action_queue:
+            if not isinstance(row, dict):
+                issues.append("operator_action_queue entries must be objects")
+                continue
+            action_key = str(row.get("key") or "").strip()
+            if not action_key:
+                issues.append("operator_action_queue entries must include key")
+            if action_key in queue_keys:
+                issues.append(f"operator_action_queue duplicate key: {action_key}")
+            queue_keys.add(action_key)
+            if not str(row.get("next_action") or "").strip():
+                issues.append(f"operator_action_queue entry missing next_action: {action_key}")
+            if not str(row.get("next_action_href") or "").strip():
+                issues.append(f"operator_action_queue entry missing next_action_href: {action_key}")
+            if row.get("raw_private_context_exposed") is not False:
+                issues.append(f"operator_action_queue must not expose raw private context: {action_key}")
+            if row.get("raw_voice_ids_exposed") is not False:
+                issues.append(f"operator_action_queue must not expose raw voice IDs: {action_key}")
+            if row.get("callback_tokens_exposed") is not False:
+                issues.append(f"operator_action_queue must not expose callback tokens: {action_key}")
     acceptance_proof_requirements = receipt.get("acceptance_proof_requirements")
     if not isinstance(acceptance_proof_requirements, list) or not acceptance_proof_requirements:
         issues.append("acceptance_proof_requirements must be a non-empty list")
@@ -409,6 +448,13 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                     issues.append(f"proactive_ooda_packet_acceptance source receipt freshness flag false: {path_text}")
     if proof_receipts != required_next_receipts:
         issues.append("acceptance_proof_requirements must cover every required_next_receipts item exactly")
+    pending_proof_keys = {
+        str(requirement.get("key") or "").strip()
+        for requirement in acceptance_proof_requirements
+        if isinstance(requirement, dict) and str(requirement.get("status") or "").strip() != "satisfied"
+    }
+    if queue_keys and queue_keys != pending_proof_keys:
+        issues.append("operator_action_queue keys must match pending acceptance proof requirement keys")
     missing_proactive_sources = sorted(PROACTIVE_OODA_FRESH_SOURCE_RECEIPTS - proactive_source_receipt_names)
     if missing_proactive_sources:
         issues.append(f"proactive_ooda_packet_acceptance missing source receipts: {', '.join(missing_proactive_sources)}")
