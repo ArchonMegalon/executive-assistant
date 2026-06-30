@@ -278,6 +278,38 @@ def _telegram_audiobook_action_context(receipt: dict[str, Any]) -> dict[str, Any
         "raw_voice_ids_exposed": bool(first.get("raw_voice_ids_exposed")),
         "callback_tokens_exposed": bool(first.get("callback_tokens_exposed")),
     }
+    operator_packet = dict(receipt.get("operator_action_packet") or {})
+    if operator_packet:
+        context.update(
+            {
+                "user_action_required": bool(operator_packet.get("user_action_required")),
+                "instruction": str(operator_packet.get("instruction") or "").strip(),
+                "sent_samples_cover_expected": bool(operator_packet.get("sent_samples_cover_expected")),
+            }
+        )
+    duplicate_suppression = dict(receipt.get("duplicate_suppression") or {})
+    if duplicate_suppression:
+        context["duplicate_suppression"] = {
+            "action_required_only": bool(duplicate_suppression.get("action_required_only")),
+            "only_current_jobs_can_require_user_action": bool(
+                duplicate_suppression.get("only_current_jobs_can_require_user_action")
+            ),
+            "superseded_duplicate_candidate_count": int(
+                duplicate_suppression.get("superseded_duplicate_candidate_count") or 0
+            ),
+            "suppressed_pending_voice_duplicate_count": int(
+                duplicate_suppression.get("suppressed_pending_voice_duplicate_count") or 0
+            ),
+            "active_pending_voice_job_count": int(duplicate_suppression.get("active_pending_voice_job_count") or 0),
+            "duplicate_active_pending_source_key_count": int(
+                duplicate_suppression.get("duplicate_active_pending_source_key_count") or 0
+            ),
+            "duplicate_active_pending_source_keys_sha256": list(
+                duplicate_suppression.get("duplicate_active_pending_source_keys_sha256") or []
+            ),
+            "raw_voice_ids_exposed": bool(duplicate_suppression.get("raw_voice_ids_exposed")),
+            "callback_tokens_exposed": bool(duplicate_suppression.get("callback_tokens_exposed")),
+        }
     return {key: value for key, value in context.items() if value not in ("", [], None)}
 
 

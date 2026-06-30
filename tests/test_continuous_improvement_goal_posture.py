@@ -177,6 +177,24 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
         ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
         status="blocked",
         next_action="choose_sent_replacement_voice_sample",
+        operator_action_packet={
+            "user_action_required": True,
+            "instruction": "Choose one sent replacement voice sample in Telegram.",
+            "sent_samples_cover_expected": True,
+            "raw_voice_ids_exposed": False,
+            "callback_tokens_exposed": False,
+        },
+        duplicate_suppression={
+            "action_required_only": True,
+            "only_current_jobs_can_require_user_action": True,
+            "superseded_duplicate_candidate_count": 3,
+            "suppressed_pending_voice_duplicate_count": 1,
+            "active_pending_voice_job_count": 1,
+            "duplicate_active_pending_source_key_count": 0,
+            "duplicate_active_pending_source_keys_sha256": [],
+            "raw_voice_ids_exposed": False,
+            "callback_tokens_exposed": False,
+        },
         pending_user_selected_voice_jobs=[
             {
                 "replacement_candidate_count": 1,
@@ -271,10 +289,20 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     telegram_action_context = proof_requirements["telegram_audiobook_live_delivery"]["action_context"]
     assert telegram_action_context["kind"] == "telegram_audiobook_voice_choice"
     assert telegram_action_context["operator_action"] == "choose_sent_replacement_voice_sample"
+    assert telegram_action_context["user_action_required"] is True
+    assert telegram_action_context["instruction"] == "Choose one sent replacement voice sample in Telegram."
+    assert telegram_action_context["sent_samples_cover_expected"] is True
     assert telegram_action_context["candidate_labels"] == ["Dieter"]
     assert telegram_action_context["voice_sample_delivery_status"] == "sent"
     assert telegram_action_context["raw_voice_ids_exposed"] is False
     assert telegram_action_context["callback_tokens_exposed"] is False
+    duplicate_suppression = telegram_action_context["duplicate_suppression"]
+    assert duplicate_suppression["action_required_only"] is True
+    assert duplicate_suppression["only_current_jobs_can_require_user_action"] is True
+    assert duplicate_suppression["active_pending_voice_job_count"] == 1
+    assert duplicate_suppression["duplicate_active_pending_source_key_count"] == 0
+    assert duplicate_suppression["raw_voice_ids_exposed"] is False
+    assert duplicate_suppression["callback_tokens_exposed"] is False
     assert "Telegram is an action surface, not a progress log; proactive delivery must stay quiet unless the user needs to approve, choose, unblock, review, or answer something." in receipt["rules"]
     assert "Proactive OODA packets must pass a context/provider-fit auditor before user delivery; reachable URLs, extracted email addresses, or generic search hits are not sufficient." in receipt["rules"]
     assert "Pocket.ai or other consented audio transcripts may feed OODA only as approved signals with privacy, retention, source, and current/stale status preserved." in receipt["rules"]

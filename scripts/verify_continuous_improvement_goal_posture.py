@@ -446,6 +446,26 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                         issues.append("telegram audiobook voice choice action_context must include operator_action")
                     if int(action_context.get("candidate_count") or 0) <= 0:
                         issues.append("telegram audiobook voice choice action_context must include candidate_count")
+                    duplicate_suppression = action_context.get("duplicate_suppression")
+                    if not isinstance(duplicate_suppression, dict):
+                        issues.append("telegram audiobook voice choice action_context must include duplicate_suppression")
+                    else:
+                        if duplicate_suppression.get("action_required_only") is not True:
+                            issues.append("telegram audiobook duplicate_suppression must keep action_required_only=true")
+                        if duplicate_suppression.get("only_current_jobs_can_require_user_action") is not True:
+                            issues.append(
+                                "telegram audiobook duplicate_suppression must keep only_current_jobs_can_require_user_action=true"
+                            )
+                        if duplicate_suppression.get("raw_voice_ids_exposed") is not False:
+                            issues.append("telegram audiobook duplicate_suppression must not expose raw voice IDs")
+                        if duplicate_suppression.get("callback_tokens_exposed") is not False:
+                            issues.append("telegram audiobook duplicate_suppression must not expose callback tokens")
+                        if int(duplicate_suppression.get("duplicate_active_pending_source_key_count") or 0) != 0:
+                            issues.append(
+                                "telegram audiobook duplicate_suppression must not leave duplicate active pending source keys"
+                            )
+                        if int(duplicate_suppression.get("active_pending_voice_job_count") or 0) <= 0:
+                            issues.append("telegram audiobook duplicate_suppression must include active pending voice jobs")
     if by_key.get("recover", {}).get("status") == "command_backed_no_published_receipt" and "recover=command_backed_no_published_receipt" not in blocking_reasons:
         issues.append("blocking_reasons must include the command-backed recover posture")
     return issues

@@ -20,8 +20,8 @@
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "5f9ce2e607290697488fb3dbc425f93062debcd9",
-          "source_state_fingerprint": "f052bbab5faf9d103a89bca21812208e526f28318e7cf2d8b4f8364b6f709535",
+          "source_git_head": "db0e09da96cc149c04027a993256b57d7720e3e4",
+          "source_state_fingerprint": "daf17b859e805c7d4fdb4a086ebfffceac83cd674c53b419c026b0366b419bd2",
           "status": "blocked_real_world_acceptance"
         }
       ],
@@ -47,8 +47,8 @@
           "path": ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "5f9ce2e607290697488fb3dbc425f93062debcd9",
-          "source_state_fingerprint": "f052bbab5faf9d103a89bca21812208e526f28318e7cf2d8b4f8364b6f709535",
+          "source_git_head": "db0e09da96cc149c04027a993256b57d7720e3e4",
+          "source_state_fingerprint": "daf17b859e805c7d4fdb4a086ebfffceac83cd674c53b419c026b0366b419bd2",
           "status": "ready_local_packet_pending_operator_acceptance"
         }
       ],
@@ -75,8 +75,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "5f9ce2e607290697488fb3dbc425f93062debcd9",
-          "source_state_fingerprint": "f052bbab5faf9d103a89bca21812208e526f28318e7cf2d8b4f8364b6f709535",
+          "source_git_head": "db0e09da96cc149c04027a993256b57d7720e3e4",
+          "source_state_fingerprint": "daf17b859e805c7d4fdb4a086ebfffceac83cd674c53b419c026b0366b419bd2",
           "status": "pass"
         },
         {
@@ -84,8 +84,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "5f9ce2e607290697488fb3dbc425f93062debcd9",
-          "source_state_fingerprint": "f052bbab5faf9d103a89bca21812208e526f28318e7cf2d8b4f8364b6f709535",
+          "source_git_head": "db0e09da96cc149c04027a993256b57d7720e3e4",
+          "source_state_fingerprint": "daf17b859e805c7d4fdb4a086ebfffceac83cd674c53b419c026b0366b419bd2",
           "status": "ready_with_live_receipt"
         }
       ],
@@ -124,9 +124,23 @@
         "candidate_labels": [
           "Dieter"
         ],
+        "duplicate_suppression": {
+          "action_required_only": true,
+          "active_pending_voice_job_count": 1,
+          "callback_tokens_exposed": false,
+          "duplicate_active_pending_source_key_count": 0,
+          "duplicate_active_pending_source_keys_sha256": [],
+          "only_current_jobs_can_require_user_action": true,
+          "raw_voice_ids_exposed": false,
+          "superseded_duplicate_candidate_count": 3,
+          "suppressed_pending_voice_duplicate_count": 1
+        },
+        "instruction": "Choose one sent replacement voice sample in Telegram.",
         "kind": "telegram_audiobook_voice_choice",
         "operator_action": "choose_sent_replacement_voice_sample",
         "raw_voice_ids_exposed": false,
+        "sent_samples_cover_expected": true,
+        "user_action_required": true,
         "voice_sample_delivery_expected_count": 1,
         "voice_sample_delivery_sent_count": 1,
         "voice_sample_delivery_status": "sent"
@@ -150,8 +164,8 @@
           "path": ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "5f9ce2e607290697488fb3dbc425f93062debcd9",
-          "source_state_fingerprint": "f052bbab5faf9d103a89bca21812208e526f28318e7cf2d8b4f8364b6f709535",
+          "source_git_head": "db0e09da96cc149c04027a993256b57d7720e3e4",
+          "source_state_fingerprint": "daf17b859e805c7d4fdb4a086ebfffceac83cd674c53b419c026b0366b419bd2",
           "status": "blocked"
         },
         {
@@ -159,8 +173,8 @@
           "path": ".codex-studio/published/telegram_audiobook_live_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "5f9ce2e607290697488fb3dbc425f93062debcd9",
-          "source_state_fingerprint": "f052bbab5faf9d103a89bca21812208e526f28318e7cf2d8b4f8364b6f709535",
+          "source_git_head": "db0e09da96cc149c04027a993256b57d7720e3e4",
+          "source_state_fingerprint": "daf17b859e805c7d4fdb4a086ebfffceac83cd674c53b419c026b0366b419bd2",
           "status": "blocked_live_prerequisites"
         }
       ],
@@ -181,7 +195,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-06-30T04:54:44Z",
+  "generated_at": "2026-06-30T04:58:48Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -198,8 +212,8 @@
           "path": ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "5f9ce2e607290697488fb3dbc425f93062debcd9",
-          "source_state_fingerprint": "f052bbab5faf9d103a89bca21812208e526f28318e7cf2d8b4f8364b6f709535",
+          "source_git_head": "db0e09da96cc149c04027a993256b57d7720e3e4",
+          "source_state_fingerprint": "daf17b859e805c7d4fdb4a086ebfffceac83cd674c53b419c026b0366b419bd2",
           "status": "ready_local_packet_pending_operator_acceptance"
         }
       ],
@@ -278,8 +292,8 @@
               "path": ".codex-studio/published/telegram_audiobook_live_readiness.generated.json",
               "present": true,
               "source_fresh_to_current_source": true,
-              "source_git_head": "5f9ce2e607290697488fb3dbc425f93062debcd9",
-              "source_state_fingerprint": "f052bbab5faf9d103a89bca21812208e526f28318e7cf2d8b4f8364b6f709535",
+              "source_git_head": "db0e09da96cc149c04027a993256b57d7720e3e4",
+              "source_state_fingerprint": "daf17b859e805c7d4fdb4a086ebfffceac83cd674c53b419c026b0366b419bd2",
               "status": "blocked_live_prerequisites"
             },
             {
@@ -287,8 +301,8 @@
               "path": ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
               "present": true,
               "source_fresh_to_current_source": true,
-              "source_git_head": "5f9ce2e607290697488fb3dbc425f93062debcd9",
-              "source_state_fingerprint": "f052bbab5faf9d103a89bca21812208e526f28318e7cf2d8b4f8364b6f709535",
+              "source_git_head": "db0e09da96cc149c04027a993256b57d7720e3e4",
+              "source_state_fingerprint": "daf17b859e805c7d4fdb4a086ebfffceac83cd674c53b419c026b0366b419bd2",
               "status": "blocked"
             }
           ],
@@ -410,8 +424,8 @@
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "5f9ce2e607290697488fb3dbc425f93062debcd9",
-          "source_state_fingerprint": "f052bbab5faf9d103a89bca21812208e526f28318e7cf2d8b4f8364b6f709535",
+          "source_git_head": "db0e09da96cc149c04027a993256b57d7720e3e4",
+          "source_state_fingerprint": "daf17b859e805c7d4fdb4a086ebfffceac83cd674c53b419c026b0366b419bd2",
           "status": "blocked_real_world_acceptance"
         }
       ],
@@ -443,7 +457,7 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "5f9ce2e607290697488fb3dbc425f93062debcd9",
-  "source_state_fingerprint": "f052bbab5faf9d103a89bca21812208e526f28318e7cf2d8b4f8364b6f709535",
+  "source_git_head": "db0e09da96cc149c04027a993256b57d7720e3e4",
+  "source_state_fingerprint": "daf17b859e805c7d4fdb4a086ebfffceac83cd674c53b419c026b0366b419bd2",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }
