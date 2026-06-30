@@ -71,6 +71,89 @@ def _hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest() if value else ""
 
 
+def _empty_signal_evidence_row(*, hash_field: str, raw_field: str) -> dict[str, Any]:
+    return {
+        "accepted": False,
+        "status": "missing_or_invalid",
+        "source_kind": "",
+        hash_field: "",
+        "actor_sha256": "",
+        "packet_ref_sha256": "",
+        "recorded_at": "",
+        raw_field: False,
+        "raw_actor_exposed": False,
+        "raw_packet_ref_exposed": False,
+    }
+
+
+def _normalized_existing_signal_evidence_row(
+    row: dict[str, Any],
+    *,
+    hash_field: str,
+    raw_field: str,
+) -> dict[str, Any]:
+    normalized = _empty_signal_evidence_row(hash_field=hash_field, raw_field=raw_field)
+    normalized.update(dict(row or {}))
+    if normalized.get("accepted") is True:
+        normalized["status"] = "accepted_redacted"
+    normalized[raw_field] = False
+    normalized["raw_actor_exposed"] = False
+    normalized["raw_packet_ref_exposed"] = False
+    return normalized
+
+
+def _signal_evidence_row_from_input(
+    payload: dict[str, Any],
+    *,
+    input_field: str,
+    hash_field: str,
+    raw_field: str,
+) -> dict[str, Any]:
+    accepted = bool(payload.get("accepted"))
+    evidence = str(payload.get(input_field) or "")
+    actor = str(payload.get("actor") or "")
+    packet_ref = str(payload.get("packet_ref") or "")
+    valid = accepted and bool(evidence and actor and packet_ref)
+    return {
+        "accepted": valid,
+        "status": "accepted_redacted" if valid else "missing_or_invalid",
+        "source_kind": str(payload.get("source_kind") or ""),
+        hash_field: _hash(evidence),
+        "actor_sha256": _hash(actor),
+        "packet_ref_sha256": _hash(packet_ref),
+        "recorded_at": str(payload.get("recorded_at") or ""),
+        raw_field: False,
+        "raw_actor_exposed": False,
+        "raw_packet_ref_exposed": False,
+    }
+
+
+def _existing_signal_evidence_rows(receipt_path: Path, preserve_existing: bool) -> tuple[dict[str, Any], dict[str, Any]]:
+    review = _empty_signal_evidence_row(hash_field="review_sha256", raw_field="raw_review_exposed")
+    follow = _empty_signal_evidence_row(hash_field="followthrough_sha256", raw_field="raw_followthrough_exposed")
+    if not preserve_existing or not receipt_path.is_file():
+        return review, follow
+    try:
+        existing = _load(receipt_path)
+    except Exception:
+        return review, follow
+    existing_review = dict(existing.get("operator_review") or {})
+    existing_follow = dict(existing.get("followthrough_receipt") or {})
+    if existing_review.get("accepted") is True:
+        review = _normalized_existing_signal_evidence_row(
+            existing_review,
+            hash_field="review_sha256",
+            raw_field="raw_review_exposed",
+        )
+    if existing_follow.get("accepted") is True:
+        follow = _normalized_existing_signal_evidence_row(
+            existing_follow,
+            hash_field="followthrough_sha256",
+            raw_field="raw_followthrough_exposed",
+        )
+    return review, follow
+
+
 def _source_row(key: str) -> dict[str, Any]:
     return {
         "key": key,
@@ -155,16 +238,39 @@ def materialize_whole_project_signal_to_decision_receipt(
     active_media_receipt_path: str | Path,
     input_payload: dict[str, Any] | None = None,
     generated_at: str = "",
+    preserve_existing: bool = True,
 ) -> dict[str, Any]:
     office = _load(office_loop_receipt_path)
     acceptance = _load(acceptance_evidence_receipt_path)
     quality = _load(ea_quality_receipt_path)
     active = _load(active_media_receipt_path)
+    target = Path(receipt_path)
     payload = input_payload or {}
+    stored_review, stored_follow = _existing_signal_evidence_rows(target, preserve_existing)
     review = dict(payload.get("review") or {})
     follow = dict(payload.get("followthrough") or {})
-    review_accepted = bool(review.get("accepted"))
-    follow_accepted = bool(follow.get("accepted"))
+    review_row = (
+        _signal_evidence_row_from_input(
+            review,
+            input_field="review",
+            hash_field="review_sha256",
+            raw_field="raw_review_exposed",
+        )
+        if review
+        else stored_review
+    )
+    follow_row = (
+        _signal_evidence_row_from_input(
+            follow,
+            input_field="followthrough",
+            hash_field="followthrough_sha256",
+            raw_field="raw_followthrough_exposed",
+        )
+        if follow
+        else stored_follow
+    )
+    review_accepted = bool(review_row.get("accepted"))
+    follow_accepted = bool(follow_row.get("accepted"))
     if not review_accepted:
         next_action = str(SIGNAL_EVIDENCE_PARTS["review"]["next_action"])
         next_action_evidence_part = "review"
@@ -178,6 +284,8 @@ def materialize_whole_project_signal_to_decision_receipt(
         "contract_name": "ea.whole_project_signal_to_decision_receipt.v1",
         "status": "ready_real_signal_to_decision_closure"
         if review_accepted and follow_accepted
+        else "partial_real_signal_to_decision_closure"
+        if review_accepted or follow_accepted
         else "ready_local_packet_pending_operator_acceptance",
         "generated_at": generated_at or _now(),
         "goal_completion_claim_allowed": False,
@@ -208,30 +316,8 @@ def materialize_whole_project_signal_to_decision_receipt(
                 {"key": "privacy_boundary_review", "source": "privacy_or_boundary_incidents"},
             ]
         },
-        "operator_review": {
-            "accepted": review_accepted,
-            "status": "accepted_redacted" if review_accepted else "missing_or_invalid",
-            "source_kind": review.get("source_kind", ""),
-            "review_sha256": _hash(str(review.get("review") or "")),
-            "actor_sha256": _hash(str(review.get("actor") or "")),
-            "packet_ref_sha256": _hash(str(review.get("packet_ref") or "")),
-            "recorded_at": review.get("recorded_at", ""),
-            "raw_review_exposed": False,
-            "raw_actor_exposed": False,
-            "raw_packet_ref_exposed": False,
-        },
-        "followthrough_receipt": {
-            "accepted": follow_accepted,
-            "status": "accepted_redacted" if follow_accepted else "missing_or_invalid",
-            "source_kind": follow.get("source_kind", ""),
-            "followthrough_sha256": _hash(str(follow.get("followthrough") or "")),
-            "actor_sha256": _hash(str(follow.get("actor") or "")),
-            "packet_ref_sha256": _hash(str(follow.get("packet_ref") or "")),
-            "recorded_at": follow.get("recorded_at", ""),
-            "raw_followthrough_exposed": False,
-            "raw_actor_exposed": False,
-            "raw_packet_ref_exposed": False,
-        },
+        "operator_review": review_row,
+        "followthrough_receipt": follow_row,
         "privacy": {
             "raw_review_text_exposed": False,
             "raw_followthrough_text_exposed": False,
@@ -257,7 +343,7 @@ def materialize_whole_project_signal_to_decision_receipt(
             followed=follow_accepted,
         ),
     }
-    _write(receipt_path, receipt)
+    _write(target, receipt)
     return receipt
 
 
@@ -268,15 +354,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--acceptance-evidence-receipt", default=str(DEFAULT_ACCEPTANCE_RECEIPT))
     parser.add_argument("--ea-quality-receipt", default=str(DEFAULT_QUALITY_RECEIPT))
     parser.add_argument("--active-media-receipt", default=str(DEFAULT_ACTIVE_MEDIA_RECEIPT))
+    parser.add_argument("--input")
     parser.add_argument("--generated-at", default="")
+    parser.add_argument("--reset", action="store_true")
     args = parser.parse_args(argv)
+    input_payload = _load(args.input) if args.input else None
     receipt = materialize_whole_project_signal_to_decision_receipt(
         receipt_path=args.receipt,
         office_loop_receipt_path=args.office_loop_receipt,
         acceptance_evidence_receipt_path=args.acceptance_evidence_receipt,
         ea_quality_receipt_path=args.ea_quality_receipt,
         active_media_receipt_path=args.active_media_receipt,
+        input_payload=input_payload,
         generated_at=args.generated_at,
+        preserve_existing=not args.reset,
     )
     print(json.dumps({"status": receipt["status"], "receipt": str(args.receipt)}, sort_keys=True))
     return 0

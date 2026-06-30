@@ -203,6 +203,74 @@ def test_signal_to_decision_receipt_hashes_operator_review_and_followthrough(tmp
     assert verification["issues"] == []
 
 
+def test_signal_to_decision_receipt_preserves_existing_redacted_operator_review(tmp_path: Path) -> None:
+    materializer = _load_script("materialize_whole_project_signal_to_decision_receipt")
+    office, acceptance, quality, active = _write_lower_receipts(tmp_path)
+    receipt_path = tmp_path / "preserved-signal.generated.json"
+    raw_review = "Weekly packet was accepted after reviewing private support and media notes."
+    raw_actor = "operator-private-reviewer"
+    raw_packet_ref = "weekly-signal-packet-private-123"
+
+    first = materializer.materialize_whole_project_signal_to_decision_receipt(
+        receipt_path=receipt_path,
+        office_loop_receipt_path=office,
+        acceptance_evidence_receipt_path=acceptance,
+        ea_quality_receipt_path=quality,
+        active_media_receipt_path=active,
+        input_payload={
+            "review": {
+                "accepted": True,
+                "source_kind": "operator",
+                "review": raw_review,
+                "actor": raw_actor,
+                "packet_ref": raw_packet_ref,
+                "recorded_at": GENERATED_AT,
+            }
+        },
+        generated_at=GENERATED_AT,
+    )
+    second = materializer.materialize_whole_project_signal_to_decision_receipt(
+        receipt_path=receipt_path,
+        office_loop_receipt_path=office,
+        acceptance_evidence_receipt_path=acceptance,
+        ea_quality_receipt_path=quality,
+        active_media_receipt_path=active,
+        generated_at="2026-06-20T09:55:00Z",
+    )
+
+    assert first["status"] == "partial_real_signal_to_decision_closure"
+    assert second["status"] == "partial_real_signal_to_decision_closure"
+    assert second["real_weekly_operator_review_accepted"] is True
+    assert second["closed_loop_followthrough_receipt_verified"] is False
+    assert second["next_action"] == "record_redacted_signal_followthrough_acceptance"
+    assert second["next_action_href"] == "/admin/actions/signal-to-decision-evidence"
+    assert second["next_action_label"] == "Record a signal-loop outcome"
+    assert second["next_action_method"] == "post"
+    assert second["next_action_evidence_part"] == "followthrough"
+    requirements = {item["evidence_part"]: item for item in second["signal_evidence_capture_requirements"]}  # type: ignore[index]
+    assert requirements["review"]["status"] == "accepted_redacted"
+    assert requirements["followthrough"]["status"] == "pending_real_world_evidence"
+    assert second["operator_review"]["review_sha256"] == first["operator_review"]["review_sha256"]  # type: ignore[index]
+    receipt_text = receipt_path.read_text(encoding="utf-8")
+    assert raw_review not in receipt_text
+    assert raw_actor not in receipt_text
+    assert raw_packet_ref not in receipt_text
+
+    reset = materializer.materialize_whole_project_signal_to_decision_receipt(
+        receipt_path=receipt_path,
+        office_loop_receipt_path=office,
+        acceptance_evidence_receipt_path=acceptance,
+        ea_quality_receipt_path=quality,
+        active_media_receipt_path=active,
+        generated_at="2026-06-20T09:56:00Z",
+        preserve_existing=False,
+    )
+
+    assert reset["status"] == "ready_local_packet_pending_operator_acceptance"
+    assert reset["real_weekly_operator_review_accepted"] is False
+    assert reset["closed_loop_followthrough_receipt_verified"] is False
+
+
 def test_signal_to_decision_verifier_rejects_overclaim_and_missing_source(tmp_path: Path) -> None:
     materializer = _load_script("materialize_whole_project_signal_to_decision_receipt")
     verifier = _load_script("verify_whole_project_signal_to_decision_receipt")

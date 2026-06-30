@@ -2972,13 +2972,23 @@ def prepare_audiobook_voice_audition(*, job_dir: Path, batch_size: int = 3, refi
     stored_book_profile = dict(current_selection.get("book_profile") or {})
     stored_author_gender_signal = str(stored_book_profile.get("author_gender_signal") or "").strip().lower()
     refreshed_author_gender_signal = str(profile.get("author_gender_signal") or "").strip().lower()
+    refresh_pending_batch_for_author_gender_mismatch = (
+        str(current_selection.get("status") or "").strip() == "waiting_user_choice"
+        and bool(current_pending_batch)
+        and refreshed_author_gender_signal in {"male", "female"}
+        and any(
+            _voice_candidate_gender(row) not in {"", refreshed_author_gender_signal}
+            for row in current_pending_batch
+            if isinstance(row, dict)
+        )
+    )
     refresh_pending_batch_for_author_gender_signal = (
         str(current_selection.get("status") or "").strip() == "waiting_user_choice"
         and bool(current_pending_batch)
         and bool(refreshed_author_gender_signal)
         and refreshed_author_gender_signal != stored_author_gender_signal
     )
-    if refresh_pending_batch_for_author_gender_signal:
+    if refresh_pending_batch_for_author_gender_signal or refresh_pending_batch_for_author_gender_mismatch:
         current_pending_batch = []
         active_identity_keys = set()
         pending_still_active = []

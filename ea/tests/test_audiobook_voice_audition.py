@@ -230,6 +230,60 @@ def test_prepare_audiobook_voice_audition_refreshes_stale_batch_when_gender_sign
     assert voice_selection.get("underfilled_reason") == "voice_catalog_author_gender_underfilled"
 
 
+def test_prepare_audiobook_voice_audition_refreshes_stale_batch_when_pending_rows_conflict_with_author_gender() -> None:
+    stale_batch = [
+        _candidate(preset_key="female-top", label="Seraphina", gender="female", score=70),
+        _candidate(preset_key="female-second", label="Amala", gender="female", score=67),
+    ]
+    stale_selection = {
+        "status": "waiting_user_choice",
+        "book_profile": {"author_gender_signal": "male"},
+        "pending_candidate_keys": [str(item.get("preset_key") or "") for item in stale_batch],
+        "pending_batch": stale_batch,
+        "dismissed_candidate_keys": [],
+        "dismissed_voice_identity_keys": [],
+    }
+    job_dir = _create_job_dir(current_voice_selection=stale_selection)
+    ranking = {
+        "status": "ranked",
+        "profile": {
+            "language": "de",
+            "title": "Widerstand zwecklos",
+            "author": "Knuf, Andreas",
+            "author_gender_signal": "male",
+            "topic": "technical nonfiction",
+            "dialogue_ratio": 0.11,
+            "fiction_score": 1,
+            "nonfiction_score": 3,
+            "recommended_tags": ["nonfiction", "warm", "german"],
+            "sample_sha256": "sample-sha",
+        },
+        "candidate_rows": [
+            _candidate(preset_key="female-top", label="Seraphina", gender="female", score=70),
+            _candidate(preset_key="male-one", label="Hans", gender="male", score=68),
+            _candidate(preset_key="female-second", label="Amala", gender="female", score=67),
+            _candidate(preset_key="male-two", label="Jurgen", gender="male", score=66),
+        ],
+    }
+    with (
+        patch.dict(os.environ, {"EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED": "1", "EA_AUDIOBOOK_UNMIXR_AUTO_RENDER": "1"}, clear=False),
+        patch.object(audiobook_epub_pipeline, "_ranked_unmixr_voice_candidates", return_value=ranking),
+        patch.object(audiobook_epub_pipeline, "_voice_sample_text", return_value="Kurzprobe."),
+        patch.object(audiobook_epub_pipeline, "_synthesize_unmixr_with_retries", return_value=(b"audio", "audio/wav", [])),
+        patch.object(audiobook_epub_pipeline, "_write_provider_audio_file", side_effect=_write_rendered_audio),
+        patch.object(audiobook_epub_pipeline, "_write_current_job_receipt_best_effort"),
+    ):
+        job = audiobook_epub_pipeline.prepare_audiobook_voice_audition(job_dir=job_dir)
+
+    voice_selection = dict(dict(job.get("provider") or {}).get("voice_selection") or {})
+    pending_batch = [dict(item) for item in list(voice_selection.get("pending_batch") or []) if isinstance(item, dict)]
+    assert [item.get("label") for item in pending_batch] == ["Hans", "Jurgen"]
+    assert dict(voice_selection.get("book_profile") or {}).get("author_gender_signal") == "male"
+    assert voice_selection.get("status") == "waiting_user_choice"
+    assert voice_selection.get("underfilled") is True
+    assert voice_selection.get("underfilled_reason") == "voice_catalog_author_gender_underfilled"
+
+
 def test_prepare_audiobook_voice_audition_underfills_instead_of_reusing_duplicate_audio() -> None:
     job_dir = _create_job_dir()
     ranking = {
