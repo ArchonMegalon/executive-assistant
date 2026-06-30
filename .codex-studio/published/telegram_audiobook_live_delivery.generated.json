@@ -99,7 +99,7 @@
     "user_selected_voice_delivery_not_ready",
     "explicit_replacement_voice_choice_pending"
   ],
-  "generated_at": "2026-06-30T05:16:41.879867Z",
+  "generated_at": "2026-06-30T05:23:34.758818Z",
   "generated_by": "ea/scripts/materialize_telegram_audiobook_live_delivery_receipt.py",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
@@ -140,6 +140,11 @@
   "pending_user_selected_voice_job_count": 1,
   "pending_user_selected_voice_jobs": [
     {
+      "author_gender_match_count": 1,
+      "author_gender_matched_candidates_only": true,
+      "author_gender_mismatch_count": 0,
+      "author_gender_mismatched_voice_samples_pending": false,
+      "author_gender_signal": "male",
       "callback_tokens_exposed": false,
       "external_tts_blocker_code": "selected_voice_author_gender_mismatch",
       "external_tts_blocker_reason_sha256": "7ebf88a8c06633a61f06504396fd6e0948355afc0f74603cfb1ee9403ad2107b",
@@ -239,8 +244,8 @@
     "voice_selected_default": true
   },
   "source_filter": "telegram_epub_audiobook_sources",
-  "source_git_head": "75527c269a9c3f2fb832fa2713a43842154c63b0",
-  "source_state_fingerprint": "3fd4095b085ae5bc4b316456dbf909e1f3e8247a522cdd36822d59b430940a3c",
+  "source_git_head": "80194b9dcbef24066a0732bc4feb37bbae593d79",
+  "source_state_fingerprint": "2861032829abda261ea9050dc791b97655a3872edc3a63793bc2d36ea9966286",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "blocked"
 }

@@ -214,6 +214,58 @@ def test_build_receipt_routes_sent_replacement_voice_sample_to_precise_operator_
     assert receipt["privacy"]["raw_voice_ids_exposed"] is False
 
 
+def test_build_receipt_requires_refresh_for_author_gender_mismatched_sent_samples(tmp_path: Path) -> None:
+    module = _load_module()
+    receipt = module.build_receipt(
+        output_path=tmp_path / "telegram_live_delivery_mismatched_voice_samples.json",
+        job_receipts=[
+            _job_receipt(
+                job_id="replacement-voice-wrong-gender",
+                source_kind="telegram_epub",
+                author="Knuf, Andreas",
+                status="waiting_voice_selection",
+                playback_status="not_recorded",
+                playback_accepted=False,
+                render_voice_selection={
+                    "status": "waiting_user_choice",
+                    "reason": "selected_voice_author_gender_mismatch",
+                    "book_profile": {"author_gender_signal": "male"},
+                    "pending_candidate_keys": ["unmixr_seraphina_7f88185d"],
+                    "replacement_candidate_keys": ["unmixr_seraphina_7f88185d"],
+                    "pending_batch": [
+                        {
+                            "preset_key": "unmixr_seraphina_7f88185d",
+                            "label": "Seraphina",
+                            "tags": ["audiobook", "narration", "female"],
+                            "voice_id_sha256": hashlib.sha256(b"voice-seraphina").hexdigest(),
+                        }
+                    ],
+                },
+                telegram_voice_sample_delivery_status="sent",
+                telegram_voice_sample_delivery_expected_count=1,
+                telegram_voice_sample_delivery_sent_count=1,
+            )
+        ],
+        generated_at="2026-06-30T00:00:00Z",
+        observation_source="test",
+    )
+
+    assert receipt["status"] == "blocked"
+    assert "author_gender_mismatched_voice_samples_pending" in receipt["failed_codes"]
+    assert receipt["next_action"] == "refresh_author_gender_matched_voice_samples_before_user_choice"
+    packet = receipt["operator_action_packet"]
+    assert packet["user_action_required"] is False
+    assert packet["operator_action"] == "refresh_author_gender_matched_voice_samples_before_user_choice"
+    assert packet["author_gender_signal"] == "male"
+    assert packet["author_gender_mismatch_count"] == 1
+    pending = receipt["pending_user_selected_voice_jobs"][0]
+    assert pending["author_gender_mismatched_voice_samples_pending"] is True
+    assert pending["author_gender_matched_candidates_only"] is False
+    assert pending["replacement_candidate_labels"] == ["Seraphina"]
+    assert pending["raw_voice_ids_exposed"] is False
+    assert pending["callback_tokens_exposed"] is False
+
+
 def test_build_receipt_suppresses_superseded_duplicate_voice_actions(tmp_path: Path) -> None:
     module = _load_module()
     source_sha = hashlib.sha256(b"same-telegram-epub").hexdigest()

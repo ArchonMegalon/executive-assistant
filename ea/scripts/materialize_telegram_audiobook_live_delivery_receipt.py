@@ -92,6 +92,11 @@ TELEGRAM_ACTION_SURFACES = {
         CHANNEL_LOOP_LABEL,
         ACTION_METHOD,
     ),
+    "refresh_author_gender_matched_voice_samples_before_user_choice": (
+        CHANNEL_LOOP_PATH,
+        CHANNEL_LOOP_LABEL,
+        ACTION_METHOD,
+    ),
 }
 
 
@@ -437,11 +442,24 @@ def _pending_summary(candidate: dict[str, object]) -> dict[str, object]:
     voice_choice_keys = _as_list(voice.get("pending_candidate_keys")) or replacement_keys
     replacement_pending = bool(candidate.get("replacement_choice_pending"))
     pending_batch = [_as_dict(row) for row in _as_list(voice.get("pending_batch")) if isinstance(row, dict)]
+    profile = _as_dict(voice.get("book_profile"))
+    author_gender_signal = str(profile.get("author_gender_signal") or "").strip().lower()
     pending_labels = [
         str(row.get("label") or "").strip()
         for row in pending_batch
         if str(row.get("label") or "").strip()
     ]
+    pending_genders = [_voice_candidate_gender(row) for row in pending_batch]
+    author_gender_match_count = sum(
+        1
+        for gender in pending_genders
+        if author_gender_signal in {"male", "female"} and gender == author_gender_signal
+    )
+    author_gender_mismatch_count = sum(
+        1
+        for gender in pending_genders
+        if author_gender_signal in {"male", "female"} and gender in {"male", "female"} and gender != author_gender_signal
+    )
     return {
         "job_id_sha256": candidate["job_id_sha256"],
         "status": str(job.get("status") or ""),
@@ -459,6 +477,15 @@ def _pending_summary(candidate: dict[str, object]) -> dict[str, object]:
         "replacement_choice_pending": replacement_pending,
         "replacement_candidate_count": len(replacement_keys) if replacement_pending else 0,
         "replacement_candidate_labels": pending_labels[:3] if replacement_pending else [],
+        "author_gender_signal": author_gender_signal if author_gender_signal in {"male", "female"} else "",
+        "author_gender_match_count": author_gender_match_count,
+        "author_gender_mismatch_count": author_gender_mismatch_count,
+        "author_gender_matched_candidates_only": bool(
+            author_gender_signal in {"male", "female"}
+            and pending_batch
+            and author_gender_match_count == len(pending_batch)
+        ),
+        "author_gender_mismatched_voice_samples_pending": bool(author_gender_mismatch_count > 0),
         "voice_sample_delivery_status": str(telegram.get("voice_sample_delivery_status") or "").strip(),
         "voice_sample_delivery_expected_count": int(telegram.get("voice_sample_delivery_expected_count") or 0),
         "voice_sample_delivery_sent_count": int(telegram.get("voice_sample_delivery_sent_count") or 0),
@@ -539,6 +566,22 @@ def _dedupe(values: list[str]) -> list[str]:
     return result
 
 
+def _voice_candidate_gender(row: dict[str, object]) -> str:
+    tags = row.get("tags")
+    if isinstance(tags, str):
+        values = [tags]
+    elif isinstance(tags, list):
+        values = tags
+    else:
+        values = []
+    normalized = {str(item or "").strip().lower() for item in values}
+    if "male" in normalized:
+        return "male"
+    if "female" in normalized:
+        return "female"
+    return ""
+
+
 def _pending_voice_samples_sent(row: dict[str, object]) -> bool:
     expected = int(row.get("voice_sample_delivery_expected_count") or 0)
     sent = int(row.get("voice_sample_delivery_sent_count") or 0)
@@ -549,6 +592,8 @@ def _pending_voice_samples_sent(row: dict[str, object]) -> bool:
 
 
 def _next_action(*, failed_codes: list[str], pending: list[dict[str, object]]) -> str:
+    if any(row.get("author_gender_mismatched_voice_samples_pending") for row in pending):
+        return "refresh_author_gender_matched_voice_samples_before_user_choice"
     if any(row.get("replacement_choice_pending") for row in pending):
         if any(_pending_voice_samples_sent(row) for row in pending):
             return "choose_sent_replacement_voice_sample"
@@ -603,6 +648,21 @@ def _operator_action_packet(
             "callback_tokens_exposed": False,
         }
     first = pending[0]
+    if next_action == "refresh_author_gender_matched_voice_samples_before_user_choice":
+        return {
+            "user_action_required": False,
+            "reason": "author_gender_mismatched_voice_samples_pending",
+            "operator_action": next_action,
+            "instruction": "Refresh the audiobook voice samples before asking the user to choose.",
+            "author_gender_signal": str(first.get("author_gender_signal") or ""),
+            "author_gender_match_count": int(first.get("author_gender_match_count") or 0),
+            "author_gender_mismatch_count": int(first.get("author_gender_mismatch_count") or 0),
+            "next_action_href": CHANNEL_LOOP_PATH,
+            "next_action_label": CHANNEL_LOOP_LABEL,
+            "next_action_method": ACTION_METHOD,
+            "raw_voice_ids_exposed": False,
+            "callback_tokens_exposed": False,
+        }
     labels = [
         str(item).strip()
         for item in list(first.get("replacement_candidate_labels") or first.get("voice_choice_candidate_labels") or [])
@@ -674,6 +734,8 @@ def build_receipt(
         failed_codes.append("user_selected_voice_delivery_not_ready")
     if any(row.get("replacement_choice_pending") for row in pending):
         failed_codes.append("explicit_replacement_voice_choice_pending")
+    if any(row.get("author_gender_mismatched_voice_samples_pending") for row in pending):
+        failed_codes.append("author_gender_mismatched_voice_samples_pending")
     failed_codes = _dedupe(failed_codes)
     live_pass = bool(valid_candidates) and not pending
     real_user_accepted = bool(selected.get("playback_acceptance_verified")) if selected else False
