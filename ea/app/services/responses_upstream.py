@@ -5011,8 +5011,8 @@ def _is_onemin_direct_api_url(url: str) -> bool:
 def _onemin_direct_api_proxy_url() -> str:
     username, password = _onemin_direct_api_proxy_credentials()
     return _proxy_url_with_optional_auth(
-        server=_env("ONEMIN_DIRECT_API_PROXY_SERVER")
-        or _env("EA_ONEMIN_DIRECT_API_PROXY_SERVER")
+        server=_env("EA_ONEMIN_DIRECT_API_PROXY_SERVER")
+        or _env("ONEMIN_DIRECT_API_PROXY_SERVER")
         or _env("EA_UI_BROWSER_PROXY_SERVER"),
         username=username,
         password=password,
@@ -5021,11 +5021,11 @@ def _onemin_direct_api_proxy_url() -> str:
 
 def _onemin_direct_api_proxy_credentials() -> tuple[str, str]:
     return (
-        _env("ONEMIN_DIRECT_API_PROXY_USERNAME")
-        or _env("EA_ONEMIN_DIRECT_API_PROXY_USERNAME")
+        _env("EA_ONEMIN_DIRECT_API_PROXY_USERNAME")
+        or _env("ONEMIN_DIRECT_API_PROXY_USERNAME")
         or _env("EA_UI_BROWSER_PROXY_USERNAME"),
-        _env("ONEMIN_DIRECT_API_PROXY_PASSWORD")
-        or _env("EA_ONEMIN_DIRECT_API_PROXY_PASSWORD")
+        _env("EA_ONEMIN_DIRECT_API_PROXY_PASSWORD")
+        or _env("ONEMIN_DIRECT_API_PROXY_PASSWORD")
         or _env("EA_UI_BROWSER_PROXY_PASSWORD"),
     )
 
@@ -5034,8 +5034,8 @@ def _onemin_direct_api_proxy_pool_urls() -> tuple[str, ...]:
     values: list[str] = []
     username, password = _onemin_direct_api_proxy_credentials()
     for env_name in (
-        "ONEMIN_DIRECT_API_PROXY_POOL",
         "EA_ONEMIN_DIRECT_API_PROXY_POOL",
+        "ONEMIN_DIRECT_API_PROXY_POOL",
         "EA_UI_BROWSER_PROXY_POOL",
     ):
         raw = str(_env(env_name) or "").strip()
@@ -8124,7 +8124,7 @@ def _onemin_proxy_identity(proxy_url: str) -> tuple[str, str]:
     host = str(parsed.hostname or "").strip().lower()
     if not host:
         return "direct", "direct"
-    service = host.split(":")[0] if ":" in host else host
+    service = host
     proxy_id = f"{service}:{parsed.port}" if parsed.port else service
     return proxy_id, service
 

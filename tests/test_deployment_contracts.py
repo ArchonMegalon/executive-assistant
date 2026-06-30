@@ -193,11 +193,19 @@ def test_property_compose_keeps_api_loopback_only_and_applies_runtime_limits() -
     assert set(str(item) for item in list(api.get("cap_drop") or [])) == {"ALL"}
     assert "no-new-privileges:true" in list(api.get("security_opt") or [])
     assert set(str(item) for item in list(api.get("tmpfs") or [])) == {"/tmp", "/run"}
+    assert [str(item) for item in list(api.get("command") or [])] == [
+        "nice",
+        "-n",
+        "19",
+        "python",
+        "-m",
+        "app.runner",
+    ]
 
     assert scheduler.get("mem_limit") == "1g"
     assert scheduler.get("mem_reservation") == "256m"
     scheduler_command = "\n".join(str(item) for item in list(scheduler.get("command") or []))
-    assert "nice -n 10" in scheduler_command
+    assert "nice -n 19" in scheduler_command
     assert "ionice -c 3" in scheduler_command
     assert scheduler.get("pids_limit") == 512
     assert scheduler.get("read_only") is True
@@ -206,6 +214,13 @@ def test_property_compose_keeps_api_loopback_only_and_applies_runtime_limits() -
     assert set(str(item) for item in list(scheduler.get("tmpfs") or [])) == {"/tmp", "/run"}
 
     assert db.get("image") == "postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229"
+    assert [str(item) for item in list(db.get("entrypoint") or [])] == [
+        "nice",
+        "-n",
+        "19",
+        "/usr/local/bin/docker-entrypoint.sh",
+    ]
+    assert [str(item) for item in list(db.get("command") or [])] == ["postgres"]
     assert db.get("mem_limit") == "2g"
     assert db.get("mem_reservation") == "512m"
     assert db.get("pids_limit") == 512

@@ -581,16 +581,19 @@ def audiobook_jobs_root() -> Path:
 
 
 def audiobook_job_discovery_roots() -> tuple[Path, ...]:
-    configured = [
-        *_split_configured_paths(str(os.getenv("EA_AUDIOBOOK_JOB_DISCOVERY_ROOTS") or "")),
-        *_split_configured_paths(str(os.getenv("EA_AUDIOBOOK_JOBS_ROOT") or "")),
-        *_split_configured_paths(str(os.getenv("EA_AUDIOBOOK_JOBS_HOST_ROOT") or "")),
-        audiobook_jobs_root(),
-        DEFAULT_JOB_ROOT,
-    ]
+    configured = tuple(_split_configured_paths(str(os.getenv("EA_AUDIOBOOK_JOB_DISCOVERY_ROOTS") or "")))
+    if configured:
+        candidates: tuple[Path, ...] = configured
+    else:
+        candidates = (
+            *_split_configured_paths(str(os.getenv("EA_AUDIOBOOK_JOBS_ROOT") or "")),
+            *_split_configured_paths(str(os.getenv("EA_AUDIOBOOK_JOBS_HOST_ROOT") or "")),
+            audiobook_jobs_root(),
+            DEFAULT_JOB_ROOT,
+        )
     roots: list[Path] = []
     seen: set[str] = set()
-    for root in configured:
+    for root in candidates:
         try:
             key = str(root.resolve())
         except Exception:

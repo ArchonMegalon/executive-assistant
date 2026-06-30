@@ -721,6 +721,45 @@ def test_build_container_auto_storage_falls_back_to_memory_profile_when_postgres
                 os.environ[key] = value
 
 
+def test_build_container_explicit_postgres_can_fall_back_to_memory_profile_in_non_prod(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    saved_env = {
+        "EA_RUNTIME_MODE": os.environ.get("EA_RUNTIME_MODE"),
+        "EA_API_TOKEN": os.environ.get("EA_API_TOKEN"),
+        "EA_STORAGE_FALLBACK_ALLOWED": os.environ.get("EA_STORAGE_FALLBACK_ALLOWED"),
+        "EA_STORAGE_BACKEND": os.environ.get("EA_STORAGE_BACKEND"),
+        "EA_LEDGER_BACKEND": os.environ.get("EA_LEDGER_BACKEND"),
+        "DATABASE_URL": os.environ.get("DATABASE_URL"),
+    }
+
+    try:
+        os.environ.pop("EA_RUNTIME_MODE", None)
+        os.environ["EA_API_TOKEN"] = ""
+        os.environ["EA_STORAGE_FALLBACK_ALLOWED"] = "1"
+        os.environ["EA_STORAGE_BACKEND"] = "postgres"
+        os.environ["EA_LEDGER_BACKEND"] = ""
+        os.environ["DATABASE_URL"] = "postgresql://127.0.0.1:5432/ea"
+
+        def _fake_build_container_for_settings(settings, profile):
+            if settings.storage.backend == "postgres":
+                raise RuntimeError("forced explicit postgres bootstrap failure")
+            return SimpleNamespace(settings=settings, runtime_profile=profile)
+
+        monkeypatch.setattr(app_container, "_build_container_for_settings", _fake_build_container_for_settings)
+
+        container = app_container.build_container()
+        assert container.settings.storage.backend == "memory"
+        assert container.runtime_profile.storage_backend == "memory"
+        assert container.runtime_profile.source_backend == "memory"
+    finally:
+        for key, value in saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
 def test_build_container_auto_storage_does_not_fall_back_when_override_disabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

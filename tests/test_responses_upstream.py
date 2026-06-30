@@ -230,6 +230,27 @@ def test_onemin_direct_api_proxy_pool_expands_env_placeholders(monkeypatch: pyte
     )
 
 
+def test_onemin_direct_api_proxy_prefers_ea_scoped_env_over_legacy_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEMIN_DIRECT_API_PROXY_SERVER", "legacy-proxy:3128")
+    monkeypatch.setenv("ONEMIN_DIRECT_API_PROXY_USERNAME", "legacy-user")
+    monkeypatch.setenv("ONEMIN_DIRECT_API_PROXY_PASSWORD", "legacy-pass")
+    monkeypatch.setenv("ONEMIN_DIRECT_API_PROXY_POOL", "legacy-proxy-1:8080,legacy-proxy-2:8080")
+    monkeypatch.setenv("EA_ONEMIN_DIRECT_API_PROXY_SERVER", "ea-proxy:3128")
+    monkeypatch.setenv("EA_ONEMIN_DIRECT_API_PROXY_USERNAME", "ea-user")
+    monkeypatch.setenv("EA_ONEMIN_DIRECT_API_PROXY_PASSWORD", "ea-pass")
+    monkeypatch.setenv("EA_ONEMIN_DIRECT_API_PROXY_POOL", "ea-proxy-1:8080,ea-proxy-2:8080")
+
+    assert upstream._onemin_direct_api_proxy_url() == "http://ea-user:ea-pass@ea-proxy:3128"
+    assert upstream._onemin_direct_api_proxy_pool_urls() == (
+        "http://ea-user:ea-pass@ea-proxy-1:8080",
+        "http://ea-user:ea-pass@ea-proxy-2:8080",
+        "http://ea-user:ea-pass@legacy-proxy-1:8080",
+        "http://ea-user:ea-pass@legacy-proxy-2:8080",
+    )
+
+
 def test_onemin_direct_api_proxy_pool_uses_common_vpn_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_ONEMIN_DIRECT_API_PROXY_POOL", "ea-fastestvpn-proxy-1:8080,ea-fastestvpn-proxy-2:8080")
     monkeypatch.setenv("EA_ONEMIN_DIRECT_API_PROXY_USERNAME", "vpn-user")

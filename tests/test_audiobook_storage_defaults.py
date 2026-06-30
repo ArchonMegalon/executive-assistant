@@ -90,7 +90,7 @@ def test_audiobook_paths_can_fall_back_to_host_roots_from_dotenv(monkeypatch) ->
     assert module.audiobookshelf_import_root() == Path("/host/audiobookshelf-import")
 
 
-def test_audiobook_job_discovery_roots_include_configured_host_root(monkeypatch) -> None:
+def test_audiobook_job_discovery_roots_use_explicit_override_exclusively(monkeypatch) -> None:
     module_path = ROOT / "ea" / "app" / "services" / "audiobook_epub_pipeline.py"
     spec = importlib.util.spec_from_file_location("audiobook_epub_pipeline_discovery_roots_test", module_path)
     assert spec is not None and spec.loader is not None
@@ -109,6 +109,27 @@ def test_audiobook_job_discovery_roots_include_configured_host_root(monkeypatch)
 
     assert module.audiobook_job_discovery_roots() == (
         Path("/alt/audiobook-jobs"),
+    )
+
+
+def test_audiobook_job_discovery_roots_include_configured_host_root_without_override(monkeypatch) -> None:
+    module_path = ROOT / "ea" / "app" / "services" / "audiobook_epub_pipeline.py"
+    spec = importlib.util.spec_from_file_location("audiobook_epub_pipeline_default_discovery_roots_test", module_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", "/durable/audiobooks/jobs")
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_HOST_ROOT", "/host/audiobook-jobs")
+    monkeypatch.delenv("EA_AUDIOBOOK_JOB_DISCOVERY_ROOTS", raising=False)
+    monkeypatch.setattr(
+        module,
+        "_storage_path_accessible",
+        lambda path: str(path) in {"/durable/audiobooks/jobs", "/host/audiobook-jobs"},
+    )
+
+    assert module.audiobook_job_discovery_roots() == (
         Path("/durable/audiobooks/jobs"),
         Path("/host/audiobook-jobs"),
     )

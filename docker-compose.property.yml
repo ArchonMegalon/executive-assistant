@@ -27,6 +27,7 @@ services:
       TZ: Europe/Vienna
     ports:
       - "127.0.0.1:${EA_HOST_PORT:-8090}:8090"
+    command: ["nice", "-n", "19", "python", "-m", "app.runner"]
     cpu_shares: ${PROPERTYQUARRY_API_CPU_SHARES:-256}
     cpus: ${PROPERTYQUARRY_API_CPUS:-2.0}
     volumes:
@@ -57,9 +58,9 @@ services:
       - -ec
       - |
         if command -v ionice >/dev/null 2>&1; then
-          exec nice -n 10 ionice -c 3 python -m app.runner;
+          exec nice -n 19 ionice -c 3 python -m app.runner;
         fi
-        exec nice -n 10 python -m app.runner
+        exec nice -n 19 python -m app.runner
     env_file:
       - .env
     mem_limit: 1g
@@ -101,6 +102,8 @@ services:
     image: postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229
     container_name: propertyquarry-db
     restart: unless-stopped
+    entrypoint: ["nice", "-n", "19", "/usr/local/bin/docker-entrypoint.sh"]
+    command: ["postgres"]
     mem_limit: 2g
     mem_reservation: 512m
     cpu_shares: ${PROPERTYQUARRY_DB_CPU_SHARES:-64}

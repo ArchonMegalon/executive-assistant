@@ -301,7 +301,7 @@ def build_container(settings: Settings | None = None) -> AppContainer:
     try:
         return _build_container_for_settings(effective_settings, postgres_profile)
     except Exception as exc:
-        if str(configured.storage.backend or "").strip().lower() == "auto" and configured.storage_fallback_allowed:
+        if configured.storage_fallback_allowed:
             log.warning("postgres runtime profile unavailable, switching whole container to memory: %s", exc)
             memory_settings = settings_with_storage_backend(configured, "memory")
             memory_profile = validate_startup_settings(memory_settings)
