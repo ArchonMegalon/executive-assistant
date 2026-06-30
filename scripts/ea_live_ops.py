@@ -615,6 +615,8 @@ def _probe_proactive_artifacts_in_process_payload() -> dict[str, object]:
         "current_packet_callback_outcome": dict(bundle.get("current_packet_callback_outcome") or {}),
         "stage_packet_path": _path_text(bundle.get("stage_packet_path")),
         "safe_work_result_path": _path_text(bundle.get("safe_work_result_path")),
+        "artifact_filter_reason": str(bundle.get("artifact_filter_reason") or "").strip(),
+        "flat_search_enabled": bool(bundle.get("flat_search_enabled")),
         "run_receipt": dict(bundle.get("run_receipt") or {}),
         "action_required_only_quiet_receipt": dict(bundle.get("action_required_only_quiet_receipt") or {}),
         "stage_packet": stage_packet,
@@ -2320,6 +2322,8 @@ def probe_proactive_artifacts(
             "  'current_packet_callback_outcome': bundle.get('current_packet_callback_outcome') or {},\n"
             "  'stage_packet_path': _text(bundle.get('stage_packet_path')),\n"
             "  'safe_work_result_path': _text(bundle.get('safe_work_result_path')),\n"
+            "  'artifact_filter_reason': str(bundle.get('artifact_filter_reason') or '').strip(),\n"
+            "  'flat_search_enabled': bool(bundle.get('flat_search_enabled')),\n"
             "  'run_receipt': bundle.get('run_receipt') or {},\n"
             "  'action_required_only_quiet_receipt': bundle.get('action_required_only_quiet_receipt') or {},\n"
             "  'stage_packet': bundle.get('stage_packet') or {},\n"
@@ -2415,6 +2419,8 @@ def probe_proactive_artifacts(
         "current_packet_callback_outcome": dict(payload.get("current_packet_callback_outcome") or {}),
         "stage_packet_path": str(payload.get("stage_packet_path") or "").strip(),
         "safe_work_result_path": str(payload.get("safe_work_result_path") or "").strip(),
+        "artifact_filter_reason": str(payload.get("artifact_filter_reason") or "").strip(),
+        "flat_search_enabled": bool(payload.get("flat_search_enabled")),
         "run_receipt": dict(payload.get("run_receipt") or {}),
         "action_required_only_quiet_receipt": dict(payload.get("action_required_only_quiet_receipt") or {}),
         "stage_packet": dict(payload.get("stage_packet") or {}),

@@ -200,6 +200,86 @@ def test_load_runtime_artifact_bundle_keeps_sent_packet_when_primary_is_newer_no
     assert bundle["safe_work_result"]["result_ref"] == "safe_work_result:res-actionable"
 
 
+def test_load_runtime_artifact_bundle_hides_property_scout_packet_when_flat_search_disabled(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("EA_PROACTIVE_OODA_DISABLE_FLAT_SEARCH", "1")
+    state_path = "state/proactive_ooda_notified.json"
+    primary_receipt_path = tmp_path / "state" / "proactive_ooda_latest_run.generated.json"
+    archive_receipt_path = tmp_path / "state" / "proactive_ooda_run_receipts" / "20260630T000522Z-sent-property.json"
+    stage_dir = tmp_path / "state" / "proactive_ooda_stage_packets"
+    safe_dir = tmp_path / "state" / "proactive_ooda_safe_work_results"
+
+    property_stage = {
+        "schema": "proactive_ooda.stage_packet.v1",
+        "packet_ref": "stage_packet:pkt-property",
+        "observe": "Property scout found no viable matches.",
+        "decide": "Approve whether EA should stage one filter-review packet.",
+        "stage": {
+            "kind": "research_packet",
+            "payload": {
+                "research_query": "Review why the current property scout filters produced zero viable matches.",
+            },
+        },
+        "approval": {"required": True},
+    }
+    property_safe = {
+        "schema": "proactive_ooda.safe_work_result.v1",
+        "result_ref": "safe_work_result:res-property",
+        "source_packet_ref_hash": _sha256(property_stage["packet_ref"]),
+        "status": "staged_for_user_decision",
+        "summary": "One property scout filter-review packet.",
+        "recommended_option_or_draft": {
+            "kind": "shortlist_candidate",
+            "value": {"label": "IMMMO Wien rentals", "url": "https://www.immmo.at/immo/Wohnung-mieten/Wien"},
+        },
+        "approval": {"required": True},
+        "execution_receipt": {
+            "network_fetch_count": 1,
+            "network_fetch_success_count": 1,
+            "page_checks": [{"url": "https://www.immmo.at/immo/Wohnung-mieten/Wien", "reachable": True}],
+            "irreversible_actions_attempted": [],
+        },
+    }
+    _write_json(stage_dir / "pkt-property.json", property_stage)
+    _write_json(safe_dir / "res-property.json", property_safe)
+    _write_json(
+        primary_receipt_path,
+        {
+            "notification_status": "skipped_no_items",
+            "item_count": 0,
+            "stage_packet_output_dir": str(stage_dir),
+            "safe_work_result_output_dir": str(safe_dir),
+            "stage_packet_ref_hashes": [],
+            "safe_work_result_ref_hashes": [],
+            "telegram_message_ids": [],
+        },
+    )
+    _write_json(
+        archive_receipt_path,
+        {
+            "notification_status": "sent",
+            "item_count": 1,
+            "stage_packet_ref_hashes": [_sha256(property_stage["packet_ref"])],
+            "safe_work_result_ref_hashes": [_sha256(property_safe["result_ref"])],
+            "telegram_message_ids": ["3379"],
+            "teable_sync": {"status": "synced", "sync_attempted": True},
+        },
+    )
+
+    bundle = load_runtime_artifact_bundle(root=tmp_path, state_path=state_path)
+
+    assert bundle["run_receipt_path"] == primary_receipt_path
+    assert bundle["stage_packet_path"] is None
+    assert bundle["stage_packet"] == {}
+    assert bundle["safe_work_result_path"] is None
+    assert bundle["safe_work_result"] == {}
+    assert bundle["artifact_filter_reason"] == "flat_search_disabled_property_scout"
+    assert bundle["flat_search_enabled"] is False
+    assert bundle["current_packet_callback_record_count"] == 0
+
+
 def test_load_runtime_artifact_bundle_prefers_primary_run_linked_artifacts_over_newer_unrelated_pair(tmp_path: Path) -> None:
     state_path = "state/proactive_ooda_notified.json"
     primary_receipt_path = tmp_path / "state" / "proactive_ooda_latest_run.generated.json"

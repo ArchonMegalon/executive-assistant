@@ -355,7 +355,10 @@ def test_discovery_without_lookback_skips_time_filter(monkeypatch) -> None:
     assert "created_at >=" not in query
 
 
-def test_discovery_coalesces_repeated_property_scout_zero_match_observations_to_latest(monkeypatch) -> None:
+def test_discovery_skips_property_scout_observations_when_flat_search_disabled(monkeypatch) -> None:
+    monkeypatch.setenv("EA_PROACTIVE_OODA_PROPERTY_SCOUT_SIGNALS_ENABLED", "1")
+    monkeypatch.setenv("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED", "0")
+    captured: dict[str, object] = {}
     rows = [
         (
             "obs-new",
@@ -439,6 +442,7 @@ def test_discovery_coalesces_repeated_property_scout_zero_match_observations_to_
             return None
 
         def execute(self, _query: str, _params: tuple[object, ...]) -> None:
+            captured["event_types"] = _params[1]
             return None
 
         def fetchall(self) -> list[object]:
@@ -468,12 +472,8 @@ def test_discovery_coalesces_repeated_property_scout_zero_match_observations_to_
         lookback_hours=24,
     )
 
-    assert len(signals) == 2
-    assert [signal.payload["created_at"] for signal in signals] == [
-        "2026-06-27T06:31:50+00:00",
-        "2026-06-27T06:45:00+00:00",
-    ]
-    assert all(signal.title == "Property scout found no viable matches" for signal in signals)
+    assert signals == []
+    assert "property_scout_sync_completed" not in captured["event_types"]
 
 
 def test_opportunity_rules_create_consent_gated_ooda_signal(tmp_path) -> None:
@@ -720,7 +720,9 @@ def test_observation_mapper_preserves_structured_ooda_loop() -> None:
     assert signal.payload["ooda_loop"]["orient"]["tags"] == ["launch", "budget"]
 
 
-def test_observation_mapper_summarizes_property_scout_counts() -> None:
+def test_observation_mapper_drops_property_scout_counts_when_flat_search_disabled(monkeypatch) -> None:
+    monkeypatch.setenv("EA_PROACTIVE_OODA_PROPERTY_SCOUT_SIGNALS_ENABLED", "1")
+    monkeypatch.setenv("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED", "0")
     signal = observation_row_to_signal(
         observation_id="obs-2",
         principal_id="exec",
@@ -737,10 +739,7 @@ def test_observation_mapper_summarizes_property_scout_counts() -> None:
         created_at="2026-06-20T10:00:00+00:00",
     )
 
-    assert signal is not None
-    assert signal.title == "Property scout found items to review"
-    assert "2 high-fit" in signal.summary
-    assert "4 review" in signal.summary
+    assert signal is None
 
 
 def test_observation_mapper_records_topic_suppression_from_stop_message() -> None:
@@ -1066,15 +1065,7 @@ def test_pocket_background_transcript_without_action_intent_stays_quiet_context(
         source_id="pocket-recording:rec-background-noise",
     )
 
-    assert signal is not None
-    assert signal.payload is not None
-    assert signal.payload["ooda_loop"] == {}
-    pocket_payload = signal.payload.get("pocket_recording")
-    assert isinstance(pocket_payload, dict)
-    assert pocket_payload["transcript_text_sha256"]
-
-    digest = ProactiveOodaService().build_digest(principal_id="exec", signals=[signal])
-    assert digest.items == ()
+    assert signal is None
 
 
 def test_pocket_unicode_microphone_noise_fragment_does_not_stage_research() -> None:
@@ -1103,12 +1094,7 @@ def test_pocket_unicode_microphone_noise_fragment_does_not_stage_research() -> N
         source_id="pocket-recording:rec-live-noise",
     )
 
-    assert signal is not None
-    assert signal.payload is not None
-    assert signal.payload["ooda_loop"] == {}
-
-    digest = ProactiveOodaService().build_digest(principal_id="exec", signals=[signal])
-    assert digest.items == ()
+    assert signal is None
 
 
 def test_observation_mapper_turns_alexa_history_index_into_transcript_signal() -> None:
@@ -1361,7 +1347,9 @@ def test_observation_mapper_skips_empty_property_scout_sync() -> None:
     assert signal is None
 
 
-def test_observation_mapper_turns_zero_match_property_scout_supply_into_review_packet() -> None:
+def test_observation_mapper_drops_zero_match_property_scout_supply_when_flat_search_disabled(monkeypatch) -> None:
+    monkeypatch.setenv("EA_PROACTIVE_OODA_PROPERTY_SCOUT_SIGNALS_ENABLED", "1")
+    monkeypatch.setenv("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED", "0")
     signal = observation_row_to_signal(
         observation_id="obs-zero-fit",
         principal_id="exec",
@@ -1395,19 +1383,7 @@ def test_observation_mapper_turns_zero_match_property_scout_supply_into_review_p
         created_at="2026-06-20T10:00:00+00:00",
     )
 
-    assert signal is not None
-    assert signal.title == "Property scout found no viable matches"
-    assert "71 scanned" in signal.summary
-    assert signal.external_id.startswith("property_scout_zero_match:")
-    assert signal.payload is not None
-    ooda_loop = signal.payload["ooda_loop"]
-    assert ooda_loop["decide"]["approval_required"] is True
-    assert ooda_loop["act"]["stage"]["kind"] == "research_packet"
-    assert ooda_loop["act"]["stage"]["target_sites"] == [
-        "https://example.test/willhaben",
-        "https://example.test/immmo",
-    ]
-    assert ooda_loop["act"]["stage"]["candidate_items"][0]["label"] == "Willhaben Wien rentals"
+    assert signal is None
 
 
 def test_property_scout_zero_match_external_id_rolls_by_day() -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping
@@ -145,6 +146,10 @@ def load_runtime_artifact_bundle(
         )
     else:
         stage_packet_path, stage_packet, safe_work_result_path, safe_work_result = preferred_pair
+    artifact_filter_reason = ""
+    if _artifacts_are_disabled_flat_search(stage_packet=stage_packet, safe_work_result=safe_work_result):
+        artifact_filter_reason = "flat_search_disabled_property_scout"
+        stage_packet_path, stage_packet, safe_work_result_path, safe_work_result = None, {}, None, {}
     run_receipt_path, run_receipt = choose_run_receipt(
         primary_run_receipt_path=primary_run_receipt_path,
         primary_run_receipt=primary_run_receipt,
@@ -175,6 +180,8 @@ def load_runtime_artifact_bundle(
         "stage_packet": stage_packet,
         "safe_work_result_path": safe_work_result_path,
         "safe_work_result": safe_work_result,
+        "artifact_filter_reason": artifact_filter_reason,
+        "flat_search_enabled": _flat_search_enabled(),
         "approval_outcome_path": approval_outcome_path,
         "approval_outcome": approval_outcome,
         "approval_callback_dir": approval_callback_dir,
@@ -241,6 +248,37 @@ def _receipt_proves_action_required_only_quiet_delivery(payload: Mapping[str, An
     if int(payload.get("item_count") or 0) <= 0:
         return False
     return _message_id_count(dict(payload)) == 0
+
+
+def _env_truthy(value: object, *, default: bool = False) -> bool:
+    text = str(value or "").strip().lower()
+    if not text:
+        return default
+    return text in {"1", "true", "yes", "on"}
+
+
+def _flat_search_enabled() -> bool:
+    if _env_truthy(os.getenv("EA_PROACTIVE_OODA_DISABLE_FLAT_SEARCH"), default=False):
+        return False
+    return _env_truthy(os.getenv("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED"), default=False)
+
+
+def _artifacts_are_disabled_flat_search(
+    *,
+    stage_packet: Mapping[str, Any],
+    safe_work_result: Mapping[str, Any],
+) -> bool:
+    if _flat_search_enabled():
+        return False
+    material = json.dumps(
+        {
+            "stage_packet": dict(stage_packet or {}),
+            "safe_work_result": dict(safe_work_result or {}),
+        },
+        ensure_ascii=True,
+        sort_keys=True,
+    ).lower()
+    return "property scout" in material or "property_scout" in material
 
 
 def approval_outcome_matches_current_artifacts(
