@@ -119,7 +119,37 @@ def test_materialize_teable_env_recovery_proof_sanitizes_runtime_paths(monkeypat
 def test_materialize_teable_env_recovery_proof_requires_seeded_api_key(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.delenv("TEABLE_API_KEY", raising=False)
     with pytest.raises(SystemExit, match="teable_seeded_api_key_required"):
-        build_teable_env_recovery_proof(root=tmp_path, output_path=tmp_path / "proof.json")
+        build_teable_env_recovery_proof(
+            root=tmp_path,
+            output_path=tmp_path / "proof.json",
+            require_seeded_api_key=True,
+        )
+
+
+def test_materialize_teable_env_recovery_proof_writes_blocked_receipt_without_seeded_api_key(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("TEABLE_API_KEY", raising=False)
+    monkeypatch.setattr(proof_module, "_git_head", lambda path: "fresh-head")
+    monkeypatch.setattr(proof_module, "_source_fingerprint", lambda path: "source-fingerprint")
+
+    receipt = build_teable_env_recovery_proof(
+        root=tmp_path,
+        output_path=tmp_path / "proof.json",
+        require_seeded_api_key=False,
+    )
+    serialized = json.dumps(receipt, sort_keys=True)
+
+    assert receipt["status"] == "blocked_setup_required"
+    assert receipt["recovery_status"] == "not_attempted"
+    assert receipt["blocking_reason"] == "teable_seeded_api_key_required"
+    assert receipt["next_action"] == "seed_teable_api_key_and_rerun_fresh_host_recovery_drill"
+    assert receipt["fresh_host_api_key_source"] == "missing"
+    assert receipt["drill_output_removed"] is True
+    assert receipt["secret_values_redacted"] is True
+    assert receipt["privacy"]["raw_api_key_exposed"] is False
+    assert "seeded-teable-key" not in serialized
 
 
 def test_teable_env_recovery_proof_verifier_flags_stale_receipt(tmp_path: Path, monkeypatch) -> None:

@@ -1,43 +1,14 @@
 {
+  "blocking_reason": "teable_seeded_api_key_required",
   "contract_name": "ea.teable_env_recovery_proof.v1",
   "drill_output_removed": true,
-  "env_files": [
-    {
-      "backup_created": false,
-      "hash_mismatch_count": 0,
-      "hash_verified": 420,
-      "mode": "0o600",
-      "path_recorded": true,
-      "path_sha256": "ecd8c5a633ee76732f1243fea44ef46690ef91ad9e377bf0aea5cfee0a737d4e",
-      "restored": 420,
-      "scope": "ea_root"
-    },
-    {
-      "backup_created": false,
-      "hash_mismatch_count": 0,
-      "hash_verified": 100,
-      "mode": "0o600",
-      "path_recorded": true,
-      "path_sha256": "79db42802e0aa57cec8d1da0ddea4044b026ae16868093194d6f8b966ef02a36",
-      "restored": 100,
-      "scope": "ea_root_local"
-    },
-    {
-      "backup_created": false,
-      "hash_mismatch_count": 0,
-      "hash_verified": 9,
-      "mode": "0o600",
-      "path_recorded": true,
-      "path_sha256": "9ce4913cef216141f310f7a003f6978b28409c510c24195fce5d23ca0860955d",
-      "restored": 9,
-      "scope": "ea_service"
-    }
-  ],
-  "fresh_host_api_key_source": "process_env",
-  "generated_at": "2026-06-30T06:48:08Z",
+  "env_files": [],
+  "fresh_host_api_key_source": "missing",
+  "generated_at": "2026-06-30T07:35:53Z",
   "generated_by": "scripts/materialize_teable_env_recovery_proof.py",
   "head_semantics": "source_state",
   "host_profile": "ea-prod",
+  "next_action": "seed_teable_api_key_and_rerun_fresh_host_recovery_drill",
   "output_path": "/docker/EA/.codex-studio/published/teable_env_recovery_proof.generated.json",
   "privacy": {
     "raw_api_key_exposed": false,
@@ -45,68 +16,36 @@
     "raw_table_id_exposed": false,
     "secret_values_exposed": false
   },
-  "recovery_status": "recovered",
+  "recovery_status": "not_attempted",
   "referenced_files": {
     "backup_count": 0,
     "hash_mismatch_count": 0,
-    "hash_verified": 6,
-    "modes": [
-      {
-        "mode": "0o600",
-        "path_sha256": "026b12e96ca26ccf78ebdd07e23bab800c7fba6f411bcf0be2c2281fbabdd44a"
-      },
-      {
-        "mode": "0o600",
-        "path_sha256": "d45702390a598435d1d8439198e74a15cea5628efb0e45e3bdcc7cb38a6c2d3c"
-      },
-      {
-        "mode": "0o600",
-        "path_sha256": "3a986b25f58efaecf8bc42a66775767b5c378c9a7b4a1ab96a2830eb1f34c72f"
-      },
-      {
-        "mode": "0o600",
-        "path_sha256": "74377796d3434194219a0dffbaf8aa238494e27655ce45c43684e0c7308d6dba"
-      },
-      {
-        "mode": "0o600",
-        "path_sha256": "34aa69f5562d0031122e2eeb5e4032291de15ee277f093740e5e6b3f309cfa13"
-      },
-      {
-        "mode": "0o600",
-        "path_sha256": "ee9c99645b75b6c8b55b72dfe453fad036da6560a90c3b5076d2c5a1abb7f875"
-      }
-    ],
-    "path_count": 6,
-    "path_sha256": [
-      "026b12e96ca26ccf78ebdd07e23bab800c7fba6f411bcf0be2c2281fbabdd44a",
-      "d45702390a598435d1d8439198e74a15cea5628efb0e45e3bdcc7cb38a6c2d3c",
-      "3a986b25f58efaecf8bc42a66775767b5c378c9a7b4a1ab96a2830eb1f34c72f",
-      "74377796d3434194219a0dffbaf8aa238494e27655ce45c43684e0c7308d6dba",
-      "34aa69f5562d0031122e2eeb5e4032291de15ee277f093740e5e6b3f309cfa13",
-      "ee9c99645b75b6c8b55b72dfe453fad036da6560a90c3b5076d2c5a1abb7f875"
-    ],
-    "restored": 6
+    "hash_verified": 0,
+    "modes": [],
+    "path_count": 0,
+    "path_sha256": [],
+    "restored": 0
   },
   "rules": [
-    "This receipt proves a fresh-host-style Teable recovery run into a throwaway private directory and keeps secret values redacted.",
-    "Do not treat this receipt as license to store recovery truth outside Teable and mirrored evidence surfaces.",
-    "Delete throwaway recovery outputs after verification so the mirrored receipt keeps the proof while the secret material is removed from disk."
+    "This blocked receipt preserves current source-state evidence when the fresh-host Teable recovery drill cannot run.",
+    "A blocked_setup_required receipt is not a recovery proof and must not satisfy gold-production recovery requirements.",
+    "Seed TEABLE_API_KEY in the operator environment, then rerun the fresh-host recovery drill to produce a pass receipt."
   ],
   "secret_values_redacted": true,
-  "source_git_head": "8d5c87e25ca19815134b8d095ac28ed1e76f9804",
-  "source_state_fingerprint": "4bef94761d88989fa215bde9358c6848452eebb6be7d97f4feacc1dbaff7ae6d",
+  "source_git_head": "9f13913906bf94efcf4f4d75dde98bb05f583211",
+  "source_state_fingerprint": "d2ddf9be873f7aceb2bccbed1a0665650188d2a75c254525a9bdc59acd3e97dd",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
-  "status": "pass",
-  "table_discovery_mode": "explicit_table_id",
-  "table_id_sha256": "87a26b41641ac77a25fbd1e11c14b8fb98db0256d70ff5ebb4e9328e07831ff7",
+  "status": "blocked_setup_required",
+  "table_discovery_mode": "not_attempted",
+  "table_id_sha256": "",
   "table_name": "ea_environment_secrets_recovery",
   "verification": {
     "different_hash_count": 0,
-    "expected_rows": 535,
+    "expected_rows": 0,
     "extra_restorable_count": 0,
     "missing_count": 0,
     "missing_secret_value_count": 0,
-    "same_hash": 535,
-    "status": "pass"
+    "same_hash": 0,
+    "status": "not_attempted"
   }
 }

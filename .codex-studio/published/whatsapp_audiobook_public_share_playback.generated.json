@@ -2,7 +2,7 @@
   "attempted": 1,
   "contract_name": "ea.whatsapp_audiobook_public_share_playback_e2e.v1",
   "failed": 0,
-  "generated_at": "2026-06-30T07:30:31.006173Z",
+  "generated_at": "2026-06-30T07:38:40.153062Z",
   "generated_by": "ea/scripts/verify_whatsapp_audiobook_public_share_playback.py",
   "head_semantics": "source_state",
   "passed": 1,
@@ -13,7 +13,7 @@
   },
   "results": [
     {
-      "current_time_after_play_seconds": 2.540362,
+      "current_time_after_play_seconds": 2.862494,
       "duration_seconds": 14559.48,
       "job_id_sha256": "1a7a76f41c3bd81a974d309bb59ff80837451843917026aacc130b70729f0837",
       "media_error": false,
@@ -30,8 +30,8 @@
       "track_response_status": 206
     }
   ],
-  "source_git_head": "d818ffc0d9a03900cf3224ad2d9fc9c3104ef2e7",
-  "source_state_fingerprint": "9f569ea990d4722d11ded66fc01e596b7d126e994adbf8550951d77932fea3c0",
+  "source_git_head": "9f13913906bf94efcf4f4d75dde98bb05f583211",
+  "source_state_fingerprint": "d2ddf9be873f7aceb2bccbed1a0665650188d2a75c254525a9bdc59acd3e97dd",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "pass"
 }

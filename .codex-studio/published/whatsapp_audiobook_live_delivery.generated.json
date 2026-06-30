@@ -29,14 +29,14 @@
   ],
   "failed_codes": [],
   "fresh_live_job_receipt_proven": true,
-  "generated_at": "2026-06-30T07:30:51.854976Z",
+  "generated_at": "2026-06-30T07:38:53.257974Z",
   "generated_by": "ea/scripts/materialize_whatsapp_audiobook_live_delivery_receipt.py",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
   "historical_evidence": {
     "historical_live_path_proven": true,
     "local_intake": {
-      "generated_at": "2026-06-30T07:30:52.282872Z",
+      "generated_at": "2026-06-30T07:38:53.948154Z",
       "local_path_proven": true,
       "receipt_present": true,
       "share_link_sent": 1,
@@ -44,7 +44,7 @@
       "voice_sample_sent": 3
     },
     "operator_bundle": {
-      "generated_at": "2026-06-30T07:26:41.771673Z",
+      "generated_at": "2026-06-30T07:30:51.854976Z",
       "live_delivery_claim_allowed": true,
       "live_delivery_status": "pass",
       "live_path_proven": true,
@@ -56,7 +56,7 @@
     "present": true,
     "public_share_playback": {
       "attempted": 1,
-      "generated_at": "2026-06-30T07:30:31.006173Z",
+      "generated_at": "2026-06-30T07:38:40.153062Z",
       "passed": 1,
       "passed_result_count": 1,
       "playback_path_proven": true,
@@ -139,7 +139,7 @@
     "failed_codes": [],
     "job_id_sha256": "1a7a76f41c3bd81a974d309bb59ff80837451843917026aacc130b70729f0837",
     "machine_playback_e2e_browser": "chromium_playwright",
-    "machine_playback_e2e_current_time_after_play_seconds": 2.540362,
+    "machine_playback_e2e_current_time_after_play_seconds": 2.862494,
     "machine_playback_e2e_duration_seconds": 14559.48,
     "machine_playback_e2e_media_error_code": 0,
     "machine_playback_e2e_media_error_present": false,
@@ -174,8 +174,8 @@
     "whatsapp_sender_bound": true,
     "whatsapp_session_bound": true
   },
-  "source_git_head": "d818ffc0d9a03900cf3224ad2d9fc9c3104ef2e7",
-  "source_state_fingerprint": "9f569ea990d4722d11ded66fc01e596b7d126e994adbf8550951d77932fea3c0",
+  "source_git_head": "9f13913906bf94efcf4f4d75dde98bb05f583211",
+  "source_state_fingerprint": "d2ddf9be873f7aceb2bccbed1a0665650188d2a75c254525a9bdc59acd3e97dd",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "stage_summary": {
     "counts": {

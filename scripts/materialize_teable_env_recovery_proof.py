@@ -105,10 +105,20 @@ def build_teable_env_recovery_proof(
     table_name: str = DEFAULT_TABLE_NAME,
     host_profile: str = "ea-prod",
     generated_at: str | None = None,
+    require_seeded_api_key: bool = True,
 ) -> dict[str, Any]:
     seeded_api_key = str(api_key or os.environ.get("TEABLE_API_KEY") or "").strip()
     if not seeded_api_key:
-        raise SystemExit("teable_seeded_api_key_required")
+        if require_seeded_api_key:
+            raise SystemExit("teable_seeded_api_key_required")
+        return _blocked_setup_receipt(
+            root=root,
+            output_path=output_path,
+            table_name=table_name,
+            host_profile=host_profile,
+            generated_at=generated_at,
+            reason="teable_seeded_api_key_required",
+        )
     resolved_base_url = str(base_url or os.environ.get("TEABLE_BASE_URL") or sync_env_to_teable.DEFAULT_BASE_URL).strip().rstrip("/")
     resolved_table_id = str(table_id or "").strip()
     resolved_table_name = str(table_name or DEFAULT_TABLE_NAME).strip() or DEFAULT_TABLE_NAME
@@ -190,6 +200,68 @@ def build_teable_env_recovery_proof(
     return receipt
 
 
+def _blocked_setup_receipt(
+    *,
+    root: Path,
+    output_path: Path,
+    table_name: str,
+    host_profile: str,
+    generated_at: str | None,
+    reason: str,
+) -> dict[str, Any]:
+    return {
+        "contract_name": "ea.teable_env_recovery_proof.v1",
+        "generated_at": generated_at or _utc_now(),
+        "generated_by": "scripts/materialize_teable_env_recovery_proof.py",
+        "source_git_head": _git_head(root),
+        "head_semantics": "source_state",
+        "source_state_fingerprint": _source_fingerprint(root),
+        "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
+        "output_path": str(output_path if output_path.is_absolute() else output_path.as_posix()),
+        "status": "blocked_setup_required",
+        "recovery_status": "not_attempted",
+        "blocking_reason": reason,
+        "next_action": "seed_teable_api_key_and_rerun_fresh_host_recovery_drill",
+        "host_profile": str(host_profile or "ea-prod").strip() or "ea-prod",
+        "fresh_host_api_key_source": "missing",
+        "table_discovery_mode": "not_attempted",
+        "table_id_sha256": "",
+        "table_name": str(table_name or DEFAULT_TABLE_NAME).strip() or DEFAULT_TABLE_NAME,
+        "secret_values_redacted": True,
+        "drill_output_removed": True,
+        "env_files": [],
+        "referenced_files": {
+            "restored": 0,
+            "hash_verified": 0,
+            "hash_mismatch_count": 0,
+            "backup_count": 0,
+            "path_count": 0,
+            "path_sha256": [],
+            "modes": [],
+        },
+        "verification": {
+            "status": "not_attempted",
+            "expected_rows": 0,
+            "same_hash": 0,
+            "missing_count": 0,
+            "different_hash_count": 0,
+            "missing_secret_value_count": 0,
+            "extra_restorable_count": 0,
+        },
+        "privacy": {
+            "raw_paths_exposed": False,
+            "raw_table_id_exposed": False,
+            "raw_api_key_exposed": False,
+            "secret_values_exposed": False,
+        },
+        "rules": [
+            "This blocked receipt preserves current source-state evidence when the fresh-host Teable recovery drill cannot run.",
+            "A blocked_setup_required receipt is not a recovery proof and must not satisfy gold-production recovery requirements.",
+            "Seed TEABLE_API_KEY in the operator environment, then rerun the fresh-host recovery drill to produce a pass receipt.",
+        ],
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Materialize a sanitized fresh-host Teable recovery proof receipt.")
     parser.add_argument("--root", type=Path, default=ROOT)
@@ -199,6 +271,7 @@ def main() -> int:
     parser.add_argument("--table-id", default=str(os.environ.get("EA_ENV_TEABLE_TABLE_ID") or "").strip())
     parser.add_argument("--table-name", default=str(os.environ.get("EA_ENV_TEABLE_TABLE_NAME") or DEFAULT_TABLE_NAME).strip())
     parser.add_argument("--host-profile", default=str(os.environ.get("EA_ENV_TEABLE_HOST_PROFILE") or "ea-prod").strip() or "ea-prod")
+    parser.add_argument("--strict", action="store_true", help="Fail instead of writing a blocked receipt when setup credentials are missing.")
     parser.add_argument("--pretty", action="store_true")
     args = parser.parse_args()
 
@@ -211,6 +284,7 @@ def main() -> int:
         table_id=args.table_id,
         table_name=args.table_name,
         host_profile=args.host_profile,
+        require_seeded_api_key=bool(args.strict),
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
