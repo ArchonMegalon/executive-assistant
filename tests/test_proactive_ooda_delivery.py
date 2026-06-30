@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from app.services import proactive_ooda_delivery as delivery
+from app.services.proactive_ooda_telegram_policy import approval_request_needs_telegram_user_action
 from app.services.proactive_ooda_service import ProactiveOodaService, build_run_receipt
 
 
@@ -79,6 +80,39 @@ def _whatsapp_web_binding(**overrides: object) -> SimpleNamespace:
     }
     values.update(overrides)
     return SimpleNamespace(**values)
+
+
+def test_approval_policy_suppresses_generic_shortlist_telegram_push() -> None:
+    assert (
+        approval_request_needs_telegram_user_action(
+            {
+                "packet_ref": "stage_packet:packet-1",
+                "staged_artifact_ref": "safe_work_result:result-1",
+                "approval_prompt": (
+                    "Approve whether EA should proceed with this staged shortlist candidate. "
+                    "Research, compare, or draft only; require explicit approval before purchase, booking, cancellation, sending, posting, or commitment."
+                ),
+                "staged_action_url": "https://example.com/candidate",
+            }
+        )
+        is False
+    )
+
+
+def test_approval_policy_allows_shortlist_when_explicit_action_is_present() -> None:
+    assert (
+        approval_request_needs_telegram_user_action(
+            {
+                "packet_ref": "stage_packet:packet-1",
+                "staged_artifact_ref": "safe_work_result:result-1",
+                "approval_prompt": "Approve whether EA should proceed with this staged shortlist candidate.",
+                "staged_action_url": "https://example.com/candidate",
+                "approved_execution_mode": "record_outcome_only",
+                "approved_action": "save_gmail_draft",
+            }
+        )
+        is True
+    )
 
 
 def test_delivery_status_prefers_active_whatsapp_delivery_preference(monkeypatch) -> None:
@@ -283,8 +317,10 @@ def test_send_proactive_notification_sends_follow_up_approval_prompt_with_button
         approval_request={
             "packet_ref": "stage_packet:packet-1",
             "staged_artifact_ref": "safe_work_result:result-1",
-            "approval_prompt": "Approve this staged shortlist.",
-            "staged_action_url": "https://example.com/candidate",
+            "approval_prompt": "Approve whether EA should keep this saved Gmail draft as the chosen next step.",
+            "staged_action_url": "https://example.com/draft",
+            "approved_execution_mode": "record_outcome_only",
+            "approved_action": "save_gmail_draft",
         },
     )
 
@@ -293,7 +329,7 @@ def test_send_proactive_notification_sends_follow_up_approval_prompt_with_button
     assert receipt.approval_surface["callback_token_sha256"] == "b" * 64
     assert receipt.approval_surface["message_ids"] == ("tg-1",)
     assert len(sent) == 1
-    assert sent[0]["text"] == "Approve this staged shortlist."
+    assert sent[0]["text"] == "Approve whether EA should keep this saved Gmail draft as the chosen next step."
     assert sent[0]["inline_buttons"] == [[("Approve", "po|a|token|1|sig")]]
     assert sent[0]["url_buttons"] == [[("Open candidate", "https://example.com/candidate")]]
     assert recorded == [
@@ -303,6 +339,53 @@ def test_send_proactive_notification_sends_follow_up_approval_prompt_with_button
             "status": "pending",
         }
     ]
+
+
+def test_send_proactive_notification_keeps_generic_shortlist_approval_quiet(monkeypatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token")
+    monkeypatch.setattr(delivery, "resolve_primary_telegram_binding", lambda tool_runtime, *, principal_id: _telegram_binding())
+    sent: list[dict[str, object]] = []
+
+    def fake_send(tool_runtime, *, principal_id, text, inline_buttons=None, url_buttons=None):
+        sent.append(
+            {
+                "principal_id": principal_id,
+                "text": text,
+                "inline_buttons": inline_buttons,
+                "url_buttons": url_buttons,
+            }
+        )
+        return SimpleNamespace(message_ids=(f"tg-{len(sent)}",), chat_id="1354554303")
+
+    monkeypatch.setattr(delivery, "send_telegram_message_for_principal", fake_send)
+
+    receipt = delivery.send_proactive_ooda_notification(
+        principal_id="exec",
+        text="EA OODA packet",
+        tool_runtime=SimpleNamespace(),
+        channel_runtime=None,
+        memory_runtime=SimpleNamespace(
+            list_delivery_preferences=lambda **_kwargs: [],
+            list_communication_policies=lambda **_kwargs: [],
+            list_follow_ups=lambda **_kwargs: [],
+        ),
+        approval_request={
+            "packet_ref": "stage_packet:packet-1",
+            "staged_artifact_ref": "safe_work_result:result-1",
+            "approval_prompt": (
+                "Approve whether EA should proceed with this staged shortlist candidate. "
+                "Research, compare, or draft only; require explicit approval before purchase, booking, cancellation, sending, posting, or commitment."
+            ),
+            "staged_action_url": "https://example.com/candidate",
+        },
+    )
+
+    assert receipt.message_ids == ("tg-1",)
+    assert receipt.approval_surface == {}
+    assert len(sent) == 1
+    assert sent[0]["text"] == "EA OODA packet"
+    assert sent[0]["inline_buttons"] is None
+    assert sent[0]["url_buttons"] is None
 
 
 def test_send_proactive_notification_marks_approval_surface_delivery_failed_when_prompt_send_fails(monkeypatch) -> None:
@@ -351,12 +434,14 @@ def test_send_proactive_notification_marks_approval_surface_delivery_failed_when
                 list_communication_policies=lambda **_kwargs: [],
                 list_follow_ups=lambda **_kwargs: [],
             ),
-            approval_request={
-                "packet_ref": "stage_packet:packet-1",
-                "staged_artifact_ref": "safe_work_result:result-1",
-                "approval_prompt": "Approve this staged shortlist.",
-            },
-        )
+                approval_request={
+                    "packet_ref": "stage_packet:packet-1",
+                    "staged_artifact_ref": "safe_work_result:result-1",
+                    "approval_prompt": "Approve whether EA should keep this saved Gmail draft as the chosen next step.",
+                    "approved_execution_mode": "record_outcome_only",
+                    "approved_action": "save_gmail_draft",
+                },
+            )
         raise AssertionError("send should fail when the action surface cannot be delivered")
     except RuntimeError as exc:
         assert str(exc) == "telegram_approval_prompt_delivery_failed"

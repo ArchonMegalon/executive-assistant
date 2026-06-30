@@ -1332,6 +1332,123 @@ def test_goal_posture_verifier_accepts_waiting_for_live_epub_component_status(tm
     assert issues == []
 
 
+def test_goal_posture_models_failed_whatsapp_playback_as_queue_only_repair(tmp_path: Path, monkeypatch) -> None:
+    _set_source_state(monkeypatch)
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
+        status="ready_local_packet_pending_operator_acceptance",
+        next_action="review packet with operator",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_office_loop_goal.generated.json",
+        status="ready_local_evidence",
+        next_action="collect office-loop acceptance",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/active_media_ltd_goal_bundle.generated.json",
+        status="ready_local_evidence",
+        next_action="collect external media proofs",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
+        status="blocked_real_world_acceptance",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/teable_env_recovery_readiness.generated.json",
+        status="ready_local_audit",
+    )
+    _write_teable_recovery_proof_receipt(tmp_path, status="pass")
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/telegram_audiobook_live_readiness.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_local_intake_proof.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_public_share_playback.generated.json",
+        status="failed",
+        failed=1,
+        attempted=1,
+        results=[
+            {
+                "status": "failed",
+                "passed": False,
+                "reason": "play_failed",
+                "track_response_status": 500,
+                "track_content_type": "text/html",
+                "media_error": True,
+                "media_error_code": 4,
+                "public_share_host": "audiobookshelf.example.test",
+                "raw_url_exposed": False,
+            }
+        ],
+        privacy={"raw_public_share_url_exposed": False, "raw_track_url_exposed": False},
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_live_voice_selection_shadow.generated.json",
+        status="pass",
+    )
+    _write_proactive_ooda_receipts(
+        tmp_path,
+        gold_status="pass",
+        gold_claim_allowed=True,
+        gold_remaining_external_proofs=[],
+        gold_approval_accepted=True,
+    )
+
+    output = tmp_path / ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"
+    receipt = build_goal_posture(root=tmp_path, output_path=output, generated_at="2026-06-30T09:00:00Z")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+
+    proof_requirements = {item["key"]: item for item in receipt["acceptance_proof_requirements"]}
+    whatsapp = proof_requirements["whatsapp_audiobook_live_delivery"]
+    assert whatsapp["action_context"]["kind"] == "public_share_playback_failure"
+    assert whatsapp["action_context"]["user_action_required"] is False
+    assert whatsapp["action_context"]["telegram_push_allowed"] is False
+    assert whatsapp["action_context"]["track_response_status"] == 500
+    assert whatsapp["action_context"]["track_content_type"] == "text/html"
+    queue_row = next(item for item in receipt["operator_action_queue"] if item["key"] == "whatsapp_audiobook_live_delivery")
+    assert queue_row["user_action_required"] is False
+    assert queue_row["telegram_push_allowed"] is False
+    assert queue_row["track_response_status"] == 500
+    assert queue_row["raw_public_share_url_exposed"] is False
+    assert queue_row["raw_track_url_exposed"] is False
+    assert "deliver:whatsapp_audiobook=failed" in receipt["blocking_reasons"]
+    assert verify(output, root=tmp_path) == []
+
+
 def test_goal_posture_verifier_accepts_post_commit_head_change_when_source_fingerprint_matches(
     tmp_path: Path,
     monkeypatch,

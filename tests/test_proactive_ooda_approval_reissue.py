@@ -162,6 +162,27 @@ def test_reissue_current_proactive_ooda_approval_blocks_internal_proof_packet(tm
     assert send_calls == []
 
 
+def test_reissue_current_proactive_ooda_approval_blocks_generic_shortlist_candidate(tmp_path) -> None:
+    send_calls: list[dict[str, object]] = []
+    bundle = _bundle()
+    bundle["safe_work_result"]["approval_prompt"] = (
+        "Approve whether EA should proceed with this staged shortlist candidate. "
+        "Research, compare, or draft only; require explicit approval before purchase, booking, cancellation, sending, posting, or commitment."
+    )
+
+    result = reissue_current_proactive_ooda_approval(
+        principal_id="exec",
+        root=tmp_path,
+        state_path="state/proactive_ooda_notified.json",
+        bundle_loader=lambda **_kwargs: bundle,
+        sender=lambda **kwargs: send_calls.append(dict(kwargs)),
+    )
+
+    assert result["status"] == "blocked"
+    assert result["reason"] == "approval_request_not_user_action_required"
+    assert send_calls == []
+
+
 def test_reissue_current_proactive_ooda_approval_sends_telegram_action_surface(tmp_path) -> None:
     sent: list[dict[str, object]] = []
 

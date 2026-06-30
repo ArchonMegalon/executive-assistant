@@ -1,13 +1,20 @@
 {
   "audiobook_runtime": {
-    "api_key_slot_count": 7,
-    "ready_for_live_intake": true,
-    "reason": "",
+    "api_key_slot_count": 0,
+    "ready_for_live_intake": false,
+    "reason": "jobs_root_durable, external_tts_enabled, unmixr_auto_render_enabled, voice_catalog_configured, voice_catalog_audition_ready, unmixr_api_key_slot_present",
     "receipt_present": true,
-    "sample_blockers": [],
-    "status": "warn",
-    "unmixr_auto_render_enabled": true,
-    "voice_catalog_count": 292
+    "sample_blockers": [
+      "jobs_root_durable",
+      "external_tts_enabled",
+      "unmixr_auto_render_enabled",
+      "voice_catalog_configured",
+      "voice_catalog_audition_ready",
+      "unmixr_api_key_slot_present"
+    ],
+    "status": "fail",
+    "unmixr_auto_render_enabled": false,
+    "voice_catalog_count": 0
   },
   "blocking_reason": "",
   "candidate_count": 2,
@@ -29,14 +36,14 @@
   ],
   "failed_codes": [],
   "fresh_live_job_receipt_proven": true,
-  "generated_at": "2026-06-30T07:48:50.755956Z",
+  "generated_at": "2026-06-30T08:37:40.655715Z",
   "generated_by": "ea/scripts/materialize_whatsapp_audiobook_live_delivery_receipt.py",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
   "historical_evidence": {
     "historical_live_path_proven": true,
     "local_intake": {
-      "generated_at": "2026-06-30T07:48:51.571849Z",
+      "generated_at": "2026-06-30T08:37:41.654835Z",
       "local_path_proven": true,
       "receipt_present": true,
       "share_link_sent": 1,
@@ -44,7 +51,7 @@
       "voice_sample_sent": 3
     },
     "operator_bundle": {
-      "generated_at": "2026-06-30T07:38:53.257974Z",
+      "generated_at": "2026-06-30T07:48:50.755956Z",
       "live_delivery_claim_allowed": true,
       "live_delivery_status": "pass",
       "live_path_proven": true,
@@ -174,8 +181,8 @@
     "whatsapp_sender_bound": true,
     "whatsapp_session_bound": true
   },
-  "source_git_head": "40d1d105c198030aa3c61c99301a2050dabd015c",
-  "source_state_fingerprint": "61d4b23c2cbbd6fe932a31a05fa8c8f7371fd9344caefe4f407d4030fcdbc6a3",
+  "source_git_head": "4f88970eeac244fea7eb089872fa2e8884c81f26",
+  "source_state_fingerprint": "8b7e28e3751ec6a7d6bf232d566853206f93c303a69c3fea2700474461073cfa",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "stage_summary": {
     "counts": {

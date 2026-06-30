@@ -21,11 +21,25 @@ INTERNAL_TELEGRAM_NOISE_MARKERS = (
 )
 
 
+LOW_VALUE_APPROVAL_PROMPT_MARKERS = (
+    "research, compare, or draft only",
+    "require explicit approval before purchase",
+    "staged result",
+)
+
+
 def telegram_ooda_text_is_internal_noise(*values: Any) -> bool:
     normalized = " ".join(" ".join(str(value or "").strip().lower().split()) for value in values if str(value or "").strip())
     if not normalized:
         return False
     return any(marker in normalized for marker in INTERNAL_TELEGRAM_NOISE_MARKERS)
+
+
+def telegram_ooda_approval_is_low_value_research_prompt(*values: Any) -> bool:
+    normalized = " ".join(" ".join(str(value or "").strip().lower().split()) for value in values if str(value or "").strip())
+    if not normalized:
+        return False
+    return any(marker in normalized for marker in LOW_VALUE_APPROVAL_PROMPT_MARKERS)
 
 
 def approval_request_needs_telegram_user_action(approval_request: Mapping[str, Any] | None) -> bool:
@@ -40,6 +54,8 @@ def approval_request_needs_telegram_user_action(approval_request: Mapping[str, A
     approved_action = str(request.get("approved_action") or "").strip()
     if not any((prompt, staged_action_url, approved_execution_mode, approved_action)):
         return False
+    if telegram_ooda_approval_is_low_value_research_prompt(prompt):
+        return bool(approved_execution_mode or approved_action)
     if telegram_ooda_text_is_internal_noise(prompt):
         return bool(approved_execution_mode or approved_action) and not telegram_ooda_text_is_internal_noise(
             approved_execution_mode,

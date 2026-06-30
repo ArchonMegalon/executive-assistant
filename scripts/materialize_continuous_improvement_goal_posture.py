@@ -379,6 +379,41 @@ def _stale_source_action_context(*, receipts: list[dict[str, Any]], refresh_comm
     }
 
 
+def _whatsapp_playback_failure_action_context(receipt: dict[str, Any]) -> dict[str, Any]:
+    results = [dict(row) for row in list(receipt.get("results") or []) if isinstance(row, dict)]
+    first = results[0] if results else {}
+    return {
+        "kind": "public_share_playback_failure",
+        "user_action_required": False,
+        "instruction": "Repair the WhatsApp/Audiobookshelf public-share playback route, then rerun the WhatsApp audiobook playback verifier.",
+        "failed_playback_count": int(receipt.get("failed") or len([row for row in results if row.get("passed") is not True]) or 0),
+        "attempted_playback_count": int(receipt.get("attempted") or len(results) or 0),
+        "first_failure_reason": str(first.get("reason") or "").strip(),
+        "track_response_status": int(first.get("track_response_status") or 0),
+        "track_content_type": str(first.get("track_content_type") or "").strip(),
+        "media_error": bool(first.get("media_error")),
+        "media_error_code": int(first.get("media_error_code") or 0),
+        "public_share_host": str(first.get("public_share_host") or "").strip(),
+        "repair_commands": [
+            "PYTHONPATH=ea python3 ea/scripts/verify_whatsapp_audiobook_public_share_playback.py",
+            "PYTHONPATH=ea python3 ea/scripts/materialize_whatsapp_audiobook_operator_proof_bundle.py",
+            "python3 scripts/materialize_continuous_improvement_goal_posture.py",
+            "python3 scripts/verify_continuous_improvement_goal_posture.py --pretty",
+        ],
+        "delivery_policy": "queue_only",
+        "telegram_push_allowed": False,
+        "non_action_progress_push_allowed": False,
+        "raw_private_context_exposed": False,
+        "raw_chat_ids_exposed": False,
+        "raw_token_exposed": False,
+        "raw_secret_exposed": False,
+        "raw_voice_ids_exposed": False,
+        "callback_tokens_exposed": False,
+        "raw_public_share_url_exposed": False,
+        "raw_track_url_exposed": False,
+    }
+
+
 def _operator_action_priority(requirement: dict[str, Any]) -> tuple[int, int, str]:
     action_context = dict(requirement.get("action_context") or {})
     if action_context.get("user_action_required") is True:
@@ -426,6 +461,19 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
                 for item in list(action_context.get("refresh_commands") or [])
                 if str(item).strip()
             ],
+            "repair_commands": [
+                str(item).strip()
+                for item in list(action_context.get("repair_commands") or [])
+                if str(item).strip()
+            ],
+            "failed_playback_count": int(action_context.get("failed_playback_count") or 0),
+            "attempted_playback_count": int(action_context.get("attempted_playback_count") or 0),
+            "first_failure_reason": str(action_context.get("first_failure_reason") or "").strip(),
+            "track_response_status": int(action_context.get("track_response_status") or 0),
+            "track_content_type": str(action_context.get("track_content_type") or "").strip(),
+            "media_error": bool(action_context.get("media_error")),
+            "media_error_code": int(action_context.get("media_error_code") or 0),
+            "public_share_host": str(action_context.get("public_share_host") or "").strip(),
             "setup_checklist": [
                 dict(item)
                 for item in list(action_context.get("setup_checklist") or [])
@@ -462,7 +510,39 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
             "raw_secret_exposed": bool(action_context.get("raw_secret_exposed")),
             "raw_voice_ids_exposed": bool(action_context.get("raw_voice_ids_exposed")),
             "callback_tokens_exposed": bool(action_context.get("callback_tokens_exposed")),
+            "raw_public_share_url_exposed": bool(action_context.get("raw_public_share_url_exposed")),
+            "raw_track_url_exposed": bool(action_context.get("raw_track_url_exposed")),
         }
+        optional_context_keys = (
+            "candidate_count",
+            "candidate_labels",
+            "candidate_label_count",
+            "distinct_candidate_label_count",
+            "candidate_labels_distinct",
+            "author_gender_signal",
+            "author_gender_match_count",
+            "author_gender_mismatch_count",
+            "author_gender_matched_candidates_only",
+            "voice_sample_delivery_status",
+            "voice_sample_delivery_sent_count",
+            "voice_sample_delivery_expected_count",
+            "sent_samples_cover_expected",
+            "duplicate_suppression",
+            "repair_commands",
+            "failed_playback_count",
+            "attempted_playback_count",
+            "first_failure_reason",
+            "track_response_status",
+            "track_content_type",
+            "media_error",
+            "media_error_code",
+            "public_share_host",
+            "raw_public_share_url_exposed",
+            "raw_track_url_exposed",
+        )
+        for optional_key in optional_context_keys:
+            if optional_key not in action_context:
+                row.pop(optional_key, None)
         result.append({key: value for key, value in row.items() if value not in ("", [], None)})
     return result
 
@@ -1143,6 +1223,8 @@ def build_goal_posture(
                     "python3 scripts/verify_continuous_improvement_goal_posture.py --pretty",
                 ],
             )
+        elif any(str(reason or "").startswith("deliver:whatsapp_audiobook=failed") for reason in blocking_reasons):
+            whatsapp_action_context = _whatsapp_playback_failure_action_context(wa_share)
         acceptance_proof_requirements.append(
             _acceptance_proof_requirement(
                 key="whatsapp_audiobook_live_delivery",

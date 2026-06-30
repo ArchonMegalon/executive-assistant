@@ -75,8 +75,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "482562309116f350e79575526867f3b4c3c8f992",
-          "source_state_fingerprint": "8b7e28e3751ec6a7d6bf232d566853206f93c303a69c3fea2700474461073cfa",
+          "source_git_head": "4f88970eeac244fea7eb089872fa2e8884c81f26",
+          "source_state_fingerprint": "ec99fe3ae78012ac85975e2d37b41cd4d093e46b1d7b3fa94908246555c77b42",
           "status": "pass"
         },
         {
@@ -84,8 +84,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "482562309116f350e79575526867f3b4c3c8f992",
-          "source_state_fingerprint": "8b7e28e3751ec6a7d6bf232d566853206f93c303a69c3fea2700474461073cfa",
+          "source_git_head": "4f88970eeac244fea7eb089872fa2e8884c81f26",
+          "source_state_fingerprint": "ec99fe3ae78012ac85975e2d37b41cd4d093e46b1d7b3fa94908246555c77b42",
           "status": "ready_with_live_receipt"
         }
       ],
@@ -227,29 +227,33 @@
     },
     {
       "action_context": {
+        "attempted_playback_count": 1,
         "callback_tokens_exposed": false,
         "delivery_policy": "queue_only",
-        "instruction": "Refresh source-stale proof receipts; do not ping the user for this automation-only evidence refresh.",
-        "kind": "stale_source_evidence_refresh",
+        "failed_playback_count": 1,
+        "first_failure_reason": "play_failed",
+        "instruction": "Repair the WhatsApp/Audiobookshelf public-share playback route, then rerun the WhatsApp audiobook playback verifier.",
+        "kind": "public_share_playback_failure",
+        "media_error": true,
+        "media_error_code": 4,
         "non_action_progress_push_allowed": false,
+        "public_share_host": "audiobookshelf.girschele.com",
         "raw_chat_ids_exposed": false,
         "raw_private_context_exposed": false,
+        "raw_public_share_url_exposed": false,
         "raw_secret_exposed": false,
         "raw_token_exposed": false,
+        "raw_track_url_exposed": false,
         "raw_voice_ids_exposed": false,
-        "refresh_commands": [
-          "PYTHONPATH=ea python3 ea/scripts/materialize_whatsapp_audiobook_live_delivery_receipt.py",
-          "PYTHONPATH=ea python3 ea/scripts/materialize_whatsapp_audiobook_operator_proof_bundle.py",
+        "repair_commands": [
           "PYTHONPATH=ea python3 ea/scripts/verify_whatsapp_audiobook_public_share_playback.py",
+          "PYTHONPATH=ea python3 ea/scripts/materialize_whatsapp_audiobook_operator_proof_bundle.py",
           "python3 scripts/materialize_continuous_improvement_goal_posture.py",
           "python3 scripts/verify_continuous_improvement_goal_posture.py --pretty"
         ],
-        "stale_source_receipts": [
-          "whatsapp_audiobook_live_delivery.generated.json",
-          "whatsapp_audiobook_operator_proof_bundle.generated.json",
-          "whatsapp_audiobook_public_share_playback.generated.json"
-        ],
         "telegram_push_allowed": false,
+        "track_content_type": "text/html",
+        "track_response_status": 500,
         "user_action_required": false
       },
       "capture_surfaces": [
@@ -272,28 +276,28 @@
           "contract_name": "ea.whatsapp_audiobook_live_delivery_receipt.v1",
           "path": ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "40d1d105c198030aa3c61c99301a2050dabd015c",
-          "source_state_fingerprint": "61d4b23c2cbbd6fe932a31a05fa8c8f7371fd9344caefe4f407d4030fcdbc6a3",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "4f88970eeac244fea7eb089872fa2e8884c81f26",
+          "source_state_fingerprint": "8b7e28e3751ec6a7d6bf232d566853206f93c303a69c3fea2700474461073cfa",
           "status": "pass"
         },
         {
           "contract_name": "ea.whatsapp_audiobook_operator_proof_bundle.v1",
           "path": ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "40d1d105c198030aa3c61c99301a2050dabd015c",
-          "source_state_fingerprint": "61d4b23c2cbbd6fe932a31a05fa8c8f7371fd9344caefe4f407d4030fcdbc6a3",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "4f88970eeac244fea7eb089872fa2e8884c81f26",
+          "source_state_fingerprint": "8b7e28e3751ec6a7d6bf232d566853206f93c303a69c3fea2700474461073cfa",
           "status": "pass"
         },
         {
           "contract_name": "ea.whatsapp_audiobook_public_share_playback_e2e.v1",
           "path": ".codex-studio/published/whatsapp_audiobook_public_share_playback.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "40d1d105c198030aa3c61c99301a2050dabd015c",
-          "source_state_fingerprint": "61d4b23c2cbbd6fe932a31a05fa8c8f7371fd9344caefe4f407d4030fcdbc6a3",
-          "status": "pass"
+          "source_fresh_to_current_source": true,
+          "source_git_head": "4f88970eeac244fea7eb089872fa2e8884c81f26",
+          "source_state_fingerprint": "8b7e28e3751ec6a7d6bf232d566853206f93c303a69c3fea2700474461073cfa",
+          "status": "failed"
         }
       ],
       "status": "pending_real_world_evidence",
@@ -303,7 +307,7 @@
   "blocking_reasons": [
     "deliver:manfred_speech=blocked_realtime_prerequisites",
     "deliver:telegram_audiobook=blocked",
-    "deliver:whatsapp_audiobook=blocked_stale_source_evidence",
+    "deliver:whatsapp_audiobook=failed",
     "prove=blocked_real_world_acceptance"
   ],
   "contract_name": "ea.continuous_improvement_goal_posture.v1",
@@ -314,7 +318,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-06-30T08:33:36Z",
+  "generated_at": "2026-06-30T08:49:13Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -348,9 +352,9 @@
           "contract_name": "ea.telegram_business_signal_readiness.v1",
           "path": ".codex-studio/published/telegram_business_signal_readiness.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "b369752032cb32dd78bdd8802b5d93d767fad5cf",
-          "source_state_fingerprint": "9861db9d7d80cc399b802c8ae0d1d81921848fd4a732cc08348d2242e952ea99",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "4f88970eeac244fea7eb089872fa2e8884c81f26",
+          "source_state_fingerprint": "ec99fe3ae78012ac85975e2d37b41cd4d093e46b1d7b3fa94908246555c77b42",
           "status": "pass"
         }
       ],
@@ -494,33 +498,33 @@
               "contract_name": "ea.whatsapp_audiobook_operator_proof_bundle.v1",
               "path": ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json",
               "present": true,
-              "source_fresh_to_current_source": false,
-              "source_git_head": "40d1d105c198030aa3c61c99301a2050dabd015c",
-              "source_state_fingerprint": "61d4b23c2cbbd6fe932a31a05fa8c8f7371fd9344caefe4f407d4030fcdbc6a3",
+              "source_fresh_to_current_source": true,
+              "source_git_head": "4f88970eeac244fea7eb089872fa2e8884c81f26",
+              "source_state_fingerprint": "8b7e28e3751ec6a7d6bf232d566853206f93c303a69c3fea2700474461073cfa",
               "status": "pass"
             },
             {
               "contract_name": "ea.whatsapp_audiobook_live_delivery_receipt.v1",
               "path": ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
               "present": true,
-              "source_fresh_to_current_source": false,
-              "source_git_head": "40d1d105c198030aa3c61c99301a2050dabd015c",
-              "source_state_fingerprint": "61d4b23c2cbbd6fe932a31a05fa8c8f7371fd9344caefe4f407d4030fcdbc6a3",
+              "source_fresh_to_current_source": true,
+              "source_git_head": "4f88970eeac244fea7eb089872fa2e8884c81f26",
+              "source_state_fingerprint": "8b7e28e3751ec6a7d6bf232d566853206f93c303a69c3fea2700474461073cfa",
               "status": "pass"
             },
             {
               "contract_name": "ea.whatsapp_audiobook_public_share_playback_e2e.v1",
               "path": ".codex-studio/published/whatsapp_audiobook_public_share_playback.generated.json",
               "present": true,
-              "source_fresh_to_current_source": false,
-              "source_git_head": "40d1d105c198030aa3c61c99301a2050dabd015c",
-              "source_state_fingerprint": "61d4b23c2cbbd6fe932a31a05fa8c8f7371fd9344caefe4f407d4030fcdbc6a3",
-              "status": "pass"
+              "source_fresh_to_current_source": true,
+              "source_git_head": "4f88970eeac244fea7eb089872fa2e8884c81f26",
+              "source_state_fingerprint": "8b7e28e3751ec6a7d6bf232d566853206f93c303a69c3fea2700474461073cfa",
+              "status": "failed"
             }
           ],
-          "status": "blocked_stale_source_evidence",
+          "status": "failed",
           "status_class": "blocking",
-          "summary": "intake pass; bundle pass; live pass; share pass; voice waiting Source receipt evidence is stale or unstamped; refresh the component proof before claiming pass.",
+          "summary": "intake pass; bundle pass; live pass; share failed; voice waiting",
           "title": "WhatsApp audiobook delivery"
         }
       ],
@@ -664,16 +668,8 @@
       "voice_sample_delivery_status": "sent"
     },
     {
-      "author_gender_match_count": 0,
-      "author_gender_matched_candidates_only": false,
-      "author_gender_mismatch_count": 0,
       "callback_tokens_exposed": false,
-      "candidate_count": 0,
-      "candidate_label_count": 0,
-      "candidate_labels_distinct": false,
       "delivery_policy": "queue_only",
-      "distinct_candidate_label_count": 0,
-      "duplicate_suppression": {},
       "evidence_kind": "consented_realtime_media_proof",
       "interruption_budget": "none",
       "irreversible_actions_consent_gated": true,
@@ -691,72 +687,54 @@
       "raw_token_exposed": false,
       "raw_voice_ids_exposed": false,
       "required_next_receipt": "consented Manfred STT/TTS realtime conversation proof",
-      "sent_samples_cover_expected": false,
       "telegram_push_allowed": false,
       "title": "Consented Manfred realtime conversation proof",
-      "user_action_required": false,
-      "voice_sample_delivery_expected_count": 0,
-      "voice_sample_delivery_sent_count": 0
+      "user_action_required": false
     },
     {
-      "author_gender_match_count": 0,
-      "author_gender_matched_candidates_only": false,
-      "author_gender_mismatch_count": 0,
+      "attempted_playback_count": 1,
       "callback_tokens_exposed": false,
-      "candidate_count": 0,
-      "candidate_label_count": 0,
-      "candidate_labels_distinct": false,
       "delivery_policy": "queue_only",
-      "distinct_candidate_label_count": 0,
-      "duplicate_suppression": {},
       "evidence_kind": "live_delivery_receipt",
-      "instruction": "Refresh source-stale proof receipts; do not ping the user for this automation-only evidence refresh.",
+      "failed_playback_count": 1,
+      "first_failure_reason": "play_failed",
+      "instruction": "Repair the WhatsApp/Audiobookshelf public-share playback route, then rerun the WhatsApp audiobook playback verifier.",
       "interruption_budget": "none",
       "irreversible_actions_consent_gated": true,
       "key": "whatsapp_audiobook_live_delivery",
       "lens": "deliver",
+      "media_error": true,
+      "media_error_code": 4,
       "next_action": "capture_passing_whatsapp_audiobook_live_delivery_receipt",
       "next_action_href": "/integrations/whatsapp",
       "next_action_label": "Open WhatsApp",
       "next_action_method": "get",
       "non_action_progress_push_allowed": false,
+      "public_share_host": "audiobookshelf.girschele.com",
       "quiet_hours_respected": true,
       "raw_chat_ids_exposed": false,
       "raw_private_context_exposed": false,
+      "raw_public_share_url_exposed": false,
       "raw_secret_exposed": false,
       "raw_token_exposed": false,
+      "raw_track_url_exposed": false,
       "raw_voice_ids_exposed": false,
-      "refresh_commands": [
-        "PYTHONPATH=ea python3 ea/scripts/materialize_whatsapp_audiobook_live_delivery_receipt.py",
-        "PYTHONPATH=ea python3 ea/scripts/materialize_whatsapp_audiobook_operator_proof_bundle.py",
+      "repair_commands": [
         "PYTHONPATH=ea python3 ea/scripts/verify_whatsapp_audiobook_public_share_playback.py",
+        "PYTHONPATH=ea python3 ea/scripts/materialize_whatsapp_audiobook_operator_proof_bundle.py",
         "python3 scripts/materialize_continuous_improvement_goal_posture.py",
         "python3 scripts/verify_continuous_improvement_goal_posture.py --pretty"
       ],
       "required_next_receipt": "passing WhatsApp audiobook live delivery receipt",
-      "sent_samples_cover_expected": false,
-      "stale_source_receipts": [
-        "whatsapp_audiobook_live_delivery.generated.json",
-        "whatsapp_audiobook_operator_proof_bundle.generated.json",
-        "whatsapp_audiobook_public_share_playback.generated.json"
-      ],
       "telegram_push_allowed": false,
       "title": "WhatsApp audiobook live delivery receipt",
-      "user_action_required": false,
-      "voice_sample_delivery_expected_count": 0,
-      "voice_sample_delivery_sent_count": 0
+      "track_content_type": "text/html",
+      "track_response_status": 500,
+      "user_action_required": false
     },
     {
-      "author_gender_match_count": 0,
-      "author_gender_matched_candidates_only": false,
-      "author_gender_mismatch_count": 0,
       "callback_tokens_exposed": false,
-      "candidate_count": 0,
-      "candidate_label_count": 0,
-      "candidate_labels_distinct": false,
       "delivery_policy": "queue_only",
-      "distinct_candidate_label_count": 0,
-      "duplicate_suppression": {},
       "evidence_kind": "real_operator_acceptance",
       "interruption_budget": "none",
       "irreversible_actions_consent_gated": true,
@@ -774,24 +752,13 @@
       "raw_token_exposed": false,
       "raw_voice_ids_exposed": false,
       "required_next_receipt": "real operator acceptance that the morning brief was worth reading",
-      "sent_samples_cover_expected": false,
       "telegram_push_allowed": false,
       "title": "Morning brief operator acceptance",
-      "user_action_required": false,
-      "voice_sample_delivery_expected_count": 0,
-      "voice_sample_delivery_sent_count": 0
+      "user_action_required": false
     },
     {
-      "author_gender_match_count": 0,
-      "author_gender_matched_candidates_only": false,
-      "author_gender_mismatch_count": 0,
       "callback_tokens_exposed": false,
-      "candidate_count": 0,
-      "candidate_label_count": 0,
-      "candidate_labels_distinct": false,
       "delivery_policy": "queue_only",
-      "distinct_candidate_label_count": 0,
-      "duplicate_suppression": {},
       "evidence_kind": "real_review_acceptance",
       "interruption_budget": "none",
       "irreversible_actions_consent_gated": true,
@@ -809,24 +776,13 @@
       "raw_token_exposed": false,
       "raw_voice_ids_exposed": false,
       "required_next_receipt": "real weekly signal-to-decision review acceptance receipt",
-      "sent_samples_cover_expected": false,
       "telegram_push_allowed": false,
       "title": "Weekly signal-to-decision review acceptance",
-      "user_action_required": false,
-      "voice_sample_delivery_expected_count": 0,
-      "voice_sample_delivery_sent_count": 0
+      "user_action_required": false
     },
     {
-      "author_gender_match_count": 0,
-      "author_gender_matched_candidates_only": false,
-      "author_gender_mismatch_count": 0,
       "callback_tokens_exposed": false,
-      "candidate_count": 0,
-      "candidate_label_count": 0,
-      "candidate_labels_distinct": false,
       "delivery_policy": "queue_only",
-      "distinct_candidate_label_count": 0,
-      "duplicate_suppression": {},
       "evidence_kind": "fresh_host_recovery_drill",
       "interruption_budget": "none",
       "irreversible_actions_consent_gated": true,
@@ -844,12 +800,9 @@
       "raw_token_exposed": false,
       "raw_voice_ids_exposed": false,
       "required_next_receipt": "fresh-host Teable recovery drill receipt mirrored into the repo",
-      "sent_samples_cover_expected": false,
       "telegram_push_allowed": false,
       "title": "Fresh-host Teable recovery drill",
-      "user_action_required": false,
-      "voice_sample_delivery_expected_count": 0,
-      "voice_sample_delivery_sent_count": 0
+      "user_action_required": false
     }
   ],
   "operator_delivery_policy": {
@@ -882,7 +835,7 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "482562309116f350e79575526867f3b4c3c8f992",
-  "source_state_fingerprint": "8b7e28e3751ec6a7d6bf232d566853206f93c303a69c3fea2700474461073cfa",
+  "source_git_head": "4f88970eeac244fea7eb089872fa2e8884c81f26",
+  "source_state_fingerprint": "ec99fe3ae78012ac85975e2d37b41cd4d093e46b1d7b3fa94908246555c77b42",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }

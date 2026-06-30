@@ -39,6 +39,7 @@ KNOWN_STATUSES = {
     "waiting",
     "waiting_for_live_epub",
     "fail",
+    "failed",
 }
 EXPECTED_COMPONENTS = {
     "deliver": {"promo_media", "manfred_speech", "telegram_audiobook", "whatsapp_audiobook"},
@@ -735,28 +736,40 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
     whatsapp_blocked_stale = any(
         reason.startswith("deliver:whatsapp_audiobook=blocked_stale_source_evidence") for reason in blocking_reasons
     )
-    if whatsapp_requirement and whatsapp_blocked_stale:
+    whatsapp_failed_playback = any(reason.startswith("deliver:whatsapp_audiobook=failed") for reason in blocking_reasons)
+    if whatsapp_requirement and (whatsapp_blocked_stale or whatsapp_failed_playback):
         action_context = whatsapp_requirement.get("action_context")
         if not isinstance(action_context, dict):
-            issues.append("stale WhatsApp audiobook proof must include action_context")
+            issues.append("blocked WhatsApp audiobook proof must include action_context")
         else:
-            if action_context.get("kind") != "stale_source_evidence_refresh":
-                issues.append("stale WhatsApp audiobook action_context kind mismatch")
+            expected_kind = "stale_source_evidence_refresh" if whatsapp_blocked_stale else "public_share_playback_failure"
+            if action_context.get("kind") != expected_kind:
+                issues.append("blocked WhatsApp audiobook action_context kind mismatch")
             if action_context.get("user_action_required") is not False:
-                issues.append("stale WhatsApp audiobook refresh must not require user action")
+                issues.append("blocked WhatsApp audiobook repair must not require user action")
             if action_context.get("telegram_push_allowed") is not False:
-                issues.append("stale WhatsApp audiobook refresh must not allow Telegram push")
-            stale_receipts = [str(item).strip() for item in list(action_context.get("stale_source_receipts") or []) if str(item).strip()]
-            if not stale_receipts:
-                issues.append("stale WhatsApp audiobook refresh must identify stale_source_receipts")
-            refresh_commands = [str(item).strip() for item in list(action_context.get("refresh_commands") or []) if str(item).strip()]
-            if not refresh_commands:
-                issues.append("stale WhatsApp audiobook refresh must include refresh_commands")
-            if not any("materialize_whatsapp_audiobook_live_delivery_receipt.py" in command for command in refresh_commands):
-                issues.append("stale WhatsApp audiobook refresh must include live delivery materializer")
+                issues.append("blocked WhatsApp audiobook repair must not allow Telegram push")
+            if whatsapp_blocked_stale:
+                stale_receipts = [str(item).strip() for item in list(action_context.get("stale_source_receipts") or []) if str(item).strip()]
+                if not stale_receipts:
+                    issues.append("stale WhatsApp audiobook refresh must identify stale_source_receipts")
+                refresh_commands = [str(item).strip() for item in list(action_context.get("refresh_commands") or []) if str(item).strip()]
+                if not refresh_commands:
+                    issues.append("stale WhatsApp audiobook refresh must include refresh_commands")
+                if not any("materialize_whatsapp_audiobook_live_delivery_receipt.py" in command for command in refresh_commands):
+                    issues.append("stale WhatsApp audiobook refresh must include live delivery materializer")
+            if whatsapp_failed_playback:
+                if not str(action_context.get("instruction") or "").strip():
+                    issues.append("failed WhatsApp audiobook playback must include repair instruction")
+                if int(action_context.get("track_response_status") or 0) <= 0:
+                    issues.append("failed WhatsApp audiobook playback must include track_response_status")
+                if action_context.get("raw_public_share_url_exposed") is not False:
+                    issues.append("failed WhatsApp audiobook playback must not expose raw public share URL")
+                if action_context.get("raw_track_url_exposed") is not False:
+                    issues.append("failed WhatsApp audiobook playback must not expose raw track URL")
             for private_key in ("raw_private_context_exposed", "raw_chat_ids_exposed", "raw_token_exposed", "raw_secret_exposed"):
                 if action_context.get(private_key) is not False:
-                    issues.append(f"stale WhatsApp audiobook action_context must not expose {private_key}")
+                    issues.append(f"blocked WhatsApp audiobook action_context must not expose {private_key}")
     if by_key.get("recover", {}).get("status") == "command_backed_no_published_receipt" and "recover=command_backed_no_published_receipt" not in blocking_reasons:
         issues.append("blocking_reasons must include the command-backed recover posture")
     return issues
