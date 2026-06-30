@@ -37,7 +37,7 @@
     "verifier_present": true
   },
   "contract_name": "ea.telegram_business_signal_readiness.v1",
-  "generated_at": "2026-06-30T06:29:28Z",
+  "generated_at": "2026-06-30T06:48:48Z",
   "generated_by": "scripts/materialize_telegram_business_signal_readiness.py",
   "head_semantics": "source_state",
   "live_webhook_probe": {
@@ -71,8 +71,8 @@
     "python3 scripts/materialize_telegram_business_signal_readiness.py",
     "python3 scripts/verify_telegram_business_signal_readiness.py"
   ],
-  "source_git_head": "65003527b3144603f92d107f6d084fa0b6c5cbbc",
-  "source_state_fingerprint": "7c3ff6ab6d5e0d47046f46da87a325440cd0284b4300363c7fb4915b7e8358b0",
+  "source_git_head": "8d5c87e25ca19815134b8d095ac28ed1e76f9804",
+  "source_state_fingerprint": "4bef94761d88989fa215bde9358c6848452eebb6be7d97f4feacc1dbaff7ae6d",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "blocked_setup_required",
   "webhook_path": "/v1/channels/telegram/business/ingest"

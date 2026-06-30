@@ -17,6 +17,11 @@ CONTRACT_NAME = "ea.whatsapp_audiobook_public_share_playback_e2e.v1"
 
 if str(EA_ROOT) not in sys.path:
     sys.path.insert(0, str(EA_ROOT))
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts.source_state_head import resolve_source_state_head  # noqa: E402
+from scripts.source_state_head import resolve_source_worktree_fingerprint  # noqa: E402
 
 
 def _now_iso() -> str:
@@ -321,6 +326,10 @@ def run(
         "contract_name": CONTRACT_NAME,
         "generated_at": _now_iso(),
         "generated_by": "ea/scripts/verify_whatsapp_audiobook_public_share_playback.py",
+        "source_git_head": resolve_source_state_head(ROOT),
+        "head_semantics": "source_state",
+        "source_state_fingerprint": resolve_source_worktree_fingerprint(ROOT),
+        "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
         "status": "pass" if rows and passed == len(rows) else ("waiting" if not rows else "failed"),
         "attempted": len(rows),
         "passed": passed,

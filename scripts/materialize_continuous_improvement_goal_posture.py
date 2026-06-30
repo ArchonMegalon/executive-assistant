@@ -401,6 +401,15 @@ def _operator_delivery_policy(operator_action_queue: list[dict[str, Any]]) -> di
     }
 
 
+def _whatsapp_voice_shadow_required(receipt: dict[str, Any]) -> bool:
+    if not receipt:
+        return False
+    reason = str(receipt.get("reason") or "").strip()
+    if str(receipt.get("status") or "").strip() == "waiting" and reason == "waiting_whatsapp_voice_selection_job_not_found":
+        return False
+    return True
+
+
 def build_goal_posture(
     *,
     root: Path = ROOT,
@@ -529,6 +538,36 @@ def build_goal_posture(
         if wa_intake or wa_bundle or wa_live or wa_share or wa_voice
         else "WhatsApp audiobook receipts are not mirrored."
     )
+    whatsapp_voice_shadow_required = _whatsapp_voice_shadow_required(wa_voice)
+    whatsapp_component_receipts = [
+        _source_receipt(
+            wa_bundle_path,
+            wa_bundle,
+            current_source_head=current_source_head,
+            current_source_fingerprint=current_source_fingerprint,
+        ),
+        _source_receipt(
+            wa_live_path,
+            wa_live,
+            current_source_head=current_source_head,
+            current_source_fingerprint=current_source_fingerprint,
+        ),
+        _source_receipt(
+            wa_share_path,
+            wa_share,
+            current_source_head=current_source_head,
+            current_source_fingerprint=current_source_fingerprint,
+        ),
+    ]
+    if whatsapp_voice_shadow_required:
+        whatsapp_component_receipts.append(
+            _source_receipt(
+                wa_voice_path,
+                wa_voice,
+                current_source_head=current_source_head,
+                current_source_fingerprint=current_source_fingerprint,
+            )
+        )
 
     deliver_components = [
         _deliver_component(
@@ -594,38 +633,7 @@ def build_goal_posture(
             payload=wa_live or wa_bundle or wa_intake,
             summary=wa_summary,
             next_action="clear blocked WhatsApp live delivery and keep share-link playback plus voice-selection flow honest",
-            receipts=[
-                _source_receipt(
-                    wa_intake_path,
-                    wa_intake,
-                    current_source_head=current_source_head,
-                    current_source_fingerprint=current_source_fingerprint,
-                ),
-                _source_receipt(
-                    wa_bundle_path,
-                    wa_bundle,
-                    current_source_head=current_source_head,
-                    current_source_fingerprint=current_source_fingerprint,
-                ),
-                _source_receipt(
-                    wa_live_path,
-                    wa_live,
-                    current_source_head=current_source_head,
-                    current_source_fingerprint=current_source_fingerprint,
-                ),
-                _source_receipt(
-                    wa_share_path,
-                    wa_share,
-                    current_source_head=current_source_head,
-                    current_source_fingerprint=current_source_fingerprint,
-                ),
-                _source_receipt(
-                    wa_voice_path,
-                    wa_voice,
-                    current_source_head=current_source_head,
-                    current_source_fingerprint=current_source_fingerprint,
-                ),
-            ],
+            receipts=whatsapp_component_receipts,
         ),
     ]
 
@@ -998,6 +1006,35 @@ def build_goal_posture(
             )
         )
     if any(reason.startswith("deliver:whatsapp_audiobook") for reason in blocking_reasons):
+        whatsapp_acceptance_receipts = [
+            _source_receipt(
+                wa_live_path,
+                wa_live,
+                current_source_head=current_source_head,
+                current_source_fingerprint=current_source_fingerprint,
+            ),
+            _source_receipt(
+                wa_bundle_path,
+                wa_bundle,
+                current_source_head=current_source_head,
+                current_source_fingerprint=current_source_fingerprint,
+            ),
+            _source_receipt(
+                wa_share_path,
+                wa_share,
+                current_source_head=current_source_head,
+                current_source_fingerprint=current_source_fingerprint,
+            ),
+        ]
+        if whatsapp_voice_shadow_required:
+            whatsapp_acceptance_receipts.append(
+                _source_receipt(
+                    wa_voice_path,
+                    wa_voice,
+                    current_source_head=current_source_head,
+                    current_source_fingerprint=current_source_fingerprint,
+                )
+            )
         acceptance_proof_requirements.append(
             _acceptance_proof_requirement(
                 key="whatsapp_audiobook_live_delivery",
@@ -1008,32 +1045,7 @@ def build_goal_posture(
                 capture_surfaces=[wa_live_path, wa_bundle_path, wa_share_path, wa_voice_path],
                 next_action="capture_passing_whatsapp_audiobook_live_delivery_receipt",
                 claim_boundary="does_not_prove_whatsapp_delivery_until_live_delivery_and_playback_receipts_pass",
-                source_receipts=[
-                    _source_receipt(
-                        wa_live_path,
-                        wa_live,
-                        current_source_head=current_source_head,
-                        current_source_fingerprint=current_source_fingerprint,
-                    ),
-                    _source_receipt(
-                        wa_bundle_path,
-                        wa_bundle,
-                        current_source_head=current_source_head,
-                        current_source_fingerprint=current_source_fingerprint,
-                    ),
-                    _source_receipt(
-                        wa_share_path,
-                        wa_share,
-                        current_source_head=current_source_head,
-                        current_source_fingerprint=current_source_fingerprint,
-                    ),
-                    _source_receipt(
-                        wa_voice_path,
-                        wa_voice,
-                        current_source_head=current_source_head,
-                        current_source_fingerprint=current_source_fingerprint,
-                    ),
-                ],
+                source_receipts=whatsapp_acceptance_receipts,
             )
         )
     required_next_receipts = [

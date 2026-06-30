@@ -25,8 +25,12 @@ CONTRACT_NAME = "ea.whatsapp_audiobook_live_delivery_receipt.v1"
 
 if str(EA_ROOT) not in sys.path:
     sys.path.insert(0, str(EA_ROOT))
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from app.services.audiobook_epub_pipeline import audiobook_runtime_preflight
+from scripts.source_state_head import resolve_source_state_head
+from scripts.source_state_head import resolve_source_worktree_fingerprint
 
 
 def _now_iso() -> str:
@@ -868,6 +872,10 @@ def build_receipt(
         "contract_name": CONTRACT_NAME,
         "generated_at": generated_at or _now_iso(),
         "generated_by": "ea/scripts/materialize_whatsapp_audiobook_live_delivery_receipt.py",
+        "source_git_head": resolve_source_state_head(ROOT),
+        "head_semantics": "source_state",
+        "source_state_fingerprint": resolve_source_worktree_fingerprint(ROOT),
+        "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
         "output_path": output_path.as_posix(),
         "observation_source": observation_source,
         "limit": limit,

@@ -30,6 +30,11 @@ SUPPORTED_BUTTON_KINDS = {
 
 if str(EA_ROOT) not in sys.path:
     sys.path.insert(0, str(EA_ROOT))
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts.source_state_head import resolve_source_state_head  # noqa: E402
+from scripts.source_state_head import resolve_source_worktree_fingerprint  # noqa: E402
 
 
 def _now_iso() -> str:
@@ -1035,6 +1040,10 @@ def materialize_whatsapp_audiobook_operator_proof_bundle(
         "contract_name": CONTRACT_NAME,
         "generated_at": generated_at,
         "generated_by": "ea/scripts/materialize_whatsapp_audiobook_operator_proof_bundle.py",
+        "source_git_head": resolve_source_state_head(ROOT),
+        "head_semantics": "source_state",
+        "source_state_fingerprint": resolve_source_worktree_fingerprint(ROOT),
+        "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
         "status": status,
         "recommended_action": recommended_action,
         "claim": (
