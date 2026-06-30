@@ -207,6 +207,27 @@ def _deliver_component(
     receipts: list[dict[str, Any]],
 ) -> dict[str, Any]:
     status = _status(payload or {}, default=fallback_status)
+    source_statuses = [str(row.get("status") or "").strip().lower() for row in receipts]
+    blocking_source_status = next((item for item in source_statuses if _is_blocking(item)), "")
+    non_pass_source_status = next((item for item in source_statuses if item != "pass"), "")
+    stale_source_evidence = any(
+        bool(row.get("present")) and row.get("source_fresh_to_current_source") is not True
+        for row in receipts
+    )
+    missing_source = any(not bool(row.get("present")) for row in receipts)
+    if status == "pass":
+        if blocking_source_status:
+            status = blocking_source_status
+        elif non_pass_source_status:
+            status = non_pass_source_status
+        elif missing_source:
+            status = "missing_receipt"
+        elif stale_source_evidence:
+            status = "blocked_stale_source_evidence"
+    if status == "blocked_stale_source_evidence":
+        summary = (
+            f"{summary} Source receipt evidence is stale or unstamped; refresh the component proof before claiming pass."
+        )
     return {
         "key": key,
         "title": title,

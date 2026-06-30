@@ -30,6 +30,7 @@ KNOWN_STATUSES = {
     "ready_local_audit",
     "blocked_real_world_acceptance",
     "blocked_realtime_prerequisites",
+    "blocked_stale_source_evidence",
     "blocked",
     "active_with_blockers",
     "command_backed_no_published_receipt",
@@ -204,6 +205,21 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                     issues.append(f"deliver component status missing for {component_key}")
                 elif component_status not in KNOWN_STATUSES:
                     issues.append(f"deliver component status uses unknown value for {component_key}: {component_status}")
+                component_sources = list(component.get("source_receipts") or [])
+                if component_status == "pass":
+                    if not component_sources:
+                        issues.append(f"deliver component pass requires source receipts for {component_key}")
+                    for source in component_sources:
+                        if not isinstance(source, dict):
+                            issues.append(f"deliver component source receipts must be objects for {component_key}")
+                            continue
+                        source_status = str(source.get("status") or "").strip().lower()
+                        if source_status != "pass":
+                            issues.append(
+                                f"deliver component pass requires every source receipt to pass for {component_key}: {source_status}"
+                            )
+                        if source.get("source_fresh_to_current_source") is not True:
+                            issues.append(f"deliver component pass requires source-fresh receipts for {component_key}")
             if status not in {"mixed_local_progress", "ready_local_evidence", "pass"}:
                 issues.append("deliver lens must stay conservative (mixed_local_progress, ready_local_evidence, or pass)")
         if key == "recover":

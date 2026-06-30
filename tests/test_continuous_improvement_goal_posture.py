@@ -9,10 +9,22 @@ import scripts.verify_continuous_improvement_goal_posture as verifier_module
 from scripts.verify_continuous_improvement_goal_posture import verify
 
 
-def _write_receipt(root: Path, relative_path: str, *, status: str, **extra: object) -> None:
+def _write_receipt(
+    root: Path,
+    relative_path: str,
+    *,
+    status: str,
+    source_git_head: str = "source-head",
+    source_state_fingerprint: str = "source-fingerprint",
+    **extra: object,
+) -> None:
     path = root / relative_path
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"status": status, "contract_name": f"test.{path.stem}"}
+    if source_git_head:
+        payload["source_git_head"] = source_git_head
+    if source_state_fingerprint:
+        payload["source_state_fingerprint"] = source_state_fingerprint
     payload.update(extra)
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
@@ -56,12 +68,19 @@ def _write_proactive_ooda_receipts(
     )
 
 
-def _write_teable_recovery_proof_receipt(root: Path, *, status: str = "pass", source_git_head: str = "") -> None:
-    extra = {"source_git_head": source_git_head} if source_git_head else {}
+def _write_teable_recovery_proof_receipt(
+    root: Path,
+    *,
+    status: str = "pass",
+    source_git_head: str = "",
+    source_state_fingerprint: str = "",
+) -> None:
     _write_receipt(
         root,
         ".codex-studio/published/teable_env_recovery_proof.generated.json",
         status=status,
+        source_git_head=source_git_head,
+        source_state_fingerprint=source_state_fingerprint,
         generated_by="scripts/materialize_teable_env_recovery_proof.py",
         recovery_status="recovered" if status == "pass" else "failed",
         fresh_host_api_key_source="process_env",
@@ -123,7 +142,6 @@ def _write_teable_recovery_proof_receipt(root: Path, *, status: str = "pass", so
             "missing_secret_value_count": 0,
             "extra_restorable_count": 0,
         },
-        **extra,
     )
 
 

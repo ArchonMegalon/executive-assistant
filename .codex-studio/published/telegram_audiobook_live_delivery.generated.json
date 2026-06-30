@@ -99,7 +99,7 @@
     "user_selected_voice_delivery_not_ready",
     "explicit_replacement_voice_choice_pending"
   ],
-  "generated_at": "2026-06-30T05:07:33.247514Z",
+  "generated_at": "2026-06-30T05:11:36.571784Z",
   "generated_by": "ea/scripts/materialize_telegram_audiobook_live_delivery_receipt.py",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
@@ -239,8 +239,8 @@
     "voice_selected_default": true
   },
   "source_filter": "telegram_epub_audiobook_sources",
-  "source_git_head": "203e1820cb7a9a8a25f967153dcd50e97c6add3c",
-  "source_state_fingerprint": "582720494287d3378c132566d76ff2d88df8ca42ac761d2a8343ae54c45bf97c",
+  "source_git_head": "f3f1de24b098b48e0fc9135d123c269130d9e649",
+  "source_state_fingerprint": "d26df2434c1001c29bfc5e1a2fa8f81e6b261ec08963b8d9dcc543f6f375f83f",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "blocked"
 }
