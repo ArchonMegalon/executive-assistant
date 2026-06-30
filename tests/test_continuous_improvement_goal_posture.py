@@ -192,6 +192,25 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     )
     _write_receipt(
         tmp_path,
+        ".codex-studio/published/pocket_audio_archive_receipt.generated.json",
+        status="pass",
+        transcript_ingest_ready=True,
+        evidence_mode="filesystem_archive_scan",
+        next_action="maintain_pocket_ai_audio_transcript_archive",
+        archive_files={
+            "audio_file_total": 2,
+            "metadata_json_total": 2,
+            "raw_archive_root_exposed": False,
+        },
+        database_index={"latest_non_dismissed_missing_transcript_total": 0},
+        privacy={
+            "raw_transcript_text_exposed": False,
+            "raw_archive_root_exposed": False,
+            "raw_credential_exposed": False,
+        },
+    )
+    _write_receipt(
+        tmp_path,
         ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
         status="blocked",
         next_action="choose_sent_replacement_voice_sample",
@@ -362,6 +381,17 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
 
     lenses = {lens["key"]: lens for lens in receipt["lenses"]}
     assert lenses["detect"]["status"] == "ready_local_packet_pending_operator_acceptance"
+    assert "Pocket/audio transcript ingest is pass" in lenses["detect"]["summary"]
+    transcript_evidence = lenses["detect"]["transcript_ingest_evidence"]
+    assert transcript_evidence["key"] == "pocket_ai_audio_transcripts"
+    assert transcript_evidence["status"] == "pass"
+    assert transcript_evidence["transcript_ingest_ready"] is True
+    assert transcript_evidence["archive_audio_file_total"] == 2
+    assert transcript_evidence["archive_metadata_json_total"] == 2
+    assert transcript_evidence["missing_transcript_total"] == 0
+    assert transcript_evidence["raw_transcript_text_exposed"] is False
+    assert transcript_evidence["raw_archive_root_exposed"] is False
+    assert transcript_evidence["raw_credential_exposed"] is False
     assert lenses["decide"]["status"] == "ready_local_evidence"
     assert lenses["deliver"]["status"] == "mixed_local_progress"
     assert lenses["recover"]["status"] == "ready_local_audit"

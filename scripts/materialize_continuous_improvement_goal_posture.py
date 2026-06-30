@@ -26,6 +26,7 @@ DEFAULT_TEABLE_RECOVERY_READINESS = ROOT / ".codex-studio/published/teable_env_r
 DEFAULT_TEABLE_RECOVERY_PROOF = ROOT / ".codex-studio/published/teable_env_recovery_proof.generated.json"
 DEFAULT_PROACTIVE_OODA_OPERATOR_STATUS = ROOT / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
 DEFAULT_PROACTIVE_OODA_GOLD_ACCEPTANCE = ROOT / ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json"
+DEFAULT_POCKET_AUDIO_ARCHIVE = ROOT / ".codex-studio/published/pocket_audio_archive_receipt.generated.json"
 DEFAULT_TELEGRAM_AUDIOBOOK_READINESS = ROOT / ".codex-studio/published/telegram_audiobook_live_readiness.generated.json"
 DEFAULT_TELEGRAM_AUDIOBOOK_DELIVERY = ROOT / ".codex-studio/published/telegram_audiobook_live_delivery.generated.json"
 DEFAULT_WHATSAPP_AUDIOBOOK_INTAKE = ROOT / ".codex-studio/published/whatsapp_audiobook_local_intake_proof.generated.json"
@@ -410,6 +411,7 @@ def build_goal_posture(
     recovery_proof, recovery_proof_path = _load_receipt(root, root / DEFAULT_TEABLE_RECOVERY_PROOF.relative_to(ROOT))
     ooda_status, ooda_status_path = _load_receipt(root, root / DEFAULT_PROACTIVE_OODA_OPERATOR_STATUS.relative_to(ROOT))
     ooda_gold, ooda_gold_path = _load_receipt(root, root / DEFAULT_PROACTIVE_OODA_GOLD_ACCEPTANCE.relative_to(ROOT))
+    pocket_audio, pocket_audio_path = _load_receipt(root, root / DEFAULT_POCKET_AUDIO_ARCHIVE.relative_to(ROOT))
     tg_ready, tg_ready_path = _load_receipt(root, root / DEFAULT_TELEGRAM_AUDIOBOOK_READINESS.relative_to(ROOT))
     tg_live, tg_live_path = _load_receipt(root, root / DEFAULT_TELEGRAM_AUDIOBOOK_DELIVERY.relative_to(ROOT))
     wa_intake, wa_intake_path = _load_receipt(root, root / DEFAULT_WHATSAPP_AUDIOBOOK_INTAKE.relative_to(ROOT))
@@ -422,10 +424,15 @@ def build_goal_posture(
         key="detect",
         title="Signal ingest and prioritization",
         status=_status(signal),
-        summary="Turn incoming signals into a bounded operator packet and proactive OODA shortlist that can become decision-ready packets instead of letting them pile up as ambient noise.",
+        summary=(
+            "Turn incoming signals into a bounded operator packet and proactive OODA shortlist that can become "
+            "decision-ready packets instead of letting them pile up as ambient noise. Pocket/audio transcript ingest "
+            f"is {_status(pocket_audio) or 'not_mirrored'}."
+        ),
         next_action=_compact(signal.get("next_action"), default="review_weekly_signal_to_decision_packet_with_operator"),
         verifier_commands=[
             "make verify-whole-project-signal-to-decision-receipt",
+            "python3 scripts/verify_pocket_audio_archive_receipt.py",
             "make verify-proactive-ooda",
         ],
         source_receipts=[
@@ -434,9 +441,30 @@ def build_goal_posture(
                 signal,
                 current_source_head=current_source_head,
                 current_source_fingerprint=current_source_fingerprint,
+            ),
+            _source_receipt(
+                pocket_audio_path,
+                pocket_audio,
+                current_source_head=current_source_head,
+                current_source_fingerprint=current_source_fingerprint,
             )
         ],
     )
+    detect_lens["transcript_ingest_evidence"] = {
+        "key": "pocket_ai_audio_transcripts",
+        "status": _status(pocket_audio) or "missing",
+        "transcript_ingest_ready": bool(pocket_audio.get("transcript_ingest_ready")),
+        "evidence_mode": str(pocket_audio.get("evidence_mode") or "").strip(),
+        "next_action": str(pocket_audio.get("next_action") or "sync_pocket_ai_audio_transcripts").strip(),
+        "archive_audio_file_total": int(dict(pocket_audio.get("archive_files") or {}).get("audio_file_total") or 0),
+        "archive_metadata_json_total": int(dict(pocket_audio.get("archive_files") or {}).get("metadata_json_total") or 0),
+        "missing_transcript_total": int(
+            dict(pocket_audio.get("database_index") or {}).get("latest_non_dismissed_missing_transcript_total") or 0
+        ),
+        "raw_transcript_text_exposed": bool(dict(pocket_audio.get("privacy") or {}).get("raw_transcript_text_exposed")),
+        "raw_archive_root_exposed": bool(dict(pocket_audio.get("privacy") or {}).get("raw_archive_root_exposed")),
+        "raw_credential_exposed": bool(dict(pocket_audio.get("privacy") or {}).get("raw_credential_exposed")),
+    }
 
     decide_lens = _lens(
         key="decide",

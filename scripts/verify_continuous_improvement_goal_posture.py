@@ -172,8 +172,9 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
             issues.append(f"{key} lens must list verifier commands")
         if key in {"detect", "decide", "prove"}:
             sources = list(lens.get("source_receipts") or [])
-            if len(sources) != 1:
-                issues.append(f"{key} lens must have exactly one primary source receipt")
+            expected_source_count = 2 if key == "detect" else 1
+            if len(sources) != expected_source_count:
+                issues.append(f"{key} lens must have exactly {expected_source_count} source receipt(s)")
             for source in sources:
                 path_text = str(source.get("path") or "").strip()
                 if not path_text:
@@ -188,8 +189,26 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                     payload_status = str(payload.get("status") or "missing_receipt").strip().lower()
                     if source_status != payload_status:
                         issues.append(f"{key} source receipt status drifted for {path_text}")
-                    if status != source_status:
+                    primary_source = source is sources[0]
+                    if primary_source and status != source_status:
                         issues.append(f"{key} lens status must mirror {path_text}")
+        if key == "detect":
+            transcript_evidence = lens.get("transcript_ingest_evidence")
+            if not isinstance(transcript_evidence, dict):
+                issues.append("detect lens must include transcript_ingest_evidence")
+            else:
+                if transcript_evidence.get("key") != "pocket_ai_audio_transcripts":
+                    issues.append("detect transcript_ingest_evidence key must be pocket_ai_audio_transcripts")
+                for privacy_key in ("raw_transcript_text_exposed", "raw_archive_root_exposed", "raw_credential_exposed"):
+                    if transcript_evidence.get(privacy_key) is not False:
+                        issues.append(f"detect transcript_ingest_evidence.{privacy_key} must be false")
+                if str(transcript_evidence.get("status") or "").strip() == "pass":
+                    if transcript_evidence.get("transcript_ingest_ready") is not True:
+                        issues.append("passing transcript_ingest_evidence requires transcript_ingest_ready=true")
+                    if int(transcript_evidence.get("missing_transcript_total") or 0) != 0:
+                        issues.append("passing transcript_ingest_evidence requires missing_transcript_total=0")
+                if not any("verify_pocket_audio_archive_receipt.py" in str(command) for command in commands):
+                    issues.append("detect lens verifier_commands must include pocket archive receipt verifier")
         if key == "deliver":
             components = list(lens.get("components") or [])
             component_keys = {str(component.get("key") or "") for component in components if isinstance(component, dict)}

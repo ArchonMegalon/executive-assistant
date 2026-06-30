@@ -113,7 +113,7 @@
     "audiobookshelf_public_share_configured",
     "player_access_signing_secret_present"
   ],
-  "generated_at": "2026-06-30T05:27:23.958663Z",
+  "generated_at": "2026-06-30T05:34:02.986523Z",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
   "live_delivery_claim_allowed": false,
@@ -138,7 +138,7 @@
   ],
   "privacy": {
     "env_values_exposed": false,
-    "preflight_contract_sha256": "8390274c5ac1dbfc4c1ab45100464e2c442c8318a0721e133daf29c93eb479a3",
+    "preflight_contract_sha256": "94bc9b102127ed811eba755edf683436b0a25ecd78cc0de2026c94343127848d",
     "raw_provider_voice_ids_exposed": false,
     "raw_public_share_url_included": false,
     "raw_storage_paths_included": false,
@@ -164,8 +164,8 @@
     "voice_catalog_audition_ready",
     "unmixr_api_key_slot_present"
   ],
-  "source_git_head": "3ab293f5ae6e4e17ef2665e087a8dcdd6d341cbe",
-  "source_state_fingerprint": "ec633a0d3fce757ae4c35f25a62c55da305c3bace6f8348ad1903ff585dc7d0d",
+  "source_git_head": "6190bd16efb974baea030956bfa54f81dc41f603",
+  "source_state_fingerprint": "3960c30953c3bac8e1e8e824888cd7744585a8ce66ab6335dc28eb1ad3b7db3a",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "blocked_live_prerequisites",
   "voice_sample_prereqs_ready": false,

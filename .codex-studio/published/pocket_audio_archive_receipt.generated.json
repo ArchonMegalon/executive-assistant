@@ -1,0 +1,76 @@
+{
+  "archive_files": {
+    "archive_root_exists": true,
+    "archive_root_present": true,
+    "archive_root_sha256": "68ddeeb3090df2dc48dd262e352ff8c9446d7455b0b8574ad177d78cf0dce54f",
+    "audio_file_total": 11,
+    "metadata_json_total": 11,
+    "raw_archive_root_exposed": false
+  },
+  "archive_metadata": {
+    "latest_archived_at": "",
+    "metadata_read_mode": "count_only",
+    "metadata_record_total": 11
+  },
+  "claim": "Pocket.ai audio transcript ingest is usable only when local archive metadata and index evidence prove non-dismissed recordings have transcripts without exposing raw transcript text.",
+  "contract_name": "ea.pocket_audio_archive_receipt.v1",
+  "database_index": {
+    "latest_archived_missing_audio_file_total": 0,
+    "latest_archived_missing_metadata_file_total": 0,
+    "latest_archived_missing_path_total": 0,
+    "latest_archived_total": 0,
+    "latest_dismissed_total": 0,
+    "latest_distinct_recording_total": 0,
+    "latest_failed_total": 0,
+    "latest_non_dismissed_missing_transcript_total": 0
+  },
+  "db_probe_error_present": false,
+  "db_probe_error_sha256": "",
+  "db_probe_status": "ok",
+  "evidence_mode": "filesystem_archive_scan",
+  "failure_count": 0,
+  "failures": [],
+  "generated_at": "2026-06-30T05:34:01Z",
+  "generated_by": "scripts/materialize_pocket_audio_archive_receipt.py",
+  "head_semantics": "source_state",
+  "latest_backfill": {
+    "archive_dismissed_total": "0",
+    "archive_failed_total": "0",
+    "archived_total": "11",
+    "created_at": "",
+    "event_type": "filesystem_archive_scan_completed",
+    "failed_total": "0",
+    "recording_total": "11",
+    "scan_truncated": "false",
+    "teable_index_row_total": "11",
+    "teable_index_status": "filesystem_only",
+    "teable_index_sync_attempted": "false"
+  },
+  "latest_completion": {
+    "archive_dismissed_total": "0",
+    "archive_failed_total": "0",
+    "archived_total": "11",
+    "created_at": "",
+    "event_type": "filesystem_archive_scan_completed",
+    "failed_total": "0",
+    "recording_total": "11",
+    "scan_truncated": "false",
+    "teable_index_row_total": "11",
+    "teable_index_status": "filesystem_only"
+  },
+  "next_action": "maintain_pocket_ai_audio_transcript_archive",
+  "output_path": "/docker/EA/.codex-studio/published/pocket_audio_archive_receipt.generated.json",
+  "privacy": {
+    "archive_root_hashed": true,
+    "raw_archive_root_exposed": false,
+    "raw_credential_exposed": false,
+    "raw_payload_exposed": false,
+    "raw_recording_ids_exposed": false,
+    "raw_transcript_text_exposed": false
+  },
+  "source_git_head": "6190bd16efb974baea030956bfa54f81dc41f603",
+  "source_state_fingerprint": "3960c30953c3bac8e1e8e824888cd7744585a8ce66ab6335dc28eb1ad3b7db3a",
+  "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
+  "status": "pass",
+  "transcript_ingest_ready": true
+}
