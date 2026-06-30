@@ -406,7 +406,7 @@
     "real_approved_action_audited",
     "real_provider_failure_recovered"
   ],
-  "generated_at": "2026-06-30T02:58:52Z",
+  "generated_at": "2026-06-30T03:01:53Z",
   "generated_by": "ea/scripts/materialize_executive_assistant_quality_readiness.py",
   "goal_completion_claim_allowed": false,
   "good_executive_assistant_claim_allowed": false,
@@ -473,7 +473,7 @@
     "bytes": 10052,
     "exists": true,
     "path": ".codex-studio/published/ea_office_loop_goal.generated.json",
-    "sha256": "cb9eb213f9785cfde569fcd890dc9d3313c14fdfb742bf7c4cedb51299c91269"
+    "sha256": "d677f59d9f6781316201d271d1a3a39c88b06f192bf22674800e293d84f12109"
   },
   "status": "blocked_real_world_acceptance"
 }

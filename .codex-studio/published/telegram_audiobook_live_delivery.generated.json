@@ -87,7 +87,7 @@
     "user_selected_voice_delivery_not_ready",
     "explicit_replacement_voice_choice_pending"
   ],
-  "generated_at": "2026-06-30T02:59:01.262131Z",
+  "generated_at": "2026-06-30T03:02:01.171216Z",
   "generated_by": "ea/scripts/materialize_telegram_audiobook_live_delivery_receipt.py",
   "goal_completion_claim_allowed": false,
   "ignored_non_telegram_audiobook_candidate_count": 9,

@@ -288,6 +288,36 @@ class HardeningTests(unittest.TestCase):
         self.assertEqual(prompt["inline_buttons"], [])
         self.assertEqual(prompt["approval_surface"], {})
 
+    def test_proactive_ooda_delivery_suppresses_internal_telegram_status_packet(self) -> None:
+        request = {
+            "packet_ref": "packet:proof",
+            "staged_artifact_ref": "artifact:proof",
+            "approval_prompt": "Approve whether EA should preserve this proof packet as the canonical live check.",
+        }
+        route = proactive_ooda_delivery.ProactiveOodaDeliveryStatus(
+            ready=True,
+            selected_channel="telegram",
+            selected_transport="telegram",
+            selected_by="unit_test",
+            selected_reason="fixture",
+            recipient_ref_hash="hash",
+        )
+
+        with (
+            patch.object(proactive_ooda_delivery, "resolve_proactive_ooda_delivery_status", return_value=route),
+            patch.object(proactive_ooda_delivery, "_send_telegram_message_for_route") as send,
+        ):
+            receipt = proactive_ooda_delivery.send_proactive_ooda_notification(
+                principal_id="principal",
+                text="EA OODA runtime receipt: preserve this proof packet as canonical live check.",
+                approval_request=request,
+            )
+
+        send.assert_not_called()
+        self.assertEqual(receipt.message_ids, ())
+        self.assertEqual(receipt.route_error, "telegram_notification_suppressed_non_actionable")
+        self.assertEqual(dict(receipt.approval_surface or {}).get("status"), "suppressed_non_actionable")
+
     def test_proactive_ooda_delivery_keeps_real_draft_packet_as_telegram_action(self) -> None:
         request = {
             "packet_ref": "packet:draft",
