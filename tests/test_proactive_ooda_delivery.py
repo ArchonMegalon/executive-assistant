@@ -341,7 +341,7 @@ def test_send_proactive_notification_sends_follow_up_approval_prompt_with_button
     ]
 
 
-def test_send_proactive_notification_keeps_generic_shortlist_approval_quiet(monkeypatch) -> None:
+def test_send_proactive_notification_suppresses_generic_shortlist_approval(monkeypatch) -> None:
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token")
     monkeypatch.setattr(delivery, "resolve_primary_telegram_binding", lambda tool_runtime, *, principal_id: _telegram_binding())
     sent: list[dict[str, object]] = []
@@ -380,12 +380,10 @@ def test_send_proactive_notification_keeps_generic_shortlist_approval_quiet(monk
         },
     )
 
-    assert receipt.message_ids == ("tg-1",)
-    assert receipt.approval_surface == {}
-    assert len(sent) == 1
-    assert sent[0]["text"] == "EA OODA packet"
-    assert sent[0]["inline_buttons"] is None
-    assert sent[0]["url_buttons"] is None
+    assert receipt.message_ids == ()
+    assert receipt.route_error == "telegram_notification_suppressed_non_actionable"
+    assert dict(receipt.approval_surface or {}).get("status") == "suppressed_non_actionable"
+    assert sent == []
 
 
 def test_send_proactive_notification_marks_approval_surface_delivery_failed_when_prompt_send_fails(monkeypatch) -> None:

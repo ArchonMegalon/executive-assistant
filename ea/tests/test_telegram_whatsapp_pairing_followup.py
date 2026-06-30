@@ -142,3 +142,28 @@ def test_action_required_only_keeps_reply_with_action_surface() -> None:
         reply_text="Saved. I staged this as a reversible next step.",
         has_action_surface=True,
     )
+
+
+def test_inline_proactive_low_value_approval_text_is_not_user_action() -> None:
+    approval_prompt = (
+        "Approve whether EA should research further or change constraints. "
+        "Research, compare, or draft only; require explicit approval before purchase, booking, "
+        "cancellation, sending, posting, or commitment."
+    )
+
+    assert not channels._telegram_inline_proactive_user_action_required(
+        safe_work_result={
+            "status": "staged_for_user_decision",
+            "work_type": "research",
+            "summary": "Research packet staged.",
+            "approval_prompt": approval_prompt,
+            "shortlist": [{"label": "Candidate", "url": "https://example.test"}],
+        },
+        execution_result={},
+        approval_request={
+            "packet_ref": "packet:research",
+            "staged_artifact_ref": "artifact:research",
+            "approval_prompt": approval_prompt,
+        },
+        reply_text=f"Saved. I staged this as a reversible next step.\n{approval_prompt}",
+    )

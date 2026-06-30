@@ -318,6 +318,39 @@ class HardeningTests(unittest.TestCase):
         self.assertEqual(receipt.route_error, "telegram_notification_suppressed_non_actionable")
         self.assertEqual(dict(receipt.approval_surface or {}).get("status"), "suppressed_non_actionable")
 
+    def test_proactive_ooda_delivery_suppresses_low_value_research_prompt(self) -> None:
+        request = {
+            "packet_ref": "packet:research",
+            "staged_artifact_ref": "artifact:research",
+            "approval_prompt": (
+                "Approve whether EA should research further or change constraints. "
+                "Research, compare, or draft only; require explicit approval before purchase, booking, "
+                "cancellation, sending, posting, or commitment."
+            ),
+        }
+        route = proactive_ooda_delivery.ProactiveOodaDeliveryStatus(
+            ready=True,
+            selected_channel="telegram",
+            selected_transport="telegram",
+            selected_by="unit_test",
+            selected_reason="fixture",
+            recipient_ref_hash="hash",
+        )
+
+        with (
+            patch.object(proactive_ooda_delivery, "resolve_proactive_ooda_delivery_status", return_value=route),
+            patch.object(proactive_ooda_delivery, "_send_telegram_message_for_route") as send,
+        ):
+            receipt = proactive_ooda_delivery.send_proactive_ooda_notification(
+                principal_id="principal",
+                text="EA OODA found a reversible research packet and saved it for dashboard review.",
+                approval_request=request,
+            )
+
+        send.assert_not_called()
+        self.assertEqual(receipt.message_ids, ())
+        self.assertEqual(receipt.route_error, "telegram_notification_suppressed_non_actionable")
+
     def test_proactive_ooda_delivery_keeps_real_draft_packet_as_telegram_action(self) -> None:
         request = {
             "packet_ref": "packet:draft",

@@ -14,7 +14,7 @@ def _write_receipt(path: Path, **payload: object) -> None:
 
 
 def _base_payload() -> dict[str, object]:
-    return {
+    payload = {
         "contract_name": "ea.proactive_ooda_gold_acceptance.v1",
         "generated_by": "scripts/materialize_proactive_ooda_gold_acceptance.py",
         "head_semantics": "source_state",
@@ -87,6 +87,22 @@ def _base_payload() -> dict[str, object]:
         "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
         "evidence_receipts": {},
     }
+
+    proofs = dict(payload["proofs"])
+    action_required = dict(proofs["action_required_only_delivery"])
+    action_required.update(
+        {
+            "policy_probe_checked": True,
+            "policy_probe_status": "pass",
+            "low_value_research_prompt_requires_user_action": False,
+            "internal_proof_packet_requires_user_action": False,
+            "executable_draft_prompt_requires_user_action": True,
+            "raw_policy_prompt_exposed": False,
+        }
+    )
+    proofs["action_required_only_delivery"] = action_required
+    payload["proofs"] = proofs
+    return payload
 
 
 @pytest.fixture(autouse=True)

@@ -368,10 +368,13 @@ def _telegram_delivery_should_suppress_non_actionable(
     if route.selected_channel != "telegram":
         return False
     request = dict(approval_request or {})
+    action_required_only = _telegram_action_required_only_mode()
     if not request:
-        return False
+        return action_required_only and telegram_ooda_text_is_internal_noise(text)
     if approval_request_needs_telegram_user_action(request):
         return False
+    if action_required_only:
+        return True
     return telegram_ooda_text_is_internal_noise(
         text,
         request.get("approval_prompt"),
@@ -382,6 +385,11 @@ def _telegram_delivery_should_suppress_non_actionable(
         request.get("decision"),
         request.get("action"),
     )
+
+
+def _telegram_action_required_only_mode() -> bool:
+    raw = str(os.getenv("EA_TELEGRAM_ACTION_REQUIRED_ONLY", "1") or "1").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
 
 
 def _channel_route_status(

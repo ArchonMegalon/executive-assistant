@@ -196,6 +196,12 @@ def test_materialize_proactive_ooda_gold_acceptance_passes_with_full_proof_chain
     assert receipt["remaining_external_proofs"] == []
     assert receipt["proofs"]["routed_delivery"]["present"] is True
     assert receipt["proofs"]["action_required_only_delivery"]["present"] is True
+    assert receipt["proofs"]["action_required_only_delivery"]["policy_probe_checked"] is True
+    assert receipt["proofs"]["action_required_only_delivery"]["policy_probe_status"] == "pass"
+    assert receipt["proofs"]["action_required_only_delivery"]["low_value_research_prompt_requires_user_action"] is False
+    assert receipt["proofs"]["action_required_only_delivery"]["internal_proof_packet_requires_user_action"] is False
+    assert receipt["proofs"]["action_required_only_delivery"]["executable_draft_prompt_requires_user_action"] is True
+    assert receipt["proofs"]["action_required_only_delivery"]["raw_policy_prompt_exposed"] is False
     assert receipt["proofs"]["browser_action_contract"]["present"] is True
     assert receipt["proofs"]["browser_action_contract"]["required_for_selected_packet"] is False
     assert receipt["proofs"]["live_browse_evidence"]["present"] is True

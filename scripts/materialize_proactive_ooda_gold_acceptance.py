@@ -35,6 +35,7 @@ from app.services.proactive_signal_discovery import (
     _clean_text as _signal_clean_text,
     _transcript_has_action_intent,
 )
+from app.services.proactive_ooda_telegram_policy import approval_request_needs_telegram_user_action
 
 DEFAULT_OUTPUT = ROOT / ".codex-studio" / "published" / "ea_proactive_ooda_gold_acceptance.generated.json"
 DEFAULT_OPERATOR_STATUS = ROOT / ".codex-studio" / "published" / "ea_proactive_ooda_operator_status.generated.json"
@@ -592,19 +593,36 @@ def _summary_for_status(status: str, *, approval_capture_surface_ready: bool = F
 
 
 def _operator_runtime_next_action(operator_status: Mapping[str, Any]) -> str:
+    reason = str(operator_status.get("reason") or "").strip()
+    if reason.startswith("google_workspace_signal_source_unhealthy:"):
+        return "reauthorize_google_workspace_binding"
     source_ready, source_detail = _operator_runtime_source_coverage_posture(operator_status)
     if not source_ready:
         next_action = str(source_detail.get("next_action") or "").strip()
         if next_action:
             return next_action
-    reason = str(operator_status.get("reason") or "").strip()
-    if reason.startswith("google_workspace_signal_source_unhealthy:"):
-        return "reauthorize_google_workspace_binding"
     return str(operator_status.get("next_action") or "repair_proactive_operator_runtime_posture").strip() or "repair_proactive_operator_runtime_posture"
 
 
 def _operator_runtime_source_coverage_posture(operator_status: Mapping[str, Any]) -> tuple[bool, dict[str, Any]]:
     source_coverage = dict(operator_status.get("source_coverage") or {})
+    if not source_coverage:
+        operator_status_state = str(operator_status.get("status") or "").strip()
+        legacy_ready = operator_status_state.startswith("ready")
+        return (
+            legacy_ready,
+            {
+                "source_coverage_checked": False,
+                "source_coverage_status": "legacy_not_recorded",
+                "source_coverage_ready": legacy_ready,
+                "source_coverage_lane_count": 0,
+                "source_coverage_observed_lane_count": 0,
+                "source_coverage_missing_lane_keys": [],
+                "source_coverage_missing_required_event_types": [],
+                "source_coverage_legacy_compatibility": True,
+                "next_action": "" if legacy_ready else "probe_proactive_source_coverage",
+            },
+        )
     lanes = [dict(row or {}) for row in list(source_coverage.get("lanes") or []) if isinstance(row, Mapping)]
     missing_lane_keys = [
         str(item).strip()
@@ -745,6 +763,43 @@ def _remaining_external_proofs(
     elif not bool(approval_row.get("accepted")):
         remaining.append("real proactive OODA packet accepted under ordinary use")
     return remaining
+
+
+def _action_required_only_policy_probe() -> dict[str, Any]:
+    low_value_research_request = {
+        "packet_ref": "policy_probe:research",
+        "staged_artifact_ref": "policy_probe:research_artifact",
+        "approval_prompt": (
+            "Approve whether EA should research further or change constraints. "
+            "Research, compare, or draft only; require explicit approval before purchase, booking, "
+            "cancellation, sending, posting, or commitment."
+        ),
+    }
+    internal_proof_request = {
+        "packet_ref": "policy_probe:proof",
+        "staged_artifact_ref": "policy_probe:proof_artifact",
+        "approval_prompt": "Approve whether EA should preserve this proof packet as the canonical live check.",
+    }
+    executable_draft_request = {
+        "packet_ref": "policy_probe:draft",
+        "staged_artifact_ref": "policy_probe:draft_artifact",
+        "approval_prompt": "Approve whether EA should keep this saved Gmail draft as the chosen next step.",
+        "approved_execution_mode": "record_outcome_only",
+        "approved_action": "save_gmail_draft",
+    }
+    low_value_requires_action = approval_request_needs_telegram_user_action(low_value_research_request)
+    internal_requires_action = approval_request_needs_telegram_user_action(internal_proof_request)
+    executable_draft_requires_action = approval_request_needs_telegram_user_action(executable_draft_request)
+    return {
+        "checked": True,
+        "status": "pass"
+        if not low_value_requires_action and not internal_requires_action and executable_draft_requires_action
+        else "blocked",
+        "low_value_research_prompt_requires_user_action": low_value_requires_action,
+        "internal_proof_packet_requires_user_action": internal_requires_action,
+        "executable_draft_prompt_requires_user_action": executable_draft_requires_action,
+        "raw_policy_prompt_exposed": False,
+    }
 
 
 def _approval_capture_readiness_proof(
@@ -1421,9 +1476,12 @@ def materialize_proactive_ooda_gold_acceptance(
         and not bool(quiet_receipt.get("dry_run"))
         and quiet_receipt_message_count == 0
     )
+    action_required_policy_probe = _action_required_only_policy_probe()
+    action_required_policy_pass = str(action_required_policy_probe.get("status") or "").strip() == "pass"
     action_required_delivery_present = bool(
         delivery_present
         and sent_packet_had_user_action_surface
+        and action_required_policy_pass
         and (current_guard_is_quiet_without_action or quiet_receipt_proves_action_required_only)
     )
     action_required_delivery_proof = _proof_row(
@@ -1446,6 +1504,18 @@ def materialize_proactive_ooda_gold_acceptance(
             "quiet_receipt_item_count": int(quiet_receipt.get("item_count") or 0),
             "quiet_receipt_message_count": quiet_receipt_message_count,
             "quiet_receipt_proves_action_required_only": quiet_receipt_proves_action_required_only,
+            "policy_probe_checked": bool(action_required_policy_probe.get("checked")),
+            "policy_probe_status": str(action_required_policy_probe.get("status") or "").strip(),
+            "low_value_research_prompt_requires_user_action": bool(
+                action_required_policy_probe.get("low_value_research_prompt_requires_user_action")
+            ),
+            "internal_proof_packet_requires_user_action": bool(
+                action_required_policy_probe.get("internal_proof_packet_requires_user_action")
+            ),
+            "executable_draft_prompt_requires_user_action": bool(
+                action_required_policy_probe.get("executable_draft_prompt_requires_user_action")
+            ),
+            "raw_policy_prompt_exposed": bool(action_required_policy_probe.get("raw_policy_prompt_exposed")),
             "interruption_budget_exhausted": bool(delivery_guard.get("interruption_budget_exhausted")),
             "quiet_hours_active": bool(delivery_guard.get("quiet_hours_active")),
             "packet_artifacts_match_run_receipt": packet_artifacts_match_run_receipt,

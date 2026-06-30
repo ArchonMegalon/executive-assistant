@@ -123,6 +123,27 @@ def _verify_approval_capture(approval_capture: Mapping[str, Any], issues: list[s
         issues.append("ready approval_capture_surface requires approval_capture.telegram_bot_token_present=true")
 
 
+def _verify_action_required_only_delivery(proof: Mapping[str, Any], issues: list[str], *, required: bool) -> None:
+    if not proof:
+        if required:
+            issues.append("action_required_only_delivery proof missing")
+        return
+    if not required and not bool(proof.get("present")):
+        return
+    if proof.get("raw_policy_prompt_exposed") is not False:
+        issues.append("action_required_only_delivery.raw_policy_prompt_exposed must remain false")
+    if proof.get("policy_probe_checked") is not True:
+        issues.append("action_required_only_delivery requires policy_probe_checked=true")
+    if str(proof.get("policy_probe_status") or "").strip() != "pass":
+        issues.append("action_required_only_delivery requires policy_probe_status=pass")
+    if proof.get("low_value_research_prompt_requires_user_action") is not False:
+        issues.append("low-value research approval prompts must not require Telegram user action")
+    if proof.get("internal_proof_packet_requires_user_action") is not False:
+        issues.append("internal proof packets must not require Telegram user action")
+    if proof.get("executable_draft_prompt_requires_user_action") is not True:
+        issues.append("executable draft approval prompts must require Telegram user action")
+
+
 def _git_head(path: Path = ROOT) -> str:
     return resolve_source_state_head(path)
 
@@ -207,6 +228,12 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
         str(dict(proofs.get("action_required_only_delivery") or {}).get("present")).lower() == "true"
     ]
     approval = dict(proofs.get("approval_outcome") or {})
+    action_required_delivery = dict(proofs.get("action_required_only_delivery") or {})
+    _verify_action_required_only_delivery(
+        action_required_delivery,
+        issues,
+        required=bool(action_required_delivery.get("present")) or status == "pass",
+    )
     if approval.get("raw_evidence_exposed") is not False:
         issues.append("approval_outcome.raw_evidence_exposed must remain false")
     if approval.get("raw_actor_exposed") is not False:
@@ -264,7 +291,7 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
         operator_runtime = dict(proofs.get("operator_runtime_posture") or {})
         if bool(operator_runtime.get("present")):
             issues.append("blocked_operator_runtime_posture requires operator_runtime_posture.present=false")
-        if "source_coverage_ready" not in operator_runtime:
+        if "source_coverage_ready" not in operator_runtime and not str(operator_runtime.get("reason") or "").strip():
             issues.append("blocked_operator_runtime_posture requires source_coverage_ready detail")
         _verify_next_action_surface(operator_runtime, issues, prefix="operator_runtime_posture")
     if status == "blocked_low_quality_packet_evidence":

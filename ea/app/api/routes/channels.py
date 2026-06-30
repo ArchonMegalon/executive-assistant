@@ -9267,7 +9267,7 @@ def _telegram_inline_proactive_user_action_required(
     if approval_request_needs_telegram_user_action(approval_request):
         return True
     lowered = " ".join(str(reply_text or "").strip().lower().split())
-    return any(marker in lowered for marker in ("next action:", "current blocker:", "open drafts:", "approve "))
+    return any(marker in lowered for marker in ("next action:", "current blocker:", "open drafts:"))
 
 
 def _principal_email_hint(principal_id: str) -> str:
