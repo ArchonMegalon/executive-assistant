@@ -17,6 +17,7 @@ def _clear_telegram_business_env(monkeypatch) -> None:
         "EA_PUBLIC_APP_BASE_URL",
         "EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_IDS",
         "EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_HASHES",
+        "EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_LABELS",
         "EA_TELEGRAM_BUSINESS_LIVE_WEBHOOK_PROBE",
     ):
         monkeypatch.delenv(key, raising=False)
@@ -47,6 +48,31 @@ def test_blocked_readiness_receipt_contains_action_required_only_setup_packet(mo
         "non_action_progress_push_allowed": False,
         "raw_private_context_exposed": False,
     }
+
+    path = tmp_path / "telegram_business_signal_readiness.generated.json"
+    path.write_text(json.dumps(receipt), encoding="utf-8")
+
+    assert verify(path) == []
+
+
+def test_label_allowlist_readiness_receipt_suppresses_raw_labels(monkeypatch, tmp_path) -> None:
+    _clear_telegram_business_env(monkeypatch)
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "token")
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "secret")
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://ea.example.test")
+    monkeypatch.setenv("EA_DEFAULT_PRINCIPAL_ID", "principal")
+    monkeypatch.setenv("EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_LABELS", "Elisabet Girschele, Developer Circle")
+
+    receipt = build_receipt(include_env_file=None)
+
+    assert receipt["status"] == "pass"
+    assert receipt["chat_allowlist"]["allowed_chat_label_count"] == 2
+    assert receipt["chat_allowlist"]["raw_chat_labels_exposed"] is False
+    assert receipt["setup_status"]["chat_allowlist"]["allowed_chat_label_count"] == 2
+    assert receipt["setup_status"]["chat_allowlist"]["raw_chat_labels_exposed"] is False
+    assert receipt["operator_action"]["raw_chat_labels_exposed"] is False
+    assert "Elisabet" not in json.dumps(receipt)
+    assert "Developer Circle" not in json.dumps(receipt)
 
     path = tmp_path / "telegram_business_signal_readiness.generated.json"
     path.write_text(json.dumps(receipt), encoding="utf-8")

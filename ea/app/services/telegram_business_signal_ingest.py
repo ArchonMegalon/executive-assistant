@@ -43,11 +43,16 @@ def env_allowed_chat_hashes() -> set[str]:
     return _split_env_set("EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_HASHES")
 
 
+def env_allowed_chat_labels() -> set[str]:
+    return _split_label_env_set("EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_LABELS")
+
+
 def normalize_telegram_business_update(
     update: Mapping[str, object],
     *,
     allowed_chat_ids: set[str] | None = None,
     allowed_chat_hashes: set[str] | None = None,
+    allowed_chat_labels: set[str] | None = None,
     hash_salt: str = "",
     received_at: str = "",
     preview_chars: int | None = None,
@@ -83,9 +88,13 @@ def normalize_telegram_business_update(
 
     chat_id = _chat_id(update_type=update_type, body=update_body)
     chat_id_hash = _hash_identifier(chat_id, salt=hash_salt)
+    chat_label_key = _chat_label_key(update_type=update_type, body=update_body)
     allowed_ids = set(allowed_chat_ids or set())
     allowed_hashes = set(allowed_chat_hashes or set())
-    allowlisted = bool(chat_id) and (chat_id in allowed_ids or chat_id_hash in allowed_hashes)
+    allowed_labels = {_normalize_label(item) for item in set(allowed_chat_labels or set()) if _normalize_label(item)}
+    allowlisted = bool(chat_id) and (
+        chat_id in allowed_ids or chat_id_hash in allowed_hashes or bool(chat_label_key and chat_label_key in allowed_labels)
+    )
     update_id = str(payload.get("update_id") or "").strip()
     message_id = _message_id(update_type=update_type, body=update_body)
     external_id = message_id or update_id
@@ -178,6 +187,13 @@ def _split_env_set(key: str) -> set[str]:
     return {item.strip() for item in re.split(r"[\s,]+", raw) if item.strip()}
 
 
+def _split_label_env_set(key: str) -> set[str]:
+    raw = str(os.getenv(key) or "").strip()
+    if not raw:
+        return set()
+    return {_normalize_label(item) for item in re.split(r"[,;\n]+", raw) if _normalize_label(item)}
+
+
 def _extract_supported_update(update: Mapping[str, object]) -> tuple[str, dict[str, object]]:
     for key in SUPPORTED_TELEGRAM_BUSINESS_UPDATES:
         value = update.get(key)
@@ -202,6 +218,41 @@ def _message_id(*, update_type: str, body: Mapping[str, object]) -> str:
         ids = [str(item or "").strip() for item in list(body.get("message_ids") or []) if str(item or "").strip()]
         return ",".join(ids[:20])
     return str(body.get("message_id") or body.get("id") or "").strip()
+
+
+def _chat_label_key(*, update_type: str, body: Mapping[str, object]) -> str:
+    if update_type == "business_connection":
+        user = body.get("user")
+        return _actor_label_key(dict(user)) if isinstance(user, dict) else ""
+    chat = body.get("chat")
+    if isinstance(chat, dict):
+        label = _actor_label_key(dict(chat))
+        if label:
+            return label
+    sender = body.get("from")
+    return _actor_label_key(dict(sender)) if isinstance(sender, dict) else ""
+
+
+def _actor_label_key(actor: Mapping[str, object]) -> str:
+    title = str(actor.get("title") or "").strip()
+    if title:
+        return _normalize_label(title)
+    username = str(actor.get("username") or "").strip()
+    if username:
+        return _normalize_label(username.removeprefix("@"))
+    name = " ".join(
+        item
+        for item in (
+            str(actor.get("first_name") or "").strip(),
+            str(actor.get("last_name") or "").strip(),
+        )
+        if item
+    ).strip()
+    return _normalize_label(name)
+
+
+def _normalize_label(value: str) -> str:
+    return " ".join(str(value or "").strip().casefold().split())
 
 
 def _sender_fields(body: Mapping[str, object], *, salt: str) -> tuple[str, str]:

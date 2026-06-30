@@ -118,14 +118,18 @@ def _split_values(raw: str) -> list[str]:
 def _chat_allowlist() -> dict[str, object]:
     raw_ids = _split_values(_env("EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_IDS"))
     raw_hashes = _split_values(_env("EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_HASHES"))
+    raw_labels = _split_values(_env("EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_LABELS"))
     return {
-        "configured": bool(raw_ids or raw_hashes),
+        "configured": bool(raw_ids or raw_hashes or raw_labels),
         "raw_chat_ids_present": bool(raw_ids),
         "chat_hashes_present": bool(raw_hashes),
+        "chat_labels_present": bool(raw_labels),
         "allowed_chat_id_count": len(raw_ids),
         "allowed_chat_hash_count": len(raw_hashes),
+        "allowed_chat_label_count": len(raw_labels),
         "raw_chat_ids_exposed": False,
         "raw_chat_hashes_exposed": False,
+        "raw_chat_labels_exposed": False,
     }
 
 
@@ -220,12 +224,16 @@ def _setup_status(*, checks: dict[str, bool], allowlist: dict[str, object], code
         },
         "chat_allowlist": {
             "status": "pass" if checks.get("chat_allowlist_configured") else "missing",
-            "required": ["EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_IDS or EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_HASHES"],
+            "required": [
+                "EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_IDS, EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_HASHES, or EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_LABELS"
+            ],
             "missing": [] if checks.get("chat_allowlist_configured") else ["allowlisted Telegram Business chats"],
             "allowed_chat_id_count": int(allowlist.get("allowed_chat_id_count") or 0),
             "allowed_chat_hash_count": int(allowlist.get("allowed_chat_hash_count") or 0),
+            "allowed_chat_label_count": int(allowlist.get("allowed_chat_label_count") or 0),
             "raw_chat_ids_exposed": False,
             "raw_chat_hashes_exposed": False,
+            "raw_chat_labels_exposed": False,
         },
         "code_contract": {
             "status": "pass" if not code_missing else "missing",
@@ -259,7 +267,7 @@ def _setup_checklist(missing: list[str]) -> list[dict[str, str]]:
         },
         "chat_allowlist_configured": {
             "label": "Choose Telegram Business chats EA may read",
-            "how": "Set EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_HASHES or EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_IDS.",
+            "how": "Set EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_HASHES, EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_IDS, or EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_LABELS.",
         },
         "live_webhook_probe_pass": {
             "label": "Verify Telegram points at the Business ingest webhook",
@@ -365,9 +373,9 @@ def build_receipt(*, bot_key: str = "", include_env_file: Path | None = None) ->
         "operator_action": {
             "user_action_required": bool(missing),
             "instruction": (
-                "Connect the EA bot as Telegram Business/Secretary bot, allow only selected chats, "
-                "configure the Business webhook, and set EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_IDS or "
-                "EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_HASHES."
+            "Connect the EA bot as Telegram Business/Secretary bot, allow only selected chats, "
+            "configure the Business webhook, and set EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_IDS or "
+            "EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_HASHES. EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_LABELS is supported as a bootstrap allowlist."
             ),
             "next_action": "connect_telegram_business_secretary_bot_and_allowlist_chats",
             "next_action_href": "/integrations/telegram",
@@ -384,6 +392,7 @@ def build_receipt(*, bot_key: str = "", include_env_file: Path | None = None) ->
             "irreversible_actions_consent_gated": True,
             "raw_private_context_exposed": False,
             "raw_chat_ids_exposed": False,
+            "raw_chat_labels_exposed": False,
             "raw_token_exposed": False,
             "raw_secret_exposed": False,
         },

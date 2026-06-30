@@ -21,11 +21,14 @@
   "chat_allowlist": {
     "allowed_chat_hash_count": 0,
     "allowed_chat_id_count": 0,
+    "allowed_chat_label_count": 5,
     "chat_hashes_present": false,
-    "configured": false,
+    "chat_labels_present": true,
+    "configured": true,
     "raw_chat_hashes_exposed": false,
     "raw_chat_ids_exposed": false,
-    "raw_chat_ids_present": false
+    "raw_chat_ids_present": false,
+    "raw_chat_labels_exposed": false
   },
   "claim_boundary": "does_not_prove_telegram_business_signal_ingest_until_secretary_bot_is_connected_with_an_allowlisted_chat_and_business_webhook",
   "code": {
@@ -37,24 +40,20 @@
     "verifier_present": true
   },
   "contract_name": "ea.telegram_business_signal_readiness.v1",
-  "generated_at": "2026-06-30T08:16:13Z",
+  "generated_at": "2026-06-30T08:26:55Z",
   "generated_by": "scripts/materialize_telegram_business_signal_readiness.py",
   "head_semantics": "source_state",
   "live_webhook_probe": {
     "reason": "live_probe_disabled",
     "status": "skipped"
   },
-  "missing_setup": [
-    "chat_allowlist_configured"
-  ],
+  "missing_setup": [],
   "operator_action": {
-    "delivery_policy": "action_required_only",
-    "instruction": "Connect the EA bot as Telegram Business/Secretary bot, allow only selected chats, configure the Business webhook, and set EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_IDS or EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_HASHES.",
-    "interruption_budget": "action_required",
+    "delivery_policy": "queue_only",
+    "instruction": "Connect the EA bot as Telegram Business/Secretary bot, allow only selected chats, configure the Business webhook, and set EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_IDS or EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_HASHES. EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_LABELS is supported as a bootstrap allowlist.",
+    "interruption_budget": "none",
     "irreversible_actions_consent_gated": true,
-    "missing_setup": [
-      "chat_allowlist_configured"
-    ],
+    "missing_setup": [],
     "next_action": "connect_telegram_business_secretary_bot_and_allowlist_chats",
     "next_action_href": "/integrations/telegram",
     "next_action_label": "Open Telegram setup",
@@ -62,19 +61,14 @@
     "non_action_progress_push_allowed": false,
     "quiet_hours_respected": true,
     "raw_chat_ids_exposed": false,
+    "raw_chat_labels_exposed": false,
     "raw_private_context_exposed": false,
     "raw_secret_exposed": false,
     "raw_token_exposed": false,
-    "setup_checklist": [
-      {
-        "how": "Set EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_HASHES or EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_IDS.",
-        "key": "chat_allowlist_configured",
-        "label": "Choose Telegram Business chats EA may read"
-      }
-    ],
-    "telegram_message": "Action needed: Telegram Business/Secretary ingest is not live yet. Connect the EA bot, allowlist the selected chats, and run the Business webhook bootstrap. Missing: Choose Telegram Business chats EA may read.",
-    "telegram_push_allowed": true,
-    "user_action_required": true
+    "setup_checklist": [],
+    "telegram_message": "",
+    "telegram_push_allowed": false,
+    "user_action_required": false
   },
   "privacy": {
     "raw_chat_ids_exposed": false,
@@ -103,15 +97,15 @@
     "chat_allowlist": {
       "allowed_chat_hash_count": 0,
       "allowed_chat_id_count": 0,
-      "missing": [
-        "allowlisted Telegram Business chats"
-      ],
+      "allowed_chat_label_count": 5,
+      "missing": [],
       "raw_chat_hashes_exposed": false,
       "raw_chat_ids_exposed": false,
+      "raw_chat_labels_exposed": false,
       "required": [
-        "EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_IDS or EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_HASHES"
+        "EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_IDS, EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_HASHES, or EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_LABELS"
       ],
-      "status": "missing"
+      "status": "pass"
     },
     "code_contract": {
       "missing": [],
@@ -139,16 +133,16 @@
       "status": "pass"
     }
   },
-  "source_git_head": "ed0644b0de414522fd3ab50b8ebb06192526cbae",
-  "source_state_fingerprint": "f9dd557f019810e93664108043f48e1bf174bf4a31124e592d17904d08b4d16a",
+  "source_git_head": "b369752032cb32dd78bdd8802b5d93d767fad5cf",
+  "source_state_fingerprint": "9861db9d7d80cc399b802c8ae0d1d81921848fd4a732cc08348d2242e952ea99",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
-  "status": "blocked_setup_required",
+  "status": "pass",
   "telegram_notification": {
     "delivery_policy": "action_required_only",
     "non_action_progress_push_allowed": false,
     "raw_private_context_exposed": false,
-    "reason": "user_action_required",
-    "should_send": true
+    "reason": "no_operator_action_required",
+    "should_send": false
   },
   "webhook_path": "/v1/channels/telegram/business/ingest"
 }

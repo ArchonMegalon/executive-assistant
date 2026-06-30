@@ -77,6 +77,54 @@ def test_blocked_business_message_does_not_store_message_text_or_sender() -> Non
     assert "999" not in result.source_id
 
 
+def test_allowed_private_chat_label_becomes_signal_candidate() -> None:
+    update = {
+        "update_id": 104,
+        "business_message": {
+            "message_id": 79,
+            "chat": {"id": 1201, "type": "private", "first_name": "Helmut", "last_name": "Jilka"},
+            "from": {"id": 43, "first_name": "Helmut", "last_name": "Jilka"},
+            "text": "Bitte morgen nachfassen.",
+        },
+    }
+
+    result = telegram_business_signal_ingest.normalize_telegram_business_update(
+        update,
+        allowed_chat_labels={"helmut jilka"},
+        hash_salt="test-salt",
+    )
+
+    assert result.status == "signal_candidate"
+    assert result.candidate["chat_scope"] == "allowlisted"
+    assert result.candidate["text_preview"] == "Bitte morgen nachfassen."
+    assert result.candidate["chat_id_hash"] == _hash("1201", salt="test-salt")
+    assert "1201" not in result.source_id
+
+
+def test_allowed_group_title_becomes_signal_candidate_case_insensitive() -> None:
+    update = {
+        "update_id": 105,
+        "business_message": {
+            "message_id": 80,
+            "chat": {"id": -1202, "type": "group", "title": "Developer Circle"},
+            "from": {"id": 45, "first_name": "Ada"},
+            "text": "Deploy ist fertig.",
+        },
+    }
+
+    result = telegram_business_signal_ingest.normalize_telegram_business_update(
+        update,
+        allowed_chat_labels={"developer circle"},
+        hash_salt="test-salt",
+    )
+
+    assert result.status == "signal_candidate"
+    assert result.candidate["chat_scope"] == "allowlisted"
+    assert result.candidate["text_preview"] == "Deploy ist fertig."
+    assert result.candidate["chat_id_hash"] == _hash("-1202", salt="test-salt")
+    assert "-1202" not in result.source_id
+
+
 def test_deleted_business_messages_are_allowlisted_without_text_preview() -> None:
     result = telegram_business_signal_ingest.normalize_telegram_business_update(
         {

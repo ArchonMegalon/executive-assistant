@@ -9925,6 +9925,7 @@ def ingest_telegram_business(
         update,
         allowed_chat_ids=telegram_business_signal_ingest.env_allowed_chat_ids(),
         allowed_chat_hashes=telegram_business_signal_ingest.env_allowed_chat_hashes(),
+        allowed_chat_labels=telegram_business_signal_ingest.env_allowed_chat_labels(),
         hash_salt=str(os.getenv("EA_TELEGRAM_BUSINESS_HASH_SALT") or "").strip(),
     )
     principal_id = str(bot_config.get("default_principal_id") or _telegram_default_principal_id() or "").strip()

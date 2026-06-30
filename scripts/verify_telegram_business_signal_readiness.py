@@ -80,7 +80,7 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
         if bot_registry.get(key) is not False:
             issues.append(f"bot_registry privacy flag must be false: {key}")
     allowlist = dict(receipt.get("chat_allowlist") or {})
-    for key in ("raw_chat_ids_exposed", "raw_chat_hashes_exposed"):
+    for key in ("raw_chat_ids_exposed", "raw_chat_hashes_exposed", "raw_chat_labels_exposed"):
         if allowlist.get(key) is not False:
             issues.append(f"allowlist privacy flag must be false: {key}")
     setup_status = receipt.get("setup_status")
@@ -110,6 +110,7 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
             ("principal_binding", "raw_principal_id_exposed"),
             ("chat_allowlist", "raw_chat_ids_exposed"),
             ("chat_allowlist", "raw_chat_hashes_exposed"),
+            ("chat_allowlist", "raw_chat_labels_exposed"),
             ("live_webhook_probe", "raw_webhook_url_exposed"),
         ):
             section = setup_status.get(section_key)
@@ -171,7 +172,13 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
         issues.append("operator_action must disallow non-action progress pushes")
     if operator_action.get("irreversible_actions_consent_gated") is not True:
         issues.append("operator_action must preserve irreversible-action consent gate")
-    for key in ("raw_private_context_exposed", "raw_chat_ids_exposed", "raw_token_exposed", "raw_secret_exposed"):
+    for key in (
+        "raw_private_context_exposed",
+        "raw_chat_ids_exposed",
+        "raw_chat_labels_exposed",
+        "raw_token_exposed",
+        "raw_secret_exposed",
+    ):
         if operator_action.get(key) is not False:
             issues.append(f"operator_action privacy flag must be false: {key}")
     notification = receipt.get("telegram_notification")

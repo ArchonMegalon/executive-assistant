@@ -76,7 +76,7 @@
           "present": true,
           "source_fresh_to_current_source": true,
           "source_git_head": "b369752032cb32dd78bdd8802b5d93d767fad5cf",
-          "source_state_fingerprint": "f9dd557f019810e93664108043f48e1bf174bf4a31124e592d17904d08b4d16a",
+          "source_state_fingerprint": "9861db9d7d80cc399b802c8ae0d1d81921848fd4a732cc08348d2242e952ea99",
           "status": "pass"
         },
         {
@@ -85,7 +85,7 @@
           "present": true,
           "source_fresh_to_current_source": true,
           "source_git_head": "b369752032cb32dd78bdd8802b5d93d767fad5cf",
-          "source_state_fingerprint": "f9dd557f019810e93664108043f48e1bf174bf4a31124e592d17904d08b4d16a",
+          "source_state_fingerprint": "9861db9d7d80cc399b802c8ae0d1d81921848fd4a732cc08348d2242e952ea99",
           "status": "ready_with_live_receipt"
         }
       ],
@@ -128,53 +128,6 @@
       ],
       "status": "pending_real_world_evidence",
       "title": "Fresh-host Teable recovery drill"
-    },
-    {
-      "action_context": {
-        "callback_tokens_exposed": false,
-        "instruction": "Connect the EA bot as Telegram Business/Secretary bot, allow only selected chats, configure the Business webhook, and set EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_IDS or EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_HASHES.",
-        "missing_setup": [
-          "chat_allowlist_configured"
-        ],
-        "raw_chat_ids_exposed": false,
-        "raw_secret_exposed": false,
-        "raw_token_exposed": false,
-        "raw_voice_ids_exposed": false,
-        "setup_checklist": [
-          {
-            "how": "Set EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_HASHES or EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_IDS.",
-            "key": "chat_allowlist_configured",
-            "label": "Choose Telegram Business chats EA may read"
-          }
-        ],
-        "telegram_message": "Action needed: Telegram Business/Secretary ingest is not live yet. Connect the EA bot, allowlist the selected chats, and run the Business webhook bootstrap. Missing: Choose Telegram Business chats EA may read.",
-        "user_action_required": true
-      },
-      "capture_surfaces": [
-        ".codex-studio/published/telegram_business_signal_readiness.generated.json"
-      ],
-      "claim_boundary": "does_not_prove_telegram_business_signal_ingest_until_secretary_bot_is_connected_with_an_allowlisted_chat_and_business_webhook",
-      "evidence_kind": "secretary_bot_signal_ingest_setup",
-      "key": "telegram_business_signal_setup",
-      "lens": "detect",
-      "next_action": "connect_telegram_business_secretary_bot_and_allowlist_chats",
-      "next_action_href": "/integrations/telegram",
-      "next_action_label": "Open Telegram setup",
-      "next_action_method": "get",
-      "required_next_receipt": "Telegram Business/Secretary bot connected with allowlisted signal chats",
-      "source_receipts": [
-        {
-          "contract_name": "ea.telegram_business_signal_readiness.v1",
-          "path": ".codex-studio/published/telegram_business_signal_readiness.generated.json",
-          "present": true,
-          "source_fresh_to_current_source": true,
-          "source_git_head": "ed0644b0de414522fd3ab50b8ebb06192526cbae",
-          "source_state_fingerprint": "f9dd557f019810e93664108043f48e1bf174bf4a31124e592d17904d08b4d16a",
-          "status": "blocked_setup_required"
-        }
-      ],
-      "status": "pending_real_world_evidence",
-      "title": "Telegram Business signal ingest setup"
     },
     {
       "capture_surfaces": [
@@ -341,7 +294,6 @@
     }
   ],
   "blocking_reasons": [
-    "detect:telegram_business_signal=blocked_setup_required",
     "deliver:manfred_speech=blocked_realtime_prerequisites",
     "deliver:telegram_audiobook=blocked",
     "deliver:whatsapp_audiobook=blocked_stale_source_evidence",
@@ -355,7 +307,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-06-30T08:20:20Z",
+  "generated_at": "2026-06-30T08:28:03Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -390,9 +342,9 @@
           "path": ".codex-studio/published/telegram_business_signal_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "ed0644b0de414522fd3ab50b8ebb06192526cbae",
-          "source_state_fingerprint": "f9dd557f019810e93664108043f48e1bf174bf4a31124e592d17904d08b4d16a",
-          "status": "blocked_setup_required"
+          "source_git_head": "b369752032cb32dd78bdd8802b5d93d767fad5cf",
+          "source_state_fingerprint": "9861db9d7d80cc399b802c8ae0d1d81921848fd4a732cc08348d2242e952ea99",
+          "status": "pass"
         }
       ],
       "status": "ready_local_packet_pending_operator_acceptance",
@@ -407,7 +359,7 @@
         ],
         "bot_token_present": true,
         "business_mode": true,
-        "chat_allowlist_configured": false,
+        "chat_allowlist_configured": true,
         "default_principal_present": true,
         "ingest_secret_present": true,
         "key": "telegram_business_secretary_bot",
@@ -416,7 +368,7 @@
         "raw_secret_exposed": false,
         "raw_token_exposed": false,
         "raw_webhook_url_exposed": false,
-        "status": "blocked_setup_required",
+        "status": "pass",
         "webhook_path": "/v1/channels/telegram/business/ingest"
       },
       "title": "Signal ingest and prioritization",
@@ -680,42 +632,6 @@
     },
     {
       "callback_tokens_exposed": false,
-      "delivery_policy": "action_required_only",
-      "evidence_kind": "secretary_bot_signal_ingest_setup",
-      "instruction": "Connect the EA bot as Telegram Business/Secretary bot, allow only selected chats, configure the Business webhook, and set EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_IDS or EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_HASHES.",
-      "interruption_budget": "action_required",
-      "irreversible_actions_consent_gated": true,
-      "key": "telegram_business_signal_setup",
-      "lens": "detect",
-      "missing_setup": [
-        "chat_allowlist_configured"
-      ],
-      "next_action": "connect_telegram_business_secretary_bot_and_allowlist_chats",
-      "next_action_href": "/integrations/telegram",
-      "next_action_label": "Open Telegram setup",
-      "next_action_method": "get",
-      "non_action_progress_push_allowed": false,
-      "quiet_hours_respected": true,
-      "raw_chat_ids_exposed": false,
-      "raw_private_context_exposed": false,
-      "raw_secret_exposed": false,
-      "raw_token_exposed": false,
-      "raw_voice_ids_exposed": false,
-      "required_next_receipt": "Telegram Business/Secretary bot connected with allowlisted signal chats",
-      "setup_checklist": [
-        {
-          "how": "Set EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_HASHES or EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_IDS.",
-          "key": "chat_allowlist_configured",
-          "label": "Choose Telegram Business chats EA may read"
-        }
-      ],
-      "telegram_message": "Action needed: Telegram Business/Secretary ingest is not live yet. Connect the EA bot, allowlist the selected chats, and run the Business webhook bootstrap. Missing: Choose Telegram Business chats EA may read.",
-      "telegram_push_allowed": true,
-      "title": "Telegram Business signal ingest setup",
-      "user_action_required": true
-    },
-    {
-      "callback_tokens_exposed": false,
       "delivery_policy": "queue_only",
       "evidence_kind": "consented_realtime_media_proof",
       "interruption_budget": "none",
@@ -864,7 +780,6 @@
     "real operator acceptance that the morning brief was worth reading",
     "real weekly signal-to-decision review acceptance receipt",
     "fresh-host Teable recovery drill receipt mirrored into the repo",
-    "Telegram Business/Secretary bot connected with allowlisted signal chats",
     "consented Manfred STT/TTS realtime conversation proof",
     "passing Telegram audiobook live delivery receipt",
     "passing WhatsApp audiobook live delivery receipt"
@@ -880,6 +795,6 @@
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
   "source_git_head": "b369752032cb32dd78bdd8802b5d93d767fad5cf",
-  "source_state_fingerprint": "f9dd557f019810e93664108043f48e1bf174bf4a31124e592d17904d08b4d16a",
+  "source_state_fingerprint": "9861db9d7d80cc399b802c8ae0d1d81921848fd4a732cc08348d2242e952ea99",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }
