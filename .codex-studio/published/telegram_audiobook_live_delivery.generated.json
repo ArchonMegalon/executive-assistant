@@ -3,6 +3,18 @@
   "candidate_count": 4,
   "claim": "Telegram EPUB audiobook delivery has live proof only when a sanitized job receipt shows the M4B is ready, Audiobookshelf imported and public-shared it, and Telegram sent the public share link.",
   "contract_name": "ea.telegram_audiobook_live_delivery_receipt.v1",
+  "duplicate_suppression": {
+    "action_required_only": true,
+    "active_pending_voice_job_count": 1,
+    "callback_tokens_exposed": false,
+    "duplicate_active_pending_source_key_count": 0,
+    "duplicate_active_pending_source_keys_sha256": [],
+    "only_current_jobs_can_require_user_action": true,
+    "raw_voice_ids_exposed": false,
+    "superseded_duplicate_candidate_count": 3,
+    "suppressed_pending_voice_duplicate_count": 1,
+    "suppressed_voice_candidate_labels": []
+  },
   "failed_candidate_count": 4,
   "failed_candidates": [
     {
@@ -87,7 +99,7 @@
     "user_selected_voice_delivery_not_ready",
     "explicit_replacement_voice_choice_pending"
   ],
-  "generated_at": "2026-06-30T04:46:52.872960Z",
+  "generated_at": "2026-06-30T04:54:19.160430Z",
   "generated_by": "ea/scripts/materialize_telegram_audiobook_live_delivery_receipt.py",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
@@ -146,6 +158,7 @@
       "scheduler_retry_after": "",
       "selected_label_sha256": "",
       "selected_voice_id_sha256": "",
+      "source_key_sha256": "e8fcbce19a5a78f785d84fe7d0972d161955f3e879b80cfb2b320d6f92ef36c4",
       "status": "waiting_voice_selection",
       "voice_choice_candidate_count": 1,
       "voice_choice_candidate_labels": [
@@ -226,8 +239,8 @@
     "voice_selected_default": true
   },
   "source_filter": "telegram_epub_audiobook_sources",
-  "source_git_head": "ad9eba3c77c57ce34b6ea39d92138771e1469f41",
-  "source_state_fingerprint": "62c52a0bad3973cf39835672e4ce9cec60696a98054af01801b71c0269c7add2",
+  "source_git_head": "5f9ce2e607290697488fb3dbc425f93062debcd9",
+  "source_state_fingerprint": "f052bbab5faf9d103a89bca21812208e526f28318e7cf2d8b4f8364b6f709535",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "blocked"
 }

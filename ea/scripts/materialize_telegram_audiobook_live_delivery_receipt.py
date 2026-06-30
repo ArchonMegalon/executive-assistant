@@ -453,6 +453,7 @@ def _pending_summary(candidate: dict[str, object]) -> dict[str, object]:
         "voice_selection_reason": str(voice.get("reason") or ""),
         "voice_selection_waiting": str(voice.get("status") or "") == "waiting_user_choice",
         "voice_choice_pending": bool(candidate.get("voice_choice_pending")),
+        "source_key_sha256": _sha256_text(_candidate_source_key(candidate)),
         "voice_choice_candidate_count": len(voice_choice_keys),
         "voice_choice_candidate_labels": pending_labels[:3],
         "replacement_choice_pending": replacement_pending,
@@ -472,6 +473,43 @@ def _pending_summary(candidate: dict[str, object]) -> dict[str, object]:
         ),
         "external_tts_blocker_reason_sha256": str(render.get("external_tts_blocker_reason_sha256") or ""),
         "scheduler_retry_after": str(scheduler.get("retry_after") or ""),
+    }
+
+
+def _voice_action_source_key(row: dict[str, object]) -> str:
+    source_key = str(row.get("source_key_sha256") or "").strip()
+    if source_key:
+        return source_key
+    return str(row.get("job_id_sha256") or "").strip()
+
+
+def _duplicate_suppression_state(
+    *,
+    candidates: list[dict[str, object]],
+    pending: list[dict[str, object]],
+) -> dict[str, object]:
+    superseded = [candidate for candidate in candidates if _candidate_is_superseded(candidate)]
+    superseded_pending = [_pending_summary(candidate) for candidate in superseded if _pending_user_selected_job(candidate)]
+    pending_source_keys = [_voice_action_source_key(row) for row in pending if _voice_action_source_key(row)]
+    duplicate_pending_source_keys = _dedupe([key for key in pending_source_keys if pending_source_keys.count(key) > 1])
+    suppressed_labels: list[str] = []
+    for row in superseded_pending:
+        suppressed_labels.extend(
+            str(label).strip()
+            for label in list(row.get("replacement_candidate_labels") or row.get("voice_choice_candidate_labels") or [])
+            if str(label).strip()
+        )
+    return {
+        "action_required_only": True,
+        "only_current_jobs_can_require_user_action": True,
+        "superseded_duplicate_candidate_count": len(superseded),
+        "suppressed_pending_voice_duplicate_count": len(superseded_pending),
+        "active_pending_voice_job_count": len(pending),
+        "duplicate_active_pending_source_key_count": len(duplicate_pending_source_keys),
+        "duplicate_active_pending_source_keys_sha256": [_sha256_text(key) for key in duplicate_pending_source_keys],
+        "suppressed_voice_candidate_labels": _dedupe(suppressed_labels)[:3],
+        "raw_voice_ids_exposed": False,
+        "callback_tokens_exposed": False,
     }
 
 
@@ -692,6 +730,7 @@ def build_receipt(
             live_pass=live_pass,
             real_user_accepted=real_user_accepted,
         ),
+        "duplicate_suppression": _duplicate_suppression_state(candidates=candidates, pending=pending),
         "selected_delivery": _candidate_public(selected) if selected else {},
         "failed_candidates": [_failed_candidate_public(candidate) for candidate in candidates if candidate.get("failed_codes")],
         "pending_user_selected_voice_job_count": len(pending),

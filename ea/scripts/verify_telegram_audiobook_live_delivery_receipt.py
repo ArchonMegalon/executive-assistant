@@ -116,6 +116,24 @@ def verify(path: Path = DEFAULT_OUTPUT) -> list[str]:
                 issues.append("operator_action_packet next_action_label must match receipt next_action_label")
             if str(operator_action_packet.get("next_action_method") or "").strip().lower() != next_action_method:
                 issues.append("operator_action_packet next_action_method must match receipt next_action_method")
+    duplicate_suppression = dict(receipt.get("duplicate_suppression") or {})
+    if not duplicate_suppression:
+        issues.append("duplicate_suppression must be present")
+    else:
+        if duplicate_suppression.get("action_required_only") is not True:
+            issues.append("duplicate_suppression.action_required_only must be true")
+        if duplicate_suppression.get("only_current_jobs_can_require_user_action") is not True:
+            issues.append("duplicate_suppression.only_current_jobs_can_require_user_action must be true")
+        if duplicate_suppression.get("raw_voice_ids_exposed") is not False:
+            issues.append("duplicate_suppression.raw_voice_ids_exposed must remain false")
+        if duplicate_suppression.get("callback_tokens_exposed") is not False:
+            issues.append("duplicate_suppression.callback_tokens_exposed must remain false")
+        if int(duplicate_suppression.get("duplicate_active_pending_source_key_count") or 0) != 0:
+            issues.append("duplicate_suppression must not leave duplicate active pending source keys")
+        if int(duplicate_suppression.get("active_pending_voice_job_count") or 0) != int(
+            receipt.get("pending_user_selected_voice_job_count") or 0
+        ):
+            issues.append("duplicate_suppression active pending count must match pending_user_selected_voice_job_count")
     privacy = dict(receipt.get("privacy") or {})
     for key in ("provider_secret_exposed", "audiobookshelf_token_exposed"):
         if privacy.get(key) is not False:

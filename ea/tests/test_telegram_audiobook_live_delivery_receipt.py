@@ -19,8 +19,11 @@ def _load_module():
 def _job_receipt(
     *,
     job_id: str,
+    title: str | None = None,
+    author: str = "EA QA",
     source_kind: str = "epub",
     source_filename: str = "book.epub",
+    source_sha256: str = "",
     source_url_sha256: str = "",
     telegram_chat_bound: bool = False,
     telegram_message_bound: bool = False,
@@ -41,11 +44,12 @@ def _job_receipt(
         "source": {
             "kind": source_kind,
             "source_filename": source_filename,
+            "source_sha256": source_sha256,
             "source_url_sha256": source_url_sha256,
         },
         "metadata": {
-            "title": f"Title for {job_id}",
-            "author": "EA QA",
+            "title": title or f"Title for {job_id}",
+            "author": author,
         },
         "assembly": {
             "output_file_ready": True,
@@ -208,3 +212,67 @@ def test_build_receipt_routes_sent_replacement_voice_sample_to_precise_operator_
     assert packet["callback_tokens_exposed"] is False
     assert receipt["privacy"]["voice_labels_operator_safe"] is True
     assert receipt["privacy"]["raw_voice_ids_exposed"] is False
+
+
+def test_build_receipt_suppresses_superseded_duplicate_voice_actions(tmp_path: Path) -> None:
+    module = _load_module()
+    source_sha = hashlib.sha256(b"same-telegram-epub").hexdigest()
+    voice_selection = {
+        "status": "waiting_user_choice",
+        "reason": "selected_voice_author_gender_mismatch",
+        "pending_candidate_keys": ["unmixr_dieter_7f88185d"],
+        "replacement_candidate_keys": ["unmixr_dieter_7f88185d"],
+        "pending_batch": [
+            {
+                "preset_key": "unmixr_dieter_7f88185d",
+                "label": "Dieter",
+                "voice_id_sha256": hashlib.sha256(b"voice-dieter").hexdigest(),
+            }
+        ],
+    }
+
+    receipt = module.build_receipt(
+        output_path=tmp_path / "telegram_live_delivery_duplicate_suppression.json",
+        job_receipts=[
+            _job_receipt(
+                job_id="replacement-voice-current",
+                source_kind="telegram_epub",
+                source_sha256=source_sha,
+                status="waiting_voice_selection",
+                playback_status="not_recorded",
+                playback_accepted=False,
+                render_voice_selection=voice_selection,
+                telegram_voice_sample_delivery_status="sent",
+                telegram_voice_sample_delivery_expected_count=1,
+                telegram_voice_sample_delivery_sent_count=1,
+            ),
+            _job_receipt(
+                job_id="replacement-voice-duplicate",
+                source_kind="telegram_epub",
+                source_sha256=source_sha,
+                status="superseded_duplicate",
+                playback_status="not_recorded",
+                playback_accepted=False,
+                render_voice_selection=voice_selection,
+                telegram_voice_sample_delivery_status="sent",
+                telegram_voice_sample_delivery_expected_count=1,
+                telegram_voice_sample_delivery_sent_count=1,
+            ),
+        ],
+        generated_at="2026-06-30T00:00:00Z",
+        observation_source="test",
+    )
+
+    assert receipt["pending_user_selected_voice_job_count"] == 1
+    assert receipt["next_action"] == "choose_sent_replacement_voice_sample"
+    assert receipt["operator_action_packet"]["candidate_labels"] == ["Dieter"]
+    duplicate_suppression = receipt["duplicate_suppression"]
+    assert duplicate_suppression["action_required_only"] is True
+    assert duplicate_suppression["only_current_jobs_can_require_user_action"] is True
+    assert duplicate_suppression["superseded_duplicate_candidate_count"] == 1
+    assert duplicate_suppression["suppressed_pending_voice_duplicate_count"] == 1
+    assert duplicate_suppression["active_pending_voice_job_count"] == 1
+    assert duplicate_suppression["duplicate_active_pending_source_key_count"] == 0
+    assert duplicate_suppression["suppressed_voice_candidate_labels"] == ["Dieter"]
+    assert duplicate_suppression["raw_voice_ids_exposed"] is False
+    assert duplicate_suppression["callback_tokens_exposed"] is False
