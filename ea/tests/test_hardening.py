@@ -370,6 +370,49 @@ class HardeningTests(unittest.TestCase):
         self.assertIn("top_candidate_not_provider_like", issue_codes)
         self.assertIn("draft_not_created", issue_codes)
 
+    def test_provider_discovery_draft_blocks_provider_page_without_request_fit(self) -> None:
+        packet = {
+            "packet_ref": "packet:provider-generic-contact",
+            "approval": {"required": False},
+            "safe_work_order": {
+                "schema": proactive_ooda_safe_work.SAFE_WORK_ORDER_SCHEMA,
+                "work_order_id": "work-provider-generic-contact",
+                "work_type": "draft",
+                "requested_outcome": "Research candidates and prepare one inquiry draft.",
+            },
+            "stage": {
+                "payload": {
+                    "draft_mode": "research_backed_inquiry",
+                    "locale": "de",
+                    "draft_request_text": (
+                        "suche mir rauchfangkehrer - ich brauche ein Gutachten, ob ich meinen Zimmerkamin "
+                        "als Abluftrohr eines Klimageraetes verwenden kann"
+                    ),
+                    "research_query": "rauchfangkehrer gutachten klimageraet abluftrohr 1200 wien",
+                    "selection_criteria": ["contact details visible", "reachability", "fit to request"],
+                    "candidate_items": [
+                        {
+                            "label": "Dienstleister Wien - Kontakt und Leistungen",
+                            "url": "https://example.test/kontakt",
+                            "snippet": "Kontakt, Leistungen, Services und Office fuer allgemeine Anfragen in Wien.",
+                            "contact_email": "office@example.test",
+                            "reachable": True,
+                            "page_title": "Kontakt und Leistungen",
+                        }
+                    ],
+                }
+            },
+        }
+
+        result = proactive_ooda_safe_work.build_safe_work_result(packet, network_fetch_enabled=False)
+
+        self.assertEqual(result["status"], "blocked_needs_research_input")
+        self.assertEqual(result["recommended_option_or_draft"], {})
+        issue_codes = {row["code"] for row in result["audit"]["issues"]}
+        self.assertIn("top_candidate_not_provider_like", issue_codes)
+        self.assertIn("draft_not_created", issue_codes)
+        self.assertIn("provider request terms missing", result["comparison_table"][0]["constraint_violations"])
+
     def test_provider_discovery_draft_uses_safe_provider_candidate(self) -> None:
         packet = {
             "packet_ref": "packet:provider-good",

@@ -92,6 +92,7 @@ _LOW_INFORMATION_QUERY_TOKENS = {
     "anfrage",
     "as",
     "at",
+    "brauche",
     "contact",
     "details",
     "dem",
@@ -99,12 +100,14 @@ _LOW_INFORMATION_QUERY_TOKENS = {
     "der",
     "des",
     "die",
+    "ein",
     "draft",
     "du",
     "einem",
     "einen",
     "eine",
     "einer",
+    "eines",
     "email",
     "emailanfrage",
     "for",
@@ -118,12 +121,14 @@ _LOW_INFORMATION_QUERY_TOKENS = {
     "in",
     "inbox",
     "inquiry",
+    "kann",
     "link",
     "look",
     "me",
     "mein",
     "meine",
     "meiner",
+    "meinen",
     "mir",
     "my",
     "need",
@@ -147,6 +152,7 @@ _LOW_INFORMATION_QUERY_TOKENS = {
     "the",
     "to",
     "und",
+    "verwenden",
     "vendor",
     "visible",
     "wenn",
@@ -911,12 +917,16 @@ def _candidate_analysis(
     if context.get("provider_discovery_relevant"):
         provider_signal = _candidate_has_provider_signal(search_text)
         strong_provider_signal = _candidate_has_strong_provider_signal(search_text, context=context)
+        request_term_matches = _provider_query_term_matches(search_text, context=context)
         educational_reference = _candidate_is_educational_reference(search_text)
         non_provider_reference = _candidate_is_non_provider_reference(search_text)
         generic_provider_query = bool(context.get("provider_search_query_too_generic"))
         if generic_provider_query and not strong_provider_signal:
             score -= 20
             constraint_violations.append("provider search query too generic")
+        if context.get("provider_query_terms") and not request_term_matches:
+            score -= 28
+            constraint_violations.append("provider request terms missing")
         if candidate_contact_email and not educational_reference and (not generic_provider_query or strong_provider_signal):
             score += 20
             matched_criteria.append("contact details visible")
@@ -1661,11 +1671,20 @@ def _candidate_has_provider_signal(search_text: str) -> bool:
 def _candidate_has_strong_provider_signal(search_text: str, *, context: Mapping[str, Any]) -> bool:
     if _candidate_has_strong_provider_marker(search_text):
         return True
+    return bool(_provider_query_term_matches(search_text, context=context))
+
+
+def _provider_query_term_matches(search_text: str, *, context: Mapping[str, Any]) -> tuple[str, ...]:
     normalized = _ascii_fold_text(search_text)
+    tokens = set(re.findall(r"[a-z0-9]{3,}", normalized))
+    matches: list[str] = []
     for term in tuple(context.get("provider_query_terms") or ()):
-        if str(term or "").strip() and str(term).strip().lower() in normalized:
-            return True
-    return False
+        normalized_term = str(term or "").strip().lower()
+        if not normalized_term:
+            continue
+        if normalized_term in tokens or (len(normalized_term) >= 6 and normalized_term in normalized):
+            matches.append(normalized_term)
+    return tuple(dict.fromkeys(matches))
 
 
 def _candidate_has_strong_provider_marker(search_text: str) -> bool:
@@ -1885,6 +1904,7 @@ def _candidate_suitable_for_outreach_draft(candidate: Mapping[str, Any], *, cont
     provider_signal = _candidate_has_provider_signal(search_text)
     strong_provider_signal = _candidate_has_strong_provider_signal(search_text, context=context)
     strong_provider_marker = _candidate_has_strong_provider_marker(search_text)
+    request_term_matches = _provider_query_term_matches(search_text, context=context)
     if candidate_host.endswith("wikipedia.org"):
         return False
     if _candidate_is_educational_reference(search_text) and not strong_provider_marker:
@@ -1892,6 +1912,8 @@ def _candidate_suitable_for_outreach_draft(candidate: Mapping[str, Any], *, cont
     if _candidate_is_non_provider_reference(search_text) and not strong_provider_marker:
         return False
     if context.get("provider_search_query_too_generic") and not strong_provider_signal:
+        return False
+    if context.get("provider_query_terms") and not request_term_matches:
         return False
     return bool(contact_email or provider_signal)
 
