@@ -75,8 +75,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "8d5c87e25ca19815134b8d095ac28ed1e76f9804",
-          "source_state_fingerprint": "4bef94761d88989fa215bde9358c6848452eebb6be7d97f4feacc1dbaff7ae6d",
+          "source_git_head": "d818ffc0d9a03900cf3224ad2d9fc9c3104ef2e7",
+          "source_state_fingerprint": "9f569ea990d4722d11ded66fc01e596b7d126e994adbf8550951d77932fea3c0",
           "status": "pass"
         },
         {
@@ -84,13 +84,50 @@
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "8d5c87e25ca19815134b8d095ac28ed1e76f9804",
-          "source_state_fingerprint": "4bef94761d88989fa215bde9358c6848452eebb6be7d97f4feacc1dbaff7ae6d",
+          "source_git_head": "d818ffc0d9a03900cf3224ad2d9fc9c3104ef2e7",
+          "source_state_fingerprint": "9f569ea990d4722d11ded66fc01e596b7d126e994adbf8550951d77932fea3c0",
           "status": "ready_with_live_receipt"
         }
       ],
       "status": "satisfied",
       "title": "Proactive OODA packet approval outcome"
+    },
+    {
+      "capture_surfaces": [
+        ".codex-studio/published/teable_env_recovery_readiness.generated.json",
+        ".codex-studio/published/teable_env_recovery_proof.generated.json"
+      ],
+      "claim_boundary": "does_not_prove_recovery_readiness_until_fresh_host_drill_evidence_is_mirrored",
+      "evidence_kind": "fresh_host_recovery_drill",
+      "key": "fresh_host_teable_recovery_drill",
+      "lens": "recover",
+      "next_action": "run_shell_seeded_fresh_host_probe_and_mirror_drill_evidence",
+      "next_action_href": "/admin/goals",
+      "next_action_label": "Open goal evidence",
+      "next_action_method": "get",
+      "required_next_receipt": "fresh-host Teable recovery drill receipt mirrored into the repo",
+      "source_receipts": [
+        {
+          "contract_name": "ea.teable_env_recovery_readiness.v1",
+          "path": ".codex-studio/published/teable_env_recovery_readiness.generated.json",
+          "present": true,
+          "source_fresh_to_current_source": false,
+          "source_git_head": "ac132b85ff2ebe6f225d943eb8511737c1827e08",
+          "source_state_fingerprint": "4e09e64fd5015f2e56a8a27c3c0247e5b25e26ed14e6cc84b42e3713fcbfeb62",
+          "status": "ready_local_audit"
+        },
+        {
+          "contract_name": "ea.teable_env_recovery_proof.v1",
+          "path": ".codex-studio/published/teable_env_recovery_proof.generated.json",
+          "present": true,
+          "source_fresh_to_current_source": false,
+          "source_git_head": "8d5c87e25ca19815134b8d095ac28ed1e76f9804",
+          "source_state_fingerprint": "4bef94761d88989fa215bde9358c6848452eebb6be7d97f4feacc1dbaff7ae6d",
+          "status": "pass"
+        }
+      ],
+      "status": "pending_real_world_evidence",
+      "title": "Fresh-host Teable recovery drill"
     },
     {
       "action_context": {
@@ -117,8 +154,8 @@
           "path": ".codex-studio/published/telegram_business_signal_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "8d5c87e25ca19815134b8d095ac28ed1e76f9804",
-          "source_state_fingerprint": "4bef94761d88989fa215bde9358c6848452eebb6be7d97f4feacc1dbaff7ae6d",
+          "source_git_head": "d818ffc0d9a03900cf3224ad2d9fc9c3104ef2e7",
+          "source_state_fingerprint": "9f569ea990d4722d11ded66fc01e596b7d126e994adbf8550951d77932fea3c0",
           "status": "blocked_setup_required"
         }
       ],
@@ -196,9 +233,9 @@
           "contract_name": "ea.telegram_audiobook_live_delivery_receipt.v1",
           "path": ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "7cfb21c238ab2dbeeef2acafd7eebdb3fa5d90e3",
-          "source_state_fingerprint": "f0ada7050e61d0e4c4b79e65d73633d7efb9283cf2ef2440ee79808f2bff9e3c",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "d818ffc0d9a03900cf3224ad2d9fc9c3104ef2e7",
+          "source_state_fingerprint": "9f569ea990d4722d11ded66fc01e596b7d126e994adbf8550951d77932fea3c0",
           "status": "blocked"
         },
         {
@@ -229,7 +266,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-06-30T06:48:47Z",
+  "generated_at": "2026-06-30T07:32:30Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -264,8 +301,8 @@
           "path": ".codex-studio/published/telegram_business_signal_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "8d5c87e25ca19815134b8d095ac28ed1e76f9804",
-          "source_state_fingerprint": "4bef94761d88989fa215bde9358c6848452eebb6be7d97f4feacc1dbaff7ae6d",
+          "source_git_head": "d818ffc0d9a03900cf3224ad2d9fc9c3104ef2e7",
+          "source_state_fingerprint": "9f569ea990d4722d11ded66fc01e596b7d126e994adbf8550951d77932fea3c0",
           "status": "blocked_setup_required"
         }
       ],
@@ -390,9 +427,9 @@
               "contract_name": "ea.telegram_audiobook_live_delivery_receipt.v1",
               "path": ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
               "present": true,
-              "source_fresh_to_current_source": false,
-              "source_git_head": "7cfb21c238ab2dbeeef2acafd7eebdb3fa5d90e3",
-              "source_state_fingerprint": "f0ada7050e61d0e4c4b79e65d73633d7efb9283cf2ef2440ee79808f2bff9e3c",
+              "source_fresh_to_current_source": true,
+              "source_git_head": "d818ffc0d9a03900cf3224ad2d9fc9c3104ef2e7",
+              "source_state_fingerprint": "9f569ea990d4722d11ded66fc01e596b7d126e994adbf8550951d77932fea3c0",
               "status": "blocked"
             }
           ],
@@ -410,8 +447,8 @@
               "path": ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json",
               "present": true,
               "source_fresh_to_current_source": true,
-              "source_git_head": "8d5c87e25ca19815134b8d095ac28ed1e76f9804",
-              "source_state_fingerprint": "4bef94761d88989fa215bde9358c6848452eebb6be7d97f4feacc1dbaff7ae6d",
+              "source_git_head": "d818ffc0d9a03900cf3224ad2d9fc9c3104ef2e7",
+              "source_state_fingerprint": "9f569ea990d4722d11ded66fc01e596b7d126e994adbf8550951d77932fea3c0",
               "status": "pass"
             },
             {
@@ -419,8 +456,8 @@
               "path": ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
               "present": true,
               "source_fresh_to_current_source": true,
-              "source_git_head": "8d5c87e25ca19815134b8d095ac28ed1e76f9804",
-              "source_state_fingerprint": "4bef94761d88989fa215bde9358c6848452eebb6be7d97f4feacc1dbaff7ae6d",
+              "source_git_head": "d818ffc0d9a03900cf3224ad2d9fc9c3104ef2e7",
+              "source_state_fingerprint": "9f569ea990d4722d11ded66fc01e596b7d126e994adbf8550951d77932fea3c0",
               "status": "pass"
             },
             {
@@ -428,14 +465,14 @@
               "path": ".codex-studio/published/whatsapp_audiobook_public_share_playback.generated.json",
               "present": true,
               "source_fresh_to_current_source": true,
-              "source_git_head": "8d5c87e25ca19815134b8d095ac28ed1e76f9804",
-              "source_state_fingerprint": "4bef94761d88989fa215bde9358c6848452eebb6be7d97f4feacc1dbaff7ae6d",
+              "source_git_head": "d818ffc0d9a03900cf3224ad2d9fc9c3104ef2e7",
+              "source_state_fingerprint": "9f569ea990d4722d11ded66fc01e596b7d126e994adbf8550951d77932fea3c0",
               "status": "pass"
             }
           ],
           "status": "pass",
           "status_class": "progress",
-          "summary": "intake fail; bundle pass; live pass; share pass; voice waiting",
+          "summary": "intake pass; bundle pass; live pass; share pass; voice waiting",
           "title": "WhatsApp audiobook delivery"
         }
       ],
@@ -475,15 +512,15 @@
           "contract_name": "ea.teable_env_recovery_proof.v1",
           "path": ".codex-studio/published/teable_env_recovery_proof.generated.json",
           "present": true,
-          "source_fresh_to_current_source": true,
+          "source_fresh_to_current_source": false,
           "source_git_head": "8d5c87e25ca19815134b8d095ac28ed1e76f9804",
           "source_state_fingerprint": "4bef94761d88989fa215bde9358c6848452eebb6be7d97f4feacc1dbaff7ae6d",
           "status": "pass"
         }
       ],
-      "status": "pass",
+      "status": "ready_local_audit",
       "status_class": "progress",
-      "summary": "Fresh-host-style Teable recovery proof is mirrored and passed with redacted evidence; keep it current when env/config recovery changes.",
+      "summary": "A Teable recovery proof is mirrored and passed, but its source-state evidence is stale; refresh the recovery drill proof before keeping the recover lens at pass.",
       "title": "Fresh-host recovery",
       "verifier_commands": [
         "make verify-teable-env-recovery-readiness",
@@ -633,6 +670,27 @@
       "telegram_push_allowed": false,
       "title": "Weekly signal-to-decision review acceptance",
       "user_action_required": false
+    },
+    {
+      "callback_tokens_exposed": false,
+      "delivery_policy": "queue_only",
+      "evidence_kind": "fresh_host_recovery_drill",
+      "interruption_budget": "none",
+      "irreversible_actions_consent_gated": true,
+      "key": "fresh_host_teable_recovery_drill",
+      "lens": "recover",
+      "next_action": "run_shell_seeded_fresh_host_probe_and_mirror_drill_evidence",
+      "next_action_href": "/admin/goals",
+      "next_action_label": "Open goal evidence",
+      "next_action_method": "get",
+      "non_action_progress_push_allowed": false,
+      "quiet_hours_respected": true,
+      "raw_private_context_exposed": false,
+      "raw_voice_ids_exposed": false,
+      "required_next_receipt": "fresh-host Teable recovery drill receipt mirrored into the repo",
+      "telegram_push_allowed": false,
+      "title": "Fresh-host Teable recovery drill",
+      "user_action_required": false
     }
   ],
   "operator_delivery_policy": {
@@ -650,6 +708,7 @@
   "required_next_receipts": [
     "real operator acceptance that the morning brief was worth reading",
     "real weekly signal-to-decision review acceptance receipt",
+    "fresh-host Teable recovery drill receipt mirrored into the repo",
     "Telegram Business/Secretary bot connected with allowlisted signal chats",
     "consented Manfred STT/TTS realtime conversation proof",
     "passing Telegram audiobook live delivery receipt"
@@ -664,7 +723,7 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "8d5c87e25ca19815134b8d095ac28ed1e76f9804",
-  "source_state_fingerprint": "4bef94761d88989fa215bde9358c6848452eebb6be7d97f4feacc1dbaff7ae6d",
+  "source_git_head": "d818ffc0d9a03900cf3224ad2d9fc9c3104ef2e7",
+  "source_state_fingerprint": "9f569ea990d4722d11ded66fc01e596b7d126e994adbf8550951d77932fea3c0",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }

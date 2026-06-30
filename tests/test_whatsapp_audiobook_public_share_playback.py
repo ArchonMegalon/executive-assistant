@@ -108,6 +108,15 @@ def test_select_track_response_preserves_non_audio_media_failure() -> None:
     assert selected["resource_type"] == "media"
 
 
+def test_playwright_probe_waits_for_lazy_rendered_media() -> None:
+    source = SCRIPT_PATH.read_text(encoding="utf-8")
+
+    assert "page.wait_for_selector" in source
+    assert "button[aria-label*='Play' i]" in source
+    assert "while (!audio && Date.now() < deadline)" in source
+    assert "media_element_missing" in source
+
+
 def test_candidate_paths_sort_by_job_created_at_not_probe_mtime(tmp_path: Path, monkeypatch) -> None:
     module = _module()
     from app.services import audiobook_epub_pipeline

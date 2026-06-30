@@ -174,9 +174,21 @@ def probe_share_with_playwright(*, url: str, wait_seconds: float = 3.0, timeout_
         try:
             main_response = page.goto(url, wait_until="networkidle", timeout=max(1000, int(timeout_seconds * 1000)))
             page_response_status = int(main_response.status) if main_response else 0
+            try:
+                page.wait_for_selector(
+                    "audio, video, button[aria-label*='Play' i], [role=button][aria-label*='Play' i]",
+                    timeout=max(1000, min(15000, int(timeout_seconds * 1000))),
+                )
+            except Exception:
+                pass
             media = page.evaluate(
                 """async ({waitMs}) => {
-                  const audio = document.querySelector('audio, video');
+                  const deadline = Date.now() + Math.max(waitMs, 1000);
+                  let audio = document.querySelector('audio, video');
+                  while (!audio && Date.now() < deadline) {
+                    await new Promise((resolve) => setTimeout(resolve, 100));
+                    audio = document.querySelector('audio, video');
+                  }
                   if (!audio) {
                     return {ok: false, reason: 'media_element_missing'};
                   }

@@ -2,7 +2,7 @@
   "checks": {
     "historical_public_share_playback_proven": true,
     "human_playback_acceptance_status_explicit": true,
-    "live_action_processor_no_runtime_errors": false,
+    "live_action_processor_no_runtime_errors": true,
     "live_action_processor_ran": true,
     "live_action_processor_ready": false,
     "live_delivery_claim_scope_explicit": true,
@@ -18,8 +18,8 @@
     "live_sidecar_inbox_accessible": true,
     "live_voice_selection_shadow_passed_or_not_required": true,
     "live_voice_selection_text_fallback_ready_or_not_required": true,
-    "local_epub_intake_proof_passed": false,
-    "local_proof_player_http_route_passed": false,
+    "local_epub_intake_proof_passed": true,
+    "local_proof_player_http_route_passed": true,
     "local_proof_player_probe_passed": true,
     "local_proof_selects_voice_and_sends_share": true,
     "local_proof_waits_for_voice_choice": true,
@@ -28,7 +28,7 @@
   },
   "claim": "This bundle combines local WhatsApp EPUB intake proof, live WhatsApp action processor readiness, and the live WhatsApp audiobook delivery receipt. It separates implementation proof from live delivery proof.",
   "contract_name": "ea.whatsapp_audiobook_operator_proof_bundle.v1",
-  "generated_at": "2026-06-30T06:45:53.761612Z",
+  "generated_at": "2026-06-30T07:30:51.854976Z",
   "generated_by": "ea/scripts/materialize_whatsapp_audiobook_operator_proof_bundle.py",
   "head_semantics": "source_state",
   "live_delivery": {
@@ -85,9 +85,9 @@
     "candidate_count": 0,
     "container_attempted": true,
     "container_resolved": true,
-    "container_return_code": -1,
-    "container_stdout_json_present": false,
-    "container_timed_out": true,
+    "container_return_code": 0,
+    "container_stdout_json_present": true,
+    "container_timed_out": false,
     "container_timeout_seconds": 20.0,
     "conversation_fallback": {
       "attempted": false,
@@ -97,7 +97,7 @@
       "conversation_total": 0,
       "epub_candidate_count": 0,
       "message_count": 0,
-      "status": "",
+      "status": "skipped",
       "status_candidate_count": 0
     },
     "conversation_fallback_attempted": false,
@@ -105,8 +105,8 @@
     "effective_button_callback_candidate_count": 0,
     "epub_candidate_count": 0,
     "epub_processed": 0,
-    "errors": 1,
-    "execution_runtime": "host_fallback",
+    "errors": 0,
+    "execution_runtime": "container",
     "followup": {
       "attempted": 0,
       "errors": 0,
@@ -124,7 +124,7 @@
     "share_link_sent": 0,
     "sidecar_actionable_button_candidate_count": 0,
     "skipped_processed": 0,
-    "status": "failed",
+    "status": "pass",
     "status_candidate_count": 0,
     "status_processed": 0,
     "voice_sample_sent": 0,
@@ -208,11 +208,11 @@
     "delivery_stage_next_action": "finish_user_selected_voice_audiobook_before_sending_whatsapp_public_share_link",
     "next_action": "choose_whatsapp_audiobook_voice_sample",
     "player_http_probe": {
-      "download_bytes": 0,
-      "download_content_type": "",
-      "download_status_code": 0,
-      "metadata_status_code": 0,
-      "status": "failed"
+      "download_bytes": 30636,
+      "download_content_type": "audio/mp4",
+      "download_status_code": 200,
+      "metadata_status_code": 200,
+      "status": "pass"
     },
     "player_probe": {
       "audio_streams": 1,
@@ -223,7 +223,7 @@
     },
     "receipt_path": "/docker/EA/.codex-studio/published/whatsapp_audiobook_local_intake_proof.generated.json",
     "share_link_sent": 1,
-    "status": "fail",
+    "status": "pass",
     "voice_sample_sent": 3,
     "voice_selection_processed": 1
   },
@@ -250,7 +250,7 @@
   "recommended_action": "review_audiobook_playback_problem",
   "runtime_alignment": {
     "evaluated": true,
-    "processor_session_api_host_kind": "loopback",
+    "processor_session_api_host_kind": "internal_service",
     "processor_session_ref_sha256": "c20799d947e9afef",
     "processor_state_file_kind": "whatsapp_actions_volume",
     "processor_state_file_sha256": "66ca83b8b9eeebdc",
@@ -259,17 +259,15 @@
     "readiness_state_file_kind": "whatsapp_actions_volume",
     "readiness_state_file_sha256": "66ca83b8b9eeebdc",
     "secret_values_exposed": false,
-    "session_api_host_kind_exact_match": true,
+    "session_api_host_kind_exact_match": false,
     "session_api_host_kind_match": true,
     "session_ref_match": true,
     "state_file_kinds_match": true,
     "state_file_match": true
   },
-  "source_git_head": "8d5c87e25ca19815134b8d095ac28ed1e76f9804",
-  "source_state_fingerprint": "4bef94761d88989fa215bde9358c6848452eebb6be7d97f4feacc1dbaff7ae6d",
+  "source_git_head": "d818ffc0d9a03900cf3224ad2d9fc9c3104ef2e7",
+  "source_state_fingerprint": "9f569ea990d4722d11ded66fc01e596b7d126e994adbf8550951d77932fea3c0",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "pass",
-  "warnings": [
-    "live_processor_container_timeout"
-  ]
+  "warnings": []
 }
