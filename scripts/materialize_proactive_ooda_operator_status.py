@@ -325,6 +325,9 @@ def _source_coverage_summary(probe: Mapping[str, Any]) -> dict[str, Any]:
                     "record_count": 0,
                     "latest_observed_at": "",
                     "evidence_event_types": [],
+                    "required_event_types": [],
+                    "required_event_type_observed": True,
+                    "missing_required_event_types": [],
                     "next_action": "",
                     "raw_payload_exposed": False,
                     "raw_transcript_text_exposed": False,
@@ -354,6 +357,17 @@ def _source_coverage_summary(probe: Mapping[str, Any]) -> dict[str, Any]:
                 "evidence_event_types": [
                     str(item).strip()
                     for item in list(lane.get("evidence_event_types") or [])
+                    if str(item).strip()
+                ][:8],
+                "required_event_types": [
+                    str(item).strip()
+                    for item in list(lane.get("required_event_types") or [])
+                    if str(item).strip()
+                ][:8],
+                "required_event_type_observed": bool(lane.get("required_event_type_observed", True)),
+                "missing_required_event_types": [
+                    str(item).strip()
+                    for item in list(lane.get("missing_required_event_types") or [])
                     if str(item).strip()
                 ][:8],
                 "next_action": str(lane.get("next_action") or "").strip(),

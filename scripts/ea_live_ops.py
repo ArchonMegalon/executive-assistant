@@ -69,7 +69,7 @@ DEFAULT_WHATSAPP_WEB_ACTION_PROCESSOR_SERVICE = "ea-whatsapp-web-action-processo
 DEFAULT_PROACTIVE_OODA_COMPOSE_FILE = ROOT / "docker-compose.yml"
 DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE = "ea-proactive-ooda"
 
-PROACTIVE_SOURCE_COVERAGE_LANES: tuple[dict[str, str], ...] = (
+PROACTIVE_SOURCE_COVERAGE_LANES: tuple[dict[str, object], ...] = (
     {
         "key": "postgres_observations",
         "label": "Postgres observations",
@@ -84,6 +84,7 @@ PROACTIVE_SOURCE_COVERAGE_LANES: tuple[dict[str, str], ...] = (
         "key": "pocket_ai_audio_transcripts",
         "label": "Pocket.ai audio transcripts",
         "next_action": "sync_pocket_ai_audio_transcripts",
+        "required_event_types": ("pocket_recording_archive_indexed",),
     },
     {
         "key": "calendar_and_renewal_signals",
@@ -373,6 +374,11 @@ def _event_types(rows: list[Mapping[str, object]]) -> list[str]:
     return values[:8]
 
 
+def _missing_required_event_types(rows: list[Mapping[str, object]], required_event_types: tuple[str, ...]) -> list[str]:
+    observed = {str(row.get("event_type") or "").strip().lower() for row in rows}
+    return [event_type for event_type in required_event_types if event_type.lower() not in observed]
+
+
 def _proactive_source_coverage_report(
     *,
     principal_id: str,
@@ -391,16 +397,23 @@ def _proactive_source_coverage_report(
             matched = list(rows) if "postgres" in repository.lower() else []
         else:
             matched = [row for row in rows if _proactive_source_lane_matches(row, lane_key)]
-        observed = bool(matched)
+        required_event_types = tuple(str(item).strip() for item in tuple(lane.get("required_event_types") or ()) if str(item).strip())
+        missing_required_event_types = _missing_required_event_types(matched, required_event_types)
+        required_event_type_observed = not missing_required_event_types
+        observed = bool(matched) and required_event_type_observed
+        status = "observed" if observed else "missing_required_event_type" if matched and missing_required_event_types else "not_observed"
         lanes.append(
             {
                 "key": lane_key,
                 "label": str(lane["label"]),
-                "status": "observed" if observed else "not_observed",
+                "status": status,
                 "observed": observed,
                 "record_count": len(matched),
                 "latest_observed_at": _latest_observed_at(matched),
                 "evidence_event_types": _event_types(matched),
+                "required_event_types": list(required_event_types),
+                "required_event_type_observed": required_event_type_observed,
+                "missing_required_event_types": missing_required_event_types,
                 "next_action": "" if observed else str(lane["next_action"]),
                 "raw_payload_exposed": False,
                 "raw_transcript_text_exposed": False,

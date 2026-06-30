@@ -103,8 +103,36 @@ def _verify_source_coverage(receipt: dict[str, Any], issues: list[str]) -> None:
     pocket_lane = next((row for row in lanes if str(row.get("key") or "").strip() == "pocket_ai_audio_transcripts"), {})
     if not pocket_lane:
         issues.append("source_coverage must include pocket_ai_audio_transcripts lane")
-    elif pocket_lane.get("raw_transcript_text_exposed") is not False:
+        return
+    if pocket_lane.get("raw_transcript_text_exposed") is not False:
         issues.append("pocket_ai_audio_transcripts lane must not expose raw transcript text")
+    required_event_types = {
+        str(item).strip()
+        for item in list(pocket_lane.get("required_event_types") or [])
+        if str(item).strip()
+    }
+    if "pocket_recording_archive_indexed" not in required_event_types:
+        issues.append("pocket_ai_audio_transcripts lane must require pocket_recording_archive_indexed evidence")
+    evidence_event_types = {
+        str(item).strip()
+        for item in list(pocket_lane.get("evidence_event_types") or [])
+        if str(item).strip()
+    }
+    missing_required_event_types = {
+        str(item).strip()
+        for item in list(pocket_lane.get("missing_required_event_types") or [])
+        if str(item).strip()
+    }
+    if bool(pocket_lane.get("observed")):
+        if pocket_lane.get("required_event_type_observed") is not True:
+            issues.append("observed pocket_ai_audio_transcripts lane must set required_event_type_observed=true")
+        if "pocket_recording_archive_indexed" not in evidence_event_types:
+            issues.append("observed pocket_ai_audio_transcripts lane must include pocket_recording_archive_indexed evidence")
+    else:
+        if "pocket_recording_archive_indexed" not in missing_required_event_types:
+            issues.append("unobserved pocket_ai_audio_transcripts lane must surface missing pocket_recording_archive_indexed")
+        if str(pocket_lane.get("next_action") or "").strip() != "sync_pocket_ai_audio_transcripts":
+            issues.append("unobserved pocket_ai_audio_transcripts lane must request sync_pocket_ai_audio_transcripts")
 
 
 def _verify_approval_capture(approval_capture: dict[str, Any], issues: list[str], *, required: bool) -> None:
