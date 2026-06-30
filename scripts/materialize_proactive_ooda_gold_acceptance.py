@@ -699,6 +699,8 @@ def _approval_capture_readiness_proof(
     *,
     operator_status: Mapping[str, Any],
     required: bool,
+    approval_outcome_recorded: bool,
+    approval_outcome_matches_current_packet: bool,
 ) -> tuple[dict[str, Any], bool]:
     approval_capture = dict(operator_status.get("approval_capture") or {})
     privacy = dict(approval_capture.get("privacy") or {})
@@ -714,8 +716,12 @@ def _approval_capture_readiness_proof(
         )
     )
     ready = bool(approval_capture.get("ready"))
+    satisfied_by_recorded_outcome = bool(
+        approval_outcome_recorded and approval_outcome_matches_current_packet and not raw_exposure
+    )
     present = (
-        (not required and not checked)
+        satisfied_by_recorded_outcome
+        or (not required and not checked)
         or (
             checked
             and bool(approval_capture.get("probe_ok"))
@@ -740,6 +746,9 @@ def _approval_capture_readiness_proof(
                 "checked": checked,
                 "probe_ok": bool(approval_capture.get("probe_ok")),
                 "ready": ready,
+                "satisfied_by_recorded_outcome": satisfied_by_recorded_outcome,
+                "approval_outcome_recorded": approval_outcome_recorded,
+                "approval_outcome_matches_current_packet": approval_outcome_matches_current_packet,
                 "capture_status": str(approval_capture.get("status") or "").strip(),
                 "source": str(approval_capture.get("source") or "").strip(),
                 "observed_at": str(approval_capture.get("observed_at") or "").strip(),
@@ -1198,6 +1207,8 @@ def materialize_proactive_ooda_gold_acceptance(
     approval_capture_readiness_proof, approval_capture_readiness_present = _approval_capture_readiness_proof(
         operator_status=operator_status,
         required=approval_capture_readiness_required,
+        approval_outcome_recorded=bool(approval_row.get("approval_outcome_recorded")),
+        approval_outcome_matches_current_packet=approval_artifact_matches_current_packet,
     )
 
     delivery_route = dict(operator_status.get("delivery_route") or {})
