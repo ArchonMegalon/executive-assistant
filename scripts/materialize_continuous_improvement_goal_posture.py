@@ -374,6 +374,17 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
             "required_next_receipt": str(requirement.get("required_next_receipt") or "").strip(),
             "user_action_required": user_action_required,
             "instruction": str(action_context.get("instruction") or "").strip(),
+            "missing_setup": [
+                str(item).strip()
+                for item in list(action_context.get("missing_setup") or [])
+                if str(item).strip()
+            ],
+            "setup_checklist": [
+                dict(item)
+                for item in list(action_context.get("setup_checklist") or [])
+                if isinstance(item, dict)
+            ],
+            "telegram_message": str(action_context.get("telegram_message") or "").strip(),
             "delivery_policy": "action_required_only" if user_action_required else "queue_only",
             "telegram_push_allowed": user_action_required,
             "interruption_budget": "action_required" if user_action_required else "none",
@@ -381,6 +392,9 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
             "non_action_progress_push_allowed": False,
             "irreversible_actions_consent_gated": True,
             "raw_private_context_exposed": False,
+            "raw_chat_ids_exposed": bool(action_context.get("raw_chat_ids_exposed")),
+            "raw_token_exposed": bool(action_context.get("raw_token_exposed")),
+            "raw_secret_exposed": bool(action_context.get("raw_secret_exposed")),
             "raw_voice_ids_exposed": bool(action_context.get("raw_voice_ids_exposed")),
             "callback_tokens_exposed": bool(action_context.get("callback_tokens_exposed")),
         }
@@ -940,6 +954,20 @@ def build_goal_posture(
                 action_context={
                     "user_action_required": bool(tg_business_action.get("user_action_required")),
                     "instruction": str(tg_business_action.get("instruction") or "").strip(),
+                    "missing_setup": [
+                        str(item).strip()
+                        for item in list(tg_business_action.get("missing_setup") or [])
+                        if str(item).strip()
+                    ],
+                    "setup_checklist": [
+                        dict(item)
+                        for item in list(tg_business_action.get("setup_checklist") or [])
+                        if isinstance(item, dict)
+                    ],
+                    "telegram_message": str(tg_business_action.get("telegram_message") or "").strip(),
+                    "raw_chat_ids_exposed": bool(tg_business_action.get("raw_chat_ids_exposed")),
+                    "raw_token_exposed": bool(tg_business_action.get("raw_token_exposed")),
+                    "raw_secret_exposed": bool(tg_business_action.get("raw_secret_exposed")),
                     "raw_voice_ids_exposed": False,
                     "callback_tokens_exposed": False,
                 },

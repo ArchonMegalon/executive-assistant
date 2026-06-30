@@ -211,6 +211,57 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     )
     _write_receipt(
         tmp_path,
+        ".codex-studio/published/telegram_business_signal_readiness.generated.json",
+        status="blocked_setup_required",
+        business_mode=True,
+        webhook_path="/v1/channels/telegram/business/ingest",
+        allowed_updates=[
+            "business_connection",
+            "business_message",
+            "edited_business_message",
+            "deleted_business_messages",
+        ],
+        missing_setup=["chat_allowlist_configured"],
+        bot_registry={
+            "token_present": True,
+            "ingest_secret_present": True,
+            "default_principal_present": True,
+            "raw_token_exposed": False,
+            "raw_secret_exposed": False,
+            "raw_principal_id_exposed": False,
+        },
+        chat_allowlist={
+            "configured": False,
+            "raw_chat_ids_exposed": False,
+            "raw_chat_hashes_exposed": False,
+        },
+        privacy={
+            "raw_token_exposed": False,
+            "raw_secret_exposed": False,
+            "raw_chat_ids_exposed": False,
+            "raw_webhook_url_exposed": False,
+            "raw_payload_exposed": False,
+        },
+        operator_action={
+            "user_action_required": True,
+            "instruction": "Connect the EA bot as Telegram Business/Secretary bot, allow only selected chats, configure the Business webhook, and set EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_IDS or EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_HASHES.",
+            "missing_setup": ["chat_allowlist_configured"],
+            "setup_checklist": [
+                {
+                    "key": "chat_allowlist_configured",
+                    "label": "Choose Telegram Business chats EA may read",
+                    "how": "Set EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_HASHES or EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_IDS.",
+                }
+            ],
+            "telegram_message": "Action needed: Telegram Business/Secretary ingest is not live yet. Missing: Choose Telegram Business chats EA may read.",
+            "raw_private_context_exposed": False,
+            "raw_chat_ids_exposed": False,
+            "raw_token_exposed": False,
+            "raw_secret_exposed": False,
+        },
+    )
+    _write_receipt(
+        tmp_path,
         ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
         status="blocked",
         next_action="choose_sent_replacement_voice_sample",
@@ -293,6 +344,7 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
         "weekly_signal_to_decision_review_acceptance",
         "proactive_ooda_packet_acceptance",
         "fresh_host_teable_recovery_drill",
+        "telegram_business_signal_setup",
         "manfred_stt_tts_realtime_conversation",
         "telegram_audiobook_live_delivery",
         "whatsapp_audiobook_live_delivery",
@@ -316,6 +368,21 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     )
     assert proof_requirements["fresh_host_teable_recovery_drill"]["lens"] == "recover"
     assert proof_requirements["fresh_host_teable_recovery_drill"]["evidence_kind"] == "fresh_host_recovery_drill"
+    assert proof_requirements["telegram_business_signal_setup"]["evidence_kind"] == "secretary_bot_signal_ingest_setup"
+    telegram_business_context = proof_requirements["telegram_business_signal_setup"]["action_context"]
+    assert telegram_business_context["user_action_required"] is True
+    assert telegram_business_context["missing_setup"] == ["chat_allowlist_configured"]
+    assert telegram_business_context["setup_checklist"] == [
+        {
+            "key": "chat_allowlist_configured",
+            "label": "Choose Telegram Business chats EA may read",
+            "how": "Set EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_HASHES or EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_IDS.",
+        }
+    ]
+    assert "Action needed:" in telegram_business_context["telegram_message"]
+    assert telegram_business_context["raw_chat_ids_exposed"] is False
+    assert telegram_business_context["raw_token_exposed"] is False
+    assert telegram_business_context["raw_secret_exposed"] is False
     assert proof_requirements["telegram_audiobook_live_delivery"]["evidence_kind"] == "live_delivery_receipt"
     assert (
         proof_requirements["telegram_audiobook_live_delivery"]["next_action"]
@@ -355,6 +422,26 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert receipt["operator_action_queue"][0]["non_action_progress_push_allowed"] is False
     assert receipt["operator_action_queue"][0]["irreversible_actions_consent_gated"] is True
     assert receipt["operator_action_queue"][0]["raw_private_context_exposed"] is False
+    telegram_business_action = next(
+        item for item in receipt["operator_action_queue"] if item["key"] == "telegram_business_signal_setup"
+    )
+    assert telegram_business_action["user_action_required"] is True
+    assert telegram_business_action["delivery_policy"] == "action_required_only"
+    assert telegram_business_action["telegram_push_allowed"] is True
+    assert telegram_business_action["interruption_budget"] == "action_required"
+    assert telegram_business_action["missing_setup"] == ["chat_allowlist_configured"]
+    assert telegram_business_action["setup_checklist"] == [
+        {
+            "key": "chat_allowlist_configured",
+            "label": "Choose Telegram Business chats EA may read",
+            "how": "Set EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_HASHES or EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_IDS.",
+        }
+    ]
+    assert "Action needed:" in telegram_business_action["telegram_message"]
+    assert telegram_business_action["raw_private_context_exposed"] is False
+    assert telegram_business_action["raw_chat_ids_exposed"] is False
+    assert telegram_business_action["raw_token_exposed"] is False
+    assert telegram_business_action["raw_secret_exposed"] is False
     assert receipt["operator_delivery_policy"] == {
         "action_required_only": True,
         "non_action_progress_push_allowed": False,
@@ -365,6 +452,11 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
         "next_action_delivery_policy": "action_required_only",
     }
     for row in receipt["operator_action_queue"][1:]:
+        if row["user_action_required"]:
+            assert row["delivery_policy"] == "action_required_only"
+            assert row["telegram_push_allowed"] is True
+            assert row["interruption_budget"] == "action_required"
+            continue
         assert row["delivery_policy"] == "queue_only"
         assert row["telegram_push_allowed"] is False
         assert row["interruption_budget"] == "none"

@@ -75,8 +75,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "03a8296b82a36a602d9d170215ab8701f448a152",
-          "source_state_fingerprint": "61d4b23c2cbbd6fe932a31a05fa8c8f7371fd9344caefe4f407d4030fcdbc6a3",
+          "source_git_head": "346053be5c483094ace906fa9ffbae5f353d3732",
+          "source_state_fingerprint": "05731eeb21af6dcb1a7dfb88b5f3dc963c41be693093dd09b09c83b2ab7bbe4b",
           "status": "pass"
         },
         {
@@ -84,8 +84,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "03a8296b82a36a602d9d170215ab8701f448a152",
-          "source_state_fingerprint": "61d4b23c2cbbd6fe932a31a05fa8c8f7371fd9344caefe4f407d4030fcdbc6a3",
+          "source_git_head": "346053be5c483094ace906fa9ffbae5f353d3732",
+          "source_state_fingerprint": "05731eeb21af6dcb1a7dfb88b5f3dc963c41be693093dd09b09c83b2ab7bbe4b",
           "status": "ready_with_live_receipt"
         }
       ],
@@ -133,7 +133,21 @@
       "action_context": {
         "callback_tokens_exposed": false,
         "instruction": "Connect the EA bot as Telegram Business/Secretary bot, allow only selected chats, configure the Business webhook, and set EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_IDS or EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_HASHES.",
+        "missing_setup": [
+          "chat_allowlist_configured"
+        ],
+        "raw_chat_ids_exposed": false,
+        "raw_secret_exposed": false,
+        "raw_token_exposed": false,
         "raw_voice_ids_exposed": false,
+        "setup_checklist": [
+          {
+            "how": "Set EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_HASHES or EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_IDS.",
+            "key": "chat_allowlist_configured",
+            "label": "Choose Telegram Business chats EA may read"
+          }
+        ],
+        "telegram_message": "Action needed: Telegram Business/Secretary ingest is not live yet. Connect the EA bot, allowlist the selected chats, and run the Business webhook bootstrap. Missing: Choose Telegram Business chats EA may read.",
         "user_action_required": true
       },
       "capture_surfaces": [
@@ -154,8 +168,8 @@
           "path": ".codex-studio/published/telegram_business_signal_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "03a8296b82a36a602d9d170215ab8701f448a152",
-          "source_state_fingerprint": "61d4b23c2cbbd6fe932a31a05fa8c8f7371fd9344caefe4f407d4030fcdbc6a3",
+          "source_git_head": "346053be5c483094ace906fa9ffbae5f353d3732",
+          "source_state_fingerprint": "05731eeb21af6dcb1a7dfb88b5f3dc963c41be693093dd09b09c83b2ab7bbe4b",
           "status": "blocked_setup_required"
         }
       ],
@@ -250,12 +264,61 @@
       ],
       "status": "pending_real_world_evidence",
       "title": "Telegram audiobook live delivery receipt"
+    },
+    {
+      "capture_surfaces": [
+        ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
+        ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json",
+        ".codex-studio/published/whatsapp_audiobook_public_share_playback.generated.json",
+        ".codex-studio/published/whatsapp_audiobook_live_voice_selection_shadow.generated.json"
+      ],
+      "claim_boundary": "does_not_prove_whatsapp_delivery_until_live_delivery_and_playback_receipts_pass",
+      "evidence_kind": "live_delivery_receipt",
+      "key": "whatsapp_audiobook_live_delivery",
+      "lens": "deliver",
+      "next_action": "capture_passing_whatsapp_audiobook_live_delivery_receipt",
+      "next_action_href": "/integrations/whatsapp",
+      "next_action_label": "Open WhatsApp",
+      "next_action_method": "get",
+      "required_next_receipt": "passing WhatsApp audiobook live delivery receipt",
+      "source_receipts": [
+        {
+          "contract_name": "ea.whatsapp_audiobook_live_delivery_receipt.v1",
+          "path": ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
+          "present": true,
+          "source_fresh_to_current_source": false,
+          "source_git_head": "40d1d105c198030aa3c61c99301a2050dabd015c",
+          "source_state_fingerprint": "61d4b23c2cbbd6fe932a31a05fa8c8f7371fd9344caefe4f407d4030fcdbc6a3",
+          "status": "pass"
+        },
+        {
+          "contract_name": "ea.whatsapp_audiobook_operator_proof_bundle.v1",
+          "path": ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json",
+          "present": true,
+          "source_fresh_to_current_source": false,
+          "source_git_head": "40d1d105c198030aa3c61c99301a2050dabd015c",
+          "source_state_fingerprint": "61d4b23c2cbbd6fe932a31a05fa8c8f7371fd9344caefe4f407d4030fcdbc6a3",
+          "status": "pass"
+        },
+        {
+          "contract_name": "ea.whatsapp_audiobook_public_share_playback_e2e.v1",
+          "path": ".codex-studio/published/whatsapp_audiobook_public_share_playback.generated.json",
+          "present": true,
+          "source_fresh_to_current_source": false,
+          "source_git_head": "40d1d105c198030aa3c61c99301a2050dabd015c",
+          "source_state_fingerprint": "61d4b23c2cbbd6fe932a31a05fa8c8f7371fd9344caefe4f407d4030fcdbc6a3",
+          "status": "pass"
+        }
+      ],
+      "status": "pending_real_world_evidence",
+      "title": "WhatsApp audiobook live delivery receipt"
     }
   ],
   "blocking_reasons": [
     "detect:telegram_business_signal=blocked_setup_required",
     "deliver:manfred_speech=blocked_realtime_prerequisites",
     "deliver:telegram_audiobook=blocked",
+    "deliver:whatsapp_audiobook=blocked_stale_source_evidence",
     "prove=blocked_real_world_acceptance"
   ],
   "contract_name": "ea.continuous_improvement_goal_posture.v1",
@@ -266,7 +329,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-06-30T07:56:02Z",
+  "generated_at": "2026-06-30T08:01:23Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -301,8 +364,8 @@
           "path": ".codex-studio/published/telegram_business_signal_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "03a8296b82a36a602d9d170215ab8701f448a152",
-          "source_state_fingerprint": "61d4b23c2cbbd6fe932a31a05fa8c8f7371fd9344caefe4f407d4030fcdbc6a3",
+          "source_git_head": "346053be5c483094ace906fa9ffbae5f353d3732",
+          "source_state_fingerprint": "05731eeb21af6dcb1a7dfb88b5f3dc963c41be693093dd09b09c83b2ab7bbe4b",
           "status": "blocked_setup_required"
         }
       ],
@@ -446,7 +509,7 @@
               "contract_name": "ea.whatsapp_audiobook_operator_proof_bundle.v1",
               "path": ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json",
               "present": true,
-              "source_fresh_to_current_source": true,
+              "source_fresh_to_current_source": false,
               "source_git_head": "40d1d105c198030aa3c61c99301a2050dabd015c",
               "source_state_fingerprint": "61d4b23c2cbbd6fe932a31a05fa8c8f7371fd9344caefe4f407d4030fcdbc6a3",
               "status": "pass"
@@ -455,7 +518,7 @@
               "contract_name": "ea.whatsapp_audiobook_live_delivery_receipt.v1",
               "path": ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
               "present": true,
-              "source_fresh_to_current_source": true,
+              "source_fresh_to_current_source": false,
               "source_git_head": "40d1d105c198030aa3c61c99301a2050dabd015c",
               "source_state_fingerprint": "61d4b23c2cbbd6fe932a31a05fa8c8f7371fd9344caefe4f407d4030fcdbc6a3",
               "status": "pass"
@@ -464,15 +527,15 @@
               "contract_name": "ea.whatsapp_audiobook_public_share_playback_e2e.v1",
               "path": ".codex-studio/published/whatsapp_audiobook_public_share_playback.generated.json",
               "present": true,
-              "source_fresh_to_current_source": true,
+              "source_fresh_to_current_source": false,
               "source_git_head": "40d1d105c198030aa3c61c99301a2050dabd015c",
               "source_state_fingerprint": "61d4b23c2cbbd6fe932a31a05fa8c8f7371fd9344caefe4f407d4030fcdbc6a3",
               "status": "pass"
             }
           ],
-          "status": "pass",
-          "status_class": "progress",
-          "summary": "intake pass; bundle pass; live pass; share pass; voice waiting",
+          "status": "blocked_stale_source_evidence",
+          "status_class": "blocking",
+          "summary": "intake pass; bundle pass; live pass; share pass; voice waiting Source receipt evidence is stale or unstamped; refresh the component proof before claiming pass.",
           "title": "WhatsApp audiobook delivery"
         }
       ],
@@ -579,7 +642,10 @@
       "next_action_method": "get",
       "non_action_progress_push_allowed": false,
       "quiet_hours_respected": true,
+      "raw_chat_ids_exposed": false,
       "raw_private_context_exposed": false,
+      "raw_secret_exposed": false,
+      "raw_token_exposed": false,
       "raw_voice_ids_exposed": false,
       "required_next_receipt": "passing Telegram audiobook live delivery receipt",
       "telegram_push_allowed": true,
@@ -595,15 +661,29 @@
       "irreversible_actions_consent_gated": true,
       "key": "telegram_business_signal_setup",
       "lens": "detect",
+      "missing_setup": [
+        "chat_allowlist_configured"
+      ],
       "next_action": "connect_telegram_business_secretary_bot_and_allowlist_chats",
       "next_action_href": "/integrations/telegram",
       "next_action_label": "Open Telegram setup",
       "next_action_method": "get",
       "non_action_progress_push_allowed": false,
       "quiet_hours_respected": true,
+      "raw_chat_ids_exposed": false,
       "raw_private_context_exposed": false,
+      "raw_secret_exposed": false,
+      "raw_token_exposed": false,
       "raw_voice_ids_exposed": false,
       "required_next_receipt": "Telegram Business/Secretary bot connected with allowlisted signal chats",
+      "setup_checklist": [
+        {
+          "how": "Set EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_HASHES or EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_IDS.",
+          "key": "chat_allowlist_configured",
+          "label": "Choose Telegram Business chats EA may read"
+        }
+      ],
+      "telegram_message": "Action needed: Telegram Business/Secretary ingest is not live yet. Connect the EA bot, allowlist the selected chats, and run the Business webhook bootstrap. Missing: Choose Telegram Business chats EA may read.",
       "telegram_push_allowed": true,
       "title": "Telegram Business signal ingest setup",
       "user_action_required": true
@@ -622,11 +702,38 @@
       "next_action_method": "get",
       "non_action_progress_push_allowed": false,
       "quiet_hours_respected": true,
+      "raw_chat_ids_exposed": false,
       "raw_private_context_exposed": false,
+      "raw_secret_exposed": false,
+      "raw_token_exposed": false,
       "raw_voice_ids_exposed": false,
       "required_next_receipt": "consented Manfred STT/TTS realtime conversation proof",
       "telegram_push_allowed": false,
       "title": "Consented Manfred realtime conversation proof",
+      "user_action_required": false
+    },
+    {
+      "callback_tokens_exposed": false,
+      "delivery_policy": "queue_only",
+      "evidence_kind": "live_delivery_receipt",
+      "interruption_budget": "none",
+      "irreversible_actions_consent_gated": true,
+      "key": "whatsapp_audiobook_live_delivery",
+      "lens": "deliver",
+      "next_action": "capture_passing_whatsapp_audiobook_live_delivery_receipt",
+      "next_action_href": "/integrations/whatsapp",
+      "next_action_label": "Open WhatsApp",
+      "next_action_method": "get",
+      "non_action_progress_push_allowed": false,
+      "quiet_hours_respected": true,
+      "raw_chat_ids_exposed": false,
+      "raw_private_context_exposed": false,
+      "raw_secret_exposed": false,
+      "raw_token_exposed": false,
+      "raw_voice_ids_exposed": false,
+      "required_next_receipt": "passing WhatsApp audiobook live delivery receipt",
+      "telegram_push_allowed": false,
+      "title": "WhatsApp audiobook live delivery receipt",
       "user_action_required": false
     },
     {
@@ -643,7 +750,10 @@
       "next_action_method": "post",
       "non_action_progress_push_allowed": false,
       "quiet_hours_respected": true,
+      "raw_chat_ids_exposed": false,
       "raw_private_context_exposed": false,
+      "raw_secret_exposed": false,
+      "raw_token_exposed": false,
       "raw_voice_ids_exposed": false,
       "required_next_receipt": "real operator acceptance that the morning brief was worth reading",
       "telegram_push_allowed": false,
@@ -664,7 +774,10 @@
       "next_action_method": "post",
       "non_action_progress_push_allowed": false,
       "quiet_hours_respected": true,
+      "raw_chat_ids_exposed": false,
       "raw_private_context_exposed": false,
+      "raw_secret_exposed": false,
+      "raw_token_exposed": false,
       "raw_voice_ids_exposed": false,
       "required_next_receipt": "real weekly signal-to-decision review acceptance receipt",
       "telegram_push_allowed": false,
@@ -685,7 +798,10 @@
       "next_action_method": "get",
       "non_action_progress_push_allowed": false,
       "quiet_hours_respected": true,
+      "raw_chat_ids_exposed": false,
       "raw_private_context_exposed": false,
+      "raw_secret_exposed": false,
+      "raw_token_exposed": false,
       "raw_voice_ids_exposed": false,
       "required_next_receipt": "fresh-host Teable recovery drill receipt mirrored into the repo",
       "telegram_push_allowed": false,
@@ -711,7 +827,8 @@
     "fresh-host Teable recovery drill receipt mirrored into the repo",
     "Telegram Business/Secretary bot connected with allowlisted signal chats",
     "consented Manfred STT/TTS realtime conversation proof",
-    "passing Telegram audiobook live delivery receipt"
+    "passing Telegram audiobook live delivery receipt",
+    "passing WhatsApp audiobook live delivery receipt"
   ],
   "rules": [
     "Local route receipts and operator commands may guide work, but they do not by themselves prove real daily usefulness.",
@@ -723,7 +840,7 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "03a8296b82a36a602d9d170215ab8701f448a152",
-  "source_state_fingerprint": "61d4b23c2cbbd6fe932a31a05fa8c8f7371fd9344caefe4f407d4030fcdbc6a3",
+  "source_git_head": "346053be5c483094ace906fa9ffbae5f353d3732",
+  "source_state_fingerprint": "05731eeb21af6dcb1a7dfb88b5f3dc963c41be693093dd09b09c83b2ab7bbe4b",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }

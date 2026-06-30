@@ -370,6 +370,9 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                 issues.append(f"operator_action_queue entry missing next_action_href: {action_key}")
             if row.get("raw_private_context_exposed") is not False:
                 issues.append(f"operator_action_queue must not expose raw private context: {action_key}")
+            for private_key in ("raw_chat_ids_exposed", "raw_token_exposed", "raw_secret_exposed"):
+                if row.get(private_key) is not False:
+                    issues.append(f"operator_action_queue must not expose {private_key}: {action_key}")
             if row.get("raw_voice_ids_exposed") is not False:
                 issues.append(f"operator_action_queue must not expose raw voice IDs: {action_key}")
             if row.get("callback_tokens_exposed") is not False:
@@ -583,6 +586,54 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
             issues.append("telegram_business_signal_setup must cite the Telegram Business readiness surface")
         if telegram_business_requirement.get("evidence_kind") != "secretary_bot_signal_ingest_setup":
             issues.append("telegram_business_signal_setup evidence_kind mismatch")
+        action_context = telegram_business_requirement.get("action_context")
+        strict_business_action = isinstance(action_context, dict) and action_context.get("user_action_required") is True
+        if business_blocked and strict_business_action:
+            if not isinstance(action_context, dict):
+                issues.append("blocked telegram_business_signal_setup must include action_context")
+            else:
+                missing_setup = [
+                    str(item).strip()
+                    for item in list(action_context.get("missing_setup") or [])
+                    if str(item).strip()
+                ]
+                if not missing_setup:
+                    issues.append("blocked telegram_business_signal_setup action_context must include missing_setup")
+                setup_checklist = action_context.get("setup_checklist")
+                if not isinstance(setup_checklist, list) or not setup_checklist:
+                    issues.append("blocked telegram_business_signal_setup action_context must include setup_checklist")
+                elif missing_setup:
+                    checklist_keys = {
+                        str(dict(item).get("key") or "").strip()
+                        for item in setup_checklist
+                        if isinstance(item, dict)
+                    }
+                    for missing_key in missing_setup:
+                        if missing_key not in checklist_keys:
+                            issues.append(f"telegram_business_signal_setup setup_checklist missing key: {missing_key}")
+                if not str(action_context.get("telegram_message") or "").strip():
+                    issues.append("blocked telegram_business_signal_setup action_context must include telegram_message")
+                for private_key in ("raw_chat_ids_exposed", "raw_token_exposed", "raw_secret_exposed"):
+                    if action_context.get(private_key) is not False:
+                        issues.append(f"telegram_business_signal_setup action_context must not expose {private_key}")
+            business_queue_row = next(
+                (
+                    dict(row)
+                    for row in operator_action_queue
+                    if isinstance(row, dict) and str(row.get("key") or "").strip() == "telegram_business_signal_setup"
+                ),
+                {},
+            )
+            if not business_queue_row:
+                issues.append("blocked telegram_business_signal_setup must appear in operator_action_queue")
+            else:
+                if not business_queue_row.get("setup_checklist"):
+                    issues.append("telegram_business_signal_setup queue row must include setup_checklist")
+                if not business_queue_row.get("telegram_message"):
+                    issues.append("telegram_business_signal_setup queue row must include telegram_message")
+                for private_key in ("raw_chat_ids_exposed", "raw_token_exposed", "raw_secret_exposed"):
+                    if business_queue_row.get(private_key) is not False:
+                        issues.append(f"telegram_business_signal_setup queue row must not expose {private_key}")
     telegram_requirement = proof_by_key.get("telegram_audiobook_live_delivery") or {}
     if telegram_requirement:
         capture_surfaces = " ".join(str(surface or "") for surface in list(telegram_requirement.get("capture_surfaces") or []))
