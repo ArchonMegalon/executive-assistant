@@ -592,10 +592,62 @@ def _summary_for_status(status: str, *, approval_capture_surface_ready: bool = F
 
 
 def _operator_runtime_next_action(operator_status: Mapping[str, Any]) -> str:
+    source_ready, source_detail = _operator_runtime_source_coverage_posture(operator_status)
+    if not source_ready:
+        next_action = str(source_detail.get("next_action") or "").strip()
+        if next_action:
+            return next_action
     reason = str(operator_status.get("reason") or "").strip()
     if reason.startswith("google_workspace_signal_source_unhealthy:"):
         return "reauthorize_google_workspace_binding"
     return str(operator_status.get("next_action") or "repair_proactive_operator_runtime_posture").strip() or "repair_proactive_operator_runtime_posture"
+
+
+def _operator_runtime_source_coverage_posture(operator_status: Mapping[str, Any]) -> tuple[bool, dict[str, Any]]:
+    source_coverage = dict(operator_status.get("source_coverage") or {})
+    lanes = [dict(row or {}) for row in list(source_coverage.get("lanes") or []) if isinstance(row, Mapping)]
+    missing_lane_keys = [
+        str(item).strip()
+        for item in list(source_coverage.get("missing_lane_keys") or [])
+        if str(item).strip()
+    ]
+    if not missing_lane_keys:
+        missing_lane_keys = [
+            str(row.get("key") or "").strip()
+            for row in lanes
+            if str(row.get("key") or "").strip() and not bool(row.get("observed"))
+        ]
+    lane_count = int(source_coverage.get("lane_count") or len(lanes) or 0)
+    observed_lane_count = int(source_coverage.get("observed_lane_count") or 0)
+    status = str(source_coverage.get("status") or "").strip()
+    checked = bool(source_coverage.get("checked"))
+    missing_required_event_types: list[str] = []
+    next_action = ""
+    for lane in lanes:
+        if bool(lane.get("observed")):
+            continue
+        if not next_action:
+            next_action = str(lane.get("next_action") or "").strip()
+        for item in list(lane.get("missing_required_event_types") or []):
+            text = str(item).strip()
+            if text:
+                missing_required_event_types.append(text)
+    if not next_action:
+        next_action = str(source_coverage.get("next_action") or "").strip()
+    ready = checked and status == "ready" and lane_count > 0 and observed_lane_count >= lane_count and not missing_lane_keys
+    return (
+        ready,
+        {
+            "source_coverage_checked": checked,
+            "source_coverage_status": status,
+            "source_coverage_ready": ready,
+            "source_coverage_lane_count": lane_count,
+            "source_coverage_observed_lane_count": observed_lane_count,
+            "source_coverage_missing_lane_keys": missing_lane_keys,
+            "source_coverage_missing_required_event_types": sorted(set(missing_required_event_types)),
+            "next_action": next_action or "probe_proactive_source_coverage",
+        },
+    )
 
 
 def _next_action_surface_fields(action: str) -> dict[str, str]:
@@ -1214,14 +1266,16 @@ def materialize_proactive_ooda_gold_acceptance(
     delivery_route = dict(operator_status.get("delivery_route") or {})
     live_receipt = dict(operator_status.get("live_receipt") or {})
     operator_status_state = str(operator_status.get("status") or "").strip()
-    operator_runtime_ready = operator_status_state.startswith("ready")
-    operator_runtime_next_action = str(operator_status.get("next_action") or "").strip()
+    source_coverage_ready, source_coverage_detail = _operator_runtime_source_coverage_posture(operator_status)
+    operator_runtime_ready = operator_status_state.startswith("ready") and source_coverage_ready
+    operator_runtime_next_action = _operator_runtime_next_action(operator_status)
     operator_runtime_proof = _proof_row(
         present=operator_runtime_ready,
         detail={
             "status": operator_status_state,
             "reason": str(operator_status.get("reason") or "").strip(),
             "next_action": operator_runtime_next_action,
+            **source_coverage_detail,
             **_next_action_surface_fields(operator_runtime_next_action),
             "path": display_path(ROOT, operator_status_path),
         },

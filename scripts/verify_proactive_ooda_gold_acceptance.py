@@ -240,6 +240,13 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
     if status == "pass":
         if not all(pass_runtime_proofs):
             issues.append("pass requires all runtime proofs present")
+        operator_runtime = dict(proofs.get("operator_runtime_posture") or {})
+        if operator_runtime.get("source_coverage_ready") is not True:
+            issues.append("pass requires operator_runtime_posture.source_coverage_ready=true")
+        if list(operator_runtime.get("source_coverage_missing_lane_keys") or []):
+            issues.append("pass requires no operator_runtime_posture.source_coverage_missing_lane_keys")
+        if list(operator_runtime.get("source_coverage_missing_required_event_types") or []):
+            issues.append("pass requires no operator_runtime_posture.source_coverage_missing_required_event_types")
         if not approval_accepted:
             issues.append("pass requires approval_outcome.accepted=true")
         if list(receipt.get("remaining_external_proofs") or []):
@@ -257,6 +264,8 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
         operator_runtime = dict(proofs.get("operator_runtime_posture") or {})
         if bool(operator_runtime.get("present")):
             issues.append("blocked_operator_runtime_posture requires operator_runtime_posture.present=false")
+        if "source_coverage_ready" not in operator_runtime:
+            issues.append("blocked_operator_runtime_posture requires source_coverage_ready detail")
         _verify_next_action_surface(operator_runtime, issues, prefix="operator_runtime_posture")
     if status == "blocked_low_quality_packet_evidence":
         quality = dict(proofs.get("assistant_grade_packet_quality") or {})
