@@ -466,6 +466,47 @@ def test_expire_stale_proactive_ooda_telegram_approval_callbacks_marks_only_expi
     assert json.loads(other_pending["record_path"].read_text(encoding="utf-8"))["status"] == "superseded"
 
 
+def test_expire_stale_callbacks_supersedes_pending_records_when_no_current_packet(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from app.services import proactive_ooda_telegram_approval as approval
+
+    pending = approval.prepare_proactive_ooda_telegram_approval(
+        principal_id="exec",
+        packet_ref="stage_packet:old-packet",
+        staged_artifact_ref="safe_work_result:old-result",
+        approval_prompt="Approve old.",
+        chat_id="42",
+        bot_token="telegram-token",
+        root=tmp_path,
+        state_path="state/proactive_ooda_notified.json",
+        receipt_path="provider-ledger/proactive_ooda_latest_run.generated.json",
+        created_at="2026-06-28T10:00:00Z",
+    )
+    pending_record = json.loads(pending["record_path"].read_text(encoding="utf-8"))
+    pending_record["expires_at"] = "2099-01-01T00:00:00Z"
+    pending["record_path"].write_text(json.dumps(pending_record, indent=2) + "\n", encoding="utf-8")
+
+    monkeypatch.setattr(approval, "_current_runtime_packet_refs", lambda **_kwargs: ("", ""))
+
+    result = approval.expire_stale_proactive_ooda_telegram_approval_callbacks(
+        root=tmp_path,
+        state_path="state/proactive_ooda_notified.json",
+        receipt_path="provider-ledger/proactive_ooda_latest_run.generated.json",
+        supersede_noncurrent=True,
+    )
+
+    assert result["status"] == "ok"
+    assert result["inspected_count"] == 1
+    assert result["expired_count"] == 0
+    assert result["superseded_count"] == 1
+    assert result["skipped_count"] == 0
+    stored = json.loads(pending["record_path"].read_text(encoding="utf-8"))
+    assert stored["status"] == "superseded"
+    assert stored["superseded_reason"] == "not_current_proactive_ooda_packet"
+
+
 def test_apply_proactive_ooda_telegram_approval_callback_expires_old_pending_record_without_finalize(
     monkeypatch,
     tmp_path: Path,

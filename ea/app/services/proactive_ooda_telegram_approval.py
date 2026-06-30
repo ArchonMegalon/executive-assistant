@@ -213,6 +213,7 @@ def expire_stale_proactive_ooda_telegram_approval_callbacks(
             stage_packet_dir="",
             safe_work_result_dir="",
         )
+    active_refs_present = bool(normalized_active_packet_ref and normalized_active_artifact_ref)
     for candidate in sorted(directory.glob("*.json")):
         try:
             record = _load_json(candidate)
@@ -224,11 +225,9 @@ def expire_stale_proactive_ooda_telegram_approval_callbacks(
                 skipped_count += 1
                 continue
             if not _callback_record_expired(record, now=observed_at):
-                if (
-                    supersede_noncurrent
-                    and normalized_active_packet_ref
-                    and normalized_active_artifact_ref
-                    and not _callback_record_matches_refs(
+                if supersede_noncurrent and (
+                    not active_refs_present
+                    or not _callback_record_matches_refs(
                         record,
                         packet_ref=normalized_active_packet_ref,
                         staged_artifact_ref=normalized_active_artifact_ref,
