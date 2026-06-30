@@ -62,8 +62,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "c4cc7cf7a49e42e0e053d227529df0eee3f957d6",
-          "source_state_fingerprint": "d049316631c7ea1e57877b5cc8614b53893d5bfcba1922ae24e8bd738947dd33",
+          "source_git_head": "11ec8c032ac2f0dbe4b1a62e33689bc6f871fb10",
+          "source_state_fingerprint": "46365b146543b92cc3356ca73a64a0a4567024b35aaa92fb8bccc4d53d1bac24",
           "status": "pass"
         },
         {
@@ -71,8 +71,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "c4cc7cf7a49e42e0e053d227529df0eee3f957d6",
-          "source_state_fingerprint": "d049316631c7ea1e57877b5cc8614b53893d5bfcba1922ae24e8bd738947dd33",
+          "source_git_head": "11ec8c032ac2f0dbe4b1a62e33689bc6f871fb10",
+          "source_state_fingerprint": "46365b146543b92cc3356ca73a64a0a4567024b35aaa92fb8bccc4d53d1bac24",
           "status": "ready_with_live_receipt"
         }
       ],
@@ -102,6 +102,19 @@
       "title": "Consented Manfred realtime conversation proof"
     },
     {
+      "action_context": {
+        "callback_tokens_exposed": false,
+        "candidate_count": 1,
+        "candidate_labels": [
+          "Dieter"
+        ],
+        "kind": "telegram_audiobook_voice_choice",
+        "operator_action": "choose_sent_replacement_voice_sample",
+        "raw_voice_ids_exposed": false,
+        "voice_sample_delivery_expected_count": 1,
+        "voice_sample_delivery_sent_count": 1,
+        "voice_sample_delivery_status": "sent"
+      },
       "capture_surfaces": [
         ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
         ".codex-studio/published/telegram_audiobook_live_readiness.generated.json"
@@ -145,7 +158,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-06-30T03:37:44Z",
+  "generated_at": "2026-06-30T03:41:12Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -399,7 +412,7 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "c4cc7cf7a49e42e0e053d227529df0eee3f957d6",
-  "source_state_fingerprint": "d049316631c7ea1e57877b5cc8614b53893d5bfcba1922ae24e8bd738947dd33",
+  "source_git_head": "11ec8c032ac2f0dbe4b1a62e33689bc6f871fb10",
+  "source_state_fingerprint": "46365b146543b92cc3356ca73a64a0a4567024b35aaa92fb8bccc4d53d1bac24",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }

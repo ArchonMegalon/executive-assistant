@@ -402,6 +402,20 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
         capture_surfaces = " ".join(str(surface or "") for surface in list(telegram_requirement.get("capture_surfaces") or []))
         if "telegram_audiobook_live_delivery.generated.json" not in capture_surfaces:
             issues.append("telegram_audiobook_live_delivery must cite the Telegram audiobook live delivery surface")
+        action_context = telegram_requirement.get("action_context")
+        if action_context is not None:
+            if not isinstance(action_context, dict):
+                issues.append("telegram_audiobook_live_delivery action_context must be an object when present")
+            else:
+                if action_context.get("raw_voice_ids_exposed") is not False:
+                    issues.append("telegram_audiobook_live_delivery action_context must not expose raw voice IDs")
+                if action_context.get("callback_tokens_exposed") is not False:
+                    issues.append("telegram_audiobook_live_delivery action_context must not expose callback tokens")
+                if action_context.get("kind") == "telegram_audiobook_voice_choice":
+                    if not str(action_context.get("operator_action") or "").strip():
+                        issues.append("telegram audiobook voice choice action_context must include operator_action")
+                    if int(action_context.get("candidate_count") or 0) <= 0:
+                        issues.append("telegram audiobook voice choice action_context must include candidate_count")
     if by_key.get("recover", {}).get("status") == "command_backed_no_published_receipt" and "recover=command_backed_no_published_receipt" not in blocking_reasons:
         issues.append("blocking_reasons must include the command-backed recover posture")
     return issues

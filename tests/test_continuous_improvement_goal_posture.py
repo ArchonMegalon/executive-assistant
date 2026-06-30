@@ -176,7 +176,18 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
         tmp_path,
         ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
         status="blocked",
-        next_action="choose_explicit_replacement_voice_or_restore_selected_provider",
+        next_action="choose_sent_replacement_voice_sample",
+        pending_user_selected_voice_jobs=[
+            {
+                "replacement_candidate_count": 1,
+                "replacement_candidate_labels": ["Dieter"],
+                "voice_sample_delivery_status": "sent",
+                "voice_sample_delivery_sent_count": 1,
+                "voice_sample_delivery_expected_count": 1,
+                "raw_voice_ids_exposed": False,
+                "callback_tokens_exposed": False,
+            }
+        ],
     )
     _write_receipt(
         tmp_path,
@@ -246,8 +257,15 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert proof_requirements["telegram_audiobook_live_delivery"]["evidence_kind"] == "live_delivery_receipt"
     assert (
         proof_requirements["telegram_audiobook_live_delivery"]["next_action"]
-        == "choose_explicit_replacement_voice_or_restore_selected_provider"
+        == "choose_sent_replacement_voice_sample"
     )
+    telegram_action_context = proof_requirements["telegram_audiobook_live_delivery"]["action_context"]
+    assert telegram_action_context["kind"] == "telegram_audiobook_voice_choice"
+    assert telegram_action_context["operator_action"] == "choose_sent_replacement_voice_sample"
+    assert telegram_action_context["candidate_labels"] == ["Dieter"]
+    assert telegram_action_context["voice_sample_delivery_status"] == "sent"
+    assert telegram_action_context["raw_voice_ids_exposed"] is False
+    assert telegram_action_context["callback_tokens_exposed"] is False
     assert "Telegram is an action surface, not a progress log; proactive delivery must stay quiet unless the user needs to approve, choose, unblock, review, or answer something." in receipt["rules"]
     assert "Proactive OODA packets must pass a context/provider-fit auditor before user delivery; reachable URLs, extracted email addresses, or generic search hits are not sufficient." in receipt["rules"]
     assert "Pocket.ai or other consented audio transcripts may feed OODA only as approved signals with privacy, retention, source, and current/stale status preserved." in receipt["rules"]

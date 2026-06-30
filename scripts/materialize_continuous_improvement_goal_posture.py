@@ -182,8 +182,9 @@ def _acceptance_proof_requirement(
     claim_boundary: str,
     source_receipts: list[dict[str, Any]],
     status: str = "pending_real_world_evidence",
+    action_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "key": key,
         "title": title,
         "lens": lens,
@@ -195,6 +196,37 @@ def _acceptance_proof_requirement(
         "claim_boundary": claim_boundary,
         "source_receipts": source_receipts,
     }
+    if action_context:
+        payload["action_context"] = action_context
+    return payload
+
+
+def _telegram_audiobook_action_context(receipt: dict[str, Any]) -> dict[str, Any]:
+    pending_rows = [
+        dict(row)
+        for row in list(receipt.get("pending_user_selected_voice_jobs") or [])
+        if isinstance(row, dict)
+    ]
+    if not pending_rows:
+        return {}
+    first = pending_rows[0]
+    labels = [
+        str(item).strip()
+        for item in list(first.get("replacement_candidate_labels") or first.get("voice_choice_candidate_labels") or [])
+        if str(item).strip()
+    ]
+    context = {
+        "kind": "telegram_audiobook_voice_choice",
+        "operator_action": str(receipt.get("next_action") or "").strip(),
+        "candidate_count": int(first.get("replacement_candidate_count") or first.get("voice_choice_candidate_count") or 0),
+        "candidate_labels": labels[:3],
+        "voice_sample_delivery_status": str(first.get("voice_sample_delivery_status") or "").strip(),
+        "voice_sample_delivery_sent_count": int(first.get("voice_sample_delivery_sent_count") or 0),
+        "voice_sample_delivery_expected_count": int(first.get("voice_sample_delivery_expected_count") or 0),
+        "raw_voice_ids_exposed": bool(first.get("raw_voice_ids_exposed")),
+        "callback_tokens_exposed": bool(first.get("callback_tokens_exposed")),
+    }
+    return {key: value for key, value in context.items() if value not in ("", [], None)}
 
 
 def build_goal_posture(
@@ -680,6 +712,7 @@ def build_goal_posture(
                     default="capture_passing_telegram_audiobook_live_delivery_receipt",
                 ),
                 claim_boundary="does_not_prove_telegram_audiobook_delivery_until_live_delivery_and_playback_receipts_pass",
+                action_context=_telegram_audiobook_action_context(tg_live),
                 source_receipts=[
                     _source_receipt(
                         tg_live_path,
