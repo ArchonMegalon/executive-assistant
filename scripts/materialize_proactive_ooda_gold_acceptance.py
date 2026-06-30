@@ -118,6 +118,26 @@ def _load_json(path: Path) -> dict[str, Any]:
     return dict(payload) if isinstance(payload, dict) else {}
 
 
+def _operator_status_snapshot_key(payload: Mapping[str, Any]) -> tuple[str, str, str, str, str]:
+    row = dict(payload) if isinstance(payload, Mapping) else {}
+    return (
+        str(row.get("contract_name") or "").strip(),
+        str(row.get("status") or "").strip(),
+        str(row.get("generated_at") or "").strip(),
+        str(row.get("source_git_head") or "").strip(),
+        str(row.get("source_state_fingerprint") or "").strip(),
+    )
+
+
+def _refresh_operator_status_snapshot(*, path: Path, current: Mapping[str, Any]) -> dict[str, Any]:
+    latest = _load_json(path)
+    if not latest:
+        return dict(current) if isinstance(current, Mapping) else {}
+    if _operator_status_snapshot_key(latest) == _operator_status_snapshot_key(current):
+        return dict(current) if isinstance(current, Mapping) else {}
+    return latest
+
+
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -1120,6 +1140,7 @@ def materialize_proactive_ooda_gold_acceptance(
     quiet_receipt = dict(bundle.get("action_required_only_quiet_receipt") or {})
     resolved_stage_dir = bundle.get("stage_packet_dir")
     resolved_safe_dir = bundle.get("safe_work_result_dir")
+    operator_status = _refresh_operator_status_snapshot(path=operator_status_path, current=operator_status)
     stage_path = bundle.get("stage_packet_path")
     stage_packet = dict(bundle.get("stage_packet") or {})
     safe_path = bundle.get("safe_work_result_path")
