@@ -59,7 +59,7 @@ REQUIRED_PROOF_FIELDS = {
     "claim_boundary",
     "source_receipts",
 }
-KNOWN_PROOF_STATUSES = {"pending_real_world_evidence"}
+KNOWN_PROOF_STATUSES = {"pending_real_world_evidence", "satisfied"}
 DELIVER_BLOCKER_PROOF_KEYS = {
     "deliver:manfred_speech": "manfred_stt_tts_realtime_conversation",
     "deliver:telegram_audiobook": "telegram_audiobook_live_delivery",
@@ -266,8 +266,6 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
     ):
         issues.append("missing Teable projection rule for proactive OODA")
     required_next_receipts = set(str(item) for item in list(receipt.get("required_next_receipts") or []) if str(item).strip())
-    if REQUIRED_PROACTIVE_OODA_RECEIPT not in required_next_receipts:
-        issues.append("required_next_receipts must include proactive OODA Teable proof")
     acceptance_proof_requirements = receipt.get("acceptance_proof_requirements")
     if not isinstance(acceptance_proof_requirements, list) or not acceptance_proof_requirements:
         issues.append("acceptance_proof_requirements must be a non-empty list")
@@ -298,10 +296,11 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
         if status not in KNOWN_PROOF_STATUSES:
             issues.append(f"acceptance proof requirement {key or index} uses unknown status: {status}")
         required_receipt = str(requirement.get("required_next_receipt") or "").strip()
-        if required_receipt:
+        if required_receipt and status != "satisfied":
             proof_receipts.add(required_receipt)
         else:
-            issues.append(f"acceptance proof requirement {key or index} missing required_next_receipt")
+            if not required_receipt:
+                issues.append(f"acceptance proof requirement {key or index} missing required_next_receipt")
         capture_surfaces = [
             str(surface or "").strip()
             for surface in list(requirement.get("capture_surfaces") or [])
@@ -373,8 +372,14 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
             issues.append("proactive_ooda_packet_acceptance must cover the proactive OODA proof receipt")
         if proactive_requirement.get("evidence_kind") != "approval_outcome":
             issues.append("proactive_ooda_packet_acceptance evidence_kind must be approval_outcome")
+        proactive_status = str(proactive_requirement.get("status") or "").strip()
+        if proactive_status != "satisfied" and REQUIRED_PROACTIVE_OODA_RECEIPT not in required_next_receipts:
+            issues.append("required_next_receipts must include proactive OODA Teable proof until proactive acceptance is satisfied")
         next_action = str(proactive_requirement.get("next_action") or "")
-        if "record_proactive_ooda_approval_outcome" not in next_action and "tap_proactive_telegram_approval_button" not in next_action:
+        if proactive_status == "satisfied":
+            if next_action != "maintain_proactive_ooda_gold_acceptance_evidence":
+                issues.append("satisfied proactive_ooda_packet_acceptance must maintain gold acceptance evidence")
+        elif "record_proactive_ooda_approval_outcome" not in next_action and "tap_proactive_telegram_approval_button" not in next_action:
             issues.append("proactive_ooda_packet_acceptance must point at the Telegram approval outcome capture")
         capture_surfaces = " ".join(str(surface or "") for surface in list(proactive_requirement.get("capture_surfaces") or []))
         if "ea_proactive_ooda_gold_acceptance.generated.json" not in capture_surfaces:

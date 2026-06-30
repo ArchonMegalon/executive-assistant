@@ -29,14 +29,23 @@ def _write_proactive_ooda_receipts(
     *,
     source_git_head: str = "source-head",
     source_state_fingerprint: str = "source-fingerprint",
+    gold_status: str = "ready_for_approval_outcome_capture",
+    gold_claim_allowed: bool = False,
+    gold_remaining_external_proofs: list[str] | None = None,
+    gold_approval_accepted: bool = False,
 ) -> None:
     extra = {"source_git_head": source_git_head} if source_git_head else {}
     if source_state_fingerprint:
         extra["source_state_fingerprint"] = source_state_fingerprint
+    if gold_remaining_external_proofs is None:
+        gold_remaining_external_proofs = ["redacted explicit approval outcome for the proactive OODA packet"]
     _write_receipt(
         root,
         ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
-        status="ready_for_approval_outcome_capture",
+        status=gold_status,
+        gold_claim_allowed=gold_claim_allowed,
+        remaining_external_proofs=gold_remaining_external_proofs,
+        proofs={"approval_outcome": {"accepted": gold_approval_accepted}},
         **extra,
     )
     _write_receipt(
@@ -633,6 +642,96 @@ def test_goal_posture_verifier_rejects_stale_proactive_ooda_source_receipts(
         "proactive_ooda_packet_acceptance source receipt stale: .codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
         in issues
     )
+
+
+def test_goal_posture_marks_passed_proactive_ooda_gold_as_satisfied(tmp_path: Path, monkeypatch) -> None:
+    _set_source_state(monkeypatch)
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
+        status="ready_local_packet_pending_operator_acceptance",
+        next_action="review packet with operator",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_office_loop_goal.generated.json",
+        status="ready_local_evidence",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/active_media_ltd_goal_bundle.generated.json",
+        status="ready_local_evidence",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
+        status="blocked_real_world_acceptance",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/teable_env_recovery_readiness.generated.json",
+        status="ready_local_audit",
+    )
+    _write_teable_recovery_proof_receipt(tmp_path, status="pass")
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/telegram_audiobook_live_readiness.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_local_intake_proof.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_public_share_playback.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_live_voice_selection_shadow.generated.json",
+        status="pass",
+    )
+    _write_proactive_ooda_receipts(
+        tmp_path,
+        gold_status="pass",
+        gold_claim_allowed=True,
+        gold_remaining_external_proofs=[],
+        gold_approval_accepted=True,
+    )
+
+    output = tmp_path / ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"
+    receipt = build_goal_posture(root=tmp_path, output_path=output, generated_at="2026-06-30T05:00:00Z")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+
+    proof_requirements = {item["key"]: item for item in receipt["acceptance_proof_requirements"]}
+    proactive = proof_requirements["proactive_ooda_packet_acceptance"]
+    assert proactive["status"] == "satisfied"
+    assert proactive["next_action"] == "maintain_proactive_ooda_gold_acceptance_evidence"
+    assert posture_module.PROACTIVE_OODA_ACCEPTANCE_RECEIPT not in receipt["required_next_receipts"]
+    assert verify(output, root=tmp_path) == []
 
 
 def test_goal_posture_verifier_accepts_waiting_for_live_epub_component_status(tmp_path: Path, monkeypatch) -> None:

@@ -181,12 +181,13 @@ def _acceptance_proof_requirement(
     next_action: str,
     claim_boundary: str,
     source_receipts: list[dict[str, Any]],
+    status: str = "pending_real_world_evidence",
 ) -> dict[str, Any]:
     return {
         "key": key,
         "title": title,
         "lens": lens,
-        "status": "pending_real_world_evidence",
+        "status": status,
         "required_next_receipt": required_next_receipt,
         "evidence_kind": evidence_kind,
         "capture_surfaces": [surface for surface in capture_surfaces if str(surface or "").strip()],
@@ -531,6 +532,18 @@ def build_goal_posture(
     else:
         overall_status = "ready_local_direction"
 
+    proactive_gold_status = _status(ooda_gold)
+    proactive_gold_remaining = [
+        str(item).strip()
+        for item in list(ooda_gold.get("remaining_external_proofs") or [])
+        if str(item).strip()
+    ]
+    proactive_gold_accepted = (
+        proactive_gold_status == "pass"
+        and bool(ooda_gold.get("gold_claim_allowed"))
+        and not proactive_gold_remaining
+        and bool(dict(dict(ooda_gold.get("proofs") or {}).get("approval_outcome") or {}).get("accepted"))
+    )
     acceptance_proof_requirements = [
         _acceptance_proof_requirement(
             key="morning_brief_operator_acceptance",
@@ -578,8 +591,16 @@ def build_goal_posture(
             required_next_receipt=PROACTIVE_OODA_ACCEPTANCE_RECEIPT,
             evidence_kind="approval_outcome",
             capture_surfaces=[ooda_gold_path, ooda_status_path],
-            next_action="tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
-            claim_boundary="does_not_prove_assistant_grade_proactive_ooda_until_a_real_approval_outcome_is_captured",
+            next_action=(
+                "maintain_proactive_ooda_gold_acceptance_evidence"
+                if proactive_gold_accepted
+                else "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome"
+            ),
+            claim_boundary=(
+                "does_not_prove_the_broader_executive_assistant_goal_until_other_real_world_acceptance_lenses_clear"
+                if proactive_gold_accepted
+                else "does_not_prove_assistant_grade_proactive_ooda_until_a_real_approval_outcome_is_captured"
+            ),
             source_receipts=[
                 _source_receipt(
                     ooda_gold_path,
@@ -594,6 +615,7 @@ def build_goal_posture(
                     current_source_fingerprint=current_source_fingerprint,
                 ),
             ],
+            status="satisfied" if proactive_gold_accepted else "pending_real_world_evidence",
         ),
     ]
     if recovery_proof_status != "pass":
@@ -717,6 +739,7 @@ def build_goal_posture(
         str(requirement.get("required_next_receipt") or "").strip()
         for requirement in acceptance_proof_requirements
         if str(requirement.get("required_next_receipt") or "").strip()
+        and str(requirement.get("status") or "").strip() != "satisfied"
     ]
 
     receipt = {
