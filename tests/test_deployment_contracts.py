@@ -51,6 +51,16 @@ def test_base_compose_keeps_core_runtime_ports_loopback_only() -> None:
         assert all(item.startswith("127.0.0.1:") for item in ports), service_name
 
 
+def test_base_compose_trusts_token_authenticated_principal_header_on_loopback_api() -> None:
+    compose = _load_yaml(ROOT / "docker-compose.yml")
+    services = compose.get("services") or {}
+    service = services.get("ea-api") or {}
+    environment = [str(item) for item in list(service.get("environment") or [])]
+
+    assert "EA_TRUST_API_TOKEN_PRINCIPAL_HEADER=${EA_TRUST_API_TOKEN_PRINCIPAL_HEADER:-1}" in environment
+    assert "EA_ALLOW_LOOPBACK_NO_AUTH=${EA_ALLOW_LOOPBACK_NO_AUTH:-0}" in environment
+
+
 def test_base_compose_applies_core_runtime_privilege_limits() -> None:
     compose = _load_yaml(ROOT / "docker-compose.yml")
     services = compose.get("services") or {}

@@ -3630,10 +3630,10 @@ def reopen_audiobook_voice_selection_for_author_gender_mismatch(*, job_dir: Path
         job_dir=job_dir,
         metadata=metadata,
         voice_selection=current_selection,
-        limit=max(2, int(limit or 3)),
-        include_current_selected=True,
+        limit=max(1, int(limit or 3)),
+        include_current_selected=False,
     )
-    if author_gender_signal not in {"male", "female"} or len(selected_rows) < 2:
+    if author_gender_signal not in {"male", "female"} or not selected_rows:
         return job
     pending_keys = [
         str(row.get("preset_key") or "").strip()

@@ -507,15 +507,12 @@ def test_reopen_audiobook_voice_selection_for_author_gender_mismatch_stages_matc
     pending_batch = [dict(item) for item in list(voice_selection.get("pending_batch") or []) if isinstance(item, dict)]
     assert reopened_job.get("status") == "waiting_voice_selection"
     assert voice_selection.get("reason") == "selected_voice_author_gender_mismatch"
-    assert [item.get("label") for item in pending_batch] == ["Hans", "Seraphina (Express)"]
-    assert voice_selection.get("replacement_candidate_keys") == [
-        "unmixr_hans_84ea27fb",
-        "unmixr_seraphina_express_9827708d",
-    ]
+    assert [item.get("label") for item in pending_batch] == ["Hans"]
+    assert voice_selection.get("replacement_candidate_keys") == ["unmixr_hans_84ea27fb"]
     assert voice_selection.get("voice_author_gender_override_by_user") is False
     delivery = dict(reopened_job.get("telegram") or {}).get("voice_sample_delivery") or {}
     assert delivery.get("status") == "not_attempted"
-    assert delivery.get("expected_count") == 2
+    assert delivery.get("expected_count") == 1
     assert delivery.get("attempted_count") == 0
     assert delivery.get("sent_count") == 0
 
@@ -655,7 +652,7 @@ def test_recover_audiobook_job_without_external_side_effects_reopens_stale_autho
     assert recovered_job.get("status") == "waiting_voice_selection"
     assert recovered_job.get("next_action") == "choose_audiobook_voice"
     assert voice_selection.get("reason") == "selected_voice_author_gender_mismatch"
-    assert [item.get("label") for item in pending_batch] == ["Hans", "Seraphina (Express)"]
+    assert [item.get("label") for item in pending_batch] == ["Hans"]
 
 
 def test_resume_due_audiobook_jobs_counts_safe_recovery_before_skip() -> None:

@@ -43,6 +43,7 @@ def _clear_env() -> None:
         "EA_REGISTRATION_EMAIL_ALLOWED_DOMAINS",
         "EA_ALLOW_NON_PROPERTYQUARRY_EMAIL_SENDER",
         "EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER",
+        "EA_TRUST_API_TOKEN_PRINCIPAL_HEADER",
         "EA_CODEXEA_AUTHENTICATED_PRINCIPAL_ID",
         "EA_PUBLIC_APP_BASE_URL",
         "EA_GOOGLE_OAUTH_REDIRECT_URI",
@@ -76,6 +77,7 @@ def _isolated_env() -> None:
         "EA_REGISTRATION_EMAIL_ALLOWED_DOMAINS": os.environ.get("EA_REGISTRATION_EMAIL_ALLOWED_DOMAINS"),
         "EA_ALLOW_NON_PROPERTYQUARRY_EMAIL_SENDER": os.environ.get("EA_ALLOW_NON_PROPERTYQUARRY_EMAIL_SENDER"),
         "EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER": os.environ.get("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"),
+        "EA_TRUST_API_TOKEN_PRINCIPAL_HEADER": os.environ.get("EA_TRUST_API_TOKEN_PRINCIPAL_HEADER"),
         "EA_CODEXEA_AUTHENTICATED_PRINCIPAL_ID": os.environ.get("EA_CODEXEA_AUTHENTICATED_PRINCIPAL_ID"),
         "EA_PUBLIC_APP_BASE_URL": os.environ.get("EA_PUBLIC_APP_BASE_URL"),
         "EA_GOOGLE_OAUTH_REDIRECT_URI": os.environ.get("EA_GOOGLE_OAUTH_REDIRECT_URI"),
@@ -106,6 +108,7 @@ def _request(headers: dict[str, str] | None = None, *, client_host: str = "127.0
     ]
     return Request(
         {
+            "app": SimpleNamespace(state=SimpleNamespace()),
             "type": "http",
             "method": "GET",
             "path": path,
@@ -467,6 +470,47 @@ def test_authenticated_principal_override_rejected_for_non_loopback_request() ->
         container=container,
     )
     assert header_context.principal_id == "ops-fallback"
+
+
+def test_authenticated_principal_override_accepts_api_token_specific_alias() -> None:
+    _clear_env()
+    os.environ["EA_API_TOKEN"] = "secret-token"
+    os.environ["EA_DEFAULT_PRINCIPAL_ID"] = "ops-fallback"
+    os.environ["EA_TRUST_API_TOKEN_PRINCIPAL_HEADER"] = "1"
+    container, _ = _container_for_current_settings()
+
+    header_context = get_request_context(
+        _request(headers={"Authorization": "Bearer secret-token", "X-EA-Principal-ID": "caller-1"}),
+        container=container,
+    )
+
+    assert header_context.principal_id == "caller-1"
+    assert header_context.auth_source == "api_token"
+    assert header_context.authenticated is True
+
+
+def test_authenticated_principal_override_accepts_local_docker_gateway_with_loopback_host_header() -> None:
+    _clear_env()
+    os.environ["EA_API_TOKEN"] = "secret-token"
+    os.environ["EA_DEFAULT_PRINCIPAL_ID"] = "ops-fallback"
+    os.environ["EA_TRUST_API_TOKEN_PRINCIPAL_HEADER"] = "1"
+    container, _ = _container_for_current_settings()
+
+    header_context = get_request_context(
+        _request(
+            headers={
+                "Authorization": "Bearer secret-token",
+                "X-EA-Principal-ID": "caller-1",
+                "Host": "127.0.0.1:8090",
+            },
+            client_host="172.22.0.1",
+        ),
+        container=container,
+    )
+
+    assert header_context.principal_id == "caller-1"
+    assert header_context.auth_source == "api_token"
+    assert header_context.authenticated is True
 
 
 def test_loopback_no_auth_preserves_token_auth_principal_contract() -> None:

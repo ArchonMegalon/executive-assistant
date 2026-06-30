@@ -280,6 +280,41 @@ def _client_host(request: Request) -> str:
     return str(getattr(client, "host", "") or "").strip()
 
 
+def _normalized_host_header_host(value: object) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    candidate = raw.split(",", 1)[0].strip()
+    if candidate.startswith("[") and "]" in candidate:
+        return candidate[1:candidate.index("]")].strip().lower()
+    if ":" in candidate and candidate.count(":") == 1:
+        host_part, _port = candidate.rsplit(":", 1)
+        if host_part:
+            return host_part.strip().lower()
+    return candidate.strip().lower()
+
+
+def _request_targets_loopback_host(request: Request) -> bool:
+    for header_name in ("x-forwarded-host", "host"):
+        normalized = _normalized_host_header_host(request.headers.get(header_name))
+        if _is_loopback_host(normalized):
+            return True
+    return False
+
+
+def _is_docker_host_gateway_host(host: str) -> bool:
+    normalized = str(host or "").strip().lower()
+    if not normalized:
+        return False
+    try:
+        address = ipaddress.ip_address(normalized)
+    except ValueError:
+        return False
+    if not isinstance(address, ipaddress.IPv4Address):
+        return False
+    return bool(address.is_private and not address.is_loopback and address.exploded.endswith(".1"))
+
+
 def _is_loopback_host(host: str) -> bool:
     normalized = str(host or "").strip().lower()
     if not normalized:
@@ -457,7 +492,11 @@ def authenticated_principal_override_allowed(request: Request) -> bool:
         )
     if is_prod_mode(runtime_mode):
         return False
-    if not _is_loopback_host(_client_host(request)):
+    client_host = _client_host(request)
+    if not (
+        _is_loopback_host(client_host)
+        or (_is_docker_host_gateway_host(client_host) and _request_targets_loopback_host(request))
+    ):
         return False
     for env_name in (
         "EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER",
