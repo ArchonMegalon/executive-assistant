@@ -95,10 +95,10 @@ def _write_minimal_epub(path: Path) -> None:
         )
 
 
-def _tone_wav_bytes(*, seconds: float = 0.12, sample_rate: int = 16000) -> bytes:
+def _tone_wav_bytes(*, seconds: float = 0.12, sample_rate: int = 16000, frequency_hz: int = 220) -> bytes:
     buffer = io.BytesIO()
     samples = [
-        0.12 * math.sin(2 * math.pi * 220 * index / sample_rate)
+        0.12 * math.sin(2 * math.pi * frequency_hz * index / sample_rate)
         for index in range(max(int(sample_rate * seconds), 1))
     ]
     with wave.open(buffer, "wb") as wav:
@@ -265,6 +265,16 @@ def _probe_http_player_route(*, token: str) -> dict[str, object]:
     }
 
 
+def _local_voice_sample_bytes(**kwargs: object) -> tuple[bytes, str]:
+    voice_id = str(kwargs.get("voice_id") or "").strip()
+    frequency_by_voice = {
+        "voice-clear": 220,
+        "voice-warm": 330,
+        "voice-story": 440,
+    }
+    return _tone_wav_bytes(frequency_hz=frequency_by_voice.get(voice_id, 550)), "audio/wav"
+
+
 def materialize_whatsapp_audiobook_local_intake_proof(*, output_path: Path = DEFAULT_OUTPUT) -> dict[str, object]:
     generated_at = _now_iso()
     processor = _load_processor_module()
@@ -320,19 +330,19 @@ def materialize_whatsapp_audiobook_local_intake_proof(*, output_path: Path = DEF
                         "voice_id": "voice-clear",
                         "label": "Clear narrator",
                         "language": "en-US",
-                        "tags": ["audiobook", "narration", "clear", "nonfiction"],
+                        "tags": ["audiobook", "narration", "male", "clear", "nonfiction"],
                     },
                     {
                         "voice_id": "voice-warm",
                         "label": "Warm narrator",
                         "language": "en-US",
-                        "tags": ["audiobook", "narration", "warm", "memoir"],
+                        "tags": ["audiobook", "narration", "male", "warm", "memoir"],
                     },
                     {
                         "voice_id": "voice-story",
                         "label": "Story narrator",
                         "language": "en-US",
-                        "tags": ["audiobook", "narration", "fiction", "dialogue"],
+                        "tags": ["audiobook", "narration", "male", "fiction", "dialogue"],
                     },
                 ]
             ),
@@ -375,7 +385,7 @@ def materialize_whatsapp_audiobook_local_intake_proof(*, output_path: Path = DEF
             }
 
         try:
-            processor.audiobook_epub_pipeline.unmixr_synthesize_request = lambda **_: (_tone_wav_bytes(), "audio/wav")
+            processor.audiobook_epub_pipeline.unmixr_synthesize_request = _local_voice_sample_bytes
             processor.audiobook_epub_pipeline._normalize_rendered_audio_file = lambda path: path
             processor.audiobook_epub_pipeline._build_audiobook_publication_gate = _local_publication_gate
             processor.audiobook_epub_pipeline._create_or_reuse_audiobookshelf_public_share = _local_public_share

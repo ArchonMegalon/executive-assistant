@@ -29,13 +29,13 @@
   ],
   "failed_codes": [],
   "fresh_live_job_receipt_proven": true,
-  "generated_at": "2026-06-26T11:47:38.198346Z",
+  "generated_at": "2026-06-30T05:58:51.661223Z",
   "generated_by": "ea/scripts/materialize_whatsapp_audiobook_live_delivery_receipt.py",
   "goal_completion_claim_allowed": false,
   "historical_evidence": {
     "historical_live_path_proven": true,
     "local_intake": {
-      "generated_at": "2026-06-26T11:46:54.897167Z",
+      "generated_at": "2026-06-30T05:58:52.166209Z",
       "local_path_proven": true,
       "receipt_present": true,
       "share_link_sent": 1,
@@ -43,7 +43,7 @@
       "voice_sample_sent": 3
     },
     "operator_bundle": {
-      "generated_at": "2026-06-26T11:46:54.701201Z",
+      "generated_at": "2026-06-30T05:54:31.361245Z",
       "live_delivery_claim_allowed": true,
       "live_delivery_status": "pass",
       "live_path_proven": true,
@@ -55,7 +55,7 @@
     "present": true,
     "public_share_playback": {
       "attempted": 1,
-      "generated_at": "2026-06-23T16:15:44.821338Z",
+      "generated_at": "2026-06-30T05:55:57.347217Z",
       "passed": 1,
       "passed_result_count": 1,
       "playback_path_proven": true,
@@ -90,9 +90,9 @@
   "load_errors": [],
   "machine_playback_e2e_verified": true,
   "next_action": "review_audiobook_playback_problem",
-  "non_whatsapp_job_count": 10,
+  "non_whatsapp_job_count": 11,
   "observation_source": "jobs_root",
-  "observed_job_count": 12,
+  "observed_job_count": 13,
   "output_path": "/docker/EA/.codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
   "pending_user_selected_voice_job_count": 0,
   "pending_user_selected_voice_jobs": [],
@@ -126,10 +126,10 @@
   "runtime_readiness": {
     "effective_session_ref_present": true,
     "ready": false,
-    "reason": "sidecar_not_ready",
+    "reason": "state_file_container_probe_unavailable",
     "receipt_present": true,
     "sidecar_ready": false,
-    "state_fresh": true,
+    "state_fresh": false,
     "status": "blocked"
   },
   "selected_delivery": {
@@ -138,7 +138,7 @@
     "failed_codes": [],
     "job_id_sha256": "1a7a76f41c3bd81a974d309bb59ff80837451843917026aacc130b70729f0837",
     "machine_playback_e2e_browser": "chromium_playwright",
-    "machine_playback_e2e_current_time_after_play_seconds": 2.962141,
+    "machine_playback_e2e_current_time_after_play_seconds": 2.922636,
     "machine_playback_e2e_duration_seconds": 14559.48,
     "machine_playback_e2e_media_error_code": 0,
     "machine_playback_e2e_media_error_present": false,

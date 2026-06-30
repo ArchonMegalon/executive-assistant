@@ -2,7 +2,7 @@
   "checks": {
     "historical_public_share_playback_proven": true,
     "human_playback_acceptance_status_explicit": true,
-    "live_action_processor_no_runtime_errors": true,
+    "live_action_processor_no_runtime_errors": false,
     "live_action_processor_ran": true,
     "live_action_processor_ready": false,
     "live_delivery_claim_scope_explicit": true,
@@ -28,7 +28,7 @@
   },
   "claim": "This bundle combines local WhatsApp EPUB intake proof, live WhatsApp action processor readiness, and the live WhatsApp audiobook delivery receipt. It separates implementation proof from live delivery proof.",
   "contract_name": "ea.whatsapp_audiobook_operator_proof_bundle.v1",
-  "generated_at": "2026-06-26T11:46:54.701201Z",
+  "generated_at": "2026-06-30T05:58:51.661223Z",
   "generated_by": "ea/scripts/materialize_whatsapp_audiobook_operator_proof_bundle.py",
   "live_delivery": {
     "candidate_count": 2,
@@ -58,8 +58,8 @@
     "live_delivery_claim_scope": "machine_playable_delivery_only",
     "machine_playback_e2e_verified": true,
     "next_action": "review_audiobook_playback_problem",
-    "non_whatsapp_job_count": 10,
-    "observed_job_count": 12,
+    "non_whatsapp_job_count": 11,
+    "observed_job_count": 13,
     "proof_freshness": {
       "fresh_live_job_receipt_passed": true,
       "fresh_live_job_receipt_present": true,
@@ -83,8 +83,8 @@
   "live_processor": {
     "candidate_count": 0,
     "container_attempted": true,
-    "container_return_code": 0,
-    "container_stdout_json_present": true,
+    "container_return_code": 128,
+    "container_stdout_json_present": false,
     "container_timed_out": false,
     "container_timeout_seconds": 20.0,
     "conversation_fallback": {
@@ -95,7 +95,7 @@
       "conversation_total": 0,
       "epub_candidate_count": 0,
       "message_count": 0,
-      "status": "skipped",
+      "status": "",
       "status_candidate_count": 0
     },
     "conversation_fallback_attempted": false,
@@ -103,8 +103,8 @@
     "effective_button_callback_candidate_count": 0,
     "epub_candidate_count": 0,
     "epub_processed": 0,
-    "errors": 0,
-    "execution_runtime": "container",
+    "errors": 1,
+    "execution_runtime": "host_fallback",
     "followup": {
       "attempted": 0,
       "errors": 0,
@@ -122,7 +122,7 @@
     "share_link_sent": 0,
     "sidecar_actionable_button_candidate_count": 0,
     "skipped_processed": 0,
-    "status": "pass",
+    "status": "failed",
     "status_candidate_count": 0,
     "status_processed": 0,
     "voice_sample_sent": 0,
@@ -132,12 +132,15 @@
   "live_readiness": {
     "action_processor_enabled": true,
     "ready": false,
-    "reason": "sidecar_not_ready",
+    "reason": "state_file_container_probe_unavailable",
     "reasons": [
-      "sidecar_not_ready"
+      "state_file_container_probe_unavailable",
+      "sidecar_not_ready",
+      "processor_container_callback_secret_missing",
+      "processor_container_disabled_or_not_running"
     ],
     "sidecar_ready": false,
-    "state_fresh": true,
+    "state_fresh": false,
     "status": "blocked"
   },
   "live_sidecar_inbox": {
@@ -206,7 +209,7 @@
     "delivery_stage_next_action": "finish_user_selected_voice_audiobook_before_sending_whatsapp_public_share_link",
     "next_action": "choose_whatsapp_audiobook_voice_sample",
     "player_http_probe": {
-      "download_bytes": 29131,
+      "download_bytes": 21986,
       "download_content_type": "audio/mp4",
       "download_status_code": 200,
       "metadata_status_code": 200,
@@ -248,7 +251,7 @@
   "recommended_action": "review_audiobook_playback_problem",
   "runtime_alignment": {
     "evaluated": true,
-    "processor_session_api_host_kind": "internal_service",
+    "processor_session_api_host_kind": "loopback",
     "processor_session_ref_sha256": "c20799d947e9afef",
     "processor_state_file_kind": "whatsapp_actions_volume",
     "processor_state_file_sha256": "66ca83b8b9eeebdc",
@@ -257,7 +260,7 @@
     "readiness_state_file_kind": "whatsapp_actions_volume",
     "readiness_state_file_sha256": "66ca83b8b9eeebdc",
     "secret_values_exposed": false,
-    "session_api_host_kind_exact_match": false,
+    "session_api_host_kind_exact_match": true,
     "session_api_host_kind_match": true,
     "session_ref_match": true,
     "state_file_kinds_match": true,
