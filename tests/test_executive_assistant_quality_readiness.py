@@ -138,11 +138,25 @@ def test_executive_assistant_acceptance_evidence_hashes_raw_inputs(tmp_path: Pat
     assert receipt["next_action_label"] == ""
     assert receipt["next_action_method"] == ""
     assert receipt["next_action_proof_key"] == ""
+    assert receipt["operator_delivery_policy"] == {
+        "action_required_only": True,
+        "telegram_push_allowed_for_next_action": False,
+        "next_action_requires_user": False,
+        "next_action_delivery_policy": "queue_only",
+        "non_action_progress_push_allowed": False,
+        "quiet_hours_respected": True,
+        "irreversible_actions_consent_gated": True,
+    }
     assert receipt["acceptance_capture_surface"]["path"] == "/admin/actions/acceptance-evidence"  # type: ignore[index]
     assert receipt["acceptance_capture_surface"]["raw_input_not_persisted"] is True  # type: ignore[index]
     assert len(receipt["acceptance_capture_requirements"]) == 5
     assert receipt["acceptance_capture_requirements"][0]["status"] == "accepted_redacted"  # type: ignore[index]
     assert receipt["acceptance_capture_requirements"][0]["capture_path"] == "/admin/actions/acceptance-evidence"  # type: ignore[index]
+    assert receipt["acceptance_capture_requirements"][0]["user_action_required"] is False  # type: ignore[index]
+    assert receipt["acceptance_capture_requirements"][0]["delivery_policy"] == "queue_only"  # type: ignore[index]
+    assert receipt["acceptance_capture_requirements"][0]["telegram_push_allowed"] is False  # type: ignore[index]
+    assert receipt["acceptance_capture_requirements"][0]["interruption_budget"] == "none"  # type: ignore[index]
+    assert receipt["acceptance_capture_requirements"][0]["non_action_progress_push_allowed"] is False  # type: ignore[index]
     assert "Morning brief accepted" not in serialized
     assert "principal name" not in serialized
     assert receipt["acceptance_keys"]["real_daily_morning_brief_accepted"]["raw_evidence_exposed"] is False  # type: ignore[index]
@@ -176,10 +190,25 @@ def test_executive_assistant_acceptance_evidence_preserves_existing_redacted_row
     assert second["next_action_label"] == "Record a real-use outcome"
     assert second["next_action_method"] == "post"
     assert second["next_action_proof_key"] == "real_decision_cleared"
+    assert second["operator_delivery_policy"]["telegram_push_allowed_for_next_action"] is True  # type: ignore[index]
+    assert second["operator_delivery_policy"]["next_action_requires_user"] is True  # type: ignore[index]
+    assert second["operator_delivery_policy"]["next_action_delivery_policy"] == "action_required_only"  # type: ignore[index]
+    assert second["operator_delivery_policy"]["non_action_progress_push_allowed"] is False  # type: ignore[index]
     requirements = {item["key"]: item for item in second["acceptance_capture_requirements"]}  # type: ignore[index]
     assert requirements["real_daily_morning_brief_accepted"]["status"] == "accepted_redacted"
+    assert requirements["real_daily_morning_brief_accepted"]["user_action_required"] is False
+    assert requirements["real_daily_morning_brief_accepted"]["delivery_policy"] == "queue_only"
+    assert requirements["real_daily_morning_brief_accepted"]["telegram_push_allowed"] is False
+    assert requirements["real_daily_morning_brief_accepted"]["interruption_budget"] == "none"
     assert requirements["real_decision_cleared"]["status"] == "pending_real_world_evidence"
     assert requirements["real_decision_cleared"]["next_action"] == "record_redacted_acceptance_evidence:real_decision_cleared"
+    assert requirements["real_decision_cleared"]["user_action_required"] is True
+    assert requirements["real_decision_cleared"]["delivery_policy"] == "action_required_only"
+    assert requirements["real_decision_cleared"]["telegram_push_allowed"] is True
+    assert requirements["real_decision_cleared"]["interruption_budget"] == "action_required"
+    assert requirements["real_decision_cleared"]["quiet_hours_respected"] is True
+    assert requirements["real_decision_cleared"]["non_action_progress_push_allowed"] is False
+    assert requirements["real_decision_cleared"]["irreversible_actions_consent_gated"] is True
     assert second["acceptance_keys"]["real_daily_morning_brief_accepted"]["evidence_sha256"] == first["acceptance_keys"]["real_daily_morning_brief_accepted"]["evidence_sha256"]  # type: ignore[index]
     assert "Morning brief accepted because" not in receipt_path.read_text(encoding="utf-8")
 
@@ -204,6 +233,7 @@ def test_executive_assistant_acceptance_verifier_requires_capture_contract(tmp_p
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     receipt.pop("acceptance_capture_surface")
     receipt["acceptance_capture_requirements"] = []
+    receipt["operator_delivery_policy"] = {}
     receipt["next_action_href"] = ""
     receipt["next_action_label"] = ""
     receipt["next_action_method"] = ""
@@ -217,6 +247,7 @@ def test_executive_assistant_acceptance_verifier_requires_capture_contract(tmp_p
     assert "ea_acceptance_next_action_href_missing" in verification["issues"]
     assert "ea_acceptance_next_action_label_missing" in verification["issues"]
     assert "ea_acceptance_next_action_method_missing" in verification["issues"]
+    assert "ea_acceptance_operator_delivery_policy_action_required_only_missing" in verification["issues"]
 
 
 def test_executive_assistant_quality_readiness_blocks_real_world_acceptance_without_overclaiming(tmp_path: Path) -> None:

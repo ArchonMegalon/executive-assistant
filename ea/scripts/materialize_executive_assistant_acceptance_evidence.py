@@ -135,6 +135,7 @@ def _acceptance_capture_surface() -> dict[str, Any]:
 
 def _acceptance_capture_requirement(key: str, row: dict[str, Any]) -> dict[str, Any]:
     accepted = dict(row or {}).get("accepted") is True
+    user_action_required = not accepted
     return {
         "key": key,
         "label": REMAINING_PROOF_LABELS[key],
@@ -150,6 +151,13 @@ def _acceptance_capture_requirement(key: str, row: dict[str, Any]) -> dict[str, 
         "raw_evidence_exposed": False,
         "raw_actor_exposed": False,
         "raw_object_ref_exposed": False,
+        "user_action_required": user_action_required,
+        "delivery_policy": "action_required_only" if user_action_required else "queue_only",
+        "telegram_push_allowed": user_action_required,
+        "interruption_budget": "action_required" if user_action_required else "none",
+        "quiet_hours_respected": True,
+        "non_action_progress_push_allowed": False,
+        "irreversible_actions_consent_gated": True,
         "next_action": (
             f"review_redacted_acceptance_evidence:{key}"
             if accepted
@@ -235,6 +243,15 @@ def materialize_executive_assistant_acceptance_evidence(
         "next_action_label": ACCEPTANCE_CAPTURE_LABEL if blocked_keys else "",
         "next_action_method": ACCEPTANCE_CAPTURE_METHOD.lower() if blocked_keys else "",
         "next_action_proof_key": next_proof_key,
+        "operator_delivery_policy": {
+            "action_required_only": True,
+            "telegram_push_allowed_for_next_action": bool(blocked_keys),
+            "next_action_requires_user": bool(blocked_keys),
+            "next_action_delivery_policy": "action_required_only" if blocked_keys else "queue_only",
+            "non_action_progress_push_allowed": False,
+            "quiet_hours_respected": True,
+            "irreversible_actions_consent_gated": True,
+        },
     }
     _write(target, receipt)
     return receipt

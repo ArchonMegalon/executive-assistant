@@ -93,6 +93,20 @@ def verify_executive_assistant_acceptance_evidence(receipt_path: str | Path) -> 
         ):
             if value:
                 issues.append(f"ea_acceptance_next_action_{key}_should_be_empty_after_acceptance")
+    operator_delivery_policy = dict(receipt.get("operator_delivery_policy") or {})
+    if operator_delivery_policy.get("action_required_only") is not True:
+        issues.append("ea_acceptance_operator_delivery_policy_action_required_only_missing")
+    if operator_delivery_policy.get("telegram_push_allowed_for_next_action") is not bool(expected_blocked):
+        issues.append("ea_acceptance_operator_delivery_policy_telegram_push_mismatch")
+    if operator_delivery_policy.get("next_action_requires_user") is not bool(expected_blocked):
+        issues.append("ea_acceptance_operator_delivery_policy_user_action_mismatch")
+    expected_next_policy = "action_required_only" if expected_blocked else "queue_only"
+    if operator_delivery_policy.get("next_action_delivery_policy") != expected_next_policy:
+        issues.append("ea_acceptance_operator_delivery_policy_next_action_mismatch")
+    for key in ("non_action_progress_push_allowed", "irreversible_actions_consent_gated", "quiet_hours_respected"):
+        expected = False if key == "non_action_progress_push_allowed" else True
+        if operator_delivery_policy.get(key) is not expected:
+            issues.append(f"ea_acceptance_operator_delivery_policy_flag_mismatch:{key}")
     for key, row in rows.items():
         row_dict = dict(row)
         if row_dict.get("accepted") is True:
@@ -160,6 +174,23 @@ def verify_executive_assistant_acceptance_evidence(receipt_path: str | Path) -> 
         expected_status = "accepted_redacted" if key in accepted_keys else "pending_real_world_evidence"
         if requirement.get("status") != expected_status:
             issues.append(f"ea_acceptance_capture_requirement_status_mismatch:{key}")
+        user_action_required = key not in accepted_keys
+        if requirement.get("user_action_required") is not user_action_required:
+            issues.append(f"ea_acceptance_capture_requirement_user_action_mismatch:{key}")
+        expected_delivery_policy = "action_required_only" if user_action_required else "queue_only"
+        if requirement.get("delivery_policy") != expected_delivery_policy:
+            issues.append(f"ea_acceptance_capture_requirement_delivery_policy_mismatch:{key}")
+        if requirement.get("telegram_push_allowed") is not user_action_required:
+            issues.append(f"ea_acceptance_capture_requirement_telegram_push_mismatch:{key}")
+        expected_interruption_budget = "action_required" if user_action_required else "none"
+        if requirement.get("interruption_budget") != expected_interruption_budget:
+            issues.append(f"ea_acceptance_capture_requirement_interruption_budget_mismatch:{key}")
+        if requirement.get("quiet_hours_respected") is not True:
+            issues.append(f"ea_acceptance_capture_requirement_quiet_hours_missing:{key}")
+        if requirement.get("non_action_progress_push_allowed") is not False:
+            issues.append(f"ea_acceptance_capture_requirement_progress_push_allowed:{key}")
+        if requirement.get("irreversible_actions_consent_gated") is not True:
+            issues.append(f"ea_acceptance_capture_requirement_consent_gate_missing:{key}")
     return {"contract_name": "ea.executive_assistant_acceptance_evidence.verify.v1", "status": "pass" if not issues else "fail", "issues": issues}
 
 

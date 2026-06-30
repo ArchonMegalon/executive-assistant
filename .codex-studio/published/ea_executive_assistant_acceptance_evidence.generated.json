@@ -5,10 +5,15 @@
       "capture_method": "POST",
       "capture_path": "/admin/actions/acceptance-evidence",
       "claim_boundary": "does_not_prove_good_executive_assistant_until_all_required_acceptance_keys_are_accepted",
+      "delivery_policy": "action_required_only",
+      "interruption_budget": "action_required",
+      "irreversible_actions_consent_gated": true,
       "key": "real_daily_morning_brief_accepted",
       "label": "real daily morning brief acceptance",
       "next_action": "record_redacted_acceptance_evidence:real_daily_morning_brief_accepted",
+      "non_action_progress_push_allowed": false,
       "proof_key": "real_daily_morning_brief_accepted",
+      "quiet_hours_respected": true,
       "raw_actor_exposed": false,
       "raw_evidence_exposed": false,
       "raw_input_not_persisted": true,
@@ -21,17 +26,24 @@
       ],
       "server_actor_source": "authenticated_operator_context",
       "status": "pending_real_world_evidence",
-      "stored_evidence_shape": "sha256_only"
+      "stored_evidence_shape": "sha256_only",
+      "telegram_push_allowed": true,
+      "user_action_required": true
     },
     {
       "accepted": false,
       "capture_method": "POST",
       "capture_path": "/admin/actions/acceptance-evidence",
       "claim_boundary": "does_not_prove_good_executive_assistant_until_all_required_acceptance_keys_are_accepted",
+      "delivery_policy": "action_required_only",
+      "interruption_budget": "action_required",
+      "irreversible_actions_consent_gated": true,
       "key": "real_decision_cleared",
       "label": "real decision cleared by the principal or operator",
       "next_action": "record_redacted_acceptance_evidence:real_decision_cleared",
+      "non_action_progress_push_allowed": false,
       "proof_key": "real_decision_cleared",
+      "quiet_hours_respected": true,
       "raw_actor_exposed": false,
       "raw_evidence_exposed": false,
       "raw_input_not_persisted": true,
@@ -44,17 +56,24 @@
       ],
       "server_actor_source": "authenticated_operator_context",
       "status": "pending_real_world_evidence",
-      "stored_evidence_shape": "sha256_only"
+      "stored_evidence_shape": "sha256_only",
+      "telegram_push_allowed": true,
+      "user_action_required": true
     },
     {
       "accepted": false,
       "capture_method": "POST",
       "capture_path": "/admin/actions/acceptance-evidence",
       "claim_boundary": "does_not_prove_good_executive_assistant_until_all_required_acceptance_keys_are_accepted",
+      "delivery_policy": "action_required_only",
+      "interruption_budget": "action_required",
+      "irreversible_actions_consent_gated": true,
       "key": "real_commitment_recovered_or_closed",
       "label": "real commitment recovered or closed with an evidence receipt",
       "next_action": "record_redacted_acceptance_evidence:real_commitment_recovered_or_closed",
+      "non_action_progress_push_allowed": false,
       "proof_key": "real_commitment_recovered_or_closed",
+      "quiet_hours_respected": true,
       "raw_actor_exposed": false,
       "raw_evidence_exposed": false,
       "raw_input_not_persisted": true,
@@ -67,17 +86,24 @@
       ],
       "server_actor_source": "authenticated_operator_context",
       "status": "pending_real_world_evidence",
-      "stored_evidence_shape": "sha256_only"
+      "stored_evidence_shape": "sha256_only",
+      "telegram_push_allowed": true,
+      "user_action_required": true
     },
     {
       "accepted": false,
       "capture_method": "POST",
       "capture_path": "/admin/actions/acceptance-evidence",
       "claim_boundary": "does_not_prove_good_executive_assistant_until_all_required_acceptance_keys_are_accepted",
+      "delivery_policy": "action_required_only",
+      "interruption_budget": "action_required",
+      "irreversible_actions_consent_gated": true,
       "key": "real_approved_action_audited",
       "label": "real approved outbound action with audit trail",
       "next_action": "record_redacted_acceptance_evidence:real_approved_action_audited",
+      "non_action_progress_push_allowed": false,
       "proof_key": "real_approved_action_audited",
+      "quiet_hours_respected": true,
       "raw_actor_exposed": false,
       "raw_evidence_exposed": false,
       "raw_input_not_persisted": true,
@@ -90,17 +116,24 @@
       ],
       "server_actor_source": "authenticated_operator_context",
       "status": "pending_real_world_evidence",
-      "stored_evidence_shape": "sha256_only"
+      "stored_evidence_shape": "sha256_only",
+      "telegram_push_allowed": true,
+      "user_action_required": true
     },
     {
       "accepted": false,
       "capture_method": "POST",
       "capture_path": "/admin/actions/acceptance-evidence",
       "claim_boundary": "does_not_prove_good_executive_assistant_until_all_required_acceptance_keys_are_accepted",
+      "delivery_policy": "action_required_only",
+      "interruption_budget": "action_required",
+      "irreversible_actions_consent_gated": true,
       "key": "real_provider_failure_recovered",
       "label": "real provider failure recovered with operator-grade reason",
       "next_action": "record_redacted_acceptance_evidence:real_provider_failure_recovered",
+      "non_action_progress_push_allowed": false,
       "proof_key": "real_provider_failure_recovered",
+      "quiet_hours_respected": true,
       "raw_actor_exposed": false,
       "raw_evidence_exposed": false,
       "raw_input_not_persisted": true,
@@ -113,7 +146,9 @@
       ],
       "server_actor_source": "authenticated_operator_context",
       "status": "pending_real_world_evidence",
-      "stored_evidence_shape": "sha256_only"
+      "stored_evidence_shape": "sha256_only",
+      "telegram_push_allowed": true,
+      "user_action_required": true
     }
   ],
   "acceptance_capture_surface": {
@@ -209,7 +244,7 @@
     "real_provider_failure_recovered"
   ],
   "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
-  "generated_at": "2026-06-30T05:34:01Z",
+  "generated_at": "2026-06-30T09:53:53Z",
   "generated_by": "ea/scripts/materialize_executive_assistant_acceptance_evidence.py",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
@@ -218,6 +253,15 @@
   "next_action_label": "Record a real-use outcome",
   "next_action_method": "post",
   "next_action_proof_key": "real_daily_morning_brief_accepted",
+  "operator_delivery_policy": {
+    "action_required_only": true,
+    "irreversible_actions_consent_gated": true,
+    "next_action_delivery_policy": "action_required_only",
+    "next_action_requires_user": true,
+    "non_action_progress_push_allowed": false,
+    "quiet_hours_respected": true,
+    "telegram_push_allowed_for_next_action": true
+  },
   "privacy": {
     "credential_values_exposed": false,
     "raw_acceptance_text_exposed": false,
@@ -238,11 +282,11 @@
     "real approved outbound action with audit trail",
     "real provider failure recovered with operator-grade reason"
   ],
-  "source_git_head": "6190bd16efb974baea030956bfa54f81dc41f603",
+  "source_git_head": "a7e87968388aba7d87b30dc3c1a575f144932c2e",
   "source_input": {
     "provided": false
   },
-  "source_state_fingerprint": "3960c30953c3bac8e1e8e824888cd7744585a8ce66ab6335dc28eb1ad3b7db3a",
+  "source_state_fingerprint": "2e9784ce8c3ac7c3a024bef7c8fe33075d53e83858ffd97013e4606da0ffeba6",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "blocked_missing_real_world_acceptance_evidence"
 }
