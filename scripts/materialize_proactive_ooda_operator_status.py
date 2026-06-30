@@ -41,6 +41,13 @@ RULES = [
 REMAINING_EXTERNAL_PROOF = (
     "real proactive OODA packet accepted with routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome"
 )
+SOURCE_COVERAGE_LANE_CONTRACTS = {
+    str(row["key"]): {
+        "next_action": str(row.get("next_action") or "").strip(),
+        "required_event_types": tuple(str(item).strip() for item in tuple(row.get("required_event_types") or ()) if str(item).strip()),
+    }
+    for row in ea_live_ops.PROACTIVE_SOURCE_COVERAGE_LANES
+}
 
 
 def _utc_now() -> str:
@@ -346,31 +353,46 @@ def _source_coverage_summary(probe: Mapping[str, Any]) -> dict[str, Any]:
     lanes = []
     for row in list(probe.get("lanes") or []):
         lane = dict(row or {}) if isinstance(row, Mapping) else {}
+        lane_key = str(lane.get("key") or "").strip()
+        lane_contract = SOURCE_COVERAGE_LANE_CONTRACTS.get(lane_key, {})
+        required_event_types = [
+            str(item).strip()
+            for item in list(lane.get("required_event_types") or lane_contract.get("required_event_types") or [])
+            if str(item).strip()
+        ][:8]
+        evidence_event_types = [
+            str(item).strip()
+            for item in list(lane.get("evidence_event_types") or [])
+            if str(item).strip()
+        ][:8]
+        missing_required_event_types = [
+            str(item).strip()
+            for item in list(lane.get("missing_required_event_types") or [])
+            if str(item).strip()
+        ][:8]
+        if required_event_types and not missing_required_event_types:
+            observed_events = {item.lower() for item in evidence_event_types}
+            missing_required_event_types = [
+                item for item in required_event_types if item.lower() not in observed_events
+            ][:8]
+        required_event_type_observed = (
+            bool(lane.get("required_event_type_observed", True))
+            and not missing_required_event_types
+        )
         lanes.append(
             {
-                "key": str(lane.get("key") or "").strip(),
+                "key": lane_key,
                 "label": str(lane.get("label") or "").strip(),
                 "status": str(lane.get("status") or "").strip() or "unknown",
                 "observed": bool(lane.get("observed")),
                 "record_count": int(lane.get("record_count") or 0),
                 "latest_observed_at": str(lane.get("latest_observed_at") or "").strip(),
-                "evidence_event_types": [
-                    str(item).strip()
-                    for item in list(lane.get("evidence_event_types") or [])
-                    if str(item).strip()
-                ][:8],
-                "required_event_types": [
-                    str(item).strip()
-                    for item in list(lane.get("required_event_types") or [])
-                    if str(item).strip()
-                ][:8],
-                "required_event_type_observed": bool(lane.get("required_event_type_observed", True)),
-                "missing_required_event_types": [
-                    str(item).strip()
-                    for item in list(lane.get("missing_required_event_types") or [])
-                    if str(item).strip()
-                ][:8],
-                "next_action": str(lane.get("next_action") or "").strip(),
+                "evidence_event_types": evidence_event_types,
+                "required_event_types": required_event_types,
+                "required_event_type_observed": required_event_type_observed,
+                "missing_required_event_types": missing_required_event_types,
+                "next_action": str(lane.get("next_action") or "").strip()
+                or (str(lane_contract.get("next_action") or "").strip() if not bool(lane.get("observed")) else ""),
                 "raw_payload_exposed": bool(lane.get("raw_payload_exposed")),
                 "raw_transcript_text_exposed": bool(lane.get("raw_transcript_text_exposed")),
                 "raw_credential_exposed": bool(lane.get("raw_credential_exposed")),

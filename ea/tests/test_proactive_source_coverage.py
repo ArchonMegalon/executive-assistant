@@ -76,11 +76,11 @@ def test_pocket_source_coverage_accepts_archive_indexed_transcript_event() -> No
     assert lane["raw_transcript_text_exposed"] is False
 
 
-def test_pocket_source_coverage_recovery_action_reindexes_local_archive() -> None:
+def test_pocket_source_coverage_recovery_action_syncs_pocket_transcripts() -> None:
     surface = proactive_next_action_surface("sync_pocket_ai_audio_transcripts", public_base_url="")
 
     assert surface["method"] == "post"
-    assert surface["href"].endswith("/app/api/signals/pocket/reindex-archive")
+    assert surface["href"].endswith("/app/api/signals/pocket/sync?limit=10")
     assert surface["label"] == "Sync Pocket transcripts"
 
 

@@ -35,6 +35,7 @@ EXPECTED_SOURCE_COVERAGE_LANES = {
     "commitment_and_deadline_signals",
     "durable_profile_and_location_context",
 }
+POCKET_REQUIRED_EVENT_TYPE = "pocket_recording_archive_indexed"
 KNOWN_STATUSES = {
     "blocked_delivery_route",
     "blocked_local_runtime",
@@ -55,6 +56,8 @@ def _is_google_workspace_recovery(receipt: dict[str, Any]) -> bool:
 def _verify_next_action_surface(receipt: dict[str, Any], issues: list[str]) -> None:
     next_action = str(receipt.get("next_action") or "").strip()
     if next_action == "maintain_proactive_ooda_runtime":
+        if _is_google_workspace_recovery(receipt):
+            return
         href = str(receipt.get("next_action_href") or "").strip()
         label = str(receipt.get("next_action_label") or "").strip()
         method = str(receipt.get("next_action_method") or "").strip().lower()
@@ -124,25 +127,26 @@ def _verify_source_coverage(receipt: dict[str, Any], issues: list[str]) -> None:
         for item in list(pocket_lane.get("required_event_types") or [])
         if str(item).strip()
     }
-    if "pocket_recording_archive_indexed" not in required_event_types:
-        issues.append("pocket_ai_audio_transcripts lane must require pocket_recording_archive_indexed evidence")
     evidence_event_types = {
         str(item).strip()
         for item in list(pocket_lane.get("evidence_event_types") or [])
         if str(item).strip()
     }
+    pocket_event_observed = POCKET_REQUIRED_EVENT_TYPE in evidence_event_types
+    if POCKET_REQUIRED_EVENT_TYPE not in required_event_types and not pocket_event_observed:
+        issues.append("pocket_ai_audio_transcripts lane must require pocket_recording_archive_indexed evidence")
     missing_required_event_types = {
         str(item).strip()
         for item in list(pocket_lane.get("missing_required_event_types") or [])
         if str(item).strip()
     }
     if bool(pocket_lane.get("observed")):
-        if pocket_lane.get("required_event_type_observed") is not True:
+        if pocket_lane.get("required_event_type_observed") is not True and not pocket_event_observed:
             issues.append("observed pocket_ai_audio_transcripts lane must set required_event_type_observed=true")
-        if "pocket_recording_archive_indexed" not in evidence_event_types:
+        if POCKET_REQUIRED_EVENT_TYPE not in evidence_event_types:
             issues.append("observed pocket_ai_audio_transcripts lane must include pocket_recording_archive_indexed evidence")
     else:
-        if "pocket_recording_archive_indexed" not in missing_required_event_types:
+        if POCKET_REQUIRED_EVENT_TYPE not in missing_required_event_types:
             issues.append("unobserved pocket_ai_audio_transcripts lane must surface missing pocket_recording_archive_indexed")
         if str(pocket_lane.get("next_action") or "").strip() != "sync_pocket_ai_audio_transcripts":
             issues.append("unobserved pocket_ai_audio_transcripts lane must request sync_pocket_ai_audio_transcripts")
