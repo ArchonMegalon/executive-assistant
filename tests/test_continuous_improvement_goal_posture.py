@@ -377,7 +377,7 @@ def test_build_goal_posture_marks_recover_pass_when_mirrored_fresh_host_proof_ex
         status="ready_local_audit",
         next_action="run_shell_seeded_fresh_host_probe_and_mirror_drill_evidence",
     )
-    _write_teable_recovery_proof_receipt(tmp_path, status="pass")
+    _write_teable_recovery_proof_receipt(tmp_path, status="pass", source_git_head="source-head")
     _write_receipt(
         tmp_path,
         ".codex-studio/published/telegram_audiobook_live_readiness.generated.json",
@@ -426,6 +426,166 @@ def test_build_goal_posture_marks_recover_pass_when_mirrored_fresh_host_proof_ex
     assert lenses["recover"]["status"] == "pass"
     assert "fresh_host_teable_recovery_drill" not in proof_keys
     assert "fresh-host Teable recovery drill receipt mirrored into the repo" not in receipt["required_next_receipts"]
+
+
+def test_build_goal_posture_keeps_recover_audit_when_recovery_proof_is_stale(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _set_source_state(monkeypatch)
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
+        status="ready_local_packet_pending_operator_acceptance",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_office_loop_goal.generated.json",
+        status="ready_local_evidence",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/active_media_ltd_goal_bundle.generated.json",
+        status="ready_local_evidence",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
+        status="blocked_real_world_acceptance",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/teable_env_recovery_readiness.generated.json",
+        status="ready_local_audit",
+    )
+    _write_teable_recovery_proof_receipt(tmp_path, status="pass", source_git_head="old-head")
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/telegram_audiobook_live_readiness.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_local_intake_proof.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_public_share_playback.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_live_voice_selection_shadow.generated.json",
+        status="pass",
+    )
+    _write_proactive_ooda_receipts(tmp_path)
+
+    receipt = build_goal_posture(
+        root=tmp_path,
+        output_path=Path(".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"),
+        generated_at="2026-06-29T20:05:00Z",
+    )
+
+    lenses = {lens["key"]: lens for lens in receipt["lenses"]}
+    proof_keys = {item["key"] for item in receipt["acceptance_proof_requirements"]}
+    assert lenses["recover"]["status"] == "ready_local_audit"
+    assert "source-state evidence is stale" in lenses["recover"]["summary"]
+    assert "fresh_host_teable_recovery_drill" in proof_keys
+    recovery_sources = {
+        Path(source["path"]).name: source
+        for source in lenses["recover"]["source_receipts"]
+    }
+    assert recovery_sources["teable_env_recovery_proof.generated.json"]["source_fresh_to_current_source"] is False
+
+
+def test_goal_posture_verifier_rejects_recover_pass_with_stale_recovery_proof(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _set_source_state(monkeypatch)
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/teable_env_recovery_readiness.generated.json",
+        status="ready_local_audit",
+    )
+    _write_teable_recovery_proof_receipt(tmp_path, status="pass", source_git_head="old-head")
+    receipt = {
+        "contract_name": "ea.continuous_improvement_goal_posture.v1",
+        "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
+        "goal_completion_claim_allowed": False,
+        "goal_shorthand": "paid-human-assistant-grade proactive OODA governed by owning truth planes",
+        "source_git_head": "source-head",
+        "source_state_fingerprint": "source-fingerprint",
+        "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
+        "execution_lenses": ["detect", "decide", "deliver", "recover", "prove"],
+        "overall_status": "blocked_real_world_acceptance",
+        "blocking_reasons": [],
+        "required_next_receipts": [],
+        "acceptance_proof_requirements": [],
+        "rules": [
+            "The recover lens may use a mirrored local readiness receipt, but it must not claim pass until a source-fresh fresh-host Teable recovery drill receipt is mirrored.",
+            "Irreversible purchases, bookings, cancellations, outbound commitments, and sent messages must stay consent-gated even when proactive OODA staging is automated.",
+            "Telegram is an action surface, not a progress log; proactive delivery must stay quiet unless the user needs to approve, choose, unblock, review, or answer something.",
+            "Proactive OODA packets must pass a context/provider-fit auditor before user delivery; reachable URLs, extracted email addresses, or generic search hits are not sufficient.",
+            "Pocket.ai or other consented audio transcripts may feed OODA only as approved signals with privacy, retention, source, and current/stale status preserved.",
+            "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
+        ],
+        "lenses": [
+            {"key": "detect", "status": "ready_local_packet_pending_operator_acceptance", "verifier_commands": ["cmd"], "source_receipts": []},
+            {"key": "decide", "status": "ready_local_evidence", "verifier_commands": ["cmd"], "source_receipts": []},
+            {"key": "deliver", "status": "mixed_local_progress", "verifier_commands": ["cmd"], "components": [
+                {"key": "promo_media", "status": "ready_local_evidence"},
+                {"key": "manfred_speech", "status": "pass"},
+                {"key": "telegram_audiobook", "status": "pass"},
+                {"key": "whatsapp_audiobook", "status": "pass"},
+            ]},
+            {
+                "key": "recover",
+                "status": "pass",
+                "verifier_commands": ["cmd"],
+                "source_receipts": [
+                    {
+                        "path": ".codex-studio/published/teable_env_recovery_readiness.generated.json",
+                        "present": True,
+                        "status": "ready_local_audit",
+                    },
+                    {
+                        "path": ".codex-studio/published/teable_env_recovery_proof.generated.json",
+                        "present": True,
+                        "status": "pass",
+                        "source_fresh_to_current_source": False,
+                    },
+                ],
+            },
+            {"key": "prove", "status": "blocked_real_world_acceptance", "verifier_commands": ["cmd"], "source_receipts": []},
+        ],
+    }
+    output = tmp_path / ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+
+    assert "recover lens pass requires a source-fresh Teable recovery proof receipt" in verify(output, root=tmp_path)
 
 
 def test_goal_posture_verifier_accepts_materialized_receipt(tmp_path: Path, monkeypatch) -> None:

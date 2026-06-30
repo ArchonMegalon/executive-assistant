@@ -218,6 +218,7 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                 if "teable_env_recovery_readiness.generated.json" not in source_names:
                     issues.append("recover lens must include the Teable recovery readiness receipt")
                 proof_present = TEABLE_RECOVERY_PROOF_RECEIPT_NAME in source_names
+                proof_source_fresh = False
                 source_statuses: list[str] = []
                 for source in sources:
                     if not isinstance(source, dict):
@@ -237,12 +238,16 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                         payload_status = str(payload.get("status") or "missing_receipt").strip().lower()
                         if source_status != payload_status:
                             issues.append(f"recover source receipt status drifted for {path_text}")
+                    if Path(path_text).name == TEABLE_RECOVERY_PROOF_RECEIPT_NAME:
+                        proof_source_fresh = bool(source.get("source_fresh_to_current_source"))
                     source_statuses.append(payload_status)
                 if status == "pass":
                     if not proof_present:
                         issues.append("recover lens pass requires a mirrored Teable recovery proof receipt")
                     if "pass" not in source_statuses:
                         issues.append("recover lens pass requires a pass recovery proof receipt")
+                    if not proof_source_fresh:
+                        issues.append("recover lens pass requires a source-fresh Teable recovery proof receipt")
                 elif status not in {"ready_local_audit", "blocked"}:
                     issues.append("recover lens with mirrored receipts must stay ready_local_audit, blocked, or pass")
                 elif str(status).lower() not in source_statuses:
@@ -253,10 +258,10 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
     blocking_reasons = [str(item) for item in list(receipt.get("blocking_reasons") or []) if str(item).strip()]
     if by_key.get("prove", {}).get("status") == "blocked_real_world_acceptance" and receipt.get("overall_status") != "blocked_real_world_acceptance":
         issues.append("overall_status must stay blocked_real_world_acceptance while the prove lens is blocked_real_world_acceptance")
-    if "The recover lens may use a mirrored local readiness receipt, but it must not claim pass until a fresh-host Teable recovery drill receipt is mirrored." not in "\n".join(
+    if "The recover lens may use a mirrored local readiness receipt, but it must not claim pass until a source-fresh fresh-host Teable recovery drill receipt is mirrored." not in "\n".join(
         str(item) for item in list(receipt.get("rules") or [])
     ):
-        issues.append("missing recover rule about mirrored Teable recovery receipts")
+        issues.append("missing recover rule about source-fresh mirrored Teable recovery receipts")
     if "Irreversible purchases, bookings, cancellations, outbound commitments, and sent messages must stay consent-gated even when proactive OODA staging is automated." not in "\n".join(
         str(item) for item in list(receipt.get("rules") or [])
     ):

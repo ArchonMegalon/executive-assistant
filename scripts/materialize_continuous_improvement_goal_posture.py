@@ -519,7 +519,23 @@ def build_goal_posture(
     )
 
     recovery_proof_status = _status(recovery_proof)
-    if recovery and recovery_proof_status == "pass":
+    recovery_source_receipts = [
+        _source_receipt(
+            recovery_path,
+            recovery,
+            current_source_head=current_source_head,
+            current_source_fingerprint=current_source_fingerprint,
+        ),
+        _source_receipt(
+            recovery_proof_path,
+            recovery_proof,
+            current_source_head=current_source_head,
+            current_source_fingerprint=current_source_fingerprint,
+        ),
+    ]
+    recovery_proof_source_receipt = recovery_source_receipts[1]
+    recovery_proof_fresh = bool(recovery_proof_source_receipt.get("source_fresh_to_current_source"))
+    if recovery and recovery_proof_status == "pass" and recovery_proof_fresh:
         recover_lens = _lens(
             key="recover",
             title="Fresh-host recovery",
@@ -536,20 +552,29 @@ def build_goal_posture(
                 "make env-fresh-host-teable",
                 "make env-probe-teable",
             ],
-            source_receipts=[
-                _source_receipt(
-                    recovery_path,
-                    recovery,
-                    current_source_head=current_source_head,
-                    current_source_fingerprint=current_source_fingerprint,
-                ),
-                _source_receipt(
-                    recovery_proof_path,
-                    recovery_proof,
-                    current_source_head=current_source_head,
-                    current_source_fingerprint=current_source_fingerprint,
-                ),
+            source_receipts=recovery_source_receipts,
+        )
+    elif recovery and recovery_proof_status == "pass":
+        recover_lens = _lens(
+            key="recover",
+            title="Fresh-host recovery",
+            status=_status(recovery),
+            summary=(
+                "A Teable recovery proof is mirrored and passed, but its source-state evidence is stale; "
+                "refresh the recovery drill proof before keeping the recover lens at pass."
+            ),
+            next_action="refresh_teable_recovery_proof_after_recovery_surface_or_secret_inventory_changes",
+            verifier_commands=[
+                "make verify-teable-env-recovery-readiness",
+                "make materialize-teable-env-recovery-proof",
+                "make verify-teable-env-recovery-proof",
+                "make verify-env-teable-recovery",
+                "make probe-teable-recovery",
+                "make env-check-teable",
+                "make env-fresh-host-teable",
+                "make env-probe-teable",
             ],
+            source_receipts=recovery_source_receipts,
         )
     elif recovery:
         recover_lens = _lens(
@@ -574,20 +599,7 @@ def build_goal_posture(
                 "make env-fresh-host-teable",
                 "make env-probe-teable",
             ],
-            source_receipts=[
-                _source_receipt(
-                    recovery_path,
-                    recovery,
-                    current_source_head=current_source_head,
-                    current_source_fingerprint=current_source_fingerprint,
-                ),
-                _source_receipt(
-                    recovery_proof_path,
-                    recovery_proof,
-                    current_source_head=current_source_head,
-                    current_source_fingerprint=current_source_fingerprint,
-                ),
-            ],
+            source_receipts=recovery_source_receipts,
         )
     else:
         recover_lens = _lens(
@@ -734,7 +746,7 @@ def build_goal_posture(
             status="satisfied" if proactive_gold_accepted else "pending_real_world_evidence",
         ),
     ]
-    if recovery_proof_status != "pass":
+    if str(recover_lens.get("status") or "").strip() != "pass":
         acceptance_proof_requirements.append(
             _acceptance_proof_requirement(
                 key="fresh_host_teable_recovery_drill",
@@ -884,7 +896,7 @@ def build_goal_posture(
             "Telegram is an action surface, not a progress log; proactive delivery must stay quiet unless the user needs to approve, choose, unblock, review, or answer something.",
             "Proactive OODA packets must pass a context/provider-fit auditor before user delivery; reachable URLs, extracted email addresses, or generic search hits are not sufficient.",
             "Pocket.ai or other consented audio transcripts may feed OODA only as approved signals with privacy, retention, source, and current/stale status preserved.",
-            "The recover lens may use a mirrored local readiness receipt, but it must not claim pass until a fresh-host Teable recovery drill receipt is mirrored.",
+            "The recover lens may use a mirrored local readiness receipt, but it must not claim pass until a source-fresh fresh-host Teable recovery drill receipt is mirrored.",
             "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
             "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open.",
         ],
