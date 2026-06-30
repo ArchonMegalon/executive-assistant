@@ -558,6 +558,70 @@ def test_build_safe_work_result_blocks_auto_gmail_draft_without_provider_email()
     assert result["execution_receipt"]["context_fit_receipt"]["locality_context_applied"] is True
 
 
+def test_build_safe_work_result_blocks_provider_draft_when_candidate_misses_locality_context() -> None:
+    packet = _packet_with_cart_work()
+    request_text = (
+        "Suche mir einen Rauchfangkehrer in 1200 Wien fuer ein Gutachten, ob ich meinen "
+        "Zimmerkamin als Abluftrohr eines Klimageraets verwenden kann."
+    )
+    recipient_context = {
+        "location": {
+            "phrases": ["1200 Wien"],
+            "city_terms": ["Wien"],
+            "postal_codes": ["1200"],
+            "country_codes": ["AT"],
+        }
+    }
+    packet["stage"]["payload"] = {  # type: ignore[index]
+        "kind": "research_packet",
+        "summary": "One researched inquiry draft saved to Gmail for review.",
+        "work_type": "draft",
+        "draft_mode": "research_backed_inquiry",
+        "draft_request_text": request_text,
+        "research_query": "Rauchfangkehrer Gutachten Zimmerkamin Abluftrohr 1200 Wien",
+        "search_queries": ["Rauchfangkehrer Gutachten Zimmerkamin Abluftrohr 1200 Wien"],
+        "selection_criteria": ["contact details visible", "reachability", "fit to request"],
+        "recipient_context": recipient_context,
+        "locale": "de",
+        "auto_execute_action": "save_gmail_draft",
+        "post_approval_action": "save_gmail_draft",
+        "candidate_items": [
+            {
+                "label": "Rauchfangkehrermeister Salzburg Kontakt",
+                "url": "https://rauchfangkehrer-salzburg.example.at/kontakt",
+                "snippet": "Rauchfangkehrer in Salzburg fuer Befundung und Gutachten.",
+                "reachable": True,
+                "contact_email": "office@rauchfangkehrer-salzburg.example.at",
+            }
+        ],
+    }
+    packet["safe_work_order"]["work_type"] = "draft"  # type: ignore[index]
+    packet["safe_work_order"]["input_contract"] = {  # type: ignore[index]
+        "draft_mode": "research_backed_inquiry",
+        "draft_request_text": request_text,
+        "research_query": "Rauchfangkehrer Gutachten Zimmerkamin Abluftrohr 1200 Wien",
+        "search_queries": ["Rauchfangkehrer Gutachten Zimmerkamin Abluftrohr 1200 Wien"],
+        "selection_criteria": ["contact details visible", "reachability", "fit to request"],
+        "recipient_context": recipient_context,
+        "auto_execute_action": "save_gmail_draft",
+        "post_approval_action": "save_gmail_draft",
+        "expected_artifacts": ["shortlist", "draft_text"],
+        "private_payload_available": True,
+    }
+
+    result = build_safe_work_result(packet)
+
+    assert result["status"] == "blocked_needs_research_input"
+    assert result["recommended_option_or_draft"] == {}
+    assert result["staged_action_url"] == ""
+    assert result["comparison_table"][0]["recommended"] is False
+    assert "missing stored locality context" in result["comparison_table"][0]["constraint_violations"]
+    issue_codes = [issue["code"] for issue in result["audit"]["issues"]]
+    assert "provider_candidate_missing_locality_context" in issue_codes
+    assert "gmail_draft_recipient_missing" in issue_codes
+    assert "draft_not_created" in issue_codes
+
+
 def test_build_safe_work_result_blocks_flat_provider_search_without_locality_or_source_scope(monkeypatch) -> None:
     packet = _packet_with_cart_work()
     request_text = "suche mir einen Rauchfangkehrer fuer ein Gutachten"
@@ -778,7 +842,10 @@ def test_build_safe_work_result_blocks_provider_shortlist_when_only_reference_ca
     assert result["comparison_table"][0]["recommended"] is False
     assert "educational or reference page" in result["comparison_table"][0]["constraint_violations"]
     assert result["audit"]["status"] == "review"
-    assert [issue["code"] for issue in result["audit"]["issues"]] == ["no_provider_safe_candidate"]
+    assert [issue["code"] for issue in result["audit"]["issues"]] == [
+        "no_provider_safe_candidate",
+        "provider_candidate_missing_locality_context",
+    ]
     assert result["approval_prompt"].startswith("Approve whether EA should research further or change constraints.")
 
 

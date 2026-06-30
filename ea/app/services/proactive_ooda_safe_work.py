@@ -194,6 +194,7 @@ _PROVIDER_BLOCKING_CONSTRAINT_MARKERS = (
     "educational or reference page",
     "encyclopedia result",
     "link not reachable",
+    "missing stored locality context",
     "not a direct provider page",
     "outside stored country context",
     "provider search query too generic",
@@ -946,6 +947,15 @@ def _candidate_recommendable_for_provider_decision(
     violations = " | ".join(str(item or "").strip().lower() for item in list(comparison_row.get("constraint_violations") or []))
     if any(marker in violations for marker in _PROVIDER_BLOCKING_CONSTRAINT_MARKERS):
         return False
+    if (
+        context.get("location_relevant")
+        and not _candidate_matches_locality_context(
+            candidate,
+            search_text=_candidate_search_text(candidate),
+            context=context,
+        )
+    ):
+        return False
     return _candidate_suitable_for_outreach_draft(candidate, context=context)
 
 
@@ -1089,6 +1099,13 @@ def _candidate_analysis(
     matched_criteria.extend(location_analysis["matched_criteria"])
     constraint_violations.extend(location_analysis["constraint_violations"])
     recommendation_reasons.extend(location_analysis["recommendation_reasons"])
+    if (
+        context.get("provider_discovery_relevant")
+        and context.get("location_relevant")
+        and not _candidate_matches_locality_context(candidate, search_text=search_text, context=context)
+    ):
+        score -= 22
+        constraint_violations.append("missing stored locality context")
 
     for target_host in context.get("target_hosts", ()):
         if _host_matches(candidate_host, target_host):
@@ -1343,6 +1360,36 @@ def _candidate_location_analysis(
         "constraint_violations": tuple(dict.fromkeys(item for item in constraint_violations if item)),
         "recommendation_reasons": tuple(dict.fromkeys(item for item in recommendation_reasons if item))[:2],
     }
+
+
+def _candidate_matches_locality_context(
+    candidate: Mapping[str, Any],
+    *,
+    search_text: str,
+    context: Mapping[str, Any],
+) -> bool:
+    location_context = _mapping_value(context.get("location_context"))
+    if not (location_context.get("phrases") or location_context.get("city_terms") or location_context.get("postal_codes")):
+        return True
+    normalized_text = _ascii_fold_text(search_text)
+    candidate_host = _url_host(str(candidate.get("final_url") or candidate.get("url") or candidate.get("link") or candidate.get("href") or ""))
+    for phrase in list(location_context.get("phrases") or []):
+        normalized_phrase = _ascii_fold_text(str(phrase or "").strip().lower())
+        if normalized_phrase and normalized_phrase in normalized_text:
+            return True
+    for postal_code in list(location_context.get("postal_codes") or []):
+        normalized_code = str(postal_code or "").strip()
+        if normalized_code and normalized_code in normalized_text:
+            return True
+    for city in list(location_context.get("city_terms") or []):
+        normalized_city = _ascii_fold_text(str(city or "").strip().lower())
+        if not normalized_city:
+            continue
+        if normalized_city in normalized_text:
+            return True
+        if candidate_host.endswith(f".{normalized_city}"):
+            return True
+    return False
 
 
 def _recommended_option_or_draft(
@@ -2219,6 +2266,12 @@ def _candidate_suitable_for_outreach_draft(candidate: Mapping[str, Any], *, cont
     strong_provider_signal = _candidate_has_strong_provider_signal(search_text, context=context)
     strong_provider_marker = _candidate_has_strong_provider_marker(search_text)
     request_term_matches = _provider_query_term_matches(search_text, context=context)
+    if context.get("location_relevant") and not _candidate_matches_locality_context(
+        candidate,
+        search_text=search_text,
+        context=context,
+    ):
+        return False
     if candidate_host.endswith("wikipedia.org"):
         return False
     if _candidate_is_educational_reference(search_text) and not strong_provider_marker:
@@ -2264,6 +2317,26 @@ def _safe_work_audit(
                 "code": "no_provider_safe_candidate",
                 "severity": "warn",
                 "detail": "Observed candidates were retained for audit, but none looked safe enough to recommend as a direct provider contact.",
+            }
+        )
+    if (
+        context.get("provider_discovery_relevant")
+        and context.get("location_relevant")
+        and candidate_items
+        and not any(
+            _candidate_matches_locality_context(
+                candidate,
+                search_text=_candidate_search_text(candidate),
+                context=context,
+            )
+            for candidate in candidate_items
+        )
+    ):
+        issues.append(
+            {
+                "code": "provider_candidate_missing_locality_context",
+                "severity": "warn",
+                "detail": "Provider candidates did not match the stored city, postal code, or locality context.",
             }
         )
     flat_search_blockers = _flat_provider_search_blockers(

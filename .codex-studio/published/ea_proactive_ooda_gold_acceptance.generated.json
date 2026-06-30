@@ -8,9 +8,9 @@
       "callback_record_count": 27,
       "candidate_principal_hash_count": 3,
       "checked": true,
-      "current_packet_callback_latest_age_seconds": 77209,
+      "current_packet_callback_latest_age_seconds": 77984,
       "current_packet_callback_latest_expired": false,
-      "current_packet_callback_latest_seconds_until_expiry": 527589,
+      "current_packet_callback_latest_seconds_until_expiry": 526815,
       "current_packet_callback_latest_status": "approved",
       "current_packet_callback_record_count": 1,
       "current_packet_live_pending_count": 0,
@@ -21,7 +21,7 @@
       "next_action_href": "",
       "next_action_label": "",
       "next_action_method": "",
-      "observed_at": "2026-06-30T21:32:09Z",
+      "observed_at": "2026-06-30T21:45:03Z",
       "principal_match_ready": true,
       "privacy": {
         "raw_callback_token_exposed": false,
@@ -61,11 +61,11 @@
       "callback_unexpired_pending_count": 5,
       "current_packet_callback_expired_count": 0,
       "current_packet_callback_expired_pending_count": 0,
-      "current_packet_callback_latest_age_seconds": 77234,
+      "current_packet_callback_latest_age_seconds": 78011,
       "current_packet_callback_latest_created_at": "2026-06-30T00:05:25.419775Z",
       "current_packet_callback_latest_expired": false,
       "current_packet_callback_latest_expires_at": "2026-07-07T00:05:25Z",
-      "current_packet_callback_latest_seconds_until_expiry": 527565,
+      "current_packet_callback_latest_seconds_until_expiry": 526787,
       "current_packet_callback_latest_status": "approved",
       "current_packet_callback_pending_count": 0,
       "current_packet_callback_raw_pending_count": 0,
@@ -98,11 +98,11 @@
     },
     "operator_status": {
       "contract_name": "ea.proactive_ooda_operator_status.v1",
-      "generated_at": "2026-06-30T21:32:38Z",
+      "generated_at": "2026-06-30T21:45:35Z",
       "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
       "present": true,
-      "source_git_head": "7f1627160c3debef18265175076d31653749fbdc",
-      "source_state_fingerprint": "636a76801c781bf424b804ceadd551123102386a5480bd836b1de28b26628636",
+      "source_git_head": "da45a4dfe4d1cb16266da7fb4c7f2f91d87c4a95",
+      "source_state_fingerprint": "eecd0fc053421877f9c489aa22404f53cbe7ba9cc1d4101802ceea418ae6cb4d",
       "status": "ready_with_live_receipt"
     },
     "run_receipt": {
@@ -125,7 +125,7 @@
       "source": "docker_compose_exec"
     }
   },
-  "generated_at": "2026-06-30T21:32:39Z",
+  "generated_at": "2026-06-30T21:45:37Z",
   "generated_by": "scripts/materialize_proactive_ooda_gold_acceptance.py",
   "goal_completion_claim_allowed": false,
   "gold_claim_allowed": true,
@@ -155,7 +155,7 @@
       "quiet_receipt_item_count": 5,
       "quiet_receipt_message_count": 0,
       "quiet_receipt_notification_status": "deferred",
-      "quiet_receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+      "quiet_receipt_path": "/data/provider-ledger/proactive_ooda_run_receipts/20260630T213407_878080_0000-deferred-b34712673832.json",
       "quiet_receipt_present": true,
       "quiet_receipt_proves_action_required_only": true,
       "raw_policy_prompt_exposed": false,
@@ -179,7 +179,7 @@
       "current_packet_live_pending_count": 0,
       "current_packet_refs_present": true,
       "next_action": "reissue_proactive_approval",
-      "observed_at": "2026-06-30T21:32:09Z",
+      "observed_at": "2026-06-30T21:45:03Z",
       "present": true,
       "principal_match_ready": true,
       "probe_ok": true,
@@ -268,7 +268,7 @@
       "reason": "ready",
       "source_coverage_checked": true,
       "source_coverage_excluded_event_type_counts": {
-        "property_scout_sync_completed": 33
+        "property_scout_sync_completed": 34
       },
       "source_coverage_excluded_event_types": [
         "property_scout_sync_completed"
@@ -338,8 +338,8 @@
     "Raw packet text, private links, actor identity, packet refs, and staged artifact refs must stay out of this published receipt; only hashes and coarse status may appear.",
     "Teable remains an admin projection and audit mirror rather than canonical queue or product truth."
   ],
-  "source_git_head": "7f1627160c3debef18265175076d31653749fbdc",
-  "source_state_fingerprint": "636a76801c781bf424b804ceadd551123102386a5480bd836b1de28b26628636",
+  "source_git_head": "da45a4dfe4d1cb16266da7fb4c7f2f91d87c4a95",
+  "source_state_fingerprint": "eecd0fc053421877f9c489aa22404f53cbe7ba9cc1d4101802ceea418ae6cb4d",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "pass",
   "summary": "A proactive OODA packet has routed delivery, live browse evidence, a chosen candidate, a staged reversible artifact, mirrored Teable facts, and a redacted approved outcome.",
