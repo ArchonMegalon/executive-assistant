@@ -35,9 +35,15 @@ fi
 
 env_file_value() {
   local key="$1"
+  env_file_value_from "${APP_ROOT}/.env" "${key}"
+}
+
+env_file_value_from() {
+  local file="$1"
+  local key="$2"
   local line=""
-  if [[ -f "${APP_ROOT}/.env" ]]; then
-    line="$(grep -E "^${key}=" "${APP_ROOT}/.env" | tail -n1 || true)"
+  if [[ -f "${file}" ]]; then
+    line="$(grep -E "^${key}=" "${file}" | tail -n1 || true)"
   fi
   printf '%s' "${line#*=}"
 }
@@ -49,6 +55,78 @@ effective_value() {
     return 0
   fi
   env_file_value "${key}"
+}
+
+loopback_port_listening() {
+  local port="$1"
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltnH "( sport = :${port} )" | grep -q .
+    return $?
+  fi
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -nP -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1
+    return $?
+  fi
+  "${PYTHON_BIN}" - "${port}" <<'PY' >/dev/null 2>&1
+import socket
+import sys
+
+sock = socket.socket()
+sock.settimeout(0.5)
+try:
+    sock.connect(("127.0.0.1", int(sys.argv[1])))
+except OSError:
+    raise SystemExit(1)
+finally:
+    sock.close()
+raise SystemExit(0)
+PY
+}
+
+choose_free_loopback_port() {
+  local start="$1"
+  local count="$2"
+  local port=0
+  for ((port = start; port < start + count; port++)); do
+    if ! loopback_port_listening "${port}"; then
+      printf '%s' "${port}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+configure_responses_proxy_host_port() {
+  if [[ -n "${EA_RESPONSES_PROXY_HOST_PORT:-}" ]]; then
+    return 0
+  fi
+
+  local configured_port=""
+  configured_port="$(env_file_value_from "${APP_ROOT}/.env.local" "EA_RESPONSES_PROXY_HOST_PORT")"
+  if [[ -n "${configured_port}" ]]; then
+    export EA_RESPONSES_PROXY_HOST_PORT="${configured_port}"
+    return 0
+  fi
+
+  configured_port="$(env_file_value "EA_RESPONSES_PROXY_HOST_PORT")"
+  if [[ -n "${configured_port}" ]]; then
+    export EA_RESPONSES_PROXY_HOST_PORT="${configured_port}"
+    return 0
+  fi
+
+  local default_port="8092"
+  if ! loopback_port_listening "${default_port}"; then
+    export EA_RESPONSES_PROXY_HOST_PORT="${default_port}"
+    return 0
+  fi
+
+  local chosen=""
+  chosen="$(choose_free_loopback_port 8094 32)" || {
+    echo "Could not find a free loopback port for EA_RESPONSES_PROXY_HOST_PORT after 127.0.0.1:${default_port} was already in use." >&2
+    exit 1
+  }
+  export EA_RESPONSES_PROXY_HOST_PORT="${chosen}"
+  echo "EA_RESPONSES_PROXY_HOST_PORT auto-selected ${chosen} because 127.0.0.1:${default_port} is already in use."
 }
 
 normalize_origin_like() {
@@ -644,6 +722,7 @@ if [[ "${memory_only}" == "1" ]]; then
   FAILURE_LOG_SERVICES=(ea-api)
   COMPOSE_IGNORE_ORPHANS=1 "${DC[@]}" -f docker-compose.yml -f docker-compose.memory.yml up -d --build ea-api
 else
+  configure_responses_proxy_host_port
   RUNTIME_BUILD_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler)
   TOPOLOGY_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler ea-db)
   FAILURE_LOG_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler ea-db)

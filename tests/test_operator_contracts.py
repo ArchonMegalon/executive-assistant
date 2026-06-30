@@ -787,6 +787,10 @@ def test_deploy_script_waits_for_worker_topology_and_dumps_role_logs() -> None:
     assert 'database_url_value="${database_url_line#DATABASE_URL=}"' in deploy
     assert 'if [[ "${database_url_value}" == *"/ea_smoke_runtime" ]]; then' in deploy
     assert 'sync_telegram_webhooks() {' in deploy
+    assert 'configure_responses_proxy_host_port() {' in deploy
+    assert 'env_file_value_from "${APP_ROOT}/.env.local" "EA_RESPONSES_PROXY_HOST_PORT"' in deploy
+    assert 'EA_RESPONSES_PROXY_HOST_PORT auto-selected ${chosen} because 127.0.0.1:${default_port} is already in use.' in deploy
+    assert 'export EA_RESPONSES_PROXY_HOST_PORT="${chosen}"' in deploy
     assert 'grep -E \'^EA_PUBLIC_APP_BASE_URL=' in deploy
     assert 'grep -E \'^PROPERTYQUARRY_PUBLIC_BASE_URL=' in deploy
     assert 'webhook_public_base="${env_public_base:-${env_property_public_base}}"' in deploy
