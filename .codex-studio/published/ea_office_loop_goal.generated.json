@@ -172,7 +172,7 @@
       "approvals",
       "operator"
     ],
-    "proactive_followthrough_status": "ready_for_approval_outcome_capture"
+    "proactive_followthrough_status": "pass"
   },
   "evidence_receipts": {
     "executive_assistant_acceptance_evidence": {
@@ -183,29 +183,29 @@
       "status": "blocked_missing_real_world_acceptance_evidence"
     },
     "proactive_ooda_gold_acceptance": {
-      "approval_capture_surface_ready": true,
-      "approval_outcome_accepted": false,
-      "approval_outcome_recorded": false,
+      "approval_capture_surface_ready": false,
+      "approval_outcome_accepted": true,
+      "approval_outcome_recorded": true,
       "contract_name": "ea.proactive_ooda_gold_acceptance.v1",
-      "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
-      "next_action_href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
-      "next_action_label": "Open approval capture",
-      "next_action_method": "get",
+      "next_action": "maintain_proactive_ooda_gold_acceptance_evidence",
+      "next_action_href": "",
+      "next_action_label": "",
+      "next_action_method": "",
       "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
       "present": true,
-      "status": "ready_for_approval_outcome_capture",
-      "summary": "A proactive OODA packet has local gold-proof runtime evidence and a live Telegram approval capture surface; capture the redacted approval outcome next."
+      "status": "pass",
+      "summary": "A proactive OODA packet has routed delivery, live browse evidence, a chosen candidate, a staged reversible artifact, mirrored Teable facts, and a redacted approved outcome."
     },
     "proactive_ooda_operator_status": {
       "contract_name": "ea.proactive_ooda_operator_status.v1",
-      "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
-      "next_action_href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
-      "next_action_label": "Open approval capture",
-      "next_action_method": "get",
+      "next_action": "maintain_proactive_ooda_runtime",
+      "next_action_href": "",
+      "next_action_label": "",
+      "next_action_method": "",
       "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
       "present": true,
       "status": "ready_with_live_receipt",
-      "summary": "Proactive OODA route, packet runtime, latest host-visible live receipt, and Telegram approval capture surface are ready for operator follow-through."
+      "summary": "Proactive OODA route, packet runtime, and latest host-visible live receipt are ready for operator follow-through."
     },
     "whole_project_signal_to_decision": {
       "closed_loop_followthrough_receipt_verified": false,
@@ -217,27 +217,27 @@
     }
   },
   "external_provider_runtime_verified": false,
-  "generated_at": "2026-06-29T20:29:33Z",
+  "generated_at": "2026-06-30T02:58:52Z",
   "goal_completion_claim_allowed": false,
   "live_daily_use_verified": false,
-  "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
-  "next_action_href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
-  "next_action_label": "Open approval capture",
-  "next_action_method": "get",
+  "next_action": "maintain_proactive_ooda_gold_acceptance_evidence",
+  "next_action_href": "",
+  "next_action_label": "",
+  "next_action_method": "",
   "proactive_ooda_followthrough_posture": {
-    "approval_capture_surface_ready": true,
-    "approval_outcome_accepted": false,
-    "approval_outcome_recorded": false,
+    "approval_capture_surface_ready": false,
+    "approval_outcome_accepted": true,
+    "approval_outcome_recorded": true,
     "closed_loop_followthrough_receipt_verified": false,
-    "gold_acceptance_status": "ready_for_approval_outcome_capture",
-    "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
-    "next_action_href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
-    "next_action_label": "Open approval capture",
-    "next_action_method": "get",
+    "gold_acceptance_status": "pass",
+    "next_action": "maintain_proactive_ooda_gold_acceptance_evidence",
+    "next_action_href": "",
+    "next_action_label": "",
+    "next_action_method": "",
     "operator_runtime_status": "ready_with_live_receipt",
     "real_weekly_operator_review_accepted": false,
-    "status": "ready_for_approval_outcome_capture",
-    "summary": "A proactive OODA packet has local gold-proof runtime evidence and a live Telegram approval capture surface; capture the redacted approval outcome next."
+    "status": "pass",
+    "summary": "A proactive OODA packet has routed delivery, live browse evidence, a chosen candidate, a staged reversible artifact, mirrored Teable facts, and a redacted approved outcome."
   },
   "real_operator_acceptance_verified": false,
   "remaining_external_proofs": [
@@ -246,7 +246,6 @@
     "real commitment recovered or closed with an evidence receipt",
     "real approved outbound action with audit trail",
     "real provider failure recovered with operator-grade reason",
-    "real proactive OODA packet accepted with routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, pending-approval, stale-approval, and decision facts, and explicit approval outcome",
     "real weekly signal-to-decision review accepted by the operator",
     "closed-loop signal-to-decision follow-through receipt accepted by the operator",
     "real whole-project scope gap audit reviewed against the current product spine"

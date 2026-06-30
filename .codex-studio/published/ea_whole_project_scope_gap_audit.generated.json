@@ -26,7 +26,7 @@
       "status": "ready_local_packet_pending_operator_acceptance"
     }
   },
-  "generated_at": "2026-06-29T18:19:13Z",
+  "generated_at": "2026-06-30T02:58:52Z",
   "goal_completion_claim_allowed": false,
   "project_learning_goal": {
     "claim_limit": "local_signal_synthesis_not_canonical_queue_or_release_truth",
@@ -51,7 +51,6 @@
     "real commitment recovered or closed with an evidence receipt",
     "real approved outbound action with audit trail",
     "real provider failure recovered with operator-grade reason",
-    "real proactive OODA packet accepted with routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, pending-approval, stale-approval, and decision facts, and explicit approval outcome",
     "real weekly signal-to-decision review accepted by the operator",
     "closed-loop signal-to-decision follow-through receipt accepted by the operator",
     "real whole-project scope gap audit reviewed against the current product spine",
