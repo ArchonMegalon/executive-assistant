@@ -2952,12 +2952,18 @@ def prepare_audiobook_voice_audition(*, job_dir: Path, batch_size: int = 3, refi
     ]
     current_pending_batch: list[dict[str, object]] = []
     active_identity_keys: set[str] = set()
+    active_sample_hashes: set[str] = set()
     for row in current_pending_batch_raw:
         identity_keys = _voice_candidate_identity_keys(row)
         if identity_keys and identity_keys.intersection(dismissed_identity_keys | active_identity_keys):
             continue
+        sample_sha256 = str(row.get("sample_sha256") or "").strip()
+        if sample_sha256 and sample_sha256 in active_sample_hashes:
+            continue
         current_pending_batch.append(row)
         active_identity_keys.update(identity_keys)
+        if sample_sha256:
+            active_sample_hashes.add(sample_sha256)
     pending_still_active = [
         str(row.get("preset_key") or "").strip()
         for row in current_pending_batch
@@ -3295,7 +3301,6 @@ def prepare_audiobook_voice_audition(*, job_dir: Path, batch_size: int = 3, refi
                 sample_path_by_hash[sample_hash] = sample_path
     replacement_keys: list[str] = []
     sample_generation_failures: list[dict[str, object]] = []
-    duplicate_rows: list[tuple[dict[str, object], str, str, str, str, str, Path]] = []
     for row in next_rows:
         if refill_pending and len(replacement_keys) >= replacement_count:
             break
@@ -3346,9 +3351,6 @@ def prepare_audiobook_voice_audition(*, job_dir: Path, batch_size: int = 3, refi
                     "reason": "duplicate_voice_sample_audio",
                 }
             )
-            duplicate_rows.append(
-                (dict(row), preset_key, token, voice_id, voice_id_sha, sample_sha256, rendered_path)
-            )
             continue
         public_candidate = _safe_public_voice_candidate(row, token=token, sample_path=rendered_path)
         pending_batch.append(public_candidate)
@@ -3366,66 +3368,6 @@ def prepare_audiobook_voice_audition(*, job_dir: Path, batch_size: int = 3, refi
         if len(pending_batch) >= requested_batch_size:
             break
 
-    if len(pending_batch) < requested_batch_size and duplicate_rows:
-        used_duplicate_preset_keys: set[str] = set()
-        for (
-            duplicate_row,
-            duplicate_preset_key,
-            duplicate_token,
-            duplicate_voice_id,
-            duplicate_voice_id_sha,
-            duplicate_sample_sha256,
-            duplicate_rendered_path,
-            ) in duplicate_rows:
-            if len(pending_batch) >= requested_batch_size:
-                break
-            duplicate_source_path = sample_path_by_hash.get(duplicate_sample_sha256)
-            if not duplicate_rendered_path.is_file():
-                if duplicate_source_path and duplicate_source_path.is_file():
-                    try:
-                        shutil.copy2(duplicate_source_path, duplicate_rendered_path)
-                    except Exception:
-                        continue
-                else:
-                    continue
-            if duplicate_preset_key and any(
-                str(row.get("preset_key") or "").strip() == duplicate_preset_key for row in pending_batch
-            ):
-                continue
-            duplicate_identity_keys = _voice_candidate_identity_keys(duplicate_row)
-            if duplicate_identity_keys and duplicate_identity_keys.intersection(pending_identity_keys):
-                continue
-            public_candidate = _safe_public_voice_candidate(
-                duplicate_row,
-                token=duplicate_token,
-                sample_path=duplicate_rendered_path,
-            )
-            if duplicate_preset_key:
-                used_duplicate_preset_keys.add(duplicate_preset_key)
-            pending_batch.append(public_candidate)
-            pending_identity_keys.update(_voice_candidate_identity_keys(public_candidate))
-            replacement_keys.append(duplicate_preset_key)
-            private_candidates[duplicate_token] = {
-                "candidate_key": duplicate_preset_key,
-                "voice_id": duplicate_voice_id,
-                "voice_id_sha256": duplicate_voice_id_sha,
-                "sample_path": str(duplicate_rendered_path),
-                "public": public_candidate,
-            }
-            if len(pending_batch) >= requested_batch_size:
-                break
-        for (
-            duplicate_row,
-            duplicate_preset_key,
-            duplicate_token,
-            duplicate_voice_id,
-            duplicate_voice_id_sha,
-            duplicate_sample_sha256,
-            duplicate_rendered_path,
-        ) in duplicate_rows:
-            if duplicate_preset_key in used_duplicate_preset_keys:
-                continue
-            duplicate_rendered_path.unlink(missing_ok=True)
     private_payload.update(
         {
             "contract_name": VOICE_AUDITION_CONTRACT_NAME,

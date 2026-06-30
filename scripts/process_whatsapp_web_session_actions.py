@@ -2996,6 +2996,14 @@ def _restore_language_matched_whatsapp_voice_samples(job: dict[str, object], *, 
         return current, 0
     provider = dict(current.get("provider") or {})
     voice_selection = dict(provider.get("voice_selection") or {})
+    metadata = audiobook_epub_pipeline._metadata_from_job(current)  # type: ignore[attr-defined]
+    author_gender_signal = str(
+        audiobook_epub_pipeline._selected_voice_author_gender_signal(  # type: ignore[attr-defined]
+            metadata=metadata,
+            voice_selection=voice_selection,
+        )
+        or ""
+    ).strip().lower()
     rows: list[dict[str, object]] = []
     for candidate in private_candidates.values():
         if not isinstance(candidate, dict):
@@ -3013,15 +3021,44 @@ def _restore_language_matched_whatsapp_voice_samples(job: dict[str, object], *, 
         if not (job_dir / "voice_audition" / "samples" / sample_file).is_file():
             continue
         rows.append(public)
-    rows.sort(
+    preferred_rows = rows
+    if author_gender_signal in {"male", "female"}:
+        gender_matched_rows = [
+            row
+            for row in rows
+            if audiobook_epub_pipeline._voice_candidate_gender(row) == author_gender_signal  # type: ignore[attr-defined]
+        ]
+        if gender_matched_rows:
+            preferred_rows = gender_matched_rows
+    deduped_rows: list[dict[str, object]] = []
+    seen_preset_keys: set[str] = set()
+    seen_identity_keys: set[str] = set()
+    seen_sample_hashes: set[str] = set()
+    for row in preferred_rows:
+        preset_key = str(row.get("preset_key") or "").strip()
+        if preset_key and preset_key in seen_preset_keys:
+            continue
+        identity_keys = audiobook_epub_pipeline._voice_candidate_identity_keys(row)  # type: ignore[attr-defined]
+        if identity_keys and identity_keys.intersection(seen_identity_keys):
+            continue
+        sample_sha256 = str(row.get("sample_sha256") or "").strip()
+        if sample_sha256 and sample_sha256 in seen_sample_hashes:
+            continue
+        deduped_rows.append(row)
+        if preset_key:
+            seen_preset_keys.add(preset_key)
+        seen_identity_keys.update(identity_keys)
+        if sample_sha256:
+            seen_sample_hashes.add(sample_sha256)
+    deduped_rows.sort(
         key=lambda row: (
+            bool(author_gender_signal and audiobook_epub_pipeline._voice_candidate_gender(row) == author_gender_signal),  # type: ignore[attr-defined]
             int(row.get("score") or 0),
-            bool(row.get("author_gender_match")),
             str(row.get("label") or ""),
         ),
         reverse=True,
     )
-    selected_rows = rows[: max(1, int(limit or 3))]
+    selected_rows = deduped_rows[: max(1, int(limit or 3))]
     if not selected_rows:
         return current, 0
     selected_keys = [
@@ -3078,7 +3115,29 @@ def _use_best_current_whatsapp_voice_sample(job: dict[str, object]) -> dict[str,
     rows = [row for row in list(voice_selection.get("pending_batch") or []) if isinstance(row, dict)]
     if not rows:
         raise RuntimeError("voice_batch_missing")
-    rows.sort(key=lambda row: int(row.get("score") or 0), reverse=True)
+    metadata = audiobook_epub_pipeline._metadata_from_job(current)  # type: ignore[attr-defined]
+    author_gender_signal = str(
+        audiobook_epub_pipeline._selected_voice_author_gender_signal(  # type: ignore[attr-defined]
+            metadata=metadata,
+            voice_selection=voice_selection,
+        )
+        or ""
+    ).strip().lower()
+    if author_gender_signal in {"male", "female"}:
+        gender_matched_rows = [
+            row
+            for row in rows
+            if audiobook_epub_pipeline._voice_candidate_gender(row) == author_gender_signal  # type: ignore[attr-defined]
+        ]
+        if gender_matched_rows:
+            rows = gender_matched_rows
+    rows.sort(
+        key=lambda row: (
+            bool(author_gender_signal and audiobook_epub_pipeline._voice_candidate_gender(row) == author_gender_signal),  # type: ignore[attr-defined]
+            int(row.get("score") or 0),
+        ),
+        reverse=True,
+    )
     token = str(rows[0].get("callback_token") or "").strip()
     if not token:
         raise RuntimeError("voice_batch_token_missing")

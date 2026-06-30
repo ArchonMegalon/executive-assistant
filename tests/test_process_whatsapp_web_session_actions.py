@@ -1734,6 +1734,132 @@ def test_build_report_restores_language_matched_voice_batch_from_management_butt
     assert "voice-german" not in selection["dismissed_candidate_keys"]
 
 
+def test_restore_language_matched_whatsapp_voice_samples_prefers_author_gender_match(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    jobs_root = tmp_path / "jobs"
+    job_dir = jobs_root / "job-restore-author-gender"
+    sample_dir = job_dir / "voice_audition" / "samples"
+    sample_dir.mkdir(parents=True)
+    _write_test_wav(sample_dir / "female-token.wav")
+    _write_test_wav(sample_dir / "male-token.wav")
+    job = {
+        "job_id": "job-restore-author-gender",
+        "status": "waiting_voice_selection",
+        "storage": {"job_dir": str(job_dir)},
+        "metadata": {"author": "Knuf, Andreas", "language": "de", "title": "Widerstand zwecklos"},
+        "provider": {
+            "voice_selection": {
+                "status": "waiting_user_choice",
+                "book_profile": {"author_gender_signal": "male"},
+                "dismissed_candidate_keys": ["voice-female", "voice-male"],
+            }
+        },
+    }
+    (job_dir / "job.json").write_text(json.dumps(job), encoding="utf-8")
+    (job_dir / "voice_audition" / "private.json").write_text(
+        json.dumps(
+            {
+                "candidates": {
+                    "female-token": {
+                        "candidate_key": "voice-female",
+                        "voice_id": "secret-female-voice",
+                        "public": {
+                            "callback_token": "female-token",
+                            "label": "Seraphina",
+                            "language": "de-de",
+                            "preset_key": "voice-female",
+                            "sample_audio_ready": True,
+                            "sample_file": "female-token.wav",
+                            "sample_sha256": "sha-female",
+                            "score": 99,
+                            "supported_languages": ["de-de"],
+                            "tags": ["female"],
+                            "author_gender_match": False,
+                        },
+                    },
+                    "male-token": {
+                        "candidate_key": "voice-male",
+                        "voice_id": "secret-male-voice",
+                        "public": {
+                            "callback_token": "male-token",
+                            "label": "Florian",
+                            "language": "de-de",
+                            "preset_key": "voice-male",
+                            "sample_audio_ready": True,
+                            "sample_file": "male-token.wav",
+                            "sample_sha256": "sha-male",
+                            "score": 12,
+                            "supported_languages": ["de-de"],
+                            "tags": ["male"],
+                            "author_gender_match": True,
+                        },
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def _write_job(payload: dict[str, object]) -> dict[str, object]:
+        (job_dir / "job.json").write_text(json.dumps(payload), encoding="utf-8")
+        return payload
+
+    monkeypatch.setattr(module, "_write_job_to_disk", _write_job)
+
+    restored, restored_count = module._restore_language_matched_whatsapp_voice_samples(job)
+
+    assert restored_count == 1
+    selection = restored["provider"]["voice_selection"]
+    assert selection["pending_candidate_keys"] == ["voice-male"]
+    assert selection["pending_batch"][0]["label"] == "Florian"
+    assert "voice-male" not in selection["dismissed_candidate_keys"]
+
+
+def test_use_best_current_whatsapp_voice_sample_prefers_author_gender_match(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+    job_dir = tmp_path / "job-best-current-author-gender"
+    job_dir.mkdir(parents=True)
+    job = {
+        "job_id": "job-best-current-author-gender",
+        "status": "waiting_voice_selection",
+        "storage": {"job_dir": str(job_dir)},
+        "metadata": {"author": "Knuf, Andreas", "language": "de", "title": "Widerstand zwecklos"},
+        "provider": {
+            "voice_selection": {
+                "status": "waiting_user_choice",
+                "book_profile": {"author_gender_signal": "male"},
+                "pending_batch": [
+                    {
+                        "callback_token": "female-token",
+                        "label": "Seraphina",
+                        "score": 99,
+                        "tags": ["female"],
+                    },
+                    {
+                        "callback_token": "male-token",
+                        "label": "Florian",
+                        "score": 12,
+                        "tags": ["male"],
+                    },
+                ],
+            }
+        },
+    }
+    (job_dir / "job.json").write_text(json.dumps(job), encoding="utf-8")
+    selected: list[dict[str, object]] = []
+
+    def _fake_apply_audition_action(*, callback_token: str, action: str) -> dict[str, object]:
+        selected.append({"callback_token": callback_token, "action": action})
+        return {"status": "selected", "callback_token": callback_token, "action": action}
+
+    monkeypatch.setattr(module.audiobook_epub_pipeline, "apply_audiobook_voice_audition_action", _fake_apply_audition_action)
+
+    result = module._use_best_current_whatsapp_voice_sample(job)
+
+    assert result["callback_token"] == "male-token"
+    assert selected == [{"callback_token": "male-token", "action": "use"}]
+
+
 def test_build_report_recovers_sender_ref_for_chat_ref_only_voice_button(monkeypatch, tmp_path: Path) -> None:
     module = _module()
     requests: list[dict[str, object]] = []

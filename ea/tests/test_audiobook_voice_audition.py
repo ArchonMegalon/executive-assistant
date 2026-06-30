@@ -230,6 +230,62 @@ def test_prepare_audiobook_voice_audition_refreshes_stale_batch_when_gender_sign
     assert voice_selection.get("underfilled_reason") == "voice_catalog_author_gender_underfilled"
 
 
+def test_prepare_audiobook_voice_audition_underfills_instead_of_reusing_duplicate_audio() -> None:
+    job_dir = _create_job_dir()
+    ranking = {
+        "status": "ranked",
+        "profile": {
+            "language": "de",
+            "title": "Widerstand zwecklos",
+            "author": "Knuf, Andreas",
+            "author_gender_signal": "male",
+            "topic": "technical nonfiction",
+            "dialogue_ratio": 0.11,
+            "fiction_score": 1,
+            "nonfiction_score": 3,
+            "recommended_tags": ["nonfiction", "warm", "german"],
+            "sample_sha256": "sample-sha",
+        },
+        "candidate_rows": [
+            _candidate(preset_key="female-top", label="Seraphina", gender="female", score=70),
+            _candidate(preset_key="male-one", label="Hans", gender="male", score=68),
+            _candidate(preset_key="male-two", label="Dieter", gender="male", score=66),
+        ],
+    }
+
+    def _write_audio_bytes(*, audio_bytes: bytes, target_wav: Path, **_: object) -> Path:
+        target_wav.parent.mkdir(parents=True, exist_ok=True)
+        target_wav.write_bytes(audio_bytes)
+        return target_wav
+
+    def _fake_synthesize(*, voice_id: str, **_: object) -> tuple[bytes, str, list[str]]:
+        if voice_id in {"voice-male-one", "voice-male-two"}:
+            return (b"duplicate-audio", "audio/wav", [])
+        raise AssertionError(f"unexpected voice id: {voice_id}")
+
+    with (
+        patch.dict(os.environ, {"EA_AUDIOBOOK_EXTERNAL_TTS_ENABLED": "1", "EA_AUDIOBOOK_UNMIXR_AUTO_RENDER": "1"}, clear=False),
+        patch.object(audiobook_epub_pipeline, "_ranked_unmixr_voice_candidates", return_value=ranking),
+        patch.object(audiobook_epub_pipeline, "_voice_sample_text", return_value="Kurzprobe."),
+        patch.object(audiobook_epub_pipeline, "_synthesize_unmixr_with_retries", side_effect=_fake_synthesize),
+        patch.object(audiobook_epub_pipeline, "_write_provider_audio_file", side_effect=_write_audio_bytes),
+        patch.object(audiobook_epub_pipeline, "_write_current_job_receipt_best_effort"),
+    ):
+        job = audiobook_epub_pipeline.prepare_audiobook_voice_audition(job_dir=job_dir)
+
+    voice_selection = dict(dict(job.get("provider") or {}).get("voice_selection") or {})
+    pending_batch = [dict(item) for item in list(voice_selection.get("pending_batch") or []) if isinstance(item, dict)]
+    assert [item.get("label") for item in pending_batch] == ["Hans"]
+    assert voice_selection.get("underfilled") is True
+    assert voice_selection.get("sample_generation_failed_count") == 1
+    assert voice_selection.get("sample_generation_failures") == [
+        {
+            "preset_key_sha256": hashlib.sha256("male-two".encode("utf-8")).hexdigest(),
+            "reason": "duplicate_voice_sample_audio",
+        }
+    ]
+
+
 def test_select_unmixr_voice_for_book_prefers_author_gender_match() -> None:
     job_dir = _create_job_dir()
     metadata = audiobook_epub_pipeline.EpubMetadata(
