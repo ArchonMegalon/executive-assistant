@@ -3,10 +3,10 @@
   "surface": "flagship_release_control",
   "version": 1,
   "kind": "release_receipt",
-  "generated_at": "2026-06-26T17:34:05Z",
+  "generated_at": "2026-06-30T16:56:53Z",
   "generated_by": "scripts/materialize_ea_flagship_release_gate.py",
-  "source_git_head": "d6204f8bb6f7e9b528c5c4482788144d2881bb9c",
-  "source_tree_fingerprint": "8cb338bd02b83ba5697af09a3e2f1824efbf8fa78b3c67ce34c88a87d7a8d023",
+  "source_git_head": "a9d1f39eb95b9bfbb90bfa56c499af715391eedb",
+  "source_tree_fingerprint": "be91ae91e0382dc7096a6ac749ac548667928d1fdc22a4eff1bdd56c8912f28b",
   "head_semantics": "source_state",
   "status": "blocked",
   "operator_summary": "EA flagship release truth is materialized, but the current browser-proof or release-doc state still blocks the claim.",
@@ -140,8 +140,7 @@
     "project_modes_present": true,
     "state": "blocked",
     "issues": [
-      "deployment_id_local_fallback",
-      "dirty_worktree"
+      "deployment_id_local_fallback"
     ]
   },
   "verification_binding": {
@@ -187,7 +186,7 @@
     }
   ],
   "blocking_reasons": [
-    "release authority: deployment_id_local_fallback, dirty_worktree"
+    "release authority: deployment_id_local_fallback"
   ],
   "current_limitations": [],
   "release_truth": {

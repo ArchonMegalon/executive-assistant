@@ -1,11 +1,11 @@
 {
   "contract_name": "ea.release_authority_status.v1",
-  "generated_at": "2026-06-30T01:45:22Z",
+  "generated_at": "2026-06-30T17:10:44Z",
   "state": "watch",
   "summary": "Release authority is present but still has gaps to resolve.",
   "authority_posture": "local_only_deploy_id",
   "next_action": "Set an explicit deployment ID from the real deploy system and rematerialize the release manifest.",
-  "authority_basis": "main@origin/main · 11a26a309fe8 · EA_CORE · docker-compose.yml, docker-compose.prod.yml",
+  "authority_basis": "main@origin/main · a9d1f39eb95b · EA_CORE · docker-compose.yml, docker-compose.prod.yml",
   "manifest_path": "/docker/EA/.codex-studio/published/release_manifest.generated.json",
   "deploy_context_path": "/docker/EA/.codex-studio/published/deploy_context.generated.json",
   "project_modes_path": "/docker/EA/.codex-design/product/PROJECT_MODES.generated.json",
@@ -15,23 +15,23 @@
   "repository": "EA",
   "branch": "main",
   "tracking_branch": "origin/main",
-  "commit_sha": "11a26a309fe89bfcc63bb7a1371264073474312a",
+  "commit_sha": "a9d1f39eb95b9bfbb90bfa56c499af715391eedb",
   "dirty_worktree": true,
   "source_worktree_dirty": false,
   "source_dirty_count": 0,
   "source_dirty_files": [],
   "source_dirty_omitted_count": 0,
   "source_dirty_status_sha256": "",
-  "deployment_id": "local-20260629T221146457878Z-11a26a309fe8",
+  "deployment_id": "local-20260630T171044659992Z-a9d1f39eb95b",
   "deployment_id_source": "local_fallback",
   "public_origin": "https://myexternalbrain.com",
   "public_origin_source": "EA_PUBLIC_APP_BASE_URL",
-  "deploy_context_generated_at": "2026-06-29T22:11:46.457878Z",
+  "deploy_context_generated_at": "2026-06-30T17:10:44.659992Z",
   "deploy_context_branch": "main",
   "deploy_context_tracking_branch": "origin/main",
-  "deploy_context_commit_sha": "11a26a309fe89bfcc63bb7a1371264073474312a",
+  "deploy_context_commit_sha": "a9d1f39eb95b9bfbb90bfa56c499af715391eedb",
   "git_remote_origin": "https://github.com/ArchonMegalon/executive-assistant.git",
-  "release_label": "local-20260629T221146457878Z-11a26a309fe8",
+  "release_label": "local-20260630T171044659992Z-a9d1f39eb95b",
   "project_mode": "EA_CORE",
   "enabled_project_modes": [
     "EA_CORE"
@@ -41,7 +41,7 @@
     "docker-compose.prod.yml"
   ],
   "compose_overrides": [],
-  "artifact_count": 42,
+  "artifact_count": 44,
   "artifact_set_preview": [
     ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json",
     ".codex-studio/published/HERTA_WHATSAPP_PACING_LIVE_PROOF.generated.json",
@@ -65,15 +65,15 @@
     "issues": [
       "deployment_id_local_fallback"
     ],
-    "deployment_id": "local-20260629T221146457878Z-11a26a309fe8",
+    "deployment_id": "local-20260630T171044659992Z-a9d1f39eb95b",
     "deployment_id_source": "local_fallback",
     "public_origin": "https://myexternalbrain.com",
     "public_origin_source": "EA_PUBLIC_APP_BASE_URL",
     "repository": "EA",
     "branch": "main",
     "tracking_branch": "origin/main",
-    "commit_sha": "11a26a309fe89bfcc63bb7a1371264073474312a",
-    "release_label": "local-20260629T221146457878Z-11a26a309fe8",
+    "commit_sha": "a9d1f39eb95b9bfbb90bfa56c499af715391eedb",
+    "release_label": "local-20260630T171044659992Z-a9d1f39eb95b",
     "project_mode": "EA_CORE",
     "enabled_project_modes": [
       "EA_CORE"
@@ -97,8 +97,8 @@
     "repository": "EA",
     "branch": "main",
     "tracking_branch": "origin/main",
-    "commit_sha": "11a26a309fe89bfcc63bb7a1371264073474312a",
-    "deployment_id": "local-20260629T221146457878Z-11a26a309fe8",
+    "commit_sha": "a9d1f39eb95b9bfbb90bfa56c499af715391eedb",
+    "deployment_id": "local-20260630T171044659992Z-a9d1f39eb95b",
     "deployment_id_source": "local_fallback",
     "public_origin": "https://myexternalbrain.com",
     "public_origin_source": "EA_PUBLIC_APP_BASE_URL",
@@ -117,9 +117,9 @@
     "source_dirty_files": [],
     "source_dirty_omitted_count": 0,
     "source_dirty_status_sha256": "",
-    "deploy_context_generated_at": "2026-06-29T22:11:46.457878Z",
+    "deploy_context_generated_at": "2026-06-30T17:10:44.659992Z",
     "deploy_context_branch": "main",
     "deploy_context_tracking_branch": "origin/main",
-    "deploy_context_commit_sha": "11a26a309fe89bfcc63bb7a1371264073474312a"
+    "deploy_context_commit_sha": "a9d1f39eb95b9bfbb90bfa56c499af715391eedb"
   }
 }

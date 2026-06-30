@@ -43,7 +43,7 @@
         ".env",
         ".env.local"
       ],
-      "loaded_count": 398,
+      "loaded_count": 411,
       "provider_families": {
         "cartesia": true,
         "onemin": true,
@@ -60,18 +60,18 @@
       "intent_correct_samples": 3,
       "avg_token_f1": 0.9722,
       "avg_wer": 0.0278,
-      "avg_latency_ms": 694.8,
+      "avg_latency_ms": 381.8,
       "production_eligible": false
     },
     {
       "provider": "onemin_sample",
-      "passed_samples": 2,
+      "passed_samples": 1,
       "sample_count": 4,
-      "scored_samples": 4,
-      "intent_correct_samples": 2,
-      "avg_token_f1": 0.9445,
-      "avg_wer": 0.0556,
-      "avg_latency_ms": 3008.5,
+      "scored_samples": 3,
+      "intent_correct_samples": 1,
+      "avg_token_f1": 0.9259,
+      "avg_wer": 0.0741,
+      "avg_latency_ms": 3507.6,
       "production_eligible": false
     },
     {
@@ -82,7 +82,7 @@
       "intent_correct_samples": 0,
       "avg_token_f1": 0.0,
       "avg_wer": 1.0,
-      "avg_latency_ms": 834.5,
+      "avg_latency_ms": 820.5,
       "production_eligible": false
     }
   ],
@@ -108,7 +108,7 @@
       },
       "shadow": {
         "status": "error",
-        "ms": 834.5,
+        "ms": 820.5,
         "reason": "http_401",
         "wer": 1.0,
         "token_f1": 0.0,
@@ -131,27 +131,15 @@
         "text_redacted": true
       },
       "onemin_sample": {
-        "status": "ok",
-        "ms": 4153.6,
-        "wer": 0.0,
-        "token_f1": 1.0,
-        "intent_correct": true,
-        "usable": true,
-        "passed": true,
-        "min_token_f1": 0.65,
-        "max_wer": 0.45,
-        "text_mode": "redacted",
-        "expected_text_chars": 48,
-        "expected_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
-        "actual_text_chars": 48,
-        "actual_text_sha256": "27853d7ac2a2c057bf30f7ff40109df554bc7ee98b382168b408827c4b32e210",
-        "required_token_count": 3,
-        "required_token_sha256": [
-          "d3751d33f9cd5049c4af2b462735457e4d3baf130bcbb87f389e349fbaeb20b9",
-          "ed44f66d7f01feaa16f12ae6225cb9189a66f971b6a79663529b07037baa4ac2",
-          "71b9f9cbf552fb790af9143533641122a089eaf5183830e693c188770329118b"
+        "status": "error",
+        "detail": [
+          "onemin_transcribe_http_406:INSUFFICIENT_CREDITS",
+          "onemin_transcribe_http_406:INSUFFICIENT_CREDITS",
+          "onemin_transcribe_http_400:{\"errorCode\":\"OPEN_AI_UNEXPECTED_ERROR\",\"message\":\"The openai service is a bit busy right now or facing a temporary issue. Please try again shortly. We a"
         ],
-        "text_redacted": true
+        "sampled_keys": 4,
+        "candidate_key_count": 71,
+        "sample_strategy": "primary_plus_spread_fallbacks"
       },
       "full_runtime": {
         "status": "transcribed",
@@ -224,7 +212,7 @@
       },
       "onemin_sample": {
         "status": "ok",
-        "ms": 2267.4,
+        "ms": 2109.0,
         "wer": 0.0,
         "token_f1": 1.0,
         "intent_correct": true,
@@ -247,7 +235,7 @@
       },
       "full_runtime": {
         "status": "transcribed",
-        "ms": 2169.9,
+        "ms": 931.2,
         "transcriber": "cartesia/ink-whisper+enhanced_wav",
         "detail": "",
         "wer": 0.0,
@@ -315,7 +303,7 @@
       },
       "onemin_sample": {
         "status": "ok",
-        "ms": 3736.7,
+        "ms": 4189.9,
         "wer": 0.1111,
         "token_f1": 0.8889,
         "intent_correct": false,
@@ -337,7 +325,7 @@
       },
       "full_runtime": {
         "status": "transcribed",
-        "ms": 321.3,
+        "ms": 293.7,
         "transcriber": "cartesia/ink-whisper+enhanced_wav",
         "detail": "",
         "wer": 0.0,
@@ -404,7 +392,7 @@
       },
       "onemin_sample": {
         "status": "ok",
-        "ms": 1876.4,
+        "ms": 4223.9,
         "wer": 0.1111,
         "token_f1": 0.8889,
         "intent_correct": false,
@@ -426,7 +414,7 @@
       },
       "full_runtime": {
         "status": "transcribed",
-        "ms": 287.8,
+        "ms": 302.0,
         "transcriber": "cartesia/ink-whisper+enhanced_wav",
         "detail": "",
         "wer": 0.1111,
