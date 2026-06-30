@@ -68,6 +68,15 @@ def test_quality_readiness_exposes_redacted_acceptance_capture_surface(tmp_path:
     }
     assert set(requirements) == set(REQUIRED_ACCEPTANCE_KEYS)
     assert requirements["real_daily_morning_brief_accepted"]["status"] == "pending_real_world_evidence"
+    context = dict(receipt.get("next_action_context") or {})
+    assert context["kind"] == "redacted_acceptance_capture"
+    assert context["proof_key"] == "real_daily_morning_brief_accepted"
+    assert context["proof_label"] == "real daily morning brief acceptance"
+    assert context["capture_path"] == ACCEPTANCE_CAPTURE_PATH
+    assert context["stored_evidence_shape"] == "sha256_only"
+    assert context["raw_acceptance_text_persisted"] is False
+    assert context["raw_actor_identity_persisted"] is False
+    assert context["raw_object_reference_persisted"] is False
     assert verify_executive_assistant_quality_readiness(receipt_path)["status"] == "pass"
 
 
@@ -85,4 +94,3 @@ def test_quality_verifier_fails_when_acceptance_capture_surface_is_missing(tmp_p
 
     assert verification["status"] == "fail"
     assert "ea_quality_acceptance_capture_surface_path_missing" in verification["issues"]
-

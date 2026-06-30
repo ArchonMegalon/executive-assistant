@@ -28,6 +28,7 @@ def verify_executive_assistant_quality_readiness(receipt_path: str | Path) -> di
     next_action_label = str(receipt.get("next_action_label") or "").strip()
     next_action_method = str(receipt.get("next_action_method") or "").strip().lower()
     next_action_proof_key = str(receipt.get("next_action_proof_key") or "").strip()
+    next_action_context = dict(receipt.get("next_action_context") or {})
     if receipt.get("goal_completion_claim_allowed") is True:
         issues.append("ea_quality_completion_overclaim")
     if receipt.get("ea_is_product_truth") is True:
@@ -108,6 +109,28 @@ def verify_executive_assistant_quality_readiness(receipt_path: str | Path) -> di
             issues.append("ea_quality_next_action_method_missing")
         if not next_action_proof_key:
             issues.append("ea_quality_next_action_proof_key_missing")
+        if next_action_context.get("kind") != "redacted_acceptance_capture":
+            issues.append("ea_quality_next_action_context_kind_missing")
+        if next_action_context.get("proof_key") != next_action_proof_key:
+            issues.append("ea_quality_next_action_context_proof_key_mismatch")
+        if next_action_context.get("proof_label") != REMAINING_PROOF_LABELS.get(next_action_proof_key):
+            issues.append("ea_quality_next_action_context_label_mismatch")
+        if next_action_context.get("capture_path") != ACCEPTANCE_CAPTURE_PATH:
+            issues.append("ea_quality_next_action_context_capture_path_missing")
+        if str(next_action_context.get("capture_method") or "").lower() != ACCEPTANCE_CAPTURE_METHOD.lower():
+            issues.append("ea_quality_next_action_context_capture_method_missing")
+        for field in ACCEPTANCE_CAPTURE_FORM_FIELDS:
+            if field not in list(next_action_context.get("required_form_fields") or []):
+                issues.append(f"ea_quality_next_action_context_field_missing:{field}")
+        if next_action_context.get("stored_evidence_shape") != "sha256_only":
+            issues.append("ea_quality_next_action_context_not_hash_only")
+        for key in (
+            "raw_acceptance_text_persisted",
+            "raw_actor_identity_persisted",
+            "raw_object_reference_persisted",
+        ):
+            if next_action_context.get(key) is not False:
+                issues.append(f"ea_quality_next_action_context_privacy_not_false:{key}")
     elif status == "blocked_local_quality_evidence":
         if next_action_href != LOCAL_REVIEW_PATH:
             issues.append("ea_quality_local_next_action_href_drift")
@@ -118,6 +141,8 @@ def verify_executive_assistant_quality_readiness(receipt_path: str | Path) -> di
     else:
         if next_action_href or next_action_label or next_action_method or next_action_proof_key:
             issues.append("ea_quality_ready_next_action_should_be_empty")
+        if next_action_context:
+            issues.append("ea_quality_ready_next_action_context_should_be_empty")
     return {"contract_name": "ea.executive_assistant_quality_readiness.verify.v1", "status": "pass" if not issues else "fail", "issues": issues}
 
 

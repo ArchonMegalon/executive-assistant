@@ -90,6 +90,23 @@ def _write_json(path: Path, payload: dict[str, object]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def _quality_next_action_context(proof_key: str) -> dict[str, object]:
+    if not proof_key:
+        return {}
+    return {
+        "kind": "redacted_acceptance_capture",
+        "proof_key": proof_key,
+        "proof_label": _ACCEPTANCE_PROOF_LABELS.get(proof_key, ""),
+        "capture_path": _ACCEPTANCE_CAPTURE_PATH,
+        "capture_method": _ACCEPTANCE_CAPTURE_METHOD,
+        "required_form_fields": list(_ACCEPTANCE_CAPTURE_FORM_FIELDS),
+        "stored_evidence_shape": "sha256_only",
+        "raw_acceptance_text_persisted": False,
+        "raw_actor_identity_persisted": False,
+        "raw_object_reference_persisted": False,
+    }
+
+
 def _acceptance_capture_surface() -> dict[str, object]:
     return {
         "method": _ACCEPTANCE_CAPTURE_METHOD,
@@ -414,18 +431,22 @@ def _update_quality_receipt_from_acceptance(acceptance: dict[str, object]) -> No
         quality["next_action_label"] = _LOCAL_REVIEW_LABEL
         quality["next_action_method"] = "get"
         quality["next_action_proof_key"] = ""
+        quality["next_action_context"] = {}
     elif status == "blocked_real_world_acceptance":
+        next_action_proof_key = blockers[0] if blockers else ""
         quality["next_action"] = "collect_redacted_real_world_acceptance_evidence"
         quality["next_action_href"] = _ACCEPTANCE_CAPTURE_PATH
         quality["next_action_label"] = _ACCEPTANCE_CAPTURE_LABEL
         quality["next_action_method"] = _ACCEPTANCE_CAPTURE_METHOD.lower()
-        quality["next_action_proof_key"] = blockers[0] if blockers else ""
+        quality["next_action_proof_key"] = next_action_proof_key
+        quality["next_action_context"] = _quality_next_action_context(next_action_proof_key)
     else:
         quality["next_action"] = "review_good_executive_assistant_claim"
         quality["next_action_href"] = ""
         quality["next_action_label"] = ""
         quality["next_action_method"] = ""
         quality["next_action_proof_key"] = ""
+        quality["next_action_context"] = {}
     _write_json(EA_QUALITY_READINESS_RECEIPT, quality)
 
 

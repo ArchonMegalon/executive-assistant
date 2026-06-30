@@ -406,7 +406,7 @@
     "real_approved_action_audited",
     "real_provider_failure_recovered"
   ],
-  "generated_at": "2026-06-30T03:01:53Z",
+  "generated_at": "2026-06-30T03:44:49Z",
   "generated_by": "ea/scripts/materialize_executive_assistant_quality_readiness.py",
   "goal_completion_claim_allowed": false,
   "good_executive_assistant_claim_allowed": false,
@@ -414,6 +414,23 @@
   "local_blockers": [],
   "local_quality_evidence_ready": true,
   "next_action": "collect_redacted_real_world_acceptance_evidence",
+  "next_action_context": {
+    "capture_method": "POST",
+    "capture_path": "/admin/actions/acceptance-evidence",
+    "kind": "redacted_acceptance_capture",
+    "proof_key": "real_daily_morning_brief_accepted",
+    "proof_label": "real daily morning brief acceptance",
+    "raw_acceptance_text_persisted": false,
+    "raw_actor_identity_persisted": false,
+    "raw_object_reference_persisted": false,
+    "required_form_fields": [
+      "proof_key",
+      "source_kind",
+      "evidence",
+      "object_ref"
+    ],
+    "stored_evidence_shape": "sha256_only"
+  },
   "next_action_href": "/admin/actions/acceptance-evidence",
   "next_action_label": "Record a real-use outcome",
   "next_action_method": "post",

@@ -71,4 +71,11 @@ def test_landing_quality_receipt_refresh_preserves_acceptance_capture_contract(
     assert quality["next_action_href"] == "/admin/actions/acceptance-evidence"
     assert quality["next_action_label"] == "Record a real-use outcome"
     assert quality["next_action_proof_key"] == "real_daily_morning_brief_accepted"
+    context = dict(quality.get("next_action_context") or {})
+    assert context["kind"] == "redacted_acceptance_capture"
+    assert context["proof_key"] == "real_daily_morning_brief_accepted"
+    assert context["proof_label"] == "real daily morning brief acceptance"
+    assert context["capture_path"] == "/admin/actions/acceptance-evidence"
+    assert context["stored_evidence_shape"] == "sha256_only"
+    assert context["raw_acceptance_text_persisted"] is False
     assert "acceptance_capture_requirements" in quality

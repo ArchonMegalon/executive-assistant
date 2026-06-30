@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from materialize_executive_assistant_acceptance_evidence import ACCEPTANCE_CAPTURE_LABEL
+from materialize_executive_assistant_acceptance_evidence import ACCEPTANCE_CAPTURE_FORM_FIELDS
 from materialize_executive_assistant_acceptance_evidence import ACCEPTANCE_CAPTURE_METHOD
 from materialize_executive_assistant_acceptance_evidence import ACCEPTANCE_CAPTURE_PATH
 from materialize_executive_assistant_acceptance_evidence import acceptance_capture_requirements
@@ -95,6 +96,23 @@ def _acceptance_rows(acceptance: dict[str, Any]) -> dict[str, dict[str, Any]]:
             if key in rows and isinstance(row, dict):
                 rows[key] = _normalized_existing_row(row)
     return rows
+
+
+def _next_action_context(*, proof_key: str) -> dict[str, Any]:
+    if not proof_key:
+        return {}
+    return {
+        "kind": "redacted_acceptance_capture",
+        "proof_key": proof_key,
+        "proof_label": REMAINING_PROOF_LABELS.get(proof_key, ""),
+        "capture_path": ACCEPTANCE_CAPTURE_PATH,
+        "capture_method": ACCEPTANCE_CAPTURE_METHOD,
+        "required_form_fields": list(ACCEPTANCE_CAPTURE_FORM_FIELDS),
+        "stored_evidence_shape": "sha256_only",
+        "raw_acceptance_text_persisted": False,
+        "raw_actor_identity_persisted": False,
+        "raw_object_reference_persisted": False,
+    }
 
 
 def materialize_executive_assistant_quality_readiness(
@@ -191,6 +209,7 @@ def materialize_executive_assistant_quality_readiness(
         "next_action_label": next_action_label,
         "next_action_method": next_action_method,
         "next_action_proof_key": next_action_proof_key,
+        "next_action_context": _next_action_context(proof_key=next_action_proof_key),
     }
     _write(receipt_path, receipt)
     return receipt
