@@ -87,9 +87,10 @@
     "user_selected_voice_delivery_not_ready",
     "explicit_replacement_voice_choice_pending"
   ],
-  "generated_at": "2026-06-30T04:11:44.861830Z",
+  "generated_at": "2026-06-30T04:46:52.872960Z",
   "generated_by": "ea/scripts/materialize_telegram_audiobook_live_delivery_receipt.py",
   "goal_completion_claim_allowed": false,
+  "head_semantics": "source_state",
   "ignored_non_telegram_audiobook_candidate_count": 9,
   "ignored_non_telegram_audiobook_source_kinds": [
     "epub",
@@ -104,6 +105,25 @@
   "next_action_label": "Open Telegram",
   "next_action_method": "get",
   "observation_source": "job_discovery_roots",
+  "operator_action_packet": {
+    "callback_tokens_exposed": false,
+    "candidate_count": 1,
+    "candidate_labels": [
+      "Dieter"
+    ],
+    "instruction": "Choose one sent replacement voice sample in Telegram.",
+    "next_action_href": "/integrations/telegram",
+    "next_action_label": "Open Telegram",
+    "next_action_method": "get",
+    "operator_action": "choose_sent_replacement_voice_sample",
+    "raw_voice_ids_exposed": false,
+    "reason": "selected_voice_author_gender_mismatch",
+    "sent_samples_cover_expected": true,
+    "user_action_required": true,
+    "voice_sample_delivery_expected_count": 1,
+    "voice_sample_delivery_sent_count": 1,
+    "voice_sample_delivery_status": "sent"
+  },
   "output_path": "/docker/EA/.codex-studio/published/telegram_audiobook_live_delivery.generated.json",
   "pending_user_selected_voice_job_count": 1,
   "pending_user_selected_voice_jobs": [
@@ -206,5 +226,8 @@
     "voice_selected_default": true
   },
   "source_filter": "telegram_epub_audiobook_sources",
+  "source_git_head": "ad9eba3c77c57ce34b6ea39d92138771e1469f41",
+  "source_state_fingerprint": "62c52a0bad3973cf39835672e4ce9cec60696a98054af01801b71c0269c7add2",
+  "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "blocked"
 }

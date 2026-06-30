@@ -349,7 +349,7 @@
       "real_provider_failure_recovered"
     ],
     "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
-    "generated_at": "2026-06-30T04:41:19Z",
+    "generated_at": "2026-06-30T04:47:38Z",
     "generated_by": "ea/scripts/materialize_executive_assistant_acceptance_evidence.py",
     "goal_completion_claim_allowed": false,
     "head_semantics": "source_state",
@@ -382,7 +382,7 @@
     "source_input": {
       "provided": false
     },
-    "source_state_fingerprint": "f42b3d4dc87cb6c0e8c17b2c2f52f1c36012d7930f18593581c4ed8295230e00",
+    "source_state_fingerprint": "62c52a0bad3973cf39835672e4ce9cec60696a98054af01801b71c0269c7add2",
     "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
     "status": "blocked_missing_real_world_acceptance_evidence"
   },
@@ -390,7 +390,7 @@
     "bytes": 9256,
     "exists": true,
     "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
-    "sha256": "5ca9dc3bac6a91661a30b573948c3705a461af3dce5a3a409cb4553c3440ec22"
+    "sha256": "b727168fd374c9571334a4fb4dd30b52ed99f9f6f6262fa7dfc80a93d35dc28d"
   },
   "blocked_checks": [
     "real_daily_morning_brief_accepted",
@@ -410,7 +410,7 @@
     "real_approved_action_audited",
     "real_provider_failure_recovered"
   ],
-  "generated_at": "2026-06-30T04:41:19Z",
+  "generated_at": "2026-06-30T04:47:38Z",
   "generated_by": "ea/scripts/materialize_executive_assistant_quality_readiness.py",
   "goal_completion_claim_allowed": false,
   "good_executive_assistant_claim_allowed": false,
@@ -498,7 +498,7 @@
     "path": ".codex-studio/published/ea_office_loop_goal.generated.json",
     "sha256": "18dcc8cb7fe943d77fb6e8ffad294c6cece5d3c187bc0a69d5ae35b7f246b153"
   },
-  "source_state_fingerprint": "f42b3d4dc87cb6c0e8c17b2c2f52f1c36012d7930f18593581c4ed8295230e00",
+  "source_state_fingerprint": "62c52a0bad3973cf39835672e4ce9cec60696a98054af01801b71c0269c7add2",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "blocked_real_world_acceptance"
 }

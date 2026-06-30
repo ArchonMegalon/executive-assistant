@@ -189,11 +189,22 @@ def test_build_receipt_routes_sent_replacement_voice_sample_to_precise_operator_
     )
 
     assert receipt["status"] == "blocked"
+    assert receipt["head_semantics"] == "source_state"
+    assert receipt["source_git_head"]
+    assert receipt["source_state_fingerprint"]
     assert receipt["next_action"] == "choose_sent_replacement_voice_sample"
     pending = receipt["pending_user_selected_voice_jobs"]
     assert pending[0]["replacement_candidate_labels"] == ["Dieter"]
     assert pending[0]["voice_sample_delivery_status"] == "sent"
     assert pending[0]["raw_voice_ids_exposed"] is False
     assert pending[0]["callback_tokens_exposed"] is False
+    packet = receipt["operator_action_packet"]
+    assert packet["user_action_required"] is True
+    assert packet["operator_action"] == "choose_sent_replacement_voice_sample"
+    assert packet["candidate_labels"] == ["Dieter"]
+    assert packet["candidate_count"] == 1
+    assert packet["sent_samples_cover_expected"] is True
+    assert packet["raw_voice_ids_exposed"] is False
+    assert packet["callback_tokens_exposed"] is False
     assert receipt["privacy"]["voice_labels_operator_safe"] is True
     assert receipt["privacy"]["raw_voice_ids_exposed"] is False

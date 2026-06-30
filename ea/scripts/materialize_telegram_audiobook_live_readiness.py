@@ -22,6 +22,11 @@ RUNTIME_PREFLIGHT_CONTRACT_NAME = "ea.telegram_epub_audiobook_runtime_preflight.
 
 if str(EA_ROOT) not in sys.path:
     sys.path.insert(0, str(EA_ROOT))
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts.source_state_head import resolve_source_state_head
+from scripts.source_state_head import resolve_source_worktree_fingerprint
 
 
 Runner = Callable[..., object]
@@ -33,6 +38,15 @@ def _now_iso() -> str:
 
 def _sha256_json(value: object) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def _source_state_fields() -> dict[str, str]:
+    return {
+        "source_git_head": resolve_source_state_head(ROOT),
+        "head_semantics": "source_state",
+        "source_state_fingerprint": resolve_source_worktree_fingerprint(ROOT),
+        "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
+    }
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -525,6 +539,7 @@ def materialize_telegram_audiobook_live_readiness(
 
     receipt = {
         "contract_name": CONTRACT_NAME,
+        **_source_state_fields(),
         "generated_at": generated_at or _now_iso(),
         "observation_source": observation_source,
         "runtime_container": runtime_container or "",

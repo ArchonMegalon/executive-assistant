@@ -562,6 +562,9 @@ class HardeningTests(unittest.TestCase):
             )
         voice_items = receipt.get("voice_samples", {}).get("items", [])
         cinematic_items = [item for item in voice_items if item.get("key") == "unmixr_cinematic_narration_enabled"]
+        self.assertEqual(receipt.get("head_semantics"), "source_state")
+        self.assertTrue(receipt.get("source_git_head"))
+        self.assertTrue(receipt.get("source_state_fingerprint"))
         self.assertEqual(len(cinematic_items), 1)
         self.assertEqual(cinematic_items[0].get("status"), "ready")
 

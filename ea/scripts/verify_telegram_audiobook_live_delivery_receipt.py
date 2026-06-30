@@ -2,8 +2,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
+
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 try:
     from materialize_telegram_audiobook_live_delivery_receipt import ACTION_METHOD
@@ -15,6 +20,9 @@ except ModuleNotFoundError:  # pragma: no cover - package import path
     from ea.scripts.materialize_telegram_audiobook_live_delivery_receipt import CONTRACT_NAME
     from ea.scripts.materialize_telegram_audiobook_live_delivery_receipt import DEFAULT_OUTPUT
     from ea.scripts.materialize_telegram_audiobook_live_delivery_receipt import TELEGRAM_ACTION_SURFACES
+
+from scripts.source_state_head import resolve_source_state_head
+from scripts.source_state_head import resolve_source_worktree_fingerprint
 
 
 ALLOWED_STATUSES = {"pass", "blocked"}
@@ -28,6 +36,25 @@ def _json(path: Path) -> dict[str, Any]:
     return dict(payload) if isinstance(payload, dict) else {}
 
 
+def _verify_source_state(receipt: dict[str, Any], issues: list[str]) -> None:
+    if receipt.get("head_semantics") != "source_state":
+        issues.append("head_semantics must describe source_state")
+    if receipt.get("source_state_fingerprint_semantics") != "worktree_source_files_sha256_excluding_generated_only_paths":
+        issues.append("source_state_fingerprint_semantics must describe the source worktree fingerprint")
+    recorded_head = str(receipt.get("source_git_head") or "").strip()
+    recorded_fingerprint = str(receipt.get("source_state_fingerprint") or "").strip()
+    current_head = resolve_source_state_head(ROOT)
+    current_fingerprint = resolve_source_worktree_fingerprint(ROOT)
+    if not recorded_head:
+        issues.append("source_git_head missing")
+    elif recorded_head != current_head and recorded_fingerprint != current_fingerprint:
+        issues.append("source_git_head stale")
+    if not recorded_fingerprint:
+        issues.append("source_state_fingerprint missing")
+    elif recorded_fingerprint != current_fingerprint:
+        issues.append("source_state_fingerprint stale")
+
+
 def verify(path: Path = DEFAULT_OUTPUT) -> list[str]:
     issues: list[str] = []
     receipt = _json(path)
@@ -38,6 +65,7 @@ def verify(path: Path = DEFAULT_OUTPUT) -> list[str]:
         issues.append(f"contract_name must be {CONTRACT_NAME}")
     if receipt.get("generated_by") != "ea/scripts/materialize_telegram_audiobook_live_delivery_receipt.py":
         issues.append("generated_by must point at the Telegram live delivery materializer")
+    _verify_source_state(receipt, issues)
 
     status = str(receipt.get("status") or "").strip()
     if status not in ALLOWED_STATUSES:
@@ -64,6 +92,30 @@ def verify(path: Path = DEFAULT_OUTPUT) -> list[str]:
             issues.append("next_action_method must match the mapped Telegram operator surface")
     if receipt.get("goal_completion_claim_allowed") is not False:
         issues.append("goal_completion_claim_allowed must remain false")
+    operator_action_packet = dict(receipt.get("operator_action_packet") or {})
+    if not operator_action_packet:
+        issues.append("operator_action_packet must be present")
+    else:
+        if operator_action_packet.get("raw_voice_ids_exposed") is not False:
+            issues.append("operator_action_packet.raw_voice_ids_exposed must remain false")
+        if operator_action_packet.get("callback_tokens_exposed") is not False:
+            issues.append("operator_action_packet.callback_tokens_exposed must remain false")
+        if bool(operator_action_packet.get("user_action_required")):
+            if not str(operator_action_packet.get("operator_action") or "").strip():
+                issues.append("action-required operator_action_packet must include operator_action")
+            if not str(operator_action_packet.get("instruction") or "").strip():
+                issues.append("action-required operator_action_packet must include instruction")
+            if int(operator_action_packet.get("candidate_count") or 0) <= 0:
+                issues.append("action-required operator_action_packet must include candidate_count")
+            labels = list(operator_action_packet.get("candidate_labels") or [])
+            if not labels:
+                issues.append("action-required operator_action_packet must include candidate_labels")
+            if operator_action_packet.get("next_action_href") != next_action_href:
+                issues.append("operator_action_packet next_action_href must match receipt next_action_href")
+            if operator_action_packet.get("next_action_label") != next_action_label:
+                issues.append("operator_action_packet next_action_label must match receipt next_action_label")
+            if str(operator_action_packet.get("next_action_method") or "").strip().lower() != next_action_method:
+                issues.append("operator_action_packet next_action_method must match receipt next_action_method")
     privacy = dict(receipt.get("privacy") or {})
     for key in ("provider_secret_exposed", "audiobookshelf_token_exposed"):
         if privacy.get(key) is not False:
@@ -91,6 +143,9 @@ def verify(path: Path = DEFAULT_OUTPUT) -> list[str]:
             issues.append("blocked status must carry failed_codes")
         if next_action == "close_operator_loop":
             issues.append("blocked status cannot close the operator loop")
+        if "audiobook_voice_choice_pending" in failed_codes or "explicit_replacement_voice_choice_pending" in failed_codes:
+            if operator_action_packet.get("user_action_required") is not True:
+                issues.append("voice-choice blocked status must set operator_action_packet.user_action_required=true")
 
     return issues
 

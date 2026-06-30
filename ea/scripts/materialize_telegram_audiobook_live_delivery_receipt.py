@@ -97,6 +97,11 @@ TELEGRAM_ACTION_SURFACES = {
 
 if str(EA_ROOT) not in sys.path:
     sys.path.insert(0, str(EA_ROOT))
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts.source_state_head import resolve_source_state_head
+from scripts.source_state_head import resolve_source_worktree_fingerprint
 
 
 def _now_iso() -> str:
@@ -106,6 +111,15 @@ def _now_iso() -> str:
 def _sha256_text(value: object) -> str:
     text = str(value or "").strip()
     return hashlib.sha256(text.encode("utf-8")).hexdigest() if text else ""
+
+
+def _source_state_fields() -> dict[str, str]:
+    return {
+        "source_git_head": resolve_source_state_head(ROOT),
+        "head_semantics": "source_state",
+        "source_state_fingerprint": resolve_source_worktree_fingerprint(ROOT),
+        "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
+    }
 
 
 def _is_sha256(value: object) -> bool:
@@ -529,6 +543,62 @@ def _next_action_surface(next_action: str) -> tuple[str, str, str]:
     )
 
 
+def _operator_action_packet(
+    *,
+    next_action: str,
+    pending: list[dict[str, object]],
+    live_pass: bool,
+    real_user_accepted: bool,
+) -> dict[str, object]:
+    if live_pass and real_user_accepted:
+        return {
+            "user_action_required": False,
+            "reason": "telegram_audiobook_live_delivery_closed",
+            "raw_voice_ids_exposed": False,
+            "callback_tokens_exposed": False,
+        }
+    if not pending:
+        return {
+            "user_action_required": False,
+            "reason": "no_user_voice_choice_required",
+            "raw_voice_ids_exposed": False,
+            "callback_tokens_exposed": False,
+        }
+    first = pending[0]
+    labels = [
+        str(item).strip()
+        for item in list(first.get("replacement_candidate_labels") or first.get("voice_choice_candidate_labels") or [])
+        if str(item).strip()
+    ]
+    delivery_status = str(first.get("voice_sample_delivery_status") or "").strip()
+    sent_count = int(first.get("voice_sample_delivery_sent_count") or 0)
+    expected_count = int(first.get("voice_sample_delivery_expected_count") or 0)
+    candidate_count = int(first.get("replacement_candidate_count") or first.get("voice_choice_candidate_count") or 0)
+    if next_action == "choose_sent_replacement_voice_sample":
+        instruction = "Choose one sent replacement voice sample in Telegram."
+    elif next_action == "choose_explicit_replacement_voice_or_restore_selected_provider":
+        instruction = "Choose a replacement voice or restore the selected provider voice before rendering."
+    else:
+        instruction = "Choose one Telegram audiobook voice sample."
+    return {
+        "user_action_required": True,
+        "reason": str(first.get("voice_selection_reason") or next_action or "voice_choice_pending").strip(),
+        "operator_action": next_action,
+        "instruction": instruction,
+        "candidate_count": candidate_count,
+        "candidate_labels": labels[:3],
+        "voice_sample_delivery_status": delivery_status,
+        "voice_sample_delivery_sent_count": sent_count,
+        "voice_sample_delivery_expected_count": expected_count,
+        "sent_samples_cover_expected": bool(delivery_status == "sent" and expected_count > 0 and sent_count >= expected_count),
+        "next_action_href": TELEGRAM_INTEGRATION_PATH,
+        "next_action_label": TELEGRAM_INTEGRATION_LABEL,
+        "next_action_method": ACTION_METHOD,
+        "raw_voice_ids_exposed": False,
+        "callback_tokens_exposed": False,
+    }
+
+
 def build_receipt(
     *,
     output_path: Path = DEFAULT_OUTPUT,
@@ -588,6 +658,7 @@ def build_receipt(
 
     receipt = {
         "contract_name": CONTRACT_NAME,
+        **_source_state_fields(),
         "generated_at": generated_at or _now_iso(),
         "generated_by": "ea/scripts/materialize_telegram_audiobook_live_delivery_receipt.py",
         "output_path": output_path.as_posix(),
@@ -615,6 +686,12 @@ def build_receipt(
         "next_action_href": next_action_href,
         "next_action_label": next_action_label,
         "next_action_method": next_action_method,
+        "operator_action_packet": _operator_action_packet(
+            next_action=next_action,
+            pending=pending,
+            live_pass=live_pass,
+            real_user_accepted=real_user_accepted,
+        ),
         "selected_delivery": _candidate_public(selected) if selected else {},
         "failed_candidates": [_failed_candidate_public(candidate) for candidate in candidates if candidate.get("failed_codes")],
         "pending_user_selected_voice_job_count": len(pending),

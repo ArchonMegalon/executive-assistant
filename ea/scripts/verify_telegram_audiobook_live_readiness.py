@@ -4,10 +4,17 @@ import argparse
 import json
 from pathlib import Path
 import subprocess
+import sys
 from typing import Callable, Sequence
 
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts.source_state_head import resolve_source_state_head
+from scripts.source_state_head import resolve_source_worktree_fingerprint
+
 CONTRACT_NAME = "ea.telegram_audiobook_live_readiness_checklist.v1"
 REQUIRED_LIVE_PROOF = {
     "real Telegram audiobook source upload",
@@ -45,6 +52,25 @@ def _load_json(path: Path) -> dict[str, object]:
     except Exception as exc:
         return {"_load_error": str(exc)}
     return parsed if isinstance(parsed, dict) else {"_load_error": "receipt_not_object"}
+
+
+def _verify_source_state(receipt: dict[str, object], issues: list[str]) -> None:
+    if receipt.get("head_semantics") != "source_state":
+        issues.append("live_readiness_head_semantics_missing")
+    if receipt.get("source_state_fingerprint_semantics") != "worktree_source_files_sha256_excluding_generated_only_paths":
+        issues.append("live_readiness_source_state_fingerprint_semantics_missing")
+    recorded_head = str(receipt.get("source_git_head") or "").strip()
+    recorded_fingerprint = str(receipt.get("source_state_fingerprint") or "").strip()
+    current_head = resolve_source_state_head(ROOT)
+    current_fingerprint = resolve_source_worktree_fingerprint(ROOT)
+    if not recorded_head:
+        issues.append("live_readiness_source_git_head_missing")
+    elif recorded_head != current_head and recorded_fingerprint != current_fingerprint:
+        issues.append("live_readiness_source_git_head_stale")
+    if not recorded_fingerprint:
+        issues.append("live_readiness_source_state_fingerprint_missing")
+    elif recorded_fingerprint != current_fingerprint:
+        issues.append("live_readiness_source_state_fingerprint_stale")
 
 
 def _section_item(receipt: dict[str, object], section: str, key: str) -> dict[str, object]:
@@ -157,6 +183,7 @@ def verify_telegram_audiobook_live_readiness(
         issues.append("live_readiness_receipt_unreadable")
     if receipt.get("contract_name") != CONTRACT_NAME:
         issues.append("live_readiness_contract_name_mismatch")
+    _verify_source_state(receipt, issues)
     if receipt.get("live_delivery_claim_allowed") is not False:
         issues.append("live_readiness_delivery_claim_overclaim")
     if receipt.get("goal_completion_claim_allowed") is not False:
