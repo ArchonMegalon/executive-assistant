@@ -526,6 +526,7 @@ def build_safe_work_result(
             "search_candidate_count": sum(1 for item in candidate_items if str(item.get("candidate_source") or "") == "search_result"),
             "search_queries_used": _search_queries(input_contract=input_contract, stage_payload=stage_payload, limit=network_fetch_limit),
             "research_search_plan": search_plan,
+            "context_fit_receipt": _context_fit_receipt(context),
             "page_checks": page_checks,
             "browser_action_receipt_ref": str(browser_action_receipt.get("receipt_ref") or "").strip(),
             "browser_action_status": str(browser_action_receipt.get("status") or "").strip(),
@@ -538,6 +539,8 @@ def build_safe_work_result(
         "privacy": {
             "raw_principal_id_stored": False,
             "raw_signal_ref_stored": False,
+            "raw_location_context_stored": False,
+            "raw_recipient_context_stored": False,
             "private_links_may_be_present": True,
         },
     }
@@ -713,6 +716,48 @@ def _research_search_plan(
         "flat_search_blockers": blockers,
         "flat_search_allowed": not blockers,
     }
+
+
+def _context_fit_receipt(context: Mapping[str, Any]) -> dict[str, Any]:
+    location_context = _mapping_value(context.get("location_context"))
+    phrases = _string_list(location_context.get("phrases"))
+    city_terms = _string_list(location_context.get("city_terms"))
+    postal_codes = _string_list(location_context.get("postal_codes"))
+    country_codes = [
+        str(item or "").strip().upper()
+        for item in list(location_context.get("country_codes") or [])
+        if str(item or "").strip()
+    ]
+    country_names = _string_list(location_context.get("country_names"))
+    locality_values = [*phrases, *city_terms, *postal_codes]
+    receipt = {
+        "schema": "proactive_ooda.context_fit_receipt.v1",
+        "provider_discovery_relevant": bool(context.get("provider_discovery_relevant")),
+        "location_context_present": bool(locality_values or country_codes or country_names),
+        "locality_context_applied": bool(locality_values),
+        "country_context_applied": bool(country_codes or country_names),
+        "location_phrase_count": len(phrases),
+        "city_term_count": len(city_terms),
+        "postal_code_count": len(postal_codes),
+        "country_code_count": len(country_codes),
+        "country_name_count": len(country_names),
+        "locality_context_hashes": [
+            _hash_value(_ascii_fold_text(value))
+            for value in locality_values
+            if str(value or "").strip()
+        ][:8],
+        "country_context_hashes": [
+            _hash_value(_ascii_fold_text(value))
+            for value in [*country_codes, *country_names]
+            if str(value or "").strip()
+        ][:4],
+        "provider_query_term_count": len(tuple(context.get("provider_query_terms") or ())),
+        "provider_search_query_too_generic": bool(context.get("provider_search_query_too_generic")),
+        "raw_location_context_stored": False,
+        "raw_recipient_context_stored": False,
+        "raw_principal_id_stored": False,
+    }
+    return {key: value for key, value in receipt.items() if value not in ("", [], None)}
 
 
 def _flat_provider_search_blockers(*, context: Mapping[str, Any], queries: Iterable[str]) -> list[str]:

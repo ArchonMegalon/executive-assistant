@@ -1011,6 +1011,73 @@ def test_search_queries_expand_with_recipient_location_context() -> None:
     assert "rauchfangkehrer" in queries
 
 
+def test_build_safe_work_result_records_redacted_context_fit_for_local_provider_search() -> None:
+    digest = ProactiveOodaService().build_digest(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "telegram:local-provider-context",
+                "signal_type": "telegram_message",
+                "channel": "telegram",
+                "title": "Rauchfangkehrer suchen",
+                "summary": "Find a local provider.",
+                "payload": {
+                    "ooda_loop": {
+                        "reviewed": True,
+                        "decide": {"summary": "Research local provider options.", "approval_required": False},
+                        "act": {
+                            "summary": "Find a provider and stage a reversible packet.",
+                            "stage": {
+                                "kind": "research_packet",
+                                "summary": "Local provider research.",
+                                "work_type": "research",
+                                "research_query": "rauchfangkehrer 1200 Wien",
+                                "selection_criteria": ["provider contact", "fit to request"],
+                                "recipient_context": {
+                                    "location": {
+                                        "phrases": ["1200 Wien"],
+                                        "city_terms": ["Wien"],
+                                        "postal_codes": ["1200"],
+                                        "country_codes": ["AT"],
+                                        "country_names": ["Austria"],
+                                    }
+                                },
+                            },
+                            "external_action_policy": "Research only; do not contact externally.",
+                        },
+                    }
+                },
+            }
+        ],
+    )
+    packet = build_stage_packets(digest)[0]
+
+    result = build_safe_work_result(packet, network_fetch_enabled=False)
+
+    context_fit = result["execution_receipt"]["context_fit_receipt"]
+    assert context_fit["schema"] == "proactive_ooda.context_fit_receipt.v1"
+    assert context_fit["provider_discovery_relevant"] is True
+    assert context_fit["location_context_present"] is True
+    assert context_fit["locality_context_applied"] is True
+    assert context_fit["country_context_applied"] is True
+    assert context_fit["location_phrase_count"] == 1
+    assert context_fit["city_term_count"] == 1
+    assert context_fit["postal_code_count"] == 1
+    assert context_fit["country_code_count"] == 1
+    assert context_fit["country_name_count"] == 1
+    assert len(context_fit["locality_context_hashes"]) == 3
+    assert len(context_fit["country_context_hashes"]) == 2
+    assert context_fit["raw_location_context_stored"] is False
+    assert context_fit["raw_recipient_context_stored"] is False
+    assert context_fit["raw_principal_id_stored"] is False
+    serialized_context_fit = json.dumps(context_fit, sort_keys=True)
+    assert "1200" not in serialized_context_fit
+    assert "Wien" not in serialized_context_fit
+    assert "Austria" not in serialized_context_fit
+    assert result["privacy"]["raw_location_context_stored"] is False
+    assert result["privacy"]["raw_recipient_context_stored"] is False
+
+
 def test_build_safe_work_result_scores_candidates_against_budget_preferences_and_reversibility() -> None:
     packet = _packet_with_cart_work()
     packet["stage"]["payload"]["kind"] = "shortlist"  # type: ignore[index]
