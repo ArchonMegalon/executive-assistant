@@ -55,8 +55,9 @@
     "source_kind": "",
     "status": "missing_or_invalid"
   },
-  "generated_at": "2026-06-30T02:58:52Z",
+  "generated_at": "2026-06-30T04:39:51Z",
   "goal_completion_claim_allowed": false,
+  "head_semantics": "source_state",
   "next_action": "record_redacted_signal_review_acceptance",
   "next_action_evidence_part": "review",
   "next_action_href": "/admin/actions/signal-to-decision-evidence",
@@ -239,5 +240,8 @@
       "status": "mapped_from_sources"
     }
   ],
+  "source_git_head": "70c6f55a6f76b5d5d221a548fb6a535f06f39fa0",
+  "source_state_fingerprint": "f42b3d4dc87cb6c0e8c17b2c2f52f1c36012d7930f18593581c4ed8295230e00",
+  "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready_local_packet_pending_operator_acceptance"
 }

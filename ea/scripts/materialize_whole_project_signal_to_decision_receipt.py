@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,12 @@ from typing import Any
 
 SCRIPT_PATH = Path(__file__).resolve()
 REPO_ROOT = SCRIPT_PATH.parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.source_state_head import resolve_source_state_head
+from scripts.source_state_head import resolve_source_worktree_fingerprint
+
 PUBLISHED_ROOT = REPO_ROOT / ".codex-studio" / "published"
 DEFAULT_RECEIPT = PUBLISHED_ROOT / "ea_whole_project_signal_to_decision.generated.json"
 DEFAULT_OFFICE_RECEIPT = PUBLISHED_ROOT / "ea_office_loop_goal.generated.json"
@@ -69,6 +76,15 @@ def _write(path: str | Path, payload: dict[str, Any]) -> None:
 
 def _hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest() if value else ""
+
+
+def _source_state_fields() -> dict[str, str]:
+    return {
+        "source_git_head": resolve_source_state_head(REPO_ROOT),
+        "head_semantics": "source_state",
+        "source_state_fingerprint": resolve_source_worktree_fingerprint(REPO_ROOT),
+        "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
+    }
 
 
 def _empty_signal_evidence_row(*, hash_field: str, raw_field: str) -> dict[str, Any]:
@@ -282,6 +298,7 @@ def materialize_whole_project_signal_to_decision_receipt(
         next_action_evidence_part = ""
     receipt = {
         "contract_name": "ea.whole_project_signal_to_decision_receipt.v1",
+        **_source_state_fields(),
         "status": "ready_real_signal_to_decision_closure"
         if review_accepted and follow_accepted
         else "partial_real_signal_to_decision_closure"

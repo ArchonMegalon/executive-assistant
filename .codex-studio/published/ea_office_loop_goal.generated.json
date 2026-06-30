@@ -199,9 +199,9 @@
     "proactive_ooda_operator_status": {
       "contract_name": "ea.proactive_ooda_operator_status.v1",
       "next_action": "maintain_proactive_ooda_runtime",
-      "next_action_href": "",
-      "next_action_label": "",
-      "next_action_method": "",
+      "next_action_href": "https://myexternalbrain.com/app/today",
+      "next_action_label": "Open Today",
+      "next_action_method": "get",
       "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
       "present": true,
       "status": "ready_with_live_receipt",
@@ -217,7 +217,7 @@
     }
   },
   "external_provider_runtime_verified": false,
-  "generated_at": "2026-06-30T02:58:52Z",
+  "generated_at": "2026-06-30T04:39:51Z",
   "goal_completion_claim_allowed": false,
   "live_daily_use_verified": false,
   "next_action": "maintain_proactive_ooda_gold_acceptance_evidence",

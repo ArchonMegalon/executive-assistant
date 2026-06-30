@@ -96,6 +96,18 @@ _LOCAL_REVIEW_LABEL = "Open Today"
 _SIGNAL_EVIDENCE_CAPTURE_PATH = "/admin/actions/signal-to-decision-evidence"
 _SIGNAL_EVIDENCE_CAPTURE_METHOD = "POST"
 _SIGNAL_EVIDENCE_CAPTURE_FORM_FIELDS = ["evidence_part", "source_kind", "evidence", "packet_ref"]
+_REQUIRED_SIGNAL_SOURCES = [
+    "real_usage_telemetry",
+    "support_and_recovery_cases",
+    "feedback_and_crash_reports",
+    "public_or_premium_publication_reactions",
+    "provider_runtime_failures",
+    "audiobook_and_media_acceptance",
+    "manfred_spoken_conversation_acceptance",
+    "telegram_whatsapp_email_channel_friction",
+    "release_install_update_friction",
+    "privacy_or_boundary_incidents",
+]
 _SIGNAL_EVIDENCE_PARTS = {
     "review": {
         "label": "real weekly signal-to-decision review accepted by the operator",
@@ -258,7 +270,60 @@ def _signal_evidence_capture_requirements(receipt: dict[str, object]) -> list[di
     return rows
 
 
+def _signal_source_row(key: str) -> dict[str, object]:
+    return {
+        "key": key,
+        "status": "mapped_from_sources",
+        "owner_truth_plane": "operator_review_required",
+        "journey_or_release_gate_mapping": "weekly_signal_to_decision_packet",
+    }
+
+
 def _refresh_signal_evidence_contract(receipt: dict[str, object]) -> None:
+    review_accepted = bool(receipt.get("real_weekly_operator_review_accepted"))
+    follow_accepted = bool(receipt.get("closed_loop_followthrough_receipt_verified"))
+    receipt.update(_source_state_fields())
+    receipt["contract_name"] = "ea.whole_project_signal_to_decision_receipt.v1"
+    receipt["status"] = (
+        "ready_real_signal_to_decision_closure"
+        if review_accepted and follow_accepted
+        else "partial_real_signal_to_decision_closure"
+        if review_accepted or follow_accepted
+        else "ready_local_packet_pending_operator_acceptance"
+    )
+    if not review_accepted:
+        receipt["next_action"] = str(_SIGNAL_EVIDENCE_PARTS["review"]["next_action"])
+        receipt["next_action_evidence_part"] = "review"
+    elif not follow_accepted:
+        receipt["next_action"] = str(_SIGNAL_EVIDENCE_PARTS["followthrough"]["next_action"])
+        receipt["next_action_evidence_part"] = "followthrough"
+    else:
+        receipt["next_action"] = "review_closed_signal_to_decision_claim"
+        receipt["next_action_evidence_part"] = ""
+    if receipt["next_action_evidence_part"]:
+        receipt["next_action_href"] = _SIGNAL_EVIDENCE_CAPTURE_PATH
+        receipt["next_action_label"] = "Record a signal-loop outcome"
+        receipt["next_action_method"] = _SIGNAL_EVIDENCE_CAPTURE_METHOD.lower()
+    else:
+        receipt["next_action_href"] = ""
+        receipt["next_action_label"] = ""
+        receipt["next_action_method"] = ""
+    receipt["goal_completion_claim_allowed"] = False
+    receipt["queue_truth_claim_allowed"] = False
+    receipt["release_authority_claim_allowed"] = False
+    receipt["boundary_posture"] = {
+        "ea_is_product_truth": False,
+        "local_signal_synthesis_not_canonical_queue_or_release_truth": True,
+    }
+    receipt["signal_sources"] = [_signal_source_row(key) for key in _REQUIRED_SIGNAL_SOURCES]
+    receipt["decision_packet"] = {
+        "decision_items": [
+            {"key": "provider_runtime_recovery", "source": "provider_runtime_failures"},
+            {"key": "audiobook_acceptance", "source": "audiobook_and_media_acceptance"},
+            {"key": "spoken_conversation_acceptance", "source": "manfred_spoken_conversation_acceptance"},
+            {"key": "privacy_boundary_review", "source": "privacy_or_boundary_incidents"},
+        ]
+    }
     receipt["signal_evidence_capture_surface"] = _signal_evidence_capture_surface()
     receipt["signal_evidence_capture_requirements"] = _signal_evidence_capture_requirements(receipt)
     receipt["privacy"] = {
@@ -337,6 +402,7 @@ def _default_signal_receipt() -> dict[str, object]:
         ],
     }
     receipt["signal_evidence_capture_requirements"] = _signal_evidence_capture_requirements(receipt)
+    receipt.update(_source_state_fields())
     return receipt
 
 

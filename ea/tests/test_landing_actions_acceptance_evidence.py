@@ -17,6 +17,9 @@ from verify_executive_assistant_acceptance_evidence import (  # noqa: E402
 from verify_executive_assistant_quality_readiness import (  # noqa: E402
     verify_executive_assistant_quality_readiness,
 )
+from verify_whole_project_signal_to_decision_receipt import (  # noqa: E402
+    verify_whole_project_signal_to_decision_receipt,
+)
 
 
 def _write_json(path: Path, payload: dict[str, object]) -> None:
@@ -142,3 +145,45 @@ def test_acceptance_verifier_fails_when_source_state_is_missing(tmp_path: Path) 
     assert verification["status"] == "fail"
     assert "ea_acceptance_source_git_head_missing" in verification["issues"]
     assert "ea_acceptance_source_state_fingerprint_missing" in verification["issues"]
+
+
+def test_landing_signal_receipt_refresh_matches_source_state_contract(tmp_path: Path) -> None:
+    receipt = landing_actions._default_signal_receipt()  # noqa: SLF001
+    receipt["operator_review"] = {
+        "accepted": True,
+        "status": "accepted_redacted",
+        "source_kind": "operator_admin",
+        "recorded_at": "2026-06-30T00:00:00Z",
+        "review_sha256": "review-hash",
+        "actor_sha256": "actor-hash",
+        "packet_ref_sha256": "packet-hash",
+        "raw_review_exposed": False,
+        "raw_actor_exposed": False,
+        "raw_packet_ref_exposed": False,
+    }
+    receipt["real_weekly_operator_review_accepted"] = True
+    landing_actions._refresh_signal_evidence_contract(receipt)  # noqa: SLF001
+    receipt_path = tmp_path / "signal.json"
+    _write_json(receipt_path, receipt)
+
+    verification = verify_whole_project_signal_to_decision_receipt(receipt_path)
+
+    assert verification["status"] == "pass"
+    assert receipt["head_semantics"] == "source_state"
+    assert receipt["source_git_head"]
+    assert receipt["source_state_fingerprint"]
+
+
+def test_signal_verifier_fails_when_source_state_is_missing(tmp_path: Path) -> None:
+    receipt = landing_actions._default_signal_receipt()  # noqa: SLF001
+    landing_actions._refresh_signal_evidence_contract(receipt)  # noqa: SLF001
+    receipt.pop("source_git_head", None)
+    receipt.pop("source_state_fingerprint", None)
+    receipt_path = tmp_path / "signal.json"
+    _write_json(receipt_path, receipt)
+
+    verification = verify_whole_project_signal_to_decision_receipt(receipt_path)
+
+    assert verification["status"] == "fail"
+    assert "signal_decision_source_git_head_missing" in verification["issues"]
+    assert "signal_decision_source_state_fingerprint_missing" in verification["issues"]

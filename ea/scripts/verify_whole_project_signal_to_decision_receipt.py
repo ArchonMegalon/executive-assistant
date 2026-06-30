@@ -2,8 +2,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
+
+SCRIPT_PATH = Path(__file__).resolve()
+REPO_ROOT = SCRIPT_PATH.parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from materialize_whole_project_signal_to_decision_receipt import (
     REQUIRED_SIGNAL_SOURCES,
@@ -13,10 +19,10 @@ from materialize_whole_project_signal_to_decision_receipt import (
     SIGNAL_EVIDENCE_CAPTURE_PATH,
     SIGNAL_EVIDENCE_PARTS,
 )
+from scripts.source_state_head import resolve_source_state_head
+from scripts.source_state_head import resolve_source_worktree_fingerprint
 
 
-SCRIPT_PATH = Path(__file__).resolve()
-REPO_ROOT = SCRIPT_PATH.parents[2]
 DEFAULT_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "ea_whole_project_signal_to_decision.generated.json"
 
 
@@ -24,9 +30,29 @@ def _load(path: str | Path) -> dict[str, Any]:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
+def _verify_source_state(receipt: dict[str, Any], issues: list[str]) -> None:
+    if receipt.get("head_semantics") != "source_state":
+        issues.append("signal_decision_head_semantics_missing")
+    if receipt.get("source_state_fingerprint_semantics") != "worktree_source_files_sha256_excluding_generated_only_paths":
+        issues.append("signal_decision_source_state_fingerprint_semantics_missing")
+    recorded_head = str(receipt.get("source_git_head") or "").strip()
+    recorded_fingerprint = str(receipt.get("source_state_fingerprint") or "").strip()
+    current_head = resolve_source_state_head(REPO_ROOT)
+    current_fingerprint = resolve_source_worktree_fingerprint(REPO_ROOT)
+    if not recorded_head:
+        issues.append("signal_decision_source_git_head_missing")
+    elif recorded_head != current_head and recorded_fingerprint != current_fingerprint:
+        issues.append("signal_decision_source_git_head_stale")
+    if not recorded_fingerprint:
+        issues.append("signal_decision_source_state_fingerprint_missing")
+    elif recorded_fingerprint != current_fingerprint:
+        issues.append("signal_decision_source_state_fingerprint_stale")
+
+
 def verify_whole_project_signal_to_decision_receipt(receipt_path: str | Path) -> dict[str, Any]:
     receipt = _load(receipt_path)
     issues: list[str] = []
+    _verify_source_state(receipt, issues)
     if receipt.get("goal_completion_claim_allowed") is True:
         issues.append("signal_decision_completion_overclaim")
     if receipt.get("queue_truth_claim_allowed") is True:
