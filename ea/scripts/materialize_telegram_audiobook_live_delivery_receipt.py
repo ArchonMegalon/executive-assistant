@@ -52,6 +52,11 @@ TELEGRAM_ACTION_SURFACES = {
         TELEGRAM_INTEGRATION_LABEL,
         ACTION_METHOD,
     ),
+    "choose_sent_replacement_voice_sample": (
+        TELEGRAM_INTEGRATION_PATH,
+        TELEGRAM_INTEGRATION_LABEL,
+        ACTION_METHOD,
+    ),
     "finish_user_selected_voice_audiobook_before_sending_public_share_link": (
         TELEGRAM_INTEGRATION_PATH,
         TELEGRAM_INTEGRATION_LABEL,
@@ -411,11 +416,18 @@ def _pending_summary(candidate: dict[str, object]) -> dict[str, object]:
     job = _as_dict(candidate.get("raw"))
     render = _as_dict(job.get("render"))
     scheduler = _as_dict(job.get("scheduler_resume"))
+    telegram = _as_dict(job.get("telegram"))
     voice = _voice_selection(job)
     selected = _as_dict(voice.get("selected"))
     replacement_keys = _as_list(voice.get("replacement_candidate_keys"))
     voice_choice_keys = _as_list(voice.get("pending_candidate_keys")) or replacement_keys
     replacement_pending = bool(candidate.get("replacement_choice_pending"))
+    pending_batch = [_as_dict(row) for row in _as_list(voice.get("pending_batch")) if isinstance(row, dict)]
+    pending_labels = [
+        str(row.get("label") or "").strip()
+        for row in pending_batch
+        if str(row.get("label") or "").strip()
+    ]
     return {
         "job_id_sha256": candidate["job_id_sha256"],
         "status": str(job.get("status") or ""),
@@ -428,10 +440,18 @@ def _pending_summary(candidate: dict[str, object]) -> dict[str, object]:
         "voice_selection_waiting": str(voice.get("status") or "") == "waiting_user_choice",
         "voice_choice_pending": bool(candidate.get("voice_choice_pending")),
         "voice_choice_candidate_count": len(voice_choice_keys),
+        "voice_choice_candidate_labels": pending_labels[:3],
         "replacement_choice_pending": replacement_pending,
         "replacement_candidate_count": len(replacement_keys) if replacement_pending else 0,
+        "replacement_candidate_labels": pending_labels[:3] if replacement_pending else [],
+        "voice_sample_delivery_status": str(telegram.get("voice_sample_delivery_status") or "").strip(),
+        "voice_sample_delivery_expected_count": int(telegram.get("voice_sample_delivery_expected_count") or 0),
+        "voice_sample_delivery_sent_count": int(telegram.get("voice_sample_delivery_sent_count") or 0),
+        "voice_sample_delivery_failed_count": int(telegram.get("voice_sample_delivery_failed_count") or 0),
         "selected_voice_id_sha256": str(selected.get("voice_id_sha256") or ""),
         "selected_label_sha256": _sha256_text(selected.get("label")),
+        "raw_voice_ids_exposed": False,
+        "callback_tokens_exposed": False,
         "external_tts_blocker_code": str(render.get("external_tts_blocker_code") or scheduler.get("external_tts_blocker_code") or ""),
         "external_tts_blocker_retryable": bool(
             render.get("external_tts_blocker_retryable") or scheduler.get("external_tts_blocker_retryable")
@@ -467,8 +487,19 @@ def _dedupe(values: list[str]) -> list[str]:
     return result
 
 
+def _pending_voice_samples_sent(row: dict[str, object]) -> bool:
+    expected = int(row.get("voice_sample_delivery_expected_count") or 0)
+    sent = int(row.get("voice_sample_delivery_sent_count") or 0)
+    status = str(row.get("voice_sample_delivery_status") or "").strip()
+    candidate_count = int(row.get("voice_choice_candidate_count") or row.get("replacement_candidate_count") or 0)
+    required = expected or candidate_count
+    return status == "sent" and required > 0 and sent >= required
+
+
 def _next_action(*, failed_codes: list[str], pending: list[dict[str, object]]) -> str:
     if any(row.get("replacement_choice_pending") for row in pending):
+        if any(_pending_voice_samples_sent(row) for row in pending):
+            return "choose_sent_replacement_voice_sample"
         return "choose_explicit_replacement_voice_or_restore_selected_provider"
     if any(row.get("voice_choice_pending") for row in pending):
         return "choose_one_telegram_audiobook_voice_sample"
@@ -597,7 +628,8 @@ def build_receipt(
             "machine_playback_e2e_url_redacted": True,
             "playback_acceptance_feedback_hashed": real_user_accepted,
             "telegram_message_ids_hashed": True,
-            "voice_labels_hashed": True,
+            "voice_labels_operator_safe": True,
+            "raw_voice_ids_exposed": False,
             "provider_secret_exposed": False,
             "audiobookshelf_token_exposed": False,
         },

@@ -87,7 +87,7 @@
     "user_selected_voice_delivery_not_ready",
     "explicit_replacement_voice_choice_pending"
   ],
-  "generated_at": "2026-06-30T03:02:01.171216Z",
+  "generated_at": "2026-06-30T03:37:03.781701Z",
   "generated_by": "ea/scripts/materialize_telegram_audiobook_live_delivery_receipt.py",
   "goal_completion_claim_allowed": false,
   "ignored_non_telegram_audiobook_candidate_count": 9,
@@ -99,7 +99,7 @@
   "live_delivery_claim_allowed": false,
   "load_errors": [],
   "machine_playback_e2e_verified": false,
-  "next_action": "choose_explicit_replacement_voice_or_restore_selected_provider",
+  "next_action": "choose_sent_replacement_voice_sample",
   "next_action_href": "/integrations/telegram",
   "next_action_label": "Open Telegram",
   "next_action_method": "get",
@@ -108,22 +108,34 @@
   "pending_user_selected_voice_job_count": 1,
   "pending_user_selected_voice_jobs": [
     {
+      "callback_tokens_exposed": false,
       "external_tts_blocker_code": "selected_voice_author_gender_mismatch",
       "external_tts_blocker_reason_sha256": "7ebf88a8c06633a61f06504396fd6e0948355afc0f74603cfb1ee9403ad2107b",
       "external_tts_blocker_retryable": false,
       "job_id_sha256": "abb3a43fdbd6baf3c54781c3b953915593fc855fe3fc6cde8ea08de66280904e",
+      "raw_voice_ids_exposed": false,
       "render_chapter_index": 0,
       "render_segment_count": 0,
       "render_segment_index": 0,
       "render_status": "waiting_voice_selection",
       "replacement_candidate_count": 1,
+      "replacement_candidate_labels": [
+        "Dieter"
+      ],
       "replacement_choice_pending": true,
       "scheduler_retry_after": "",
       "selected_label_sha256": "",
       "selected_voice_id_sha256": "",
       "status": "waiting_voice_selection",
       "voice_choice_candidate_count": 1,
+      "voice_choice_candidate_labels": [
+        "Dieter"
+      ],
       "voice_choice_pending": true,
+      "voice_sample_delivery_expected_count": 1,
+      "voice_sample_delivery_failed_count": 0,
+      "voice_sample_delivery_sent_count": 1,
+      "voice_sample_delivery_status": "sent",
       "voice_selection_reason": "selected_voice_author_gender_mismatch",
       "voice_selection_status": "waiting_user_choice",
       "voice_selection_waiting": true
@@ -137,9 +149,10 @@
     "provider_secret_exposed": false,
     "public_share_urls_redacted_to_host": true,
     "raw_job_receipts_persisted": false,
+    "raw_voice_ids_exposed": false,
     "telegram_message_ids_hashed": true,
     "titles_redacted_to_sha256": true,
-    "voice_labels_hashed": true
+    "voice_labels_operator_safe": true
   },
   "real_user_playback_acceptance_verified": false,
   "selected_delivery": {

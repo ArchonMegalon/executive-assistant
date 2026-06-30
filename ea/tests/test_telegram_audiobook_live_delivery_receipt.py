@@ -30,6 +30,10 @@ def _job_receipt(
     status: str = "audiobookshelf_imported",
     playback_status: str = "accepted",
     playback_accepted: bool = True,
+    render_voice_selection: dict[str, object] | None = None,
+    telegram_voice_sample_delivery_status: str = "",
+    telegram_voice_sample_delivery_expected_count: int = 0,
+    telegram_voice_sample_delivery_sent_count: int = 0,
 ) -> dict[str, object]:
     return {
         "job_id": job_id,
@@ -50,6 +54,9 @@ def _job_receipt(
         "telegram": {
             "chat_bound": telegram_chat_bound,
             "message_bound": telegram_message_bound,
+            "voice_sample_delivery_status": telegram_voice_sample_delivery_status,
+            "voice_sample_delivery_expected_count": telegram_voice_sample_delivery_expected_count,
+            "voice_sample_delivery_sent_count": telegram_voice_sample_delivery_sent_count,
         },
         "whatsapp": {
             "public_share_delivery": {
@@ -73,6 +80,9 @@ def _job_receipt(
             "public_share_playback_e2e_current_time_after_play_seconds": 2.1,
             "public_share_playback_e2e_duration_seconds": 30.0,
             "public_share_playback_e2e_media_error_present": False,
+        },
+        "render": {
+            "voice_selection": dict(render_voice_selection or {}),
         },
         "playback_acceptance": {
             "status": playback_status,
@@ -143,3 +153,47 @@ def test_build_receipt_keeps_explicit_telegram_source_kind_in_scope_without_boun
     assert receipt["candidate_count"] == 1
     assert receipt["live_delivery_claim_allowed"] is True
     assert receipt["status"] == "pass"
+
+
+def test_build_receipt_routes_sent_replacement_voice_sample_to_precise_operator_action(tmp_path: Path) -> None:
+    module = _load_module()
+    receipt = module.build_receipt(
+        output_path=tmp_path / "telegram_live_delivery_replacement.json",
+        job_receipts=[
+            _job_receipt(
+                job_id="replacement-voice",
+                source_kind="telegram_epub",
+                status="waiting_voice_selection",
+                playback_status="not_recorded",
+                playback_accepted=False,
+                render_voice_selection={
+                    "status": "waiting_user_choice",
+                    "reason": "selected_voice_author_gender_mismatch",
+                    "pending_candidate_keys": ["unmixr_dieter_7f88185d"],
+                    "replacement_candidate_keys": ["unmixr_dieter_7f88185d"],
+                    "pending_batch": [
+                        {
+                            "preset_key": "unmixr_dieter_7f88185d",
+                            "label": "Dieter",
+                            "voice_id_sha256": hashlib.sha256(b"voice-dieter").hexdigest(),
+                        }
+                    ],
+                },
+                telegram_voice_sample_delivery_status="sent",
+                telegram_voice_sample_delivery_expected_count=1,
+                telegram_voice_sample_delivery_sent_count=1,
+            )
+        ],
+        generated_at="2026-06-30T00:00:00Z",
+        observation_source="test",
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["next_action"] == "choose_sent_replacement_voice_sample"
+    pending = receipt["pending_user_selected_voice_jobs"]
+    assert pending[0]["replacement_candidate_labels"] == ["Dieter"]
+    assert pending[0]["voice_sample_delivery_status"] == "sent"
+    assert pending[0]["raw_voice_ids_exposed"] is False
+    assert pending[0]["callback_tokens_exposed"] is False
+    assert receipt["privacy"]["voice_labels_operator_safe"] is True
+    assert receipt["privacy"]["raw_voice_ids_exposed"] is False
