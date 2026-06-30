@@ -1780,7 +1780,7 @@ def probe_proactive_route(
     compose_file: str = "",
     runtime_service: str = "",
     receipt_path: str = "",
-    timeout_seconds: float = 30.0,
+    timeout_seconds: float = 60.0,
     output_format: str = "json",
 ) -> dict[str, object]:
     effective_compose_file = str(compose_file or _env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE))).strip()
@@ -2126,7 +2126,7 @@ def probe_proactive_artifacts(
     *,
     compose_file: str = "",
     runtime_service: str = "",
-    timeout_seconds: float = 30.0,
+    timeout_seconds: float = 60.0,
     output_format: str = "json",
 ) -> dict[str, object]:
     effective_compose_file = str(compose_file or _env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE))).strip()
@@ -2444,7 +2444,7 @@ def cleanup_proactive_approval_callbacks(
     *,
     compose_file: str = "",
     runtime_service: str = "",
-    timeout_seconds: float = 30.0,
+    timeout_seconds: float = 60.0,
     execute: bool = False,
     supersede_noncurrent: bool = True,
     output_format: str = "json",
@@ -2674,7 +2674,7 @@ def probe_proactive_approval_capture(
     principal_id: str,
     compose_file: str = "",
     runtime_service: str = "",
-    timeout_seconds: float = 30.0,
+    timeout_seconds: float = 60.0,
     output_format: str = "json",
 ) -> dict[str, object]:
     effective_compose_file = str(compose_file or _env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE))).strip()
@@ -2961,7 +2961,7 @@ def probe_proactive_gmail_draft(
     receipt_path: str = "",
     stage_packet_dir: str = "",
     safe_work_result_dir: str = "",
-    timeout_seconds: float = 30.0,
+    timeout_seconds: float = 60.0,
     output_format: str = "json",
 ) -> dict[str, object]:
     effective_compose_file = str(compose_file or _env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE))).strip()
@@ -3180,7 +3180,7 @@ def probe_proactive_source_coverage(
     compose_file: str = "",
     runtime_service: str = "",
     observation_limit: int = 400,
-    timeout_seconds: float = 30.0,
+    timeout_seconds: float = 60.0,
     output_format: str = "json",
 ) -> dict[str, object]:
     effective_compose_file = str(compose_file or _env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE))).strip()
@@ -3276,7 +3276,8 @@ def probe_proactive_source_coverage(
         command=command,
         timeout_seconds=timeout_seconds,
     )
-    if not payload:
+    if not payload or payload.get("probe_ok") is False or payload.get("ok") is False:
+        reason = str(payload.get("reason") or "").strip() if payload else ""
         report = {
             "probe_ok": False,
             "checked": False,
@@ -3286,7 +3287,7 @@ def probe_proactive_source_coverage(
             "runtime_service": effective_runtime_service,
             "observed_at": observed_at,
             "source": "docker_compose_exec",
-            "blocking_reason": f"runtime_source_coverage_probe_failed:exit_{code}",
+            "blocking_reason": reason or f"runtime_source_coverage_probe_failed:exit_{code}",
             "next_action": "inspect_proactive_runtime_container",
             "stdout_excerpt": stdout.strip()[:200],
             "stderr_excerpt": stderr.strip()[:200],
@@ -3581,7 +3582,7 @@ def record_proactive_approval(
     staged_artifact_ref: str = "",
     compose_file: str = "",
     runtime_service: str = "",
-    timeout_seconds: float = 30.0,
+    timeout_seconds: float = 60.0,
     dry_run: bool = False,
     output_format: str = "json",
 ) -> dict[str, object]:
@@ -3766,7 +3767,7 @@ def reissue_proactive_approval(
     principal_id: str,
     compose_file: str = "",
     runtime_service: str = "",
-    timeout_seconds: float = 30.0,
+    timeout_seconds: float = 60.0,
     dry_run: bool = False,
     force: bool = False,
     output_format: str = "json",
@@ -5391,7 +5392,7 @@ def main() -> int:
             compose_file=str(args.compose_file or "").strip(),
             runtime_service=str(args.runtime_service or "").strip(),
             receipt_path=str(args.receipt_path or "").strip(),
-            timeout_seconds=float(args.timeout_seconds or 15.0),
+            timeout_seconds=float(args.timeout_seconds or 60.0),
             output_format=args.format,
         )
         if args.format == "operator":
@@ -5403,7 +5404,7 @@ def main() -> int:
         report = probe_proactive_artifacts(
             compose_file=str(args.compose_file or "").strip(),
             runtime_service=str(args.runtime_service or "").strip(),
-            timeout_seconds=float(args.timeout_seconds or 15.0),
+            timeout_seconds=float(args.timeout_seconds or 60.0),
             output_format=args.format,
         )
         if args.format == "operator":
@@ -5416,7 +5417,7 @@ def main() -> int:
             principal_id=str(getattr(args, "proactive_principal_id", "") or "").strip(),
             compose_file=str(args.compose_file or "").strip(),
             runtime_service=str(args.runtime_service or "").strip(),
-            timeout_seconds=float(args.timeout_seconds or 15.0),
+            timeout_seconds=float(args.timeout_seconds or 60.0),
             output_format=args.format,
         )
         if args.format == "operator":
@@ -5433,7 +5434,7 @@ def main() -> int:
             receipt_path=str(args.receipt_path or "").strip(),
             stage_packet_dir=str(args.stage_packet_dir or "").strip(),
             safe_work_result_dir=str(args.safe_work_result_dir or "").strip(),
-            timeout_seconds=float(args.timeout_seconds or 15.0),
+            timeout_seconds=float(args.timeout_seconds or 60.0),
             output_format=args.format,
         )
         if args.format == "operator":
@@ -5447,7 +5448,7 @@ def main() -> int:
             compose_file=str(args.compose_file or "").strip(),
             runtime_service=str(args.runtime_service or "").strip(),
             observation_limit=int(args.observation_limit or 400),
-            timeout_seconds=float(args.timeout_seconds or 15.0),
+            timeout_seconds=float(args.timeout_seconds or 60.0),
             output_format=args.format,
         )
         if args.format == "operator":
@@ -5481,7 +5482,7 @@ def main() -> int:
             staged_artifact_ref=str(args.staged_artifact_ref or "").strip(),
             compose_file=str(args.compose_file or "").strip(),
             runtime_service=str(args.runtime_service or "").strip(),
-            timeout_seconds=float(args.timeout_seconds or 15.0),
+            timeout_seconds=float(args.timeout_seconds or 60.0),
             dry_run=bool(getattr(args, "dry_run", False)),
             output_format=args.format,
         )
@@ -5495,7 +5496,7 @@ def main() -> int:
             principal_id=str(getattr(args, "proactive_principal_id", "") or "").strip(),
             compose_file=str(args.compose_file or "").strip(),
             runtime_service=str(args.runtime_service or "").strip(),
-            timeout_seconds=float(args.timeout_seconds or 15.0),
+            timeout_seconds=float(args.timeout_seconds or 60.0),
             dry_run=bool(getattr(args, "dry_run", False)),
             force=bool(getattr(args, "force", False)),
             output_format=args.format,
@@ -5509,7 +5510,7 @@ def main() -> int:
         report = cleanup_proactive_approval_callbacks(
             compose_file=str(args.compose_file or "").strip(),
             runtime_service=str(args.runtime_service or "").strip(),
-            timeout_seconds=float(args.timeout_seconds or 15.0),
+            timeout_seconds=float(args.timeout_seconds or 60.0),
             execute=bool(getattr(args, "execute", False)),
             supersede_noncurrent=not bool(getattr(args, "keep_noncurrent", False)),
             output_format=args.format,

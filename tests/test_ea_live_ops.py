@@ -2738,10 +2738,44 @@ def test_parse_args_probe_proactive_source_coverage_uses_proactive_principal_def
     assert args.observation_limit == 400
 
 
+def test_main_probe_proactive_route_uses_long_default_timeout(monkeypatch, capsys) -> None:
+    module = _module()
+    captured: dict[str, object] = {}
+
+    def _fake_probe_proactive_route(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"probe_ok": True, "status": "ready"}
+
+    monkeypatch.setattr(module, "probe_proactive_route", _fake_probe_proactive_route)
+    monkeypatch.setattr(sys, "argv", ["ea_live_ops.py", "probe-proactive-route"])
+
+    assert module.main() == 0
+    assert captured["timeout_seconds"] == 60.0
+    assert json.loads(capsys.readouterr().out)["status"] == "ready"
+
+
+def test_main_probe_proactive_source_coverage_uses_long_default_timeout(monkeypatch, capsys) -> None:
+    module = _module()
+    captured: dict[str, object] = {}
+
+    def _fake_probe_proactive_source_coverage(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"probe_ok": True, "status": "ready"}
+
+    monkeypatch.setattr(module, "probe_proactive_source_coverage", _fake_probe_proactive_source_coverage)
+    monkeypatch.setattr(sys, "argv", ["ea_live_ops.py", "probe-proactive-source-coverage"])
+
+    assert module.main() == 0
+    assert captured["timeout_seconds"] == 60.0
+    assert json.loads(capsys.readouterr().out)["status"] == "ready"
+
+
 def test_probe_proactive_source_coverage_reports_required_lanes_without_raw_payload(monkeypatch) -> None:
     module = _module()
+    captured: dict[str, object] = {}
 
     def _fake_exec_json(**_kwargs: object) -> tuple[int, dict[str, object], str, str]:
+        captured.update(_kwargs)
         return (
             0,
             {
@@ -2797,6 +2831,7 @@ def test_probe_proactive_source_coverage_reports_required_lanes_without_raw_payl
     assert report["probe_ok"] is True
     assert report["status"] == "ready_with_gaps"
     assert report["observed_lane_count"] == 7
+    assert captured["timeout_seconds"] == 60.0
     assert "pocket_ai_audio_transcripts" not in report["missing_lane_keys"]
     assert report["privacy"]["raw_payload_exposed"] is False
     assert report["privacy"]["raw_transcript_text_exposed"] is False
@@ -2804,6 +2839,35 @@ def test_probe_proactive_source_coverage_reports_required_lanes_without_raw_payl
     serialized = json.dumps(report, sort_keys=True)
     assert "Order flowers" not in serialized
     assert "/mnt/pcloud" not in serialized
+
+
+def test_probe_proactive_source_coverage_treats_runtime_failure_as_probe_failed(monkeypatch) -> None:
+    module = _module()
+
+    monkeypatch.setattr(
+        module,
+        "_docker_compose_exec_json",
+        lambda **_kwargs: (
+            124,
+            {"ok": False, "reason": "TimeoutExpired:15s"},
+            "",
+            "",
+        ),
+    )
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-06-29T08:01:00Z")
+
+    report = module.probe_proactive_source_coverage(
+        principal_id="exec-1",
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+    )
+
+    assert report["probe_ok"] is False
+    assert report["checked"] is False
+    assert report["status"] == "probe_failed"
+    assert report["blocking_reason"] == "TimeoutExpired:15s"
+    assert report["next_action"] == "inspect_proactive_runtime_container"
+    assert report["missing_lane_keys"] == list(module.PROACTIVE_SOURCE_COVERAGE_LANE_KEYS)
 
 
 def test_parse_args_sync_pocket_transcripts_uses_proactive_principal_default(monkeypatch) -> None:
