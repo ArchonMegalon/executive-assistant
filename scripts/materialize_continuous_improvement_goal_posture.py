@@ -390,6 +390,39 @@ def _manual_acceptance_action_context(
     return {key: value for key, value in context.items() if value not in ("", [], None)}
 
 
+def _manfred_realtime_action_context(receipt: dict[str, Any]) -> dict[str, Any]:
+    attestation = dict(receipt.get("room_audio_attestation") or {})
+    required_check_ids = [
+        str(item).strip()
+        for item in list(attestation.get("required_check_ids") or [])
+        if str(item).strip()
+    ]
+    manual_only = attestation.get("manual_only") is True
+    user_action_required = manual_only and str(attestation.get("status") or "").strip().lower() != "pass"
+    context = {
+        "kind": "manual_room_audio_attestation",
+        "user_action_required": user_action_required,
+        "instruction": "Collect the manual real-room audio attestation for the Manfred spoken conversation proof.",
+        "delivery_policy": "action_required_only" if user_action_required else "queue_only",
+        "telegram_push_allowed": user_action_required,
+        "interruption_budget": "action_required" if user_action_required else "none",
+        "quiet_hours_respected": True,
+        "non_action_progress_push_allowed": False,
+        "irreversible_actions_consent_gated": True,
+        "manual_only": manual_only,
+        "ci_must_not_auto_assert": attestation.get("ci_must_not_auto_assert") is True,
+        "required_check_ids": required_check_ids,
+        "required_check_count": len(required_check_ids),
+        "raw_private_context_exposed": False,
+        "raw_chat_ids_exposed": False,
+        "raw_token_exposed": False,
+        "raw_secret_exposed": False,
+        "raw_transcript_fields_exposed": False,
+        "candidate_raw_text_fields_exposed": False,
+    }
+    return {key: value for key, value in context.items() if value not in ("", [], None)}
+
+
 def _stale_source_action_context(*, receipts: list[dict[str, Any]], refresh_commands: list[str]) -> dict[str, Any]:
     stale_receipts = [
         Path(str(row.get("path") or "")).name
@@ -498,8 +531,12 @@ def _whatsapp_live_playback_blocked_action_context(
     }
 
 
-def _operator_action_priority(requirement: dict[str, Any]) -> tuple[int, int, str]:
+def _operator_action_priority(requirement: dict[str, Any]) -> tuple[int, int, int, str]:
     action_context = dict(requirement.get("action_context") or {})
+    key_priority = {
+        "telegram_audiobook_live_delivery": 0,
+        "manfred_stt_tts_realtime_conversation": 1,
+    }
     lens_priority = {
         "deliver": 1,
         "prove": 2,
@@ -508,8 +545,10 @@ def _operator_action_priority(requirement: dict[str, Any]) -> tuple[int, int, st
         "decide": 5,
     }
     if action_context.get("user_action_required") is True:
-        return (0, lens_priority.get(str(requirement.get("lens") or ""), 9), str(requirement.get("key") or ""))
-    return (1, lens_priority.get(str(requirement.get("lens") or ""), 9), str(requirement.get("key") or ""))
+        key = str(requirement.get("key") or "")
+        return (0, lens_priority.get(str(requirement.get("lens") or ""), 9), key_priority.get(key, 99), key)
+    key = str(requirement.get("key") or "")
+    return (1, lens_priority.get(str(requirement.get("lens") or ""), 9), key_priority.get(key, 99), key)
 
 
 def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -531,6 +570,14 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
             "user_action_required": user_action_required,
             "instruction": str(action_context.get("instruction") or "").strip(),
             "proof_key": str(action_context.get("proof_key") or "").strip(),
+            "manual_only": bool(action_context.get("manual_only")),
+            "ci_must_not_auto_assert": bool(action_context.get("ci_must_not_auto_assert")),
+            "required_check_ids": [
+                str(item).strip()
+                for item in list(action_context.get("required_check_ids") or [])
+                if str(item).strip()
+            ],
+            "required_check_count": int(action_context.get("required_check_count") or 0),
             "missing_setup": [
                 str(item).strip()
                 for item in list(action_context.get("missing_setup") or [])
@@ -600,9 +647,15 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
             "raw_acceptance_text_exposed": bool(action_context.get("raw_acceptance_text_exposed")),
             "raw_actor_identity_exposed": bool(action_context.get("raw_actor_identity_exposed")),
             "raw_object_reference_exposed": bool(action_context.get("raw_object_reference_exposed")),
+            "raw_transcript_fields_exposed": bool(action_context.get("raw_transcript_fields_exposed")),
+            "candidate_raw_text_fields_exposed": bool(action_context.get("candidate_raw_text_fields_exposed")),
         }
         optional_context_keys = (
             "proof_key",
+            "manual_only",
+            "ci_must_not_auto_assert",
+            "required_check_ids",
+            "required_check_count",
             "candidate_count",
             "candidate_labels",
             "candidate_label_count",
@@ -631,6 +684,8 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
             "raw_acceptance_text_exposed",
             "raw_actor_identity_exposed",
             "raw_object_reference_exposed",
+            "raw_transcript_fields_exposed",
+            "candidate_raw_text_fields_exposed",
         )
         for optional_key in optional_context_keys:
             if optional_key not in action_context:
@@ -1252,6 +1307,7 @@ def build_goal_posture(
                         current_source_fingerprint=current_source_fingerprint,
                     )
                 ],
+                action_context=_manfred_realtime_action_context(manfred),
             )
         )
     if any(reason.startswith("deliver:telegram_audiobook") for reason in blocking_reasons):

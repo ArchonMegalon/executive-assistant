@@ -244,7 +244,7 @@
     "real_provider_failure_recovered"
   ],
   "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
-  "generated_at": "2026-06-30T10:06:06Z",
+  "generated_at": "2026-06-30T10:10:29Z",
   "generated_by": "ea/scripts/materialize_executive_assistant_acceptance_evidence.py",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
@@ -282,11 +282,11 @@
     "real approved outbound action with audit trail",
     "real provider failure recovered with operator-grade reason"
   ],
-  "source_git_head": "971c87aa527b0de7cf4d2dec098d444fe64b2433",
+  "source_git_head": "b918023802e270a54552699aa05e778579a26660",
   "source_input": {
     "provided": false
   },
-  "source_state_fingerprint": "4d9935a69e9d91c681d9cad9b7cd81a76de24db6aa7584db05c53249a54eb53d",
+  "source_state_fingerprint": "e6b5945a673e4b2361a1666ecc57d515a5f374aeb83f7347cf8c4c5571e2f383",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "blocked_missing_real_world_acceptance_evidence"
 }

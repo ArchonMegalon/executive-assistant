@@ -39,8 +39,8 @@
           "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "971c87aa527b0de7cf4d2dec098d444fe64b2433",
-          "source_state_fingerprint": "4d9935a69e9d91c681d9cad9b7cd81a76de24db6aa7584db05c53249a54eb53d",
+          "source_git_head": "b918023802e270a54552699aa05e778579a26660",
+          "source_state_fingerprint": "e6b5945a673e4b2361a1666ecc57d515a5f374aeb83f7347cf8c4c5571e2f383",
           "status": "blocked_missing_real_world_acceptance_evidence"
         },
         {
@@ -48,8 +48,8 @@
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "971c87aa527b0de7cf4d2dec098d444fe64b2433",
-          "source_state_fingerprint": "4d9935a69e9d91c681d9cad9b7cd81a76de24db6aa7584db05c53249a54eb53d",
+          "source_git_head": "b918023802e270a54552699aa05e778579a26660",
+          "source_state_fingerprint": "e6b5945a673e4b2361a1666ecc57d515a5f374aeb83f7347cf8c4c5571e2f383",
           "status": "blocked_real_world_acceptance"
         }
       ],
@@ -121,8 +121,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "971c87aa527b0de7cf4d2dec098d444fe64b2433",
-          "source_state_fingerprint": "4d9935a69e9d91c681d9cad9b7cd81a76de24db6aa7584db05c53249a54eb53d",
+          "source_git_head": "b918023802e270a54552699aa05e778579a26660",
+          "source_state_fingerprint": "e6b5945a673e4b2361a1666ecc57d515a5f374aeb83f7347cf8c4c5571e2f383",
           "status": "pass"
         },
         {
@@ -130,8 +130,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "971c87aa527b0de7cf4d2dec098d444fe64b2433",
-          "source_state_fingerprint": "4d9935a69e9d91c681d9cad9b7cd81a76de24db6aa7584db05c53249a54eb53d",
+          "source_git_head": "b918023802e270a54552699aa05e778579a26660",
+          "source_state_fingerprint": "e6b5945a673e4b2361a1666ecc57d515a5f374aeb83f7347cf8c4c5571e2f383",
           "status": "ready_with_live_receipt"
         }
       ],
@@ -139,6 +139,37 @@
       "title": "Proactive OODA packet approval outcome"
     },
     {
+      "action_context": {
+        "candidate_raw_text_fields_exposed": false,
+        "ci_must_not_auto_assert": true,
+        "delivery_policy": "action_required_only",
+        "instruction": "Collect the manual real-room audio attestation for the Manfred spoken conversation proof.",
+        "interruption_budget": "action_required",
+        "irreversible_actions_consent_gated": true,
+        "kind": "manual_room_audio_attestation",
+        "manual_only": true,
+        "non_action_progress_push_allowed": false,
+        "quiet_hours_respected": true,
+        "raw_chat_ids_exposed": false,
+        "raw_private_context_exposed": false,
+        "raw_secret_exposed": false,
+        "raw_token_exposed": false,
+        "raw_transcript_fields_exposed": false,
+        "required_check_count": 9,
+        "required_check_ids": [
+          "actual_device_checked",
+          "actual_speaker_checked",
+          "first_syllable_not_clipped",
+          "intelligibility_confirmed",
+          "answer_text_fallback_visible",
+          "no_internet_search_confirmed",
+          "normal_spoken_turn_confirmed",
+          "interruption_behavior_confirmed",
+          "retry_path_confirmed"
+        ],
+        "telegram_push_allowed": true,
+        "user_action_required": true
+      },
       "capture_surfaces": [
         ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json"
       ],
@@ -327,7 +358,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-06-30T10:06:33Z",
+  "generated_at": "2026-06-30T10:10:57Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -362,8 +393,8 @@
           "path": ".codex-studio/published/telegram_business_signal_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "971c87aa527b0de7cf4d2dec098d444fe64b2433",
-          "source_state_fingerprint": "4d9935a69e9d91c681d9cad9b7cd81a76de24db6aa7584db05c53249a54eb53d",
+          "source_git_head": "b918023802e270a54552699aa05e778579a26660",
+          "source_state_fingerprint": "e6b5945a673e4b2361a1666ecc57d515a5f374aeb83f7347cf8c4c5571e2f383",
           "status": "pass"
         }
       ],
@@ -574,8 +605,8 @@
           "path": ".codex-studio/published/teable_env_recovery_proof.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "971c87aa527b0de7cf4d2dec098d444fe64b2433",
-          "source_state_fingerprint": "4d9935a69e9d91c681d9cad9b7cd81a76de24db6aa7584db05c53249a54eb53d",
+          "source_git_head": "b918023802e270a54552699aa05e778579a26660",
+          "source_state_fingerprint": "e6b5945a673e4b2361a1666ecc57d515a5f374aeb83f7347cf8c4c5571e2f383",
           "status": "pass"
         }
       ],
@@ -604,8 +635,8 @@
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "971c87aa527b0de7cf4d2dec098d444fe64b2433",
-          "source_state_fingerprint": "4d9935a69e9d91c681d9cad9b7cd81a76de24db6aa7584db05c53249a54eb53d",
+          "source_git_head": "b918023802e270a54552699aa05e778579a26660",
+          "source_state_fingerprint": "e6b5945a673e4b2361a1666ecc57d515a5f374aeb83f7347cf8c4c5571e2f383",
           "status": "blocked_real_world_acceptance"
         }
       ],
@@ -678,6 +709,47 @@
     },
     {
       "callback_tokens_exposed": false,
+      "candidate_raw_text_fields_exposed": false,
+      "ci_must_not_auto_assert": true,
+      "delivery_policy": "action_required_only",
+      "evidence_kind": "consented_realtime_media_proof",
+      "instruction": "Collect the manual real-room audio attestation for the Manfred spoken conversation proof.",
+      "interruption_budget": "action_required",
+      "irreversible_actions_consent_gated": true,
+      "key": "manfred_stt_tts_realtime_conversation",
+      "lens": "deliver",
+      "manual_only": true,
+      "next_action": "capture_consented_manfred_stt_tts_realtime_proof",
+      "next_action_href": "/memorials/manfred/voice-config",
+      "next_action_label": "Spoken conversation proof",
+      "next_action_method": "get",
+      "non_action_progress_push_allowed": false,
+      "quiet_hours_respected": true,
+      "raw_chat_ids_exposed": false,
+      "raw_private_context_exposed": false,
+      "raw_secret_exposed": false,
+      "raw_token_exposed": false,
+      "raw_transcript_fields_exposed": false,
+      "raw_voice_ids_exposed": false,
+      "required_check_count": 9,
+      "required_check_ids": [
+        "actual_device_checked",
+        "actual_speaker_checked",
+        "first_syllable_not_clipped",
+        "intelligibility_confirmed",
+        "answer_text_fallback_visible",
+        "no_internet_search_confirmed",
+        "normal_spoken_turn_confirmed",
+        "interruption_behavior_confirmed",
+        "retry_path_confirmed"
+      ],
+      "required_next_receipt": "consented Manfred STT/TTS realtime conversation proof",
+      "telegram_push_allowed": true,
+      "title": "Consented Manfred realtime conversation proof",
+      "user_action_required": true
+    },
+    {
+      "callback_tokens_exposed": false,
       "delivery_policy": "action_required_only",
       "evidence_kind": "real_operator_acceptance",
       "instruction": "Record redacted real-world acceptance evidence for the morning brief.",
@@ -732,30 +804,6 @@
       "telegram_push_allowed": true,
       "title": "Weekly signal-to-decision review acceptance",
       "user_action_required": true
-    },
-    {
-      "callback_tokens_exposed": false,
-      "delivery_policy": "queue_only",
-      "evidence_kind": "consented_realtime_media_proof",
-      "interruption_budget": "none",
-      "irreversible_actions_consent_gated": true,
-      "key": "manfred_stt_tts_realtime_conversation",
-      "lens": "deliver",
-      "next_action": "capture_consented_manfred_stt_tts_realtime_proof",
-      "next_action_href": "/memorials/manfred/voice-config",
-      "next_action_label": "Spoken conversation proof",
-      "next_action_method": "get",
-      "non_action_progress_push_allowed": false,
-      "quiet_hours_respected": true,
-      "raw_chat_ids_exposed": false,
-      "raw_private_context_exposed": false,
-      "raw_secret_exposed": false,
-      "raw_token_exposed": false,
-      "raw_voice_ids_exposed": false,
-      "required_next_receipt": "consented Manfred STT/TTS realtime conversation proof",
-      "telegram_push_allowed": false,
-      "title": "Consented Manfred realtime conversation proof",
-      "user_action_required": false
     },
     {
       "attempted_playback_count": 1,
@@ -828,7 +876,7 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "971c87aa527b0de7cf4d2dec098d444fe64b2433",
-  "source_state_fingerprint": "4d9935a69e9d91c681d9cad9b7cd81a76de24db6aa7584db05c53249a54eb53d",
+  "source_git_head": "b918023802e270a54552699aa05e778579a26660",
+  "source_state_fingerprint": "e6b5945a673e4b2361a1666ecc57d515a5f374aeb83f7347cf8c4c5571e2f383",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }

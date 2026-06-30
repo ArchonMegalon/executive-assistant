@@ -204,6 +204,16 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
         status="blocked_realtime_prerequisites",
         next_action="capture a consented real STT fixture",
         current_label="Memorial public-origin gold: blocked",
+        room_audio_attestation={
+            "status": "ready",
+            "manual_only": True,
+            "ci_must_not_auto_assert": True,
+            "required_check_ids": [
+                "actual_device_checked",
+                "actual_speaker_checked",
+                "normal_spoken_turn_confirmed",
+            ],
+        },
     )
     _write_receipt(
         tmp_path,
@@ -443,6 +453,21 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     )
     assert proof_requirements["telegram_audiobook_live_delivery"]["next_action_href"] == "/integrations/telegram"
     assert proof_requirements["telegram_audiobook_live_delivery"]["next_action_method"] == "get"
+    manfred_context = proof_requirements["manfred_stt_tts_realtime_conversation"]["action_context"]
+    assert manfred_context["kind"] == "manual_room_audio_attestation"
+    assert manfred_context["user_action_required"] is True
+    assert manfred_context["delivery_policy"] == "action_required_only"
+    assert manfred_context["telegram_push_allowed"] is True
+    assert manfred_context["manual_only"] is True
+    assert manfred_context["ci_must_not_auto_assert"] is True
+    assert manfred_context["required_check_count"] == 3
+    assert manfred_context["required_check_ids"] == [
+        "actual_device_checked",
+        "actual_speaker_checked",
+        "normal_spoken_turn_confirmed",
+    ]
+    assert manfred_context["raw_transcript_fields_exposed"] is False
+    assert manfred_context["candidate_raw_text_fields_exposed"] is False
     telegram_action_context = proof_requirements["telegram_audiobook_live_delivery"]["action_context"]
     assert telegram_action_context["kind"] == "telegram_audiobook_voice_choice"
     assert telegram_action_context["operator_action"] == "choose_sent_replacement_voice_sample"
@@ -488,6 +513,17 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert receipt["operator_action_queue"][0]["author_gender_matched_candidates_only"] is True
     assert receipt["operator_action_queue"][0]["sent_samples_cover_expected"] is True
     assert receipt["operator_action_queue"][0]["duplicate_suppression"]["active_pending_voice_job_count"] == 1
+    manfred_action = next(
+        item for item in receipt["operator_action_queue"] if item["key"] == "manfred_stt_tts_realtime_conversation"
+    )
+    assert manfred_action["user_action_required"] is True
+    assert manfred_action["delivery_policy"] == "action_required_only"
+    assert manfred_action["telegram_push_allowed"] is True
+    assert manfred_action["manual_only"] is True
+    assert manfred_action["ci_must_not_auto_assert"] is True
+    assert manfred_action["required_check_count"] == 3
+    assert manfred_action["raw_transcript_fields_exposed"] is False
+    assert manfred_action["candidate_raw_text_fields_exposed"] is False
     morning_action = next(
         item for item in receipt["operator_action_queue"] if item["key"] == "morning_brief_operator_acceptance"
     )

@@ -378,6 +378,8 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                 "raw_acceptance_text_exposed",
                 "raw_actor_identity_exposed",
                 "raw_object_reference_exposed",
+                "raw_transcript_fields_exposed",
+                "candidate_raw_text_fields_exposed",
             ):
                 if acceptance_private_key in row and row.get(acceptance_private_key) is not False:
                     issues.append(f"operator_action_queue must not expose {acceptance_private_key}: {action_key}")
@@ -408,6 +410,18 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                     issues.append(f"real-world acceptance capture may push only as an action-required item: {action_key}")
                 if row.get("non_action_progress_push_allowed") is not False:
                     issues.append(f"real-world acceptance capture must not allow progress pushes: {action_key}")
+            if action_key == "manfred_stt_tts_realtime_conversation":
+                if row.get("manual_only") is True:
+                    if row.get("user_action_required") is not True:
+                        issues.append("manual Manfred room attestation must require user action")
+                    if row.get("delivery_policy") != "action_required_only":
+                        issues.append("manual Manfred room attestation must be action-required only")
+                    if row.get("telegram_push_allowed") is not True:
+                        issues.append("manual Manfred room attestation may push only as an action-required item")
+                    if row.get("ci_must_not_auto_assert") is not True:
+                        issues.append("manual Manfred room attestation must preserve ci_must_not_auto_assert")
+                    if int(row.get("required_check_count") or 0) <= 0:
+                        issues.append("manual Manfred room attestation must include required_check_count")
             if row.get("stale_source_receipts"):
                 if user_action_required:
                     issues.append(f"stale source refresh must not require user action: {action_key}")
