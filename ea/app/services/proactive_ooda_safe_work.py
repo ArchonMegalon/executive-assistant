@@ -388,14 +388,21 @@ def build_safe_work_result(
     stage_payload = stage.get("payload") if isinstance(stage.get("payload"), Mapping) else {}
     work_type = str(order.get("work_type") or "research").strip() or "research"
     candidate_items = _candidate_items(input_contract=input_contract, stage_payload=stage_payload)
+    context = _candidate_evaluation_context(input_contract=input_contract, stage_payload=stage_payload)
     if not candidate_items and network_fetch_enabled:
         candidate_items = _research_candidate_items(
             input_contract=input_contract,
             stage_payload=stage_payload,
+            context=context,
             limit=network_fetch_limit,
             timeout_seconds=network_fetch_timeout_seconds,
         )
-    context = _candidate_evaluation_context(input_contract=input_contract, stage_payload=stage_payload)
+    search_plan = _research_search_plan(
+        input_contract=input_contract,
+        stage_payload=stage_payload,
+        context=context,
+        limit=network_fetch_limit,
+    )
     page_checks = _page_checks(
         input_contract=input_contract,
         stage_payload=stage_payload,
@@ -518,6 +525,7 @@ def build_safe_work_result(
             "network_fetch_success_count": sum(1 for check in page_checks if check.get("reachable") is True),
             "search_candidate_count": sum(1 for item in candidate_items if str(item.get("candidate_source") or "") == "search_result"),
             "search_queries_used": _search_queries(input_contract=input_contract, stage_payload=stage_payload, limit=network_fetch_limit),
+            "research_search_plan": search_plan,
             "page_checks": page_checks,
             "browser_action_receipt_ref": str(browser_action_receipt.get("receipt_ref") or "").strip(),
             "browser_action_status": str(browser_action_receipt.get("status") or "").strip(),
@@ -651,11 +659,14 @@ def _research_candidate_items(
     *,
     input_contract: Mapping[str, Any],
     stage_payload: Mapping[str, Any],
+    context: Mapping[str, Any],
     limit: int,
     timeout_seconds: int,
 ) -> list[dict[str, Any]]:
     queries = _search_queries(input_contract=input_contract, stage_payload=stage_payload, limit=limit)
     if not queries:
+        return []
+    if _flat_provider_search_blockers(context=context, queries=queries):
         return []
     candidates: list[dict[str, Any]] = []
     seen_urls: set[str] = set()
@@ -680,6 +691,45 @@ def _research_candidate_items(
             if len(candidates) >= max_results:
                 return candidates
     return candidates
+
+
+def _research_search_plan(
+    *,
+    input_contract: Mapping[str, Any],
+    stage_payload: Mapping[str, Any],
+    context: Mapping[str, Any],
+    limit: int,
+) -> dict[str, Any]:
+    queries = _search_queries(input_contract=input_contract, stage_payload=stage_payload, limit=limit)
+    blockers = _flat_provider_search_blockers(context=context, queries=queries)
+    location_context = _mapping_value(context.get("location_context"))
+    return {
+        "policy": "typed_source_search_required",
+        "mode": "provider_local_service" if context.get("provider_discovery_relevant") else "general_research",
+        "query_count": len(queries),
+        "target_host_count": len(tuple(context.get("target_hosts") or ())),
+        "provider_query_terms": list(context.get("provider_query_terms") or ())[:8],
+        "location_terms": list(_location_query_variants(location_context)),
+        "flat_search_blockers": blockers,
+        "flat_search_allowed": not blockers,
+    }
+
+
+def _flat_provider_search_blockers(*, context: Mapping[str, Any], queries: Iterable[str]) -> list[str]:
+    if not context.get("provider_discovery_relevant"):
+        return []
+    query_list = [str(query or "").strip() for query in queries if str(query or "").strip()]
+    blockers: list[str] = []
+    if context.get("provider_search_query_too_generic"):
+        blockers.append("provider_query_too_generic")
+    if not query_list:
+        blockers.append("provider_search_query_missing")
+    target_hosts = tuple(context.get("target_hosts") or ())
+    has_source_scope = bool(target_hosts) or any("site:" in query.lower() for query in query_list)
+    has_location_scope = _provider_queries_have_location_scope(context=context, queries=query_list)
+    if not has_source_scope and not has_location_scope:
+        blockers.append("provider_search_missing_locality_or_source_scope")
+    return list(dict.fromkeys(blockers))
 
 
 def _rank_candidate_items(
@@ -1983,6 +2033,20 @@ def _search_query_has_locality(query: str, location_variants: Iterable[str]) -> 
     return any(_ascii_fold_text(str(variant or "").strip()) in normalized_query for variant in location_variants if str(variant or "").strip())
 
 
+def _provider_queries_have_location_scope(*, context: Mapping[str, Any], queries: Iterable[str]) -> bool:
+    location_variants = _location_query_variants(_mapping_value(context.get("location_context")))
+    for query in queries:
+        normalized = _ascii_fold_text(str(query or ""))
+        if location_variants and _search_query_has_locality(normalized, location_variants):
+            return True
+        tokens = set(re.findall(r"[a-z0-9]{3,}", normalized))
+        if tokens & _LOCATION_LIKE_QUERY_TOKENS:
+            return True
+        if re.search(r"\b\d{4,5}\b", normalized):
+            return True
+    return False
+
+
 def _label_from_url(url: str) -> str:
     normalized = str(url or "").strip()
     return normalized.split("//", 1)[-1].split("/", 1)[0] or normalized or "link"
@@ -2059,6 +2123,18 @@ def _safe_work_audit(
                 "code": "no_provider_safe_candidate",
                 "severity": "warn",
                 "detail": "Observed candidates were retained for audit, but none looked safe enough to recommend as a direct provider contact.",
+            }
+        )
+    flat_search_blockers = _flat_provider_search_blockers(
+        context=context,
+        queries=_search_queries(input_contract=input_contract, stage_payload=stage_payload, limit=6),
+    )
+    for blocker in flat_search_blockers:
+        issues.append(
+            {
+                "code": f"flat_provider_search_blocked:{blocker}",
+                "severity": "warn",
+                "detail": "Provider discovery needs a typed local/source plan before EA can trust web-search results.",
             }
         )
     if work_type == "draft" and str(stage_payload.get("draft_mode") or "").strip().lower() == "research_backed_inquiry":

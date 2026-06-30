@@ -495,6 +495,49 @@ def test_build_safe_work_result_synthesizes_research_backed_draft_from_best_cont
     assert result["shortlist"][0]["contact_email"] == "office@rauchfang.example.test"
 
 
+def test_build_safe_work_result_blocks_flat_provider_search_without_locality_or_source_scope(monkeypatch) -> None:
+    packet = _packet_with_cart_work()
+    request_text = "suche mir einen Rauchfangkehrer fuer ein Gutachten"
+    packet["stage"]["payload"] = {  # type: ignore[index]
+        "kind": "approval_packet",
+        "summary": "Provider shortlist ready.",
+        "work_type": "draft",
+        "draft_mode": "research_backed_inquiry",
+        "draft_request_text": request_text,
+        "research_query": "Rauchfangkehrer Gutachten Zimmerkamin Abluftrohr",
+        "search_queries": ["Rauchfangkehrer Gutachten Zimmerkamin Abluftrohr"],
+        "selection_criteria": ["contact details visible", "reachability", "fit to request"],
+        "locale": "de",
+    }
+    packet["safe_work_order"]["work_type"] = "draft"  # type: ignore[index]
+    packet["safe_work_order"]["input_contract"] = {  # type: ignore[index]
+        "draft_mode": "research_backed_inquiry",
+        "draft_request_text": request_text,
+        "research_query": "Rauchfangkehrer Gutachten Zimmerkamin Abluftrohr",
+        "search_queries": ["Rauchfangkehrer Gutachten Zimmerkamin Abluftrohr"],
+        "selection_criteria": ["contact details visible", "reachability", "fit to request"],
+        "expected_artifacts": ["shortlist", "draft_text"],
+        "private_payload_available": True,
+    }
+
+    def fail_urlopen(*_args, **_kwargs):
+        raise AssertionError("flat provider search should be blocked before network fetch")
+
+    monkeypatch.setattr("urllib.request.urlopen", fail_urlopen)
+
+    result = build_safe_work_result(packet, network_fetch_enabled=True, network_fetch_limit=4, network_fetch_timeout_seconds=3)
+
+    assert result["status"] == "blocked_needs_research_input"
+    assert result["recommended_option_or_draft"] == {}
+    assert result["execution_receipt"]["network_fetch_count"] == 0
+    plan = result["execution_receipt"]["research_search_plan"]
+    assert plan["mode"] == "provider_local_service"
+    assert plan["flat_search_allowed"] is False
+    assert plan["flat_search_blockers"] == ["provider_search_missing_locality_or_source_scope"]
+    issue_codes = [issue["code"] for issue in result["audit"]["issues"]]
+    assert "flat_provider_search_blocked:provider_search_missing_locality_or_source_scope" in issue_codes
+
+
 def test_build_safe_work_result_humanizes_german_onsite_provider_draft_with_contact_context() -> None:
     packet = _packet_with_cart_work()
     request_text = (

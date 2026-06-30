@@ -76,7 +76,7 @@
           "present": true,
           "source_fresh_to_current_source": true,
           "source_git_head": "1317ea9b91396170a4e900f7de9aa86e31c12fe1",
-          "source_state_fingerprint": "ec99fe3ae78012ac85975e2d37b41cd4d093e46b1d7b3fa94908246555c77b42",
+          "source_state_fingerprint": "c287e7ab8b818b36bfe1f4c6469d33e55eac938cf0677a79581330e55f252459",
           "status": "pass"
         },
         {
@@ -85,7 +85,7 @@
           "present": true,
           "source_fresh_to_current_source": true,
           "source_git_head": "1317ea9b91396170a4e900f7de9aa86e31c12fe1",
-          "source_state_fingerprint": "ec99fe3ae78012ac85975e2d37b41cd4d093e46b1d7b3fa94908246555c77b42",
+          "source_state_fingerprint": "c287e7ab8b818b36bfe1f4c6469d33e55eac938cf0677a79581330e55f252459",
           "status": "ready_with_live_receipt"
         }
       ],
@@ -189,36 +189,6 @@
       "title": "Telegram audiobook live delivery receipt"
     },
     {
-      "action_context": {
-        "attempted_playback_count": 1,
-        "callback_tokens_exposed": false,
-        "delivery_policy": "queue_only",
-        "failed_playback_count": 1,
-        "first_failure_reason": "play_failed",
-        "instruction": "Repair the WhatsApp/Audiobookshelf public-share playback route, then rerun the WhatsApp audiobook playback verifier.",
-        "kind": "public_share_playback_failure",
-        "media_error": true,
-        "media_error_code": 4,
-        "non_action_progress_push_allowed": false,
-        "public_share_host": "audiobookshelf.girschele.com",
-        "raw_chat_ids_exposed": false,
-        "raw_private_context_exposed": false,
-        "raw_public_share_url_exposed": false,
-        "raw_secret_exposed": false,
-        "raw_token_exposed": false,
-        "raw_track_url_exposed": false,
-        "raw_voice_ids_exposed": false,
-        "repair_commands": [
-          "PYTHONPATH=ea python3 ea/scripts/verify_whatsapp_audiobook_public_share_playback.py",
-          "PYTHONPATH=ea python3 ea/scripts/materialize_whatsapp_audiobook_operator_proof_bundle.py",
-          "python3 scripts/materialize_continuous_improvement_goal_posture.py",
-          "python3 scripts/verify_continuous_improvement_goal_posture.py --pretty"
-        ],
-        "telegram_push_allowed": false,
-        "track_content_type": "text/html",
-        "track_response_status": 500,
-        "user_action_required": false
-      },
       "capture_surfaces": [
         ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
         ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json",
@@ -239,27 +209,27 @@
           "contract_name": "ea.whatsapp_audiobook_live_delivery_receipt.v1",
           "path": ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "4f88970eeac244fea7eb089872fa2e8884c81f26",
-          "source_state_fingerprint": "8b7e28e3751ec6a7d6bf232d566853206f93c303a69c3fea2700474461073cfa",
-          "status": "pass"
+          "source_fresh_to_current_source": true,
+          "source_git_head": "1317ea9b91396170a4e900f7de9aa86e31c12fe1",
+          "source_state_fingerprint": "49b8df96cf969f2e6df60162a6baddf2c2efbbd855277db6d026a105fec59b30",
+          "status": "blocked"
         },
         {
           "contract_name": "ea.whatsapp_audiobook_operator_proof_bundle.v1",
           "path": ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "4f88970eeac244fea7eb089872fa2e8884c81f26",
-          "source_state_fingerprint": "8b7e28e3751ec6a7d6bf232d566853206f93c303a69c3fea2700474461073cfa",
-          "status": "pass"
+          "source_fresh_to_current_source": true,
+          "source_git_head": "1317ea9b91396170a4e900f7de9aa86e31c12fe1",
+          "source_state_fingerprint": "49b8df96cf969f2e6df60162a6baddf2c2efbbd855277db6d026a105fec59b30",
+          "status": "blocked"
         },
         {
           "contract_name": "ea.whatsapp_audiobook_public_share_playback_e2e.v1",
           "path": ".codex-studio/published/whatsapp_audiobook_public_share_playback.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "4f88970eeac244fea7eb089872fa2e8884c81f26",
-          "source_state_fingerprint": "8b7e28e3751ec6a7d6bf232d566853206f93c303a69c3fea2700474461073cfa",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "1317ea9b91396170a4e900f7de9aa86e31c12fe1",
+          "source_state_fingerprint": "49b8df96cf969f2e6df60162a6baddf2c2efbbd855277db6d026a105fec59b30",
           "status": "failed"
         }
       ],
@@ -270,7 +240,7 @@
   "blocking_reasons": [
     "deliver:manfred_speech=blocked_realtime_prerequisites",
     "deliver:telegram_audiobook=blocked",
-    "deliver:whatsapp_audiobook=failed",
+    "deliver:whatsapp_audiobook=blocked",
     "prove=blocked_real_world_acceptance"
   ],
   "contract_name": "ea.continuous_improvement_goal_posture.v1",
@@ -281,7 +251,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-06-30T08:58:40Z",
+  "generated_at": "2026-06-30T09:27:30Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -317,7 +287,7 @@
           "present": true,
           "source_fresh_to_current_source": true,
           "source_git_head": "1317ea9b91396170a4e900f7de9aa86e31c12fe1",
-          "source_state_fingerprint": "ec99fe3ae78012ac85975e2d37b41cd4d093e46b1d7b3fa94908246555c77b42",
+          "source_state_fingerprint": "c287e7ab8b818b36bfe1f4c6469d33e55eac938cf0677a79581330e55f252459",
           "status": "pass"
         }
       ],
@@ -461,33 +431,33 @@
               "contract_name": "ea.whatsapp_audiobook_operator_proof_bundle.v1",
               "path": ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json",
               "present": true,
-              "source_fresh_to_current_source": false,
-              "source_git_head": "4f88970eeac244fea7eb089872fa2e8884c81f26",
-              "source_state_fingerprint": "8b7e28e3751ec6a7d6bf232d566853206f93c303a69c3fea2700474461073cfa",
-              "status": "pass"
+              "source_fresh_to_current_source": true,
+              "source_git_head": "1317ea9b91396170a4e900f7de9aa86e31c12fe1",
+              "source_state_fingerprint": "49b8df96cf969f2e6df60162a6baddf2c2efbbd855277db6d026a105fec59b30",
+              "status": "blocked"
             },
             {
               "contract_name": "ea.whatsapp_audiobook_live_delivery_receipt.v1",
               "path": ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
               "present": true,
-              "source_fresh_to_current_source": false,
-              "source_git_head": "4f88970eeac244fea7eb089872fa2e8884c81f26",
-              "source_state_fingerprint": "8b7e28e3751ec6a7d6bf232d566853206f93c303a69c3fea2700474461073cfa",
-              "status": "pass"
+              "source_fresh_to_current_source": true,
+              "source_git_head": "1317ea9b91396170a4e900f7de9aa86e31c12fe1",
+              "source_state_fingerprint": "49b8df96cf969f2e6df60162a6baddf2c2efbbd855277db6d026a105fec59b30",
+              "status": "blocked"
             },
             {
               "contract_name": "ea.whatsapp_audiobook_public_share_playback_e2e.v1",
               "path": ".codex-studio/published/whatsapp_audiobook_public_share_playback.generated.json",
               "present": true,
-              "source_fresh_to_current_source": false,
-              "source_git_head": "4f88970eeac244fea7eb089872fa2e8884c81f26",
-              "source_state_fingerprint": "8b7e28e3751ec6a7d6bf232d566853206f93c303a69c3fea2700474461073cfa",
+              "source_fresh_to_current_source": true,
+              "source_git_head": "1317ea9b91396170a4e900f7de9aa86e31c12fe1",
+              "source_state_fingerprint": "49b8df96cf969f2e6df60162a6baddf2c2efbbd855277db6d026a105fec59b30",
               "status": "failed"
             }
           ],
-          "status": "failed",
+          "status": "blocked",
           "status_class": "blocking",
-          "summary": "intake pass; bundle pass; live pass; share failed; voice waiting",
+          "summary": "intake pass; bundle blocked; live blocked; share failed; voice waiting",
           "title": "WhatsApp audiobook delivery"
         }
       ],
@@ -529,7 +499,7 @@
           "present": true,
           "source_fresh_to_current_source": true,
           "source_git_head": "1317ea9b91396170a4e900f7de9aa86e31c12fe1",
-          "source_state_fingerprint": "ec99fe3ae78012ac85975e2d37b41cd4d093e46b1d7b3fa94908246555c77b42",
+          "source_state_fingerprint": "c287e7ab8b818b36bfe1f4c6469d33e55eac938cf0677a79581330e55f252459",
           "status": "pass"
         }
       ],
@@ -655,44 +625,27 @@
       "user_action_required": false
     },
     {
-      "attempted_playback_count": 1,
       "callback_tokens_exposed": false,
       "delivery_policy": "queue_only",
       "evidence_kind": "live_delivery_receipt",
-      "failed_playback_count": 1,
-      "first_failure_reason": "play_failed",
-      "instruction": "Repair the WhatsApp/Audiobookshelf public-share playback route, then rerun the WhatsApp audiobook playback verifier.",
       "interruption_budget": "none",
       "irreversible_actions_consent_gated": true,
       "key": "whatsapp_audiobook_live_delivery",
       "lens": "deliver",
-      "media_error": true,
-      "media_error_code": 4,
       "next_action": "capture_passing_whatsapp_audiobook_live_delivery_receipt",
       "next_action_href": "/integrations/whatsapp",
       "next_action_label": "Open WhatsApp",
       "next_action_method": "get",
       "non_action_progress_push_allowed": false,
-      "public_share_host": "audiobookshelf.girschele.com",
       "quiet_hours_respected": true,
       "raw_chat_ids_exposed": false,
       "raw_private_context_exposed": false,
-      "raw_public_share_url_exposed": false,
       "raw_secret_exposed": false,
       "raw_token_exposed": false,
-      "raw_track_url_exposed": false,
       "raw_voice_ids_exposed": false,
-      "repair_commands": [
-        "PYTHONPATH=ea python3 ea/scripts/verify_whatsapp_audiobook_public_share_playback.py",
-        "PYTHONPATH=ea python3 ea/scripts/materialize_whatsapp_audiobook_operator_proof_bundle.py",
-        "python3 scripts/materialize_continuous_improvement_goal_posture.py",
-        "python3 scripts/verify_continuous_improvement_goal_posture.py --pretty"
-      ],
       "required_next_receipt": "passing WhatsApp audiobook live delivery receipt",
       "telegram_push_allowed": false,
       "title": "WhatsApp audiobook live delivery receipt",
-      "track_content_type": "text/html",
-      "track_response_status": 500,
       "user_action_required": false
     },
     {
@@ -774,6 +727,6 @@
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
   "source_git_head": "1317ea9b91396170a4e900f7de9aa86e31c12fe1",
-  "source_state_fingerprint": "ec99fe3ae78012ac85975e2d37b41cd4d093e46b1d7b3fa94908246555c77b42",
+  "source_state_fingerprint": "c287e7ab8b818b36bfe1f4c6469d33e55eac938cf0677a79581330e55f252459",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }

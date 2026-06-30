@@ -40,7 +40,7 @@
     "verifier_present": true
   },
   "contract_name": "ea.telegram_business_signal_readiness.v1",
-  "generated_at": "2026-06-30T08:53:26Z",
+  "generated_at": "2026-06-30T09:27:12Z",
   "generated_by": "scripts/materialize_telegram_business_signal_readiness.py",
   "head_semantics": "source_state",
   "live_webhook_probe": {
@@ -134,7 +134,7 @@
     }
   },
   "source_git_head": "1317ea9b91396170a4e900f7de9aa86e31c12fe1",
-  "source_state_fingerprint": "ec99fe3ae78012ac85975e2d37b41cd4d093e46b1d7b3fa94908246555c77b42",
+  "source_state_fingerprint": "c287e7ab8b818b36bfe1f4c6469d33e55eac938cf0677a79581330e55f252459",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "pass",
   "telegram_notification": {

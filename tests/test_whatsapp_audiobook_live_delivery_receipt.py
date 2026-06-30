@@ -422,6 +422,36 @@ def test_live_whatsapp_audiobook_delivery_receipt_blocks_missing_whatsapp_delive
     assert receipt["next_action"] == "run_whatsapp_action_processor_audiobook_followup_to_send_public_share_link"
 
 
+def test_live_whatsapp_audiobook_delivery_receipt_routes_current_playback_failure_to_playback_repair(
+    tmp_path: Path,
+) -> None:
+    module = _load_script("materialize_whatsapp_audiobook_live_delivery_receipt")
+    current = _job_receipt(voice_selected_by_user=True, player_scoped_reference_status="blocked")
+    current["audiobookshelf_import"]["public_share_playback_e2e_status"] = "failed"
+    current["audiobookshelf_import"]["public_share_playback_e2e_track_response_status"] = 500
+    current["audiobookshelf_import"]["public_share_playback_e2e_track_content_type"] = "text/html"
+    current["audiobookshelf_import"]["public_share_playback_e2e_duration_seconds"] = 0
+    current["audiobookshelf_import"]["public_share_playback_e2e_current_time_after_play_seconds"] = 0
+    current["audiobookshelf_import"]["public_share_playback_e2e_media_error_present"] = True
+    superseded = _job_receipt(job_id="older-superseded", voice_selected_by_user=True)
+    superseded["status"] = "superseded_duplicate"
+
+    receipt = module.build_receipt(
+        output_path=tmp_path / "playback-failed.generated.json",
+        job_receipts=[current, superseded],
+        generated_at="2026-06-21T08:31:00Z",
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["live_delivery_claim_allowed"] is False
+    assert receipt["selected_delivery"]["status"] == "audiobookshelf_imported"
+    assert receipt["selected_delivery"]["machine_playback_e2e_track_response_status"] == 500
+    assert receipt["stage_summary"]["counts"]["waiting_machine_playback_verification"] == 1
+    assert receipt["next_action"] == "run_public_share_machine_playback_e2e_before_claiming_live_delivery"
+    assert receipt["pending_user_selected_voice_job_count"] == 1
+    assert receipt["pending_user_selected_voice_jobs"][0]["status"] == "audiobookshelf_imported"
+
+
 def test_live_whatsapp_audiobook_delivery_receipt_waits_for_provider_pacing(
     tmp_path: Path,
 ) -> None:

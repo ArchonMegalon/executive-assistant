@@ -421,6 +421,26 @@ def _pending_user_selected_job(candidate: dict[str, object]) -> bool:
     )
 
 
+def _candidate_is_superseded(candidate: dict[str, object]) -> bool:
+    return str(candidate.get("status") or "").strip() == "superseded_duplicate"
+
+
+def _selected_candidate_pool(candidates: list[dict[str, object]]) -> list[dict[str, object]]:
+    current = [candidate for candidate in candidates if not _candidate_is_superseded(candidate)]
+    return current or candidates
+
+
+def _pending_job_is_playback_only(row: dict[str, object]) -> bool:
+    return (
+        str(row.get("status") or "").strip() == "audiobookshelf_imported"
+        and str(row.get("voice_selection_status") or "").strip() == "selected_by_user"
+        and not bool(row.get("voice_selection_waiting"))
+        and not bool(row.get("replacement_choice_pending"))
+        and not bool(row.get("external_tts_blocker_retryable"))
+        and not str(row.get("scheduler_retry_after") or "").strip()
+    )
+
+
 def _candidate_source_key(candidate: dict[str, object]) -> str:
     job = _as_dict(candidate.get("raw"))
     source = _as_dict(job.get("source"))
@@ -441,6 +461,8 @@ def _pending_user_selected_job_still_blocks(
     valid_user_selected_source_keys: set[str],
 ) -> bool:
     if not _pending_user_selected_job(candidate):
+        return False
+    if _candidate_is_superseded(candidate):
         return False
     source_key = _candidate_source_key(candidate)
     return not source_key or source_key not in valid_user_selected_source_keys
@@ -662,6 +684,10 @@ def _next_action(
         return "choose_whatsapp_audiobook_voice_sample"
     if stages.get("waiting_provider_pacing"):
         return "wait_until_provider_retry_after_then_resume_whatsapp_audiobook_render"
+    if stages.get("waiting_machine_playback_verification") and (
+        not pending or all(_pending_job_is_playback_only(row) for row in pending)
+    ):
+        return "run_public_share_machine_playback_e2e_before_claiming_live_delivery"
     if pending:
         return "finish_user_selected_voice_audiobook_before_sending_whatsapp_public_share_link"
     if stages.get("render_or_import_pending"):
@@ -783,9 +809,10 @@ def build_receipt(
         if _is_whatsapp_job(job) and _job_matches_runtime_session(job, readiness_receipt=readiness_receipt)
     ]
     candidates = [_candidate(job) for job in jobs]
-    valid_candidates = [candidate for candidate in candidates if not candidate["failed_codes"]]
+    selected_pool = _selected_candidate_pool(candidates)
+    valid_candidates = [candidate for candidate in selected_pool if not candidate["failed_codes"]]
     selected = valid_candidates[0] if valid_candidates else (
-        min(candidates, key=lambda candidate: len(list(candidate.get("failed_codes") or []))) if candidates else {}
+        min(selected_pool, key=lambda candidate: len(list(candidate.get("failed_codes") or []))) if selected_pool else {}
     )
     valid_user_selected_source_keys = {
         key
