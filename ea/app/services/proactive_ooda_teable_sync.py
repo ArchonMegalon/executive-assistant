@@ -493,6 +493,7 @@ def _item_projection_row(
     comparison_rows = [dict(row) for row in safe_work_result.get("comparison_table") or [] if isinstance(row, Mapping)] if safe_work_result else []
     recommended_comparison = next((row for row in comparison_rows if row.get("recommended") is True), {})
     receipt_details = dict(safe_work_result.get("execution_receipt") or {}) if safe_work_result else {}
+    context_fit = dict(receipt_details.get("context_fit_receipt") or {})
     search_queries = _search_query_texts(receipt_details)
     return {
         "projection_id": item_projection_id,
@@ -537,11 +538,16 @@ def _item_projection_row(
         "comparison_row_count": len(comparison_rows),
         "search_candidate_count": int(receipt_details.get("search_candidate_count") or 0),
         "search_query_count": len(search_queries),
+        "context_fit_location_context_present": bool(context_fit.get("location_context_present")),
+        "context_fit_locality_context_applied": bool(context_fit.get("locality_context_applied")),
+        "context_fit_country_context_applied": bool(context_fit.get("country_context_applied")),
         "recommendation_reasons": list(recommended_comparison.get("recommendation_reasons") or []),
         "constraint_violations": list(recommended_comparison.get("constraint_violations") or []),
         "approval_prompt": _compact_text(safe_work_result.get("approval_prompt"), 500),
         "privacy_raw_principal_id_stored": False,
         "privacy_raw_signal_ref_stored": False,
+        "privacy_raw_location_context_stored": False,
+        "privacy_raw_recipient_context_stored": False,
     }
 
 
@@ -559,6 +565,7 @@ def _safe_work_projection_row(
     shortlist = [dict(row) for row in safe_work_result.get("shortlist") or [] if isinstance(row, Mapping)]
     comparison_rows = [dict(row) for row in safe_work_result.get("comparison_table") or [] if isinstance(row, Mapping)]
     receipt_details = dict(safe_work_result.get("execution_receipt") or {})
+    context_fit = dict(receipt_details.get("context_fit_receipt") or {})
     search_queries = _search_query_texts(receipt_details)
     risks = [str(item).strip() for item in safe_work_result.get("risks_or_tradeoffs") or [] if str(item).strip()]
     projection_id = _safe_work_projection_id(safe_work_result=safe_work_result, item_projection_id=item_projection_id)
@@ -596,8 +603,31 @@ def _safe_work_projection_row(
         "search_candidate_count": int(receipt_details.get("search_candidate_count") or 0),
         "search_query_count": len(search_queries),
         "search_queries_used": search_queries[:6],
+        "context_fit_provider_discovery_relevant": bool(context_fit.get("provider_discovery_relevant")),
+        "context_fit_location_context_present": bool(context_fit.get("location_context_present")),
+        "context_fit_locality_context_applied": bool(context_fit.get("locality_context_applied")),
+        "context_fit_country_context_applied": bool(context_fit.get("country_context_applied")),
+        "context_fit_location_phrase_count": int(context_fit.get("location_phrase_count") or 0),
+        "context_fit_city_term_count": int(context_fit.get("city_term_count") or 0),
+        "context_fit_postal_code_count": int(context_fit.get("postal_code_count") or 0),
+        "context_fit_country_code_count": int(context_fit.get("country_code_count") or 0),
+        "context_fit_country_name_count": int(context_fit.get("country_name_count") or 0),
+        "context_fit_locality_context_hashes": [
+            str(item).strip()
+            for item in list(context_fit.get("locality_context_hashes") or [])
+            if str(item).strip()
+        ][:8],
+        "context_fit_country_context_hashes": [
+            str(item).strip()
+            for item in list(context_fit.get("country_context_hashes") or [])
+            if str(item).strip()
+        ][:4],
+        "context_fit_provider_query_term_count": int(context_fit.get("provider_query_term_count") or 0),
+        "context_fit_provider_search_query_too_generic": bool(context_fit.get("provider_search_query_too_generic")),
         "privacy_raw_principal_id_stored": False,
         "privacy_raw_signal_ref_stored": False,
+        "privacy_raw_location_context_stored": False,
+        "privacy_raw_recipient_context_stored": False,
         "privacy_private_links_may_be_present": bool(dict(safe_work_result.get("privacy") or {}).get("private_links_may_be_present")),
     }
 

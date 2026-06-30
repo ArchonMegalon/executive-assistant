@@ -60,6 +60,25 @@ def _digest_and_safe_work(*, include_approval_surface: bool = False):
         "site:example.test vendor approval packet",
         "best reversible vendor option",
     ]
+    result["execution_receipt"]["context_fit_receipt"] = {
+        "schema": "proactive_ooda.context_fit_receipt.v1",
+        "provider_discovery_relevant": True,
+        "location_context_present": True,
+        "locality_context_applied": True,
+        "country_context_applied": True,
+        "location_phrase_count": 1,
+        "city_term_count": 1,
+        "postal_code_count": 1,
+        "country_code_count": 1,
+        "country_name_count": 1,
+        "locality_context_hashes": ["a" * 64, "b" * 64, "c" * 64],
+        "country_context_hashes": ["d" * 64, "e" * 64],
+        "provider_query_term_count": 2,
+        "provider_search_query_too_generic": False,
+        "raw_location_context_stored": False,
+        "raw_recipient_context_stored": False,
+        "raw_principal_id_stored": False,
+    }
     notification_result = {
         "message_id": 123,
         "route_error": "whatsapp_web_session_not_ready:qr_required",
@@ -129,6 +148,11 @@ def test_proactive_ooda_teable_projection_keeps_important_artifacts_without_raw_
     assert records["proactive_ooda_items"][0]["recommended_label"] == "Vendor A"
     assert records["proactive_ooda_items"][0]["search_candidate_count"] == 2
     assert records["proactive_ooda_items"][0]["search_query_count"] == 2
+    assert records["proactive_ooda_items"][0]["context_fit_location_context_present"] is True
+    assert records["proactive_ooda_items"][0]["context_fit_locality_context_applied"] is True
+    assert records["proactive_ooda_items"][0]["context_fit_country_context_applied"] is True
+    assert records["proactive_ooda_items"][0]["privacy_raw_location_context_stored"] is False
+    assert records["proactive_ooda_items"][0]["privacy_raw_recipient_context_stored"] is False
     assert records["proactive_ooda_safe_work"][0]["recommended_url"] == "https://example.test/vendor-a"
     assert records["proactive_ooda_safe_work"][0]["shortlist_count"] == 2
     assert records["proactive_ooda_safe_work"][0]["network_fetch_enabled"] is True
@@ -138,6 +162,22 @@ def test_proactive_ooda_teable_projection_keeps_important_artifacts_without_raw_
         "site:example.test vendor approval packet",
         "best reversible vendor option",
     ]
+    assert records["proactive_ooda_safe_work"][0]["context_fit_provider_discovery_relevant"] is True
+    assert records["proactive_ooda_safe_work"][0]["context_fit_location_context_present"] is True
+    assert records["proactive_ooda_safe_work"][0]["context_fit_locality_context_applied"] is True
+    assert records["proactive_ooda_safe_work"][0]["context_fit_country_context_applied"] is True
+    assert records["proactive_ooda_safe_work"][0]["context_fit_location_phrase_count"] == 1
+    assert records["proactive_ooda_safe_work"][0]["context_fit_city_term_count"] == 1
+    assert records["proactive_ooda_safe_work"][0]["context_fit_postal_code_count"] == 1
+    assert records["proactive_ooda_safe_work"][0]["context_fit_country_code_count"] == 1
+    assert records["proactive_ooda_safe_work"][0]["context_fit_country_name_count"] == 1
+    assert records["proactive_ooda_safe_work"][0]["context_fit_locality_context_hashes"] == ["a" * 64, "b" * 64, "c" * 64]
+    assert records["proactive_ooda_safe_work"][0]["context_fit_country_context_hashes"] == ["d" * 64, "e" * 64]
+    assert records["proactive_ooda_safe_work"][0]["context_fit_provider_query_term_count"] == 2
+    assert records["proactive_ooda_safe_work"][0]["context_fit_provider_search_query_too_generic"] is False
+    assert records["proactive_ooda_safe_work"][0]["privacy_raw_location_context_stored"] is False
+    assert records["proactive_ooda_safe_work"][0]["privacy_raw_recipient_context_stored"] is False
+    assert "1200 Wien" not in serialized
 
 
 def test_proactive_ooda_teable_projection_includes_pending_approval_surface_without_raw_refs() -> None:
@@ -196,6 +236,17 @@ def test_proactive_ooda_teable_bootstrap_schema_includes_search_projection_field
     assert "search_candidate_count" in safe_work_fields
     assert "search_query_count" in safe_work_fields
     assert "search_queries_used" in safe_work_fields
+    assert "context_fit_location_context_present" in item_fields
+    assert "context_fit_locality_context_applied" in item_fields
+    assert "context_fit_country_context_applied" in item_fields
+    assert "context_fit_provider_discovery_relevant" in safe_work_fields
+    assert "context_fit_location_context_present" in safe_work_fields
+    assert "context_fit_locality_context_applied" in safe_work_fields
+    assert "context_fit_country_context_applied" in safe_work_fields
+    assert "context_fit_location_phrase_count" in safe_work_fields
+    assert "context_fit_locality_context_hashes" in safe_work_fields
+    assert "privacy_raw_location_context_stored" in safe_work_fields
+    assert "privacy_raw_recipient_context_stored" in safe_work_fields
 
 
 def test_proactive_ooda_teable_bootstrap_schema_includes_approval_outcome_projection_fields() -> None:
