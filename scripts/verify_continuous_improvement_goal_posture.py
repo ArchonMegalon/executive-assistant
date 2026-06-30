@@ -374,6 +374,13 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
             for private_key in ("raw_chat_ids_exposed", "raw_token_exposed", "raw_secret_exposed"):
                 if row.get(private_key) is not False:
                     issues.append(f"operator_action_queue must not expose {private_key}: {action_key}")
+            for acceptance_private_key in (
+                "raw_acceptance_text_exposed",
+                "raw_actor_identity_exposed",
+                "raw_object_reference_exposed",
+            ):
+                if acceptance_private_key in row and row.get(acceptance_private_key) is not False:
+                    issues.append(f"operator_action_queue must not expose {acceptance_private_key}: {action_key}")
             if row.get("raw_voice_ids_exposed") is not False:
                 issues.append(f"operator_action_queue must not expose raw voice IDs: {action_key}")
             if row.get("callback_tokens_exposed") is not False:
@@ -392,6 +399,15 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                 issues.append(f"operator_action_queue non-action progress push must be false: {action_key}")
             if row.get("irreversible_actions_consent_gated") is not True:
                 issues.append(f"operator_action_queue irreversible actions must be consent-gated: {action_key}")
+            if action_key in {"morning_brief_operator_acceptance", "weekly_signal_to_decision_review_acceptance"}:
+                if row.get("user_action_required") is not True:
+                    issues.append(f"real-world acceptance capture must require user action: {action_key}")
+                if row.get("delivery_policy") != "action_required_only":
+                    issues.append(f"real-world acceptance capture must be action-required only: {action_key}")
+                if row.get("telegram_push_allowed") is not True:
+                    issues.append(f"real-world acceptance capture may push only as an action-required item: {action_key}")
+                if row.get("non_action_progress_push_allowed") is not False:
+                    issues.append(f"real-world acceptance capture must not allow progress pushes: {action_key}")
             if row.get("stale_source_receipts"):
                 if user_action_required:
                     issues.append(f"stale source refresh must not require user action: {action_key}")

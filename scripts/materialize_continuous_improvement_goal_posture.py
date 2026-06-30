@@ -22,6 +22,7 @@ DEFAULT_SIGNAL_RECEIPT = ROOT / ".codex-studio/published/ea_whole_project_signal
 DEFAULT_MEDIA_RECEIPT = ROOT / ".codex-studio/published/active_media_ltd_goal_bundle.generated.json"
 DEFAULT_MANFRED_RECEIPT = ROOT / ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json"
 DEFAULT_QUALITY_RECEIPT = ROOT / ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json"
+DEFAULT_ACCEPTANCE_RECEIPT = ROOT / ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json"
 DEFAULT_TEABLE_RECOVERY_READINESS = ROOT / ".codex-studio/published/teable_env_recovery_readiness.generated.json"
 DEFAULT_TEABLE_RECOVERY_PROOF = ROOT / ".codex-studio/published/teable_env_recovery_proof.generated.json"
 DEFAULT_PROACTIVE_OODA_OPERATOR_STATUS = ROOT / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
@@ -353,6 +354,42 @@ def _telegram_audiobook_action_context(receipt: dict[str, Any]) -> dict[str, Any
     return {key: value for key, value in context.items() if value not in ("", [], None)}
 
 
+def _manual_acceptance_action_context(
+    *,
+    instruction: str,
+    proof_key: str = "",
+    acceptance_receipt: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    requirement: dict[str, Any] = {}
+    if acceptance_receipt and proof_key:
+        for row in list(acceptance_receipt.get("acceptance_capture_requirements") or []):
+            if isinstance(row, dict) and str(row.get("proof_key") or row.get("key") or "").strip() == proof_key:
+                requirement = dict(row)
+                break
+    accepted = requirement.get("accepted") is True
+    user_action_required = not accepted
+    context = {
+        "kind": "real_world_acceptance_capture",
+        "proof_key": proof_key,
+        "user_action_required": user_action_required,
+        "instruction": instruction,
+        "delivery_policy": "action_required_only" if user_action_required else "queue_only",
+        "telegram_push_allowed": user_action_required,
+        "interruption_budget": "action_required" if user_action_required else "none",
+        "quiet_hours_respected": True,
+        "non_action_progress_push_allowed": False,
+        "irreversible_actions_consent_gated": True,
+        "raw_private_context_exposed": False,
+        "raw_chat_ids_exposed": False,
+        "raw_token_exposed": False,
+        "raw_secret_exposed": False,
+        "raw_acceptance_text_exposed": False,
+        "raw_actor_identity_exposed": False,
+        "raw_object_reference_exposed": False,
+    }
+    return {key: value for key, value in context.items() if value not in ("", [], None)}
+
+
 def _stale_source_action_context(*, receipts: list[dict[str, Any]], refresh_commands: list[str]) -> dict[str, Any]:
     stale_receipts = [
         Path(str(row.get("path") or "")).name
@@ -463,8 +500,6 @@ def _whatsapp_live_playback_blocked_action_context(
 
 def _operator_action_priority(requirement: dict[str, Any]) -> tuple[int, int, str]:
     action_context = dict(requirement.get("action_context") or {})
-    if action_context.get("user_action_required") is True:
-        return (0, 0, str(requirement.get("key") or ""))
     lens_priority = {
         "deliver": 1,
         "prove": 2,
@@ -472,6 +507,8 @@ def _operator_action_priority(requirement: dict[str, Any]) -> tuple[int, int, st
         "recover": 4,
         "decide": 5,
     }
+    if action_context.get("user_action_required") is True:
+        return (0, lens_priority.get(str(requirement.get("lens") or ""), 9), str(requirement.get("key") or ""))
     return (1, lens_priority.get(str(requirement.get("lens") or ""), 9), str(requirement.get("key") or ""))
 
 
@@ -493,6 +530,7 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
             "required_next_receipt": str(requirement.get("required_next_receipt") or "").strip(),
             "user_action_required": user_action_required,
             "instruction": str(action_context.get("instruction") or "").strip(),
+            "proof_key": str(action_context.get("proof_key") or "").strip(),
             "missing_setup": [
                 str(item).strip()
                 for item in list(action_context.get("missing_setup") or [])
@@ -559,8 +597,12 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
             "callback_tokens_exposed": bool(action_context.get("callback_tokens_exposed")),
             "raw_public_share_url_exposed": bool(action_context.get("raw_public_share_url_exposed")),
             "raw_track_url_exposed": bool(action_context.get("raw_track_url_exposed")),
+            "raw_acceptance_text_exposed": bool(action_context.get("raw_acceptance_text_exposed")),
+            "raw_actor_identity_exposed": bool(action_context.get("raw_actor_identity_exposed")),
+            "raw_object_reference_exposed": bool(action_context.get("raw_object_reference_exposed")),
         }
         optional_context_keys = (
+            "proof_key",
             "candidate_count",
             "candidate_labels",
             "candidate_label_count",
@@ -586,6 +628,9 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
             "public_share_host",
             "raw_public_share_url_exposed",
             "raw_track_url_exposed",
+            "raw_acceptance_text_exposed",
+            "raw_actor_identity_exposed",
+            "raw_object_reference_exposed",
         )
         for optional_key in optional_context_keys:
             if optional_key not in action_context:
@@ -629,6 +674,7 @@ def build_goal_posture(
     media, media_path = _load_receipt(root, root / DEFAULT_MEDIA_RECEIPT.relative_to(ROOT))
     manfred, manfred_path = _load_receipt(root, root / DEFAULT_MANFRED_RECEIPT.relative_to(ROOT))
     quality, quality_path = _load_receipt(root, root / DEFAULT_QUALITY_RECEIPT.relative_to(ROOT))
+    acceptance, acceptance_path = _load_receipt(root, root / DEFAULT_ACCEPTANCE_RECEIPT.relative_to(ROOT))
     recovery, recovery_path = _load_receipt(root, root / DEFAULT_TEABLE_RECOVERY_READINESS.relative_to(ROOT))
     recovery_proof, recovery_proof_path = _load_receipt(root, root / DEFAULT_TEABLE_RECOVERY_PROOF.relative_to(ROOT))
     ooda_status, ooda_status_path = _load_receipt(root, root / DEFAULT_PROACTIVE_OODA_OPERATOR_STATUS.relative_to(ROOT))
@@ -1038,12 +1084,18 @@ def build_goal_posture(
             required_next_receipt=MORNING_BRIEF_ACCEPTANCE_RECEIPT,
             evidence_kind="real_operator_acceptance",
             capture_surfaces=[
-                ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
+                acceptance_path,
                 quality_path,
             ],
             next_action="record_redacted_operator_acceptance_for_real_morning_brief",
             claim_boundary="does_not_prove_good_executive_assistant_until_real_operator_or_principal_acceptance_is_recorded",
             source_receipts=[
+                _source_receipt(
+                    acceptance_path,
+                    acceptance,
+                    current_source_head=current_source_head,
+                    current_source_fingerprint=current_source_fingerprint,
+                ),
                 _source_receipt(
                     quality_path,
                     quality,
@@ -1051,6 +1103,11 @@ def build_goal_posture(
                     current_source_fingerprint=current_source_fingerprint,
                 )
             ],
+            action_context=_manual_acceptance_action_context(
+                instruction="Record redacted real-world acceptance evidence for the morning brief.",
+                proof_key="real_daily_morning_brief_accepted",
+                acceptance_receipt=acceptance,
+            ),
         ),
         _acceptance_proof_requirement(
             key="weekly_signal_to_decision_review_acceptance",
@@ -1069,6 +1126,9 @@ def build_goal_posture(
                     current_source_fingerprint=current_source_fingerprint,
                 )
             ],
+            action_context=_manual_acceptance_action_context(
+                instruction="Record redacted evidence that the weekly signal-to-decision review was actually reviewed.",
+            ),
         ),
         _acceptance_proof_requirement(
             key="proactive_ooda_packet_acceptance",
