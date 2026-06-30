@@ -34,6 +34,13 @@ def test_office_loop_goal_receipt_materializes_seeded_local_loop(tmp_path: Path)
     )
 
     assert receipt["status"] == "ready_local_evidence"
+    assert receipt["head_semantics"] == "source_state"
+    assert receipt["source_git_head"]
+    assert receipt["source_state_fingerprint"]
+    assert (
+        receipt["source_state_fingerprint_semantics"]
+        == "worktree_source_files_sha256_excluding_generated_only_paths"
+    )
     assert receipt["goal_completion_claim_allowed"] is False
     assert receipt["live_daily_use_verified"] is False
     assert receipt["real_operator_acceptance_verified"] is False
@@ -113,6 +120,26 @@ def test_office_loop_goal_receipt_materializes_seeded_local_loop(tmp_path: Path)
 
     assert verification["status"] == "pass"
     assert verification["issues"] == []
+
+
+def test_office_loop_goal_verifier_rejects_missing_source_state(tmp_path: Path) -> None:
+    materializer = _load_script("materialize_office_loop_goal_receipt")
+    verifier = _load_script("verify_office_loop_goal_receipt")
+    receipt_path = tmp_path / "missing-source-state.generated.json"
+    materializer.materialize_office_loop_goal_receipt(
+        receipt_path=receipt_path,
+        generated_at=GENERATED_AT,
+    )
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt.pop("source_git_head", None)
+    receipt.pop("source_state_fingerprint", None)
+    receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    verification = verifier.verify_office_loop_goal_receipt(receipt_path)
+
+    assert verification["status"] == "fail"
+    assert "office_loop_source_git_head_missing" in verification["issues"]
+    assert "office_loop_source_state_fingerprint_missing" in verification["issues"]
 
 
 def test_office_loop_goal_receipt_propagates_proactive_approval_capture_surface(tmp_path: Path) -> None:

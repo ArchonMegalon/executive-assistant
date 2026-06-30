@@ -55,7 +55,7 @@
     "source_kind": "",
     "status": "missing_or_invalid"
   },
-  "generated_at": "2026-06-30T04:58:20Z",
+  "generated_at": "2026-06-30T05:02:05Z",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
   "next_action": "record_redacted_signal_review_acceptance",
@@ -240,8 +240,8 @@
       "status": "mapped_from_sources"
     }
   ],
-  "source_git_head": "db0e09da96cc149c04027a993256b57d7720e3e4",
-  "source_state_fingerprint": "daf17b859e805c7d4fdb4a086ebfffceac83cd674c53b419c026b0366b419bd2",
+  "source_git_head": "cf7bc07279dd4c2b9255fd69a238b56ec2d0e71d",
+  "source_state_fingerprint": "1d4d7f44957de88bbc8b97d76cd5dcbfffc6875f9ad449268069dd999089791d",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready_local_packet_pending_operator_acceptance"
 }

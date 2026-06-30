@@ -217,8 +217,9 @@
     }
   },
   "external_provider_runtime_verified": false,
-  "generated_at": "2026-06-30T04:58:20Z",
+  "generated_at": "2026-06-30T05:02:38Z",
   "goal_completion_claim_allowed": false,
+  "head_semantics": "source_state",
   "live_daily_use_verified": false,
   "next_action": "maintain_proactive_ooda_gold_acceptance_evidence",
   "next_action_href": "",
@@ -274,5 +275,8 @@
   "seeded_fixture": {
     "raw_private_context_exposed": false
   },
+  "source_git_head": "cf7bc07279dd4c2b9255fd69a238b56ec2d0e71d",
+  "source_state_fingerprint": "1d4d7f44957de88bbc8b97d76cd5dcbfffc6875f9ad449268069dd999089791d",
+  "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready_local_evidence"
 }

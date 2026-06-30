@@ -4,11 +4,18 @@ import argparse
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+import sys
 from typing import Any
 
 
 SCRIPT_PATH = Path(__file__).resolve()
 REPO_ROOT = SCRIPT_PATH.parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.source_state_head import resolve_source_state_head
+from scripts.source_state_head import resolve_source_worktree_fingerprint
+
 DEFAULT_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "ea_office_loop_goal.generated.json"
 DEFAULT_ACCEPTANCE_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "ea_executive_assistant_acceptance_evidence.generated.json"
 DEFAULT_SIGNAL_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "ea_whole_project_signal_to_decision.generated.json"
@@ -83,6 +90,15 @@ def _display_path(path: Path) -> str:
 
 def _text(value: object) -> str:
     return str(value or "").strip()
+
+
+def _source_state_fields() -> dict[str, str]:
+    return {
+        "source_git_head": resolve_source_state_head(REPO_ROOT),
+        "head_semantics": "source_state",
+        "source_state_fingerprint": resolve_source_worktree_fingerprint(REPO_ROOT),
+        "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
+    }
 
 
 def _next_action_surface(payload: dict[str, Any]) -> dict[str, str]:
@@ -310,6 +326,7 @@ def materialize_office_loop_goal_receipt(
     )
     receipt = {
         "contract_name": "ea.office_loop_goal_receipt.v1",
+        **_source_state_fields(),
         "status": "ready_local_evidence",
         "generated_at": generated_at or _now(),
         "goal_completion_claim_allowed": False,

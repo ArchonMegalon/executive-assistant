@@ -3,11 +3,18 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import sys
 from typing import Any
 
 
 SCRIPT_PATH = Path(__file__).resolve()
 REPO_ROOT = SCRIPT_PATH.parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.source_state_head import resolve_source_state_head
+from scripts.source_state_head import resolve_source_worktree_fingerprint
+
 DEFAULT_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "ea_office_loop_goal.generated.json"
 REMAINING_PROOF_LABELS = {
     "real_daily_morning_brief_accepted": "real daily morning brief acceptance",
@@ -31,6 +38,25 @@ def _load(path: Path) -> dict[str, Any]:
     except Exception:
         return {}
     return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _verify_source_state(receipt: dict[str, Any], issues: list[str]) -> None:
+    if receipt.get("head_semantics") != "source_state":
+        issues.append("office_loop_head_semantics_missing")
+    if receipt.get("source_state_fingerprint_semantics") != "worktree_source_files_sha256_excluding_generated_only_paths":
+        issues.append("office_loop_source_state_fingerprint_semantics_missing")
+    recorded_head = str(receipt.get("source_git_head") or "").strip()
+    recorded_fingerprint = str(receipt.get("source_state_fingerprint") or "").strip()
+    current_head = resolve_source_state_head(REPO_ROOT)
+    current_fingerprint = resolve_source_worktree_fingerprint(REPO_ROOT)
+    if not recorded_head:
+        issues.append("office_loop_source_git_head_missing")
+    elif recorded_head != current_head and recorded_fingerprint != current_fingerprint:
+        issues.append("office_loop_source_git_head_stale")
+    if not recorded_fingerprint:
+        issues.append("office_loop_source_state_fingerprint_missing")
+    elif recorded_fingerprint != current_fingerprint:
+        issues.append("office_loop_source_state_fingerprint_stale")
 
 
 def _path_from_text(value: object) -> Path | None:
@@ -113,6 +139,7 @@ def _preferred_action_surface(*surfaces: dict[str, str]) -> dict[str, str]:
 def verify_office_loop_goal_receipt(receipt_path: str | Path) -> dict[str, Any]:
     receipt = _load(Path(receipt_path))
     issues: list[str] = []
+    _verify_source_state(receipt, issues)
     if receipt.get("goal_completion_claim_allowed") is True:
         issues.append("office_loop_completion_overclaim")
     if receipt.get("live_daily_use_verified") is True:
