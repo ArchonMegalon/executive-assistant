@@ -47,6 +47,54 @@ MANFRED_REALTIME_ACCEPTANCE_RECEIPT = "consented Manfred STT/TTS realtime conver
 TELEGRAM_AUDIOBOOK_LIVE_DELIVERY_RECEIPT = "passing Telegram audiobook live delivery receipt"
 WHATSAPP_AUDIOBOOK_LIVE_DELIVERY_RECEIPT = "passing WhatsApp audiobook live delivery receipt"
 
+ACTION_SURFACES = {
+    "record_redacted_operator_acceptance_for_real_morning_brief": {
+        "href": "/admin/actions/acceptance-evidence",
+        "label": "Record a real-use outcome",
+        "method": "post",
+    },
+    "record_weekly_signal_to_decision_review_acceptance": {
+        "href": "/admin/actions/signal-to-decision-evidence",
+        "label": "Record signal review evidence",
+        "method": "post",
+    },
+    "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome": {
+        "href": "/admin/proactive-ooda/approval",
+        "label": "Open approval capture",
+        "method": "get",
+    },
+    "maintain_proactive_ooda_gold_acceptance_evidence": {
+        "href": "/app/today",
+        "label": "Open Today",
+        "method": "get",
+    },
+    "run_shell_seeded_fresh_host_probe_and_mirror_drill_evidence": {
+        "href": "/admin/goals",
+        "label": "Open goal evidence",
+        "method": "get",
+    },
+    "capture_consented_manfred_stt_tts_realtime_proof": {
+        "href": "/memorials/manfred/voice-config",
+        "label": "Spoken conversation proof",
+        "method": "get",
+    },
+    "choose_sent_replacement_voice_sample": {
+        "href": "/integrations/telegram",
+        "label": "Open Telegram",
+        "method": "get",
+    },
+    "capture_passing_telegram_audiobook_live_delivery_receipt": {
+        "href": "/integrations/telegram",
+        "label": "Open Telegram",
+        "method": "get",
+    },
+    "capture_passing_whatsapp_audiobook_live_delivery_receipt": {
+        "href": "/integrations/whatsapp",
+        "label": "Open WhatsApp",
+        "method": "get",
+    },
+}
+
 
 def _utc_now() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -184,6 +232,7 @@ def _acceptance_proof_requirement(
     status: str = "pending_real_world_evidence",
     action_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    surface = ACTION_SURFACES.get(next_action, {})
     payload = {
         "key": key,
         "title": title,
@@ -193,6 +242,9 @@ def _acceptance_proof_requirement(
         "evidence_kind": evidence_kind,
         "capture_surfaces": [surface for surface in capture_surfaces if str(surface or "").strip()],
         "next_action": next_action,
+        "next_action_href": str(surface.get("href") or "").strip(),
+        "next_action_label": str(surface.get("label") or "").strip(),
+        "next_action_method": str(surface.get("method") or "").strip(),
         "claim_boundary": claim_boundary,
         "source_receipts": source_receipts,
     }

@@ -58,12 +58,24 @@ REQUIRED_PROOF_FIELDS = {
     "next_action",
     "claim_boundary",
     "source_receipts",
+    "next_action_href",
+    "next_action_label",
+    "next_action_method",
 }
 KNOWN_PROOF_STATUSES = {"pending_real_world_evidence", "satisfied"}
 DELIVER_BLOCKER_PROOF_KEYS = {
     "deliver:manfred_speech": "manfred_stt_tts_realtime_conversation",
     "deliver:telegram_audiobook": "telegram_audiobook_live_delivery",
     "deliver:whatsapp_audiobook": "whatsapp_audiobook_live_delivery",
+}
+EXPECTED_PROOF_ACTION_SURFACES = {
+    "morning_brief_operator_acceptance": ("/admin/actions/acceptance-evidence", "post"),
+    "weekly_signal_to_decision_review_acceptance": ("/admin/actions/signal-to-decision-evidence", "post"),
+    "proactive_ooda_packet_acceptance": ("/admin/proactive-ooda/approval", "get"),
+    "fresh_host_teable_recovery_drill": ("/admin/goals", "get"),
+    "manfred_stt_tts_realtime_conversation": ("/memorials/manfred/voice-config", "get"),
+    "telegram_audiobook_live_delivery": ("/integrations/telegram", "get"),
+    "whatsapp_audiobook_live_delivery": ("/integrations/whatsapp", "get"),
 }
 PROACTIVE_OODA_FRESH_SOURCE_RECEIPTS = {
     "ea_proactive_ooda_gold_acceptance.generated.json",
@@ -314,6 +326,24 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
             issues.append(f"acceptance proof requirement {key or index} missing evidence_kind")
         if not str(requirement.get("next_action") or "").strip():
             issues.append(f"acceptance proof requirement {key or index} missing next_action")
+        next_action_href = str(requirement.get("next_action_href") or "").strip()
+        next_action_label = str(requirement.get("next_action_label") or "").strip()
+        next_action_method = str(requirement.get("next_action_method") or "").strip().lower()
+        if not next_action_href:
+            issues.append(f"acceptance proof requirement {key or index} missing next_action_href")
+        if not next_action_label:
+            issues.append(f"acceptance proof requirement {key or index} missing next_action_label")
+        if next_action_method not in {"get", "post"}:
+            issues.append(f"acceptance proof requirement {key or index} has invalid next_action_method")
+        expected_surface = EXPECTED_PROOF_ACTION_SURFACES.get(key)
+        if key == "proactive_ooda_packet_acceptance" and status == "satisfied":
+            expected_surface = ("/app/today", "get")
+        if expected_surface:
+            expected_href, expected_method = expected_surface
+            if expected_href not in next_action_href:
+                issues.append(f"acceptance proof requirement {key} next_action_href must target {expected_href}")
+            if next_action_method != expected_method:
+                issues.append(f"acceptance proof requirement {key} next_action_method must be {expected_method}")
         sources = list(requirement.get("source_receipts") or [])
         if not sources:
             issues.append(f"acceptance proof requirement {key or index} must include source_receipts")

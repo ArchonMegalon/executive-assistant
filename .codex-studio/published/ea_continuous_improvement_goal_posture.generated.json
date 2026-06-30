@@ -10,6 +10,9 @@
       "key": "morning_brief_operator_acceptance",
       "lens": "prove",
       "next_action": "record_redacted_operator_acceptance_for_real_morning_brief",
+      "next_action_href": "/admin/actions/acceptance-evidence",
+      "next_action_label": "Record a real-use outcome",
+      "next_action_method": "post",
       "required_next_receipt": "real operator acceptance that the morning brief was worth reading",
       "source_receipts": [
         {
@@ -32,6 +35,9 @@
       "key": "weekly_signal_to_decision_review_acceptance",
       "lens": "detect",
       "next_action": "record_weekly_signal_to_decision_review_acceptance",
+      "next_action_href": "/admin/actions/signal-to-decision-evidence",
+      "next_action_label": "Record signal review evidence",
+      "next_action_method": "post",
       "required_next_receipt": "real weekly signal-to-decision review acceptance receipt",
       "source_receipts": [
         {
@@ -55,6 +61,9 @@
       "key": "proactive_ooda_packet_acceptance",
       "lens": "decide",
       "next_action": "maintain_proactive_ooda_gold_acceptance_evidence",
+      "next_action_href": "/app/today",
+      "next_action_label": "Open Today",
+      "next_action_method": "get",
       "required_next_receipt": "real proactive OODA packet accepted with action-required-only routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome",
       "source_receipts": [
         {
@@ -62,8 +71,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "21135a55e5fb7a4528f5d4fd57be51b9edf9a2cb",
-          "source_state_fingerprint": "2c1f4e13d582504aa5dcbca374bdd26dd40ed1c52ac81dfe4ef2129296ff567b",
+          "source_git_head": "6a9162df35e7bbb8628f557be7f1f74cd737e5b4",
+          "source_state_fingerprint": "e606b5f19347491dfe538880f84941ef1ff3a107a562dd122441bb3a0ce30d18",
           "status": "pass"
         },
         {
@@ -71,8 +80,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "21135a55e5fb7a4528f5d4fd57be51b9edf9a2cb",
-          "source_state_fingerprint": "2c1f4e13d582504aa5dcbca374bdd26dd40ed1c52ac81dfe4ef2129296ff567b",
+          "source_git_head": "6a9162df35e7bbb8628f557be7f1f74cd737e5b4",
+          "source_state_fingerprint": "e606b5f19347491dfe538880f84941ef1ff3a107a562dd122441bb3a0ce30d18",
           "status": "ready_with_live_receipt"
         }
       ],
@@ -88,6 +97,9 @@
       "key": "manfred_stt_tts_realtime_conversation",
       "lens": "deliver",
       "next_action": "capture_consented_manfred_stt_tts_realtime_proof",
+      "next_action_href": "/memorials/manfred/voice-config",
+      "next_action_label": "Spoken conversation proof",
+      "next_action_method": "get",
       "required_next_receipt": "consented Manfred STT/TTS realtime conversation proof",
       "source_receipts": [
         {
@@ -124,6 +136,9 @@
       "key": "telegram_audiobook_live_delivery",
       "lens": "deliver",
       "next_action": "choose_sent_replacement_voice_sample",
+      "next_action_href": "/integrations/telegram",
+      "next_action_label": "Open Telegram",
+      "next_action_method": "get",
       "required_next_receipt": "passing Telegram audiobook live delivery receipt",
       "source_receipts": [
         {
@@ -158,7 +173,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-06-30T04:18:18Z",
+  "generated_at": "2026-06-30T04:22:25Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -412,7 +427,7 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "21135a55e5fb7a4528f5d4fd57be51b9edf9a2cb",
-  "source_state_fingerprint": "2c1f4e13d582504aa5dcbca374bdd26dd40ed1c52ac81dfe4ef2129296ff567b",
+  "source_git_head": "6a9162df35e7bbb8628f557be7f1f74cd737e5b4",
+  "source_state_fingerprint": "e606b5f19347491dfe538880f84941ef1ff3a107a562dd122441bb3a0ce30d18",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }

@@ -248,6 +248,13 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
         proof_requirements["proactive_ooda_packet_acceptance"]["next_action"]
         == "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome"
     )
+    assert proof_requirements["proactive_ooda_packet_acceptance"]["next_action_href"] == "/admin/proactive-ooda/approval"
+    assert proof_requirements["proactive_ooda_packet_acceptance"]["next_action_label"] == "Open approval capture"
+    assert proof_requirements["proactive_ooda_packet_acceptance"]["next_action_method"] == "get"
+    assert proof_requirements["morning_brief_operator_acceptance"]["next_action_href"] == "/admin/actions/acceptance-evidence"
+    assert proof_requirements["morning_brief_operator_acceptance"]["next_action_method"] == "post"
+    assert proof_requirements["weekly_signal_to_decision_review_acceptance"]["next_action_href"] == "/admin/actions/signal-to-decision-evidence"
+    assert proof_requirements["weekly_signal_to_decision_review_acceptance"]["next_action_method"] == "post"
     assert any(
         "ea_proactive_ooda_gold_acceptance.generated.json" in surface
         for surface in proof_requirements["proactive_ooda_packet_acceptance"]["capture_surfaces"]
@@ -259,6 +266,8 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
         proof_requirements["telegram_audiobook_live_delivery"]["next_action"]
         == "choose_sent_replacement_voice_sample"
     )
+    assert proof_requirements["telegram_audiobook_live_delivery"]["next_action_href"] == "/integrations/telegram"
+    assert proof_requirements["telegram_audiobook_live_delivery"]["next_action_method"] == "get"
     telegram_action_context = proof_requirements["telegram_audiobook_live_delivery"]["action_context"]
     assert telegram_action_context["kind"] == "telegram_audiobook_voice_choice"
     assert telegram_action_context["operator_action"] == "choose_sent_replacement_voice_sample"
@@ -567,6 +576,77 @@ def test_goal_posture_verifier_rejects_uncovered_acceptance_proof_requirement(tm
     assert "acceptance_proof_requirements must include proactive_ooda_packet_acceptance" in issues
 
 
+def test_goal_posture_verifier_requires_acceptance_requirement_action_surface(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _set_source_state(monkeypatch)
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
+        status="ready_local_packet_pending_operator_acceptance",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_office_loop_goal.generated.json",
+        status="ready_local_evidence",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/active_media_ltd_goal_bundle.generated.json",
+        status="ready_local_evidence",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
+        status="blocked_realtime_prerequisites",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
+        status="blocked_real_world_acceptance",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/teable_env_recovery_readiness.generated.json",
+        status="ready_local_audit",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/telegram_audiobook_live_readiness.generated.json",
+        status="ready_for_live_epub_delivery_test",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
+        status="blocked",
+        next_action="choose_sent_replacement_voice_sample",
+    )
+    for relative_path in (
+        ".codex-studio/published/whatsapp_audiobook_local_intake_proof.generated.json",
+        ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json",
+        ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
+        ".codex-studio/published/whatsapp_audiobook_public_share_playback.generated.json",
+        ".codex-studio/published/whatsapp_audiobook_live_voice_selection_shadow.generated.json",
+    ):
+        _write_receipt(tmp_path, relative_path, status="pass")
+    _write_proactive_ooda_receipts(tmp_path)
+
+    output = tmp_path / ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"
+    receipt = build_goal_posture(root=tmp_path, output_path=output, generated_at="2026-06-30T05:15:00Z")
+    receipt["acceptance_proof_requirements"][0]["next_action_href"] = ""
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+
+    issues = verify(output, root=tmp_path)
+
+    assert "acceptance proof requirement morning_brief_operator_acceptance missing next_action_href" in issues
+    assert (
+        "acceptance proof requirement morning_brief_operator_acceptance next_action_href must target "
+        "/admin/actions/acceptance-evidence"
+    ) in issues
+
+
 def test_goal_posture_verifier_rejects_stale_proactive_ooda_source_receipts(
     tmp_path: Path,
     monkeypatch,
@@ -748,6 +828,8 @@ def test_goal_posture_marks_passed_proactive_ooda_gold_as_satisfied(tmp_path: Pa
     proactive = proof_requirements["proactive_ooda_packet_acceptance"]
     assert proactive["status"] == "satisfied"
     assert proactive["next_action"] == "maintain_proactive_ooda_gold_acceptance_evidence"
+    assert proactive["next_action_href"] == "/app/today"
+    assert proactive["next_action_method"] == "get"
     assert posture_module.PROACTIVE_OODA_ACCEPTANCE_RECEIPT not in receipt["required_next_receipts"]
     assert verify(output, root=tmp_path) == []
 
