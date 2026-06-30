@@ -611,6 +611,13 @@ def _operator_runtime_next_action(operator_status: Mapping[str, Any]) -> str:
         next_action = str(safe_work_audit_detail.get("next_action") or "").strip()
         if next_action:
             return next_action
+    suppressed_projection_ready, suppressed_projection_detail = _operator_runtime_suppressed_projection_posture(
+        operator_status
+    )
+    if not suppressed_projection_ready:
+        next_action = str(suppressed_projection_detail.get("next_action") or "").strip()
+        if next_action:
+            return next_action
     return str(operator_status.get("next_action") or "repair_proactive_operator_runtime_posture").strip() or "repair_proactive_operator_runtime_posture"
 
 
@@ -757,6 +764,57 @@ def _operator_runtime_safe_work_audit_posture(operator_status: Mapping[str, Any]
         "safe_work_audit_delivery_allowed": delivery_allowed,
         "safe_work_audit_blocks_operator_followthrough": blocks_operator,
         "safe_work_audit_blocking_reason": str(safe_work_audit.get("blocking_reason") or "").strip(),
+        "next_action": "" if ready else "repair_proactive_safe_work_audit",
+    }
+
+
+def _operator_runtime_suppressed_projection_posture(operator_status: Mapping[str, Any]) -> tuple[bool, dict[str, Any]]:
+    suppressed = dict(operator_status.get("suppressed_projection") or {})
+    if not suppressed:
+        return True, {
+            "suppressed_projection_recorded": False,
+            "suppressed_projection_present": False,
+            "suppressed_projection_ready": True,
+            "suppressed_projection_requires_recovery": False,
+            "suppressed_projection_status": "",
+            "suppressed_projection_item_count": 0,
+            "suppressed_projection_safe_work_review_count": 0,
+            "suppressed_projection_reasons": [],
+            "suppressed_projection_issue_codes": [],
+            "suppressed_projection_inferred_from_packet_gap": False,
+            "next_action": "",
+        }
+    requires_recovery = bool(suppressed.get("requires_recovery"))
+    ready = not requires_recovery
+    return ready, {
+        "suppressed_projection_recorded": True,
+        "suppressed_projection_present": bool(suppressed.get("present")),
+        "suppressed_projection_ready": ready,
+        "suppressed_projection_requires_recovery": requires_recovery,
+        "suppressed_projection_status": str(suppressed.get("status") or "").strip(),
+        "suppressed_projection_blocking_reason": str(suppressed.get("blocking_reason") or "").strip(),
+        "suppressed_projection_item_count": int(suppressed.get("suppressed_item_count") or 0),
+        "suppressed_projection_safe_work_review_count": int(
+            suppressed.get("suppressed_safe_work_review_count") or 0
+        ),
+        "suppressed_projection_reasons": [
+            str(item or "").strip()
+            for item in list(suppressed.get("suppressed_projection_reasons") or [])
+            if str(item or "").strip()
+        ][:8],
+        "suppressed_projection_issue_codes": [
+            str(item or "").strip()
+            for item in list(suppressed.get("suppressed_safe_work_issue_codes") or [])
+            if str(item or "").strip()
+        ][:12],
+        "suppressed_projection_teable_status": str(suppressed.get("teable_status") or "").strip(),
+        "suppressed_projection_record_count": int(suppressed.get("projection_record_count") or 0),
+        "suppressed_projection_packet_record_count": int(
+            suppressed.get("packet_projection_record_count") or 0
+        ),
+        "suppressed_projection_inferred_from_packet_gap": bool(
+            suppressed.get("inferred_from_packet_projection_gap")
+        ),
         "next_action": "" if ready else "repair_proactive_safe_work_audit",
     }
 
@@ -1417,11 +1475,15 @@ def materialize_proactive_ooda_gold_acceptance(
     source_coverage_ready, source_coverage_detail = _operator_runtime_source_coverage_posture(operator_status)
     context_grounding_ready, context_grounding_detail = _operator_runtime_context_grounding_posture(operator_status)
     safe_work_audit_ready, safe_work_audit_detail = _operator_runtime_safe_work_audit_posture(operator_status)
+    suppressed_projection_ready, suppressed_projection_detail = _operator_runtime_suppressed_projection_posture(
+        operator_status
+    )
     operator_runtime_ready = (
         operator_status_state.startswith("ready")
         and source_coverage_ready
         and context_grounding_ready
         and safe_work_audit_ready
+        and suppressed_projection_ready
     )
     operator_runtime_next_action = _operator_runtime_next_action(operator_status)
     operator_runtime_proof = _proof_row(
@@ -1433,6 +1495,7 @@ def materialize_proactive_ooda_gold_acceptance(
             **source_coverage_detail,
             **context_grounding_detail,
             **safe_work_audit_detail,
+            **suppressed_projection_detail,
             **_next_action_surface_fields(operator_runtime_next_action),
             "path": display_path(ROOT, operator_status_path),
         },

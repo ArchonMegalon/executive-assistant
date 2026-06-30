@@ -627,6 +627,86 @@ def _normalized_safe_work_audit(artifact_probe: Mapping[str, Any]) -> dict[str, 
     }
 
 
+def _projection_table_record_count(projection_summary: Mapping[str, Any], table_name: str) -> int:
+    tables = dict(dict(projection_summary or {}).get("tables") or {})
+    return int(dict(tables.get(table_name) or {}).get("record_count") or 0)
+
+
+def _normalized_suppressed_projection(artifact_probe: Mapping[str, Any]) -> dict[str, Any]:
+    probe = dict(artifact_probe or {})
+    quiet_receipt = dict(probe.get("action_required_only_quiet_receipt") or {})
+    run_receipt = dict(probe.get("run_receipt") or {})
+    candidate_receipts = [row for row in (quiet_receipt, run_receipt) if row]
+    selected_receipt: dict[str, Any] = {}
+    selected_summary: dict[str, Any] = {}
+    for candidate in candidate_receipts:
+        summary = dict(dict(candidate.get("teable_sync") or {}).get("projection_summary") or {})
+        if int(summary.get("suppressed_item_count") or 0) > 0:
+            selected_receipt = candidate
+            selected_summary = summary
+            break
+    if not selected_receipt and candidate_receipts:
+        selected_receipt = candidate_receipts[0]
+        selected_summary = dict(dict(selected_receipt.get("teable_sync") or {}).get("projection_summary") or {})
+    teable_sync = dict(selected_receipt.get("teable_sync") or {})
+    item_table_count = _projection_table_record_count(selected_summary, "proactive_ooda_items")
+    safe_work_table_count = _projection_table_record_count(selected_summary, "proactive_ooda_safe_work")
+    packet_projection_record_count = item_table_count + safe_work_table_count
+    suppressed_item_count = int(selected_summary.get("suppressed_item_count") or 0)
+    suppressed_review_count = int(selected_summary.get("suppressed_safe_work_review_count") or 0)
+    inferred_suppressed = False
+    if (
+        not suppressed_item_count
+        and selected_receipt
+        and str(teable_sync.get("status") or "").strip() in {"synced", "partial"}
+        and str(selected_receipt.get("notification_status") or "").strip() == "deferred"
+        and str(selected_receipt.get("error_code") or "").strip() == "no_user_action_required"
+        and int(selected_receipt.get("item_count") or 0) > 0
+        and packet_projection_record_count == 0
+    ):
+        suppressed_item_count = int(selected_receipt.get("item_count") or 0)
+        inferred_suppressed = True
+    reasons = [
+        str(item or "").strip()
+        for item in list(selected_summary.get("suppressed_projection_reasons") or [])
+        if str(item or "").strip()
+    ][:8]
+    if inferred_suppressed and not reasons:
+        reasons = ["packet_projection_suppressed"]
+    issue_codes = [
+        str(item or "").strip()
+        for item in list(selected_summary.get("suppressed_safe_work_issue_codes") or [])
+        if str(item or "").strip()
+    ][:12]
+    requires_recovery = suppressed_item_count > 0
+    return {
+        "present": bool(selected_receipt),
+        "source": str(probe.get("source") or "").strip(),
+        "status": "suppressed" if requires_recovery else "clear" if selected_receipt else "not_observed",
+        "requires_recovery": requires_recovery,
+        "blocking_reason": "suppressed_safe_work_projection" if requires_recovery else "",
+        "next_action": "repair_proactive_safe_work_audit" if requires_recovery else "",
+        "run_receipt_generated_at": str(selected_receipt.get("generated_at") or "").strip(),
+        "notification_status": str(selected_receipt.get("notification_status") or "").strip(),
+        "error_code": str(selected_receipt.get("error_code") or "").strip(),
+        "item_count": int(selected_receipt.get("item_count") or 0),
+        "teable_status": str(teable_sync.get("status") or "").strip(),
+        "projection_record_count": int(selected_summary.get("record_count") or 0),
+        "packet_projection_record_count": packet_projection_record_count,
+        "suppressed_item_count": suppressed_item_count,
+        "suppressed_safe_work_review_count": suppressed_review_count,
+        "suppressed_projection_reasons": reasons,
+        "suppressed_safe_work_issue_codes": issue_codes,
+        "inferred_from_packet_projection_gap": inferred_suppressed,
+        "privacy": {
+            "raw_packet_text_exposed": False,
+            "raw_candidate_exposed": False,
+            "raw_draft_text_exposed": False,
+            "raw_private_link_exposed": False,
+        },
+    }
+
+
 def _safe_work_audit_blocks_operator(safe_work_audit: Mapping[str, Any]) -> bool:
     return bool(dict(safe_work_audit or {}).get("blocks_operator_followthrough"))
 
@@ -1067,6 +1147,8 @@ def _local_artifact_probe(
         ),
         "stage_packet": dict(bundle.get("stage_packet") or {}),
         "safe_work_result": dict(bundle.get("safe_work_result") or {}),
+        "run_receipt": dict(bundle.get("run_receipt") or {}),
+        "action_required_only_quiet_receipt": dict(bundle.get("action_required_only_quiet_receipt") or {}),
     }
 
 
@@ -1147,11 +1229,16 @@ def build_proactive_ooda_operator_status(
         safe_work_audit_probe = {}
     safe_work_audit = _normalized_safe_work_audit(safe_work_audit_probe)
     safe_work_audit_blocks = _safe_work_audit_blocks_operator(safe_work_audit)
+    suppressed_projection = _normalized_suppressed_projection(artifact_probe)
+    suppressed_projection_blocks = bool(suppressed_projection.get("requires_recovery"))
     status = _status(report, live_receipt=live_receipt, live_receipt_checked=live_receipt_checked)
     reason = _reason(report, live_receipt=live_receipt, live_receipt_checked=live_receipt_checked)
     if safe_work_audit_blocks:
         status = "blocked_local_runtime"
         reason = _safe_work_audit_blocking_reason(safe_work_audit)
+    elif suppressed_projection_blocks and status in {"ready_local_runtime", "ready_with_live_receipt", "ready_with_recovery_action"}:
+        status = "ready_with_recovery_action"
+        reason = str(suppressed_projection.get("blocking_reason") or "suppressed_safe_work_projection").strip()
     approval_capture_surface = _approval_capture_surface(report=report, artifact_probe=artifact_probe)
     if (
         allow_live_route_probe
@@ -1171,10 +1258,10 @@ def build_proactive_ooda_operator_status(
         approval_capture=approval_capture,
     ):
         reason = str(approval_capture.get("blocking_reason") or "approval_capture_not_ready").strip()
-    next_action = (
-        "repair_proactive_safe_work_audit"
-        if safe_work_audit_blocks
-        else _operator_followthrough_next_action(
+    if safe_work_audit_blocks or suppressed_projection_blocks:
+        next_action = "repair_proactive_safe_work_audit"
+    else:
+        next_action = _operator_followthrough_next_action(
             status,
             report,
             live_receipt=live_receipt,
@@ -1182,12 +1269,20 @@ def build_proactive_ooda_operator_status(
             approval_capture_surface=approval_capture_surface,
             approval_capture=approval_capture,
         )
-    )
     next_action_surface = _next_action_surface_fields(next_action)
-    summary = (
-        "Proactive OODA has a current safe-work artifact, but the packet-quality auditor did not pass it for operator follow-through."
-        if safe_work_audit_blocks
-        else _summary(
+    if safe_work_audit_blocks:
+        summary = (
+            "Proactive OODA has a current safe-work artifact, but the packet-quality auditor did not pass it "
+            "for operator follow-through."
+        )
+    elif suppressed_projection_blocks:
+        summary = (
+            "Proactive OODA runtime is healthy, but the latest quiet run suppressed "
+            f"{int(suppressed_projection.get('suppressed_item_count') or 0)} non-deliverable safe-work "
+            "item(s) from user and Teable packet projection."
+        )
+    else:
+        summary = _summary(
             status,
             report,
             live_receipt=live_receipt,
@@ -1195,7 +1290,6 @@ def build_proactive_ooda_operator_status(
             approval_capture_surface=approval_capture_surface,
             approval_capture=approval_capture,
         )
-    )
     operator_delivery_guard = _operator_delivery_guard(
         status,
         report,
@@ -1221,7 +1315,7 @@ def build_proactive_ooda_operator_status(
         **next_action_surface,
         "operator_action_state": (
             "recovery_required"
-            if safe_work_audit_blocks
+            if safe_work_audit_blocks or suppressed_projection_blocks
             else _operator_followthrough_action_state(
                 status,
                 report=report,
@@ -1248,6 +1342,7 @@ def build_proactive_ooda_operator_status(
         "stage_packets": _normalized_stage_packets(report),
         "safe_work_results": _normalized_safe_work_results(report),
         "safe_work_audit": safe_work_audit,
+        "suppressed_projection": suppressed_projection,
         "receipt_observation_count": int(report.get("receipt_observation_count") or 0),
         "runtime_actionable_count": runtime_actionable_count,
         "actionable_count": _operator_actionable_count(

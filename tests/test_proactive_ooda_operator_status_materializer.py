@@ -320,6 +320,115 @@ def test_materialize_proactive_ooda_operator_status_blocks_current_safe_work_aud
     assert receipt["safe_work_audit"]["privacy"]["raw_issue_details_exposed"] is False
 
 
+def test_materialize_proactive_ooda_operator_status_surfaces_suppressed_safe_work_projection(
+    tmp_path: Path, monkeypatch
+) -> None:
+    module = _load_script()
+    monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_route",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "source": "docker_compose_exec",
+            "runtime_service": "ea-proactive-ooda",
+            "observed_at": "2026-06-30T08:10:00Z",
+            "live_receipt_checked": True,
+            "live_receipt": {
+                "ok": True,
+                "receipt_path": "/app/state/proactive_ooda/live-receipt.json",
+                "delivery_next_action": "",
+                "delivery_route_error": "",
+                "delivery_recovery_hint": "",
+                "errors": [],
+                "generated_at": "2026-06-30T08:09:00Z",
+                "notification_status": "sent",
+            },
+            "route_report": {
+                "ok": True,
+                "delivery_route": {
+                    "ready": True,
+                    "route_error": "",
+                    "recovery_hint": "",
+                    "next_action": "",
+                    "selected_channel": "telegram",
+                    "selected_transport": "telegram",
+                    "selected_by": "tool_runtime_binding",
+                    "available_channels": ["telegram"],
+                },
+                "delivery_guard": {"delivery_state": "no_actionable_items", "armed_send": True},
+                "stage_packets": {"ready": True, "errors": []},
+                "safe_work_results": {"ready": True, "errors": []},
+                "receipt_observation_count": 1,
+                "actionable_count": 0,
+                "source_mode": "postgres_observations",
+            },
+        },
+    )
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_artifacts",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "source": "docker_compose_exec",
+            "action_required_only_quiet_receipt": {
+                "generated_at": "2026-06-30T08:09:30Z",
+                "notification_status": "deferred",
+                "error_code": "no_user_action_required",
+                "item_count": 2,
+                "teable_sync": {
+                    "status": "synced",
+                    "projection_summary": {
+                        "record_count": 1,
+                        "suppressed_item_count": 2,
+                        "suppressed_safe_work_review_count": 2,
+                        "suppressed_projection_reasons": ["safe_work_audit_review"],
+                        "suppressed_safe_work_issue_codes": ["no_decision_ready_material"],
+                        "tables": {
+                            "proactive_ooda_runs": {"record_count": 1},
+                            "proactive_ooda_items": {"record_count": 0},
+                            "proactive_ooda_safe_work": {"record_count": 0},
+                        },
+                    },
+                },
+            },
+        },
+    )
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_gmail_draft",
+        lambda **_kwargs: {"probe_ok": True, "status": "no_pending_draft", "source": "docker_compose_exec"},
+    )
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_source_coverage", _fake_source_coverage_probe)
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_approval_capture",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("suppressed projection should not probe approval capture")),
+    )
+
+    receipt = module.build_proactive_ooda_operator_status(
+        output_path=tmp_path / "ea_proactive_ooda_operator_status.generated.json",
+        generated_at="2026-06-30T08:11:00Z",
+        report_args=Namespace(principal_id="exec-1"),
+    )
+
+    assert receipt["status"] == "ready_with_recovery_action"
+    assert receipt["reason"] == "suppressed_safe_work_projection"
+    assert receipt["next_action"] == "repair_proactive_safe_work_audit"
+    assert receipt["next_action_href"] == "https://myexternalbrain.com/app/queue"
+    assert receipt["operator_action_state"] == "recovery_required"
+    assert receipt["safe_work_audit"]["present"] is False
+    assert receipt["suppressed_projection"]["requires_recovery"] is True
+    assert receipt["suppressed_projection"]["status"] == "suppressed"
+    assert receipt["suppressed_projection"]["suppressed_item_count"] == 2
+    assert receipt["suppressed_projection"]["suppressed_safe_work_review_count"] == 2
+    assert receipt["suppressed_projection"]["suppressed_projection_reasons"] == ["safe_work_audit_review"]
+    assert receipt["suppressed_projection"]["suppressed_safe_work_issue_codes"] == ["no_decision_ready_material"]
+    assert receipt["suppressed_projection"]["packet_projection_record_count"] == 0
+    assert receipt["suppressed_projection"]["privacy"]["raw_candidate_exposed"] is False
+    assert "suppressed 2 non-deliverable safe-work item" in receipt["summary"]
+
+
 def test_materialize_proactive_ooda_operator_status_writes_recovery_receipt(tmp_path: Path, monkeypatch) -> None:
     module = _load_script()
     monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")

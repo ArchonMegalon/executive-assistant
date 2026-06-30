@@ -53,6 +53,11 @@ def _is_google_workspace_recovery(receipt: dict[str, Any]) -> bool:
     return False
 
 
+def _is_suppressed_projection_recovery(receipt: dict[str, Any]) -> bool:
+    suppressed = dict(receipt.get("suppressed_projection") or {})
+    return bool(suppressed.get("requires_recovery"))
+
+
 def _verify_next_action_surface(receipt: dict[str, Any], issues: list[str]) -> None:
     next_action = str(receipt.get("next_action") or "").strip()
     if next_action in {"maintain_proactive_ooda_runtime", "repair_proactive_safe_work_audit"}:
@@ -268,6 +273,49 @@ def _verify_safe_work_audit(receipt: dict[str, Any], issues: list[str]) -> None:
         issues.append("non-deliverable safe_work_audit requires blocking_reason")
 
 
+def _verify_suppressed_projection(receipt: dict[str, Any], issues: list[str]) -> None:
+    suppressed = dict(receipt.get("suppressed_projection") or {})
+    if not suppressed:
+        issues.append("suppressed_projection missing")
+        return
+    privacy = dict(suppressed.get("privacy") or {})
+    for key in (
+        "raw_packet_text_exposed",
+        "raw_candidate_exposed",
+        "raw_draft_text_exposed",
+        "raw_private_link_exposed",
+    ):
+        if privacy.get(key) is not False:
+            issues.append(f"suppressed_projection.privacy.{key} must remain false")
+    present = bool(suppressed.get("present"))
+    requires_recovery = bool(suppressed.get("requires_recovery"))
+    if not present:
+        if requires_recovery:
+            issues.append("unobserved suppressed_projection must not require recovery")
+        return
+    status = str(suppressed.get("status") or "").strip()
+    if requires_recovery:
+        if status != "suppressed":
+            issues.append("suppressed_projection recovery requires status=suppressed")
+        if int(suppressed.get("suppressed_item_count") or 0) <= 0:
+            issues.append("suppressed_projection recovery requires suppressed_item_count>0")
+        if not str(suppressed.get("blocking_reason") or "").strip():
+            issues.append("suppressed_projection recovery requires blocking_reason")
+        if str(suppressed.get("next_action") or "").strip() != "repair_proactive_safe_work_audit":
+            issues.append("suppressed_projection recovery requires next_action=repair_proactive_safe_work_audit")
+        if str(receipt.get("status") or "").strip() != "ready_with_recovery_action":
+            issues.append("suppressed_projection recovery requires status=ready_with_recovery_action")
+        if str(receipt.get("next_action") or "").strip() != "repair_proactive_safe_work_audit":
+            issues.append("suppressed_projection recovery requires receipt.next_action=repair_proactive_safe_work_audit")
+        if str(receipt.get("operator_action_state") or "").strip() != "recovery_required":
+            issues.append("suppressed_projection recovery requires operator_action_state=recovery_required")
+        return
+    if status == "suppressed":
+        issues.append("suppressed_projection status=suppressed requires requires_recovery=true")
+    if int(suppressed.get("suppressed_item_count") or 0) > 0:
+        issues.append("suppressed_projection suppressed_item_count>0 requires requires_recovery=true")
+
+
 def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
     issues: list[str] = []
     receipt = _json(path)
@@ -341,6 +389,7 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
     if "ready" not in safe_work_results:
         issues.append("safe_work_results.ready missing")
     _verify_safe_work_audit(receipt, issues)
+    _verify_suppressed_projection(receipt, issues)
 
     gmail_draft_followthrough = dict(receipt.get("gmail_draft_followthrough") or {})
     if "checked" not in gmail_draft_followthrough:
@@ -374,8 +423,11 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
             issues.append("live_receipt.receipt_path missing when live receipt is checked")
     if status == "ready_with_live_receipt" and not bool(live_receipt.get("ok")):
         issues.append("ready_with_live_receipt status requires live_receipt.ok=true")
-    if status == "ready_with_recovery_action" and not str(receipt.get("delivery_route_error") or "").strip() and not _is_google_workspace_recovery(
-        receipt
+    if (
+        status == "ready_with_recovery_action"
+        and not str(receipt.get("delivery_route_error") or "").strip()
+        and not _is_google_workspace_recovery(receipt)
+        and not _is_suppressed_projection_recovery(receipt)
     ):
         issues.append("ready_with_recovery_action requires delivery_route_error")
     if status == "blocked_delivery_route" and bool(receipt.get("delivery_route_ready")):

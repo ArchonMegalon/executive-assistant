@@ -167,6 +167,10 @@ def test_proactive_ooda_teable_projection_keeps_important_artifacts_without_raw_
 
     assert set(records) == {"proactive_ooda_runs", "proactive_ooda_items", "proactive_ooda_safe_work"}
     assert summary["record_count"] == 3
+    assert summary["suppressed_item_count"] == 0
+    assert summary["suppressed_safe_work_review_count"] == 0
+    assert summary["suppressed_projection_reasons"] == []
+    assert summary["suppressed_safe_work_issue_codes"] == []
     assert "exec" not in serialized
     assert "opportunity:vendor-approval" not in serialized
     assert records["proactive_ooda_runs"][0]["notification_status"] == "sent"
@@ -250,6 +254,10 @@ def test_proactive_ooda_teable_projection_suppresses_non_deliverable_safe_work_n
     assert records["proactive_ooda_items"] == []
     assert records["proactive_ooda_safe_work"] == []
     assert summary["record_count"] == 1
+    assert summary["suppressed_item_count"] == 1
+    assert summary["suppressed_safe_work_review_count"] == 1
+    assert summary["suppressed_projection_reasons"] == ["safe_work_audit_review"]
+    assert summary["suppressed_safe_work_issue_codes"] == ["no_decision_ready_material"]
     run_row = records["proactive_ooda_runs"][0]
     assert run_row["suppressed_item_count"] == 1
     assert run_row["suppressed_safe_work_review_count"] == 1

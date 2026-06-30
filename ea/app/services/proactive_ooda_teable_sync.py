@@ -116,10 +116,30 @@ def build_proactive_ooda_teable_projection_summary(
         for table_name, rows in dict(records or {}).items()
         if str(table_name or "").strip()
     }
+    run_rows = [dict(row) for row in normalized.get("proactive_ooda_runs", [])]
+    suppressed_reasons: list[str] = []
+    suppressed_issue_codes: list[str] = []
+    for row in run_rows:
+        suppressed_reasons.extend(
+            str(item or "").strip()
+            for item in list(row.get("suppressed_projection_reasons") or [])
+            if str(item or "").strip()
+        )
+        suppressed_issue_codes.extend(
+            str(item or "").strip()
+            for item in list(row.get("suppressed_safe_work_issue_codes") or [])
+            if str(item or "").strip()
+        )
     return {
         "sync_version": PROACTIVE_OODA_TEABLE_SYNC_VERSION,
         "table_count": len(normalized),
         "record_count": sum(len(rows) for rows in normalized.values()),
+        "suppressed_item_count": sum(int(row.get("suppressed_item_count") or 0) for row in run_rows),
+        "suppressed_safe_work_review_count": sum(
+            int(row.get("suppressed_safe_work_review_count") or 0) for row in run_rows
+        ),
+        "suppressed_projection_reasons": sorted(dict.fromkeys(suppressed_reasons))[:8],
+        "suppressed_safe_work_issue_codes": sorted(dict.fromkeys(suppressed_issue_codes))[:12],
         "tables": {
             table_name: {
                 "record_count": len(rows),
