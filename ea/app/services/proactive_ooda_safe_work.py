@@ -4,6 +4,7 @@ import html
 import hashlib
 import json
 import re
+import os
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -162,6 +163,27 @@ _LOW_INFORMATION_QUERY_TOKENS = {
     "with",
     "you",
 }
+_FLAT_SEARCH_TERMS = (
+    " wohnung",
+    "wohnungen",
+    "wohnraum",
+    "apart",
+    "apartment",
+    "flat",
+    "miete",
+    "mieten",
+    "miet",
+    "mieter",
+    "immo",
+    "immobil",
+    "objekt",
+    "grundriss",
+    "kauf",
+    "haus",
+    "wohnungstausch",
+    "zimmer",
+    "studio",
+)
 _LOCATION_LIKE_QUERY_TOKENS = {
     "austria",
     "oesterreich",
@@ -763,6 +785,8 @@ def _context_fit_receipt(context: Mapping[str, Any]) -> dict[str, Any]:
 def _flat_provider_search_blockers(*, context: Mapping[str, Any], queries: Iterable[str]) -> list[str]:
     if not context.get("provider_discovery_relevant"):
         return []
+    if not _proactive_ooda_flat_search_enabled() and _is_flat_property_search_context(context=context):
+        return ["flat_search_disabled"]
     query_list = [str(query or "").strip() for query in queries if str(query or "").strip()]
     blockers: list[str] = []
     if context.get("provider_search_query_too_generic"):
@@ -775,6 +799,30 @@ def _flat_provider_search_blockers(*, context: Mapping[str, Any], queries: Itera
     if not has_source_scope and not has_location_scope:
         blockers.append("provider_search_missing_locality_or_source_scope")
     return list(dict.fromkeys(blockers))
+
+
+def _proactive_ooda_flat_search_enabled() -> bool:
+    raw = str(os.getenv("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED") or "").strip().lower()
+    if raw in {"1", "true", "yes", "on", "enabled"}:
+        return True
+    if raw in {"0", "false", "no", "off", "disabled"}:
+        return False
+    return False
+
+
+def _is_flat_property_search_context(*, context: Mapping[str, Any]) -> bool:
+    search_terms = (
+        tuple(_string_list(context.get("provider_query_terms") or ()))
+        + tuple(_string_list(context.get("all_text") or ()))
+    )
+    for term in search_terms:
+        lowered = _ascii_fold_text(str(term or ""))
+        if not lowered:
+            continue
+        for marker in _FLAT_SEARCH_TERMS:
+            if marker in lowered:
+                return True
+    return False
 
 
 def _rank_candidate_items(
