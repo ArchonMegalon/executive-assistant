@@ -495,6 +495,69 @@ def test_build_safe_work_result_synthesizes_research_backed_draft_from_best_cont
     assert result["shortlist"][0]["contact_email"] == "office@rauchfang.example.test"
 
 
+def test_build_safe_work_result_blocks_auto_gmail_draft_without_provider_email() -> None:
+    packet = _packet_with_cart_work()
+    request_text = (
+        "Suche mir einen Elektriker in 1200 Wien. "
+        "Wenn du einen gefunden hast, formuliere eine kurze Emailanfrage und speichere sie als Draft in meiner Inbox."
+    )
+    recipient_context = {
+        "location": {
+            "phrases": ["1200 Wien"],
+            "city_terms": ["Wien"],
+            "postal_codes": ["1200"],
+            "country_codes": ["AT"],
+        }
+    }
+    packet["stage"]["payload"] = {  # type: ignore[index]
+        "kind": "research_packet",
+        "summary": "One researched inquiry draft saved to Gmail for review.",
+        "work_type": "draft",
+        "draft_mode": "research_backed_inquiry",
+        "draft_request_text": request_text,
+        "research_query": "Elektriker 1200 Wien",
+        "search_queries": ["Elektriker 1200 Wien"],
+        "selection_criteria": ["contact details visible", "reachability", "fit to request"],
+        "recipient_context": recipient_context,
+        "locale": "de",
+        "auto_execute_action": "save_gmail_draft",
+        "post_approval_action": "save_gmail_draft",
+        "candidate_items": [
+            {
+                "label": "Elektro Musterbetrieb Wien",
+                "url": "https://elektro.example.at/kontakt",
+                "snippet": "Elektriker in Wien fuer Steckdosen und Vor-Ort-Termine. Kontaktformular online.",
+                "reachable": True,
+                "contact_email": "Kontaktformular",
+            }
+        ],
+    }
+    packet["safe_work_order"]["work_type"] = "draft"  # type: ignore[index]
+    packet["safe_work_order"]["input_contract"] = {  # type: ignore[index]
+        "draft_mode": "research_backed_inquiry",
+        "draft_request_text": request_text,
+        "research_query": "Elektriker 1200 Wien",
+        "search_queries": ["Elektriker 1200 Wien"],
+        "selection_criteria": ["contact details visible", "reachability", "fit to request"],
+        "recipient_context": recipient_context,
+        "auto_execute_action": "save_gmail_draft",
+        "post_approval_action": "save_gmail_draft",
+        "expected_artifacts": ["shortlist", "draft_text"],
+        "private_payload_available": True,
+    }
+
+    result = build_safe_work_result(packet)
+
+    assert result["status"] == "blocked_needs_research_input"
+    assert result["recommended_option_or_draft"] == {}
+    assert result["staged_action_url"] == ""
+    assert result["audit"]["status"] == "review"
+    issue_codes = [issue["code"] for issue in result["audit"]["issues"]]
+    assert "gmail_draft_recipient_missing" in issue_codes
+    assert "draft_not_created" in issue_codes
+    assert result["execution_receipt"]["context_fit_receipt"]["locality_context_applied"] is True
+
+
 def test_build_safe_work_result_blocks_flat_provider_search_without_locality_or_source_scope(monkeypatch) -> None:
     packet = _packet_with_cart_work()
     request_text = "suche mir einen Rauchfangkehrer fuer ein Gutachten"

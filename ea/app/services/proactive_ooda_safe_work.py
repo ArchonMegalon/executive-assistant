@@ -463,6 +463,15 @@ def build_safe_work_result(
         candidate_items=recommendable_candidate_items,
         context=context,
     )
+    draft_email_missing = _gmail_draft_recipient_missing(
+        work_type=work_type,
+        input_contract=input_contract,
+        stage_payload=stage_payload,
+        recommended=recommended,
+        candidate_items=recommendable_candidate_items,
+    )
+    if draft_email_missing:
+        recommended = {}
     if (
         work_type != "draft"
         and context.get("provider_discovery_relevant")
@@ -474,7 +483,7 @@ def build_safe_work_result(
     staged_action_url = _staged_action_url(
         stage_payload=stage_payload,
         recommended=recommended,
-        candidate_items=recommendable_candidate_items,
+        candidate_items=[] if draft_email_missing else recommendable_candidate_items,
     )
     audit = _safe_work_audit(
         work_type=work_type,
@@ -484,6 +493,7 @@ def build_safe_work_result(
         candidate_items=candidate_items,
         recommended=recommended,
         recommendable_candidate_items=recommendable_candidate_items,
+        draft_email_missing=draft_email_missing,
     )
     browser_action_receipt = build_browser_action_receipt(
         packet,
@@ -493,6 +503,7 @@ def build_safe_work_result(
         recommended.get("value")
         or (
             candidate_items
+            and not draft_email_missing
             and (
                 not context.get("provider_discovery_relevant")
                 or bool(recommendable_candidate_items)
@@ -2230,6 +2241,7 @@ def _safe_work_audit(
     candidate_items: list[dict[str, Any]],
     recommended: Mapping[str, Any],
     recommendable_candidate_items: list[dict[str, Any]] | None = None,
+    draft_email_missing: bool = False,
 ) -> dict[str, Any]:
     issues: list[dict[str, str]] = []
     recommendable_count = len(recommendable_candidate_items or [])
@@ -2267,6 +2279,14 @@ def _safe_work_audit(
             }
         )
     if work_type == "draft" and str(stage_payload.get("draft_mode") or "").strip().lower() == "research_backed_inquiry":
+        if draft_email_missing:
+            issues.append(
+                {
+                    "code": "gmail_draft_recipient_missing",
+                    "severity": "warn",
+                    "detail": "The workflow asks EA to save a Gmail draft, but no validated provider recipient email was found.",
+                }
+            )
         if context.get("provider_search_query_too_generic"):
             issues.append(
                 {
@@ -2497,13 +2517,75 @@ def _candidate_contact_email(candidate: Mapping[str, Any]) -> str:
     ):
         if isinstance(value, (list, tuple)):
             for item in value:
-                normalized = str(item or "").strip()
-                if normalized:
-                    return normalized
+                extracted = _extract_contact_emails(str(item or ""))
+                if extracted:
+                    return extracted[0]
             continue
-        normalized = str(value or "").strip()
-        if normalized:
-            return normalized
+        extracted = _extract_contact_emails(str(value or ""))
+        if extracted:
+            return extracted[0]
+    return ""
+
+
+def _gmail_draft_recipient_missing(
+    *,
+    work_type: str,
+    input_contract: Mapping[str, Any],
+    stage_payload: Mapping[str, Any],
+    recommended: Mapping[str, Any],
+    candidate_items: list[dict[str, Any]],
+) -> bool:
+    if str(work_type or "").strip().lower() != "draft":
+        return False
+    if str(stage_payload.get("draft_mode") or "").strip().lower() != "research_backed_inquiry":
+        return False
+    if not _save_gmail_draft_requested(input_contract=input_contract, stage_payload=stage_payload):
+        return False
+    return not _draft_recipient_email(
+        input_contract=input_contract,
+        stage_payload=stage_payload,
+        recommended=recommended,
+        candidate_items=candidate_items,
+    )
+
+
+def _save_gmail_draft_requested(*, input_contract: Mapping[str, Any], stage_payload: Mapping[str, Any]) -> bool:
+    for key in ("auto_execute_action", "post_approval_action", "approved_action"):
+        value = _stage_or_input(stage_payload=stage_payload, input_contract=input_contract, key=key)
+        if str(value or "").strip().lower() == "save_gmail_draft":
+            return True
+    return False
+
+
+def _draft_recipient_email(
+    *,
+    input_contract: Mapping[str, Any],
+    stage_payload: Mapping[str, Any],
+    recommended: Mapping[str, Any],
+    candidate_items: list[dict[str, Any]],
+) -> str:
+    candidate = recommended.get("candidate") if isinstance(recommended.get("candidate"), Mapping) else {}
+    for value in (
+        recommended.get("recipient_email"),
+        stage_payload.get("recipient_email"),
+        stage_payload.get("recipient"),
+        stage_payload.get("delivery_recipient_email"),
+        stage_payload.get("counterparty_email"),
+        input_contract.get("recipient_email"),
+        input_contract.get("recipient"),
+        input_contract.get("delivery_recipient_email"),
+        input_contract.get("counterparty_email"),
+    ):
+        extracted = _extract_contact_emails(str(value or ""))
+        if extracted:
+            return extracted[0]
+    candidate_email = _candidate_contact_email(candidate)
+    if candidate_email:
+        return candidate_email
+    for row in candidate_items:
+        candidate_email = _candidate_contact_email(row)
+        if candidate_email:
+            return candidate_email
     return ""
 
 

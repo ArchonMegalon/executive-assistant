@@ -134,6 +134,26 @@ def test_exchange_google_code_for_tokens_maps_invalid_grant(monkeypatch: pytest.
         )
 
 
+def test_create_google_gmail_draft_requires_recipient_before_provider_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services import google_oauth as google_service
+
+    def _should_not_load_context(**_kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("draft context should not load when recipient is missing")
+
+    monkeypatch.setattr(google_service, "_load_google_draft_context", _should_not_load_context)
+
+    with pytest.raises(RuntimeError, match="google_gmail_recipient_missing"):
+        google_service.create_google_gmail_draft(
+            container=SimpleNamespace(),
+            principal_id="exec-google",
+            recipient_email="",
+            subject="Subject",
+            body_text="Body",
+        )
+
+
 def test_google_raw_export_uses_query_without_inbox_label(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.services import google_oauth as google_service
 

@@ -1171,12 +1171,14 @@ def create_google_gmail_draft(
     references: str | None = None,
     binding_id: str = "",
 ) -> GoogleGmailDraftResult:
+    to_email = str(recipient_email or "").strip().lower()
+    if not to_email:
+        raise RuntimeError("google_gmail_recipient_missing")
     binding, metadata, token_payload, access_token, sender_email = _load_google_draft_context(
         container=container,
         principal_id=principal_id,
         binding_id=binding_id,
     )
-    to_email = str(recipient_email or "").strip().lower()
     normalized_subject = str(subject or "").strip() or "EA draft"
     normalized_body = str(body_text or "").strip()
     if not normalized_body:
