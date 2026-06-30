@@ -528,6 +528,7 @@ def discover_postgres_observation_signals(
         "commitment_candidate_staged",
         "property_scout_sync_completed",
         "telegram.message",
+        "telegram_business.signal_candidate",
         "alexa_history_indexed",
         "pocket_recording_archive_indexed",
     )
@@ -1467,6 +1468,41 @@ def observation_row_to_signal(
                 channel=channel,
                 signal_type=signal_type,
                 counterparty=counterparty,
+            )
+        proactive_suppression = _transcript_topic_suppression(
+            request_text=transcript_request,
+            title=title,
+            channel=channel,
+            signal_type=signal_type,
+            counterparty=counterparty,
+            observed_at=created_at,
+        )
+    elif event_type == "telegram_business.signal_candidate":
+        if str(payload.get("signal_type") or "").strip() != "candidate":
+            return None
+        if payload.get("human_review_required") is not True:
+            return None
+        title = _first_sentence(str(payload.get("text_preview") or "Telegram Business signal candidate"))
+        summary = str(payload.get("text_preview") or "").strip()
+        counterparty = "Telegram Business"
+        signal_type = "telegram_business_signal_candidate"
+        due_at = ""
+        external_id = external_id or str(payload.get("message_id") or payload.get("update_id") or "").strip()
+        transcript_request = _transcript_request_text(
+            payload.get("text_preview"),
+            title,
+        )
+        if not ooda_loop:
+            ooda_loop = _transcript_assistant_ooda(
+                request_text=transcript_request,
+                title=title,
+                channel=channel,
+                signal_type=signal_type,
+                counterparty=counterparty,
+                notes=_transcript_stage_notes(
+                    "Telegram Business/Secretary candidate from an allowlisted chat.",
+                    "Read-only ingest: do not reply or write memory before review.",
+                ),
             )
         proactive_suppression = _transcript_topic_suppression(
             request_text=transcript_request,

@@ -37,6 +37,7 @@ from app.product import service as product_service_module
 from app.product.service import build_product_service
 from app.services import audiobook_access_approval
 from app.services import google_oauth as google_oauth_service
+from app.services import telegram_business_signal_ingest
 from app.services import whatsapp_inbound_actions
 from app.services import whatsapp_delivery_router
 from app.services.audiobook_epub_pipeline import (
@@ -9887,6 +9888,79 @@ class TelegramIngestOut(BaseModel):
     created_at: str
     reply_sent: bool = False
     reply_text: str = ""
+
+
+class TelegramBusinessIngestOut(BaseModel):
+    observation_id: str
+    principal_id: str
+    channel: str
+    event_type: str
+    created_at: str
+    status: str
+    update_type: str
+    chat_scope: str
+    reply_sent: bool = False
+    allowed_updates: list[str] = Field(default_factory=list)
+
+
+@router.post("/telegram/business/ingest/{bot_key}")
+@router.post("/telegram/business/ingest")
+def ingest_telegram_business(
+    request: Request,
+    body: dict[str, object] = Body(default_factory=dict),
+    bot_key: str = "",
+    container: AppContainer = Depends(get_container),
+) -> TelegramBusinessIngestOut:
+    payload = dict(body or {})
+    update = dict(payload.get("update") or {}) if isinstance(payload.get("update"), dict) else payload
+    header_secret = str(request.headers.get("x-telegram-bot-api-secret-token") or "")
+    provided_secret = str(update.get("secret_token") or "")
+    bot_config = _resolve_telegram_bot_config(bot_key=bot_key, provided_secret=provided_secret, header_secret=header_secret)
+    _require_telegram_ingest_secret(
+        config=bot_config,
+        provided=provided_secret,
+        header_value=header_secret,
+    )
+    result = telegram_business_signal_ingest.normalize_telegram_business_update(
+        update,
+        allowed_chat_ids=telegram_business_signal_ingest.env_allowed_chat_ids(),
+        allowed_chat_hashes=telegram_business_signal_ingest.env_allowed_chat_hashes(),
+        hash_salt=str(os.getenv("EA_TELEGRAM_BUSINESS_HASH_SALT") or "").strip(),
+    )
+    principal_id = str(bot_config.get("default_principal_id") or _telegram_default_principal_id() or "").strip()
+    principal_id = _canonical_telegram_principal_id(container, principal_id) or principal_id
+    if not principal_id:
+        raise HTTPException(status_code=404, detail="telegram_business_principal_not_configured")
+    if not _telegram_principal_is_registered_user(container=container, principal_id=principal_id):
+        raise HTTPException(status_code=403, detail="telegram_principal_not_registered")
+    event = container.channel_runtime.ingest_observation(
+        principal_id=principal_id,
+        channel=telegram_business_signal_ingest.CHANNEL,
+        event_type=result.event_type,
+        payload=result.candidate,
+        source_id=result.source_id,
+        external_id=result.external_id,
+        dedupe_key=result.dedupe_key,
+        auth_context_json={
+            "actor_type": "telegram_business_bot",
+            "principal_originated": False,
+            "bot_key": str(bot_config.get("bot_key") or bot_key or "default").strip() or "default",
+            "business_secret_verified": True,
+            "read_only_ingest": True,
+        },
+    )
+    return TelegramBusinessIngestOut(
+        observation_id=event.observation_id,
+        principal_id=event.principal_id,
+        channel=event.channel,
+        event_type=event.event_type,
+        created_at=event.created_at,
+        status=result.status,
+        update_type=result.update_type,
+        chat_scope=result.chat_scope,
+        reply_sent=False,
+        allowed_updates=telegram_business_signal_ingest.allowed_updates(),
+    )
 
 
 @router.post("/telegram/ingest/{bot_key}")
