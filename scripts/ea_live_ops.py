@@ -1966,6 +1966,11 @@ def _proactive_runtime_error_next_action(errors: list[str]) -> str:
 
 def _next_action_surface_fields(action: str) -> dict[str, str]:
     surface = proactive_next_action_surface(action)
+    normalized = str(action or "").strip()
+    if normalized == "review_proactive_draft_queue" and not any(
+        str(surface.get(key) or "").strip() for key in ("href", "label", "method")
+    ):
+        surface = {"href": "/app/queue", "label": "Open queue", "method": "get"}
     return {
         "next_action_href": str(surface.get("href") or "").strip(),
         "next_action_label": str(surface.get("label") or "").strip(),
@@ -3026,14 +3031,18 @@ def probe_proactive_gmail_draft(
             report["operator_text"] = f"proactive_gmail_draft probe failed; inspect {effective_runtime_service}"
         return report
 
+    status = str(payload.get("status") or "").strip() or "unknown"
     reason = str(payload.get("reason") or "").strip()
-    next_action = _proactive_gmail_draft_next_action(reason)
+    next_action = _proactive_gmail_draft_next_action(reason=reason, status=status)
     next_action_surface = dict(payload.get("next_action_surface") or {})
-    if not next_action_surface and next_action:
+    if (
+        next_action
+        and not any(str(next_action_surface.get(key) or "").strip() for key in ("href", "label", "method"))
+    ):
         next_action_surface = _next_action_surface_fields(next_action)
     report = {
         "probe_ok": True,
-        "status": str(payload.get("status") or "").strip() or "unknown",
+        "status": status,
         "principal_id": str(principal_id or "").strip(),
         "compose_file": effective_compose_file,
         "runtime_service": effective_runtime_service,
@@ -3070,9 +3079,9 @@ def probe_proactive_gmail_draft(
         "telegram_primary_chat_id": str(payload.get("telegram_primary_chat_id") or "").strip(),
         "telegram_proactive_chat_id": str(payload.get("telegram_proactive_chat_id") or "").strip(),
         "next_action": next_action,
-        "next_action_href": str(next_action_surface.get("href") or "").strip(),
-        "next_action_label": str(next_action_surface.get("label") or "").strip(),
-        "next_action_method": str(next_action_surface.get("method") or "").strip(),
+        "next_action_href": str(next_action_surface.get("next_action_href") or next_action_surface.get("href") or "").strip(),
+        "next_action_label": str(next_action_surface.get("next_action_label") or next_action_surface.get("label") or "").strip(),
+        "next_action_method": str(next_action_surface.get("next_action_method") or next_action_surface.get("method") or "").strip(),
         "raw": payload,
     }
     if output_format == "operator":
@@ -3125,7 +3134,7 @@ def _normalize_proactive_outcome(value: str) -> str:
     return normalized or "missing"
 
 
-def _proactive_gmail_draft_next_action(reason: str) -> str:
+def _proactive_gmail_draft_next_action(*, reason: str = "", status: str = "") -> str:
     normalized = str(reason or "").strip().lower()
     if normalized in {
         "google_oauth_binding_not_found",
@@ -3142,6 +3151,9 @@ def _proactive_gmail_draft_next_action(reason: str) -> str:
         return "inspect_proactive_runtime_artifacts"
     if normalized == "approved_draft_body_missing":
         return "inspect_proactive_runtime_artifacts"
+    normalized_status = str(status or "").strip().lower()
+    if normalized_status == "no_pending_draft":
+        return "review_proactive_draft_queue"
     return ""
 
 

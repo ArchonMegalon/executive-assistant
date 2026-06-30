@@ -296,6 +296,9 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
             issues.append("already_executed gmail_draft_followthrough requires execution_observation_present=true")
         if gmail_draft_followthrough.get("gmail_draft_id_hash_present") is not True:
             issues.append("already_executed gmail_draft_followthrough requires gmail_draft_id_hash_present=true")
+    if gmail_status in {"no_pending_draft", "pending_google_reauth", "pending_execution", "blocked", "probe_failed"}:
+        if not str(gmail_draft_followthrough.get("next_action") or "").strip():
+            issues.append(f"{gmail_status} gmail_draft_followthrough requires next_action")
     _verify_next_action_surface(gmail_draft_followthrough, issues)
     _verify_source_coverage(receipt, issues)
 
