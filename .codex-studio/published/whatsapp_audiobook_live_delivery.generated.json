@@ -1,13 +1,20 @@
 {
   "audiobook_runtime": {
-    "api_key_slot_count": 7,
-    "ready_for_live_intake": true,
-    "reason": "",
+    "api_key_slot_count": 0,
+    "ready_for_live_intake": false,
+    "reason": "jobs_root_durable, external_tts_enabled, unmixr_auto_render_enabled, voice_catalog_configured, voice_catalog_audition_ready, unmixr_api_key_slot_present",
     "receipt_present": true,
-    "sample_blockers": [],
-    "status": "warn",
-    "unmixr_auto_render_enabled": true,
-    "voice_catalog_count": 292
+    "sample_blockers": [
+      "jobs_root_durable",
+      "external_tts_enabled",
+      "unmixr_auto_render_enabled",
+      "voice_catalog_configured",
+      "voice_catalog_audition_ready",
+      "unmixr_api_key_slot_present"
+    ],
+    "status": "fail",
+    "unmixr_auto_render_enabled": false,
+    "voice_catalog_count": 0
   },
   "blocking_reason": "",
   "candidate_count": 2,
@@ -29,13 +36,13 @@
   ],
   "failed_codes": [],
   "fresh_live_job_receipt_proven": true,
-  "generated_at": "2026-06-30T05:58:51.661223Z",
+  "generated_at": "2026-06-30T06:08:10.751935Z",
   "generated_by": "ea/scripts/materialize_whatsapp_audiobook_live_delivery_receipt.py",
   "goal_completion_claim_allowed": false,
   "historical_evidence": {
     "historical_live_path_proven": true,
     "local_intake": {
-      "generated_at": "2026-06-30T05:58:52.166209Z",
+      "generated_at": "2026-06-30T06:08:11.659018Z",
       "local_path_proven": true,
       "receipt_present": true,
       "share_link_sent": 1,
@@ -43,7 +50,7 @@
       "voice_sample_sent": 3
     },
     "operator_bundle": {
-      "generated_at": "2026-06-30T05:54:31.361245Z",
+      "generated_at": "2026-06-30T06:05:44.045589Z",
       "live_delivery_claim_allowed": true,
       "live_delivery_status": "pass",
       "live_path_proven": true,
@@ -126,10 +133,10 @@
   "runtime_readiness": {
     "effective_session_ref_present": true,
     "ready": false,
-    "reason": "state_file_container_probe_unavailable",
+    "reason": "sidecar_not_ready",
     "receipt_present": true,
     "sidecar_ready": false,
-    "state_fresh": false,
+    "state_fresh": true,
     "status": "blocked"
   },
   "selected_delivery": {

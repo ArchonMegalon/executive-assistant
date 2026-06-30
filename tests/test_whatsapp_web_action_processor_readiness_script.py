@@ -249,6 +249,50 @@ def test_build_report_checks_runtime_containers_without_leaking_secret_values(tm
     assert "processor-secret" not in str(report)
 
 
+def test_build_report_prefers_healthy_compose_service_container_over_stale_named_container(tmp_path: Path) -> None:
+    module = _module()
+
+    def _fake_run(cmd, **kwargs):
+        if cmd[:2] == ["docker", "ps"]:
+            return SimpleNamespace(
+                returncode=0,
+                stdout=(
+                    "healthy-prefixed-ea-whatsapp-web-action-processor\t"
+                    f"Up 4 hours (healthy)\t{tmp_path / 'docker-compose.whatsapp-web-session.yml'}\n"
+                    "ea-whatsapp-web-action-processor\t"
+                    f"Up 13 hours (unhealthy)\t{tmp_path / 'docker-compose.yml'},{tmp_path / 'docker-compose.whatsapp-web-session.yml'}\n"
+                ),
+            )
+        if cmd[:3] == ["docker", "exec", "ea-api"]:
+            return SimpleNamespace(returncode=0, stdout="EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET=api-secret\n")
+        if cmd[:3] == ["docker", "exec", "healthy-prefixed-ea-whatsapp-web-action-processor"]:
+            return SimpleNamespace(
+                returncode=0,
+                stdout=(
+                    "EA_WHATSAPP_WEB_ACTION_PROCESSOR_ENABLED=1\n"
+                    "EA_WHATSAPP_AUDIOBOOK_CALLBACK_SECRET=processor-secret\n"
+                ),
+            )
+        if cmd[:3] == ["docker", "exec", "ea-whatsapp-web-action-processor"]:
+            return SimpleNamespace(returncode=1, stdout="", stderr="stale container")
+        raise AssertionError(cmd)
+
+    report = module.build_report(
+        _args(tmp_path, check_containers=True),
+        request_json=lambda **_: {"ready": True, "status": "ready", "store_message_text": True},
+        run=_fake_run,
+    )
+
+    assert report["ready"] is True
+    assert report["effective_processor_container"] == "healthy-prefixed-ea-whatsapp-web-action-processor"
+    assert report["processor_container_resolved"] is True
+    assert report["processor_callback_secret_present"] is True
+    assert report["processor_container_enabled"] is True
+    assert "processor_container_callback_secret_missing" not in report["reasons"]
+    assert "processor_container_disabled_or_not_running" not in report["reasons"]
+    assert "processor-secret" not in str(report)
+
+
 def test_build_report_derives_effective_session_ref_from_live_sidecar_when_default_ref_is_missing(
     tmp_path: Path,
     monkeypatch,

@@ -1875,3 +1875,45 @@ def test_run_processor_in_container_times_out_fail_closed(monkeypatch) -> None:
         "--no-audiobook-resume-due",
         "--no-audiobook-followup-enabled",
     ]
+
+
+def test_run_processor_in_container_prefers_healthy_compose_service_container(monkeypatch, tmp_path) -> None:
+    module = _load_script("materialize_whatsapp_audiobook_operator_proof_bundle")
+    compose_file = tmp_path / "docker-compose.whatsapp-web-session.yml"
+    compose_file.write_text("services:\n  ea-whatsapp-web-action-processor: {}\n", encoding="utf-8")
+    observed: list[list[str]] = []
+
+    def fake_run(*args, **kwargs):
+        cmd = list(args[0])
+        observed.append(cmd)
+        if cmd[:2] == ["docker", "ps"]:
+            return type(
+                "Completed",
+                (),
+                {
+                    "returncode": 0,
+                    "stdout": (
+                        "healthy-prefixed-ea-whatsapp-web-action-processor\t"
+                        f"Up 4 hours (healthy)\t{compose_file}\n"
+                        "ea-whatsapp-web-action-processor\t"
+                        f"Up 13 hours (unhealthy)\t{compose_file}\n"
+                    ),
+                },
+            )()
+        if cmd[:3] == ["docker", "exec", "healthy-prefixed-ea-whatsapp-web-action-processor"]:
+            return type("Completed", (), {"returncode": 0, "stdout": '{"status":"pass","errors":0}\n'})()
+        if cmd[:3] == ["docker", "exec", "ea-whatsapp-web-action-processor"]:
+            return type("Completed", (), {"returncode": 128, "stdout": ""})()
+        raise AssertionError(cmd)
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+
+    report, meta = module._run_processor_in_container(
+        SimpleNamespace(processor_container="ea-whatsapp-web-action-processor", compose_file=str(compose_file))
+    )
+
+    assert report["status"] == "pass"
+    assert meta["container_resolved"] is True
+    assert meta["stdout_json_present"] is True
+    assert meta["return_code"] == 0
+    assert any(cmd[:3] == ["docker", "exec", "healthy-prefixed-ea-whatsapp-web-action-processor"] for cmd in observed)

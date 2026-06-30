@@ -575,11 +575,64 @@ def _parse_json_stdout(stdout: str) -> dict[str, object]:
     return {}
 
 
+def _resolve_processor_container(readiness_args: argparse.Namespace) -> str:
+    configured = str(getattr(readiness_args, "processor_container", "") or "ea-whatsapp-web-action-processor").strip()
+    service_name = "ea-whatsapp-web-action-processor"
+    compose_file = Path(str(getattr(readiness_args, "compose_file", "") or ROOT / "docker-compose.whatsapp-web-session.yml"))
+    compose_path = compose_file.resolve().as_posix() if compose_file.exists() else compose_file.as_posix()
+    try:
+        completed = subprocess.run(
+            [
+                "docker",
+                "ps",
+                "--filter",
+                f"label=com.docker.compose.service={service_name}",
+                "--format",
+                '{{.Names}}\t{{.Status}}\t{{.Label "com.docker.compose.project.config_files"}}',
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except Exception:
+        return configured
+    if completed.returncode != 0:
+        return configured
+    candidates: list[tuple[int, str]] = []
+    for line in completed.stdout.splitlines():
+        parts = line.split("\t")
+        if not parts or not parts[0].strip():
+            continue
+        name = parts[0].strip()
+        status = parts[1].strip().lower() if len(parts) > 1 else ""
+        config_files = parts[2].strip() if len(parts) > 2 else ""
+        score = 0
+        if "(healthy)" in status:
+            score += 100
+        elif "up" in status and "(unhealthy)" not in status:
+            score += 50
+        if compose_path and compose_path in config_files.split(","):
+            score += 20
+        if configured and name == configured:
+            score += 1
+        candidates.append((score, name))
+    if not candidates:
+        return configured
+    candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return candidates[0][1]
+
+
 def _run_processor_in_container(readiness_args: argparse.Namespace) -> tuple[dict[str, object], dict[str, object]]:
-    container_name = str(getattr(readiness_args, "processor_container", "") or "ea-whatsapp-web-action-processor").strip()
+    configured_container_name = str(
+        getattr(readiness_args, "processor_container", "") or "ea-whatsapp-web-action-processor"
+    ).strip()
+    container_name = _resolve_processor_container(readiness_args)
     meta: dict[str, object] = {
         "attempted": True,
+        "configured_container_name_sha256": _sha256_label(configured_container_name),
         "container_name_sha256": _sha256_label(container_name),
+        "container_resolved": container_name != configured_container_name,
         "stdout_json_present": False,
         "return_code": -1,
         "timed_out": False,
@@ -744,6 +797,7 @@ def materialize_whatsapp_audiobook_operator_proof_bundle(
         "container_attempted": bool(processor_container_meta.get("attempted")),
         "container_stdout_json_present": bool(processor_container_meta.get("stdout_json_present")),
         "container_return_code": int(processor_container_meta.get("return_code") or 0),
+        "container_resolved": bool(processor_container_meta.get("container_resolved")),
         "container_timed_out": bool(processor_container_meta.get("timed_out")),
         "container_timeout_seconds": float(processor_container_meta.get("timeout_seconds") or 0),
     }

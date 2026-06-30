@@ -303,6 +303,59 @@ def _container_env_presence(
     return present
 
 
+def _resolve_compose_service_container(
+    *,
+    configured_container: str,
+    service_name: str,
+    compose_file: Path,
+    run: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+) -> str:
+    configured = str(configured_container or "").strip()
+    try:
+        completed = run(
+            [
+                "docker",
+                "ps",
+                "--filter",
+                f"label=com.docker.compose.service={service_name}",
+                "--format",
+                '{{.Names}}\t{{.Status}}\t{{.Label "com.docker.compose.project.config_files"}}',
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except Exception:
+        return configured
+    if completed.returncode != 0:
+        return configured
+
+    compose_path = compose_file.resolve().as_posix() if compose_file.exists() else compose_file.as_posix()
+    candidates: list[tuple[int, str]] = []
+    for line in completed.stdout.splitlines():
+        parts = line.split("\t")
+        if not parts or not parts[0].strip():
+            continue
+        name = parts[0].strip()
+        status = parts[1].strip().lower() if len(parts) > 1 else ""
+        config_files = parts[2].strip() if len(parts) > 2 else ""
+        score = 0
+        if "(healthy)" in status:
+            score += 100
+        elif "up" in status and "(unhealthy)" not in status:
+            score += 50
+        if compose_path and compose_path in config_files.split(","):
+            score += 20
+        if configured and name == configured:
+            score += 1
+        candidates.append((score, name))
+    if not candidates:
+        return configured
+    candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return candidates[0][1]
+
+
 def _file_has_value(path: Path) -> bool:
     try:
         return bool(path.read_text(encoding="utf-8").strip())
@@ -641,11 +694,20 @@ def build_report(
     secret_present = any(bool(str(values.get(key) or "").strip()) for key in CALLBACK_SECRET_KEYS) or _host_secret_file_present(values)
     processor_enabled = _bool_env(values.get("EA_WHATSAPP_WEB_ACTION_PROCESSOR_ENABLED"))
     state = _state_file_report(args, values, processor_volume_targets=processor_volume_targets)
+    configured_processor_container = str(args.processor_container)
+    effective_processor_container = configured_processor_container
+    if bool(args.check_containers):
+        effective_processor_container = _resolve_compose_service_container(
+            configured_container=configured_processor_container,
+            service_name="ea-whatsapp-web-action-processor",
+            compose_file=compose_file,
+            run=run,
+        )
 
     container_report: dict[str, object] = {"containers_checked": False}
     if bool(args.probe_sidecar) and not bool(args.check_containers) and _state_needs_container_probe(state):
         container_state = _container_state_file_report(
-            container_name=str(args.processor_container),
+            container_name=effective_processor_container,
             state_file=str(args.state_file or values.get("EA_WHATSAPP_WEB_ACTION_STATE_FILE") or DEFAULT_ACTION_STATE_FILE),
             stale_seconds=max(1, _int_value(args.state_stale_seconds, 600)),
             run=run,
@@ -658,7 +720,7 @@ def build_report(
     if bool(args.check_containers):
         if not bool(state.get("state_file_present")) or not bool(state.get("state_file_parent_writable")):
             container_state = _container_state_file_report(
-                container_name=str(args.processor_container),
+                container_name=effective_processor_container,
                 state_file=str(args.state_file or values.get("EA_WHATSAPP_WEB_ACTION_STATE_FILE") or DEFAULT_ACTION_STATE_FILE),
                 stale_seconds=max(1, _int_value(args.state_stale_seconds, 600)),
                 run=run,
@@ -670,7 +732,7 @@ def build_report(
                 state["state_file_container_probe_succeeded"] = False
         api_env = _container_env_presence(container_name=str(args.api_container), keys=CALLBACK_SECRET_KEYS, run=run)
         processor_env = _container_env_presence(
-            container_name=str(args.processor_container),
+            container_name=effective_processor_container,
             keys=("EA_WHATSAPP_WEB_ACTION_PROCESSOR_ENABLED", *CALLBACK_SECRET_KEYS),
             run=run,
         )
@@ -680,12 +742,15 @@ def build_report(
             run=run,
         )
         processor_secret_file_present = _container_secret_file_present(
-            container_name=str(args.processor_container),
+            container_name=effective_processor_container,
             paths=PROCESSOR_CONTAINER_SECRET_FILES,
             run=run,
         )
         container_report = {
             "containers_checked": True,
+            "configured_processor_container": configured_processor_container,
+            "effective_processor_container": effective_processor_container,
+            "processor_container_resolved": effective_processor_container != configured_processor_container,
             "api_callback_secret_present": any(api_env.values()) or api_secret_file_present,
             "processor_callback_secret_present": any(processor_env.get(key, False) for key in CALLBACK_SECRET_KEYS) or processor_secret_file_present,
             "processor_container_enabled": bool(processor_env.get("EA_WHATSAPP_WEB_ACTION_PROCESSOR_ENABLED")),
