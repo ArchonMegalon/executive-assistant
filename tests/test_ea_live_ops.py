@@ -3718,6 +3718,7 @@ def test_send_telegram_dry_run_reuses_readiness_probe_without_sending(monkeypatc
     assert report["delivery_transport"] == "telegram_bot"
     assert report["chat_ref_sha256"] == "c" * 64
     assert report["bot_token_present"] is True
+    assert report["timeout_seconds"] == 30.0
     assert report["observed_at"] == "2026-06-29T14:00:00Z"
     assert "123456789" not in serialized
     assert "telegram-token" not in serialized
@@ -3729,7 +3730,7 @@ def test_send_telegram_executes_runtime_without_exposing_chat_secret(monkeypatch
 
     def _fake_exec_json(*, code: str, timeout_seconds: float):
         assert "send_telegram_message_for_principal" in code
-        assert timeout_seconds == 30.0
+        assert timeout_seconds == 75.0
         return (
             0,
             {
@@ -3748,7 +3749,7 @@ def test_send_telegram_executes_runtime_without_exposing_chat_secret(monkeypatch
 
     monkeypatch.setattr(module, "_runtime_container_exec_json", _fake_exec_json)
 
-    report = module.send_telegram(principal_id="principal-1", text="status update", dry_run=False)
+    report = module.send_telegram(principal_id="principal-1", text="status update", dry_run=False, timeout_seconds=75.0)
     serialized = json.dumps(report, sort_keys=True)
 
     assert report["sent"] is True
@@ -3757,6 +3758,7 @@ def test_send_telegram_executes_runtime_without_exposing_chat_secret(monkeypatch
     assert report["message_ids"] == ["1001"]
     assert report["message_count"] == 1
     assert report["runtime_container"] == "ea-api"
+    assert report["timeout_seconds"] == 75.0
     assert report["observed_at"] == "2026-06-29T14:01:00Z"
     assert report["chat_ref_sha256"] == "d" * 64
     assert "123456789" not in serialized
@@ -3860,13 +3862,20 @@ def test_main_send_telegram_emits_json(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
         module,
         "parse_args",
-        lambda: Namespace(command="send-telegram", telegram_principal_id="principal-1", text="status update", dry_run=True),
+        lambda: Namespace(
+            command="send-telegram",
+            telegram_principal_id="principal-1",
+            text="status update",
+            dry_run=True,
+            timeout_seconds=90.0,
+        ),
     )
 
-    def _fake_send_telegram(*, principal_id: str, text: str, dry_run: bool):
+    def _fake_send_telegram(*, principal_id: str, text: str, dry_run: bool, timeout_seconds: float):
         assert principal_id == "principal-1"
         assert text == "status update"
         assert dry_run is True
+        assert timeout_seconds == 90.0
         return {"sent": False, "reason": "dry_run", "delivery_transport": "telegram_bot"}
 
     monkeypatch.setattr(module, "send_telegram", _fake_send_telegram)

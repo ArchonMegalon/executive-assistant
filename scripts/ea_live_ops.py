@@ -5009,16 +5009,19 @@ def send_telegram(
     principal_id: str,
     text: str,
     dry_run: bool = False,
+    timeout_seconds: float = 30.0,
 ) -> dict[str, object]:
     normalized_principal_id = str(principal_id or "").strip()
     normalized_text = str(text or "").strip()
     observed_at = _utc_now()
+    effective_timeout_seconds = max(float(timeout_seconds or 30.0), 1.0)
     if not normalized_text:
         return {
             "sent": False,
             "reason": "text_missing",
             "principal_id": normalized_principal_id,
             "delivery_transport": "telegram_bot",
+            "timeout_seconds": effective_timeout_seconds,
             "observed_at": observed_at,
             "source": "runtime_container_exec:telegram_delivery.send_telegram_message_for_principal",
         }
@@ -5039,6 +5042,7 @@ def send_telegram(
             "bot_token_present": bool(readiness.get("bot_token_present")),
             "delivery_transport": "telegram_bot",
             "runtime_container": str(readiness.get("runtime_container") or "").strip(),
+            "timeout_seconds": effective_timeout_seconds,
             "observed_at": observed_at,
             "source": "runtime_container_exec:telegram_delivery.send_telegram_message_for_principal",
         }
@@ -5072,7 +5076,7 @@ def send_telegram(
         "    reason = (str(exc).strip() or type(exc).__name__)[:160]\n"
         "    print(json.dumps({'ok': False, 'sent': False, 'reason': reason}, sort_keys=True))\n"
     )
-    exit_code, payload, runtime_container = _runtime_container_exec_json(code=code, timeout_seconds=30.0)
+    exit_code, payload, runtime_container = _runtime_container_exec_json(code=code, timeout_seconds=effective_timeout_seconds)
     payload_ok = bool(payload.get("ok", False))
     sent = exit_code == 0 and payload_ok and bool(payload.get("sent"))
     reason = str(payload.get("reason") or "").strip() or (f"runtime_container_exec_exit_{exit_code}" if exit_code else "send_failed")
@@ -5089,6 +5093,7 @@ def send_telegram(
         "message_ids": message_ids,
         "message_count": len(message_ids),
         "runtime_container": runtime_container,
+        "timeout_seconds": effective_timeout_seconds,
         "observed_at": observed_at,
         "source": "runtime_container_exec:telegram_delivery.send_telegram_message_for_principal",
     }
@@ -5506,6 +5511,7 @@ def main() -> int:
             principal_id=str(getattr(args, "telegram_principal_id", "") or "").strip(),
             text=str(getattr(args, "text", "") or ""),
             dry_run=bool(getattr(args, "dry_run", False)),
+            timeout_seconds=float(getattr(args, "timeout_seconds", None) or 30.0),
         )
         print(_json_dumps(report))
         return 0 if bool(report.get("sent")) or str(report.get("reason") or "") == "dry_run" else 2
