@@ -82,3 +82,11 @@ def test_pocket_source_coverage_recovery_action_reindexes_local_archive() -> Non
     assert surface["method"] == "post"
     assert surface["href"].endswith("/app/api/signals/pocket/reindex-archive")
     assert surface["label"] == "Sync Pocket transcripts"
+
+
+def test_maintain_proactive_ooda_runtime_action_opens_today() -> None:
+    surface = proactive_next_action_surface("maintain_proactive_ooda_runtime", public_base_url="")
+
+    assert surface["method"] == "get"
+    assert surface["href"].endswith("/app/today")
+    assert surface["label"] == "Open Today"

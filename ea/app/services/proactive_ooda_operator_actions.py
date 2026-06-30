@@ -11,6 +11,7 @@ DEFAULT_WHATSAPP_RECOVERY_PATH = "/integrations/whatsapp"
 DEFAULT_APPROVAL_CAPTURE_PATH = "/admin/proactive-ooda/approval"
 DEFAULT_QUEUE_REVIEW_PATH = "/app/queue"
 DEFAULT_POCKET_SYNC_PATH = "/app/api/signals/pocket/reindex-archive"
+DEFAULT_PROACTIVE_OODA_REVIEW_PATH = "/app/today"
 
 
 def _absolute_public_href(path: str, *, public_base_url: str = "") -> str:
@@ -27,6 +28,12 @@ def _absolute_public_href(path: str, *, public_base_url: str = "") -> str:
 
 def proactive_next_action_surface(action: str, *, public_base_url: str = "") -> dict[str, str]:
     normalized = str(action or "").strip()
+    if normalized == "maintain_proactive_ooda_runtime":
+        return {
+            "href": _absolute_public_href(DEFAULT_PROACTIVE_OODA_REVIEW_PATH, public_base_url=public_base_url),
+            "label": "Open Today",
+            "method": "get",
+        }
     if normalized == "reauthorize_google_workspace_binding":
         path = "/app/actions/google/connect?" + urllib.parse.urlencode(
             {

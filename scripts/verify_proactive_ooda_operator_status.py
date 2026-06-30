@@ -54,6 +54,19 @@ def _is_google_workspace_recovery(receipt: dict[str, Any]) -> bool:
 
 def _verify_next_action_surface(receipt: dict[str, Any], issues: list[str]) -> None:
     next_action = str(receipt.get("next_action") or "").strip()
+    if next_action == "maintain_proactive_ooda_runtime":
+        href = str(receipt.get("next_action_href") or "").strip()
+        label = str(receipt.get("next_action_label") or "").strip()
+        method = str(receipt.get("next_action_method") or "").strip().lower()
+        if not href:
+            issues.append("maintain_proactive_ooda_runtime requires next_action_href")
+        elif "/app/today" not in href:
+            issues.append("maintain_proactive_ooda_runtime next_action_href must target Today")
+        if not label:
+            issues.append("maintain_proactive_ooda_runtime requires next_action_label")
+        if method != "get":
+            issues.append("maintain_proactive_ooda_runtime requires next_action_method=get")
+        return
     if next_action != "reauthorize_google_workspace_binding":
         return
     href = str(receipt.get("next_action_href") or "").strip()
