@@ -66,6 +66,55 @@ def test_runtime_container_exec_json_wraps_python_with_in_container_timeout(monk
     assert observed["timeout"] == 12.0
 
 
+def test_docker_compose_exec_json_defaults_to_ea_project(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.delenv("COMPOSE_PROJECT_NAME", raising=False)
+    monkeypatch.delenv("EA_LIVE_OPS_COMPOSE_PROJECT_NAME", raising=False)
+    monkeypatch.delenv("EA_COMPOSE_PROJECT_NAME", raising=False)
+    observed: dict[str, object] = {}
+
+    def _fake_run(command, **kwargs):
+        observed["command"] = list(command)
+        observed["env"] = dict(kwargs.get("env") or {})
+        return SimpleNamespace(returncode=0, stdout='{"ok": true}\n', stderr="")
+
+    monkeypatch.setattr(module.subprocess, "run", _fake_run)
+
+    exit_code, payload, _stdout, _stderr = module._docker_compose_exec_json(
+        compose_file="/docker/EA/docker-compose.yml",
+        service="ea-proactive-ooda",
+        command=["python", "-c", "print('ok')"],
+        timeout_seconds=7.0,
+    )
+
+    assert exit_code == 0
+    assert payload["ok"] is True
+    assert observed["env"]["COMPOSE_PROJECT_NAME"] == "ea"
+    assert observed["command"][:6] == ["docker", "compose", "-f", "/docker/EA/docker-compose.yml", "exec", "-T"]
+
+
+def test_docker_compose_exec_json_preserves_explicit_project(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setenv("COMPOSE_PROJECT_NAME", "custom-stack")
+    monkeypatch.setenv("EA_LIVE_OPS_COMPOSE_PROJECT_NAME", "ea")
+    observed: dict[str, object] = {}
+
+    def _fake_run(_command, **kwargs):
+        observed["env"] = dict(kwargs.get("env") or {})
+        return SimpleNamespace(returncode=0, stdout='{"ok": true}\n', stderr="")
+
+    monkeypatch.setattr(module.subprocess, "run", _fake_run)
+
+    module._docker_compose_exec_json(
+        compose_file="/docker/EA/docker-compose.yml",
+        service="ea-proactive-ooda",
+        command=["python", "-c", "print('ok')"],
+        timeout_seconds=7.0,
+    )
+
+    assert observed["env"]["COMPOSE_PROJECT_NAME"] == "custom-stack"
+
+
 def test_proactive_source_coverage_report_classifies_sources_without_raw_payloads() -> None:
     module = _module()
     rows = [

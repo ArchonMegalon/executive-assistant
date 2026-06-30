@@ -68,6 +68,7 @@ DEFAULT_WHATSAPP_WEB_COMPOSE_FILE = ROOT / "docker-compose.whatsapp-web-session.
 DEFAULT_WHATSAPP_WEB_ACTION_PROCESSOR_SERVICE = "ea-whatsapp-web-action-processor"
 DEFAULT_PROACTIVE_OODA_COMPOSE_FILE = ROOT / "docker-compose.yml"
 DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE = "ea-proactive-ooda"
+DEFAULT_EA_COMPOSE_PROJECT_NAME = "ea"
 
 PROACTIVE_SOURCE_COVERAGE_LANES: tuple[dict[str, object], ...] = (
     {
@@ -128,6 +129,18 @@ def _env_truthy(name: str, default: bool = False) -> bool:
 
 def _docker_cli_available() -> bool:
     return shutil.which("docker") is not None
+
+
+def _docker_compose_project_env() -> dict[str, str]:
+    env = dict(os.environ)
+    if not str(env.get("COMPOSE_PROJECT_NAME") or "").strip():
+        configured = (
+            str(env.get("EA_LIVE_OPS_COMPOSE_PROJECT_NAME") or "").strip()
+            or str(env.get("EA_COMPOSE_PROJECT_NAME") or "").strip()
+            or DEFAULT_EA_COMPOSE_PROJECT_NAME
+        )
+        env["COMPOSE_PROJECT_NAME"] = configured
+    return env
 
 
 def _use_in_process_proactive_runtime_fallback() -> bool:
@@ -458,6 +471,7 @@ def _docker_compose_exec_json(
         completed = subprocess.run(
             ["docker", "compose", "-f", compose_file, "exec", "-T", service, *command],
             cwd=ROOT,
+            env=_docker_compose_project_env(),
             capture_output=True,
             text=True,
             check=False,
