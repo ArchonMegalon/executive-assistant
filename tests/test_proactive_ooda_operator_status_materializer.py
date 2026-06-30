@@ -33,6 +33,9 @@ def _fake_source_coverage_probe(**_kwargs: object) -> dict[str, object]:
         "observation_row_count": 3,
         "lane_count": 8,
         "observed_lane_count": 3,
+        "flat_search_enabled": False,
+        "excluded_event_types": ["property_scout_sync_completed"],
+        "excluded_event_type_counts": {"property_scout_sync_completed": 3},
         "missing_lane_keys": [
             "calendar_and_renewal_signals",
             "relationship_and_occasion_signals",
@@ -449,6 +452,9 @@ def test_materialize_proactive_ooda_operator_status_prefers_live_route_probe_whe
     assert receipt["gmail_draft_followthrough"]["gmail_draft_id_hash_present"] is True
     assert receipt["gmail_draft_followthrough"]["raw_execution_payload_exposed"] is False
     assert receipt["source_coverage"]["status"] == "ready_with_gaps"
+    assert receipt["source_coverage"]["flat_search_enabled"] is False
+    assert receipt["source_coverage"]["excluded_event_types"] == ["property_scout_sync_completed"]
+    assert receipt["source_coverage"]["excluded_event_type_counts"] == {"property_scout_sync_completed": 3}
     assert receipt["source_coverage"]["privacy"]["raw_transcript_text_exposed"] is False
 
 

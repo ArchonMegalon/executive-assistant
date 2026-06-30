@@ -653,19 +653,29 @@ def _operator_runtime_source_coverage_posture(operator_status: Mapping[str, Any]
     if not next_action:
         next_action = str(source_coverage.get("next_action") or "").strip()
     ready = checked and status == "ready" and lane_count > 0 and observed_lane_count >= lane_count and not missing_lane_keys
-    return (
-        ready,
-        {
-            "source_coverage_checked": checked,
-            "source_coverage_status": status,
-            "source_coverage_ready": ready,
-            "source_coverage_lane_count": lane_count,
-            "source_coverage_observed_lane_count": observed_lane_count,
-            "source_coverage_missing_lane_keys": missing_lane_keys,
-            "source_coverage_missing_required_event_types": sorted(set(missing_required_event_types)),
-            "next_action": next_action or "probe_proactive_source_coverage",
-        },
-    )
+    detail: dict[str, Any] = {
+        "source_coverage_checked": checked,
+        "source_coverage_status": status,
+        "source_coverage_ready": ready,
+        "source_coverage_lane_count": lane_count,
+        "source_coverage_observed_lane_count": observed_lane_count,
+        "source_coverage_missing_lane_keys": missing_lane_keys,
+        "source_coverage_missing_required_event_types": sorted(set(missing_required_event_types)),
+        "next_action": next_action or "probe_proactive_source_coverage",
+    }
+    if "flat_search_enabled" in source_coverage:
+        detail["source_coverage_flat_search_enabled"] = bool(source_coverage.get("flat_search_enabled"))
+        detail["source_coverage_excluded_event_types"] = [
+            str(item).strip()
+            for item in list(source_coverage.get("excluded_event_types") or [])
+            if str(item).strip()
+        ][:8]
+        detail["source_coverage_excluded_event_type_counts"] = {
+            str(key or "").strip(): int(value or 0)
+            for key, value in dict(source_coverage.get("excluded_event_type_counts") or {}).items()
+            if str(key or "").strip()
+        }
+    return (ready, detail)
 
 
 def _next_action_surface_fields(action: str) -> dict[str, str]:

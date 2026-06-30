@@ -400,9 +400,20 @@ def _proactive_source_coverage_report(
     observed_at: str,
     observation_limit: int,
     source: str = "docker_compose_exec",
+    flat_search_enabled: bool | None = None,
+    excluded_event_types: list[str] | None = None,
+    excluded_event_type_counts: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     repository = str(observation_repository or "").strip()
     row_count = len(rows)
+    normalized_excluded_event_types = sorted(
+        {str(item or "").strip() for item in list(excluded_event_types or []) if str(item or "").strip()}
+    )
+    normalized_excluded_event_type_counts = {
+        str(key or "").strip(): int(value or 0)
+        for key, value in dict(excluded_event_type_counts or {}).items()
+        if str(key or "").strip()
+    }
     lanes: list[dict[str, object]] = []
     for lane in PROACTIVE_SOURCE_COVERAGE_LANES:
         lane_key = str(lane["key"])
@@ -436,7 +447,7 @@ def _proactive_source_coverage_report(
     missing_lane_keys = [str(row["key"]) for row in lanes if not bool(row.get("observed"))]
     observed_lane_count = len(lanes) - len(missing_lane_keys)
     status = "ready" if not missing_lane_keys else "ready_with_gaps" if row_count > 0 else "no_recent_observations"
-    return {
+    report: dict[str, object] = {
         "probe_ok": True,
         "checked": True,
         "status": status,
@@ -458,6 +469,11 @@ def _proactive_source_coverage_report(
             "source_ids_hashed": True,
         },
     }
+    if flat_search_enabled is not None:
+        report["flat_search_enabled"] = bool(flat_search_enabled)
+        report["excluded_event_types"] = normalized_excluded_event_types
+        report["excluded_event_type_counts"] = normalized_excluded_event_type_counts
+    return report
 
 
 def _docker_compose_exec_json(
@@ -3211,7 +3227,7 @@ def probe_proactive_source_coverage(
         "python",
         "-c",
         (
-            "import hashlib, json, sys\n"
+            "import hashlib, json, os, sys\n"
             "from app.container import build_container\n"
             "payload = json.loads(sys.argv[1])\n"
             "principal_id = str(payload.get('principal_id') or '').strip()\n"
@@ -3219,6 +3235,9 @@ def probe_proactive_source_coverage(
             "container = build_container()\n"
             "runtime = container.channel_runtime\n"
             "repo = getattr(runtime, '_observations', None)\n"
+            "def _truthy(value):\n"
+            "    return str(value or '').strip().lower() in {'1', 'true', 'yes', 'on', 'y'}\n"
+            "flat_search_enabled = (not _truthy(os.environ.get('EA_PROACTIVE_OODA_DISABLE_FLAT_SEARCH')) and _truthy(os.environ.get('EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED')))\n"
             "def _sha(value):\n"
             "    text = str(value or '').strip()\n"
             "    return hashlib.sha256(text.encode('utf-8')).hexdigest() if text else ''\n"
@@ -3245,11 +3264,16 @@ def probe_proactive_source_coverage(
             "    }\n"
             "    return sorted(key for key, needles in specs.items() if any(needle in text for needle in needles))\n"
             "rows = []\n"
+            "excluded_event_type_counts = {}\n"
             "for row in runtime.list_recent_observations(limit=limit, principal_id=principal_id):\n"
             "    row_payload = dict(getattr(row, 'payload', {}) or {})\n"
+            "    event_type = str(getattr(row, 'event_type', '') or '').strip()\n"
+            "    if event_type == 'property_scout_sync_completed' and not flat_search_enabled:\n"
+            "        excluded_event_type_counts[event_type] = excluded_event_type_counts.get(event_type, 0) + 1\n"
+            "        continue\n"
             "    rows.append({\n"
             "        'channel': str(getattr(row, 'channel', '') or '').strip(),\n"
-            "        'event_type': str(getattr(row, 'event_type', '') or '').strip(),\n"
+            "        'event_type': event_type,\n"
             "        'created_at': str(getattr(row, 'created_at', '') or '').strip(),\n"
             "        'payload_keys': sorted(str(key) for key in row_payload.keys()),\n"
             "        'hints': _hints(row, row_payload),\n"
@@ -3260,6 +3284,9 @@ def probe_proactive_source_coverage(
             "print(json.dumps({\n"
             "    'probe_ok': True,\n"
             "    'observation_repository': type(repo).__name__ if repo is not None else '',\n"
+            "    'flat_search_enabled': flat_search_enabled,\n"
+            "    'excluded_event_types': sorted(excluded_event_type_counts.keys()),\n"
+            "    'excluded_event_type_counts': excluded_event_type_counts,\n"
             "    'rows': rows,\n"
             "}, sort_keys=True))\n"
         ),
@@ -3306,6 +3333,9 @@ def probe_proactive_source_coverage(
         observation_repository=str(payload.get("observation_repository") or "").strip(),
         observed_at=observed_at,
         observation_limit=limit,
+        flat_search_enabled=bool(payload.get("flat_search_enabled")) if "flat_search_enabled" in payload else None,
+        excluded_event_types=[str(item) for item in list(payload.get("excluded_event_types") or [])],
+        excluded_event_type_counts=dict(payload.get("excluded_event_type_counts") or {}),
     )
     missing_next_action = next(
         (str(dict(lane).get("next_action") or "").strip() for lane in list(report.get("lanes") or []) if not bool(dict(lane).get("observed"))),

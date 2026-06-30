@@ -407,7 +407,7 @@ def _source_coverage_summary(probe: Mapping[str, Any]) -> dict[str, Any]:
             }
         )
     privacy = dict(probe.get("privacy") or {})
-    return {
+    summary: dict[str, Any] = {
         "checked": bool(probe.get("checked", probe.get("probe_ok"))),
         "status": str(probe.get("status") or "").strip() or "unknown",
         "source": str(probe.get("source") or "").strip(),
@@ -431,6 +431,19 @@ def _source_coverage_summary(probe: Mapping[str, Any]) -> dict[str, Any]:
             "source_ids_hashed": bool(privacy.get("source_ids_hashed", True)),
         },
     }
+    if "flat_search_enabled" in probe:
+        summary["flat_search_enabled"] = bool(probe.get("flat_search_enabled"))
+        summary["excluded_event_types"] = [
+            str(item).strip()
+            for item in list(probe.get("excluded_event_types") or [])
+            if str(item).strip()
+        ][:8]
+        summary["excluded_event_type_counts"] = {
+            str(key or "").strip(): int(value or 0)
+            for key, value in dict(probe.get("excluded_event_type_counts") or {}).items()
+            if str(key or "").strip()
+        }
+    return summary
 
 
 def _report_errors(report: Mapping[str, Any]) -> list[str]:

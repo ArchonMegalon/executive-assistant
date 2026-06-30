@@ -75,6 +75,31 @@ def _write_json(path: Path, payload: dict[str, object]) -> None:
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
+def test_operator_runtime_source_coverage_posture_preserves_flat_search_filter() -> None:
+    module = _load_script()
+
+    ready, detail = module._operator_runtime_source_coverage_posture(  # noqa: SLF001
+        {
+            "source_coverage": {
+                "checked": True,
+                "status": "ready",
+                "lane_count": 8,
+                "observed_lane_count": 8,
+                "missing_lane_keys": [],
+                "flat_search_enabled": False,
+                "excluded_event_types": ["property_scout_sync_completed"],
+                "excluded_event_type_counts": {"property_scout_sync_completed": 33},
+                "lanes": [],
+            }
+        }
+    )
+
+    assert ready is True
+    assert detail["source_coverage_flat_search_enabled"] is False
+    assert detail["source_coverage_excluded_event_types"] == ["property_scout_sync_completed"]
+    assert detail["source_coverage_excluded_event_type_counts"] == {"property_scout_sync_completed": 33}
+
+
 def test_materialize_proactive_ooda_gold_acceptance_passes_with_full_proof_chain(
     tmp_path: Path,
     monkeypatch,

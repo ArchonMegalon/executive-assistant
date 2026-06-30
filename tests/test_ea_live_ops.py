@@ -2832,6 +2832,9 @@ def test_probe_proactive_source_coverage_reports_required_lanes_without_raw_payl
     assert report["status"] == "ready_with_gaps"
     assert report["observed_lane_count"] == 7
     assert captured["timeout_seconds"] == 60.0
+    probe_code = str(list(captured["command"])[2])
+    assert "EA_PROACTIVE_OODA_DISABLE_FLAT_SEARCH" in probe_code
+    assert "property_scout_sync_completed" in probe_code
     assert "pocket_ai_audio_transcripts" not in report["missing_lane_keys"]
     assert report["privacy"]["raw_payload_exposed"] is False
     assert report["privacy"]["raw_transcript_text_exposed"] is False
@@ -2839,6 +2842,70 @@ def test_probe_proactive_source_coverage_reports_required_lanes_without_raw_payl
     serialized = json.dumps(report, sort_keys=True)
     assert "Order flowers" not in serialized
     assert "/mnt/pcloud" not in serialized
+
+
+def test_probe_proactive_source_coverage_surfaces_flat_search_filter(monkeypatch) -> None:
+    module = _module()
+
+    def _fake_exec_json(**_kwargs: object) -> tuple[int, dict[str, object], str, str]:
+        return (
+            0,
+            {
+                "probe_ok": True,
+                "observation_repository": "PostgresObservationEventRepository",
+                "flat_search_enabled": False,
+                "excluded_event_types": ["property_scout_sync_completed"],
+                "excluded_event_type_counts": {"property_scout_sync_completed": 3},
+                "rows": [
+                    {
+                        "channel": "product",
+                        "event_type": "pocket_recording_archive_indexed",
+                        "created_at": "2026-06-29T07:58:00Z",
+                        "payload_keys": ["transcript_sha256", "location_name"],
+                        "hints": [
+                            "pocket_ai_audio_transcripts",
+                            "relationship_and_occasion_signals",
+                            "shopping_and_vendor_signals",
+                            "durable_profile_and_location_context",
+                        ],
+                        "source_id_sha256_present": True,
+                        "raw_payload_exposed": False,
+                    },
+                    {
+                        "channel": "calendar",
+                        "event_type": "calendar.event",
+                        "created_at": "2026-06-29T08:00:00Z",
+                        "payload_keys": ["event_id_sha256"],
+                        "hints": [
+                            "google_workspace",
+                            "calendar_and_renewal_signals",
+                            "commitment_and_deadline_signals",
+                        ],
+                        "source_id_sha256_present": True,
+                        "raw_payload_exposed": False,
+                    },
+                ],
+            },
+            "",
+            "",
+        )
+
+    monkeypatch.setattr(module, "_docker_compose_exec_json", _fake_exec_json)
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-06-29T08:01:00Z")
+
+    report = module.probe_proactive_source_coverage(
+        principal_id="exec-1",
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+    )
+
+    assert report["probe_ok"] is True
+    assert report["status"] == "ready"
+    assert report["flat_search_enabled"] is False
+    assert report["excluded_event_types"] == ["property_scout_sync_completed"]
+    assert report["excluded_event_type_counts"] == {"property_scout_sync_completed": 3}
+    for lane in report["lanes"]:
+        assert "property_scout_sync_completed" not in lane["evidence_event_types"]
 
 
 def test_probe_proactive_source_coverage_treats_runtime_failure_as_probe_failed(monkeypatch) -> None:
