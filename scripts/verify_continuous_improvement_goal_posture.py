@@ -391,6 +391,16 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                 issues.append(f"operator_action_queue non-action progress push must be false: {action_key}")
             if row.get("irreversible_actions_consent_gated") is not True:
                 issues.append(f"operator_action_queue irreversible actions must be consent-gated: {action_key}")
+            if row.get("stale_source_receipts"):
+                if user_action_required:
+                    issues.append(f"stale source refresh must not require user action: {action_key}")
+                if row.get("telegram_push_allowed") is not False:
+                    issues.append(f"stale source refresh must not allow Telegram push: {action_key}")
+                refresh_commands = list(row.get("refresh_commands") or [])
+                if not refresh_commands:
+                    issues.append(f"stale source refresh must include refresh_commands: {action_key}")
+                if not any("verify_continuous_improvement_goal_posture.py" in str(command) for command in refresh_commands):
+                    issues.append(f"stale source refresh must include continuous posture verification: {action_key}")
         if isinstance(operator_delivery_policy, dict) and first_action:
             if operator_delivery_policy.get("telegram_push_allowed_for_next_action") is not bool(
                 first_action.get("telegram_push_allowed")
@@ -673,6 +683,33 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                             )
                         if int(duplicate_suppression.get("active_pending_voice_job_count") or 0) <= 0:
                             issues.append("telegram audiobook duplicate_suppression must include active pending voice jobs")
+
+    whatsapp_requirement = proof_by_key.get("whatsapp_audiobook_live_delivery") or {}
+    whatsapp_blocked_stale = any(
+        reason.startswith("deliver:whatsapp_audiobook=blocked_stale_source_evidence") for reason in blocking_reasons
+    )
+    if whatsapp_requirement and whatsapp_blocked_stale:
+        action_context = whatsapp_requirement.get("action_context")
+        if not isinstance(action_context, dict):
+            issues.append("stale WhatsApp audiobook proof must include action_context")
+        else:
+            if action_context.get("kind") != "stale_source_evidence_refresh":
+                issues.append("stale WhatsApp audiobook action_context kind mismatch")
+            if action_context.get("user_action_required") is not False:
+                issues.append("stale WhatsApp audiobook refresh must not require user action")
+            if action_context.get("telegram_push_allowed") is not False:
+                issues.append("stale WhatsApp audiobook refresh must not allow Telegram push")
+            stale_receipts = [str(item).strip() for item in list(action_context.get("stale_source_receipts") or []) if str(item).strip()]
+            if not stale_receipts:
+                issues.append("stale WhatsApp audiobook refresh must identify stale_source_receipts")
+            refresh_commands = [str(item).strip() for item in list(action_context.get("refresh_commands") or []) if str(item).strip()]
+            if not refresh_commands:
+                issues.append("stale WhatsApp audiobook refresh must include refresh_commands")
+            if not any("materialize_whatsapp_audiobook_live_delivery_receipt.py" in command for command in refresh_commands):
+                issues.append("stale WhatsApp audiobook refresh must include live delivery materializer")
+            for private_key in ("raw_private_context_exposed", "raw_chat_ids_exposed", "raw_token_exposed", "raw_secret_exposed"):
+                if action_context.get(private_key) is not False:
+                    issues.append(f"stale WhatsApp audiobook action_context must not expose {private_key}")
     if by_key.get("recover", {}).get("status") == "command_backed_no_published_receipt" and "recover=command_backed_no_published_receipt" not in blocking_reasons:
         issues.append("blocking_reasons must include the command-backed recover posture")
     return issues

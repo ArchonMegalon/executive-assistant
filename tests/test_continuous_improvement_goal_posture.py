@@ -145,6 +145,39 @@ def _write_teable_recovery_proof_receipt(
     )
 
 
+def test_stale_source_action_context_is_queue_only_and_redacted() -> None:
+    context = posture_module._stale_source_action_context(
+        receipts=[
+            {
+                "path": ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
+                "present": True,
+                "source_fresh_to_current_source": False,
+            },
+            {
+                "path": ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json",
+                "present": True,
+                "source_fresh_to_current_source": True,
+            },
+        ],
+        refresh_commands=[
+            "PYTHONPATH=ea python3 ea/scripts/materialize_whatsapp_audiobook_live_delivery_receipt.py",
+            "python3 scripts/verify_continuous_improvement_goal_posture.py --pretty",
+        ],
+    )
+
+    assert context["kind"] == "stale_source_evidence_refresh"
+    assert context["user_action_required"] is False
+    assert context["delivery_policy"] == "queue_only"
+    assert context["telegram_push_allowed"] is False
+    assert context["non_action_progress_push_allowed"] is False
+    assert context["stale_source_receipts"] == ["whatsapp_audiobook_live_delivery.generated.json"]
+    assert "materialize_whatsapp_audiobook_live_delivery_receipt.py" in context["refresh_commands"][0]
+    assert context["raw_private_context_exposed"] is False
+    assert context["raw_chat_ids_exposed"] is False
+    assert context["raw_token_exposed"] is False
+    assert context["raw_secret_exposed"] is False
+
+
 def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_path: Path, monkeypatch) -> None:
     _set_source_state(monkeypatch)
     _write_receipt(

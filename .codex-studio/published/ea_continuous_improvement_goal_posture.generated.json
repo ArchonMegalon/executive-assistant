@@ -75,8 +75,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "346053be5c483094ace906fa9ffbae5f353d3732",
-          "source_state_fingerprint": "05731eeb21af6dcb1a7dfb88b5f3dc963c41be693093dd09b09c83b2ab7bbe4b",
+          "source_git_head": "9a42af4fb567bb86dc19497cf40d62c7e0a6b3b2",
+          "source_state_fingerprint": "948d3f2f4ba4ce4f0fed763b42b449c548b09d37fc39a84950a7385ed695f0fd",
           "status": "pass"
         },
         {
@@ -84,8 +84,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "346053be5c483094ace906fa9ffbae5f353d3732",
-          "source_state_fingerprint": "05731eeb21af6dcb1a7dfb88b5f3dc963c41be693093dd09b09c83b2ab7bbe4b",
+          "source_git_head": "9a42af4fb567bb86dc19497cf40d62c7e0a6b3b2",
+          "source_state_fingerprint": "948d3f2f4ba4ce4f0fed763b42b449c548b09d37fc39a84950a7385ed695f0fd",
           "status": "ready_with_live_receipt"
         }
       ],
@@ -168,8 +168,8 @@
           "path": ".codex-studio/published/telegram_business_signal_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "346053be5c483094ace906fa9ffbae5f353d3732",
-          "source_state_fingerprint": "05731eeb21af6dcb1a7dfb88b5f3dc963c41be693093dd09b09c83b2ab7bbe4b",
+          "source_git_head": "9a42af4fb567bb86dc19497cf40d62c7e0a6b3b2",
+          "source_state_fingerprint": "948d3f2f4ba4ce4f0fed763b42b449c548b09d37fc39a84950a7385ed695f0fd",
           "status": "blocked_setup_required"
         }
       ],
@@ -266,6 +266,32 @@
       "title": "Telegram audiobook live delivery receipt"
     },
     {
+      "action_context": {
+        "callback_tokens_exposed": false,
+        "delivery_policy": "queue_only",
+        "instruction": "Refresh source-stale proof receipts; do not ping the user for this automation-only evidence refresh.",
+        "kind": "stale_source_evidence_refresh",
+        "non_action_progress_push_allowed": false,
+        "raw_chat_ids_exposed": false,
+        "raw_private_context_exposed": false,
+        "raw_secret_exposed": false,
+        "raw_token_exposed": false,
+        "raw_voice_ids_exposed": false,
+        "refresh_commands": [
+          "PYTHONPATH=ea python3 ea/scripts/materialize_whatsapp_audiobook_live_delivery_receipt.py",
+          "PYTHONPATH=ea python3 ea/scripts/materialize_whatsapp_audiobook_operator_proof_bundle.py",
+          "PYTHONPATH=ea python3 ea/scripts/verify_whatsapp_audiobook_public_share_playback.py",
+          "python3 scripts/materialize_continuous_improvement_goal_posture.py",
+          "python3 scripts/verify_continuous_improvement_goal_posture.py --pretty"
+        ],
+        "stale_source_receipts": [
+          "whatsapp_audiobook_live_delivery.generated.json",
+          "whatsapp_audiobook_operator_proof_bundle.generated.json",
+          "whatsapp_audiobook_public_share_playback.generated.json"
+        ],
+        "telegram_push_allowed": false,
+        "user_action_required": false
+      },
       "capture_surfaces": [
         ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
         ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json",
@@ -329,7 +355,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-06-30T08:01:23Z",
+  "generated_at": "2026-06-30T08:07:53Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -364,8 +390,8 @@
           "path": ".codex-studio/published/telegram_business_signal_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "346053be5c483094ace906fa9ffbae5f353d3732",
-          "source_state_fingerprint": "05731eeb21af6dcb1a7dfb88b5f3dc963c41be693093dd09b09c83b2ab7bbe4b",
+          "source_git_head": "9a42af4fb567bb86dc19497cf40d62c7e0a6b3b2",
+          "source_state_fingerprint": "948d3f2f4ba4ce4f0fed763b42b449c548b09d37fc39a84950a7385ed695f0fd",
           "status": "blocked_setup_required"
         }
       ],
@@ -716,6 +742,7 @@
       "callback_tokens_exposed": false,
       "delivery_policy": "queue_only",
       "evidence_kind": "live_delivery_receipt",
+      "instruction": "Refresh source-stale proof receipts; do not ping the user for this automation-only evidence refresh.",
       "interruption_budget": "none",
       "irreversible_actions_consent_gated": true,
       "key": "whatsapp_audiobook_live_delivery",
@@ -731,7 +758,19 @@
       "raw_secret_exposed": false,
       "raw_token_exposed": false,
       "raw_voice_ids_exposed": false,
+      "refresh_commands": [
+        "PYTHONPATH=ea python3 ea/scripts/materialize_whatsapp_audiobook_live_delivery_receipt.py",
+        "PYTHONPATH=ea python3 ea/scripts/materialize_whatsapp_audiobook_operator_proof_bundle.py",
+        "PYTHONPATH=ea python3 ea/scripts/verify_whatsapp_audiobook_public_share_playback.py",
+        "python3 scripts/materialize_continuous_improvement_goal_posture.py",
+        "python3 scripts/verify_continuous_improvement_goal_posture.py --pretty"
+      ],
       "required_next_receipt": "passing WhatsApp audiobook live delivery receipt",
+      "stale_source_receipts": [
+        "whatsapp_audiobook_live_delivery.generated.json",
+        "whatsapp_audiobook_operator_proof_bundle.generated.json",
+        "whatsapp_audiobook_public_share_playback.generated.json"
+      ],
       "telegram_push_allowed": false,
       "title": "WhatsApp audiobook live delivery receipt",
       "user_action_required": false
@@ -840,7 +879,7 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "346053be5c483094ace906fa9ffbae5f353d3732",
-  "source_state_fingerprint": "05731eeb21af6dcb1a7dfb88b5f3dc963c41be693093dd09b09c83b2ab7bbe4b",
+  "source_git_head": "9a42af4fb567bb86dc19497cf40d62c7e0a6b3b2",
+  "source_state_fingerprint": "948d3f2f4ba4ce4f0fed763b42b449c548b09d37fc39a84950a7385ed695f0fd",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }

@@ -342,6 +342,32 @@ def _telegram_audiobook_action_context(receipt: dict[str, Any]) -> dict[str, Any
     return {key: value for key, value in context.items() if value not in ("", [], None)}
 
 
+def _stale_source_action_context(*, receipts: list[dict[str, Any]], refresh_commands: list[str]) -> dict[str, Any]:
+    stale_receipts = [
+        Path(str(row.get("path") or "")).name
+        for row in receipts
+        if bool(row.get("present")) and row.get("source_fresh_to_current_source") is not True
+    ]
+    if not stale_receipts:
+        return {}
+    return {
+        "kind": "stale_source_evidence_refresh",
+        "user_action_required": False,
+        "instruction": "Refresh source-stale proof receipts; do not ping the user for this automation-only evidence refresh.",
+        "stale_source_receipts": stale_receipts,
+        "refresh_commands": [command for command in refresh_commands if str(command or "").strip()],
+        "delivery_policy": "queue_only",
+        "telegram_push_allowed": False,
+        "non_action_progress_push_allowed": False,
+        "raw_private_context_exposed": False,
+        "raw_chat_ids_exposed": False,
+        "raw_token_exposed": False,
+        "raw_secret_exposed": False,
+        "raw_voice_ids_exposed": False,
+        "callback_tokens_exposed": False,
+    }
+
+
 def _operator_action_priority(requirement: dict[str, Any]) -> tuple[int, int, str]:
     action_context = dict(requirement.get("action_context") or {})
     if action_context.get("user_action_required") is True:
@@ -377,6 +403,16 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
             "missing_setup": [
                 str(item).strip()
                 for item in list(action_context.get("missing_setup") or [])
+                if str(item).strip()
+            ],
+            "stale_source_receipts": [
+                str(item).strip()
+                for item in list(action_context.get("stale_source_receipts") or [])
+                if str(item).strip()
+            ],
+            "refresh_commands": [
+                str(item).strip()
+                for item in list(action_context.get("refresh_commands") or [])
                 if str(item).strip()
             ],
             "setup_checklist": [
@@ -1063,6 +1099,21 @@ def build_goal_posture(
                     current_source_fingerprint=current_source_fingerprint,
                 )
             )
+        whatsapp_action_context = {}
+        if any(
+            str(reason or "").startswith("deliver:whatsapp_audiobook=blocked_stale_source_evidence")
+            for reason in blocking_reasons
+        ):
+            whatsapp_action_context = _stale_source_action_context(
+                receipts=whatsapp_acceptance_receipts,
+                refresh_commands=[
+                    "PYTHONPATH=ea python3 ea/scripts/materialize_whatsapp_audiobook_live_delivery_receipt.py",
+                    "PYTHONPATH=ea python3 ea/scripts/materialize_whatsapp_audiobook_operator_proof_bundle.py",
+                    "PYTHONPATH=ea python3 ea/scripts/verify_whatsapp_audiobook_public_share_playback.py",
+                    "python3 scripts/materialize_continuous_improvement_goal_posture.py",
+                    "python3 scripts/verify_continuous_improvement_goal_posture.py --pretty",
+                ],
+            )
         acceptance_proof_requirements.append(
             _acceptance_proof_requirement(
                 key="whatsapp_audiobook_live_delivery",
@@ -1074,6 +1125,7 @@ def build_goal_posture(
                 next_action="capture_passing_whatsapp_audiobook_live_delivery_receipt",
                 claim_boundary="does_not_prove_whatsapp_delivery_until_live_delivery_and_playback_receipts_pass",
                 source_receipts=whatsapp_acceptance_receipts,
+                action_context=whatsapp_action_context,
             )
         )
     required_next_receipts = [
