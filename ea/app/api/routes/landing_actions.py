@@ -207,6 +207,13 @@ def _acceptance_capture_requirements(acceptance_keys: dict[str, object]) -> list
                 "raw_evidence_exposed": False,
                 "raw_actor_exposed": False,
                 "raw_object_ref_exposed": False,
+                "user_action_required": not accepted,
+                "delivery_policy": "action_required_only" if not accepted else "queue_only",
+                "telegram_push_allowed": not accepted,
+                "interruption_budget": "action_required" if not accepted else "none",
+                "quiet_hours_respected": True,
+                "non_action_progress_push_allowed": False,
+                "irreversible_actions_consent_gated": True,
                 "next_action": (
                     f"review_redacted_acceptance_evidence:{key}"
                     if accepted
@@ -406,6 +413,19 @@ def _default_signal_receipt() -> dict[str, object]:
     return receipt
 
 
+def _acceptance_operator_delivery_policy(*, expected_blocked: tuple[str, ...]) -> dict[str, object]:
+    blocked = bool(expected_blocked)
+    return {
+        "action_required_only": True,
+        "telegram_push_allowed_for_next_action": blocked,
+        "next_action_requires_user": blocked,
+        "next_action_delivery_policy": "action_required_only" if blocked else "queue_only",
+        "non_action_progress_push_allowed": False,
+        "quiet_hours_respected": True,
+        "irreversible_actions_consent_gated": True,
+    }
+
+
 def _refresh_acceptance_receipt_summary(
     receipt: dict[str, object],
     acceptance_keys: dict[str, object] | None = None,
@@ -446,6 +466,10 @@ def _refresh_acceptance_receipt_summary(
     receipt["real_provider_recovery_verified"] = rows["real_provider_failure_recovered"].get("accepted") is True
     receipt["acceptance_capture_surface"] = _acceptance_capture_surface()
     receipt["acceptance_capture_requirements"] = _acceptance_capture_requirements(rows)
+    blocked_keys_tuple = tuple(blocked_keys)
+    receipt["operator_delivery_policy"] = _acceptance_operator_delivery_policy(
+        expected_blocked=blocked_keys_tuple,
+    )
     receipt["privacy"] = {
         "credential_values_exposed": False,
         "raw_acceptance_text_exposed": False,

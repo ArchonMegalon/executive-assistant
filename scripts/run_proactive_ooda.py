@@ -768,10 +768,16 @@ def _safe_work_requires_user_action(result: Mapping[str, Any]) -> bool:
 
 
 def _safe_work_allows_delivery_or_auto_execution(result: Mapping[str, Any]) -> bool:
+    status = str(result.get("status") or "").strip()
     audit = result.get("audit")
     if isinstance(audit, Mapping):
-        return str(audit.get("status") or "").strip().lower() == "pass"
-    return False
+        if str(audit.get("status") or "").strip().lower() == "pass":
+            return True
+        if status == "blocked_human_handoff_required":
+            browser_receipt = result.get("browser_action_receipt")
+            return isinstance(browser_receipt, Mapping) and bool(browser_receipt.get("user_action_required"))
+        return False
+    return status in {"staged_for_user_decision", "blocked_human_handoff_required"}
 
 
 def _notification_requires_user_action(approval_request: Mapping[str, Any] | None) -> bool:

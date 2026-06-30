@@ -17,6 +17,7 @@ if str(REPO_ROOT) not in sys.path:
 from scripts.source_state_head import resolve_source_state_head  # noqa: E402
 from scripts.source_state_head import resolve_source_worktree_fingerprint  # noqa: E402
 DEFAULT_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "ea_executive_assistant_acceptance_evidence.generated.json"
+DEFAULT_PROACTIVE_OODA_GOLD_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "ea_proactive_ooda_gold_acceptance.generated.json"
 
 REQUIRED_ACCEPTANCE_KEYS = [
     "real_daily_morning_brief_accepted",
@@ -113,6 +114,63 @@ def _row_from_proof(proof: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _row_from_redacted_hashes(
+    *,
+    source_kind: str,
+    recorded_at: str,
+    evidence_sha256: str,
+    actor_sha256: str,
+    object_ref_sha256: str,
+) -> dict[str, Any]:
+    valid = bool(evidence_sha256 and actor_sha256 and object_ref_sha256)
+    return {
+        "accepted": valid,
+        "status": "accepted_redacted" if valid else "missing_or_invalid",
+        "source_kind": source_kind,
+        "recorded_at": recorded_at,
+        "evidence_sha256": evidence_sha256,
+        "actor_sha256": actor_sha256,
+        "object_ref_sha256": object_ref_sha256,
+        "raw_evidence_exposed": False,
+        "raw_actor_exposed": False,
+        "raw_object_ref_exposed": False,
+    }
+
+
+def _proactive_ooda_gold_decision_row(path: Path | None = None) -> dict[str, Any]:
+    receipt_path = path or DEFAULT_PROACTIVE_OODA_GOLD_RECEIPT
+    if not receipt_path.is_file():
+        return {}
+    try:
+        receipt = _load(receipt_path)
+    except Exception:
+        return {}
+    if receipt.get("contract_name") != "ea.proactive_ooda_gold_acceptance.v1":
+        return {}
+    if str(receipt.get("status") or "").strip() != "pass" or receipt.get("gold_claim_allowed") is not True:
+        return {}
+    approval = dict(dict(receipt.get("proofs") or {}).get("approval_outcome") or {})
+    if approval.get("accepted") is not True or approval.get("approval_outcome_recorded") is not True:
+        return {}
+    evidence_sha256 = str(approval.get("evidence_sha256") or "").strip()
+    actor_sha256 = str(approval.get("actor_sha256") or "").strip()
+    packet_ref_sha256 = str(approval.get("packet_ref_sha256") or "").strip()
+    staged_artifact_sha256 = str(approval.get("staged_artifact_sha256") or "").strip()
+    object_ref_sha256 = _hash(f"proactive_ooda:{packet_ref_sha256}:{staged_artifact_sha256}")
+    row = _row_from_redacted_hashes(
+        source_kind="proactive_ooda_gold_acceptance",
+        recorded_at=str(approval.get("recorded_at") or receipt.get("generated_at") or "").strip(),
+        evidence_sha256=evidence_sha256,
+        actor_sha256=actor_sha256,
+        object_ref_sha256=object_ref_sha256,
+    )
+    if row.get("accepted") is True:
+        row["derived_from_contract"] = "ea.proactive_ooda_gold_acceptance.v1"
+        row["derived_from_receipt_sha256"] = _hash(receipt_path.read_text(encoding="utf-8"))
+        row["claim_boundary"] = "proves_a_real_proactive_packet_decision_only"
+    return row
+
+
 def _acceptance_capture_surface() -> dict[str, Any]:
     return {
         "method": ACCEPTANCE_CAPTURE_METHOD,
@@ -200,6 +258,10 @@ def materialize_executive_assistant_acceptance_evidence(
         key = str(proof.get("key") or "")
         if key in rows:
             rows[key] = _row_from_proof(proof)
+    if rows["real_decision_cleared"].get("accepted") is not True:
+        proactive_decision_row = _proactive_ooda_gold_decision_row()
+        if proactive_decision_row.get("accepted") is True:
+            rows["real_decision_cleared"] = proactive_decision_row
     accepted_keys = [key for key in REQUIRED_ACCEPTANCE_KEYS if rows[key].get("accepted") is True]
     blocked_keys = [key for key in REQUIRED_ACCEPTANCE_KEYS if key not in accepted_keys]
     status = (

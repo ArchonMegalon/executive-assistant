@@ -14,6 +14,7 @@ if str(SCRIPTS_ROOT) not in sys.path:
 from verify_executive_assistant_acceptance_evidence import (  # noqa: E402
     verify_executive_assistant_acceptance_evidence,
 )
+import materialize_executive_assistant_acceptance_evidence as acceptance_materializer  # noqa: E402
 from verify_executive_assistant_quality_readiness import (  # noqa: E402
     verify_executive_assistant_quality_readiness,
 )
@@ -58,6 +59,56 @@ def test_landing_acceptance_receipt_refresh_matches_verifier_contract(tmp_path: 
     assert receipt["source_state_fingerprint"]
     assert receipt["next_action_proof_key"] == "real_decision_cleared"
     assert receipt["real_principal_acceptance_verified"] is True
+
+
+def test_acceptance_materializer_derives_decision_from_proactive_ooda_gold_only(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    gold_path = tmp_path / "ooda-gold.json"
+    _write_json(
+        gold_path,
+        {
+            "contract_name": "ea.proactive_ooda_gold_acceptance.v1",
+            "status": "pass",
+            "gold_claim_allowed": True,
+            "generated_at": "2026-06-30T00:10:00Z",
+            "proofs": {
+                "approval_outcome": {
+                    "accepted": True,
+                    "approval_outcome_recorded": True,
+                    "status": "accepted_redacted",
+                    "recorded_at": "2026-06-30T00:09:00Z",
+                    "evidence_sha256": "e" * 64,
+                    "actor_sha256": "a" * 64,
+                    "packet_ref_sha256": "p" * 64,
+                    "staged_artifact_sha256": "s" * 64,
+                    "raw_evidence_exposed": False,
+                    "raw_actor_exposed": False,
+                    "raw_packet_ref_exposed": False,
+                    "raw_staged_artifact_exposed": False,
+                }
+            },
+        },
+    )
+    monkeypatch.setattr(acceptance_materializer, "DEFAULT_PROACTIVE_OODA_GOLD_RECEIPT", gold_path)
+
+    receipt_path = tmp_path / "acceptance.json"
+    receipt = acceptance_materializer.materialize_executive_assistant_acceptance_evidence(
+        receipt_path=receipt_path,
+        preserve_existing=False,
+    )
+
+    verification = verify_executive_assistant_acceptance_evidence(receipt_path)
+    assert verification["status"] == "pass"
+    assert "real_decision_cleared" in receipt["accepted_keys"]
+    assert "real_commitment_recovered_or_closed" in receipt["blocked_keys"]
+    assert "real_approved_action_audited" in receipt["blocked_keys"]
+    assert "real_provider_failure_recovered" in receipt["blocked_keys"]
+    decision = dict(dict(receipt["acceptance_keys"])["real_decision_cleared"])
+    assert decision["source_kind"] == "proactive_ooda_gold_acceptance"
+    assert decision["claim_boundary"] == "proves_a_real_proactive_packet_decision_only"
+    assert decision["raw_evidence_exposed"] is False
 
 
 def test_landing_quality_receipt_refresh_preserves_acceptance_capture_contract(

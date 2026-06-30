@@ -112,3 +112,23 @@ def test_runner_treats_browser_handoff_as_action_required(tmp_path) -> None:
     assert approval_request["packet_ref"] == packet["packet_ref"]
     assert approval_request["staged_artifact_ref"] == result["result_ref"]
     assert runner._notification_requires_user_action(approval_request) is True
+
+
+def test_runner_allows_browser_handoff_delivery_when_user_action_required() -> None:
+    assert runner._safe_work_allows_delivery_or_auto_execution(
+        {
+            "status": "blocked_human_handoff_required",
+            "audit": {"status": "blocked"},
+            "browser_action_receipt": {"user_action_required": True},
+        }
+    ) is True
+
+
+def test_runner_blocks_browser_handoff_delivery_without_user_action_receipt() -> None:
+    assert runner._safe_work_allows_delivery_or_auto_execution(
+        {
+            "status": "blocked_human_handoff_required",
+            "audit": {"status": "blocked"},
+            "browser_action_receipt": {"user_action_required": False},
+        }
+    ) is False
