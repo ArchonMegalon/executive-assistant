@@ -179,6 +179,8 @@ def test_proactive_ooda_teable_projection_keeps_important_artifacts_without_raw_
     assert records["proactive_ooda_runs"][0]["delivery_next_action_href"] == "https://myexternalbrain.com/integrations/whatsapp"
     assert records["proactive_ooda_runs"][0]["delivery_next_action_label"] == "Open WhatsApp pairing"
     assert records["proactive_ooda_runs"][0]["delivery_next_action_method"] == "get"
+    assert records["proactive_ooda_runs"][0]["suppressed_item_count"] == 0
+    assert records["proactive_ooda_runs"][0]["suppressed_projection_reasons"] == []
     assert records["proactive_ooda_items"][0]["stage_kind"] == "approval_packet"
     assert records["proactive_ooda_items"][0]["staged_action_url"] == "https://example.test/approve/vendor-a"
     assert records["proactive_ooda_items"][0]["recommended_label"] == "Vendor A"
@@ -214,6 +216,73 @@ def test_proactive_ooda_teable_projection_keeps_important_artifacts_without_raw_
     assert records["proactive_ooda_safe_work"][0]["privacy_raw_location_context_stored"] is False
     assert records["proactive_ooda_safe_work"][0]["privacy_raw_recipient_context_stored"] is False
     assert "1200 Wien" not in serialized
+
+
+def test_proactive_ooda_teable_projection_suppresses_non_deliverable_safe_work_noise() -> None:
+    digest, result, receipt = _digest_and_safe_work()
+    result = {
+        **result,
+        "status": "blocked_needs_research_input",
+        "recommended_option_or_draft": {},
+        "staged_action_url": "",
+        "shortlist": [],
+        "comparison_table": [],
+        "audit": {
+            "status": "review",
+            "issues": [
+                {
+                    "code": "no_decision_ready_material",
+                    "severity": "warn",
+                    "detail": "No decision-ready material should be projected as an item.",
+                }
+            ],
+        },
+    }
+
+    records = build_proactive_ooda_teable_projection_records(
+        digest=digest,
+        receipt=receipt,
+        safe_work_results=(result,),
+    )
+    summary = build_proactive_ooda_teable_projection_summary(records)
+
+    assert set(records) == {"proactive_ooda_runs", "proactive_ooda_items", "proactive_ooda_safe_work"}
+    assert records["proactive_ooda_items"] == []
+    assert records["proactive_ooda_safe_work"] == []
+    assert summary["record_count"] == 1
+    run_row = records["proactive_ooda_runs"][0]
+    assert run_row["suppressed_item_count"] == 1
+    assert run_row["suppressed_safe_work_review_count"] == 1
+    assert run_row["suppressed_projection_reasons"] == ["safe_work_audit_review"]
+    assert run_row["suppressed_safe_work_issue_codes"] == ["no_decision_ready_material"]
+
+
+def test_proactive_ooda_teable_projection_keeps_browser_handoff_safe_work_as_actionable() -> None:
+    digest, result, receipt = _digest_and_safe_work()
+    result = {
+        **result,
+        "status": "blocked_human_handoff_required",
+        "audit": {
+            "status": "review",
+            "issues": [{"code": "browser_handoff_required", "severity": "info"}],
+        },
+        "browser_action_receipt": {
+            "status": "blocked_human_handoff_required",
+            "user_action_required": True,
+        },
+    }
+
+    records = build_proactive_ooda_teable_projection_records(
+        digest=digest,
+        receipt=receipt,
+        safe_work_results=(result,),
+    )
+    summary = build_proactive_ooda_teable_projection_summary(records)
+
+    assert summary["record_count"] == 3
+    assert records["proactive_ooda_runs"][0]["suppressed_item_count"] == 0
+    assert records["proactive_ooda_items"][0]["safe_work_status"] == "blocked_human_handoff_required"
+    assert records["proactive_ooda_safe_work"][0]["status"] == "blocked_human_handoff_required"
 
 
 def test_proactive_ooda_teable_projection_includes_pending_approval_surface_without_raw_refs() -> None:
@@ -260,6 +329,10 @@ def test_proactive_ooda_teable_bootstrap_schema_includes_delivery_route_fields()
     assert "delivery_next_action_href" in run_fields
     assert "delivery_next_action_label" in run_fields
     assert "delivery_next_action_method" in run_fields
+    assert "suppressed_item_count" in run_fields
+    assert "suppressed_safe_work_review_count" in run_fields
+    assert "suppressed_projection_reasons" in run_fields
+    assert "suppressed_safe_work_issue_codes" in run_fields
 
 
 def test_proactive_ooda_teable_bootstrap_schema_includes_search_projection_fields() -> None:

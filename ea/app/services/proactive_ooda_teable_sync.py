@@ -50,8 +50,11 @@ def build_proactive_ooda_teable_projection_records(
     item_rows: list[dict[str, object]] = []
     safe_work_table_rows: list[dict[str, object]] = []
     approval_surface_rows: list[dict[str, object]] = []
+    suppressed = _suppressed_safe_work_projection_summary(digest=digest, safe_work_rows=safe_work_rows)
     for index, item in enumerate(digest.items, start=1):
         safe_work_result = safe_work_rows[index - 1] if index - 1 < len(safe_work_rows) else {}
+        if not _safe_work_result_is_projectable(safe_work_result):
+            continue
         item_projection_id = _item_projection_id(run_projection_id=run_projection_id, item=item, index=index)
         item_rows.append(
             _item_projection_row(
@@ -89,7 +92,14 @@ def build_proactive_ooda_teable_projection_records(
                     )
                 )
     rows = {
-        "proactive_ooda_runs": [_run_projection_row(digest=digest, receipt=receipt, run_projection_id=run_projection_id)],
+        "proactive_ooda_runs": [
+            _run_projection_row(
+                digest=digest,
+                receipt=receipt,
+                run_projection_id=run_projection_id,
+                suppressed_projection=suppressed,
+            )
+        ],
         "proactive_ooda_items": item_rows,
         "proactive_ooda_safe_work": safe_work_table_rows,
     }
@@ -417,6 +427,7 @@ def _run_projection_row(
     digest: ProactiveOodaDigest,
     receipt: ProactiveOodaRunReceipt,
     run_projection_id: str,
+    suppressed_projection: Mapping[str, Any] | None = None,
 ) -> dict[str, object]:
     stage_kinds = [
         _normalized_stage_kind(item.stage_kind)
@@ -433,6 +444,7 @@ def _run_projection_row(
         receipt.delivery_next_action,
         prefix="delivery_next_action",
     )
+    suppressed = dict(suppressed_projection or {})
     return {
         "projection_id": run_projection_id,
         "sync_version": PROACTIVE_OODA_TEABLE_SYNC_VERSION,
@@ -471,6 +483,10 @@ def _run_projection_row(
         "high_priority_count": sum(1 for item in digest.items if item.priority == "high"),
         "approval_required_count": sum(1 for item in digest.items if item.approval_required),
         "staged_item_count": sum(1 for item in digest.items if _item_has_stage(item)),
+        "suppressed_item_count": int(suppressed.get("suppressed_item_count") or 0),
+        "suppressed_safe_work_review_count": int(suppressed.get("suppressed_safe_work_review_count") or 0),
+        "suppressed_projection_reasons": list(suppressed.get("suppressed_projection_reasons") or []),
+        "suppressed_safe_work_issue_codes": list(suppressed.get("suppressed_safe_work_issue_codes") or []),
         "stage_kinds": sorted(dict.fromkeys(stage_kinds)),
         "privacy_raw_principal_id_stored": False,
         "privacy_raw_signal_ref_stored": False,
@@ -699,6 +715,66 @@ def _table_has_mapping(config: Mapping[str, Any] | None) -> bool:
     if not isinstance(config, Mapping):
         return False
     return bool(str(config.get("table_id") or "").strip())
+
+
+def _safe_work_result_is_projectable(safe_work_result: Mapping[str, Any]) -> bool:
+    safe_work = dict(safe_work_result or {})
+    if not safe_work:
+        return False
+    audit = dict(safe_work.get("audit") or {})
+    if str(audit.get("status") or "").strip().lower() == "pass":
+        return True
+    browser_receipt = dict(safe_work.get("browser_action_receipt") or {})
+    return bool(
+        str(safe_work.get("status") or "").strip() == "blocked_human_handoff_required"
+        and browser_receipt.get("user_action_required") is True
+    )
+
+
+def _safe_work_projection_suppression_reason(safe_work_result: Mapping[str, Any]) -> str:
+    safe_work = dict(safe_work_result or {})
+    if not safe_work:
+        return "safe_work_missing"
+    audit = dict(safe_work.get("audit") or {})
+    audit_status = str(audit.get("status") or "").strip().lower()
+    if not audit:
+        return "safe_work_audit_missing"
+    return f"safe_work_audit_{audit_status or 'unknown'}"
+
+
+def _safe_work_issue_codes(safe_work_result: Mapping[str, Any]) -> list[str]:
+    audit = dict(dict(safe_work_result or {}).get("audit") or {})
+    return [
+        str(issue.get("code") or "").strip()
+        for issue in list(audit.get("issues") or [])
+        if isinstance(issue, Mapping) and str(issue.get("code") or "").strip()
+    ]
+
+
+def _suppressed_safe_work_projection_summary(
+    *,
+    digest: ProactiveOodaDigest,
+    safe_work_rows: list[dict[str, Any]],
+) -> dict[str, object]:
+    suppressed_reasons: list[str] = []
+    suppressed_issue_codes: list[str] = []
+    review_count = 0
+    for index, _item in enumerate(digest.items, start=1):
+        safe_work_result = safe_work_rows[index - 1] if index - 1 < len(safe_work_rows) else {}
+        if _safe_work_result_is_projectable(safe_work_result):
+            continue
+        reason = _safe_work_projection_suppression_reason(safe_work_result)
+        suppressed_reasons.append(reason)
+        audit_status = str(dict(safe_work_result.get("audit") or {}).get("status") or "").strip().lower()
+        if audit_status == "review":
+            review_count += 1
+        suppressed_issue_codes.extend(_safe_work_issue_codes(safe_work_result))
+    return {
+        "suppressed_item_count": len(suppressed_reasons),
+        "suppressed_safe_work_review_count": review_count,
+        "suppressed_projection_reasons": sorted(dict.fromkeys(suppressed_reasons))[:8],
+        "suppressed_safe_work_issue_codes": sorted(dict.fromkeys(suppressed_issue_codes))[:12],
+    }
 
 
 def _run_projection_id(receipt: ProactiveOodaRunReceipt) -> str:
