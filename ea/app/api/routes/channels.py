@@ -3513,8 +3513,7 @@ def _telegram_should_suppress_async_fallback_reply(
     }
     if normalized in fallback_texts:
         return True
-    lowered = normalized.lower()
-    return lowered.startswith("i'm here.") or lowered.startswith("working on it.") or lowered.startswith("saved.")
+    return _telegram_reply_is_low_value_nonaction(normalized)
 
 
 def _telegram_should_suppress_sync_nonaction_reply(*, reply_text: str, has_action_surface: bool) -> bool:
@@ -3524,6 +3523,13 @@ def _telegram_should_suppress_sync_nonaction_reply(*, reply_text: str, has_actio
         return True
     if has_action_surface:
         return False
+    normalized = " ".join(str(reply_text or "").strip().split())
+    if not normalized:
+        return False
+    return _telegram_reply_is_low_value_nonaction(normalized)
+
+
+def _telegram_reply_is_low_value_nonaction(reply_text: str) -> bool:
     normalized = " ".join(str(reply_text or "").strip().split())
     if not normalized:
         return False
@@ -3539,8 +3545,23 @@ def _telegram_should_suppress_sync_nonaction_reply(*, reply_text: str, has_actio
         return True
     if lowered.startswith("got the video. add one short instruction "):
         return True
+    if lowered.startswith("got it") and any(
+        marker in lowered
+        for marker in (
+            "transcription is deferred",
+            "i can't see or hear it right now",
+            "i can't see their visual content",
+            "i see you sent",
+        )
+    ):
+        return True
+    if lowered.startswith("from what's grounded:") and any(
+        marker in lowered for marker in ("transcription is deferred", "photos:", "video message")
+    ):
+        return True
     return (
-        lowered.startswith("working on it.")
+        lowered.startswith("i'm here.")
+        or lowered.startswith("working on it.")
         or lowered.startswith("saved. ea is processing")
         or lowered.startswith("saved. i staged")
     )

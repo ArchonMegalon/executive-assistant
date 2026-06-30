@@ -118,3 +118,27 @@ def test_media_only_updates_after_pairing_retry_later_do_not_create_extra_acks()
     assert len(suppressed) == 1
     assert suppressed[0].payload["source_kind"] == "photo"
     assert suppressed[0].dedupe_key == "telegram:42:102:whatsapp_pairing_followup_suppressed"
+
+
+def test_action_required_only_suppresses_document_boilerplate_without_action_surface() -> None:
+    assert channels._telegram_should_suppress_sync_nonaction_reply(
+        reply_text="Got the document. Add a short note (extract text, summarize, or flag action items), and I will proceed.",
+        has_action_surface=False,
+    )
+
+
+def test_action_required_only_suppresses_deferred_media_boilerplate_without_action_surface() -> None:
+    assert channels._telegram_should_suppress_sync_nonaction_reply(
+        reply_text=(
+            "Got it — I see you sent several Photos and one Video Message. "
+            "The video's transcription is deferred, so I don't have the spoken words."
+        ),
+        has_action_surface=False,
+    )
+
+
+def test_action_required_only_keeps_reply_with_action_surface() -> None:
+    assert not channels._telegram_should_suppress_sync_nonaction_reply(
+        reply_text="Saved. I staged this as a reversible next step.",
+        has_action_surface=True,
+    )
