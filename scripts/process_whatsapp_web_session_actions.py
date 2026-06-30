@@ -545,6 +545,31 @@ def _waiting_report(*, session_ref: str, state_path: Path, reason: str) -> dict[
     }
 
 
+def _persist_waiting_state(*, state_path: Path, state: dict[str, Any], session_ref: str, reason: str) -> None:
+    if not str(state_path):
+        return
+    state["session_ref"] = session_ref
+    state["updated_at"] = _now_iso()
+    state["last_run"] = {
+        "status": "waiting",
+        "reason": str(reason or "").strip(),
+        "processed": 0,
+        "reply_sent": 0,
+        "share_link_sent": 0,
+        "voice_sample_sent": 0,
+        "errors": 0,
+        "message_count": 0,
+        "candidate_count": 0,
+        "audiobook_source_candidate_count": 0,
+        "epub_candidate_count": 0,
+        "voice_text_candidate_count": 0,
+        "status_candidate_count": 0,
+        "conversation_fallback_attempted": False,
+        "conversation_fallback_status": "waiting",
+    }
+    _save_state(state_path, state)
+
+
 def _load_state(path: Path) -> dict[str, Any]:
     if not str(path):
         return {"version": 1, "actions": {}}
@@ -4174,6 +4199,13 @@ def build_report(
     except Exception as exc:
         wait_reason = _session_api_wait_reason(exc)
         if wait_reason:
+            if not bool(args.dry_run):
+                _persist_waiting_state(
+                    state_path=state_path,
+                    state=state,
+                    session_ref=session_ref,
+                    reason=wait_reason,
+                )
             return _waiting_report(session_ref=session_ref, state_path=state_path, reason=wait_reason)
         raise
     messages = [message for message in payload.get("messages") or [] if isinstance(message, dict)]

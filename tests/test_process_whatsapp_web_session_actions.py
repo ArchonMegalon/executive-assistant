@@ -1409,6 +1409,26 @@ def test_main_returns_zero_for_waiting_report(monkeypatch, tmp_path: Path, capsy
     payload = json.loads(capsys.readouterr().out.strip())
     assert payload["status"] == "waiting"
     assert payload["conversation_fallback"]["reason"] == "session_api_name_resolution_failed"
+    state = json.loads((tmp_path / "wa-actions.json").read_text(encoding="utf-8"))
+    assert state["session_ref"] == "session-1"
+    assert state["last_run"]["status"] == "waiting"
+    assert state["last_run"]["reason"] == "session_api_name_resolution_failed"
+
+
+def test_build_report_persists_waiting_state_for_session_not_ready(monkeypatch, tmp_path: Path) -> None:
+    module = _module()
+
+    def _fake_request_json(**_kwargs: object) -> dict[str, object]:
+        raise RuntimeError('http_409:{"ok":false,"reason":"session_not_ready","status":"authenticated"}')
+
+    report = module.build_report(_args(tmp_path), request_json=_fake_request_json)
+
+    assert report["status"] == "waiting"
+    assert report["conversation_fallback"]["reason"] == "session_not_ready"
+    state = json.loads((tmp_path / "wa-actions.json").read_text(encoding="utf-8"))
+    assert state["session_ref"] == "session-1"
+    assert state["last_run"]["status"] == "waiting"
+    assert state["last_run"]["reason"] == "session_not_ready"
 
 
 def test_build_report_marks_unresolved_freeform_sender_as_ignored(monkeypatch, tmp_path: Path) -> None:
