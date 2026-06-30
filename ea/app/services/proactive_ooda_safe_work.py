@@ -1245,13 +1245,31 @@ def _research_backed_draft_text(
         or "the contact"
     ).strip()
     url = str(candidate.get("final_url") or candidate.get("url") or "").strip()
+    requester_contact = _requester_contact_context(input_contract=input_contract, stage_payload=stage_payload)
+    onsite_relevant = _outreach_onsite_appointment_relevant(request_line, stage_payload=stage_payload, input_contract=input_contract)
+    request_sentence = _sentence_fragment(request_line or candidate_label)
     if locale == "de":
+        if onsite_relevant:
+            lines = [
+                "Draft to review:",
+                "",
+                "Guten Tag,",
+                "",
+                f"ich brauche einen Vor-Ort-Termin fuer folgende Anfrage: {request_sentence}.",
+            ]
+            if requester_contact.get("address"):
+                lines.append(f"Adresse: {requester_contact['address']}")
+            if requester_contact.get("phone"):
+                lines.append(f"Telefon: {requester_contact['phone']}")
+            lines.append("Koennen Sie mir bitte sagen, ob Sie dafuer zustaendig sind und wann ein Termin moeglich waere?")
+            lines.extend(["", "Beste Gruesse"])
+            return "\n".join(lines).strip()
         lines = [
             "Draft to review:",
             "",
             "Guten Tag,",
             "",
-            f"ich habe Sie als moeglichen Ansprechpartner fuer folgende Anfrage gefunden: {request_line or candidate_label}.",
+            f"ich habe Sie als moeglichen Ansprechpartner fuer folgende Anfrage gefunden: {request_sentence}.",
             "Koennen Sie mir bitte sagen, ob Sie dafuer zustaendig sind, welche Unterlagen Sie benoetigen und wann ein Termin moeglich waere?",
         ]
         if candidate_label:
@@ -1265,15 +1283,107 @@ def _research_backed_draft_text(
         "",
         "Hello,",
         "",
-        f"I found you as a possible contact for this request: {request_line or candidate_label}.",
-        "Please let me know whether you handle this, what information you need from me, and when you would have availability.",
+        (
+            f"I need an on-site appointment for this request: {request_sentence}."
+            if onsite_relevant
+            else f"I found you as a possible contact for this request: {request_sentence}."
+        ),
     ]
+    if onsite_relevant and requester_contact.get("address"):
+        lines.append(f"Address: {requester_contact['address']}")
+    if onsite_relevant and requester_contact.get("phone"):
+        lines.append(f"Phone: {requester_contact['phone']}")
+    lines.extend([
+        "Please let me know whether you handle this, what information you need from me, and when you would have availability.",
+    ])
     if candidate_label:
         lines.append(f"Contact found: {candidate_label}.")
     if url:
         lines.append(f"Source: {url}")
     lines.extend(["", "Best regards"])
     return "\n".join(lines).strip()
+
+
+def _sentence_fragment(value: str) -> str:
+    return str(value or "").strip(" \t\r\n.,;:")
+
+
+def _requester_contact_context(*, input_contract: Mapping[str, Any], stage_payload: Mapping[str, Any]) -> dict[str, str]:
+    recipient_context = _mapping_value(_stage_or_input(stage_payload=stage_payload, input_contract=input_contract, key="recipient_context"))
+    contact = _mapping_value(recipient_context.get("contact"))
+    location = _mapping_value(recipient_context.get("location"))
+    address = _first_present_string(
+        recipient_context.get("address"),
+        recipient_context.get("street_address"),
+        recipient_context.get("postal_address"),
+        contact.get("address"),
+        contact.get("street_address"),
+        location.get("address"),
+        location.get("street_address"),
+        location.get("primary_address"),
+        _first_string(location.get("addresses")),
+    )
+    phone = _first_present_string(
+        recipient_context.get("phone"),
+        recipient_context.get("phone_number"),
+        recipient_context.get("tel"),
+        recipient_context.get("telephone"),
+        recipient_context.get("mobile"),
+        contact.get("phone"),
+        contact.get("phone_number"),
+        contact.get("tel"),
+        contact.get("telephone"),
+        contact.get("mobile"),
+    )
+    return {
+        "address": address,
+        "phone": phone,
+    }
+
+
+def _first_present_string(*values: Any) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _outreach_onsite_appointment_relevant(
+    request_text: str,
+    *,
+    input_contract: Mapping[str, Any],
+    stage_payload: Mapping[str, Any],
+) -> bool:
+    haystack = " ".join(
+        str(value or "")
+        for value in (
+            request_text,
+            stage_payload.get("appointment_type"),
+            stage_payload.get("subject_hint"),
+            stage_payload.get("research_query"),
+            input_contract.get("appointment_type"),
+            input_contract.get("subject_hint"),
+            input_contract.get("research_query"),
+            " ".join(_criteria_texts(stage_payload.get("selection_criteria"))),
+            " ".join(_criteria_texts(input_contract.get("selection_criteria"))),
+        )
+    )
+    normalized = _ascii_fold_text(haystack)
+    return any(
+        marker in normalized
+        for marker in (
+            "vor ort",
+            "vor-ort",
+            "onsite",
+            "on site",
+            "on-site",
+            "termin",
+            "appointment",
+            "besichtigung",
+            "ausmessen",
+        )
+    )
 
 
 def _fallback_research_backed_draft_text(

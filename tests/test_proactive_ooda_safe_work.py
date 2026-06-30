@@ -495,6 +495,70 @@ def test_build_safe_work_result_synthesizes_research_backed_draft_from_best_cont
     assert result["shortlist"][0]["contact_email"] == "office@rauchfang.example.test"
 
 
+def test_build_safe_work_result_humanizes_german_onsite_provider_draft_with_contact_context() -> None:
+    packet = _packet_with_cart_work()
+    request_text = (
+        "suche mir einen Elektriker fuer einen Vor Ort Termin: Ich brauche eine Unterputz-Steckdose "
+        "bei der Abluftoeffnung in einer Regipswand und zusaetzlich eine Doppelsteckdose in einer Betonwand. "
+        "Wenn du einen gefunden hast formuliere eine Emailanfrage und speicher sie als Draft in meiner Inbox."
+    )
+    recipient_context = {
+        "address": "Beispielgasse 1/2, 1200 Wien",
+        "phone": "+43 664 7916419",
+        "location": {
+            "phrases": ["1200 Wien"],
+            "city_terms": ["Wien"],
+            "country_codes": ["AT"],
+        },
+    }
+    packet["stage"]["payload"] = {  # type: ignore[index]
+        "kind": "approval_packet",
+        "summary": "One researched inquiry draft ready for review before any send.",
+        "work_type": "draft",
+        "draft_mode": "research_backed_inquiry",
+        "draft_request_text": request_text,
+        "research_query": "Elektriker Unterputz Steckdose 1200 Wien",
+        "selection_criteria": ["Vor Ort Termin", "contact details visible", "fit to request"],
+        "locale": "de",
+        "recipient_context": recipient_context,
+        "candidate_items": [
+            {
+                "label": "Elektro Musterbetrieb Wien",
+                "url": "https://elektro.example.at/kontakt",
+                "snippet": "Elektriker in Wien fuer Steckdosen, Unterputz und Besichtigung.",
+                "reachable": True,
+                "contact_email": "office@elektro.example.at",
+            }
+        ],
+    }
+    packet["safe_work_order"]["work_type"] = "draft"  # type: ignore[index]
+    packet["safe_work_order"]["input_contract"] = {  # type: ignore[index]
+        "draft_mode": "research_backed_inquiry",
+        "draft_request_text": request_text,
+        "research_query": "Elektriker Unterputz Steckdose 1200 Wien",
+        "selection_criteria": ["Vor Ort Termin", "contact details visible", "fit to request"],
+        "recipient_context": recipient_context,
+        "expected_artifacts": ["shortlist", "draft_text"],
+        "private_payload_available": True,
+    }
+
+    result = build_safe_work_result(packet)
+    draft = result["recommended_option_or_draft"]["value"]
+
+    assert result["status"] == "staged_for_user_decision"
+    assert result["recommended_option_or_draft"]["source"] == "candidate_synthesis"
+    assert result["recommended_option_or_draft"]["recipient_email"] == "office@elektro.example.at"
+    assert "Vor-Ort-Termin" in draft
+    assert "Adresse: Beispielgasse 1/2, 1200 Wien" in draft
+    assert "Telefon: +43 664 7916419" in draft
+    assert "Regipswand" in draft
+    assert "Doppelsteckdose" in draft
+    assert "speicher" not in draft.lower()
+    assert "inbox" not in draft.lower()
+    assert "schicke mir" not in draft.lower()
+    assert "Quelle:" not in draft
+
+
 def test_build_safe_work_result_prefers_local_provider_over_reference_noise_from_recipient_context() -> None:
     packet = _packet_with_cart_work()
     packet["stage"]["payload"] = {  # type: ignore[index]
