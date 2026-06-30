@@ -1153,6 +1153,47 @@ def test_telegram_status_needs_voice_sample_delivery_when_current_pending_tokens
     assert audiobook_epub_pipeline._telegram_status_needs_voice_sample_delivery(current_job) is True  # noqa: SLF001
 
 
+def test_telegram_reply_explains_author_gender_mismatch_with_replacement_voice() -> None:
+    job_dir = _create_job_dir()
+    selected_public = _private_voice_candidate(
+        job_dir,
+        token="callback-token-seraphina",
+        row=_candidate(
+            preset_key="unmixr_seraphina_express_9827708d",
+            label="Seraphina",
+            gender="female",
+            score=70,
+        ),
+    )["public"]
+    replacement_public = _private_voice_candidate(
+        job_dir,
+        token="callback-token-dieter",
+        row=_candidate(
+            preset_key="unmixr_dieter_7f88185d",
+            label="Dieter",
+            gender="male",
+            score=67,
+        ),
+    )["public"]
+    stored_job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
+    stored_job["status"] = "waiting_voice_selection"
+    stored_job["provider"]["voice_selection"] = {
+        "status": "waiting_user_choice",
+        "reason": "selected_voice_author_gender_mismatch",
+        "selected": selected_public,
+        "book_profile": {"author_gender_signal": "male"},
+        "pending_candidate_keys": ["unmixr_dieter_7f88185d"],
+        "pending_batch": [replacement_public],
+    }
+
+    reply = audiobook_epub_pipeline.telegram_epub_reply_text(stored_job)
+
+    assert "inferred a male author signal" in reply
+    assert "selected voice is tagged female" in reply
+    assert "Dieter" in reply
+    assert "Seraphina" in reply
+
+
 def test_record_audiobook_voice_sample_delivery_merges_current_pending_coverage() -> None:
     job_dir = _create_job_dir()
     hans_public = _private_voice_candidate(

@@ -10230,6 +10230,19 @@ def telegram_epub_reply_text(job: dict[str, object]) -> str:
             )
         if str(voice_selection.get("reason") or "").strip() == "selected_voice_author_gender_mismatch":
             pending = list(voice_selection.get("pending_batch") or [])
+            profile = dict(voice_selection.get("book_profile") or {})
+            author_gender_signal = str(profile.get("author_gender_signal") or "").strip().lower()
+            selected_gender = _voice_candidate_gender(selected_voice)
+            gender_line = (
+                f"I inferred a {author_gender_signal} author signal"
+                if author_gender_signal in {"male", "female"}
+                else "The selected voice does not match the author gender signal"
+            )
+            mismatch_line = (
+                f"{gender_line}, but the selected voice is tagged {selected_gender}"
+                if selected_gender in {"male", "female"} and author_gender_signal in {"male", "female"}
+                else gender_line
+            )
             replacement_labels = [
                 str(dict(row).get("label") or "").strip()
                 for row in pending
@@ -10247,7 +10260,7 @@ def telegram_epub_reply_text(job: dict[str, object]) -> str:
                 else " I staged better-matching voice alternatives."
             )
             return (
-                f"The current selected voice for {title} does not match the author gender signal, so I stopped before finishing the book with the stale voice choice."
+                f"{mismatch_line} for {title}, so I stopped before finishing the book with the stale voice choice."
                 f"{suggestion_line}{keep_line} Choose 'Use this' on the one you want."
             )
         profile = dict(voice_selection.get("book_profile") or {})
