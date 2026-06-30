@@ -750,6 +750,8 @@ def test_probe_telegram_readiness_runtime_reports_ready_without_chat_secret(monk
     def _fake_exec_json(*, code: str, timeout_seconds: float):
         assert "resolve_primary_telegram_binding" not in code
         assert "list_connector_bindings" in code
+        assert "os._exit(0)" in code
+        assert "flush=True" in code
         assert timeout_seconds == 75.0
         return (
             0,
@@ -3730,6 +3732,8 @@ def test_send_telegram_executes_runtime_without_exposing_chat_secret(monkeypatch
 
     def _fake_exec_json(*, code: str, timeout_seconds: float):
         assert "send_telegram_message_for_principal" in code
+        assert "os._exit(0)" in code
+        assert "flush=True" in code
         assert timeout_seconds == 75.0
         return (
             0,
@@ -3823,6 +3827,8 @@ def test_send_telegram_document_stages_local_file_into_runtime_container(monkeyp
         assert str(document) not in code
         assert "/tmp/ea-live-ops-document.svg" in code
         assert "send_telegram_document_for_principal" in code
+        assert "os._exit(0)" in code
+        assert "flush=True" in code
         return (
             0,
             {

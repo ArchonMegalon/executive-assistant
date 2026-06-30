@@ -1449,7 +1449,7 @@ def probe_telegram_readiness(
     observed_at = _utc_now()
     source = "runtime_container_exec:telegram_delivery.local_binding_scan"
     code = (
-        "import hashlib, json\n"
+        "import hashlib, json, os\n"
         "principal_id = "
         + json.dumps(str(principal_id or "").strip())
         + "\n"
@@ -1475,7 +1475,8 @@ def probe_telegram_readiness(
         "    ranked.sort(key=lambda item: item[0], reverse=True)\n"
         "    binding = ranked[0][1] if ranked else None\n"
         "    if binding is None:\n"
-        "        print(json.dumps({'ok': True, 'ready': False, 'status': 'blocked', 'reason': 'telegram_binding_not_found'}))\n"
+        "        print(json.dumps({'ok': True, 'ready': False, 'status': 'blocked', 'reason': 'telegram_binding_not_found'}), flush=True)\n"
+        "        os._exit(0)\n"
         "    else:\n"
         "        metadata = dict(getattr(binding, 'auth_metadata_json', None) or {})\n"
         "        chat_ref = str(metadata.get('default_chat_ref') or getattr(binding, 'external_account_ref', '') or '').strip()\n"
@@ -1503,9 +1504,11 @@ def probe_telegram_readiness(
         "            'bot_handle': bot_handle,\n"
         "            'bot_token_present': token_present,\n"
         "        }\n"
-        "        print(json.dumps(payload, sort_keys=True))\n"
+        "        print(json.dumps(payload, sort_keys=True), flush=True)\n"
+        "        os._exit(0)\n"
         "except Exception as exc:\n"
-        "    print(json.dumps({'ok': False, 'ready': False, 'status': 'probe_failed', 'reason': type(exc).__name__}, sort_keys=True))\n"
+        "    print(json.dumps({'ok': False, 'ready': False, 'status': 'probe_failed', 'reason': type(exc).__name__}, sort_keys=True), flush=True)\n"
+        "    os._exit(0)\n"
     )
     try:
         timeout_seconds = max(
@@ -4499,7 +4502,7 @@ def send_telegram_document(
         document_ref_for_runtime = staged_remote_path
         local_file_staged = True
     code = (
-        "import hashlib, json\n"
+        "import hashlib, json, os\n"
         "principal_id = "
         + json.dumps(normalized_principal_id)
         + "\n"
@@ -4526,10 +4529,12 @@ def send_telegram_document(
         "        'bot_key': str(getattr(receipt, 'bot_key', '') or '').strip(),\n"
         "        'bot_handle': str(getattr(receipt, 'bot_handle', '') or '').strip(),\n"
         "        'message_ids': message_ids,\n"
-        "    }, sort_keys=True))\n"
+        "    }, sort_keys=True), flush=True)\n"
+        "    os._exit(0)\n"
         "except Exception as exc:\n"
         "    reason = (str(exc).strip() or type(exc).__name__)[:160]\n"
-        "    print(json.dumps({'ok': False, 'sent': False, 'reason': reason}, sort_keys=True))\n"
+        "    print(json.dumps({'ok': False, 'sent': False, 'reason': reason}, sort_keys=True), flush=True)\n"
+        "    os._exit(0)\n"
     )
     try:
         exit_code, payload, runtime_container = _runtime_container_exec_json(code=code, timeout_seconds=45.0)
@@ -5047,7 +5052,7 @@ def send_telegram(
             "source": "runtime_container_exec:telegram_delivery.send_telegram_message_for_principal",
         }
     code = (
-        "import hashlib, json\n"
+        "import hashlib, json, os\n"
         "principal_id = "
         + json.dumps(normalized_principal_id)
         + "\n"
@@ -5071,10 +5076,12 @@ def send_telegram(
         "        'bot_key': str(getattr(receipt, 'bot_key', '') or '').strip(),\n"
         "        'bot_handle': str(getattr(receipt, 'bot_handle', '') or '').strip(),\n"
         "        'message_ids': message_ids,\n"
-        "    }, sort_keys=True))\n"
+        "    }, sort_keys=True), flush=True)\n"
+        "    os._exit(0)\n"
         "except Exception as exc:\n"
         "    reason = (str(exc).strip() or type(exc).__name__)[:160]\n"
-        "    print(json.dumps({'ok': False, 'sent': False, 'reason': reason}, sort_keys=True))\n"
+        "    print(json.dumps({'ok': False, 'sent': False, 'reason': reason}, sort_keys=True), flush=True)\n"
+        "    os._exit(0)\n"
     )
     exit_code, payload, runtime_container = _runtime_container_exec_json(code=code, timeout_seconds=effective_timeout_seconds)
     payload_ok = bool(payload.get("ok", False))
