@@ -98,11 +98,11 @@
     },
     "operator_status": {
       "contract_name": "ea.proactive_ooda_operator_status.v1",
-      "generated_at": "2026-06-30T22:52:49Z",
+      "generated_at": "2026-06-30T23:12:04Z",
       "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
       "present": true,
-      "source_git_head": "68192c2593124a69696188058f2e59974fef07fc",
-      "source_state_fingerprint": "3b709c3aff2f3d2f755b7b4d308861d3b5772125c10c26777563d338ff184ffc",
+      "source_git_head": "410f43f5265a5577ce7958b6dd80c2d2e7741f75",
+      "source_state_fingerprint": "f120910fa8b786cd9ec653d9cfb0b934b00fca12e2184dd63cc9cab6c638b0ea",
       "status": "ready_with_live_receipt"
     },
     "run_receipt": {
@@ -125,7 +125,7 @@
       "source": "docker_compose_exec"
     }
   },
-  "generated_at": "2026-06-30T22:52:56Z",
+  "generated_at": "2026-06-30T23:12:09Z",
   "generated_by": "scripts/materialize_proactive_ooda_gold_acceptance.py",
   "goal_completion_claim_allowed": false,
   "gold_claim_allowed": false,
@@ -155,7 +155,7 @@
       "quiet_receipt_item_count": 5,
       "quiet_receipt_message_count": 0,
       "quiet_receipt_notification_status": "deferred",
-      "quiet_receipt_path": "/data/provider-ledger/proactive_ooda_run_receipts/20260630T224305_007159_0000-deferred-47180c5b8b9a.json",
+      "quiet_receipt_path": "/data/provider-ledger/proactive_ooda_run_receipts/20260630T231011_157656_0000-deferred-e4ae93156d01.json",
       "quiet_receipt_present": true,
       "quiet_receipt_proves_action_required_only": true,
       "raw_policy_prompt_exposed": false,
@@ -282,9 +282,19 @@
       "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
       "present": true,
       "reason": "ready",
+      "safe_work_audit_blocking_reason": "",
+      "safe_work_audit_blocks_operator_followthrough": false,
+      "safe_work_audit_delivery_allowed": false,
+      "safe_work_audit_issue_codes": [],
+      "safe_work_audit_issue_count": 0,
+      "safe_work_audit_present": false,
+      "safe_work_audit_ready": true,
+      "safe_work_audit_recorded": true,
+      "safe_work_audit_result_status": "",
+      "safe_work_audit_status": "",
       "source_coverage_checked": true,
       "source_coverage_excluded_event_type_counts": {
-        "property_scout_sync_completed": 34
+        "property_scout_sync_completed": 35
       },
       "source_coverage_excluded_event_types": [
         "property_scout_sync_completed"
@@ -364,8 +374,8 @@
     "Raw packet text, private links, actor identity, packet refs, and staged artifact refs must stay out of this published receipt; only hashes and coarse status may appear.",
     "Teable remains an admin projection and audit mirror rather than canonical queue or product truth."
   ],
-  "source_git_head": "68192c2593124a69696188058f2e59974fef07fc",
-  "source_state_fingerprint": "3b709c3aff2f3d2f755b7b4d308861d3b5772125c10c26777563d338ff184ffc",
+  "source_git_head": "410f43f5265a5577ce7958b6dd80c2d2e7741f75",
+  "source_state_fingerprint": "f120910fa8b786cd9ec653d9cfb0b934b00fca12e2184dd63cc9cab6c638b0ea",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "blocked_missing_proactive_packet_evidence",
   "summary": "Proactive OODA gold proof is still blocked because one or more packet-evidence links are missing.",
