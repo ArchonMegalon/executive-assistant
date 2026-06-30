@@ -283,7 +283,16 @@ ensure_runtime_writable_dir_projection() {
     chmod u+rwx,go-rwx "${resolved_path}"
     return 0
   fi
-  chmod 1777 "${resolved_path}"
+  if chmod 1777 "${resolved_path}" >/dev/null 2>&1; then
+    return 0
+  fi
+  local mode
+  mode="$(stat -c '%a' "${resolved_path}" 2>/dev/null || true)"
+  if [[ "${mode}" == "1777" ]]; then
+    return 0
+  fi
+  echo "Unable to make runtime bind directory writable for UID 10001: ${resolved_path}" >&2
+  return 1
 }
 
 while [[ $# -gt 0 ]]; do

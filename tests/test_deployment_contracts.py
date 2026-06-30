@@ -1688,6 +1688,10 @@ def test_deploy_script_materializes_release_manifest_after_health() -> None:
     assert 'require_non_placeholder_secret "EA_SIGNING_SECRET" "${signing_secret_value}"' in deploy
     assert 'ensure_runtime_readable_file_projection() {' in deploy
     assert 'ensure_runtime_readable_file_projection "ONEMIN_DIRECT_API_KEYS_JSON_FILE"' in deploy
+    assert 'ensure_runtime_writable_dir_projection() {' in deploy
+    assert 'ensure_runtime_writable_dir_projection "EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT" "./data/pocket-ai-audio"' in deploy
+    assert 'mode="$(stat -c \'%a\' "${resolved_path}" 2>/dev/null || true)"' in deploy
+    assert 'if [[ "${mode}" == "1777" ]]; then' in deploy
     assert 'scripts/materialize_whatsapp_callback_secret_runtime_projection.py" >/dev/null' in deploy
     assert 'setfacl -m u:10001:r "${resolved_path}"' in deploy
     assert 'chmod a+r,go-w "${resolved_path}"' in deploy
