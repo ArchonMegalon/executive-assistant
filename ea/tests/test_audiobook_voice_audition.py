@@ -985,6 +985,265 @@ def test_resume_due_audiobook_jobs_notifies_waiting_voice_selection_when_sample_
     assert result["notifications"][0]["notification"]["status"] == "sent"
 
 
+def test_telegram_status_needs_voice_sample_delivery_when_current_pending_tokens_changed() -> None:
+    job_dir = _create_job_dir()
+    stale_public = _private_voice_candidate(
+        job_dir,
+        token="callback-token-seraphina",
+        row=_candidate(
+            preset_key="unmixr_seraphina_express_9827708d",
+            label="Seraphina (Express)",
+            gender="female",
+            score=70,
+        ),
+    )["public"]
+    replacement_public = _private_voice_candidate(
+        job_dir,
+        token="callback-token-dieter",
+        row=_candidate(
+            preset_key="unmixr_dieter_7f88185d",
+            label="Dieter",
+            gender="male",
+            score=67,
+        ),
+    )["public"]
+    stored_job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
+    stored_job["status"] = "waiting_voice_selection"
+    stored_job["telegram"] = {
+        "chat_id": "42",
+        "voice_sample_delivery": {
+            "status": "sent",
+            "expected_count": 1,
+            "attempted_count": 1,
+            "sent_count": 1,
+            "failed_count": 0,
+            "skipped_count": 0,
+            "reason": "",
+            "reasons": [],
+            "token_sha256": [hashlib.sha256(b"callback-token-seraphina").hexdigest()],
+            "samples": [
+                {
+                    "token_sha256": hashlib.sha256(b"callback-token-seraphina").hexdigest(),
+                    "status": "sent",
+                    "media_message_id_sha256": "",
+                    "button_message_id_sha256": "",
+                    "button_count": 2,
+                    "buttons_fallback": False,
+                    "control_kind": "inline_keyboard",
+                }
+            ],
+        },
+    }
+    stored_job["provider"]["voice_selection"] = {
+        "status": "waiting_user_choice",
+        "reason": "selected_voice_author_gender_mismatch",
+        "book_profile": {"author_gender_signal": "male"},
+        "pending_candidate_keys": ["unmixr_dieter_7f88185d"],
+        "pending_batch": [replacement_public],
+    }
+    (job_dir / "job.json").write_text(json.dumps(stored_job, ensure_ascii=True, indent=2), encoding="utf-8")
+
+    current_job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
+    assert audiobook_epub_pipeline._telegram_status_needs_voice_sample_delivery(current_job) is True  # noqa: SLF001
+
+
+def test_record_audiobook_voice_sample_delivery_merges_current_pending_coverage() -> None:
+    job_dir = _create_job_dir()
+    hans_public = _private_voice_candidate(
+        job_dir,
+        token="callback-token-hans",
+        row=_candidate(
+            preset_key="unmixr_hans_84ea27fb",
+            label="Hans",
+            gender="male",
+            score=68,
+        ),
+    )["public"]
+    dieter_public = _private_voice_candidate(
+        job_dir,
+        token="callback-token-dieter",
+        row=_candidate(
+            preset_key="unmixr_dieter_7f88185d",
+            label="Dieter",
+            gender="male",
+            score=67,
+        ),
+    )["public"]
+    stored_job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
+    stored_job["status"] = "waiting_voice_selection"
+    stored_job["telegram"] = {
+        "chat_id": "42",
+        "voice_sample_delivery": {
+            "status": "sent",
+            "expected_count": 2,
+            "attempted_count": 1,
+            "sent_count": 1,
+            "failed_count": 0,
+            "skipped_count": 0,
+            "reason": "",
+            "reasons": [],
+            "token_sha256": [hashlib.sha256(b"callback-token-hans").hexdigest()],
+            "samples": [
+                {
+                    "token_sha256": hashlib.sha256(b"callback-token-hans").hexdigest(),
+                    "status": "sent",
+                    "media_message_id_sha256": "",
+                    "button_message_id_sha256": "",
+                    "button_count": 2,
+                    "buttons_fallback": False,
+                    "control_kind": "inline_keyboard",
+                }
+            ],
+        },
+    }
+    stored_job["provider"]["voice_selection"] = {
+        "status": "waiting_user_choice",
+        "reason": "selected_voice_author_gender_mismatch",
+        "book_profile": {"author_gender_signal": "male"},
+        "pending_candidate_keys": ["unmixr_hans_84ea27fb", "unmixr_dieter_7f88185d"],
+        "pending_batch": [hans_public, dieter_public],
+    }
+    (job_dir / "job.json").write_text(json.dumps(stored_job, ensure_ascii=True, indent=2), encoding="utf-8")
+
+    with patch.object(audiobook_epub_pipeline, "_write_current_job_receipt_best_effort"):
+        updated_job = audiobook_epub_pipeline.record_audiobook_voice_sample_delivery(
+            job=stored_job,
+            sample_receipts=[
+                {
+                    "token": "callback-token-dieter",
+                    "status": "sent",
+                    "reason": "",
+                    "media_message_id_sha256": "message-dieter",
+                    "button_message_id_sha256": "",
+                    "button_count": 2,
+                    "buttons_fallback": False,
+                    "control_kind": "inline_keyboard",
+                }
+            ],
+        )
+
+    delivery = dict(dict(updated_job.get("telegram") or {}).get("voice_sample_delivery") or {})
+    assert delivery["status"] == "sent"
+    assert delivery["expected_count"] == 2
+    assert delivery["sent_count"] == 2
+    assert set(delivery["token_sha256"]) == {
+        hashlib.sha256(b"callback-token-hans").hexdigest(),
+        hashlib.sha256(b"callback-token-dieter").hexdigest(),
+    }
+
+
+def test_send_telegram_audiobook_status_only_delivers_uncovered_voice_samples() -> None:
+    job_dir = _create_job_dir()
+    hans_public = _private_voice_candidate(
+        job_dir,
+        token="callback-token-hans",
+        row=_candidate(
+            preset_key="unmixr_hans_84ea27fb",
+            label="Hans",
+            gender="male",
+            score=68,
+        ),
+    )["public"]
+    dieter_public = _private_voice_candidate(
+        job_dir,
+        token="callback-token-dieter",
+        row=_candidate(
+            preset_key="unmixr_dieter_7f88185d",
+            label="Dieter",
+            gender="male",
+            score=67,
+        ),
+    )["public"]
+    stored_job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
+    stored_job["status"] = "waiting_voice_selection"
+    stored_job["telegram"] = {
+        "chat_id": "42",
+        "message_id": "99",
+        "voice_sample_delivery": {
+            "status": "partial",
+            "expected_count": 2,
+            "attempted_count": 1,
+            "sent_count": 1,
+            "failed_count": 0,
+            "skipped_count": 0,
+            "reason": "",
+            "reasons": [],
+            "token_sha256": [hashlib.sha256(b"callback-token-hans").hexdigest()],
+            "samples": [
+                {
+                    "token_sha256": hashlib.sha256(b"callback-token-hans").hexdigest(),
+                    "status": "sent",
+                    "media_message_id_sha256": "",
+                    "button_message_id_sha256": "",
+                    "button_count": 2,
+                    "buttons_fallback": False,
+                    "control_kind": "inline_keyboard",
+                }
+            ],
+        },
+    }
+    stored_job["provider"]["voice_selection"] = {
+        "status": "waiting_user_choice",
+        "reason": "selected_voice_author_gender_mismatch",
+        "book_profile": {"author_gender_signal": "male"},
+        "pending_candidate_keys": ["unmixr_hans_84ea27fb", "unmixr_dieter_7f88185d"],
+        "pending_batch": [hans_public, dieter_public],
+    }
+    (job_dir / "job.json").write_text(json.dumps(stored_job, ensure_ascii=True, indent=2), encoding="utf-8")
+
+    requests_seen: list[str] = []
+
+    class _FakeResponse:
+        def __init__(self, payload: dict[str, object]) -> None:
+            self._payload = payload
+
+        def read(self) -> bytes:
+            return json.dumps(self._payload).encode("utf-8")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    def _fake_urlopen(request, timeout=0):  # noqa: ANN001
+        requests_seen.append(request.full_url)
+        if request.full_url.endswith("/sendAudio"):
+            audio_count = sum(1 for url in requests_seen if url.endswith("/sendAudio"))
+            return _FakeResponse({"ok": True, "result": {"message_id": 100 + audio_count}})
+        if request.full_url.endswith("/sendMessage"):
+            return _FakeResponse({"ok": True, "result": {"message_id": 999}})
+        raise AssertionError(request.full_url)
+
+    with (
+        patch.dict(
+            os.environ,
+            {
+                "EA_TELEGRAM_BOT_TOKEN": "test-bot-token",
+                "EA_TELEGRAM_CALLBACK_SECRET": "test-callback-secret",
+            },
+            clear=False,
+        ),
+        patch.object(audiobook_epub_pipeline.urllib.request, "urlopen", side_effect=_fake_urlopen),
+        patch.object(audiobook_epub_pipeline, "_write_current_job_receipt_best_effort"),
+    ):
+        notification = audiobook_epub_pipeline._send_telegram_audiobook_status(  # noqa: SLF001
+            job=stored_job,
+            text=audiobook_epub_pipeline.telegram_epub_reply_text(stored_job),
+        )
+
+    assert [url.rsplit("/", 1)[-1] for url in requests_seen].count("sendAudio") == 1
+    assert notification["status"] == "sent"
+    delivery = dict(notification.get("voice_sample_delivery") or {})
+    assert delivery["status"] == "sent"
+    assert delivery["expected_count"] == 2
+    assert delivery["sent_count"] == 2
+    assert set(delivery["token_sha256"]) == {
+        hashlib.sha256(b"callback-token-hans").hexdigest(),
+        hashlib.sha256(b"callback-token-dieter").hexdigest(),
+    }
+
+
 def test_send_telegram_audiobook_status_delivers_reopened_replacement_samples() -> None:
     current_selection = {
         "status": "selected_by_user",

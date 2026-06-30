@@ -3656,7 +3656,23 @@ def _audiobook_voice_sample_delivery_summary(
     expected_count: int,
     sample_receipts: list[dict[str, object]] | tuple[dict[str, object], ...],
 ) -> dict[str, object]:
-    receipts = [dict(item) for item in list(sample_receipts or []) if isinstance(item, dict)]
+    receipts_by_token_sha: dict[str, dict[str, object]] = {}
+    receipts_without_token: list[dict[str, object]] = []
+    for item in list(sample_receipts or []):
+        if not isinstance(item, dict):
+            continue
+        normalized = dict(item)
+        token_sha256 = str(normalized.get("token_sha256") or "").strip()
+        if not token_sha256:
+            token = str(normalized.get("token") or "").strip()
+            if token:
+                token_sha256 = _sha256_bytes(token.encode("utf-8"))
+        normalized["token_sha256"] = token_sha256
+        if token_sha256:
+            receipts_by_token_sha[token_sha256] = normalized
+        else:
+            receipts_without_token.append(normalized)
+    receipts = list(receipts_by_token_sha.values()) + receipts_without_token
     sent_count = sum(1 for item in receipts if str(item.get("status") or "").strip().lower() == "sent")
     failed_count = sum(1 for item in receipts if str(item.get("status") or "").strip().lower() == "failed")
     skipped_count = sum(1 for item in receipts if str(item.get("status") or "").strip().lower() == "skipped")
@@ -3686,13 +3702,13 @@ def _audiobook_voice_sample_delivery_summary(
         "reason": reasons[0] if reasons else "",
         "reasons": reasons[:5],
         "token_sha256": [
-            _sha256_bytes(str(item.get("token") or "").encode("utf-8"))
+            str(item.get("token_sha256") or "").strip()
             for item in receipts
-            if str(item.get("token") or "").strip()
+            if str(item.get("token_sha256") or "").strip()
         ],
         "samples": [
             {
-                "token_sha256": _sha256_bytes(str(item.get("token") or "").encode("utf-8")),
+                "token_sha256": str(item.get("token_sha256") or "").strip(),
                 "status": str(item.get("status") or "").strip(),
                 "media_message_id_sha256": str(item.get("media_message_id_sha256") or "").strip(),
                 "button_message_id_sha256": str(item.get("button_message_id_sha256") or "").strip(),
@@ -3701,7 +3717,7 @@ def _audiobook_voice_sample_delivery_summary(
                 "control_kind": str(item.get("control_kind") or "").strip(),
             }
             for item in receipts
-            if str(item.get("token") or "").strip()
+            if str(item.get("token_sha256") or "").strip()
         ],
         "updated_at": _now_iso(),
     }
@@ -3729,13 +3745,46 @@ def record_audiobook_voice_sample_delivery(
         current_job = _load_job(job_dir)
     else:
         current_job = dict(job)
-    receipt_count = len([item for item in list(sample_receipts or []) if isinstance(item, dict)])
-    expected_count = receipt_count or len(audiobook_voice_audition_sample_messages(current_job))
+    current_samples = audiobook_voice_audition_sample_messages(current_job)
+    current_sample_hashes = {
+        _sha256_bytes(str(item.get("token") or "").encode("utf-8"))
+        for item in current_samples
+        if str(item.get("token") or "").strip()
+    }
+    receipt_entries = [dict(item) for item in list(sample_receipts or []) if isinstance(item, dict)]
+    telegram = dict(current_job.get("telegram") or {})
+    existing_delivery = dict(telegram.get("voice_sample_delivery") or {})
+    existing_entries = [dict(item) for item in list(existing_delivery.get("samples") or []) if isinstance(item, dict)]
+    if not existing_entries:
+        raw_hashes = existing_delivery.get("token_sha256")
+        if isinstance(raw_hashes, list):
+            candidate_hashes = [str(item or "").strip() for item in raw_hashes]
+        else:
+            candidate_hashes = [str(raw_hashes or "").strip()]
+        fallback_status = str(existing_delivery.get("status") or "").strip()
+        fallback_reason = str(existing_delivery.get("reason") or "").strip()
+        existing_entries = [
+            {
+                "token_sha256": token_sha256,
+                "status": fallback_status,
+                "reason": fallback_reason,
+            }
+            for token_sha256 in candidate_hashes
+            if token_sha256
+        ]
+    if current_sample_hashes:
+        existing_entries = [
+            item
+            for item in existing_entries
+            if str(item.get("token_sha256") or "").strip() in current_sample_hashes
+        ]
+    expected_count = len(current_samples)
+    if expected_count <= 0:
+        expected_count = len(receipt_entries) or len(existing_entries)
     summary = _audiobook_voice_sample_delivery_summary(
         expected_count=expected_count,
-        sample_receipts=sample_receipts,
+        sample_receipts=existing_entries + receipt_entries,
     )
-    telegram = dict(current_job.get("telegram") or {})
     telegram["voice_sample_delivery"] = summary
     current_job["telegram"] = telegram
     current_job["updated_at"] = _now_iso()
@@ -6857,9 +6906,19 @@ def _send_telegram_audiobook_voice_samples(
     job: dict[str, object],
     bot_token: str,
     chat_id: str,
+    samples: list[dict[str, object]] | tuple[dict[str, object], ...] | None = None,
 ) -> list[dict[str, object]]:
     receipts: list[dict[str, object]] = []
-    for sample in audiobook_voice_audition_sample_messages(job):
+    sample_messages = [
+        dict(item)
+        for item in (
+            list(samples)
+            if samples is not None
+            else audiobook_voice_audition_sample_messages(job)
+        )
+        if isinstance(item, dict)
+    ]
+    for sample in sample_messages:
         token = str(sample.get("token") or "").strip()
         use_callback = _telegram_encode_audiobook_voice_callback(
             bot_token=bot_token,
@@ -6905,17 +6964,59 @@ def _send_telegram_audiobook_voice_samples(
     return receipts
 
 
+def _audiobook_voice_sample_delivery_token_hashes(delivery: dict[str, object]) -> tuple[str, ...]:
+    hashes: list[str] = []
+    for item in list(delivery.get("samples") or []):
+        if not isinstance(item, dict):
+            continue
+        token_sha256 = str(item.get("token_sha256") or "").strip()
+        if token_sha256 and token_sha256 not in hashes:
+            hashes.append(token_sha256)
+    if hashes:
+        return tuple(hashes)
+    raw_hashes = delivery.get("token_sha256")
+    if isinstance(raw_hashes, list):
+        candidates = [str(item or "").strip() for item in raw_hashes]
+    else:
+        candidates = [str(raw_hashes or "").strip()]
+    for token_sha256 in candidates:
+        if token_sha256 and token_sha256 not in hashes:
+            hashes.append(token_sha256)
+    return tuple(hashes)
+
+
+def _telegram_audiobook_voice_samples_pending_delivery(job: dict[str, object]) -> list[dict[str, object]]:
+    sample_messages = audiobook_voice_audition_sample_messages(job)
+    if not sample_messages:
+        return []
+    delivery = dict(dict(job.get("telegram") or {}).get("voice_sample_delivery") or {})
+    delivered_hashes = set(_audiobook_voice_sample_delivery_token_hashes(delivery))
+    if not delivered_hashes:
+        delivery_status = str(delivery.get("status") or "").strip().lower()
+        expected_count = max(int(delivery.get("expected_count") or 0), 0)
+        sent_count = max(int(delivery.get("sent_count") or 0), 0)
+        if delivery_status == "sent" and expected_count == len(sample_messages) and sent_count >= len(sample_messages):
+            return []
+        return sample_messages
+    pending_messages: list[dict[str, object]] = []
+    for sample in sample_messages:
+        token = str(sample.get("token") or "").strip()
+        if not token:
+            pending_messages.append(sample)
+            continue
+        token_sha256 = _sha256_bytes(token.encode("utf-8"))
+        if token_sha256 not in delivered_hashes:
+            pending_messages.append(sample)
+    return pending_messages
+
+
 def _telegram_status_needs_voice_sample_delivery(job: dict[str, object]) -> bool:
     if str(job.get("status") or "").strip() != "waiting_voice_selection":
         return False
     voice_selection = dict(dict(job.get("provider") or {}).get("voice_selection") or {})
     if str(voice_selection.get("status") or "").strip() != "waiting_user_choice":
         return False
-    if not audiobook_voice_audition_sample_messages(job):
-        return False
-    delivery = dict(dict(job.get("telegram") or {}).get("voice_sample_delivery") or {})
-    delivery_status = str(delivery.get("status") or "").strip().lower()
-    return delivery_status in {"", "not_attempted"}
+    return bool(_telegram_audiobook_voice_samples_pending_delivery(job))
 
 
 def _send_telegram_audiobook_status(*, job: dict[str, object], text: str) -> dict[str, object]:
@@ -6926,7 +7027,13 @@ def _send_telegram_audiobook_status(*, job: dict[str, object], text: str) -> dic
     if not token or not chat_id:
         return {"status": "skipped", "reason": "telegram_token_or_chat_missing"}
     if _telegram_status_needs_voice_sample_delivery(current_job):
-        sample_receipts = _send_telegram_audiobook_voice_samples(job=current_job, bot_token=token, chat_id=chat_id)
+        pending_samples = _telegram_audiobook_voice_samples_pending_delivery(current_job)
+        sample_receipts = _send_telegram_audiobook_voice_samples(
+            job=current_job,
+            bot_token=token,
+            chat_id=chat_id,
+            samples=pending_samples,
+        )
         if sample_receipts:
             current_job = record_audiobook_voice_sample_delivery(job=current_job, sample_receipts=sample_receipts)
             telegram = dict(current_job.get("telegram") or {})
