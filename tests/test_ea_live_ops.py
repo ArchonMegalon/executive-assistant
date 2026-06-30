@@ -2688,6 +2688,16 @@ def test_parse_args_probe_proactive_route_uses_proactive_principal_default(monke
     assert args.proactive_principal_id == "cf-email:test@example.com"
 
 
+def test_parse_args_probe_proactive_route_accepts_timeout_after_subcommand(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(sys, "argv", ["ea_live_ops.py", "probe-proactive-route", "--timeout-seconds", "180"])
+
+    args = module.parse_args()
+
+    assert args.command == "probe-proactive-route"
+    assert args.timeout_seconds == 180.0
+
+
 def test_parse_args_probe_proactive_artifacts_uses_runtime_defaults(monkeypatch) -> None:
     module = _module()
     monkeypatch.setenv("EA_PROACTIVE_OODA_RUNTIME_SERVICE", "ea-proactive-ooda")
@@ -2767,6 +2777,26 @@ def test_main_probe_proactive_source_coverage_uses_long_default_timeout(monkeypa
 
     assert module.main() == 0
     assert captured["timeout_seconds"] == 60.0
+    assert json.loads(capsys.readouterr().out)["status"] == "ready"
+
+
+def test_main_probe_proactive_source_coverage_accepts_subcommand_timeout(monkeypatch, capsys) -> None:
+    module = _module()
+    captured: dict[str, object] = {}
+
+    def _fake_probe_proactive_source_coverage(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"probe_ok": True, "status": "ready"}
+
+    monkeypatch.setattr(module, "probe_proactive_source_coverage", _fake_probe_proactive_source_coverage)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["ea_live_ops.py", "probe-proactive-source-coverage", "--timeout-seconds", "180"],
+    )
+
+    assert module.main() == 0
+    assert captured["timeout_seconds"] == 180.0
     assert json.loads(capsys.readouterr().out)["status"] == "ready"
 
 

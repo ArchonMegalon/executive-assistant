@@ -76,6 +76,20 @@ def _safe_int(value: str, *, default: int) -> int:
         return default
 
 
+def _safe_float(value: str, *, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _live_probe_timeout_seconds() -> float:
+    return max(
+        _safe_float(str(os.getenv("EA_PROACTIVE_OODA_LIVE_PROBE_TIMEOUT_SECONDS") or "120"), default=120.0),
+        1.0,
+    )
+
+
 def _default_report_args() -> argparse.Namespace:
     return argparse.Namespace(
         principal_id=proactive_verifier._default_principal_id(),
@@ -130,30 +144,33 @@ def _has_only_workspace_health_errors(report: Mapping[str, Any]) -> bool:
     return len(_google_workspace_health_error_items(report)) == len(errors)
 
 
-def _gmail_draft_followthrough_probe(principal_id: str) -> dict[str, Any]:
+def _gmail_draft_followthrough_probe(principal_id: str, *, timeout_seconds: float | None = None) -> dict[str, Any]:
     try:
         return ea_live_ops.probe_proactive_gmail_draft(
             principal_id=principal_id,
+            timeout_seconds=float(timeout_seconds or _live_probe_timeout_seconds()),
             output_format="json",
         )
     except Exception:
         return {}
 
 
-def _source_coverage_probe(principal_id: str) -> dict[str, Any]:
+def _source_coverage_probe(principal_id: str, *, timeout_seconds: float | None = None) -> dict[str, Any]:
     try:
         return ea_live_ops.probe_proactive_source_coverage(
             principal_id=principal_id,
+            timeout_seconds=float(timeout_seconds or _live_probe_timeout_seconds()),
             output_format="json",
         )
     except Exception:
         return {}
 
 
-def _approval_capture_probe(principal_id: str) -> dict[str, Any]:
+def _approval_capture_probe(principal_id: str, *, timeout_seconds: float | None = None) -> dict[str, Any]:
     try:
         return ea_live_ops.probe_proactive_approval_capture(
             principal_id=principal_id,
+            timeout_seconds=float(timeout_seconds or _live_probe_timeout_seconds()),
             output_format="json",
         )
     except Exception as exc:
@@ -977,20 +994,25 @@ def build_proactive_ooda_operator_status(
     gmail_draft_probe: dict[str, Any] = {}
     source_coverage_probe: dict[str, Any] = {}
     principal_id = str(getattr(effective_report_args, "principal_id", "") or proactive_verifier._default_principal_id()).strip()
+    live_probe_timeout_seconds = _live_probe_timeout_seconds()
     if allow_live_route_probe and live_receipt_path is None:
         try:
             route_probe = ea_live_ops.probe_proactive_route(
                 principal_id=principal_id,
+                timeout_seconds=live_probe_timeout_seconds,
             )
         except Exception:
             route_probe = {}
         try:
-            artifact_probe = ea_live_ops.probe_proactive_artifacts(output_format="json")
+            artifact_probe = ea_live_ops.probe_proactive_artifacts(
+                timeout_seconds=live_probe_timeout_seconds,
+                output_format="json",
+            )
         except Exception:
             artifact_probe = {}
-        approval_capture_probe = _approval_capture_probe(principal_id)
-        gmail_draft_probe = _gmail_draft_followthrough_probe(principal_id)
-        source_coverage_probe = _source_coverage_probe(principal_id)
+        approval_capture_probe = _approval_capture_probe(principal_id, timeout_seconds=live_probe_timeout_seconds)
+        gmail_draft_probe = _gmail_draft_followthrough_probe(principal_id, timeout_seconds=live_probe_timeout_seconds)
+        source_coverage_probe = _source_coverage_probe(principal_id, timeout_seconds=live_probe_timeout_seconds)
 
     if bool(route_probe.get("probe_ok")) and isinstance(route_probe.get("route_report"), dict):
         report = dict(route_probe.get("route_report") or {})

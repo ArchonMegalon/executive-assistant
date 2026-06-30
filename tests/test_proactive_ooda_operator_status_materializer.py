@@ -169,6 +169,73 @@ def test_source_coverage_summary_fallback_keeps_pocket_required_event_contract()
     assert pocket_lane["next_action"] == "sync_pocket_ai_audio_transcripts"
 
 
+def test_build_operator_status_uses_configured_live_probe_timeout(tmp_path: Path, monkeypatch) -> None:
+    module = _load_script()
+    monkeypatch.setenv("EA_PROACTIVE_OODA_LIVE_PROBE_TIMEOUT_SECONDS", "180")
+    monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
+    captured: dict[str, float] = {}
+
+    def _capture_timeout(name: str, **kwargs: object) -> None:
+        captured[name] = float(kwargs.get("timeout_seconds") or 0)
+
+    def _fake_route(**kwargs: object) -> dict[str, object]:
+        _capture_timeout("route", **kwargs)
+        return {
+            "probe_ok": True,
+            "source": "docker_compose_exec",
+            "runtime_service": "ea-proactive-ooda",
+            "observed_at": "2026-06-29T08:00:00Z",
+            "live_receipt_checked": True,
+            "live_receipt": {"ok": True, "receipt_path": "/app/state/proactive_ooda/live-receipt.json", "errors": []},
+            "route_report": {
+                "ok": True,
+                "delivery_route": {"ready": True, "selected_channel": "telegram", "selected_by": "tool_runtime_binding"},
+                "delivery_guard": {"delivery_state": "no_actionable_items"},
+                "stage_packets": {"ready": True, "errors": []},
+                "safe_work_results": {"ready": True, "errors": []},
+                "receipt_observation_count": 1,
+                "actionable_count": 0,
+            },
+        }
+
+    def _fake_artifacts(**kwargs: object) -> dict[str, object]:
+        _capture_timeout("artifacts", **kwargs)
+        return {"probe_ok": True, "approval_callback_dir_exists": True, "approval_callback_dir_writable": True}
+
+    def _fake_approval_capture(**kwargs: object) -> dict[str, object]:
+        _capture_timeout("approval_capture", **kwargs)
+        return _fake_approval_capture_probe(**kwargs)
+
+    def _fake_gmail_draft(**kwargs: object) -> dict[str, object]:
+        _capture_timeout("gmail_draft", **kwargs)
+        return {"probe_ok": True, "status": "no_pending_draft", "source": "docker_compose_exec"}
+
+    def _fake_source_coverage(**kwargs: object) -> dict[str, object]:
+        _capture_timeout("source_coverage", **kwargs)
+        return _fake_source_coverage_probe(**kwargs)
+
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_route", _fake_route)
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_artifacts", _fake_artifacts)
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_approval_capture", _fake_approval_capture)
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_gmail_draft", _fake_gmail_draft)
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_source_coverage", _fake_source_coverage)
+
+    receipt = module.build_proactive_ooda_operator_status(
+        output_path=tmp_path / "ea_proactive_ooda_operator_status.generated.json",
+        generated_at="2026-06-29T08:01:00Z",
+        report_args=Namespace(principal_id="exec-1"),
+    )
+
+    assert receipt["route_probe_runtime_service"] == "ea-proactive-ooda"
+    assert captured == {
+        "route": 180.0,
+        "artifacts": 180.0,
+        "approval_capture": 180.0,
+        "gmail_draft": 180.0,
+        "source_coverage": 180.0,
+    }
+
+
 def test_materialize_proactive_ooda_operator_status_writes_recovery_receipt(tmp_path: Path, monkeypatch) -> None:
     module = _load_script()
     monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")

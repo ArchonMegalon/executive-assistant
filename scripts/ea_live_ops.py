@@ -127,6 +127,15 @@ def _env_truthy(name: str, default: bool = False) -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
+def _add_timeout_seconds_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--timeout-seconds",
+        type=float,
+        default=argparse.SUPPRESS,
+        help="Runtime probe timeout in seconds. May be placed before or after the subcommand.",
+    )
+
+
 def _docker_cli_available() -> bool:
     return shutil.which("docker") is not None
 
@@ -5211,6 +5220,7 @@ def parse_args() -> argparse.Namespace:
     operator_readiness.add_argument("--receipt-path", default=_env("EA_PROACTIVE_OODA_LIVE_RECEIPT_PATH"))
     operator_readiness.add_argument("--no-proactive", dest="include_proactive", action="store_false", default=True)
     operator_readiness.add_argument("--no-pairing", dest="include_pairing", action="store_false", default=True)
+    _add_timeout_seconds_argument(operator_readiness)
 
     proactive_route = subparsers.add_parser("probe-proactive-route", help="Probe the live proactive OODA delivery route.")
     proactive_route.add_argument("--principal-id", dest="proactive_principal_id", default=_default_proactive_principal_id())
@@ -5218,11 +5228,13 @@ def parse_args() -> argparse.Namespace:
     proactive_route.add_argument("--compose-file", default=_env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE)))
     proactive_route.add_argument("--runtime-service", default=_env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE))
     proactive_route.add_argument("--receipt-path", default=_env("EA_PROACTIVE_OODA_LIVE_RECEIPT_PATH"))
+    _add_timeout_seconds_argument(proactive_route)
 
     proactive_artifacts = subparsers.add_parser("probe-proactive-artifacts", help="Probe the live proactive OODA runtime artifacts.")
     proactive_artifacts.add_argument("--format", choices=("json", "operator"), default="json")
     proactive_artifacts.add_argument("--compose-file", default=_env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE)))
     proactive_artifacts.add_argument("--runtime-service", default=_env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE))
+    _add_timeout_seconds_argument(proactive_artifacts)
 
     proactive_approval_capture = subparsers.add_parser(
         "probe-proactive-approval-capture",
@@ -5232,6 +5244,7 @@ def parse_args() -> argparse.Namespace:
     proactive_approval_capture.add_argument("--format", choices=("json", "operator"), default="json")
     proactive_approval_capture.add_argument("--compose-file", default=_env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE)))
     proactive_approval_capture.add_argument("--runtime-service", default=_env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE))
+    _add_timeout_seconds_argument(proactive_approval_capture)
 
     proactive_gmail_draft = subparsers.add_parser(
         "probe-proactive-gmail-draft",
@@ -5245,6 +5258,7 @@ def parse_args() -> argparse.Namespace:
     proactive_gmail_draft.add_argument("--receipt-path", default=_env("EA_PROACTIVE_OODA_RECEIPT_PATH"))
     proactive_gmail_draft.add_argument("--stage-packet-dir", default=_env("EA_PROACTIVE_OODA_STAGE_PACKET_DIR"))
     proactive_gmail_draft.add_argument("--safe-work-result-dir", default=_env("EA_PROACTIVE_OODA_SAFE_WORK_RESULT_DIR"))
+    _add_timeout_seconds_argument(proactive_gmail_draft)
 
     proactive_source_coverage = subparsers.add_parser(
         "probe-proactive-source-coverage",
@@ -5255,6 +5269,7 @@ def parse_args() -> argparse.Namespace:
     proactive_source_coverage.add_argument("--compose-file", default=_env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE)))
     proactive_source_coverage.add_argument("--runtime-service", default=_env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE))
     proactive_source_coverage.add_argument("--observation-limit", type=int, default=400)
+    _add_timeout_seconds_argument(proactive_source_coverage)
 
     pocket_sync = subparsers.add_parser(
         "sync-pocket-transcripts",
@@ -5266,6 +5281,7 @@ def parse_args() -> argparse.Namespace:
     pocket_sync.add_argument("--runtime-service", default=_env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE))
     pocket_sync.add_argument("--mode", choices=("incremental", "backfill", "archive-reindex"), default="incremental")
     pocket_sync.add_argument("--limit", type=int, default=10)
+    _add_timeout_seconds_argument(pocket_sync)
 
     proactive_approval = subparsers.add_parser(
         "record-proactive-approval",
@@ -5282,6 +5298,7 @@ def parse_args() -> argparse.Namespace:
     proactive_approval.add_argument("--packet-ref", default="")
     proactive_approval.add_argument("--staged-artifact-ref", default="")
     proactive_approval.add_argument("--dry-run", action="store_true")
+    _add_timeout_seconds_argument(proactive_approval)
 
     proactive_reissue = subparsers.add_parser(
         "reissue-proactive-approval",
@@ -5293,6 +5310,7 @@ def parse_args() -> argparse.Namespace:
     proactive_reissue.add_argument("--runtime-service", default=_env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE))
     proactive_reissue.add_argument("--dry-run", action="store_true")
     proactive_reissue.add_argument("--force", action="store_true")
+    _add_timeout_seconds_argument(proactive_reissue)
 
     proactive_callback_cleanup = subparsers.add_parser(
         "cleanup-proactive-approval-callbacks",
@@ -5303,6 +5321,7 @@ def parse_args() -> argparse.Namespace:
     proactive_callback_cleanup.add_argument("--runtime-service", default=_env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE))
     proactive_callback_cleanup.add_argument("--execute", action="store_true")
     proactive_callback_cleanup.add_argument("--keep-noncurrent", action="store_true")
+    _add_timeout_seconds_argument(proactive_callback_cleanup)
 
     resolve = subparsers.add_parser("resolve-whatsapp", help="Resolve a WhatsApp recipient from a partial phone hint.")
     resolve.add_argument("--phone-hint", required=True)
