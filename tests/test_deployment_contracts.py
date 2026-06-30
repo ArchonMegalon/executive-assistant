@@ -1747,6 +1747,13 @@ def test_deploy_script_extends_runtime_topology_for_whatsapp_overlay() -> None:
     deploy = (ROOT / "scripts" / "deploy.sh").read_text(encoding="utf-8")
 
     assert 'if [[ "$(basename "${override}")" == "docker-compose.whatsapp-web-session.yml" ]]; then' in deploy
+    assert "RUNTIME_RECREATE_ONLY_SERVICES=(ea-proactive-ooda ea-telegram-teable-sync)" in deploy
+    assert "recreate_services_without_build() {" in deploy
+    assert 'compose up -d --no-build --no-deps --force-recreate "${service}"' in deploy
+    assert 'echo "Service failed to become ready during no-build deploy: ${service}" >&2' in deploy
+    assert 'TOPOLOGY_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler ea-proactive-ooda ea-telegram-teable-sync ea-db)' in deploy
+    assert 'FAILURE_LOG_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler ea-proactive-ooda ea-telegram-teable-sync ea-db)' in deploy
+    assert 'recreate_services_without_build "${RUNTIME_RECREATE_ONLY_SERVICES[@]}"' in deploy
     assert 'RUNTIME_BUILD_SERVICES+=(ea-whatsapp-web-session ea-whatsapp-web-activator ea-whatsapp-web-action-processor ea-whatsapp-web-teable-sync)' in deploy
     assert 'TOPOLOGY_SERVICES+=(ea-whatsapp-web-session ea-whatsapp-web-activator ea-whatsapp-web-action-processor ea-whatsapp-web-teable-sync)' in deploy
     assert 'FAILURE_LOG_SERVICES+=(ea-whatsapp-web-session ea-whatsapp-web-activator ea-whatsapp-web-action-processor ea-whatsapp-web-teable-sync)' in deploy

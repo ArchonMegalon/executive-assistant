@@ -761,7 +761,7 @@ def test_deploy_script_waits_for_worker_topology_and_dumps_role_logs() -> None:
     deploy = (ROOT / "scripts" / "deploy.sh").read_text(encoding="utf-8")
 
     assert 'TOPOLOGY_SERVICES=(ea-api)' in deploy
-    assert 'TOPOLOGY_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler ea-db)' in deploy
+    assert 'TOPOLOGY_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler ea-proactive-ooda ea-telegram-teable-sync ea-db)' in deploy
     assert 'for service in "${build_services[@]}"; do' in deploy
     assert 'compose up -d --no-build --no-deps --force-recreate "${service}"' in deploy
     assert 'echo "Service failed to become ready during deploy: ${service}" >&2' in deploy
@@ -769,7 +769,7 @@ def test_deploy_script_waits_for_worker_topology_and_dumps_role_logs() -> None:
     assert "docker inspect -f '{{.State.Running}}'" in deploy
     assert "docker inspect -f '{{.State.Restarting}}'" in deploy
     assert 'curl -fsS "http://localhost:${HOST_PORT}/health"' in deploy
-    assert 'FAILURE_LOG_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler ea-db)' in deploy
+    assert 'FAILURE_LOG_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler ea-proactive-ooda ea-telegram-teable-sync ea-db)' in deploy
     assert 'compose logs --tail 200 "${FAILURE_LOG_SERVICES[@]}"' in deploy
     assert 'Refusing to deploy with DATABASE_URL pointed at the isolated smoke database.' in deploy
     assert 'public_origin_line="$(grep -E \'^(EA_PUBLIC_APP_BASE_URL|PROPERTYQUARRY_PUBLIC_BASE_URL)=' in deploy

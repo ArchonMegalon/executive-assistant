@@ -312,6 +312,7 @@ Environment:
   PROPERTYQUARRY_ENABLE_CLOUDFLARED=1|0   Force Cloudflare tunnel override on or off (default: auto when PROPERTYQUARRY_CF_TUNNEL_TOKEN is set).
   PROPERTYQUARRY_CF_TUNNEL_TOKEN=<token>  PropertyQuarry Cloudflare tunnel token alias.
   PROPERTYQUARRY_RUN_RUNTIME_HARD_EXIT_GATES=1|0  Run runtime hard exit gates after health goes green (default: 1).
+  EA_PROACTIVE_OODA_ENABLED=1             Include the lightweight OODA loop in full topology checks.
   TEABLE_API_KEY=...                      Verify and recover EA env/config artifacts from Teable before deploy.
   TEABLE_BASE_URL=https://app.teable.ai   Optional non-default Teable host for recovery.
 
@@ -697,6 +698,28 @@ build_and_recreate_services() {
   done
 }
 
+recreate_services_without_build() {
+  local -a recreate_services=("$@")
+  if [[ "${#recreate_services[@]}" -eq 0 ]]; then
+    return 0
+  fi
+
+  local service
+  for service in "${recreate_services[@]}"; do
+    compose up -d --no-build --no-deps --force-recreate "${service}"
+    for _ in $(seq 1 30); do
+      if service_container_ready "${service}"; then
+        break
+      fi
+      sleep 1
+    done
+    if ! service_container_ready "${service}"; then
+      echo "Service failed to become ready during no-build deploy: ${service}" >&2
+      return 1
+    fi
+  done
+}
+
 service_container_ready() {
   local service="$1"
   local cid
@@ -733,8 +756,9 @@ if [[ "${memory_only}" == "1" ]]; then
 else
   configure_responses_proxy_host_port
   RUNTIME_BUILD_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler)
-  TOPOLOGY_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler ea-db)
-  FAILURE_LOG_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler ea-db)
+  RUNTIME_RECREATE_ONLY_SERVICES=(ea-proactive-ooda ea-telegram-teable-sync)
+  TOPOLOGY_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler ea-proactive-ooda ea-telegram-teable-sync ea-db)
+  FAILURE_LOG_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler ea-proactive-ooda ea-telegram-teable-sync ea-db)
   if [[ "${whatsapp_web_session_overlay_enabled}" == "1" ]]; then
     RUNTIME_BUILD_SERVICES+=(ea-whatsapp-web-session ea-whatsapp-web-activator ea-whatsapp-web-action-processor ea-whatsapp-web-teable-sync)
     TOPOLOGY_SERVICES+=(ea-whatsapp-web-session ea-whatsapp-web-activator ea-whatsapp-web-action-processor ea-whatsapp-web-teable-sync)
@@ -748,6 +772,7 @@ else
     FAILURE_LOG_SERVICES+=(ea-fastestvpn-proxy ea-fastestvpn-proxy-ie ea-fastestvpn-proxy-nl)
   fi
   build_and_recreate_services "${RUNTIME_BUILD_SERVICES[@]}"
+  recreate_services_without_build "${RUNTIME_RECREATE_ONLY_SERVICES[@]}"
   if [[ "${CLOUDFLARED_OVERLAY_ENABLED}" == "1" ]]; then
     echo "Refreshing Cloudflare tunnel after API recreate"
     compose up -d --no-build --no-deps --force-recreate ea-cloudflared
