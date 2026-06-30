@@ -601,6 +601,11 @@ def _operator_runtime_next_action(operator_status: Mapping[str, Any]) -> str:
         next_action = str(source_detail.get("next_action") or "").strip()
         if next_action:
             return next_action
+    context_ready, context_detail = _operator_runtime_context_grounding_posture(operator_status)
+    if not context_ready:
+        next_action = str(context_detail.get("next_action") or "").strip()
+        if next_action:
+            return next_action
     return str(operator_status.get("next_action") or "repair_proactive_operator_runtime_posture").strip() or "repair_proactive_operator_runtime_posture"
 
 
@@ -676,6 +681,41 @@ def _operator_runtime_source_coverage_posture(operator_status: Mapping[str, Any]
             if str(key or "").strip()
         }
     return (ready, detail)
+
+
+def _operator_runtime_context_grounding_posture(operator_status: Mapping[str, Any]) -> tuple[bool, dict[str, Any]]:
+    context = dict(operator_status.get("context_grounding") or {})
+    if not context:
+        return True, {
+            "context_grounding_recorded": False,
+            "context_grounding_grounded": False,
+            "context_grounding_item_count": 0,
+            "context_grounding_grounded_item_count": 0,
+            "context_grounding_ungrounded_item_count": 0,
+            "context_grounding_applied_context_count": 0,
+            "context_grounding_recipient_location_count": 0,
+            "context_grounding_ready": True,
+            "next_action": "",
+        }
+    item_count = int(context.get("item_count") or 0)
+    grounded = bool(context.get("grounded"))
+    ready = item_count <= 0 or grounded
+    return ready, {
+        "context_grounding_recorded": True,
+        "context_grounding_grounded": grounded,
+        "context_grounding_ready": ready,
+        "context_grounding_item_count": item_count,
+        "context_grounding_grounded_item_count": int(context.get("grounded_item_count") or 0),
+        "context_grounding_ungrounded_item_count": int(context.get("ungrounded_item_count") or 0),
+        "context_grounding_applied_context_count": int(context.get("applied_context_count") or 0),
+        "context_grounding_preference_count": int(context.get("preference_count") or 0),
+        "context_grounding_requirement_count": int(context.get("requirement_count") or 0),
+        "context_grounding_deadline_count": int(context.get("deadline_count") or 0),
+        "context_grounding_candidate_assessment_count": int(context.get("candidate_assessment_count") or 0),
+        "context_grounding_recipient_context_count": int(context.get("recipient_context_count") or 0),
+        "context_grounding_recipient_location_count": int(context.get("recipient_location_count") or 0),
+        "next_action": "" if ready else "repair_proactive_context_grounding",
+    }
 
 
 def _next_action_surface_fields(action: str) -> dict[str, str]:
@@ -1332,7 +1372,8 @@ def materialize_proactive_ooda_gold_acceptance(
     live_receipt = dict(operator_status.get("live_receipt") or {})
     operator_status_state = str(operator_status.get("status") or "").strip()
     source_coverage_ready, source_coverage_detail = _operator_runtime_source_coverage_posture(operator_status)
-    operator_runtime_ready = operator_status_state.startswith("ready") and source_coverage_ready
+    context_grounding_ready, context_grounding_detail = _operator_runtime_context_grounding_posture(operator_status)
+    operator_runtime_ready = operator_status_state.startswith("ready") and source_coverage_ready and context_grounding_ready
     operator_runtime_next_action = _operator_runtime_next_action(operator_status)
     operator_runtime_proof = _proof_row(
         present=operator_runtime_ready,
@@ -1341,6 +1382,7 @@ def materialize_proactive_ooda_gold_acceptance(
             "reason": str(operator_status.get("reason") or "").strip(),
             "next_action": operator_runtime_next_action,
             **source_coverage_detail,
+            **context_grounding_detail,
             **_next_action_surface_fields(operator_runtime_next_action),
             "path": display_path(ROOT, operator_status_path),
         },

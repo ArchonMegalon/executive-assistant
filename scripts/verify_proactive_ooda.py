@@ -446,26 +446,77 @@ def _context_grounding_status(digest: Any | None) -> dict[str, Any]:
     exclusion_count = 0
     assessment_count = 0
     deadline_count = 0
+    recipient_context_count = 0
+    recipient_location_count = 0
+    grounded_item_count = 0
     for item in items:
         payload = dict(getattr(item, "stage_payload", None) or {})
-        notes_count += len(_list_value(payload.get("notes")))
-        preference_count += len(_list_value(payload.get("preferences")))
-        requirement_count += len(_list_value(payload.get("requirements")))
-        exclusion_count += len(_list_value(payload.get("exclusions")))
-        if str(payload.get("deadline") or "").strip():
-            deadline_count += 1
+        item_notes_count = len(_list_value(payload.get("notes")))
+        item_preference_count = len(_list_value(payload.get("preferences")))
+        item_requirement_count = len(_list_value(payload.get("requirements")))
+        item_exclusion_count = len(_list_value(payload.get("exclusions")))
+        item_assessment_count = 0
+        item_deadline_count = 1 if str(payload.get("deadline") or "").strip() else 0
+        item_recipient_context_count = 0
+        item_recipient_location_count = 0
+        recipient_context = payload.get("recipient_context")
+        if isinstance(recipient_context, dict) and recipient_context:
+            item_recipient_context_count = 1
+            location = recipient_context.get("location")
+            if isinstance(location, dict) and any(
+                _list_value(location.get(key))
+                for key in ("phrases", "city_terms", "postal_codes", "country_codes", "country_names")
+            ):
+                item_recipient_location_count = 1
+        notes_count += item_notes_count
+        preference_count += item_preference_count
+        requirement_count += item_requirement_count
+        exclusion_count += item_exclusion_count
+        deadline_count += item_deadline_count
+        recipient_context_count += item_recipient_context_count
+        recipient_location_count += item_recipient_location_count
         for key in ("candidate_items", "candidates", "booking_options"):
             for candidate in _object_list(payload.get(key)):
                 if isinstance(candidate.get("preference_assessment"), dict):
-                    assessment_count += 1
+                    item_assessment_count += 1
+        assessment_count += item_assessment_count
+        if any(
+            (
+                item_notes_count,
+                item_preference_count,
+                item_requirement_count,
+                item_exclusion_count,
+                item_deadline_count,
+                item_assessment_count,
+                item_recipient_context_count,
+                item_recipient_location_count,
+            )
+        ):
+            grounded_item_count += 1
+    applied_count = (
+        notes_count
+        + preference_count
+        + requirement_count
+        + exclusion_count
+        + assessment_count
+        + deadline_count
+        + recipient_context_count
+        + recipient_location_count
+    )
     return {
-        "grounded": bool(items),
+        "grounded": bool(items) and grounded_item_count == len(items),
+        "item_count": len(items),
+        "grounded_item_count": grounded_item_count,
+        "ungrounded_item_count": max(len(items) - grounded_item_count, 0),
+        "applied_context_count": applied_count,
         "notes_count": notes_count,
         "preference_count": preference_count,
         "requirement_count": requirement_count,
         "exclusion_count": exclusion_count,
         "deadline_count": deadline_count,
         "candidate_assessment_count": assessment_count,
+        "recipient_context_count": recipient_context_count,
+        "recipient_location_count": recipient_location_count,
     }
 
 
@@ -794,6 +845,9 @@ def _delivery_guard_summary(report: dict[str, Any]) -> str:
 def _context_grounding_summary(report: dict[str, Any]) -> str:
     status = dict(report.get("context_grounding") or {})
     if not status.get("grounded"):
+        item_count = int(status.get("item_count") or 0)
+        if item_count:
+            return f"not grounded ({item_count} actionable items, 0 context facts applied)"
         return "no actionable stage context"
     return (
         f"{status.get('candidate_assessment_count', 0)} candidate assessments, "

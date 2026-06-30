@@ -579,6 +579,29 @@ def _normalized_safe_work_results(report: Mapping[str, Any]) -> dict[str, Any]:
     return safe_work
 
 
+def _normalized_context_grounding(report: Mapping[str, Any]) -> dict[str, Any]:
+    context = dict(report.get("context_grounding") or {})
+    item_count = int(context.get("item_count") or report.get("actionable_count") or 0)
+    grounded_item_count = int(context.get("grounded_item_count") or 0)
+    applied_context_count = int(context.get("applied_context_count") or 0)
+    ungrounded_item_count = int(context.get("ungrounded_item_count") or max(item_count - grounded_item_count, 0))
+    return {
+        "grounded": bool(context.get("grounded")) and applied_context_count > 0 and ungrounded_item_count == 0,
+        "item_count": item_count,
+        "grounded_item_count": grounded_item_count,
+        "ungrounded_item_count": ungrounded_item_count,
+        "applied_context_count": applied_context_count,
+        "notes_count": int(context.get("notes_count") or 0),
+        "preference_count": int(context.get("preference_count") or 0),
+        "requirement_count": int(context.get("requirement_count") or 0),
+        "exclusion_count": int(context.get("exclusion_count") or 0),
+        "deadline_count": int(context.get("deadline_count") or 0),
+        "candidate_assessment_count": int(context.get("candidate_assessment_count") or 0),
+        "recipient_context_count": int(context.get("recipient_context_count") or 0),
+        "recipient_location_count": int(context.get("recipient_location_count") or 0),
+    }
+
+
 def _status(report: dict[str, Any], *, live_receipt: dict[str, Any], live_receipt_checked: bool) -> str:
     route = _normalized_delivery_route(report)
     guard = _normalized_delivery_guard(report)
@@ -1121,6 +1144,7 @@ def build_proactive_ooda_operator_status(
         "delivery_next_action": str(_normalized_delivery_route(report).get("next_action") or "").strip(),
         "delivery_route": _normalized_delivery_route(report),
         "delivery_guard": operator_delivery_guard,
+        "context_grounding": _normalized_context_grounding(report),
         "stage_packets": _normalized_stage_packets(report),
         "safe_work_results": _normalized_safe_work_results(report),
         "receipt_observation_count": int(report.get("receipt_observation_count") or 0),

@@ -100,6 +100,30 @@ def test_operator_runtime_source_coverage_posture_preserves_flat_search_filter()
     assert detail["source_coverage_excluded_event_type_counts"] == {"property_scout_sync_completed": 33}
 
 
+def test_operator_runtime_context_grounding_posture_blocks_ungrounded_actionable_items() -> None:
+    module = _load_script()
+
+    ready, detail = module._operator_runtime_context_grounding_posture(  # noqa: SLF001
+        {
+            "context_grounding": {
+                "grounded": False,
+                "item_count": 2,
+                "grounded_item_count": 1,
+                "ungrounded_item_count": 1,
+                "applied_context_count": 3,
+                "recipient_location_count": 1,
+            }
+        }
+    )
+
+    assert ready is False
+    assert detail["context_grounding_ready"] is False
+    assert detail["context_grounding_recorded"] is True
+    assert detail["context_grounding_item_count"] == 2
+    assert detail["context_grounding_ungrounded_item_count"] == 1
+    assert detail["next_action"] == "repair_proactive_context_grounding"
+
+
 def test_materialize_proactive_ooda_gold_acceptance_passes_with_full_proof_chain(
     tmp_path: Path,
     monkeypatch,
@@ -166,6 +190,14 @@ def test_materialize_proactive_ooda_gold_acceptance_passes_with_full_proof_chain
                 "has_high_priority": False,
                 "interruption_budget_exhausted": False,
                 "quiet_hours_active": False,
+            },
+            "context_grounding": {
+                "grounded": True,
+                "item_count": 1,
+                "grounded_item_count": 1,
+                "ungrounded_item_count": 0,
+                "applied_context_count": 2,
+                "recipient_location_count": 1,
             },
             "runtime_actionable_count": 0,
         },
@@ -437,6 +469,14 @@ def test_materialize_proactive_ooda_gold_acceptance_blocks_without_packet_artifa
                 "has_high_priority": False,
                 "interruption_budget_exhausted": False,
                 "quiet_hours_active": False,
+            },
+            "context_grounding": {
+                "grounded": True,
+                "item_count": 1,
+                "grounded_item_count": 1,
+                "ungrounded_item_count": 0,
+                "applied_context_count": 2,
+                "recipient_location_count": 1,
             },
             "runtime_actionable_count": 0,
         },
@@ -768,6 +808,14 @@ def test_materialize_proactive_ooda_gold_acceptance_blocks_when_operator_runtime
                 "interruption_budget_exhausted": False,
                 "quiet_hours_active": False,
             },
+            "context_grounding": {
+                "grounded": False,
+                "item_count": 1,
+                "grounded_item_count": 0,
+                "ungrounded_item_count": 1,
+                "applied_context_count": 0,
+                "recipient_location_count": 0,
+            },
             "runtime_actionable_count": 0,
         },
     )
@@ -828,6 +876,9 @@ def test_materialize_proactive_ooda_gold_acceptance_blocks_when_operator_runtime
         "https://myexternalbrain.com/app/actions/google/connect?"
         "return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace"
     )
+    assert receipt["proofs"]["operator_runtime_posture"]["context_grounding_recorded"] is True
+    assert receipt["proofs"]["operator_runtime_posture"]["context_grounding_grounded"] is False
+    assert receipt["proofs"]["operator_runtime_posture"]["context_grounding_ungrounded_item_count"] == 1
     assert receipt["proofs"]["approval_outcome"]["accepted"] is True
     assert "healthy operator runtime posture across approved proactive sources" in receipt["remaining_external_proofs"]
 

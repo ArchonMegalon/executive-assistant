@@ -423,6 +423,17 @@ def test_materialize_proactive_ooda_operator_status_prefers_live_route_probe_whe
                 "delivery_guard": {"delivery_state": "eligible"},
                 "stage_packets": {"ready": True, "errors": []},
                 "safe_work_results": {"ready": True, "errors": []},
+                "context_grounding": {
+                    "grounded": True,
+                    "item_count": 2,
+                    "grounded_item_count": 2,
+                    "ungrounded_item_count": 0,
+                    "applied_context_count": 4,
+                    "preference_count": 1,
+                    "requirement_count": 1,
+                    "candidate_assessment_count": 1,
+                    "recipient_location_count": 1,
+                },
                 "receipt_observation_count": 1,
                 "actionable_count": 2,
                 "source_mode": "postgres_observations",
@@ -500,6 +511,11 @@ def test_materialize_proactive_ooda_operator_status_prefers_live_route_probe_whe
     assert receipt["delivery_next_action"] == "scan_whatsapp_web_qr"
     assert receipt["delivery_route"]["selected_channel"] == "telegram"
     assert receipt["delivery_route"]["selected_by"] == "tool_runtime_binding"
+    assert receipt["context_grounding"]["grounded"] is True
+    assert receipt["context_grounding"]["item_count"] == 2
+    assert receipt["context_grounding"]["grounded_item_count"] == 2
+    assert receipt["context_grounding"]["ungrounded_item_count"] == 0
+    assert receipt["context_grounding"]["recipient_location_count"] == 1
     assert receipt["live_receipt_checked"] is True
     assert receipt["live_receipt"]["ok"] is True
     assert receipt["next_action"] == "scan_whatsapp_web_qr"

@@ -434,9 +434,108 @@ def test_verify_proactive_ooda_reports_context_grounding(tmp_path, monkeypatch) 
     )
 
     assert report["ok"] is True
+    assert report["context_grounding"]["grounded"] is True
+    assert report["context_grounding"]["item_count"] == 1
+    assert report["context_grounding"]["grounded_item_count"] == 1
     assert report["context_grounding"]["candidate_assessment_count"] == 1
     assert report["context_grounding"]["requirement_count"] >= 1
     assert report["context_grounding"]["deadline_count"] == 1
+
+
+def test_verify_proactive_ooda_does_not_call_ungrounded_actionable_item_grounded(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv("EA_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID", raising=False)
+    signal_file = tmp_path / "signals.json"
+    signal_file.write_text(
+        json.dumps(
+            [
+                {
+                    "source_ref": "operator:approval",
+                    "signal_type": "opportunity",
+                    "channel": "assistant_opportunity",
+                    "title": "Prepare an approval packet",
+                    "summary": "Review the reversible candidate.",
+                    "payload": {
+                        "ooda_loop": {
+                            "reviewed": True,
+                            "observe": {"summary": "Review the candidate."},
+                            "orient": {"summary": "Stored context should influence the result."},
+                            "decide": {"summary": "Approve whether EA should proceed.", "approval_required": True},
+                            "act": {
+                                "summary": "Stage the candidate.",
+                                "stage": {
+                                    "kind": "approval_packet",
+                                    "summary": "One candidate ready for approval.",
+                                    "candidate_items": [{"label": "Candidate A", "url": "https://example.test/item-a"}],
+                                },
+                            },
+                        }
+                    },
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(runner, "_context_grounded_digest", lambda _principal_id, digest: digest)
+
+    report = verifier._build_report(
+        Namespace(
+            principal_id="exec",
+            signals_json=str(signal_file),
+            discovery_json="",
+            state_path=str(tmp_path / "state.json"),
+            max_items=5,
+            observation_lookback_hours=24,
+            observation_limit=50,
+            skip_observation_source=True,
+            require_source=True,
+            require_telegram=False,
+            require_receipt_observation=False,
+            stage_packet_dir=str(tmp_path / "packets"),
+            safe_work_result_dir=str(tmp_path / "results"),
+            stage_packets=True,
+            safe_work_results=True,
+            require_stage_packets=False,
+            require_safe_work_results=False,
+            paused=False,
+            pause_reason="",
+            quiet_hours_start="",
+            quiet_hours_end="",
+            quiet_hours_timezone="UTC",
+            quiet_hours_allow_high_priority=True,
+            interruption_budget_limit=0,
+            interruption_budget_window_hours=24,
+            interruption_budget_allow_high_priority=True,
+            skip_workspace_source=True,
+            opportunity_rules_json="",
+        )
+    )
+
+    assert report["ok"] is True
+    assert report["actionable_count"] == 1
+    assert report["context_grounding"]["grounded"] is False
+    assert report["context_grounding"]["item_count"] == 1
+    assert report["context_grounding"]["grounded_item_count"] == 0
+    assert report["context_grounding"]["ungrounded_item_count"] == 1
+    assert report["context_grounding"]["applied_context_count"] == 0
+    assert verifier._context_grounding_summary(report) == "not grounded (1 actionable items, 0 context facts applied)"
+
+
+def test_context_grounding_status_requires_every_actionable_item_to_be_grounded() -> None:
+    status = verifier._context_grounding_status(  # noqa: SLF001
+        SimpleNamespace(
+            items=(
+                SimpleNamespace(stage_payload={"notes": ["Stored preference applied."]}),
+                SimpleNamespace(stage_payload={}),
+            )
+        )
+    )
+
+    assert status["grounded"] is False
+    assert status["item_count"] == 2
+    assert status["grounded_item_count"] == 1
+    assert status["ungrounded_item_count"] == 1
+    assert status["applied_context_count"] == 1
 
 
 def test_verify_proactive_ooda_reports_generic_delivery_route(tmp_path, monkeypatch) -> None:
