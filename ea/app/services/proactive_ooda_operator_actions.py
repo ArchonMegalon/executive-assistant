@@ -10,7 +10,7 @@ DEFAULT_GOOGLE_REAUTH_SCOPE_BUNDLE = "full_workspace"
 DEFAULT_WHATSAPP_RECOVERY_PATH = "/integrations/whatsapp"
 DEFAULT_APPROVAL_CAPTURE_PATH = "/admin/proactive-ooda/approval"
 DEFAULT_QUEUE_REVIEW_PATH = "/app/queue"
-DEFAULT_POCKET_SYNC_PATH = "/app/api/signals/pocket/sync?limit=10"
+DEFAULT_POCKET_SYNC_PATH = "/app/api/signals/pocket/reindex-archive"
 
 
 def _absolute_public_href(path: str, *, public_base_url: str = "") -> str:

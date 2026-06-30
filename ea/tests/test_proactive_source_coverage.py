@@ -9,6 +9,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts import ea_live_ops  # noqa: E402
+from app.services.proactive_ooda_operator_actions import proactive_next_action_surface  # noqa: E402
 
 
 def _report_for(rows: list[dict[str, object]]) -> dict[str, object]:
@@ -73,3 +74,11 @@ def test_pocket_source_coverage_accepts_archive_indexed_transcript_event() -> No
     assert lane["missing_required_event_types"] == []
     assert "pocket_recording_archive_indexed" in lane["evidence_event_types"]
     assert lane["raw_transcript_text_exposed"] is False
+
+
+def test_pocket_source_coverage_recovery_action_reindexes_local_archive() -> None:
+    surface = proactive_next_action_surface("sync_pocket_ai_audio_transcripts", public_base_url="")
+
+    assert surface["method"] == "post"
+    assert surface["href"].endswith("/app/api/signals/pocket/reindex-archive")
+    assert surface["label"] == "Sync Pocket transcripts"

@@ -571,6 +571,20 @@ def backfill_pocket_recordings(
     return PocketSignalSyncOut(**payload)
 
 
+@router.post("/signals/pocket/reindex-archive", response_model=PocketSignalSyncOut)
+def reindex_pocket_recording_archive(
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PocketSignalSyncOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "office_api").strip()
+    payload = service.reindex_pocket_audio_archive(
+        principal_id=context.principal_id,
+        actor=actor,
+    )
+    return PocketSignalSyncOut(**payload)
+
+
 @router.post("/signals/pocket/reset-cursor", response_model=PocketSignalCursorResetOut)
 def reset_pocket_recording_sync_cursor(
     body: PocketSignalCursorResetIn | None = None,

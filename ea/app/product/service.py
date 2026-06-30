@@ -16378,6 +16378,30 @@ class ProductService:
                 else:
                     updated_total += 1
             signal_payload = dict(signal_payloads.get(recording_id) or {})
+            summary_markdown = str(signal_payload.get("summary_markdown") or payload.get("summary_markdown") or "").strip()
+            transcript_text = str(
+                signal_payload.get("transcript_text")
+                or signal_payload.get("transcript_excerpt")
+                or payload.get("transcript_text")
+                or payload.get("transcript_excerpt")
+                or ""
+            ).strip()
+            transcript_excerpt = str(
+                signal_payload.get("transcript_excerpt")
+                or payload.get("transcript_excerpt")
+                or compact_text(transcript_text, fallback="", limit=1200)
+            ).strip()
+            topic_keywords_csv = str(signal_payload.get("topic_keywords_csv") or "").strip() or _pocket_topic_keywords_csv(
+                title=title,
+                tags=[str(item).strip() for item in list(payload.get("tags") or []) if str(item).strip()],
+                summary_markdown=summary_markdown,
+                transcript_text=transcript_text,
+            )
+            tags = [
+                item.strip()
+                for item in str(signal_payload.get("tags_csv") or "").split(",")
+                if item.strip()
+            ] or [str(item).strip() for item in list(payload.get("tags") or []) if str(item).strip()]
             self._record_pocket_archive_index(
                 principal_id=principal_id,
                 recording_id=recording_id,
@@ -16388,12 +16412,12 @@ class ProductService:
                     "archive_path": str(payload.get("archive_path") or "").strip(),
                     "archive_sha256": str(payload.get("archive_sha256") or "").strip(),
                 },
-                summary_markdown=str(signal_payload.get("summary_markdown") or "").strip(),
-                transcript_text=str(signal_payload.get("transcript_text") or signal_payload.get("transcript_excerpt") or "").strip(),
-                transcript_excerpt=str(signal_payload.get("transcript_excerpt") or "").strip(),
+                summary_markdown=summary_markdown,
+                transcript_text=transcript_text,
+                transcript_excerpt=transcript_excerpt,
                 location_match=location_match,
-                topic_keywords_csv=str(signal_payload.get("topic_keywords_csv") or "").strip(),
-                tags=[item.strip() for item in str(signal_payload.get("tags_csv") or "").split(",") if item.strip()],
+                topic_keywords_csv=topic_keywords_csv,
+                tags=tags,
             )
             indexed_total += 1
             if str(location_match.get("location_match_status") or "").strip() in {"matched", "nearest"}:
@@ -16405,6 +16429,56 @@ class ProductService:
             "unmatched_recording_total": unmatched_total,
             "indexed_recording_total": indexed_total,
             "updated_metadata_total": updated_total,
+        }
+
+    def reindex_pocket_audio_archive(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+    ) -> dict[str, object]:
+        reindexed = self._reindex_pocket_archive_locations(principal_id=principal_id)
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="pocket_recording_archive_reindex_completed",
+            payload={
+                "actor": str(actor or "").strip() or "office_api",
+                **reindexed,
+            },
+            source_id="pocket",
+            dedupe_key=f"{principal_id}|pocket-recording-archive-reindex|{_now_iso()}",
+        )
+        return {
+            "generated_at": _now_iso(),
+            "mode": "archive_reindex",
+            "items": [],
+            "total": 0,
+            "synced_total": 0,
+            "deduplicated_total": 0,
+            "suppressed_total": 0,
+            "failed_total": 0,
+            "recording_total": int(reindexed.get("indexed_recording_total") or 0),
+            "staging_suppressed_total": 0,
+            "archived_total": int(reindexed.get("indexed_recording_total") or 0),
+            "archive_dismissed_total": 0,
+            "archive_failed_total": 0,
+            "teable_index_status": "not_attempted",
+            "teable_index_blocked_reason": "",
+            "teable_index_row_total": 0,
+            "teable_index_sync_attempted": False,
+            "preference_evidence_total": 0,
+            "preference_evidence_applied_total": 0,
+            "assistant_trigger_total": 0,
+            "assistant_trigger_executed_total": 0,
+            "assistant_trigger_blocked_total": 0,
+            "cursor_used": False,
+            "cursor_persisted": False,
+            "cursor_updated_at": "",
+            "cursor_recording_id": "",
+            "cursor_advanced": False,
+            "scan_truncated": False,
+            "location_matched_total": int(reindexed.get("matched_recording_total") or 0),
+            "location_unmatched_total": int(reindexed.get("unmatched_recording_total") or 0),
         }
 
     def _deliver_google_keep_shopping_list_item(

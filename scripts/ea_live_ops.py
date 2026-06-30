@@ -3330,8 +3330,8 @@ def sync_pocket_transcripts(
     effective_compose_file = str(compose_file or _env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE))).strip()
     effective_runtime_service = str(runtime_service or _env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE)).strip()
     observed_at = _utc_now()
-    normalized_mode = str(mode or "incremental").strip().lower()
-    if normalized_mode not in {"incremental", "backfill"}:
+    normalized_mode = str(mode or "incremental").strip().lower().replace("_", "-")
+    if normalized_mode not in {"incremental", "backfill", "archive-reindex"}:
         normalized_mode = "incremental"
     bounded_limit = max(0 if normalized_mode == "backfill" else 1, min(int(limit or 10), 250 if normalized_mode == "backfill" else 100))
     if not effective_compose_file or not effective_runtime_service:
@@ -3391,7 +3391,9 @@ def sync_pocket_transcripts(
             "    'location_unmatched_total'\n"
             ")\n"
             "try:\n"
-            "    if mode == 'backfill':\n"
+            "    if mode == 'archive-reindex':\n"
+            "        result = service.reindex_pocket_audio_archive(principal_id=principal_id, actor=actor)\n"
+            "    elif mode == 'backfill':\n"
             "        result = service.backfill_pocket_recordings(principal_id=principal_id, actor=actor, limit=limit)\n"
             "    else:\n"
             "        result = service.sync_pocket_recordings(principal_id=principal_id, actor=actor, limit=limit)\n"
@@ -5193,7 +5195,7 @@ def parse_args() -> argparse.Namespace:
     pocket_sync.add_argument("--format", choices=("json", "operator"), default="json")
     pocket_sync.add_argument("--compose-file", default=_env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE)))
     pocket_sync.add_argument("--runtime-service", default=_env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE))
-    pocket_sync.add_argument("--mode", choices=("incremental", "backfill"), default="incremental")
+    pocket_sync.add_argument("--mode", choices=("incremental", "backfill", "archive-reindex"), default="incremental")
     pocket_sync.add_argument("--limit", type=int, default=10)
 
     proactive_approval = subparsers.add_parser(

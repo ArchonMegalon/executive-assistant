@@ -8,9 +8,9 @@
       "callback_record_count": 23,
       "candidate_principal_hash_count": 3,
       "checked": true,
-      "current_packet_callback_latest_age_seconds": 11115,
+      "current_packet_callback_latest_age_seconds": 11607,
       "current_packet_callback_latest_expired": false,
-      "current_packet_callback_latest_seconds_until_expiry": 593683,
+      "current_packet_callback_latest_seconds_until_expiry": 593191,
       "current_packet_callback_latest_status": "approved",
       "current_packet_callback_record_count": 1,
       "current_packet_live_pending_count": 0,
@@ -21,7 +21,7 @@
       "next_action_href": "",
       "next_action_label": "",
       "next_action_method": "",
-      "observed_at": "2026-06-30T03:10:39Z",
+      "observed_at": "2026-06-30T03:18:50Z",
       "principal_match_ready": true,
       "privacy": {
         "raw_callback_token_exposed": false,
@@ -61,11 +61,11 @@
       "callback_unexpired_pending_count": 2,
       "current_packet_callback_expired_count": 0,
       "current_packet_callback_expired_pending_count": 0,
-      "current_packet_callback_latest_age_seconds": 11122,
+      "current_packet_callback_latest_age_seconds": 11614,
       "current_packet_callback_latest_created_at": "2026-06-30T00:05:25.419775Z",
       "current_packet_callback_latest_expired": false,
       "current_packet_callback_latest_expires_at": "2026-07-07T00:05:25Z",
-      "current_packet_callback_latest_seconds_until_expiry": 593677,
+      "current_packet_callback_latest_seconds_until_expiry": 593185,
       "current_packet_callback_latest_status": "approved",
       "current_packet_callback_pending_count": 0,
       "current_packet_callback_raw_pending_count": 0,
@@ -98,11 +98,11 @@
     },
     "operator_status": {
       "contract_name": "ea.proactive_ooda_operator_status.v1",
-      "generated_at": "2026-06-30T03:10:45Z",
+      "generated_at": "2026-06-30T03:18:57Z",
       "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
       "present": true,
-      "source_git_head": "f033ba75611c2070f3fcf43cb42da1cbc685cfa7",
-      "source_state_fingerprint": "b20f7a5a6580ec704515db0739f6df3bab3f65bdc676641c7f04b40d78ca7643",
+      "source_git_head": "c9ebea79a1671334006d3a3369c2018ee106d62a",
+      "source_state_fingerprint": "380ecd8cc5db656c3a13ad045aa87b21ae4990807288943413e5343811ef7ac8",
       "status": "ready_with_live_receipt"
     },
     "run_receipt": {
@@ -125,15 +125,15 @@
       "source": "docker_compose_exec"
     }
   },
-  "generated_at": "2026-06-30T03:10:47Z",
+  "generated_at": "2026-06-30T03:18:59Z",
   "generated_by": "scripts/materialize_proactive_ooda_gold_acceptance.py",
   "goal_completion_claim_allowed": false,
-  "gold_claim_allowed": false,
+  "gold_claim_allowed": true,
   "head_semantics": "source_state",
-  "next_action": "sync_pocket_ai_audio_transcripts",
-  "next_action_href": "https://myexternalbrain.com/app/api/signals/pocket/sync?limit=10",
-  "next_action_label": "Sync Pocket transcripts",
-  "next_action_method": "post",
+  "next_action": "maintain_proactive_ooda_gold_acceptance_evidence",
+  "next_action_href": "",
+  "next_action_label": "",
+  "next_action_method": "",
   "output_path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
   "proofs": {
     "action_required_only_delivery": {
@@ -150,7 +150,7 @@
       "quiet_receipt_item_count": 5,
       "quiet_receipt_message_count": 0,
       "quiet_receipt_notification_status": "deferred",
-      "quiet_receipt_path": "/data/provider-ledger/proactive_ooda_run_receipts/20260630T030219_109565_0000-deferred-fc3422a2645d.json",
+      "quiet_receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
       "quiet_receipt_present": true,
       "quiet_receipt_proves_action_required_only": true,
       "run_notification_status": "sent",
@@ -173,7 +173,7 @@
       "current_packet_live_pending_count": 0,
       "current_packet_refs_present": true,
       "next_action": "reissue_proactive_approval",
-      "observed_at": "2026-06-30T03:10:39Z",
+      "observed_at": "2026-06-30T03:18:50Z",
       "present": true,
       "principal_match_ready": true,
       "probe_ok": true,
@@ -253,25 +253,21 @@
       "status": "pass"
     },
     "operator_runtime_posture": {
-      "next_action": "sync_pocket_ai_audio_transcripts",
-      "next_action_href": "https://myexternalbrain.com/app/api/signals/pocket/sync?limit=10",
-      "next_action_label": "Sync Pocket transcripts",
-      "next_action_method": "post",
+      "next_action": "probe_proactive_source_coverage",
+      "next_action_href": "",
+      "next_action_label": "",
+      "next_action_method": "",
       "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
-      "present": false,
+      "present": true,
       "reason": "ready",
       "source_coverage_checked": true,
       "source_coverage_lane_count": 8,
-      "source_coverage_missing_lane_keys": [
-        "pocket_ai_audio_transcripts"
-      ],
-      "source_coverage_missing_required_event_types": [
-        "pocket_recording_archive_indexed"
-      ],
-      "source_coverage_observed_lane_count": 7,
-      "source_coverage_ready": false,
-      "source_coverage_status": "ready_with_gaps",
-      "status": "blocked"
+      "source_coverage_missing_lane_keys": [],
+      "source_coverage_missing_required_event_types": [],
+      "source_coverage_observed_lane_count": 8,
+      "source_coverage_ready": true,
+      "source_coverage_status": "ready",
+      "status": "pass"
     },
     "routed_delivery": {
       "delivery_next_action": "",
@@ -321,9 +317,7 @@
       "teable_status": "synced"
     }
   },
-  "remaining_external_proofs": [
-    "healthy operator runtime posture across approved proactive sources"
-  ],
+  "remaining_external_proofs": [],
   "rules": [
     "This receipt proves proactive OODA gold only when routed delivery, assistant-grade source intent, live browse evidence, a chosen candidate, a staged reversible artifact, mirrored Teable projection, and a redacted approval outcome are all present.",
     "Irreversible purchases, bookings, cancellations, sent messages, posts, and commitments remain consent-gated even when proactive staging is automated.",
@@ -331,11 +325,11 @@
     "Raw packet text, private links, actor identity, packet refs, and staged artifact refs must stay out of this published receipt; only hashes and coarse status may appear.",
     "Teable remains an admin projection and audit mirror rather than canonical queue or product truth."
   ],
-  "source_git_head": "f033ba75611c2070f3fcf43cb42da1cbc685cfa7",
-  "source_state_fingerprint": "b20f7a5a6580ec704515db0739f6df3bab3f65bdc676641c7f04b40d78ca7643",
+  "source_git_head": "c9ebea79a1671334006d3a3369c2018ee106d62a",
+  "source_state_fingerprint": "380ecd8cc5db656c3a13ad045aa87b21ae4990807288943413e5343811ef7ac8",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
-  "status": "blocked_operator_runtime_posture",
-  "summary": "The proactive OODA packet proofs exist, but operator runtime posture is blocked and gold cannot be claimed until approved source health is restored.",
+  "status": "pass",
+  "summary": "A proactive OODA packet has routed delivery, live browse evidence, a chosen candidate, a staged reversible artifact, mirrored Teable facts, and a redacted approved outcome.",
   "verifier_commands": [
     "make verify-proactive-ooda",
     "make verify-proactive-ooda-live-receipt",

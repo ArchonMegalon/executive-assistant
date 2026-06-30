@@ -8644,6 +8644,53 @@ def test_google_location_history_import_reindexes_existing_pocket_archive_with_t
     assert reindexed["payload"]["location_name"] == "Hanusch Krankenhaus"
 
 
+def test_pocket_archive_reindex_endpoint_uses_metadata_transcript_without_existing_signal(monkeypatch, tmp_path) -> None:
+    principal_id = "principal-default"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    archive_root = tmp_path / "archive"
+    monkeypatch.setattr(product_service, "_pocket_audio_archive_root", lambda: archive_root)
+
+    archive_dir = archive_root / "principal-default" / "2026" / "06"
+    archive_dir.mkdir(parents=True)
+    audio_path = archive_dir / "2026-06-20__metadata-only-1__school-supplies.mp3"
+    audio_path.write_bytes(b"audio")
+    audio_path.with_suffix(".json").write_text(
+        json.dumps(
+            {
+                "recording_id": "metadata-only-1",
+                "title": "School supplies",
+                "principal_id": principal_id,
+                "recording_at": "2026-06-20T10:45:00Z",
+                "archive_path": str(audio_path),
+                "archive_sha256": "abc123",
+                "summary_markdown": "Noah braucht noch Filzstifte und Schnellhefter.",
+                "transcript_text": "Bitte suche Angebote fuer Noahs Schulsachen und mach mir eine kurze Liste.",
+                "transcript_excerpt": "Bitte suche Angebote fuer Noahs Schulsachen.",
+                "tags": ["school", "shopping"],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    reindexed = client.post("/app/api/signals/pocket/reindex-archive")
+
+    assert reindexed.status_code == 200
+    assert reindexed.json()["mode"] == "archive_reindex"
+    assert reindexed.json()["recording_total"] == 1
+    events = client.get(
+        "/app/api/events",
+        params={"channel": "product", "event_type": "pocket_recording_archive_indexed"},
+    )
+    assert events.status_code == 200
+    indexed = next(item for item in events.json()["items"] if item["payload"]["recording_id"] == "metadata-only-1")
+    assert indexed["payload"]["summary_markdown"] == "Noah braucht noch Filzstifte und Schnellhefter."
+    assert indexed["payload"]["transcript_text"] == "Bitte suche Angebote fuer Noahs Schulsachen und mach mir eine kurze Liste."
+    assert "school" in indexed["payload"]["tags_csv"]
+    assert "noahs" in str(indexed["payload"]["topic_keywords_csv"]).lower()
+
+
 def test_pocket_recording_search_deliver_telegram_route_sends_best_match(monkeypatch) -> None:
     principal_id = "exec-product-pocket-search-telegram"
     client = build_product_client(principal_id=principal_id)
