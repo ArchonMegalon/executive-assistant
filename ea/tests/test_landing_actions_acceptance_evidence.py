@@ -50,6 +50,9 @@ def test_landing_acceptance_receipt_refresh_matches_verifier_contract(tmp_path: 
 
     verification = verify_executive_assistant_acceptance_evidence(receipt_path)
     assert verification["status"] == "pass"
+    assert receipt["head_semantics"] == "source_state"
+    assert receipt["source_git_head"]
+    assert receipt["source_state_fingerprint"]
     assert receipt["next_action_proof_key"] == "real_decision_cleared"
     assert receipt["real_principal_acceptance_verified"] is True
 
@@ -68,6 +71,9 @@ def test_landing_quality_receipt_refresh_preserves_acceptance_capture_contract(
     quality = json.loads(quality_path.read_text(encoding="utf-8"))
     assert verification["status"] == "pass"
     assert quality["status"] == "blocked_real_world_acceptance"
+    assert quality["head_semantics"] == "source_state"
+    assert quality["source_git_head"]
+    assert quality["source_state_fingerprint"]
     assert quality["next_action_href"] == "/admin/actions/acceptance-evidence"
     assert quality["next_action_label"] == "Record a real-use outcome"
     assert quality["next_action_proof_key"] == "real_daily_morning_brief_accepted"
@@ -108,6 +114,9 @@ def test_landing_acceptance_capture_path_writes_complete_receipts(
     assert quality_verification["status"] == "pass"
     assert receipt["status"] == "partial_real_world_acceptance_evidence"
     assert receipt["next_action"] == "collect_redacted_real_world_acceptance_evidence"
+    assert receipt["head_semantics"] == "source_state"
+    assert receipt["source_git_head"]
+    assert receipt["source_state_fingerprint"]
     assert receipt["next_action_proof_key"] == "real_decision_cleared"
     assert receipt["real_principal_acceptance_verified"] is True
     assert receipt["real_daily_use_verified"] is False
@@ -117,3 +126,19 @@ def test_landing_acceptance_capture_path_writes_complete_receipts(
     assert row["object_ref_sha256"]
     assert row["raw_evidence_exposed"] is False
     assert "The morning brief was useful" not in acceptance_path.read_text(encoding="utf-8")
+
+
+def test_acceptance_verifier_fails_when_source_state_is_missing(tmp_path: Path) -> None:
+    receipt = landing_actions._default_acceptance_receipt()  # noqa: SLF001
+    rows = dict(receipt.get("acceptance_keys") or {})
+    landing_actions._refresh_acceptance_receipt_summary(receipt, rows)  # noqa: SLF001
+    receipt.pop("source_git_head", None)
+    receipt.pop("source_state_fingerprint", None)
+    receipt_path = tmp_path / "acceptance.json"
+    _write_json(receipt_path, receipt)
+
+    verification = verify_executive_assistant_acceptance_evidence(receipt_path)
+
+    assert verification["status"] == "fail"
+    assert "ea_acceptance_source_git_head_missing" in verification["issues"]
+    assert "ea_acceptance_source_state_fingerprint_missing" in verification["issues"]

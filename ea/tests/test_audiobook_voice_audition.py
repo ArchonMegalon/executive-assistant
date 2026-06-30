@@ -1252,6 +1252,75 @@ def test_telegram_reply_explains_author_gender_mismatch_with_replacement_voice()
     assert "Seraphina" in reply
 
 
+def test_audiobook_voice_sample_messages_expose_author_gender_match_context() -> None:
+    job_dir = _create_job_dir()
+    replacement_public = _private_voice_candidate(
+        job_dir,
+        token="callback-token-dieter",
+        row=_candidate(
+            preset_key="unmixr_dieter_7f88185d",
+            label="Dieter",
+            gender="male",
+            score=67,
+        ),
+    )["public"]
+    stored_job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
+    stored_job["status"] = "waiting_voice_selection"
+    stored_job["provider"]["voice_selection"] = {
+        "status": "waiting_user_choice",
+        "reason": "selected_voice_author_gender_mismatch",
+        "book_profile": {"author_gender_signal": "male"},
+        "pending_candidate_keys": ["unmixr_dieter_7f88185d"],
+        "pending_batch": [replacement_public],
+    }
+
+    samples = audiobook_epub_pipeline.audiobook_voice_audition_sample_messages(stored_job)
+
+    assert len(samples) == 1
+    assert samples[0]["label"] == "Dieter"
+    assert samples[0]["gender"] == "male"
+    assert samples[0]["author_gender_signal"] == "male"
+    assert samples[0]["author_gender_match"] is True
+    assert samples[0]["voice_selection_reason"] == "selected_voice_author_gender_mismatch"
+
+
+def test_telegram_voice_sample_caption_marks_author_gender_replacement() -> None:
+    from app.api.routes import channels
+
+    job_dir = _create_job_dir()
+    replacement_public = _private_voice_candidate(
+        job_dir,
+        token="callback-token-dieter",
+        row=_candidate(
+            preset_key="unmixr_dieter_7f88185d",
+            label="Dieter",
+            gender="male",
+            score=67,
+        ),
+    )["public"]
+    stored_job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
+    stored_job["status"] = "waiting_voice_selection"
+    stored_job["provider"]["voice_selection"] = {
+        "status": "waiting_user_choice",
+        "reason": "selected_voice_author_gender_mismatch",
+        "book_profile": {"author_gender_signal": "male"},
+        "pending_candidate_keys": ["unmixr_dieter_7f88185d"],
+        "pending_batch": [replacement_public],
+    }
+
+    with patch.object(channels, "_telegram_send_audio", return_value={"ok": True, "result": {"message_id": 123}}) as send_audio:
+        receipts = channels._telegram_send_audiobook_voice_samples(  # noqa: SLF001
+            bot_config={"token": "test-bot-token"},
+            chat_id="42",
+            job=stored_job,
+        )
+
+    assert receipts[0]["status"] == "sent"
+    caption = send_audio.call_args.kwargs["caption"]
+    assert "Dieter" in caption
+    assert "male author match" in caption
+
+
 def test_record_audiobook_voice_sample_delivery_merges_current_pending_coverage() -> None:
     job_dir = _create_job_dir()
     hans_public = _private_voice_candidate(

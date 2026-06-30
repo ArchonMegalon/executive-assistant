@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,11 @@ from typing import Any
 
 SCRIPT_PATH = Path(__file__).resolve()
 REPO_ROOT = SCRIPT_PATH.parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.source_state_head import resolve_source_state_head  # noqa: E402
+from scripts.source_state_head import resolve_source_worktree_fingerprint  # noqa: E402
 DEFAULT_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "ea_executive_assistant_acceptance_evidence.generated.json"
 
 REQUIRED_ACCEPTANCE_KEYS = [
@@ -40,6 +46,15 @@ def _now() -> str:
 
 def _hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest() if value else ""
+
+
+def _source_state_fields() -> dict[str, str]:
+    return {
+        "source_git_head": resolve_source_state_head(REPO_ROOT),
+        "head_semantics": "source_state",
+        "source_state_fingerprint": resolve_source_worktree_fingerprint(REPO_ROOT),
+        "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
+    }
 
 
 def _write(path: str | Path, payload: dict[str, Any]) -> None:
@@ -193,6 +208,7 @@ def materialize_executive_assistant_acceptance_evidence(
         "status": status,
         "generated_at": generated_at or _now(),
         "generated_by": "ea/scripts/materialize_executive_assistant_acceptance_evidence.py",
+        **_source_state_fields(),
         "goal_completion_claim_allowed": False,
         "public_or_premium_claim_allowed": False,
         "acceptance_keys": rows,

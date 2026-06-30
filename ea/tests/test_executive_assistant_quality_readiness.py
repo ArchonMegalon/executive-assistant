@@ -57,6 +57,9 @@ def test_quality_readiness_exposes_redacted_acceptance_capture_surface(tmp_path:
         acceptance_evidence=acceptance,
     )
 
+    assert receipt["head_semantics"] == "source_state"
+    assert receipt["source_git_head"]
+    assert receipt["source_state_fingerprint"]
     surface = dict(receipt.get("acceptance_capture_surface") or {})
     assert surface["path"] == ACCEPTANCE_CAPTURE_PATH
     assert surface["stored_evidence_shape"] == "sha256_only"
@@ -94,3 +97,21 @@ def test_quality_verifier_fails_when_acceptance_capture_surface_is_missing(tmp_p
 
     assert verification["status"] == "fail"
     assert "ea_quality_acceptance_capture_surface_path_missing" in verification["issues"]
+
+
+def test_quality_verifier_fails_when_source_state_is_missing(tmp_path: Path) -> None:
+    receipt_path = tmp_path / "quality.json"
+    receipt = materialize_executive_assistant_quality_readiness(
+        receipt_path=receipt_path,
+        office_loop=_office_loop_receipt(),
+        acceptance_evidence={"accepted_keys": [], "acceptance_keys": {}},
+    )
+    receipt.pop("source_git_head", None)
+    receipt.pop("source_state_fingerprint", None)
+    receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    verification = verify_executive_assistant_quality_readiness(receipt_path)
+
+    assert verification["status"] == "fail"
+    assert "ea_quality_source_git_head_missing" in verification["issues"]
+    assert "ea_quality_source_state_fingerprint_missing" in verification["issues"]

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 import urllib.parse
@@ -26,9 +27,20 @@ from app.container import AppContainer
 from app.product.service import build_product_service
 from app.services.proactive_ooda_live_ops_bridge import record_live_proactive_ooda_approval_outcome
 
+_REPO_ROOT_FOR_SOURCE_STATE = Path(__file__).resolve().parents[4]
+if str(_REPO_ROOT_FOR_SOURCE_STATE) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT_FOR_SOURCE_STATE))
+
+try:
+    from scripts.source_state_head import resolve_source_state_head
+    from scripts.source_state_head import resolve_source_worktree_fingerprint
+except Exception:  # pragma: no cover - app runtime may not include repo scripts on sys.path
+    resolve_source_state_head = None
+    resolve_source_worktree_fingerprint = None
+
 router = APIRouter(tags=["landing"])
 
-EA_ROOT = Path(__file__).resolve().parents[4]
+EA_ROOT = _REPO_ROOT_FOR_SOURCE_STATE
 EA_QUALITY_READINESS_RECEIPT = EA_ROOT / ".codex-studio" / "published" / "ea_executive_assistant_quality_readiness.generated.json"
 
 
@@ -38,6 +50,27 @@ def _now_iso() -> str:
 
 def _sha256(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest() if value else ""
+
+
+def _source_state_fields() -> dict[str, str]:
+    source_head = ""
+    source_fingerprint = ""
+    if resolve_source_state_head is not None:
+        try:
+            source_head = str(resolve_source_state_head(EA_ROOT) or "").strip()
+        except Exception:
+            source_head = ""
+    if resolve_source_worktree_fingerprint is not None:
+        try:
+            source_fingerprint = str(resolve_source_worktree_fingerprint(EA_ROOT) or "").strip()
+        except Exception:
+            source_fingerprint = ""
+    return {
+        "source_git_head": source_head,
+        "head_semantics": "source_state",
+        "source_state_fingerprint": source_fingerprint,
+        "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
+    }
 
 
 _ACCEPTANCE_KEYS = (
@@ -324,6 +357,7 @@ def _refresh_acceptance_receipt_summary(
     accepted_keys = [key for key in _ACCEPTANCE_KEYS if dict(rows.get(key) or {}).get("accepted") is True]
     blocked_keys = [key for key in _ACCEPTANCE_KEYS if key not in accepted_keys]
     receipt["contract_name"] = "ea.executive_assistant_acceptance_evidence.v1"
+    receipt.update(_source_state_fields())
     receipt["status"] = (
         "ready_real_world_acceptance_evidence"
         if not blocked_keys
@@ -395,6 +429,7 @@ def _update_quality_receipt_from_acceptance(acceptance: dict[str, object]) -> No
     else:
         status = "ready_for_good_executive_assistant_claim_review"
     quality["status"] = status
+    quality.update(_source_state_fields())
     quality["goal_completion_claim_allowed"] = False
     quality["good_executive_assistant_claim_allowed"] = bool(local_ready and not blockers)
     quality["public_or_premium_claim_allowed"] = False

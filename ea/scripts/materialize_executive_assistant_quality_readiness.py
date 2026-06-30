@@ -11,6 +11,7 @@ from materialize_executive_assistant_acceptance_evidence import ACCEPTANCE_CAPTU
 from materialize_executive_assistant_acceptance_evidence import ACCEPTANCE_CAPTURE_FORM_FIELDS
 from materialize_executive_assistant_acceptance_evidence import ACCEPTANCE_CAPTURE_METHOD
 from materialize_executive_assistant_acceptance_evidence import ACCEPTANCE_CAPTURE_PATH
+from materialize_executive_assistant_acceptance_evidence import _source_state_fields
 from materialize_executive_assistant_acceptance_evidence import acceptance_capture_requirements
 from materialize_executive_assistant_acceptance_evidence import _acceptance_capture_surface
 from materialize_executive_assistant_acceptance_evidence import _empty_row
@@ -165,6 +166,7 @@ def materialize_executive_assistant_quality_readiness(
         "status": status,
         "generated_at": generated_at or _now(),
         "generated_by": "ea/scripts/materialize_executive_assistant_quality_readiness.py",
+        **_source_state_fields(),
         "goal_completion_claim_allowed": False,
         "good_executive_assistant_claim_allowed": good_claim,
         "public_or_premium_claim_allowed": False,

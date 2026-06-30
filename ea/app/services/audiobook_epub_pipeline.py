@@ -3498,6 +3498,8 @@ def audiobook_voice_audition_sample_messages(job: dict[str, object]) -> list[dic
     if not job_dir:
         return []
     voice_selection = dict(dict(job.get("provider") or {}).get("voice_selection") or {})
+    profile = dict(voice_selection.get("book_profile") or {})
+    author_gender_signal = str(profile.get("author_gender_signal") or "").strip().lower()
     rows: list[dict[str, object]] = []
     for candidate in list(voice_selection.get("pending_batch") or []):
         if not isinstance(candidate, dict):
@@ -3511,12 +3513,20 @@ def audiobook_voice_audition_sample_messages(job: dict[str, object]) -> list[dic
         sample_path = _voice_audition_dir(job_dir) / "samples" / sample_file
         if not sample_path.is_file():
             continue
+        candidate_gender = _voice_candidate_gender(candidate)
         rows.append(
             {
                 "token": token,
                 "label": str(candidate.get("label") or "Voice sample").strip(),
                 "score": int(candidate.get("score") or 0),
                 "matched_tags": list(candidate.get("matched_tags") or []),
+                "tags": list(candidate.get("tags") or []),
+                "gender": candidate_gender,
+                "author_gender_signal": author_gender_signal,
+                "author_gender_match": bool(
+                    author_gender_signal in {"male", "female"} and candidate_gender == author_gender_signal
+                ),
+                "voice_selection_reason": str(voice_selection.get("reason") or "").strip(),
                 "audio_path": str(sample_path),
             }
         )

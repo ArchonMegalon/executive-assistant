@@ -895,6 +895,16 @@ def _telegram_send_audiobook_voice_samples(
             chat_id=chat_id,
         )
         caption = str(sample.get("label") or "Voice sample").strip()
+        author_gender_signal = str(sample.get("author_gender_signal") or "").strip().lower()
+        candidate_gender = str(sample.get("gender") or "").strip().lower()
+        if (
+            str(sample.get("voice_selection_reason") or "").strip() == "selected_voice_author_gender_mismatch"
+            and bool(sample.get("author_gender_match"))
+            and author_gender_signal in {"male", "female"}
+        ):
+            caption = f"{caption} · {author_gender_signal} author match"
+        elif candidate_gender in {"male", "female"}:
+            caption = f"{caption} · {candidate_gender}"
         matched_tags = [str(item).strip() for item in list(sample.get("matched_tags") or []) if str(item).strip()]
         if matched_tags:
             caption = f"{caption} · {', '.join(matched_tags[:4])}"
@@ -2939,6 +2949,48 @@ def _telegram_active_audiobook_status_reply_text(
         return (
             f"Audiobook status for {title}: waiting for your explicit voice choice. "
             "The selected provider voice is blocked by credits/balance, so I stopped before publishing with a different voice."
+            f"{selected_line} {sample_line}"
+        )
+    if (
+        str(job.get("status") or "").strip() == "waiting_voice_selection"
+        and str(voice_selection.get("status") or "").strip() == "waiting_user_choice"
+        and reason == "selected_voice_author_gender_mismatch"
+    ):
+        pending = [row for row in list(voice_selection.get("pending_batch") or []) if isinstance(row, dict)]
+        profile = dict(voice_selection.get("book_profile") or {})
+        author_gender_signal = str(profile.get("author_gender_signal") or "").strip().lower()
+        label = str(dict(pending[0]).get("label") or "the replacement voice").strip() if pending else "the replacement voice"
+        delivery = dict(dict(job.get("telegram") or {}).get("voice_sample_delivery") or {})
+        sent = str(delivery.get("status") or "").strip() == "sent"
+        selected_voice = str(dict(voice_selection.get("selected") or {}).get("label") or "").strip()
+        selected_line = f" The stale selected voice was {selected_voice}." if selected_voice else ""
+        gender_line = (
+            f"I inferred a {author_gender_signal} author signal"
+            if author_gender_signal in {"male", "female"}
+            else "The selected voice does not match the author gender signal"
+        )
+        sample_line = ""
+        if pending and _telegram_audiobook_voice_sample_resend_intent(text):
+            sample_receipts = _telegram_send_audiobook_voice_samples(
+                bot_config=dict(bot_config or {}),
+                chat_id=chat_id,
+                job=job,
+            )
+            if sample_receipts:
+                job = record_audiobook_voice_sample_delivery(job=job, sample_receipts=sample_receipts)
+                sent_count = sum(1 for item in sample_receipts if str(dict(item).get("status") or "").strip() == "sent")
+                if sent_count:
+                    sample_word = "sample" if sent_count == 1 else "samples"
+                    sample_line = f"I resent {sent_count} matching audiobook voice {sample_word}."
+        if not sample_line:
+            sample_line = (
+                f"I already sent the matching replacement sample for {label} with Use this/Dismiss buttons."
+                if sent
+                else f"The matching replacement sample for {label} is prepared but Telegram delivery is not confirmed."
+            )
+        return (
+            f"Audiobook status for {title}: waiting for your explicit voice choice. "
+            f"{gender_line}, so I stopped before continuing with a mismatched voice."
             f"{selected_line} {sample_line}"
         )
     return telegram_epub_reply_text(job)

@@ -2,8 +2,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
+
+SCRIPT_PATH = Path(__file__).resolve()
+REPO_ROOT = SCRIPT_PATH.parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from materialize_executive_assistant_acceptance_evidence import ACCEPTANCE_CAPTURE_LABEL
 from materialize_executive_assistant_acceptance_evidence import ACCEPTANCE_CAPTURE_FORM_FIELDS
@@ -14,16 +20,37 @@ from materialize_executive_assistant_acceptance_evidence import REQUIRED_ACCEPTA
 from materialize_executive_assistant_quality_readiness import REQUIRED_REAL_WORLD_PROOF
 from materialize_executive_assistant_quality_readiness import LOCAL_REVIEW_LABEL
 from materialize_executive_assistant_quality_readiness import LOCAL_REVIEW_PATH
+from scripts.source_state_head import resolve_source_state_head  # noqa: E402
+from scripts.source_state_head import resolve_source_worktree_fingerprint  # noqa: E402
 
 
-SCRIPT_PATH = Path(__file__).resolve()
-REPO_ROOT = SCRIPT_PATH.parents[2]
 DEFAULT_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "ea_executive_assistant_quality_readiness.generated.json"
+
+
+def _verify_source_state(receipt: dict[str, Any], issues: list[str]) -> None:
+    if receipt.get("head_semantics") != "source_state":
+        issues.append("ea_quality_head_semantics_missing")
+    if receipt.get("source_state_fingerprint_semantics") != "worktree_source_files_sha256_excluding_generated_only_paths":
+        issues.append("ea_quality_source_state_fingerprint_semantics_missing")
+    recorded_head = str(receipt.get("source_git_head") or "").strip()
+    recorded_fingerprint = str(receipt.get("source_state_fingerprint") or "").strip()
+    current_head = resolve_source_state_head(REPO_ROOT)
+    current_fingerprint = resolve_source_worktree_fingerprint(REPO_ROOT)
+    fingerprint_matches = bool(current_fingerprint and recorded_fingerprint and current_fingerprint == recorded_fingerprint)
+    if not recorded_head:
+        issues.append("ea_quality_source_git_head_missing")
+    elif current_head and recorded_head != current_head and not fingerprint_matches:
+        issues.append("ea_quality_source_git_head_stale")
+    if not recorded_fingerprint:
+        issues.append("ea_quality_source_state_fingerprint_missing")
+    elif current_fingerprint and recorded_fingerprint != current_fingerprint:
+        issues.append("ea_quality_source_state_fingerprint_stale")
 
 
 def verify_executive_assistant_quality_readiness(receipt_path: str | Path) -> dict[str, Any]:
     receipt = json.loads(Path(receipt_path).read_text(encoding="utf-8"))
     issues: list[str] = []
+    _verify_source_state(receipt, issues)
     next_action_href = str(receipt.get("next_action_href") or "").strip()
     next_action_label = str(receipt.get("next_action_label") or "").strip()
     next_action_method = str(receipt.get("next_action_method") or "").strip().lower()
