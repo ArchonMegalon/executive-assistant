@@ -118,6 +118,42 @@ def _digest_and_safe_work(*, include_approval_surface: bool = False):
     return digest, result, receipt
 
 
+def test_proactive_ooda_teable_bootstrap_merges_shell_quoted_existing_config(tmp_path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        'TEABLE_TABLE_SYNC_CONFIG_JSON="{\\"preference_review_queue\\":{\\"table_id\\":\\"tbl_pref\\",\\"key_field\\":\\"projection_id\\",\\"field_key_type\\":\\"name\\"}}"\n',
+        encoding="utf-8",
+    )
+
+    assert teable_bootstrap._load_table_config(env_file=env_file) == {
+        "preference_review_queue": {
+            "table_id": "tbl_pref",
+            "key_field": "projection_id",
+            "field_key_type": "name",
+        }
+    }
+
+    teable_bootstrap._write_table_config(
+        env_file=env_file,
+        mappings={
+            "proactive_ooda_runs": {
+                "table_id": "tbl_runs",
+                "key_field": "projection_id",
+                "field_key_type": "name",
+            }
+        },
+    )
+
+    raw = next(
+        line.split("=", 1)[1]
+        for line in env_file.read_text(encoding="utf-8").splitlines()
+        if line.startswith("TEABLE_TABLE_SYNC_CONFIG_JSON=")
+    )
+    config = json.loads(raw)
+    assert config["preference_review_queue"]["table_id"] == "tbl_pref"
+    assert config["proactive_ooda_runs"]["table_id"] == "tbl_runs"
+
+
 def test_proactive_ooda_teable_projection_keeps_important_artifacts_without_raw_refs() -> None:
     digest, result, receipt = _digest_and_safe_work()
 

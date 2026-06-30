@@ -371,10 +371,13 @@ def _load_table_config(*, env_file: Path) -> dict[str, dict[str, object]]:
     raw = _dotenv_value("TEABLE_TABLE_SYNC_CONFIG_JSON", env_file=env_file)
     if not raw:
         return {}
-    try:
-        loaded = json.loads(raw)
-    except Exception:
-        return {}
+    loaded = None
+    for candidate in (raw, raw.encode("utf-8").decode("unicode_escape")):
+        try:
+            loaded = json.loads(candidate)
+            break
+        except Exception:
+            continue
     if not isinstance(loaded, dict):
         return {}
     return {
