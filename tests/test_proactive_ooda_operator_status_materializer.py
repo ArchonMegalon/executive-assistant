@@ -153,6 +153,19 @@ def _fake_approval_capture_probe(**_kwargs: object) -> dict[str, object]:
     }
 
 
+def test_source_coverage_summary_fallback_keeps_pocket_required_event_contract() -> None:
+    module = _load_script()
+
+    summary = module._source_coverage_summary({})  # noqa: SLF001
+
+    pocket_lane = next(row for row in summary["lanes"] if row["key"] == "pocket_ai_audio_transcripts")
+    assert pocket_lane["observed"] is False
+    assert pocket_lane["required_event_types"] == ["pocket_recording_archive_indexed"]
+    assert pocket_lane["missing_required_event_types"] == ["pocket_recording_archive_indexed"]
+    assert pocket_lane["required_event_type_observed"] is False
+    assert pocket_lane["next_action"] == "sync_pocket_ai_audio_transcripts"
+
+
 def test_materialize_proactive_ooda_operator_status_writes_recovery_receipt(tmp_path: Path, monkeypatch) -> None:
     module = _load_script()
     monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")

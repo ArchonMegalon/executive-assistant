@@ -313,6 +313,31 @@ def _gmail_draft_followthrough_summary(probe: Mapping[str, Any]) -> dict[str, An
 
 def _source_coverage_summary(probe: Mapping[str, Any]) -> dict[str, Any]:
     if not probe:
+        lanes = []
+        for key in ea_live_ops.PROACTIVE_SOURCE_COVERAGE_LANE_KEYS:
+            lane_contract = SOURCE_COVERAGE_LANE_CONTRACTS.get(str(key), {})
+            required_event_types = [
+                str(item).strip()
+                for item in list(lane_contract.get("required_event_types") or [])
+                if str(item).strip()
+            ][:8]
+            lanes.append(
+                {
+                    "key": key,
+                    "status": "not_checked",
+                    "observed": False,
+                    "record_count": 0,
+                    "latest_observed_at": "",
+                    "evidence_event_types": [],
+                    "required_event_types": required_event_types,
+                    "required_event_type_observed": not required_event_types,
+                    "missing_required_event_types": required_event_types,
+                    "next_action": str(lane_contract.get("next_action") or "").strip(),
+                    "raw_payload_exposed": False,
+                    "raw_transcript_text_exposed": False,
+                    "raw_credential_exposed": False,
+                }
+            )
         return {
             "checked": False,
             "status": "not_checked",
@@ -324,24 +349,7 @@ def _source_coverage_summary(probe: Mapping[str, Any]) -> dict[str, Any]:
             "lane_count": len(ea_live_ops.PROACTIVE_SOURCE_COVERAGE_LANE_KEYS),
             "observed_lane_count": 0,
             "missing_lane_keys": list(ea_live_ops.PROACTIVE_SOURCE_COVERAGE_LANE_KEYS),
-            "lanes": [
-                {
-                    "key": key,
-                    "status": "not_checked",
-                    "observed": False,
-                    "record_count": 0,
-                    "latest_observed_at": "",
-                    "evidence_event_types": [],
-                    "required_event_types": [],
-                    "required_event_type_observed": True,
-                    "missing_required_event_types": [],
-                    "next_action": "",
-                    "raw_payload_exposed": False,
-                    "raw_transcript_text_exposed": False,
-                    "raw_credential_exposed": False,
-                }
-                for key in ea_live_ops.PROACTIVE_SOURCE_COVERAGE_LANE_KEYS
-            ],
+            "lanes": lanes,
             "privacy": {
                 "raw_rows_exposed": False,
                 "raw_payload_exposed": False,
