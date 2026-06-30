@@ -10,6 +10,10 @@ from typing import Any
 from materialize_executive_assistant_acceptance_evidence import ACCEPTANCE_CAPTURE_LABEL
 from materialize_executive_assistant_acceptance_evidence import ACCEPTANCE_CAPTURE_METHOD
 from materialize_executive_assistant_acceptance_evidence import ACCEPTANCE_CAPTURE_PATH
+from materialize_executive_assistant_acceptance_evidence import acceptance_capture_requirements
+from materialize_executive_assistant_acceptance_evidence import _acceptance_capture_surface
+from materialize_executive_assistant_acceptance_evidence import _empty_row
+from materialize_executive_assistant_acceptance_evidence import _normalized_existing_row
 from materialize_executive_assistant_acceptance_evidence import REMAINING_PROOF_LABELS, REQUIRED_ACCEPTANCE_KEYS
 
 
@@ -83,6 +87,16 @@ def _acceptance(acceptance_evidence: dict[str, Any] | None, path: str | Path | N
     return {"accepted_keys": [], "blocked_keys": REQUIRED_ACCEPTANCE_KEYS, "remaining_external_proofs": REQUIRED_REAL_WORLD_PROOF}
 
 
+def _acceptance_rows(acceptance: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    rows: dict[str, dict[str, Any]] = {key: _empty_row() for key in REQUIRED_ACCEPTANCE_KEYS}
+    existing = acceptance.get("acceptance_keys")
+    if isinstance(existing, dict):
+        for key, row in existing.items():
+            if key in rows and isinstance(row, dict):
+                rows[key] = _normalized_existing_row(row)
+    return rows
+
+
 def materialize_executive_assistant_quality_readiness(
     *,
     receipt_path: str | Path,
@@ -100,6 +114,7 @@ def materialize_executive_assistant_quality_readiness(
     local_blockers = _local_blockers(office_loop)
     accepted = set(acceptance.get("accepted_keys") or [])
     blocked_checks = [key for key in REQUIRED_ACCEPTANCE_KEYS if key not in accepted]
+    acceptance_rows = _acceptance_rows(acceptance)
     local_ready = not local_blockers
     acceptance_ready = not blocked_checks or bool(office_loop.get("live_daily_use_verified") and office_loop.get("real_operator_acceptance_verified") and office_loop.get("external_provider_runtime_verified"))
     if not local_ready:
@@ -157,6 +172,8 @@ def materialize_executive_assistant_quality_readiness(
         },
         "acceptance_evidence": acceptance,
         "acceptance_evidence_receipt": _receipt_info(acceptance_evidence_receipt_path or DEFAULT_ACCEPTANCE_RECEIPT),
+        "acceptance_capture_surface": _acceptance_capture_surface(),
+        "acceptance_capture_requirements": acceptance_capture_requirements(acceptance_rows),
         "source_receipt": _receipt_info(office_loop_receipt_path or DEFAULT_OFFICE_RECEIPT),
         "required_real_world_proof": REQUIRED_REAL_WORLD_PROOF,
         "remaining_external_proofs": [] if acceptance_ready else [REMAINING_PROOF_LABELS[key] for key in blocked_checks],

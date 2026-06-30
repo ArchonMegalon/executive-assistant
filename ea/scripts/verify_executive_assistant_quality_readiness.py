@@ -6,8 +6,11 @@ from pathlib import Path
 from typing import Any
 
 from materialize_executive_assistant_acceptance_evidence import ACCEPTANCE_CAPTURE_LABEL
+from materialize_executive_assistant_acceptance_evidence import ACCEPTANCE_CAPTURE_FORM_FIELDS
 from materialize_executive_assistant_acceptance_evidence import ACCEPTANCE_CAPTURE_METHOD
 from materialize_executive_assistant_acceptance_evidence import ACCEPTANCE_CAPTURE_PATH
+from materialize_executive_assistant_acceptance_evidence import REMAINING_PROOF_LABELS
+from materialize_executive_assistant_acceptance_evidence import REQUIRED_ACCEPTANCE_KEYS
 from materialize_executive_assistant_quality_readiness import REQUIRED_REAL_WORLD_PROOF
 from materialize_executive_assistant_quality_readiness import LOCAL_REVIEW_LABEL
 from materialize_executive_assistant_quality_readiness import LOCAL_REVIEW_PATH
@@ -39,6 +42,62 @@ def verify_executive_assistant_quality_readiness(receipt_path: str | Path) -> di
     for proof in REQUIRED_REAL_WORLD_PROOF:
         if proof not in required:
             issues.append(f"ea_quality_required_proof_missing:{proof}")
+    surface = dict(receipt.get("acceptance_capture_surface") or {})
+    if surface.get("method") != ACCEPTANCE_CAPTURE_METHOD:
+        issues.append("ea_quality_acceptance_capture_surface_method_missing")
+    if surface.get("path") != ACCEPTANCE_CAPTURE_PATH:
+        issues.append("ea_quality_acceptance_capture_surface_path_missing")
+    for key in ("admin_only", "operator_context_required", "raw_input_not_persisted"):
+        if surface.get(key) is not True:
+            issues.append(f"ea_quality_acceptance_capture_surface_flag_not_true:{key}")
+    if surface.get("stored_evidence_shape") != "sha256_only":
+        issues.append("ea_quality_acceptance_capture_surface_not_hash_only")
+    for field in ACCEPTANCE_CAPTURE_FORM_FIELDS:
+        if field not in list(surface.get("required_form_fields") or []):
+            issues.append(f"ea_quality_acceptance_capture_surface_field_missing:{field}")
+    surface_privacy = dict(surface.get("privacy_contract") or {})
+    for key in (
+        "raw_acceptance_text_persisted",
+        "raw_actor_identity_persisted",
+        "raw_object_reference_persisted",
+        "credential_values_persisted",
+    ):
+        if surface_privacy.get(key) is not False:
+            issues.append(f"ea_quality_acceptance_capture_surface_privacy_not_false:{key}")
+
+    requirements = receipt.get("acceptance_capture_requirements") or []
+    requirements_by_key = {
+        str(dict(item).get("key") or ""): dict(item)
+        for item in requirements
+        if isinstance(item, dict)
+    }
+    accepted_keys = set(dict(receipt.get("acceptance_evidence") or {}).get("accepted_keys") or [])
+    for key in REQUIRED_ACCEPTANCE_KEYS:
+        requirement = requirements_by_key.get(key)
+        if not requirement:
+            issues.append(f"ea_quality_acceptance_capture_requirement_missing:{key}")
+            continue
+        if requirement.get("label") != REMAINING_PROOF_LABELS[key]:
+            issues.append(f"ea_quality_acceptance_capture_requirement_label_mismatch:{key}")
+        if requirement.get("capture_method") != ACCEPTANCE_CAPTURE_METHOD:
+            issues.append(f"ea_quality_acceptance_capture_requirement_method_missing:{key}")
+        if requirement.get("capture_path") != ACCEPTANCE_CAPTURE_PATH:
+            issues.append(f"ea_quality_acceptance_capture_requirement_path_missing:{key}")
+        if requirement.get("proof_key") != key:
+            issues.append(f"ea_quality_acceptance_capture_requirement_proof_key_mismatch:{key}")
+        for field in ACCEPTANCE_CAPTURE_FORM_FIELDS:
+            if field not in list(requirement.get("required_form_fields") or []):
+                issues.append(f"ea_quality_acceptance_capture_requirement_field_missing:{key}:{field}")
+        if requirement.get("raw_input_not_persisted") is not True:
+            issues.append(f"ea_quality_acceptance_capture_requirement_raw_input_not_persisted_missing:{key}")
+        if requirement.get("stored_evidence_shape") != "sha256_only":
+            issues.append(f"ea_quality_acceptance_capture_requirement_not_hash_only:{key}")
+        for raw_key in ("raw_evidence_exposed", "raw_actor_exposed", "raw_object_ref_exposed"):
+            if requirement.get(raw_key) is not False:
+                issues.append(f"ea_quality_acceptance_capture_requirement_raw_flag_not_false:{key}:{raw_key}")
+        expected_status = "accepted_redacted" if key in accepted_keys else "pending_real_world_evidence"
+        if requirement.get("status") != expected_status:
+            issues.append(f"ea_quality_acceptance_capture_requirement_status_mismatch:{key}")
     status = str(receipt.get("status") or "").strip()
     if status == "blocked_real_world_acceptance":
         if next_action_href != ACCEPTANCE_CAPTURE_PATH:
