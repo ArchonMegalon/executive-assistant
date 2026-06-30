@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.project_modes",
-  "generated_at": "2026-06-30T17:08:39Z",
+  "generated_at": "2026-06-30T19:37:19Z",
   "generated_by": "scripts/materialize_project_mode_manifests.py",
-  "source_git_head": "a9d1f39eb95b9bfbb90bfa56c499af715391eedb",
+  "source_git_head": "fe5e563327b4dfb9273559517a3cc8bfcf6d05ea",
   "head_semantics": "source_state",
   "modes": [
     {
