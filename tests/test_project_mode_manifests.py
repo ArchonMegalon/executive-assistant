@@ -144,6 +144,20 @@ def test_source_state_head_skips_verifier_and_generated_only_commits(monkeypatch
     assert source_state_head.resolve_source_state_head(ROOT) == "SOURCE_HEAD"
 
 
+def test_source_state_head_reads_git_head_without_git_binary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    git_dir = tmp_path / ".git"
+    ref_path = git_dir / "refs" / "heads" / "main"
+    ref_path.parent.mkdir(parents=True)
+    git_dir.mkdir(exist_ok=True)
+    (git_dir / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    ref_path.write_text("a" * 40 + "\n", encoding="utf-8")
+    monkeypatch.setattr(source_state_head, "_git_stdout", lambda *_args, **_kwargs: "")
+
+    assert source_state_head.resolve_source_state_head(tmp_path) == "a" * 40
+
+
 def test_source_worktree_metadata_reports_source_dirty_without_generated_noise(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -214,6 +228,36 @@ def test_source_worktree_fingerprint_hashes_effective_source_files_only(
     first = source_state_head.resolve_source_worktree_fingerprint(tmp_path)
     generated.write_text("generated = 2\n", encoding="utf-8")
     test_file.write_text("test = 2\n", encoding="utf-8")
+    assert source_state_head.resolve_source_worktree_fingerprint(tmp_path) == first
+
+    source_file.write_text("source = 2\n", encoding="utf-8")
+    assert source_state_head.resolve_source_worktree_fingerprint(tmp_path) != first
+
+
+def test_source_worktree_fingerprint_falls_back_without_git_binary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "app").mkdir()
+    (tmp_path / "tests").mkdir()
+    (tmp_path / ".codex-studio/published").mkdir(parents=True)
+    source_file = tmp_path / "app/service.py"
+    test_file = tmp_path / "tests/test_service.py"
+    generated = tmp_path / ".codex-studio/published/receipt.generated.json"
+    env_file = tmp_path / ".env"
+    env_example = tmp_path / ".env.example"
+    source_file.write_text("source = 1\n", encoding="utf-8")
+    test_file.write_text("test = 1\n", encoding="utf-8")
+    generated.write_text("generated = 1\n", encoding="utf-8")
+    env_file.write_text("SECRET=real\n", encoding="utf-8")
+    env_example.write_text("SECRET=\n", encoding="utf-8")
+    monkeypatch.setattr(source_state_head, "_git_stdout", lambda *_args, **_kwargs: "")
+
+    first = source_state_head.resolve_source_worktree_fingerprint(tmp_path)
+    assert first
+
+    test_file.write_text("test = 2\n", encoding="utf-8")
+    generated.write_text("generated = 2\n", encoding="utf-8")
+    env_file.write_text("SECRET=changed\n", encoding="utf-8")
     assert source_state_head.resolve_source_worktree_fingerprint(tmp_path) == first
 
     source_file.write_text("source = 2\n", encoding="utf-8")
