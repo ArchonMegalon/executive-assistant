@@ -230,10 +230,10 @@ def test_build_operator_status_uses_configured_live_probe_timeout(tmp_path: Path
     assert captured == {
         "route": 180.0,
         "artifacts": 180.0,
-        "approval_capture": 180.0,
         "gmail_draft": 180.0,
         "source_coverage": 180.0,
     }
+    assert receipt["approval_capture"]["checked"] is False
 
 
 def test_materialize_proactive_ooda_operator_status_writes_recovery_receipt(tmp_path: Path, monkeypatch) -> None:

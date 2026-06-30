@@ -1033,7 +1033,6 @@ def build_proactive_ooda_operator_status(
             )
         except Exception:
             artifact_probe = {}
-        approval_capture_probe = _approval_capture_probe(principal_id, timeout_seconds=live_probe_timeout_seconds)
         gmail_draft_probe = _gmail_draft_followthrough_probe(principal_id, timeout_seconds=live_probe_timeout_seconds)
         source_coverage_probe = _source_coverage_probe(principal_id, timeout_seconds=live_probe_timeout_seconds)
 
@@ -1074,6 +1073,14 @@ def build_proactive_ooda_operator_status(
     status = _status(report, live_receipt=live_receipt, live_receipt_checked=live_receipt_checked)
     reason = _reason(report, live_receipt=live_receipt, live_receipt_checked=live_receipt_checked)
     approval_capture_surface = _approval_capture_surface(report=report, artifact_probe=artifact_probe)
+    if (
+        allow_live_route_probe
+        and live_receipt_path is None
+        and _approval_capture_surface_ready(approval_capture_surface)
+        and live_receipt_checked
+        and bool(live_receipt.get("ok"))
+    ):
+        approval_capture_probe = _approval_capture_probe(principal_id, timeout_seconds=live_probe_timeout_seconds)
     approval_capture = _approval_capture_summary(approval_capture_probe)
     if _approval_capture_probe_blocks_followthrough(
         status=status,
