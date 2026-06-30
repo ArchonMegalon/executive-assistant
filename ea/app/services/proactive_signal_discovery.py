@@ -532,6 +532,8 @@ def discover_postgres_observation_signals(
         "alexa_history_indexed",
         "pocket_recording_archive_indexed",
     )
+    if not _proactive_ooda_property_scout_signals_enabled():
+        event_types = tuple(event_type for event_type in event_types if event_type != "property_scout_sync_completed")
     principals = _candidate_principals(principal_id)
     try:
         with psycopg.connect(url, connect_timeout=5) as connection:
@@ -1379,6 +1381,8 @@ def observation_row_to_signal(
     external_id: str = "",
     dedupe_key: str = "",
 ) -> ProactiveSignal | None:
+    if event_type == "property_scout_sync_completed" and not _proactive_ooda_property_scout_signals_enabled():
+        return None
     ooda_loop = _normalize_ooda_loop(payload.get("ooda_loop")) if isinstance(payload.get("ooda_loop"), Mapping) else {}
     extra_payload: dict[str, Any] = {}
     extra_payload_key = ""
@@ -2397,6 +2401,10 @@ def _signal_from_row(row: Mapping[str, Any], *, source: SignalSource, index: int
         source_ref = str(merged.get("url") or merged.get("link") or merged.get("external_id") or "").strip()
         merged["source_ref"] = source_ref or f"{source.channel}:{source.ref}:{index}"
     return ProactiveSignal.from_mapping(merged)
+
+
+def _proactive_ooda_property_scout_signals_enabled() -> bool:
+    return _truthy_default(os.getenv("EA_PROACTIVE_OODA_PROPERTY_SCOUT_SIGNALS_ENABLED"), default=False)
 
 
 def _candidate_principals(principal_id: str) -> list[str]:
