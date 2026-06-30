@@ -79,3 +79,41 @@ def test_landing_quality_receipt_refresh_preserves_acceptance_capture_contract(
     assert context["stored_evidence_shape"] == "sha256_only"
     assert context["raw_acceptance_text_persisted"] is False
     assert "acceptance_capture_requirements" in quality
+
+
+def test_landing_acceptance_capture_path_writes_complete_receipts(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    acceptance_path = tmp_path / "acceptance.json"
+    quality_path = tmp_path / "quality.json"
+    scope_gap_path = tmp_path / "scope-gap.json"
+    signal_path = tmp_path / "signal.json"
+    monkeypatch.setattr(landing_actions, "EA_ACCEPTANCE_EVIDENCE_RECEIPT", acceptance_path)
+    monkeypatch.setattr(landing_actions, "EA_QUALITY_READINESS_RECEIPT", quality_path)
+    monkeypatch.setattr(landing_actions, "EA_SCOPE_GAP_AUDIT_RECEIPT", scope_gap_path)
+    monkeypatch.setattr(landing_actions, "EA_SIGNAL_TO_DECISION_RECEIPT", signal_path)
+
+    receipt = landing_actions._record_acceptance_evidence_receipt(  # noqa: SLF001
+        proof_key="real_daily_morning_brief_accepted",
+        source_kind="operator_admin",
+        evidence="The morning brief was useful and worth reading.",
+        object_ref="morning-brief:2026-06-30",
+        actor="operator:test",
+    )
+
+    acceptance_verification = verify_executive_assistant_acceptance_evidence(acceptance_path)
+    quality_verification = verify_executive_assistant_quality_readiness(quality_path)
+    assert acceptance_verification["status"] == "pass"
+    assert quality_verification["status"] == "pass"
+    assert receipt["status"] == "partial_real_world_acceptance_evidence"
+    assert receipt["next_action"] == "collect_redacted_real_world_acceptance_evidence"
+    assert receipt["next_action_proof_key"] == "real_decision_cleared"
+    assert receipt["real_principal_acceptance_verified"] is True
+    assert receipt["real_daily_use_verified"] is False
+    row = dict(dict(receipt.get("acceptance_keys") or {})["real_daily_morning_brief_accepted"])
+    assert row["evidence_sha256"]
+    assert row["actor_sha256"]
+    assert row["object_ref_sha256"]
+    assert row["raw_evidence_exposed"] is False
+    assert "The morning brief was useful" not in acceptance_path.read_text(encoding="utf-8")

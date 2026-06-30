@@ -209,7 +209,7 @@
     "real_provider_failure_recovered"
   ],
   "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
-  "generated_at": "2026-06-30T02:58:51Z",
+  "generated_at": "2026-06-30T04:14:59Z",
   "generated_by": "ea/scripts/materialize_executive_assistant_acceptance_evidence.py",
   "goal_completion_claim_allowed": false,
   "next_action": "collect_redacted_real_world_acceptance_evidence",

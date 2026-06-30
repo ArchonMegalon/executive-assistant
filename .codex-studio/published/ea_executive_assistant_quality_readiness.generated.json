@@ -349,7 +349,7 @@
       "real_provider_failure_recovered"
     ],
     "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
-    "generated_at": "2026-06-30T02:58:51Z",
+    "generated_at": "2026-06-30T04:14:59Z",
     "generated_by": "ea/scripts/materialize_executive_assistant_acceptance_evidence.py",
     "goal_completion_claim_allowed": false,
     "next_action": "collect_redacted_real_world_acceptance_evidence",
@@ -386,7 +386,7 @@
     "bytes": 8954,
     "exists": true,
     "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
-    "sha256": "442b7e715526295356b219925313d4e3852f8df038c0c322548cbcddb350d8a3"
+    "sha256": "3c15c01c168d1a521c7c55271b5bec40f7921dc938da8ae5c33c75934834ef54"
   },
   "blocked_checks": [
     "real_daily_morning_brief_accepted",
@@ -406,7 +406,7 @@
     "real_approved_action_audited",
     "real_provider_failure_recovered"
   ],
-  "generated_at": "2026-06-30T03:44:49Z",
+  "generated_at": "2026-06-30T04:14:59Z",
   "generated_by": "ea/scripts/materialize_executive_assistant_quality_readiness.py",
   "goal_completion_claim_allowed": false,
   "good_executive_assistant_claim_allowed": false,

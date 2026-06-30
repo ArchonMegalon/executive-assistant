@@ -470,6 +470,47 @@ def _update_scope_gap_evidence() -> None:
     _write_json(EA_SCOPE_GAP_AUDIT_RECEIPT, scope_gap)
 
 
+def _record_acceptance_evidence_receipt(
+    *,
+    proof_key: str,
+    source_kind: str,
+    evidence: str,
+    object_ref: str,
+    actor: str,
+) -> dict[str, object]:
+    if proof_key not in _ACCEPTANCE_KEYS:
+        raise ValueError("acceptance_proof_key_invalid")
+    if not evidence.strip() or not object_ref.strip():
+        raise ValueError("acceptance_evidence_and_object_ref_required")
+
+    receipt = _load_json(EA_ACCEPTANCE_EVIDENCE_RECEIPT) or _default_acceptance_receipt()
+    acceptance_keys = dict(receipt.get("acceptance_keys") or {})
+    for key in _ACCEPTANCE_KEYS:
+        acceptance_keys.setdefault(key, _empty_acceptance_row())
+    row = dict(acceptance_keys.get(proof_key) or {})
+    row.update(
+        {
+            "accepted": True,
+            "status": "accepted_redacted",
+            "source_kind": source_kind,
+            "recorded_at": _now_iso(),
+            "evidence_sha256": _sha256(evidence),
+            "actor_sha256": _sha256(actor),
+            "object_ref_sha256": _sha256(object_ref),
+            "raw_evidence_exposed": False,
+            "raw_actor_exposed": False,
+            "raw_object_ref_exposed": False,
+        }
+    )
+    acceptance_keys[proof_key] = row
+    receipt["acceptance_keys"] = acceptance_keys
+    _refresh_acceptance_receipt_summary(receipt, acceptance_keys)
+    _write_json(EA_ACCEPTANCE_EVIDENCE_RECEIPT, receipt)
+    _update_quality_receipt_from_acceptance(receipt)
+    _update_scope_gap_evidence()
+    return receipt
+
+
 @router.post("/admin/actions/bootstrap-operator")
 async def admin_bootstrap_operator(
     request: Request,
@@ -616,50 +657,16 @@ async def admin_record_acceptance_evidence(
     evidence = _form_value(body, "evidence", "")
     object_ref = _form_value(body, "object_ref", "")
     actor = str(context.operator_id or context.access_email or context.principal_id or "operator").strip()
-    if proof_key not in _ACCEPTANCE_KEYS:
-        raise HTTPException(status_code=400, detail="acceptance_proof_key_invalid")
-    if not evidence.strip() or not object_ref.strip():
-        raise HTTPException(status_code=400, detail="acceptance_evidence_and_object_ref_required")
-
-    receipt = _load_json(EA_ACCEPTANCE_EVIDENCE_RECEIPT) or _default_acceptance_receipt()
-    acceptance_keys = dict(receipt.get("acceptance_keys") or {})
-    for key in _ACCEPTANCE_KEYS:
-        acceptance_keys.setdefault(key, _empty_acceptance_row())
-    row = dict(acceptance_keys.get(proof_key) or {})
-    row.update(
-        {
-            "accepted": True,
-            "status": "accepted_redacted",
-            "source_kind": source_kind,
-            "recorded_at": _now_iso(),
-            "evidence_sha256": _sha256(evidence),
-            "actor_sha256": _sha256(actor),
-            "object_ref_sha256": _sha256(object_ref),
-            "raw_evidence_exposed": False,
-            "raw_actor_exposed": False,
-            "raw_object_ref_exposed": False,
-        }
-    )
-    acceptance_keys[proof_key] = row
-    receipt["acceptance_keys"] = acceptance_keys
-    accepted_keys = [key for key in _ACCEPTANCE_KEYS if bool(dict(acceptance_keys.get(key) or {}).get("accepted"))]
-    receipt["accepted_keys"] = accepted_keys
-    receipt["blocked_keys"] = [key for key in _ACCEPTANCE_KEYS if key not in accepted_keys]
-    receipt["status"] = "ready_real_world_acceptance_evidence" if not receipt["blocked_keys"] else "partial_real_world_acceptance_evidence"
-    receipt["goal_completion_claim_allowed"] = False
-    receipt["acceptance_capture_surface"] = _acceptance_capture_surface()
-    receipt["acceptance_capture_requirements"] = _acceptance_capture_requirements(acceptance_keys)
-    receipt["privacy"] = {
-        "raw_private_context_exposed": False,
-        "raw_acceptance_text_exposed": False,
-        "raw_actor_identity_exposed": False,
-        "raw_object_reference_exposed": False,
-        "credential_values_exposed": False,
-    }
-    receipt["remaining_external_proofs"] = [_ACCEPTANCE_PROOF_LABELS[key] for key in _ACCEPTANCE_KEYS if key not in accepted_keys]
-    _write_json(EA_ACCEPTANCE_EVIDENCE_RECEIPT, receipt)
-    _update_quality_receipt_from_acceptance(receipt)
-    _update_scope_gap_evidence()
+    try:
+        _record_acceptance_evidence_receipt(
+            proof_key=proof_key,
+            source_kind=source_kind,
+            evidence=evidence,
+            object_ref=object_ref,
+            actor=actor,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     separator = "&" if "?" in return_to else "?"
     return RedirectResponse(f"{return_to}{separator}acceptance_status=recorded", status_code=303)
 
