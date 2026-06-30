@@ -392,6 +392,112 @@ def test_select_unmixr_voice_for_book_prefers_author_gender_match() -> None:
     assert dict(public.get("book_profile") or {}).get("author_gender_signal") == "male"
 
 
+def test_select_unmixr_voice_for_book_blocks_author_gender_fallback_by_default() -> None:
+    job_dir = _create_job_dir()
+    metadata = audiobook_epub_pipeline.EpubMetadata(
+        title="Widerstand zwecklos",
+        author="Knuf, Andreas",
+        language="de",
+        source_filename="widerstand-zwecklos.epub",
+        source_sha256="source-sha",
+    )
+    chapter = audiobook_epub_pipeline.EpubChapter(
+        index=1,
+        title="Kapitel 1",
+        source_href="chapter-001.xhtml",
+        text_path="001 - Kapitel.txt",
+        audio_filename="001 - Kapitel.wav",
+        char_count=100,
+        sha256="chapter-sha",
+    )
+    ranking = {
+        "status": "ranked",
+        "profile": {
+            "language": "de",
+            "title": "Widerstand zwecklos",
+            "author": "Knuf, Andreas",
+            "author_gender_signal": "male",
+            "topic": "technical nonfiction",
+            "dialogue_ratio": 0.11,
+            "fiction_score": 1,
+            "nonfiction_score": 3,
+            "recommended_tags": ["nonfiction", "warm", "german"],
+            "sample_sha256": "sample-sha",
+        },
+        "candidate_rows": [
+            _candidate(preset_key="female-top", label="Seraphina", gender="female", score=70),
+            _candidate(preset_key="female-second", label="Amala", gender="female", score=67),
+        ],
+    }
+
+    with (
+        patch.dict(os.environ, {"EA_AUDIOBOOK_ALLOW_AUTHOR_GENDER_FALLBACK": "0"}, clear=False),
+        patch.object(audiobook_epub_pipeline, "_ranked_unmixr_voice_candidates", return_value=ranking),
+    ):
+        selection = audiobook_epub_pipeline.select_unmixr_voice_for_book(
+            metadata=metadata,
+            chapters=(chapter,),
+            job_dir=job_dir,
+        )
+
+    assert selection["status"] == "blocked"
+    assert selection["reason"] == "author_gender_matching_voice_missing"
+    assert dict(selection.get("public") or {}).get("author_gender_preference_used") is True
+
+
+def test_select_unmixr_voice_for_book_can_explicitly_allow_author_gender_fallback() -> None:
+    job_dir = _create_job_dir()
+    metadata = audiobook_epub_pipeline.EpubMetadata(
+        title="Widerstand zwecklos",
+        author="Knuf, Andreas",
+        language="de",
+        source_filename="widerstand-zwecklos.epub",
+        source_sha256="source-sha",
+    )
+    chapter = audiobook_epub_pipeline.EpubChapter(
+        index=1,
+        title="Kapitel 1",
+        source_href="chapter-001.xhtml",
+        text_path="001 - Kapitel.txt",
+        audio_filename="001 - Kapitel.wav",
+        char_count=100,
+        sha256="chapter-sha",
+    )
+    ranking = {
+        "status": "ranked",
+        "profile": {
+            "language": "de",
+            "title": "Widerstand zwecklos",
+            "author": "Knuf, Andreas",
+            "author_gender_signal": "male",
+            "topic": "technical nonfiction",
+            "dialogue_ratio": 0.11,
+            "fiction_score": 1,
+            "nonfiction_score": 3,
+            "recommended_tags": ["nonfiction", "warm", "german"],
+            "sample_sha256": "sample-sha",
+        },
+        "candidate_rows": [
+            _candidate(preset_key="female-top", label="Seraphina", gender="female", score=70),
+        ],
+    }
+
+    with (
+        patch.dict(os.environ, {"EA_AUDIOBOOK_ALLOW_AUTHOR_GENDER_FALLBACK": "1"}, clear=False),
+        patch.object(audiobook_epub_pipeline, "_ranked_unmixr_voice_candidates", return_value=ranking),
+    ):
+        selection = audiobook_epub_pipeline.select_unmixr_voice_for_book(
+            metadata=metadata,
+            chapters=(chapter,),
+            job_dir=job_dir,
+        )
+
+    public = dict(selection.get("public") or {})
+    selected = dict(public.get("selected") or {})
+    assert selection.get("voice_id") == "voice-female-top"
+    assert selected.get("label") == "Seraphina"
+
+
 def test_prepare_audiobook_voice_audition_diversifies_unknown_author_gender_batch() -> None:
     job_dir = _create_job_dir(author="A. B. Example")
     ranking = {

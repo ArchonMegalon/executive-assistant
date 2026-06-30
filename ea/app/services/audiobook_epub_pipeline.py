@@ -1996,6 +1996,11 @@ def _select_author_gender_preferred_candidate(
         selected = _first_match(require_author_gender_match=True, require_language_match=True)
         if selected:
             return selected, True
+        if not _env_bool("EA_AUDIOBOOK_ALLOW_AUTHOR_GENDER_FALLBACK", False):
+            selected = _first_match(require_author_gender_match=True, require_language_match=False)
+            if selected:
+                return selected, True
+            return {}, True
     selected = _first_match(require_author_gender_match=False, require_language_match=True)
     if selected:
         return selected, False
@@ -2507,6 +2512,22 @@ def select_unmixr_voice_for_book(
         author_gender_signal=str(profile.get("author_gender_signal") or ""),
     )
     if not selected:
+        if author_gender_preference_used and not _env_bool("EA_AUDIOBOOK_ALLOW_AUTHOR_GENDER_FALLBACK", False):
+            return {
+                "status": "blocked",
+                "reason": "author_gender_matching_voice_missing",
+                "voice_id": "",
+                "public": {
+                    "status": "blocked",
+                    "reason": "author_gender_matching_voice_missing",
+                    "strategy": "book_profile_voice_selection",
+                    "author_gender_preference_used": True,
+                    "book_profile": _public_book_profile(profile),
+                    "candidate_count": len(candidate_rows),
+                    "candidate_scores": candidate_rows[:8],
+                    "raw_voice_ids_exposed": False,
+                },
+            }
         selected = dict(candidate_rows[0])
         author_gender_preference_used = False
     voice_id = str(selected.pop("_voice_id") or "")
@@ -3118,6 +3139,10 @@ def prepare_audiobook_voice_audition(*, job_dir: Path, batch_size: int = 3, refi
             require_author_gender_match=True,
         )
         if not preferred_rows:
+            if not _env_bool("EA_AUDIOBOOK_ALLOW_AUTHOR_GENDER_FALLBACK", False):
+                author_gender_preference_used = True
+                author_gender_match_only_batch_used = True
+                return []
             return _pick_pending_rows(
                 source_rows,
                 exclude_keys=exclude_keys,
