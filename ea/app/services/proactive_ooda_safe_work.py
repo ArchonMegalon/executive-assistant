@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import html
+import os
 import hashlib
 import json
 import re
-import os
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -181,7 +181,6 @@ _FLAT_SEARCH_TERMS = (
     "kauf",
     "haus",
     "wohnungstausch",
-    "zimmer",
     "studio",
 )
 _LOCATION_LIKE_QUERY_TOKENS = {
@@ -411,7 +410,13 @@ def build_safe_work_result(
     work_type = str(order.get("work_type") or "research").strip() or "research"
     candidate_items = _candidate_items(input_contract=input_contract, stage_payload=stage_payload)
     context = _candidate_evaluation_context(input_contract=input_contract, stage_payload=stage_payload)
-    if not candidate_items and network_fetch_enabled:
+    flat_search_disabled_by_policy = (
+        not _proactive_ooda_flat_search_enabled()
+        and _is_flat_property_search_context(context=context)
+        and not candidate_items
+    )
+    effective_network_fetch_enabled = bool(network_fetch_enabled) and not flat_search_disabled_by_policy
+    if not candidate_items and effective_network_fetch_enabled:
         candidate_items = _research_candidate_items(
             input_contract=input_contract,
             stage_payload=stage_payload,
@@ -429,7 +434,7 @@ def build_safe_work_result(
         input_contract=input_contract,
         stage_payload=stage_payload,
         candidate_items=candidate_items,
-        network_fetch_enabled=network_fetch_enabled,
+        network_fetch_enabled=effective_network_fetch_enabled,
         limit=network_fetch_limit,
         timeout_seconds=network_fetch_timeout_seconds,
     )
@@ -542,7 +547,7 @@ def build_safe_work_result(
             "irreversible_actions_require_explicit_approval": True,
         },
         "execution_receipt": {
-            "network_fetch_enabled": bool(network_fetch_enabled),
+            "network_fetch_enabled": bool(effective_network_fetch_enabled),
             "network_fetch_count": len(page_checks),
             "network_fetch_success_count": sum(1 for check in page_checks if check.get("reachable") is True),
             "search_candidate_count": sum(1 for item in candidate_items if str(item.get("candidate_source") or "") == "search_result"),
@@ -783,10 +788,10 @@ def _context_fit_receipt(context: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _flat_provider_search_blockers(*, context: Mapping[str, Any], queries: Iterable[str]) -> list[str]:
-    if not context.get("provider_discovery_relevant"):
-        return []
     if not _proactive_ooda_flat_search_enabled() and _is_flat_property_search_context(context=context):
         return ["flat_search_disabled"]
+    if not context.get("provider_discovery_relevant"):
+        return []
     query_list = [str(query or "").strip() for query in queries if str(query or "").strip()]
     blockers: list[str] = []
     if context.get("provider_search_query_too_generic"):
@@ -802,6 +807,8 @@ def _flat_provider_search_blockers(*, context: Mapping[str, Any], queries: Itera
 
 
 def _proactive_ooda_flat_search_enabled() -> bool:
+    if _env_truthy(os.getenv("EA_PROACTIVE_OODA_DISABLE_FLAT_SEARCH"), default=False):
+        return False
     raw = str(os.getenv("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED") or "").strip().lower()
     if raw in {"1", "true", "yes", "on", "enabled"}:
         return True
@@ -810,18 +817,47 @@ def _proactive_ooda_flat_search_enabled() -> bool:
     return False
 
 
+def _env_truthy(value: object, *, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "on", "enabled"}:
+        return True
+    if normalized in {"0", "false", "no", "off", "disabled"}:
+        return False
+    return default
+
+
 def _is_flat_property_search_context(*, context: Mapping[str, Any]) -> bool:
     search_terms = (
         tuple(_string_list(context.get("provider_query_terms") or ()))
         + tuple(_string_list(context.get("all_text") or ()))
     )
     for term in search_terms:
-        lowered = _ascii_fold_text(str(term or ""))
+        lowered = f" {_ascii_fold_text(str(term or '')).lower()} "
         if not lowered:
             continue
-        for marker in _FLAT_SEARCH_TERMS:
-            if marker in lowered:
-                return True
+        tokens = set(re.findall(r"[a-z0-9]+", lowered))
+        if tokens & {
+            "apartment",
+            "flat",
+            "immo",
+            "immobilie",
+            "immobilien",
+            "wohnung",
+            "wohnungen",
+            "wohnraum",
+            "wohnungstausch",
+        }:
+            return True
+        if any(token.startswith(("immobili", "wohnung")) for token in tokens):
+            return True
+        weak_object_terms = {"haus", "studio", "objekt"}
+        property_action_terms = {"kauf", "kaufe", "kaufen", "miete", "mieten", "mietwohnung", "rental", "rent"}
+        if tokens & weak_object_terms and tokens & property_action_terms:
+            return True
     return False
 
 
@@ -2122,14 +2158,14 @@ def _location_query_variants(location_context: Mapping[str, Any]) -> tuple[str, 
 
 
 def _search_query_has_locality(query: str, location_variants: Iterable[str]) -> bool:
-    normalized_query = _ascii_fold_text(query)
-    return any(_ascii_fold_text(str(variant or "").strip()) in normalized_query for variant in location_variants if str(variant or "").strip())
+    normalized_query = _ascii_fold_text(query).lower()
+    return any(_ascii_fold_text(str(variant or "").strip()).lower() in normalized_query for variant in location_variants if str(variant or "").strip())
 
 
 def _provider_queries_have_location_scope(*, context: Mapping[str, Any], queries: Iterable[str]) -> bool:
     location_variants = _location_query_variants(_mapping_value(context.get("location_context")))
     for query in queries:
-        normalized = _ascii_fold_text(str(query or ""))
+        normalized = _ascii_fold_text(str(query or "")).lower()
         if location_variants and _search_query_has_locality(normalized, location_variants):
             return True
         tokens = set(re.findall(r"[a-z0-9]{3,}", normalized))

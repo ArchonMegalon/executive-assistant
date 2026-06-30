@@ -924,6 +924,37 @@ def _transcript_service_provider_request(lowered_request: str) -> bool:
     return False
 
 
+def _proactive_ooda_flat_search_enabled() -> bool:
+    if _truthy_default(os.getenv("EA_PROACTIVE_OODA_DISABLE_FLAT_SEARCH"), default=False):
+        return False
+    return _truthy_default(os.getenv("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED"), default=False)
+
+
+def _transcript_is_flat_property_search(lowered_request: str) -> bool:
+    normalized = f" {_ascii_fold_text(str(lowered_request or '').strip().lower())} "
+    if not normalized.strip():
+        return False
+    tokens = set(re.findall(r"[a-z0-9]+", normalized))
+    if tokens & {
+        "apartment",
+        "flat",
+        "immo",
+        "immobilie",
+        "immobilien",
+        "wohnung",
+        "wohnungen",
+        "wohnungstausch",
+    }:
+        return True
+    if any(token.startswith(("immobili", "wohnung")) for token in tokens):
+        return True
+    weak_object_terms = {"haus", "studio", "objekt"}
+    property_action_terms = {"kauf", "kaufe", "kaufen", "miete", "mieten", "mietwohnung", "rental", "rent"}
+    if tokens & weak_object_terms and tokens & property_action_terms:
+        return True
+    return False
+
+
 def _transcript_has_action_intent(lowered_request: str) -> bool:
     normalized = _ascii_fold_text(_clean_text(lowered_request).strip().lower())
     if not normalized:
@@ -1132,6 +1163,8 @@ def _transcript_assistant_ooda(
     normalized_request = _clean_text(request_text).strip()
     lowered = normalized_request.lower()
     if not normalized_request or not _transcript_has_action_intent(lowered):
+        return {}
+    if not _proactive_ooda_flat_search_enabled() and _transcript_is_flat_property_search(lowered):
         return {}
     note_list = [str(item).strip() for item in notes if str(item).strip()][:4]
     delivery_window = _transcript_delivery_window_days(lowered)
@@ -1423,6 +1456,8 @@ def observation_row_to_signal(
         signal_type = "commitment_candidate"
         due_at = ""
     elif event_type == "property_scout_sync_completed":
+        if not _proactive_ooda_flat_search_enabled():
+            return None
         status = str(payload.get("status") or "processed").strip()
         scout_totals = _property_scout_sync_totals(payload)
         high_fit_total = scout_totals["high_fit_total"]
@@ -1609,6 +1644,13 @@ def observation_row_to_signal(
             observed_at=created_at,
         )
     else:
+        return None
+    if event_type in {
+        "telegram.message",
+        "telegram_business.signal_candidate",
+        "alexa_history_indexed",
+        "pocket_recording_archive_indexed",
+    } and not ooda_loop and proactive_suppression is None:
         return None
     if not title and not summary:
         return None
@@ -2404,6 +2446,8 @@ def _signal_from_row(row: Mapping[str, Any], *, source: SignalSource, index: int
 
 
 def _proactive_ooda_property_scout_signals_enabled() -> bool:
+    if not _proactive_ooda_flat_search_enabled():
+        return False
     return _truthy_default(os.getenv("EA_PROACTIVE_OODA_PROPERTY_SCOUT_SIGNALS_ENABLED"), default=False)
 
 

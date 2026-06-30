@@ -850,10 +850,14 @@ def _run_scheduler_google_signal_sync(container, log: logging.Logger) -> dict[st
 
 
 def _scheduler_property_scout_enabled() -> bool:
-    normalized = str(os.environ.get("EA_SCHEDULER_PROPERTY_SCOUT_ENABLED") or "").strip().lower()
-    if not normalized:
+    if _env_bool("EA_PROACTIVE_OODA_DISABLE_FLAT_SEARCH", False):
+        return False
+    if not _env_bool("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED", False):
+        return False
+    raw = str(os.environ.get("EA_SCHEDULER_PROPERTY_SCOUT_ENABLED") or "").strip().lower()
+    if not raw:
         return True
-    return normalized in {"1", "true", "yes", "on", "y"}
+    return raw in {"1", "true", "yes", "on", "y"}
 
 
 def _propertyquarry_scheduler_profile() -> str:
@@ -1652,7 +1656,7 @@ def _run_execution_worker(role: str) -> None:
                 except Exception:
                     log.exception("role=%s scheduler property scout failed", role)
                     last_property_scout_at = now
-            if now - last_property_results_finalize_at >= _scheduler_property_results_finalize_interval_seconds():
+            if _scheduler_property_scout_enabled() and now - last_property_results_finalize_at >= _scheduler_property_results_finalize_interval_seconds():
                 try:
                     finalize_summary = _run_scheduler_property_results_finalize(container, log)
                     last_property_results_finalize_at = now

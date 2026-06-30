@@ -48,6 +48,8 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch) -> Iterator[d
 
     client = build_product_client(principal_id="pq-greenfield-browser")
     start_workspace(client, mode="personal", workspace_name="Property Office")
+    monkeypatch.setenv("EA_PROACTIVE_OODA_DISABLE_FLAT_SEARCH", "0")
+    monkeypatch.setenv("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED", "1")
     monkeypatch.setenv("PAYPAL_CLIENT_ID", "paypal-client")
     monkeypatch.setenv("PAYPAL_SECRET", "paypal-secret")
     stored = client.post(

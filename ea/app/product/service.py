@@ -6522,6 +6522,12 @@ def _env_flag(name: str, default: bool = False) -> bool:
     return default
 
 
+def _proactive_ooda_flat_search_enabled() -> bool:
+    if _env_flag("EA_PROACTIVE_OODA_DISABLE_FLAT_SEARCH", default=False):
+        return False
+    return _env_flag("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED", default=False)
+
+
 def _willhaben_search_agent_auto_create_enabled() -> bool:
     return _env_flag("EA_WILLHABEN_SEARCH_AGENT_AUTO_CREATE_PROPERTY_TOUR", default=False)
 
@@ -23491,6 +23497,42 @@ class ProductService:
         normalized_principal = str(principal_id or "").strip()
         if not normalized_principal:
             raise ValueError("principal_id_required")
+
+        if not _proactive_ooda_flat_search_enabled():
+            now_iso = _now_iso()
+            return {
+                "generated_at": now_iso,
+                "run_id": "",
+                "principal_id": normalized_principal,
+                "status": "disabled",
+                "status_url": "",
+                "selected_platforms": list(tuple(selected_platforms or ())),
+                "progress": _PROPERTY_SEARCH_RUN_STAGES,
+                "current_step": "disabled",
+                "message": "Flat-search feature is disabled.",
+                "stages_total": _PROPERTY_SEARCH_RUN_STAGES,
+                "steps_completed": _PROPERTY_SEARCH_RUN_STAGES,
+                "summary": _property_search_run_default_summary(dict(property_search_preferences or {})),
+                "events": [
+                    {
+                        "at": now_iso,
+                        "step": "disabled",
+                        "message": "Flat-search feature is disabled. Set EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED=1 and unset EA_PROACTIVE_OODA_DISABLE_FLAT_SEARCH to run.",
+                        "status": "disabled",
+                    },
+                ],
+                "research_tasks": [],
+                "research_task_total": 0,
+                "open_research_task_total": 0,
+                "filled_research_task_total": 0,
+                "dismissed_research_task_total": 0,
+                "bootstrap_required": False,
+                "bootstrap_country_code": "",
+                "bootstrap_country_label": "",
+                "bootstrap_eta_hours": 0,
+                "bootstrap_handoff_ref": "",
+            }
+
         bootstrap_payload = self._open_property_market_bootstrap(
             principal_id=normalized_principal,
             actor=actor,
@@ -23814,7 +23856,35 @@ class ProductService:
         force_refresh: bool = False,
         max_results_per_source: int | None = None,
         progress_callback: callable | None = None,
+        require_flat_search_feature: bool = True,
     ) -> dict[str, object]:
+        if require_flat_search_feature and not _proactive_ooda_flat_search_enabled():
+            return {
+                "generated_at": _now_iso(),
+                "status": "disabled",
+                "reason": "flat_search_feature_disabled",
+                "sources_total": 0,
+                "listing_total": 0,
+                "duplicate_listing_total": 0,
+                "review_created_total": 0,
+                "review_existing_total": 0,
+                "notified_total": 0,
+                "email_notified_total": 0,
+                "tour_created_total": 0,
+                "tour_existing_total": 0,
+                "high_fit_total": 0,
+                "watch_notified_total": 0,
+                "failed_total": 0,
+                "filtered_property_type_total": 0,
+                "filtered_area_total": 0,
+                "filtered_availability_total": 0,
+                "filtered_floorplan_total": 0,
+                "filtered_low_fit_total": 0,
+                "provider_cache_hit_total": 0,
+                "provider_cache_refresh_total": 0,
+                "sources": [],
+            }
+
         run_platforms = _property_search_platforms_with_family_toggles(
             _normalize_property_search_platform_inputs(selected_platforms),
             property_search_preferences,

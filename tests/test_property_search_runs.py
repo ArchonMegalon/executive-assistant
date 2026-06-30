@@ -21,6 +21,12 @@ from app.services.tool_execution_browseract_adapter import BrowserActToolAdapter
 from tests.product_test_helpers import build_property_client, seed_product_state, start_workspace
 
 
+@pytest.fixture(autouse=True)
+def _enable_flat_search_for_property_search_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_PROACTIVE_OODA_DISABLE_FLAT_SEARCH", "0")
+    monkeypatch.setenv("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED", "1")
+
+
 def _poll_property_search_run_status(client, run_id: str) -> dict[str, object]:
     latest_status: dict[str, object] = {}
     for _ in range(120):

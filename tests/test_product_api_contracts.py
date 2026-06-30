@@ -23,6 +23,12 @@ from app.services import google_oauth as google_oauth_service
 from tests.product_test_helpers import build_operator_product_client, build_product_client, seed_product_state, start_workspace
 
 
+@pytest.fixture(autouse=True)
+def _enable_flat_search_for_product_api_contracts(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_PROACTIVE_OODA_DISABLE_FLAT_SEARCH", "0")
+    monkeypatch.setenv("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED", "1")
+
+
 def test_product_api_projects_real_runtime_objects() -> None:
     principal_id = "exec-product-api"
     client = build_product_client(principal_id=principal_id)
