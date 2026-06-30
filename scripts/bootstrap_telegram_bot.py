@@ -102,6 +102,33 @@ def _webhook_url(bot_key: str = "") -> str:
     return f"{base}/v1/channels/telegram/ingest"
 
 
+def _business_webhook_url(bot_key: str = "") -> str:
+    base = _public_app_base_url()
+    if not base:
+        raise SystemExit("EA_PUBLIC_APP_BASE_URL_missing")
+    normalized = str(bot_key or "").strip()
+    if normalized and normalized != "default":
+        return f"{base}/v1/channels/telegram/business/ingest/{normalized}"
+    return f"{base}/v1/channels/telegram/business/ingest"
+
+
+def _allowed_updates(*, business: bool = False) -> list[str]:
+    if business:
+        return [
+            "business_connection",
+            "business_message",
+            "edited_business_message",
+            "deleted_business_messages",
+        ]
+    return [
+        "message",
+        "edited_message",
+        "callback_query",
+        "my_chat_member",
+        "chat_member",
+    ]
+
+
 def _telegram_api(method: str, payload: dict[str, object] | None = None, *, token: str = "") -> dict[str, object]:
     token = str(token or _telegram_bot_token()).strip()
     if not token:
@@ -125,6 +152,7 @@ def main() -> int:
     parser.add_argument("--env-file", default=str(Path(__file__).resolve().parents[1] / ".env"), help="Optional dotenv file to load before bootstrapping.")
     parser.add_argument("--bot-key", default="", help="Optional bot registry key to target.")
     parser.add_argument("--all-bots", action="store_true", help="Apply the action to every configured bot registry entry.")
+    parser.add_argument("--business", action="store_true", help="Target the read-only Telegram Business/Secretary signal ingest webhook.")
     parser.add_argument("--set-webhook", action="store_true", help="Register the Telegram webhook.")
     parser.add_argument("--drop-webhook", action="store_true", help="Delete the Telegram webhook.")
     parser.add_argument("--show", action="store_true", help="Show bot and webhook info.")
@@ -146,12 +174,15 @@ def main() -> int:
     for selected_key, config in selected:
         token = str(config.get("token") or "").strip()
         secret = str(config.get("secret") or "").strip()
+        webhook_url = _business_webhook_url(selected_key) if args.business else _webhook_url(selected_key)
         if args.show:
             print(
                 json.dumps(
                     {
                         "bot_key": selected_key,
-                        "webhook_url": _webhook_url(selected_key),
+                        "business_mode": bool(args.business),
+                        "webhook_url": webhook_url,
+                        "allowed_updates": _allowed_updates(business=bool(args.business)),
                         "getMe": _telegram_api("getMe", token=token),
                         "getWebhookInfo": _telegram_api("getWebhookInfo", token=token),
                     },
@@ -166,15 +197,9 @@ def main() -> int:
             if not secret:
                 raise SystemExit(f"EA_TELEGRAM_INGEST_SECRET_missing:{selected_key}")
             payload = {
-                "url": _webhook_url(selected_key),
+                "url": webhook_url,
                 "secret_token": secret,
-                "allowed_updates": [
-                    "message",
-                    "edited_message",
-                    "callback_query",
-                    "my_chat_member",
-                    "chat_member",
-                ],
+                "allowed_updates": _allowed_updates(business=bool(args.business)),
                 "drop_pending_updates": False,
             }
             print(json.dumps({"bot_key": selected_key, "result": _telegram_api("setWebhook", payload, token=token)}, indent=2))

@@ -27,6 +27,7 @@ DEFAULT_TEABLE_RECOVERY_PROOF = ROOT / ".codex-studio/published/teable_env_recov
 DEFAULT_PROACTIVE_OODA_OPERATOR_STATUS = ROOT / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
 DEFAULT_PROACTIVE_OODA_GOLD_ACCEPTANCE = ROOT / ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json"
 DEFAULT_POCKET_AUDIO_ARCHIVE = ROOT / ".codex-studio/published/pocket_audio_archive_receipt.generated.json"
+DEFAULT_TELEGRAM_BUSINESS_SIGNAL_READINESS = ROOT / ".codex-studio/published/telegram_business_signal_readiness.generated.json"
 DEFAULT_TELEGRAM_AUDIOBOOK_READINESS = ROOT / ".codex-studio/published/telegram_audiobook_live_readiness.generated.json"
 DEFAULT_TELEGRAM_AUDIOBOOK_DELIVERY = ROOT / ".codex-studio/published/telegram_audiobook_live_delivery.generated.json"
 DEFAULT_WHATSAPP_AUDIOBOOK_INTAKE = ROOT / ".codex-studio/published/whatsapp_audiobook_local_intake_proof.generated.json"
@@ -44,6 +45,7 @@ PROACTIVE_OODA_ACCEPTANCE_RECEIPT = (
     "current-packet, stale-approval, and decision facts, and explicit approval outcome"
 )
 FRESH_HOST_TEABLE_RECOVERY_RECEIPT = "fresh-host Teable recovery drill receipt mirrored into the repo"
+TELEGRAM_BUSINESS_SIGNAL_SETUP_RECEIPT = "Telegram Business/Secretary bot connected with allowlisted signal chats"
 MANFRED_REALTIME_ACCEPTANCE_RECEIPT = "consented Manfred STT/TTS realtime conversation proof"
 TELEGRAM_AUDIOBOOK_LIVE_DELIVERY_RECEIPT = "passing Telegram audiobook live delivery receipt"
 WHATSAPP_AUDIOBOOK_LIVE_DELIVERY_RECEIPT = "passing WhatsApp audiobook live delivery receipt"
@@ -72,6 +74,11 @@ ACTION_SURFACES = {
     "run_shell_seeded_fresh_host_probe_and_mirror_drill_evidence": {
         "href": "/admin/goals",
         "label": "Open goal evidence",
+        "method": "get",
+    },
+    "connect_telegram_business_secretary_bot_and_allowlist_chats": {
+        "href": "/integrations/telegram",
+        "label": "Open Telegram setup",
         "method": "get",
     },
     "capture_consented_manfred_stt_tts_realtime_proof": {
@@ -412,6 +419,7 @@ def build_goal_posture(
     ooda_status, ooda_status_path = _load_receipt(root, root / DEFAULT_PROACTIVE_OODA_OPERATOR_STATUS.relative_to(ROOT))
     ooda_gold, ooda_gold_path = _load_receipt(root, root / DEFAULT_PROACTIVE_OODA_GOLD_ACCEPTANCE.relative_to(ROOT))
     pocket_audio, pocket_audio_path = _load_receipt(root, root / DEFAULT_POCKET_AUDIO_ARCHIVE.relative_to(ROOT))
+    tg_business, tg_business_path = _load_receipt(root, root / DEFAULT_TELEGRAM_BUSINESS_SIGNAL_READINESS.relative_to(ROOT))
     tg_ready, tg_ready_path = _load_receipt(root, root / DEFAULT_TELEGRAM_AUDIOBOOK_READINESS.relative_to(ROOT))
     tg_live, tg_live_path = _load_receipt(root, root / DEFAULT_TELEGRAM_AUDIOBOOK_DELIVERY.relative_to(ROOT))
     wa_intake, wa_intake_path = _load_receipt(root, root / DEFAULT_WHATSAPP_AUDIOBOOK_INTAKE.relative_to(ROOT))
@@ -433,6 +441,7 @@ def build_goal_posture(
         verifier_commands=[
             "make verify-whole-project-signal-to-decision-receipt",
             "python3 scripts/verify_pocket_audio_archive_receipt.py",
+            "python3 scripts/verify_telegram_business_signal_readiness.py",
             "make verify-proactive-ooda",
         ],
         source_receipts=[
@@ -447,7 +456,13 @@ def build_goal_posture(
                 pocket_audio,
                 current_source_head=current_source_head,
                 current_source_fingerprint=current_source_fingerprint,
-            )
+            ),
+            _source_receipt(
+                tg_business_path,
+                tg_business,
+                current_source_head=current_source_head,
+                current_source_fingerprint=current_source_fingerprint,
+            ),
         ],
     )
     detect_lens["transcript_ingest_evidence"] = {
@@ -464,6 +479,25 @@ def build_goal_posture(
         "raw_transcript_text_exposed": bool(dict(pocket_audio.get("privacy") or {}).get("raw_transcript_text_exposed")),
         "raw_archive_root_exposed": bool(dict(pocket_audio.get("privacy") or {}).get("raw_archive_root_exposed")),
         "raw_credential_exposed": bool(dict(pocket_audio.get("privacy") or {}).get("raw_credential_exposed")),
+    }
+    detect_lens["telegram_business_signal_ingest"] = {
+        "key": "telegram_business_secretary_bot",
+        "status": _status(tg_business),
+        "business_mode": bool(tg_business.get("business_mode")),
+        "webhook_path": str(tg_business.get("webhook_path") or "").strip(),
+        "allowed_updates": list(tg_business.get("allowed_updates") or []),
+        "chat_allowlist_configured": bool(dict(tg_business.get("chat_allowlist") or {}).get("configured")),
+        "bot_token_present": bool(dict(tg_business.get("bot_registry") or {}).get("token_present")),
+        "ingest_secret_present": bool(dict(tg_business.get("bot_registry") or {}).get("ingest_secret_present")),
+        "default_principal_present": bool(dict(tg_business.get("bot_registry") or {}).get("default_principal_present")),
+        "raw_token_exposed": bool(dict(tg_business.get("privacy") or {}).get("raw_token_exposed")),
+        "raw_secret_exposed": bool(dict(tg_business.get("privacy") or {}).get("raw_secret_exposed")),
+        "raw_chat_ids_exposed": bool(dict(tg_business.get("privacy") or {}).get("raw_chat_ids_exposed")),
+        "raw_webhook_url_exposed": bool(dict(tg_business.get("privacy") or {}).get("raw_webhook_url_exposed")),
+        "next_action": str(
+            dict(tg_business.get("operator_action") or {}).get("next_action")
+            or "connect_telegram_business_secretary_bot_and_allowlist_chats"
+        ).strip(),
     }
 
     decide_lens = _lens(
@@ -753,6 +787,8 @@ def build_goal_posture(
     lenses = [detect_lens, decide_lens, deliver_lens, recover_lens, prove_lens]
     blocking_reasons: list[str] = []
     for lens in lenses:
+        if lens["key"] == "detect" and _is_blocking(_status(tg_business)):
+            blocking_reasons.append(f"detect:telegram_business_signal={_status(tg_business)}")
         if lens["key"] == "deliver":
             for component in lens["components"]:
                 component_status = _compact(component.get("status")).lower()
@@ -878,6 +914,34 @@ def build_goal_posture(
                         current_source_head=current_source_head,
                         current_source_fingerprint=current_source_fingerprint,
                     ),
+                ],
+            )
+        )
+    if any(reason.startswith("detect:telegram_business_signal") for reason in blocking_reasons):
+        tg_business_action = dict(tg_business.get("operator_action") or {})
+        acceptance_proof_requirements.append(
+            _acceptance_proof_requirement(
+                key="telegram_business_signal_setup",
+                title="Telegram Business signal ingest setup",
+                lens="detect",
+                required_next_receipt=TELEGRAM_BUSINESS_SIGNAL_SETUP_RECEIPT,
+                evidence_kind="secretary_bot_signal_ingest_setup",
+                capture_surfaces=[tg_business_path],
+                next_action="connect_telegram_business_secretary_bot_and_allowlist_chats",
+                claim_boundary="does_not_prove_telegram_business_signal_ingest_until_secretary_bot_is_connected_with_an_allowlisted_chat_and_business_webhook",
+                action_context={
+                    "user_action_required": bool(tg_business_action.get("user_action_required")),
+                    "instruction": str(tg_business_action.get("instruction") or "").strip(),
+                    "raw_voice_ids_exposed": False,
+                    "callback_tokens_exposed": False,
+                },
+                source_receipts=[
+                    _source_receipt(
+                        tg_business_path,
+                        tg_business,
+                        current_source_head=current_source_head,
+                        current_source_fingerprint=current_source_fingerprint,
+                    )
                 ],
             )
         )

@@ -1,0 +1,79 @@
+{
+  "allowed_updates": [
+    "business_connection",
+    "business_message",
+    "edited_business_message",
+    "deleted_business_messages"
+  ],
+  "bot_registry": {
+    "configured_bot_count": 1,
+    "default_principal_present": true,
+    "handle_present": true,
+    "ingest_secret_present": true,
+    "raw_principal_id_exposed": false,
+    "raw_secret_exposed": false,
+    "raw_token_exposed": false,
+    "selected_bot_key": "default",
+    "selected_bot_present": true,
+    "token_present": true
+  },
+  "business_mode": true,
+  "chat_allowlist": {
+    "allowed_chat_hash_count": 0,
+    "allowed_chat_id_count": 0,
+    "chat_hashes_present": false,
+    "configured": false,
+    "raw_chat_hashes_exposed": false,
+    "raw_chat_ids_exposed": false,
+    "raw_chat_ids_present": false
+  },
+  "claim_boundary": "does_not_prove_telegram_business_signal_ingest_until_secretary_bot_is_connected_with_an_allowlisted_chat_and_business_webhook",
+  "code": {
+    "bootstrap_business_mode_present": true,
+    "endpoint_present": true,
+    "normalizer_allowed_updates_present": true,
+    "normalizer_present": true,
+    "normalizer_read_only_guards_present": true,
+    "verifier_present": true
+  },
+  "contract_name": "ea.telegram_business_signal_readiness.v1",
+  "generated_at": "2026-06-30T06:29:28Z",
+  "generated_by": "scripts/materialize_telegram_business_signal_readiness.py",
+  "head_semantics": "source_state",
+  "live_webhook_probe": {
+    "reason": "live_probe_disabled",
+    "status": "skipped"
+  },
+  "missing_setup": [
+    "chat_allowlist_configured"
+  ],
+  "operator_action": {
+    "instruction": "Connect the EA bot as Telegram Business/Secretary bot, allow only selected chats, configure the Business webhook, and set EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_IDS or EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_HASHES.",
+    "irreversible_actions_consent_gated": true,
+    "next_action": "connect_telegram_business_secretary_bot_and_allowlist_chats",
+    "next_action_href": "/integrations/telegram",
+    "next_action_label": "Open Telegram setup",
+    "next_action_method": "get",
+    "non_action_progress_push_allowed": false,
+    "telegram_push_allowed": true,
+    "user_action_required": true
+  },
+  "privacy": {
+    "raw_chat_ids_exposed": false,
+    "raw_payload_exposed": false,
+    "raw_secret_exposed": false,
+    "raw_token_exposed": false,
+    "raw_webhook_url_exposed": false
+  },
+  "setup_commands": [
+    "python3 scripts/bootstrap_telegram_bot.py --business --show",
+    "python3 scripts/bootstrap_telegram_bot.py --business --set-webhook",
+    "python3 scripts/materialize_telegram_business_signal_readiness.py",
+    "python3 scripts/verify_telegram_business_signal_readiness.py"
+  ],
+  "source_git_head": "65003527b3144603f92d107f6d084fa0b6c5cbbc",
+  "source_state_fingerprint": "7c3ff6ab6d5e0d47046f46da87a325440cd0284b4300363c7fb4915b7e8358b0",
+  "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
+  "status": "blocked_setup_required",
+  "webhook_path": "/v1/channels/telegram/business/ingest"
+}

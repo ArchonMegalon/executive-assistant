@@ -75,8 +75,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "b3350b5d14def9a2d6b2162d05f17b610c1d842e",
-          "source_state_fingerprint": "72a055b9ebc167802d5c0f7d378efe217775d05bf0166af9fe50aac7aa1f0ffd",
+          "source_git_head": "65003527b3144603f92d107f6d084fa0b6c5cbbc",
+          "source_state_fingerprint": "7c3ff6ab6d5e0d47046f46da87a325440cd0284b4300363c7fb4915b7e8358b0",
           "status": "pass"
         },
         {
@@ -84,13 +84,46 @@
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "b3350b5d14def9a2d6b2162d05f17b610c1d842e",
-          "source_state_fingerprint": "72a055b9ebc167802d5c0f7d378efe217775d05bf0166af9fe50aac7aa1f0ffd",
+          "source_git_head": "65003527b3144603f92d107f6d084fa0b6c5cbbc",
+          "source_state_fingerprint": "7c3ff6ab6d5e0d47046f46da87a325440cd0284b4300363c7fb4915b7e8358b0",
           "status": "ready_with_live_receipt"
         }
       ],
       "status": "satisfied",
       "title": "Proactive OODA packet approval outcome"
+    },
+    {
+      "action_context": {
+        "callback_tokens_exposed": false,
+        "instruction": "Connect the EA bot as Telegram Business/Secretary bot, allow only selected chats, configure the Business webhook, and set EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_IDS or EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_HASHES.",
+        "raw_voice_ids_exposed": false,
+        "user_action_required": true
+      },
+      "capture_surfaces": [
+        ".codex-studio/published/telegram_business_signal_readiness.generated.json"
+      ],
+      "claim_boundary": "does_not_prove_telegram_business_signal_ingest_until_secretary_bot_is_connected_with_an_allowlisted_chat_and_business_webhook",
+      "evidence_kind": "secretary_bot_signal_ingest_setup",
+      "key": "telegram_business_signal_setup",
+      "lens": "detect",
+      "next_action": "connect_telegram_business_secretary_bot_and_allowlist_chats",
+      "next_action_href": "/integrations/telegram",
+      "next_action_label": "Open Telegram setup",
+      "next_action_method": "get",
+      "required_next_receipt": "Telegram Business/Secretary bot connected with allowlisted signal chats",
+      "source_receipts": [
+        {
+          "contract_name": "ea.telegram_business_signal_readiness.v1",
+          "path": ".codex-studio/published/telegram_business_signal_readiness.generated.json",
+          "present": true,
+          "source_fresh_to_current_source": true,
+          "source_git_head": "65003527b3144603f92d107f6d084fa0b6c5cbbc",
+          "source_state_fingerprint": "7c3ff6ab6d5e0d47046f46da87a325440cd0284b4300363c7fb4915b7e8358b0",
+          "status": "blocked_setup_required"
+        }
+      ],
+      "status": "pending_real_world_evidence",
+      "title": "Telegram Business signal ingest setup"
     },
     {
       "capture_surfaces": [
@@ -232,6 +265,7 @@
     }
   ],
   "blocking_reasons": [
+    "detect:telegram_business_signal=blocked_setup_required",
     "deliver:manfred_speech=blocked_realtime_prerequisites",
     "deliver:telegram_audiobook=blocked",
     "deliver:whatsapp_audiobook=waiting",
@@ -245,7 +279,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-06-30T06:20:17Z",
+  "generated_at": "2026-06-30T06:29:29Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -274,11 +308,41 @@
           "source_git_head": "6190bd16efb974baea030956bfa54f81dc41f603",
           "source_state_fingerprint": "3960c30953c3bac8e1e8e824888cd7744585a8ce66ab6335dc28eb1ad3b7db3a",
           "status": "pass"
+        },
+        {
+          "contract_name": "ea.telegram_business_signal_readiness.v1",
+          "path": ".codex-studio/published/telegram_business_signal_readiness.generated.json",
+          "present": true,
+          "source_fresh_to_current_source": true,
+          "source_git_head": "65003527b3144603f92d107f6d084fa0b6c5cbbc",
+          "source_state_fingerprint": "7c3ff6ab6d5e0d47046f46da87a325440cd0284b4300363c7fb4915b7e8358b0",
+          "status": "blocked_setup_required"
         }
       ],
       "status": "ready_local_packet_pending_operator_acceptance",
       "status_class": "progress",
       "summary": "Turn incoming signals into a bounded operator packet and proactive OODA shortlist that can become decision-ready packets instead of letting them pile up as ambient noise. Pocket/audio transcript ingest is pass.",
+      "telegram_business_signal_ingest": {
+        "allowed_updates": [
+          "business_connection",
+          "business_message",
+          "edited_business_message",
+          "deleted_business_messages"
+        ],
+        "bot_token_present": true,
+        "business_mode": true,
+        "chat_allowlist_configured": false,
+        "default_principal_present": true,
+        "ingest_secret_present": true,
+        "key": "telegram_business_secretary_bot",
+        "next_action": "connect_telegram_business_secretary_bot_and_allowlist_chats",
+        "raw_chat_ids_exposed": false,
+        "raw_secret_exposed": false,
+        "raw_token_exposed": false,
+        "raw_webhook_url_exposed": false,
+        "status": "blocked_setup_required",
+        "webhook_path": "/v1/channels/telegram/business/ingest"
+      },
       "title": "Signal ingest and prioritization",
       "transcript_ingest_evidence": {
         "archive_audio_file_total": 11,
@@ -296,6 +360,7 @@
       "verifier_commands": [
         "make verify-whole-project-signal-to-decision-receipt",
         "python3 scripts/verify_pocket_audio_archive_receipt.py",
+        "python3 scripts/verify_telegram_business_signal_readiness.py",
         "make verify-proactive-ooda"
       ]
     },
@@ -469,8 +534,8 @@
           "path": ".codex-studio/published/teable_env_recovery_proof.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "b3350b5d14def9a2d6b2162d05f17b610c1d842e",
-          "source_state_fingerprint": "72a055b9ebc167802d5c0f7d378efe217775d05bf0166af9fe50aac7aa1f0ffd",
+          "source_git_head": "65003527b3144603f92d107f6d084fa0b6c5cbbc",
+          "source_state_fingerprint": "7c3ff6ab6d5e0d47046f46da87a325440cd0284b4300363c7fb4915b7e8358b0",
           "status": "pass"
         }
       ],
@@ -540,6 +605,28 @@
       "required_next_receipt": "passing Telegram audiobook live delivery receipt",
       "telegram_push_allowed": true,
       "title": "Telegram audiobook live delivery receipt",
+      "user_action_required": true
+    },
+    {
+      "callback_tokens_exposed": false,
+      "delivery_policy": "action_required_only",
+      "evidence_kind": "secretary_bot_signal_ingest_setup",
+      "instruction": "Connect the EA bot as Telegram Business/Secretary bot, allow only selected chats, configure the Business webhook, and set EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_IDS or EA_TELEGRAM_BUSINESS_ALLOWED_CHAT_HASHES.",
+      "interruption_budget": "action_required",
+      "irreversible_actions_consent_gated": true,
+      "key": "telegram_business_signal_setup",
+      "lens": "detect",
+      "next_action": "connect_telegram_business_secretary_bot_and_allowlist_chats",
+      "next_action_href": "/integrations/telegram",
+      "next_action_label": "Open Telegram setup",
+      "next_action_method": "get",
+      "non_action_progress_push_allowed": false,
+      "quiet_hours_respected": true,
+      "raw_private_context_exposed": false,
+      "raw_voice_ids_exposed": false,
+      "required_next_receipt": "Telegram Business/Secretary bot connected with allowlisted signal chats",
+      "telegram_push_allowed": true,
+      "title": "Telegram Business signal ingest setup",
       "user_action_required": true
     },
     {
@@ -642,6 +729,7 @@
   "required_next_receipts": [
     "real operator acceptance that the morning brief was worth reading",
     "real weekly signal-to-decision review acceptance receipt",
+    "Telegram Business/Secretary bot connected with allowlisted signal chats",
     "consented Manfred STT/TTS realtime conversation proof",
     "passing Telegram audiobook live delivery receipt",
     "passing WhatsApp audiobook live delivery receipt"
@@ -656,7 +744,7 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "b3350b5d14def9a2d6b2162d05f17b610c1d842e",
-  "source_state_fingerprint": "72a055b9ebc167802d5c0f7d378efe217775d05bf0166af9fe50aac7aa1f0ffd",
+  "source_git_head": "65003527b3144603f92d107f6d084fa0b6c5cbbc",
+  "source_state_fingerprint": "7c3ff6ab6d5e0d47046f46da87a325440cd0284b4300363c7fb4915b7e8358b0",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }

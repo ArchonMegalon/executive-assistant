@@ -32,6 +32,7 @@ KNOWN_STATUSES = {
     "blocked_realtime_prerequisites",
     "blocked_stale_source_evidence",
     "blocked",
+    "blocked_setup_required",
     "active_with_blockers",
     "command_backed_no_published_receipt",
     "missing_receipt",
@@ -74,6 +75,7 @@ EXPECTED_PROOF_ACTION_SURFACES = {
     "weekly_signal_to_decision_review_acceptance": ("/admin/actions/signal-to-decision-evidence", "post"),
     "proactive_ooda_packet_acceptance": ("/admin/proactive-ooda/approval", "get"),
     "fresh_host_teable_recovery_drill": ("/admin/goals", "get"),
+    "telegram_business_signal_setup": ("/integrations/telegram", "get"),
     "manfred_stt_tts_realtime_conversation": ("/memorials/manfred/voice-config", "get"),
     "telegram_audiobook_live_delivery": ("/integrations/telegram", "get"),
     "whatsapp_audiobook_live_delivery": ("/integrations/whatsapp", "get"),
@@ -172,7 +174,7 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
             issues.append(f"{key} lens must list verifier commands")
         if key in {"detect", "decide", "prove"}:
             sources = list(lens.get("source_receipts") or [])
-            expected_source_count = 2 if key == "detect" else 1
+            expected_source_count = 3 if key == "detect" else 1
             if len(sources) != expected_source_count:
                 issues.append(f"{key} lens must have exactly {expected_source_count} source receipt(s)")
             for source in sources:
@@ -209,6 +211,8 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                         issues.append("passing transcript_ingest_evidence requires missing_transcript_total=0")
                 if not any("verify_pocket_audio_archive_receipt.py" in str(command) for command in commands):
                     issues.append("detect lens verifier_commands must include pocket archive receipt verifier")
+                if not any("verify_telegram_business_signal_readiness.py" in str(command) for command in commands):
+                    issues.append("detect lens verifier_commands must include Telegram Business readiness verifier")
         if key == "deliver":
             components = list(lens.get("components") or [])
             component_keys = {str(component.get("key") or "") for component in components if isinstance(component, dict)}
@@ -551,6 +555,34 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
             issues.append("fresh_host_teable_recovery_drill must cite the Teable recovery readiness surface")
     elif FRESH_HOST_TEABLE_RECOVERY_RECEIPT in required_next_receipts:
         issues.append("required_next_receipts includes the Teable recovery receipt without a matching acceptance proof requirement")
+    telegram_business = dict((by_key.get("detect") or {}).get("telegram_business_signal_ingest") or {})
+    if telegram_business:
+        if telegram_business.get("raw_token_exposed") is not False:
+            issues.append("telegram_business_signal_ingest must not expose raw token")
+        if telegram_business.get("raw_secret_exposed") is not False:
+            issues.append("telegram_business_signal_ingest must not expose raw secret")
+        if telegram_business.get("raw_chat_ids_exposed") is not False:
+            issues.append("telegram_business_signal_ingest must not expose raw chat IDs")
+        if telegram_business.get("raw_webhook_url_exposed") is not False:
+            issues.append("telegram_business_signal_ingest must not expose raw webhook URL")
+        allowed_updates = list(telegram_business.get("allowed_updates") or [])
+        if allowed_updates and allowed_updates != [
+            "business_connection",
+            "business_message",
+            "edited_business_message",
+            "deleted_business_messages",
+        ]:
+            issues.append("telegram_business_signal_ingest allowed_updates must be Telegram Business-only")
+    telegram_business_requirement = proof_by_key.get("telegram_business_signal_setup") or {}
+    business_blocked = any(reason.startswith("detect:telegram_business_signal") for reason in blocking_reasons)
+    if business_blocked and not telegram_business_requirement:
+        issues.append("blocked Telegram Business signal ingest must have telegram_business_signal_setup proof requirement")
+    if telegram_business_requirement:
+        capture_surfaces = " ".join(str(surface or "") for surface in list(telegram_business_requirement.get("capture_surfaces") or []))
+        if "telegram_business_signal_readiness.generated.json" not in capture_surfaces:
+            issues.append("telegram_business_signal_setup must cite the Telegram Business readiness surface")
+        if telegram_business_requirement.get("evidence_kind") != "secretary_bot_signal_ingest_setup":
+            issues.append("telegram_business_signal_setup evidence_kind mismatch")
     telegram_requirement = proof_by_key.get("telegram_audiobook_live_delivery") or {}
     if telegram_requirement:
         capture_surfaces = " ".join(str(surface or "") for surface in list(telegram_requirement.get("capture_surfaces") or []))
