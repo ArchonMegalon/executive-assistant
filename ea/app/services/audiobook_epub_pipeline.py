@@ -2553,6 +2553,19 @@ def _write_voice_audition_private(job_dir: Path, payload: dict[str, object]) -> 
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def _clear_voice_audition_private_selection(job_dir: Path) -> None:
+    private_payload = _load_voice_audition_private(job_dir)
+    changed = False
+    for key in ("selected_callback_token", "selected_candidate_key"):
+        if str(private_payload.get(key) or "").strip():
+            private_payload[key] = ""
+            changed = True
+    if not changed:
+        return
+    private_payload["updated_at"] = _now_iso()
+    _write_voice_audition_private(job_dir, private_payload)
+
+
 def _voice_audition_token(*, job_id: str, preset_key: str, voice_id_sha256: str) -> str:
     return hashlib.sha256(f"{job_id}|{preset_key}|{voice_id_sha256}".encode("utf-8")).hexdigest()[:14]
 
@@ -3611,6 +3624,7 @@ def reopen_audiobook_voice_selection_for_language_mismatch(*, job_dir: Path, lim
     }
     job["updated_at"] = _now_iso()
     _write_job(job_dir, job)
+    _clear_voice_audition_private_selection(job_dir)
     _write_current_job_receipt_best_effort(job_dir)
     if dismissed_keys and len(selected_rows) < max(1, int(limit or 3)):
         return prepare_audiobook_voice_audition(
@@ -3680,6 +3694,7 @@ def reopen_audiobook_voice_selection_for_author_gender_mismatch(*, job_dir: Path
     }
     job["updated_at"] = _now_iso()
     _write_job(job_dir, job)
+    _clear_voice_audition_private_selection(job_dir)
     _write_current_job_receipt_best_effort(job_dir)
     return job
 
@@ -3828,6 +3843,13 @@ def selected_unmixr_voice_for_job(job_dir: Path) -> dict[str, object]:
             job["updated_at"] = _now_iso()
             _write_job(job_dir, job)
             _write_current_job_receipt_best_effort(job_dir)
+    if str(voice_selection.get("status") or "").strip() == "waiting_user_choice":
+        return {
+            "status": "blocked",
+            "reason": "voice_selection_pending",
+            "voice_id": "",
+            "public": voice_selection,
+        }
     private_payload = _load_voice_audition_private(job_dir)
     recovered_token = str(private_payload.get("selected_callback_token") or "").strip()
     if str(voice_selection.get("status") or "") != "selected_by_user" and recovered_token:
@@ -3862,13 +3884,6 @@ def selected_unmixr_voice_for_job(job_dir: Path) -> dict[str, object]:
             }
             return {"status": "selected", "voice_id": voice_id, "public": recovered_selection}
     if str(voice_selection.get("status") or "") != "selected_by_user":
-        if str(voice_selection.get("status") or "") == "waiting_user_choice":
-            return {
-                "status": "blocked",
-                "reason": "voice_selection_pending",
-                "voice_id": "",
-                "public": voice_selection,
-            }
         return {}
     token = str(voice_selection.get("selected_callback_token") or "").strip()
     candidate = dict(dict(private_payload.get("candidates") or {}).get(token) or {})

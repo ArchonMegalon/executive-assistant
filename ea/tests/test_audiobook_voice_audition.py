@@ -426,6 +426,64 @@ def test_selected_unmixr_voice_for_job_syncs_stale_render_result_voice_selection
     assert dict(render_voice_selection.get("book_profile") or {}).get("author_gender_signal") == "male"
 
 
+def test_selected_unmixr_voice_for_job_keeps_waiting_replacement_choice_pending() -> None:
+    current_selection = {
+        "status": "waiting_user_choice",
+        "reason": "selected_voice_author_gender_mismatch",
+        "pending_candidate_keys": ["unmixr_hans_12345678"],
+        "pending_batch": [
+            {
+                "preset_key": "unmixr_hans_12345678",
+                "label": "Hans",
+                "callback_token": "callback-token-hans",
+                "tags": ["audiobook", "narration", "male", "warm"],
+            }
+        ],
+        "book_profile": {"author_gender_signal": "male"},
+    }
+    job_dir = _create_job_dir(current_voice_selection=current_selection)
+    stored_job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
+    stored_job["render_result"] = {
+        "status": "waiting_voice_selection",
+        "reason": "selected_voice_author_gender_mismatch",
+        "voice_selection": dict(current_selection),
+    }
+    (job_dir / "job.json").write_text(json.dumps(stored_job, ensure_ascii=True, indent=2), encoding="utf-8")
+    private_payload = {
+        "contract_name": audiobook_epub_pipeline.VOICE_AUDITION_CONTRACT_NAME,
+        "job_id": "test-job",
+        "updated_at": "2026-06-29T00:00:00Z",
+        "selected_callback_token": "callback-token-seraphina",
+        "selected_candidate_key": "unmixr_seraphina_express_9827708d",
+        "candidates": {
+            "callback-token-seraphina": {
+                "candidate_key": "unmixr_seraphina_express_9827708d",
+                "voice_id": "voice-seraphina",
+                "voice_id_sha256": hashlib.sha256(b"voice-seraphina").hexdigest(),
+                "public": {
+                    "preset_key": "unmixr_seraphina_express_9827708d",
+                    "label": "Seraphina (Express)",
+                    "tags": ["audiobook", "narration", "female", "warm"],
+                },
+            }
+        },
+    }
+    audiobook_epub_pipeline._write_voice_audition_private(job_dir, private_payload)  # noqa: SLF001
+
+    with patch.object(audiobook_epub_pipeline, "_write_current_job_receipt_best_effort") as write_receipt:
+        selection = audiobook_epub_pipeline.selected_unmixr_voice_for_job(job_dir)
+
+    assert selection.get("status") == "blocked"
+    assert selection.get("reason") == "voice_selection_pending"
+    assert selection.get("voice_id") == ""
+    public = dict(selection.get("public") or {})
+    assert public.get("status") == "waiting_user_choice"
+    assert public.get("reason") == "selected_voice_author_gender_mismatch"
+    assert [dict(item).get("label") for item in list(public.get("pending_batch") or []) if isinstance(item, dict)] == ["Hans"]
+    assert dict(public.get("book_profile") or {}).get("author_gender_signal") == "male"
+    assert write_receipt.call_count <= 1
+
+
 def test_reopen_audiobook_voice_selection_for_author_gender_mismatch_stages_matching_replacements() -> None:
     current_selection = {
         "status": "selected_by_user",
@@ -464,6 +522,8 @@ def test_reopen_audiobook_voice_selection_for_author_gender_mismatch_stages_matc
     private_payload = {
         "contract_name": audiobook_epub_pipeline.VOICE_AUDITION_CONTRACT_NAME,
         "job_id": "test-job",
+        "selected_callback_token": "callback-token-seraphina",
+        "selected_candidate_key": "unmixr_seraphina_express_9827708d",
         "updated_at": "2026-06-29T00:00:00Z",
         "candidates": {
             "callback-token-seraphina": _private_voice_candidate(
@@ -515,6 +575,9 @@ def test_reopen_audiobook_voice_selection_for_author_gender_mismatch_stages_matc
     assert delivery.get("expected_count") == 1
     assert delivery.get("attempted_count") == 0
     assert delivery.get("sent_count") == 0
+    private_after = audiobook_epub_pipeline._load_voice_audition_private(job_dir)  # noqa: SLF001
+    assert private_after.get("selected_callback_token") == ""
+    assert private_after.get("selected_candidate_key") == ""
 
 
 def test_apply_audiobook_voice_audition_action_marks_explicit_author_gender_override_when_user_keeps_mismatched_voice() -> None:
