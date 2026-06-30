@@ -631,7 +631,7 @@ def admin_proactive_ooda_approval_capture(
             "action": "/admin/actions/proactive-ooda-evidence",
             "submit_label": "Record proactive outcome",
             "fields": [
-                {"type": "hidden", "name": "return_to", "value": "/admin/goals"},
+                {"type": "hidden", "name": "return_to", "value": "/admin/proactive-ooda/approval"},
                 {
                     "type": "select",
                     "name": "outcome",
@@ -659,6 +659,13 @@ def admin_proactive_ooda_approval_capture(
                     "label": "Redacted note",
                     "value": "",
                     "placeholder": "Short redacted reason, for example: Approved after reviewing the staged shortlist and live comparison.",
+                },
+                {
+                    "type": "checkbox",
+                    "name": "dry_run",
+                    "label": "Dry run only",
+                    "checked": False,
+                    "value": "1",
                 },
                 {"type": "text", "name": "packet_ref", "label": "Packet ref", "value": packet_ref},
                 {"type": "text", "name": "staged_artifact_ref", "label": "Staged artifact ref", "value": staged_artifact_ref},

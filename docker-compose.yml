@@ -139,6 +139,7 @@ services:
       - ./ea/app/product/service.py:/app/app/product/service.py:ro
       - ./scripts/verify_deploy_context.py:/app/scripts/verify_deploy_context.py:ro
       - ./scripts/verify_runtime_supply_chain.py:/app/scripts/verify_runtime_supply_chain.py:ro
+      - ./scripts/ea_live_ops.py:/app/scripts/ea_live_ops.py:ro
       - ./scripts/materialize_release_authority_status.py:/app/scripts/materialize_release_authority_status.py:ro
       - ./scripts/materialize_whatsapp_web_action_processor_readiness.py:/app/scripts/materialize_whatsapp_web_action_processor_readiness.py:ro
       - ./docker-compose.whatsapp-web-session.yml:/app/docker-compose.whatsapp-web-session.yml:ro
@@ -426,6 +427,7 @@ services:
       - ${EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-./data/onedrive_attachments}:/data/onedrive_attachments
       - ${EA_POCKET_AUDIO_ARCHIVE_HOST_ROOT:-./data/pocket-ai-audio}:/data/pocket-ai-audio
       - ${EA_DURABLE_AUDIOBOOK_HOST_ROOT:-./data/audiobooks}:/data/audiobooks
+      - ${EA_AUDIOBOOK_JOBS_HOST_ROOT:-./data/audiobooks/jobs}:/data/audiobooks/jobs
       - ea_artifacts:/data/artifacts
       - ea_provider_ledger:/data/provider-ledger
     pids_limit: 512

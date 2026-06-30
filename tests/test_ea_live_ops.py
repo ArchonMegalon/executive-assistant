@@ -1719,6 +1719,81 @@ def test_probe_proactive_artifacts_reads_runtime_bundle(monkeypatch) -> None:
     assert report["current_packet"]["staged_action_url"] == "https://example.test/vendor-a"
 
 
+def test_probe_proactive_artifacts_uses_in_process_fallback_without_docker_cli(monkeypatch) -> None:
+    module = _module()
+
+    def _unexpected_exec_json(**_kwargs):
+        raise AssertionError("docker compose exec should not run for in-process fallback")
+
+    monkeypatch.setenv("EA_ROLE", "api")
+    monkeypatch.setattr(module, "_docker_cli_available", lambda: False)
+    monkeypatch.setattr(module, "_docker_compose_exec_json", _unexpected_exec_json)
+    monkeypatch.setattr(
+        module,
+        "_probe_proactive_artifacts_in_process_payload",
+        lambda: {
+            "probe_ok": True,
+            "state_path": "/data/provider-ledger/proactive_ooda_notified.json",
+            "run_receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+            "action_required_only_quiet_receipt_path": "",
+            "stage_packet_dir": "/data/provider-ledger/proactive_ooda_stage_packets",
+            "safe_work_result_dir": "/data/provider-ledger/proactive_ooda_safe_work_results",
+            "approval_outcome_path": "/data/provider-ledger/proactive_ooda_latest_approval_outcome.generated.json",
+            "approval_callback_dir": "/data/provider-ledger/proactive_ooda_approval_callbacks",
+            "approval_callback_dir_exists": True,
+            "approval_callback_dir_writable": True,
+            "approval_callback_record_count": 1,
+            "approval_callback_pending_count": 1,
+            "approval_callback_raw_pending_count": 1,
+            "approval_callback_live_pending_count": 1,
+            "approval_callback_unexpired_pending_count": 1,
+            "approval_callback_noncurrent_pending_count": 0,
+            "approval_callback_expired_pending_count": 0,
+            "approval_callback_stale_pending_count": 0,
+            "approval_callback_recorded_count": 0,
+            "approval_callback_expired_count": 0,
+            "approval_callback_superseded_count": 0,
+            "approval_callback_terminal_count": 0,
+            "current_packet_callback_record_count": 1,
+            "current_packet_callback_pending_count": 1,
+            "current_packet_callback_raw_pending_count": 1,
+            "current_packet_callback_expired_pending_count": 0,
+            "current_packet_callback_stale_pending_count": 0,
+            "current_packet_callback_recorded_count": 0,
+            "current_packet_callback_expired_count": 0,
+            "current_packet_callback_superseded_count": 0,
+            "current_packet_live_callback_record_count": 1,
+            "current_packet_live_pending_count": 1,
+            "current_packet_callback_latest_status": "pending",
+            "current_packet_callback_latest_expired": False,
+            "current_packet_callback_latest_created_at": "2026-06-30T08:00:00Z",
+            "current_packet_callback_latest_expires_at": "2099-01-01T00:00:00Z",
+            "current_packet_callback_latest_age_seconds": 10,
+            "current_packet_callback_latest_seconds_until_expiry": 999,
+            "current_packet_callback_outcome": {},
+            "stage_packet_path": "/data/provider-ledger/proactive_ooda_stage_packets/pkt-live.json",
+            "safe_work_result_path": "/data/provider-ledger/proactive_ooda_safe_work_results/res-live.json",
+            "run_receipt": {"notification_status": "sent"},
+            "action_required_only_quiet_receipt": {},
+            "stage_packet": {"packet_ref": "stage_packet:pkt-live"},
+            "safe_work_result": {"result_ref": "safe_work_result:res-live"},
+            "approval_outcome": {},
+        },
+    )
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-06-30T08:10:00Z")
+
+    report = module.probe_proactive_artifacts(
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+        output_format="json",
+    )
+
+    assert report["probe_ok"] is True
+    assert report["source"] == "in_process_runtime"
+    assert report["observed_at"] == "2026-06-30T08:10:00Z"
+    assert report["current_packet_live_pending_count"] == 1
+
+
 def test_current_packet_summary_ignores_mismatched_approval_outcome() -> None:
     module = _module()
     current = module._proactive_current_packet_summary(
@@ -1972,6 +2047,64 @@ def test_probe_proactive_approval_capture_maps_missing_telegram_token(monkeypatc
     assert report["ready"] is False
     assert report["blocking_reason"] == "telegram_bot_token_missing"
     assert report["next_action"] == "configure_telegram_bot_token"
+
+
+def test_probe_proactive_approval_capture_uses_in_process_fallback_without_docker_cli(monkeypatch) -> None:
+    module = _module()
+
+    def _unexpected_exec_json(**_kwargs):
+        raise AssertionError("docker compose exec should not run for in-process fallback")
+
+    monkeypatch.setenv("EA_ROLE", "api")
+    monkeypatch.setattr(module, "_docker_cli_available", lambda: False)
+    monkeypatch.setattr(module, "_docker_compose_exec_json", _unexpected_exec_json)
+    monkeypatch.setattr(
+        module,
+        "_probe_proactive_approval_capture_in_process_payload",
+        lambda principal_id: {
+            "ok": True,
+            "callback_dir_exists": True,
+            "callback_record_count": 1,
+            "current_packet_ref_sha256": "packet-hash",
+            "current_staged_artifact_ref_sha256": "artifact-hash",
+            "current_packet_refs_present": True,
+            "current_packet_callback_record_count": 1,
+            "current_packet_live_pending_count": 1,
+            "current_packet_callback_latest_status": "pending",
+            "current_packet_callback_latest_expired": False,
+            "current_packet_callback_latest_age_seconds": 30,
+            "current_packet_callback_latest_seconds_until_expiry": 3600,
+            "callback_principal_hash_present": True,
+            "candidate_principal_hash_count": 1,
+            "principal_match_ready": True,
+            "telegram_binding_ready": True,
+            "telegram_blocking_reason": "",
+            "telegram_chat_ref_present": True,
+            "telegram_chat_ref_sha256": "chat-hash",
+            "telegram_bot_key_present": True,
+            "telegram_bot_token_present": True,
+            "privacy": {
+                "raw_callback_token_exposed": False,
+                "raw_principal_id_exposed": False,
+                "raw_chat_ref_exposed": False,
+                "raw_packet_ref_exposed": False,
+                "raw_staged_artifact_ref_exposed": False,
+            },
+        },
+    )
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-06-30T08:12:00Z")
+
+    report = module.probe_proactive_approval_capture(
+        principal_id="principal-1",
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+        output_format="json",
+    )
+
+    assert report["probe_ok"] is True
+    assert report["ready"] is True
+    assert report["source"] == "in_process_runtime:proactive_approval_capture"
+    assert report["current_packet_live_pending_count"] == 1
 
 
 def test_cleanup_proactive_approval_callbacks_dry_run_reports_stale_counts_without_mutation(monkeypatch) -> None:
@@ -2269,22 +2402,20 @@ def test_record_proactive_approval_executes_finalize_in_runtime(monkeypatch) -> 
                 '{"probe_ok":true}',
                 "",
             )
-        if "finalize_proactive_ooda_approval_outcome" in command[2]:
+        if "record_current_proactive_ooda_approval_outcome" in command[2]:
             return (
                 0,
                 {
-                    "approval_outcome": {
-                        "approval_outcome_recorded": True,
-                        "accepted": True,
-                        "status": "accepted_redacted",
-                        "outcome_id": "approval-1",
-                    },
+                    "status": "recorded",
+                    "approval_outcome_id": "approval-1",
+                    "approval_outcome_status": "accepted_redacted",
+                    "approval_outcome_accepted": True,
                     "approval_outcome_path": "/data/provider-ledger/proactive_ooda_latest_approval_outcome.generated.json",
                     "operator_status_path": "/app/.codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
                     "gold_acceptance_path": "/app/.codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
                     "teable_sync": {"status": "synced", "sync_attempted": True, "blocked_reason": ""},
                 },
-                '{"approval_outcome":{"approval_outcome_recorded":true,"accepted":true,"status":"accepted_redacted","outcome_id":"approval-1"}}',
+                '{"status":"recorded","approval_outcome_id":"approval-1","approval_outcome_status":"accepted_redacted","approval_outcome_accepted":true}',
                 "",
             )
         raise AssertionError(command)
@@ -2311,6 +2442,62 @@ def test_record_proactive_approval_executes_finalize_in_runtime(monkeypatch) -> 
     assert report["gold_acceptance_path"] == "/app/.codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json"
     assert report["teable_sync"]["status"] == "synced"
     assert len(commands) == 2
+
+
+def test_record_proactive_approval_records_in_process_without_docker_cli(monkeypatch) -> None:
+    module = _module()
+
+    def _unexpected_exec_json(**_kwargs):
+        raise AssertionError("docker compose exec should not run for in-process fallback")
+
+    monkeypatch.setenv("EA_ROLE", "api")
+    monkeypatch.setattr(module, "_docker_cli_available", lambda: False)
+    monkeypatch.setattr(module, "_docker_compose_exec_json", _unexpected_exec_json)
+    monkeypatch.setattr(
+        module,
+        "probe_proactive_artifacts",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "state_path": "/data/provider-ledger/proactive_ooda_notified.json",
+            "run_receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+            "stage_packet_dir": "/data/provider-ledger/proactive_ooda_stage_packets",
+            "safe_work_result_dir": "/data/provider-ledger/proactive_ooda_safe_work_results",
+            "stage_packet": {"packet_ref": "stage_packet:pkt-live"},
+            "safe_work_result": {"result_ref": "safe_work_result:res-live"},
+            "current_packet_live_pending_count": 1,
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "_record_current_proactive_approval_in_process",
+        lambda **_kwargs: {
+            "status": "recorded",
+            "approval_outcome_id": "approval-local",
+            "approval_outcome_status": "accepted_redacted",
+            "approval_outcome_accepted": True,
+            "approval_outcome_path": "/data/provider-ledger/proactive_ooda_latest_approval_outcome.generated.json",
+            "operator_status_path": "/app/.codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
+            "gold_acceptance_path": "/app/.codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
+            "teable_sync": {"status": "synced", "sync_attempted": True, "blocked_reason": ""},
+        },
+    )
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-06-30T08:15:00Z")
+
+    report = module.record_proactive_approval(
+        principal_id="exec-1",
+        outcome="approved",
+        evidence="Approved after review.",
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+        dry_run=False,
+        output_format="json",
+    )
+
+    assert report["recorded"] is True
+    assert report["reason"] == "recorded"
+    assert report["source"] == "in_process_runtime:record_proactive_approval"
+    assert report["approval_outcome_id"] == "approval-local"
+    assert report["teable_sync"]["status"] == "synced"
 
 
 def test_reissue_proactive_approval_dry_run_executes_runtime_script(monkeypatch) -> None:

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import importlib.util
 import os
-from functools import lru_cache
 from pathlib import Path
+from functools import lru_cache
 import sys
 from typing import Any, Callable, Mapping
 
@@ -26,10 +26,8 @@ def proactive_ooda_live_ops_timeout_seconds() -> float:
 
 @lru_cache(maxsize=1)
 def _ea_live_ops_module() -> Any:
-    repo_root = Path(__file__).resolve().parents[3]
-    script_path = repo_root / "scripts" / "ea_live_ops.py"
-    if not script_path.is_file():
-        raise RuntimeError("ea_live_ops_script_missing")
+    script_path = _ea_live_ops_script_path()
+    repo_root = script_path.parent.parent
     for candidate in (repo_root / "ea", repo_root, repo_root / "scripts"):
         candidate_text = candidate.as_posix()
         if candidate.exists() and candidate_text not in sys.path:
@@ -40,6 +38,31 @@ def _ea_live_ops_module() -> Any:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _ea_live_ops_script_path(*, service_file: Path | None = None) -> Path:
+    source = (service_file or Path(__file__)).resolve()
+    roots: list[Path] = []
+    env_root = str(os.getenv("EA_LIVE_OPS_ROOT") or "").strip()
+    if env_root:
+        roots.append(Path(env_root).expanduser())
+    for index in (2, 3):
+        try:
+            root = source.parents[index]
+        except IndexError:
+            continue
+        roots.append(root)
+    roots.extend((Path("/app"), Path.cwd()))
+    seen: set[str] = set()
+    for root in roots:
+        root_text = root.as_posix()
+        if root_text in seen:
+            continue
+        seen.add(root_text)
+        candidate = root / "scripts" / "ea_live_ops.py"
+        if candidate.is_file():
+            return candidate
+    raise RuntimeError("ea_live_ops_script_missing")
 
 
 def probe_live_proactive_artifacts(
@@ -118,6 +141,7 @@ def record_live_proactive_ooda_approval_outcome(
     source_kind: str = "operator",
     packet_ref: str = "",
     staged_artifact_ref: str = "",
+    dry_run: bool = False,
     timeout_seconds: float | None = None,
     recorder: Callable[..., Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -132,6 +156,7 @@ def record_live_proactive_ooda_approval_outcome(
                 source_kind=source_kind,
                 packet_ref=packet_ref,
                 staged_artifact_ref=staged_artifact_ref,
+                dry_run=dry_run,
                 timeout_seconds=timeout_seconds or proactive_ooda_live_ops_timeout_seconds(),
             )
         )
@@ -176,6 +201,7 @@ def _record_live_proactive_approval_outcome(
     source_kind: str = "operator",
     packet_ref: str = "",
     staged_artifact_ref: str = "",
+    dry_run: bool = False,
     timeout_seconds: float | None = None,
 ) -> dict[str, Any]:
     module = _ea_live_ops_module()
@@ -187,6 +213,7 @@ def _record_live_proactive_approval_outcome(
         source_kind=source_kind,
         packet_ref=packet_ref,
         staged_artifact_ref=staged_artifact_ref,
+        dry_run=dry_run,
         timeout_seconds=timeout_seconds or proactive_ooda_live_ops_timeout_seconds(),
         output_format="json",
     )

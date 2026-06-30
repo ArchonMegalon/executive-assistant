@@ -617,6 +617,7 @@ async def admin_record_proactive_ooda_evidence(
     evidence = _form_value(body, "evidence", "")
     packet_ref = _form_value(body, "packet_ref", "")
     staged_artifact_ref = _form_value(body, "staged_artifact_ref", "")
+    dry_run = _form_value(body, "dry_run", "").strip().lower() in {"1", "true", "yes", "on"}
     actor = str(context.operator_id or context.access_email or context.principal_id or "operator").strip()
     result = record_live_proactive_ooda_approval_outcome(
         principal_id=context.principal_id,
@@ -626,6 +627,7 @@ async def admin_record_proactive_ooda_evidence(
         source_kind=source_kind,
         packet_ref=packet_ref,
         staged_artifact_ref=staged_artifact_ref,
+        dry_run=dry_run,
     )
     separator = "&" if "?" in return_to else "?"
     status = str(result.get("status") or "failed").strip() or "failed"

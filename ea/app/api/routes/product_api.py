@@ -1199,15 +1199,20 @@ def create_workspace_access_session(
     context: RequestContext = Depends(get_request_context),
 ) -> WorkspaceAccessSessionOut:
     service = build_product_service(container)
-    payload = service.issue_workspace_access_session(
-        principal_id=context.principal_id,
-        email=body.email,
-        role=body.role,
-        display_name=body.display_name,
-        operator_id=body.operator_id,
-        source_kind="workspace_access_api",
-        expires_in_hours=body.expires_in_hours,
-    )
+    try:
+        payload = service.issue_workspace_access_session(
+            principal_id=context.principal_id,
+            email=body.email,
+            role=body.role,
+            display_name=body.display_name,
+            operator_id=body.operator_id,
+            source_kind="workspace_access_api",
+            expires_in_hours=body.expires_in_hours,
+        )
+    except ValueError as exc:
+        if str(exc or "").strip() == "operator_seat_limit_reached":
+            raise HTTPException(status_code=409, detail="operator_seat_limit_reached") from exc
+        raise
     return WorkspaceAccessSessionOut(**payload)
 
 
@@ -1240,16 +1245,21 @@ def create_workspace_access_session_legacy(
     email, role, display_name, operator_id, expires_in_hours, default_target = _normalize_workspace_access_legacy_payload(
         body=dict(body or {})
     )
-    payload = service.issue_workspace_access_session(
-        principal_id=context.principal_id,
-        email=email,
-        role=role,
-        display_name=display_name,
-        operator_id=operator_id,
-        source_kind="workspace_access_api",
-        expires_in_hours=expires_in_hours,
-        default_target=default_target,
-    )
+    try:
+        payload = service.issue_workspace_access_session(
+            principal_id=context.principal_id,
+            email=email,
+            role=role,
+            display_name=display_name,
+            operator_id=operator_id,
+            source_kind="workspace_access_api",
+            expires_in_hours=expires_in_hours,
+            default_target=default_target,
+        )
+    except ValueError as exc:
+        if str(exc or "").strip() == "operator_seat_limit_reached":
+            raise HTTPException(status_code=409, detail="operator_seat_limit_reached") from exc
+        raise
     return WorkspaceAccessSessionOut(**payload)
 
 

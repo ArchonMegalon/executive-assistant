@@ -31189,6 +31189,14 @@ class ProductService:
         resolved_operator_id = str(operator_id or "").strip()
         if normalized_role == "operator" and not resolved_operator_id:
             resolved_operator_id = _operator_id_from_email(normalized_email)
+        if normalized_role == "operator":
+            resolved_operator_id = self._ensure_workspace_access_operator_profile(
+                principal_id=str(principal_id or "").strip(),
+                email=normalized_email,
+                operator_id=resolved_operator_id,
+                display_name=str(display_name or "").strip(),
+                source_kind=str(source_kind or "workspace_access").strip() or "workspace_access",
+            )
         expires_at = datetime.now(timezone.utc).timestamp() + max(int(expires_in_hours), 1) * 3600
         session_id = f"access_{uuid4().hex[:10]}"
         token_jti = f"wsa_{uuid4().hex}"
@@ -31382,6 +31390,19 @@ class ProductService:
         session = self.preview_workspace_access_session(token=token)
         if session is None:
             return None
+        if str(session.get("role") or "principal").strip().lower() == "operator":
+            try:
+                resolved_operator_id = self._ensure_workspace_access_operator_profile(
+                    principal_id=str(session.get("principal_id") or "").strip(),
+                    email=str(session.get("email") or "").strip().lower(),
+                    operator_id=str(session.get("operator_id") or "").strip(),
+                    display_name=str(session.get("display_name") or "").strip(),
+                    source_kind=str(session.get("source_kind") or "workspace_access").strip() or "workspace_access",
+                )
+            except ValueError:
+                resolved_operator_id = str(session.get("operator_id") or "").strip()
+            if resolved_operator_id:
+                session = {**dict(session), "operator_id": resolved_operator_id}
         principal_id = str(session.get("principal_id") or "").strip()
         session_id = str(session.get("session_id") or "").strip()
         if principal_id and session_id:
@@ -31400,6 +31421,64 @@ class ProductService:
                 source_id=session_id,
             )
         return session
+
+    def _ensure_workspace_access_operator_profile(
+        self,
+        *,
+        principal_id: str,
+        email: str,
+        operator_id: str,
+        display_name: str,
+        source_kind: str,
+    ) -> str:
+        normalized_principal = str(principal_id or "").strip()
+        normalized_email = str(email or "").strip().lower()
+        resolved_operator_id = str(operator_id or "").strip() or _operator_id_from_email(normalized_email)
+        if not normalized_principal or not resolved_operator_id:
+            return resolved_operator_id
+        existing = self._container.orchestrator.fetch_operator_profile(
+            resolved_operator_id,
+            principal_id=normalized_principal,
+        )
+        existing_roles = tuple(
+            str(role or "").strip()
+            for role in tuple(getattr(existing, "roles", ()) or ())
+            if str(role or "").strip()
+        )
+        existing_role_set = {role.lower() for role in existing_roles}
+        if existing is not None and str(existing.status or "").strip().lower() == "active" and "operator" in existing_role_set:
+            return resolved_operator_id
+        if existing is None:
+            status = self._container.onboarding.status(principal_id=normalized_principal)
+            workspace = dict(status.get("workspace") or {})
+            plan = workspace_plan_for_mode(str(workspace.get("mode") or "personal"))
+            active = self._container.orchestrator.list_operator_profiles(
+                principal_id=normalized_principal,
+                status="active",
+                limit=500,
+            )
+            if len(active) >= plan.entitlements.operator_seats:
+                raise ValueError("operator_seat_limit_reached")
+        resolved_display_name = (
+            str(display_name or "").strip()
+            or str(getattr(existing, "display_name", "") or "").strip()
+            or _display_name_from_email(normalized_email)
+            or resolved_operator_id
+        )
+        merged_roles = tuple(dict.fromkeys((*existing_roles, "operator"))) or ("operator",)
+        notes = str(getattr(existing, "notes", "") or "").strip()
+        if not notes:
+            notes = f"Provisioned operator profile for workspace access ({source_kind}) for {normalized_email or resolved_operator_id}."
+        self._container.orchestrator.upsert_operator_profile(
+            principal_id=normalized_principal,
+            operator_id=resolved_operator_id,
+            display_name=resolved_display_name,
+            roles=merged_roles,
+            trust_tier=str(getattr(existing, "trust_tier", "") or "standard").strip() or "standard",
+            status="active",
+            notes=notes,
+        )
+        return resolved_operator_id
 
     def revoke_workspace_access_session(
         self,

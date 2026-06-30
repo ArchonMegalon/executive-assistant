@@ -14281,6 +14281,34 @@ def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_re
     assert missing_delivery_head.status_code == 404
 
 
+def test_workspace_access_session_operator_issue_is_seat_aware() -> None:
+    principal_id = "exec-access-session-seat-limit"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Single Seat Office")
+    client.app.state.container.orchestrator.upsert_operator_profile(
+        principal_id=principal_id,
+        operator_id="operator-primary",
+        display_name="Primary Operator",
+        roles=("operator", "reviewer"),
+        trust_tier="trusted",
+        status="active",
+        notes="Seeded primary operator.",
+    )
+
+    denied = client.post(
+        "/app/api/access-sessions",
+        json={
+            "email": "second-operator@example.com",
+            "role": "operator",
+            "display_name": "Second Operator",
+            "expires_in_hours": 24,
+        },
+    )
+
+    assert denied.status_code == 409
+    assert denied.json()["error"]["code"] == "operator_seat_limit_reached"
+
+
 def test_workspace_invite_and_access_invalid_pages_render_browser_recovery_copy() -> None:
     principal_id = "exec-workspace-link-recovery"
     client = build_product_client(principal_id=principal_id)

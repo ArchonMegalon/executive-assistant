@@ -10,6 +10,34 @@ def _hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def test_ea_live_ops_script_path_supports_host_repo_layout(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo-root"
+    service_file = repo_root / "ea" / "app" / "services" / "bridge.py"
+    script_path = repo_root / "scripts" / "ea_live_ops.py"
+    service_file.parent.mkdir(parents=True, exist_ok=True)
+    script_path.parent.mkdir(parents=True, exist_ok=True)
+    service_file.write_text("", encoding="utf-8")
+    script_path.write_text("# probe\n", encoding="utf-8")
+
+    result = proactive_ooda_live_ops_bridge._ea_live_ops_script_path(service_file=service_file)  # noqa: SLF001
+
+    assert result == script_path
+
+
+def test_ea_live_ops_script_path_supports_container_layout(tmp_path: Path) -> None:
+    app_root = tmp_path / "app-root"
+    service_file = app_root / "app" / "services" / "bridge.py"
+    script_path = app_root / "scripts" / "ea_live_ops.py"
+    service_file.parent.mkdir(parents=True, exist_ok=True)
+    script_path.parent.mkdir(parents=True, exist_ok=True)
+    service_file.write_text("", encoding="utf-8")
+    script_path.write_text("# probe\n", encoding="utf-8")
+
+    result = proactive_ooda_live_ops_bridge._ea_live_ops_script_path(service_file=service_file)  # noqa: SLF001
+
+    assert result == script_path
+
+
 def test_resolve_proactive_ooda_capture_bundle_prefers_live_runtime_probe() -> None:
     packet_ref = "stage_packet:live-packet"
     staged_artifact_ref = "safe_work_result:live-artifact"
@@ -135,7 +163,10 @@ def test_resolve_proactive_ooda_capture_bundle_falls_back_when_live_probe_raises
 
 
 def test_record_live_proactive_ooda_approval_outcome_surfaces_specific_block_reason() -> None:
+    captured: dict[str, object] = {}
+
     def _recorder(**_: object) -> dict[str, object]:
+        captured.update(_)
         return {
             "recorded": False,
             "reason": "blocked",
@@ -152,11 +183,13 @@ def test_record_live_proactive_ooda_approval_outcome_surfaces_specific_block_rea
         actor="operator-1",
         packet_ref="stage_packet:expected",
         staged_artifact_ref="safe_work_result:expected",
+        dry_run=True,
         recorder=_recorder,
     )
 
     assert result["status"] == "blocked"
     assert result["error"] == "current_packet_ref_mismatch"
+    assert captured["dry_run"] is True
 
 
 def test_record_live_proactive_ooda_approval_outcome_marks_already_decided() -> None:

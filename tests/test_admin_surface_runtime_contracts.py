@@ -1184,6 +1184,90 @@ def test_admin_bootstrap_operator_creates_first_profile_and_unblocks_admin(monke
     assert "Goal Status" in goals.text
 
 
+def test_workspace_access_operator_link_auto_provisions_profile_and_opens_proactive_approval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-admin-proactive-access-session"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="executive_ops")
+    from app.api.routes import landing_console_support
+
+    monkeypatch.setattr(
+        landing_console_support,
+        "resolve_proactive_ooda_capture_bundle",
+        lambda **_kwargs: {
+            "bundle": {
+                "run_receipt": {"notification_status": "sent"},
+                "run_receipt_path": "state/proactive_ooda_latest_run.generated.json",
+                "stage_packet_path": "state/proactive_ooda_stage_packets/packet-1.json",
+                "safe_work_result_path": "state/proactive_ooda_safe_work_results/result-1.json",
+                "approval_outcome_path": "state/proactive_ooda_latest_approval_outcome.generated.json",
+                "stage_packet": {"packet_ref": "stage_packet:access-session"},
+                "safe_work_result": {
+                    "result_ref": "safe_work_result:access-session",
+                    "status": "staged_for_user_decision",
+                    "approval": {"required": True},
+                    "staged_action_url": "https://example.test/approve",
+                    "recommended_option_or_draft": {
+                        "kind": "shortlist_candidate",
+                        "value": {"label": "Option A", "url": "https://example.test/a"},
+                    },
+                },
+                "approval_outcome": {},
+                "current_packet_live_pending_count": 1,
+            },
+            "bundle_source": "live_runtime",
+            "host_fallback_used": False,
+            "fallback_reason": "",
+            "live_report": {"status": "ok"},
+            "approval_selection": {
+                "approval_outcome": {},
+                "stale_saved_approval_outcome_present": False,
+                "source": "",
+            },
+        },
+    )
+    monkeypatch.setattr(landing_console_support, "_load_proactive_ooda_control_receipts", lambda: ({}, {}))
+
+    access_session = client.post(
+        "/app/api/access-sessions",
+        json={
+            "email": "ops-proactive@example.com",
+            "role": "operator",
+            "display_name": "Ops Proactive",
+            "expires_in_hours": 24,
+        },
+    )
+
+    assert access_session.status_code == 200
+    access_body = access_session.json()
+    rows = client.app.state.container.orchestrator.list_operator_profiles(
+        principal_id=principal_id,
+        status="active",
+        limit=25,
+    )
+    assert len(rows) == 1
+    assert rows[0].operator_id == access_body["operator_id"]
+    assert rows[0].display_name == "Ops Proactive"
+    assert "operator" in tuple(rows[0].roles)
+
+    client.headers.pop("X-EA-Principal-ID", None)
+    opened = client.get(
+        access_body["access_url"],
+        params={"return_to": "/admin/proactive-ooda/approval"},
+        follow_redirects=False,
+    )
+
+    assert opened.status_code == 303
+    assert opened.headers["location"] == "/admin/proactive-ooda/approval"
+    assert "ea_workspace_session=" in str(opened.headers.get("set-cookie") or "")
+
+    approval = client.get("/admin/proactive-ooda/approval", follow_redirects=False)
+    assert approval.status_code == 200
+    assert "Record proactive OODA outcome" in approval.text
+    assert "Create the first operator profile" not in approval.text
+
+
 def test_admin_proactive_ooda_approval_page_prefills_runtime_artifact_refs(monkeypatch: pytest.MonkeyPatch) -> None:
     principal_id = "exec-admin-proactive-approval-page"
     client = _operator_client(principal_id=principal_id)
@@ -1191,32 +1275,46 @@ def test_admin_proactive_ooda_approval_page_prefills_runtime_artifact_refs(monke
 
     monkeypatch.setattr(
         landing_console_support,
-        "load_runtime_artifact_bundle",
+        "resolve_proactive_ooda_capture_bundle",
         lambda **_kwargs: {
-            "run_receipt": {"notification_status": "sent"},
-            "run_receipt_path": "state/proactive_ooda_latest_run.generated.json",
-            "stage_packet_path": "state/proactive_ooda_stage_packets/packet-1.json",
-            "safe_work_result_path": "state/proactive_ooda_safe_work_results/result-1.json",
-            "approval_outcome_path": "state/proactive_ooda_latest_approval_outcome.generated.json",
-            "stage_packet": {"packet_ref": "stage_packet:private-packet-123"},
-            "safe_work_result": {
-                "result_ref": "safe_work_result:private-artifact-456",
-                "staged_action_url": "https://example.test/approve",
-                "recommended_option_or_draft": {
-                    "kind": "shortlist_candidate",
-                    "value": {"label": "Option A", "url": "https://example.test/a"},
+            "bundle": {
+                "run_receipt": {"notification_status": "sent"},
+                "run_receipt_path": "state/proactive_ooda_latest_run.generated.json",
+                "stage_packet_path": "state/proactive_ooda_stage_packets/packet-1.json",
+                "safe_work_result_path": "state/proactive_ooda_safe_work_results/result-1.json",
+                "approval_outcome_path": "state/proactive_ooda_latest_approval_outcome.generated.json",
+                "stage_packet": {"packet_ref": "stage_packet:private-packet-123"},
+                "safe_work_result": {
+                    "result_ref": "safe_work_result:private-artifact-456",
+                    "status": "staged_for_user_decision",
+                    "approval": {"required": True},
+                    "staged_action_url": "https://example.test/approve",
+                    "recommended_option_or_draft": {
+                        "kind": "shortlist_candidate",
+                        "value": {"label": "Option A", "url": "https://example.test/a"},
+                    },
+                    "evidence_refs": [
+                        {
+                            "kind": "candidate",
+                            "label": "Option A",
+                            "url": "https://example.test/a",
+                            "page_title": "Option A listing",
+                            "reachable": True,
+                        }
+                    ],
                 },
-                "evidence_refs": [
-                    {
-                        "kind": "candidate",
-                        "label": "Option A",
-                        "url": "https://example.test/a",
-                        "page_title": "Option A listing",
-                        "reachable": True,
-                    }
-                ],
+                "approval_outcome": {},
+                "current_packet_live_pending_count": 1,
             },
-            "approval_outcome": {},
+            "bundle_source": "live_runtime",
+            "host_fallback_used": False,
+            "fallback_reason": "",
+            "live_report": {"status": "ok"},
+            "approval_selection": {
+                "approval_outcome": {},
+                "stale_saved_approval_outcome_present": False,
+                "source": "",
+            },
         },
     )
     monkeypatch.setattr(landing_console_support, "_load_proactive_ooda_control_receipts", lambda: ({}, {}))
@@ -1231,6 +1329,8 @@ def test_admin_proactive_ooda_approval_page_prefills_runtime_artifact_refs(monke
     assert 'name="staged_artifact_ref"' in response.text
     assert "safe_work_result:private-artifact-456" in response.text
     assert "https://example.test/approve" in response.text
+    assert 'name="return_to" value="/admin/proactive-ooda/approval"' in response.text
+    assert 'name="dry_run"' in response.text
 
 
 def test_admin_proactive_ooda_approval_page_marks_mismatched_saved_approval_as_stale(
@@ -1242,28 +1342,42 @@ def test_admin_proactive_ooda_approval_page_marks_mismatched_saved_approval_as_s
 
     monkeypatch.setattr(
         landing_console_support,
-        "load_runtime_artifact_bundle",
+        "resolve_proactive_ooda_capture_bundle",
         lambda **_kwargs: {
-            "run_receipt": {"notification_status": "sent"},
-            "run_receipt_path": "state/proactive_ooda_latest_run.generated.json",
-            "stage_packet_path": "state/proactive_ooda_stage_packets/current.json",
-            "safe_work_result_path": "state/proactive_ooda_safe_work_results/current.json",
-            "approval_outcome_path": "state/proactive_ooda_latest_approval_outcome.generated.json",
-            "stage_packet": {"packet_ref": "stage_packet:current"},
-            "safe_work_result": {
-                "result_ref": "safe_work_result:current",
-                "staged_action_url": "https://example.test/current",
-                "recommended_option_or_draft": {
-                    "kind": "shortlist_candidate",
-                    "value": {"label": "Current option", "url": "https://example.test/current"},
+            "bundle": {
+                "run_receipt": {"notification_status": "sent"},
+                "run_receipt_path": "state/proactive_ooda_latest_run.generated.json",
+                "stage_packet_path": "state/proactive_ooda_stage_packets/current.json",
+                "safe_work_result_path": "state/proactive_ooda_safe_work_results/current.json",
+                "approval_outcome_path": "state/proactive_ooda_latest_approval_outcome.generated.json",
+                "stage_packet": {"packet_ref": "stage_packet:current"},
+                "safe_work_result": {
+                    "result_ref": "safe_work_result:current",
+                    "status": "staged_for_user_decision",
+                    "approval": {"required": True},
+                    "staged_action_url": "https://example.test/current",
+                    "recommended_option_or_draft": {
+                        "kind": "shortlist_candidate",
+                        "value": {"label": "Current option", "url": "https://example.test/current"},
+                    },
                 },
+                "approval_outcome": {
+                    "approval_outcome_recorded": True,
+                    "status": "accepted_redacted",
+                    "outcome": "approved",
+                    "packet_ref_sha256": "a" * 64,
+                    "staged_artifact_sha256": "b" * 64,
+                },
+                "current_packet_live_pending_count": 0,
             },
-            "approval_outcome": {
-                "approval_outcome_recorded": True,
-                "status": "accepted_redacted",
-                "outcome": "approved",
-                "packet_ref_sha256": "a" * 64,
-                "staged_artifact_sha256": "b" * 64,
+            "bundle_source": "live_runtime",
+            "host_fallback_used": False,
+            "fallback_reason": "",
+            "live_report": {"status": "ok"},
+            "approval_selection": {
+                "approval_outcome": {},
+                "stale_saved_approval_outcome_present": True,
+                "source": "",
             },
         },
     )
@@ -1288,23 +1402,37 @@ def test_admin_proactive_ooda_approval_page_shows_runtime_recovery_controls(monk
     )
     monkeypatch.setattr(
         landing_console_support,
-        "load_runtime_artifact_bundle",
+        "resolve_proactive_ooda_capture_bundle",
         lambda **_kwargs: {
-            "run_receipt": {"notification_status": "sent"},
-            "run_receipt_path": "state/proactive_ooda_latest_run.generated.json",
-            "stage_packet_path": "state/proactive_ooda_stage_packets/packet-1.json",
-            "safe_work_result_path": "state/proactive_ooda_safe_work_results/result-1.json",
-            "approval_outcome_path": "state/proactive_ooda_latest_approval_outcome.generated.json",
-            "stage_packet": {"packet_ref": "stage_packet:private-packet-123"},
-            "safe_work_result": {
-                "result_ref": "safe_work_result:private-artifact-456",
-                "staged_action_url": "https://example.test/approve",
-                "recommended_option_or_draft": {
-                    "kind": "shortlist_candidate",
-                    "value": {"label": "Option A", "url": "https://example.test/a"},
+            "bundle": {
+                "run_receipt": {"notification_status": "sent"},
+                "run_receipt_path": "state/proactive_ooda_latest_run.generated.json",
+                "stage_packet_path": "state/proactive_ooda_stage_packets/packet-1.json",
+                "safe_work_result_path": "state/proactive_ooda_safe_work_results/result-1.json",
+                "approval_outcome_path": "state/proactive_ooda_latest_approval_outcome.generated.json",
+                "stage_packet": {"packet_ref": "stage_packet:private-packet-123"},
+                "safe_work_result": {
+                    "result_ref": "safe_work_result:private-artifact-456",
+                    "status": "staged_for_user_decision",
+                    "approval": {"required": True},
+                    "staged_action_url": "https://example.test/approve",
+                    "recommended_option_or_draft": {
+                        "kind": "shortlist_candidate",
+                        "value": {"label": "Option A", "url": "https://example.test/a"},
+                    },
                 },
+                "approval_outcome": {},
+                "current_packet_live_pending_count": 1,
             },
-            "approval_outcome": {},
+            "bundle_source": "live_runtime",
+            "host_fallback_used": False,
+            "fallback_reason": "",
+            "live_report": {"status": "ok"},
+            "approval_selection": {
+                "approval_outcome": {},
+                "stale_saved_approval_outcome_present": False,
+                "source": "",
+            },
         },
     )
     monkeypatch.setattr(

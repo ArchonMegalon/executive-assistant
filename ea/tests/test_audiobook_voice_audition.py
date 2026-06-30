@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import tempfile
 from unittest.mock import patch
+import urllib.parse
 
 from app.services import audiobook_epub_pipeline
 
@@ -728,6 +729,218 @@ def test_resume_due_audiobook_jobs_counts_safe_recovery_before_skip() -> None:
     assert result["safe_recovery_reasons"] == {"selected_voice_author_gender_mismatch": 1}
     assert result["attempted"] == 0
     assert result["skip_reasons"]["waiting_voice_selection"] == 1
+
+
+def test_resume_due_audiobook_jobs_notifies_waiting_voice_selection_when_sample_delivery_is_pending() -> None:
+    current_selection = {
+        "status": "selected_by_user",
+        "selected": {
+            "preset_key": "unmixr_seraphina_express_9827708d",
+            "label": "Seraphina (Express)",
+            "language": "de-de",
+            "supported_languages": ["de-de"],
+            "tags": ["audiobook", "narration", "female", "warm"],
+        },
+        "selected_callback_token": "callback-token-seraphina",
+        "selected_candidate_key": "unmixr_seraphina_express_9827708d",
+        "book_profile": {"author_gender_signal": "male"},
+    }
+    job_dir = _create_job_dir(current_voice_selection=current_selection)
+    root_dir = job_dir.parent
+    stored_job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
+    stored_job["status"] = "waiting_voice_selection"
+    stored_job["telegram"] = {
+        "chat_id": "42",
+        "message_id": "99",
+        "voice_sample_delivery": {"status": "not_attempted", "expected_count": 2, "sent_count": 0},
+    }
+    stored_job["provider"]["voice_selection"] = {
+        "status": "waiting_user_choice",
+        "reason": "selected_voice_author_gender_mismatch",
+        "book_profile": {"author_gender_signal": "male"},
+        "pending_candidate_keys": ["unmixr_hans_84ea27fb", "unmixr_dieter_7f88185d"],
+        "pending_batch": [
+            {
+                **_private_voice_candidate(
+                    job_dir,
+                    token="callback-token-hans",
+                    row=_candidate(
+                        preset_key="unmixr_hans_84ea27fb",
+                        label="Hans",
+                        gender="male",
+                        score=68,
+                    ),
+                )["public"],
+            },
+            {
+                **_private_voice_candidate(
+                    job_dir,
+                    token="callback-token-dieter",
+                    row=_candidate(
+                        preset_key="unmixr_dieter_7f88185d",
+                        label="Dieter",
+                        gender="male",
+                        score=67,
+                    ),
+                )["public"],
+            },
+        ],
+    }
+    (job_dir / "job.json").write_text(json.dumps(stored_job, ensure_ascii=True, indent=2), encoding="utf-8")
+
+    sent: list[dict[str, object]] = []
+
+    def _fake_send(*, job: dict[str, object], text: str) -> dict[str, object]:
+        sent.append({"job_id": str(job.get("job_id") or ""), "text": text})
+        return {"status": "sent", "message_id": 77}
+
+    with (
+        patch.dict(
+            os.environ,
+            {
+                "EA_AUDIOBOOK_JOBS_ROOT": str(root_dir),
+                "EA_AUDIOBOOK_JOB_DISCOVERY_ROOTS": str(root_dir),
+            },
+            clear=False,
+        ),
+        patch.object(audiobook_epub_pipeline, "_send_telegram_audiobook_status", side_effect=_fake_send),
+        patch.object(audiobook_epub_pipeline, "_write_current_job_receipt_best_effort"),
+    ):
+        result = audiobook_epub_pipeline.resume_due_audiobook_jobs(notify_telegram=True, limit=1)
+
+    assert sent and sent[0]["job_id"] == "test-job"
+    assert result["attempted"] == 0
+    assert result["skip_reasons"]["waiting_voice_selection"] == 1
+    assert result["notifications"][0]["job_id"] == "test-job"
+    assert result["notifications"][0]["notification"]["status"] == "sent"
+
+
+def test_send_telegram_audiobook_status_delivers_reopened_replacement_samples() -> None:
+    current_selection = {
+        "status": "selected_by_user",
+        "selected": {
+            "preset_key": "unmixr_seraphina_express_9827708d",
+            "label": "Seraphina (Express)",
+            "language": "de-de",
+            "supported_languages": ["de-de"],
+            "tags": ["audiobook", "narration", "female", "warm"],
+        },
+        "selected_callback_token": "callback-token-seraphina",
+        "selected_candidate_key": "unmixr_seraphina_express_9827708d",
+        "book_profile": {"author_gender_signal": "male"},
+    }
+    job_dir = _create_job_dir(current_voice_selection=current_selection)
+    stored_job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
+    stored_job["status"] = "blocked_external_tts"
+    stored_job["telegram"] = {"chat_id": "42", "message_id": "99"}
+    stored_job["render_result"] = {
+        "status": "blocked",
+        "reason": "Input too long. Please limit your input to under 2000 characters.",
+        "voice_selection": dict(current_selection),
+    }
+    stored_job["updated_at"] = "2026-06-29T00:00:00Z"
+    (job_dir / "job.json").write_text(json.dumps(stored_job, ensure_ascii=True, indent=2), encoding="utf-8")
+    private_payload = {
+        "contract_name": audiobook_epub_pipeline.VOICE_AUDITION_CONTRACT_NAME,
+        "job_id": "test-job",
+        "updated_at": "2026-06-29T00:00:00Z",
+        "candidates": {
+            "callback-token-seraphina": _private_voice_candidate(
+                job_dir,
+                token="callback-token-seraphina",
+                row=_candidate(
+                    preset_key="unmixr_seraphina_express_9827708d",
+                    label="Seraphina (Express)",
+                    gender="female",
+                    score=70,
+                ),
+            ),
+            "callback-token-hans": _private_voice_candidate(
+                job_dir,
+                token="callback-token-hans",
+                row=_candidate(
+                    preset_key="unmixr_hans_84ea27fb",
+                    label="Hans",
+                    gender="male",
+                    score=68,
+                ),
+            ),
+            "callback-token-dieter": _private_voice_candidate(
+                job_dir,
+                token="callback-token-dieter",
+                row=_candidate(
+                    preset_key="unmixr_dieter_7f88185d",
+                    label="Dieter",
+                    gender="male",
+                    score=67,
+                ),
+            ),
+        },
+    }
+    audiobook_epub_pipeline._write_voice_audition_private(job_dir, private_payload)  # noqa: SLF001
+
+    with patch.object(audiobook_epub_pipeline, "_write_current_job_receipt_best_effort"):
+        recovery = audiobook_epub_pipeline.recover_audiobook_job_without_external_side_effects(job_dir)
+
+    recovered_job = dict(recovery.get("job") or {})
+    assert recovery.get("recovered") is True
+    assert recovery.get("reason") == "selected_voice_author_gender_mismatch"
+    expected_sample_count = len(audiobook_epub_pipeline.audiobook_voice_audition_sample_messages(recovered_job))
+
+    requests_seen: list[tuple[str, bytes]] = []
+
+    class _FakeResponse:
+        def __init__(self, payload: dict[str, object]) -> None:
+            self._payload = payload
+
+        def read(self) -> bytes:
+            return json.dumps(self._payload).encode("utf-8")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    def _fake_urlopen(request, timeout=0):  # noqa: ANN001
+        requests_seen.append((request.full_url, bytes(request.data or b"")))
+        if request.full_url.endswith("/sendAudio"):
+            audio_count = sum(1 for url, _ in requests_seen if url.endswith("/sendAudio"))
+            return _FakeResponse({"ok": True, "result": {"message_id": 100 + audio_count}})
+        if request.full_url.endswith("/sendMessage"):
+            return _FakeResponse({"ok": True, "result": {"message_id": 999}})
+        raise AssertionError(request.full_url)
+
+    with (
+        patch.dict(
+            os.environ,
+            {
+                "EA_TELEGRAM_BOT_TOKEN": "test-bot-token",
+                "EA_TELEGRAM_CALLBACK_SECRET": "test-callback-secret",
+            },
+            clear=False,
+        ),
+        patch.object(audiobook_epub_pipeline.urllib.request, "urlopen", side_effect=_fake_urlopen),
+    ):
+        notification = audiobook_epub_pipeline._send_telegram_audiobook_status(  # noqa: SLF001
+            job=recovered_job,
+            text=audiobook_epub_pipeline.telegram_epub_reply_text(recovered_job),
+        )
+
+    request_kinds = [url.rsplit("/", 1)[-1] for url, _ in requests_seen]
+    assert request_kinds[:-1] == ["sendAudio"] * expected_sample_count
+    assert request_kinds[-1] == "sendMessage"
+    assert notification["status"] == "sent"
+    delivery = dict(notification.get("voice_sample_delivery") or {})
+    assert delivery["status"] == "sent"
+    assert delivery["sent_count"] == expected_sample_count
+    message_body = urllib.parse.parse_qs(requests_seen[-1][1].decode("utf-8"))
+    assert message_body["chat_id"] == ["42"]
+    updated_job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
+    updated_delivery = dict(dict(updated_job.get("telegram") or {}).get("voice_sample_delivery") or {})
+    assert updated_delivery["status"] == "sent"
+    assert updated_delivery["expected_count"] == expected_sample_count
+    assert updated_delivery["sent_count"] == expected_sample_count
 
 
 def test_infer_author_gender_handles_common_english_and_international_names() -> None:
