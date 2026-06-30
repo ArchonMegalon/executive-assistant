@@ -1238,6 +1238,59 @@ def test_record_audiobook_voice_sample_delivery_merges_current_pending_coverage(
     }
 
 
+def test_record_audiobook_voice_sample_delivery_drops_stale_reopened_voice_receipts_without_visible_sample_file() -> None:
+    job_dir = _create_job_dir()
+    dieter_public = _private_voice_candidate(
+        job_dir,
+        token="callback-token-dieter",
+        row=_candidate(
+            preset_key="unmixr_dieter_7f88185d",
+            label="Dieter",
+            gender="male",
+            score=67,
+        ),
+    )["public"]
+    stale_hashes = [
+        hashlib.sha256(b"callback-token-seraphina").hexdigest(),
+        hashlib.sha256(b"callback-token-amala").hexdigest(),
+    ]
+    stored_job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
+    stored_job["status"] = "waiting_voice_selection"
+    stored_job["storage"]["job_dir"] = "/container-only/audiobook-job"
+    stored_job["telegram"] = {
+        "chat_id": "42",
+        "voice_sample_delivery": {
+            "status": "sent",
+            "expected_count": 2,
+            "attempted_count": 2,
+            "sent_count": 2,
+            "token_sha256": stale_hashes,
+            "samples": [
+                {"token_sha256": stale_hashes[0], "status": "sent", "button_count": 2},
+                {"token_sha256": stale_hashes[1], "status": "sent", "button_count": 2},
+            ],
+        },
+    }
+    stored_job["provider"]["voice_selection"] = {
+        "status": "waiting_user_choice",
+        "reason": "selected_voice_author_gender_mismatch",
+        "book_profile": {"author_gender_signal": "male"},
+        "pending_candidate_keys": ["unmixr_dieter_7f88185d"],
+        "pending_batch": [dieter_public],
+    }
+
+    updated_job = audiobook_epub_pipeline.record_audiobook_voice_sample_delivery(
+        job=stored_job,
+        sample_receipts=[],
+    )
+
+    delivery = dict(dict(updated_job.get("telegram") or {}).get("voice_sample_delivery") or {})
+    assert delivery["status"] == "not_attempted"
+    assert delivery["expected_count"] == 1
+    assert delivery["sent_count"] == 0
+    assert delivery["token_sha256"] == []
+
+
 def test_send_telegram_audiobook_status_only_delivers_uncovered_voice_samples() -> None:
     job_dir = _create_job_dir()
     hans_public = _private_voice_candidate(
