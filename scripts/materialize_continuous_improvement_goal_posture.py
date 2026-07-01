@@ -31,6 +31,7 @@ DEFAULT_PROACTIVE_OODA_GOLD_ACCEPTANCE = ROOT / ".codex-studio/published/ea_proa
 DEFAULT_POCKET_AUDIO_ARCHIVE = ROOT / ".codex-studio/published/pocket_audio_archive_receipt.generated.json"
 DEFAULT_TELEGRAM_BUSINESS_SIGNAL_READINESS = ROOT / ".codex-studio/published/telegram_business_signal_readiness.generated.json"
 DEFAULT_GOOGLE_WORKSPACE_OAUTH_READINESS = ROOT / ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json"
+DEFAULT_PUSHBULLET_DELIVERY_READINESS = ROOT / ".codex-studio/published/ea_pushbullet_delivery_readiness.generated.json"
 DEFAULT_TELEGRAM_AUDIOBOOK_READINESS = ROOT / ".codex-studio/published/telegram_audiobook_live_readiness.generated.json"
 DEFAULT_TELEGRAM_AUDIOBOOK_DELIVERY = ROOT / ".codex-studio/published/telegram_audiobook_live_delivery.generated.json"
 DEFAULT_WHATSAPP_AUDIOBOOK_INTAKE = ROOT / ".codex-studio/published/whatsapp_audiobook_local_intake_proof.generated.json"
@@ -53,6 +54,7 @@ PROACTIVE_OODA_ACCEPTANCE_RECEIPT = (
 FRESH_HOST_TEABLE_RECOVERY_RECEIPT = "fresh-host Teable recovery drill receipt mirrored into the repo"
 TELEGRAM_BUSINESS_SIGNAL_SETUP_RECEIPT = "Telegram Business/Secretary bot connected with allowlisted signal chats"
 GOOGLE_WORKSPACE_OAUTH_SETUP_RECEIPT = "Google Workspace OAuth test-user or verified app access for Full Workspace auth"
+PUSHBULLET_DELIVERY_SETUP_RECEIPT = "Pushbullet delivery clients configured and live-verifiable for action-required delivery"
 MANFRED_REALTIME_ACCEPTANCE_RECEIPT = "consented Manfred STT/TTS realtime conversation proof"
 TELEGRAM_AUDIOBOOK_LIVE_DELIVERY_RECEIPT = "passing Telegram audiobook live delivery receipt"
 WHATSAPP_AUDIOBOOK_LIVE_DELIVERY_RECEIPT = "passing WhatsApp audiobook live delivery receipt"
@@ -132,6 +134,11 @@ ACTION_SURFACES = {
     "add_google_oauth_test_user_and_retry_full_workspace_auth": {
         "href": "/integrations/google",
         "label": "Open Google setup",
+        "method": "get",
+    },
+    "create_missing_pushbullet_access_tokens": {
+        "href": "https://www.pushbullet.com/#settings/account",
+        "label": "Open Pushbullet account settings",
         "method": "get",
     },
     "capture_consented_manfred_stt_tts_realtime_proof": {
@@ -589,6 +596,84 @@ def _signal_review_acceptance_status(signal_receipt: dict[str, Any]) -> str:
     return "satisfied" if bool(signal_receipt.get("real_weekly_operator_review_accepted")) else "pending_real_world_evidence"
 
 
+def _pushbullet_delivery_action_context(receipt: dict[str, Any]) -> dict[str, Any]:
+    action = dict(receipt.get("operator_action") or {})
+    missing_setup = [
+        str(item).strip()
+        for item in list(action.get("missing_setup") or receipt.get("missing_setup") or [])
+        if str(item).strip()
+    ]
+    required_client_keys = [
+        str(item).strip()
+        for item in list(receipt.get("required_client_keys") or [])
+        if str(item).strip()
+    ]
+    missing_client_keys = [
+        item.removeprefix("pushbullet_token_missing:").strip()
+        for item in missing_setup
+        if item.startswith("pushbullet_token_missing:") and item.removeprefix("pushbullet_token_missing:").strip()
+    ]
+    setup_url = str(receipt.get("account_settings_url") or action.get("next_action_href") or "").strip()
+    setup_checklist = [
+        dict(item)
+        for item in list(action.get("setup_checklist") or [])
+        if isinstance(item, dict)
+    ]
+    if not setup_checklist and missing_setup:
+        setup_checklist = [
+            {
+                "key": "create_pushbullet_access_token",
+                "label": "Create Pushbullet access token",
+                "how": "Open Pushbullet account settings, create an access token for the intended account, store it in the configured PB_TOKEN_* env var, then rerun the readiness receipt.",
+            }
+        ]
+    clients = [dict(item) for item in list(receipt.get("clients") or []) if isinstance(item, dict)]
+    token_envs = [
+        str(item.get("token_env") or "").strip()
+        for item in clients
+        if str(item.get("token_env") or "").strip()
+    ]
+    telegram_message = str(action.get("telegram_message") or "").strip()
+    if not telegram_message and missing_setup:
+        missing_label = ", ".join(missing_setup[:3])
+        suffix = f" Missing: {missing_label}." if missing_label else ""
+        telegram_message = (
+            "Action needed: Pushbullet delivery is not ready. Create the missing access token for the configured "
+            f"client and rerun the Pushbullet readiness receipt.{suffix}"
+        )
+    return {
+        "kind": "pushbullet_delivery_setup",
+        "user_action_required": bool(action.get("user_action_required") or missing_setup),
+        "instruction": str(
+            action.get("instruction")
+            or "Create missing Pushbullet access tokens for configured delivery clients, then rerun readiness."
+        ).strip(),
+        "missing_setup": missing_setup,
+        "setup_checklist": setup_checklist,
+        "required_client_keys": required_client_keys,
+        "token_missing_client_keys": missing_client_keys,
+        "pushbullet_client_count": int(receipt.get("client_count") or len(clients) or 0),
+        "pushbullet_token_envs": token_envs,
+        "pushbullet_note_delivery_ready": bool(dict(receipt.get("delivery_claim") or {}).get("pushbullet_note_delivery_ready")),
+        "live_token_account_verified": bool(dict(receipt.get("delivery_claim") or {}).get("live_token_account_verified")),
+        "external_setup_url": setup_url,
+        "telegram_message": telegram_message,
+        "delivery_policy": str(action.get("delivery_policy") or "action_required_only").strip(),
+        "telegram_push_allowed": bool(action.get("telegram_push_allowed") or missing_setup),
+        "interruption_budget": str(action.get("interruption_budget") or "action_required").strip(),
+        "quiet_hours_respected": True,
+        "non_action_progress_push_allowed": False,
+        "irreversible_actions_consent_gated": True,
+        "raw_private_context_exposed": bool(action.get("raw_private_context_exposed")),
+        "raw_chat_ids_exposed": False,
+        "raw_email_exposed": bool(action.get("raw_email_exposed") or dict(receipt.get("privacy") or {}).get("raw_email_exposed")),
+        "raw_token_exposed": bool(action.get("raw_token_exposed") or dict(receipt.get("privacy") or {}).get("raw_token_exposed")),
+        "raw_secret_exposed": False,
+        "raw_voice_ids_exposed": False,
+        "callback_tokens_exposed": False,
+    }
+
+
 def _acceptance_proof_status(acceptance_receipt: dict[str, Any], proof_key: str) -> str:
     if not proof_key:
         return "pending_real_world_evidence"
@@ -940,6 +1025,7 @@ def _operator_action_priority(requirement: dict[str, Any]) -> tuple[int, int, in
         "morning_brief_operator_acceptance": 3,
         "weekly_signal_to_decision_review_acceptance": 4,
         "google_workspace_oauth_setup": 5,
+        "pushbullet_delivery_setup": 6,
         "telegram_audiobook_live_delivery": 10,
         "manfred_stt_tts_realtime_conversation": 11,
         "whatsapp_audiobook_live_delivery": 12,
@@ -1047,6 +1133,25 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
             "expected_google_email_present": bool(action_context.get("expected_google_email_present")),
             "expected_google_email_sha256": str(action_context.get("expected_google_email_sha256") or "").strip(),
             "expected_google_domain": str(action_context.get("expected_google_domain") or "").strip(),
+            "external_setup_url": str(action_context.get("external_setup_url") or "").strip(),
+            "required_client_keys": [
+                str(item).strip()
+                for item in list(action_context.get("required_client_keys") or [])
+                if str(item).strip()
+            ],
+            "token_missing_client_keys": [
+                str(item).strip()
+                for item in list(action_context.get("token_missing_client_keys") or [])
+                if str(item).strip()
+            ],
+            "pushbullet_client_count": int(action_context.get("pushbullet_client_count") or 0),
+            "pushbullet_token_envs": [
+                str(item).strip()
+                for item in list(action_context.get("pushbullet_token_envs") or [])
+                if str(item).strip()
+            ],
+            "pushbullet_note_delivery_ready": bool(action_context.get("pushbullet_note_delivery_ready")),
+            "live_token_account_verified": bool(action_context.get("live_token_account_verified")),
             "candidate_count": int(action_context.get("candidate_count") or 0),
             "candidate_labels": [
                 str(item).strip()
@@ -1073,6 +1178,7 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
             "irreversible_actions_consent_gated": True,
             "raw_private_context_exposed": False,
             "raw_chat_ids_exposed": bool(action_context.get("raw_chat_ids_exposed")),
+            "raw_email_exposed": bool(action_context.get("raw_email_exposed")),
             "raw_token_exposed": bool(action_context.get("raw_token_exposed")),
             "raw_secret_exposed": bool(action_context.get("raw_secret_exposed")),
             "raw_expected_google_email_exposed": bool(action_context.get("raw_expected_google_email_exposed")),
@@ -1126,6 +1232,13 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
             "expected_google_email_present",
             "expected_google_email_sha256",
             "expected_google_domain",
+            "external_setup_url",
+            "required_client_keys",
+            "token_missing_client_keys",
+            "pushbullet_client_count",
+            "pushbullet_token_envs",
+            "pushbullet_note_delivery_ready",
+            "live_token_account_verified",
             "failed_playback_count",
             "attempted_playback_count",
             "first_failure_reason",
@@ -1144,6 +1257,7 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
             "pair_url_actionable_from_telegram",
             "raw_public_share_url_exposed",
             "raw_track_url_exposed",
+            "raw_email_exposed",
             "raw_pair_url_exposed",
             "raw_qr_payload_exposed",
             "raw_whatsapp_session_ref_exposed",
@@ -1207,6 +1321,7 @@ def build_goal_posture(
     pocket_audio, pocket_audio_path = _load_receipt(root, root / DEFAULT_POCKET_AUDIO_ARCHIVE.relative_to(ROOT))
     tg_business, tg_business_path = _load_receipt(root, root / DEFAULT_TELEGRAM_BUSINESS_SIGNAL_READINESS.relative_to(ROOT))
     google_oauth, google_oauth_path = _load_receipt(root, root / DEFAULT_GOOGLE_WORKSPACE_OAUTH_READINESS.relative_to(ROOT))
+    pushbullet, pushbullet_path = _load_receipt(root, root / DEFAULT_PUSHBULLET_DELIVERY_READINESS.relative_to(ROOT))
     tg_ready, tg_ready_path = _load_receipt(root, root / DEFAULT_TELEGRAM_AUDIOBOOK_READINESS.relative_to(ROOT))
     tg_live, tg_live_path = _load_receipt(root, root / DEFAULT_TELEGRAM_AUDIOBOOK_DELIVERY.relative_to(ROOT))
     wa_intake, wa_intake_path = _load_receipt(root, root / DEFAULT_WHATSAPP_AUDIOBOOK_INTAKE.relative_to(ROOT))
@@ -1466,6 +1581,52 @@ def build_goal_posture(
             receipts=whatsapp_component_receipts,
         ),
     ]
+    if pushbullet:
+        pushbullet_component = _deliver_component(
+            key="pushbullet_delivery",
+            title="Pushbullet action-required delivery",
+            payload=pushbullet,
+            summary=(
+                f"Pushbullet clients: {int(pushbullet.get('client_count') or 0)} configured; "
+                f"missing setup: {len(list(pushbullet.get('missing_setup') or []))}."
+            ),
+            next_action=str(
+                dict(pushbullet.get("operator_action") or {}).get("next_action")
+                or "create_missing_pushbullet_access_tokens"
+            ).strip(),
+            receipts=[
+                _source_receipt(
+                    pushbullet_path,
+                    pushbullet,
+                    current_source_head=current_source_head,
+                    current_source_fingerprint=current_source_fingerprint,
+                )
+            ],
+        )
+        pushbullet_component.update(
+            {
+                "client_count": int(pushbullet.get("client_count") or 0),
+                "required_client_keys": [
+                    str(item).strip()
+                    for item in list(pushbullet.get("required_client_keys") or [])
+                    if str(item).strip()
+                ],
+                "missing_setup": [
+                    str(item).strip()
+                    for item in list(pushbullet.get("missing_setup") or [])
+                    if str(item).strip()
+                ],
+                "pushbullet_note_delivery_ready": bool(
+                    dict(pushbullet.get("delivery_claim") or {}).get("pushbullet_note_delivery_ready")
+                ),
+                "live_token_account_verified": bool(
+                    dict(pushbullet.get("delivery_claim") or {}).get("live_token_account_verified")
+                ),
+                "raw_email_exposed": bool(dict(pushbullet.get("privacy") or {}).get("raw_email_exposed")),
+                "raw_token_exposed": bool(dict(pushbullet.get("privacy") or {}).get("raw_token_exposed")),
+            }
+        )
+        deliver_components.append(pushbullet_component)
 
     deliver_has_blocker = any(_is_blocking(str(component.get("status") or "")) for component in deliver_components)
     deliver_status = "mixed_local_progress" if deliver_has_blocker else "ready_local_evidence"
@@ -1492,6 +1653,7 @@ def build_goal_posture(
             "make verify-whatsapp-audiobook-operator-proof-bundle",
             "make verify-whatsapp-audiobook-live-delivery-receipt",
             "make verify-whatsapp-audiobook-public-share-playback",
+            "python3 scripts/verify_pushbullet_delivery_readiness.py",
         ],
         source_receipts=[],
         components=deliver_components,
@@ -1875,6 +2037,28 @@ def build_goal_posture(
                     _source_receipt(
                         google_oauth_path,
                         google_oauth,
+                        current_source_head=current_source_head,
+                        current_source_fingerprint=current_source_fingerprint,
+                    )
+                ],
+            )
+        )
+    if any(reason.startswith("deliver:pushbullet_delivery") for reason in blocking_reasons):
+        acceptance_proof_requirements.append(
+            _acceptance_proof_requirement(
+                key="pushbullet_delivery_setup",
+                title="Pushbullet delivery setup",
+                lens="deliver",
+                required_next_receipt=PUSHBULLET_DELIVERY_SETUP_RECEIPT,
+                evidence_kind="delivery_channel_setup",
+                capture_surfaces=[pushbullet_path],
+                next_action="create_missing_pushbullet_access_tokens",
+                claim_boundary="does_not_prove_action_required_pushbullet_delivery_until_required_clients_are_configured_and_live_verifiable",
+                action_context=_pushbullet_delivery_action_context(pushbullet),
+                source_receipts=[
+                    _source_receipt(
+                        pushbullet_path,
+                        pushbullet,
                         current_source_head=current_source_head,
                         current_source_fingerprint=current_source_fingerprint,
                     )

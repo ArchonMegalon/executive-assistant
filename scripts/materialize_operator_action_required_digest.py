@@ -27,6 +27,7 @@ DEFAULT_QUEUE_URL = "https://myexternalbrain.com/admin/goals"
 PRIVATE_EXPOSURE_FLAGS = (
     "raw_private_context_exposed",
     "raw_chat_ids_exposed",
+    "raw_email_exposed",
     "raw_token_exposed",
     "raw_secret_exposed",
     "raw_voice_ids_exposed",
@@ -148,6 +149,7 @@ def _sanitize_action_item(row: dict[str, Any]) -> dict[str, Any]:
         "telegram_message": _text(row.get("telegram_message"), limit=320),
         "console_deep_link": _text(row.get("console_deep_link"), limit=220),
         "auth_link_template": _text(row.get("auth_link_template"), limit=260),
+        "external_setup_url": _text(row.get("external_setup_url"), limit=260),
         "delivery_policy": "action_required_only",
         "telegram_push_allowed": True,
         "interruption_budget": "action_required",
@@ -156,6 +158,7 @@ def _sanitize_action_item(row: dict[str, Any]) -> dict[str, Any]:
         "irreversible_actions_consent_gated": True,
         "raw_private_context_exposed": False,
         "raw_chat_ids_exposed": False,
+        "raw_email_exposed": False,
         "raw_token_exposed": False,
         "raw_secret_exposed": False,
         "raw_voice_ids_exposed": False,
@@ -203,6 +206,7 @@ def _digest_material(items: list[dict[str, Any]], queue_url: str) -> dict[str, A
                 "instruction": item.get("instruction"),
                 "next_action": item.get("next_action"),
                 "next_action_form_href": item.get("next_action_form_href"),
+                "external_setup_url": item.get("external_setup_url"),
             }
             for item in items
         ],
@@ -216,6 +220,7 @@ def _item_hash(item: dict[str, Any]) -> str:
             "instruction": item.get("instruction"),
             "next_action": item.get("next_action"),
             "next_action_form_href": item.get("next_action_form_href"),
+            "external_setup_url": item.get("external_setup_url"),
         }
     )
 
@@ -285,6 +290,9 @@ def _telegram_text(items: list[dict[str, Any]], queue_url: str) -> str:
         auth_template = _text(item.get("auth_link_template"), limit=260)
         if auth_template:
             lines.append(f"   Retry: {auth_template}")
+        setup_url = _text(item.get("external_setup_url"), limit=260)
+        if setup_url:
+            lines.append(f"   Setup: {setup_url}")
     if len(items) > 8:
         lines.append(f"+ {len(items) - 8} more in the queue")
     lines.append(f"Queue: {queue_url}")
@@ -462,6 +470,7 @@ def build_operator_action_required_digest(
         "privacy": {
             "raw_private_context_exposed": False,
             "raw_chat_ids_exposed": False,
+            "raw_email_exposed": False,
             "raw_token_exposed": False,
             "raw_secret_exposed": False,
             "raw_voice_ids_exposed": False,

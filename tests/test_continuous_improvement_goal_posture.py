@@ -554,6 +554,60 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     )
     _write_receipt(
         tmp_path,
+        ".codex-studio/published/ea_pushbullet_delivery_readiness.generated.json",
+        status="blocked_setup_required",
+        provider="pushbullet",
+        client_count=1,
+        required_client_keys=["elisabeth"],
+        missing_setup=["pushbullet_token_missing:elisabeth"],
+        account_settings_url="https://www.pushbullet.com/#settings/account",
+        delivery_claim={
+            "pushbullet_note_delivery_ready": False,
+            "live_token_account_verified": False,
+            "irreversible_actions_consent_gated": True,
+            "non_action_progress_push_allowed": False,
+        },
+        clients=[
+            {
+                "client_key": "elisabeth",
+                "email_domain": "gmail.com",
+                "email_present": True,
+                "email_sha256": "email-hash",
+                "token_env": "PB_TOKEN_ELISABETH",
+                "token_present": False,
+                "raw_email_exposed": False,
+                "raw_token_exposed": False,
+            }
+        ],
+        privacy={
+            "raw_email_exposed": False,
+            "raw_token_exposed": False,
+            "raw_push_body_exposed": False,
+            "raw_push_ids_exposed": False,
+        },
+        operator_action={
+            "user_action_required": True,
+            "delivery_policy": "action_required_only",
+            "telegram_push_allowed": True,
+            "interruption_budget": "action_required",
+            "next_action": "create_missing_pushbullet_access_tokens",
+            "next_action_label": "Open Pushbullet account settings",
+            "next_action_href": "https://www.pushbullet.com/#settings/account",
+            "next_action_method": "get",
+            "setup_checklist": [
+                {
+                    "key": "create_pushbullet_access_token",
+                    "label": "Create a Pushbullet access token for each blocked client",
+                    "how": "Open Pushbullet Account Settings, create an access token, store it in the listed token env var, then rerun this readiness receipt.",
+                }
+            ],
+            "raw_email_exposed": False,
+            "raw_token_exposed": False,
+            "raw_private_context_exposed": False,
+        },
+    )
+    _write_receipt(
+        tmp_path,
         ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
         status="blocked",
         next_action="choose_sent_replacement_voice_sample",
@@ -641,6 +695,7 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
         "proactive_ooda_packet_acceptance",
         "fresh_host_teable_recovery_drill",
         "telegram_business_signal_setup",
+        "pushbullet_delivery_setup",
         "manfred_stt_tts_realtime_conversation",
         "telegram_audiobook_live_delivery",
         "whatsapp_audiobook_live_delivery",
@@ -714,6 +769,17 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert telegram_business_context["raw_chat_ids_exposed"] is False
     assert telegram_business_context["raw_token_exposed"] is False
     assert telegram_business_context["raw_secret_exposed"] is False
+    assert proof_requirements["pushbullet_delivery_setup"]["evidence_kind"] == "delivery_channel_setup"
+    pushbullet_context = proof_requirements["pushbullet_delivery_setup"]["action_context"]
+    assert pushbullet_context["kind"] == "pushbullet_delivery_setup"
+    assert pushbullet_context["user_action_required"] is True
+    assert pushbullet_context["missing_setup"] == ["pushbullet_token_missing:elisabeth"]
+    assert pushbullet_context["required_client_keys"] == ["elisabeth"]
+    assert pushbullet_context["token_missing_client_keys"] == ["elisabeth"]
+    assert pushbullet_context["pushbullet_token_envs"] == ["PB_TOKEN_ELISABETH"]
+    assert pushbullet_context["external_setup_url"] == "https://www.pushbullet.com/#settings/account"
+    assert pushbullet_context["raw_email_exposed"] is False
+    assert pushbullet_context["raw_token_exposed"] is False
     assert proof_requirements["telegram_audiobook_live_delivery"]["evidence_kind"] == "live_delivery_receipt"
     assert (
         proof_requirements["telegram_audiobook_live_delivery"]["next_action"]
@@ -854,6 +920,19 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert telegram_business_action["raw_chat_ids_exposed"] is False
     assert telegram_business_action["raw_token_exposed"] is False
     assert telegram_business_action["raw_secret_exposed"] is False
+    pushbullet_action = next(
+        item for item in receipt["operator_action_queue"] if item["key"] == "pushbullet_delivery_setup"
+    )
+    assert pushbullet_action["user_action_required"] is True
+    assert pushbullet_action["delivery_policy"] == "action_required_only"
+    assert pushbullet_action["telegram_push_allowed"] is True
+    assert pushbullet_action["missing_setup"] == ["pushbullet_token_missing:elisabeth"]
+    assert pushbullet_action["required_client_keys"] == ["elisabeth"]
+    assert pushbullet_action["token_missing_client_keys"] == ["elisabeth"]
+    assert pushbullet_action["pushbullet_token_envs"] == ["PB_TOKEN_ELISABETH"]
+    assert pushbullet_action["external_setup_url"] == "https://www.pushbullet.com/#settings/account"
+    assert pushbullet_action["raw_email_exposed"] is False
+    assert pushbullet_action["raw_token_exposed"] is False
     assert receipt["operator_delivery_policy"] == {
         "action_required_only": True,
         "non_action_progress_push_allowed": False,
@@ -909,9 +988,14 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert deliver_components["manfred_speech"]["status"] == "blocked_realtime_prerequisites"
     assert deliver_components["telegram_audiobook"]["status"] == "blocked"
     assert deliver_components["whatsapp_audiobook"]["status"] == "blocked"
+    assert deliver_components["pushbullet_delivery"]["status"] == "blocked_setup_required"
+    assert deliver_components["pushbullet_delivery"]["missing_setup"] == ["pushbullet_token_missing:elisabeth"]
+    assert deliver_components["pushbullet_delivery"]["raw_email_exposed"] is False
+    assert deliver_components["pushbullet_delivery"]["raw_token_exposed"] is False
     assert "deliver:manfred_speech=blocked_realtime_prerequisites" in receipt["blocking_reasons"]
     assert "deliver:telegram_audiobook=blocked" in receipt["blocking_reasons"]
     assert "deliver:whatsapp_audiobook=blocked" in receipt["blocking_reasons"]
+    assert "deliver:pushbullet_delivery=blocked_setup_required" in receipt["blocking_reasons"]
 
     output = tmp_path / ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"
     output.parent.mkdir(parents=True, exist_ok=True)

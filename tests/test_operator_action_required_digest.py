@@ -32,6 +32,7 @@ def _action_row(**overrides):
         "irreversible_actions_consent_gated": True,
         "raw_private_context_exposed": False,
         "raw_chat_ids_exposed": False,
+        "raw_email_exposed": False,
         "raw_token_exposed": False,
         "raw_secret_exposed": False,
         "raw_voice_ids_exposed": False,
@@ -61,6 +62,7 @@ def test_digest_filters_only_action_required_telegram_items(tmp_path, monkeypatc
                     source_action_packet_present=True,
                     source_action_packet_status="action_required",
                     required_form_fields=["evidence_part", "source_kind", "evidence", "packet_ref"],
+                    external_setup_url="https://www.pushbullet.com/#settings/account",
                 ),
                 _action_row(
                     key="whatsapp_audiobook_live_delivery",
@@ -97,7 +99,9 @@ def test_digest_filters_only_action_required_telegram_items(tmp_path, monkeypatc
     assert item["source_action_packet_present"] is True
     assert item["source_action_packet_status"] == "action_required"
     assert item["required_form_fields"] == ["evidence_part", "source_kind", "evidence", "packet_ref"]
+    assert item["external_setup_url"] == "https://www.pushbullet.com/#settings/account"
     assert "Choose one sent replacement voice sample" in receipt["telegram_text"]
+    assert "Setup: https://www.pushbullet.com/#settings/account" in receipt["telegram_text"]
     assert "Internal queue-only recovery" not in receipt["telegram_text"]
     assert receipt["counts"]["suppressed_queue_only_count"] == 1
     assert receipt["counts"]["suppressed_privacy_blocked_count"] == 1

@@ -12,6 +12,7 @@ DEFAULT_RECEIPT = ROOT / ".codex-studio/published/ea_operator_action_required_di
 PRIVATE_EXPOSURE_FLAGS = (
     "raw_private_context_exposed",
     "raw_chat_ids_exposed",
+    "raw_email_exposed",
     "raw_token_exposed",
     "raw_secret_exposed",
     "raw_voice_ids_exposed",

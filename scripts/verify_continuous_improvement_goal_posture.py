@@ -26,6 +26,8 @@ KNOWN_STATUSES = {
     "ready_for_good_executive_assistant_claim_review",
     "partial_real_signal_to_decision_closure",
     "ready_for_live_epub_delivery_test",
+    "ready_configured",
+    "ready_live_verified",
     "audiobookshelf_imported",
     "mixed_local_progress",
     "ready_local_audit",
@@ -42,8 +44,10 @@ KNOWN_STATUSES = {
     "fail",
     "failed",
 }
+BASE_DELIVER_COMPONENTS = {"promo_media", "manfred_speech", "telegram_audiobook", "whatsapp_audiobook"}
+PUSHBULLET_RECEIPT_NAME = "ea_pushbullet_delivery_readiness.generated.json"
 EXPECTED_COMPONENTS = {
-    "deliver": {"promo_media", "manfred_speech", "telegram_audiobook", "whatsapp_audiobook"},
+    "deliver": BASE_DELIVER_COMPONENTS,
 }
 REQUIRED_PROACTIVE_OODA_RECEIPT = (
     "real proactive OODA packet accepted with action-required-only routed delivery, approved-source or transcript signal, "
@@ -74,6 +78,7 @@ DELIVER_BLOCKER_PROOF_KEYS = {
     "deliver:manfred_speech": "manfred_stt_tts_realtime_conversation",
     "deliver:telegram_audiobook": "telegram_audiobook_live_delivery",
     "deliver:whatsapp_audiobook": "whatsapp_audiobook_live_delivery",
+    "deliver:pushbullet_delivery": "pushbullet_delivery_setup",
 }
 EXPECTED_PROOF_ACTION_SURFACES = {
     "morning_brief_operator_acceptance": ("/admin/actions/acceptance-evidence", "post"),
@@ -85,6 +90,7 @@ EXPECTED_PROOF_ACTION_SURFACES = {
     "fresh_host_teable_recovery_drill": ("/admin/goals", "get"),
     "telegram_business_signal_setup": ("/integrations/telegram", "get"),
     "google_workspace_oauth_setup": ("/integrations/google", "get"),
+    "pushbullet_delivery_setup": ("https://www.pushbullet.com/#settings/account", "get"),
     "manfred_stt_tts_realtime_conversation": ("/memorials/manfred/voice-config", "get"),
     "telegram_audiobook_live_delivery": ("/integrations/telegram", "get"),
     "whatsapp_audiobook_live_delivery": ("/integrations/whatsapp", "get"),
@@ -99,6 +105,7 @@ EXPECTED_PROOF_FORM_SURFACES = {
     "fresh_host_teable_recovery_drill": ("/admin/goals", "get"),
     "telegram_business_signal_setup": ("/integrations/telegram", "get"),
     "google_workspace_oauth_setup": ("/integrations/google", "get"),
+    "pushbullet_delivery_setup": ("https://www.pushbullet.com/#settings/account", "get"),
     "manfred_stt_tts_realtime_conversation": ("/memorials/manfred/voice-config", "get"),
     "telegram_audiobook_live_delivery": ("/integrations/telegram", "get"),
     "whatsapp_audiobook_live_delivery": ("/integrations/whatsapp", "get"),
@@ -246,7 +253,11 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
         if key == "deliver":
             components = list(lens.get("components") or [])
             component_keys = {str(component.get("key") or "") for component in components if isinstance(component, dict)}
-            if component_keys != EXPECTED_COMPONENTS["deliver"]:
+            expected_components = set(EXPECTED_COMPONENTS["deliver"])
+            pushbullet_receipt_path = repo_root / ".codex-studio/published" / PUSHBULLET_RECEIPT_NAME
+            if pushbullet_receipt_path.exists():
+                expected_components.add("pushbullet_delivery")
+            if component_keys != expected_components:
                 issues.append("deliver lens components drifted")
             for component in components:
                 if not isinstance(component, dict):
@@ -273,6 +284,27 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                             )
                         if source.get("source_fresh_to_current_source") is not True:
                             issues.append(f"deliver component pass requires source-fresh receipts for {component_key}")
+                if component_key == "pushbullet_delivery":
+                    for privacy_key in ("raw_email_exposed", "raw_token_exposed"):
+                        if component.get(privacy_key) is not False:
+                            issues.append(f"pushbullet delivery component must not expose {privacy_key}")
+                    source_names = {
+                        Path(str(source.get("path") or "")).name
+                        for source in component_sources
+                        if isinstance(source, dict)
+                    }
+                    if PUSHBULLET_RECEIPT_NAME not in source_names:
+                        issues.append("pushbullet delivery component must cite the Pushbullet readiness receipt")
+                    if component_status == "blocked_setup_required":
+                        missing_setup = [
+                            str(item).strip()
+                            for item in list(component.get("missing_setup") or [])
+                            if str(item).strip()
+                        ]
+                        if not missing_setup:
+                            issues.append("blocked Pushbullet delivery component must include missing_setup")
+                        if component.get("pushbullet_note_delivery_ready") is not False:
+                            issues.append("blocked Pushbullet delivery component must not claim delivery ready")
             if status not in {"mixed_local_progress", "ready_local_evidence", "pass"}:
                 issues.append("deliver lens must stay conservative (mixed_local_progress, ready_local_evidence, or pass)")
         if key == "recover":
@@ -410,6 +442,8 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
             for private_key in ("raw_chat_ids_exposed", "raw_token_exposed", "raw_secret_exposed"):
                 if row.get(private_key) is not False:
                     issues.append(f"operator_action_queue must not expose {private_key}: {action_key}")
+            if "raw_email_exposed" in row and row.get("raw_email_exposed") is not False:
+                issues.append(f"operator_action_queue must not expose raw_email_exposed: {action_key}")
             for google_private_key in (
                 "raw_expected_google_email_exposed",
                 "raw_client_id_exposed",
@@ -889,6 +923,68 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                 ):
                     if google_queue_row.get(private_key) is not False:
                         issues.append(f"google_workspace_oauth_setup queue row must not expose {private_key}")
+    pushbullet_requirement = proof_by_key.get("pushbullet_delivery_setup") or {}
+    pushbullet_blocked = any(reason.startswith("deliver:pushbullet_delivery") for reason in blocking_reasons)
+    if pushbullet_blocked and not pushbullet_requirement:
+        issues.append("blocked Pushbullet delivery readiness must have pushbullet_delivery_setup proof requirement")
+    if pushbullet_requirement:
+        capture_surfaces = " ".join(str(surface or "") for surface in list(pushbullet_requirement.get("capture_surfaces") or []))
+        if PUSHBULLET_RECEIPT_NAME not in capture_surfaces:
+            issues.append("pushbullet_delivery_setup must cite the Pushbullet readiness surface")
+        if pushbullet_requirement.get("evidence_kind") != "delivery_channel_setup":
+            issues.append("pushbullet_delivery_setup evidence_kind mismatch")
+        action_context = pushbullet_requirement.get("action_context")
+        if pushbullet_blocked:
+            if not isinstance(action_context, dict):
+                issues.append("blocked pushbullet_delivery_setup must include action_context")
+            else:
+                if action_context.get("kind") != "pushbullet_delivery_setup":
+                    issues.append("pushbullet_delivery_setup action_context kind mismatch")
+                if action_context.get("user_action_required") is not True:
+                    issues.append("blocked pushbullet_delivery_setup must require user action")
+                if action_context.get("telegram_push_allowed") is not True:
+                    issues.append("pushbullet_delivery_setup may push only as an action-required item")
+                if str(action_context.get("delivery_policy") or "").strip() != "action_required_only":
+                    issues.append("pushbullet_delivery_setup delivery_policy must be action_required_only")
+                missing_setup = [
+                    str(item).strip()
+                    for item in list(action_context.get("missing_setup") or [])
+                    if str(item).strip()
+                ]
+                if not missing_setup:
+                    issues.append("blocked pushbullet_delivery_setup action_context must include missing_setup")
+                setup_checklist = action_context.get("setup_checklist")
+                if not isinstance(setup_checklist, list) or not setup_checklist:
+                    issues.append("blocked pushbullet_delivery_setup action_context must include setup_checklist")
+                if not str(action_context.get("telegram_message") or "").strip():
+                    issues.append("blocked pushbullet_delivery_setup action_context must include telegram_message")
+                if not str(action_context.get("external_setup_url") or "").startswith("https://www.pushbullet.com/"):
+                    issues.append("pushbullet_delivery_setup action_context must include Pushbullet setup URL")
+                for private_key in ("raw_email_exposed", "raw_token_exposed", "raw_secret_exposed", "raw_chat_ids_exposed"):
+                    if action_context.get(private_key) is not False:
+                        issues.append(f"pushbullet_delivery_setup action_context must not expose {private_key}")
+            pushbullet_queue_row = next(
+                (
+                    dict(row)
+                    for row in operator_action_queue
+                    if isinstance(row, dict) and str(row.get("key") or "").strip() == "pushbullet_delivery_setup"
+                ),
+                {},
+            )
+            if not pushbullet_queue_row:
+                issues.append("blocked pushbullet_delivery_setup must appear in operator_action_queue")
+            else:
+                if pushbullet_queue_row.get("user_action_required") is not True:
+                    issues.append("pushbullet_delivery_setup queue row must require user action")
+                if pushbullet_queue_row.get("telegram_push_allowed") is not True:
+                    issues.append("pushbullet_delivery_setup queue row must allow action-required Telegram push")
+                if not pushbullet_queue_row.get("missing_setup"):
+                    issues.append("pushbullet_delivery_setup queue row must include missing_setup")
+                if not str(pushbullet_queue_row.get("external_setup_url") or "").startswith("https://www.pushbullet.com/"):
+                    issues.append("pushbullet_delivery_setup queue row must include Pushbullet setup URL")
+                for private_key in ("raw_email_exposed", "raw_token_exposed", "raw_secret_exposed", "raw_chat_ids_exposed"):
+                    if pushbullet_queue_row.get(private_key) is not False:
+                        issues.append(f"pushbullet_delivery_setup queue row must not expose {private_key}")
     telegram_requirement = proof_by_key.get("telegram_audiobook_live_delivery") or {}
     if telegram_requirement:
         capture_surfaces = " ".join(str(surface or "") for surface in list(telegram_requirement.get("capture_surfaces") or []))
