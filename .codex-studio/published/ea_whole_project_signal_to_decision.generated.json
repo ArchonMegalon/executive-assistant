@@ -32,7 +32,7 @@
     },
     "executive_assistant_acceptance_evidence": {
       "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
-      "status": "blocked_missing_real_world_acceptance_evidence"
+      "status": "partial_real_world_acceptance_evidence"
     },
     "executive_assistant_quality": {
       "contract_name": "ea.executive_assistant_quality_readiness.v1",
@@ -55,7 +55,7 @@
     "source_kind": "",
     "status": "missing_or_invalid"
   },
-  "generated_at": "2026-06-30T05:34:02Z",
+  "generated_at": "2026-07-01T05:39:26Z",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
   "next_action": "record_redacted_signal_review_acceptance",
@@ -86,8 +86,6 @@
   "real_weekly_operator_review_accepted": false,
   "release_authority_claim_allowed": false,
   "remaining_external_proofs": [
-    "real daily morning brief acceptance",
-    "real decision cleared by the principal or operator",
     "real commitment recovered or closed with an evidence receipt",
     "real approved outbound action with audit trail",
     "real provider failure recovered with operator-grade reason",
@@ -240,8 +238,8 @@
       "status": "mapped_from_sources"
     }
   ],
-  "source_git_head": "6190bd16efb974baea030956bfa54f81dc41f603",
-  "source_state_fingerprint": "3960c30953c3bac8e1e8e824888cd7744585a8ce66ab6335dc28eb1ad3b7db3a",
+  "source_git_head": "b5bafa2095e75fb874901f18025c56e930b05f42",
+  "source_state_fingerprint": "6efb9dfb0ed2e62b6c5ddb67fc30731d2b633ca5c01373c142cdbc13578eae33",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready_local_packet_pending_operator_acceptance"
 }

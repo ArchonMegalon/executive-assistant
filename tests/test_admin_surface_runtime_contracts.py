@@ -689,10 +689,15 @@ def test_admin_goal_evidence_surface_shows_receipts_without_completion_overclaim
         "&proof_key=real_daily_morning_brief_accepted"
     ) in goals_text
     assert "Signal review and follow-through" in goals.text
+    assert (
+        "/admin/actions/signal-to-decision-evidence?return_to=%2Fadmin%2Fgoals"
+        "&evidence_part=review"
+    ) in goals_text
     assert "Proactive delivery recovery" in goals.text
     assert "Proactive OODA approval outcome" in goals.text
     assert "Weekly operator review" in goals.text
     assert "Closed-loop follow-through" in goals.text
+    assert "evidence_part=followthrough" in goals_text
     assert "scan_whatsapp_web_qr" in goals.text
     assert "preferred delivery path needs recovery" in goals.text
     assert "Record a signal-loop outcome" in goals.text
@@ -911,7 +916,8 @@ def test_admin_acceptance_capture_records_redacted_goal_evidence(
     assert "/admin/actions/acceptance-evidence" in goals_before_text
     assert "proof_key=real_daily_morning_brief_accepted" in goals_before_text
     assert "Record a signal-loop outcome" in goals_before.text
-    assert "/admin/actions/signal-to-decision-evidence" in goals_before.text
+    assert "/admin/actions/signal-to-decision-evidence" in goals_before_text
+    assert "evidence_part=review" in goals_before_text
     assert "Proactive delivery recovery" in goals_before.text
 
     capture_form = client.get(
@@ -929,6 +935,22 @@ def test_admin_acceptance_capture_records_redacted_goal_evidence(
     assert 'name="evidence"' in capture_form.text
     assert 'name="object_ref"' in capture_form.text
     assert "SHA-256 hashes only" in capture_form.text
+
+    signal_form = client.get(
+        "/admin/actions/signal-to-decision-evidence?"
+        "evidence_part=review&return_to=%2Fadmin%2Fgoals"
+    )
+
+    assert signal_form.status_code == 200
+    assert "Record EA Signal Evidence" in signal_form.text
+    assert 'method="post"' in signal_form.text
+    assert 'action="/admin/actions/signal-to-decision-evidence"' in signal_form.text
+    assert 'name="evidence_part"' in signal_form.text
+    assert 'value="review" selected' in signal_form.text
+    assert 'name="source_kind"' in signal_form.text
+    assert 'name="evidence"' in signal_form.text
+    assert 'name="packet_ref"' in signal_form.text
+    assert "SHA-256 hashes only" in signal_form.text
 
     raw_note = "Morning brief genuinely helped avoid missing the private board prep thread."
     raw_object_ref = "telegram-message-private-board-prep-123"

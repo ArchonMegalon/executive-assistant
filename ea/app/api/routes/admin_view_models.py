@@ -42,6 +42,19 @@ _ACCEPTANCE_PROOF_TITLES = {
     "real_approved_action_audited": "Approved action audited",
     "real_provider_failure_recovered": "Provider failure recovered",
 }
+_SIGNAL_EVIDENCE_CAPTURE_PATH = "/admin/actions/signal-to-decision-evidence"
+_SIGNAL_EVIDENCE_LABELS = {
+    "review": "real weekly signal-to-decision review accepted by the operator",
+    "followthrough": "closed-loop signal-to-decision follow-through receipt accepted by the operator",
+}
+_SIGNAL_EVIDENCE_TITLES = {
+    "review": "Weekly operator review",
+    "followthrough": "Closed-loop follow-through",
+}
+_SIGNAL_EVIDENCE_ACCEPTED_FIELDS = {
+    "review": "real_weekly_operator_review_accepted",
+    "followthrough": "closed_loop_followthrough_receipt_verified",
+}
 
 
 def _load_receipt(path: Path) -> dict[str, object]:
@@ -132,6 +145,13 @@ def _acceptance_capture_href(proof_key: str = "") -> str:
     return f"{_ACCEPTANCE_CAPTURE_PATH}?{urllib.parse.urlencode(query)}"
 
 
+def _signal_evidence_capture_href(evidence_part: str = "") -> str:
+    query = {"return_to": "/admin/goals"}
+    if evidence_part:
+        query["evidence_part"] = evidence_part
+    return f"{_SIGNAL_EVIDENCE_CAPTURE_PATH}?{urllib.parse.urlencode(query)}"
+
+
 def _first_missing_acceptance_key(acceptance_keys: dict[str, object], accepted_keys: set[str]) -> str:
     for proof_key in _ACCEPTANCE_PROOF_LABELS:
         row = dict(acceptance_keys.get(proof_key) or {})
@@ -155,6 +175,38 @@ def _acceptance_evidence_row(
         action_label="" if accepted else "Record evidence",
         action_method="" if accepted else "get",
     )
+
+
+def _signal_evidence_accepted(signal_receipt: dict[str, object], evidence_part: str) -> bool:
+    field = _SIGNAL_EVIDENCE_ACCEPTED_FIELDS.get(evidence_part, "")
+    return bool(signal_receipt.get(field))
+
+
+def _first_missing_signal_evidence_part(signal_receipt: dict[str, object]) -> str:
+    for evidence_part in _SIGNAL_EVIDENCE_LABELS:
+        if not _signal_evidence_accepted(signal_receipt, evidence_part):
+            return evidence_part
+    return next(iter(_SIGNAL_EVIDENCE_LABELS), "")
+
+
+def _signal_evidence_row(evidence_part: str, signal_receipt: dict[str, object]) -> dict[str, str]:
+    accepted = _signal_evidence_accepted(signal_receipt, evidence_part)
+    requirements = {
+        str(item.get("evidence_part") or ""): dict(item)
+        for item in list(signal_receipt.get("signal_evidence_capture_requirements") or [])
+        if isinstance(item, dict)
+    }
+    row = requirements.get(evidence_part, {})
+    status = str(row.get("status") or ("accepted_redacted" if accepted else "missing"))
+    return _row(
+        _SIGNAL_EVIDENCE_TITLES[evidence_part],
+        _SIGNAL_EVIDENCE_LABELS[evidence_part],
+        "Accepted" if accepted else "Missing",
+        action_href="" if accepted else _signal_evidence_capture_href(evidence_part),
+        action_label="" if accepted else "Record evidence",
+        action_method="" if accepted else "get",
+        href="" if not accepted else _signal_evidence_capture_href(evidence_part),
+    ) | {"detail": f"{_SIGNAL_EVIDENCE_LABELS[evidence_part]} · {status}"}
 
 
 def _humanize(value: str) -> str:
@@ -1116,6 +1168,10 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
     if acceptance_next_proof_key not in _ACCEPTANCE_PROOF_LABELS:
         acceptance_next_proof_key = _first_missing_acceptance_key(acceptance_keys, accepted_keys)
     acceptance_next_label = _ACCEPTANCE_PROOF_LABELS.get(acceptance_next_proof_key, "real-use acceptance evidence")
+    signal_next_evidence_part = str(signal_receipt.get("next_action_evidence_part") or "").strip()
+    if signal_next_evidence_part not in _SIGNAL_EVIDENCE_LABELS:
+        signal_next_evidence_part = _first_missing_signal_evidence_part(signal_receipt)
+    signal_next_label = _SIGNAL_EVIDENCE_LABELS.get(signal_next_evidence_part, "signal-loop evidence")
     proactive_operator_status = str(proactive_ooda_operator_receipt.get("status") or "missing").strip()
     proactive_operator_summary = str(
         proactive_ooda_operator_receipt.get("summary") or "No proactive OODA operator status is mirrored."
@@ -1184,11 +1240,11 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
         ),
         _row(
             "Signal review and follow-through",
-            "Record the weekly operator review and the closed-loop follow-through receipt.",
+            f"Capture redacted evidence for: {signal_next_label}.",
             "Action",
-            action_href="/admin/actions/signal-to-decision-evidence",
+            action_href=_signal_evidence_capture_href(signal_next_evidence_part),
             action_label="Record a signal-loop outcome",
-            action_method="post",
+            action_method="get",
         ),
         _row(
             "Proactive delivery recovery",
@@ -1211,16 +1267,8 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
             secondary_action_label="Open approval capture" if proactive_gold_next_action_href else "",
             secondary_action_method="get" if proactive_gold_next_action_href else "",
         ),
-        _row(
-            "Weekly operator review",
-            "real weekly signal-to-decision review accepted by the operator",
-            "Signal",
-        ),
-        _row(
-            "Closed-loop follow-through",
-            "closed-loop signal-to-decision follow-through receipt accepted by the operator",
-            "Signal",
-        ),
+        _signal_evidence_row("review", signal_receipt),
+        _signal_evidence_row("followthrough", signal_receipt),
         _row(
             "Open ChatLab status",
             "ChatLab live runtime probe receipt",

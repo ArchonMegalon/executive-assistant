@@ -106,11 +106,11 @@
     },
     "operator_status": {
       "contract_name": "ea.proactive_ooda_operator_status.v1",
-      "generated_at": "2026-07-01T05:25:47Z",
+      "generated_at": "2026-07-01T05:38:57Z",
       "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
       "present": true,
-      "source_git_head": "d0b09d8de23a97041643211b3092b3575d0d0011",
-      "source_state_fingerprint": "325a73c1291e4546712003608321b42b1b059721e55d6e97769ae2a24b7ad987",
+      "source_git_head": "b5bafa2095e75fb874901f18025c56e930b05f42",
+      "source_state_fingerprint": "6efb9dfb0ed2e62b6c5ddb67fc30731d2b633ca5c01373c142cdbc13578eae33",
       "status": "ready_with_live_receipt"
     },
     "run_receipt": {
@@ -133,7 +133,7 @@
       "source": "local_filesystem"
     }
   },
-  "generated_at": "2026-07-01T05:25:51Z",
+  "generated_at": "2026-07-01T05:39:02Z",
   "generated_by": "scripts/materialize_proactive_ooda_gold_acceptance.py",
   "goal_completion_claim_allowed": false,
   "gold_claim_allowed": true,
@@ -412,8 +412,8 @@
     "Raw packet text, private links, actor identity, packet refs, and staged artifact refs must stay out of this published receipt; only hashes and coarse status may appear.",
     "Teable remains an admin projection and audit mirror rather than canonical queue or product truth."
   ],
-  "source_git_head": "d0b09d8de23a97041643211b3092b3575d0d0011",
-  "source_state_fingerprint": "325a73c1291e4546712003608321b42b1b059721e55d6e97769ae2a24b7ad987",
+  "source_git_head": "b5bafa2095e75fb874901f18025c56e930b05f42",
+  "source_state_fingerprint": "6efb9dfb0ed2e62b6c5ddb67fc30731d2b633ca5c01373c142cdbc13578eae33",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "pass",
   "summary": "A proactive OODA packet has routed delivery, live browse evidence, a chosen candidate, a staged reversible artifact, mirrored Teable facts, and a redacted approved outcome.",

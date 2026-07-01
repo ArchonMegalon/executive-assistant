@@ -26,7 +26,7 @@
       "status": "ready_local_packet_pending_operator_acceptance"
     }
   },
-  "generated_at": "2026-07-01T05:26:39Z",
+  "generated_at": "2026-07-01T05:39:32Z",
   "generated_by": "ea/scripts/materialize_whole_project_scope_gap_audit.py",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
@@ -68,9 +68,7 @@
     "human review approval for public promo publication",
     "real user EPUB render and playback acceptance evidence",
     "real Manfred realtime conversation room acceptance evidence",
-    "real Manfred spoken-conversation STT/TTS roundtrip evidence",
-    "real daily morning brief acceptance",
-    "real decision cleared by the principal or operator"
+    "real Manfred spoken-conversation STT/TTS roundtrip evidence"
   ],
   "review_capture_surface": {
     "method": "post",
@@ -133,8 +131,8 @@
     ],
     "status": "active_local_goal"
   },
-  "source_git_head": "d0b09d8de23a97041643211b3092b3575d0d0011",
-  "source_state_fingerprint": "325a73c1291e4546712003608321b42b1b059721e55d6e97769ae2a24b7ad987",
+  "source_git_head": "b5bafa2095e75fb874901f18025c56e930b05f42",
+  "source_state_fingerprint": "6efb9dfb0ed2e62b6c5ddb67fc30731d2b633ca5c01373c142cdbc13578eae33",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready_local_audit",
   "summary": "Whole-project scope gap audit is locally mapped; a human operator still has to review it against the current product spine."

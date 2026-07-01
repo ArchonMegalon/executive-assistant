@@ -359,6 +359,177 @@ def _acceptance_evidence_form_html(*, proof_key: str, return_to: str) -> str:
 """
 
 
+def _signal_evidence_part_option(part: str, selected_part: str, receipt: dict[str, object]) -> str:
+    spec = dict(_SIGNAL_EVIDENCE_PARTS[part])
+    accepted = bool(receipt.get(str(spec["accepted_field"])))
+    status = "accepted redacted" if accepted else "pending evidence"
+    label = f"{spec['label']} ({status})"
+    selected = " selected" if part == selected_part else ""
+    return (
+        f'<option value="{html.escape(part, quote=True)}"{selected}>'
+        f"{html.escape(str(label), quote=True)}</option>"
+    )
+
+
+def _signal_evidence_form_html(*, evidence_part: str, return_to: str) -> str:
+    receipt = _load_json(EA_SIGNAL_TO_DECISION_RECEIPT) or _default_signal_receipt()
+    pending_parts = [
+        part for part, spec in _SIGNAL_EVIDENCE_PARTS.items()
+        if not bool(receipt.get(str(spec["accepted_field"])))
+    ]
+    selected_part = evidence_part if evidence_part in _SIGNAL_EVIDENCE_PARTS else ""
+    if not selected_part:
+        selected_part = str(receipt.get("next_action_evidence_part") or "").strip()
+    if selected_part not in _SIGNAL_EVIDENCE_PARTS:
+        selected_part = pending_parts[0] if pending_parts else next(iter(_SIGNAL_EVIDENCE_PARTS))
+    options = "\n".join(
+        _signal_evidence_part_option(part, selected_part, receipt)
+        for part in _SIGNAL_EVIDENCE_PARTS
+    )
+    selected_label = str(dict(_SIGNAL_EVIDENCE_PARTS[selected_part])["label"])
+    pending_items = "\n".join(
+        f"<li>{html.escape(str(dict(_SIGNAL_EVIDENCE_PARTS[part])['label']))}</li>"
+        for part in pending_parts
+    ) or "<li>All required signal-loop proofs are already accepted in the current receipt.</li>"
+    safe_return_to = html.escape(return_to, quote=True)
+    safe_action = html.escape(_SIGNAL_EVIDENCE_CAPTURE_PATH, quote=True)
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Record EA Signal Evidence</title>
+  <style>
+    :root {{
+      color-scheme: light;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f7f7f5;
+      color: #1f2933;
+    }}
+    body {{
+      margin: 0;
+      padding: 32px;
+    }}
+    main {{
+      max-width: 760px;
+      margin: 0 auto;
+    }}
+    header {{
+      margin-bottom: 24px;
+    }}
+    h1 {{
+      font-size: 1.5rem;
+      line-height: 1.25;
+      margin: 0 0 8px;
+    }}
+    h2 {{
+      font-size: 1rem;
+      margin: 0 0 8px;
+    }}
+    p, li {{
+      line-height: 1.5;
+    }}
+    form {{
+      display: grid;
+      gap: 16px;
+      background: #ffffff;
+      border: 1px solid #d9ded8;
+      border-radius: 8px;
+      padding: 20px;
+    }}
+    label {{
+      display: grid;
+      gap: 6px;
+      font-weight: 650;
+    }}
+    input, select, textarea {{
+      width: 100%;
+      box-sizing: border-box;
+      border: 1px solid #b9c2bb;
+      border-radius: 6px;
+      padding: 10px 12px;
+      font: inherit;
+      background: #ffffff;
+      color: #1f2933;
+    }}
+    textarea {{
+      min-height: 120px;
+      resize: vertical;
+    }}
+    button, a.button {{
+      width: fit-content;
+      border: 0;
+      border-radius: 6px;
+      padding: 10px 14px;
+      background: #245b45;
+      color: #ffffff;
+      font: inherit;
+      font-weight: 700;
+      text-decoration: none;
+      cursor: pointer;
+    }}
+    .actions {{
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+    }}
+    .secondary {{
+      color: #4b5563;
+      font-size: 0.93rem;
+    }}
+    .pending {{
+      margin: 24px 0 0;
+      padding: 16px 20px;
+      border: 1px solid #d9ded8;
+      border-radius: 8px;
+      background: #fbfbfa;
+    }}
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Record EA Signal Evidence</h1>
+      <p class="secondary">Selected proof: {html.escape(selected_label)}. Enter a short redacted review or follow-through note and a redacted packet reference. The receipt stores SHA-256 hashes only.</p>
+    </header>
+    <form method="post" action="{safe_action}">
+      <input type="hidden" name="return_to" value="{safe_return_to}">
+      <label>
+        Evidence part
+        <select name="evidence_part" required>
+          {options}
+        </select>
+      </label>
+      <label>
+        Source kind
+        <input name="source_kind" value="operator_admin" autocomplete="off" required>
+      </label>
+      <label>
+        Evidence note
+        <textarea name="evidence" placeholder="Short redacted signal-loop note, no private names or message text." required></textarea>
+      </label>
+      <label>
+        Packet reference
+        <input name="packet_ref" placeholder="Redacted packet id, receipt id, message hash, or admin reference." autocomplete="off" required>
+      </label>
+      <div class="actions">
+        <button type="submit">Record evidence</button>
+        <a class="button" href="{safe_return_to}">Cancel</a>
+      </div>
+    </form>
+    <section class="pending">
+      <h2>Pending Proofs</h2>
+      <ul>
+        {pending_items}
+      </ul>
+    </section>
+  </main>
+</body>
+</html>
+"""
+
+
 def _empty_acceptance_row() -> dict[str, object]:
     return {
         "accepted": False,
@@ -1175,6 +1346,22 @@ async def admin_record_acceptance_evidence(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     separator = "&" if "?" in return_to else "?"
     return RedirectResponse(f"{return_to}{separator}acceptance_status=recorded", status_code=303)
+
+
+@router.get("/admin/actions/signal-to-decision-evidence")
+async def admin_signal_to_decision_evidence_form(
+    request: Request,
+    _: None = Depends(require_operator_context),
+) -> HTMLResponse:
+    return_to = _normalize_browser_return_to(
+        str(request.query_params.get("return_to") or "/admin/goals"),
+        default="/admin/goals",
+    )
+    evidence_part = str(request.query_params.get("evidence_part") or "").strip()
+    return HTMLResponse(
+        _signal_evidence_form_html(evidence_part=evidence_part, return_to=return_to),
+        status_code=200,
+    )
 
 
 @router.post("/admin/actions/signal-to-decision-evidence")
