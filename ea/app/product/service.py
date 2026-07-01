@@ -16,6 +16,7 @@ import os
 import re
 import secrets
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -14093,8 +14094,12 @@ class ProductService:
         provider_routable = provider_state_value not in {"catalog_only", "unconfigured", "disabled", "maintenance"}
         runtime_reachable = False
         runtime_blocked_reason = ""
+        runtime_probe_timeout_seconds = self._teable_runtime_probe_timeout_seconds()
         if provider_routable and table_sync_configured and bool(getattr(provider_state, "secret_configured", False)):
-            runtime_reachable, runtime_blocked_reason = self._teable_sync_runtime_available(base_url=teable_base_url)
+            runtime_reachable, runtime_blocked_reason = self._teable_sync_runtime_available(
+                base_url=teable_base_url,
+                timeout_seconds=runtime_probe_timeout_seconds,
+            )
         executable_route = next(
             (
                 route
@@ -14130,6 +14135,7 @@ class ProductService:
                 "secret_configured": bool(getattr(provider_state, "secret_configured", False)),
                 "table_sync_configured": table_sync_configured,
                 "runtime_reachable": runtime_reachable,
+                "runtime_probe_timeout_seconds": runtime_probe_timeout_seconds,
                 "base_url": teable_base_url,
                 "updated_at": str(getattr(provider_state, "updated_at", "") or "").strip(),
             },
@@ -14152,13 +14158,36 @@ class ProductService:
             "generated_at": datetime.now(timezone.utc).isoformat(),
         }
 
-    def _teable_sync_runtime_available(self, *, base_url: str) -> tuple[bool, str]:
+    @staticmethod
+    def _teable_runtime_probe_timeout_seconds() -> float:
+        raw = str(os.environ.get("TEABLE_RUNTIME_PROBE_TIMEOUT_SECONDS") or "").strip()
+        if not raw:
+            raw = str(os.environ.get("TEABLE_REQUEST_TIMEOUT_SECONDS") or "").strip()
+        if not raw:
+            raw = str(os.environ.get("TEABLE_TABLE_SYNC_REQUEST_TIMEOUT_SECONDS") or "").strip()
+        try:
+            value = float(raw) if raw else 3.0
+        except (TypeError, ValueError):
+            value = 3.0
+        return min(max(value, 0.5), 15.0)
+
+    @staticmethod
+    def _teable_runtime_probe_timed_out(exc: BaseException) -> bool:
+        if isinstance(exc, (TimeoutError, socket.timeout)):
+            return True
+        if isinstance(exc, urllib.error.URLError):
+            return isinstance(getattr(exc, "reason", None), (TimeoutError, socket.timeout))
+        return False
+
+    def _teable_sync_runtime_available(self, *, base_url: str, timeout_seconds: float | None = None) -> tuple[bool, str]:
         normalized_base_url = str(base_url or "").strip().rstrip("/")
         if not normalized_base_url:
             return False, "teable_runtime_unreachable"
         api_key = str(os.environ.get("TEABLE_API_KEY") or "").strip()
         if not api_key:
             return False, "teable_runtime_unreachable"
+        timeout = timeout_seconds if timeout_seconds is not None else self._teable_runtime_probe_timeout_seconds()
+        timeout = min(max(float(timeout or 0.0), 0.5), 15.0)
         health_url = f"{normalized_base_url}/healthz"
         request_headers = {
             "Authorization": f"Bearer {api_key}",
@@ -14175,7 +14204,7 @@ class ProductService:
             request = urllib.request.Request(health_url, method="GET")
             for key, value in request_headers.items():
                 request.add_header(key, value)
-            with urllib.request.urlopen(request, timeout=10) as response:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
                 payload = response.read().decode("utf-8")
                 data = json.loads(payload or "{}")
             if int(getattr(response, "status", 0) or 0) == 200 and str(data.get("status") or "").strip().lower() == "ok":
@@ -14183,18 +14212,22 @@ class ProductService:
         except urllib.error.HTTPError as exc:
             if int(getattr(exc, "code", 0) or 0) not in {404, 405}:
                 return False, "teable_runtime_unreachable"
-        except Exception:
+        except Exception as exc:
+            if self._teable_runtime_probe_timed_out(exc):
+                return False, "teable_runtime_probe_timeout"
             return False, "teable_runtime_unreachable"
         try:
             request = urllib.request.Request(f"{normalized_base_url}/api/auth/user", method="GET")
             for key, value in request_headers.items():
                 request.add_header(key, value)
-            with urllib.request.urlopen(request, timeout=15) as response:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
                 payload = response.read().decode("utf-8")
                 data = json.loads(payload or "{}")
             if int(getattr(response, "status", 0) or 0) == 200 and str(data.get("email") or data.get("id") or "").strip():
                 return True, ""
-        except Exception:
+        except Exception as exc:
+            if self._teable_runtime_probe_timed_out(exc):
+                return False, "teable_runtime_probe_timeout"
             return False, "teable_runtime_unreachable"
         return False, "teable_runtime_unreachable"
 
@@ -14348,8 +14381,12 @@ class ProductService:
         provider_routable = provider_state_value not in {"catalog_only", "unconfigured", "disabled", "maintenance"}
         runtime_reachable = False
         runtime_blocked_reason = ""
+        runtime_probe_timeout_seconds = self._teable_runtime_probe_timeout_seconds()
         if provider_routable and table_sync_configured and bool(getattr(provider_state, "secret_configured", False)):
-            runtime_reachable, runtime_blocked_reason = self._teable_sync_runtime_available(base_url=teable_base_url)
+            runtime_reachable, runtime_blocked_reason = self._teable_sync_runtime_available(
+                base_url=teable_base_url,
+                timeout_seconds=runtime_probe_timeout_seconds,
+            )
         executable_route = next(
             (
                 route
@@ -14386,6 +14423,7 @@ class ProductService:
                 "table_sync_configured": table_sync_configured,
                 "missing_tables": missing_tables,
                 "runtime_reachable": runtime_reachable,
+                "runtime_probe_timeout_seconds": runtime_probe_timeout_seconds,
                 "base_url": teable_base_url,
                 "updated_at": str(getattr(provider_state, "updated_at", "") or "").strip(),
             },
@@ -30131,8 +30169,12 @@ class ProductService:
         provider_routable = provider_state_value not in {"catalog_only", "unconfigured", "disabled", "maintenance"}
         runtime_reachable = False
         runtime_blocked_reason = ""
+        runtime_probe_timeout_seconds = self._teable_runtime_probe_timeout_seconds()
         if provider_routable and table_sync_configured and bool(getattr(provider_state, "secret_configured", False)):
-            runtime_reachable, runtime_blocked_reason = self._teable_sync_runtime_available(base_url=teable_base_url)
+            runtime_reachable, runtime_blocked_reason = self._teable_sync_runtime_available(
+                base_url=teable_base_url,
+                timeout_seconds=runtime_probe_timeout_seconds,
+            )
         executable_route = next(
             (
                 route
@@ -30153,6 +30195,7 @@ class ProductService:
                 )
             ),
             "route_tool_name": str(getattr(executable_route, "tool_name", "") or "provider.teable.table_sync").strip(),
+            "runtime_probe_timeout_seconds": runtime_probe_timeout_seconds,
             "table_name": table_name,
             "rows": [dict(row) for row in rows],
         }
@@ -30236,8 +30279,12 @@ class ProductService:
         provider_routable = provider_state_value not in {"catalog_only", "unconfigured", "disabled", "maintenance"}
         runtime_reachable = False
         runtime_blocked_reason = ""
+        runtime_probe_timeout_seconds = self._teable_runtime_probe_timeout_seconds()
         if provider_routable and table_sync_configured and bool(getattr(provider_state, "secret_configured", False)):
-            runtime_reachable, runtime_blocked_reason = self._teable_sync_runtime_available(base_url=teable_base_url)
+            runtime_reachable, runtime_blocked_reason = self._teable_sync_runtime_available(
+                base_url=teable_base_url,
+                timeout_seconds=runtime_probe_timeout_seconds,
+            )
         executable_route = next(
             (
                 route
@@ -30258,6 +30305,7 @@ class ProductService:
                 )
             ),
             "route_tool_name": str(getattr(executable_route, "tool_name", "") or "provider.teable.table_sync").strip(),
+            "runtime_probe_timeout_seconds": runtime_probe_timeout_seconds,
             "table_name": table_name,
             "rows": [dict(row) for row in rows],
         }
