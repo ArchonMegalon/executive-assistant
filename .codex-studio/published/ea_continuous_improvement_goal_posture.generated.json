@@ -45,8 +45,8 @@
           "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "b071680813abbb946afaaaf58d0257be9d8ea46b",
-          "source_state_fingerprint": "a11f90d2918f73cd307aecf76bc45bd161d79f856d80738b6d5ea1990c5ccb60",
+          "source_git_head": "90dcd37182c4b532e664a530b0f9e47ed1144a81",
+          "source_state_fingerprint": "ef073e0740459ef01a154410f0f5f054fcea00e2e399604de2b5b45a49da92e2",
           "status": "ready_real_world_acceptance_evidence"
         },
         {
@@ -54,8 +54,8 @@
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "b071680813abbb946afaaaf58d0257be9d8ea46b",
-          "source_state_fingerprint": "a11f90d2918f73cd307aecf76bc45bd161d79f856d80738b6d5ea1990c5ccb60",
+          "source_git_head": "90dcd37182c4b532e664a530b0f9e47ed1144a81",
+          "source_state_fingerprint": "ef073e0740459ef01a154410f0f5f054fcea00e2e399604de2b5b45a49da92e2",
           "status": "ready_for_good_executive_assistant_claim_review"
         }
       ],
@@ -137,8 +137,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "b071680813abbb946afaaaf58d0257be9d8ea46b",
-          "source_state_fingerprint": "a11f90d2918f73cd307aecf76bc45bd161d79f856d80738b6d5ea1990c5ccb60",
+          "source_git_head": "90dcd37182c4b532e664a530b0f9e47ed1144a81",
+          "source_state_fingerprint": "ef073e0740459ef01a154410f0f5f054fcea00e2e399604de2b5b45a49da92e2",
           "status": "pass"
         },
         {
@@ -146,8 +146,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "c857a1f737e86740d3f5d25b65fec5e8d3a94255",
-          "source_state_fingerprint": "a11f90d2918f73cd307aecf76bc45bd161d79f856d80738b6d5ea1990c5ccb60",
+          "source_git_head": "90dcd37182c4b532e664a530b0f9e47ed1144a81",
+          "source_state_fingerprint": "ef073e0740459ef01a154410f0f5f054fcea00e2e399604de2b5b45a49da92e2",
           "status": "ready_with_live_receipt"
         }
       ],
@@ -199,8 +199,8 @@
           "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "b071680813abbb946afaaaf58d0257be9d8ea46b",
-          "source_state_fingerprint": "a11f90d2918f73cd307aecf76bc45bd161d79f856d80738b6d5ea1990c5ccb60",
+          "source_git_head": "90dcd37182c4b532e664a530b0f9e47ed1144a81",
+          "source_state_fingerprint": "ef073e0740459ef01a154410f0f5f054fcea00e2e399604de2b5b45a49da92e2",
           "status": "ready_real_world_acceptance_evidence"
         },
         {
@@ -208,8 +208,8 @@
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "b071680813abbb946afaaaf58d0257be9d8ea46b",
-          "source_state_fingerprint": "a11f90d2918f73cd307aecf76bc45bd161d79f856d80738b6d5ea1990c5ccb60",
+          "source_git_head": "90dcd37182c4b532e664a530b0f9e47ed1144a81",
+          "source_state_fingerprint": "ef073e0740459ef01a154410f0f5f054fcea00e2e399604de2b5b45a49da92e2",
           "status": "ready_for_good_executive_assistant_claim_review"
         }
       ],
@@ -261,8 +261,8 @@
           "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "b071680813abbb946afaaaf58d0257be9d8ea46b",
-          "source_state_fingerprint": "a11f90d2918f73cd307aecf76bc45bd161d79f856d80738b6d5ea1990c5ccb60",
+          "source_git_head": "90dcd37182c4b532e664a530b0f9e47ed1144a81",
+          "source_state_fingerprint": "ef073e0740459ef01a154410f0f5f054fcea00e2e399604de2b5b45a49da92e2",
           "status": "ready_real_world_acceptance_evidence"
         },
         {
@@ -270,8 +270,8 @@
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "b071680813abbb946afaaaf58d0257be9d8ea46b",
-          "source_state_fingerprint": "a11f90d2918f73cd307aecf76bc45bd161d79f856d80738b6d5ea1990c5ccb60",
+          "source_git_head": "90dcd37182c4b532e664a530b0f9e47ed1144a81",
+          "source_state_fingerprint": "ef073e0740459ef01a154410f0f5f054fcea00e2e399604de2b5b45a49da92e2",
           "status": "ready_for_good_executive_assistant_claim_review"
         }
       ],
@@ -323,8 +323,8 @@
           "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "b071680813abbb946afaaaf58d0257be9d8ea46b",
-          "source_state_fingerprint": "a11f90d2918f73cd307aecf76bc45bd161d79f856d80738b6d5ea1990c5ccb60",
+          "source_git_head": "90dcd37182c4b532e664a530b0f9e47ed1144a81",
+          "source_state_fingerprint": "ef073e0740459ef01a154410f0f5f054fcea00e2e399604de2b5b45a49da92e2",
           "status": "ready_real_world_acceptance_evidence"
         },
         {
@@ -332,8 +332,8 @@
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "b071680813abbb946afaaaf58d0257be9d8ea46b",
-          "source_state_fingerprint": "a11f90d2918f73cd307aecf76bc45bd161d79f856d80738b6d5ea1990c5ccb60",
+          "source_git_head": "90dcd37182c4b532e664a530b0f9e47ed1144a81",
+          "source_state_fingerprint": "ef073e0740459ef01a154410f0f5f054fcea00e2e399604de2b5b45a49da92e2",
           "status": "ready_for_good_executive_assistant_claim_review"
         }
       ],
@@ -545,7 +545,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-07-01T12:08:39Z",
+  "generated_at": "2026-07-01T12:22:27Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -783,8 +783,8 @@
           "path": ".codex-studio/published/teable_env_recovery_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "b071680813abbb946afaaaf58d0257be9d8ea46b",
-          "source_state_fingerprint": "a11f90d2918f73cd307aecf76bc45bd161d79f856d80738b6d5ea1990c5ccb60",
+          "source_git_head": "90dcd37182c4b532e664a530b0f9e47ed1144a81",
+          "source_state_fingerprint": "ef073e0740459ef01a154410f0f5f054fcea00e2e399604de2b5b45a49da92e2",
           "status": "ready_local_audit"
         },
         {
@@ -792,8 +792,8 @@
           "path": ".codex-studio/published/teable_env_recovery_proof.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "b071680813abbb946afaaaf58d0257be9d8ea46b",
-          "source_state_fingerprint": "a11f90d2918f73cd307aecf76bc45bd161d79f856d80738b6d5ea1990c5ccb60",
+          "source_git_head": "90dcd37182c4b532e664a530b0f9e47ed1144a81",
+          "source_state_fingerprint": "ef073e0740459ef01a154410f0f5f054fcea00e2e399604de2b5b45a49da92e2",
           "status": "pass"
         }
       ],
@@ -822,8 +822,8 @@
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "b071680813abbb946afaaaf58d0257be9d8ea46b",
-          "source_state_fingerprint": "a11f90d2918f73cd307aecf76bc45bd161d79f856d80738b6d5ea1990c5ccb60",
+          "source_git_head": "90dcd37182c4b532e664a530b0f9e47ed1144a81",
+          "source_state_fingerprint": "ef073e0740459ef01a154410f0f5f054fcea00e2e399604de2b5b45a49da92e2",
           "status": "ready_for_good_executive_assistant_claim_review"
         }
       ],
@@ -1033,7 +1033,7 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "c857a1f737e86740d3f5d25b65fec5e8d3a94255",
-  "source_state_fingerprint": "a11f90d2918f73cd307aecf76bc45bd161d79f856d80738b6d5ea1990c5ccb60",
+  "source_git_head": "90dcd37182c4b532e664a530b0f9e47ed1144a81",
+  "source_state_fingerprint": "ef073e0740459ef01a154410f0f5f054fcea00e2e399604de2b5b45a49da92e2",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }

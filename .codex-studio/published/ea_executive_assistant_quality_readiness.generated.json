@@ -521,7 +521,7 @@
     ],
     "blocked_keys": [],
     "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
-    "generated_at": "2026-07-01T11:59:58Z",
+    "generated_at": "2026-07-01T12:02:52Z",
     "generated_by": "ea/scripts/materialize_executive_assistant_acceptance_evidence.py",
     "goal_completion_claim_allowed": false,
     "head_semantics": "source_state",
@@ -563,7 +563,7 @@
       "provided": false,
       "provider_runtime_recovery_bundle_provided": false
     },
-    "source_state_fingerprint": "16278773d9970552408d80bc73dd6d46a1ae25da67b774de79dbc4353b91b8eb",
+    "source_state_fingerprint": "a11f90d2918f73cd307aecf76bc45bd161d79f856d80738b6d5ea1990c5ccb60",
     "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
     "status": "ready_real_world_acceptance_evidence"
   },
@@ -571,7 +571,7 @@
     "bytes": 16122,
     "exists": true,
     "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
-    "sha256": "aae53e488db6c98eb919b3213084f5ca2536b01c22749295ffde102f814e1838"
+    "sha256": "14556e9b008fd21f0bd148e9de9f9add48b36ffbfde394d0dad1de4056a79b5e"
   },
   "blocked_checks": [],
   "contract_name": "ea.executive_assistant_quality_readiness.v1",
@@ -579,7 +579,7 @@
   "ea_owns_canonical_queue_truth": false,
   "ea_owns_release_authority": false,
   "external_acceptance_blockers": [],
-  "generated_at": "2026-07-01T12:02:51Z",
+  "generated_at": "2026-07-01T12:21:14Z",
   "generated_by": "ea/scripts/materialize_executive_assistant_quality_readiness.py",
   "goal_completion_claim_allowed": false,
   "good_executive_assistant_claim_allowed": true,
@@ -641,14 +641,14 @@
     "real approved outbound action with audit trail",
     "real provider failure recovered with operator-grade reason"
   ],
-  "source_git_head": "b071680813abbb946afaaaf58d0257be9d8ea46b",
+  "source_git_head": "90dcd37182c4b532e664a530b0f9e47ed1144a81",
   "source_receipt": {
     "bytes": 10830,
     "exists": true,
     "path": ".codex-studio/published/ea_office_loop_goal.generated.json",
     "sha256": "b8b9da1fcd4a5bb5ac5ccca320c9ec32cf3c0e035d369b7320d694a2a06a594f"
   },
-  "source_state_fingerprint": "a11f90d2918f73cd307aecf76bc45bd161d79f856d80738b6d5ea1990c5ccb60",
+  "source_state_fingerprint": "ef073e0740459ef01a154410f0f5f054fcea00e2e399604de2b5b45a49da92e2",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready_for_good_executive_assistant_claim_review"
 }
