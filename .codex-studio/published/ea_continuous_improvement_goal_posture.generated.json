@@ -39,8 +39,8 @@
           "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "a701ba4de7673b2ba6271aa20f4ec32e1b25acef",
-          "source_state_fingerprint": "aaaad55e1fa220b49c2ccefd1b61aa0f5cc4fa60c703143175edc63f565fe541",
+          "source_git_head": "cc7c7daf3dbf36eee3bbe87a935c29cc2a6ba4a7",
+          "source_state_fingerprint": "9f7e304e8abda8fd662592b03ed2f7c328bc97b2becf89d3da4781e1e05eeaf9",
           "status": "partial_real_world_acceptance_evidence"
         },
         {
@@ -48,8 +48,8 @@
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "a701ba4de7673b2ba6271aa20f4ec32e1b25acef",
-          "source_state_fingerprint": "aaaad55e1fa220b49c2ccefd1b61aa0f5cc4fa60c703143175edc63f565fe541",
+          "source_git_head": "cc7c7daf3dbf36eee3bbe87a935c29cc2a6ba4a7",
+          "source_state_fingerprint": "9f7e304e8abda8fd662592b03ed2f7c328bc97b2becf89d3da4781e1e05eeaf9",
           "status": "blocked_real_world_acceptance"
         }
       ],
@@ -121,8 +121,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "a701ba4de7673b2ba6271aa20f4ec32e1b25acef",
-          "source_state_fingerprint": "aaaad55e1fa220b49c2ccefd1b61aa0f5cc4fa60c703143175edc63f565fe541",
+          "source_git_head": "cc7c7daf3dbf36eee3bbe87a935c29cc2a6ba4a7",
+          "source_state_fingerprint": "9f7e304e8abda8fd662592b03ed2f7c328bc97b2becf89d3da4781e1e05eeaf9",
           "status": "pass"
         },
         {
@@ -130,13 +130,181 @@
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "a701ba4de7673b2ba6271aa20f4ec32e1b25acef",
-          "source_state_fingerprint": "aaaad55e1fa220b49c2ccefd1b61aa0f5cc4fa60c703143175edc63f565fe541",
+          "source_git_head": "cc7c7daf3dbf36eee3bbe87a935c29cc2a6ba4a7",
+          "source_state_fingerprint": "9f7e304e8abda8fd662592b03ed2f7c328bc97b2becf89d3da4781e1e05eeaf9",
           "status": "ready_with_live_receipt"
         }
       ],
       "status": "satisfied",
       "title": "Proactive OODA packet approval outcome"
+    },
+    {
+      "action_context": {
+        "delivery_policy": "action_required_only",
+        "instruction": "Record redacted evidence that a real commitment was recovered or closed.",
+        "interruption_budget": "action_required",
+        "irreversible_actions_consent_gated": true,
+        "kind": "real_world_acceptance_capture",
+        "non_action_progress_push_allowed": false,
+        "proof_key": "real_commitment_recovered_or_closed",
+        "quiet_hours_respected": true,
+        "raw_acceptance_text_exposed": false,
+        "raw_actor_identity_exposed": false,
+        "raw_chat_ids_exposed": false,
+        "raw_object_reference_exposed": false,
+        "raw_private_context_exposed": false,
+        "raw_secret_exposed": false,
+        "raw_token_exposed": false,
+        "telegram_push_allowed": true,
+        "user_action_required": true
+      },
+      "capture_surfaces": [
+        ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
+        ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json"
+      ],
+      "claim_boundary": "does_not_prove_good_executive_assistant_until_all_required_acceptance_keys_are_accepted",
+      "evidence_kind": "real_commitment_recovery_evidence",
+      "key": "ea_real_commitment_recovered_or_closed",
+      "lens": "prove",
+      "next_action": "record_redacted_real_commitment_recovery_evidence",
+      "next_action_href": "/admin/actions/acceptance-evidence",
+      "next_action_label": "Record a real-use outcome",
+      "next_action_method": "post",
+      "required_next_receipt": "real commitment recovered or closed with an evidence receipt",
+      "source_receipts": [
+        {
+          "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
+          "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
+          "present": true,
+          "source_fresh_to_current_source": true,
+          "source_git_head": "cc7c7daf3dbf36eee3bbe87a935c29cc2a6ba4a7",
+          "source_state_fingerprint": "9f7e304e8abda8fd662592b03ed2f7c328bc97b2becf89d3da4781e1e05eeaf9",
+          "status": "partial_real_world_acceptance_evidence"
+        },
+        {
+          "contract_name": "ea.executive_assistant_quality_readiness.v1",
+          "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
+          "present": true,
+          "source_fresh_to_current_source": true,
+          "source_git_head": "cc7c7daf3dbf36eee3bbe87a935c29cc2a6ba4a7",
+          "source_state_fingerprint": "9f7e304e8abda8fd662592b03ed2f7c328bc97b2becf89d3da4781e1e05eeaf9",
+          "status": "blocked_real_world_acceptance"
+        }
+      ],
+      "status": "pending_real_world_evidence",
+      "title": "Real commitment recovered or closed"
+    },
+    {
+      "action_context": {
+        "delivery_policy": "action_required_only",
+        "instruction": "Record redacted evidence for a real approved outbound action audit trail.",
+        "interruption_budget": "action_required",
+        "irreversible_actions_consent_gated": true,
+        "kind": "real_world_acceptance_capture",
+        "non_action_progress_push_allowed": false,
+        "proof_key": "real_approved_action_audited",
+        "quiet_hours_respected": true,
+        "raw_acceptance_text_exposed": false,
+        "raw_actor_identity_exposed": false,
+        "raw_chat_ids_exposed": false,
+        "raw_object_reference_exposed": false,
+        "raw_private_context_exposed": false,
+        "raw_secret_exposed": false,
+        "raw_token_exposed": false,
+        "telegram_push_allowed": true,
+        "user_action_required": true
+      },
+      "capture_surfaces": [
+        ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
+        ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json"
+      ],
+      "claim_boundary": "does_not_prove_good_executive_assistant_until_all_required_acceptance_keys_are_accepted",
+      "evidence_kind": "approved_outbound_action_audit_trail",
+      "key": "ea_real_approved_action_audited",
+      "lens": "prove",
+      "next_action": "record_redacted_approved_action_audit_evidence",
+      "next_action_href": "/admin/actions/acceptance-evidence",
+      "next_action_label": "Record a real-use outcome",
+      "next_action_method": "post",
+      "required_next_receipt": "real approved outbound action with audit trail",
+      "source_receipts": [
+        {
+          "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
+          "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
+          "present": true,
+          "source_fresh_to_current_source": true,
+          "source_git_head": "cc7c7daf3dbf36eee3bbe87a935c29cc2a6ba4a7",
+          "source_state_fingerprint": "9f7e304e8abda8fd662592b03ed2f7c328bc97b2becf89d3da4781e1e05eeaf9",
+          "status": "partial_real_world_acceptance_evidence"
+        },
+        {
+          "contract_name": "ea.executive_assistant_quality_readiness.v1",
+          "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
+          "present": true,
+          "source_fresh_to_current_source": true,
+          "source_git_head": "cc7c7daf3dbf36eee3bbe87a935c29cc2a6ba4a7",
+          "source_state_fingerprint": "9f7e304e8abda8fd662592b03ed2f7c328bc97b2becf89d3da4781e1e05eeaf9",
+          "status": "blocked_real_world_acceptance"
+        }
+      ],
+      "status": "pending_real_world_evidence",
+      "title": "Real approved outbound action audited"
+    },
+    {
+      "action_context": {
+        "delivery_policy": "action_required_only",
+        "instruction": "Record redacted evidence that a real provider failure was recovered with an operator-grade reason.",
+        "interruption_budget": "action_required",
+        "irreversible_actions_consent_gated": true,
+        "kind": "real_world_acceptance_capture",
+        "non_action_progress_push_allowed": false,
+        "proof_key": "real_provider_failure_recovered",
+        "quiet_hours_respected": true,
+        "raw_acceptance_text_exposed": false,
+        "raw_actor_identity_exposed": false,
+        "raw_chat_ids_exposed": false,
+        "raw_object_reference_exposed": false,
+        "raw_private_context_exposed": false,
+        "raw_secret_exposed": false,
+        "raw_token_exposed": false,
+        "telegram_push_allowed": true,
+        "user_action_required": true
+      },
+      "capture_surfaces": [
+        ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
+        ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json"
+      ],
+      "claim_boundary": "does_not_prove_good_executive_assistant_until_all_required_acceptance_keys_are_accepted",
+      "evidence_kind": "provider_failure_recovery_evidence",
+      "key": "ea_real_provider_failure_recovered",
+      "lens": "prove",
+      "next_action": "record_redacted_provider_failure_recovery_evidence",
+      "next_action_href": "/admin/actions/acceptance-evidence",
+      "next_action_label": "Record a real-use outcome",
+      "next_action_method": "post",
+      "required_next_receipt": "real provider failure recovered with operator-grade reason",
+      "source_receipts": [
+        {
+          "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
+          "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
+          "present": true,
+          "source_fresh_to_current_source": true,
+          "source_git_head": "cc7c7daf3dbf36eee3bbe87a935c29cc2a6ba4a7",
+          "source_state_fingerprint": "9f7e304e8abda8fd662592b03ed2f7c328bc97b2becf89d3da4781e1e05eeaf9",
+          "status": "partial_real_world_acceptance_evidence"
+        },
+        {
+          "contract_name": "ea.executive_assistant_quality_readiness.v1",
+          "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
+          "present": true,
+          "source_fresh_to_current_source": true,
+          "source_git_head": "cc7c7daf3dbf36eee3bbe87a935c29cc2a6ba4a7",
+          "source_state_fingerprint": "9f7e304e8abda8fd662592b03ed2f7c328bc97b2becf89d3da4781e1e05eeaf9",
+          "status": "blocked_real_world_acceptance"
+        }
+      ],
+      "status": "pending_real_world_evidence",
+      "title": "Real provider failure recovered"
     },
     {
       "action_context": {
@@ -358,7 +526,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-07-01T04:42:53Z",
+  "generated_at": "2026-07-01T04:52:35Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -453,8 +621,8 @@
           "path": ".codex-studio/published/ea_office_loop_goal.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "a701ba4de7673b2ba6271aa20f4ec32e1b25acef",
-          "source_state_fingerprint": "aaaad55e1fa220b49c2ccefd1b61aa0f5cc4fa60c703143175edc63f565fe541",
+          "source_git_head": "cc7c7daf3dbf36eee3bbe87a935c29cc2a6ba4a7",
+          "source_state_fingerprint": "9f7e304e8abda8fd662592b03ed2f7c328bc97b2becf89d3da4781e1e05eeaf9",
           "status": "ready_local_evidence"
         }
       ],
@@ -596,8 +764,8 @@
           "path": ".codex-studio/published/teable_env_recovery_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "a701ba4de7673b2ba6271aa20f4ec32e1b25acef",
-          "source_state_fingerprint": "aaaad55e1fa220b49c2ccefd1b61aa0f5cc4fa60c703143175edc63f565fe541",
+          "source_git_head": "cc7c7daf3dbf36eee3bbe87a935c29cc2a6ba4a7",
+          "source_state_fingerprint": "9f7e304e8abda8fd662592b03ed2f7c328bc97b2becf89d3da4781e1e05eeaf9",
           "status": "ready_local_audit"
         },
         {
@@ -605,8 +773,8 @@
           "path": ".codex-studio/published/teable_env_recovery_proof.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "a701ba4de7673b2ba6271aa20f4ec32e1b25acef",
-          "source_state_fingerprint": "aaaad55e1fa220b49c2ccefd1b61aa0f5cc4fa60c703143175edc63f565fe541",
+          "source_git_head": "cc7c7daf3dbf36eee3bbe87a935c29cc2a6ba4a7",
+          "source_state_fingerprint": "9f7e304e8abda8fd662592b03ed2f7c328bc97b2becf89d3da4781e1e05eeaf9",
           "status": "pass"
         }
       ],
@@ -635,8 +803,8 @@
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "a701ba4de7673b2ba6271aa20f4ec32e1b25acef",
-          "source_state_fingerprint": "aaaad55e1fa220b49c2ccefd1b61aa0f5cc4fa60c703143175edc63f565fe541",
+          "source_git_head": "cc7c7daf3dbf36eee3bbe87a935c29cc2a6ba4a7",
+          "source_state_fingerprint": "9f7e304e8abda8fd662592b03ed2f7c328bc97b2becf89d3da4781e1e05eeaf9",
           "status": "blocked_real_world_acceptance"
         }
       ],
@@ -751,6 +919,93 @@
     {
       "callback_tokens_exposed": false,
       "delivery_policy": "action_required_only",
+      "evidence_kind": "approved_outbound_action_audit_trail",
+      "instruction": "Record redacted evidence for a real approved outbound action audit trail.",
+      "interruption_budget": "action_required",
+      "irreversible_actions_consent_gated": true,
+      "key": "ea_real_approved_action_audited",
+      "lens": "prove",
+      "next_action": "record_redacted_approved_action_audit_evidence",
+      "next_action_href": "/admin/actions/acceptance-evidence",
+      "next_action_label": "Record a real-use outcome",
+      "next_action_method": "post",
+      "non_action_progress_push_allowed": false,
+      "proof_key": "real_approved_action_audited",
+      "quiet_hours_respected": true,
+      "raw_acceptance_text_exposed": false,
+      "raw_actor_identity_exposed": false,
+      "raw_chat_ids_exposed": false,
+      "raw_object_reference_exposed": false,
+      "raw_private_context_exposed": false,
+      "raw_secret_exposed": false,
+      "raw_token_exposed": false,
+      "raw_voice_ids_exposed": false,
+      "required_next_receipt": "real approved outbound action with audit trail",
+      "telegram_push_allowed": true,
+      "title": "Real approved outbound action audited",
+      "user_action_required": true
+    },
+    {
+      "callback_tokens_exposed": false,
+      "delivery_policy": "action_required_only",
+      "evidence_kind": "real_commitment_recovery_evidence",
+      "instruction": "Record redacted evidence that a real commitment was recovered or closed.",
+      "interruption_budget": "action_required",
+      "irreversible_actions_consent_gated": true,
+      "key": "ea_real_commitment_recovered_or_closed",
+      "lens": "prove",
+      "next_action": "record_redacted_real_commitment_recovery_evidence",
+      "next_action_href": "/admin/actions/acceptance-evidence",
+      "next_action_label": "Record a real-use outcome",
+      "next_action_method": "post",
+      "non_action_progress_push_allowed": false,
+      "proof_key": "real_commitment_recovered_or_closed",
+      "quiet_hours_respected": true,
+      "raw_acceptance_text_exposed": false,
+      "raw_actor_identity_exposed": false,
+      "raw_chat_ids_exposed": false,
+      "raw_object_reference_exposed": false,
+      "raw_private_context_exposed": false,
+      "raw_secret_exposed": false,
+      "raw_token_exposed": false,
+      "raw_voice_ids_exposed": false,
+      "required_next_receipt": "real commitment recovered or closed with an evidence receipt",
+      "telegram_push_allowed": true,
+      "title": "Real commitment recovered or closed",
+      "user_action_required": true
+    },
+    {
+      "callback_tokens_exposed": false,
+      "delivery_policy": "action_required_only",
+      "evidence_kind": "provider_failure_recovery_evidence",
+      "instruction": "Record redacted evidence that a real provider failure was recovered with an operator-grade reason.",
+      "interruption_budget": "action_required",
+      "irreversible_actions_consent_gated": true,
+      "key": "ea_real_provider_failure_recovered",
+      "lens": "prove",
+      "next_action": "record_redacted_provider_failure_recovery_evidence",
+      "next_action_href": "/admin/actions/acceptance-evidence",
+      "next_action_label": "Record a real-use outcome",
+      "next_action_method": "post",
+      "non_action_progress_push_allowed": false,
+      "proof_key": "real_provider_failure_recovered",
+      "quiet_hours_respected": true,
+      "raw_acceptance_text_exposed": false,
+      "raw_actor_identity_exposed": false,
+      "raw_chat_ids_exposed": false,
+      "raw_object_reference_exposed": false,
+      "raw_private_context_exposed": false,
+      "raw_secret_exposed": false,
+      "raw_token_exposed": false,
+      "raw_voice_ids_exposed": false,
+      "required_next_receipt": "real provider failure recovered with operator-grade reason",
+      "telegram_push_allowed": true,
+      "title": "Real provider failure recovered",
+      "user_action_required": true
+    },
+    {
+      "callback_tokens_exposed": false,
+      "delivery_policy": "action_required_only",
       "evidence_kind": "real_review_acceptance",
       "instruction": "Record redacted evidence that the weekly signal-to-decision review was actually reviewed.",
       "interruption_budget": "action_required",
@@ -832,6 +1087,9 @@
   "real_use_claim_allowed": false,
   "required_next_receipts": [
     "real weekly signal-to-decision review acceptance receipt",
+    "real commitment recovered or closed with an evidence receipt",
+    "real approved outbound action with audit trail",
+    "real provider failure recovered with operator-grade reason",
     "consented Manfred STT/TTS realtime conversation proof",
     "passing Telegram audiobook live delivery receipt",
     "passing WhatsApp audiobook live delivery receipt"
@@ -846,7 +1104,7 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "a701ba4de7673b2ba6271aa20f4ec32e1b25acef",
-  "source_state_fingerprint": "aaaad55e1fa220b49c2ccefd1b61aa0f5cc4fa60c703143175edc63f565fe541",
+  "source_git_head": "cc7c7daf3dbf36eee3bbe87a935c29cc2a6ba4a7",
+  "source_state_fingerprint": "9f7e304e8abda8fd662592b03ed2f7c328bc97b2becf89d3da4781e1e05eeaf9",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }
