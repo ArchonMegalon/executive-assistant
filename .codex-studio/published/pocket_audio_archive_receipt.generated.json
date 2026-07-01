@@ -30,7 +30,7 @@
   "evidence_mode": "filesystem_archive_scan",
   "failure_count": 0,
   "failures": [],
-  "generated_at": "2026-07-01T12:26:11Z",
+  "generated_at": "2026-07-01T12:51:53Z",
   "generated_by": "scripts/materialize_pocket_audio_archive_receipt.py",
   "head_semantics": "source_state",
   "latest_backfill": {
@@ -69,7 +69,7 @@
     "raw_transcript_text_exposed": false
   },
   "source_git_head": "90dcd37182c4b532e664a530b0f9e47ed1144a81",
-  "source_state_fingerprint": "ef073e0740459ef01a154410f0f5f054fcea00e2e399604de2b5b45a49da92e2",
+  "source_state_fingerprint": "62b2cf6db6fd4363d96de08cb2fd03f87eac2fdda85e8c0ac1f3c90ea1b9b607",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "pass",
   "transcript_ingest_ready": true

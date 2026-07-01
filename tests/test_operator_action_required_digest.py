@@ -85,6 +85,8 @@ def test_digest_filters_only_action_required_telegram_items(tmp_path, monkeypatc
     assert receipt["status"] == "ready_to_send"
     assert receipt["item_count"] == 1
     assert receipt["included_action_keys"] == ["telegram_audiobook_live_delivery"]
+    assert receipt["notification_item_count"] == 1
+    assert receipt["notification_action_keys"] == ["telegram_audiobook_live_delivery"]
     assert "Choose one sent replacement voice sample" in receipt["telegram_text"]
     assert "Internal queue-only recovery" not in receipt["telegram_text"]
     assert receipt["counts"]["suppressed_queue_only_count"] == 1
@@ -135,9 +137,75 @@ def test_digest_send_updates_state_and_suppresses_duplicate(tmp_path, monkeypatc
     assert len(calls) == 1
     saved_state = json.loads(state_path.read_text(encoding="utf-8"))
     assert saved_state["last_digest_sha256"] == first["digest_sha256"]
+    assert saved_state["last_item_hashes"]["telegram_audiobook_live_delivery"]
+    assert saved_state["last_notification_item_keys"] == ["telegram_audiobook_live_delivery"]
     assert "principal-1" not in state_path.read_text(encoding="utf-8")
     assert verify_digest.verify_receipt(first) == []
     assert verify_digest.verify_receipt(second) == []
+
+
+def test_digest_sends_only_new_action_item_from_legacy_state(tmp_path, monkeypatch) -> None:
+    _patch_source_state(monkeypatch)
+    input_path = tmp_path / "posture.json"
+    output_path = tmp_path / "digest.json"
+    state_path = tmp_path / "state.json"
+    _write_json(
+        input_path,
+        {
+            "status": "active_with_blockers",
+            "operator_action_queue": [
+                _action_row(key="weekly_signal_to_decision_review_acceptance", instruction="Already sent item."),
+                _action_row(key="google_workspace_oauth_setup", instruction="Add the work Google account as an OAuth test user."),
+            ],
+        },
+    )
+    _write_json(
+        state_path,
+        {
+            "last_digest_sha256": "legacy-digest",
+            "last_item_keys": ["weekly_signal_to_decision_review_acceptance"],
+            "last_sent_at": "2026-07-01T12:00:00Z",
+            "message_id_count": 1,
+        },
+    )
+    calls = []
+
+    def fake_sender(principal_id: str, text: str, dry_run: bool, timeout_seconds: float):
+        calls.append((principal_id, text, dry_run, timeout_seconds))
+        return {"sent": True, "reason": "sent", "message_ids": ["1002"], "message_count": 1}
+
+    receipt = digest.build_operator_action_required_digest(
+        root=tmp_path,
+        input_path=input_path,
+        output_path=output_path,
+        state_path=state_path,
+        principal_id="principal-1",
+        send=True,
+        generated_at="2026-07-01T12:02:00Z",
+        telegram_sender=fake_sender,
+    )
+
+    assert receipt["status"] == "sent"
+    assert receipt["item_count"] == 2
+    assert receipt["included_action_keys"] == [
+        "weekly_signal_to_decision_review_acceptance",
+        "google_workspace_oauth_setup",
+    ]
+    assert receipt["notification_mode"] == "delta_legacy_key_state"
+    assert receipt["notification_item_count"] == 1
+    assert receipt["notification_action_keys"] == ["google_workspace_oauth_setup"]
+    assert "Add the work Google account" in receipt["telegram_text"]
+    assert "Already sent item" not in receipt["telegram_text"]
+    saved_state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert saved_state["last_digest_sha256"] == receipt["digest_sha256"]
+    assert saved_state["last_item_keys"] == [
+        "weekly_signal_to_decision_review_acceptance",
+        "google_workspace_oauth_setup",
+    ]
+    assert saved_state["last_notification_item_keys"] == ["google_workspace_oauth_setup"]
+    assert set(saved_state["last_item_hashes"]) == set(saved_state["last_item_keys"])
+    assert len(calls) == 1
+    assert verify_digest.verify_receipt(receipt) == []
 
 
 def test_digest_dry_run_checks_sender_without_persisting_state(tmp_path, monkeypatch) -> None:
@@ -181,7 +249,21 @@ def test_digest_verifier_requires_dry_run_ready_to_prove_zero_send() -> None:
         "irreversible_actions_consent_gated": True,
         "item_count": 1,
         "included_action_keys": ["needs_action"],
+        "notification_item_count": 1,
+        "notification_action_keys": ["needs_action"],
         "items": [
+            {
+                "key": "needs_action",
+                "instruction": "Choose one item.",
+                "delivery_policy": "action_required_only",
+                "telegram_push_allowed": True,
+                "interruption_budget": "action_required",
+                "quiet_hours_respected": True,
+                "non_action_progress_push_allowed": False,
+                "irreversible_actions_consent_gated": True,
+            }
+        ],
+        "notification_items": [
             {
                 "key": "needs_action",
                 "instruction": "Choose one item.",
@@ -195,6 +277,7 @@ def test_digest_verifier_requires_dry_run_ready_to_prove_zero_send() -> None:
         ],
         "counts": {"included_count": 1},
         "privacy": {flag: False for flag in verify_digest.PRIVATE_EXPOSURE_FLAGS},
+        "notification_digest_sha256": "notification-hash",
         "send_requested": True,
         "send_attempted": True,
         "dry_run": True,
@@ -226,7 +309,21 @@ def test_digest_verifier_requires_sent_receipt_to_prove_message_and_dedupe_state
         "irreversible_actions_consent_gated": True,
         "item_count": 1,
         "included_action_keys": ["needs_action"],
+        "notification_item_count": 1,
+        "notification_action_keys": ["needs_action"],
         "items": [
+            {
+                "key": "needs_action",
+                "instruction": "Choose one item.",
+                "delivery_policy": "action_required_only",
+                "telegram_push_allowed": True,
+                "interruption_budget": "action_required",
+                "quiet_hours_respected": True,
+                "non_action_progress_push_allowed": False,
+                "irreversible_actions_consent_gated": True,
+            }
+        ],
+        "notification_items": [
             {
                 "key": "needs_action",
                 "instruction": "Choose one item.",
@@ -240,6 +337,7 @@ def test_digest_verifier_requires_sent_receipt_to_prove_message_and_dedupe_state
         ],
         "counts": {"included_count": 1},
         "privacy": {flag: False for flag in verify_digest.PRIVATE_EXPOSURE_FLAGS},
+        "notification_digest_sha256": "notification-hash",
         "send_requested": True,
         "send_attempted": False,
         "dry_run": True,
@@ -271,7 +369,22 @@ def test_digest_verifier_blocks_private_exposure() -> None:
         "irreversible_actions_consent_gated": True,
         "item_count": 1,
         "included_action_keys": ["leaky"],
+        "notification_item_count": 1,
+        "notification_action_keys": ["leaky"],
         "items": [
+            {
+                "key": "leaky",
+                "instruction": "Act on this.",
+                "delivery_policy": "action_required_only",
+                "telegram_push_allowed": True,
+                "interruption_budget": "action_required",
+                "quiet_hours_respected": True,
+                "non_action_progress_push_allowed": False,
+                "irreversible_actions_consent_gated": True,
+                "raw_secret_exposed": True,
+            }
+        ],
+        "notification_items": [
             {
                 "key": "leaky",
                 "instruction": "Act on this.",
@@ -300,6 +413,7 @@ def test_digest_verifier_blocks_private_exposure() -> None:
             "raw_transcript_fields_exposed": False,
             "candidate_raw_text_fields_exposed": False,
         },
+        "notification_digest_sha256": "notification-hash",
         "send_attempted": False,
         "send_requested": False,
         "telegram_text": "Action needed for EA:\n1. Act on this.",

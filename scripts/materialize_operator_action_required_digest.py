@@ -38,6 +38,10 @@ PRIVATE_EXPOSURE_FLAGS = (
     "raw_object_reference_exposed",
     "raw_transcript_fields_exposed",
     "candidate_raw_text_fields_exposed",
+    "raw_expected_google_email_exposed",
+    "raw_client_id_exposed",
+    "raw_client_secret_exposed",
+    "raw_error_description_exposed",
 )
 
 
@@ -130,6 +134,9 @@ def _sanitize_action_item(row: dict[str, Any]) -> dict[str, Any]:
         "next_action_form_href": _text(row.get("next_action_form_href"), limit=180),
         "next_action_form_label": _text(row.get("next_action_form_label"), limit=80),
         "next_action_form_method": _text(row.get("next_action_form_method"), limit=16).lower(),
+        "telegram_message": _text(row.get("telegram_message"), limit=320),
+        "console_deep_link": _text(row.get("console_deep_link"), limit=220),
+        "auth_link_template": _text(row.get("auth_link_template"), limit=260),
         "delivery_policy": "action_required_only",
         "telegram_push_allowed": True,
         "interruption_budget": "action_required",
@@ -142,6 +149,10 @@ def _sanitize_action_item(row: dict[str, Any]) -> dict[str, Any]:
         "raw_secret_exposed": False,
         "raw_voice_ids_exposed": False,
         "callback_tokens_exposed": False,
+        "raw_expected_google_email_exposed": False,
+        "raw_client_id_exposed": False,
+        "raw_client_secret_exposed": False,
+        "raw_error_description_exposed": False,
     }
 
 
@@ -184,11 +195,80 @@ def _digest_material(items: list[dict[str, Any]], queue_url: str) -> dict[str, A
     }
 
 
+def _item_hash(item: dict[str, Any]) -> str:
+    return _sha256_json(
+        {
+            "key": item.get("key"),
+            "instruction": item.get("instruction"),
+            "next_action": item.get("next_action"),
+            "next_action_form_href": item.get("next_action_form_href"),
+        }
+    )
+
+
+def _item_hashes_by_key(items: list[dict[str, Any]]) -> dict[str, str]:
+    return {
+        str(item.get("key") or "").strip(): _item_hash(item)
+        for item in items
+        if str(item.get("key") or "").strip()
+    }
+
+
+def _notification_items(
+    *,
+    items: list[dict[str, Any]],
+    state: dict[str, Any],
+    digest_sha256: str,
+    force: bool,
+) -> tuple[list[dict[str, Any]], str]:
+    if not items:
+        return [], "none"
+    if force:
+        return list(items), "forced_full"
+    if digest_sha256 and state.get("last_digest_sha256") == digest_sha256:
+        return [], "duplicate_suppressed"
+
+    state_hashes = {
+        str(key or "").strip(): str(value or "").strip()
+        for key, value in dict(state.get("last_item_hashes") or {}).items()
+        if str(key or "").strip() and str(value or "").strip()
+    }
+    if state_hashes:
+        changed = [item for item in items if state_hashes.get(str(item.get("key") or "").strip()) != _item_hash(item)]
+        return changed, "delta"
+
+    state_keys = [
+        str(item or "").strip()
+        for item in list(state.get("last_item_keys") or [])
+        if str(item or "").strip()
+    ]
+    if state_keys:
+        state_key_set = set(state_keys)
+        new_items = [item for item in items if str(item.get("key") or "").strip() not in state_key_set]
+        if new_items:
+            return new_items, "delta_legacy_key_state"
+        current_keys = [str(item.get("key") or "").strip() for item in items if str(item.get("key") or "").strip()]
+        if current_keys == state_keys:
+            return list(items), "changed_full_legacy_key_state"
+        return list(items), "changed_full"
+
+    return list(items), "full"
+
+
 def _telegram_text(items: list[dict[str, Any]], queue_url: str) -> str:
     lines = ["Action needed for EA:"]
     for index, item in enumerate(items[:8], start=1):
-        instruction = _text(item.get("instruction") or item.get("title") or item.get("next_action"), limit=150)
+        instruction = _text(
+            item.get("telegram_message") or item.get("instruction") or item.get("title") or item.get("next_action"),
+            limit=260,
+        )
         lines.append(f"{index}. {instruction}")
+        console_link = _text(item.get("console_deep_link"), limit=220)
+        if console_link:
+            lines.append(f"   Console: {console_link}")
+        auth_template = _text(item.get("auth_link_template"), limit=260)
+        if auth_template:
+            lines.append(f"   Retry: {auth_template}")
     if len(items) > 8:
         lines.append(f"+ {len(items) - 8} more in the queue")
     lines.append(f"Queue: {queue_url}")
@@ -249,8 +329,18 @@ def build_operator_action_required_digest(
     items, counts = _select_items(posture)
     digest_sha256 = _sha256_json(_digest_material(items, queue_url)) if items else ""
     state = _load_json(state_path)
-    duplicate_suppressed = bool(digest_sha256 and not force and state.get("last_digest_sha256") == digest_sha256)
-    text = _telegram_text(items, queue_url) if items else ""
+    notification_items, notification_mode = _notification_items(
+        items=items,
+        state=state,
+        digest_sha256=digest_sha256,
+        force=bool(force),
+    )
+    duplicate_suppressed = bool(items and not notification_items and notification_mode == "duplicate_suppressed")
+    text = _telegram_text(notification_items, queue_url) if notification_items else ""
+    notification_digest_sha256 = (
+        _sha256_json(_digest_material(notification_items, queue_url)) if notification_items else ""
+    )
+    current_item_hashes = _item_hashes_by_key(items)
     send_result: dict[str, Any] = {}
     send_attempted = False
     state_updated = False
@@ -258,7 +348,7 @@ def build_operator_action_required_digest(
     if not items:
         status = "no_user_action_required"
         notification_status = "skipped_no_items"
-    elif duplicate_suppressed:
+    elif not notification_items:
         status = "suppressed_duplicate"
         notification_status = "suppressed_duplicate"
     elif send:
@@ -275,6 +365,10 @@ def build_operator_action_required_digest(
                     "last_digest_sha256": digest_sha256,
                     "last_sent_at": generated_at,
                     "last_item_keys": [item["key"] for item in items],
+                    "last_item_hashes": current_item_hashes,
+                    "last_notification_digest_sha256": notification_digest_sha256,
+                    "last_notification_item_keys": [item["key"] for item in notification_items],
+                    "last_notification_mode": notification_mode,
                     "message_id_count": len(list(send_result.get("message_ids") or [])),
                 },
             )
@@ -315,6 +409,8 @@ def build_operator_action_required_digest(
         "state_updated": state_updated,
         "force": bool(force),
         "digest_sha256": digest_sha256,
+        "notification_mode": notification_mode,
+        "notification_digest_sha256": notification_digest_sha256,
         "source_receipt": {
             "path": _display_path(input_path, root),
             "present": bool(posture),
@@ -324,6 +420,9 @@ def build_operator_action_required_digest(
         "item_count": len(items),
         "included_action_keys": [item["key"] for item in items],
         "items": items,
+        "notification_item_count": len(notification_items),
+        "notification_action_keys": [item["key"] for item in notification_items],
+        "notification_items": notification_items,
         "counts": counts,
         "telegram_text": text,
         "telegram_text_sha256": _sha256_text(text) if text else "",
@@ -354,6 +453,10 @@ def build_operator_action_required_digest(
             "raw_object_reference_exposed": False,
             "raw_transcript_fields_exposed": False,
             "candidate_raw_text_fields_exposed": False,
+            "raw_expected_google_email_exposed": False,
+            "raw_client_id_exposed": False,
+            "raw_client_secret_exposed": False,
+            "raw_error_description_exposed": False,
         },
         "rules": [
             "Only operator_action_queue items that require user action may enter this digest.",

@@ -23,6 +23,10 @@ PRIVATE_EXPOSURE_FLAGS = (
     "raw_object_reference_exposed",
     "raw_transcript_fields_exposed",
     "candidate_raw_text_fields_exposed",
+    "raw_expected_google_email_exposed",
+    "raw_client_id_exposed",
+    "raw_client_secret_exposed",
+    "raw_error_description_exposed",
 )
 ACTION_STATUSES = {
     "ready_to_send",
@@ -105,7 +109,36 @@ def verify_receipt(receipt: Mapping[str, Any]) -> list[str]:
         issues.append("no_user_action_required requires item_count=0")
     if status == "suppressed_duplicate" and receipt.get("dedupe_suppressed") is not True:
         issues.append("suppressed_duplicate requires dedupe_suppressed=true")
+    notification_items = [
+        item for item in list(receipt.get("notification_items") or []) if isinstance(item, dict)
+    ]
+    notification_count = int(receipt.get("notification_item_count") or 0)
+    if notification_count != len(notification_items):
+        issues.append("notification_item_count must match notification_items length")
+    notification_keys = [
+        str(item or "").strip()
+        for item in list(receipt.get("notification_action_keys") or [])
+        if str(item or "").strip()
+    ]
+    notification_item_keys = [
+        str(item.get("key") or "").strip()
+        for item in notification_items
+        if str(item.get("key") or "").strip()
+    ]
+    if notification_keys != notification_item_keys:
+        issues.append("notification_action_keys must match notification item keys")
+    if not set(notification_keys).issubset(set(item_keys)):
+        issues.append("notification_action_keys must be a subset of included_action_keys")
     notification_status = str(receipt.get("notification_status") or "").strip()
+    if status in {"ready_to_send", "sent", "blocked_telegram_not_ready", "blocked_telegram_send_failed"}:
+        if notification_count <= 0:
+            issues.append("sendable action status requires notification_item_count>0")
+        if not str(receipt.get("notification_digest_sha256") or "").strip():
+            issues.append("sendable action status requires notification_digest_sha256")
+    if status == "suppressed_duplicate" and notification_count != 0:
+        issues.append("suppressed_duplicate requires notification_item_count=0")
+    if status == "no_user_action_required" and notification_count != 0:
+        issues.append("no_user_action_required requires notification_item_count=0")
     send_result = dict(receipt.get("send_result") or {})
     if status == "sent":
         if notification_status != "sent":
@@ -135,9 +168,13 @@ def verify_receipt(receipt: Mapping[str, Any]) -> list[str]:
             issues.append("dry_run_ready requires send_result.message_count=0")
         if receipt.get("state_updated") is not False:
             issues.append("dry_run_ready must not update dedupe state")
-    if item_count > 0 and not str(receipt.get("telegram_text") or "").strip():
-        issues.append("action digest with items requires telegram_text")
+    if notification_count > 0 and not str(receipt.get("telegram_text") or "").strip():
+        issues.append("action digest with notification items requires telegram_text")
+    if notification_count == 0 and str(receipt.get("telegram_text") or "").strip():
+        issues.append("action digest without notification items must not include telegram_text")
     for index, item in enumerate(items):
+        issues.extend(_issues_for_item(item, index))
+    for index, item in enumerate(notification_items):
         issues.extend(_issues_for_item(item, index))
     if not str(dict(receipt.get("source_receipt") or {}).get("path") or "").strip():
         issues.append("source_receipt.path must be present")

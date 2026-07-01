@@ -84,6 +84,7 @@ EXPECTED_PROOF_ACTION_SURFACES = {
     "proactive_ooda_packet_acceptance": ("/admin/proactive-ooda/approval", "get"),
     "fresh_host_teable_recovery_drill": ("/admin/goals", "get"),
     "telegram_business_signal_setup": ("/integrations/telegram", "get"),
+    "google_workspace_oauth_setup": ("/integrations/google", "get"),
     "manfred_stt_tts_realtime_conversation": ("/memorials/manfred/voice-config", "get"),
     "telegram_audiobook_live_delivery": ("/integrations/telegram", "get"),
     "whatsapp_audiobook_live_delivery": ("/integrations/whatsapp", "get"),
@@ -97,6 +98,7 @@ EXPECTED_PROOF_FORM_SURFACES = {
     "proactive_ooda_packet_acceptance": ("/admin/proactive-ooda/approval", "get"),
     "fresh_host_teable_recovery_drill": ("/admin/goals", "get"),
     "telegram_business_signal_setup": ("/integrations/telegram", "get"),
+    "google_workspace_oauth_setup": ("/integrations/google", "get"),
     "manfred_stt_tts_realtime_conversation": ("/memorials/manfred/voice-config", "get"),
     "telegram_audiobook_live_delivery": ("/integrations/telegram", "get"),
     "whatsapp_audiobook_live_delivery": ("/integrations/whatsapp", "get"),
@@ -200,7 +202,7 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
             issues.append(f"{key} lens must list verifier commands")
         if key in {"detect", "decide", "prove"}:
             sources = list(lens.get("source_receipts") or [])
-            expected_source_count = 3 if key == "detect" else 1
+            expected_source_count = 4 if key == "detect" else 1
             if len(sources) != expected_source_count:
                 issues.append(f"{key} lens must have exactly {expected_source_count} source receipt(s)")
             for source in sources:
@@ -239,6 +241,8 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                     issues.append("detect lens verifier_commands must include pocket archive receipt verifier")
                 if not any("verify_telegram_business_signal_readiness.py" in str(command) for command in commands):
                     issues.append("detect lens verifier_commands must include Telegram Business readiness verifier")
+                if not any("verify_google_workspace_oauth_readiness.py" in str(command) for command in commands):
+                    issues.append("detect lens verifier_commands must include Google Workspace OAuth readiness verifier")
         if key == "deliver":
             components = list(lens.get("components") or [])
             component_keys = {str(component.get("key") or "") for component in components if isinstance(component, dict)}
@@ -406,6 +410,14 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
             for private_key in ("raw_chat_ids_exposed", "raw_token_exposed", "raw_secret_exposed"):
                 if row.get(private_key) is not False:
                     issues.append(f"operator_action_queue must not expose {private_key}: {action_key}")
+            for google_private_key in (
+                "raw_expected_google_email_exposed",
+                "raw_client_id_exposed",
+                "raw_client_secret_exposed",
+                "raw_error_description_exposed",
+            ):
+                if google_private_key in row and row.get(google_private_key) is not False:
+                    issues.append(f"operator_action_queue must not expose {google_private_key}: {action_key}")
             for acceptance_private_key in (
                 "raw_acceptance_text_exposed",
                 "raw_actor_identity_exposed",
@@ -760,6 +772,114 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                 for private_key in ("raw_chat_ids_exposed", "raw_token_exposed", "raw_secret_exposed"):
                     if business_queue_row.get(private_key) is not False:
                         issues.append(f"telegram_business_signal_setup queue row must not expose {private_key}")
+    google_oauth = dict((by_key.get("detect") or {}).get("google_workspace_oauth_readiness") or {})
+    if google_oauth:
+        for private_key in (
+            "raw_expected_google_email_exposed",
+            "raw_client_secret_exposed",
+            "raw_access_token_exposed",
+            "raw_refresh_token_exposed",
+            "raw_error_description_exposed",
+        ):
+            if google_oauth.get(private_key) is not False:
+                issues.append(f"google_workspace_oauth_readiness must not expose {private_key}")
+        if str(google_oauth.get("scope_bundle") or "").strip() and str(google_oauth.get("scope_bundle") or "").strip() != "full_workspace":
+            issues.append("google_workspace_oauth_readiness scope_bundle must be full_workspace when present")
+        if str(google_oauth.get("auth_link_template") or "").strip() and "/app/actions/google/connect?" not in str(
+            google_oauth.get("auth_link_template") or ""
+        ):
+            issues.append("google_workspace_oauth_readiness auth_link_template must target Google connect action")
+        if str(google_oauth.get("console_deep_link") or "").strip() and not str(
+            google_oauth.get("console_deep_link") or ""
+        ).startswith("https://console.cloud.google.com/auth/audience"):
+            issues.append("google_workspace_oauth_readiness console_deep_link must target Google Auth Platform Audience")
+    google_oauth_requirement = proof_by_key.get("google_workspace_oauth_setup") or {}
+    google_oauth_blocked = any(reason.startswith("detect:google_workspace_oauth") for reason in blocking_reasons)
+    if google_oauth_blocked and not google_oauth_requirement:
+        issues.append("blocked Google Workspace OAuth readiness must have google_workspace_oauth_setup proof requirement")
+    if google_oauth_requirement:
+        capture_surfaces = " ".join(str(surface or "") for surface in list(google_oauth_requirement.get("capture_surfaces") or []))
+        if "ea_google_workspace_oauth_readiness.generated.json" not in capture_surfaces:
+            issues.append("google_workspace_oauth_setup must cite the Google Workspace OAuth readiness surface")
+        if google_oauth_requirement.get("evidence_kind") != "google_workspace_oauth_test_user_setup":
+            issues.append("google_workspace_oauth_setup evidence_kind mismatch")
+        action_context = google_oauth_requirement.get("action_context")
+        strict_google_action = isinstance(action_context, dict) and action_context.get("user_action_required") is True
+        if google_oauth_blocked and strict_google_action:
+            if not isinstance(action_context, dict):
+                issues.append("blocked google_workspace_oauth_setup must include action_context")
+            else:
+                missing_setup = [
+                    str(item).strip()
+                    for item in list(action_context.get("missing_setup") or [])
+                    if str(item).strip()
+                ]
+                if not missing_setup:
+                    issues.append("blocked google_workspace_oauth_setup action_context must include missing_setup")
+                setup_checklist = action_context.get("setup_checklist")
+                if not isinstance(setup_checklist, list) or not setup_checklist:
+                    issues.append("blocked google_workspace_oauth_setup action_context must include setup_checklist")
+                elif missing_setup:
+                    checklist_keys = {
+                        str(dict(item).get("key") or "").strip()
+                        for item in setup_checklist
+                        if isinstance(item, dict)
+                    }
+                    for missing_key in missing_setup:
+                        if missing_key not in checklist_keys:
+                            issues.append(f"google_workspace_oauth_setup setup_checklist missing key: {missing_key}")
+                if "oauth_test_user_missing_or_app_unverified" in missing_setup:
+                    if not str(action_context.get("console_deep_link") or "").startswith(
+                        "https://console.cloud.google.com/auth/audience"
+                    ):
+                        issues.append("google_workspace_oauth_setup must include Google Auth Platform console_deep_link")
+                    if "/app/actions/google/connect?" not in str(action_context.get("auth_link_template") or ""):
+                        issues.append("google_workspace_oauth_setup must include redacted auth_link_template")
+                if not str(action_context.get("telegram_message") or "").strip():
+                    issues.append("blocked google_workspace_oauth_setup action_context must include telegram_message")
+                for private_key in (
+                    "raw_expected_google_email_exposed",
+                    "raw_client_id_exposed",
+                    "raw_client_secret_exposed",
+                    "raw_error_description_exposed",
+                    "raw_chat_ids_exposed",
+                    "raw_token_exposed",
+                    "raw_secret_exposed",
+                ):
+                    if action_context.get(private_key) is not False:
+                        issues.append(f"google_workspace_oauth_setup action_context must not expose {private_key}")
+            google_queue_row = next(
+                (
+                    dict(row)
+                    for row in operator_action_queue
+                    if isinstance(row, dict) and str(row.get("key") or "").strip() == "google_workspace_oauth_setup"
+                ),
+                {},
+            )
+            if not google_queue_row:
+                issues.append("blocked google_workspace_oauth_setup must appear in operator_action_queue")
+            else:
+                if not google_queue_row.get("setup_checklist"):
+                    issues.append("google_workspace_oauth_setup queue row must include setup_checklist")
+                if not str(google_queue_row.get("console_deep_link") or "").startswith(
+                    "https://console.cloud.google.com/auth/audience"
+                ):
+                    issues.append("google_workspace_oauth_setup queue row must include console_deep_link")
+                if "/app/actions/google/connect?" not in str(google_queue_row.get("auth_link_template") or ""):
+                    issues.append("google_workspace_oauth_setup queue row must include redacted auth_link_template")
+                if not google_queue_row.get("telegram_message"):
+                    issues.append("google_workspace_oauth_setup queue row must include telegram_message")
+                for private_key in (
+                    "raw_expected_google_email_exposed",
+                    "raw_client_id_exposed",
+                    "raw_client_secret_exposed",
+                    "raw_error_description_exposed",
+                    "raw_chat_ids_exposed",
+                    "raw_token_exposed",
+                    "raw_secret_exposed",
+                ):
+                    if google_queue_row.get(private_key) is not False:
+                        issues.append(f"google_workspace_oauth_setup queue row must not expose {private_key}")
     telegram_requirement = proof_by_key.get("telegram_audiobook_live_delivery") or {}
     if telegram_requirement:
         capture_surfaces = " ".join(str(surface or "") for surface in list(telegram_requirement.get("capture_surfaces") or []))

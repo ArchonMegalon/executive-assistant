@@ -30,6 +30,7 @@ DEFAULT_PROACTIVE_OODA_OPERATOR_STATUS = ROOT / ".codex-studio/published/ea_proa
 DEFAULT_PROACTIVE_OODA_GOLD_ACCEPTANCE = ROOT / ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json"
 DEFAULT_POCKET_AUDIO_ARCHIVE = ROOT / ".codex-studio/published/pocket_audio_archive_receipt.generated.json"
 DEFAULT_TELEGRAM_BUSINESS_SIGNAL_READINESS = ROOT / ".codex-studio/published/telegram_business_signal_readiness.generated.json"
+DEFAULT_GOOGLE_WORKSPACE_OAUTH_READINESS = ROOT / ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json"
 DEFAULT_TELEGRAM_AUDIOBOOK_READINESS = ROOT / ".codex-studio/published/telegram_audiobook_live_readiness.generated.json"
 DEFAULT_TELEGRAM_AUDIOBOOK_DELIVERY = ROOT / ".codex-studio/published/telegram_audiobook_live_delivery.generated.json"
 DEFAULT_WHATSAPP_AUDIOBOOK_INTAKE = ROOT / ".codex-studio/published/whatsapp_audiobook_local_intake_proof.generated.json"
@@ -48,6 +49,7 @@ PROACTIVE_OODA_ACCEPTANCE_RECEIPT = (
 )
 FRESH_HOST_TEABLE_RECOVERY_RECEIPT = "fresh-host Teable recovery drill receipt mirrored into the repo"
 TELEGRAM_BUSINESS_SIGNAL_SETUP_RECEIPT = "Telegram Business/Secretary bot connected with allowlisted signal chats"
+GOOGLE_WORKSPACE_OAUTH_SETUP_RECEIPT = "Google Workspace OAuth test-user or verified app access for Full Workspace auth"
 MANFRED_REALTIME_ACCEPTANCE_RECEIPT = "consented Manfred STT/TTS realtime conversation proof"
 TELEGRAM_AUDIOBOOK_LIVE_DELIVERY_RECEIPT = "passing Telegram audiobook live delivery receipt"
 WHATSAPP_AUDIOBOOK_LIVE_DELIVERY_RECEIPT = "passing WhatsApp audiobook live delivery receipt"
@@ -122,6 +124,11 @@ ACTION_SURFACES = {
     "connect_telegram_business_secretary_bot_and_allowlist_chats": {
         "href": "/integrations/telegram",
         "label": "Open Telegram setup",
+        "method": "get",
+    },
+    "add_google_oauth_test_user_and_retry_full_workspace_auth": {
+        "href": "/integrations/google",
+        "label": "Open Google setup",
         "method": "get",
     },
     "capture_consented_manfred_stt_tts_realtime_proof": {
@@ -734,6 +741,7 @@ def _operator_action_priority(requirement: dict[str, Any]) -> tuple[int, int, in
         "ea_real_provider_failure_recovered": 2,
         "morning_brief_operator_acceptance": 3,
         "weekly_signal_to_decision_review_acceptance": 4,
+        "google_workspace_oauth_setup": 5,
         "telegram_audiobook_live_delivery": 10,
         "manfred_stt_tts_realtime_conversation": 11,
     }
@@ -816,6 +824,12 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
                 if isinstance(item, dict)
             ],
             "telegram_message": str(action_context.get("telegram_message") or "").strip(),
+            "console_deep_link": str(action_context.get("console_deep_link") or "").strip(),
+            "auth_link_template": str(action_context.get("auth_link_template") or "").strip(),
+            "scope_bundle": str(action_context.get("scope_bundle") or "").strip(),
+            "expected_google_email_present": bool(action_context.get("expected_google_email_present")),
+            "expected_google_email_sha256": str(action_context.get("expected_google_email_sha256") or "").strip(),
+            "expected_google_domain": str(action_context.get("expected_google_domain") or "").strip(),
             "candidate_count": int(action_context.get("candidate_count") or 0),
             "candidate_labels": [
                 str(item).strip()
@@ -844,6 +858,10 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
             "raw_chat_ids_exposed": bool(action_context.get("raw_chat_ids_exposed")),
             "raw_token_exposed": bool(action_context.get("raw_token_exposed")),
             "raw_secret_exposed": bool(action_context.get("raw_secret_exposed")),
+            "raw_expected_google_email_exposed": bool(action_context.get("raw_expected_google_email_exposed")),
+            "raw_client_id_exposed": bool(action_context.get("raw_client_id_exposed")),
+            "raw_client_secret_exposed": bool(action_context.get("raw_client_secret_exposed")),
+            "raw_error_description_exposed": bool(action_context.get("raw_error_description_exposed")),
             "raw_voice_ids_exposed": bool(action_context.get("raw_voice_ids_exposed")),
             "callback_tokens_exposed": bool(action_context.get("callback_tokens_exposed")),
             "raw_public_share_url_exposed": bool(action_context.get("raw_public_share_url_exposed")),
@@ -876,6 +894,12 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
             "sent_samples_cover_expected",
             "duplicate_suppression",
             "repair_commands",
+            "console_deep_link",
+            "auth_link_template",
+            "scope_bundle",
+            "expected_google_email_present",
+            "expected_google_email_sha256",
+            "expected_google_domain",
             "failed_playback_count",
             "attempted_playback_count",
             "first_failure_reason",
@@ -891,6 +915,10 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
             "raw_object_reference_exposed",
             "raw_transcript_fields_exposed",
             "candidate_raw_text_fields_exposed",
+            "raw_expected_google_email_exposed",
+            "raw_client_id_exposed",
+            "raw_client_secret_exposed",
+            "raw_error_description_exposed",
         )
         for optional_key in optional_context_keys:
             if optional_key not in action_context:
@@ -941,6 +969,7 @@ def build_goal_posture(
     ooda_gold, ooda_gold_path = _load_receipt(root, root / DEFAULT_PROACTIVE_OODA_GOLD_ACCEPTANCE.relative_to(ROOT))
     pocket_audio, pocket_audio_path = _load_receipt(root, root / DEFAULT_POCKET_AUDIO_ARCHIVE.relative_to(ROOT))
     tg_business, tg_business_path = _load_receipt(root, root / DEFAULT_TELEGRAM_BUSINESS_SIGNAL_READINESS.relative_to(ROOT))
+    google_oauth, google_oauth_path = _load_receipt(root, root / DEFAULT_GOOGLE_WORKSPACE_OAUTH_READINESS.relative_to(ROOT))
     tg_ready, tg_ready_path = _load_receipt(root, root / DEFAULT_TELEGRAM_AUDIOBOOK_READINESS.relative_to(ROOT))
     tg_live, tg_live_path = _load_receipt(root, root / DEFAULT_TELEGRAM_AUDIOBOOK_DELIVERY.relative_to(ROOT))
     wa_intake, wa_intake_path = _load_receipt(root, root / DEFAULT_WHATSAPP_AUDIOBOOK_INTAKE.relative_to(ROOT))
@@ -963,6 +992,7 @@ def build_goal_posture(
             "make verify-whole-project-signal-to-decision-receipt",
             "python3 scripts/verify_pocket_audio_archive_receipt.py",
             "python3 scripts/verify_telegram_business_signal_readiness.py",
+            "python3 scripts/verify_google_workspace_oauth_readiness.py",
             "make verify-proactive-ooda",
         ],
         source_receipts=[
@@ -981,6 +1011,12 @@ def build_goal_posture(
             _source_receipt(
                 tg_business_path,
                 tg_business,
+                current_source_head=current_source_head,
+                current_source_fingerprint=current_source_fingerprint,
+            ),
+            _source_receipt(
+                google_oauth_path,
+                google_oauth,
                 current_source_head=current_source_head,
                 current_source_fingerprint=current_source_fingerprint,
             ),
@@ -1018,6 +1054,35 @@ def build_goal_posture(
         "next_action": str(
             dict(tg_business.get("operator_action") or {}).get("next_action")
             or "connect_telegram_business_secretary_bot_and_allowlist_chats"
+        ).strip(),
+    }
+    detect_lens["google_workspace_oauth_readiness"] = {
+        "key": "google_workspace_full_workspace_oauth",
+        "status": _status(google_oauth),
+        "scope_bundle": str(google_oauth.get("scope_bundle") or "").strip(),
+        "blocker_kind": str(google_oauth.get("blocker_kind") or "").strip(),
+        "expected_google_email_present": bool(dict(google_oauth.get("expected_google_account") or {}).get("present")),
+        "expected_google_email_sha256": str(
+            dict(google_oauth.get("expected_google_account") or {}).get("email_sha256") or ""
+        ).strip(),
+        "oauth_project_id": str(dict(google_oauth.get("oauth_client") or {}).get("client_project_id") or "").strip(),
+        "oauth_project_number": str(
+            dict(google_oauth.get("oauth_client") or {}).get("client_project_number") or ""
+        ).strip(),
+        "console_deep_link": str(google_oauth.get("console_deep_link") or "").strip(),
+        "auth_link_template": str(google_oauth.get("auth_link_template") or "").strip(),
+        "raw_expected_google_email_exposed": bool(
+            dict(google_oauth.get("privacy") or {}).get("raw_expected_google_email_exposed")
+        ),
+        "raw_client_secret_exposed": bool(dict(google_oauth.get("privacy") or {}).get("raw_client_secret_exposed")),
+        "raw_access_token_exposed": bool(dict(google_oauth.get("privacy") or {}).get("raw_access_token_exposed")),
+        "raw_refresh_token_exposed": bool(dict(google_oauth.get("privacy") or {}).get("raw_refresh_token_exposed")),
+        "raw_error_description_exposed": bool(
+            dict(google_oauth.get("privacy") or {}).get("raw_error_description_exposed")
+        ),
+        "next_action": str(
+            dict(google_oauth.get("operator_action") or {}).get("next_action")
+            or "add_google_oauth_test_user_and_retry_full_workspace_auth"
         ).strip(),
     }
 
@@ -1309,6 +1374,8 @@ def build_goal_posture(
     for lens in lenses:
         if lens["key"] == "detect" and _is_blocking(_status(tg_business)):
             blocking_reasons.append(f"detect:telegram_business_signal={_status(tg_business)}")
+        if lens["key"] == "detect" and google_oauth and _is_blocking(_status(google_oauth)):
+            blocking_reasons.append(f"detect:google_workspace_oauth={_status(google_oauth)}")
         if lens["key"] == "deliver":
             for component in lens["components"]:
                 component_status = _compact(component.get("status")).lower()
@@ -1499,6 +1566,64 @@ def build_goal_posture(
                     _source_receipt(
                         tg_business_path,
                         tg_business,
+                        current_source_head=current_source_head,
+                        current_source_fingerprint=current_source_fingerprint,
+                    )
+                ],
+            )
+        )
+    if any(reason.startswith("detect:google_workspace_oauth") for reason in blocking_reasons):
+        google_oauth_action = dict(google_oauth.get("operator_action") or {})
+        acceptance_proof_requirements.append(
+            _acceptance_proof_requirement(
+                key="google_workspace_oauth_setup",
+                title="Google Workspace OAuth test-user setup",
+                lens="detect",
+                required_next_receipt=GOOGLE_WORKSPACE_OAUTH_SETUP_RECEIPT,
+                evidence_kind="google_workspace_oauth_test_user_setup",
+                capture_surfaces=[google_oauth_path],
+                next_action="add_google_oauth_test_user_and_retry_full_workspace_auth",
+                claim_boundary="does_not_prove_google_workspace_signal_ingest_until_full_workspace_oauth_can_complete_for_the_requested_account",
+                action_context={
+                    "user_action_required": bool(google_oauth_action.get("user_action_required")),
+                    "instruction": str(google_oauth_action.get("instruction") or "").strip(),
+                    "missing_setup": [
+                        str(item).strip()
+                        for item in list(google_oauth_action.get("missing_setup") or [])
+                        if str(item).strip()
+                    ],
+                    "setup_checklist": [
+                        dict(item)
+                        for item in list(google_oauth_action.get("setup_checklist") or [])
+                        if isinstance(item, dict)
+                    ],
+                    "telegram_message": str(google_oauth_action.get("telegram_message") or "").strip(),
+                    "console_deep_link": str(google_oauth_action.get("console_deep_link") or "").strip(),
+                    "auth_link_template": str(google_oauth_action.get("auth_link_template") or "").strip(),
+                    "scope_bundle": str(google_oauth_action.get("scope_bundle") or "").strip(),
+                    "expected_google_email_present": bool(google_oauth_action.get("expected_google_email_present")),
+                    "expected_google_email_sha256": str(
+                        google_oauth_action.get("expected_google_email_sha256") or ""
+                    ).strip(),
+                    "expected_google_domain": str(google_oauth_action.get("expected_google_domain") or "").strip(),
+                    "raw_expected_google_email_exposed": bool(
+                        google_oauth_action.get("raw_expected_google_email_exposed")
+                    ),
+                    "raw_client_id_exposed": bool(google_oauth_action.get("raw_client_id_exposed")),
+                    "raw_client_secret_exposed": bool(google_oauth_action.get("raw_client_secret_exposed")),
+                    "raw_error_description_exposed": bool(
+                        google_oauth_action.get("raw_error_description_exposed")
+                    ),
+                    "raw_chat_ids_exposed": False,
+                    "raw_token_exposed": bool(google_oauth_action.get("raw_token_exposed")),
+                    "raw_secret_exposed": bool(google_oauth_action.get("raw_secret_exposed")),
+                    "raw_voice_ids_exposed": False,
+                    "callback_tokens_exposed": False,
+                },
+                source_receipts=[
+                    _source_receipt(
+                        google_oauth_path,
+                        google_oauth,
                         current_source_head=current_source_head,
                         current_source_fingerprint=current_source_fingerprint,
                     )
