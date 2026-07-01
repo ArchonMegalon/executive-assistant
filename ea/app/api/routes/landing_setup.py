@@ -176,8 +176,10 @@ def _google_oauth_denial_detail(
         else " Add the selected Google account under Google Auth Platform > Audience > Test users, "
         "or publish/verify the OAuth app, then retry the Full Workspace link."
     )
+    google_detail = f" Google said: {detail}." if detail else ""
     return (
         f"Google denied OAuth access{account_detail}. "
+        f"{google_detail} "
         "If the consent screen says the app is still being tested, add this account as a Google OAuth test user "
         f"for myexternalbrain.com or publish the OAuth app after Google verification, then retry the Full Workspace link."
         f"{project_detail}{action_detail}"

@@ -13872,6 +13872,41 @@ def test_workspace_sign_in_email_links_fall_back_to_google_gmail_when_emailit_is
     assert sessions[0]["default_target"] == "/app/settings/access"
 
 
+def test_google_connect_email_link_carries_expected_google_account(monkeypatch) -> None:
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Work Gmail Office")
+    product = ProductService(client.app.state.container)
+    monkeypatch.setattr(product_service, "email_delivery_enabled", lambda: True)
+    captured: dict[str, object] = {}
+
+    def _fake_send_google_connect_email(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(provider="emailit", message_id="emailit-google-connect-1")
+
+    monkeypatch.setattr(product_service, "send_google_connect_email", _fake_send_google_connect_email)
+
+    result = product.send_google_connect_email_link(
+        principal_id=principal_id,
+        recipient_email="work.tibor.girschele@gmail.com",
+        scope_bundle="full_workspace",
+        base_url="https://myexternalbrain.com",
+    )
+
+    connect_url = str(captured["connect_url"])
+    outer = urllib.parse.urlparse(connect_url)
+    assert outer.scheme == "https"
+    assert outer.netloc == "myexternalbrain.com"
+    return_to = urllib.parse.parse_qs(outer.query)["return_to"][0]
+    inner = urllib.parse.urlparse(return_to)
+    inner_query = urllib.parse.parse_qs(inner.query)
+    assert inner.path == "/app/actions/google/connect"
+    assert inner_query["scope_bundle"] == ["full_workspace"]
+    assert inner_query["expected_google_email"] == ["work.tibor.girschele@gmail.com"]
+    assert result["recipient_email"] == "work.tibor.girschele@gmail.com"
+    assert result["scope_bundle"] == "full_workspace"
+
+
 def test_memo_digest_delivery_refreshes_stale_google_signals_before_issue(monkeypatch) -> None:
     principal_id = "exec-product-memo-refresh"
     client = build_product_client(principal_id=principal_id)

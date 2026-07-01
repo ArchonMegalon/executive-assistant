@@ -32146,6 +32146,7 @@ class ProductService:
             {
                 "return_to": "/app/settings/google",
                 "scope_bundle": normalized_bundle,
+                "expected_google_email": normalized_email,
             }
         )
         access_path = (
@@ -32174,6 +32175,7 @@ class ProductService:
                     "recipient_email": normalized_email,
                     "workspace_name": workspace_name,
                     "scope_bundle": normalized_bundle,
+                    "expected_google_email": normalized_email,
                     "error": error_text,
                 },
                 source_id=f"google-connect-email:{normalized_email}:{normalized_bundle}",
@@ -32186,6 +32188,7 @@ class ProductService:
                 "recipient_email": normalized_email,
                 "workspace_name": workspace_name,
                 "scope_bundle": normalized_bundle,
+                "expected_google_email": normalized_email,
                 "provider": receipt.provider,
                 "access_session_id": str(access_session.get("session_id") or "").strip(),
                 "connected_account_total": len(accounts),

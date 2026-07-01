@@ -6387,6 +6387,46 @@ def test_browser_google_callback_renders_error_page_for_google_error_params(monk
     assert "instead of a blank gateway error" in callback.text
 
 
+def test_browser_google_callback_names_test_user_blocker_for_expected_workspace_account(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "google-client")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://ea.example/v1/providers/google/oauth/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "provider-secret-key")
+
+    owner = _client(principal_id="exec-browser-google-test-user-blocked")
+    from app.services import google_oauth as google_service
+
+    started = google_service.build_google_oauth_start(
+        principal_id="exec-browser-google-test-user-blocked",
+        scope_bundle="full_workspace",
+        redirect_uri_override="https://ea.example/google/callback",
+        return_to="/app/settings/google",
+        browser_source="settings_google",
+        expected_google_email="work.tibor.girschele@gmail.com",
+    )
+
+    callback = owner.get(
+        "/google/callback",
+        params={
+            "state": started.state,
+            "error": "access_denied",
+            "error_description": (
+                "myexternalbrain.com has not completed the Google verification process. "
+                "The app is currently being tested, and can only be accessed by developer-approved testers."
+            ),
+        },
+    )
+
+    assert callback.status_code == 400
+    assert "work.tibor.girschele@gmail.com" in callback.text
+    assert "developer-approved testers" in callback.text
+    assert "Google Auth Platform &gt; Audience &gt; Test users" in callback.text
+    assert "retry the Full Workspace link" in callback.text
+
+
 def test_browser_google_callback_renders_failure_page_for_unexpected_callback_error(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "google-client")
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
