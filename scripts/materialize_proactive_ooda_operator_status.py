@@ -1362,6 +1362,7 @@ def build_proactive_ooda_operator_status(
     source_coverage_probe: dict[str, Any] = {}
     principal_id = str(getattr(effective_report_args, "principal_id", "") or proactive_verifier._default_principal_id()).strip()
     live_probe_timeout_seconds = _live_probe_timeout_seconds()
+    effective_live_receipt_path = live_receipt_path if live_receipt_path is not None else _default_live_receipt_path()
     if allow_live_route_probe:
         try:
             route_probe = ea_live_ops.probe_proactive_route(
@@ -1388,9 +1389,14 @@ def build_proactive_ooda_operator_status(
         report = dict(route_probe.get("route_report") or {})
         live_receipt = dict(route_probe.get("live_receipt") or {})
         live_receipt_checked = bool(route_probe.get("live_receipt_checked"))
+        if (
+            live_receipt_checked
+            and effective_live_receipt_path is not None
+            and not str(live_receipt.get("receipt_path") or "").strip()
+        ):
+            live_receipt["receipt_path"] = str(effective_live_receipt_path)
     else:
         report = proactive_verifier._build_report(effective_report_args)
-        effective_live_receipt_path = live_receipt_path if live_receipt_path is not None else _default_live_receipt_path()
         live_receipt_checked = effective_live_receipt_path is not None
         live_receipt = (
             live_receipt_verifier.verify_receipt(effective_live_receipt_path)

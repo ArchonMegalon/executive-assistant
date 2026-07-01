@@ -1,0 +1,221 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from scripts import materialize_operator_action_required_digest as digest
+from scripts import verify_operator_action_required_digest as verify_digest
+
+
+def _patch_source_state(monkeypatch) -> None:
+    monkeypatch.setattr(digest, "resolve_source_state_head", lambda _root: "source-head")
+    monkeypatch.setattr(digest, "resolve_source_worktree_fingerprint", lambda _root: "source-fingerprint")
+
+
+def _action_row(**overrides):
+    row = {
+        "key": "telegram_audiobook_live_delivery",
+        "title": "Telegram audiobook live delivery",
+        "required_next_receipt": "passing Telegram audiobook live delivery receipt",
+        "next_action": "choose_sent_replacement_voice_sample",
+        "next_action_label": "Choose voice sample",
+        "next_action_form_href": "/admin/goals",
+        "next_action_form_label": "Open goal evidence",
+        "next_action_form_method": "get",
+        "user_action_required": True,
+        "instruction": "Choose one sent replacement voice sample in Telegram.",
+        "delivery_policy": "action_required_only",
+        "telegram_push_allowed": True,
+        "interruption_budget": "action_required",
+        "quiet_hours_respected": True,
+        "non_action_progress_push_allowed": False,
+        "irreversible_actions_consent_gated": True,
+        "raw_private_context_exposed": False,
+        "raw_chat_ids_exposed": False,
+        "raw_token_exposed": False,
+        "raw_secret_exposed": False,
+        "raw_voice_ids_exposed": False,
+        "callback_tokens_exposed": False,
+    }
+    row.update(overrides)
+    return row
+
+
+def _write_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_digest_filters_only_action_required_telegram_items(tmp_path, monkeypatch) -> None:
+    _patch_source_state(monkeypatch)
+    input_path = tmp_path / "posture.json"
+    output_path = tmp_path / "digest.json"
+    state_path = tmp_path / "state.json"
+    _write_json(
+        input_path,
+        {
+            "status": "active_with_blockers",
+            "operator_action_queue": [
+                _action_row(),
+                _action_row(
+                    key="whatsapp_audiobook_live_delivery",
+                    instruction="Internal queue-only recovery.",
+                    user_action_required=False,
+                    delivery_policy="queue_only",
+                    telegram_push_allowed=False,
+                    interruption_budget="none",
+                ),
+                _action_row(
+                    key="unsafe_private_item",
+                    instruction="This should be blocked.",
+                    raw_secret_exposed=True,
+                ),
+            ],
+        },
+    )
+
+    receipt = digest.build_operator_action_required_digest(
+        root=tmp_path,
+        input_path=input_path,
+        output_path=output_path,
+        state_path=state_path,
+        generated_at="2026-07-01T12:00:00Z",
+    )
+
+    assert receipt["status"] == "ready_to_send"
+    assert receipt["item_count"] == 1
+    assert receipt["included_action_keys"] == ["telegram_audiobook_live_delivery"]
+    assert "Choose one sent replacement voice sample" in receipt["telegram_text"]
+    assert "Internal queue-only recovery" not in receipt["telegram_text"]
+    assert receipt["counts"]["suppressed_queue_only_count"] == 1
+    assert receipt["counts"]["suppressed_privacy_blocked_count"] == 1
+    assert receipt["privacy"]["raw_secret_exposed"] is False
+    assert receipt["send_attempted"] is False
+    assert output_path.exists()
+    assert verify_digest.verify_receipt(receipt) == []
+
+
+def test_digest_send_updates_state_and_suppresses_duplicate(tmp_path, monkeypatch) -> None:
+    _patch_source_state(monkeypatch)
+    input_path = tmp_path / "posture.json"
+    output_path = tmp_path / "digest.json"
+    state_path = tmp_path / "state.json"
+    _write_json(input_path, {"status": "active_with_blockers", "operator_action_queue": [_action_row()]})
+    calls = []
+
+    def fake_sender(principal_id: str, text: str, dry_run: bool, timeout_seconds: float):
+        calls.append((principal_id, text, dry_run, timeout_seconds))
+        return {"sent": True, "reason": "sent", "message_ids": ["1001"], "message_count": 1}
+
+    first = digest.build_operator_action_required_digest(
+        root=tmp_path,
+        input_path=input_path,
+        output_path=output_path,
+        state_path=state_path,
+        principal_id="principal-1",
+        send=True,
+        generated_at="2026-07-01T12:00:00Z",
+        telegram_sender=fake_sender,
+    )
+    second = digest.build_operator_action_required_digest(
+        root=tmp_path,
+        input_path=input_path,
+        output_path=output_path,
+        state_path=state_path,
+        principal_id="principal-1",
+        send=True,
+        generated_at="2026-07-01T12:01:00Z",
+        telegram_sender=fake_sender,
+    )
+
+    assert first["status"] == "sent"
+    assert first["state_updated"] is True
+    assert second["status"] == "suppressed_duplicate"
+    assert second["dedupe_suppressed"] is True
+    assert len(calls) == 1
+    saved_state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert saved_state["last_digest_sha256"] == first["digest_sha256"]
+    assert "principal-1" not in state_path.read_text(encoding="utf-8")
+    assert verify_digest.verify_receipt(first) == []
+    assert verify_digest.verify_receipt(second) == []
+
+
+def test_digest_dry_run_checks_sender_without_persisting_state(tmp_path, monkeypatch) -> None:
+    _patch_source_state(monkeypatch)
+    input_path = tmp_path / "posture.json"
+    output_path = tmp_path / "digest.json"
+    state_path = tmp_path / "state.json"
+    _write_json(input_path, {"status": "active_with_blockers", "operator_action_queue": [_action_row()]})
+
+    def fake_sender(_principal_id: str, _text: str, dry_run: bool, _timeout_seconds: float):
+        assert dry_run is True
+        return {"sent": False, "reason": "dry_run", "ready": True, "message_count": 0}
+
+    receipt = digest.build_operator_action_required_digest(
+        root=tmp_path,
+        input_path=input_path,
+        output_path=output_path,
+        state_path=state_path,
+        send=True,
+        dry_run=True,
+        generated_at="2026-07-01T12:00:00Z",
+        telegram_sender=fake_sender,
+    )
+
+    assert receipt["status"] == "ready_to_send"
+    assert receipt["notification_status"] == "dry_run_ready"
+    assert receipt["send_attempted"] is True
+    assert receipt["state_updated"] is False
+    assert not state_path.exists()
+    assert verify_digest.verify_receipt(receipt) == []
+
+
+def test_digest_verifier_blocks_private_exposure() -> None:
+    receipt = {
+        "contract_name": "ea.operator_action_required_digest.v1",
+        "status": "ready_to_send",
+        "delivery_policy": "action_required_only",
+        "non_action_progress_push_allowed": False,
+        "quiet_hours_respected": True,
+        "irreversible_actions_consent_gated": True,
+        "item_count": 1,
+        "included_action_keys": ["leaky"],
+        "items": [
+            {
+                "key": "leaky",
+                "instruction": "Act on this.",
+                "delivery_policy": "action_required_only",
+                "telegram_push_allowed": True,
+                "interruption_budget": "action_required",
+                "quiet_hours_respected": True,
+                "non_action_progress_push_allowed": False,
+                "irreversible_actions_consent_gated": True,
+                "raw_secret_exposed": True,
+            }
+        ],
+        "counts": {"included_count": 1},
+        "privacy": {
+            "raw_private_context_exposed": False,
+            "raw_chat_ids_exposed": False,
+            "raw_token_exposed": False,
+            "raw_secret_exposed": True,
+            "raw_voice_ids_exposed": False,
+            "callback_tokens_exposed": False,
+            "raw_public_share_url_exposed": False,
+            "raw_track_url_exposed": False,
+            "raw_acceptance_text_exposed": False,
+            "raw_actor_identity_exposed": False,
+            "raw_object_reference_exposed": False,
+            "raw_transcript_fields_exposed": False,
+            "candidate_raw_text_fields_exposed": False,
+        },
+        "send_attempted": False,
+        "send_requested": False,
+        "telegram_text": "Action needed for EA:\n1. Act on this.",
+        "source_receipt": {"path": "source.json"},
+    }
+
+    issues = verify_digest.verify_receipt(receipt)
+
+    assert "privacy.raw_secret_exposed must be false" in issues
+    assert "item must not expose raw_secret_exposed: leaky" in issues

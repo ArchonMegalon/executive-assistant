@@ -1471,6 +1471,65 @@ def test_materialize_proactive_ooda_operator_status_uses_live_route_probe_with_e
     assert receipt["source_coverage"]["source"] == "docker_compose_exec"
 
 
+def test_materialize_proactive_ooda_operator_status_fills_missing_live_receipt_path_from_route_probe(
+    tmp_path: Path, monkeypatch
+) -> None:
+    module = _load_script()
+    monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
+    monkeypatch.setattr(module, "_source_fingerprint", lambda path=module.ROOT: "source-fingerprint-123")
+    receipt_path = tmp_path / "state" / "proactive_ooda_latest_run.generated.json"
+    receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    receipt_path.write_text("{}\n", encoding="utf-8")
+
+    def _fake_route_probe(**_kwargs: object) -> dict[str, object]:
+        return {
+            "probe_ok": True,
+            "source": "docker_compose_exec",
+            "runtime_service": "ea-proactive-ooda",
+            "observed_at": "2026-07-01T04:20:00Z",
+            "live_receipt_checked": True,
+            "live_receipt": {
+                "ok": False,
+                "reason": "TimeoutExpired:5s",
+                "errors": [],
+            },
+            "route_report": {
+                "ok": True,
+                "errors": [],
+                "delivery_route": {
+                    "ready": True,
+                    "route_error": "",
+                    "recovery_hint": "",
+                    "next_action": "",
+                    "selected_channel": "telegram",
+                    "selected_transport": "telegram",
+                    "selected_by": "tool_runtime_binding",
+                    "available_channels": ["telegram"],
+                },
+                "delivery_guard": {"delivery_state": "no_actionable_items", "armed_send": True},
+                "stage_packets": {"ready": True, "errors": []},
+                "safe_work_results": {"ready": True, "errors": []},
+                "receipt_observation_count": 3,
+                "actionable_count": 0,
+                "source_mode": "none",
+            },
+        }
+
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_route", _fake_route_probe)
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_source_coverage", _fake_source_coverage_probe)
+
+    output = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
+    receipt = module.build_proactive_ooda_operator_status(
+        output_path=output,
+        generated_at="2026-07-01T04:21:00Z",
+        report_args=Namespace(principal_id="exec-1"),
+        live_receipt_path=receipt_path,
+    )
+
+    assert receipt["live_receipt_checked"] is True
+    assert receipt["live_receipt"]["receipt_path"] == str(receipt_path)
+
+
 def test_materialize_proactive_ooda_operator_status_reports_unarmed_stage_only_posture(
     tmp_path: Path, monkeypatch
 ) -> None:
