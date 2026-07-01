@@ -45,7 +45,7 @@
           "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "c1fde7bd052936ed23a433c89964cec04059d876",
+          "source_git_head": "74f9ca91b6025d3da200104ed099f9bede1e5abb",
           "source_state_fingerprint": "51355e969c7ffa9e0db2870d97ba6de20619f3ebbfdabffa77be050c48e04d6a",
           "status": "ready_real_world_acceptance_evidence"
         },
@@ -199,7 +199,7 @@
           "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "c1fde7bd052936ed23a433c89964cec04059d876",
+          "source_git_head": "74f9ca91b6025d3da200104ed099f9bede1e5abb",
           "source_state_fingerprint": "51355e969c7ffa9e0db2870d97ba6de20619f3ebbfdabffa77be050c48e04d6a",
           "status": "ready_real_world_acceptance_evidence"
         },
@@ -261,7 +261,7 @@
           "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "c1fde7bd052936ed23a433c89964cec04059d876",
+          "source_git_head": "74f9ca91b6025d3da200104ed099f9bede1e5abb",
           "source_state_fingerprint": "51355e969c7ffa9e0db2870d97ba6de20619f3ebbfdabffa77be050c48e04d6a",
           "status": "ready_real_world_acceptance_evidence"
         },
@@ -323,7 +323,7 @@
           "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "c1fde7bd052936ed23a433c89964cec04059d876",
+          "source_git_head": "74f9ca91b6025d3da200104ed099f9bede1e5abb",
           "source_state_fingerprint": "51355e969c7ffa9e0db2870d97ba6de20619f3ebbfdabffa77be050c48e04d6a",
           "status": "ready_real_world_acceptance_evidence"
         },
@@ -556,7 +556,7 @@
           "present": true,
           "source_fresh_to_current_source": true,
           "source_git_head": "c1fde7bd052936ed23a433c89964cec04059d876",
-          "source_state_fingerprint": "d1d090ce304f665de1213c4151629b421f02a90b879e7d7ba1c030a6c43f7574",
+          "source_state_fingerprint": "51355e969c7ffa9e0db2870d97ba6de20619f3ebbfdabffa77be050c48e04d6a",
           "status": "failed"
         }
       ],
@@ -577,7 +577,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-07-01T07:43:11Z",
+  "generated_at": "2026-07-01T07:54:58Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -777,7 +777,7 @@
               "present": true,
               "source_fresh_to_current_source": true,
               "source_git_head": "c1fde7bd052936ed23a433c89964cec04059d876",
-              "source_state_fingerprint": "d1d090ce304f665de1213c4151629b421f02a90b879e7d7ba1c030a6c43f7574",
+              "source_state_fingerprint": "51355e969c7ffa9e0db2870d97ba6de20619f3ebbfdabffa77be050c48e04d6a",
               "status": "failed"
             }
           ],
@@ -1081,7 +1081,7 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "c1fde7bd052936ed23a433c89964cec04059d876",
+  "source_git_head": "74f9ca91b6025d3da200104ed099f9bede1e5abb",
   "source_state_fingerprint": "51355e969c7ffa9e0db2870d97ba6de20619f3ebbfdabffa77be050c48e04d6a",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }
