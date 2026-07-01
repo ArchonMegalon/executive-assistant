@@ -141,6 +141,32 @@ def _render_google_oauth_callback_failure(
     return response
 
 
+def _google_oauth_denial_detail(
+    *,
+    error: str,
+    error_description: str = "",
+    state_payload: dict[str, object] | None = None,
+) -> str:
+    normalized_error = str(error or "").strip()
+    detail = str(error_description or normalized_error or "google_oauth_denied").strip()
+    if normalized_error != "access_denied":
+        return detail
+    payload = dict(state_payload or {})
+    if str(payload.get("oauth_lane") or "").strip() == "google_location_history":
+        return (
+            "Google denied the Data Portability consent. "
+            "Typical causes are: the account is not allowed as an OAuth test user, "
+            "the Data Portability scope is not approved for this client, or the consent was cancelled."
+        )
+    expected_google_email = str(payload.get("expected_google_email") or "").strip().lower()
+    account_detail = f" for {expected_google_email}" if "@" in expected_google_email else ""
+    return (
+        f"Google denied OAuth access{account_detail}. "
+        "If the consent screen says the app is still being tested, add this account as a Google OAuth test user "
+        "for myexternalbrain.com or publish the OAuth app after Google verification, then retry the Full Workspace link."
+    )
+
+
 @router.post("/setup/start")
 async def setup_start(
     request: Request,
@@ -335,17 +361,15 @@ def google_oauth_browser_callback(
     container: AppContainer = Depends(get_container),
 ) -> HTMLResponse | RedirectResponse:
     if str(error or "").strip():
-        detail = str(error_description or error or "google_oauth_denied").strip()
         try:
             state_payload = read_google_oauth_state(state) if str(state or "").strip() else {}
         except Exception:
             state_payload = {}
-        if str(state_payload.get("oauth_lane") or "").strip() == "google_location_history" and str(error or "").strip() == "access_denied":
-            detail = (
-                "Google denied the Data Portability consent. "
-                "Typical causes are: the account is not allowed as an OAuth test user, "
-                "the Data Portability scope is not approved for this client, or the consent was cancelled."
-            )
+        detail = _google_oauth_denial_detail(
+            error=error,
+            error_description=error_description,
+            state_payload=state_payload,
+        )
         return _render_google_oauth_callback_failure(request, detail=detail, status_code=400)
     if not str(code or "").strip() or not str(state or "").strip():
         return _render_google_oauth_callback_failure(

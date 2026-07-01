@@ -548,6 +548,12 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
         expected_surface = EXPECTED_PROOF_ACTION_SURFACES.get(key)
         if key == "proactive_ooda_packet_acceptance" and status == "satisfied":
             expected_surface = ("/app/today", "get")
+        if (
+            key == "telegram_audiobook_live_delivery"
+            and str(requirement.get("next_action") or "").strip()
+            == "send_missing_telegram_audiobook_voice_samples_before_user_choice"
+        ):
+            expected_surface = ("/app/channel-loop", "get")
         if expected_surface:
             expected_href, expected_method = expected_surface
             if expected_href not in next_action_href:
@@ -557,6 +563,12 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
         expected_form_surface = EXPECTED_PROOF_FORM_SURFACES.get(key)
         if key == "proactive_ooda_packet_acceptance" and status == "satisfied":
             expected_form_surface = ("/app/today", "get")
+        if (
+            key == "telegram_audiobook_live_delivery"
+            and str(requirement.get("next_action") or "").strip()
+            == "send_missing_telegram_audiobook_voice_samples_before_user_choice"
+        ):
+            expected_form_surface = ("/app/channel-loop", "get")
         if expected_form_surface:
             expected_form_href, expected_form_method = expected_form_surface
             if expected_form_href not in next_action_form_href:

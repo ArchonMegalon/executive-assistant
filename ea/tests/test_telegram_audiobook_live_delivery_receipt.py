@@ -214,6 +214,110 @@ def test_build_receipt_routes_sent_replacement_voice_sample_to_precise_operator_
     assert receipt["privacy"]["raw_voice_ids_exposed"] is False
 
 
+def test_build_receipt_blocks_user_choice_when_voice_samples_under_delivered(tmp_path: Path) -> None:
+    module = _load_module()
+    receipt = module.build_receipt(
+        output_path=tmp_path / "telegram_live_delivery_under_delivered_voice_samples.json",
+        job_receipts=[
+            _job_receipt(
+                job_id="under-delivered-voice-choice",
+                source_kind="telegram_epub",
+                status="waiting_voice_selection",
+                playback_status="not_recorded",
+                playback_accepted=False,
+                render_voice_selection={
+                    "status": "waiting_user_choice",
+                    "pending_candidate_keys": [
+                        "unmixr_seraphina_express_9827708d",
+                        "unmixr_seraphina_e1f0fdaf",
+                    ],
+                    "pending_batch": [
+                        {
+                            "preset_key": "unmixr_seraphina_express_9827708d",
+                            "label": "Seraphina (Express)",
+                            "voice_id_sha256": hashlib.sha256(b"voice-seraphina-express").hexdigest(),
+                        },
+                        {
+                            "preset_key": "unmixr_seraphina_e1f0fdaf",
+                            "label": "Seraphina",
+                            "voice_id_sha256": hashlib.sha256(b"voice-seraphina").hexdigest(),
+                        },
+                    ],
+                },
+                telegram_voice_sample_delivery_status="sent",
+                telegram_voice_sample_delivery_expected_count=1,
+                telegram_voice_sample_delivery_sent_count=1,
+            )
+        ],
+        generated_at="2026-06-30T00:00:00Z",
+        observation_source="test",
+    )
+
+    assert receipt["status"] == "blocked"
+    assert "voice_sample_delivery_underfilled" in receipt["failed_codes"]
+    assert receipt["next_action"] == "send_missing_telegram_audiobook_voice_samples_before_user_choice"
+    packet = receipt["operator_action_packet"]
+    assert packet["user_action_required"] is False
+    assert packet["operator_action"] == "send_missing_telegram_audiobook_voice_samples_before_user_choice"
+    assert packet["candidate_count"] == 2
+    assert packet["voice_sample_delivery_sent_count"] == 1
+    assert packet["voice_sample_delivery_expected_count"] == 1
+    assert packet["voice_sample_delivery_required_count"] == 2
+    assert packet["voice_sample_delivery_missing_count"] == 1
+    assert packet["raw_voice_ids_exposed"] is False
+    assert packet["callback_tokens_exposed"] is False
+
+
+def test_build_receipt_blocks_replacement_choice_when_voice_samples_under_delivered(tmp_path: Path) -> None:
+    module = _load_module()
+    receipt = module.build_receipt(
+        output_path=tmp_path / "telegram_live_delivery_under_delivered_replacement_samples.json",
+        job_receipts=[
+            _job_receipt(
+                job_id="under-delivered-replacement-choice",
+                source_kind="telegram_epub",
+                status="waiting_voice_selection",
+                playback_status="not_recorded",
+                playback_accepted=False,
+                render_voice_selection={
+                    "status": "waiting_user_choice",
+                    "reason": "voice_sample_generation_failed",
+                    "replacement_candidate_keys": [
+                        "unmixr_hans_33aa",
+                        "unmixr_jurgen_44bb",
+                    ],
+                    "pending_batch": [
+                        {
+                            "preset_key": "unmixr_hans_33aa",
+                            "label": "Hans",
+                            "voice_id_sha256": hashlib.sha256(b"voice-hans").hexdigest(),
+                        },
+                        {
+                            "preset_key": "unmixr_jurgen_44bb",
+                            "label": "Jurgen",
+                            "voice_id_sha256": hashlib.sha256(b"voice-jurgen").hexdigest(),
+                        },
+                    ],
+                },
+                telegram_voice_sample_delivery_status="sent",
+                telegram_voice_sample_delivery_expected_count=1,
+                telegram_voice_sample_delivery_sent_count=1,
+            )
+        ],
+        generated_at="2026-06-30T00:00:00Z",
+        observation_source="test",
+    )
+
+    assert receipt["status"] == "blocked"
+    assert "voice_sample_delivery_underfilled" in receipt["failed_codes"]
+    assert receipt["next_action"] == "send_missing_telegram_audiobook_voice_samples_before_user_choice"
+    packet = receipt["operator_action_packet"]
+    assert packet["user_action_required"] is False
+    assert packet["candidate_count"] == 2
+    assert packet["voice_sample_delivery_sent_count"] == 1
+    assert packet["voice_sample_delivery_required_count"] == 2
+
+
 def test_build_receipt_requires_refresh_for_author_gender_mismatched_sent_samples(tmp_path: Path) -> None:
     module = _load_module()
     receipt = module.build_receipt(

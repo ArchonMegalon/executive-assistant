@@ -1,5 +1,5 @@
 {
-  "can_run_live_epub_delivery_test": false,
+  "can_run_live_epub_delivery_test": true,
   "contract_name": "ea.telegram_audiobook_live_readiness_checklist.v1",
   "delivery": {
     "audiobookshelf_auto_import_enabled": true,
@@ -46,7 +46,7 @@
         ],
         "key": "audiobookshelf_import_root_writable",
         "operator_action": "Create the Audiobookshelf import root and make it writable by EA.",
-        "status": "blocked",
+        "status": "ready",
         "verification_command": "make verify-telegram-audiobook-live-readiness"
       },
       {
@@ -106,40 +106,35 @@
     ],
     "m4b_assembly_available": true,
     "scheduler_resume_enabled": true,
-    "status": "blocked"
+    "status": "ready"
   },
-  "delivery_blockers": [
-    "audiobookshelf_import_root_writable"
-  ],
-  "generated_at": "2026-07-01T07:42:19.559604Z",
+  "delivery_blockers": [],
+  "generated_at": "2026-07-01T08:41:35.479615Z",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
   "live_delivery_claim_allowed": false,
-  "next_action": "Fix Audiobookshelf import/player-link prerequisites and rerun readiness.",
+  "next_action": "run_real_telegram_epub_audiobook_delivery_test",
   "observation_source": "runtime_container",
   "operator_commands": [
     "make verify-telegram-audiobook-live-readiness",
     "make verify-telegram-audiobook-live-delivery-receipt",
     "make verify-active-media-ltd-goal-bundle"
   ],
-  "preflight_failed_checks": [
-    "jobs_root_writable",
-    "audiobookshelf_import_root_writable"
-  ],
-  "preflight_status": "fail",
+  "preflight_failed_checks": [],
+  "preflight_status": "warn",
   "preflight_warned_checks": [
     "player_access_base_url_present",
     "unmixr_bulk_pacing_configured"
   ],
   "privacy": {
     "env_values_exposed": false,
-    "preflight_contract_sha256": "24b5286b201edf704a8a0e572c3d113635b78d8643708bde626b39350b4a5f5c",
+    "preflight_contract_sha256": "88f52b7a7eb28e65bc2481ea23d0764981690f71f9e7eaf789c1854ee03c9b5f",
     "raw_provider_voice_ids_exposed": false,
     "raw_public_share_url_included": false,
     "raw_storage_paths_included": false,
     "raw_telegram_chat_id_included": false
   },
-  "public_share_delivery_prereqs_ready": false,
+  "public_share_delivery_prereqs_ready": true,
   "real_user_playback_acceptance_verified": false,
   "required_live_proof_after_readiness": [
     "real Telegram audiobook source upload",
@@ -152,14 +147,12 @@
     "separate human playback acceptance captured"
   ],
   "runtime_container": "ea-api",
-  "sample_blockers": [
-    "jobs_root_writable"
-  ],
-  "source_git_head": "c1fde7bd052936ed23a433c89964cec04059d876",
-  "source_state_fingerprint": "51355e969c7ffa9e0db2870d97ba6de20619f3ebbfdabffa77be050c48e04d6a",
+  "sample_blockers": [],
+  "source_git_head": "74f9ca91b6025d3da200104ed099f9bede1e5abb",
+  "source_state_fingerprint": "360c9ce17420011126a347026eee16108f300a0c24d39f01109619bf85a19479",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
-  "status": "blocked_live_prerequisites",
-  "voice_sample_prereqs_ready": false,
+  "status": "ready_for_live_epub_delivery_test",
+  "voice_sample_prereqs_ready": true,
   "voice_samples": {
     "api_key_slot_count": 7,
     "items": [
@@ -193,7 +186,7 @@
         ],
         "key": "jobs_root_writable",
         "operator_action": "Create the audiobook job root and make it writable by the EA runtime user.",
-        "status": "blocked",
+        "status": "ready",
         "verification_command": "make verify-telegram-audiobook-live-readiness"
       },
       {
@@ -268,7 +261,7 @@
         "verification_command": "make verify-telegram-audiobook-live-readiness"
       }
     ],
-    "status": "blocked",
+    "status": "ready",
     "voice_audition_min_candidates": 3,
     "voice_catalog_count": 290,
     "voice_discovery_enabled": true,

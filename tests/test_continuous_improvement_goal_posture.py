@@ -1615,6 +1615,134 @@ def test_goal_posture_verifier_accepts_waiting_for_live_epub_component_status(tm
     assert issues == []
 
 
+def test_goal_posture_accepts_internal_telegram_voice_sample_repair(tmp_path: Path, monkeypatch) -> None:
+    _set_source_state(monkeypatch)
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
+        status="ready_local_packet_pending_operator_acceptance",
+        next_action="review packet with operator",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_office_loop_goal.generated.json",
+        status="ready_local_evidence",
+        next_action="collect office-loop acceptance",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/active_media_ltd_goal_bundle.generated.json",
+        status="ready_local_evidence",
+        next_action="collect external media proofs",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
+        status="blocked_realtime_prerequisites",
+        next_action="capture a consented real STT fixture",
+        current_label="Memorial public-origin gold: blocked",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
+        status="blocked_real_world_acceptance",
+        next_action="collect real principal acceptance",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/teable_env_recovery_readiness.generated.json",
+        status="ready_local_audit",
+        next_action="run_shell_seeded_fresh_host_probe_and_mirror_drill_evidence",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/telegram_audiobook_live_readiness.generated.json",
+        status="ready_for_live_epub_delivery_test",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
+        status="blocked",
+        next_action="send_missing_telegram_audiobook_voice_samples_before_user_choice",
+        operator_action_packet={
+            "user_action_required": False,
+            "instruction": "Send the missing Telegram audiobook voice samples before asking the user to choose.",
+            "sent_samples_cover_expected": False,
+            "raw_voice_ids_exposed": False,
+            "callback_tokens_exposed": False,
+        },
+        duplicate_suppression={
+            "action_required_only": True,
+            "only_current_jobs_can_require_user_action": True,
+            "superseded_duplicate_candidate_count": 1,
+            "suppressed_pending_voice_duplicate_count": 1,
+            "active_pending_voice_job_count": 1,
+            "duplicate_active_pending_source_key_count": 0,
+            "duplicate_active_pending_source_keys_sha256": [],
+            "raw_voice_ids_exposed": False,
+            "callback_tokens_exposed": False,
+        },
+        pending_user_selected_voice_jobs=[
+            {
+                "replacement_candidate_count": 2,
+                "replacement_candidate_labels": ["Hans", "Jurgen"],
+                "author_gender_signal": "male",
+                "author_gender_match_count": 2,
+                "author_gender_mismatch_count": 0,
+                "author_gender_matched_candidates_only": True,
+                "voice_sample_delivery_status": "sent",
+                "voice_sample_delivery_sent_count": 1,
+                "voice_sample_delivery_expected_count": 1,
+                "raw_voice_ids_exposed": False,
+                "callback_tokens_exposed": False,
+            }
+        ],
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_local_intake_proof.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_public_share_playback.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_live_voice_selection_shadow.generated.json",
+        status="pass",
+    )
+    _write_proactive_ooda_receipts(tmp_path)
+
+    output = tmp_path / ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"
+    receipt = build_goal_posture(root=tmp_path, output_path=output, generated_at="2026-06-22T15:45:00Z")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+
+    proof_requirements = {item["key"]: item for item in receipt["acceptance_proof_requirements"]}
+    telegram = proof_requirements["telegram_audiobook_live_delivery"]
+    assert telegram["next_action"] == "send_missing_telegram_audiobook_voice_samples_before_user_choice"
+    assert telegram["next_action_href"] == "/app/channel-loop"
+    assert telegram["next_action_form_href"] == "/app/channel-loop"
+    assert telegram["action_context"]["user_action_required"] is False
+    assert telegram["action_context"]["sent_samples_cover_expected"] is False
+    queue_row = next(item for item in receipt["operator_action_queue"] if item["key"] == "telegram_audiobook_live_delivery")
+    assert queue_row["user_action_required"] is False
+    assert queue_row["telegram_push_allowed"] is False
+    assert verify(output) == []
+
+
 def test_goal_posture_models_failed_whatsapp_playback_as_queue_only_repair(tmp_path: Path, monkeypatch) -> None:
     _set_source_state(monkeypatch)
     _write_receipt(

@@ -97,6 +97,11 @@ TELEGRAM_ACTION_SURFACES = {
         CHANNEL_LOOP_LABEL,
         ACTION_METHOD,
     ),
+    "send_missing_telegram_audiobook_voice_samples_before_user_choice": (
+        CHANNEL_LOOP_PATH,
+        CHANNEL_LOOP_LABEL,
+        ACTION_METHOD,
+    ),
 }
 
 
@@ -587,18 +592,31 @@ def _pending_voice_samples_sent(row: dict[str, object]) -> bool:
     sent = int(row.get("voice_sample_delivery_sent_count") or 0)
     status = str(row.get("voice_sample_delivery_status") or "").strip()
     candidate_count = int(row.get("voice_choice_candidate_count") or row.get("replacement_candidate_count") or 0)
-    required = expected or candidate_count
+    required = max(expected, candidate_count)
     return status == "sent" and required > 0 and sent >= required
+
+
+def _pending_voice_samples_required(row: dict[str, object]) -> bool:
+    expected = int(row.get("voice_sample_delivery_expected_count") or 0)
+    candidate_count = int(row.get("voice_choice_candidate_count") or row.get("replacement_candidate_count") or 0)
+    return max(expected, candidate_count) > 0
 
 
 def _next_action(*, failed_codes: list[str], pending: list[dict[str, object]]) -> str:
     if any(row.get("author_gender_mismatched_voice_samples_pending") for row in pending):
         return "refresh_author_gender_matched_voice_samples_before_user_choice"
     if any(row.get("replacement_choice_pending") for row in pending):
+        replacement_rows = [row for row in pending if row.get("replacement_choice_pending")]
+        if any(_pending_voice_samples_required(row) for row in replacement_rows) and not all(
+            _pending_voice_samples_sent(row) for row in replacement_rows if _pending_voice_samples_required(row)
+        ):
+            return "send_missing_telegram_audiobook_voice_samples_before_user_choice"
         if any(_pending_voice_samples_sent(row) for row in pending):
             return "choose_sent_replacement_voice_sample"
         return "choose_explicit_replacement_voice_or_restore_selected_provider"
     if any(row.get("voice_choice_pending") for row in pending):
+        if not all(_pending_voice_samples_sent(row) for row in pending if row.get("voice_choice_pending")):
+            return "send_missing_telegram_audiobook_voice_samples_before_user_choice"
         return "choose_one_telegram_audiobook_voice_sample"
     if (
         "job_not_audiobookshelf_imported" in failed_codes
@@ -663,6 +681,28 @@ def _operator_action_packet(
             "raw_voice_ids_exposed": False,
             "callback_tokens_exposed": False,
         }
+    if next_action == "send_missing_telegram_audiobook_voice_samples_before_user_choice":
+        candidate_count = int(first.get("replacement_candidate_count") or first.get("voice_choice_candidate_count") or 0)
+        sent_count = int(first.get("voice_sample_delivery_sent_count") or 0)
+        expected_count = int(first.get("voice_sample_delivery_expected_count") or 0)
+        required_count = max(candidate_count, expected_count)
+        return {
+            "user_action_required": False,
+            "reason": "voice_sample_delivery_underfilled",
+            "operator_action": next_action,
+            "instruction": "Send the missing Telegram audiobook voice samples before asking the user to choose.",
+            "candidate_count": candidate_count,
+            "voice_sample_delivery_status": str(first.get("voice_sample_delivery_status") or "").strip(),
+            "voice_sample_delivery_sent_count": sent_count,
+            "voice_sample_delivery_expected_count": expected_count,
+            "voice_sample_delivery_required_count": required_count,
+            "voice_sample_delivery_missing_count": max(required_count - sent_count, 0),
+            "next_action_href": CHANNEL_LOOP_PATH,
+            "next_action_label": CHANNEL_LOOP_LABEL,
+            "next_action_method": ACTION_METHOD,
+            "raw_voice_ids_exposed": False,
+            "callback_tokens_exposed": False,
+        }
     labels = [
         str(item).strip()
         for item in list(first.get("replacement_candidate_labels") or first.get("voice_choice_candidate_labels") or [])
@@ -688,7 +728,10 @@ def _operator_action_packet(
         "voice_sample_delivery_status": delivery_status,
         "voice_sample_delivery_sent_count": sent_count,
         "voice_sample_delivery_expected_count": expected_count,
-        "sent_samples_cover_expected": bool(delivery_status == "sent" and expected_count > 0 and sent_count >= expected_count),
+        "voice_sample_delivery_required_count": max(expected_count, candidate_count),
+        "sent_samples_cover_expected": bool(
+            delivery_status == "sent" and max(expected_count, candidate_count) > 0 and sent_count >= max(expected_count, candidate_count)
+        ),
         "next_action_href": TELEGRAM_INTEGRATION_PATH,
         "next_action_label": TELEGRAM_INTEGRATION_LABEL,
         "next_action_method": ACTION_METHOD,
@@ -736,6 +779,8 @@ def build_receipt(
         failed_codes.append("explicit_replacement_voice_choice_pending")
     if any(row.get("author_gender_mismatched_voice_samples_pending") for row in pending):
         failed_codes.append("author_gender_mismatched_voice_samples_pending")
+    if any(_pending_voice_samples_required(row) and not _pending_voice_samples_sent(row) for row in pending):
+        failed_codes.append("voice_sample_delivery_underfilled")
     failed_codes = _dedupe(failed_codes)
     live_pass = bool(valid_candidates) and not pending
     real_user_accepted = bool(selected.get("playback_acceptance_verified")) if selected else False

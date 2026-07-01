@@ -1,6 +1,6 @@
 {
-  "blocking_reason": "valid_live_audiobook_delivery_missing, job_not_audiobookshelf_imported, m4b_output_file_not_ready, m4b_chapter_metadata_not_embedded, audiobookshelf_import_not_imported, audiobookshelf_target_file_not_ready, player_scoped_reference_not_ready, audiobookshelf_public_share_not_ready, audiobookshelf_public_share_url_missing, telegram_public_share_delivery_not_sent, telegram_public_share_message_id_missing, machine_playback_e2e_not_verified, audiobook_voice_choice_pending, user_selected_voice_delivery_not_ready",
-  "candidate_count": 4,
+  "blocking_reason": "valid_live_audiobook_delivery_missing, job_not_audiobookshelf_imported, m4b_output_file_not_ready, m4b_chapter_metadata_not_embedded, audiobookshelf_import_not_imported, audiobookshelf_target_file_not_ready, player_scoped_reference_not_ready, audiobookshelf_public_share_not_ready, audiobookshelf_public_share_url_missing, telegram_public_share_delivery_not_sent, telegram_public_share_message_id_missing, machine_playback_e2e_not_verified, audiobook_voice_choice_pending, user_selected_voice_delivery_not_ready, explicit_replacement_voice_choice_pending, voice_sample_delivery_underfilled",
+  "candidate_count": 2,
   "claim": "Telegram EPUB audiobook delivery has live proof only when a sanitized job receipt shows the M4B is ready, Audiobookshelf imported and public-shared it, and Telegram sent the public share link.",
   "contract_name": "ea.telegram_audiobook_live_delivery_receipt.v1",
   "duplicate_suppression": {
@@ -11,23 +11,12 @@
     "duplicate_active_pending_source_keys_sha256": [],
     "only_current_jobs_can_require_user_action": true,
     "raw_voice_ids_exposed": false,
-    "superseded_duplicate_candidate_count": 3,
+    "superseded_duplicate_candidate_count": 1,
     "suppressed_pending_voice_duplicate_count": 1,
     "suppressed_voice_candidate_labels": []
   },
-  "failed_candidate_count": 4,
+  "failed_candidate_count": 2,
   "failed_candidates": [
-    {
-      "failed_codes": [
-        "job_not_audiobookshelf_imported"
-      ],
-      "job_id_sha256": "fe1ae63672b07afd42ae5c3a13e4a7867ef66441ffd28bccc310cb0792cb1865",
-      "public_share_status": "public_share_ready",
-      "status": "superseded_duplicate",
-      "telegram_delivery_status": "sent",
-      "title_present": true,
-      "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4"
-    },
     {
       "failed_codes": [
         "job_not_audiobookshelf_imported",
@@ -51,30 +40,9 @@
     },
     {
       "failed_codes": [
-        "job_not_audiobookshelf_imported",
-        "m4b_output_file_not_ready",
-        "m4b_chapter_metadata_not_embedded",
-        "audiobookshelf_import_not_imported",
-        "audiobookshelf_target_file_not_ready",
-        "player_scoped_reference_not_ready",
-        "audiobookshelf_public_share_not_ready",
-        "audiobookshelf_public_share_url_missing",
-        "telegram_public_share_delivery_not_sent",
-        "telegram_public_share_message_id_missing",
-        "machine_playback_e2e_not_verified"
-      ],
-      "job_id_sha256": "56cf6b3ca755045ca0f0d2fd2d94e4997b47fcb52666b03580b9659076953df4",
-      "public_share_status": "",
-      "status": "superseded_duplicate",
-      "telegram_delivery_status": "",
-      "title_present": true,
-      "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4"
-    },
-    {
-      "failed_codes": [
         "job_not_audiobookshelf_imported"
       ],
-      "job_id_sha256": "d63d9e9045275ceb66e3707244363eec583b6c9c126e4471aecd68212603f014",
+      "job_id_sha256": "fe1ae63672b07afd42ae5c3a13e4a7867ef66441ffd28bccc310cb0792cb1865",
       "public_share_status": "public_share_ready",
       "status": "superseded_duplicate",
       "telegram_delivery_status": "sent",
@@ -96,43 +64,42 @@
     "telegram_public_share_message_id_missing",
     "machine_playback_e2e_not_verified",
     "audiobook_voice_choice_pending",
-    "user_selected_voice_delivery_not_ready"
+    "user_selected_voice_delivery_not_ready",
+    "explicit_replacement_voice_choice_pending",
+    "voice_sample_delivery_underfilled"
   ],
-  "generated_at": "2026-07-01T07:42:25.548680Z",
+  "generated_at": "2026-07-01T08:41:36.806558Z",
   "generated_by": "ea/scripts/materialize_telegram_audiobook_live_delivery_receipt.py",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
-  "ignored_non_telegram_audiobook_candidate_count": 9,
+  "ignored_non_telegram_audiobook_candidate_count": 8,
   "ignored_non_telegram_audiobook_source_kinds": [
     "epub",
     "origin_dossier_story"
   ],
-  "limit": 100,
+  "limit": 10,
   "live_delivery_claim_allowed": false,
   "load_errors": [],
   "machine_playback_e2e_verified": false,
-  "next_action": "choose_one_telegram_audiobook_voice_sample",
-  "next_action_href": "/integrations/telegram",
-  "next_action_label": "Open Telegram",
+  "next_action": "send_missing_telegram_audiobook_voice_samples_before_user_choice",
+  "next_action_href": "/app/channel-loop",
+  "next_action_label": "Open channel loop",
   "next_action_method": "get",
   "observation_source": "job_discovery_roots",
   "operator_action_packet": {
     "callback_tokens_exposed": false,
     "candidate_count": 2,
-    "candidate_labels": [
-      "Seraphina (Express)",
-      "Seraphina"
-    ],
-    "instruction": "Choose one Telegram audiobook voice sample.",
-    "next_action_href": "/integrations/telegram",
-    "next_action_label": "Open Telegram",
+    "instruction": "Send the missing Telegram audiobook voice samples before asking the user to choose.",
+    "next_action_href": "/app/channel-loop",
+    "next_action_label": "Open channel loop",
     "next_action_method": "get",
-    "operator_action": "choose_one_telegram_audiobook_voice_sample",
+    "operator_action": "send_missing_telegram_audiobook_voice_samples_before_user_choice",
     "raw_voice_ids_exposed": false,
-    "reason": "choose_one_telegram_audiobook_voice_sample",
-    "sent_samples_cover_expected": true,
-    "user_action_required": true,
+    "reason": "voice_sample_delivery_underfilled",
+    "user_action_required": false,
     "voice_sample_delivery_expected_count": 1,
+    "voice_sample_delivery_missing_count": 1,
+    "voice_sample_delivery_required_count": 2,
     "voice_sample_delivery_sent_count": 1,
     "voice_sample_delivery_status": "sent"
   },
@@ -140,11 +107,11 @@
   "pending_user_selected_voice_job_count": 1,
   "pending_user_selected_voice_jobs": [
     {
-      "author_gender_match_count": 0,
-      "author_gender_matched_candidates_only": false,
+      "author_gender_match_count": 2,
+      "author_gender_matched_candidates_only": true,
       "author_gender_mismatch_count": 0,
       "author_gender_mismatched_voice_samples_pending": false,
-      "author_gender_signal": "",
+      "author_gender_signal": "male",
       "callback_tokens_exposed": false,
       "external_tts_blocker_code": "provider_tts_blocked",
       "external_tts_blocker_reason_sha256": "75ce9b224fa9e0f2fcbe1c1741f51fe664093558516e09b479f72912f1429f2f",
@@ -155,9 +122,12 @@
       "render_segment_count": 0,
       "render_segment_index": 0,
       "render_status": "",
-      "replacement_candidate_count": 0,
-      "replacement_candidate_labels": [],
-      "replacement_choice_pending": false,
+      "replacement_candidate_count": 2,
+      "replacement_candidate_labels": [
+        "Hans",
+        "Jurgen"
+      ],
+      "replacement_choice_pending": true,
       "scheduler_retry_after": "",
       "selected_label_sha256": "",
       "selected_voice_id_sha256": "",
@@ -165,15 +135,15 @@
       "status": "waiting_voice_selection",
       "voice_choice_candidate_count": 2,
       "voice_choice_candidate_labels": [
-        "Seraphina (Express)",
-        "Seraphina"
+        "Hans",
+        "Jurgen"
       ],
       "voice_choice_pending": true,
       "voice_sample_delivery_expected_count": 1,
       "voice_sample_delivery_failed_count": 0,
       "voice_sample_delivery_sent_count": 1,
       "voice_sample_delivery_status": "sent",
-      "voice_selection_reason": "",
+      "voice_selection_reason": "voice_sample_generation_failed",
       "voice_selection_status": "waiting_user_choice",
       "voice_selection_waiting": true
     }
@@ -229,7 +199,7 @@
     "public_share_host": "",
     "public_share_status": "",
     "public_share_url_present": false,
-    "replacement_choice_pending": false,
+    "replacement_choice_pending": true,
     "source_kind": "epub",
     "status": "waiting_voice_selection",
     "telegram_chat_bound": true,
@@ -243,8 +213,8 @@
     "voice_selected_default": true
   },
   "source_filter": "telegram_epub_audiobook_sources",
-  "source_git_head": "c1fde7bd052936ed23a433c89964cec04059d876",
-  "source_state_fingerprint": "51355e969c7ffa9e0db2870d97ba6de20619f3ebbfdabffa77be050c48e04d6a",
+  "source_git_head": "74f9ca91b6025d3da200104ed099f9bede1e5abb",
+  "source_state_fingerprint": "360c9ce17420011126a347026eee16108f300a0c24d39f01109619bf85a19479",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "blocked"
 }

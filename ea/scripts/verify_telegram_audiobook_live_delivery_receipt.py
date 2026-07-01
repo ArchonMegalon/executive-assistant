@@ -161,9 +161,22 @@ def verify(path: Path = DEFAULT_OUTPUT) -> list[str]:
             issues.append("blocked status must carry failed_codes")
         if next_action == "close_operator_loop":
             issues.append("blocked status cannot close the operator loop")
-        if "audiobook_voice_choice_pending" in failed_codes or "explicit_replacement_voice_choice_pending" in failed_codes:
+        user_choice_actions = {
+            "choose_one_telegram_audiobook_voice_sample",
+            "choose_explicit_replacement_voice_or_restore_selected_provider",
+            "choose_sent_replacement_voice_sample",
+        }
+        if (
+            "audiobook_voice_choice_pending" in failed_codes
+            or "explicit_replacement_voice_choice_pending" in failed_codes
+        ) and next_action in user_choice_actions:
             if operator_action_packet.get("user_action_required") is not True:
                 issues.append("voice-choice blocked status must set operator_action_packet.user_action_required=true")
+        if next_action == "send_missing_telegram_audiobook_voice_samples_before_user_choice":
+            if operator_action_packet.get("user_action_required") is not False:
+                issues.append("under-delivered voice samples must remain an internal operator action")
+            if "voice_sample_delivery_underfilled" not in failed_codes:
+                issues.append("under-delivered voice sample action must include voice_sample_delivery_underfilled")
 
     return issues
 

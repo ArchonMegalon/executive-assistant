@@ -134,9 +134,19 @@ ACTION_SURFACES = {
         "label": "Open Telegram",
         "method": "get",
     },
+    "choose_explicit_replacement_voice_or_restore_selected_provider": {
+        "href": "/integrations/telegram",
+        "label": "Open Telegram",
+        "method": "get",
+    },
     "choose_one_telegram_audiobook_voice_sample": {
         "href": "/integrations/telegram",
         "label": "Open Telegram",
+        "method": "get",
+    },
+    "send_missing_telegram_audiobook_voice_samples_before_user_choice": {
+        "href": "/app/channel-loop",
+        "label": "Open channel loop",
         "method": "get",
     },
     "capture_passing_telegram_audiobook_live_delivery_receipt": {
