@@ -93,6 +93,8 @@ def test_materialize_whatsapp_web_action_processor_readiness_writes_ready_receip
     assert receipt["status"] == "ready"
     assert receipt["head_semantics"] == "source_state"
     assert receipt["source_git_head"]
+    assert receipt["source_state_fingerprint"]
+    assert receipt["source_state_fingerprint_semantics"] == "worktree_source_files_sha256_excluding_generated_only_paths"
     assert receipt["ready"] is True
     assert receipt["runtime_ready_claim_allowed"] is True
     assert receipt["live_delivery_claim_allowed"] is False
@@ -134,6 +136,7 @@ def test_materialize_whatsapp_web_action_processor_readiness_maps_blocked_runtim
     assert receipt["status"] == "blocked"
     assert receipt["head_semantics"] == "source_state"
     assert receipt["source_git_head"]
+    assert receipt["source_state_fingerprint"]
     assert receipt["ready"] is False
     assert receipt["reason"] == "callback_secret_missing"
     assert receipt["next_action"] == "seed_whatsapp_callback_secret_and_rerun_readiness"

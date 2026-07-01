@@ -14,7 +14,7 @@
   },
   "contract_name": "ea.manfred_realtime_conversation_readiness.v1",
   "current_label": "Memorial public-origin gold: blocked",
-  "generated_at": "2026-07-01T14:11:40Z",
+  "generated_at": "2026-07-01T14:35:56Z",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
   "interaction_acceptance": {
@@ -54,8 +54,8 @@
     ],
     "status": "ready"
   },
-  "source_git_head": "9a64c8a8f7b515a995e4b167d96a68aceeef56d8",
-  "source_state_fingerprint": "1d50c4fab88549edebf56fec03a7773b5308ad6c9c957ea6d832d4da13489227",
+  "source_git_head": "280213e194e12a71031cecc3ef027dbc1c1b0373",
+  "source_state_fingerprint": "7ee7a8f4384a474083ee728e0100f19d8189616e5e0f528176a72d0727c726a1",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "blocked_realtime_prerequisites",
   "stt": {

@@ -20,8 +20,10 @@ if str(ROOT / "scripts") not in sys.path:
 
 try:
     from scripts.source_state_head import resolve_source_state_head
+    from scripts.source_state_head import resolve_source_worktree_fingerprint
 except ModuleNotFoundError:  # pragma: no cover - script execution path
     from source_state_head import resolve_source_state_head
+    from source_state_head import resolve_source_worktree_fingerprint
 
 CHECK_SCRIPT = ROOT / "scripts" / "check_whatsapp_web_action_processor_readiness.py"
 DEFAULT_OUTPUT = ROOT / ".codex-studio" / "published" / "whatsapp_web_action_processor_readiness.generated.json"
@@ -36,6 +38,10 @@ def _utc_now() -> str:
 
 def _git_head(path: Path = ROOT) -> str:
     return resolve_source_state_head(path)
+
+
+def _source_fingerprint(path: Path = ROOT) -> str:
+    return resolve_source_worktree_fingerprint(path)
 
 
 def _docker_container_checks_available() -> bool:
@@ -174,6 +180,8 @@ def build_whatsapp_web_action_processor_readiness(
         "generated_by": "scripts/materialize_whatsapp_web_action_processor_readiness.py",
         "source_git_head": _git_head(ROOT),
         "head_semantics": "source_state",
+        "source_state_fingerprint": _source_fingerprint(ROOT),
+        "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
         "output_path": resolved_output_path.as_posix(),
         "canonical_output_path": DEFAULT_OUTPUT.as_posix(),
         "status": "ready" if ready else "blocked",

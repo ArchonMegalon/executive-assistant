@@ -62,14 +62,14 @@
     "audiobook_runtime_not_ready"
   ],
   "fresh_live_job_receipt_proven": false,
-  "generated_at": "2026-07-01T14:16:50.271397Z",
+  "generated_at": "2026-07-01T14:50:24.498489Z",
   "generated_by": "ea/scripts/materialize_whatsapp_audiobook_live_delivery_receipt.py",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
   "historical_evidence": {
     "historical_live_path_proven": false,
     "local_intake": {
-      "generated_at": "2026-07-01T14:14:29.962437Z",
+      "generated_at": "2026-07-01T14:50:27.500463Z",
       "local_path_proven": true,
       "receipt_present": true,
       "share_link_sent": 1,
@@ -77,7 +77,7 @@
       "voice_sample_sent": 3
     },
     "operator_bundle": {
-      "generated_at": "2026-07-01T14:14:29.152686Z",
+      "generated_at": "2026-07-01T14:42:30.122009Z",
       "live_delivery_claim_allowed": false,
       "live_delivery_status": "blocked",
       "live_path_proven": false,
@@ -89,7 +89,7 @@
     "present": true,
     "public_share_playback": {
       "attempted": 0,
-      "generated_at": "2026-07-01T13:44:11.773670Z",
+      "generated_at": "2026-07-01T14:38:56.644323Z",
       "passed": 0,
       "passed_result_count": 0,
       "playback_path_proven": false,
@@ -231,8 +231,8 @@
     "whatsapp_sender_bound": true,
     "whatsapp_session_bound": true
   },
-  "source_git_head": "9a64c8a8f7b515a995e4b167d96a68aceeef56d8",
-  "source_state_fingerprint": "1d50c4fab88549edebf56fec03a7773b5308ad6c9c957ea6d832d4da13489227",
+  "source_git_head": "280213e194e12a71031cecc3ef027dbc1c1b0373",
+  "source_state_fingerprint": "7ee7a8f4384a474083ee728e0100f19d8189616e5e0f528176a72d0727c726a1",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "stage_summary": {
     "counts": {
