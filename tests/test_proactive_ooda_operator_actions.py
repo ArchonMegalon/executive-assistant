@@ -45,6 +45,36 @@ def test_proactive_next_action_surface_maps_pocket_transcript_sync() -> None:
     }
 
 
+def test_proactive_next_action_surface_maps_google_workspace_sync() -> None:
+    surface = proactive_next_action_surface("reauthorize_or_sync_google_workspace_sources")
+
+    assert surface == {
+        "href": "https://myexternalbrain.com/app/actions/signals/google/sync?return_to=%2Fapp%2Fsettings%2Fgoogle",
+        "label": "Sync Google workspace",
+        "method": "get",
+    }
+
+
+def test_proactive_next_action_surface_maps_source_coverage_probe_to_goals() -> None:
+    surface = proactive_next_action_surface("probe_proactive_source_coverage")
+
+    assert surface == {
+        "href": "https://myexternalbrain.com/admin/goals",
+        "label": "Open goals",
+        "method": "get",
+    }
+
+
+def test_proactive_next_action_surface_maps_context_grounding_repair_to_today() -> None:
+    surface = proactive_next_action_surface("repair_proactive_context_grounding")
+
+    assert surface == {
+        "href": "https://myexternalbrain.com/app/today",
+        "label": "Open Today",
+        "method": "get",
+    }
+
+
 def test_proactive_next_action_surface_maps_safe_work_audit_repair() -> None:
     surface = proactive_next_action_surface("repair_proactive_safe_work_audit")
 

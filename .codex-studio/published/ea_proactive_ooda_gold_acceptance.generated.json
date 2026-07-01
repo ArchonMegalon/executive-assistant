@@ -106,11 +106,11 @@
     },
     "operator_status": {
       "contract_name": "ea.proactive_ooda_operator_status.v1",
-      "generated_at": "2026-07-01T18:55:56Z",
+      "generated_at": "2026-07-01T19:22:39Z",
       "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
       "present": true,
-      "source_git_head": "4cf42d54abcf669920a230dd198431a0cac94354",
-      "source_state_fingerprint": "48bb605becd292a4ce85c34a5359df90bf1d57ad3231d77bd49b1bf00b65aadc",
+      "source_git_head": "cbeca5c461c2f50b575665f985ed86c5fafe223b",
+      "source_state_fingerprint": "6856018a295e1f08c10063a9d274d127f1c16615dd474ea91c493458c25103b5",
       "status": "ready_with_live_receipt"
     },
     "run_receipt": {
@@ -133,15 +133,15 @@
       "source": "local_filesystem"
     }
   },
-  "generated_at": "2026-07-01T18:55:58Z",
+  "generated_at": "2026-07-01T19:22:43Z",
   "generated_by": "scripts/materialize_proactive_ooda_gold_acceptance.py",
   "goal_completion_claim_allowed": false,
   "gold_claim_allowed": false,
   "head_semantics": "source_state",
   "next_action": "verify_postgres_observation_source",
-  "next_action_href": "",
-  "next_action_label": "",
-  "next_action_method": "",
+  "next_action_href": "https://myexternalbrain.com/admin/goals",
+  "next_action_label": "Open goals",
+  "next_action_method": "get",
   "output_path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
   "proofs": {
     "action_required_only_delivery": {
@@ -301,9 +301,9 @@
       "current_artifact_filter_recorded": true,
       "current_artifact_filter_requires_recovery": false,
       "next_action": "",
-      "next_action_href": "",
-      "next_action_label": "",
-      "next_action_method": "",
+      "next_action_href": "https://myexternalbrain.com/admin/goals",
+      "next_action_label": "Open goals",
+      "next_action_method": "get",
       "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
       "present": false,
       "reason": "ready",
@@ -424,8 +424,8 @@
     "Raw packet text, private links, actor identity, packet refs, and staged artifact refs must stay out of this published receipt; only hashes and coarse status may appear.",
     "Teable remains an admin projection and audit mirror rather than canonical queue or product truth."
   ],
-  "source_git_head": "4cf42d54abcf669920a230dd198431a0cac94354",
-  "source_state_fingerprint": "48bb605becd292a4ce85c34a5359df90bf1d57ad3231d77bd49b1bf00b65aadc",
+  "source_git_head": "cbeca5c461c2f50b575665f985ed86c5fafe223b",
+  "source_state_fingerprint": "6856018a295e1f08c10063a9d274d127f1c16615dd474ea91c493458c25103b5",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "blocked_operator_runtime_posture",
   "summary": "The proactive OODA packet proofs exist, but operator runtime posture is blocked and gold cannot be claimed until approved source health is restored.",

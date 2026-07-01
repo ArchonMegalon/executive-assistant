@@ -21,6 +21,9 @@ def _base_payload() -> dict[str, object]:
         "status": "ready_for_approval_outcome_capture",
         "summary": "A proactive OODA packet has local gold-proof runtime evidence; capture the redacted approval outcome next.",
         "next_action": "record_proactive_ooda_approval_outcome",
+        "next_action_href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
+        "next_action_label": "Open approval capture",
+        "next_action_method": "get",
         "goal_completion_claim_allowed": False,
         "gold_claim_allowed": False,
         "proofs": {
@@ -391,6 +394,9 @@ def test_proactive_ooda_gold_acceptance_verifier_accepts_blocked_operator_runtim
     payload["status"] = "blocked_operator_runtime_posture"
     payload["summary"] = "The proactive OODA packet proofs exist, but operator runtime posture is blocked and gold cannot be claimed until approved source health is restored."
     payload["next_action"] = "reauthorize_google_workspace_binding"
+    payload["next_action_href"] = ""
+    payload["next_action_label"] = ""
+    payload["next_action_method"] = ""
     payload["proofs"]["operator_runtime_posture"] = {
         "present": False,
         "status": "blocked",
@@ -429,6 +435,9 @@ def test_proactive_ooda_gold_acceptance_verifier_accepts_low_quality_packet_bloc
     payload["status"] = "blocked_low_quality_packet_evidence"
     payload["summary"] = "The proactive OODA mechanics have evidence, but the selected packet is not assistant-grade enough to prove production readiness."
     payload["next_action"] = "stage_fresh_assistant_grade_proactive_packet"
+    payload["next_action_href"] = "https://myexternalbrain.com/app/queue"
+    payload["next_action_label"] = "Open queue"
+    payload["next_action_method"] = "get"
     payload["proofs"]["assistant_grade_packet_quality"] = {
         "present": False,
         "status": "blocked",
@@ -454,6 +463,9 @@ def test_proactive_ooda_gold_acceptance_verifier_requires_reauth_surface_for_goo
     payload["status"] = "blocked_operator_runtime_posture"
     payload["summary"] = "The proactive OODA packet proofs exist, but operator runtime posture is blocked and gold cannot be claimed until approved source health is restored."
     payload["next_action"] = "reauthorize_google_workspace_binding"
+    payload["next_action_href"] = ""
+    payload["next_action_label"] = ""
+    payload["next_action_method"] = ""
     payload["proofs"]["operator_runtime_posture"] = {
         "present": False,
         "status": "blocked",
@@ -477,3 +489,44 @@ def test_proactive_ooda_gold_acceptance_verifier_requires_reauth_surface_for_goo
     assert "reauthorize_google_workspace_binding requires next_action_label" in issues
     assert "reauthorize_google_workspace_binding requires next_action_method=get" in issues
     assert "operator_runtime_posture reauthorize_google_workspace_binding requires next_action_href" in issues
+
+
+def test_proactive_ooda_gold_acceptance_verifier_requires_source_coverage_surface_for_runtime_blocker(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json"
+    payload = _base_payload()
+    payload["status"] = "blocked_operator_runtime_posture"
+    payload["summary"] = "The proactive OODA packet proofs exist, but operator runtime posture is blocked and gold cannot be claimed until approved source health is restored."
+    payload["next_action"] = "verify_postgres_observation_source"
+    payload["proofs"]["operator_runtime_posture"] = {
+        "present": False,
+        "status": "ready_with_live_receipt",
+        "reason": "ready",
+        "source_coverage_ready": False,
+        "source_coverage_checked": True,
+        "source_coverage_status": "ready_with_gaps",
+        "source_coverage_missing_lane_keys": ["postgres_observations"],
+        "next_action": "verify_postgres_observation_source",
+        "next_action_href": "",
+        "next_action_label": "",
+        "next_action_method": "",
+    }
+    payload["next_action_href"] = ""
+    payload["next_action_label"] = ""
+    payload["next_action_method"] = ""
+    payload["evidence_receipts"] = {}
+    payload["remaining_external_proofs"] = [
+        "healthy operator runtime posture across approved proactive sources",
+        "redacted explicit approval outcome for the proactive OODA packet",
+    ]
+    _write_receipt(receipt, **payload)
+    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
+
+    issues = verifier.verify(receipt, root=tmp_path)
+
+    assert "verify_postgres_observation_source requires next_action_href" in issues
+    assert "verify_postgres_observation_source requires next_action_label" in issues
+    assert "verify_postgres_observation_source requires next_action_method=get" in issues
+    assert "operator_runtime_posture verify_postgres_observation_source requires next_action_href" in issues

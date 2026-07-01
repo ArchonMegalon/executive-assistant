@@ -1020,6 +1020,87 @@ def test_materialize_proactive_ooda_gold_acceptance_blocks_when_operator_safe_wo
     assert operator_runtime["safe_work_audit_issue_codes"] == ["top_candidate_not_provider_like"]
 
 
+def test_materialize_proactive_ooda_gold_acceptance_blocks_when_source_coverage_needs_postgres_recovery(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    module = _load_script()
+    monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
+
+    operator_status_path = tmp_path / "ea_proactive_ooda_operator_status.generated.json"
+    run_receipt_path = tmp_path / "state" / "proactive_ooda_latest_run.generated.json"
+    _write_json(
+        operator_status_path,
+        {
+            "contract_name": "ea.proactive_ooda_operator_status.v1",
+            "status": "ready_with_live_receipt",
+            "reason": "ready",
+            "generated_at": "2026-07-01T12:00:00Z",
+            "source_git_head": "source-head-123",
+            "delivery_route_ready": True,
+            "live_receipt_checked": True,
+            "delivery_route": {"selected_channel": "telegram"},
+            "live_receipt": {"ok": True, "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json"},
+            "delivery_guard": {"delivery_state": "no_actionable_items"},
+            "source_coverage": {
+                "checked": True,
+                "status": "ready_with_gaps",
+                "lane_count": 2,
+                "observed_lane_count": 1,
+                "missing_lane_keys": ["postgres_observations"],
+                "lanes": [
+                    {
+                        "key": "postgres_observations",
+                        "observed": False,
+                        "next_action": "verify_postgres_observation_source",
+                        "missing_required_event_types": [],
+                    },
+                    {
+                        "key": "google_workspace",
+                        "observed": True,
+                        "missing_required_event_types": [],
+                    },
+                ],
+            },
+            "context_grounding": {
+                "grounded": True,
+                "item_count": 1,
+                "grounded_item_count": 1,
+                "ungrounded_item_count": 0,
+                "applied_context_count": 1,
+                "recipient_location_count": 1,
+            },
+            "safe_work_audit": {
+                "present": False,
+                "delivery_allowed": False,
+                "blocks_operator_followthrough": False,
+                "issue_codes": [],
+            },
+            "runtime_actionable_count": 0,
+        },
+    )
+    _write_json(run_receipt_path, {"notification_status": "deferred", "item_count": 0})
+
+    output = tmp_path / ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json"
+    receipt = module.materialize_proactive_ooda_gold_acceptance(
+        output_path=output,
+        operator_status_path=operator_status_path,
+        run_receipt_path=run_receipt_path,
+        generated_at="2026-07-01T12:01:00Z",
+    )
+
+    assert receipt["status"] == "blocked_operator_runtime_posture"
+    assert receipt["next_action"] == "verify_postgres_observation_source"
+    assert receipt["next_action_href"] == "https://myexternalbrain.com/admin/goals"
+    assert receipt["next_action_label"] == "Open goals"
+    assert receipt["next_action_method"] == "get"
+    operator_runtime = receipt["proofs"]["operator_runtime_posture"]
+    assert operator_runtime["present"] is False
+    assert operator_runtime["source_coverage_ready"] is False
+    assert operator_runtime["source_coverage_missing_lane_keys"] == ["postgres_observations"]
+    assert operator_runtime["next_action_href"] == "https://myexternalbrain.com/admin/goals"
+
+
 def test_materialize_proactive_ooda_gold_acceptance_blocks_when_suppressed_projection_needs_repair(
     tmp_path: Path,
     monkeypatch,

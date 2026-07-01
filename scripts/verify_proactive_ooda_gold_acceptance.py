@@ -3,8 +3,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any, Mapping
+
+ROOT = Path(__file__).resolve().parents[1]
+EA_ROOT = ROOT / "ea"
+for candidate in (str(ROOT), str(EA_ROOT)):
+    if candidate not in sys.path:
+        sys.path.insert(0, candidate)
+
+from app.services.proactive_ooda_operator_actions import proactive_next_action_surface
 
 try:
     from scripts.source_state_head import resolve_source_state_head
@@ -13,8 +22,6 @@ except ModuleNotFoundError:  # pragma: no cover - script execution path
     from source_state_head import resolve_source_state_head
     from source_state_head import resolve_source_worktree_fingerprint
 
-
-ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RECEIPT = ROOT / ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json"
 EXPECTED_RULES = {
     "This receipt proves proactive OODA gold only when routed delivery, assistant-grade source intent, live browse evidence, a chosen candidate, a staged reversible artifact, mirrored Teable projection, and a redacted approval outcome are all present.",
@@ -45,10 +52,35 @@ EXPECTED_PROOF_KEYS = {
     "approval_outcome",
 }
 
+EXPECTED_NEXT_ACTION_SURFACE_TARGETS = {
+    "collect_live_browse_backed_safe_work_result": "Queue",
+    "improve_proactive_packet_quality_and_collect_a_new_acceptance_outcome": "Queue",
+    "inspect_teable_projection": "Goals",
+    "maintain_proactive_ooda_gold_acceptance_evidence": "Goals",
+    "persist_one_reversible_staged_artifact": "Queue",
+    "probe_proactive_source_coverage": "Goals",
+    "prove_proactive_delivery_only_notifies_for_user_action": "Goals",
+    "reauthorize_google_workspace_binding": "the Google connect action",
+    "reauthorize_or_sync_google_workspace_sources": "the Google sync action",
+    "repair_proactive_browser_action_handoff_contract": "Queue",
+    "repair_proactive_context_grounding": "Today",
+    "repair_proactive_operator_runtime_posture": "Goals",
+    "repair_proactive_safe_work_audit": "Queue",
+    "send_or_mirror_one_real_proactive_packet_with_routed_delivery_proof": "Goals",
+    "stage_fresh_assistant_grade_proactive_packet": "Queue",
+    "stage_one_chosen_candidate_for_user_decision": "Queue",
+    "sync_calendar_and_renewal_sources": "the Google sync action",
+    "verify_postgres_observation_source": "Goals",
+}
+
 
 def _verify_next_action_surface(payload: Mapping[str, Any], issues: list[str], *, prefix: str = "") -> None:
     next_action = str(payload.get("next_action") or "").strip()
-    if next_action not in {"reauthorize_google_workspace_binding", "repair_proactive_safe_work_audit"}:
+    expected = proactive_next_action_surface(next_action)
+    expected_href = str(expected.get("href") or "").strip()
+    expected_label = str(expected.get("label") or "").strip()
+    expected_method = str(expected.get("method") or "").strip().lower()
+    if not expected_href:
         return
     href = str(payload.get("next_action_href") or "").strip()
     label = str(payload.get("next_action_label") or "").strip()
@@ -56,14 +88,15 @@ def _verify_next_action_surface(payload: Mapping[str, Any], issues: list[str], *
     context = f"{prefix} " if prefix else ""
     if not href:
         issues.append(f"{context}{next_action} requires next_action_href")
-    elif next_action == "reauthorize_google_workspace_binding" and "/app/actions/google/connect?" not in href:
-        issues.append(f"{context}reauthorize_google_workspace_binding next_action_href must target the Google connect action")
-    elif next_action == "repair_proactive_safe_work_audit" and "/app/queue" not in href:
-        issues.append(f"{context}repair_proactive_safe_work_audit next_action_href must target Queue")
+    elif href != expected_href:
+        target = EXPECTED_NEXT_ACTION_SURFACE_TARGETS.get(next_action, expected_label or "the mapped action surface")
+        issues.append(f"{context}{next_action} next_action_href must target {target}")
     if not label:
         issues.append(f"{context}{next_action} requires next_action_label")
-    if method != "get":
-        issues.append(f"{context}{next_action} requires next_action_method=get")
+    elif label != expected_label:
+        issues.append(f"{context}{next_action} next_action_label drifted")
+    if method != expected_method:
+        issues.append(f"{context}{next_action} requires next_action_method={expected_method}")
 
 
 def _load_json(path: Path) -> dict[str, Any]:
