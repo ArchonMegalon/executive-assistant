@@ -172,7 +172,7 @@
       "approvals",
       "operator"
     ],
-    "proactive_followthrough_status": "blocked_operator_runtime_posture"
+    "proactive_followthrough_status": "blocked_missing_proactive_packet_evidence"
   },
   "evidence_receipts": {
     "executive_assistant_acceptance_evidence": {
@@ -187,25 +187,25 @@
       "approval_outcome_accepted": false,
       "approval_outcome_recorded": false,
       "contract_name": "ea.proactive_ooda_gold_acceptance.v1",
-      "next_action": "repair_proactive_safe_work_audit",
-      "next_action_href": "https://myexternalbrain.com/app/queue",
-      "next_action_label": "Review safe work",
-      "next_action_method": "get",
+      "next_action": "send_or_mirror_one_real_proactive_packet_with_routed_delivery_proof",
+      "next_action_href": "",
+      "next_action_label": "",
+      "next_action_method": "",
       "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
       "present": true,
-      "status": "blocked_operator_runtime_posture",
-      "summary": "The proactive OODA packet proofs exist, but operator runtime posture is blocked and gold cannot be claimed until approved source health is restored."
+      "status": "blocked_missing_proactive_packet_evidence",
+      "summary": "Proactive OODA gold proof is still blocked because one or more packet-evidence links are missing."
     },
     "proactive_ooda_operator_status": {
       "contract_name": "ea.proactive_ooda_operator_status.v1",
-      "next_action": "repair_proactive_safe_work_audit",
-      "next_action_href": "https://myexternalbrain.com/app/queue",
-      "next_action_label": "Review safe work",
+      "next_action": "maintain_proactive_ooda_runtime",
+      "next_action_href": "https://myexternalbrain.com/app/today",
+      "next_action_label": "Open Today",
       "next_action_method": "get",
       "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
       "present": true,
-      "status": "blocked_local_runtime",
-      "summary": "Proactive OODA filtered the current packet before follow-through because it is not decision-ready."
+      "status": "ready_with_live_receipt",
+      "summary": "Proactive OODA route, packet runtime, and latest host-visible live receipt are ready for operator follow-through."
     },
     "whole_project_scope_gap_audit": {
       "contract_name": "ea.whole_project_scope_gap_audit.v1",
@@ -230,28 +230,28 @@
     }
   },
   "external_provider_runtime_verified": false,
-  "generated_at": "2026-07-01T04:04:00Z",
+  "generated_at": "2026-07-01T04:10:45Z",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
   "live_daily_use_verified": false,
-  "next_action": "repair_proactive_safe_work_audit",
-  "next_action_href": "https://myexternalbrain.com/app/queue",
-  "next_action_label": "Review safe work",
-  "next_action_method": "get",
+  "next_action": "send_or_mirror_one_real_proactive_packet_with_routed_delivery_proof",
+  "next_action_href": "",
+  "next_action_label": "",
+  "next_action_method": "",
   "proactive_ooda_followthrough_posture": {
     "approval_capture_surface_ready": false,
     "approval_outcome_accepted": false,
     "approval_outcome_recorded": false,
     "closed_loop_followthrough_receipt_verified": false,
-    "gold_acceptance_status": "blocked_operator_runtime_posture",
-    "next_action": "repair_proactive_safe_work_audit",
-    "next_action_href": "https://myexternalbrain.com/app/queue",
-    "next_action_label": "Review safe work",
-    "next_action_method": "get",
-    "operator_runtime_status": "blocked_local_runtime",
+    "gold_acceptance_status": "blocked_missing_proactive_packet_evidence",
+    "next_action": "send_or_mirror_one_real_proactive_packet_with_routed_delivery_proof",
+    "next_action_href": "",
+    "next_action_label": "",
+    "next_action_method": "",
+    "operator_runtime_status": "ready_with_live_receipt",
     "real_weekly_operator_review_accepted": false,
-    "status": "blocked_operator_runtime_posture",
-    "summary": "The proactive OODA packet proofs exist, but operator runtime posture is blocked and gold cannot be claimed until approved source health is restored."
+    "status": "blocked_missing_proactive_packet_evidence",
+    "summary": "Proactive OODA gold proof is still blocked because one or more packet-evidence links are missing."
   },
   "real_operator_acceptance_verified": false,
   "remaining_external_proofs": [
@@ -287,8 +287,8 @@
   "seeded_fixture": {
     "raw_private_context_exposed": false
   },
-  "source_git_head": "e9260adc0699c24009208d02e79e041186da1d73",
-  "source_state_fingerprint": "5868aafb7617d4bccf4e603f4bbd08ad2f272cbcbcd58f671198e98333fda174",
+  "source_git_head": "a8ba38b0dc0d2bf125e243da015096ffb8d7f525",
+  "source_state_fingerprint": "d78294d890630ecf5c49af8b80e2b111ca064ae1855e097951fe3750ca6fc69c",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready_local_evidence"
 }

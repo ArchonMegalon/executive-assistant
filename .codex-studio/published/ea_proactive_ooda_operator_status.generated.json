@@ -103,11 +103,12 @@
   },
   "contract_name": "ea.proactive_ooda_operator_status.v1",
   "current_artifact_filter": {
-    "blocking_reason": "filtered_current_artifact_single_official_info_link_not_decision_ready",
+    "blocking_reason": "",
+    "filter_status": "suppressed_non_material",
     "issue_codes": [
       "single_official_info_link_not_decision_ready"
     ],
-    "next_action": "repair_proactive_safe_work_audit",
+    "next_action": "",
     "present": true,
     "privacy": {
       "raw_candidate_exposed": false,
@@ -116,7 +117,7 @@
       "raw_private_link_exposed": false
     },
     "reason": "single_official_info_link_not_decision_ready",
-    "requires_recovery": true,
+    "requires_recovery": false,
     "source": "docker_compose_exec"
   },
   "delivery_guard": {
@@ -158,7 +159,7 @@
   },
   "delivery_route_error": "",
   "delivery_route_ready": true,
-  "generated_at": "2026-07-01T04:03:59Z",
+  "generated_at": "2026-07-01T04:10:43Z",
   "generated_by": "scripts/materialize_proactive_ooda_operator_status.py",
   "gmail_draft_followthrough": {
     "action": "",
@@ -174,7 +175,7 @@
     "next_action_href": "https://myexternalbrain.com/app/queue",
     "next_action_label": "Open queue",
     "next_action_method": "get",
-    "observed_at": "2026-07-01T04:03:54Z",
+    "observed_at": "2026-07-01T04:10:34Z",
     "raw_execution_payload_exposed": false,
     "recipient_email_hash_present": false,
     "source": "docker_compose_exec",
@@ -208,18 +209,18 @@
     "telegram_message_count": 0
   },
   "live_receipt_checked": true,
-  "next_action": "repair_proactive_safe_work_audit",
-  "next_action_href": "https://myexternalbrain.com/app/queue",
-  "next_action_label": "Review safe work",
+  "next_action": "maintain_proactive_ooda_runtime",
+  "next_action_href": "https://myexternalbrain.com/app/today",
+  "next_action_label": "Open Today",
   "next_action_method": "get",
-  "operator_action_state": "recovery_required",
+  "operator_action_state": "clear",
   "output_path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
-  "reason": "filtered_current_artifact_single_official_info_link_not_decision_ready",
+  "reason": "ready",
   "receipt_observation_count": 661,
   "remaining_external_proofs": [
     "real proactive OODA packet accepted with routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome"
   ],
-  "route_probe_observed_at": "2026-07-01T04:03:51Z",
+  "route_probe_observed_at": "2026-07-01T04:10:28Z",
   "route_probe_runtime_service": "ea-proactive-ooda",
   "route_probe_source": "docker_compose_exec",
   "route_ready_claim_allowed": true,
@@ -238,6 +239,7 @@
     "blocks_operator_followthrough": false,
     "browser_handoff_user_action_required": false,
     "delivery_allowed": false,
+    "filtered_non_material": false,
     "issue_codes": [],
     "issue_count": 0,
     "issue_severity_counts": {},
@@ -266,7 +268,7 @@
   "source_coverage": {
     "checked": true,
     "excluded_event_type_counts": {
-      "property_scout_sync_completed": 38
+      "property_scout_sync_completed": 39
     },
     "excluded_event_types": [
       "property_scout_sync_completed"
@@ -287,14 +289,14 @@
         ],
         "key": "postgres_observations",
         "label": "Postgres observations",
-        "latest_observed_at": "2026-07-01T05:59:22.142274+02:00",
+        "latest_observed_at": "2026-07-01T06:07:16.027841+02:00",
         "missing_required_event_types": [],
         "next_action": "",
         "observed": true,
         "raw_credential_exposed": false,
         "raw_payload_exposed": false,
         "raw_transcript_text_exposed": false,
-        "record_count": 362,
+        "record_count": 361,
         "required_event_type_observed": true,
         "required_event_types": [],
         "status": "observed"
@@ -312,14 +314,14 @@
         ],
         "key": "google_workspace",
         "label": "Google workspace",
-        "latest_observed_at": "2026-07-01T05:51:10.509349+02:00",
+        "latest_observed_at": "2026-07-01T06:07:16.027841+02:00",
         "missing_required_event_types": [],
         "next_action": "",
         "observed": true,
         "raw_credential_exposed": false,
         "raw_payload_exposed": false,
         "raw_transcript_text_exposed": false,
-        "record_count": 226,
+        "record_count": 229,
         "required_event_type_observed": true,
         "required_event_types": [],
         "status": "observed"
@@ -343,7 +345,7 @@
         "raw_credential_exposed": false,
         "raw_payload_exposed": false,
         "raw_transcript_text_exposed": false,
-        "record_count": 34,
+        "record_count": 29,
         "required_event_type_observed": true,
         "required_event_types": [
           "pocket_recording_archive_indexed"
@@ -359,14 +361,14 @@
         ],
         "key": "calendar_and_renewal_signals",
         "label": "Calendar and renewal signals",
-        "latest_observed_at": "2026-07-01T05:51:10.509349+02:00",
+        "latest_observed_at": "2026-07-01T06:07:16.027841+02:00",
         "missing_required_event_types": [],
         "next_action": "",
         "observed": true,
         "raw_credential_exposed": false,
         "raw_payload_exposed": false,
         "raw_transcript_text_exposed": false,
-        "record_count": 82,
+        "record_count": 83,
         "required_event_type_observed": true,
         "required_event_types": [],
         "status": "observed"
@@ -406,14 +408,14 @@
         ],
         "key": "shopping_and_vendor_signals",
         "label": "Shopping and vendor signals",
-        "latest_observed_at": "2026-07-01T05:51:10.201173+02:00",
+        "latest_observed_at": "2026-07-01T06:07:15.831516+02:00",
         "missing_required_event_types": [],
         "next_action": "",
         "observed": true,
         "raw_credential_exposed": false,
         "raw_payload_exposed": false,
         "raw_transcript_text_exposed": false,
-        "record_count": 162,
+        "record_count": 164,
         "required_event_type_observed": true,
         "required_event_types": [],
         "status": "observed"
@@ -427,14 +429,14 @@
         ],
         "key": "commitment_and_deadline_signals",
         "label": "Commitment and deadline signals",
-        "latest_observed_at": "2026-07-01T05:51:10.201173+02:00",
+        "latest_observed_at": "2026-07-01T06:07:15.831516+02:00",
         "missing_required_event_types": [],
         "next_action": "",
         "observed": true,
         "raw_credential_exposed": false,
         "raw_payload_exposed": false,
         "raw_transcript_text_exposed": false,
-        "record_count": 126,
+        "record_count": 123,
         "required_event_type_observed": true,
         "required_event_types": [],
         "status": "observed"
@@ -450,14 +452,14 @@
         ],
         "key": "durable_profile_and_location_context",
         "label": "Durable profile and location context",
-        "latest_observed_at": "2026-07-01T05:51:10.201173+02:00",
+        "latest_observed_at": "2026-07-01T06:07:15.831516+02:00",
         "missing_required_event_types": [],
         "next_action": "",
         "observed": true,
         "raw_credential_exposed": false,
         "raw_payload_exposed": false,
         "raw_transcript_text_exposed": false,
-        "record_count": 89,
+        "record_count": 90,
         "required_event_type_observed": true,
         "required_event_types": [],
         "status": "observed"
@@ -466,8 +468,8 @@
     "missing_lane_keys": [],
     "observation_limit": 400,
     "observation_repository": "PostgresObservationEventRepository",
-    "observation_row_count": 362,
-    "observed_at": "2026-07-01T04:03:57Z",
+    "observation_row_count": 361,
+    "observed_at": "2026-07-01T04:10:42Z",
     "observed_lane_count": 8,
     "privacy": {
       "raw_credential_exposed": false,
@@ -479,9 +481,9 @@
     "source": "docker_compose_exec",
     "status": "ready"
   },
-  "source_git_head": "e9260adc0699c24009208d02e79e041186da1d73",
+  "source_git_head": "a8ba38b0dc0d2bf125e243da015096ffb8d7f525",
   "source_mode": "none",
-  "source_state_fingerprint": "5868aafb7617d4bccf4e603f4bbd08ad2f272cbcbcd58f671198e98333fda174",
+  "source_state_fingerprint": "d78294d890630ecf5c49af8b80e2b111ca064ae1855e097951fe3750ca6fc69c",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "stage_packets": {
     "enabled": true,
@@ -494,8 +496,8 @@
     "required": true,
     "safe_work_order_count": 0
   },
-  "status": "blocked_local_runtime",
-  "summary": "Proactive OODA filtered the current packet before follow-through because it is not decision-ready.",
+  "status": "ready_with_live_receipt",
+  "summary": "Proactive OODA route, packet runtime, and latest host-visible live receipt are ready for operator follow-through.",
   "suppressed_projection": {
     "blocking_reason": "",
     "error_code": "",
