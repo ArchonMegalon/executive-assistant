@@ -28,7 +28,7 @@
   },
   "claim": "This bundle combines local WhatsApp EPUB intake proof, live WhatsApp action processor readiness, and the live WhatsApp audiobook delivery receipt. It separates implementation proof from live delivery proof.",
   "contract_name": "ea.whatsapp_audiobook_operator_proof_bundle.v1",
-  "generated_at": "2026-07-01T15:36:50.519643Z",
+  "generated_at": "2026-07-01T15:55:33.950588Z",
   "generated_by": "ea/scripts/materialize_whatsapp_audiobook_operator_proof_bundle.py",
   "head_semantics": "source_state",
   "live_delivery": {
@@ -40,7 +40,8 @@
       "audiobookshelf_public_share_url_missing",
       "machine_playback_e2e_not_verified",
       "job_not_audiobookshelf_imported",
-      "user_selected_voice_delivery_not_ready"
+      "user_selected_voice_delivery_not_ready",
+      "audiobook_runtime_not_ready"
     ],
     "fresh_live_job_receipt_proven": false,
     "goal_completion_claim_allowed": false,
@@ -216,7 +217,7 @@
     "delivery_stage_next_action": "run_public_share_machine_playback_e2e_before_claiming_live_delivery",
     "next_action": "choose_whatsapp_audiobook_voice_sample",
     "player_http_probe": {
-      "download_bytes": 27082,
+      "download_bytes": 27774,
       "download_content_type": "audio/mp4",
       "download_status_code": 200,
       "metadata_status_code": 200,
@@ -273,8 +274,8 @@
     "state_file_kinds_match": true,
     "state_file_match": true
   },
-  "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
-  "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
+  "source_git_head": "8d7efd63a4f03e191b38d28e455c6732881b2359",
+  "source_state_fingerprint": "04acbe431d3ca087c1def5c2ba6be38f1ee63630dee9496f57a5b60e06808ad2",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "blocked",
   "warnings": []

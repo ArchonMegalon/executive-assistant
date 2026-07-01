@@ -24,7 +24,7 @@
     "pushbullet_note_delivery_ready": false
   },
   "docs_url": "https://docs.pushbullet.com/",
-  "generated_at": "2026-07-01T15:37:33Z",
+  "generated_at": "2026-07-01T15:56:41Z",
   "generated_by": "scripts/materialize_pushbullet_delivery_readiness.py",
   "head_semantics": "source_state",
   "live_probes": [],
@@ -67,8 +67,8 @@
   "required_client_keys": [
     "elisabeth"
   ],
-  "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
-  "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
+  "source_git_head": "8d7efd63a4f03e191b38d28e455c6732881b2359",
+  "source_state_fingerprint": "04acbe431d3ca087c1def5c2ba6be38f1ee63630dee9496f57a5b60e06808ad2",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "blocked_setup_required"
 }

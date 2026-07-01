@@ -150,7 +150,7 @@
       }
     }
   },
-  "generated_at": "2026-07-01T15:35:55Z",
+  "generated_at": "2026-07-01T15:54:32Z",
   "goal_completion_claim_allowed": false,
   "goal_scope": [
     "telegram_epub_audiobook_voice_quality",
@@ -201,7 +201,7 @@
         "bytes": 10638,
         "exists": true,
         "path": ".codex-studio/published/telegram_audiobook_live_readiness.generated.json",
-        "sha256": "a6dc79c77d53ce3ceb76f601796465bb6ce4b84302ddce2128b09e2e2d4745b2"
+        "sha256": "baa20073f2c54e77f6c238def7a7cf58fea6a6fa818ffe3d057a31451eedcd3a"
       },
       "status": "pass"
     },
@@ -275,7 +275,7 @@
         "bytes": 2502,
         "exists": true,
         "path": ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
-        "sha256": "e00ef0bed7475f44c21fc48b3b4d9b493a95472cb705df4cbdc214c8a24993e1"
+        "sha256": "fa1cd3cceb1a42f287654943d9d858aaf9e8eb2c7b37ba71d7632e3617eff35b"
       },
       "status": "pass"
     },
