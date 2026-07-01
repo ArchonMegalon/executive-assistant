@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.weekly_product_pulse",
   "contract_version": 1,
-  "generated_at": "2026-06-30T16:56:53Z",
-  "as_of": "2026-06-30",
+  "generated_at": "2026-07-01T06:41:00Z",
+  "as_of": "2026-07-01",
   "scorecard_source": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml",
   "release_truth_source": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
   "release_truth_provenance": {
@@ -10,10 +10,10 @@
     "resolved_path": "/docker/EA/.codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
     "present": true,
     "size_bytes": 6769,
-    "mtime_utc": "2026-06-30T16:56:53Z",
-    "sha256": "22c9404ac460f56196682687d09da54fae8135c4f6f5fa8ef5bda4be35b74a7e",
+    "mtime_utc": "2026-07-01T06:40:59Z",
+    "sha256": "be2fbbe35f4145698ddc3dfb22cfce51059091a78f2490cfdcee785f10ecad00",
     "git_repo_root": "/docker/EA",
-    "git_head": "a9d1f39eb95b9bfbb90bfa56c499af715391eedb",
+    "git_head": "f22ce04097367c208b7094f7423b8278f23767e4",
     "git_branch": "main",
     "repo_relative_path": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
   },
@@ -23,10 +23,10 @@
     "resolved_path": "/docker/EA/.codex-studio/published/release_manifest.generated.json",
     "present": true,
     "size_bytes": 4826,
-    "mtime_utc": "2026-06-30T16:56:41Z",
-    "sha256": "98abd32633b4e9f40008b1bd0a99d9b86a844d143c40bb3409c525ae112e6faa",
+    "mtime_utc": "2026-06-30T17:10:44Z",
+    "sha256": "3e302250e71bb4f212f2774b76b6e5efe388636264711f5fbfbb701a14a1eec2",
     "git_repo_root": "/docker/EA",
-    "git_head": "a9d1f39eb95b9bfbb90bfa56c499af715391eedb",
+    "git_head": "f22ce04097367c208b7094f7423b8278f23767e4",
     "git_branch": "main",
     "repo_relative_path": ".codex-studio/published/release_manifest.generated.json"
   },
@@ -39,7 +39,7 @@
     "mtime_utc": "2026-06-22T15:09:08Z",
     "sha256": "393e73411e5727539027135dc54ae70e43d3c9220cd0be9ba01df19a26350678",
     "git_repo_root": "/docker/EA",
-    "git_head": "a9d1f39eb95b9bfbb90bfa56c499af715391eedb",
+    "git_head": "f22ce04097367c208b7094f7423b8278f23767e4",
     "git_branch": "main",
     "repo_relative_path": "ea/_completion/fleet/JOURNEY_GATES.generated.json"
   },
@@ -141,7 +141,7 @@
     "provider_route_stewardship": {
       "default_status": "EA routes are governed by local truth surfaces.",
       "canary_status": "Browser execution proof is still missing; cross-host journey coverage remains blocked.",
-      "review_due": "2026-07-07T16:56:53Z",
+      "review_due": "2026-07-08T06:41:00Z",
       "next_decision": "Publish browser execution proof, then re-materialize the weekly pulse and release receipt."
     },
     "release_authority_state": "blocked",
@@ -149,9 +149,9 @@
       "deployment_id_local_fallback"
     ],
     "journey_gate_source": "ea/_completion/fleet/JOURNEY_GATES.generated.json",
-    "journey_gate_git_head": "a9d1f39eb95b9bfbb90bfa56c499af715391eedb",
+    "journey_gate_git_head": "f22ce04097367c208b7094f7423b8278f23767e4",
     "flagship_release_receipt_source": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
-    "flagship_release_receipt_git_head": "a9d1f39eb95b9bfbb90bfa56c499af715391eedb",
+    "flagship_release_receipt_git_head": "f22ce04097367c208b7094f7423b8278f23767e4",
     "scorecard_source": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml",
     "release_pipeline_source": ".codex-design/product/RELEASE_PIPELINE.md",
     "governor_loop_source": ".codex-design/product/PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md",

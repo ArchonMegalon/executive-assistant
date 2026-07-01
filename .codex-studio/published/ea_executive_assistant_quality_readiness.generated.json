@@ -106,18 +106,18 @@
       "user_action_required": true
     },
     {
-      "accepted": false,
+      "accepted": true,
       "capture_method": "POST",
       "capture_path": "/admin/actions/acceptance-evidence",
       "claim_boundary": "does_not_prove_good_executive_assistant_until_all_required_acceptance_keys_are_accepted",
-      "delivery_policy": "action_required_only",
+      "delivery_policy": "queue_only",
       "form_href": "/admin/actions/acceptance-evidence?return_to=%2Fadmin%2Fgoals&proof_key=real_approved_action_audited",
       "form_method": "GET",
-      "interruption_budget": "action_required",
+      "interruption_budget": "none",
       "irreversible_actions_consent_gated": true,
       "key": "real_approved_action_audited",
       "label": "real approved outbound action with audit trail",
-      "next_action": "record_redacted_acceptance_evidence:real_approved_action_audited",
+      "next_action": "review_redacted_acceptance_evidence:real_approved_action_audited",
       "next_action_form_href": "/admin/actions/acceptance-evidence?return_to=%2Fadmin%2Fgoals&proof_key=real_approved_action_audited",
       "next_action_form_label": "Record a real-use outcome",
       "next_action_form_method": "get",
@@ -135,10 +135,10 @@
         "object_ref"
       ],
       "server_actor_source": "authenticated_operator_context",
-      "status": "pending_real_world_evidence",
+      "status": "accepted_redacted",
       "stored_evidence_shape": "sha256_only",
-      "telegram_push_allowed": true,
-      "user_action_required": true
+      "telegram_push_allowed": false,
+      "user_action_required": false
     },
     {
       "accepted": false,
@@ -312,18 +312,18 @@
         "user_action_required": true
       },
       {
-        "accepted": false,
+        "accepted": true,
         "capture_method": "POST",
         "capture_path": "/admin/actions/acceptance-evidence",
         "claim_boundary": "does_not_prove_good_executive_assistant_until_all_required_acceptance_keys_are_accepted",
-        "delivery_policy": "action_required_only",
+        "delivery_policy": "queue_only",
         "form_href": "/admin/actions/acceptance-evidence?return_to=%2Fadmin%2Fgoals&proof_key=real_approved_action_audited",
         "form_method": "GET",
-        "interruption_budget": "action_required",
+        "interruption_budget": "none",
         "irreversible_actions_consent_gated": true,
         "key": "real_approved_action_audited",
         "label": "real approved outbound action with audit trail",
-        "next_action": "record_redacted_acceptance_evidence:real_approved_action_audited",
+        "next_action": "review_redacted_acceptance_evidence:real_approved_action_audited",
         "next_action_form_href": "/admin/actions/acceptance-evidence?return_to=%2Fadmin%2Fgoals&proof_key=real_approved_action_audited",
         "next_action_form_label": "Record a real-use outcome",
         "next_action_form_method": "get",
@@ -341,10 +341,10 @@
           "object_ref"
         ],
         "server_actor_source": "authenticated_operator_context",
-        "status": "pending_real_world_evidence",
+        "status": "accepted_redacted",
         "stored_evidence_shape": "sha256_only",
-        "telegram_push_allowed": true,
-        "user_action_required": true
+        "telegram_push_allowed": false,
+        "user_action_required": false
       },
       {
         "accepted": false,
@@ -412,16 +412,31 @@
     },
     "acceptance_keys": {
       "real_approved_action_audited": {
-        "accepted": false,
-        "actor_sha256": "",
-        "evidence_sha256": "",
-        "object_ref_sha256": "",
+        "accepted": true,
+        "actor_sha256": "0cc1bc07a959a08551a22466d79bb807b7a14b75b786064e50c04d354b9611d8",
+        "claim_boundary": "proves_google_workspace_auth_email_action_was_delivered_and_audited_only",
+        "derived_event_types": [
+          "explicit_work_google_workspace_intake_requested",
+          "workspace_access_session_issued",
+          "google_connect_email_sent"
+        ],
+        "derived_from_contract": "ea.google_workspace_auth_action_observations.v1",
+        "evidence_sha256": "2bea2eea45490a5fa5f55278133d959aa0bdd5e6c1bead5b9f591176f7ad9a04",
+        "object_ref_sha256": "65c844725eea603b7fadfe91209e667783da1e6ee7f5b6e16b799f6090e85aac",
+        "policy_node_keys": [
+          "primary_work_google_workspace_email",
+          "work_inbox_signal_policy"
+        ],
+        "provider": "emailit",
         "raw_actor_exposed": false,
+        "raw_email_exposed": false,
         "raw_evidence_exposed": false,
         "raw_object_ref_exposed": false,
-        "recorded_at": "",
-        "source_kind": "unknown",
-        "status": "missing_or_invalid"
+        "raw_payload_exposed": false,
+        "recorded_at": "2026-07-01 08:06:23.865783+02",
+        "scope_bundle": "full_workspace",
+        "source_kind": "google_workspace_auth_action_live_observation",
+        "status": "accepted_redacted"
       },
       "real_commitment_recovered_or_closed": {
         "accepted": false,
@@ -477,15 +492,15 @@
     },
     "accepted_keys": [
       "real_daily_morning_brief_accepted",
-      "real_decision_cleared"
+      "real_decision_cleared",
+      "real_approved_action_audited"
     ],
     "blocked_keys": [
       "real_commitment_recovered_or_closed",
-      "real_approved_action_audited",
       "real_provider_failure_recovered"
     ],
     "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
-    "generated_at": "2026-07-01T05:51:54Z",
+    "generated_at": "2026-07-01T06:36:27Z",
     "generated_by": "ea/scripts/materialize_executive_assistant_acceptance_evidence.py",
     "goal_completion_claim_allowed": false,
     "head_semantics": "source_state",
@@ -521,26 +536,25 @@
     "rejected_input_count": 0,
     "remaining_external_proofs": [
       "real commitment recovered or closed with an evidence receipt",
-      "real approved outbound action with audit trail",
       "real provider failure recovered with operator-grade reason"
     ],
-    "source_git_head": "83fb978d17fa9c2474456337fea5fe28383145b7",
+    "source_git_head": "f22ce04097367c208b7094f7423b8278f23767e4",
     "source_input": {
+      "google_workspace_auth_action_bundle_provided": true,
       "provided": false
     },
-    "source_state_fingerprint": "a7affd11bf5a7fd47a125a7757826c6e7519611fb21998a4b2c9d06d9339687f",
+    "source_state_fingerprint": "917c27cfc1bf2e5a6a1d6f56489ee05a104c7d426021b321fd9ea5db0c671823",
     "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
     "status": "partial_real_world_acceptance_evidence"
   },
   "acceptance_evidence_receipt": {
-    "bytes": 14017,
+    "bytes": 14866,
     "exists": true,
     "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
-    "sha256": "3a86fedc249927f169a8f85c3266fd58fa3514a483b4e2086fa10cc8ca2fba04"
+    "sha256": "906cd78f9c625ee996db949a01786540e6658a2c8b563e64d3222abda016f7d1"
   },
   "blocked_checks": [
     "real_commitment_recovered_or_closed",
-    "real_approved_action_audited",
     "real_provider_failure_recovered"
   ],
   "contract_name": "ea.executive_assistant_quality_readiness.v1",
@@ -549,10 +563,9 @@
   "ea_owns_release_authority": false,
   "external_acceptance_blockers": [
     "real_commitment_recovered_or_closed",
-    "real_approved_action_audited",
     "real_provider_failure_recovered"
   ],
-  "generated_at": "2026-07-01T05:51:55Z",
+  "generated_at": "2026-07-01T06:40:03Z",
   "generated_by": "ea/scripts/materialize_executive_assistant_quality_readiness.py",
   "goal_completion_claim_allowed": false,
   "good_executive_assistant_claim_allowed": false,
@@ -626,7 +639,6 @@
   "real_provider_recovery_verified": false,
   "remaining_external_proofs": [
     "real commitment recovered or closed with an evidence receipt",
-    "real approved outbound action with audit trail",
     "real provider failure recovered with operator-grade reason"
   ],
   "required_real_world_proof": [
@@ -636,14 +648,14 @@
     "real approved outbound action with audit trail",
     "real provider failure recovered with operator-grade reason"
   ],
-  "source_git_head": "83fb978d17fa9c2474456337fea5fe28383145b7",
+  "source_git_head": "f22ce04097367c208b7094f7423b8278f23767e4",
   "source_receipt": {
-    "bytes": 11020,
+    "bytes": 11508,
     "exists": true,
     "path": ".codex-studio/published/ea_office_loop_goal.generated.json",
-    "sha256": "74d7cf88e8ff2fc5b42cf87109da2754d0fa6043f0b10bd3331918909455009a"
+    "sha256": "0696db148500bf8d04295df95a29e400370c74790b25b2d0a7c6120a72fb35e0"
   },
-  "source_state_fingerprint": "a7affd11bf5a7fd47a125a7757826c6e7519611fb21998a4b2c9d06d9339687f",
+  "source_state_fingerprint": "917c27cfc1bf2e5a6a1d6f56489ee05a104c7d426021b321fd9ea5db0c671823",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "blocked_real_world_acceptance"
 }

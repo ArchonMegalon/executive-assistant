@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import sys
 import urllib.parse
 from datetime import datetime, timezone
@@ -49,6 +50,10 @@ def _now() -> str:
 
 def _hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest() if value else ""
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
 
 
 def _source_state_fields() -> dict[str, str]:
@@ -136,6 +141,272 @@ def _row_from_redacted_hashes(
         "raw_evidence_exposed": False,
         "raw_actor_exposed": False,
         "raw_object_ref_exposed": False,
+    }
+
+
+def _email_text(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def _event_payload(row: dict[str, Any]) -> dict[str, Any]:
+    payload = row.get("payload")
+    if isinstance(payload, dict):
+        return dict(payload)
+    payload_json = row.get("payload_json")
+    if isinstance(payload_json, dict):
+        return dict(payload_json)
+    return {}
+
+
+def _event_timestamp(row: dict[str, Any]) -> str:
+    return str(row.get("created_at") or row.get("recorded_at") or row.get("updated_at") or "").strip()
+
+
+def _event_type(row: dict[str, Any]) -> str:
+    return str(row.get("event_type") or "").strip().lower()
+
+
+def _payload_email(payload: dict[str, Any]) -> str:
+    return _email_text(payload.get("recipient_email") or payload.get("email") or payload.get("account_email"))
+
+
+def _preference_event_matches_email(row: dict[str, Any], recipient_email: str) -> bool:
+    object_id = _email_text(row.get("object_id"))
+    if object_id == recipient_email:
+        return True
+    interpreted = row.get("interpreted_signal_json")
+    if not isinstance(interpreted, dict):
+        return False
+    for key in ("account_email", "email", "recipient_email", "primary_email"):
+        if _email_text(interpreted.get(key)) == recipient_email:
+            return True
+    return False
+
+
+def _google_workspace_auth_action_row_from_bundle(bundle: dict[str, Any] | None) -> dict[str, Any]:
+    source = dict(bundle or {})
+    principal_id = str(source.get("principal_id") or "").strip()
+    recipient_email = _email_text(source.get("recipient_email"))
+    if not principal_id or not recipient_email:
+        return {}
+
+    observations = [dict(row) for row in list(source.get("observations") or []) if isinstance(row, dict)]
+    preference_events = [
+        dict(row) for row in list(source.get("preference_evidence_events") or []) if isinstance(row, dict)
+    ]
+    preference_nodes = [dict(row) for row in list(source.get("preference_nodes") or []) if isinstance(row, dict)]
+
+    sent_event: dict[str, Any] = {}
+    sent_payload: dict[str, Any] = {}
+    for row in observations:
+        payload = _event_payload(row)
+        if _event_type(row) != "google_connect_email_sent":
+            continue
+        if _payload_email(payload) != recipient_email:
+            continue
+        if str(payload.get("scope_bundle") or "").strip().lower() != "full_workspace":
+            continue
+        if not str(payload.get("provider") or "").strip():
+            continue
+        if not str(payload.get("access_session_id") or payload.get("session_id") or "").strip():
+            continue
+        sent_event = row
+        sent_payload = payload
+        break
+
+    access_event: dict[str, Any] = {}
+    access_payload: dict[str, Any] = {}
+    expected_session_id = str(sent_payload.get("access_session_id") or "").strip()
+    for row in observations:
+        payload = _event_payload(row)
+        if _event_type(row) != "workspace_access_session_issued":
+            continue
+        if _payload_email(payload) != recipient_email:
+            continue
+        if str(payload.get("source_kind") or "").strip().lower() != "google_connect_email":
+            continue
+        session_id = str(payload.get("session_id") or "").strip()
+        if expected_session_id and session_id and session_id != expected_session_id:
+            continue
+        if not session_id and not expected_session_id:
+            continue
+        access_event = row
+        access_payload = payload
+        break
+
+    request_event = next(
+        (
+            row
+            for row in preference_events
+            if _event_type(row)
+            in {"explicit_work_google_workspace_intake_requested", "explicit_work_inbox_setup_request"}
+            and str(row.get("domain") or "").strip().lower() in {"office_routing", "google_workspace"}
+            and _preference_event_matches_email(row, recipient_email)
+        ),
+        {},
+    )
+    if not sent_event or not access_event or not request_event:
+        return {}
+
+    email_sha256 = _hash(recipient_email)
+    session_id = str(sent_payload.get("access_session_id") or access_payload.get("session_id") or "").strip()
+    session_sha256 = _hash(session_id)
+    policy_node_keys = sorted(
+        {
+            str(row.get("key") or "").strip()
+            for row in preference_nodes
+            if str(row.get("domain") or "").strip().lower() in {"office_routing", "google_workspace"}
+            and str(row.get("key") or "").strip()
+            in {"primary_work_google_workspace_email", "work_inbox_signal_policy"}
+        }
+    )
+    evidence_packet = {
+        "contract_name": "ea.google_workspace_auth_action_observations.v1",
+        "principal_sha256": _hash(principal_id),
+        "recipient_email_sha256": email_sha256,
+        "access_session_id_sha256": session_sha256,
+        "request_event_type": _event_type(request_event),
+        "request_recorded_at": _event_timestamp(request_event),
+        "access_event_type": _event_type(access_event),
+        "access_issued_at": _event_timestamp(access_event),
+        "sent_event_type": _event_type(sent_event),
+        "sent_at": _event_timestamp(sent_event),
+        "scope_bundle": "full_workspace",
+        "provider": str(sent_payload.get("provider") or "").strip().lower(),
+        "policy_node_keys": policy_node_keys,
+        "raw_email_exposed": False,
+        "raw_payload_exposed": False,
+    }
+    row = _row_from_redacted_hashes(
+        source_kind="google_workspace_auth_action_live_observation",
+        recorded_at=_event_timestamp(sent_event),
+        evidence_sha256=_hash(_canonical_json(evidence_packet)),
+        actor_sha256=_hash(principal_id),
+        object_ref_sha256=_hash(f"google_workspace_auth:{email_sha256}:{session_sha256}"),
+    )
+    if row.get("accepted") is True:
+        row.update(
+            {
+                "derived_from_contract": "ea.google_workspace_auth_action_observations.v1",
+                "derived_event_types": [
+                    _event_type(request_event),
+                    "workspace_access_session_issued",
+                    "google_connect_email_sent",
+                ],
+                "scope_bundle": "full_workspace",
+                "provider": str(sent_payload.get("provider") or "").strip().lower(),
+                "policy_node_keys": policy_node_keys,
+                "raw_email_exposed": False,
+                "raw_payload_exposed": False,
+                "claim_boundary": "proves_google_workspace_auth_email_action_was_delivered_and_audited_only",
+            }
+        )
+    return row
+
+
+def _live_google_workspace_auth_action_bundle(
+    *,
+    database_url: str,
+    principal_id: str,
+    recipient_email: str,
+    since_hours: int,
+    timeout_seconds: float,
+) -> dict[str, Any]:
+    url = str(database_url or os.getenv("DATABASE_URL") or "").strip()
+    if not url:
+        return {"status": "blocked", "reason": "database_url_missing"}
+    try:
+        import psycopg
+    except Exception:
+        return {"status": "blocked", "reason": "psycopg_missing"}
+
+    principal = str(principal_id or "").strip()
+    recipient = _email_text(recipient_email)
+    if not principal or not recipient:
+        return {"status": "blocked", "reason": "principal_or_recipient_missing"}
+    bounded_timeout = max(0.5, min(15.0, float(timeout_seconds or 5.0)))
+    bounded_since_hours = max(1, min(24 * 14, int(since_hours or 24)))
+    statement_timeout_ms = int(bounded_timeout * 1000)
+    try:
+        with psycopg.connect(url, connect_timeout=max(1, int(bounded_timeout))) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(f"set statement_timeout = {statement_timeout_ms}")
+                cursor.execute(
+                    """
+                    select event_type, created_at::text, payload_json
+                    from observation_events
+                    where principal_id = %s
+                      and event_type in ('google_connect_email_sent', 'workspace_access_session_issued')
+                      and created_at >= now() - make_interval(hours => %s)
+                    order by created_at desc
+                    limit 100
+                    """,
+                    (principal, bounded_since_hours),
+                )
+                observations = [
+                    {"event_type": row[0], "created_at": row[1], "payload": row[2] or {}}
+                    for row in cursor.fetchall()
+                ]
+                cursor.execute(
+                    """
+                    select event_type, recorded_at::text, domain, object_type, object_id, source_ref,
+                           interpreted_signal_json
+                    from preference_evidence_events
+                    where principal_id = %s
+                      and person_id = 'self'
+                      and event_type in (
+                        'explicit_work_google_workspace_intake_requested',
+                        'explicit_work_inbox_setup_request'
+                      )
+                      and recorded_at >= now() - make_interval(hours => %s)
+                    order by recorded_at desc
+                    limit 100
+                    """,
+                    (principal, bounded_since_hours),
+                )
+                preference_evidence_events = [
+                    {
+                        "event_type": row[0],
+                        "recorded_at": row[1],
+                        "domain": row[2],
+                        "object_type": row[3],
+                        "object_id": row[4],
+                        "source_ref": row[5],
+                        "interpreted_signal_json": row[6] or {},
+                    }
+                    for row in cursor.fetchall()
+                ]
+                cursor.execute(
+                    """
+                    select domain, category, key, value_json, updated_at::text
+                    from preference_nodes
+                    where principal_id = %s
+                      and person_id = 'self'
+                      and domain in ('office_routing', 'google_workspace')
+                    order by updated_at desc
+                    limit 100
+                    """,
+                    (principal,),
+                )
+                preference_nodes = [
+                    {
+                        "domain": row[0],
+                        "category": row[1],
+                        "key": row[2],
+                        "value_json": row[3] or {},
+                        "updated_at": row[4],
+                    }
+                    for row in cursor.fetchall()
+                ]
+    except Exception as exc:
+        return {"status": "blocked", "reason": f"database_query_failed:{exc.__class__.__name__}"}
+    return {
+        "status": "loaded",
+        "principal_id": principal,
+        "recipient_email": recipient,
+        "observations": observations,
+        "preference_evidence_events": preference_evidence_events,
+        "preference_nodes": preference_nodes,
     }
 
 
@@ -273,6 +544,7 @@ def materialize_executive_assistant_acceptance_evidence(
     generated_at: str = "",
     preserve_existing: bool = True,
     proactive_ooda_gold_receipt_path: str | Path | None = None,
+    google_workspace_auth_action_bundle: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     target = Path(receipt_path)
     rows: dict[str, dict[str, Any]] = {key: _empty_row() for key in REQUIRED_ACCEPTANCE_KEYS}
@@ -295,6 +567,10 @@ def materialize_executive_assistant_acceptance_evidence(
             proactive_decision_row = _proactive_ooda_gold_decision_row(proactive_path)
             if proactive_decision_row.get("accepted") is True:
                 rows["real_decision_cleared"] = proactive_decision_row
+    if rows["real_approved_action_audited"].get("accepted") is not True:
+        approved_action_row = _google_workspace_auth_action_row_from_bundle(google_workspace_auth_action_bundle)
+        if approved_action_row.get("accepted") is True:
+            rows["real_approved_action_audited"] = approved_action_row
     accepted_keys = [key for key in REQUIRED_ACCEPTANCE_KEYS if rows[key].get("accepted") is True]
     blocked_keys = [key for key in REQUIRED_ACCEPTANCE_KEYS if key not in accepted_keys]
     status = (
@@ -331,7 +607,10 @@ def materialize_executive_assistant_acceptance_evidence(
             "raw_object_reference_exposed": False,
             "raw_private_context_exposed": False,
         },
-        "source_input": {"provided": input_payload is not None},
+        "source_input": {
+            "provided": input_payload is not None,
+            "google_workspace_auth_action_bundle_provided": google_workspace_auth_action_bundle is not None,
+        },
         "rejected_input_count": 0,
         "next_action": next_action,
         "next_action_href": ACCEPTANCE_CAPTURE_PATH if blocked_keys else "",
@@ -361,15 +640,33 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--input")
     parser.add_argument("--generated-at", default="")
     parser.add_argument("--proactive-ooda-gold-receipt")
+    parser.add_argument("--derive-google-workspace-auth-action", action="store_true")
+    parser.add_argument("--google-auth-principal-id", default="")
+    parser.add_argument("--google-auth-recipient-email", default="")
+    parser.add_argument("--google-auth-since-hours", type=int, default=24)
+    parser.add_argument("--live-proof-timeout-seconds", type=float, default=5.0)
+    parser.add_argument("--database-url", default="")
     parser.add_argument("--reset", action="store_true")
     args = parser.parse_args(argv)
     input_payload = _load(args.input) if args.input else None
+    google_workspace_auth_action_bundle = None
+    if args.derive_google_workspace_auth_action:
+        if not args.google_auth_principal_id or not args.google_auth_recipient_email:
+            parser.error("--google-auth-principal-id and --google-auth-recipient-email are required")
+        google_workspace_auth_action_bundle = _live_google_workspace_auth_action_bundle(
+            database_url=args.database_url,
+            principal_id=args.google_auth_principal_id,
+            recipient_email=args.google_auth_recipient_email,
+            since_hours=args.google_auth_since_hours,
+            timeout_seconds=args.live_proof_timeout_seconds,
+        )
     receipt = materialize_executive_assistant_acceptance_evidence(
         receipt_path=args.receipt,
         input_payload=input_payload,
         generated_at=args.generated_at,
         preserve_existing=not args.reset,
         proactive_ooda_gold_receipt_path=args.proactive_ooda_gold_receipt,
+        google_workspace_auth_action_bundle=google_workspace_auth_action_bundle,
     )
     print(json.dumps({"status": receipt["status"], "receipt": str(args.receipt)}, sort_keys=True))
     return 0

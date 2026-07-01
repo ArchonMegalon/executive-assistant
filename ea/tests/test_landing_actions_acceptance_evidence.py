@@ -110,6 +110,129 @@ def test_acceptance_materializer_derives_decision_from_proactive_ooda_gold_only(
     assert decision["raw_evidence_exposed"] is False
 
 
+def test_acceptance_materializer_derives_google_workspace_auth_approved_action(
+    tmp_path: Path,
+) -> None:
+    recipient_email = "work@example.test"
+    principal_id = "cf-email:owner@example.test"
+    receipt_path = tmp_path / "acceptance.json"
+
+    receipt = acceptance_materializer.materialize_executive_assistant_acceptance_evidence(
+        receipt_path=receipt_path,
+        preserve_existing=False,
+        google_workspace_auth_action_bundle={
+            "principal_id": principal_id,
+            "recipient_email": recipient_email,
+            "observations": [
+                {
+                    "event_type": "google_connect_email_sent",
+                    "created_at": "2026-07-01T06:06:23Z",
+                    "payload": {
+                        "recipient_email": recipient_email,
+                        "scope_bundle": "full_workspace",
+                        "provider": "emailit",
+                        "access_session_id": "session-123",
+                    },
+                },
+                {
+                    "event_type": "workspace_access_session_issued",
+                    "created_at": "2026-07-01T06:06:22Z",
+                    "payload": {
+                        "email": recipient_email,
+                        "source_kind": "google_connect_email",
+                        "session_id": "session-123",
+                    },
+                },
+            ],
+            "preference_evidence_events": [
+                {
+                    "event_type": "explicit_work_google_workspace_intake_requested",
+                    "recorded_at": "2026-07-01T06:08:33Z",
+                    "domain": "office_routing",
+                    "object_type": "google_workspace_account",
+                    "object_id": recipient_email,
+                    "interpreted_signal_json": {"account_email": recipient_email},
+                }
+            ],
+            "preference_nodes": [
+                {
+                    "domain": "office_routing",
+                    "category": "constraint",
+                    "key": "primary_work_google_workspace_email",
+                    "value_json": {"account_email": recipient_email},
+                    "updated_at": "2026-07-01T06:08:36Z",
+                },
+                {
+                    "domain": "office_routing",
+                    "category": "soft_preference",
+                    "key": "work_inbox_signal_policy",
+                    "value_json": {"calendar_writes": "approval_required"},
+                    "updated_at": "2026-07-01T06:08:36Z",
+                },
+            ],
+        },
+    )
+
+    verification = verify_executive_assistant_acceptance_evidence(receipt_path)
+    assert verification["status"] == "pass"
+    assert "real_approved_action_audited" in receipt["accepted_keys"]
+    row = dict(dict(receipt["acceptance_keys"])["real_approved_action_audited"])
+    assert row["source_kind"] == "google_workspace_auth_action_live_observation"
+    assert row["claim_boundary"] == "proves_google_workspace_auth_email_action_was_delivered_and_audited_only"
+    assert row["scope_bundle"] == "full_workspace"
+    assert row["provider"] == "emailit"
+    assert row["policy_node_keys"] == ["primary_work_google_workspace_email", "work_inbox_signal_policy"]
+    assert row["raw_email_exposed"] is False
+    assert row["raw_payload_exposed"] is False
+    receipt_text = receipt_path.read_text(encoding="utf-8")
+    assert recipient_email not in receipt_text
+    assert principal_id not in receipt_text
+    assert "session-123" not in receipt_text
+
+
+def test_acceptance_materializer_does_not_derive_google_auth_action_without_request(
+    tmp_path: Path,
+) -> None:
+    receipt_path = tmp_path / "acceptance.json"
+
+    receipt = acceptance_materializer.materialize_executive_assistant_acceptance_evidence(
+        receipt_path=receipt_path,
+        preserve_existing=False,
+        google_workspace_auth_action_bundle={
+            "principal_id": "cf-email:owner@example.test",
+            "recipient_email": "work@example.test",
+            "observations": [
+                {
+                    "event_type": "google_connect_email_sent",
+                    "created_at": "2026-07-01T06:06:23Z",
+                    "payload": {
+                        "recipient_email": "work@example.test",
+                        "scope_bundle": "full_workspace",
+                        "provider": "emailit",
+                        "access_session_id": "session-123",
+                    },
+                },
+                {
+                    "event_type": "workspace_access_session_issued",
+                    "created_at": "2026-07-01T06:06:22Z",
+                    "payload": {
+                        "email": "work@example.test",
+                        "source_kind": "google_connect_email",
+                        "session_id": "session-123",
+                    },
+                },
+            ],
+            "preference_evidence_events": [],
+        },
+    )
+
+    verification = verify_executive_assistant_acceptance_evidence(receipt_path)
+    assert verification["status"] == "pass"
+    assert "real_approved_action_audited" not in receipt["accepted_keys"]
+    row = dict(dict(receipt["acceptance_keys"])["real_approved_action_audited"])
+    assert row["accepted"] is False
+
+
 def test_landing_quality_receipt_refresh_preserves_acceptance_capture_contract(
     tmp_path: Path,
     monkeypatch,

@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.whole_project_gold_map",
-  "generated_at": "2026-06-30T16:54:27Z",
+  "generated_at": "2026-07-01T06:41:00Z",
   "generated_by": "scripts/materialize_whole_project_gold_map.py",
-  "source_git_head": "a9d1f39eb95b9bfbb90bfa56c499af715391eedb",
+  "source_git_head": "f22ce04097367c208b7094f7423b8278f23767e4",
   "head_semantics": "source_state",
   "head_semantics_note": "source_git_head records the proved source state. Generated-only artifact commits may advance repository HEAD without changing the source state that the receipts prove.",
   "output_path": ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
@@ -241,28 +241,30 @@
         "LTD provider lane check pending: subscribr_chummer_script_factory:api_token_private",
         "LTD provider lane check pending: subscribr_chummer_script_factory:channel_map",
         "LTD provider lane check pending: subscribr_chummer_script_factory:script_roundtrip",
-        "LTD provider lane check pending: subscribr_chummer_script_factory:source_binding"
+        "LTD provider lane check pending: subscribr_chummer_script_factory:source_binding",
+        "LTD provider lane check pending: sendr_ea_growth_outreach:sendr_provider_verification",
+        "LTD provider lane check pending: sendr_ea_growth_outreach:sendr_suppression_sync"
       ],
       "design_notes": [
-        "lane_count=16",
+        "lane_count=17",
         "runtime_lane_count=1",
-        "draft_or_operator_lane_count=15",
+        "draft_or_operator_lane_count=16",
         "provider_contract_status=contract_pass_live_provider_pending",
         "provider_contract_proof_scope=local_contract_exercise",
         "provider_contract_live_verified=False",
         "contract_backed_check_count=14",
-        "whole_project_pending_lane_count=7",
+        "whole_project_pending_lane_count=8",
         "whole_project_excluded_lane_count=8",
-        "missing_lane_check_count=12"
+        "missing_lane_check_count=14"
       ]
     }
   ],
   "ltd_provider_lane_summary": {
     "contract_name": "ea.verify_ltd_provider_lanes",
     "status": "pass",
-    "lane_count": 16,
+    "lane_count": 17,
     "runtime_lane_count": 1,
-    "draft_or_operator_lane_count": 15,
+    "draft_or_operator_lane_count": 16,
     "poppy_runtime_enabled": false,
     "poppy_lane_state": "verified_draft_operator_lane",
     "draft_or_operator_lanes": [
@@ -278,6 +280,7 @@
       "docs_draft_factory",
       "prompt_foundry",
       "subscribr_chummer_script_factory",
+      "sendr_ea_growth_outreach",
       "operator_control_plane",
       "video_provider_bakeoff",
       "commercial_ops"
@@ -289,7 +292,8 @@
       "approvethis_external_approval_edge",
       "documentation_ai_publication",
       "unmixr_voice_runtime",
-      "subscribr_chummer_script_factory"
+      "subscribr_chummer_script_factory",
+      "sendr_ea_growth_outreach"
     ],
     "whole_project_excluded_lanes": [
       "magicfit_media_factory_candidate",
@@ -313,7 +317,9 @@
       "subscribr_chummer_script_factory:api_token_private",
       "subscribr_chummer_script_factory:channel_map",
       "subscribr_chummer_script_factory:script_roundtrip",
-      "subscribr_chummer_script_factory:source_binding"
+      "subscribr_chummer_script_factory:source_binding",
+      "sendr_ea_growth_outreach:sendr_provider_verification",
+      "sendr_ea_growth_outreach:sendr_suppression_sync"
     ],
     "provider_contracts": {
       "local_contracts_present": true,
@@ -379,6 +385,8 @@
     "LTD provider lane check pending: subscribr_chummer_script_factory:api_token_private",
     "LTD provider lane check pending: subscribr_chummer_script_factory:channel_map",
     "LTD provider lane check pending: subscribr_chummer_script_factory:script_roundtrip",
-    "LTD provider lane check pending: subscribr_chummer_script_factory:source_binding"
+    "LTD provider lane check pending: subscribr_chummer_script_factory:source_binding",
+    "LTD provider lane check pending: sendr_ea_growth_outreach:sendr_provider_verification",
+    "LTD provider lane check pending: sendr_ea_growth_outreach:sendr_suppression_sync"
   ]
 }
