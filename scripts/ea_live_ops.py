@@ -3646,23 +3646,49 @@ def record_proactive_approval(
     resolved_staged_artifact_ref = str(staged_artifact_ref or "").strip() or _proactive_staged_artifact_ref(
         dict(artifact_probe.get("safe_work_result") or {})
     )
+    current_packet_recordable = _current_proactive_approval_recordable(artifact_probe)
+    approval_outcome_current = _approval_outcome_matches_current_packet(
+        approval_outcome=dict(artifact_probe.get("approval_outcome") or {}),
+        stage_packet=dict(artifact_probe.get("stage_packet") or {}),
+        safe_work_result=dict(artifact_probe.get("safe_work_result") or {}),
+    ) or bool(dict(artifact_probe.get("current_packet") or {}).get("approval_outcome_matches_current_packet"))
+    live_pending_count = int(artifact_probe.get("current_packet_live_pending_count") or 0)
+    manual_outcome_capture_ready = bool(current_packet_recordable and not approval_outcome_current and live_pending_count <= 0)
     base_report: dict[str, object] = {
         "recorded": False,
         "reason": "",
-        "principal_id": str(principal_id or "").strip(),
+        "principal_id_hash": _hash_text(principal_id),
         "outcome": normalized_outcome,
         "accepted": normalized_outcome == "approved",
         "evidence_present": bool(str(evidence or "").strip()),
-        "actor": str(actor or "").strip(),
+        "actor_sha256": _hash_text(actor),
+        "actor_present": bool(str(actor or "").strip()),
         "source_kind": str(source_kind or "").strip() or "operator",
-        "packet_ref": resolved_packet_ref,
-        "staged_artifact_ref": resolved_staged_artifact_ref,
+        "packet_ref_sha256": _hash_text(resolved_packet_ref),
+        "staged_artifact_ref_sha256": _hash_text(resolved_staged_artifact_ref),
+        "current_packet_refs_present": bool(resolved_packet_ref and resolved_staged_artifact_ref),
         "compose_file": effective_compose_file,
         "runtime_service": effective_runtime_service,
         "observed_at": observed_at,
-        "artifact_probe": artifact_probe,
-        "approval_capture_surface_ready": bool(artifact_probe.get("current_packet_live_pending_count") or 0) > 0,
-        "approval_capture_surface_pending_count": int(artifact_probe.get("current_packet_live_pending_count") or 0),
+        "artifact_probe_summary": _redacted_proactive_artifact_probe_summary(
+            artifact_probe=artifact_probe,
+            packet_ref=resolved_packet_ref,
+            staged_artifact_ref=resolved_staged_artifact_ref,
+        ),
+        "approval_capture_surface_ready": bool(live_pending_count > 0 or manual_outcome_capture_ready),
+        "telegram_approval_surface_ready": bool(live_pending_count > 0),
+        "manual_outcome_capture_ready": manual_outcome_capture_ready,
+        "current_packet_approval_request_recordable": current_packet_recordable,
+        "approval_outcome_matches_current_packet": approval_outcome_current,
+        "approval_capture_surface_pending_count": live_pending_count,
+        "privacy": {
+            "raw_principal_id_exposed": False,
+            "raw_actor_exposed": False,
+            "raw_evidence_exposed": False,
+            "raw_packet_ref_exposed": False,
+            "raw_staged_artifact_ref_exposed": False,
+            "raw_artifact_probe_exposed": False,
+        },
     }
     if not bool(artifact_probe.get("probe_ok")):
         report = {
@@ -3693,7 +3719,7 @@ def record_proactive_approval(
         if output_format == "operator":
             report["operator_text"] = (
                 "proactive_approval status=dry_run; "
-                f"outcome={normalized_outcome}; packet_ref={resolved_packet_ref}"
+                f"outcome={normalized_outcome}; packet_ref_sha256={_hash_text(resolved_packet_ref)}"
             )
         return report
 
@@ -3806,6 +3832,60 @@ def record_proactive_approval(
             f"teable={teable_status}"
         )
     return report
+
+
+def _redacted_proactive_artifact_probe_summary(
+    *,
+    artifact_probe: Mapping[str, object],
+    packet_ref: str,
+    staged_artifact_ref: str,
+) -> dict[str, object]:
+    current_packet = dict(artifact_probe.get("current_packet") or {})
+    return {
+        "probe_ok": bool(artifact_probe.get("probe_ok")),
+        "source": str(artifact_probe.get("source") or "").strip(),
+        "status": str(artifact_probe.get("status") or "").strip(),
+        "run_receipt_present": bool(artifact_probe.get("run_receipt")),
+        "stage_packet_present": bool(artifact_probe.get("stage_packet")),
+        "safe_work_result_present": bool(artifact_probe.get("safe_work_result")),
+        "approval_outcome_present": bool(artifact_probe.get("approval_outcome")),
+        "approval_outcome_matches_current_packet": bool(
+            artifact_probe.get("approval_outcome_matches_current_packet")
+            or current_packet.get("approval_outcome_matches_current_packet")
+        ),
+        "current_packet_status": str(current_packet.get("status") or "").strip(),
+        "current_packet_live_pending_count": int(artifact_probe.get("current_packet_live_pending_count") or 0),
+        "current_packet_callback_record_count": int(artifact_probe.get("current_packet_callback_record_count") or 0),
+        "packet_ref_sha256": _hash_text(packet_ref),
+        "staged_artifact_ref_sha256": _hash_text(staged_artifact_ref),
+        "raw_stage_packet_exposed": False,
+        "raw_safe_work_result_exposed": False,
+        "raw_approval_outcome_exposed": False,
+        "raw_packet_ref_exposed": False,
+        "raw_staged_artifact_ref_exposed": False,
+    }
+
+
+def _current_proactive_approval_recordable(artifact_probe: Mapping[str, object]) -> bool:
+    stage_packet = dict(artifact_probe.get("stage_packet") or {})
+    safe_work_result = dict(artifact_probe.get("safe_work_result") or {})
+    packet_ref = _proactive_stage_packet_ref(stage_packet)
+    staged_artifact_ref = _proactive_staged_artifact_ref(safe_work_result)
+    stage_approval = dict(stage_packet.get("approval") or {})
+    safe_work_approval = dict(safe_work_result.get("approval") or {})
+    stage_payload = dict(dict(stage_packet.get("stage") or {}).get("payload") or {})
+    approval_required = bool(stage_approval.get("required")) or bool(safe_work_approval.get("required"))
+    approval_surface_present = bool(
+        str(safe_work_result.get("approval_prompt") or stage_payload.get("approval_prompt") or "").strip()
+        or str(safe_work_result.get("staged_action_url") or stage_payload.get("approval_url") or "").strip()
+    )
+    return bool(
+        packet_ref
+        and staged_artifact_ref
+        and str(safe_work_result.get("status") or "").strip() == "staged_for_user_decision"
+        and approval_required
+        and approval_surface_present
+    )
 
 
 def reissue_proactive_approval(

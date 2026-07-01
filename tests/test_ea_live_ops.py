@@ -2441,11 +2441,77 @@ def test_record_proactive_approval_dry_run_uses_current_runtime_packet(monkeypat
 
     assert report["recorded"] is False
     assert report["reason"] == "dry_run"
-    assert report["packet_ref"] == "stage_packet:pkt-live"
-    assert report["staged_artifact_ref"] == "safe_work_result:res-live"
+    assert report["packet_ref_sha256"] == module._hash_text("stage_packet:pkt-live")
+    assert report["staged_artifact_ref_sha256"] == module._hash_text("safe_work_result:res-live")
+    assert report["current_packet_refs_present"] is True
     assert report["approval_capture_surface_ready"] is True
     assert report["approval_capture_surface_pending_count"] == 1
+    assert report["privacy"]["raw_packet_ref_exposed"] is False
+    assert report["privacy"]["raw_artifact_probe_exposed"] is False
+    assert "artifact_probe" not in report
+    assert "stage_packet:pkt-live" not in json.dumps(report, sort_keys=True)
+    assert "safe_work_result:res-live" not in json.dumps(report, sort_keys=True)
+    assert "Approved after review." not in json.dumps(report, sort_keys=True)
     assert len(commands) == 1
+
+
+def test_record_proactive_approval_dry_run_reports_manual_capture_ready_without_raw_refs(monkeypatch) -> None:
+    module = _module()
+
+    monkeypatch.setattr(
+        module,
+        "probe_proactive_artifacts",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "state_path": "/data/provider-ledger/proactive_ooda_notified.json",
+            "run_receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+            "stage_packet_dir": "/data/provider-ledger/proactive_ooda_stage_packets",
+            "safe_work_result_dir": "/data/provider-ledger/proactive_ooda_safe_work_results",
+            "stage_packet": {
+                "packet_ref": "stage_packet:pkt-mirror",
+                "approval": {"required": True},
+                "stage": {"payload": {"approval_url": "https://example.test/candidate"}},
+            },
+            "safe_work_result": {
+                "result_ref": "safe_work_result:res-mirror",
+                "status": "staged_for_user_decision",
+                "approval": {"required": True},
+                "approval_prompt": "Approve this staged candidate.",
+                "staged_action_url": "https://example.test/candidate",
+            },
+            "current_packet": {"status": "staged", "approval_outcome_matches_current_packet": False},
+            "approval_outcome": {},
+            "current_packet_live_pending_count": 0,
+        },
+    )
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-01T01:45:00Z")
+
+    report = module.record_proactive_approval(
+        principal_id="exec-1",
+        outcome="deferred",
+        evidence="Dry-run only; no approval granted.",
+        actor="codex",
+        source_kind="operator_dry_run",
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+        dry_run=True,
+        output_format="json",
+    )
+    serialized = json.dumps(report, sort_keys=True)
+
+    assert report["recorded"] is False
+    assert report["reason"] == "dry_run"
+    assert report["approval_capture_surface_ready"] is True
+    assert report["telegram_approval_surface_ready"] is False
+    assert report["manual_outcome_capture_ready"] is True
+    assert report["current_packet_approval_request_recordable"] is True
+    assert report["approval_outcome_matches_current_packet"] is False
+    assert report["packet_ref_sha256"] == module._hash_text("stage_packet:pkt-mirror")
+    assert report["staged_artifact_ref_sha256"] == module._hash_text("safe_work_result:res-mirror")
+    assert "stage_packet:pkt-mirror" not in serialized
+    assert "safe_work_result:res-mirror" not in serialized
+    assert "Dry-run only" not in serialized
+    assert "artifact_probe" not in report
 
 
 def test_record_proactive_approval_executes_finalize_in_runtime(monkeypatch) -> None:
@@ -2511,6 +2577,10 @@ def test_record_proactive_approval_executes_finalize_in_runtime(monkeypatch) -> 
     assert report["operator_status_path"] == "/app/.codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
     assert report["gold_acceptance_path"] == "/app/.codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json"
     assert report["teable_sync"]["status"] == "synced"
+    assert "artifact_probe" not in report
+    assert "stage_packet:pkt-live" not in json.dumps(report, sort_keys=True)
+    assert "safe_work_result:res-live" not in json.dumps(report, sort_keys=True)
+    assert "Approved after review." not in json.dumps(report, sort_keys=True)
     assert len(commands) == 2
 
 
@@ -2568,6 +2638,9 @@ def test_record_proactive_approval_records_in_process_without_docker_cli(monkeyp
     assert report["source"] == "in_process_runtime:record_proactive_approval"
     assert report["approval_outcome_id"] == "approval-local"
     assert report["teable_sync"]["status"] == "synced"
+    assert "artifact_probe" not in report
+    assert "stage_packet:pkt-live" not in json.dumps(report, sort_keys=True)
+    assert "safe_work_result:res-live" not in json.dumps(report, sort_keys=True)
 
 
 def test_reissue_proactive_approval_dry_run_executes_runtime_script(monkeypatch) -> None:
