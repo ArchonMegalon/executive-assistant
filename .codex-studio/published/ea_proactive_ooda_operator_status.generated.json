@@ -160,7 +160,7 @@
   },
   "delivery_route_error": "",
   "delivery_route_ready": true,
-  "generated_at": "2026-07-01T16:04:14Z",
+  "generated_at": "2026-07-01T16:13:34Z",
   "generated_by": "scripts/materialize_proactive_ooda_operator_status.py",
   "gmail_draft_followthrough": {
     "action": "",
@@ -176,7 +176,7 @@
     "next_action_href": "https://myexternalbrain.com/app/queue",
     "next_action_label": "Open queue",
     "next_action_method": "get",
-    "observed_at": "2026-07-01T16:04:10Z",
+    "observed_at": "2026-07-01T16:13:30Z",
     "raw_execution_payload_exposed": false,
     "recipient_email_hash_present": false,
     "source": "docker_compose_exec",
@@ -221,7 +221,7 @@
   "remaining_external_proofs": [
     "real proactive OODA packet accepted with routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome"
   ],
-  "route_probe_observed_at": "2026-07-01T16:04:08Z",
+  "route_probe_observed_at": "2026-07-01T16:13:27Z",
   "route_probe_runtime_service": "ea-proactive-ooda",
   "route_probe_source": "docker_compose_exec",
   "route_ready_claim_allowed": true,
@@ -474,7 +474,7 @@
     "observation_limit": 400,
     "observation_repository": "PostgresObservationEventRepository",
     "observation_row_count": 376,
-    "observed_at": "2026-07-01T16:04:12Z",
+    "observed_at": "2026-07-01T16:13:32Z",
     "observed_lane_count": 8,
     "privacy": {
       "raw_credential_exposed": false,
@@ -486,9 +486,9 @@
     "source": "docker_compose_exec",
     "status": "ready"
   },
-  "source_git_head": "64ced54a4953ff4d3fe15d178d2c9e193e760574",
+  "source_git_head": "d652beaa8144fbfb61f8f6b6052e3a1a5c6ecf66",
   "source_mode": "none",
-  "source_state_fingerprint": "86d6b9d503153aa4d8d3f2c86113bcea0f68a4d53034eb8f9ecae4b78a756188",
+  "source_state_fingerprint": "10bd0b05859a2aaa01582fd71be9f6335cbf941e9481cdb6a753aff6829e7b4f",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "stage_packets": {
     "enabled": true,

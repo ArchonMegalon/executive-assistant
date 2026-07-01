@@ -13,7 +13,7 @@
   "digest_sha256": "7d1779ec8070b106f1843d7ad8efe948f2d914e2c244e3af48dfc1548e300549",
   "dry_run": true,
   "force": false,
-  "generated_at": "2026-07-01T16:04:55Z",
+  "generated_at": "2026-07-01T16:13:38Z",
   "generated_by": "scripts/materialize_operator_action_required_digest.py",
   "head_semantics": "source_state",
   "included_action_keys": [
@@ -26,6 +26,7 @@
   "item_count": 4,
   "items": [
     {
+      "action_required_reason": "real_world_acceptance_missing",
       "auth_link_template": "",
       "callback_tokens_exposed": false,
       "console_deep_link": "",
@@ -36,9 +37,9 @@
       "key": "weekly_signal_to_decision_review_acceptance",
       "next_action": "record_weekly_signal_to_decision_review_acceptance",
       "next_action_form_href": "/admin/actions/signal-to-decision-evidence?return_to=%2Fadmin%2Fgoals&evidence_part=review",
-      "next_action_form_label": "Record signal review evidence",
+      "next_action_form_label": "Record a signal-loop outcome",
       "next_action_form_method": "get",
-      "next_action_label": "Record signal review evidence",
+      "next_action_label": "Record a signal-loop outcome",
       "non_action_progress_push_allowed": false,
       "quiet_hours_respected": true,
       "raw_chat_ids_exposed": false,
@@ -53,12 +54,21 @@
       "raw_token_exposed": false,
       "raw_voice_ids_exposed": false,
       "raw_whatsapp_session_ref_exposed": false,
+      "required_form_fields": [
+        "evidence_part",
+        "source_kind",
+        "evidence",
+        "packet_ref"
+      ],
       "required_next_receipt": "real weekly signal-to-decision review acceptance receipt",
+      "source_action_packet_present": true,
+      "source_action_packet_status": "action_required",
       "telegram_message": "",
       "telegram_push_allowed": true,
       "title": "Weekly signal-to-decision review acceptance"
     },
     {
+      "action_required_reason": "",
       "auth_link_template": "",
       "callback_tokens_exposed": false,
       "console_deep_link": "",
@@ -86,12 +96,16 @@
       "raw_token_exposed": false,
       "raw_voice_ids_exposed": false,
       "raw_whatsapp_session_ref_exposed": false,
+      "required_form_fields": [],
       "required_next_receipt": "passing Telegram audiobook live delivery receipt",
+      "source_action_packet_present": false,
+      "source_action_packet_status": "",
       "telegram_message": "",
       "telegram_push_allowed": true,
       "title": "Telegram audiobook live delivery receipt"
     },
     {
+      "action_required_reason": "",
       "auth_link_template": "",
       "callback_tokens_exposed": false,
       "console_deep_link": "",
@@ -119,12 +133,16 @@
       "raw_token_exposed": false,
       "raw_voice_ids_exposed": false,
       "raw_whatsapp_session_ref_exposed": false,
+      "required_form_fields": [],
       "required_next_receipt": "consented Manfred STT/TTS realtime conversation proof",
+      "source_action_packet_present": false,
+      "source_action_packet_status": "",
       "telegram_message": "",
       "telegram_push_allowed": true,
       "title": "Consented Manfred realtime conversation proof"
     },
     {
+      "action_required_reason": "",
       "auth_link_template": "",
       "callback_tokens_exposed": false,
       "console_deep_link": "",
@@ -152,7 +170,10 @@
       "raw_token_exposed": false,
       "raw_voice_ids_exposed": false,
       "raw_whatsapp_session_ref_exposed": false,
+      "required_form_fields": [],
       "required_next_receipt": "passing WhatsApp audiobook live delivery receipt",
+      "source_action_packet_present": false,
+      "source_action_packet_status": "",
       "telegram_message": "Action needed for EA WhatsApp: pair the WhatsApp Web sidecar. Open the WhatsApp integration locally; EA will not send host-local pair URLs or QR payloads through Telegram.",
       "telegram_push_allowed": true,
       "title": "WhatsApp audiobook live delivery receipt"
@@ -209,14 +230,14 @@
     "reason": "",
     "sent": false
   },
-  "source_git_head": "64ced54a4953ff4d3fe15d178d2c9e193e760574",
+  "source_git_head": "d652beaa8144fbfb61f8f6b6052e3a1a5c6ecf66",
   "source_receipt": {
     "path": ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json",
     "present": true,
-    "sha256": "83115c5c08d37b314722343e2ecedbf40ed37787b80d70f31ab6af3190b76c8f",
+    "sha256": "aa39fc9f471d60cd95a12cb1a3b17512b8dca6313ade9d06cf8d611781041cb0",
     "status": "active_with_blockers"
   },
-  "source_state_fingerprint": "86d6b9d503153aa4d8d3f2c86113bcea0f68a4d53034eb8f9ecae4b78a756188",
+  "source_state_fingerprint": "10bd0b05859a2aaa01582fd71be9f6335cbf941e9481cdb6a753aff6829e7b4f",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "state_updated": false,
   "status": "suppressed_duplicate",
