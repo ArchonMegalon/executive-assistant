@@ -974,9 +974,14 @@ def test_admin_acceptance_capture_records_redacted_goal_evidence(
     assert acceptance["acceptance_keys"]["real_daily_morning_brief_accepted"]["status"] == "accepted_redacted"
     assert acceptance["acceptance_keys"]["real_daily_morning_brief_accepted"]["source_kind"] == "principal"
     assert acceptance["acceptance_capture_surface"]["path"] == "/admin/actions/acceptance-evidence"
+    assert acceptance["acceptance_capture_surface"]["form_method"] == "GET"
     requirements = {item["key"]: item for item in acceptance["acceptance_capture_requirements"]}
     assert requirements["real_daily_morning_brief_accepted"]["status"] == "accepted_redacted"
     assert requirements["real_decision_cleared"]["status"] == "pending_real_world_evidence"
+    assert (
+        requirements["real_decision_cleared"]["form_href"]
+        == "/admin/actions/acceptance-evidence?return_to=%2Fadmin%2Fgoals&proof_key=real_decision_cleared"
+    )
     assert requirements["real_decision_cleared"]["raw_input_not_persisted"] is True
     assert acceptance["privacy"]["raw_acceptance_text_exposed"] is False
     acceptance_text = acceptance_receipt.read_text(encoding="utf-8")
@@ -988,6 +993,10 @@ def test_admin_acceptance_capture_records_redacted_goal_evidence(
     assert quality["status"] == "blocked_real_world_acceptance"
     assert "real_daily_morning_brief_accepted" not in quality["external_acceptance_blockers"]
     assert "real_decision_cleared" in quality["external_acceptance_blockers"]
+    assert (
+        quality["next_action_form_href"]
+        == "/admin/actions/acceptance-evidence?return_to=%2Fadmin%2Fgoals&proof_key=real_decision_cleared"
+    )
 
     signal = json.loads(signal_receipt.read_text(encoding="utf-8"))
     assert signal["status"] == "ready_local_packet_pending_operator_acceptance"
@@ -1016,9 +1025,18 @@ def test_admin_acceptance_capture_records_redacted_goal_evidence(
     assert signal["operator_review"]["status"] == "accepted_redacted"
     assert signal["operator_review"]["raw_review_exposed"] is False
     assert signal["signal_evidence_capture_surface"]["path"] == "/admin/actions/signal-to-decision-evidence"
+    assert signal["signal_evidence_capture_surface"]["form_method"] == "GET"
+    assert (
+        signal["next_action_form_href"]
+        == "/admin/actions/signal-to-decision-evidence?return_to=%2Fadmin%2Fgoals&evidence_part=followthrough"
+    )
     signal_requirements = {item["evidence_part"]: item for item in signal["signal_evidence_capture_requirements"]}
     assert signal_requirements["review"]["status"] == "accepted_redacted"
     assert signal_requirements["followthrough"]["status"] == "pending_real_world_evidence"
+    assert (
+        signal_requirements["followthrough"]["form_href"]
+        == "/admin/actions/signal-to-decision-evidence?return_to=%2Fadmin%2Fgoals&evidence_part=followthrough"
+    )
     assert signal_requirements["followthrough"]["raw_input_not_persisted"] is True
     signal_text = signal_receipt.read_text(encoding="utf-8")
     assert raw_review not in signal_text

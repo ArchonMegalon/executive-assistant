@@ -15,9 +15,11 @@ from materialize_whole_project_signal_to_decision_receipt import (
     REQUIRED_SIGNAL_SOURCES,
     SIGNAL_EVIDENCE_CAPTURE_LABEL,
     SIGNAL_EVIDENCE_CAPTURE_FORM_FIELDS,
+    SIGNAL_EVIDENCE_CAPTURE_FORM_METHOD,
     SIGNAL_EVIDENCE_CAPTURE_METHOD,
     SIGNAL_EVIDENCE_CAPTURE_PATH,
     SIGNAL_EVIDENCE_PARTS,
+    _signal_evidence_form_href,
 )
 from scripts.source_state_head import resolve_source_state_head
 from scripts.source_state_head import resolve_source_worktree_fingerprint
@@ -63,6 +65,9 @@ def verify_whole_project_signal_to_decision_receipt(receipt_path: str | Path) ->
     next_action_href = str(receipt.get("next_action_href") or "").strip()
     next_action_label = str(receipt.get("next_action_label") or "").strip()
     next_action_method = str(receipt.get("next_action_method") or "").strip().lower()
+    next_action_form_href = str(receipt.get("next_action_form_href") or "").strip()
+    next_action_form_label = str(receipt.get("next_action_form_label") or "").strip()
+    next_action_form_method = str(receipt.get("next_action_form_method") or "").strip().lower()
     next_action_evidence_part = str(receipt.get("next_action_evidence_part") or "").strip()
     rows = {dict(row).get("key"): row for row in receipt.get("signal_sources") or []}
     for key in REQUIRED_SIGNAL_SOURCES:
@@ -84,6 +89,10 @@ def verify_whole_project_signal_to_decision_receipt(receipt_path: str | Path) ->
         issues.append("signal_decision_capture_surface_method_missing")
     if surface.get("path") != SIGNAL_EVIDENCE_CAPTURE_PATH:
         issues.append("signal_decision_capture_surface_path_missing")
+    if surface.get("form_method") != SIGNAL_EVIDENCE_CAPTURE_FORM_METHOD:
+        issues.append("signal_decision_capture_surface_form_method_missing")
+    if surface.get("form_path") != SIGNAL_EVIDENCE_CAPTURE_PATH:
+        issues.append("signal_decision_capture_surface_form_path_missing")
     for key in ("admin_only", "operator_context_required", "raw_input_not_persisted"):
         if surface.get(key) is not True:
             issues.append(f"signal_decision_capture_surface_flag_not_true:{key}")
@@ -124,6 +133,10 @@ def verify_whole_project_signal_to_decision_receipt(receipt_path: str | Path) ->
             issues.append(f"signal_decision_capture_requirement_method_missing:{part}")
         if requirement.get("capture_path") != SIGNAL_EVIDENCE_CAPTURE_PATH:
             issues.append(f"signal_decision_capture_requirement_path_missing:{part}")
+        if requirement.get("form_method") != SIGNAL_EVIDENCE_CAPTURE_FORM_METHOD:
+            issues.append(f"signal_decision_capture_requirement_form_method_missing:{part}")
+        if requirement.get("form_href") != _signal_evidence_form_href(part):
+            issues.append(f"signal_decision_capture_requirement_form_href_missing:{part}")
         for field in SIGNAL_EVIDENCE_CAPTURE_FORM_FIELDS:
             if field not in list(requirement.get("required_form_fields") or []):
                 issues.append(f"signal_decision_capture_requirement_field_missing:{part}:{field}")
@@ -137,6 +150,10 @@ def verify_whole_project_signal_to_decision_receipt(receipt_path: str | Path) ->
         expected_status = "accepted_redacted" if accepted else "pending_real_world_evidence"
         if requirement.get("status") != expected_status:
             issues.append(f"signal_decision_capture_requirement_status_mismatch:{part}")
+        if requirement.get("next_action_form_href") != _signal_evidence_form_href(part):
+            issues.append(f"signal_decision_capture_requirement_next_action_form_href_missing:{part}")
+        if requirement.get("next_action_form_method") != SIGNAL_EVIDENCE_CAPTURE_FORM_METHOD.lower():
+            issues.append(f"signal_decision_capture_requirement_next_action_form_method_missing:{part}")
 
         evidence_row = dict(receipt.get(str(spec["receipt_field"])) or {})
         if accepted:
@@ -160,6 +177,12 @@ def verify_whole_project_signal_to_decision_receipt(receipt_path: str | Path) ->
             issues.append("signal_decision_next_action_label_missing")
         if next_action_method != SIGNAL_EVIDENCE_CAPTURE_METHOD.lower():
             issues.append("signal_decision_next_action_method_missing")
+        if next_action_form_href != _signal_evidence_form_href("review"):
+            issues.append("signal_decision_next_action_form_href_missing:review")
+        if next_action_form_label != SIGNAL_EVIDENCE_CAPTURE_LABEL:
+            issues.append("signal_decision_next_action_form_label_missing:review")
+        if next_action_form_method != SIGNAL_EVIDENCE_CAPTURE_FORM_METHOD.lower():
+            issues.append("signal_decision_next_action_form_method_missing:review")
     elif not bool(receipt.get("closed_loop_followthrough_receipt_verified")):
         if next_action != str(SIGNAL_EVIDENCE_PARTS["followthrough"]["next_action"]):
             issues.append("signal_decision_next_action_followthrough_missing")
@@ -171,6 +194,12 @@ def verify_whole_project_signal_to_decision_receipt(receipt_path: str | Path) ->
             issues.append("signal_decision_next_action_label_missing")
         if next_action_method != SIGNAL_EVIDENCE_CAPTURE_METHOD.lower():
             issues.append("signal_decision_next_action_method_missing")
+        if next_action_form_href != _signal_evidence_form_href("followthrough"):
+            issues.append("signal_decision_next_action_form_href_missing:followthrough")
+        if next_action_form_label != SIGNAL_EVIDENCE_CAPTURE_LABEL:
+            issues.append("signal_decision_next_action_form_label_missing:followthrough")
+        if next_action_form_method != SIGNAL_EVIDENCE_CAPTURE_FORM_METHOD.lower():
+            issues.append("signal_decision_next_action_form_method_missing:followthrough")
     else:
         if next_action != "review_closed_signal_to_decision_claim":
             issues.append("signal_decision_next_action_review_closed_claim_missing")
@@ -178,6 +207,9 @@ def verify_whole_project_signal_to_decision_receipt(receipt_path: str | Path) ->
             ("href", next_action_href),
             ("label", next_action_label),
             ("method", next_action_method),
+            ("form_href", next_action_form_href),
+            ("form_label", next_action_form_label),
+            ("form_method", next_action_form_method),
             ("evidence_part", next_action_evidence_part),
         ):
             if value:

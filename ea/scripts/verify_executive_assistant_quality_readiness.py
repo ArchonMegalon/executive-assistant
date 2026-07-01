@@ -13,10 +13,12 @@ if str(REPO_ROOT) not in sys.path:
 
 from materialize_executive_assistant_acceptance_evidence import ACCEPTANCE_CAPTURE_LABEL
 from materialize_executive_assistant_acceptance_evidence import ACCEPTANCE_CAPTURE_FORM_FIELDS
+from materialize_executive_assistant_acceptance_evidence import ACCEPTANCE_CAPTURE_FORM_METHOD
 from materialize_executive_assistant_acceptance_evidence import ACCEPTANCE_CAPTURE_METHOD
 from materialize_executive_assistant_acceptance_evidence import ACCEPTANCE_CAPTURE_PATH
 from materialize_executive_assistant_acceptance_evidence import REMAINING_PROOF_LABELS
 from materialize_executive_assistant_acceptance_evidence import REQUIRED_ACCEPTANCE_KEYS
+from materialize_executive_assistant_acceptance_evidence import _acceptance_capture_form_href
 from materialize_executive_assistant_quality_readiness import REQUIRED_REAL_WORLD_PROOF
 from materialize_executive_assistant_quality_readiness import LOCAL_REVIEW_LABEL
 from materialize_executive_assistant_quality_readiness import LOCAL_REVIEW_PATH
@@ -54,6 +56,9 @@ def verify_executive_assistant_quality_readiness(receipt_path: str | Path) -> di
     next_action_href = str(receipt.get("next_action_href") or "").strip()
     next_action_label = str(receipt.get("next_action_label") or "").strip()
     next_action_method = str(receipt.get("next_action_method") or "").strip().lower()
+    next_action_form_href = str(receipt.get("next_action_form_href") or "").strip()
+    next_action_form_label = str(receipt.get("next_action_form_label") or "").strip()
+    next_action_form_method = str(receipt.get("next_action_form_method") or "").strip().lower()
     next_action_proof_key = str(receipt.get("next_action_proof_key") or "").strip()
     next_action_context = dict(receipt.get("next_action_context") or {})
     if receipt.get("goal_completion_claim_allowed") is True:
@@ -75,6 +80,10 @@ def verify_executive_assistant_quality_readiness(receipt_path: str | Path) -> di
         issues.append("ea_quality_acceptance_capture_surface_method_missing")
     if surface.get("path") != ACCEPTANCE_CAPTURE_PATH:
         issues.append("ea_quality_acceptance_capture_surface_path_missing")
+    if surface.get("form_method") != ACCEPTANCE_CAPTURE_FORM_METHOD:
+        issues.append("ea_quality_acceptance_capture_surface_form_method_missing")
+    if surface.get("form_path") != ACCEPTANCE_CAPTURE_PATH:
+        issues.append("ea_quality_acceptance_capture_surface_form_path_missing")
     for key in ("admin_only", "operator_context_required", "raw_input_not_persisted"):
         if surface.get(key) is not True:
             issues.append(f"ea_quality_acceptance_capture_surface_flag_not_true:{key}")
@@ -111,6 +120,10 @@ def verify_executive_assistant_quality_readiness(receipt_path: str | Path) -> di
             issues.append(f"ea_quality_acceptance_capture_requirement_method_missing:{key}")
         if requirement.get("capture_path") != ACCEPTANCE_CAPTURE_PATH:
             issues.append(f"ea_quality_acceptance_capture_requirement_path_missing:{key}")
+        if requirement.get("form_method") != ACCEPTANCE_CAPTURE_FORM_METHOD:
+            issues.append(f"ea_quality_acceptance_capture_requirement_form_method_missing:{key}")
+        if requirement.get("form_href") != _acceptance_capture_form_href(key):
+            issues.append(f"ea_quality_acceptance_capture_requirement_form_href_missing:{key}")
         if requirement.get("proof_key") != key:
             issues.append(f"ea_quality_acceptance_capture_requirement_proof_key_mismatch:{key}")
         for field in ACCEPTANCE_CAPTURE_FORM_FIELDS:
@@ -136,6 +149,12 @@ def verify_executive_assistant_quality_readiness(receipt_path: str | Path) -> di
             issues.append("ea_quality_next_action_method_missing")
         if not next_action_proof_key:
             issues.append("ea_quality_next_action_proof_key_missing")
+        if next_action_form_href != _acceptance_capture_form_href(next_action_proof_key):
+            issues.append("ea_quality_next_action_form_href_missing")
+        if next_action_form_label != ACCEPTANCE_CAPTURE_LABEL:
+            issues.append("ea_quality_next_action_form_label_missing")
+        if next_action_form_method != ACCEPTANCE_CAPTURE_FORM_METHOD.lower():
+            issues.append("ea_quality_next_action_form_method_missing")
         if next_action_context.get("kind") != "redacted_acceptance_capture":
             issues.append("ea_quality_next_action_context_kind_missing")
         if next_action_context.get("proof_key") != next_action_proof_key:
@@ -146,6 +165,10 @@ def verify_executive_assistant_quality_readiness(receipt_path: str | Path) -> di
             issues.append("ea_quality_next_action_context_capture_path_missing")
         if str(next_action_context.get("capture_method") or "").lower() != ACCEPTANCE_CAPTURE_METHOD.lower():
             issues.append("ea_quality_next_action_context_capture_method_missing")
+        if next_action_context.get("form_href") != _acceptance_capture_form_href(next_action_proof_key):
+            issues.append("ea_quality_next_action_context_form_href_missing")
+        if str(next_action_context.get("form_method") or "").lower() != ACCEPTANCE_CAPTURE_FORM_METHOD.lower():
+            issues.append("ea_quality_next_action_context_form_method_missing")
         for field in ACCEPTANCE_CAPTURE_FORM_FIELDS:
             if field not in list(next_action_context.get("required_form_fields") or []):
                 issues.append(f"ea_quality_next_action_context_field_missing:{field}")
@@ -165,8 +188,22 @@ def verify_executive_assistant_quality_readiness(receipt_path: str | Path) -> di
             issues.append("ea_quality_local_next_action_label_drift")
         if next_action_method != "get":
             issues.append("ea_quality_local_next_action_method_drift")
+        if next_action_form_href != LOCAL_REVIEW_PATH:
+            issues.append("ea_quality_local_next_action_form_href_drift")
+        if next_action_form_label != LOCAL_REVIEW_LABEL:
+            issues.append("ea_quality_local_next_action_form_label_drift")
+        if next_action_form_method != "get":
+            issues.append("ea_quality_local_next_action_form_method_drift")
     else:
-        if next_action_href or next_action_label or next_action_method or next_action_proof_key:
+        if (
+            next_action_href
+            or next_action_label
+            or next_action_method
+            or next_action_form_href
+            or next_action_form_label
+            or next_action_form_method
+            or next_action_proof_key
+        ):
             issues.append("ea_quality_ready_next_action_should_be_empty")
         if next_action_context:
             issues.append("ea_quality_ready_next_action_context_should_be_empty")

@@ -55,11 +55,14 @@
     "source_kind": "",
     "status": "missing_or_invalid"
   },
-  "generated_at": "2026-07-01T05:39:26Z",
+  "generated_at": "2026-07-01T05:51:55Z",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
   "next_action": "record_redacted_signal_review_acceptance",
   "next_action_evidence_part": "review",
+  "next_action_form_href": "/admin/actions/signal-to-decision-evidence?return_to=%2Fadmin%2Fgoals&evidence_part=review",
+  "next_action_form_label": "Record a signal-loop outcome",
+  "next_action_form_method": "get",
   "next_action_href": "/admin/actions/signal-to-decision-evidence",
   "next_action_label": "Record a signal-loop outcome",
   "next_action_method": "post",
@@ -110,8 +113,13 @@
       "capture_path": "/admin/actions/signal-to-decision-evidence",
       "claim_boundary": "does_not_prove_closed_signal_to_decision_loop_until_review_and_followthrough_are_accepted",
       "evidence_part": "review",
+      "form_href": "/admin/actions/signal-to-decision-evidence?return_to=%2Fadmin%2Fgoals&evidence_part=review",
+      "form_method": "GET",
       "label": "real weekly signal-to-decision review accepted by the operator",
       "next_action": "record_redacted_signal_review_acceptance",
+      "next_action_form_href": "/admin/actions/signal-to-decision-evidence?return_to=%2Fadmin%2Fgoals&evidence_part=review",
+      "next_action_form_label": "Record a signal-loop outcome",
+      "next_action_form_method": "get",
       "raw_actor_exposed": false,
       "raw_evidence_exposed": false,
       "raw_input_not_persisted": true,
@@ -132,8 +140,13 @@
       "capture_path": "/admin/actions/signal-to-decision-evidence",
       "claim_boundary": "does_not_prove_closed_signal_to_decision_loop_until_review_and_followthrough_are_accepted",
       "evidence_part": "followthrough",
+      "form_href": "/admin/actions/signal-to-decision-evidence?return_to=%2Fadmin%2Fgoals&evidence_part=followthrough",
+      "form_method": "GET",
       "label": "closed-loop signal-to-decision follow-through receipt accepted by the operator",
       "next_action": "record_redacted_signal_followthrough_acceptance",
+      "next_action_form_href": "/admin/actions/signal-to-decision-evidence?return_to=%2Fadmin%2Fgoals&evidence_part=followthrough",
+      "next_action_form_label": "Record a signal-loop outcome",
+      "next_action_form_method": "get",
       "raw_actor_exposed": false,
       "raw_evidence_exposed": false,
       "raw_input_not_persisted": true,
@@ -152,9 +165,15 @@
   "signal_evidence_capture_surface": {
     "admin_only": true,
     "claim_boundary": "captures_redacted_signal_to_decision_acceptance_only_not_queue_or_release_truth",
+    "form_method": "GET",
+    "form_path": "/admin/actions/signal-to-decision-evidence",
     "method": "POST",
     "operator_context_required": true,
     "path": "/admin/actions/signal-to-decision-evidence",
+    "prefill_query_fields": [
+      "evidence_part",
+      "return_to"
+    ],
     "privacy_contract": {
       "credential_values_persisted": false,
       "raw_actor_identity_persisted": false,
@@ -238,8 +257,8 @@
       "status": "mapped_from_sources"
     }
   ],
-  "source_git_head": "b5bafa2095e75fb874901f18025c56e930b05f42",
-  "source_state_fingerprint": "6efb9dfb0ed2e62b6c5ddb67fc30731d2b633ca5c01373c142cdbc13578eae33",
+  "source_git_head": "83fb978d17fa9c2474456337fea5fe28383145b7",
+  "source_state_fingerprint": "a7affd11bf5a7fd47a125a7757826c6e7519611fb21998a4b2c9d06d9339687f",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready_local_packet_pending_operator_acceptance"
 }

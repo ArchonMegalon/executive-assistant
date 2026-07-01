@@ -109,11 +109,13 @@ _ACCEPTANCE_CAPTURE_PATH = "/admin/actions/acceptance-evidence"
 _ACCEPTANCE_CAPTURE_METHOD = "POST"
 _ACCEPTANCE_CAPTURE_LABEL = "Record a real-use outcome"
 _ACCEPTANCE_CAPTURE_FORM_FIELDS = ["proof_key", "source_kind", "evidence", "object_ref"]
+_ACCEPTANCE_CAPTURE_FORM_METHOD = "GET"
 _LOCAL_REVIEW_PATH = "/app/today"
 _LOCAL_REVIEW_LABEL = "Open Today"
 _SIGNAL_EVIDENCE_CAPTURE_PATH = "/admin/actions/signal-to-decision-evidence"
 _SIGNAL_EVIDENCE_CAPTURE_METHOD = "POST"
 _SIGNAL_EVIDENCE_CAPTURE_FORM_FIELDS = ["evidence_part", "source_kind", "evidence", "packet_ref"]
+_SIGNAL_EVIDENCE_CAPTURE_FORM_METHOD = "GET"
 _REQUIRED_SIGNAL_SOURCES = [
     "real_usage_telemetry",
     "support_and_recovery_cases",
@@ -162,6 +164,8 @@ def _quality_next_action_context(proof_key: str) -> dict[str, object]:
         "proof_label": _ACCEPTANCE_PROOF_LABELS.get(proof_key, ""),
         "capture_path": _ACCEPTANCE_CAPTURE_PATH,
         "capture_method": _ACCEPTANCE_CAPTURE_METHOD,
+        "form_href": _acceptance_capture_form_href(proof_key),
+        "form_method": _ACCEPTANCE_CAPTURE_FORM_METHOD,
         "required_form_fields": list(_ACCEPTANCE_CAPTURE_FORM_FIELDS),
         "stored_evidence_shape": "sha256_only",
         "raw_acceptance_text_persisted": False,
@@ -174,9 +178,12 @@ def _acceptance_capture_surface() -> dict[str, object]:
     return {
         "method": _ACCEPTANCE_CAPTURE_METHOD,
         "path": _ACCEPTANCE_CAPTURE_PATH,
+        "form_method": _ACCEPTANCE_CAPTURE_FORM_METHOD,
+        "form_path": _ACCEPTANCE_CAPTURE_PATH,
         "admin_only": True,
         "operator_context_required": True,
         "required_form_fields": list(_ACCEPTANCE_CAPTURE_FORM_FIELDS),
+        "prefill_query_fields": ["proof_key", "return_to"],
         "server_actor_source": "authenticated_operator_context",
         "raw_input_not_persisted": True,
         "stored_evidence_shape": "sha256_only",
@@ -188,6 +195,13 @@ def _acceptance_capture_surface() -> dict[str, object]:
         },
         "claim_boundary": "capture_surface_collects_redacted_acceptance_evidence_only_not_goal_completion",
     }
+
+
+def _acceptance_capture_form_href(proof_key: str, *, return_to: str = "/admin/goals") -> str:
+    query = {"return_to": return_to}
+    if proof_key:
+        query["proof_key"] = proof_key
+    return f"{_ACCEPTANCE_CAPTURE_PATH}?{urllib.parse.urlencode(query)}"
 
 
 def _acceptance_form_option(key: str, selected_key: str, acceptance_keys: dict[str, object]) -> str:
@@ -557,6 +571,8 @@ def _acceptance_capture_requirements(acceptance_keys: dict[str, object]) -> list
                 "accepted": accepted,
                 "capture_method": _ACCEPTANCE_CAPTURE_METHOD,
                 "capture_path": _ACCEPTANCE_CAPTURE_PATH,
+                "form_method": _ACCEPTANCE_CAPTURE_FORM_METHOD,
+                "form_href": _acceptance_capture_form_href(key),
                 "proof_key": key,
                 "required_form_fields": list(_ACCEPTANCE_CAPTURE_FORM_FIELDS),
                 "server_actor_source": "authenticated_operator_context",
@@ -577,6 +593,9 @@ def _acceptance_capture_requirements(acceptance_keys: dict[str, object]) -> list
                     if accepted
                     else f"record_redacted_acceptance_evidence:{key}"
                 ),
+                "next_action_form_href": _acceptance_capture_form_href(key),
+                "next_action_form_label": _ACCEPTANCE_CAPTURE_LABEL,
+                "next_action_form_method": _ACCEPTANCE_CAPTURE_FORM_METHOD.lower(),
                 "claim_boundary": "does_not_prove_good_executive_assistant_until_all_required_acceptance_keys_are_accepted",
             }
         )
@@ -587,9 +606,12 @@ def _signal_evidence_capture_surface() -> dict[str, object]:
     return {
         "method": _SIGNAL_EVIDENCE_CAPTURE_METHOD,
         "path": _SIGNAL_EVIDENCE_CAPTURE_PATH,
+        "form_method": _SIGNAL_EVIDENCE_CAPTURE_FORM_METHOD,
+        "form_path": _SIGNAL_EVIDENCE_CAPTURE_PATH,
         "admin_only": True,
         "operator_context_required": True,
         "required_form_fields": list(_SIGNAL_EVIDENCE_CAPTURE_FORM_FIELDS),
+        "prefill_query_fields": ["evidence_part", "return_to"],
         "valid_evidence_parts": list(_SIGNAL_EVIDENCE_PARTS),
         "server_actor_source": "authenticated_operator_context",
         "raw_input_not_persisted": True,
@@ -605,6 +627,13 @@ def _signal_evidence_capture_surface() -> dict[str, object]:
     }
 
 
+def _signal_evidence_form_href(evidence_part: str, *, return_to: str = "/admin/goals") -> str:
+    query = {"return_to": return_to}
+    if evidence_part:
+        query["evidence_part"] = evidence_part
+    return f"{_SIGNAL_EVIDENCE_CAPTURE_PATH}?{urllib.parse.urlencode(query)}"
+
+
 def _signal_evidence_capture_requirements(receipt: dict[str, object]) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for part, spec in _SIGNAL_EVIDENCE_PARTS.items():
@@ -617,6 +646,8 @@ def _signal_evidence_capture_requirements(receipt: dict[str, object]) -> list[di
                 "accepted": accepted,
                 "capture_method": _SIGNAL_EVIDENCE_CAPTURE_METHOD,
                 "capture_path": _SIGNAL_EVIDENCE_CAPTURE_PATH,
+                "form_method": _SIGNAL_EVIDENCE_CAPTURE_FORM_METHOD,
+                "form_href": _signal_evidence_form_href(part),
                 "required_form_fields": list(_SIGNAL_EVIDENCE_CAPTURE_FORM_FIELDS),
                 "server_actor_source": "authenticated_operator_context",
                 "raw_input_not_persisted": True,
@@ -629,6 +660,9 @@ def _signal_evidence_capture_requirements(receipt: dict[str, object]) -> list[di
                     if accepted
                     else str(spec["next_action"])
                 ),
+                "next_action_form_href": _signal_evidence_form_href(part),
+                "next_action_form_label": "Record a signal-loop outcome",
+                "next_action_form_method": _SIGNAL_EVIDENCE_CAPTURE_FORM_METHOD.lower(),
                 "claim_boundary": "does_not_prove_closed_signal_to_decision_loop_until_review_and_followthrough_are_accepted",
             }
         )
@@ -669,10 +703,16 @@ def _refresh_signal_evidence_contract(receipt: dict[str, object]) -> None:
         receipt["next_action_href"] = _SIGNAL_EVIDENCE_CAPTURE_PATH
         receipt["next_action_label"] = "Record a signal-loop outcome"
         receipt["next_action_method"] = _SIGNAL_EVIDENCE_CAPTURE_METHOD.lower()
+        receipt["next_action_form_href"] = _signal_evidence_form_href(str(receipt["next_action_evidence_part"]))
+        receipt["next_action_form_label"] = "Record a signal-loop outcome"
+        receipt["next_action_form_method"] = _SIGNAL_EVIDENCE_CAPTURE_FORM_METHOD.lower()
     else:
         receipt["next_action_href"] = ""
         receipt["next_action_label"] = ""
         receipt["next_action_method"] = ""
+        receipt["next_action_form_href"] = ""
+        receipt["next_action_form_label"] = ""
+        receipt["next_action_form_method"] = ""
     receipt["goal_completion_claim_allowed"] = False
     receipt["queue_truth_claim_allowed"] = False
     receipt["release_authority_claim_allowed"] = False
@@ -927,6 +967,16 @@ def _refresh_acceptance_receipt_summary(
     receipt["real_provider_recovery_verified"] = rows["real_provider_failure_recovered"].get("accepted") is True
     receipt["acceptance_capture_surface"] = _acceptance_capture_surface()
     receipt["acceptance_capture_requirements"] = _acceptance_capture_requirements(rows)
+    receipt["remaining_external_proofs"] = [_ACCEPTANCE_PROOF_LABELS[key] for key in blocked_keys]
+    next_proof_key = blocked_keys[0] if blocked_keys else ""
+    receipt["next_action"] = "collect_redacted_real_world_acceptance_evidence" if blocked_keys else "review_good_executive_assistant_claim"
+    receipt["next_action_href"] = _ACCEPTANCE_CAPTURE_PATH if blocked_keys else ""
+    receipt["next_action_label"] = _ACCEPTANCE_CAPTURE_LABEL if blocked_keys else ""
+    receipt["next_action_method"] = _ACCEPTANCE_CAPTURE_METHOD.lower() if blocked_keys else ""
+    receipt["next_action_form_href"] = _acceptance_capture_form_href(next_proof_key) if next_proof_key else ""
+    receipt["next_action_form_label"] = _ACCEPTANCE_CAPTURE_LABEL if next_proof_key else ""
+    receipt["next_action_form_method"] = _ACCEPTANCE_CAPTURE_FORM_METHOD.lower() if next_proof_key else ""
+    receipt["next_action_proof_key"] = next_proof_key
     blocked_keys_tuple = tuple(blocked_keys)
     receipt["operator_delivery_policy"] = _acceptance_operator_delivery_policy(
         expected_blocked=blocked_keys_tuple,
@@ -938,18 +988,6 @@ def _refresh_acceptance_receipt_summary(
         "raw_object_reference_exposed": False,
         "raw_private_context_exposed": False,
     }
-    receipt["remaining_external_proofs"] = [_ACCEPTANCE_PROOF_LABELS[key] for key in blocked_keys]
-    receipt["next_action"] = (
-        "collect_redacted_real_world_acceptance_evidence"
-        if blocked_keys
-        else "review_good_executive_assistant_claim"
-    )
-    receipt["next_action_href"] = _ACCEPTANCE_CAPTURE_PATH if blocked_keys else ""
-    receipt["next_action_label"] = _ACCEPTANCE_CAPTURE_LABEL if blocked_keys else ""
-    receipt["next_action_method"] = _ACCEPTANCE_CAPTURE_METHOD.lower() if blocked_keys else ""
-    receipt["next_action_proof_key"] = blocked_keys[0] if blocked_keys else ""
-
-
 def _update_quality_receipt_from_acceptance(acceptance: dict[str, object]) -> None:
     quality = _load_json(EA_QUALITY_READINESS_RECEIPT)
     if not quality:
@@ -1016,6 +1054,9 @@ def _update_quality_receipt_from_acceptance(acceptance: dict[str, object]) -> No
         quality["next_action_href"] = _LOCAL_REVIEW_PATH
         quality["next_action_label"] = _LOCAL_REVIEW_LABEL
         quality["next_action_method"] = "get"
+        quality["next_action_form_href"] = _LOCAL_REVIEW_PATH
+        quality["next_action_form_label"] = _LOCAL_REVIEW_LABEL
+        quality["next_action_form_method"] = "get"
         quality["next_action_proof_key"] = ""
         quality["next_action_context"] = {}
     elif status == "blocked_real_world_acceptance":
@@ -1024,6 +1065,9 @@ def _update_quality_receipt_from_acceptance(acceptance: dict[str, object]) -> No
         quality["next_action_href"] = _ACCEPTANCE_CAPTURE_PATH
         quality["next_action_label"] = _ACCEPTANCE_CAPTURE_LABEL
         quality["next_action_method"] = _ACCEPTANCE_CAPTURE_METHOD.lower()
+        quality["next_action_form_href"] = _acceptance_capture_form_href(next_action_proof_key)
+        quality["next_action_form_label"] = _ACCEPTANCE_CAPTURE_LABEL
+        quality["next_action_form_method"] = _ACCEPTANCE_CAPTURE_FORM_METHOD.lower()
         quality["next_action_proof_key"] = next_action_proof_key
         quality["next_action_context"] = _quality_next_action_context(next_action_proof_key)
     else:
@@ -1031,6 +1075,9 @@ def _update_quality_receipt_from_acceptance(acceptance: dict[str, object]) -> No
         quality["next_action_href"] = ""
         quality["next_action_label"] = ""
         quality["next_action_method"] = ""
+        quality["next_action_form_href"] = ""
+        quality["next_action_form_label"] = ""
+        quality["next_action_form_method"] = ""
         quality["next_action_proof_key"] = ""
         quality["next_action_context"] = {}
     _write_json(EA_QUALITY_READINESS_RECEIPT, quality)

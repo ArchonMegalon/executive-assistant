@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import sys
+import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,7 @@ SIGNAL_EVIDENCE_CAPTURE_PATH = "/admin/actions/signal-to-decision-evidence"
 SIGNAL_EVIDENCE_CAPTURE_METHOD = "POST"
 SIGNAL_EVIDENCE_CAPTURE_FORM_FIELDS = ["evidence_part", "source_kind", "evidence", "packet_ref"]
 SIGNAL_EVIDENCE_CAPTURE_LABEL = "Record a signal-loop outcome"
+SIGNAL_EVIDENCE_CAPTURE_FORM_METHOD = "GET"
 SIGNAL_EVIDENCE_PARTS = {
     "review": {
         "label": "real weekly signal-to-decision review accepted by the operator",
@@ -183,9 +185,12 @@ def _signal_evidence_capture_surface() -> dict[str, Any]:
     return {
         "method": SIGNAL_EVIDENCE_CAPTURE_METHOD,
         "path": SIGNAL_EVIDENCE_CAPTURE_PATH,
+        "form_method": SIGNAL_EVIDENCE_CAPTURE_FORM_METHOD,
+        "form_path": SIGNAL_EVIDENCE_CAPTURE_PATH,
         "admin_only": True,
         "operator_context_required": True,
         "required_form_fields": SIGNAL_EVIDENCE_CAPTURE_FORM_FIELDS,
+        "prefill_query_fields": ["evidence_part", "return_to"],
         "valid_evidence_parts": list(SIGNAL_EVIDENCE_PARTS),
         "server_actor_source": "authenticated_operator_context",
         "raw_input_not_persisted": True,
@@ -201,6 +206,13 @@ def _signal_evidence_capture_surface() -> dict[str, Any]:
     }
 
 
+def _signal_evidence_form_href(evidence_part: str, *, return_to: str = "/admin/goals") -> str:
+    query = {"return_to": return_to}
+    if evidence_part:
+        query["evidence_part"] = evidence_part
+    return f"{SIGNAL_EVIDENCE_CAPTURE_PATH}?{urllib.parse.urlencode(query)}"
+
+
 def _signal_evidence_capture_requirements(*, review_accepted: bool, follow_accepted: bool) -> list[dict[str, Any]]:
     accepted_by_part = {"review": review_accepted, "followthrough": follow_accepted}
     rows: list[dict[str, Any]] = []
@@ -214,6 +226,8 @@ def _signal_evidence_capture_requirements(*, review_accepted: bool, follow_accep
                 "accepted": accepted,
                 "capture_method": SIGNAL_EVIDENCE_CAPTURE_METHOD,
                 "capture_path": SIGNAL_EVIDENCE_CAPTURE_PATH,
+                "form_method": SIGNAL_EVIDENCE_CAPTURE_FORM_METHOD,
+                "form_href": _signal_evidence_form_href(part),
                 "required_form_fields": SIGNAL_EVIDENCE_CAPTURE_FORM_FIELDS,
                 "server_actor_source": "authenticated_operator_context",
                 "raw_input_not_persisted": True,
@@ -226,6 +240,9 @@ def _signal_evidence_capture_requirements(*, review_accepted: bool, follow_accep
                     if accepted
                     else str(spec["next_action"])
                 ),
+                "next_action_form_href": _signal_evidence_form_href(part),
+                "next_action_form_label": SIGNAL_EVIDENCE_CAPTURE_LABEL,
+                "next_action_form_method": SIGNAL_EVIDENCE_CAPTURE_FORM_METHOD.lower(),
                 "claim_boundary": "does_not_prove_closed_signal_to_decision_loop_until_review_and_followthrough_are_accepted",
             }
         )
@@ -312,6 +329,9 @@ def materialize_whole_project_signal_to_decision_receipt(
         "next_action_href": SIGNAL_EVIDENCE_CAPTURE_PATH if next_action_evidence_part else "",
         "next_action_label": SIGNAL_EVIDENCE_CAPTURE_LABEL if next_action_evidence_part else "",
         "next_action_method": SIGNAL_EVIDENCE_CAPTURE_METHOD.lower() if next_action_evidence_part else "",
+        "next_action_form_href": _signal_evidence_form_href(next_action_evidence_part) if next_action_evidence_part else "",
+        "next_action_form_label": SIGNAL_EVIDENCE_CAPTURE_LABEL if next_action_evidence_part else "",
+        "next_action_form_method": SIGNAL_EVIDENCE_CAPTURE_FORM_METHOD.lower() if next_action_evidence_part else "",
         "next_action_evidence_part": next_action_evidence_part,
         "real_weekly_operator_review_accepted": review_accepted,
         "closed_loop_followthrough_receipt_verified": follow_accepted,

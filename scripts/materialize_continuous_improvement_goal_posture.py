@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import urllib.parse
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -144,6 +145,48 @@ ACTION_SURFACES = {
         "method": "get",
     },
 }
+
+
+def _query_href(path: str, **params: str) -> str:
+    clean = {key: value for key, value in params.items() if str(value or "").strip()}
+    return f"{path}?{urllib.parse.urlencode(clean)}" if clean else path
+
+
+def _acceptance_form_href(proof_key: str) -> str:
+    return _query_href("/admin/actions/acceptance-evidence", return_to="/admin/goals", proof_key=proof_key)
+
+
+def _signal_form_href(evidence_part: str) -> str:
+    return _query_href("/admin/actions/signal-to-decision-evidence", return_to="/admin/goals", evidence_part=evidence_part)
+
+
+def _operator_form_surface(next_action: str, action_context: dict[str, Any]) -> dict[str, str]:
+    surface = ACTION_SURFACES.get(next_action, {})
+    href = str(surface.get("href") or "").strip()
+    method = str(surface.get("method") or "").strip().lower()
+    if href == "/admin/actions/acceptance-evidence":
+        form_href = str(action_context.get("next_action_form_href") or "").strip()
+        if not form_href:
+            form_href = _acceptance_form_href(str(action_context.get("proof_key") or "").strip())
+        return {
+            "next_action_form_href": form_href,
+            "next_action_form_label": str(surface.get("label") or "").strip(),
+            "next_action_form_method": "get",
+        }
+    if href == "/admin/actions/signal-to-decision-evidence":
+        form_href = str(action_context.get("next_action_form_href") or "").strip()
+        if not form_href:
+            form_href = _signal_form_href(str(action_context.get("evidence_part") or "review").strip())
+        return {
+            "next_action_form_href": form_href,
+            "next_action_form_label": str(surface.get("label") or "").strip(),
+            "next_action_form_method": "get",
+        }
+    return {
+        "next_action_form_href": href if method == "get" else "",
+        "next_action_form_label": str(surface.get("label") or "").strip() if method == "get" else "",
+        "next_action_form_method": method if method == "get" else "",
+    }
 
 
 def _utc_now() -> str:
@@ -304,6 +347,8 @@ def _acceptance_proof_requirement(
     action_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     surface = ACTION_SURFACES.get(next_action, {})
+    context = dict(action_context or {})
+    form_surface = _operator_form_surface(next_action, context)
     payload = {
         "key": key,
         "title": title,
@@ -316,11 +361,12 @@ def _acceptance_proof_requirement(
         "next_action_href": str(surface.get("href") or "").strip(),
         "next_action_label": str(surface.get("label") or "").strip(),
         "next_action_method": str(surface.get("method") or "").strip(),
+        **form_surface,
         "claim_boundary": claim_boundary,
         "source_receipts": source_receipts,
     }
-    if action_context:
-        payload["action_context"] = action_context
+    if context:
+        payload["action_context"] = {**context, **form_surface}
     return payload
 
 
@@ -399,6 +445,7 @@ def _manual_acceptance_action_context(
     *,
     instruction: str,
     proof_key: str = "",
+    evidence_part: str = "",
     acceptance_receipt: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     requirement: dict[str, Any] = {}
@@ -419,6 +466,7 @@ def _manual_acceptance_action_context(
     context = {
         "kind": "real_world_acceptance_capture",
         "proof_key": proof_key,
+        "evidence_part": evidence_part,
         "user_action_required": user_action_required,
         "instruction": instruction,
         "delivery_policy": "action_required_only" if user_action_required else "queue_only",
@@ -435,6 +483,18 @@ def _manual_acceptance_action_context(
         "raw_actor_identity_exposed": False,
         "raw_object_reference_exposed": False,
     }
+    if str(requirement.get("next_action_form_href") or "").strip():
+        context["next_action_form_href"] = str(requirement.get("next_action_form_href") or "").strip()
+        context["next_action_form_label"] = str(requirement.get("next_action_form_label") or "").strip()
+        context["next_action_form_method"] = str(requirement.get("next_action_form_method") or "").strip()
+    elif proof_key:
+        context["next_action_form_href"] = _acceptance_form_href(proof_key)
+        context["next_action_form_label"] = "Record a real-use outcome"
+        context["next_action_form_method"] = "get"
+    elif evidence_part:
+        context["next_action_form_href"] = _signal_form_href(evidence_part)
+        context["next_action_form_label"] = "Record signal review evidence"
+        context["next_action_form_method"] = "get"
     return {key: value for key, value in context.items() if value not in ("", [], None)}
 
 
@@ -685,10 +745,14 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
             "next_action_href": str(requirement.get("next_action_href") or "").strip(),
             "next_action_label": str(requirement.get("next_action_label") or "").strip(),
             "next_action_method": str(requirement.get("next_action_method") or "").strip(),
+            "next_action_form_href": str(requirement.get("next_action_form_href") or "").strip(),
+            "next_action_form_label": str(requirement.get("next_action_form_label") or "").strip(),
+            "next_action_form_method": str(requirement.get("next_action_form_method") or "").strip(),
             "required_next_receipt": str(requirement.get("required_next_receipt") or "").strip(),
             "user_action_required": user_action_required,
             "instruction": str(action_context.get("instruction") or "").strip(),
             "proof_key": str(action_context.get("proof_key") or "").strip(),
+            "evidence_part": str(action_context.get("evidence_part") or "").strip(),
             "manual_only": bool(action_context.get("manual_only")),
             "ci_must_not_auto_assert": bool(action_context.get("ci_must_not_auto_assert")),
             "required_check_ids": [
@@ -771,6 +835,7 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
         }
         optional_context_keys = (
             "proof_key",
+            "evidence_part",
             "manual_only",
             "ci_must_not_auto_assert",
             "required_check_ids",
@@ -1303,6 +1368,7 @@ def build_goal_posture(
             ],
             action_context=_manual_acceptance_action_context(
                 instruction="Record redacted evidence that the weekly signal-to-decision review was actually reviewed.",
+                evidence_part="review",
             ),
         ),
         _acceptance_proof_requirement(
@@ -1572,6 +1638,9 @@ def build_goal_posture(
         "next_action_href": str(next_operator_action.get("next_action_href") or "").strip(),
         "next_action_label": str(next_operator_action.get("next_action_label") or "").strip(),
         "next_action_method": str(next_operator_action.get("next_action_method") or "").strip(),
+        "next_action_form_href": str(next_operator_action.get("next_action_form_href") or "").strip(),
+        "next_action_form_label": str(next_operator_action.get("next_action_form_label") or "").strip(),
+        "next_action_form_method": str(next_operator_action.get("next_action_form_method") or "").strip(),
         "next_action_key": str(next_operator_action.get("key") or "").strip(),
         "next_action_instruction": str(next_operator_action.get("instruction") or "").strip(),
         "rules": [

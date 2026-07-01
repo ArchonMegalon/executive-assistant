@@ -14,10 +14,12 @@ if str(REPO_ROOT) not in sys.path:
 from materialize_executive_assistant_acceptance_evidence import (
     ACCEPTANCE_CAPTURE_LABEL,
     ACCEPTANCE_CAPTURE_FORM_FIELDS,
+    ACCEPTANCE_CAPTURE_FORM_METHOD,
     ACCEPTANCE_CAPTURE_METHOD,
     ACCEPTANCE_CAPTURE_PATH,
     REMAINING_PROOF_LABELS,
     REQUIRED_ACCEPTANCE_KEYS,
+    _acceptance_capture_form_href,
 )
 from scripts.source_state_head import resolve_source_state_head  # noqa: E402
 from scripts.source_state_head import resolve_source_worktree_fingerprint  # noqa: E402
@@ -70,6 +72,9 @@ def verify_executive_assistant_acceptance_evidence(receipt_path: str | Path) -> 
     next_action_href = str(receipt.get("next_action_href") or "").strip()
     next_action_label = str(receipt.get("next_action_label") or "").strip()
     next_action_method = str(receipt.get("next_action_method") or "").strip().lower()
+    next_action_form_href = str(receipt.get("next_action_form_href") or "").strip()
+    next_action_form_label = str(receipt.get("next_action_form_label") or "").strip()
+    next_action_form_method = str(receipt.get("next_action_form_method") or "").strip().lower()
     next_action_proof_key = str(receipt.get("next_action_proof_key") or "").strip()
     if expected_blocked:
         if next_action != "collect_redacted_real_world_acceptance_evidence":
@@ -82,6 +87,12 @@ def verify_executive_assistant_acceptance_evidence(receipt_path: str | Path) -> 
             issues.append("ea_acceptance_next_action_method_missing")
         if next_action_proof_key != expected_blocked[0]:
             issues.append("ea_acceptance_next_action_proof_key_mismatch")
+        if next_action_form_href != _acceptance_capture_form_href(expected_blocked[0]):
+            issues.append("ea_acceptance_next_action_form_href_missing")
+        if next_action_form_label != ACCEPTANCE_CAPTURE_LABEL:
+            issues.append("ea_acceptance_next_action_form_label_missing")
+        if next_action_form_method != ACCEPTANCE_CAPTURE_FORM_METHOD.lower():
+            issues.append("ea_acceptance_next_action_form_method_missing")
     else:
         if next_action != "review_good_executive_assistant_claim":
             issues.append("ea_acceptance_next_action_review_missing")
@@ -89,6 +100,9 @@ def verify_executive_assistant_acceptance_evidence(receipt_path: str | Path) -> 
             ("href", next_action_href),
             ("label", next_action_label),
             ("method", next_action_method),
+            ("form_href", next_action_form_href),
+            ("form_label", next_action_form_label),
+            ("form_method", next_action_form_method),
             ("proof_key", next_action_proof_key),
         ):
             if value:
@@ -124,6 +138,10 @@ def verify_executive_assistant_acceptance_evidence(receipt_path: str | Path) -> 
         issues.append("ea_acceptance_capture_surface_method_missing")
     if surface.get("path") != ACCEPTANCE_CAPTURE_PATH:
         issues.append("ea_acceptance_capture_surface_path_missing")
+    if surface.get("form_method") != ACCEPTANCE_CAPTURE_FORM_METHOD:
+        issues.append("ea_acceptance_capture_surface_form_method_missing")
+    if surface.get("form_path") != ACCEPTANCE_CAPTURE_PATH:
+        issues.append("ea_acceptance_capture_surface_form_path_missing")
     for key in ("admin_only", "operator_context_required", "raw_input_not_persisted"):
         if surface.get(key) is not True:
             issues.append(f"ea_acceptance_capture_surface_flag_not_true:{key}")
@@ -159,6 +177,10 @@ def verify_executive_assistant_acceptance_evidence(receipt_path: str | Path) -> 
             issues.append(f"ea_acceptance_capture_requirement_method_missing:{key}")
         if requirement.get("capture_path") != ACCEPTANCE_CAPTURE_PATH:
             issues.append(f"ea_acceptance_capture_requirement_path_missing:{key}")
+        if requirement.get("form_method") != ACCEPTANCE_CAPTURE_FORM_METHOD:
+            issues.append(f"ea_acceptance_capture_requirement_form_method_missing:{key}")
+        if requirement.get("form_href") != _acceptance_capture_form_href(key):
+            issues.append(f"ea_acceptance_capture_requirement_form_href_missing:{key}")
         if requirement.get("proof_key") != key:
             issues.append(f"ea_acceptance_capture_requirement_proof_key_mismatch:{key}")
         for field in ACCEPTANCE_CAPTURE_FORM_FIELDS:
@@ -191,6 +213,10 @@ def verify_executive_assistant_acceptance_evidence(receipt_path: str | Path) -> 
             issues.append(f"ea_acceptance_capture_requirement_progress_push_allowed:{key}")
         if requirement.get("irreversible_actions_consent_gated") is not True:
             issues.append(f"ea_acceptance_capture_requirement_consent_gate_missing:{key}")
+        if requirement.get("next_action_form_href") != _acceptance_capture_form_href(key):
+            issues.append(f"ea_acceptance_capture_requirement_next_action_form_href_missing:{key}")
+        if requirement.get("next_action_form_method") != ACCEPTANCE_CAPTURE_FORM_METHOD.lower():
+            issues.append(f"ea_acceptance_capture_requirement_next_action_form_method_missing:{key}")
     return {"contract_name": "ea.executive_assistant_acceptance_evidence.verify.v1", "status": "pass" if not issues else "fail", "issues": issues}
 
 

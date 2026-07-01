@@ -64,6 +64,9 @@ REQUIRED_PROOF_FIELDS = {
     "next_action_href",
     "next_action_label",
     "next_action_method",
+    "next_action_form_href",
+    "next_action_form_label",
+    "next_action_form_method",
 }
 KNOWN_PROOF_STATUSES = {"pending_real_world_evidence", "satisfied"}
 DELIVER_BLOCKER_PROOF_KEYS = {
@@ -77,6 +80,19 @@ EXPECTED_PROOF_ACTION_SURFACES = {
     "ea_real_approved_action_audited": ("/admin/actions/acceptance-evidence", "post"),
     "ea_real_provider_failure_recovered": ("/admin/actions/acceptance-evidence", "post"),
     "weekly_signal_to_decision_review_acceptance": ("/admin/actions/signal-to-decision-evidence", "post"),
+    "proactive_ooda_packet_acceptance": ("/admin/proactive-ooda/approval", "get"),
+    "fresh_host_teable_recovery_drill": ("/admin/goals", "get"),
+    "telegram_business_signal_setup": ("/integrations/telegram", "get"),
+    "manfred_stt_tts_realtime_conversation": ("/memorials/manfred/voice-config", "get"),
+    "telegram_audiobook_live_delivery": ("/integrations/telegram", "get"),
+    "whatsapp_audiobook_live_delivery": ("/integrations/whatsapp", "get"),
+}
+EXPECTED_PROOF_FORM_SURFACES = {
+    "morning_brief_operator_acceptance": ("/admin/actions/acceptance-evidence?return_to=%2Fadmin%2Fgoals&proof_key=real_daily_morning_brief_accepted", "get"),
+    "ea_real_commitment_recovered_or_closed": ("/admin/actions/acceptance-evidence?return_to=%2Fadmin%2Fgoals&proof_key=real_commitment_recovered_or_closed", "get"),
+    "ea_real_approved_action_audited": ("/admin/actions/acceptance-evidence?return_to=%2Fadmin%2Fgoals&proof_key=real_approved_action_audited", "get"),
+    "ea_real_provider_failure_recovered": ("/admin/actions/acceptance-evidence?return_to=%2Fadmin%2Fgoals&proof_key=real_provider_failure_recovered", "get"),
+    "weekly_signal_to_decision_review_acceptance": ("/admin/actions/signal-to-decision-evidence?return_to=%2Fadmin%2Fgoals&evidence_part=review", "get"),
     "proactive_ooda_packet_acceptance": ("/admin/proactive-ooda/approval", "get"),
     "fresh_host_teable_recovery_drill": ("/admin/goals", "get"),
     "telegram_business_signal_setup": ("/integrations/telegram", "get"),
@@ -358,6 +374,9 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                 ("next_action_href", "next_action_href"),
                 ("next_action_label", "next_action_label"),
                 ("next_action_method", "next_action_method"),
+                ("next_action_form_href", "next_action_form_href"),
+                ("next_action_form_label", "next_action_form_label"),
+                ("next_action_form_method", "next_action_form_method"),
                 ("key", "next_action_key"),
                 ("instruction", "next_action_instruction"),
             ):
@@ -377,6 +396,10 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                 issues.append(f"operator_action_queue entry missing next_action: {action_key}")
             if not str(row.get("next_action_href") or "").strip():
                 issues.append(f"operator_action_queue entry missing next_action_href: {action_key}")
+            if not str(row.get("next_action_form_href") or "").strip():
+                issues.append(f"operator_action_queue entry missing next_action_form_href: {action_key}")
+            if str(row.get("next_action_form_method") or "").strip().lower() != "get":
+                issues.append(f"operator_action_queue entry next_action_form_method must be get: {action_key}")
             if row.get("raw_private_context_exposed") is not False:
                 issues.append(f"operator_action_queue must not expose raw private context: {action_key}")
             for private_key in ("raw_chat_ids_exposed", "raw_token_exposed", "raw_secret_exposed"):
@@ -506,12 +529,21 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
         next_action_href = str(requirement.get("next_action_href") or "").strip()
         next_action_label = str(requirement.get("next_action_label") or "").strip()
         next_action_method = str(requirement.get("next_action_method") or "").strip().lower()
+        next_action_form_href = str(requirement.get("next_action_form_href") or "").strip()
+        next_action_form_label = str(requirement.get("next_action_form_label") or "").strip()
+        next_action_form_method = str(requirement.get("next_action_form_method") or "").strip().lower()
         if not next_action_href:
             issues.append(f"acceptance proof requirement {key or index} missing next_action_href")
         if not next_action_label:
             issues.append(f"acceptance proof requirement {key or index} missing next_action_label")
         if next_action_method not in {"get", "post"}:
             issues.append(f"acceptance proof requirement {key or index} has invalid next_action_method")
+        if not next_action_form_href:
+            issues.append(f"acceptance proof requirement {key or index} missing next_action_form_href")
+        if not next_action_form_label:
+            issues.append(f"acceptance proof requirement {key or index} missing next_action_form_label")
+        if next_action_form_method != "get":
+            issues.append(f"acceptance proof requirement {key or index} next_action_form_method must be get")
         expected_surface = EXPECTED_PROOF_ACTION_SURFACES.get(key)
         if key == "proactive_ooda_packet_acceptance" and status == "satisfied":
             expected_surface = ("/app/today", "get")
@@ -521,6 +553,15 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                 issues.append(f"acceptance proof requirement {key} next_action_href must target {expected_href}")
             if next_action_method != expected_method:
                 issues.append(f"acceptance proof requirement {key} next_action_method must be {expected_method}")
+        expected_form_surface = EXPECTED_PROOF_FORM_SURFACES.get(key)
+        if key == "proactive_ooda_packet_acceptance" and status == "satisfied":
+            expected_form_surface = ("/app/today", "get")
+        if expected_form_surface:
+            expected_form_href, expected_form_method = expected_form_surface
+            if expected_form_href not in next_action_form_href:
+                issues.append(f"acceptance proof requirement {key} next_action_form_href must target {expected_form_href}")
+            if next_action_form_method != expected_form_method:
+                issues.append(f"acceptance proof requirement {key} next_action_form_method must be {expected_form_method}")
         sources = list(requirement.get("source_receipts") or [])
         if not sources:
             issues.append(f"acceptance proof requirement {key or index} must include source_receipts")

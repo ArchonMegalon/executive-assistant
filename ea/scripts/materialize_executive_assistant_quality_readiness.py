@@ -9,8 +9,10 @@ from typing import Any
 
 from materialize_executive_assistant_acceptance_evidence import ACCEPTANCE_CAPTURE_LABEL
 from materialize_executive_assistant_acceptance_evidence import ACCEPTANCE_CAPTURE_FORM_FIELDS
+from materialize_executive_assistant_acceptance_evidence import ACCEPTANCE_CAPTURE_FORM_METHOD
 from materialize_executive_assistant_acceptance_evidence import ACCEPTANCE_CAPTURE_METHOD
 from materialize_executive_assistant_acceptance_evidence import ACCEPTANCE_CAPTURE_PATH
+from materialize_executive_assistant_acceptance_evidence import _acceptance_capture_form_href
 from materialize_executive_assistant_acceptance_evidence import _source_state_fields
 from materialize_executive_assistant_acceptance_evidence import acceptance_capture_requirements
 from materialize_executive_assistant_acceptance_evidence import _acceptance_capture_surface
@@ -113,6 +115,8 @@ def _next_action_context(*, proof_key: str) -> dict[str, Any]:
         "proof_label": REMAINING_PROOF_LABELS.get(proof_key, ""),
         "capture_path": ACCEPTANCE_CAPTURE_PATH,
         "capture_method": ACCEPTANCE_CAPTURE_METHOD,
+        "form_href": _acceptance_capture_form_href(proof_key),
+        "form_method": ACCEPTANCE_CAPTURE_FORM_METHOD,
         "required_form_fields": list(ACCEPTANCE_CAPTURE_FORM_FIELDS),
         "stored_evidence_shape": "sha256_only",
         "raw_acceptance_text_persisted": False,
@@ -161,16 +165,25 @@ def materialize_executive_assistant_quality_readiness(
     next_action_href = ""
     next_action_label = ""
     next_action_method = ""
+    next_action_form_href = ""
+    next_action_form_label = ""
+    next_action_form_method = ""
     next_action_proof_key = ""
     if local_ready and not good_claim:
         next_action_href = ACCEPTANCE_CAPTURE_PATH
         next_action_label = ACCEPTANCE_CAPTURE_LABEL
         next_action_method = ACCEPTANCE_CAPTURE_METHOD.lower()
         next_action_proof_key = str(acceptance.get("next_action_proof_key") or (blocked_checks[0] if blocked_checks else "")).strip()
+        next_action_form_href = _acceptance_capture_form_href(next_action_proof_key)
+        next_action_form_label = ACCEPTANCE_CAPTURE_LABEL
+        next_action_form_method = ACCEPTANCE_CAPTURE_FORM_METHOD.lower()
     elif not local_ready:
         next_action_href = LOCAL_REVIEW_PATH
         next_action_label = LOCAL_REVIEW_LABEL
         next_action_method = "get"
+        next_action_form_href = LOCAL_REVIEW_PATH
+        next_action_form_label = LOCAL_REVIEW_LABEL
+        next_action_form_method = "get"
     receipt = {
         "contract_name": "ea.executive_assistant_quality_readiness.v1",
         "status": status,
@@ -220,6 +233,9 @@ def materialize_executive_assistant_quality_readiness(
         "next_action_href": next_action_href,
         "next_action_label": next_action_label,
         "next_action_method": next_action_method,
+        "next_action_form_href": next_action_form_href,
+        "next_action_form_label": next_action_form_label,
+        "next_action_form_method": next_action_form_method,
         "next_action_proof_key": next_action_proof_key,
         "next_action_context": _next_action_context(proof_key=next_action_proof_key),
     }

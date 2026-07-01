@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import sys
+import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -39,6 +40,7 @@ ACCEPTANCE_CAPTURE_PATH = "/admin/actions/acceptance-evidence"
 ACCEPTANCE_CAPTURE_METHOD = "POST"
 ACCEPTANCE_CAPTURE_FORM_FIELDS = ["proof_key", "source_kind", "evidence", "object_ref"]
 ACCEPTANCE_CAPTURE_LABEL = "Record a real-use outcome"
+ACCEPTANCE_CAPTURE_FORM_METHOD = "GET"
 
 
 def _now() -> str:
@@ -175,9 +177,12 @@ def _acceptance_capture_surface() -> dict[str, Any]:
     return {
         "method": ACCEPTANCE_CAPTURE_METHOD,
         "path": ACCEPTANCE_CAPTURE_PATH,
+        "form_method": ACCEPTANCE_CAPTURE_FORM_METHOD,
+        "form_path": ACCEPTANCE_CAPTURE_PATH,
         "admin_only": True,
         "operator_context_required": True,
         "required_form_fields": ACCEPTANCE_CAPTURE_FORM_FIELDS,
+        "prefill_query_fields": ["proof_key", "return_to"],
         "server_actor_source": "authenticated_operator_context",
         "raw_input_not_persisted": True,
         "stored_evidence_shape": "sha256_only",
@@ -191,6 +196,13 @@ def _acceptance_capture_surface() -> dict[str, Any]:
     }
 
 
+def _acceptance_capture_form_href(proof_key: str, *, return_to: str = "/admin/goals") -> str:
+    query = {"return_to": return_to}
+    if proof_key:
+        query["proof_key"] = proof_key
+    return f"{ACCEPTANCE_CAPTURE_PATH}?{urllib.parse.urlencode(query)}"
+
+
 def _acceptance_capture_requirement(key: str, row: dict[str, Any]) -> dict[str, Any]:
     accepted = dict(row or {}).get("accepted") is True
     user_action_required = not accepted
@@ -201,6 +213,8 @@ def _acceptance_capture_requirement(key: str, row: dict[str, Any]) -> dict[str, 
         "accepted": accepted,
         "capture_method": ACCEPTANCE_CAPTURE_METHOD,
         "capture_path": ACCEPTANCE_CAPTURE_PATH,
+        "form_method": ACCEPTANCE_CAPTURE_FORM_METHOD,
+        "form_href": _acceptance_capture_form_href(key),
         "proof_key": key,
         "required_form_fields": ACCEPTANCE_CAPTURE_FORM_FIELDS,
         "server_actor_source": "authenticated_operator_context",
@@ -221,6 +235,9 @@ def _acceptance_capture_requirement(key: str, row: dict[str, Any]) -> dict[str, 
             if accepted
             else f"record_redacted_acceptance_evidence:{key}"
         ),
+        "next_action_form_href": _acceptance_capture_form_href(key),
+        "next_action_form_label": ACCEPTANCE_CAPTURE_LABEL,
+        "next_action_form_method": ACCEPTANCE_CAPTURE_FORM_METHOD.lower(),
         "claim_boundary": "does_not_prove_good_executive_assistant_until_all_required_acceptance_keys_are_accepted",
     }
 
@@ -320,6 +337,9 @@ def materialize_executive_assistant_acceptance_evidence(
         "next_action_href": ACCEPTANCE_CAPTURE_PATH if blocked_keys else "",
         "next_action_label": ACCEPTANCE_CAPTURE_LABEL if blocked_keys else "",
         "next_action_method": ACCEPTANCE_CAPTURE_METHOD.lower() if blocked_keys else "",
+        "next_action_form_href": _acceptance_capture_form_href(next_proof_key) if blocked_keys else "",
+        "next_action_form_label": ACCEPTANCE_CAPTURE_LABEL if blocked_keys else "",
+        "next_action_form_method": ACCEPTANCE_CAPTURE_FORM_METHOD.lower() if blocked_keys else "",
         "next_action_proof_key": next_proof_key,
         "operator_delivery_policy": {
             "action_required_only": True,

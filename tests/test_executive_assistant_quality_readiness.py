@@ -189,6 +189,11 @@ def test_executive_assistant_acceptance_evidence_preserves_existing_redacted_row
     assert second["next_action_href"] == "/admin/actions/acceptance-evidence"
     assert second["next_action_label"] == "Record a real-use outcome"
     assert second["next_action_method"] == "post"
+    assert (
+        second["next_action_form_href"]
+        == "/admin/actions/acceptance-evidence?return_to=%2Fadmin%2Fgoals&proof_key=real_decision_cleared"
+    )
+    assert second["next_action_form_method"] == "get"
     assert second["next_action_proof_key"] == "real_decision_cleared"
     assert second["operator_delivery_policy"]["telegram_push_allowed_for_next_action"] is True  # type: ignore[index]
     assert second["operator_delivery_policy"]["next_action_requires_user"] is True  # type: ignore[index]
@@ -202,6 +207,10 @@ def test_executive_assistant_acceptance_evidence_preserves_existing_redacted_row
     assert requirements["real_daily_morning_brief_accepted"]["interruption_budget"] == "none"
     assert requirements["real_decision_cleared"]["status"] == "pending_real_world_evidence"
     assert requirements["real_decision_cleared"]["next_action"] == "record_redacted_acceptance_evidence:real_decision_cleared"
+    assert (
+        requirements["real_decision_cleared"]["form_href"]
+        == "/admin/actions/acceptance-evidence?return_to=%2Fadmin%2Fgoals&proof_key=real_decision_cleared"
+    )
     assert requirements["real_decision_cleared"]["user_action_required"] is True
     assert requirements["real_decision_cleared"]["delivery_policy"] == "action_required_only"
     assert requirements["real_decision_cleared"]["telegram_push_allowed"] is True
@@ -274,6 +283,11 @@ def test_executive_assistant_quality_readiness_blocks_real_world_acceptance_with
     assert receipt["next_action_href"] == "/admin/actions/acceptance-evidence"
     assert receipt["next_action_label"] == "Record a real-use outcome"
     assert receipt["next_action_method"] == "post"
+    assert (
+        receipt["next_action_form_href"]
+        == "/admin/actions/acceptance-evidence?return_to=%2Fadmin%2Fgoals&proof_key=real_daily_morning_brief_accepted"
+    )
+    assert receipt["next_action_form_method"] == "get"
     assert receipt["next_action_proof_key"] == "real_daily_morning_brief_accepted"
 
     verification = verifier.verify_executive_assistant_quality_readiness(receipt_path)
@@ -339,6 +353,8 @@ def test_executive_assistant_quality_readiness_reports_local_quality_regression(
     assert receipt["next_action_href"] == "/app/today"
     assert receipt["next_action_label"] == "Open Today"
     assert receipt["next_action_method"] == "get"
+    assert receipt["next_action_form_href"] == "/app/today"
+    assert receipt["next_action_form_method"] == "get"
     assert receipt["next_action_proof_key"] == ""
 
     verification = verifier.verify_executive_assistant_quality_readiness(receipt_path)

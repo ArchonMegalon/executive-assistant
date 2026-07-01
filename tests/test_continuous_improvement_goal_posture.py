@@ -324,9 +324,18 @@ def test_pending_quality_acceptance_keys_become_action_required_queue_items(
         assert requirement["status"] == "pending_real_world_evidence"
         assert requirement["next_action_href"] == "/admin/actions/acceptance-evidence"
         assert requirement["next_action_method"] == "post"
+        assert (
+            requirement["next_action_form_href"]
+            == f"/admin/actions/acceptance-evidence?return_to=%2Fadmin%2Fgoals&proof_key={acceptance_key}"
+        )
+        assert requirement["next_action_form_method"] == "get"
         context = requirement["action_context"]
         assert context["kind"] == "real_world_acceptance_capture"
         assert context["proof_key"] == acceptance_key
+        assert (
+            context["next_action_form_href"]
+            == f"/admin/actions/acceptance-evidence?return_to=%2Fadmin%2Fgoals&proof_key={acceptance_key}"
+        )
         assert context["user_action_required"] is True
         assert context["delivery_policy"] == "action_required_only"
         assert context["telegram_push_allowed"] is True
@@ -342,6 +351,10 @@ def test_pending_quality_acceptance_keys_become_action_required_queue_items(
     for proof_key, acceptance_key in expected.items():
         assert proof_key in queue
         assert queue[proof_key]["proof_key"] == acceptance_key
+        assert (
+            queue[proof_key]["next_action_form_href"]
+            == f"/admin/actions/acceptance-evidence?return_to=%2Fadmin%2Fgoals&proof_key={acceptance_key}"
+        )
         assert queue[proof_key]["user_action_required"] is True
         assert queue[proof_key]["delivery_policy"] == "action_required_only"
         assert queue[proof_key]["telegram_push_allowed"] is True
@@ -575,8 +588,15 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert proof_requirements["proactive_ooda_packet_acceptance"]["next_action_href"] == "/admin/proactive-ooda/approval"
     assert proof_requirements["proactive_ooda_packet_acceptance"]["next_action_label"] == "Open approval capture"
     assert proof_requirements["proactive_ooda_packet_acceptance"]["next_action_method"] == "get"
+    assert proof_requirements["proactive_ooda_packet_acceptance"]["next_action_form_href"] == "/admin/proactive-ooda/approval"
+    assert proof_requirements["proactive_ooda_packet_acceptance"]["next_action_form_method"] == "get"
     assert proof_requirements["morning_brief_operator_acceptance"]["next_action_href"] == "/admin/actions/acceptance-evidence"
     assert proof_requirements["morning_brief_operator_acceptance"]["next_action_method"] == "post"
+    assert (
+        proof_requirements["morning_brief_operator_acceptance"]["next_action_form_href"]
+        == "/admin/actions/acceptance-evidence?return_to=%2Fadmin%2Fgoals&proof_key=real_daily_morning_brief_accepted"
+    )
+    assert proof_requirements["morning_brief_operator_acceptance"]["next_action_form_method"] == "get"
     morning_context = proof_requirements["morning_brief_operator_acceptance"]["action_context"]
     assert morning_context["kind"] == "real_world_acceptance_capture"
     assert morning_context["proof_key"] == "real_daily_morning_brief_accepted"
@@ -589,8 +609,14 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert morning_context["raw_object_reference_exposed"] is False
     assert proof_requirements["weekly_signal_to_decision_review_acceptance"]["next_action_href"] == "/admin/actions/signal-to-decision-evidence"
     assert proof_requirements["weekly_signal_to_decision_review_acceptance"]["next_action_method"] == "post"
+    assert (
+        proof_requirements["weekly_signal_to_decision_review_acceptance"]["next_action_form_href"]
+        == "/admin/actions/signal-to-decision-evidence?return_to=%2Fadmin%2Fgoals&evidence_part=review"
+    )
+    assert proof_requirements["weekly_signal_to_decision_review_acceptance"]["next_action_form_method"] == "get"
     weekly_context = proof_requirements["weekly_signal_to_decision_review_acceptance"]["action_context"]
     assert weekly_context["kind"] == "real_world_acceptance_capture"
+    assert weekly_context["evidence_part"] == "review"
     assert weekly_context["user_action_required"] is True
     assert weekly_context["delivery_policy"] == "action_required_only"
     assert weekly_context["telegram_push_allowed"] is True
@@ -667,6 +693,11 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert receipt["next_action_href"] == "/admin/actions/acceptance-evidence"
     assert receipt["next_action_label"] == "Record a real-use outcome"
     assert receipt["next_action_method"] == "post"
+    assert (
+        receipt["next_action_form_href"]
+        == "/admin/actions/acceptance-evidence?return_to=%2Fadmin%2Fgoals&proof_key=real_daily_morning_brief_accepted"
+    )
+    assert receipt["next_action_form_method"] == "get"
     assert receipt["next_action_instruction"] == "Record redacted real-world acceptance evidence for the morning brief."
     assert receipt["operator_action_queue"][0]["key"] == "morning_brief_operator_acceptance"
     assert receipt["operator_action_queue"][0]["user_action_required"] is True
@@ -705,6 +736,10 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert morning_action["telegram_push_allowed"] is True
     assert morning_action["interruption_budget"] == "action_required"
     assert morning_action["proof_key"] == "real_daily_morning_brief_accepted"
+    assert (
+        morning_action["next_action_form_href"]
+        == "/admin/actions/acceptance-evidence?return_to=%2Fadmin%2Fgoals&proof_key=real_daily_morning_brief_accepted"
+    )
     assert morning_action["raw_acceptance_text_exposed"] is False
     assert morning_action["raw_actor_identity_exposed"] is False
     assert morning_action["raw_object_reference_exposed"] is False
@@ -714,6 +749,11 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert weekly_action["user_action_required"] is True
     assert weekly_action["delivery_policy"] == "action_required_only"
     assert weekly_action["telegram_push_allowed"] is True
+    assert weekly_action["evidence_part"] == "review"
+    assert (
+        weekly_action["next_action_form_href"]
+        == "/admin/actions/signal-to-decision-evidence?return_to=%2Fadmin%2Fgoals&evidence_part=review"
+    )
     assert weekly_action["non_action_progress_push_allowed"] is False
     telegram_business_action = next(
         item for item in receipt["operator_action_queue"] if item["key"] == "telegram_business_signal_setup"

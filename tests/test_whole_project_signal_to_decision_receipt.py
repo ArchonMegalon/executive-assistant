@@ -112,13 +112,23 @@ def test_signal_to_decision_receipt_materializes_local_packet_without_overclaim(
     assert receipt["next_action_href"] == "/admin/actions/signal-to-decision-evidence"
     assert receipt["next_action_label"] == "Record a signal-loop outcome"
     assert receipt["next_action_method"] == "post"
+    assert (
+        receipt["next_action_form_href"]
+        == "/admin/actions/signal-to-decision-evidence?return_to=%2Fadmin%2Fgoals&evidence_part=review"
+    )
+    assert receipt["next_action_form_method"] == "get"
     assert receipt["next_action_evidence_part"] == "review"
     assert receipt["real_weekly_operator_review_accepted"] is False
     assert receipt["closed_loop_followthrough_receipt_verified"] is False
     assert receipt["signal_evidence_capture_surface"]["path"] == "/admin/actions/signal-to-decision-evidence"  # type: ignore[index]
+    assert receipt["signal_evidence_capture_surface"]["form_method"] == "GET"  # type: ignore[index]
     assert receipt["signal_evidence_capture_surface"]["raw_input_not_persisted"] is True  # type: ignore[index]
     requirements = {item["evidence_part"]: item for item in receipt["signal_evidence_capture_requirements"]}  # type: ignore[index]
     assert requirements["review"]["status"] == "pending_real_world_evidence"
+    assert (
+        requirements["review"]["form_href"]
+        == "/admin/actions/signal-to-decision-evidence?return_to=%2Fadmin%2Fgoals&evidence_part=review"
+    )
     assert requirements["followthrough"]["status"] == "pending_real_world_evidence"
     assert requirements["review"]["raw_input_not_persisted"] is True
     assert "real weekly signal-to-decision review accepted by the operator" in receipt["remaining_external_proofs"]
@@ -178,6 +188,8 @@ def test_signal_to_decision_receipt_hashes_operator_review_and_followthrough(tmp
     assert receipt["next_action_href"] == ""
     assert receipt["next_action_label"] == ""
     assert receipt["next_action_method"] == ""
+    assert receipt["next_action_form_href"] == ""
+    assert receipt["next_action_form_method"] == ""
     assert receipt["next_action_evidence_part"] == ""
     assert receipt["real_weekly_operator_review_accepted"] is True
     assert receipt["closed_loop_followthrough_receipt_verified"] is True
@@ -246,6 +258,11 @@ def test_signal_to_decision_receipt_preserves_existing_redacted_operator_review(
     assert second["next_action_href"] == "/admin/actions/signal-to-decision-evidence"
     assert second["next_action_label"] == "Record a signal-loop outcome"
     assert second["next_action_method"] == "post"
+    assert (
+        second["next_action_form_href"]
+        == "/admin/actions/signal-to-decision-evidence?return_to=%2Fadmin%2Fgoals&evidence_part=followthrough"
+    )
+    assert second["next_action_form_method"] == "get"
     assert second["next_action_evidence_part"] == "followthrough"
     requirements = {item["evidence_part"]: item for item in second["signal_evidence_capture_requirements"]}  # type: ignore[index]
     assert requirements["review"]["status"] == "accepted_redacted"
