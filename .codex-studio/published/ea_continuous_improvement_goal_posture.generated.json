@@ -530,7 +530,7 @@
             "status": "pending_after_pairing"
           }
         ],
-        "sidecar_qr_age_seconds": 3,
+        "sidecar_qr_age_seconds": 0,
         "sidecar_qr_fresh": true,
         "sidecar_qr_present": true,
         "sidecar_qr_required": true,
@@ -564,7 +564,7 @@
           "path": ".codex-studio/published/whatsapp_web_action_processor_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "9a64c8a8f7b515a995e4b167d96a68aceeef56d8",
+          "source_git_head": "280213e194e12a71031cecc3ef027dbc1c1b0373",
           "status": "blocked"
         },
         {
@@ -612,7 +612,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-07-01T14:18:54Z",
+  "generated_at": "2026-07-01T14:23:45Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -823,7 +823,7 @@
               "path": ".codex-studio/published/whatsapp_web_action_processor_readiness.generated.json",
               "present": true,
               "source_fresh_to_current_source": true,
-              "source_git_head": "9a64c8a8f7b515a995e4b167d96a68aceeef56d8",
+              "source_git_head": "280213e194e12a71031cecc3ef027dbc1c1b0373",
               "status": "blocked"
             },
             {
@@ -1143,7 +1143,7 @@
           "status": "pending_after_pairing"
         }
       ],
-      "sidecar_qr_age_seconds": 3,
+      "sidecar_qr_age_seconds": 0,
       "sidecar_qr_fresh": true,
       "sidecar_qr_present": true,
       "sidecar_qr_required": true,
@@ -1182,7 +1182,7 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "9a64c8a8f7b515a995e4b167d96a68aceeef56d8",
+  "source_git_head": "280213e194e12a71031cecc3ef027dbc1c1b0373",
   "source_state_fingerprint": "1d50c4fab88549edebf56fec03a7773b5308ad6c9c957ea6d832d4da13489227",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }
