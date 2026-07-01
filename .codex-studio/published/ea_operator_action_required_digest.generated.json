@@ -2,10 +2,10 @@
   "contract_name": "ea.operator_action_required_digest.v1",
   "counts": {
     "included_count": 4,
-    "input_count": 5,
+    "input_count": 4,
     "suppressed_policy_blocked_count": 0,
     "suppressed_privacy_blocked_count": 0,
-    "suppressed_queue_only_count": 1
+    "suppressed_queue_only_count": 0
   },
   "dedupe_checked": true,
   "dedupe_suppressed": true,
@@ -13,7 +13,7 @@
   "digest_sha256": "7d1779ec8070b106f1843d7ad8efe948f2d914e2c244e3af48dfc1548e300549",
   "dry_run": true,
   "force": false,
-  "generated_at": "2026-07-01T13:34:02Z",
+  "generated_at": "2026-07-01T13:38:33Z",
   "generated_by": "scripts/materialize_operator_action_required_digest.py",
   "head_semantics": "source_state",
   "included_action_keys": [
@@ -213,7 +213,7 @@
   "source_receipt": {
     "path": ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json",
     "present": true,
-    "sha256": "01c060b7ac71983ee124f5da3da27e5c456bf9e409e19463950228c3704c8918",
+    "sha256": "c77d8b5d00ba3fe0c4e3955c46521787126e9cbe9fcde14e5faad781ac00fde1",
     "status": "active_with_blockers"
   },
   "source_state_fingerprint": "07817b6e9e26e9ecd97f6225900ed51be434c67e47fc541c995f64915e55d086",
