@@ -1351,6 +1351,7 @@ def test_repair_whatsapp_action_processor_falls_back_to_no_deps_up_when_start_fa
 def test_probe_proactive_route_normalizes_live_runtime_route_status(monkeypatch) -> None:
     module = _module()
     receipt_paths: list[str] = []
+    route_commands: list[list[str]] = []
 
     def _fake_exec_json(*, command: list[str], **_kwargs):
         if command[:2] == ["python", "-c"]:
@@ -1364,6 +1365,7 @@ def test_probe_proactive_route_normalizes_live_runtime_route_status(monkeypatch)
                 "",
             )
         if "/app/scripts/verify_proactive_ooda.py" in command:
+            route_commands.append(list(command))
             return (
                 0,
                 {
@@ -1431,6 +1433,8 @@ def test_probe_proactive_route_normalizes_live_runtime_route_status(monkeypatch)
     assert report["live_receipt_checked"] is True
     assert report["live_receipt"]["ok"] is True
     assert receipt_paths == ["/data/provider-ledger/proactive_ooda_run_receipts/20260626T180300Z-sent-abc123.json"]
+    assert "--delivery-route-mode" in route_commands[0]
+    assert route_commands[0][route_commands[0].index("--delivery-route-mode") + 1] == "lightweight"
 
 
 def test_probe_proactive_route_reports_unarmed_deferred_runtime(monkeypatch) -> None:

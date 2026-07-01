@@ -209,7 +209,7 @@ proactive-ooda-safe-work:
 	PYTHONPATH=ea $(PYTHON_BIN) scripts/materialize_proactive_ooda_safe_work.py --pretty
 
 verify-proactive-ooda:
-	PYTHONPATH=ea $(PYTHON_BIN) scripts/verify_proactive_ooda.py
+	PYTHONPATH=ea $(PYTHON_BIN) scripts/verify_proactive_ooda.py --skip-observation-source --skip-workspace-source --no-require-source --no-require-telegram --delivery-route-mode lightweight
 
 verify-proactive-ooda-live-receipt:
 	docker compose -f docker-compose.yml exec -T ea-proactive-ooda python /app/scripts/verify_proactive_ooda_live_receipt.py --pretty

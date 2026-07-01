@@ -40,6 +40,7 @@ def _load_dotenv_if_present(path: Path) -> None:
 
 import scripts.run_proactive_ooda as runner  # noqa: E402
 
+from app.services.proactive_ooda_delivery import resolve_proactive_ooda_delivery_status  # noqa: E402
 from app.services.proactive_ooda_service import JsonOodaStateStore, ProactiveOodaService, digest_to_dict  # noqa: E402
 from app.services.proactive_ooda_safe_work import (  # noqa: E402
     SAFE_WORK_RESULT_SCHEMA,
@@ -160,6 +161,15 @@ def main() -> int:
         action=argparse.BooleanOptionalAction,
         default=_env_truthy("EA_PROACTIVE_OODA_ENABLED"),
     )
+    parser.add_argument(
+        "--delivery-route-mode",
+        choices=("lightweight", "full"),
+        default=_default_delivery_route_mode(),
+        help=(
+            "Use lightweight transport fallback checks by default; use full to build the app container "
+            "and inspect runtime delivery preferences/bindings."
+        ),
+    )
     parser.add_argument("--require-receipt-observation", action="store_true")
     parser.add_argument("--pretty", action="store_true")
     args = parser.parse_args()
@@ -272,13 +282,21 @@ def _build_report(args: argparse.Namespace) -> dict[str, Any]:
         digest_payload = digest_to_dict(grounded_digest)
         guard_status = _delivery_guard_status(args, state_store=state_store, digest=grounded_digest)
         context_grounding_status = _context_grounding_status(grounded_digest)
-        delivery_route_status = _delivery_route_status(args.principal_id, grounded_digest)
+        delivery_route_status = _delivery_route_status(
+            args.principal_id,
+            grounded_digest,
+            mode=str(getattr(args, "delivery_route_mode", "") or ""),
+        )
     else:
         grounded_digest = None
         digest_payload = {}
         guard_status = _delivery_guard_status(args, state_store=state_store, digest=None)
         context_grounding_status = _context_grounding_status(None)
-        delivery_route_status = _delivery_route_status(args.principal_id, None)
+        delivery_route_status = _delivery_route_status(
+            args.principal_id,
+            None,
+            mode=str(getattr(args, "delivery_route_mode", "") or ""),
+        )
     stage_packet_status = _stage_packet_status(args, digest=grounded_digest)
     if stage_packet_status["required"] and not stage_packet_status["ready"]:
         errors.extend(stage_packet_status["errors"])
@@ -322,9 +340,23 @@ def _telegram_ready(principal_id: str) -> bool:
     return proactive_telegram_ready(principal_id=principal_id)
 
 
-def _delivery_route_status(principal_id: str, digest: Any | None) -> dict[str, Any]:
-    status = runner._delivery_status(principal_id, digest=digest)
+def _default_delivery_route_mode() -> str:
+    configured = str(os.getenv("EA_PROACTIVE_OODA_VERIFY_DELIVERY_ROUTE_MODE") or "").strip().lower()
+    if configured in {"lightweight", "full"}:
+        return configured
+    return "lightweight"
+
+
+def _delivery_route_status(principal_id: str, digest: Any | None, *, mode: str = "") -> dict[str, Any]:
+    normalized_mode = str(mode or _default_delivery_route_mode()).strip().lower()
+    if normalized_mode not in {"lightweight", "full"}:
+        normalized_mode = "lightweight"
+    if normalized_mode == "full":
+        status = runner._delivery_status(principal_id, digest=digest)
+    else:
+        status = resolve_proactive_ooda_delivery_status(principal_id=principal_id, digest=digest)
     return {
+        "mode": normalized_mode,
         "ready": bool(getattr(status, "ready", False)),
         "selected_channel": str(getattr(status, "selected_channel", "") or ""),
         "selected_transport": str(getattr(status, "selected_transport", "") or ""),

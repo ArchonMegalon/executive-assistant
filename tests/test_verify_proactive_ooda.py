@@ -591,6 +591,7 @@ def test_verify_proactive_ooda_reports_generic_delivery_route(tmp_path, monkeypa
             require_source=True,
             require_telegram=False,
             require_receipt_observation=False,
+            delivery_route_mode="full",
         )
     )
 
@@ -601,6 +602,42 @@ def test_verify_proactive_ooda_reports_generic_delivery_route(tmp_path, monkeypa
     assert report["delivery_route"]["next_action"] == "scan_whatsapp_web_qr"
     assert "delivery route: ready [whatsapp via whatsapp_web_session (delivery_preference)], available whatsapp, telegram, blocked by whatsapp_web_session_not_ready:qr_required, next action scan_whatsapp_web_qr" in verifier._format_report(report)
     assert "delivery recovery: scan_whatsapp_web_qr (whatsapp_web_session_not_ready:qr_required)" in verifier._format_report(report)
+
+
+def test_verify_proactive_ooda_lightweight_delivery_route_skips_full_runner(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "token")
+    monkeypatch.setenv("EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID", "123456")
+    monkeypatch.setattr(
+        runner,
+        "_delivery_status",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("full_delivery_status_called")),
+    )
+
+    report = verifier._build_report(
+        Namespace(
+            principal_id="exec",
+            signals_json="",
+            discovery_json="",
+            opportunity_rules_json="",
+            state_path=str(tmp_path / "state.json"),
+            max_items=5,
+            observation_lookback_hours=24,
+            observation_limit=50,
+            skip_observation_source=True,
+            skip_workspace_source=True,
+            require_source=False,
+            require_telegram=False,
+            require_receipt_observation=False,
+            delivery_route_mode="lightweight",
+        )
+    )
+
+    assert report["delivery_route"]["mode"] == "lightweight"
+    assert report["delivery_route"]["ready"] is True
+    assert report["delivery_route"]["selected_channel"] == "telegram"
+    assert report["delivery_route"]["selected_transport"] == "telegram"
+    assert report["delivery_route"]["selected_by"] == "env_telegram_fallback"
+    assert report["delivery_route"]["recipient_ref_hash_present"] is True
 
 
 def test_runner_load_signals_continues_after_discovery_failure(tmp_path, monkeypatch) -> None:

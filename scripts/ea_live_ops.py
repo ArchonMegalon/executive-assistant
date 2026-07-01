@@ -1847,6 +1847,8 @@ def probe_proactive_route(
             "--skip-workspace-source",
             "--no-require-source",
             "--no-require-telegram",
+            "--delivery-route-mode",
+            "lightweight",
         ],
         timeout_seconds=timeout_seconds,
     )
