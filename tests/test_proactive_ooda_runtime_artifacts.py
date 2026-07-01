@@ -200,6 +200,81 @@ def test_load_runtime_artifact_bundle_keeps_sent_packet_when_primary_is_newer_no
     assert bundle["safe_work_result"]["result_ref"] == "safe_work_result:res-actionable"
 
 
+def test_load_runtime_artifact_bundle_prefers_current_operator_safe_mirror_over_old_sent_receipt(
+    tmp_path: Path,
+) -> None:
+    state_path = "state/proactive_ooda_notified.json"
+    primary_receipt_path = tmp_path / "state" / "proactive_ooda_latest_run.generated.json"
+    archive_receipt_path = tmp_path / "state" / "proactive_ooda_run_receipts" / "20260629T110000Z-sent-proof.json"
+    stage_dir = tmp_path / "state" / "proactive_ooda_stage_packets"
+    safe_dir = tmp_path / "state" / "proactive_ooda_safe_work_results"
+
+    old_stage = {
+        "schema": "proactive_ooda.stage_packet.v1",
+        "packet_ref": "stage_packet:pkt-old",
+        "stage": {"kind": "approval_packet"},
+    }
+    old_safe = {
+        "schema": "proactive_ooda.safe_work_result.v1",
+        "result_ref": "safe_work_result:res-old",
+        "source_packet_ref_hash": _sha256(old_stage["packet_ref"]),
+        "status": "staged_for_user_decision",
+    }
+    mirror_stage = {
+        "schema": "proactive_ooda.stage_packet.v1",
+        "packet_ref": "stage_packet:pkt-mirror",
+        "stage": {"kind": "approval_packet"},
+    }
+    mirror_safe = {
+        "schema": "proactive_ooda.safe_work_result.v1",
+        "result_ref": "safe_work_result:res-mirror",
+        "source_packet_ref_hash": _sha256(mirror_stage["packet_ref"]),
+        "status": "staged_for_user_decision",
+    }
+    _write_json(stage_dir / "pkt-old.json", old_stage)
+    _write_json(safe_dir / "res-old.json", old_safe)
+    _write_json(stage_dir / "pkt-mirror.json", mirror_stage)
+    _write_json(safe_dir / "res-mirror.json", mirror_safe)
+    _write_json(
+        archive_receipt_path,
+        {
+            "notification_status": "sent",
+            "item_count": 1,
+            "stage_packet_ref_hashes": [_sha256(old_stage["packet_ref"])],
+            "safe_work_result_ref_hashes": [_sha256(old_safe["result_ref"])],
+            "telegram_message_ids": ["3130"],
+            "teable_sync": {"status": "synced", "sync_attempted": True},
+        },
+    )
+    _write_json(
+        primary_receipt_path,
+        {
+            "notification_status": "deferred",
+            "error_code": "mirrored_delivery_proof",
+            "item_count": 1,
+            "stage_packet_output_dir": str(stage_dir),
+            "safe_work_result_output_dir": str(safe_dir),
+            "stage_packet_ref_hashes": [_sha256(mirror_stage["packet_ref"])],
+            "safe_work_result_ref_hashes": [_sha256(mirror_safe["result_ref"])],
+            "telegram_message_ids": [],
+            "delivery_mirror": {
+                "enabled": True,
+                "mode": "operator_safe_mirror",
+                "user_notification_suppressed": True,
+                "approval_request_requires_user_action": True,
+            },
+            "teable_sync": {"status": "synced", "sync_attempted": True},
+        },
+    )
+
+    bundle = load_runtime_artifact_bundle(root=tmp_path, state_path=state_path)
+
+    assert bundle["run_receipt_path"] == primary_receipt_path
+    assert bundle["run_receipt"]["error_code"] == "mirrored_delivery_proof"
+    assert bundle["stage_packet"]["packet_ref"] == "stage_packet:pkt-mirror"
+    assert bundle["safe_work_result"]["result_ref"] == "safe_work_result:res-mirror"
+
+
 def test_load_runtime_artifact_bundle_hides_property_scout_packet_when_flat_search_disabled(
     tmp_path: Path,
     monkeypatch,

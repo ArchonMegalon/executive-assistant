@@ -667,6 +667,87 @@ def test_runner_main_unarmed_send_stages_without_notifying(tmp_path, monkeypatch
     assert '"notification_status": "deferred"' in captured.out
 
 
+def test_runner_main_mirror_delivery_proof_stages_without_notifying(tmp_path, monkeypatch, capsys) -> None:
+    signal_file = tmp_path / "signals.json"
+    signal_file.write_text(
+        json.dumps(
+            [
+                {
+                    "source_ref": "manual:mirror-proof",
+                    "signal_type": "operator_signal",
+                    "channel": "operator_feed",
+                    "title": "Review the staged documentation candidate",
+                    "summary": "A reversible documentation candidate is ready for approval.",
+                    "payload": {
+                        "ooda_loop": {
+                            "reviewed": True,
+                            "observe": {"summary": "Review the staged documentation candidate."},
+                            "orient": {"summary": "This is a reversible packet for operator proof."},
+                            "decide": {"summary": "Approve whether EA should keep this candidate.", "approval_required": True},
+                            "act": {
+                                "summary": "Stage the candidate for approval.",
+                                "stage": {
+                                    "kind": "approval_packet",
+                                    "summary": "One documentation candidate is staged.",
+                                    "candidate_items": [
+                                        {"label": "Vendor A", "url": "https://example.test/vendor-a"}
+                                    ],
+                                    "approval_url": "https://example.test/approve/vendor-a",
+                                },
+                            },
+                        }
+                    },
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        runner,
+        "_deliver_notification",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("mirror proof must not notify")),
+    )
+    monkeypatch.setattr(runner, "persist_proactive_ooda_receipt", lambda **_kwargs: None)
+    monkeypatch.setattr(runner, "sync_proactive_ooda_to_teable", lambda **_kwargs: {"status": "disabled", "sync_attempted": False, "blocked_reason": ""})
+    monkeypatch.setattr(
+        runner.sys,
+        "argv",
+        [
+            "run_proactive_ooda.py",
+            "--principal-id",
+            "exec",
+            "--signals-json",
+            str(signal_file),
+            "--state-path",
+            str(tmp_path / "state.json"),
+            "--stage-packet-dir",
+            str(tmp_path / "packets"),
+            "--safe-work-result-dir",
+            str(tmp_path / "results"),
+            "--skip-observation-source",
+            "--skip-workspace-source",
+            "--armed-send",
+            "--mirror-delivery-proof",
+        ],
+    )
+
+    assert runner.main() == 0
+
+    captured = capsys.readouterr()
+    receipt = json.loads((tmp_path / "proactive_ooda_latest_run.generated.json").read_text(encoding="utf-8"))
+    assert receipt["notification_status"] == "deferred"
+    assert receipt["error_code"] == "mirrored_delivery_proof"
+    assert receipt["delivery_mirror"]["enabled"] is True
+    assert receipt["delivery_mirror"]["mode"] == "operator_safe_mirror"
+    assert receipt["delivery_mirror"]["user_notification_suppressed"] is True
+    assert receipt["delivery_mirror"]["approval_request_requires_user_action"] is True
+    assert receipt["delivery_mirror"]["raw_notification_text_exposed"] is False
+    assert receipt["telegram_message_ids"] == []
+    assert list((tmp_path / "packets").glob("*.json"))
+    assert list((tmp_path / "results").glob("*.json"))
+    assert '"notification_status": "deferred"' in captured.out
+
+
 def test_runner_main_defers_when_safe_work_has_no_decision_ready_material(tmp_path, monkeypatch, capsys) -> None:
     signal_file = tmp_path / "signals.json"
     signal_file.write_text(

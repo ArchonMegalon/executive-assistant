@@ -53,20 +53,28 @@ def verify_receipt(path: Path) -> dict[str, Any]:
     payload, errors = _load_receipt(path)
     latest_payload = dict(payload)
     latest_path = path
+    archived_delivery_receipt_used = False
     archived_sent_receipt_used = False
+    archived_operator_safe_mirror_receipt_used = False
     quiet_receipt_errors: list[str] = []
-    if payload and _receipt_proves_action_required_only_quiet_delivery(payload):
+    if payload and _receipt_allows_archived_delivery_fallback(payload):
         quiet_receipt_errors = _raw_payload_errors(payload)
-        archived = _best_archived_sent_receipt(path)
+        archived = _best_archived_delivery_receipt(path)
         if archived is not None:
-            path, payload = archived
-            archived_sent_receipt_used = True
+            path, payload, delivery_mode = archived
+            archived_delivery_receipt_used = True
+            archived_sent_receipt_used = delivery_mode == "telegram_sent"
+            archived_operator_safe_mirror_receipt_used = delivery_mode == "operator_safe_mirror"
             errors = []
         else:
-            errors = ["sent_receipt_missing_after_quiet"]
+            errors = ["delivery_receipt_missing_after_quiet"]
     if payload:
-        errors.extend(_sent_receipt_errors(payload))
+        if _receipt_proves_operator_safe_mirror(payload):
+            errors.extend(_operator_safe_mirror_receipt_errors(payload))
+        else:
+            errors.extend(_sent_receipt_errors(payload))
     errors.extend(f"quiet_{error}" for error in quiet_receipt_errors)
+    delivery_mode = _delivery_mode(payload)
 
     return {
         "ok": not errors,
@@ -74,9 +82,17 @@ def verify_receipt(path: Path) -> dict[str, Any]:
         "receipt_path": str(path),
         "latest_receipt_path": str(latest_path),
         "latest_notification_status": latest_payload.get("notification_status", ""),
+        "archived_delivery_receipt_used": archived_delivery_receipt_used,
         "archived_sent_receipt_used": archived_sent_receipt_used,
-        "quiet_receipt_path": str(latest_path) if archived_sent_receipt_used else "",
-        "quiet_receipt_error_code": str(latest_payload.get("error_code") or "") if archived_sent_receipt_used else "",
+        "archived_operator_safe_mirror_receipt_used": archived_operator_safe_mirror_receipt_used,
+        "quiet_receipt_path": str(latest_path) if archived_delivery_receipt_used else "",
+        "quiet_receipt_error_code": (
+            str(latest_payload.get("error_code") or latest_payload.get("notification_status") or "")
+            if archived_delivery_receipt_used
+            else ""
+        ),
+        "delivery_mode": delivery_mode,
+        "operator_safe_mirror_present": delivery_mode == "operator_safe_mirror",
         "notification_status": payload.get("notification_status", ""),
         "item_count": int(payload.get("item_count") or 0),
         "delivery_channel": str(payload.get("delivery_channel") or ""),
@@ -99,21 +115,29 @@ def _load_receipt(path: Path) -> tuple[dict[str, Any], list[str]]:
     return (dict(payload), []) if isinstance(payload, dict) else ({}, ["receipt_invalid_json"])
 
 
-def _best_archived_sent_receipt(current_receipt_path: Path) -> tuple[Path, dict[str, Any]] | None:
+def _best_archived_delivery_receipt(current_receipt_path: Path) -> tuple[Path, dict[str, Any], str] | None:
     receipt_dir = current_receipt_path.parent / RUN_RECEIPT_DIRNAME
     if not receipt_dir.is_dir():
         return None
-    best: tuple[Path, dict[str, Any], float] | None = None
+    best: tuple[Path, dict[str, Any], str, float] | None = None
     for candidate in sorted(receipt_dir.glob("*.json")):
         payload, errors = _load_receipt(candidate)
-        if errors or _sent_receipt_errors(payload):
+        if errors:
+            continue
+        delivery_mode = _delivery_mode(payload)
+        if delivery_mode == "operator_safe_mirror":
+            receipt_errors = _operator_safe_mirror_receipt_errors(payload)
+        else:
+            receipt_errors = _sent_receipt_errors(payload)
+            delivery_mode = "telegram_sent" if not receipt_errors else ""
+        if receipt_errors or not delivery_mode:
             continue
         mtime = _safe_mtime(candidate)
-        if best is None or mtime > best[2]:
-            best = (candidate, payload, mtime)
+        if best is None or mtime > best[3]:
+            best = (candidate, payload, delivery_mode, mtime)
     if best is None:
         return None
-    return best[0], best[1]
+    return best[0], best[1], best[2]
 
 
 def _sent_receipt_errors(payload: dict[str, Any]) -> list[str]:
@@ -144,6 +168,81 @@ def _sent_receipt_errors(payload: dict[str, Any]) -> list[str]:
         errors.append("receipt_has_error_code")
     errors.extend(_raw_payload_errors(payload))
     return errors
+
+
+def _operator_safe_mirror_receipt_errors(payload: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if payload.get("notification_status") != "deferred":
+        errors.append("mirror_receipt_not_deferred")
+    if payload.get("error_code") != "mirrored_delivery_proof":
+        errors.append("mirror_receipt_error_code_invalid")
+    if payload.get("dry_run") is not False:
+        errors.append("receipt_is_dry_run")
+    if int(payload.get("item_count") or 0) < 1:
+        errors.append("receipt_has_no_items")
+    if _message_id_count(payload.get("delivery_message_ids") or []) or _message_id_count(payload.get("telegram_message_ids") or []):
+        errors.append("mirror_receipt_has_delivery_message_id")
+    if not _looks_sha256(payload.get("principal_id_hash")):
+        errors.append("principal_hash_missing")
+    stage_hashes = payload.get("stage_packet_ref_hashes")
+    if not isinstance(stage_hashes, list) or not stage_hashes or not all(_looks_sha256(item) for item in stage_hashes):
+        errors.append("stage_packet_ref_hashes_invalid")
+    safe_hashes = payload.get("safe_work_result_ref_hashes")
+    if not isinstance(safe_hashes, list) or not safe_hashes or not all(_looks_sha256(item) for item in safe_hashes):
+        errors.append("safe_work_result_ref_hashes_invalid")
+    mirror = dict(payload.get("delivery_mirror") or {})
+    if not mirror.get("enabled"):
+        errors.append("delivery_mirror_missing")
+    if str(mirror.get("mode") or "").strip() != "operator_safe_mirror":
+        errors.append("delivery_mirror_mode_invalid")
+    if mirror.get("user_notification_suppressed") is not True:
+        errors.append("delivery_mirror_user_notification_not_suppressed")
+    if mirror.get("approval_request_requires_user_action") is not True:
+        errors.append("delivery_mirror_action_required_missing")
+    for key in ("packet_ref_hash", "staged_artifact_ref_hash", "notification_text_sha256"):
+        if not _looks_sha256(mirror.get(key)):
+            errors.append(f"delivery_mirror_{key}_invalid")
+    if mirror.get("raw_notification_text_exposed"):
+        errors.append("delivery_mirror_raw_notification_text_exposed")
+    if mirror.get("raw_approval_prompt_exposed"):
+        errors.append("delivery_mirror_raw_approval_prompt_exposed")
+    if mirror.get("raw_private_url_exposed"):
+        errors.append("delivery_mirror_raw_private_url_exposed")
+    errors.extend(_raw_payload_errors(payload))
+    return errors
+
+
+def _delivery_mode(payload: dict[str, Any]) -> str:
+    if _receipt_proves_operator_safe_mirror(payload):
+        return "operator_safe_mirror"
+    if payload.get("notification_status") == "sent":
+        return "telegram_sent"
+    return ""
+
+
+def _receipt_proves_operator_safe_mirror(payload: dict[str, Any]) -> bool:
+    mirror = dict(payload.get("delivery_mirror") or {})
+    return bool(
+        payload.get("notification_status") == "deferred"
+        and payload.get("error_code") == "mirrored_delivery_proof"
+        and int(payload.get("item_count") or 0) > 0
+        and mirror.get("enabled")
+        and str(mirror.get("mode") or "").strip() == "operator_safe_mirror"
+        and mirror.get("user_notification_suppressed") is True
+        and mirror.get("approval_request_requires_user_action") is True
+    )
+
+
+def _receipt_allows_archived_delivery_fallback(payload: dict[str, Any]) -> bool:
+    if _receipt_proves_action_required_only_quiet_delivery(payload):
+        return True
+    return (
+        payload.get("dry_run") is False
+        and str(payload.get("notification_status") or "").strip().lower() == "skipped_no_items"
+        and int(payload.get("item_count") or 0) == 0
+        and _message_id_count(payload.get("delivery_message_ids") or []) == 0
+        and _message_id_count(payload.get("telegram_message_ids") or []) == 0
+    )
 
 
 def _receipt_proves_action_required_only_quiet_delivery(payload: dict[str, Any]) -> bool:
@@ -203,13 +302,14 @@ def _format_report(report: dict[str, Any]) -> str:
     lines = [
         f"proactive OODA live receipt: {status}",
         f"status: {report['notification_status'] or 'missing'}",
+        f"mode: {report.get('delivery_mode') or 'none'}",
         f"items: {report['item_count']}",
         f"channel: {report['delivery_channel'] or 'telegram'}",
         f"delivery messages: {report['delivery_message_count']}",
         f"telegram messages: {report['telegram_message_count']}",
         f"receipt: {report['receipt_path']}",
     ]
-    if report.get("archived_sent_receipt_used"):
+    if report.get("archived_delivery_receipt_used"):
         lines.append(
             "latest: "
             f"{report.get('latest_notification_status') or 'missing'} "

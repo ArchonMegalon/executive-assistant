@@ -210,6 +210,12 @@ def main() -> int:
         default=_env_truthy("EA_PROACTIVE_OODA_ACTION_REQUIRED_DELIVERY_ONLY", default=True),
         help="Only notify when the packet has a concrete user action surface; otherwise keep it in receipts/Teable.",
     )
+    parser.add_argument(
+        "--mirror-delivery-proof",
+        action=argparse.BooleanOptionalAction,
+        default=_env_truthy("EA_PROACTIVE_OODA_MIRROR_DELIVERY_PROOF", default=False),
+        help="Mirror one action-required packet into receipts/Teable without sending a user notification.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--pretty", action="store_true")
     args = parser.parse_args()
@@ -331,6 +337,14 @@ def main() -> int:
     ):
         digest = _without_notified_refs(digest)
         error_code = "no_user_action_required"
+    delivery_mirror: dict[str, Any] = {}
+    if digest.items and not args.dry_run and not error_code and bool(getattr(args, "mirror_delivery_proof", False)):
+        delivery_mirror = _delivery_mirror_receipt(
+            approval_request=approval_request,
+            notification_text=notification_text,
+        )
+        digest = _without_notified_refs(digest)
+        error_code = "mirrored_delivery_proof"
     if digest.items and not args.dry_run and not error_code:
         try:
             deliver_kwargs: dict[str, Any] = {
@@ -385,6 +399,7 @@ def main() -> int:
             stage_packet_dir=stage_packet_dir,
             safe_work_result_dir=safe_work_result_dir,
             auto_execute_results=auto_execution_results,
+            delivery_mirror=delivery_mirror,
         )
         _write_receipt(Path(args.receipt_path), receipt_payload)
         _write_receipt(_archived_receipt_path(args, payload=receipt_payload), receipt_payload)
@@ -402,6 +417,7 @@ def main() -> int:
                         teable_sync=teable_sync,
                         stage_packet_dir=stage_packet_dir,
                         safe_work_result_dir=safe_work_result_dir,
+                        delivery_mirror=delivery_mirror,
                     ),
                     "teable_sync": teable_sync,
                 },
@@ -451,6 +467,7 @@ def _receipt_payload(
     stage_packet_dir: Path,
     safe_work_result_dir: Path,
     auto_execute_results: Iterable[Mapping[str, Any]] = (),
+    delivery_mirror: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     payload = receipt_to_dict(receipt)
     payload["stage_packet_output_dir"] = str(stage_packet_dir)
@@ -469,7 +486,35 @@ def _receipt_payload(
         ],
         "projection_summary": dict(teable_sync.get("projection_summary") or {}),
     }
+    if delivery_mirror:
+        payload["delivery_mirror"] = dict(delivery_mirror)
     return payload
+
+
+def _delivery_mirror_receipt(
+    *,
+    approval_request: Mapping[str, Any] | None,
+    notification_text: str,
+) -> dict[str, Any]:
+    request = dict(approval_request or {})
+    return {
+        "schema": "ea.proactive_ooda.delivery_mirror.v1",
+        "enabled": True,
+        "mode": "operator_safe_mirror",
+        "reason": "mirror_delivery_proof",
+        "user_notification_suppressed": True,
+        "approval_request_requires_user_action": _notification_requires_user_action(request),
+        "packet_ref_hash": _hash_value(str(request.get("packet_ref") or "").strip()),
+        "staged_artifact_ref_hash": _hash_value(str(request.get("staged_artifact_ref") or "").strip()),
+        "approval_prompt_present": bool(str(request.get("approval_prompt") or "").strip()),
+        "staged_action_url_present": bool(str(request.get("staged_action_url") or "").strip()),
+        "approved_execution_mode_present": bool(str(request.get("approved_execution_mode") or "").strip()),
+        "approved_action_present": bool(str(request.get("approved_action") or "").strip()),
+        "notification_text_sha256": _hash_value(notification_text),
+        "raw_notification_text_exposed": False,
+        "raw_approval_prompt_exposed": False,
+        "raw_private_url_exposed": False,
+    }
 
 
 def _auto_execute_proactive_ooda_actions(
@@ -962,6 +1007,7 @@ def _is_time_within_quiet_hours(current: datetime_time, *, start: datetime_time,
 def _is_deferred_error(value: str) -> bool:
     normalized = str(value or "").strip()
     return normalized.startswith("deferred_by_") or normalized in {
+        "mirrored_delivery_proof",
         "no_decision_ready_safe_work",
         "no_user_action_required",
     }

@@ -1501,16 +1501,30 @@ def materialize_proactive_ooda_gold_acceptance(
         },
     )
     packet_run_sent = str(run_receipt.get("notification_status") or "").strip() == "sent" and int(run_receipt.get("item_count") or 0) > 0
-    delivery_present = (
+    delivery_mirror = dict(run_receipt.get("delivery_mirror") or {})
+    mirrored_delivery_present = (
+        bool(operator_status.get("delivery_route_ready"))
+        and str(run_receipt.get("notification_status") or "").strip() == "deferred"
+        and str(run_receipt.get("error_code") or "").strip() == "mirrored_delivery_proof"
+        and int(run_receipt.get("item_count") or 0) > 0
+        and bool(delivery_mirror.get("enabled"))
+        and str(delivery_mirror.get("mode") or "").strip() == "operator_safe_mirror"
+        and bool(delivery_mirror.get("user_notification_suppressed"))
+        and bool(delivery_mirror.get("approval_request_requires_user_action"))
+        and packet_artifacts_match_run_receipt
+    )
+    sent_delivery_present = (
         bool(operator_status.get("delivery_route_ready"))
         and bool(operator_status.get("live_receipt_checked"))
         and bool(live_receipt.get("ok"))
         and packet_run_sent
         and packet_artifacts_match_run_receipt
     )
+    delivery_present = bool(sent_delivery_present or mirrored_delivery_present)
     delivery_proof = _proof_row(
         present=delivery_present,
         detail={
+            "delivery_mode": "telegram_sent" if sent_delivery_present else "operator_safe_mirror" if mirrored_delivery_present else "",
             "route_probe_source": str(operator_status.get("route_probe_source") or "").strip(),
             "route_probe_runtime_service": str(operator_status.get("route_probe_runtime_service") or "").strip(),
             "selected_channel": _first_text(delivery_route.get("selected_channel"), live_receipt.get("delivery_channel")),
@@ -1519,7 +1533,17 @@ def materialize_proactive_ooda_gold_acceptance(
             "live_receipt_ok": bool(live_receipt.get("ok")),
             "live_receipt_path": str(live_receipt.get("receipt_path") or "").strip(),
             "run_notification_status": str(run_receipt.get("notification_status") or "").strip(),
+            "run_error_code": str(run_receipt.get("error_code") or "").strip(),
             "run_item_count": int(run_receipt.get("item_count") or 0),
+            "sent_delivery_present": sent_delivery_present,
+            "mirrored_delivery_present": mirrored_delivery_present,
+            "mirror_mode": str(delivery_mirror.get("mode") or "").strip(),
+            "mirror_user_notification_suppressed": bool(delivery_mirror.get("user_notification_suppressed")),
+            "mirror_approval_request_requires_user_action": bool(
+                delivery_mirror.get("approval_request_requires_user_action")
+            ),
+            "mirror_raw_notification_text_exposed": bool(delivery_mirror.get("raw_notification_text_exposed")),
+            "mirror_raw_approval_prompt_exposed": bool(delivery_mirror.get("raw_approval_prompt_exposed")),
             "packet_artifacts_match_run_receipt": packet_artifacts_match_run_receipt,
             "delivery_route_error": str(operator_status.get("delivery_route_error") or "").strip(),
             "delivery_next_action": str(operator_status.get("delivery_next_action") or "").strip(),

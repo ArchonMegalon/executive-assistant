@@ -36,6 +36,47 @@ def test_verify_proactive_ooda_live_receipt_accepts_redacted_sent_receipt(tmp_pa
     assert report["delivery_next_action"] == "scan_whatsapp_web_qr"
 
 
+def test_verify_proactive_ooda_live_receipt_accepts_operator_safe_mirror_receipt(tmp_path) -> None:
+    receipt = tmp_path / "receipt.json"
+    receipt.write_text(
+        json.dumps(
+            {
+                "dry_run": False,
+                "error_code": "mirrored_delivery_proof",
+                "generated_at": "2026-07-01T00:34:10+00:00",
+                "item_count": 1,
+                "notification_status": "deferred",
+                "delivery_message_ids": [],
+                "telegram_message_ids": [],
+                "principal_id_hash": "b" * 64,
+                "stage_packet_ref_hashes": ["c" * 64],
+                "safe_work_result_ref_hashes": ["d" * 64],
+                "delivery_mirror": {
+                    "enabled": True,
+                    "mode": "operator_safe_mirror",
+                    "user_notification_suppressed": True,
+                    "approval_request_requires_user_action": True,
+                    "packet_ref_hash": "e" * 64,
+                    "staged_artifact_ref_hash": "f" * 64,
+                    "notification_text_sha256": "1" * 64,
+                    "raw_notification_text_exposed": False,
+                    "raw_approval_prompt_exposed": False,
+                    "raw_private_url_exposed": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = verify_receipt(receipt)
+
+    assert report["ok"] is True
+    assert report["delivery_mode"] == "operator_safe_mirror"
+    assert report["operator_safe_mirror_present"] is True
+    assert report["delivery_message_count"] == 0
+    assert report["telegram_message_count"] == 0
+
+
 def test_verify_proactive_ooda_live_receipt_uses_archived_sent_receipt_when_latest_is_quiet(tmp_path) -> None:
     receipt = tmp_path / "proactive_ooda_latest_run.generated.json"
     archive_receipt = tmp_path / "proactive_ooda_run_receipts" / "20260629T103000Z-sent.json"
@@ -78,6 +119,69 @@ def test_verify_proactive_ooda_live_receipt_uses_archived_sent_receipt_when_late
     assert report["latest_receipt_path"] == str(receipt)
     assert report["latest_notification_status"] == "deferred"
     assert report["quiet_receipt_error_code"] == "no_user_action_required"
+
+
+def test_verify_proactive_ooda_live_receipt_uses_archived_operator_safe_mirror_when_latest_has_no_items(
+    tmp_path,
+) -> None:
+    receipt = tmp_path / "proactive_ooda_latest_run.generated.json"
+    archive_receipt = tmp_path / "proactive_ooda_run_receipts" / "20260701T003410Z-deferred-mirror.json"
+    receipt.write_text(
+        json.dumps(
+            {
+                "dry_run": False,
+                "error_code": "",
+                "generated_at": "2026-07-01T00:40:22+00:00",
+                "item_count": 0,
+                "notification_status": "skipped_no_items",
+                "telegram_message_ids": [],
+                "delivery_message_ids": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    archive_receipt.parent.mkdir(parents=True, exist_ok=True)
+    archive_receipt.write_text(
+        json.dumps(
+            {
+                "dry_run": False,
+                "error_code": "mirrored_delivery_proof",
+                "generated_at": "2026-07-01T00:34:10+00:00",
+                "item_count": 1,
+                "notification_status": "deferred",
+                "delivery_message_ids": [],
+                "telegram_message_ids": [],
+                "principal_id_hash": "b" * 64,
+                "stage_packet_ref_hashes": ["c" * 64],
+                "safe_work_result_ref_hashes": ["d" * 64],
+                "delivery_mirror": {
+                    "enabled": True,
+                    "mode": "operator_safe_mirror",
+                    "user_notification_suppressed": True,
+                    "approval_request_requires_user_action": True,
+                    "packet_ref_hash": "e" * 64,
+                    "staged_artifact_ref_hash": "f" * 64,
+                    "notification_text_sha256": "1" * 64,
+                    "raw_notification_text_exposed": False,
+                    "raw_approval_prompt_exposed": False,
+                    "raw_private_url_exposed": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = verify_receipt(receipt)
+
+    assert report["ok"] is True
+    assert report["archived_delivery_receipt_used"] is True
+    assert report["archived_operator_safe_mirror_receipt_used"] is True
+    assert report["archived_sent_receipt_used"] is False
+    assert report["receipt_path"] == str(archive_receipt)
+    assert report["latest_receipt_path"] == str(receipt)
+    assert report["latest_notification_status"] == "skipped_no_items"
+    assert report["quiet_receipt_error_code"] == "skipped_no_items"
+    assert report["delivery_mode"] == "operator_safe_mirror"
 
 
 def test_verify_proactive_ooda_live_receipt_rejects_raw_fields_in_quiet_latest_receipt(tmp_path) -> None:

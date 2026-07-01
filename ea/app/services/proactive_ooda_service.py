@@ -834,6 +834,7 @@ def build_run_receipt(
 def _is_deferred_error(value: str) -> bool:
     normalized = str(value or "").strip()
     return normalized.startswith("deferred_by_") or normalized in {
+        "mirrored_delivery_proof",
         "no_decision_ready_safe_work",
         "no_user_action_required",
     }

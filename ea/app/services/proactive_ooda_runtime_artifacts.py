@@ -628,7 +628,7 @@ def _best_run_receipt_candidate(
     safe_work_result_ref_hash: str = "",
 ) -> tuple[Path | None, dict[str, Any], float] | None:
     best: tuple[Path | None, dict[str, Any], float] | None = None
-    best_score: tuple[int, int, int, int, int, float] | None = None
+    best_score: tuple[int, int, int, int, float, int, int] | None = None
     require_packet_match = bool(stage_packet_ref_hash and safe_work_result_ref_hash)
     for path, payload, mtime in candidates:
         packet_match = _run_receipt_matches_artifacts(
@@ -642,18 +642,39 @@ def _best_run_receipt_candidate(
         notification_status = str(payload.get("notification_status") or "").strip().lower()
         item_count = int(payload.get("item_count") or 0)
         teable_sync = dict(payload.get("teable_sync") or {})
+        operator_safe_mirror = _receipt_proves_operator_safe_mirror(payload)
+        delivery_proof = (
+            notification_status == "sent" and item_count > 0 and message_count > 0
+        ) or operator_safe_mirror
         score = (
             1 if packet_match else 0,
-            1 if notification_status == "sent" and item_count > 0 and message_count > 0 else 0,
+            1 if delivery_proof else 0,
             1 if item_count > 0 else 0,
-            1 if notification_status == "sent" else 0,
             1 if str(teable_sync.get("status") or "").strip() in {"synced", "partial"} else 0,
             mtime,
+            1 if operator_safe_mirror else 0,
+            1 if notification_status == "sent" else 0,
         )
         if best_score is None or score > best_score:
             best = (path, payload, mtime)
             best_score = score
     return best
+
+
+def _receipt_proves_operator_safe_mirror(payload: Mapping[str, Any]) -> bool:
+    if str(payload.get("notification_status") or "").strip().lower() != "deferred":
+        return False
+    if str(payload.get("error_code") or "").strip() != "mirrored_delivery_proof":
+        return False
+    if int(payload.get("item_count") or 0) <= 0:
+        return False
+    mirror = dict(payload.get("delivery_mirror") or {})
+    return bool(
+        mirror.get("enabled")
+        and str(mirror.get("mode") or "").strip() == "operator_safe_mirror"
+        and mirror.get("user_notification_suppressed") is True
+        and mirror.get("approval_request_requires_user_action") is True
+    )
 
 
 def _run_receipt_matches_artifacts(

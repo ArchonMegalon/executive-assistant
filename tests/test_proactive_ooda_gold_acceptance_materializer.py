@@ -1691,6 +1691,137 @@ def test_materialize_proactive_ooda_gold_acceptance_accepts_staged_research_pack
     assert receipt["proofs"]["staged_reversible_artifact"]["auto_execute_match_count"] == 0
 
 
+def test_materialize_proactive_ooda_gold_acceptance_accepts_operator_safe_mirrored_delivery(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    module = _load_script()
+    monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
+
+    operator_status_path = tmp_path / "ea_proactive_ooda_operator_status.generated.json"
+    run_receipt_path = tmp_path / "state" / "proactive_ooda_latest_run.generated.json"
+    stage_dir = tmp_path / "state" / "proactive_ooda_stage_packets"
+    safe_dir = tmp_path / "state" / "proactive_ooda_safe_work_results"
+    stage_dir.mkdir(parents=True, exist_ok=True)
+    safe_dir.mkdir(parents=True, exist_ok=True)
+
+    stage_packet = {
+        "schema": "proactive_ooda.stage_packet.v1",
+        "packet_ref": "stage_packet:pkt-mirror",
+        "stage": {"kind": "approval_packet"},
+        "approval": {"required": True},
+        "safe_work_order": {
+            "handoff_policy": {
+                "safe_to_execute_before_approval": True,
+                "external_actions_remain_staged_only": True,
+            }
+        },
+    }
+    safe_work_result = {
+        "schema": "proactive_ooda.safe_work_result.v1",
+        "result_ref": "safe_work_result:res-mirror",
+        "source_packet_ref_hash": _sha256(stage_packet["packet_ref"]),
+        "status": "staged_for_user_decision",
+        "recommended_option_or_draft": {
+            "kind": "shortlist_candidate",
+            "value": {"label": "Vendor A", "url": "https://example.test/vendor-a"},
+        },
+        "shortlist": [{"label": "Vendor A"}],
+        "approval": {"required": True},
+        "approval_prompt": "Approve whether EA should proceed with Vendor A.",
+        "audit": {"status": "pass", "issues": []},
+        "execution_receipt": {
+            "network_fetch_count": 1,
+            "network_fetch_success_count": 1,
+            "page_checks": [{"url": "https://example.test/vendor-a", "reachable": True}],
+            "irreversible_actions_attempted": [],
+        },
+    }
+    _write_json(stage_dir / "pkt-mirror.json", stage_packet)
+    _write_json(safe_dir / "res-mirror.json", safe_work_result)
+    _write_json(
+        operator_status_path,
+        {
+            "contract_name": "ea.proactive_ooda_operator_status.v1",
+            "status": "ready_local_runtime",
+            "delivery_route_ready": True,
+            "live_receipt_checked": True,
+            "route_probe_source": "docker_compose_exec",
+            "route_probe_runtime_service": "ea-proactive-ooda",
+            "delivery_route": {"selected_channel": "telegram"},
+            "live_receipt": {
+                "ok": False,
+                "notification_status": "deferred",
+                "errors": ["receipt_not_sent"],
+                "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+            },
+            "delivery_guard": {
+                "delivery_state": "no_actionable_items",
+                "has_high_priority": False,
+                "interruption_budget_exhausted": False,
+                "quiet_hours_active": False,
+            },
+            "runtime_actionable_count": 0,
+        },
+    )
+    _write_json(
+        run_receipt_path,
+        {
+            "notification_status": "deferred",
+            "error_code": "mirrored_delivery_proof",
+            "item_count": 1,
+            "telegram_message_ids": [],
+            "delivery_message_ids": [],
+            "stage_packet_ref_hashes": [_sha256(stage_packet["packet_ref"])],
+            "safe_work_result_ref_hashes": [_sha256(safe_work_result["result_ref"])],
+            "stage_packet_output_dir": str(stage_dir),
+            "safe_work_result_output_dir": str(safe_dir),
+            "delivery_mirror": {
+                "schema": "ea.proactive_ooda.delivery_mirror.v1",
+                "enabled": True,
+                "mode": "operator_safe_mirror",
+                "reason": "mirror_delivery_proof",
+                "user_notification_suppressed": True,
+                "approval_request_requires_user_action": True,
+                "raw_notification_text_exposed": False,
+                "raw_approval_prompt_exposed": False,
+            },
+            "teable_sync": {
+                "status": "synced",
+                "sync_attempted": True,
+                "blocked_reason": "",
+                "missing_tables": [],
+                "projection_summary": {
+                    "record_count": 3,
+                    "tables": {
+                        "proactive_ooda_runs": {"record_count": 1},
+                        "proactive_ooda_safe_work": {"record_count": 1},
+                        "proactive_ooda_items": {"record_count": 1},
+                    },
+                },
+            },
+        },
+    )
+
+    output = tmp_path / ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json"
+    receipt = module.materialize_proactive_ooda_gold_acceptance(
+        output_path=output,
+        operator_status_path=operator_status_path,
+        run_receipt_path=run_receipt_path,
+        generated_at="2026-06-29T06:30:00Z",
+    )
+
+    assert receipt["status"] == "ready_for_approval_outcome_capture"
+    assert receipt["proofs"]["routed_delivery"]["present"] is True
+    assert receipt["proofs"]["routed_delivery"]["delivery_mode"] == "operator_safe_mirror"
+    assert receipt["proofs"]["routed_delivery"]["mirrored_delivery_present"] is True
+    assert receipt["proofs"]["routed_delivery"]["mirror_user_notification_suppressed"] is True
+    assert receipt["proofs"]["routed_delivery"]["mirror_raw_notification_text_exposed"] is False
+    assert receipt["proofs"]["action_required_only_delivery"]["present"] is True
+    assert receipt["proofs"]["teable_projection"]["present"] is True
+    assert receipt["remaining_external_proofs"] == ["redacted explicit approval outcome for the proactive OODA packet"]
+
+
 def test_materialize_proactive_ooda_gold_acceptance_discards_stale_invalid_saved_approval_outcome(
     tmp_path: Path,
     monkeypatch,
