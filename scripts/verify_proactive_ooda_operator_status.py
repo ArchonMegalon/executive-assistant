@@ -66,9 +66,54 @@ def _is_suppressed_projection_recovery(receipt: dict[str, Any]) -> bool:
     return bool(suppressed.get("requires_recovery"))
 
 
+def _source_coverage_missing_lane_keys(source_coverage: dict[str, Any]) -> list[str]:
+    return [
+        str(item).strip()
+        for item in list(source_coverage.get("missing_lane_keys") or [])
+        if str(item).strip()
+    ]
+
+
+def _source_coverage_requires_recovery(receipt: dict[str, Any]) -> bool:
+    source_coverage = dict(receipt.get("source_coverage") or {})
+    if not bool(source_coverage.get("checked")):
+        return False
+    if str(source_coverage.get("blocking_reason") or "").strip():
+        return True
+    if _source_coverage_missing_lane_keys(source_coverage):
+        return True
+    status = str(source_coverage.get("status") or "").strip()
+    return status not in {"", "not_checked", "ready", "pass", "fully_ready"}
+
+
+def _is_source_coverage_recovery(receipt: dict[str, Any]) -> bool:
+    return str(receipt.get("reason") or "").strip().startswith("source_coverage_")
+
+
+def _higher_priority_recovery_present(receipt: dict[str, Any]) -> bool:
+    delivery_route = dict(receipt.get("delivery_route") or {})
+    delivery_guard = dict(receipt.get("delivery_guard") or {})
+    stage_packets = dict(receipt.get("stage_packets") or {})
+    safe_work_results = dict(receipt.get("safe_work_results") or {})
+    safe_work_audit = dict(receipt.get("safe_work_audit") or {})
+    current_artifact_filter = dict(receipt.get("current_artifact_filter") or {})
+    return bool(
+        str(receipt.get("delivery_route_error") or "").strip()
+        or str(delivery_route.get("route_error") or "").strip()
+        or str(delivery_guard.get("delivery_state") or "").strip() == "deferred"
+        or not bool(delivery_route.get("ready", receipt.get("delivery_route_ready")))
+        or not bool(stage_packets.get("ready"))
+        or not bool(safe_work_results.get("ready"))
+        or bool(safe_work_audit.get("blocks_operator_followthrough"))
+        or bool(current_artifact_filter.get("requires_recovery"))
+        or _is_suppressed_projection_recovery(receipt)
+        or _is_google_workspace_recovery(receipt)
+    )
+
+
 def _verify_next_action_surface(receipt: dict[str, Any], issues: list[str]) -> None:
     next_action = str(receipt.get("next_action") or "").strip()
-    if next_action in {"maintain_proactive_ooda_runtime", "repair_proactive_safe_work_audit"}:
+    if next_action in {"maintain_proactive_ooda_runtime", "repair_proactive_safe_work_audit", "sync_pocket_ai_audio_transcripts"}:
         if _is_google_workspace_recovery(receipt):
             return
         href = str(receipt.get("next_action_href") or "").strip()
@@ -80,10 +125,13 @@ def _verify_next_action_surface(receipt: dict[str, Any], issues: list[str]) -> N
             issues.append("maintain_proactive_ooda_runtime next_action_href must target Today")
         elif next_action == "repair_proactive_safe_work_audit" and "/app/queue" not in href:
             issues.append("repair_proactive_safe_work_audit next_action_href must target Queue")
+        elif next_action == "sync_pocket_ai_audio_transcripts" and "/app/api/signals/pocket/sync" not in href:
+            issues.append("sync_pocket_ai_audio_transcripts next_action_href must target the Pocket transcript sync action")
         if not label:
             issues.append(f"{next_action} requires next_action_label")
-        if method != "get":
-            issues.append(f"{next_action} requires next_action_method=get")
+        expected_method = "post" if next_action == "sync_pocket_ai_audio_transcripts" else "get"
+        if method != expected_method:
+            issues.append(f"{next_action} requires next_action_method={expected_method}")
         return
     if next_action != "reauthorize_google_workspace_binding":
         return
@@ -107,8 +155,15 @@ def _verify_source_coverage(receipt: dict[str, Any], issues: list[str]) -> None:
         return
     if "checked" not in source_coverage:
         issues.append("source_coverage.checked missing")
+    if "probe_ok" not in source_coverage:
+        issues.append("source_coverage.probe_ok missing")
     if not str(source_coverage.get("status") or "").strip():
         issues.append("source_coverage.status missing")
+    if bool(source_coverage.get("checked")):
+        if not str(source_coverage.get("source") or "").strip():
+            issues.append("checked source_coverage requires source")
+        if not str(source_coverage.get("observed_at") or "").strip():
+            issues.append("checked source_coverage requires observed_at")
     lanes = [dict(row or {}) for row in list(source_coverage.get("lanes") or []) if isinstance(row, dict)]
     lane_keys = {str(row.get("key") or "").strip() for row in lanes if str(row.get("key") or "").strip()}
     missing = sorted(EXPECTED_SOURCE_COVERAGE_LANES - lane_keys)
@@ -165,6 +220,16 @@ def _verify_source_coverage(receipt: dict[str, Any], issues: list[str]) -> None:
             issues.append("unobserved pocket_ai_audio_transcripts lane must surface missing pocket_recording_archive_indexed")
         if str(pocket_lane.get("next_action") or "").strip() != "sync_pocket_ai_audio_transcripts":
             issues.append("unobserved pocket_ai_audio_transcripts lane must request sync_pocket_ai_audio_transcripts")
+    if _source_coverage_requires_recovery(receipt) and not _higher_priority_recovery_present(receipt):
+        if str(receipt.get("status") or "").strip() != "ready_with_recovery_action":
+            issues.append("degraded source_coverage without a higher-priority blocker requires status=ready_with_recovery_action")
+        if str(receipt.get("operator_action_state") or "").strip() != "recovery_required":
+            issues.append("degraded source_coverage without a higher-priority blocker requires operator_action_state=recovery_required")
+        if not _is_source_coverage_recovery(receipt):
+            issues.append("degraded source_coverage without a higher-priority blocker requires source_coverage reason")
+        expected_next_action = str(source_coverage.get("next_action") or "").strip()
+        if expected_next_action and str(receipt.get("next_action") or "").strip() != expected_next_action:
+            issues.append("degraded source_coverage without a higher-priority blocker requires receipt.next_action to match source_coverage.next_action")
 
 
 def _verify_approval_capture(approval_capture: dict[str, Any], issues: list[str], *, required: bool) -> None:
@@ -513,6 +578,7 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
         status == "ready_with_recovery_action"
         and not str(receipt.get("delivery_route_error") or "").strip()
         and not _is_google_workspace_recovery(receipt)
+        and not _is_source_coverage_recovery(receipt)
         and not _is_suppressed_projection_recovery(receipt)
     ):
         issues.append("ready_with_recovery_action requires delivery_route_error")

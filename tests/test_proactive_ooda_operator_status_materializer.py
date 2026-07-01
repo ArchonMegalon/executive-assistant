@@ -25,31 +25,30 @@ def _fake_source_coverage_probe(**_kwargs: object) -> dict[str, object]:
     return {
         "probe_ok": True,
         "checked": True,
-        "status": "ready_with_gaps",
+        "status": "ready",
         "source": "docker_compose_exec",
+        "runtime_service": "ea-proactive-ooda",
         "observed_at": "2026-06-29T08:00:00Z",
         "observation_repository": "PostgresObservationEventRepository",
         "observation_limit": 400,
-        "observation_row_count": 3,
+        "observation_row_count": 8,
         "lane_count": 8,
-        "observed_lane_count": 3,
+        "observed_lane_count": 8,
         "flat_search_enabled": False,
         "excluded_event_types": ["property_scout_sync_completed"],
         "excluded_event_type_counts": {"property_scout_sync_completed": 3},
-        "missing_lane_keys": [
-            "calendar_and_renewal_signals",
-            "relationship_and_occasion_signals",
-            "shopping_and_vendor_signals",
-            "commitment_and_deadline_signals",
-            "durable_profile_and_location_context",
-        ],
+        "missing_lane_keys": [],
+        "next_action": "",
+        "next_action_href": "",
+        "next_action_label": "",
+        "next_action_method": "",
         "lanes": [
             {
                 "key": "postgres_observations",
                 "label": "Postgres observations",
                 "status": "observed",
                 "observed": True,
-                "record_count": 3,
+                "record_count": 8,
                 "latest_observed_at": "2026-06-29T07:59:00Z",
                 "evidence_event_types": ["telegram.message"],
                 "next_action": "",
@@ -62,7 +61,7 @@ def _fake_source_coverage_probe(**_kwargs: object) -> dict[str, object]:
                 "label": "Google workspace",
                 "status": "observed",
                 "observed": True,
-                "record_count": 1,
+                "record_count": 4,
                 "latest_observed_at": "2026-06-29T07:58:00Z",
                 "evidence_event_types": ["gmail.message"],
                 "next_action": "",
@@ -87,12 +86,106 @@ def _fake_source_coverage_probe(**_kwargs: object) -> dict[str, object]:
                 {
                     "key": key,
                     "label": key.replace("_", " "),
-                    "status": "not_observed",
-                    "observed": False,
-                    "record_count": 0,
-                    "latest_observed_at": "",
-                    "evidence_event_types": [],
-                    "next_action": "sync_source",
+                    "status": "observed",
+                    "observed": True,
+                    "record_count": 1,
+                    "latest_observed_at": "2026-06-29T07:56:00Z",
+                    "evidence_event_types": ["office_signal_ooda_evaluated"],
+                    "next_action": "",
+                    "raw_payload_exposed": False,
+                    "raw_transcript_text_exposed": False,
+                    "raw_credential_exposed": False,
+                }
+                for key in (
+                    "calendar_and_renewal_signals",
+                    "relationship_and_occasion_signals",
+                    "shopping_and_vendor_signals",
+                    "commitment_and_deadline_signals",
+                    "durable_profile_and_location_context",
+                )
+            ],
+        ],
+        "privacy": {
+            "raw_rows_exposed": False,
+            "raw_payload_exposed": False,
+            "raw_transcript_text_exposed": False,
+            "raw_credential_exposed": False,
+            "source_ids_hashed": True,
+        },
+    }
+
+
+def _fake_source_coverage_gap_probe(**_kwargs: object) -> dict[str, object]:
+    return {
+        "probe_ok": True,
+        "checked": True,
+        "status": "ready_with_gaps",
+        "source": "docker_compose_exec",
+        "runtime_service": "ea-proactive-ooda",
+        "observed_at": "2026-06-29T08:00:00Z",
+        "observation_repository": "PostgresObservationEventRepository",
+        "observation_limit": 400,
+        "observation_row_count": 7,
+        "lane_count": 8,
+        "observed_lane_count": 7,
+        "flat_search_enabled": False,
+        "excluded_event_types": ["property_scout_sync_completed"],
+        "excluded_event_type_counts": {"property_scout_sync_completed": 3},
+        "missing_lane_keys": ["pocket_ai_audio_transcripts"],
+        "next_action": "sync_pocket_ai_audio_transcripts",
+        "next_action_href": "https://myexternalbrain.com/app/api/signals/pocket/sync?limit=10",
+        "next_action_label": "Sync Pocket transcripts",
+        "next_action_method": "post",
+        "lanes": [
+            {
+                "key": "postgres_observations",
+                "label": "Postgres observations",
+                "status": "observed",
+                "observed": True,
+                "record_count": 7,
+                "latest_observed_at": "2026-06-29T07:59:00Z",
+                "evidence_event_types": ["telegram.message"],
+                "next_action": "",
+                "raw_payload_exposed": False,
+                "raw_transcript_text_exposed": False,
+                "raw_credential_exposed": False,
+            },
+            {
+                "key": "google_workspace",
+                "label": "Google workspace",
+                "status": "observed",
+                "observed": True,
+                "record_count": 4,
+                "latest_observed_at": "2026-06-29T07:58:00Z",
+                "evidence_event_types": ["gmail.message"],
+                "next_action": "",
+                "raw_payload_exposed": False,
+                "raw_transcript_text_exposed": False,
+                "raw_credential_exposed": False,
+            },
+            {
+                "key": "pocket_ai_audio_transcripts",
+                "label": "Pocket.ai audio transcripts",
+                "status": "not_observed",
+                "observed": False,
+                "record_count": 0,
+                "latest_observed_at": "",
+                "evidence_event_types": [],
+                "next_action": "sync_pocket_ai_audio_transcripts",
+                "raw_payload_exposed": False,
+                "raw_transcript_text_exposed": False,
+                "raw_credential_exposed": False,
+            },
+            *[
+                {
+                    "key": key,
+                    "label": key.replace("_", " "),
+                    "status": "observed",
+                    "observed": True,
+                    "record_count": 1,
+                    "latest_observed_at": "2026-06-29T07:56:00Z",
+                    "evidence_event_types": ["office_signal_ooda_evaluated"],
+                    "next_action": "",
                     "raw_payload_exposed": False,
                     "raw_transcript_text_exposed": False,
                     "raw_credential_exposed": False,
@@ -192,6 +285,70 @@ def test_source_coverage_summary_probe_failure_keeps_required_lane_contract() ->
     pocket_lane = next(row for row in summary["lanes"] if row["key"] == "pocket_ai_audio_transcripts")
     assert pocket_lane["missing_required_event_types"] == ["pocket_recording_archive_indexed"]
     assert pocket_lane["raw_transcript_text_exposed"] is False
+
+
+def test_materialize_proactive_ooda_operator_status_recovers_on_degraded_source_coverage(
+    tmp_path: Path, monkeypatch
+) -> None:
+    module = _load_script()
+    monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_route", lambda **_kwargs: {
+        "probe_ok": True,
+        "source": "docker_compose_exec",
+        "runtime_service": "ea-proactive-ooda",
+        "observed_at": "2026-07-01T09:00:00Z",
+        "live_receipt_checked": True,
+        "live_receipt": {
+            "ok": True,
+            "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+            "errors": [],
+        },
+        "route_report": {
+            "ok": True,
+            "delivery_route": {
+                "ready": True,
+                "route_error": "",
+                "recovery_hint": "",
+                "next_action": "",
+                "selected_channel": "telegram",
+                "selected_by": "tool_runtime_binding",
+            },
+            "delivery_guard": {"delivery_state": "no_actionable_items"},
+            "stage_packets": {"ready": True, "errors": []},
+            "safe_work_results": {"ready": True, "errors": []},
+            "receipt_observation_count": 1,
+            "actionable_count": 0,
+        },
+    })
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_gmail_draft",
+        lambda **_kwargs: {"probe_ok": True, "status": "no_pending_draft", "source": "docker_compose_exec"},
+    )
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_source_coverage", _fake_source_coverage_gap_probe)
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_approval_capture",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("degraded source coverage should short-circuit approval followthrough")),
+    )
+
+    receipt = module.build_proactive_ooda_operator_status(
+        output_path=tmp_path / "ea_proactive_ooda_operator_status.generated.json",
+        generated_at="2026-07-01T09:01:00Z",
+        report_args=Namespace(principal_id="exec-1"),
+    )
+
+    assert receipt["status"] == "ready_with_recovery_action"
+    assert receipt["reason"] == "source_coverage_ready_with_gaps:pocket_ai_audio_transcripts"
+    assert receipt["next_action"] == "sync_pocket_ai_audio_transcripts"
+    assert receipt["next_action_href"] == "https://myexternalbrain.com/app/api/signals/pocket/sync?limit=10"
+    assert receipt["next_action_label"] == "Sync Pocket transcripts"
+    assert receipt["next_action_method"] == "post"
+    assert receipt["operator_action_state"] == "recovery_required"
+    assert "missing lane" in receipt["summary"]
+    assert receipt["source_coverage"]["status"] == "ready_with_gaps"
+    assert receipt["source_coverage"]["missing_lane_keys"] == ["pocket_ai_audio_transcripts"]
+    assert receipt["source_coverage"]["next_action"] == "sync_pocket_ai_audio_transcripts"
 
 
 def test_build_operator_status_uses_configured_live_probe_timeout(tmp_path: Path, monkeypatch) -> None:
@@ -308,7 +465,7 @@ def test_build_operator_status_reuses_route_artifact_probe(tmp_path: Path, monke
     monkeypatch.setattr(module.ea_live_ops, "probe_proactive_artifacts", _unexpected_artifacts)
     monkeypatch.setattr(module.ea_live_ops, "probe_proactive_approval_capture", _fake_approval_capture_probe)
     monkeypatch.setattr(module.ea_live_ops, "probe_proactive_gmail_draft", lambda **_kwargs: {"probe_ok": True, "status": "ready"})
-    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_source_coverage", _fake_source_coverage_probe)
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_source_coverage", _fake_source_coverage_gap_probe)
 
     receipt = module.build_proactive_ooda_operator_status(
         output_path=tmp_path / "ea_proactive_ooda_operator_status.generated.json",
@@ -379,7 +536,7 @@ def test_materialize_proactive_ooda_operator_status_blocks_current_safe_work_aud
         "probe_proactive_gmail_draft",
         lambda **_kwargs: {"probe_ok": True, "status": "no_pending_draft", "source": "docker_compose_exec"},
     )
-    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_source_coverage", _fake_source_coverage_probe)
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_source_coverage", _fake_source_coverage_gap_probe)
     monkeypatch.setattr(
         module.ea_live_ops,
         "probe_proactive_approval_capture",
@@ -1086,7 +1243,7 @@ def test_materialize_proactive_ooda_operator_status_prefers_live_route_probe_whe
     assert receipt["gmail_draft_followthrough"]["execution_observation_present"] is True
     assert receipt["gmail_draft_followthrough"]["gmail_draft_id_hash_present"] is True
     assert receipt["gmail_draft_followthrough"]["raw_execution_payload_exposed"] is False
-    assert receipt["source_coverage"]["status"] == "ready_with_gaps"
+    assert receipt["source_coverage"]["status"] == "ready"
     assert receipt["source_coverage"]["flat_search_enabled"] is False
     assert receipt["source_coverage"]["excluded_event_types"] == ["property_scout_sync_completed"]
     assert receipt["source_coverage"]["excluded_event_type_counts"] == {"property_scout_sync_completed": 3}
@@ -1204,7 +1361,7 @@ def test_materialize_proactive_ooda_operator_status_counts_pending_approval_as_u
     assert receipt["approval_capture"]["ready"] is True
     assert receipt["approval_capture"]["current_packet_live_pending_count"] == 1
     assert receipt["approval_capture"]["privacy"]["raw_principal_id_exposed"] is False
-    assert receipt["source_coverage"]["observed_lane_count"] == 3
+    assert receipt["source_coverage"]["observed_lane_count"] == 8
 
 
 def test_materialize_proactive_ooda_operator_status_surfaces_manual_approval_capture_for_mirrored_packet(

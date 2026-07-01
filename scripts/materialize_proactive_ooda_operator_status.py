@@ -348,9 +348,16 @@ def _source_coverage_summary(probe: Mapping[str, Any]) -> dict[str, Any]:
         lanes = _source_coverage_fallback_lanes(status="not_checked")
         return {
             "checked": False,
+            "probe_ok": False,
             "status": "not_checked",
             "source": "",
+            "runtime_service": "",
             "observed_at": "",
+            "blocking_reason": "",
+            "next_action": "",
+            "next_action_href": "",
+            "next_action_label": "",
+            "next_action_method": "",
             "observation_repository": "",
             "observation_limit": 0,
             "observation_row_count": 0,
@@ -426,9 +433,16 @@ def _source_coverage_summary(probe: Mapping[str, Any]) -> dict[str, Any]:
         missing_lane_keys = [str(row["key"]) for row in lanes if not bool(row.get("observed"))]
     summary: dict[str, Any] = {
         "checked": bool(probe.get("checked", probe.get("probe_ok"))),
+        "probe_ok": bool(probe.get("probe_ok")),
         "status": str(probe.get("status") or "").strip() or "unknown",
         "source": str(probe.get("source") or "").strip(),
+        "runtime_service": str(probe.get("runtime_service") or "").strip(),
         "observed_at": str(probe.get("observed_at") or "").strip(),
+        "blocking_reason": str(probe.get("blocking_reason") or "").strip(),
+        "next_action": str(probe.get("next_action") or "").strip(),
+        "next_action_href": str(probe.get("next_action_href") or "").strip(),
+        "next_action_label": str(probe.get("next_action_label") or "").strip(),
+        "next_action_method": str(probe.get("next_action_method") or "").strip(),
         "observation_repository": str(probe.get("observation_repository") or "").strip(),
         "observation_limit": int(probe.get("observation_limit") or 0),
         "observation_row_count": int(probe.get("observation_row_count") or 0),
@@ -491,6 +505,108 @@ def _source_coverage_fallback_lanes(*, status: str) -> list[dict[str, Any]]:
             }
         )
     return lanes
+
+
+def _source_coverage_missing_lane_keys(source_coverage: Mapping[str, Any] | None) -> list[str]:
+    return [
+        str(item).strip()
+        for item in list(dict(source_coverage or {}).get("missing_lane_keys") or [])
+        if str(item).strip()
+    ]
+
+
+def _source_coverage_is_ready(source_coverage: Mapping[str, Any] | None) -> bool:
+    normalized = dict(source_coverage or {})
+    status = str(normalized.get("status") or "").strip()
+    if not bool(normalized.get("checked")):
+        return False
+    if status not in {"ready", "pass", "fully_ready"}:
+        return False
+    if _source_coverage_missing_lane_keys(normalized):
+        return False
+    if str(normalized.get("blocking_reason") or "").strip():
+        return False
+    return True
+
+
+def _source_coverage_requires_recovery(source_coverage: Mapping[str, Any] | None) -> bool:
+    normalized = dict(source_coverage or {})
+    if not bool(normalized.get("checked")):
+        return False
+    if _source_coverage_is_ready(normalized):
+        return False
+    if _source_coverage_missing_lane_keys(normalized):
+        return True
+    if str(normalized.get("blocking_reason") or "").strip():
+        return True
+    status = str(normalized.get("status") or "").strip()
+    return status not in {"", "not_checked"}
+
+
+def _source_coverage_recovery_reason(source_coverage: Mapping[str, Any] | None) -> str:
+    normalized = dict(source_coverage or {})
+    blocking_reason = str(normalized.get("blocking_reason") or "").strip()
+    if blocking_reason:
+        return f"source_coverage_{blocking_reason}"
+    status = str(normalized.get("status") or "").strip() or "recovery_required"
+    missing_lane_keys = _source_coverage_missing_lane_keys(normalized)
+    if missing_lane_keys:
+        return f"source_coverage_{status}:{missing_lane_keys[0]}"
+    return f"source_coverage_{status}"
+
+
+def _source_coverage_recovery_next_action(source_coverage: Mapping[str, Any] | None) -> str:
+    normalized = dict(source_coverage or {})
+    next_action = str(normalized.get("next_action") or "").strip()
+    if next_action:
+        return next_action
+    for lane in list(normalized.get("lanes") or []):
+        lane_payload = dict(lane or {}) if isinstance(lane, Mapping) else {}
+        lane_next_action = str(lane_payload.get("next_action") or "").strip()
+        if lane_next_action and not bool(lane_payload.get("observed")):
+            return lane_next_action
+    return "probe_proactive_source_coverage"
+
+
+def _source_coverage_recovery_surface_fields(source_coverage: Mapping[str, Any] | None, next_action: str) -> dict[str, str]:
+    normalized = dict(source_coverage or {})
+    source_next_action = str(normalized.get("next_action") or "").strip()
+    if source_next_action == str(next_action or "").strip():
+        href = str(normalized.get("next_action_href") or "").strip()
+        label = str(normalized.get("next_action_label") or "").strip()
+        method = str(normalized.get("next_action_method") or "").strip().lower()
+        if href and label and method:
+            return {
+                "next_action_href": href,
+                "next_action_label": label,
+                "next_action_method": method,
+            }
+    return _next_action_surface_fields(next_action)
+
+
+def _source_coverage_recovery_summary(source_coverage: Mapping[str, Any] | None) -> str:
+    normalized = dict(source_coverage or {})
+    blocking_reason = str(normalized.get("blocking_reason") or "").strip()
+    if blocking_reason:
+        return (
+            "Proactive OODA route and packet runtime are available, but source coverage probing needs recovery "
+            f"before gold-ready posture is trustworthy ({blocking_reason})."
+        )
+    missing_lane_keys = _source_coverage_missing_lane_keys(normalized)
+    if missing_lane_keys:
+        lane_preview = ", ".join(missing_lane_keys[:3])
+        extra_count = max(len(missing_lane_keys) - 3, 0)
+        suffix = f" (+{extra_count} more)" if extra_count else ""
+        return (
+            "Proactive OODA route and packet runtime are available, but approved source coverage still has "
+            f"{len(missing_lane_keys)} missing lane(s): {lane_preview}{suffix}. Recover that signal ingest before "
+            "treating the loop as gold-ready."
+        )
+    status = str(normalized.get("status") or "").strip() or "unknown"
+    return (
+        "Proactive OODA route and packet runtime are available, but source coverage posture still needs recovery "
+        f"before gold-ready claims are trustworthy ({status})."
+    )
 
 
 def _report_errors(report: Mapping[str, Any]) -> list[str]:
@@ -1440,6 +1556,7 @@ def build_proactive_ooda_operator_status(
     current_artifact_filter_blocks = bool(current_artifact_filter.get("requires_recovery"))
     suppressed_projection = _normalized_suppressed_projection(artifact_probe)
     suppressed_projection_blocks = bool(suppressed_projection.get("requires_recovery"))
+    source_coverage = _source_coverage_summary(source_coverage_probe)
     status = _status(report, live_receipt=live_receipt, live_receipt_checked=live_receipt_checked)
     reason = _reason(report, live_receipt=live_receipt, live_receipt_checked=live_receipt_checked)
     if safe_work_audit_blocks:
@@ -1451,6 +1568,16 @@ def build_proactive_ooda_operator_status(
     elif suppressed_projection_blocks and status in {"ready_local_runtime", "ready_with_live_receipt", "ready_with_recovery_action"}:
         status = "ready_with_recovery_action"
         reason = str(suppressed_projection.get("blocking_reason") or "suppressed_safe_work_projection").strip()
+    source_coverage_recovery_active = bool(
+        not safe_work_audit_blocks
+        and not current_artifact_filter_blocks
+        and not suppressed_projection_blocks
+        and status in {"ready_local_runtime", "ready_with_live_receipt"}
+        and _source_coverage_requires_recovery(source_coverage)
+    )
+    if source_coverage_recovery_active:
+        status = "ready_with_recovery_action"
+        reason = _source_coverage_recovery_reason(source_coverage)
     approval_capture_surface = _approval_capture_surface(report=report, artifact_probe=artifact_probe)
     if (
         allow_live_route_probe
@@ -1474,6 +1601,8 @@ def build_proactive_ooda_operator_status(
         reason = str(approval_capture.get("blocking_reason") or "approval_capture_not_ready").strip()
     if safe_work_audit_blocks or current_artifact_filter_blocks or suppressed_projection_blocks:
         next_action = "repair_proactive_safe_work_audit"
+    elif source_coverage_recovery_active:
+        next_action = _source_coverage_recovery_next_action(source_coverage)
     else:
         next_action = _operator_followthrough_next_action(
             status,
@@ -1483,7 +1612,10 @@ def build_proactive_ooda_operator_status(
             approval_capture_surface=approval_capture_surface,
             approval_capture=approval_capture,
         )
-    next_action_surface = _next_action_surface_fields(next_action)
+    if source_coverage_recovery_active:
+        next_action_surface = _source_coverage_recovery_surface_fields(source_coverage, next_action)
+    else:
+        next_action_surface = _next_action_surface_fields(next_action)
     if safe_work_audit_blocks:
         summary = (
             "Proactive OODA has a current safe-work artifact, but the packet-quality auditor did not pass it "
@@ -1497,6 +1629,8 @@ def build_proactive_ooda_operator_status(
             f"{int(suppressed_projection.get('suppressed_item_count') or 0)} non-deliverable safe-work "
             "item(s) from user and Teable packet projection."
         )
+    elif source_coverage_recovery_active:
+        summary = _source_coverage_recovery_summary(source_coverage)
     else:
         summary = _summary(
             status,
@@ -1576,7 +1710,7 @@ def build_proactive_ooda_operator_status(
         "approval_capture_surface": approval_capture_surface,
         "approval_capture": approval_capture,
         "gmail_draft_followthrough": _gmail_draft_followthrough_summary(gmail_draft_probe),
-        "source_coverage": _source_coverage_summary(source_coverage_probe),
+        "source_coverage": source_coverage,
         "remaining_external_proofs": [
             REMAINING_EXTERNAL_PROOF,
         ],

@@ -43,6 +43,101 @@ def _approval_capture_ready() -> dict[str, object]:
     }
 
 
+def _degraded_source_coverage() -> dict[str, object]:
+    return {
+        "checked": True,
+        "probe_ok": True,
+        "status": "ready_with_gaps",
+        "source": "docker_compose_exec",
+        "runtime_service": "ea-proactive-ooda",
+        "observed_at": "2026-06-29T08:00:00Z",
+        "blocking_reason": "",
+        "next_action": "sync_pocket_ai_audio_transcripts",
+        "next_action_href": "https://myexternalbrain.com/app/api/signals/pocket/sync?limit=10",
+        "next_action_label": "Sync Pocket transcripts",
+        "next_action_method": "post",
+        "observation_repository": "PostgresObservationEventRepository",
+        "observation_limit": 400,
+        "observation_row_count": 7,
+        "lane_count": 8,
+        "observed_lane_count": 7,
+        "missing_lane_keys": ["pocket_ai_audio_transcripts"],
+        "lanes": [
+            {
+                "key": "postgres_observations",
+                "label": "Postgres observations",
+                "status": "observed",
+                "observed": True,
+                "record_count": 7,
+                "latest_observed_at": "2026-06-29T07:59:00Z",
+                "evidence_event_types": ["telegram.message"],
+                "next_action": "",
+                "raw_payload_exposed": False,
+                "raw_transcript_text_exposed": False,
+                "raw_credential_exposed": False,
+            },
+            {
+                "key": "google_workspace",
+                "label": "Google workspace",
+                "status": "observed",
+                "observed": True,
+                "record_count": 4,
+                "latest_observed_at": "2026-06-29T07:59:00Z",
+                "evidence_event_types": ["gmail.message"],
+                "next_action": "",
+                "raw_payload_exposed": False,
+                "raw_transcript_text_exposed": False,
+                "raw_credential_exposed": False,
+            },
+            {
+                "key": "pocket_ai_audio_transcripts",
+                "label": "Pocket.ai audio transcripts",
+                "status": "not_observed",
+                "observed": False,
+                "record_count": 0,
+                "latest_observed_at": "",
+                "evidence_event_types": [],
+                "required_event_types": ["pocket_recording_archive_indexed"],
+                "required_event_type_observed": False,
+                "missing_required_event_types": ["pocket_recording_archive_indexed"],
+                "next_action": "sync_pocket_ai_audio_transcripts",
+                "raw_payload_exposed": False,
+                "raw_transcript_text_exposed": False,
+                "raw_credential_exposed": False,
+            },
+            *[
+                {
+                    "key": key,
+                    "label": key.replace("_", " "),
+                    "status": "observed",
+                    "observed": True,
+                    "record_count": 1,
+                    "latest_observed_at": "2026-06-29T07:57:00Z",
+                    "evidence_event_types": ["office_signal_ooda_evaluated"],
+                    "next_action": "",
+                    "raw_payload_exposed": False,
+                    "raw_transcript_text_exposed": False,
+                    "raw_credential_exposed": False,
+                }
+                for key in (
+                    "calendar_and_renewal_signals",
+                    "relationship_and_occasion_signals",
+                    "shopping_and_vendor_signals",
+                    "commitment_and_deadline_signals",
+                    "durable_profile_and_location_context",
+                )
+            ],
+        ],
+        "privacy": {
+            "raw_rows_exposed": False,
+            "raw_payload_exposed": False,
+            "raw_transcript_text_exposed": False,
+            "raw_credential_exposed": False,
+            "source_ids_hashed": True,
+        },
+    }
+
+
 def _base_payload() -> dict[str, object]:
     return {
         "contract_name": "ea.proactive_ooda_operator_status.v1",
@@ -139,28 +234,29 @@ def _base_payload() -> dict[str, object]:
         },
         "source_coverage": {
             "checked": True,
-            "status": "ready_with_gaps",
+            "probe_ok": True,
+            "status": "ready",
             "source": "docker_compose_exec",
+            "runtime_service": "ea-proactive-ooda",
             "observed_at": "2026-06-29T08:00:00Z",
+            "blocking_reason": "",
+            "next_action": "",
+            "next_action_href": "",
+            "next_action_label": "",
+            "next_action_method": "",
             "observation_repository": "PostgresObservationEventRepository",
             "observation_limit": 400,
-            "observation_row_count": 2,
+            "observation_row_count": 8,
             "lane_count": 8,
-            "observed_lane_count": 3,
-            "missing_lane_keys": [
-                "relationship_and_occasion_signals",
-                "calendar_and_renewal_signals",
-                "shopping_and_vendor_signals",
-                "commitment_and_deadline_signals",
-                "durable_profile_and_location_context",
-            ],
+            "observed_lane_count": 8,
+            "missing_lane_keys": [],
             "lanes": [
                 {
                     "key": "postgres_observations",
                     "label": "Postgres observations",
                     "status": "observed",
                     "observed": True,
-                    "record_count": 2,
+                    "record_count": 8,
                     "latest_observed_at": "2026-06-29T07:59:00Z",
                     "evidence_event_types": ["telegram.message"],
                     "next_action": "",
@@ -173,7 +269,7 @@ def _base_payload() -> dict[str, object]:
                     "label": "Google workspace",
                     "status": "observed",
                     "observed": True,
-                    "record_count": 1,
+                    "record_count": 4,
                     "latest_observed_at": "2026-06-29T07:59:00Z",
                     "evidence_event_types": ["gmail.message"],
                     "next_action": "",
@@ -198,12 +294,12 @@ def _base_payload() -> dict[str, object]:
                     {
                         "key": key,
                         "label": key.replace("_", " "),
-                        "status": "not_observed",
-                        "observed": False,
-                        "record_count": 0,
-                        "latest_observed_at": "",
-                        "evidence_event_types": [],
-                        "next_action": "sync_source",
+                        "status": "observed",
+                        "observed": True,
+                        "record_count": 1,
+                        "latest_observed_at": "2026-06-29T07:57:00Z",
+                        "evidence_event_types": ["office_signal_ooda_evaluated"],
+                        "next_action": "",
                         "raw_payload_exposed": False,
                         "raw_transcript_text_exposed": False,
                         "raw_credential_exposed": False,
@@ -255,6 +351,65 @@ def test_proactive_ooda_operator_status_verifier_accepts_valid_receipt(tmp_path:
     monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
 
     assert verifier.verify(receipt, root=tmp_path) == []
+
+
+def test_proactive_ooda_operator_status_verifier_accepts_source_coverage_recovery(
+    tmp_path: Path, monkeypatch
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
+    payload = _base_payload()
+    payload.update(
+        {
+            "source_git_head": "source-head-123",
+            "status": "ready_with_recovery_action",
+            "reason": "source_coverage_ready_with_gaps:pocket_ai_audio_transcripts",
+            "summary": "Proactive OODA route and packet runtime are available, but approved source coverage still has 1 missing lane: pocket_ai_audio_transcripts. Recover that signal ingest before treating the loop as gold-ready.",
+            "next_action": "sync_pocket_ai_audio_transcripts",
+            "next_action_href": "https://myexternalbrain.com/app/api/signals/pocket/sync?limit=10",
+            "next_action_label": "Sync Pocket transcripts",
+            "next_action_method": "post",
+            "operator_action_state": "recovery_required",
+            "live_receipt_checked": True,
+            "live_receipt": {"ok": True, "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json"},
+            "source_coverage": _degraded_source_coverage(),
+        }
+    )
+    _write_receipt(receipt, **payload)
+    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
+
+    assert verifier.verify(receipt, root=tmp_path) == []
+
+
+def test_proactive_ooda_operator_status_verifier_rejects_live_receipt_overclaim_with_degraded_source_coverage(
+    tmp_path: Path, monkeypatch
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
+    payload = _base_payload()
+    payload.update(
+        {
+            "source_git_head": "source-head-123",
+            "status": "ready_with_live_receipt",
+            "reason": "ready",
+            "summary": "Proactive OODA route, packet runtime, and latest host-visible live receipt are ready for operator follow-through.",
+            "next_action": "maintain_proactive_ooda_runtime",
+            "next_action_href": "https://myexternalbrain.com/app/today",
+            "next_action_label": "Open Today",
+            "next_action_method": "get",
+            "operator_action_state": "clear",
+            "live_receipt_checked": True,
+            "live_receipt": {"ok": True, "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json"},
+            "source_coverage": _degraded_source_coverage(),
+        }
+    )
+    _write_receipt(receipt, **payload)
+    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
+
+    issues = verifier.verify(receipt, root=tmp_path)
+
+    assert "degraded source_coverage without a higher-priority blocker requires status=ready_with_recovery_action" in issues
+    assert "degraded source_coverage without a higher-priority blocker requires operator_action_state=recovery_required" in issues
+    assert "degraded source_coverage without a higher-priority blocker requires source_coverage reason" in issues
+    assert "degraded source_coverage without a higher-priority blocker requires receipt.next_action to match source_coverage.next_action" in issues
 
 
 def test_proactive_ooda_operator_status_verifier_rejects_clear_status_with_blocked_safe_work_audit(
