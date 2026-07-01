@@ -30,7 +30,7 @@
         "machine_playback_e2e_not_verified"
       ],
       "job_id_sha256": "1a7a76f41c3bd81a974d309bb59ff80837451843917026aacc130b70729f0837",
-      "public_share_status": "waiting_for_audiobookshelf_scan",
+      "public_share_status": "waiting_for_imported_file",
       "status": "audiobookshelf_imported",
       "title_present": true,
       "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4",
@@ -62,14 +62,14 @@
     "audiobook_runtime_not_ready"
   ],
   "fresh_live_job_receipt_proven": false,
-  "generated_at": "2026-07-01T13:49:13.233131Z",
+  "generated_at": "2026-07-01T14:16:50.271397Z",
   "generated_by": "ea/scripts/materialize_whatsapp_audiobook_live_delivery_receipt.py",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
   "historical_evidence": {
     "historical_live_path_proven": false,
     "local_intake": {
-      "generated_at": "2026-07-01T13:49:13.491337Z",
+      "generated_at": "2026-07-01T14:14:29.962437Z",
       "local_path_proven": true,
       "receipt_present": true,
       "share_link_sent": 1,
@@ -77,12 +77,12 @@
       "voice_sample_sent": 3
     },
     "operator_bundle": {
-      "generated_at": "2026-07-01T13:44:39.809185Z",
+      "generated_at": "2026-07-01T14:14:29.152686Z",
       "live_delivery_claim_allowed": false,
       "live_delivery_status": "blocked",
       "live_path_proven": false,
       "receipt_present": true,
-      "recommended_action": "fix_whatsapp_action_processor_readiness",
+      "recommended_action": "fix_whatsapp_action_processor_run",
       "status": "blocked",
       "voice_selection_text_fallback_ready": true
     },
@@ -179,10 +179,10 @@
   "runtime_readiness": {
     "effective_session_ref_present": true,
     "ready": false,
-    "reason": "state_file_container_probe_unavailable",
+    "reason": "sidecar_not_ready",
     "receipt_present": true,
     "sidecar_ready": false,
-    "state_fresh": false,
+    "state_fresh": true,
     "status": "blocked"
   },
   "selected_delivery": {
@@ -216,7 +216,7 @@
     "provider_pacing_waiting": false,
     "provider_retry_after": "",
     "public_share_host": "",
-    "public_share_status": "waiting_for_audiobookshelf_scan",
+    "public_share_status": "waiting_for_imported_file",
     "public_share_url_present": false,
     "replacement_choice_pending": false,
     "source_kind": "epub",
@@ -232,7 +232,7 @@
     "whatsapp_session_bound": true
   },
   "source_git_head": "9a64c8a8f7b515a995e4b167d96a68aceeef56d8",
-  "source_state_fingerprint": "284330b7391824d2f60a796fa3e7e165eb4ee01594069d67518ed08256c57a08",
+  "source_state_fingerprint": "1d50c4fab88549edebf56fec03a7773b5308ad6c9c957ea6d832d4da13489227",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "stage_summary": {
     "counts": {
@@ -261,7 +261,7 @@
           "machine_playback_e2e_not_verified"
         ],
         "job_id_sha256": "1a7a76f41c3bd81a974d309bb59ff80837451843917026aacc130b70729f0837",
-        "public_share_status": "waiting_for_audiobookshelf_scan",
+        "public_share_status": "waiting_for_imported_file",
         "status": "audiobookshelf_imported",
         "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4",
         "whatsapp_delivery_status": "sent"

@@ -261,6 +261,66 @@ def test_build_operator_status_uses_configured_live_probe_timeout(tmp_path: Path
     assert receipt["approval_capture"]["checked"] is False
 
 
+def test_build_operator_status_reuses_route_artifact_probe(tmp_path: Path, monkeypatch) -> None:
+    module = _load_script()
+    monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
+    artifact_calls: list[object] = []
+    route_artifact = {
+        "probe_ok": True,
+        "source": "docker_compose_exec",
+        "approval_callback_dir_exists": True,
+        "approval_callback_dir_writable": True,
+        "approval_callback_record_count": 1,
+        "approval_callback_pending_count": 1,
+        "current_packet_callback_record_count": 1,
+        "current_packet_callback_pending_count": 1,
+        "current_packet_live_callback_record_count": 1,
+        "current_packet_live_pending_count": 1,
+        "stage_packet": {"packet_ref": "stage_packet:pkt-route"},
+        "safe_work_result": {"result_ref": "safe_work_result:res-route"},
+    }
+
+    def _fake_route(**_kwargs: object) -> dict[str, object]:
+        return {
+            "probe_ok": True,
+            "source": "docker_compose_exec",
+            "runtime_service": "ea-proactive-ooda",
+            "observed_at": "2026-07-01T12:00:00Z",
+            "live_receipt_checked": True,
+            "live_receipt": {"ok": True, "receipt_path": "/app/state/proactive_ooda/live-receipt.json", "errors": []},
+            "artifact_probe": route_artifact,
+            "route_report": {
+                "ok": True,
+                "delivery_route": {"ready": True, "selected_channel": "telegram", "selected_by": "tool_runtime_binding"},
+                "delivery_guard": {"delivery_state": "eligible"},
+                "stage_packets": {"ready": True, "errors": []},
+                "safe_work_results": {"ready": True, "errors": []},
+                "receipt_observation_count": 1,
+                "actionable_count": 1,
+            },
+        }
+
+    def _unexpected_artifacts(**kwargs: object) -> dict[str, object]:
+        artifact_calls.append(kwargs)
+        raise AssertionError("route artifact probe should be reused")
+
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_route", _fake_route)
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_artifacts", _unexpected_artifacts)
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_approval_capture", _fake_approval_capture_probe)
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_gmail_draft", lambda **_kwargs: {"probe_ok": True, "status": "ready"})
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_source_coverage", _fake_source_coverage_probe)
+
+    receipt = module.build_proactive_ooda_operator_status(
+        output_path=tmp_path / "ea_proactive_ooda_operator_status.generated.json",
+        generated_at="2026-07-01T12:01:00Z",
+        report_args=Namespace(principal_id="exec-1"),
+    )
+
+    assert artifact_calls == []
+    assert receipt["approval_capture_surface"]["source"] == "docker_compose_exec"
+    assert receipt["approval_capture_surface"]["current_packet_callback_record_count"] == 1
+
+
 def test_materialize_proactive_ooda_operator_status_blocks_current_safe_work_audit_review(
     tmp_path: Path, monkeypatch
 ) -> None:

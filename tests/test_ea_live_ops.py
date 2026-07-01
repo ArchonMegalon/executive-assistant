@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import subprocess
 import sys
 from argparse import Namespace
 from pathlib import Path
@@ -76,6 +77,7 @@ def test_docker_compose_exec_json_defaults_to_ea_project(monkeypatch) -> None:
     def _fake_run(command, **kwargs):
         observed["command"] = list(command)
         observed["env"] = dict(kwargs.get("env") or {})
+        observed["timeout"] = kwargs.get("timeout")
         return SimpleNamespace(returncode=0, stdout='{"ok": true}\n', stderr="")
 
     monkeypatch.setattr(module.subprocess, "run", _fake_run)
@@ -91,6 +93,30 @@ def test_docker_compose_exec_json_defaults_to_ea_project(monkeypatch) -> None:
     assert payload["ok"] is True
     assert observed["env"]["COMPOSE_PROJECT_NAME"] == "ea"
     assert observed["command"][:6] == ["docker", "compose", "-f", "/docker/EA/docker-compose.yml", "exec", "-T"]
+    assert observed["command"][7:10] == ["timeout", "--kill-after=2s", "7s"]
+    assert observed["timeout"] == 12.0
+
+
+def test_docker_compose_exec_json_reports_timeout_payload(monkeypatch) -> None:
+    module = _module()
+
+    def _fake_run(_command, **_kwargs):
+        raise subprocess.TimeoutExpired(cmd="docker compose exec", timeout=12.0)
+
+    monkeypatch.setattr(module.subprocess, "run", _fake_run)
+
+    exit_code, payload, _stdout, _stderr = module._docker_compose_exec_json(
+        compose_file="/docker/EA/docker-compose.yml",
+        service="ea-proactive-ooda",
+        command=["python", "-c", "print('ok')"],
+        timeout_seconds=7.0,
+    )
+
+    assert exit_code == 124
+    assert payload["ok"] is False
+    assert payload["timed_out"] is True
+    assert payload["reason"] == "TimeoutExpired:7s"
+    assert payload["timeout_seconds"] == 7.0
 
 
 def test_docker_compose_exec_json_preserves_explicit_project(monkeypatch) -> None:
@@ -1794,6 +1820,36 @@ def test_probe_proactive_artifacts_reads_runtime_bundle(monkeypatch) -> None:
     assert report["current_packet"]["decide"] == "Decide whether EA should proceed."
     assert report["current_packet"]["recommended_label"] == "Vendor A"
     assert report["current_packet"]["staged_action_url"] == "https://example.test/vendor-a"
+
+
+def test_probe_proactive_artifacts_reports_timed_out_payload(monkeypatch) -> None:
+    module = _module()
+
+    monkeypatch.setattr(
+        module,
+        "_docker_compose_exec_json",
+        lambda **_kwargs: (
+            124,
+            {"ok": False, "timed_out": True, "reason": "TimeoutExpired:7s", "timeout_seconds": 7.0},
+            "",
+            "stalled",
+        ),
+    )
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-01T13:00:00Z")
+
+    report = module.probe_proactive_artifacts(
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+        timeout_seconds=7.0,
+        output_format="json",
+    )
+
+    assert report["probe_ok"] is False
+    assert report["status"] == "probe_failed"
+    assert report["timed_out"] is True
+    assert report["timeout_seconds"] == 7.0
+    assert report["blocking_reason"] == "runtime_artifact_probe_timed_out:TimeoutExpired:7s"
+    assert report["stderr_excerpt"] == "stalled"
 
 
 def test_probe_proactive_artifacts_uses_in_process_fallback_without_docker_cli(monkeypatch) -> None:

@@ -15,7 +15,7 @@
     "live_receipt_has_explicit_next_action": true,
     "live_receipt_materialized": true,
     "live_sidecar_button_callbacks_visible_to_processor_semantics": true,
-    "live_sidecar_inbox_accessible": false,
+    "live_sidecar_inbox_accessible": true,
     "live_voice_selection_shadow_passed_or_not_required": true,
     "live_voice_selection_text_fallback_ready_or_not_required": true,
     "local_epub_intake_proof_passed": true,
@@ -28,7 +28,7 @@
   },
   "claim": "This bundle combines local WhatsApp EPUB intake proof, live WhatsApp action processor readiness, and the live WhatsApp audiobook delivery receipt. It separates implementation proof from live delivery proof.",
   "contract_name": "ea.whatsapp_audiobook_operator_proof_bundle.v1",
-  "generated_at": "2026-07-01T13:49:13.233131Z",
+  "generated_at": "2026-07-01T14:14:29.152686Z",
   "generated_by": "ea/scripts/materialize_whatsapp_audiobook_operator_proof_bundle.py",
   "head_semantics": "source_state",
   "live_delivery": {
@@ -143,28 +143,38 @@
   "live_readiness": {
     "action_processor_enabled": true,
     "ready": false,
-    "reason": "state_file_container_probe_unavailable",
+    "reason": "sidecar_not_ready",
     "reasons": [
-      "state_file_container_probe_unavailable",
-      "sidecar_not_ready",
-      "api_container_callback_secret_missing",
-      "processor_container_callback_secret_missing",
-      "processor_container_disabled_or_not_running"
+      "sidecar_not_ready"
     ],
     "sidecar_ready": false,
-    "state_fresh": false,
+    "state_fresh": true,
     "status": "blocked"
   },
   "live_sidecar_inbox": {
+    "actionable_button_candidate_count": 0,
     "attempted": true,
-    "messages_accessible": false,
+    "direct_button_callback_candidate_count": 0,
+    "epub_media_candidate_count": 0,
+    "inbound_message_count": 0,
+    "inbox_count": 0,
+    "latest_message_timestamp_present": false,
+    "media_message_count": 0,
+    "message_count": 0,
+    "messages_accessible": true,
+    "poll_vote_candidate_count": 0,
     "raw_media_url_exposed": false,
     "raw_message_ids_exposed": false,
     "raw_sender_exposed": false,
     "raw_text_exposed": false,
-    "reason": "URLError",
+    "selected_button_candidate_count": 0,
+    "selected_button_context_fallback_candidate_count": 0,
+    "selected_button_label_fallback_candidate_count": 0,
     "session_api_host_kind": "loopback",
-    "status": "failed"
+    "session_ready": false,
+    "session_status": "qr_required",
+    "status": "pass",
+    "status_code": 200
   },
   "live_voice_selection_shadow": {
     "candidate": {
@@ -207,7 +217,7 @@
     "delivery_stage_next_action": "run_public_share_machine_playback_e2e_before_claiming_live_delivery",
     "next_action": "choose_whatsapp_audiobook_voice_sample",
     "player_http_probe": {
-      "download_bytes": 25037,
+      "download_bytes": 27404,
       "download_content_type": "audio/mp4",
       "download_status_code": 200,
       "metadata_status_code": 200,
@@ -265,7 +275,7 @@
     "state_file_match": true
   },
   "source_git_head": "9a64c8a8f7b515a995e4b167d96a68aceeef56d8",
-  "source_state_fingerprint": "284330b7391824d2f60a796fa3e7e165eb4ee01594069d67518ed08256c57a08",
+  "source_state_fingerprint": "1d50c4fab88549edebf56fec03a7773b5308ad6c9c957ea6d832d4da13489227",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "blocked",
   "warnings": [

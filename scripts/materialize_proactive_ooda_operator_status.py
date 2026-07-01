@@ -100,7 +100,7 @@ def _safe_float(value: str, *, default: float) -> float:
 
 def _live_probe_timeout_seconds() -> float:
     return max(
-        _safe_float(str(os.getenv("EA_PROACTIVE_OODA_LIVE_PROBE_TIMEOUT_SECONDS") or "120"), default=120.0),
+        _safe_float(str(os.getenv("EA_PROACTIVE_OODA_LIVE_PROBE_TIMEOUT_SECONDS") or "30"), default=30.0),
         1.0,
     )
 
@@ -1372,14 +1372,17 @@ def build_proactive_ooda_operator_status(
             )
         except Exception:
             route_probe = {}
+        if isinstance(route_probe.get("artifact_probe"), dict):
+            artifact_probe = dict(route_probe.get("artifact_probe") or {})
         if live_receipt_path is None:
-            try:
-                artifact_probe = ea_live_ops.probe_proactive_artifacts(
-                    timeout_seconds=live_probe_timeout_seconds,
-                    output_format="json",
-                )
-            except Exception:
-                artifact_probe = {}
+            if not artifact_probe:
+                try:
+                    artifact_probe = ea_live_ops.probe_proactive_artifacts(
+                        timeout_seconds=live_probe_timeout_seconds,
+                        output_format="json",
+                    )
+                except Exception:
+                    artifact_probe = {}
             if not skip_gmail_draft_followthrough_probe:
                 gmail_draft_probe = _gmail_draft_followthrough_probe(principal_id, timeout_seconds=live_probe_timeout_seconds)
         if not skip_source_coverage_probe:

@@ -31,7 +31,7 @@
     "test_user_mutation_command": "",
     "test_user_mutation_supported_by_gcloud_cli": false
   },
-  "generated_at": "2026-07-01T13:44:02Z",
+  "generated_at": "2026-07-01T14:18:36Z",
   "generated_by": "scripts/materialize_google_workspace_oauth_readiness.py",
   "google_auth_platform_path": "Google Auth Platform > Audience > Test users",
   "head_semantics": "source_state",
@@ -108,8 +108,8 @@
     "python3 scripts/materialize_google_workspace_oauth_readiness.py --observed-error access_denied --probe-gcloud",
     "python3 scripts/verify_google_workspace_oauth_readiness.py"
   ],
-  "source_git_head": "8689a7af97f0392a3e08d1b28c9f8752e1068f3e",
-  "source_state_fingerprint": "284330b7391824d2f60a796fa3e7e165eb4ee01594069d67518ed08256c57a08",
+  "source_git_head": "9a64c8a8f7b515a995e4b167d96a68aceeef56d8",
+  "source_state_fingerprint": "1d50c4fab88549edebf56fec03a7773b5308ad6c9c957ea6d832d4da13489227",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "pass",
   "telegram_notification": {

@@ -1,6 +1,6 @@
 {
   "blocking_reason": "valid_live_audiobook_delivery_missing, job_not_audiobookshelf_imported, m4b_output_file_not_ready, m4b_chapter_metadata_not_embedded, audiobookshelf_import_not_imported, audiobookshelf_target_file_not_ready, player_scoped_reference_not_ready, audiobookshelf_public_share_not_ready, audiobookshelf_public_share_url_missing, telegram_public_share_delivery_not_sent, telegram_public_share_message_id_missing, machine_playback_e2e_not_verified, audiobook_voice_choice_pending, user_selected_voice_delivery_not_ready, explicit_replacement_voice_choice_pending",
-  "candidate_count": 2,
+  "candidate_count": 4,
   "claim": "Telegram EPUB audiobook delivery has live proof only when a sanitized job receipt shows the M4B is ready, Audiobookshelf imported and public-shared it, and Telegram sent the public share link.",
   "contract_name": "ea.telegram_audiobook_live_delivery_receipt.v1",
   "duplicate_suppression": {
@@ -11,11 +11,11 @@
     "duplicate_active_pending_source_keys_sha256": [],
     "only_current_jobs_can_require_user_action": true,
     "raw_voice_ids_exposed": false,
-    "superseded_duplicate_candidate_count": 1,
+    "superseded_duplicate_candidate_count": 3,
     "suppressed_pending_voice_duplicate_count": 1,
     "suppressed_voice_candidate_labels": []
   },
-  "failed_candidate_count": 2,
+  "failed_candidate_count": 4,
   "failed_candidates": [
     {
       "failed_codes": [
@@ -48,6 +48,38 @@
       "telegram_delivery_status": "sent",
       "title_present": true,
       "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4"
+    },
+    {
+      "failed_codes": [
+        "job_not_audiobookshelf_imported",
+        "m4b_output_file_not_ready",
+        "m4b_chapter_metadata_not_embedded",
+        "audiobookshelf_import_not_imported",
+        "audiobookshelf_target_file_not_ready",
+        "player_scoped_reference_not_ready",
+        "audiobookshelf_public_share_not_ready",
+        "audiobookshelf_public_share_url_missing",
+        "telegram_public_share_delivery_not_sent",
+        "telegram_public_share_message_id_missing",
+        "machine_playback_e2e_not_verified"
+      ],
+      "job_id_sha256": "56cf6b3ca755045ca0f0d2fd2d94e4997b47fcb52666b03580b9659076953df4",
+      "public_share_status": "",
+      "status": "superseded_duplicate",
+      "telegram_delivery_status": "",
+      "title_present": true,
+      "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4"
+    },
+    {
+      "failed_codes": [
+        "job_not_audiobookshelf_imported"
+      ],
+      "job_id_sha256": "d63d9e9045275ceb66e3707244363eec583b6c9c126e4471aecd68212603f014",
+      "public_share_status": "public_share_ready",
+      "status": "superseded_duplicate",
+      "telegram_delivery_status": "sent",
+      "title_present": true,
+      "title_sha256": "7bb36d16bbcc95e80d60094c10898eb17d142fd444006c0a7ebf1ee9fd25f0f4"
     }
   ],
   "failed_codes": [
@@ -67,16 +99,16 @@
     "user_selected_voice_delivery_not_ready",
     "explicit_replacement_voice_choice_pending"
   ],
-  "generated_at": "2026-07-01T08:51:41.461951Z",
+  "generated_at": "2026-07-01T14:12:35.556824Z",
   "generated_by": "ea/scripts/materialize_telegram_audiobook_live_delivery_receipt.py",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
-  "ignored_non_telegram_audiobook_candidate_count": 8,
+  "ignored_non_telegram_audiobook_candidate_count": 9,
   "ignored_non_telegram_audiobook_source_kinds": [
     "epub",
     "origin_dossier_story"
   ],
-  "limit": 10,
+  "limit": 100,
   "live_delivery_claim_allowed": false,
   "load_errors": [],
   "machine_playback_e2e_verified": false,
@@ -216,8 +248,8 @@
     "voice_selected_default": true
   },
   "source_filter": "telegram_epub_audiobook_sources",
-  "source_git_head": "81c23d58c5aa16ab1f61d40c3b0e400aec2cd7fb",
-  "source_state_fingerprint": "360c9ce17420011126a347026eee16108f300a0c24d39f01109619bf85a19479",
+  "source_git_head": "9a64c8a8f7b515a995e4b167d96a68aceeef56d8",
+  "source_state_fingerprint": "1d50c4fab88549edebf56fec03a7773b5308ad6c9c957ea6d832d4da13489227",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "blocked"
 }

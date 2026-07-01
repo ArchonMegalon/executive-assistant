@@ -160,7 +160,7 @@
   },
   "delivery_route_error": "",
   "delivery_route_ready": true,
-  "generated_at": "2026-07-01T13:46:25Z",
+  "generated_at": "2026-07-01T14:17:50Z",
   "generated_by": "scripts/materialize_proactive_ooda_operator_status.py",
   "gmail_draft_followthrough": {
     "action": "",
@@ -176,7 +176,7 @@
     "next_action_href": "https://myexternalbrain.com/app/queue",
     "next_action_label": "Open queue",
     "next_action_method": "get",
-    "observed_at": "2026-07-01T13:46:18Z",
+    "observed_at": "2026-07-01T14:17:45Z",
     "raw_execution_payload_exposed": false,
     "recipient_email_hash_present": false,
     "source": "docker_compose_exec",
@@ -217,11 +217,11 @@
   "operator_action_state": "clear",
   "output_path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
   "reason": "ready",
-  "receipt_observation_count": 696,
+  "receipt_observation_count": 698,
   "remaining_external_proofs": [
     "real proactive OODA packet accepted with routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome"
   ],
-  "route_probe_observed_at": "2026-07-01T13:46:12Z",
+  "route_probe_observed_at": "2026-07-01T14:17:42Z",
   "route_probe_runtime_service": "ea-proactive-ooda",
   "route_probe_source": "docker_compose_exec",
   "route_ready_claim_allowed": true,
@@ -269,7 +269,7 @@
   "source_coverage": {
     "checked": true,
     "excluded_event_type_counts": {
-      "property_scout_sync_completed": 26
+      "property_scout_sync_completed": 25
     },
     "excluded_event_types": [
       "property_scout_sync_completed"
@@ -290,14 +290,14 @@
         ],
         "key": "postgres_observations",
         "label": "Postgres observations",
-        "latest_observed_at": "2026-07-01T15:36:49.509445+02:00",
+        "latest_observed_at": "2026-07-01T16:12:38.599367+02:00",
         "missing_required_event_types": [],
         "next_action": "",
         "observed": true,
         "raw_credential_exposed": false,
         "raw_payload_exposed": false,
         "raw_transcript_text_exposed": false,
-        "record_count": 374,
+        "record_count": 375,
         "required_event_type_observed": true,
         "required_event_types": [],
         "status": "observed"
@@ -315,14 +315,14 @@
         ],
         "key": "google_workspace",
         "label": "Google workspace",
-        "latest_observed_at": "2026-07-01T15:36:49.509445+02:00",
+        "latest_observed_at": "2026-07-01T16:12:38.599367+02:00",
         "missing_required_event_types": [],
         "next_action": "",
         "observed": true,
         "raw_credential_exposed": false,
         "raw_payload_exposed": false,
         "raw_transcript_text_exposed": false,
-        "record_count": 260,
+        "record_count": 262,
         "required_event_type_observed": true,
         "required_event_types": [],
         "status": "observed"
@@ -361,14 +361,14 @@
         ],
         "key": "calendar_and_renewal_signals",
         "label": "Calendar and renewal signals",
-        "latest_observed_at": "2026-07-01T15:36:49.509445+02:00",
+        "latest_observed_at": "2026-07-01T16:12:38.599367+02:00",
         "missing_required_event_types": [],
         "next_action": "",
         "observed": true,
         "raw_credential_exposed": false,
         "raw_payload_exposed": false,
         "raw_transcript_text_exposed": false,
-        "record_count": 77,
+        "record_count": 79,
         "required_event_type_observed": true,
         "required_event_types": [],
         "status": "observed"
@@ -440,7 +440,7 @@
         "raw_credential_exposed": false,
         "raw_payload_exposed": false,
         "raw_transcript_text_exposed": false,
-        "record_count": 137,
+        "record_count": 136,
         "required_event_type_observed": true,
         "required_event_types": [],
         "status": "observed"
@@ -473,8 +473,8 @@
     "missing_lane_keys": [],
     "observation_limit": 400,
     "observation_repository": "PostgresObservationEventRepository",
-    "observation_row_count": 374,
-    "observed_at": "2026-07-01T13:46:20Z",
+    "observation_row_count": 375,
+    "observed_at": "2026-07-01T14:17:48Z",
     "observed_lane_count": 8,
     "privacy": {
       "raw_credential_exposed": false,
@@ -486,9 +486,9 @@
     "source": "docker_compose_exec",
     "status": "ready"
   },
-  "source_git_head": "8689a7af97f0392a3e08d1b28c9f8752e1068f3e",
+  "source_git_head": "9a64c8a8f7b515a995e4b167d96a68aceeef56d8",
   "source_mode": "none",
-  "source_state_fingerprint": "284330b7391824d2f60a796fa3e7e165eb4ee01594069d67518ed08256c57a08",
+  "source_state_fingerprint": "1d50c4fab88549edebf56fec03a7773b5308ad6c9c957ea6d832d4da13489227",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "stage_packets": {
     "enabled": true,
@@ -520,7 +520,7 @@
     },
     "projection_record_count": 1,
     "requires_recovery": false,
-    "run_receipt_generated_at": "2026-07-01T13:33:37.806639+00:00",
+    "run_receipt_generated_at": "2026-07-01T14:11:22.027661+00:00",
     "source": "docker_compose_exec",
     "status": "suppressed_non_material",
     "suppressed_item_count": 2,

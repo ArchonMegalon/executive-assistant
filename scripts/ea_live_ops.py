@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -507,31 +508,68 @@ def _docker_compose_exec_json(
     command: list[str],
     timeout_seconds: float,
 ) -> tuple[int, dict[str, Any], str, str]:
+    effective_timeout = max(float(timeout_seconds or 1.0), 1.0)
+    timeout_label = f"{effective_timeout:g}s"
+    exec_command = [
+        "docker",
+        "compose",
+        "-f",
+        compose_file,
+        "exec",
+        "-T",
+        service,
+        "timeout",
+        "--kill-after=2s",
+        timeout_label,
+        *command,
+    ]
     try:
         completed = subprocess.run(
-            ["docker", "compose", "-f", compose_file, "exec", "-T", service, *command],
+            exec_command,
             cwd=ROOT,
             env=_docker_compose_project_env(),
             capture_output=True,
             text=True,
             check=False,
-            timeout=timeout_seconds,
+            start_new_session=True,
+            timeout=effective_timeout + 5.0,
         )
     except subprocess.TimeoutExpired as exc:
         stdout = exc.stdout.decode("utf-8", errors="replace") if isinstance(exc.stdout, bytes) else str(exc.stdout or "")
         stderr = exc.stderr.decode("utf-8", errors="replace") if isinstance(exc.stderr, bytes) else str(exc.stderr or "")
         return (
             124,
-            {"ok": False, "reason": f"TimeoutExpired:{float(timeout_seconds):g}s"},
+            {
+                "ok": False,
+                "timed_out": True,
+                "reason": f"TimeoutExpired:{effective_timeout:g}s",
+                "timeout_seconds": effective_timeout,
+            },
             stdout,
             stderr,
         )
+    payload = _json_from_stdout(str(completed.stdout or ""))
+    if int(completed.returncode or 0) == 124 and not payload:
+        payload = {
+            "ok": False,
+            "timed_out": True,
+            "reason": f"TimeoutExpired:{effective_timeout:g}s",
+            "timeout_seconds": effective_timeout,
+        }
     return (
         int(completed.returncode or 0),
-        _json_from_stdout(str(completed.stdout or "")),
+        payload,
         str(completed.stdout or ""),
         str(completed.stderr or ""),
     )
+
+
+def _remaining_probe_timeout(deadline: float, *, minimum: float = 1.0) -> float:
+    return max(float(deadline) - time.monotonic(), minimum)
+
+
+def _probe_deadline_expired(deadline: float, *, minimum: float = 1.0) -> bool:
+    return (float(deadline) - time.monotonic()) <= minimum
 
 
 def _path_text(value: object) -> str:
@@ -1824,6 +1862,8 @@ def probe_proactive_route(
 ) -> dict[str, object]:
     effective_compose_file = str(compose_file or _env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE))).strip()
     effective_runtime_service = str(runtime_service or _env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE)).strip()
+    effective_timeout_seconds = max(float(timeout_seconds or 60.0), 1.0)
+    probe_deadline = time.monotonic() + effective_timeout_seconds
     observed_at = _utc_now()
     artifact_probe: dict[str, object] = {}
     if not effective_compose_file or not effective_runtime_service:
@@ -1862,8 +1902,33 @@ def probe_proactive_route(
             "--delivery-route-mode",
             "lightweight",
         ],
-        timeout_seconds=timeout_seconds,
+        timeout_seconds=_remaining_probe_timeout(probe_deadline),
     )
+    if bool(route_payload.get("timed_out")):
+        next_action = "inspect_proactive_runtime_container"
+        reason = str(route_payload.get("reason") or f"TimeoutExpired:{float(timeout_seconds):g}s").strip()
+        report = {
+            "probe_ok": False,
+            "status": "probe_failed",
+            "principal_id": str(principal_id or "").strip(),
+            "compose_file": effective_compose_file,
+            "runtime_service": effective_runtime_service,
+            "observed_at": observed_at,
+            "source": "docker_compose_exec",
+            "blocking_reason": f"runtime_route_probe_timed_out:{reason}",
+            "next_action": next_action,
+            "route_report": {},
+            "live_receipt": {},
+            "live_receipt_checked": False,
+            "timed_out": True,
+            "timeout_seconds": float(route_payload.get("timeout_seconds") or effective_timeout_seconds),
+            "stderr_excerpt": route_stderr.strip()[:200],
+            "stdout_excerpt": route_stdout.strip()[:200],
+        }
+        report.update(_next_action_surface_fields(next_action))
+        if output_format == "operator":
+            report["operator_text"] = f"proactive route probe timed out; inspect {effective_runtime_service}"
+        return report
     if not route_payload:
         next_action = "inspect_proactive_runtime_container"
         report = {
@@ -1888,15 +1953,25 @@ def probe_proactive_route(
         return report
 
     effective_receipt_path = str(receipt_path or "").strip()
-    try:
-        artifact_probe = probe_proactive_artifacts(
-            compose_file=effective_compose_file,
-            runtime_service=effective_runtime_service,
-            timeout_seconds=timeout_seconds,
-            output_format="json",
-        )
-    except Exception:
-        artifact_probe = {}
+    if _probe_deadline_expired(probe_deadline):
+        artifact_probe = {
+            "probe_ok": False,
+            "status": "probe_skipped",
+            "source": "docker_compose_exec",
+            "blocking_reason": f"runtime_artifact_probe_skipped:live_probe_budget_exhausted:{effective_timeout_seconds:g}s",
+            "timed_out": True,
+            "timeout_seconds": effective_timeout_seconds,
+        }
+    else:
+        try:
+            artifact_probe = probe_proactive_artifacts(
+                compose_file=effective_compose_file,
+                runtime_service=effective_runtime_service,
+                timeout_seconds=_remaining_probe_timeout(probe_deadline),
+                output_format="json",
+            )
+        except Exception:
+            artifact_probe = {}
     if not effective_receipt_path:
         if bool(artifact_probe.get("probe_ok")) and str(artifact_probe.get("run_receipt_path") or "").strip():
             effective_receipt_path = str(artifact_probe.get("run_receipt_path") or "").strip()
@@ -1907,15 +1982,45 @@ def probe_proactive_route(
     ]
     if effective_receipt_path:
         receipt_command.extend(["--receipt-path", effective_receipt_path])
-    _, live_receipt_payload, _, _ = _docker_compose_exec_json(
-        compose_file=effective_compose_file,
-        service=effective_runtime_service,
-        command=receipt_command,
-        timeout_seconds=timeout_seconds,
-    )
+    if _probe_deadline_expired(probe_deadline):
+        live_receipt_payload = {
+            "ok": False,
+            "receipt_path": effective_receipt_path,
+            "notification_status": "probe_skipped",
+            "delivery_channel": "",
+            "delivery_next_action": "inspect_proactive_runtime_container",
+            "delivery_route_error": "",
+            "delivery_recovery_hint": "",
+            "errors": [f"TimeoutExpired:{effective_timeout_seconds:g}s"],
+            "timed_out": True,
+            "timeout_seconds": effective_timeout_seconds,
+        }
+    else:
+        _, live_receipt_payload, _, _ = _docker_compose_exec_json(
+            compose_file=effective_compose_file,
+            service=effective_runtime_service,
+            command=receipt_command,
+            timeout_seconds=_remaining_probe_timeout(probe_deadline),
+        )
+    live_receipt_timed_out = bool(live_receipt_payload.get("timed_out"))
+    if live_receipt_timed_out:
+        live_receipt_payload = {
+            "ok": False,
+            "receipt_path": effective_receipt_path,
+            "notification_status": "probe_timed_out",
+            "delivery_channel": "",
+            "delivery_next_action": "inspect_proactive_runtime_container",
+            "delivery_route_error": "",
+            "delivery_recovery_hint": "",
+            "errors": [str(live_receipt_payload.get("reason") or f"TimeoutExpired:{effective_timeout_seconds:g}s").strip()],
+            "timed_out": True,
+            "timeout_seconds": float(live_receipt_payload.get("timeout_seconds") or effective_timeout_seconds),
+        }
     delivery_route = dict(route_payload.get("delivery_route") or {})
     delivery_guard = dict(route_payload.get("delivery_guard") or {})
     runtime_errors = [str(item).strip() for item in list(route_payload.get("errors") or []) if str(item).strip()]
+    if live_receipt_timed_out:
+        runtime_errors.append("live_receipt_probe_timed_out")
     route_ready = bool(delivery_route.get("ready"))
     route_error = str(delivery_route.get("route_error") or "").strip()
     delivery_state = str(delivery_guard.get("delivery_state") or "").strip()
@@ -1984,6 +2089,7 @@ def probe_proactive_route(
         "approval_capture_surface_ready": bool(artifact_probe.get("current_packet_live_pending_count") or 0) > 0,
         "approval_capture_surface_pending_count": int(artifact_probe.get("current_packet_live_pending_count") or 0),
         "route_report": route_payload,
+        "artifact_probe": artifact_probe,
         "live_receipt": live_receipt_payload,
         "live_receipt_checked": bool(live_receipt_payload),
     }
@@ -2367,6 +2473,24 @@ def probe_proactive_artifacts(
             command=command,
             timeout_seconds=timeout_seconds,
         )
+    if bool(payload.get("timed_out")):
+        reason = str(payload.get("reason") or f"TimeoutExpired:{float(timeout_seconds):g}s").strip()
+        report = {
+            "probe_ok": False,
+            "status": "probe_failed",
+            "compose_file": effective_compose_file,
+            "runtime_service": effective_runtime_service,
+            "observed_at": observed_at,
+            "source": source,
+            "blocking_reason": f"runtime_artifact_probe_timed_out:{reason}",
+            "timed_out": True,
+            "timeout_seconds": float(payload.get("timeout_seconds") or timeout_seconds),
+            "stdout_excerpt": stdout.strip()[:200],
+            "stderr_excerpt": stderr.strip()[:200],
+        }
+        if output_format == "operator":
+            report["operator_text"] = f"proactive artifact probe timed out; inspect {effective_runtime_service}"
+        return report
     if not payload:
         report = {
             "probe_ok": False,
