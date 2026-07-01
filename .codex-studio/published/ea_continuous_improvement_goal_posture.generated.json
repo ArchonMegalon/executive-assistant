@@ -105,9 +105,9 @@
           "contract_name": "ea.whole_project_signal_to_decision_receipt.v1",
           "path": ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "c1fde7bd052936ed23a433c89964cec04059d876",
-          "source_state_fingerprint": "51355e969c7ffa9e0db2870d97ba6de20619f3ebbfdabffa77be050c48e04d6a",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "90dcd37182c4b532e664a530b0f9e47ed1144a81",
+          "source_state_fingerprint": "ef073e0740459ef01a154410f0f5f054fcea00e2e399604de2b5b45a49da92e2",
           "status": "ready_local_packet_pending_operator_acceptance"
         }
       ],
@@ -545,7 +545,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-07-01T12:22:27Z",
+  "generated_at": "2026-07-01T12:26:50Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -561,27 +561,27 @@
           "contract_name": "ea.whole_project_signal_to_decision_receipt.v1",
           "path": ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "c1fde7bd052936ed23a433c89964cec04059d876",
-          "source_state_fingerprint": "51355e969c7ffa9e0db2870d97ba6de20619f3ebbfdabffa77be050c48e04d6a",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "90dcd37182c4b532e664a530b0f9e47ed1144a81",
+          "source_state_fingerprint": "ef073e0740459ef01a154410f0f5f054fcea00e2e399604de2b5b45a49da92e2",
           "status": "ready_local_packet_pending_operator_acceptance"
         },
         {
           "contract_name": "ea.pocket_audio_archive_receipt.v1",
           "path": ".codex-studio/published/pocket_audio_archive_receipt.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "6190bd16efb974baea030956bfa54f81dc41f603",
-          "source_state_fingerprint": "3960c30953c3bac8e1e8e824888cd7744585a8ce66ab6335dc28eb1ad3b7db3a",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "90dcd37182c4b532e664a530b0f9e47ed1144a81",
+          "source_state_fingerprint": "ef073e0740459ef01a154410f0f5f054fcea00e2e399604de2b5b45a49da92e2",
           "status": "pass"
         },
         {
           "contract_name": "ea.telegram_business_signal_readiness.v1",
           "path": ".codex-studio/published/telegram_business_signal_readiness.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "294ae0371dcdf16ad2edacd8a3673661f131c55b",
-          "source_state_fingerprint": "29c25a4ad1e5a3dd8f3b1855a794b50e8cda2f5939b0b5fb4002aaa429e162ac",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "90dcd37182c4b532e664a530b0f9e47ed1144a81",
+          "source_state_fingerprint": "ef073e0740459ef01a154410f0f5f054fcea00e2e399604de2b5b45a49da92e2",
           "status": "pass"
         }
       ],
@@ -611,8 +611,8 @@
       },
       "title": "Signal ingest and prioritization",
       "transcript_ingest_evidence": {
-        "archive_audio_file_total": 11,
-        "archive_metadata_json_total": 11,
+        "archive_audio_file_total": 29,
+        "archive_metadata_json_total": 29,
         "evidence_mode": "filesystem_archive_scan",
         "key": "pocket_ai_audio_transcripts",
         "missing_transcript_total": 0,

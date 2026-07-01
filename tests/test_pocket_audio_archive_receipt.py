@@ -61,3 +61,27 @@ def test_pocket_audio_archive_receipt_blocks_missing_transcripts(tmp_path: Path)
     assert receipt["next_action"] == "sync_pocket_ai_audio_transcripts"
     assert "non_dismissed_rows_missing_transcript:1" in receipt["failures"]
     assert verify(output) == []
+
+
+def test_pocket_audio_archive_receipt_rejects_stale_source_state(tmp_path: Path) -> None:
+    archive_root = tmp_path / "pocket"
+    archive_root.mkdir()
+    output = tmp_path / "pocket_audio_archive_receipt.generated.json"
+
+    build_receipt(
+        archive_root=archive_root,
+        index_rows=[],
+        completion_rows=[],
+        output_path=output,
+        generated_at="2026-06-30T10:00:00Z",
+        root=Path(__file__).resolve().parents[1],
+    )
+    receipt = json.loads(output.read_text(encoding="utf-8"))
+    receipt["source_git_head"] = "0" * 40
+    receipt["source_state_fingerprint"] = "1" * 64
+    output.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    issues = verify(output)
+
+    assert "source state stale" in issues
+    assert "source_state_fingerprint stale" in issues

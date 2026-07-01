@@ -106,7 +106,7 @@
     },
     "operator_status": {
       "contract_name": "ea.proactive_ooda_operator_status.v1",
-      "generated_at": "2026-07-01T12:21:24Z",
+      "generated_at": "2026-07-01T12:26:48Z",
       "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
       "present": true,
       "source_git_head": "90dcd37182c4b532e664a530b0f9e47ed1144a81",
@@ -133,7 +133,7 @@
       "source": "local_filesystem"
     }
   },
-  "generated_at": "2026-07-01T12:21:25Z",
+  "generated_at": "2026-07-01T12:26:50Z",
   "generated_by": "scripts/materialize_proactive_ooda_gold_acceptance.py",
   "goal_completion_claim_allowed": false,
   "gold_claim_allowed": true,

@@ -6,6 +6,13 @@ import json
 from pathlib import Path
 from typing import Any
 
+try:
+    from scripts.source_state_head import resolve_source_state_head
+    from scripts.source_state_head import resolve_source_worktree_fingerprint
+except ModuleNotFoundError:  # pragma: no cover - direct script execution
+    from source_state_head import resolve_source_state_head
+    from source_state_head import resolve_source_worktree_fingerprint
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RECEIPT = ROOT / ".codex-studio/published/pocket_audio_archive_receipt.generated.json"
@@ -31,8 +38,20 @@ def verify(path: Path = DEFAULT_RECEIPT) -> list[str]:
         issues.append("generated_at missing")
     if not str(receipt.get("source_git_head") or "").strip():
         issues.append("source_git_head missing")
-    if not str(receipt.get("source_state_fingerprint") or "").strip():
+    if receipt.get("head_semantics") != "source_state":
+        issues.append("head_semantics must be source_state")
+    if receipt.get("source_state_fingerprint_semantics") != "worktree_source_files_sha256_excluding_generated_only_paths":
+        issues.append("source_state_fingerprint_semantics mismatch")
+    current_head = resolve_source_state_head(ROOT)
+    current_fingerprint = resolve_source_worktree_fingerprint(ROOT)
+    source_head = str(receipt.get("source_git_head") or "").strip()
+    source_fingerprint = str(receipt.get("source_state_fingerprint") or "").strip()
+    if source_head and current_head and source_head != current_head and source_fingerprint != current_fingerprint:
+        issues.append("source state stale")
+    if not source_fingerprint:
         issues.append("source_state_fingerprint missing")
+    elif current_fingerprint and source_fingerprint != current_fingerprint:
+        issues.append("source_state_fingerprint stale")
     status = str(receipt.get("status") or "").strip()
     if status not in {"pass", "blocked"}:
         issues.append("status must be pass or blocked")
