@@ -202,6 +202,25 @@ _PROVIDER_BLOCKING_CONSTRAINT_MARKERS = (
     "outside stored country context",
     "provider search query too generic",
 )
+_PROVIDER_MATERIALITY_AUDIT_CODES = (
+    "no_provider_safe_candidate",
+    "provider_candidate_missing_locality_context",
+    "gmail_draft_recipient_missing",
+    "provider_query_too_generic",
+    "top_candidate_not_provider_like",
+    "draft_used_request_fallback",
+    "draft_not_created",
+)
+_PROVIDER_MATERIALITY_CONSTRAINT_TO_CODE = (
+    ("missing stored locality context", "provider_candidate_missing_locality_context"),
+    ("outside stored country context", "provider_candidate_missing_locality_context"),
+    ("educational or reference page", "top_candidate_not_provider_like"),
+    ("encyclopedia result", "top_candidate_not_provider_like"),
+    ("not a direct provider page", "top_candidate_not_provider_like"),
+    ("provider search query too generic", "provider_query_too_generic"),
+    ("provider request terms missing", "top_candidate_not_provider_like"),
+    ("link not reachable", "no_provider_safe_candidate"),
+)
 
 
 @dataclass(frozen=True)
@@ -2564,7 +2583,153 @@ def safe_work_decision_materiality_issue(
         recommended=recommended,
     ):
         return "single_official_info_link_not_decision_ready"
+    provider_issue = _provider_safe_work_materiality_issue(
+        safe_work_result=safe_work,
+        stage_packet=stage_packet,
+        work_type=work_type,
+        recommended=recommended,
+    )
+    if provider_issue:
+        return provider_issue
     return ""
+
+
+def _provider_safe_work_materiality_issue(
+    *,
+    safe_work_result: Mapping[str, Any],
+    stage_packet: Mapping[str, Any],
+    work_type: str,
+    recommended: Mapping[str, Any],
+) -> str:
+    audit = _mapping_value(safe_work_result.get("audit"))
+    audit_status = str(audit.get("status") or "").strip().lower()
+    if audit_status == "review":
+        return ""
+    issue_codes = [
+        str(issue.get("code") or "").strip()
+        for issue in list(audit.get("issues") or [])
+        if isinstance(issue, Mapping) and str(issue.get("code") or "").strip()
+    ]
+    for code in issue_codes:
+        if code in _PROVIDER_MATERIALITY_AUDIT_CODES or code.startswith("flat_provider_search_blocked:"):
+            return code
+
+    context_fit = _mapping_value(_mapping_value(safe_work_result.get("execution_receipt")).get("context_fit_receipt"))
+    provider_relevant = bool(context_fit.get("provider_discovery_relevant"))
+    research_draft_requested = _research_backed_provider_draft_requested(
+        stage_packet=stage_packet,
+        safe_work_result=safe_work_result,
+        work_type=work_type,
+    )
+    comparison_rows = [
+        dict(row)
+        for row in list(safe_work_result.get("comparison_table") or [])
+        if isinstance(row, Mapping)
+    ]
+    if provider_relevant or research_draft_requested:
+        recommended_rows = [row for row in comparison_rows if bool(row.get("recommended"))]
+        for row in recommended_rows:
+            issue = _provider_constraint_materiality_issue(row)
+            if issue:
+                return issue
+
+    if research_draft_requested:
+        if str(recommended.get("kind") or "").strip() != "draft_text":
+            return "draft_not_created"
+        recipient_email = str(recommended.get("recipient_email") or "").strip()
+        if not _EMAIL_PATTERN.fullmatch(recipient_email):
+            return "gmail_draft_recipient_missing"
+        candidate = _mapping_value(recommended.get("candidate"))
+        if candidate:
+            issue = _provider_candidate_materiality_issue(candidate)
+            if issue:
+                return issue
+
+    if not provider_relevant:
+        return ""
+    if not recommended:
+        return "no_provider_safe_candidate"
+    candidate = _recommended_candidate_from_safe_work(safe_work_result=safe_work_result, recommended=recommended)
+    if candidate:
+        issue = _provider_candidate_materiality_issue(candidate)
+        if issue:
+            return issue
+    return ""
+
+
+def _provider_constraint_materiality_issue(row: Mapping[str, Any]) -> str:
+    violations = " | ".join(
+        str(item or "").strip().lower()
+        for item in list(row.get("constraint_violations") or [])
+        if str(item or "").strip()
+    )
+    for marker, code in _PROVIDER_MATERIALITY_CONSTRAINT_TO_CODE:
+        if marker in violations:
+            return code
+    return ""
+
+
+def _provider_candidate_materiality_issue(candidate: Mapping[str, Any]) -> str:
+    if not candidate:
+        return ""
+    search_text = _candidate_search_text(candidate)
+    candidate_host = _url_host(str(candidate.get("final_url") or candidate.get("url") or candidate.get("link") or candidate.get("href") or ""))
+    if candidate_host.endswith("wikipedia.org"):
+        return "top_candidate_not_provider_like"
+    if _candidate_is_educational_reference(search_text):
+        return "top_candidate_not_provider_like"
+    if _candidate_is_non_provider_reference(search_text):
+        return "top_candidate_not_provider_like"
+    return ""
+
+
+def _research_backed_provider_draft_requested(
+    *,
+    stage_packet: Mapping[str, Any],
+    safe_work_result: Mapping[str, Any],
+    work_type: str,
+) -> bool:
+    if str(work_type or "").strip() != "draft":
+        return False
+    stage = _mapping_value(stage_packet.get("stage"))
+    stage_payload = _mapping_value(stage.get("payload"))
+    safe_work_order = _mapping_value(stage_packet.get("safe_work_order"))
+    input_contract = _mapping_value(safe_work_order.get("input_contract"))
+    draft_mode = _first_present_string(
+        safe_work_result.get("draft_mode"),
+        stage_payload.get("draft_mode"),
+        input_contract.get("draft_mode"),
+    ).lower()
+    if draft_mode == "research_backed_inquiry":
+        return True
+    recommended = _mapping_value(safe_work_result.get("recommended_option_or_draft"))
+    return str(recommended.get("source") or "").strip() == "candidate_synthesis"
+
+
+def _recommended_candidate_from_safe_work(
+    *,
+    safe_work_result: Mapping[str, Any],
+    recommended: Mapping[str, Any],
+) -> dict[str, Any]:
+    candidate = _mapping_value(recommended.get("candidate"))
+    if candidate:
+        return candidate
+    value = _mapping_value(recommended.get("value"))
+    if value:
+        return value
+    comparison_rows = [
+        dict(row)
+        for row in list(safe_work_result.get("comparison_table") or [])
+        if isinstance(row, Mapping) and bool(row.get("recommended"))
+    ]
+    if comparison_rows:
+        return comparison_rows[0]
+    shortlist = [
+        dict(row)
+        for row in list(safe_work_result.get("shortlist") or [])
+        if isinstance(row, Mapping)
+    ]
+    return shortlist[0] if shortlist else {}
 
 
 def _candidate_is_generic_official_info_link(candidate: Mapping[str, Any]) -> bool:

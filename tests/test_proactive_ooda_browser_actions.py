@@ -132,3 +132,27 @@ def test_runner_blocks_browser_handoff_delivery_without_user_action_receipt() ->
             "browser_action_receipt": {"user_action_required": False},
         }
     ) is False
+
+
+def test_runner_blocks_provider_reference_candidate_even_if_audit_passes() -> None:
+    candidate = {
+        "label": "Difference between ein, eine, einen, and einem in the German language",
+        "url": "https://planforgermany.com/difference-ein-eine-einen-einem-german-language/",
+        "snippet": "German language grammar explainer article.",
+        "reachable": True,
+    }
+
+    assert runner._safe_work_allows_delivery_or_auto_execution(
+        {
+            "status": "staged_for_user_decision",
+            "work_type": "compare_options",
+            "recommended_option_or_draft": {"kind": "shortlist_candidate", "value": candidate},
+            "shortlist": [candidate],
+            "execution_receipt": {
+                "context_fit_receipt": {
+                    "provider_discovery_relevant": True,
+                }
+            },
+            "audit": {"status": "pass", "issues": []},
+        }
+    ) is False

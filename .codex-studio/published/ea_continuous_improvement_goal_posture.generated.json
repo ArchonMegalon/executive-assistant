@@ -136,16 +136,16 @@
         ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
         ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
       ],
-      "claim_boundary": "does_not_prove_the_broader_executive_assistant_goal_until_other_real_world_acceptance_lenses_clear",
+      "claim_boundary": "does_not_prove_assistant_grade_proactive_ooda_until_a_real_approval_outcome_is_captured",
       "evidence_kind": "approval_outcome",
       "key": "proactive_ooda_packet_acceptance",
       "lens": "decide",
-      "next_action": "maintain_proactive_ooda_gold_acceptance_evidence",
-      "next_action_form_href": "/app/today",
-      "next_action_form_label": "Open Today",
+      "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
+      "next_action_form_href": "/admin/proactive-ooda/approval",
+      "next_action_form_label": "Open approval capture",
       "next_action_form_method": "get",
-      "next_action_href": "/app/today",
-      "next_action_label": "Open Today",
+      "next_action_href": "/admin/proactive-ooda/approval",
+      "next_action_label": "Open approval capture",
       "next_action_method": "get",
       "required_next_receipt": "real proactive OODA packet accepted with action-required-only routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome",
       "source_receipts": [
@@ -155,8 +155,8 @@
           "present": true,
           "source_fresh_to_current_source": true,
           "source_git_head": "4cf42d54abcf669920a230dd198431a0cac94354",
-          "source_state_fingerprint": "d8e6a169d73a760eaf1ce85b3626ede51c1b6c00837fd49a15d97910a51ea995",
-          "status": "pass"
+          "source_state_fingerprint": "48bb605becd292a4ce85c34a5359df90bf1d57ad3231d77bd49b1bf00b65aadc",
+          "status": "blocked_operator_runtime_posture"
         },
         {
           "contract_name": "ea.proactive_ooda_operator_status.v1",
@@ -164,11 +164,11 @@
           "present": true,
           "source_fresh_to_current_source": true,
           "source_git_head": "4cf42d54abcf669920a230dd198431a0cac94354",
-          "source_state_fingerprint": "d8e6a169d73a760eaf1ce85b3626ede51c1b6c00837fd49a15d97910a51ea995",
+          "source_state_fingerprint": "48bb605becd292a4ce85c34a5359df90bf1d57ad3231d77bd49b1bf00b65aadc",
           "status": "ready_with_live_receipt"
         }
       ],
-      "status": "satisfied",
+      "status": "pending_real_world_evidence",
       "title": "Proactive OODA packet approval outcome"
     },
     {
@@ -470,7 +470,7 @@
           "present": true,
           "source_fresh_to_current_source": true,
           "source_git_head": "4cf42d54abcf669920a230dd198431a0cac94354",
-          "source_state_fingerprint": "d8e6a169d73a760eaf1ce85b3626ede51c1b6c00837fd49a15d97910a51ea995",
+          "source_state_fingerprint": "48bb605becd292a4ce85c34a5359df90bf1d57ad3231d77bd49b1bf00b65aadc",
           "status": "blocked_setup_required"
         }
       ],
@@ -751,7 +751,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-07-01T16:36:01Z",
+  "generated_at": "2026-07-01T18:56:41Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -814,7 +814,7 @@
           "present": true,
           "source_fresh_to_current_source": true,
           "source_git_head": "4cf42d54abcf669920a230dd198431a0cac94354",
-          "source_state_fingerprint": "d8e6a169d73a760eaf1ce85b3626ede51c1b6c00837fd49a15d97910a51ea995",
+          "source_state_fingerprint": "48bb605becd292a4ce85c34a5359df90bf1d57ad3231d77bd49b1bf00b65aadc",
           "status": "pass"
         }
       ],
@@ -1020,7 +1020,7 @@
               "present": true,
               "source_fresh_to_current_source": true,
               "source_git_head": "4cf42d54abcf669920a230dd198431a0cac94354",
-              "source_state_fingerprint": "d8e6a169d73a760eaf1ce85b3626ede51c1b6c00837fd49a15d97910a51ea995",
+              "source_state_fingerprint": "48bb605becd292a4ce85c34a5359df90bf1d57ad3231d77bd49b1bf00b65aadc",
               "status": "blocked_setup_required"
             }
           ],
@@ -1422,6 +1422,33 @@
       "telegram_push_allowed": false,
       "title": "Fresh-host Teable recovery drill",
       "user_action_required": false
+    },
+    {
+      "callback_tokens_exposed": false,
+      "delivery_policy": "queue_only",
+      "evidence_kind": "approval_outcome",
+      "interruption_budget": "none",
+      "irreversible_actions_consent_gated": true,
+      "key": "proactive_ooda_packet_acceptance",
+      "lens": "decide",
+      "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
+      "next_action_form_href": "/admin/proactive-ooda/approval",
+      "next_action_form_label": "Open approval capture",
+      "next_action_form_method": "get",
+      "next_action_href": "/admin/proactive-ooda/approval",
+      "next_action_label": "Open approval capture",
+      "next_action_method": "get",
+      "non_action_progress_push_allowed": false,
+      "quiet_hours_respected": true,
+      "raw_chat_ids_exposed": false,
+      "raw_private_context_exposed": false,
+      "raw_secret_exposed": false,
+      "raw_token_exposed": false,
+      "raw_voice_ids_exposed": false,
+      "required_next_receipt": "real proactive OODA packet accepted with action-required-only routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome",
+      "telegram_push_allowed": false,
+      "title": "Proactive OODA packet approval outcome",
+      "user_action_required": false
     }
   ],
   "operator_delivery_policy": {
@@ -1438,6 +1465,7 @@
   "real_use_claim_allowed": false,
   "required_next_receipts": [
     "real weekly signal-to-decision review acceptance receipt",
+    "real proactive OODA packet accepted with action-required-only routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome",
     "fresh-host Teable recovery drill receipt mirrored into the repo",
     "Pushbullet delivery clients configured and live-verifiable for action-required delivery",
     "consented Manfred STT/TTS realtime conversation proof",
@@ -1455,6 +1483,6 @@
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
   "source_git_head": "4cf42d54abcf669920a230dd198431a0cac94354",
-  "source_state_fingerprint": "d8e6a169d73a760eaf1ce85b3626ede51c1b6c00837fd49a15d97910a51ea995",
+  "source_state_fingerprint": "48bb605becd292a4ce85c34a5359df90bf1d57ad3231d77bd49b1bf00b65aadc",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }

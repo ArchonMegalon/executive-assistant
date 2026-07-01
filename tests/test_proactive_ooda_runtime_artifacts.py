@@ -430,6 +430,87 @@ def test_load_runtime_artifact_bundle_hides_single_official_info_link_packet(tmp
     assert bundle["current_packet_callback_record_count"] == 0
 
 
+def test_load_runtime_artifact_bundle_hides_provider_reference_packet(tmp_path: Path) -> None:
+    state_path = "state/proactive_ooda_notified.json"
+    primary_receipt_path = tmp_path / "state" / "proactive_ooda_latest_run.generated.json"
+    stage_dir = tmp_path / "state" / "proactive_ooda_stage_packets"
+    safe_dir = tmp_path / "state" / "proactive_ooda_safe_work_results"
+    candidate = {
+        "label": "Difference between ein, eine, einen, and einem in the German language",
+        "url": "https://planforgermany.com/difference-ein-eine-einen-einem-german-language/",
+        "snippet": "German language grammar explainer article.",
+        "reachable": True,
+    }
+    stage_packet = {
+        "schema": "proactive_ooda.stage_packet.v1",
+        "packet_ref": "stage_packet:pkt-provider-reference",
+        "stage": {
+            "kind": "approval_packet",
+            "payload": {
+                "work_type": "compare_options",
+                "candidate_items": [candidate],
+                "selection_criteria": ["provider fit", "contact details visible"],
+            },
+        },
+        "safe_work_order": {
+            "work_type": "compare_options",
+            "input_contract": {
+                "candidate_items": [candidate],
+                "selection_criteria": ["provider fit", "contact details visible"],
+            },
+        },
+        "approval": {"required": True},
+    }
+    safe_work_result = {
+        "schema": "proactive_ooda.safe_work_result.v1",
+        "result_ref": "safe_work_result:res-provider-reference",
+        "source_packet_ref_hash": _sha256(stage_packet["packet_ref"]),
+        "status": "staged_for_user_decision",
+        "work_type": "compare_options",
+        "recommended_option_or_draft": {"kind": "shortlist_candidate", "value": candidate},
+        "shortlist": [candidate],
+        "execution_receipt": {
+            "context_fit_receipt": {
+                "provider_discovery_relevant": True,
+            }
+        },
+        "audit": {"status": "pass", "issues": []},
+        "approval": {"required": True},
+    }
+    _write_json(stage_dir / "pkt-provider-reference.json", stage_packet)
+    _write_json(safe_dir / "res-provider-reference.json", safe_work_result)
+    _write_json(
+        primary_receipt_path,
+        {
+            "notification_status": "deferred",
+            "error_code": "mirrored_delivery_proof",
+            "item_count": 1,
+            "stage_packet_output_dir": str(stage_dir),
+            "safe_work_result_output_dir": str(safe_dir),
+            "stage_packet_ref_hashes": [_sha256(stage_packet["packet_ref"])],
+            "safe_work_result_ref_hashes": [_sha256(safe_work_result["result_ref"])],
+            "telegram_message_ids": [],
+            "delivery_mirror": {
+                "enabled": True,
+                "mode": "operator_safe_mirror",
+                "user_notification_suppressed": True,
+                "approval_request_requires_user_action": True,
+            },
+            "teable_sync": {"status": "synced", "sync_attempted": True},
+        },
+    )
+
+    bundle = load_runtime_artifact_bundle(root=tmp_path, state_path=state_path)
+
+    assert bundle["run_receipt_path"] == primary_receipt_path
+    assert bundle["stage_packet_path"] is None
+    assert bundle["stage_packet"] == {}
+    assert bundle["safe_work_result_path"] is None
+    assert bundle["safe_work_result"] == {}
+    assert bundle["artifact_filter_reason"] == "top_candidate_not_provider_like"
+    assert bundle["current_packet_callback_record_count"] == 0
+
+
 def test_load_runtime_artifact_bundle_prefers_primary_run_linked_artifacts_over_newer_unrelated_pair(tmp_path: Path) -> None:
     state_path = "state/proactive_ooda_notified.json"
     primary_receipt_path = tmp_path / "state" / "proactive_ooda_latest_run.generated.json"

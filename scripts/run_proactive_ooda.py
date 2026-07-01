@@ -67,6 +67,7 @@ from app.services.proactive_ooda_safe_work import (  # noqa: E402
     build_safe_work_result,
     default_safe_work_result_dir,
     persist_safe_work_results_from_paths,
+    safe_work_decision_materiality_issue,
 )
 from app.services.proactive_ooda_stage_packets import (  # noqa: E402
     build_stage_packets,
@@ -813,6 +814,8 @@ def _safe_work_requires_user_action(result: Mapping[str, Any]) -> bool:
 
 
 def _safe_work_allows_delivery_or_auto_execution(result: Mapping[str, Any]) -> bool:
+    if safe_work_decision_materiality_issue(safe_work_result=result):
+        return False
     status = str(result.get("status") or "").strip()
     audit = result.get("audit")
     if isinstance(audit, Mapping):

@@ -316,6 +316,49 @@ def test_proactive_ooda_teable_projection_suppresses_single_official_info_link_m
     assert summary["suppressed_safe_work_issue_codes"] == ["single_official_info_link_not_decision_ready"]
 
 
+def test_proactive_ooda_teable_projection_suppresses_provider_reference_materiality() -> None:
+    digest, result, receipt = _digest_and_safe_work()
+    candidate = {
+        "label": "Difference between ein, eine, einen, and einem in the German language",
+        "url": "https://planforgermany.com/difference-ein-eine-einen-einem-german-language/",
+        "snippet": "German language grammar explainer article.",
+        "reachable": True,
+    }
+    result = {
+        **result,
+        "work_type": "compare_options",
+        "recommended_option_or_draft": {"kind": "shortlist_candidate", "value": candidate},
+        "shortlist": [candidate],
+        "comparison_table": [
+            {
+                **candidate,
+                "recommended": True,
+                "constraint_violations": [],
+            }
+        ],
+        "execution_receipt": {
+            "context_fit_receipt": {
+                "provider_discovery_relevant": True,
+            }
+        },
+        "audit": {"status": "pass", "issues": []},
+    }
+
+    records = build_proactive_ooda_teable_projection_records(
+        digest=digest,
+        receipt=receipt,
+        safe_work_results=(result,),
+    )
+    summary = build_proactive_ooda_teable_projection_summary(records)
+
+    assert records["proactive_ooda_items"] == []
+    assert records["proactive_ooda_safe_work"] == []
+    assert summary["suppressed_item_count"] == 1
+    assert summary["suppressed_safe_work_review_count"] == 1
+    assert summary["suppressed_projection_reasons"] == ["safe_work_audit_review"]
+    assert summary["suppressed_safe_work_issue_codes"] == ["top_candidate_not_provider_like"]
+
+
 def test_proactive_ooda_teable_projection_keeps_browser_handoff_safe_work_as_actionable() -> None:
     digest, result, receipt = _digest_and_safe_work()
     result = {

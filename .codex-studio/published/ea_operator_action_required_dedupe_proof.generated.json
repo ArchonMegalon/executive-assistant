@@ -2,17 +2,17 @@
   "contract_name": "ea.operator_action_required_dedupe_proof.v1",
   "counts": {
     "included_count": 5,
-    "input_count": 6,
+    "input_count": 7,
     "suppressed_policy_blocked_count": 0,
     "suppressed_privacy_blocked_count": 0,
-    "suppressed_queue_only_count": 1
+    "suppressed_queue_only_count": 2
   },
   "current_actions_covered_by_prior_state": true,
   "current_digest_sha256": "133bb1a750368639b49c97dbe5d8070731c080ebf77a4b836b88cdbf1b40482a",
   "dedupe_checked": true,
   "delivery_policy": "action_required_only",
   "force_required_to_resend": true,
-  "generated_at": "2026-07-01T16:36:01Z",
+  "generated_at": "2026-07-01T18:56:54Z",
   "generated_by": "scripts/materialize_operator_action_required_dedupe_proof.py",
   "head_semantics": "source_state",
   "included_action_keys": [
@@ -55,7 +55,7 @@
     "posture": {
       "path": ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json",
       "present": true,
-      "sha256": "aba2b672065e17d0843b089fd174f584d12276f4187eb387dd0e49518757d50b"
+      "sha256": "7065211229610516736d56a618154658c9a0be29f0f6fe643e40874b04d64b2e"
     },
     "sent_digest": {
       "digest_match": true,
@@ -67,7 +67,7 @@
       "status": "suppressed_duplicate"
     }
   },
-  "source_state_fingerprint": "d8e6a169d73a760eaf1ce85b3626ede51c1b6c00837fd49a15d97910a51ea995",
+  "source_state_fingerprint": "48bb605becd292a4ce85c34a5359df90bf1d57ad3231d77bd49b1bf00b65aadc",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "state": {
     "last_digest_match": true,

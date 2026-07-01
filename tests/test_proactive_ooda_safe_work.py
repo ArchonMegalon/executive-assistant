@@ -12,6 +12,7 @@ from app.services.proactive_ooda_safe_work import (
     default_safe_work_result_dir,
     persist_safe_work_results,
     persist_safe_work_results_from_paths,
+    safe_work_decision_materiality_issue,
 )
 from app.services.proactive_ooda_service import ProactiveOodaService
 from app.services.proactive_ooda_stage_packets import build_stage_packets, persist_stage_packets
@@ -1135,6 +1136,126 @@ def test_build_safe_work_result_rejects_reference_page_with_email_from_generic_p
     issue_codes = [issue["code"] for issue in result["audit"]["issues"]]
     assert "top_candidate_not_provider_like" in issue_codes
     assert "draft_not_created" in issue_codes
+
+
+def test_safe_work_materiality_rechecks_provider_reference_candidate_even_if_audit_passes() -> None:
+    candidate = {
+        "label": "Difference between ein, eine, einen, and einem in the German language",
+        "url": "https://planforgermany.com/difference-ein-eine-einen-einem-german-language/",
+        "snippet": "German language grammar explainer article.",
+        "reachable": True,
+    }
+    safe_work_result = {
+        "schema": SAFE_WORK_RESULT_SCHEMA,
+        "status": "staged_for_user_decision",
+        "work_type": "compare_options",
+        "recommended_option_or_draft": {"kind": "shortlist_candidate", "value": candidate},
+        "shortlist": [candidate],
+        "comparison_table": [
+            {
+                **candidate,
+                "recommended": True,
+                "constraint_violations": [],
+            }
+        ],
+        "execution_receipt": {
+            "context_fit_receipt": {
+                "provider_discovery_relevant": True,
+            }
+        },
+        "audit": {"status": "pass", "issues": []},
+    }
+
+    assert safe_work_decision_materiality_issue(safe_work_result=safe_work_result) == "top_candidate_not_provider_like"
+
+
+def test_safe_work_materiality_rechecks_research_draft_recipient_even_if_audit_passes() -> None:
+    candidate = {
+        "label": "Rauchfangkehrer Meisterbetrieb Wien 1200",
+        "url": "https://rauchfangkehrer-wien.example/befund",
+        "snippet": "Rauchfangkehrer Befund und Gutachten fuer Wien Brigittenau.",
+        "reachable": True,
+    }
+    stage_packet = {
+        "stage": {
+            "payload": {
+                "work_type": "draft",
+                "draft_mode": "research_backed_inquiry",
+            }
+        },
+        "safe_work_order": {
+            "work_type": "draft",
+            "input_contract": {
+                "draft_mode": "research_backed_inquiry",
+            },
+        },
+    }
+    safe_work_result = {
+        "schema": SAFE_WORK_RESULT_SCHEMA,
+        "status": "staged_for_user_decision",
+        "work_type": "draft",
+        "recommended_option_or_draft": {
+            "kind": "draft_text",
+            "value": "Guten Tag, ich haette gerne einen Vor-Ort-Termin.",
+            "source": "candidate_synthesis",
+            "candidate": candidate,
+        },
+        "execution_receipt": {
+            "context_fit_receipt": {
+                "provider_discovery_relevant": True,
+            }
+        },
+        "audit": {"status": "pass", "issues": []},
+    }
+
+    assert (
+        safe_work_decision_materiality_issue(stage_packet=stage_packet, safe_work_result=safe_work_result)
+        == "gmail_draft_recipient_missing"
+    )
+
+
+def test_safe_work_materiality_allows_valid_research_provider_draft() -> None:
+    candidate = {
+        "label": "Rauchfangkehrer Meisterbetrieb Wien 1200",
+        "url": "https://rauchfangkehrer-wien.example/befund",
+        "snippet": "Rauchfangkehrer Befund und Gutachten fuer Wien Brigittenau.",
+        "reachable": True,
+        "contact_email": "office@rauchfangkehrer-wien.example",
+    }
+    stage_packet = {
+        "stage": {
+            "payload": {
+                "work_type": "draft",
+                "draft_mode": "research_backed_inquiry",
+            }
+        },
+        "safe_work_order": {
+            "work_type": "draft",
+            "input_contract": {
+                "draft_mode": "research_backed_inquiry",
+            },
+        },
+    }
+    safe_work_result = {
+        "schema": SAFE_WORK_RESULT_SCHEMA,
+        "status": "staged_for_user_decision",
+        "work_type": "draft",
+        "recommended_option_or_draft": {
+            "kind": "draft_text",
+            "value": "Guten Tag, ich haette gerne einen Vor-Ort-Termin.",
+            "source": "candidate_synthesis",
+            "recipient_email": "office@rauchfangkehrer-wien.example",
+            "candidate": candidate,
+        },
+        "execution_receipt": {
+            "context_fit_receipt": {
+                "provider_discovery_relevant": True,
+            }
+        },
+        "audit": {"status": "pass", "issues": []},
+    }
+
+    assert safe_work_decision_materiality_issue(stage_packet=stage_packet, safe_work_result=safe_work_result) == ""
 
 
 def test_search_results_for_query_falls_back_to_yahoo_when_duckduckgo_challenges(monkeypatch) -> None:
