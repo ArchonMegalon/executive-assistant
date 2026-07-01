@@ -1331,22 +1331,24 @@ def build_proactive_ooda_operator_status(
     source_coverage_probe: dict[str, Any] = {}
     principal_id = str(getattr(effective_report_args, "principal_id", "") or proactive_verifier._default_principal_id()).strip()
     live_probe_timeout_seconds = _live_probe_timeout_seconds()
-    if allow_live_route_probe and live_receipt_path is None:
+    if allow_live_route_probe:
         try:
             route_probe = ea_live_ops.probe_proactive_route(
                 principal_id=principal_id,
+                receipt_path=str(live_receipt_path or ""),
                 timeout_seconds=live_probe_timeout_seconds,
             )
         except Exception:
             route_probe = {}
-        try:
-            artifact_probe = ea_live_ops.probe_proactive_artifacts(
-                timeout_seconds=live_probe_timeout_seconds,
-                output_format="json",
-            )
-        except Exception:
-            artifact_probe = {}
-        gmail_draft_probe = _gmail_draft_followthrough_probe(principal_id, timeout_seconds=live_probe_timeout_seconds)
+        if live_receipt_path is None:
+            try:
+                artifact_probe = ea_live_ops.probe_proactive_artifacts(
+                    timeout_seconds=live_probe_timeout_seconds,
+                    output_format="json",
+                )
+            except Exception:
+                artifact_probe = {}
+            gmail_draft_probe = _gmail_draft_followthrough_probe(principal_id, timeout_seconds=live_probe_timeout_seconds)
         source_coverage_probe = _source_coverage_probe(principal_id, timeout_seconds=live_probe_timeout_seconds)
 
     if bool(route_probe.get("probe_ok")) and isinstance(route_probe.get("route_report"), dict):

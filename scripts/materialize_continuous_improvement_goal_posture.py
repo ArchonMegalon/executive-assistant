@@ -366,8 +366,7 @@ def _manual_acceptance_action_context(
             if isinstance(row, dict) and str(row.get("proof_key") or row.get("key") or "").strip() == proof_key:
                 requirement = dict(row)
                 break
-    accepted = requirement.get("accepted") is True
-    user_action_required = not accepted
+    user_action_required = True
     context = {
         "kind": "real_world_acceptance_capture",
         "proof_key": proof_key,

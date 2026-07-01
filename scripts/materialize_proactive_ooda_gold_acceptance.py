@@ -2188,6 +2188,7 @@ def main() -> int:
     parser.add_argument("--stage-packet-dir", type=Path)
     parser.add_argument("--safe-work-result-dir", type=Path)
     parser.add_argument("--input", type=Path)
+    parser.add_argument("--live-runtime-probe", action="store_true")
     parser.add_argument("--pretty", action="store_true")
     args = parser.parse_args()
 
@@ -2200,7 +2201,7 @@ def main() -> int:
         stage_packet_dir=args.stage_packet_dir,
         safe_work_result_dir=args.safe_work_result_dir,
         approval_outcome_input=approval_outcome_input,
-        allow_live_runtime_probe=True,
+        allow_live_runtime_probe=bool(args.live_runtime_probe),
     )
     if args.pretty:
         print(json.dumps(receipt, indent=2, sort_keys=True))

@@ -730,6 +730,7 @@ def test_materialize_proactive_ooda_operator_status_writes_recovery_receipt(tmp_
         generated_at="2026-06-26T17:30:00Z",
         report_args=Namespace(),
         live_receipt_path=tmp_path / "live-receipt.json",
+        allow_live_route_probe=False,
     )
 
     assert receipt["contract_name"] == "ea.proactive_ooda_operator_status.v1"
@@ -807,6 +808,7 @@ def test_materialize_proactive_ooda_operator_status_normalizes_missing_delivery_
         generated_at="2026-06-29T22:05:00Z",
         report_args=Namespace(),
         live_receipt_path=tmp_path / "live-receipt.json",
+        allow_live_route_probe=False,
     )
 
     assert receipt["status"] == "blocked_delivery_route"
@@ -1351,6 +1353,82 @@ def test_materialize_proactive_ooda_operator_status_blocks_when_live_route_probe
     assert "Google workspace needs reauthorization" in receipt["summary"]
 
 
+def test_materialize_proactive_ooda_operator_status_uses_live_route_probe_with_explicit_receipt_path(
+    tmp_path: Path, monkeypatch
+) -> None:
+    module = _load_script()
+    monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
+    monkeypatch.setattr(module, "_source_fingerprint", lambda path=module.ROOT: "source-fingerprint-123")
+    receipt_path = tmp_path / "state" / "proactive_ooda_latest_run.generated.json"
+    receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    receipt_path.write_text("{}\n", encoding="utf-8")
+    calls: dict[str, object] = {}
+
+    def _fake_route_probe(**kwargs: object) -> dict[str, object]:
+        calls["route"] = dict(kwargs)
+        return {
+            "probe_ok": True,
+            "source": "docker_compose_exec",
+            "runtime_service": "ea-proactive-ooda",
+            "observed_at": "2026-07-01T04:20:00Z",
+            "live_receipt_checked": True,
+            "live_receipt": {
+                "ok": True,
+                "receipt_path": str(receipt_path),
+                "delivery_mode": "operator_safe_mirror",
+                "operator_safe_mirror_present": True,
+                "errors": [],
+                "notification_status": "deferred",
+            },
+            "route_report": {
+                "ok": True,
+                "errors": [],
+                "delivery_route": {
+                    "ready": True,
+                    "route_error": "",
+                    "recovery_hint": "",
+                    "next_action": "",
+                    "selected_channel": "telegram",
+                    "selected_transport": "telegram",
+                    "selected_by": "tool_runtime_binding",
+                    "available_channels": ["telegram"],
+                },
+                "delivery_guard": {"delivery_state": "no_actionable_items", "armed_send": True},
+                "stage_packets": {"ready": True, "errors": []},
+                "safe_work_results": {"ready": True, "errors": []},
+                "receipt_observation_count": 3,
+                "actionable_count": 0,
+                "source_mode": "none",
+            },
+        }
+
+    def _unexpected_host_report(_args: object) -> dict[str, object]:
+        raise AssertionError("live route probe should provide the route report")
+
+    def _unexpected_artifact_probe(**_kwargs: object) -> dict[str, object]:
+        raise AssertionError("explicit receipt paths should use local artifact probing")
+
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_route", _fake_route_probe)
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_artifacts", _unexpected_artifact_probe)
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_source_coverage", _fake_source_coverage_probe)
+    monkeypatch.setattr(module.proactive_verifier, "_build_report", _unexpected_host_report)
+
+    output = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
+    receipt = module.build_proactive_ooda_operator_status(
+        output_path=output,
+        generated_at="2026-07-01T04:21:00Z",
+        report_args=Namespace(principal_id="exec-1"),
+        live_receipt_path=receipt_path,
+    )
+
+    assert calls["route"]["receipt_path"] == str(receipt_path)
+    assert receipt["status"] == "ready_with_live_receipt"
+    assert receipt["route_probe_source"] == "docker_compose_exec"
+    assert receipt["delivery_route_ready"] is True
+    assert receipt["live_receipt"]["operator_safe_mirror_present"] is True
+    assert receipt["source_coverage"]["source"] == "docker_compose_exec"
+
+
 def test_materialize_proactive_ooda_operator_status_reports_unarmed_stage_only_posture(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -1407,6 +1485,7 @@ def test_materialize_proactive_ooda_operator_status_reports_unarmed_stage_only_p
         generated_at="2026-06-28T14:30:00Z",
         report_args=Namespace(armed_send=False),
         live_receipt_path=tmp_path / "live-receipt.json",
+        allow_live_route_probe=False,
     )
 
     assert receipt["status"] == "deferred"
@@ -1538,6 +1617,7 @@ def test_materialize_proactive_ooda_operator_status_uses_local_callback_surface_
             armed_send=False,
         ),
         live_receipt_path=tmp_path / "state" / "proactive_ooda_latest_run.generated.json",
+        allow_live_route_probe=False,
     )
 
     assert receipt["approval_capture_surface"]["source"] == "local_filesystem"
