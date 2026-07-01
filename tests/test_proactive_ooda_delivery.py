@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from app.services import proactive_ooda_delivery as delivery
+from app.services.pushbullet_delivery import PushbulletDeliveryReceipt
 from app.services.proactive_ooda_telegram_policy import approval_request_needs_telegram_user_action
 from app.services.proactive_ooda_service import ProactiveOodaService, build_run_receipt
 
@@ -214,6 +215,58 @@ def test_delivery_status_blocks_qr_required_whatsapp_web_and_falls_back_to_teleg
     assert "whatsapp_web_session_not_ready:qr_required" in status.errors
 
 
+def test_delivery_status_prefers_explicit_pushbullet_preference_when_token_present(monkeypatch) -> None:
+    monkeypatch.setenv("PB_TOKEN_ELISABETH", "push-token")
+    monkeypatch.setenv("PUSHBULLET_ELISABETH_EMAIL", "elisabeth.girschele@gmail.com")
+    memory_runtime = SimpleNamespace(
+        list_delivery_preferences=lambda **_kwargs: [
+            _delivery_preference(channel="pushbullet", recipient_ref="elisabeth"),
+        ],
+        list_communication_policies=lambda **_kwargs: [],
+        list_follow_ups=lambda **_kwargs: [],
+    )
+
+    status = delivery.resolve_proactive_ooda_delivery_status(
+        principal_id="exec",
+        memory_runtime=memory_runtime,
+    )
+
+    assert status.ready is True
+    assert status.selected_channel == "pushbullet"
+    assert status.selected_transport == "pushbullet"
+    assert status.selected_by == "delivery_preference"
+    assert status.preference_id == "pref-1"
+    assert status.recipient_ref == "elisabeth"
+    assert status.recipient_ref_hash
+
+
+def test_delivery_status_falls_back_when_pushbullet_token_missing(monkeypatch) -> None:
+    monkeypatch.setenv("PB_TOKEN_ELISABETH", "")
+    monkeypatch.setenv("PUSHBULLET_ELISABETH_EMAIL", "elisabeth.girschele@gmail.com")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token")
+    monkeypatch.setattr(delivery, "resolve_primary_telegram_binding", lambda tool_runtime, *, principal_id: _telegram_binding())
+    memory_runtime = SimpleNamespace(
+        list_delivery_preferences=lambda **_kwargs: [
+            _delivery_preference(channel="pushbullet", recipient_ref="elisabeth"),
+        ],
+        list_communication_policies=lambda **_kwargs: [_communication_policy(preferred_channel="telegram")],
+        list_follow_ups=lambda **_kwargs: [],
+    )
+
+    status = delivery.resolve_proactive_ooda_delivery_status(
+        principal_id="exec",
+        tool_runtime=SimpleNamespace(),
+        memory_runtime=memory_runtime,
+    )
+
+    assert status.ready is True
+    assert status.selected_channel == "telegram"
+    assert "pushbullet_token_missing:elisabeth" in status.errors
+    assert status.route_error == "pushbullet_token_missing:elisabeth"
+    assert status.next_action == "create_pushbullet_access_token"
+    assert "Pushbullet account access token" in status.recovery_hint
+
+
 def test_send_proactive_notification_queues_outbox_and_returns_generic_receipt(monkeypatch) -> None:
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token")
     monkeypatch.setattr(delivery, "resolve_primary_telegram_binding", lambda tool_runtime, *, principal_id: _telegram_binding())
@@ -262,6 +315,81 @@ def test_send_proactive_notification_queues_outbox_and_returns_generic_receipt(m
     assert receipt.outbox_delivery_id == "delivery-1"
     assert events["queued"]["channel"] == "telegram"
     assert events["sent"]["receipt_json"]["channel"] == "telegram"
+
+
+def test_send_proactive_notification_can_send_explicit_pushbullet_preference(monkeypatch) -> None:
+    monkeypatch.setenv("PB_TOKEN_ELISABETH", "push-token")
+    monkeypatch.setenv("PUSHBULLET_ELISABETH_EMAIL", "elisabeth.girschele@gmail.com")
+    sent_pushes: list[dict[str, object]] = []
+
+    def fake_pushbullet_note(*, client_key, title, body, url="", env=None, opener=None, timeout=20.0):
+        sent_pushes.append(
+            {
+                "client_key": client_key,
+                "title": title,
+                "body": body,
+                "url": url,
+            }
+        )
+        return PushbulletDeliveryReceipt(
+            client_key=client_key,
+            status="sent",
+            push_id_hash="p" * 64,
+            push_type="note",
+            recipient_ref_hash="r" * 64,
+        )
+
+    monkeypatch.setattr(delivery, "send_pushbullet_note", fake_pushbullet_note)
+    events: dict[str, object] = {}
+
+    class _ChannelRuntime:
+        def queue_delivery(self, channel, recipient, content, metadata=None, *, principal_id="", idempotency_key=""):
+            events["queued"] = {
+                "channel": channel,
+                "recipient": recipient,
+                "content": content,
+                "metadata": dict(metadata or {}),
+                "principal_id": principal_id,
+            }
+            return SimpleNamespace(delivery_id="delivery-pb-1", status="pending")
+
+        def mark_delivery_sent(self, delivery_id, *, principal_id, receipt_json=None):
+            events["sent"] = {
+                "delivery_id": delivery_id,
+                "principal_id": principal_id,
+                "receipt_json": dict(receipt_json or {}),
+            }
+            return None
+
+    receipt = delivery.send_proactive_ooda_notification(
+        principal_id="exec",
+        text="EA OODA\nReview the packet.",
+        channel_runtime=_ChannelRuntime(),
+        memory_runtime=SimpleNamespace(
+            list_delivery_preferences=lambda **_kwargs: [
+                _delivery_preference(channel="pushbullet", recipient_ref="elisabeth"),
+            ],
+            list_communication_policies=lambda **_kwargs: [],
+            list_follow_ups=lambda **_kwargs: [],
+        ),
+    )
+
+    assert receipt.channel == "pushbullet"
+    assert receipt.delivery_transport == "pushbullet"
+    assert receipt.message_ids == ("p" * 64,)
+    assert receipt.telegram_message_ids == ()
+    assert sent_pushes == [
+        {
+            "client_key": "elisabeth",
+            "title": "EA OODA",
+            "body": "EA OODA\nReview the packet.",
+            "url": "",
+        }
+    ]
+    assert events["queued"]["channel"] == "pushbullet"
+    assert events["queued"]["recipient"] == "elisabeth"
+    assert events["sent"]["receipt_json"]["channel"] == "pushbullet"
+    assert events["sent"]["receipt_json"]["message_ids"] == ["p" * 64]
 
 
 def test_send_proactive_notification_sends_follow_up_approval_prompt_with_buttons(monkeypatch) -> None:

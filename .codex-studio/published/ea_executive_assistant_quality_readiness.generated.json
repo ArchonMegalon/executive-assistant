@@ -521,7 +521,7 @@
     ],
     "blocked_keys": [],
     "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
-    "generated_at": "2026-07-01T15:03:52Z",
+    "generated_at": "2026-07-01T15:14:32Z",
     "generated_by": "ea/scripts/materialize_executive_assistant_acceptance_evidence.py",
     "goal_completion_claim_allowed": false,
     "head_semantics": "source_state",
@@ -556,14 +556,14 @@
     "real_provider_recovery_verified": true,
     "rejected_input_count": 0,
     "remaining_external_proofs": [],
-    "source_git_head": "b86e8c434d4ef95c32d18f6d0cb789b8f24f3bf2",
+    "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
     "source_input": {
       "commitment_closure_bundle_provided": false,
       "google_workspace_auth_action_bundle_provided": false,
       "provided": false,
       "provider_runtime_recovery_bundle_provided": false
     },
-    "source_state_fingerprint": "05e37521f809aa5da4898424b3add0efcbb6be2889a0ad637612ccf0a1abc22b",
+    "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
     "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
     "status": "ready_real_world_acceptance_evidence"
   },
@@ -571,7 +571,7 @@
     "bytes": 16122,
     "exists": true,
     "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
-    "sha256": "c7e5566259346027b32641fa00c8f838eed66cdf6d64c817a992a65b69dcfc11"
+    "sha256": "d062e5332d770b2b46e84bc6e7ed3e4b30ce9bc959aa9605bef4e0dfbcc5a799"
   },
   "blocked_checks": [],
   "contract_name": "ea.executive_assistant_quality_readiness.v1",
@@ -579,7 +579,7 @@
   "ea_owns_canonical_queue_truth": false,
   "ea_owns_release_authority": false,
   "external_acceptance_blockers": [],
-  "generated_at": "2026-07-01T15:03:53Z",
+  "generated_at": "2026-07-01T15:14:33Z",
   "generated_by": "ea/scripts/materialize_executive_assistant_quality_readiness.py",
   "goal_completion_claim_allowed": false,
   "good_executive_assistant_claim_allowed": true,
@@ -641,14 +641,14 @@
     "real approved outbound action with audit trail",
     "real provider failure recovered with operator-grade reason"
   ],
-  "source_git_head": "b86e8c434d4ef95c32d18f6d0cb789b8f24f3bf2",
+  "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
   "source_receipt": {
     "bytes": 10830,
     "exists": true,
     "path": ".codex-studio/published/ea_office_loop_goal.generated.json",
-    "sha256": "c0290f8695a3d1256e95431ba299f04d649cff137bc96a0f422d92ba329ac2db"
+    "sha256": "8deac47ee81923b733e01353ba536be5e8cb6de2b43219d7cc779456fd58a2b1"
   },
-  "source_state_fingerprint": "05e37521f809aa5da4898424b3add0efcbb6be2889a0ad637612ccf0a1abc22b",
+  "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready_for_good_executive_assistant_claim_review"
 }

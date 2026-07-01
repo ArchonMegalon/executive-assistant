@@ -16,6 +16,7 @@ from app.services.proactive_ooda_telegram_policy import (
     telegram_ooda_text_is_internal_noise,
 )
 from app.services.proactive_telegram_binding import proactive_telegram_ready, resolve_proactive_telegram_chat_id
+from app.services.pushbullet_delivery import pushbullet_client_by_key, send_pushbullet_note
 from app.services.telegram_delivery import (
     _telegram_bot_registry,
     _telegram_send_json,
@@ -27,7 +28,7 @@ from app.services.whatsapp_delivery_router import WEB_SESSION_CONNECTOR, send_wh
 from app.services.whatsapp_web_session_readiness import check_whatsapp_web_session_readiness
 
 
-SUPPORTED_DELIVERY_CHANNELS = {"telegram", "whatsapp"}
+SUPPORTED_DELIVERY_CHANNELS = {"telegram", "whatsapp", "pushbullet"}
 POLICY_SCOPE_ORDER = (
     "proactive_ooda",
     "proactive_notifications",
@@ -350,6 +351,13 @@ def _send_via_route(
             text=text,
             binding_id=route.binding_id,
         )
+    if route.selected_channel == "pushbullet":
+        title, body = _pushbullet_title_body(text)
+        return send_pushbullet_note(
+            client_key=route.recipient_ref,
+            title=title,
+            body=body,
+        )
     return _send_telegram_via_route(
         route=route,
         principal_id=principal_id,
@@ -408,6 +416,8 @@ def _channel_route_status(
             recipient_ref=recipient_ref,
             tool_runtime=tool_runtime,
         )
+    if normalized == "pushbullet":
+        return _pushbullet_route_status(recipient_ref=recipient_ref)
     return ProactiveOodaDeliveryStatus(
         ready=False,
         errors=(f"delivery_channel_unsupported:{normalized or 'unknown'}",),
@@ -532,6 +542,38 @@ def _whatsapp_route_status(
     )
 
 
+def _pushbullet_route_status(*, recipient_ref: str) -> ProactiveOodaDeliveryStatus:
+    client_ref = _normalize_pushbullet_client_ref(recipient_ref)
+    if not client_ref:
+        client_ref = _normalize_pushbullet_client_ref(os.getenv("EA_PUSHBULLET_DEFAULT_CLIENT", ""))
+    if not client_ref:
+        return ProactiveOodaDeliveryStatus(
+            ready=False,
+            errors=("pushbullet_client_ref_missing",),
+        )
+    client = pushbullet_client_by_key(client_ref)
+    if client is None:
+        return ProactiveOodaDeliveryStatus(
+            ready=False,
+            errors=(f"pushbullet_client_missing:{client_ref}",),
+        )
+    if not client.token_present:
+        return ProactiveOodaDeliveryStatus(
+            ready=False,
+            errors=(f"pushbullet_token_missing:{client.client_key}",),
+        )
+    return ProactiveOodaDeliveryStatus(
+        ready=True,
+        selected_channel="pushbullet",
+        selected_transport="pushbullet",
+        selected_by="env_pushbullet_client",
+        selected_reason="configured Pushbullet client available",
+        recipient_ref=client.client_key,
+        recipient_ref_hash=client.email_sha256 or _hash_text(client.client_key),
+        available_channels=("pushbullet",),
+    )
+
+
 def _normalize_delivery_receipt(
     raw_receipt: object,
     *,
@@ -546,6 +588,9 @@ def _normalize_delivery_receipt(
             for item in getattr(raw_receipt, "message_ids", ())
             if str(item or "").strip()
         )
+    elif hasattr(raw_receipt, "push_id_hash"):
+        push_id_hash = str(getattr(raw_receipt, "push_id_hash", "") or "").strip()
+        message_ids = (push_id_hash,) if push_id_hash else ()
     elif isinstance(raw_receipt, dict):
         if isinstance(raw_receipt.get("message_ids"), (list, tuple)):
             message_ids = tuple(str(item or "").strip() for item in raw_receipt.get("message_ids") or () if str(item or "").strip())
@@ -922,6 +967,8 @@ def _canonical_channel(value: Any) -> str:
         "whatsapp_export",
     }:
         return "whatsapp"
+    if normalized in {"pb", "pushbullet", "pushbullet_note", "pushbullet_link"}:
+        return "pushbullet"
     return ""
 
 
@@ -933,6 +980,20 @@ def _normalize_recipient(value: str) -> str:
         raw = raw[1:]
     digits = "".join(ch for ch in raw if ch.isdigit())
     return digits or str(value or "").strip()
+
+
+def _normalize_pushbullet_client_ref(value: object) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    return "".join(ch for ch in normalized if ch.isalnum() or ch == "_").strip("_")
+
+
+def _pushbullet_title_body(text: str) -> tuple[str, str]:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return "EA OODA", ""
+    first_line = next((line.strip() for line in normalized.splitlines() if line.strip()), "")
+    title = first_line[:120].rstrip() or "EA OODA"
+    return title, normalized
 
 
 def _hash_text(value: str) -> str:
@@ -1015,6 +1076,36 @@ def _guidance_for_delivery_error(error_code: str) -> ProactiveOodaDeliveryRecove
             recovery_hint="Link Telegram delivery or set the proactive Telegram chat so Telegram can be used as the fallback route.",
             next_action="configure_telegram_proactive_delivery",
         )
+    if normalized == "pushbullet_client_ref_missing":
+        return ProactiveOodaDeliveryRecovery(
+            route_error=normalized,
+            recovery_hint="Set a Pushbullet client key on the delivery preference recipient_ref or configure EA_PUSHBULLET_DEFAULT_CLIENT before preferring Pushbullet.",
+            next_action="set_pushbullet_client_ref",
+        )
+    if normalized.startswith("pushbullet_client_missing:"):
+        return ProactiveOodaDeliveryRecovery(
+            route_error=normalized,
+            recovery_hint="Create the named Pushbullet client env slot before preferring Pushbullet for proactive delivery.",
+            next_action="configure_pushbullet_client",
+        )
+    if normalized.startswith("pushbullet_token_missing:"):
+        return ProactiveOodaDeliveryRecovery(
+            route_error=normalized,
+            recovery_hint="Create a Pushbullet account access token, store it in the configured token env var, and rerun Pushbullet readiness before preferring that client.",
+            next_action="create_pushbullet_access_token",
+        )
+    if normalized.startswith("pushbullet_http_401") or normalized.startswith("pushbullet_http_403"):
+        return ProactiveOodaDeliveryRecovery(
+            route_error=normalized,
+            recovery_hint="Rotate the Pushbullet access token and verify it belongs to the intended account before retrying delivery.",
+            next_action="rotate_pushbullet_access_token",
+        )
+    if normalized.startswith("pushbullet_"):
+        return ProactiveOodaDeliveryRecovery(
+            route_error=normalized,
+            recovery_hint="Inspect Pushbullet client readiness and provider response before retrying proactive delivery.",
+            next_action="inspect_pushbullet_delivery",
+        )
     if normalized.startswith("telegram_sendmessage_http_401"):
         return ProactiveOodaDeliveryRecovery(
             route_error=normalized,
@@ -1042,7 +1133,7 @@ def _guidance_for_delivery_error(error_code: str) -> ProactiveOodaDeliveryRecove
     if normalized.startswith("delivery_channel_unsupported:"):
         return ProactiveOodaDeliveryRecovery(
             route_error=normalized,
-            recovery_hint="Use telegram or whatsapp for proactive delivery preferences and policies.",
+            recovery_hint="Use telegram, whatsapp, or pushbullet for proactive delivery preferences and policies.",
             next_action="use_supported_delivery_channel",
         )
     if normalized == "delivery_route_unavailable":

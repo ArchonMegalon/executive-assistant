@@ -109,7 +109,7 @@
     "status": "ready"
   },
   "delivery_blockers": [],
-  "generated_at": "2026-07-01T15:04:24.362224Z",
+  "generated_at": "2026-07-01T15:17:33.569731Z",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
   "live_delivery_claim_allowed": false,
@@ -128,7 +128,7 @@
   ],
   "privacy": {
     "env_values_exposed": false,
-    "preflight_contract_sha256": "409ebab5953477663c9e8dd6a628a3c278416a9c373c9fb61d6d77f4edb0df38",
+    "preflight_contract_sha256": "85b8289bb1b1507a164bfd7ce272c33399a790b76e5903108e1e3e3ae6c2dc25",
     "raw_provider_voice_ids_exposed": false,
     "raw_public_share_url_included": false,
     "raw_storage_paths_included": false,
@@ -148,8 +148,8 @@
   ],
   "runtime_container": "ea-api",
   "sample_blockers": [],
-  "source_git_head": "b86e8c434d4ef95c32d18f6d0cb789b8f24f3bf2",
-  "source_state_fingerprint": "05e37521f809aa5da4898424b3add0efcbb6be2889a0ad637612ccf0a1abc22b",
+  "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
+  "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready_for_live_epub_delivery_test",
   "voice_sample_prereqs_ready": true,
