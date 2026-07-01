@@ -173,17 +173,64 @@ LOW_SIGNAL_GMAIL_LABELS = {
 
 LOW_SIGNAL_MAIL_TERMS = (
     "angebot",
+    "beleg fuer ihre zahlung",
+    "beleg für ihre zahlung",
+    "bestellbestaetigung",
+    "bestellbestätigung",
     "deal",
     "die schönsten",
     "hat ein update gepostet",
     "newsletter",
     "new post",
     "neu:",
+    "order confirmation",
+    "payment receipt",
     "posted an update",
     "promotion",
+    "purchase receipt",
+    "receipt for your payment",
     "sale",
+    "thanks for your order",
     "unsubscribe",
     "update gepostet",
+    "you paid",
+    "zahlung an",
+)
+
+STRUCTURED_STAGE_MATERIAL_KEYS = (
+    "candidate_items",
+    "candidates",
+    "links",
+    "draft",
+    "draft_text",
+    "request",
+    "request_text",
+    "user_request",
+    "task_request",
+    "draft_request_text",
+    "cart_url",
+    "approval_url",
+    "booking_options",
+    "research_query",
+    "search_queries",
+    "target_sites",
+    "browser_task",
+    "browser_action",
+    "browser_execution",
+    "browser_operations",
+    "browser_login_url",
+    "login_url",
+    "site_url",
+    "target_url",
+)
+
+STRUCTURED_BOOKKEEPING_MARKERS = (
+    "commitment candidate",
+    "interruption budget",
+    "no additional ltd lane",
+    "no commitment candidate was strong enough",
+    "promotion candidates",
+    "stage 1 commitment candidate",
 )
 
 
@@ -435,7 +482,10 @@ class ProactiveOodaService:
         high_urgency = any(term in text for term in HIGH_URGENCY_TERMS)
         raw_approval_required = any(term in text for term in APPROVAL_TERMS)
         has_due = bool(signal.due_at)
-        low_signal_mail = _is_low_signal_mail(signal, text=text)
+        low_signal_mail = _is_low_signal_mail(signal, text=text) or _is_low_signal_product_commitment_candidate(
+            signal,
+            text=text,
+        )
         high_confidence_mail_action = _has_high_confidence_mail_action(text)
         approval_required = raw_approval_required and not (low_signal_mail and not high_confidence_mail_action)
         notify = _has_nonstructured_actionable_intent(
@@ -586,6 +636,16 @@ def _structured_ooda_ink(signal: ProactiveSignal) -> OodaInk | None:
     notify = approval_required or has_structured_action or bool(signal.due_at) or any(
         term in combined_text for term in ACTION_TERMS
     )
+    if _structured_stage_is_materialless_internal_review(
+        signal,
+        stage_payload=stage_payload,
+        stage_kind=stage_kind,
+        stage_summary=stage_summary,
+        stage_artifacts=stage_artifacts,
+        approval_gate=approval_gate,
+        combined_text=combined_text,
+    ):
+        notify = False
     priority = "high" if high_urgency or approval_required else "normal"
     if not notify:
         priority = "low"
@@ -1025,6 +1085,14 @@ def _is_low_signal_mail(signal: ProactiveSignal, *, text: str) -> bool:
     return _contains_any(text, LOW_SIGNAL_MAIL_TERMS)
 
 
+def _is_low_signal_product_commitment_candidate(signal: ProactiveSignal, *, text: str) -> bool:
+    if str(signal.channel or "").strip().lower() != "product":
+        return False
+    if str(signal.signal_type or "").strip().lower() != "commitment_candidate":
+        return False
+    return _contains_any(text, LOW_SIGNAL_MAIL_TERMS)
+
+
 def _has_high_confidence_mail_action(text: str) -> bool:
     return _contains_any(text, HIGH_CONFIDENCE_MAIL_ACTION_TERMS) or _contains_any(text, DIRECT_REQUEST_TERMS)
 
@@ -1199,6 +1267,54 @@ def _structured_stage_payload(
                 else _json_safe(stage_section.get(key))
             )
     return payload
+
+
+def _structured_stage_is_materialless_internal_review(
+    signal: ProactiveSignal,
+    *,
+    stage_payload: Mapping[str, Any] | None,
+    stage_kind: str,
+    stage_summary: str,
+    stage_artifacts: tuple[str, ...],
+    approval_gate: str,
+    combined_text: str,
+) -> bool:
+    if _structured_stage_has_decision_ready_material(stage_payload):
+        return False
+    has_stage_surface = any((stage_kind, stage_summary, stage_artifacts, approval_gate))
+    has_bookkeeping_marker = any(marker in combined_text for marker in STRUCTURED_BOOKKEEPING_MARKERS)
+    if not has_stage_surface and not has_bookkeeping_marker:
+        return False
+    channel = str(signal.channel or "").strip().lower()
+    signal_type = str(signal.signal_type or "").strip().lower()
+    if channel == "product" or signal_type in {"office_signal", "commitment_candidate"}:
+        return True
+    return has_bookkeeping_marker
+
+
+def _structured_stage_has_decision_ready_material(stage_payload: Mapping[str, Any] | None) -> bool:
+    if not isinstance(stage_payload, Mapping):
+        return False
+    for key in STRUCTURED_STAGE_MATERIAL_KEYS:
+        if key in stage_payload and _nonempty_stage_material(stage_payload.get(key)):
+            return True
+    return False
+
+
+def _nonempty_stage_material(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, Mapping):
+        return any(_nonempty_stage_material(item) for item in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(_nonempty_stage_material(item) for item in value)
+    return bool(str(value).strip())
 
 
 def _first_structured_text(*values: Any) -> str:

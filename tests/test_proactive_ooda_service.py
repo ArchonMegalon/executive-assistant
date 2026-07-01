@@ -121,6 +121,62 @@ def test_proactive_ooda_suppresses_low_signal_gmail_social_promotions_and_auto_a
     assert digest.items == ()
 
 
+def test_proactive_ooda_suppresses_gmail_receipts_and_order_confirmations_without_action() -> None:
+    service = ProactiveOodaService()
+
+    digest = service.build_digest(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "gmail:paypal-receipt",
+                "signal_type": "email_thread",
+                "channel": "gmail",
+                "title": "Beleg fuer Ihre Zahlung an AppSumo",
+                "summary": "PayPal receipt. You paid AppSumo for your order.",
+                "counterparty": "PayPal",
+            },
+            {
+                "source_ref": "gmail:appsumo-order",
+                "signal_type": "email_thread",
+                "channel": "gmail",
+                "title": "Order Confirmation: Sendr",
+                "summary": "Thanks for your order. Your AppSumo purchase receipt is attached.",
+                "counterparty": "AppSumo",
+            },
+        ],
+    )
+
+    assert digest.items == ()
+
+
+def test_proactive_ooda_suppresses_product_commitment_candidates_from_receipts_without_action() -> None:
+    service = ProactiveOodaService()
+
+    digest = service.build_digest(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "observation:paypal-receipt",
+                "signal_type": "commitment_candidate",
+                "channel": "product",
+                "title": "Beleg fuer Ihre Zahlung an AppSumo",
+                "summary": "EA staged a commitment candidate for review.",
+                "counterparty": "PayPal",
+            },
+            {
+                "source_ref": "observation:appsumo-order",
+                "signal_type": "commitment_candidate",
+                "channel": "product",
+                "title": "Order Confirmation: Sendr [Thanks for your order!]",
+                "summary": "EA staged a commitment candidate for review.",
+                "counterparty": "AppSumo",
+            },
+        ],
+    )
+
+    assert digest.items == ()
+
+
 def test_proactive_ooda_allows_low_signal_gmail_only_when_action_is_explicit() -> None:
     service = ProactiveOodaService()
 
@@ -423,6 +479,142 @@ def test_proactive_ooda_prefers_structured_ooda_loop() -> None:
     assert "Guardrail: User must approve before any external send." in text
     assert "Artifacts:" not in text
     assert "tag:launch" not in text
+
+
+def test_proactive_ooda_suppresses_internal_structured_stage_without_material() -> None:
+    service = ProactiveOodaService()
+
+    digest = service.build_digest(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "product:observation:commitment-review",
+                "signal_type": "telegram_message",
+                "channel": "product",
+                "title": "Stage 1 commitment candidate.",
+                "summary": "Stage 1 commitment candidate. No additional LTD lane is recommended.",
+                "counterparty": "EA",
+                "payload": {
+                    "ooda_loop": {
+                        "reviewed": True,
+                        "observe": {
+                            "summary": "Stage 1 commitment candidate. No additional LTD lane is recommended.",
+                            "channel": "telegram",
+                        },
+                        "orient": {
+                            "summary": "Signal was reviewed for commitments and promotion candidates.",
+                        },
+                        "decide": {
+                            "summary": "Stage 1 commitment candidate. No additional LTD lane is recommended.",
+                            "approval_required": True,
+                        },
+                        "act": {
+                            "summary": "Staged 1 candidate and 0 reply drafts.",
+                            "stage": {
+                                "kind": "approval_packet",
+                                "summary": "Staged 1 candidate and 0 reply drafts.",
+                                "artifacts": [],
+                                "deadline": "2026-06-30T09:23:51.409738+00:00",
+                                "recipient_context": {"location": "1200 Wien", "country": "AT"},
+                                "notes": [
+                                    "1 commitment risks, 5 promotion candidates",
+                                    "medium risk: Interruption budget for default is exhausted.",
+                                ],
+                            },
+                        },
+                    }
+                },
+            }
+        ],
+    )
+
+    assert digest.items == ()
+
+
+def test_proactive_ooda_suppresses_internal_structured_commitment_counter_without_stage_material() -> None:
+    service = ProactiveOodaService()
+
+    digest = service.build_digest(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "product:office-signal-ooda",
+                "signal_type": "email_thread",
+                "channel": "product",
+                "title": "Stage 1 commitment candidate.",
+                "summary": "Newsletter sale. Stage 1 commitment candidate. No additional LTD lane is recommended.",
+                "counterparty": "Steam",
+                "payload": {
+                    "ooda_loop": {
+                        "reviewed": True,
+                        "observe": {
+                            "summary": "Stage 1 commitment candidate. No additional LTD lane is recommended.",
+                            "channel": "gmail",
+                        },
+                        "orient": {"summary": "Signal references property-search or tour work."},
+                        "decide": {
+                            "summary": "Stage 1 commitment candidate. No additional LTD lane is recommended.",
+                            "approval_required": True,
+                        },
+                        "act": {
+                            "summary": "Staged 1 candidate and 0 reply drafts.",
+                            "executed_actions": ["commitment_candidates_staged"],
+                            "automated_actions": [],
+                            "staged_draft_count": 0,
+                            "staged_candidate_count": 1,
+                        },
+                    }
+                },
+            }
+        ],
+    )
+
+    assert digest.items == ()
+
+
+def test_proactive_ooda_keeps_structured_stage_with_decision_ready_material() -> None:
+    service = ProactiveOodaService()
+
+    digest = service.build_digest(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "product:observation:rauchfangkehrer",
+                "signal_type": "telegram_message",
+                "channel": "product",
+                "title": "Find a Rauchfangkehrer and draft an email.",
+                "summary": "Suche einen Rauchfangkehrer und speichere einen Draft.",
+                "counterparty": "Telegram",
+                "payload": {
+                    "ooda_loop": {
+                        "reviewed": True,
+                        "observe": {"summary": "Find a Rauchfangkehrer and draft an email.", "channel": "telegram"},
+                        "orient": {"summary": "The request has a clear local context in 1200 Wien."},
+                        "decide": {"summary": "Stage a local provider shortlist and Gmail draft.", "approval_required": True},
+                        "act": {
+                            "summary": "Research local providers and prepare one draft.",
+                            "stage": {
+                                "kind": "approval_packet",
+                                "summary": "Local provider research and draft request are ready for safe work.",
+                                "work_type": "draft",
+                                "draft_mode": "research_backed_inquiry",
+                                "request_text": (
+                                    "Ask for an onsite appointment about using a Zimmerkamin as an AC exhaust path."
+                                ),
+                                "research_query": "Rauchfangkehrer Gutachten Zimmerkamin Abluftrohr 1200 Wien",
+                                "recipient_context": {"location": "1200 Wien", "phone": "+43 664 7916419"},
+                            },
+                        },
+                    }
+                },
+            }
+        ],
+    )
+
+    assert len(digest.items) == 1
+    assert digest.items[0].stage_payload is not None
+    assert digest.items[0].stage_payload["request_text"].startswith("Ask for an onsite appointment")
+    assert digest.items[0].stage_payload["research_query"] == "Rauchfangkehrer Gutachten Zimmerkamin Abluftrohr 1200 Wien"
 
 
 def test_format_telegram_digest_is_minimal_but_decision_ready() -> None:

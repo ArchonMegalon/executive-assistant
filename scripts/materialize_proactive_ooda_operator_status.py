@@ -636,7 +636,7 @@ def _normalized_suppressed_projection(artifact_probe: Mapping[str, Any]) -> dict
     probe = dict(artifact_probe or {})
     quiet_receipt = dict(probe.get("action_required_only_quiet_receipt") or {})
     run_receipt = dict(probe.get("run_receipt") or {})
-    candidate_receipts = [row for row in (quiet_receipt, run_receipt) if row]
+    candidate_receipts = [run_receipt] if run_receipt else [quiet_receipt] if quiet_receipt else []
     selected_receipt: dict[str, Any] = {}
     selected_summary: dict[str, Any] = {}
     for candidate in candidate_receipts:
