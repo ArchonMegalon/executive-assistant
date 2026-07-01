@@ -132,6 +132,14 @@ def _sanitize_action_item(row: dict[str, Any]) -> dict[str, Any]:
         "title": _text(row.get("title"), limit=120),
         "required_next_receipt": _text(row.get("required_next_receipt"), limit=180),
         "instruction": _text(row.get("instruction"), limit=180),
+        "action_required_reason": _text(row.get("action_required_reason"), limit=120),
+        "source_action_packet_present": bool(row.get("source_action_packet_present")),
+        "source_action_packet_status": _text(row.get("source_action_packet_status"), limit=80),
+        "required_form_fields": [
+            _text(item, limit=80)
+            for item in list(row.get("required_form_fields") or [])
+            if _text(item, limit=80)
+        ],
         "next_action": _text(row.get("next_action"), limit=120),
         "next_action_label": _text(row.get("next_action_label"), limit=80),
         "next_action_form_href": _text(row.get("next_action_form_href"), limit=180),

@@ -195,7 +195,9 @@ def _operator_form_surface(next_action: str, action_context: dict[str, Any]) -> 
             form_href = _acceptance_form_href(str(action_context.get("proof_key") or "").strip())
         return {
             "next_action_form_href": form_href,
-            "next_action_form_label": str(surface.get("label") or "").strip(),
+            "next_action_form_label": str(
+                action_context.get("next_action_form_label") or surface.get("label") or ""
+            ).strip(),
             "next_action_form_method": "get",
         }
     if href == "/admin/actions/signal-to-decision-evidence":
@@ -204,7 +206,9 @@ def _operator_form_surface(next_action: str, action_context: dict[str, Any]) -> 
             form_href = _signal_form_href(str(action_context.get("evidence_part") or "review").strip())
         return {
             "next_action_form_href": form_href,
-            "next_action_form_label": str(surface.get("label") or "").strip(),
+            "next_action_form_label": str(
+                action_context.get("next_action_form_label") or surface.get("label") or ""
+            ).strip(),
             "next_action_form_method": "get",
         }
     return {
@@ -374,6 +378,9 @@ def _acceptance_proof_requirement(
     surface = ACTION_SURFACES.get(next_action, {})
     context = dict(action_context or {})
     form_surface = _operator_form_surface(next_action, context)
+    action_href = str(context.get("next_action_href") or surface.get("href") or "").strip()
+    action_label = str(context.get("next_action_label") or surface.get("label") or "").strip()
+    action_method = str(context.get("next_action_method") or surface.get("method") or "").strip()
     payload = {
         "key": key,
         "title": title,
@@ -383,9 +390,9 @@ def _acceptance_proof_requirement(
         "evidence_kind": evidence_kind,
         "capture_surfaces": [surface for surface in capture_surfaces if str(surface or "").strip()],
         "next_action": next_action,
-        "next_action_href": str(surface.get("href") or "").strip(),
-        "next_action_label": str(surface.get("label") or "").strip(),
-        "next_action_method": str(surface.get("method") or "").strip(),
+        "next_action_href": action_href,
+        "next_action_label": action_label,
+        "next_action_method": action_method,
         **form_surface,
         "claim_boundary": claim_boundary,
         "source_receipts": source_receipts,
@@ -521,6 +528,65 @@ def _manual_acceptance_action_context(
         context["next_action_form_label"] = "Record signal review evidence"
         context["next_action_form_method"] = "get"
     return {key: value for key, value in context.items() if value not in ("", [], None)}
+
+
+def _signal_review_action_context(signal_receipt: dict[str, Any]) -> dict[str, Any]:
+    packet = dict(signal_receipt.get("operator_action_packet") or {})
+    if not packet:
+        return _manual_acceptance_action_context(
+            instruction="Record redacted evidence that the weekly signal-to-decision review was actually reviewed.",
+            evidence_part="review",
+        )
+    privacy_flags = {
+        "raw_private_context_exposed": bool(packet.get("raw_private_context_exposed")),
+        "raw_chat_ids_exposed": False,
+        "raw_token_exposed": False,
+        "raw_secret_exposed": False,
+        "raw_acceptance_text_exposed": bool(packet.get("raw_acceptance_text_exposed")),
+        "raw_actor_identity_exposed": bool(packet.get("raw_actor_identity_exposed")),
+        "raw_object_reference_exposed": bool(packet.get("raw_object_reference_exposed")),
+    }
+    context = {
+        "kind": "real_world_acceptance_capture",
+        "source_action_packet_present": True,
+        "source_action_packet_status": str(packet.get("status") or "").strip(),
+        "action_required_reason": str(packet.get("action_required_reason") or "").strip(),
+        "evidence_part": str(
+            packet.get("next_action_evidence_part") or signal_receipt.get("next_action_evidence_part") or "review"
+        ).strip(),
+        "user_action_required": bool(packet.get("user_action_required")),
+        "instruction": str(packet.get("instruction") or "").strip(),
+        "next_action_href": str(packet.get("next_action_href") or "").strip(),
+        "next_action_label": str(packet.get("next_action_label") or "").strip(),
+        "next_action_method": str(packet.get("next_action_method") or "").strip(),
+        "next_action_form_href": str(packet.get("next_action_form_href") or "").strip(),
+        "next_action_form_label": str(packet.get("next_action_form_label") or "").strip(),
+        "next_action_form_method": str(packet.get("next_action_form_method") or "").strip(),
+        "required_form_fields": [
+            str(item).strip()
+            for item in list(packet.get("required_form_fields") or [])
+            if str(item).strip()
+        ],
+        "accepted_parts": {
+            "review": bool(dict(packet.get("accepted_parts") or {}).get("review")),
+            "followthrough": bool(dict(packet.get("accepted_parts") or {}).get("followthrough")),
+        },
+        "delivery_policy": str(packet.get("delivery_policy") or "action_required_only").strip(),
+        "telegram_push_allowed": bool(packet.get("telegram_push_allowed")),
+        "interruption_budget": str(packet.get("interruption_budget") or "action_required").strip(),
+        "quiet_hours_respected": bool(packet.get("quiet_hours_respected")),
+        "non_action_progress_push_allowed": bool(packet.get("non_action_progress_push_allowed")),
+        "irreversible_actions_consent_gated": bool(packet.get("irreversible_actions_consent_gated")),
+        "claim_boundary": str(packet.get("claim_boundary") or "").strip(),
+        **privacy_flags,
+    }
+    if not context["instruction"]:
+        context["instruction"] = "Record redacted evidence that the weekly signal-to-decision review was actually reviewed."
+    return {key: value for key, value in context.items() if value not in ("", [], None)}
+
+
+def _signal_review_acceptance_status(signal_receipt: dict[str, Any]) -> str:
+    return "satisfied" if bool(signal_receipt.get("real_weekly_operator_review_accepted")) else "pending_real_world_evidence"
 
 
 def _acceptance_proof_status(acceptance_receipt: dict[str, Any], proof_key: str) -> str:
@@ -914,6 +980,15 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
             "required_next_receipt": str(requirement.get("required_next_receipt") or "").strip(),
             "user_action_required": user_action_required,
             "instruction": str(action_context.get("instruction") or "").strip(),
+            "action_required_reason": str(action_context.get("action_required_reason") or "").strip(),
+            "source_action_packet_present": bool(action_context.get("source_action_packet_present")),
+            "source_action_packet_status": str(action_context.get("source_action_packet_status") or "").strip(),
+            "required_form_fields": [
+                str(item).strip()
+                for item in list(action_context.get("required_form_fields") or [])
+                if str(item).strip()
+            ],
+            "accepted_parts": dict(action_context.get("accepted_parts") or {}),
             "proof_key": str(action_context.get("proof_key") or "").strip(),
             "evidence_part": str(action_context.get("evidence_part") or "").strip(),
             "manual_only": bool(action_context.get("manual_only")),
@@ -1019,6 +1094,11 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
         }
         optional_context_keys = (
             "kind",
+            "action_required_reason",
+            "source_action_packet_present",
+            "source_action_packet_status",
+            "required_form_fields",
+            "accepted_parts",
             "proof_key",
             "evidence_part",
             "manual_only",
@@ -1627,10 +1707,8 @@ def build_goal_posture(
                     current_source_fingerprint=current_source_fingerprint,
                 )
             ],
-            action_context=_manual_acceptance_action_context(
-                instruction="Record redacted evidence that the weekly signal-to-decision review was actually reviewed.",
-                evidence_part="review",
-            ),
+            status=_signal_review_acceptance_status(signal),
+            action_context=_signal_review_action_context(signal),
         ),
         _acceptance_proof_requirement(
             key="proactive_ooda_packet_acceptance",

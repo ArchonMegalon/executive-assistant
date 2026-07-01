@@ -402,6 +402,38 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
         ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
         status="ready_local_packet_pending_operator_acceptance",
         next_action="review packet with operator",
+        operator_action_packet={
+            "status": "action_required",
+            "user_action_required": True,
+            "action_required_reason": "real_world_acceptance_missing",
+            "next_action": "record_redacted_signal_review_acceptance",
+            "next_action_href": "/admin/actions/signal-to-decision-evidence",
+            "next_action_label": "Record a signal-loop outcome",
+            "next_action_method": "post",
+            "next_action_form_href": (
+                "/admin/actions/signal-to-decision-evidence?return_to=%2Fadmin%2Fgoals&evidence_part=review"
+            ),
+            "next_action_form_label": "Record a signal-loop outcome",
+            "next_action_form_method": "get",
+            "next_action_evidence_part": "review",
+            "instruction": "Record redacted evidence that the weekly signal-to-decision review was actually reviewed.",
+            "required_next_receipt": "real weekly signal-to-decision review accepted by the operator",
+            "required_form_fields": ["evidence_part", "source_kind", "evidence", "packet_ref"],
+            "accepted_parts": {"review": False, "followthrough": False},
+            "delivery_policy": "action_required_only",
+            "telegram_push_allowed": True,
+            "interruption_budget": "action_required",
+            "quiet_hours_respected": True,
+            "non_action_progress_push_allowed": False,
+            "irreversible_actions_consent_gated": True,
+            "claim_boundary": (
+                "does_not_prove_closed_signal_to_decision_loop_until_review_and_followthrough_are_accepted"
+            ),
+            "raw_acceptance_text_exposed": False,
+            "raw_actor_identity_exposed": False,
+            "raw_object_reference_exposed": False,
+            "raw_private_context_exposed": False,
+        },
     )
     _write_receipt(
         tmp_path,
@@ -642,6 +674,7 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert morning_context["raw_actor_identity_exposed"] is False
     assert morning_context["raw_object_reference_exposed"] is False
     assert proof_requirements["weekly_signal_to_decision_review_acceptance"]["next_action_href"] == "/admin/actions/signal-to-decision-evidence"
+    assert proof_requirements["weekly_signal_to_decision_review_acceptance"]["next_action_label"] == "Record a signal-loop outcome"
     assert proof_requirements["weekly_signal_to_decision_review_acceptance"]["next_action_method"] == "post"
     assert (
         proof_requirements["weekly_signal_to_decision_review_acceptance"]["next_action_form_href"]
@@ -651,6 +684,11 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     weekly_context = proof_requirements["weekly_signal_to_decision_review_acceptance"]["action_context"]
     assert weekly_context["kind"] == "real_world_acceptance_capture"
     assert weekly_context["evidence_part"] == "review"
+    assert weekly_context["source_action_packet_present"] is True
+    assert weekly_context["source_action_packet_status"] == "action_required"
+    assert weekly_context["action_required_reason"] == "real_world_acceptance_missing"
+    assert weekly_context["required_form_fields"] == ["evidence_part", "source_kind", "evidence", "packet_ref"]
+    assert weekly_context["accepted_parts"] == {"review": False, "followthrough": False}
     assert weekly_context["user_action_required"] is True
     assert weekly_context["delivery_policy"] == "action_required_only"
     assert weekly_context["telegram_push_allowed"] is True
@@ -784,6 +822,13 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert weekly_action["delivery_policy"] == "action_required_only"
     assert weekly_action["telegram_push_allowed"] is True
     assert weekly_action["evidence_part"] == "review"
+    assert weekly_action["next_action_label"] == "Record a signal-loop outcome"
+    assert weekly_action["next_action_form_label"] == "Record a signal-loop outcome"
+    assert weekly_action["source_action_packet_present"] is True
+    assert weekly_action["source_action_packet_status"] == "action_required"
+    assert weekly_action["action_required_reason"] == "real_world_acceptance_missing"
+    assert weekly_action["required_form_fields"] == ["evidence_part", "source_kind", "evidence", "packet_ref"]
+    assert weekly_action["accepted_parts"] == {"review": False, "followthrough": False}
     assert (
         weekly_action["next_action_form_href"]
         == "/admin/actions/signal-to-decision-evidence?return_to=%2Fadmin%2Fgoals&evidence_part=review"

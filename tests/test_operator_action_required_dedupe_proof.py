@@ -19,9 +19,11 @@ def _action_row() -> dict:
         "title": "Weekly signal-to-decision review acceptance",
         "required_next_receipt": "real weekly signal-to-decision review acceptance receipt",
         "next_action": "record_weekly_signal_to_decision_review_acceptance",
-        "next_action_label": "Record signal review evidence",
-        "next_action_form_href": "/admin/goals",
-        "next_action_form_label": "Open goal evidence",
+        "next_action_label": "Record a signal-loop outcome",
+        "next_action_form_href": (
+            "/admin/actions/signal-to-decision-evidence?return_to=%2Fadmin%2Fgoals&evidence_part=review"
+        ),
+        "next_action_form_label": "Record a signal-loop outcome",
         "next_action_form_method": "get",
         "user_action_required": True,
         "instruction": "Record redacted evidence that the weekly signal-to-decision review was actually reviewed.",

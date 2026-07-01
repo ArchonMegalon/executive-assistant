@@ -56,7 +56,12 @@ def test_digest_filters_only_action_required_telegram_items(tmp_path, monkeypatc
         {
             "status": "active_with_blockers",
             "operator_action_queue": [
-                _action_row(),
+                _action_row(
+                    action_required_reason="real_world_acceptance_missing",
+                    source_action_packet_present=True,
+                    source_action_packet_status="action_required",
+                    required_form_fields=["evidence_part", "source_kind", "evidence", "packet_ref"],
+                ),
                 _action_row(
                     key="whatsapp_audiobook_live_delivery",
                     instruction="Internal queue-only recovery.",
@@ -87,6 +92,11 @@ def test_digest_filters_only_action_required_telegram_items(tmp_path, monkeypatc
     assert receipt["included_action_keys"] == ["telegram_audiobook_live_delivery"]
     assert receipt["notification_item_count"] == 1
     assert receipt["notification_action_keys"] == ["telegram_audiobook_live_delivery"]
+    item = receipt["items"][0]
+    assert item["action_required_reason"] == "real_world_acceptance_missing"
+    assert item["source_action_packet_present"] is True
+    assert item["source_action_packet_status"] == "action_required"
+    assert item["required_form_fields"] == ["evidence_part", "source_kind", "evidence", "packet_ref"]
     assert "Choose one sent replacement voice sample" in receipt["telegram_text"]
     assert "Internal queue-only recovery" not in receipt["telegram_text"]
     assert receipt["counts"]["suppressed_queue_only_count"] == 1
