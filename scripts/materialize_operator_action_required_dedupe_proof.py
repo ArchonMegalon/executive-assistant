@@ -67,19 +67,34 @@ def build_operator_action_required_dedupe_proof(
     message_id_count = int(state.get("message_id_count") or 0)
     state_matches_current_digest = bool(current_digest_sha256 and state_digest == current_digest_sha256)
     state_item_keys_match = state_item_keys == included_keys
-    sent_receipt_digest_match = (
-        str(sent_receipt.get("digest_sha256") or "").strip() == current_digest_sha256
-        and str(sent_receipt.get("status") or "").strip() == "sent"
-        and str(sent_receipt.get("notification_status") or "").strip() == "sent"
+    notification_items, notification_mode = digest._notification_items(
+        items=items,
+        state=state,
+        digest_sha256=current_digest_sha256,
+        force=False,
     )
-    suppressed_duplicate_expected = (
-        bool(items)
+    current_actions_covered_by_prior_state = bool(
+        items
+        and not notification_items
+        and notification_mode in {"duplicate_suppressed", "covered_by_previous_send"}
         and state_present
-        and state_matches_current_digest
-        and state_item_keys_match
         and last_sent_at_present
         and message_id_count > 0
     )
+    sent_receipt_digest_match = (
+        str(sent_receipt.get("digest_sha256") or "").strip() == current_digest_sha256
+        and (
+            (
+                str(sent_receipt.get("status") or "").strip() == "sent"
+                and str(sent_receipt.get("notification_status") or "").strip() == "sent"
+            )
+            or (
+                str(sent_receipt.get("status") or "").strip() == "suppressed_duplicate"
+                and str(sent_receipt.get("notification_status") or "").strip() == "suppressed_duplicate"
+            )
+        )
+    )
+    suppressed_duplicate_expected = current_actions_covered_by_prior_state
     status = "pass" if suppressed_duplicate_expected and sent_receipt_digest_match else "blocked"
 
     receipt = {
@@ -99,6 +114,9 @@ def build_operator_action_required_dedupe_proof(
         "would_send_without_force": False if suppressed_duplicate_expected else True,
         "suppressed_duplicate_expected": suppressed_duplicate_expected,
         "force_required_to_resend": suppressed_duplicate_expected,
+        "notification_mode_without_force": notification_mode,
+        "notification_item_count_without_force": len(notification_items),
+        "current_actions_covered_by_prior_state": current_actions_covered_by_prior_state,
         "current_digest_sha256": current_digest_sha256,
         "item_count": len(items),
         "included_action_keys": included_keys,
@@ -128,6 +146,7 @@ def build_operator_action_required_dedupe_proof(
                 "notification_status": str(sent_receipt.get("notification_status") or "").strip(),
                 "digest_match": sent_receipt_digest_match,
                 "message_count": int(dict(sent_receipt.get("send_result") or {}).get("message_count") or 0),
+                "notification_item_count": int(sent_receipt.get("notification_item_count") or 0),
             },
         },
         "privacy": {

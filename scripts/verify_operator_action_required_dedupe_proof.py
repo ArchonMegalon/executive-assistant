@@ -56,6 +56,15 @@ def verify_receipt(receipt: Mapping[str, Any]) -> list[str]:
         issues.append("suppressed_duplicate_expected must be true")
     if receipt.get("force_required_to_resend") is not True:
         issues.append("force_required_to_resend must be true")
+    if receipt.get("current_actions_covered_by_prior_state") is not True:
+        issues.append("current_actions_covered_by_prior_state must be true")
+    if int(receipt.get("notification_item_count_without_force") or 0) != 0:
+        issues.append("notification_item_count_without_force must be zero")
+    if str(receipt.get("notification_mode_without_force") or "").strip() not in {
+        "duplicate_suppressed",
+        "covered_by_previous_send",
+    }:
+        issues.append("notification_mode_without_force must suppress resend")
     if not str(receipt.get("current_digest_sha256") or "").strip():
         issues.append("current_digest_sha256 must be present")
     item_count = int(receipt.get("item_count") or 0)
@@ -71,10 +80,11 @@ def verify_receipt(receipt: Mapping[str, Any]) -> list[str]:
     state = dict(receipt.get("state") or {})
     if state.get("present") is not True:
         issues.append("state.present must be true")
-    if state.get("last_digest_match") is not True:
-        issues.append("state.last_digest_match must be true")
-    if state.get("last_item_keys_match") is not True:
-        issues.append("state.last_item_keys_match must be true")
+    covered_by_prior_state = receipt.get("current_actions_covered_by_prior_state") is True
+    if state.get("last_digest_match") is not True and not covered_by_prior_state:
+        issues.append("state.last_digest_match must be true unless current actions are covered by prior state")
+    if state.get("last_item_keys_match") is not True and not covered_by_prior_state:
+        issues.append("state.last_item_keys_match must be true unless current actions are covered by prior state")
     if state.get("last_sent_at_present") is not True:
         issues.append("state.last_sent_at_present must be true")
     if int(state.get("message_id_count") or 0) <= 0:
@@ -92,13 +102,15 @@ def verify_receipt(receipt: Mapping[str, Any]) -> list[str]:
     sent_digest = dict(source_receipts.get("sent_digest") or {})
     if sent_digest.get("present") is not True:
         issues.append("source_receipts.sent_digest.present must be true")
-    if str(sent_digest.get("status") or "").strip() != "sent":
-        issues.append("source_receipts.sent_digest.status must be sent")
-    if str(sent_digest.get("notification_status") or "").strip() != "sent":
-        issues.append("source_receipts.sent_digest.notification_status must be sent")
+    sent_digest_status = str(sent_digest.get("status") or "").strip()
+    sent_digest_notification_status = str(sent_digest.get("notification_status") or "").strip()
+    if sent_digest_status not in {"sent", "suppressed_duplicate"}:
+        issues.append("source_receipts.sent_digest.status must be sent or suppressed_duplicate")
+    if sent_digest_notification_status not in {"sent", "suppressed_duplicate"}:
+        issues.append("source_receipts.sent_digest.notification_status must be sent or suppressed_duplicate")
     if sent_digest.get("digest_match") is not True:
         issues.append("source_receipts.sent_digest.digest_match must be true")
-    if int(sent_digest.get("message_count") or 0) <= 0:
+    if sent_digest_status == "sent" and int(sent_digest.get("message_count") or 0) <= 0:
         issues.append("source_receipts.sent_digest.message_count must be positive")
 
     privacy = dict(receipt.get("privacy") or {})

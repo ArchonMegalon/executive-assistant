@@ -127,4 +127,62 @@ def test_dedupe_proof_blocks_when_state_does_not_match_current_digest(tmp_path, 
     assert "status must be pass" in issues
     assert "would_send_without_force must be false" in issues
     assert "suppressed_duplicate_expected must be true" in issues
-    assert "state.last_digest_match must be true" in issues
+    assert "state.last_digest_match must be true unless current actions are covered by prior state" in issues
+
+
+def test_dedupe_proof_passes_when_only_prior_action_was_removed(tmp_path, monkeypatch) -> None:
+    _patch_source_state(monkeypatch)
+    posture_path = tmp_path / "posture.json"
+    state_path = tmp_path / "state.json"
+    sent_path = tmp_path / "sent.json"
+    output_path = tmp_path / "proof.json"
+    original_items = [
+        _action_row(),
+        {**_action_row(), "key": "google_workspace_oauth_setup", "instruction": "Add OAuth test user."},
+    ]
+    original_posture = {"overall_status": "active_with_blockers", "operator_action_queue": original_items}
+    selected_original, _counts = digest._select_items(original_posture)
+    current_posture = {"overall_status": "active_with_blockers", "operator_action_queue": [_action_row()]}
+    selected_current, _counts = digest._select_items(current_posture)
+    current_digest_sha256 = digest._sha256_json(digest._digest_material(selected_current, digest.DEFAULT_QUEUE_URL))
+    _write_json(posture_path, current_posture)
+    _write_json(
+        state_path,
+        {
+            "last_digest_sha256": digest._sha256_json(
+                digest._digest_material(selected_original, digest.DEFAULT_QUEUE_URL)
+            ),
+            "last_item_keys": ["weekly_signal_to_decision_review_acceptance", "google_workspace_oauth_setup"],
+            "last_item_hashes": digest._item_hashes_by_key(selected_original),
+            "last_sent_at": "2026-07-01T12:11:06Z",
+            "message_id_count": 1,
+        },
+    )
+    _write_json(
+        sent_path,
+        {
+            "status": "suppressed_duplicate",
+            "notification_status": "suppressed_duplicate",
+            "digest_sha256": current_digest_sha256,
+            "notification_item_count": 0,
+            "send_result": {"message_count": 0},
+        },
+    )
+
+    receipt = proof.build_operator_action_required_dedupe_proof(
+        root=tmp_path,
+        input_path=posture_path,
+        state_path=state_path,
+        sent_receipt_path=sent_path,
+        output_path=output_path,
+        generated_at="2026-07-01T12:20:00Z",
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["would_send_without_force"] is False
+    assert receipt["notification_mode_without_force"] == "covered_by_previous_send"
+    assert receipt["notification_item_count_without_force"] == 0
+    assert receipt["current_actions_covered_by_prior_state"] is True
+    assert receipt["state"]["last_digest_match"] is False
+    assert receipt["state"]["last_item_keys_match"] is False
+    assert verify_proof.verify_receipt(receipt) == []

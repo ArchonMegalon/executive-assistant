@@ -144,6 +144,58 @@ def test_digest_send_updates_state_and_suppresses_duplicate(tmp_path, monkeypatc
     assert verify_digest.verify_receipt(second) == []
 
 
+def test_digest_does_not_resend_when_only_prior_action_was_removed(tmp_path, monkeypatch) -> None:
+    _patch_source_state(monkeypatch)
+    input_path = tmp_path / "posture.json"
+    output_path = tmp_path / "digest.json"
+    state_path = tmp_path / "state.json"
+    original_posture = {
+        "status": "active_with_blockers",
+        "operator_action_queue": [
+            _action_row(key="google_workspace_oauth_setup", instruction="Add the work Google account."),
+            _action_row(key="whatsapp_audiobook_live_delivery", instruction="Pair WhatsApp Web."),
+        ],
+    }
+    _write_json(input_path, original_posture)
+    items, _counts = digest._select_items(original_posture)
+    _write_json(
+        state_path,
+        {
+            "last_digest_sha256": digest._sha256_json(digest._digest_material(items, digest.DEFAULT_QUEUE_URL)),
+            "last_item_keys": ["google_workspace_oauth_setup", "whatsapp_audiobook_live_delivery"],
+            "last_item_hashes": digest._item_hashes_by_key(items),
+            "last_sent_at": "2026-07-01T12:00:00Z",
+            "message_id_count": 1,
+        },
+    )
+    _write_json(
+        input_path,
+        {
+            "status": "active_with_blockers",
+            "operator_action_queue": [
+                _action_row(key="whatsapp_audiobook_live_delivery", instruction="Pair WhatsApp Web."),
+            ],
+        },
+    )
+
+    receipt = digest.build_operator_action_required_digest(
+        root=tmp_path,
+        input_path=input_path,
+        output_path=output_path,
+        state_path=state_path,
+        send=True,
+        generated_at="2026-07-01T12:03:00Z",
+        telegram_sender=lambda *_args: {"sent": True, "reason": "should_not_send"},
+    )
+
+    assert receipt["status"] == "suppressed_duplicate"
+    assert receipt["dedupe_suppressed"] is True
+    assert receipt["notification_mode"] == "covered_by_previous_send"
+    assert receipt["notification_item_count"] == 0
+    assert receipt["notification_action_keys"] == []
+    assert verify_digest.verify_receipt(receipt) == []
+
+
 def test_digest_sends_only_new_action_item_from_legacy_state(tmp_path, monkeypatch) -> None:
     _patch_source_state(monkeypatch)
     input_path = tmp_path / "posture.json"

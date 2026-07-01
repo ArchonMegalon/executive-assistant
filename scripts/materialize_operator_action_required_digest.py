@@ -241,6 +241,8 @@ def _notification_items(
     }
     if state_hashes:
         changed = [item for item in items if state_hashes.get(str(item.get("key") or "").strip()) != _item_hash(item)]
+        if not changed:
+            return [], "covered_by_previous_send"
         return changed, "delta"
 
     state_keys = [
@@ -341,7 +343,11 @@ def build_operator_action_required_digest(
         digest_sha256=digest_sha256,
         force=bool(force),
     )
-    duplicate_suppressed = bool(items and not notification_items and notification_mode == "duplicate_suppressed")
+    duplicate_suppressed = bool(
+        items
+        and not notification_items
+        and notification_mode in {"duplicate_suppressed", "covered_by_previous_send"}
+    )
     text = _telegram_text(notification_items, queue_url) if notification_items else ""
     notification_digest_sha256 = (
         _sha256_json(_digest_material(notification_items, queue_url)) if notification_items else ""
