@@ -27,6 +27,7 @@ import scripts.verify_proactive_ooda as proactive_verifier
 import scripts.verify_proactive_ooda_live_receipt as live_receipt_verifier
 import scripts.ea_live_ops as ea_live_ops
 from app.services.proactive_ooda_operator_actions import proactive_next_action_surface
+from app.services.proactive_ooda_safe_work import _single_official_info_link_not_decision_ready
 from app.services.proactive_ooda_runtime_artifacts import load_runtime_artifact_bundle
 
 
@@ -596,12 +597,19 @@ def _normalized_safe_work_results(report: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _normalized_safe_work_audit(artifact_probe: Mapping[str, Any]) -> dict[str, Any]:
+    stage_packet = dict(artifact_probe.get("stage_packet") or {})
     safe_work_result = dict(artifact_probe.get("safe_work_result") or {})
     audit = dict(safe_work_result.get("audit") or {})
     browser_receipt = dict(safe_work_result.get("browser_action_receipt") or {})
     result_status = str(safe_work_result.get("status") or "").strip()
     audit_status = str(audit.get("status") or "").strip().lower()
     issues = [dict(item or {}) for item in list(audit.get("issues") or []) if isinstance(item, Mapping)]
+    materiality_issue = _safe_work_materiality_issue(
+        stage_packet=stage_packet,
+        safe_work_result=safe_work_result,
+    )
+    if materiality_issue:
+        issues.append({"code": materiality_issue, "severity": "warn"})
     issue_codes = [str(item.get("code") or "").strip() for item in issues if str(item.get("code") or "").strip()]
     severity_counts: dict[str, int] = {}
     for issue in issues:
@@ -610,21 +618,22 @@ def _normalized_safe_work_audit(artifact_probe: Mapping[str, Any]) -> dict[str, 
     browser_handoff_user_action_required = bool(
         result_status == "blocked_human_handoff_required" and browser_receipt.get("user_action_required")
     )
-    audit_passed = bool(audit_status == "pass")
+    effective_audit_status = "review" if materiality_issue and audit_status == "pass" else audit_status
+    audit_passed = bool(effective_audit_status == "pass")
     delivery_allowed = bool(safe_work_result) and bool(audit_passed or browser_handoff_user_action_required)
     blocking_reason = ""
     if safe_work_result and not delivery_allowed:
         blocking_reason = "safe_work_audit_not_pass"
         if not audit:
             blocking_reason = "safe_work_audit_missing"
-        elif audit_status:
-            blocking_reason = f"safe_work_audit_{audit_status}"
+        elif effective_audit_status:
+            blocking_reason = f"safe_work_audit_{effective_audit_status}"
     return {
         "present": bool(safe_work_result),
         "source": str(artifact_probe.get("source") or "").strip(),
         "result_status": result_status,
         "audit_present": bool(audit),
-        "audit_status": audit_status or ("missing" if safe_work_result else ""),
+        "audit_status": effective_audit_status or ("missing" if safe_work_result else ""),
         "audit_passed": audit_passed,
         "issue_count": len(issues),
         "issue_codes": issue_codes[:8],
@@ -641,6 +650,46 @@ def _normalized_safe_work_audit(artifact_probe: Mapping[str, Any]) -> dict[str, 
             "raw_private_link_exposed": False,
         },
     }
+
+
+def _safe_work_materiality_issue(
+    *,
+    stage_packet: Mapping[str, Any],
+    safe_work_result: Mapping[str, Any],
+) -> str:
+    if not safe_work_result:
+        return ""
+    stage = dict(stage_packet.get("stage") or {})
+    stage_payload = dict(stage.get("payload") or {})
+    safe_work_order = dict(stage_packet.get("safe_work_order") or {})
+    input_contract = dict(safe_work_order.get("input_contract") or {})
+    candidate_items = [
+        dict(item)
+        for item in list(input_contract.get("candidate_items") or stage_payload.get("candidate_items") or [])
+        if isinstance(item, Mapping)
+    ]
+    if not candidate_items:
+        candidate_items = [
+            dict(item)
+            for item in list(safe_work_result.get("shortlist") or [])
+            if isinstance(item, Mapping)
+        ]
+    recommended = dict(safe_work_result.get("recommended_option_or_draft") or {})
+    work_type = str(
+        safe_work_result.get("work_type")
+        or safe_work_order.get("work_type")
+        or stage_payload.get("work_type")
+        or ""
+    ).strip()
+    if _single_official_info_link_not_decision_ready(
+        work_type=work_type,
+        input_contract=input_contract,
+        stage_payload=stage_payload,
+        candidate_items=candidate_items,
+        recommended=recommended,
+    ):
+        return "single_official_info_link_not_decision_ready"
+    return ""
 
 
 def _projection_table_record_count(projection_summary: Mapping[str, Any], table_name: str) -> int:

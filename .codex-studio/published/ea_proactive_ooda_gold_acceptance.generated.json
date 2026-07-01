@@ -106,12 +106,12 @@
     },
     "operator_status": {
       "contract_name": "ea.proactive_ooda_operator_status.v1",
-      "generated_at": "2026-07-01T03:18:01Z",
+      "generated_at": "2026-07-01T03:32:42Z",
       "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
       "present": true,
-      "source_git_head": "c9bc1108298a1b108228b65be3fbb913f2d30270",
-      "source_state_fingerprint": "478c20813ef150ff28b555109e441929c1f1bf8cebb13b5df7a36c040e51d54a",
-      "status": "ready_with_live_receipt"
+      "source_git_head": "14587587b1f3e0cf26dded56fcd00da63d01f934",
+      "source_state_fingerprint": "6d2ae87a076a0401a23dd7a273116a56f545a4a1f21612773c3ee0ef2055b16a",
+      "status": "blocked_local_runtime"
     },
     "run_receipt": {
       "notification_status": "deferred",
@@ -133,14 +133,14 @@
       "source": "docker_compose_exec"
     }
   },
-  "generated_at": "2026-07-01T03:18:08Z",
+  "generated_at": "2026-07-01T03:32:43Z",
   "generated_by": "scripts/materialize_proactive_ooda_gold_acceptance.py",
   "goal_completion_claim_allowed": false,
   "gold_claim_allowed": false,
   "head_semantics": "source_state",
-  "next_action": "record_proactive_ooda_approval_outcome",
-  "next_action_href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
-  "next_action_label": "Open approval capture",
+  "next_action": "repair_proactive_safe_work_audit",
+  "next_action_href": "https://myexternalbrain.com/app/queue",
+  "next_action_label": "Review safe work",
   "next_action_method": "get",
   "output_path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
   "proofs": {
@@ -148,8 +148,8 @@
       "approval_required": true,
       "auto_execute_action": "",
       "browser_handoff_requires_user_action": false,
-      "current_delivery_state": "approval_capture_pending",
-      "current_guard_is_quiet_without_action": false,
+      "current_delivery_state": "no_actionable_items",
+      "current_guard_is_quiet_without_action": true,
       "executable_draft_prompt_requires_user_action": true,
       "internal_proof_packet_requires_user_action": false,
       "interruption_budget_exhausted": false,
@@ -233,9 +233,12 @@
     },
     "assistant_grade_packet_quality": {
       "adapter_hint": "",
-      "issues": [],
+      "decision_materiality_issue_code": "single_official_info_link_not_decision_ready",
+      "issues": [
+        "single_official_info_link_not_decision_ready"
+      ],
       "packet_artifacts_match_run_receipt": true,
-      "present": true,
+      "present": false,
       "raw_candidate_exposed": false,
       "raw_request_exposed": false,
       "recommended_candidate_hash": "cfacff7f3a956cb777ae8ff3552d1ad858736c549b2c1ea49ce5cc08fc8e0ba9",
@@ -244,8 +247,9 @@
       "request_text_count": 2,
       "safe_work_audit_issue_codes": [],
       "safe_work_audit_status": "pass",
+      "shortlist_count": 1,
       "stage_kind": "approval_packet",
-      "status": "pass",
+      "status": "blocked",
       "transcript_signal": false,
       "work_type": "compare_options"
     },
@@ -290,25 +294,27 @@
       "context_grounding_requirement_count": 0,
       "context_grounding_ungrounded_item_count": 0,
       "next_action": "",
-      "next_action_href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
-      "next_action_label": "Open approval capture",
+      "next_action_href": "https://myexternalbrain.com/app/queue",
+      "next_action_label": "Review safe work",
       "next_action_method": "get",
       "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
-      "present": true,
-      "reason": "ready",
-      "safe_work_audit_blocking_reason": "",
-      "safe_work_audit_blocks_operator_followthrough": false,
-      "safe_work_audit_delivery_allowed": true,
-      "safe_work_audit_issue_codes": [],
-      "safe_work_audit_issue_count": 0,
+      "present": false,
+      "reason": "safe_work_audit_review",
+      "safe_work_audit_blocking_reason": "safe_work_audit_review",
+      "safe_work_audit_blocks_operator_followthrough": true,
+      "safe_work_audit_delivery_allowed": false,
+      "safe_work_audit_issue_codes": [
+        "single_official_info_link_not_decision_ready"
+      ],
+      "safe_work_audit_issue_count": 1,
       "safe_work_audit_present": true,
-      "safe_work_audit_ready": true,
+      "safe_work_audit_ready": false,
       "safe_work_audit_recorded": true,
       "safe_work_audit_result_status": "staged_for_user_decision",
-      "safe_work_audit_status": "pass",
+      "safe_work_audit_status": "review",
       "source_coverage_checked": true,
       "source_coverage_excluded_event_type_counts": {
-        "property_scout_sync_completed": 38
+        "property_scout_sync_completed": 37
       },
       "source_coverage_excluded_event_types": [
         "property_scout_sync_completed"
@@ -320,7 +326,7 @@
       "source_coverage_observed_lane_count": 8,
       "source_coverage_ready": true,
       "source_coverage_status": "ready",
-      "status": "pass",
+      "status": "blocked",
       "suppressed_projection_blocking_reason": "",
       "suppressed_projection_inferred_from_packet_gap": false,
       "suppressed_projection_issue_codes": [],
@@ -396,6 +402,8 @@
     }
   },
   "remaining_external_proofs": [
+    "healthy operator runtime posture across approved proactive sources",
+    "assistant-grade source intent and candidate alignment for the proactive OODA packet",
     "redacted explicit approval outcome for the proactive OODA packet"
   ],
   "rules": [
@@ -405,11 +413,11 @@
     "Raw packet text, private links, actor identity, packet refs, and staged artifact refs must stay out of this published receipt; only hashes and coarse status may appear.",
     "Teable remains an admin projection and audit mirror rather than canonical queue or product truth."
   ],
-  "source_git_head": "c9bc1108298a1b108228b65be3fbb913f2d30270",
-  "source_state_fingerprint": "478c20813ef150ff28b555109e441929c1f1bf8cebb13b5df7a36c040e51d54a",
+  "source_git_head": "14587587b1f3e0cf26dded56fcd00da63d01f934",
+  "source_state_fingerprint": "6d2ae87a076a0401a23dd7a273116a56f545a4a1f21612773c3ee0ef2055b16a",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
-  "status": "ready_for_approval_outcome_capture",
-  "summary": "A proactive OODA packet has local gold-proof runtime evidence and manual approval outcome capture is ready; capture the redacted approval outcome next.",
+  "status": "blocked_operator_runtime_posture",
+  "summary": "The proactive OODA packet proofs exist, but operator runtime posture is blocked and gold cannot be claimed until approved source health is restored.",
   "verifier_commands": [
     "make verify-proactive-ooda",
     "make verify-proactive-ooda-live-receipt",

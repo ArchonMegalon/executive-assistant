@@ -345,6 +345,102 @@ def test_materialize_proactive_ooda_operator_status_blocks_current_safe_work_aud
     assert receipt["safe_work_audit"]["privacy"]["raw_issue_details_exposed"] is False
 
 
+def test_materialize_proactive_ooda_operator_status_blocks_single_official_info_link(
+    tmp_path: Path, monkeypatch
+) -> None:
+    module = _load_script()
+    monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
+
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_route",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "source": "docker_compose_exec",
+            "runtime_service": "ea-proactive-ooda",
+            "observed_at": "2026-07-01T08:00:00Z",
+            "live_receipt_checked": True,
+            "live_receipt": {
+                "ok": True,
+                "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+                "errors": [],
+            },
+            "route_report": {
+                "ok": True,
+                "delivery_route": {"ready": True, "selected_channel": "telegram", "selected_by": "tool_runtime_binding"},
+                "delivery_guard": {"delivery_state": "eligible"},
+                "stage_packets": {"ready": True, "errors": []},
+                "safe_work_results": {"ready": True, "errors": []},
+                "receipt_observation_count": 1,
+                "actionable_count": 1,
+            },
+        },
+    )
+    candidate = {
+        "label": "Official City of Vienna information portal",
+        "url": "https://www.wien.gv.at/english/",
+        "source": "official_site",
+    }
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_artifacts",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "source": "docker_compose_exec",
+            "stage_packet": {
+                "schema": "proactive_ooda.stage_packet.v1",
+                "stage": {
+                    "payload": {
+                        "work_type": "compare_options",
+                        "candidate_items": [candidate],
+                        "selection_criteria": ["official source", "reversible link only"],
+                    }
+                },
+                "safe_work_order": {
+                    "work_type": "compare_options",
+                    "input_contract": {
+                        "candidate_items": [candidate],
+                        "selection_criteria": ["official source", "reversible link only"],
+                    },
+                },
+            },
+            "safe_work_result": {
+                "schema": "proactive_ooda.safe_work_result.v1",
+                "status": "staged_for_user_decision",
+                "work_type": "compare_options",
+                "recommended_option_or_draft": {"kind": "shortlist_candidate", "value": candidate},
+                "shortlist": [candidate],
+                "audit": {"status": "pass", "issues": []},
+            },
+        },
+    )
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_gmail_draft",
+        lambda **_kwargs: {"probe_ok": True, "status": "no_pending_draft", "source": "docker_compose_exec"},
+    )
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_source_coverage", _fake_source_coverage_probe)
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_approval_capture",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("materiality-blocked packets should not probe approval capture")),
+    )
+
+    receipt = module.build_proactive_ooda_operator_status(
+        output_path=tmp_path / "ea_proactive_ooda_operator_status.generated.json",
+        generated_at="2026-07-01T08:01:00Z",
+        report_args=Namespace(principal_id="exec-1"),
+    )
+
+    assert receipt["status"] == "blocked_local_runtime"
+    assert receipt["reason"] == "safe_work_audit_review"
+    assert receipt["next_action"] == "repair_proactive_safe_work_audit"
+    assert receipt["safe_work_audit"]["audit_status"] == "review"
+    assert receipt["safe_work_audit"]["audit_passed"] is False
+    assert receipt["safe_work_audit"]["issue_codes"] == ["single_official_info_link_not_decision_ready"]
+    assert receipt["safe_work_audit"]["privacy"]["raw_candidate_exposed"] is False
+
+
 def test_materialize_proactive_ooda_operator_status_surfaces_suppressed_safe_work_projection(
     tmp_path: Path, monkeypatch
 ) -> None:

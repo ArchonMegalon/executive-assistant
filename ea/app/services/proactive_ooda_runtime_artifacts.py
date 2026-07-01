@@ -151,7 +151,7 @@ def load_runtime_artifact_bundle(
         stage_packet_path, stage_packet, safe_work_result_path, safe_work_result = preferred_pair
     artifact_filter_reason = ""
     if _artifacts_are_disabled_flat_search(stage_packet=stage_packet, safe_work_result=safe_work_result):
-        artifact_filter_reason = "flat_search_disabled"
+        artifact_filter_reason = "flat_search_disabled_property_scout"
         stage_packet_path, stage_packet, safe_work_result_path, safe_work_result = None, {}, None, {}
     run_receipt_path, run_receipt = choose_run_receipt(
         primary_run_receipt_path=primary_run_receipt_path,

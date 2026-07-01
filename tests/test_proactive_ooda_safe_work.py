@@ -100,6 +100,36 @@ def test_build_safe_work_result_blocks_when_no_research_input_exists() -> None:
     assert result["execution_receipt"]["external_actions_attempted"] == []
 
 
+def test_build_safe_work_result_reviews_single_official_info_link_without_user_request() -> None:
+    packet = _packet_with_cart_work()
+    candidate = {
+        "label": "Official City of Vienna information portal",
+        "url": "https://www.wien.gv.at/english/",
+        "source": "official_site",
+    }
+    packet["stage"]["payload"] = {  # type: ignore[index]
+        "kind": "approval_packet",
+        "summary": "One official public information candidate is staged for review.",
+        "work_type": "compare_options",
+        "candidate_items": [candidate],
+        "selection_criteria": ["official source", "reversible link only"],
+    }
+    packet["safe_work_order"]["work_type"] = "compare_options"  # type: ignore[index]
+    packet["safe_work_order"]["input_contract"] = {  # type: ignore[index]
+        "candidate_items": [candidate],
+        "selection_criteria": ["official source", "reversible link only"],
+        "private_payload_available": True,
+    }
+
+    result = build_safe_work_result(packet)
+    issue_codes = [issue["code"] for issue in result["audit"]["issues"]]
+
+    assert result["status"] == "staged_for_user_decision"
+    assert result["audit"]["status"] == "review"
+    assert "single_official_info_link_not_decision_ready" in issue_codes
+    assert result["privacy"]["raw_principal_id_stored"] is False
+
+
 def test_build_safe_work_result_blocks_reference_page_outreach_draft_from_request_field() -> None:
     digest = ProactiveOodaService().build_digest(
         principal_id="exec",

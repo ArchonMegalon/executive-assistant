@@ -1534,6 +1534,72 @@ def test_materialize_proactive_ooda_gold_acceptance_blocks_noisy_transcript_lang
     ]
 
 
+def test_assistant_grade_quality_blocks_single_official_info_link_without_user_request() -> None:
+    module = _load_script()
+    stage_packet = {
+        "schema": "proactive_ooda.stage_packet.v1",
+        "packet_ref": "stage_packet:official-info",
+        "stage": {
+            "kind": "approval_packet",
+            "payload": {
+                "work_type": "compare_options",
+                "summary": "One official public information candidate is staged for review.",
+                "selection_criteria": ["official source", "reversible link only"],
+            },
+        },
+        "safe_work_order": {
+            "work_type": "compare_options",
+            "input_contract": {
+                "candidate_items": [
+                    {
+                        "label": "Official City of Vienna information portal",
+                        "url": "https://www.wien.gv.at/english/",
+                        "source": "official_site",
+                    }
+                ],
+                "selection_criteria": ["official source", "reversible link only"],
+                "private_payload_available": True,
+            },
+        },
+    }
+    safe_work_result = {
+        "schema": "proactive_ooda.safe_work_result.v1",
+        "result_ref": "safe_work_result:official-info",
+        "status": "staged_for_user_decision",
+        "work_type": "compare_options",
+        "recommended_option_or_draft": {
+            "kind": "shortlist_candidate",
+            "value": {
+                "label": "Official City of Vienna information portal",
+                "url": "https://www.wien.gv.at/english/",
+                "source": "official_site",
+            },
+        },
+        "shortlist": [
+            {
+                "label": "Official City of Vienna information portal",
+                "url": "https://www.wien.gv.at/english/",
+                "source": "official_site",
+            }
+        ],
+        "audit": {"status": "pass", "issues": []},
+    }
+
+    proof, present = module._assistant_grade_packet_quality_proof(  # noqa: SLF001
+        stage_packet=stage_packet,
+        safe_work_result=safe_work_result,
+        packet_artifacts_match_run_receipt=True,
+    )
+
+    assert present is False
+    assert proof["present"] is False
+    assert proof["decision_materiality_issue_code"] == "single_official_info_link_not_decision_ready"
+    assert proof["raw_request_exposed"] is False
+    assert proof["raw_candidate_exposed"] is False
+    assert proof["recommended_candidate_hash"]
+    assert "single_official_info_link_not_decision_ready" in proof["issues"]
+
+
 def test_materialize_proactive_ooda_gold_acceptance_requires_teable_approval_surface_projection_when_surface_ready(
     tmp_path: Path,
     monkeypatch,

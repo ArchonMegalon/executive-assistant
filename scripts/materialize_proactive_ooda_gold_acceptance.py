@@ -438,6 +438,157 @@ def _candidate_is_language_reference(candidate_text: str) -> bool:
     return any(marker in folded for marker in _LANGUAGE_REFERENCE_MARKERS)
 
 
+def _single_official_info_link_quality_issue(
+    *,
+    stage_packet: Mapping[str, Any],
+    safe_work_result: Mapping[str, Any],
+    recommended: Mapping[str, Any],
+    work_type: str,
+) -> str:
+    if work_type not in {"compare_options", "research"}:
+        return ""
+    if str(recommended.get("kind") or "").strip() not in {"shortlist_candidate", "research_query"}:
+        return ""
+    shortlist = [dict(item) for item in list(safe_work_result.get("shortlist") or []) if isinstance(item, Mapping)]
+    if len(shortlist) > 1:
+        return ""
+    value = recommended.get("value")
+    candidate = dict(value) if isinstance(value, Mapping) else (dict(shortlist[0]) if shortlist else {})
+    if not _candidate_is_generic_official_info_link(candidate):
+        return ""
+    if _explicit_request_asks_for_official_info(stage_packet):
+        return ""
+    criteria = _materiality_selection_criteria(stage_packet)
+    if criteria and not _criteria_are_only_official_reversible_link(criteria):
+        return ""
+    if _candidate_has_decision_material(candidate):
+        return ""
+    return "single_official_info_link_not_decision_ready"
+
+
+def _candidate_is_generic_official_info_link(candidate: Mapping[str, Any]) -> bool:
+    source = _folded_text(_first_text(candidate.get("source"), candidate.get("candidate_source")))
+    candidate_text = _folded_text(_candidate_text_for_quality({"value": dict(candidate)}))
+    host = _host_from_url(_first_text(candidate.get("final_url"), candidate.get("url"), candidate.get("link"), candidate.get("href")))
+    return bool(
+        source in {"official_site", "official"}
+        or "official information" in candidate_text
+        or "information portal" in candidate_text
+        or host.endswith(".gv.at")
+        or host.endswith(".gv")
+        or host.endswith(".gov")
+        or host.endswith(".gov.at")
+    )
+
+
+def _host_from_url(value: str) -> str:
+    text = str(value or "").strip().lower()
+    if not text:
+        return ""
+    text = re.sub(r"^[a-z]+://", "", text)
+    return text.split("/", 1)[0].split("@")[-1].split(":", 1)[0].strip()
+
+
+def _candidate_has_decision_material(candidate: Mapping[str, Any]) -> bool:
+    emails = candidate.get("contact_emails")
+    if str(candidate.get("contact_email") or "").strip():
+        return True
+    if isinstance(emails, list) and any(str(item or "").strip() for item in emails):
+        return True
+    for key in (
+        "price",
+        "price_value",
+        "amount",
+        "total",
+        "availability",
+        "in_stock",
+        "delivery_days",
+        "eta_days",
+        "lead_time_days",
+        "booking_url",
+        "cart_url",
+        "appointment_url",
+        "contact_url",
+    ):
+        value = candidate.get(key)
+        if isinstance(value, bool):
+            if value:
+                return True
+            continue
+        if str(value or "").strip():
+            return True
+    return False
+
+
+def _materiality_selection_criteria(stage_packet: Mapping[str, Any]) -> tuple[str, ...]:
+    payload, input_contract, _tool_hints = _stage_payload_and_input(stage_packet)
+    values: list[str] = []
+    for source in (payload, input_contract):
+        for key in ("selection_criteria", "criteria"):
+            values.extend(_string_list(source.get(key)))
+    return tuple(dict.fromkeys(_folded_text(value) for value in values if str(value or "").strip()))
+
+
+def _criteria_are_only_official_reversible_link(criteria: tuple[str, ...]) -> bool:
+    if not criteria:
+        return False
+    allowed_markers = ("official", "source", "reversible", "link", "review", "public")
+    material_markers = (
+        "appointment",
+        "availability",
+        "book",
+        "budget",
+        "contact",
+        "delivery",
+        "draft",
+        "email",
+        "price",
+        "provider",
+        "quote",
+        "termin",
+        "vor ort",
+    )
+    return all(
+        any(marker in criterion for marker in allowed_markers)
+        and not any(marker in criterion for marker in material_markers)
+        for criterion in criteria
+    )
+
+
+def _explicit_request_asks_for_official_info(stage_packet: Mapping[str, Any]) -> bool:
+    payload, input_contract, _tool_hints = _stage_payload_and_input(stage_packet)
+    values: list[str] = []
+    for source in (payload, input_contract):
+        for key in (
+            "request",
+            "request_text",
+            "user_request",
+            "task_request",
+            "draft_request_text",
+            "research_query",
+            "search_queries",
+            "subject_hint",
+        ):
+            values.extend(_string_list(source.get(key)))
+    folded = " ".join(_folded_text(value) for value in values)
+    return any(
+        marker in folded
+        for marker in (
+            "official information",
+            "official page",
+            "official site",
+            "official website",
+            "official link",
+            "information portal",
+            "behoerde",
+            "behorde",
+            "magistrat",
+            "stadt wien",
+            "wien.gv",
+        )
+    )
+
+
 def _safe_work_audit_issue_codes(audit: Mapping[str, Any]) -> list[str]:
     codes: list[str] = []
     for issue in list(audit.get("issues") or []):
@@ -477,6 +628,18 @@ def _assistant_grade_packet_quality_proof(
     candidate_text = _candidate_text_for_quality(recommended)
     if candidate_text and _candidate_is_language_reference(candidate_text) and not _request_allows_language_reference(request_texts):
         issues.append("candidate_reference_page_not_aligned_with_request")
+    materiality_issue = _single_official_info_link_quality_issue(
+        stage_packet=stage_packet,
+        safe_work_result=safe_work_result,
+        recommended=recommended,
+        work_type=_first_text(
+            payload.get("work_type"),
+            _as_mapping(stage_packet.get("safe_work_order")).get("work_type"),
+            safe_work_result.get("work_type"),
+        ),
+    )
+    if materiality_issue:
+        issues.append(materiality_issue)
     quality_present = bool(stage_packet and safe_work_result and packet_artifacts_match_run_receipt and not issues)
     proof = _proof_row(
         present=quality_present,
@@ -495,6 +658,8 @@ def _assistant_grade_packet_quality_proof(
             "recommended_kind": str(recommended.get("kind") or "").strip(),
             "recommended_candidate_hash": _hash_value(candidate_text),
             "request_allows_language_reference": _request_allows_language_reference(request_texts),
+            "shortlist_count": len(list(safe_work_result.get("shortlist") or [])),
+            "decision_materiality_issue_code": materiality_issue,
             "issues": list(dict.fromkeys(issues)),
             "raw_request_exposed": False,
             "raw_candidate_exposed": False,

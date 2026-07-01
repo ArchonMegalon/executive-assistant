@@ -2270,6 +2270,20 @@ def _safe_work_audit(
                 "detail": "Safe work produced no recommendation, draft, shortlist, or action link to review.",
             }
         )
+    if _single_official_info_link_not_decision_ready(
+        work_type=work_type,
+        input_contract=input_contract,
+        stage_payload=stage_payload,
+        candidate_items=candidate_items,
+        recommended=recommended,
+    ):
+        issues.append(
+            {
+                "code": "single_official_info_link_not_decision_ready",
+                "severity": "warn",
+                "detail": "A single generic official-information link is not enough decision material for assistant-grade OODA.",
+            }
+        )
     if (
         work_type != "draft"
         and context.get("provider_discovery_relevant")
@@ -2371,6 +2385,157 @@ def _safe_work_audit(
         "status": "review" if issues else "pass",
         "issues": issues,
     }
+
+
+def _single_official_info_link_not_decision_ready(
+    *,
+    work_type: str,
+    input_contract: Mapping[str, Any],
+    stage_payload: Mapping[str, Any],
+    candidate_items: list[dict[str, Any]],
+    recommended: Mapping[str, Any],
+) -> bool:
+    if work_type not in {"compare_options", "research"}:
+        return False
+    if str(recommended.get("kind") or "").strip() not in {"shortlist_candidate", "research_query"}:
+        return False
+    if len(candidate_items) != 1:
+        return False
+    candidate = dict(candidate_items[0])
+    recommended_value = _mapping_value(recommended.get("value"))
+    if recommended_value:
+        candidate.update(recommended_value)
+    if not _candidate_is_generic_official_info_link(candidate):
+        return False
+    if _explicit_request_asks_for_official_info(input_contract=input_contract, stage_payload=stage_payload):
+        return False
+    criteria = _low_material_selection_criteria(input_contract=input_contract, stage_payload=stage_payload)
+    if criteria and not _criteria_are_only_official_reversible_link(criteria):
+        return False
+    return not _candidate_has_decision_material(candidate)
+
+
+def _candidate_is_generic_official_info_link(candidate: Mapping[str, Any]) -> bool:
+    source = _ascii_fold_text(str(candidate.get("source") or candidate.get("candidate_source") or ""))
+    search_text = _ascii_fold_text(_candidate_search_text(candidate))
+    url = str(candidate.get("final_url") or candidate.get("url") or candidate.get("link") or candidate.get("href") or "")
+    host = _url_host(url)
+    return bool(
+        source in {"official_site", "official"}
+        or "official information" in search_text
+        or "information portal" in search_text
+        or host.endswith(".gv.at")
+        or host.endswith(".gv")
+        or host.endswith(".gov")
+        or host.endswith(".gov.at")
+    )
+
+
+def _candidate_has_decision_material(candidate: Mapping[str, Any]) -> bool:
+    if _candidate_contact_email(candidate):
+        return True
+    for key in (
+        "price",
+        "price_value",
+        "amount",
+        "total",
+        "availability",
+        "in_stock",
+        "delivery_days",
+        "eta_days",
+        "lead_time_days",
+        "booking_url",
+        "cart_url",
+        "appointment_url",
+        "contact_url",
+    ):
+        value = candidate.get(key)
+        if isinstance(value, bool):
+            if value:
+                return True
+            continue
+        if str(value or "").strip():
+            return True
+    return False
+
+
+def _low_material_selection_criteria(
+    *,
+    input_contract: Mapping[str, Any],
+    stage_payload: Mapping[str, Any],
+) -> tuple[str, ...]:
+    values: list[str] = []
+    for key in ("selection_criteria", "criteria"):
+        values.extend(_criteria_texts(_stage_or_input(stage_payload=stage_payload, input_contract=input_contract, key=key)))
+    return tuple(dict.fromkeys(_ascii_fold_text(value) for value in values if str(value or "").strip()))
+
+
+def _criteria_are_only_official_reversible_link(criteria: tuple[str, ...]) -> bool:
+    if not criteria:
+        return False
+    allowed_markers = ("official", "source", "reversible", "link", "review", "public")
+    material_markers = (
+        "appointment",
+        "availability",
+        "book",
+        "budget",
+        "contact",
+        "delivery",
+        "draft",
+        "email",
+        "price",
+        "provider",
+        "quote",
+        "termin",
+        "vor ort",
+    )
+    return all(
+        any(marker in criterion for marker in allowed_markers)
+        and not any(marker in criterion for marker in material_markers)
+        for criterion in criteria
+    )
+
+
+def _explicit_request_asks_for_official_info(
+    *,
+    input_contract: Mapping[str, Any],
+    stage_payload: Mapping[str, Any],
+) -> bool:
+    request_texts: list[str] = []
+    for key in (
+        "request",
+        "request_text",
+        "user_request",
+        "task_request",
+        "draft_request_text",
+        "research_query",
+        "search_queries",
+        "subject_hint",
+    ):
+        value = _stage_or_input(stage_payload=stage_payload, input_contract=input_contract, key=key)
+        if isinstance(value, (list, tuple)):
+            request_texts.extend(_string_list(value))
+        else:
+            text = str(value or "").strip()
+            if text:
+                request_texts.append(text)
+    folded = " ".join(_ascii_fold_text(value) for value in request_texts)
+    return any(
+        marker in folded
+        for marker in (
+            "official information",
+            "official page",
+            "official site",
+            "official website",
+            "official link",
+            "information portal",
+            "behoerde",
+            "behorde",
+            "magistrat",
+            "stadt wien",
+            "wien.gv",
+        )
+    )
 
 
 def _enrich_candidate_items(
