@@ -98,11 +98,11 @@
     },
     "operator_status": {
       "contract_name": "ea.proactive_ooda_operator_status.v1",
-      "generated_at": "2026-07-01T01:46:26Z",
+      "generated_at": "2026-07-01T02:03:08Z",
       "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
       "present": true,
-      "source_git_head": "2effd1e6c6c9a3f0b5599f5d127f4b5cea1bdb11",
-      "source_state_fingerprint": "b99a8c789d3b8ee8e060f3f0eec47138be84082a9c753f8cb29fed442a5b4ec2",
+      "source_git_head": "5c87038db73ea2617ffa78a38469cac621aaa70b",
+      "source_state_fingerprint": "32957035dc40a6e48a29ec0cb6dd7398486b376daa1003ad875969b5ca782085",
       "status": "ready_with_live_receipt"
     },
     "run_receipt": {
@@ -125,7 +125,7 @@
       "source": "docker_compose_exec"
     }
   },
-  "generated_at": "2026-07-01T01:46:28Z",
+  "generated_at": "2026-07-01T02:03:16Z",
   "generated_by": "scripts/materialize_proactive_ooda_gold_acceptance.py",
   "goal_completion_claim_allowed": false,
   "gold_claim_allowed": false,
@@ -291,7 +291,7 @@
       "safe_work_audit_status": "pass",
       "source_coverage_checked": true,
       "source_coverage_excluded_event_type_counts": {
-        "property_scout_sync_completed": 36
+        "property_scout_sync_completed": 35
       },
       "source_coverage_excluded_event_types": [
         "property_scout_sync_completed"
@@ -386,8 +386,8 @@
     "Raw packet text, private links, actor identity, packet refs, and staged artifact refs must stay out of this published receipt; only hashes and coarse status may appear.",
     "Teable remains an admin projection and audit mirror rather than canonical queue or product truth."
   ],
-  "source_git_head": "2effd1e6c6c9a3f0b5599f5d127f4b5cea1bdb11",
-  "source_state_fingerprint": "b99a8c789d3b8ee8e060f3f0eec47138be84082a9c753f8cb29fed442a5b4ec2",
+  "source_git_head": "5c87038db73ea2617ffa78a38469cac621aaa70b",
+  "source_state_fingerprint": "32957035dc40a6e48a29ec0cb6dd7398486b376daa1003ad875969b5ca782085",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready_for_approval_outcome_capture",
   "summary": "A proactive OODA packet has local gold-proof runtime evidence; capture the redacted approval outcome next.",
