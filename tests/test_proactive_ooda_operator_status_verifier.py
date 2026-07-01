@@ -355,6 +355,45 @@ def test_proactive_ooda_operator_status_verifier_allows_suppressed_projection_re
     assert verifier.verify(receipt, root=tmp_path) == []
 
 
+def test_proactive_ooda_operator_status_verifier_allows_filtered_current_artifact_recovery(
+    tmp_path: Path, monkeypatch
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
+    payload = _base_payload()
+    payload.update(
+        {
+            "source_git_head": "source-head-123",
+            "status": "blocked_local_runtime",
+            "reason": "filtered_current_artifact_single_official_info_link_not_decision_ready",
+            "summary": "Proactive OODA filtered the current packet before follow-through because it is not decision-ready.",
+            "next_action": "repair_proactive_safe_work_audit",
+            "next_action_href": "https://myexternalbrain.com/app/queue",
+            "next_action_label": "Review safe work",
+            "next_action_method": "get",
+            "operator_action_state": "recovery_required",
+            "current_artifact_filter": {
+                "present": True,
+                "source": "docker_compose_exec",
+                "reason": "single_official_info_link_not_decision_ready",
+                "requires_recovery": True,
+                "blocking_reason": "filtered_current_artifact_single_official_info_link_not_decision_ready",
+                "next_action": "repair_proactive_safe_work_audit",
+                "issue_codes": ["single_official_info_link_not_decision_ready"],
+                "privacy": {
+                    "raw_packet_text_exposed": False,
+                    "raw_candidate_exposed": False,
+                    "raw_draft_text_exposed": False,
+                    "raw_private_link_exposed": False,
+                },
+            },
+        }
+    )
+    _write_receipt(receipt, **payload)
+    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
+
+    assert verifier.verify(receipt, root=tmp_path) == []
+
+
 def test_proactive_ooda_operator_status_verifier_rejects_clear_status_with_suppressed_projection_recovery(
     tmp_path: Path, monkeypatch
 ) -> None:

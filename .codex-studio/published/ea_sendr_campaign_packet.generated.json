@@ -1,0 +1,89 @@
+{
+  "allowed_claims": [
+    "EA is built around Gmail and Calendar first.",
+    "EA produces a morning brief, queue, commitments, drafts, and evidence.",
+    "Sensitive outbound actions remain review-gated.",
+    "EA drafts and organizes; the operator approves sensitive actions."
+  ],
+  "auto_reply_allowed": false,
+  "campaign_type": "FOUNDER_DEMO_OUTREACH",
+  "channels": {
+    "email": true,
+    "linkedin": true,
+    "whatsapp": false
+  },
+  "contract_name": "ea.sendr_campaign_packet.v1",
+  "direct_send_allowed": false,
+  "expires_at": "2026-07-15T00:00:00Z",
+  "forbidden_claims": [
+    "EA sends autonomously without review.",
+    "EA replaces the executive.",
+    "EA replaces a human assistant.",
+    "EA reads all systems by default.",
+    "EA is a broad multichannel agent platform on first visit.",
+    "EA guarantees inbox zero.",
+    "EA guarantees perfect follow-up."
+  ],
+  "human_review_required": true,
+  "jurisdiction_policy": "b2b_outreach_review_required",
+  "license_tier": "AppSumo Tier 4",
+  "max_contacts": 50,
+  "owner": "ea_growth",
+  "packet_id": "ea-founder-demo-review-before-send-001",
+  "private_workspace_data_allowed": false,
+  "project": "executive_assistant",
+  "provider": "sendr",
+  "recipient_policy": {
+    "allowed_recipient_basis": [
+      "event_context",
+      "existing_customer",
+      "inbound_lead",
+      "manual_partner_shortlist",
+      "opt_in",
+      "opt_in_waitlist",
+      "prior_conversation",
+      "public_business_contact",
+      "referral_introduction",
+      "trial_user"
+    ],
+    "forbidden_recipient_basis": [
+      "private_calendar_attendee",
+      "private_whatsapp_export",
+      "purchased_personal_list_without_lawful_basis",
+      "raw_gmail_contact",
+      "scraped_private_profile",
+      "unknown"
+    ]
+  },
+  "sendr_features_allowed": {
+    "data_enrichment": true,
+    "dynamic_video": true,
+    "lead_finder": true,
+    "personalized_pages": true,
+    "sequencer": true,
+    "whatsapp": false
+  },
+  "source_material": [
+    {
+      "classification": "approved_public",
+      "path": ".codex-design/ea/VISION.md",
+      "sha256": "9dc043100805df413fa69b78f50516ce07b772790e26715dc3f573e27b3b782c"
+    },
+    {
+      "classification": "approved_public",
+      "path": ".codex-design/ea/FIRST_VALUE_JOURNEY.md",
+      "sha256": "ae4fda2fa2e270d691e9e74e61e8e1b56acc467575a61a3ceb908de6e7963a4a"
+    },
+    {
+      "classification": "approved_public",
+      "path": ".codex-design/ea/COPY_PRINCIPLES.md",
+      "sha256": "fac778f86440030e50798fbb69742d69204c5c53afb536848c38a217f288a1d5"
+    },
+    {
+      "classification": "approved_public",
+      "path": ".codex-design/ea/LTD_INTEGRATION_MAP.md",
+      "sha256": "3ef7160dd1182dff61a9ef79aa1516df619e62e03ca60b9ee771e0cb907590d9"
+    }
+  ],
+  "target_audience": "founders and operators with Gmail/Calendar overload"
+}

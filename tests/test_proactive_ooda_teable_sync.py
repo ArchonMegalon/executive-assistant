@@ -265,6 +265,37 @@ def test_proactive_ooda_teable_projection_suppresses_non_deliverable_safe_work_n
     assert run_row["suppressed_safe_work_issue_codes"] == ["no_decision_ready_material"]
 
 
+def test_proactive_ooda_teable_projection_suppresses_single_official_info_link_materiality() -> None:
+    digest, result, receipt = _digest_and_safe_work()
+    candidate = {
+        "label": "Official City of Vienna information portal",
+        "source": "official_site",
+        "url": "https://www.wien.gv.at/english/",
+    }
+    result = {
+        **result,
+        "work_type": "compare_options",
+        "recommended_option_or_draft": {"kind": "shortlist_candidate", "value": candidate},
+        "shortlist": [candidate],
+        "comparison_table": [candidate],
+        "audit": {"status": "pass", "issues": []},
+    }
+
+    records = build_proactive_ooda_teable_projection_records(
+        digest=digest,
+        receipt=receipt,
+        safe_work_results=(result,),
+    )
+    summary = build_proactive_ooda_teable_projection_summary(records)
+
+    assert records["proactive_ooda_items"] == []
+    assert records["proactive_ooda_safe_work"] == []
+    assert summary["suppressed_item_count"] == 1
+    assert summary["suppressed_safe_work_review_count"] == 1
+    assert summary["suppressed_projection_reasons"] == ["safe_work_audit_review"]
+    assert summary["suppressed_safe_work_issue_codes"] == ["single_official_info_link_not_decision_ready"]
+
+
 def test_proactive_ooda_teable_projection_keeps_browser_handoff_safe_work_as_actionable() -> None:
     digest, result, receipt = _digest_and_safe_work()
     result = {

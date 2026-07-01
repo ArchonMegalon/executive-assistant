@@ -183,7 +183,7 @@
       "status": "partial_real_world_acceptance_evidence"
     },
     "proactive_ooda_gold_acceptance": {
-      "approval_capture_surface_ready": true,
+      "approval_capture_surface_ready": false,
       "approval_outcome_accepted": false,
       "approval_outcome_recorded": false,
       "contract_name": "ea.proactive_ooda_gold_acceptance.v1",
@@ -205,7 +205,7 @@
       "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
       "present": true,
       "status": "blocked_local_runtime",
-      "summary": "Proactive OODA has a current safe-work artifact, but the packet-quality auditor did not pass it for operator follow-through."
+      "summary": "Proactive OODA filtered the current packet before follow-through because it is not decision-ready."
     },
     "whole_project_scope_gap_audit": {
       "contract_name": "ea.whole_project_scope_gap_audit.v1",
@@ -230,7 +230,7 @@
     }
   },
   "external_provider_runtime_verified": false,
-  "generated_at": "2026-07-01T03:32:44Z",
+  "generated_at": "2026-07-01T04:04:00Z",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
   "live_daily_use_verified": false,
@@ -239,7 +239,7 @@
   "next_action_label": "Review safe work",
   "next_action_method": "get",
   "proactive_ooda_followthrough_posture": {
-    "approval_capture_surface_ready": true,
+    "approval_capture_surface_ready": false,
     "approval_outcome_accepted": false,
     "approval_outcome_recorded": false,
     "closed_loop_followthrough_receipt_verified": false,
@@ -287,8 +287,8 @@
   "seeded_fixture": {
     "raw_private_context_exposed": false
   },
-  "source_git_head": "14587587b1f3e0cf26dded56fcd00da63d01f934",
-  "source_state_fingerprint": "6d2ae87a076a0401a23dd7a273116a56f545a4a1f21612773c3ee0ef2055b16a",
+  "source_git_head": "e9260adc0699c24009208d02e79e041186da1d73",
+  "source_state_fingerprint": "5868aafb7617d4bccf4e603f4bbd08ad2f272cbcbcd58f671198e98333fda174",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready_local_evidence"
 }

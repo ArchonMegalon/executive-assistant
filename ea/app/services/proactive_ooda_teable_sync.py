@@ -13,6 +13,7 @@ from app.services.proactive_ooda_flat_search_policy import (
     proactive_ooda_flat_search_enabled,
 )
 from app.services.proactive_ooda_operator_actions import proactive_next_action_surface
+from app.services.proactive_ooda_safe_work import safe_work_decision_materiality_issue
 from app.services.proactive_ooda_service import OodaInk, ProactiveOodaDigest, ProactiveOodaRunReceipt
 from app.services.proactive_ooda_stage_packets import build_stage_packets
 from app.services.tool_execution_common import ToolExecutionError
@@ -747,6 +748,8 @@ def _safe_work_result_is_projectable(safe_work_result: Mapping[str, Any]) -> boo
         return False
     if not proactive_ooda_flat_search_enabled() and material_mentions_flat_property_search(safe_work):
         return False
+    if _safe_work_materiality_issue(safe_work):
+        return False
     audit = dict(safe_work.get("audit") or {})
     if str(audit.get("status") or "").strip().lower() == "pass":
         return True
@@ -763,6 +766,8 @@ def _safe_work_projection_suppression_reason(safe_work_result: Mapping[str, Any]
         return "safe_work_missing"
     if not proactive_ooda_flat_search_enabled() and material_mentions_flat_property_search(safe_work):
         return "flat_search_disabled"
+    if _safe_work_materiality_issue(safe_work):
+        return "safe_work_audit_review"
     audit = dict(safe_work.get("audit") or {})
     audit_status = str(audit.get("status") or "").strip().lower()
     if not audit:
@@ -772,11 +777,19 @@ def _safe_work_projection_suppression_reason(safe_work_result: Mapping[str, Any]
 
 def _safe_work_issue_codes(safe_work_result: Mapping[str, Any]) -> list[str]:
     audit = dict(dict(safe_work_result or {}).get("audit") or {})
-    return [
+    codes = [
         str(issue.get("code") or "").strip()
         for issue in list(audit.get("issues") or [])
         if isinstance(issue, Mapping) and str(issue.get("code") or "").strip()
     ]
+    materiality_issue = _safe_work_materiality_issue(safe_work_result)
+    if materiality_issue:
+        codes.append(materiality_issue)
+    return list(dict.fromkeys(codes))
+
+
+def _safe_work_materiality_issue(safe_work_result: Mapping[str, Any]) -> str:
+    return safe_work_decision_materiality_issue(safe_work_result=safe_work_result)
 
 
 def _suppressed_safe_work_projection_summary(
@@ -794,7 +807,7 @@ def _suppressed_safe_work_projection_summary(
         reason = _safe_work_projection_suppression_reason(safe_work_result)
         suppressed_reasons.append(reason)
         audit_status = str(dict(safe_work_result.get("audit") or {}).get("status") or "").strip().lower()
-        if audit_status == "review":
+        if audit_status == "review" or _safe_work_materiality_issue(safe_work_result):
             review_count += 1
         suppressed_issue_codes.extend(_safe_work_issue_codes(safe_work_result))
     return {

@@ -316,6 +316,38 @@ def _verify_suppressed_projection(receipt: dict[str, Any], issues: list[str]) ->
         issues.append("suppressed_projection suppressed_item_count>0 requires requires_recovery=true")
 
 
+def _verify_current_artifact_filter(receipt: dict[str, Any], issues: list[str]) -> None:
+    filtered = dict(receipt.get("current_artifact_filter") or {})
+    if not filtered:
+        return
+    privacy = dict(filtered.get("privacy") or {})
+    for key in (
+        "raw_packet_text_exposed",
+        "raw_candidate_exposed",
+        "raw_draft_text_exposed",
+        "raw_private_link_exposed",
+    ):
+        if privacy.get(key) is not False:
+            issues.append(f"current_artifact_filter.privacy.{key} must remain false")
+    if not bool(filtered.get("present")):
+        if bool(filtered.get("requires_recovery")):
+            issues.append("absent current_artifact_filter must not require recovery")
+        return
+    if not str(filtered.get("reason") or "").strip():
+        issues.append("present current_artifact_filter requires reason")
+    if bool(filtered.get("requires_recovery")):
+        if not str(filtered.get("blocking_reason") or "").strip():
+            issues.append("current_artifact_filter recovery requires blocking_reason")
+        if str(filtered.get("next_action") or "").strip() != "repair_proactive_safe_work_audit":
+            issues.append("current_artifact_filter recovery requires next_action=repair_proactive_safe_work_audit")
+        if str(receipt.get("status") or "").strip() != "blocked_local_runtime":
+            issues.append("current_artifact_filter recovery requires status=blocked_local_runtime")
+        if str(receipt.get("next_action") or "").strip() != "repair_proactive_safe_work_audit":
+            issues.append("current_artifact_filter recovery requires receipt.next_action=repair_proactive_safe_work_audit")
+        if str(receipt.get("operator_action_state") or "").strip() != "recovery_required":
+            issues.append("current_artifact_filter recovery requires operator_action_state=recovery_required")
+
+
 def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
     issues: list[str] = []
     receipt = _json(path)
@@ -389,6 +421,7 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
     if "ready" not in safe_work_results:
         issues.append("safe_work_results.ready missing")
     _verify_safe_work_audit(receipt, issues)
+    _verify_current_artifact_filter(receipt, issues)
     _verify_suppressed_projection(receipt, issues)
 
     gmail_draft_followthrough = dict(receipt.get("gmail_draft_followthrough") or {})

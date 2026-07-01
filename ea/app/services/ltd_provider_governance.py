@@ -458,6 +458,74 @@ LANES: tuple[ProviderLane, ...] = (
         ),
     ),
     ProviderLane(
+        lane_key="sendr_ea_growth_outreach",
+        title="Sendr EA Governed Outbound Growth Lane",
+        providers=("Sendr",),
+        integration_lane="governed_outbound_growth",
+        verified_state="verified_draft_operator_lane",
+        missing_state="blocked_pending_proof",
+        off_switch_env=(
+            "EA_SENDR_ENABLED",
+            "EA_SENDR_API_ENABLED",
+            "EA_SENDR_WEBHOOKS_ENABLED",
+            "EA_SENDR_DIRECT_SEND_ENABLED",
+            "EA_SENDR_AUTO_REPLY_ENABLED",
+            "EA_SENDR_PRIVATE_WORKSPACE_DATA_ALLOWED",
+            "EA_SENDR_WHATSAPP_ENABLED",
+        ),
+        source_of_truth=(
+            "EA product canon, approved campaign packets, recipient-basis policy, "
+            "and human review own claims and follow-up truth. Sendr sequences approved outreach only."
+        ),
+        allowed_inputs=(
+            "approved_public_ea_docs",
+            "approved_demo_copy",
+            "synthetic_demo_snapshot",
+            "public_business_contact",
+            "prior_relationship_contact",
+            "inbound_lead",
+            "opt_in_contact",
+        ),
+        forbidden_inputs=(
+            "raw_gmail",
+            "raw_calendar",
+            "workspace_attachment",
+            "people_memory",
+            "private_commitment",
+            "private_decision",
+            "customer_draft",
+            "private_workspace_snapshot",
+            "customer_support_conversation",
+            "secret",
+            "auto_reply",
+            "direct_publish",
+            "publication_approval",
+            "support_truth",
+            "billing_truth",
+            "product_truth",
+        ),
+        normalized_signal_schema=(
+            "recipient_basis",
+            "source_url_or_note",
+            "campaign_type",
+            "channel",
+            "message_copy_hash",
+            "suppression_status",
+            "reply_event_hash",
+            "human_review_status",
+        ),
+        required_checks=(
+            LaneCheck("inventory_recorded", "Sendr Tier 4 is recorded.", "LTD inventory row."),
+            LaneCheck("sendr_provider_verification", "Account and tier are verified.", "Provider receipt."),
+            LaneCheck("sendr_recipient_basis", "Every recipient has approved basis.", "Recipient-basis receipt."),
+            LaneCheck("sendr_suppression_sync", "Suppression list is fail-closed.", "Suppression receipt."),
+            LaneCheck("sendr_claim_validation", "Campaign claims bind to approved EA sources.", "Claim receipt."),
+            LaneCheck("sendr_privacy_boundary", "Raw office data is excluded.", "Privacy tests."),
+            LaneCheck("sendr_human_review", "Send and follow-up require human approval.", "Approval receipt."),
+            LaneCheck("sendr_reply_ingest", "Replies become EA review candidates, not automatic actions.", "Reply receipt."),
+        ),
+    ),
+    ProviderLane(
         lane_key="operator_control_plane",
         title="blipai, Syllabbles, and Teable Operator Control Plane",
         providers=("blipai", "Syllabbles", "Teable"),
@@ -962,6 +1030,55 @@ def _check_passed(
             "_completion/subscribr/SUBSCRIBR_SOURCE_BINDING.generated.json",
         )
         return ok, "subscribr_source_binding_passed" if ok else "subscribr_source_binding_missing"
+    if key == "sendr_provider_verification":
+        ok = _passing_json_receipt(
+            root,
+            "ea/_completion/sendr/SENDR_PROVIDER_VERIFICATION.generated.json",
+            "_completion/sendr/SENDR_PROVIDER_VERIFICATION.generated.json",
+        )
+        return ok, "sendr_provider_verification_passed" if ok else "sendr_provider_verification_missing"
+    if key == "sendr_recipient_basis":
+        required = {"recipient_basis", "source_url_or_note", "suppression_status"}
+        ok = required <= set(lane.normalized_signal_schema)
+        return ok, "sendr_recipient_basis_boundary_defined" if ok else "sendr_recipient_basis_boundary_missing"
+    if key == "sendr_suppression_sync":
+        ok = _passing_json_receipt(
+            root,
+            "ea/_completion/sendr/SENDR_SUPPRESSION_SYNC.generated.json",
+            "_completion/sendr/SENDR_SUPPRESSION_SYNC.generated.json",
+        )
+        return ok, "sendr_suppression_sync_passed" if ok else "sendr_suppression_sync_missing"
+    if key == "sendr_claim_validation":
+        ok = "approved_public_ea_docs" in lane.allowed_inputs and "product_truth" in lane.forbidden_inputs
+        return ok, "sendr_claim_boundary_defined" if ok else "sendr_claim_boundary_missing"
+    if key == "sendr_privacy_boundary":
+        required = {
+            "raw_gmail",
+            "raw_calendar",
+            "people_memory",
+            "private_commitment",
+            "private_decision",
+            "customer_draft",
+            "secret",
+        }
+        ok = required <= set(lane.forbidden_inputs)
+        return ok, "sendr_privacy_boundary_defined" if ok else "sendr_privacy_boundary_missing"
+    if key == "sendr_human_review":
+        ok = (
+            "human review" in lane.source_of_truth.lower()
+            and "auto_reply" in lane.forbidden_inputs
+            and "direct_publish" in lane.forbidden_inputs
+            and "EA_SENDR_DIRECT_SEND_ENABLED" in lane.off_switch_env
+            and "EA_SENDR_AUTO_REPLY_ENABLED" in lane.off_switch_env
+        )
+        return ok, "sendr_human_review_boundary_defined" if ok else "sendr_human_review_boundary_missing"
+    if key == "sendr_reply_ingest":
+        ok = (
+            "reply_event_hash" in lane.normalized_signal_schema
+            and "human_review_status" in lane.normalized_signal_schema
+            and "auto_reply" in lane.forbidden_inputs
+        )
+        return ok, "sendr_reply_ingest_boundary_defined" if ok else "sendr_reply_ingest_boundary_missing"
     if key == "provider_roles_defined":
         ok = all(part in lane.source_of_truth.lower() for part in ("teable", "blipai", "syllabbles"))
         return ok, "roles_defined" if ok else "roles_missing"
@@ -1067,6 +1184,32 @@ def _hard_contract_failures(lane: ProviderLane) -> list[str]:
             failures.append("subscribr_source_packet_missing")
         if "EA_SUBSCRIBR_DIRECT_PUBLISH_ENABLED" not in lane.off_switch_env:
             failures.append("subscribr_direct_publish_off_switch_missing")
+    if lane.lane_key == "sendr_ea_growth_outreach":
+        required_forbidden = {
+            "raw_gmail",
+            "raw_calendar",
+            "people_memory",
+            "private_commitment",
+            "private_decision",
+            "customer_draft",
+            "secret",
+            "auto_reply",
+            "direct_publish",
+        }
+        missing_forbidden = required_forbidden - set(lane.forbidden_inputs)
+        if missing_forbidden:
+            failures.append("sendr_privacy_or_send_boundary_incomplete")
+        required_switches = {
+            "EA_SENDR_DIRECT_SEND_ENABLED",
+            "EA_SENDR_AUTO_REPLY_ENABLED",
+            "EA_SENDR_PRIVATE_WORKSPACE_DATA_ALLOWED",
+            "EA_SENDR_WHATSAPP_ENABLED",
+        }
+        if not required_switches <= set(lane.off_switch_env):
+            failures.append("sendr_fail_closed_switch_missing")
+        required_schema = {"recipient_basis", "suppression_status", "human_review_status", "reply_event_hash"}
+        if not required_schema <= set(lane.normalized_signal_schema):
+            failures.append("sendr_signal_schema_incomplete")
     if lane.lane_key == "hedy_meeting_evidence":
         if "direct_people_memory_overwrite" not in lane.forbidden_inputs:
             failures.append("hedy_review_boundary_incomplete")

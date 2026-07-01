@@ -87,6 +87,8 @@ def _include_authenticated_routes(
     fliplink_authenticated_router: APIRouter,
     human_router: APIRouter,
     runtime_router: APIRouter,
+    admin_outreach_router: APIRouter,
+    internal_sendr_webhook_router: APIRouter,
 ) -> None:
     app.include_router(onboarding_router, dependencies=auth_dependency)
     app.include_router(images_router, dependencies=auth_dependency)
@@ -98,6 +100,8 @@ def _include_authenticated_routes(
     app.include_router(fliplink_authenticated_router, dependencies=auth_dependency)
     app.include_router(human_router, dependencies=auth_dependency)
     app.include_router(runtime_router, dependencies=auth_dependency)
+    app.include_router(admin_outreach_router, dependencies=auth_dependency)
+    app.include_router(internal_sendr_webhook_router, dependencies=auth_dependency)
 
 
 def _include_legacy_authenticated_routes(
@@ -141,6 +145,7 @@ def create_app() -> FastAPI:
     if inline_sync_handlers_enabled():
         install_inline_threadpool_compat()
     from app.api.routes.audiobook_player import router as audiobook_player_router
+    from app.api.routes.admin_outreach import router as admin_outreach_router
     from app.api.routes.channels import router as channels_router
     from app.api.routes.connectors import router as connectors_router
     from app.api.routes.delivery import router as delivery_router
@@ -150,6 +155,7 @@ def create_app() -> FastAPI:
     from app.api.routes.google_oauth import router as google_oauth_router
     from app.api.routes.health import router as health_router
     from app.api.routes.images import router as images_router
+    from app.api.routes.internal_sendr_webhook import router as internal_sendr_webhook_router
     from app.api.routes.landing_access import router as landing_access_router
     from app.api.routes.landing_actions import router as landing_actions_router
     from app.api.routes.landing_channel import router as landing_channel_router
@@ -215,6 +221,8 @@ def create_app() -> FastAPI:
         fliplink_authenticated_router=fliplink_authenticated_router,
         human_router=human_router,
         runtime_router=runtime_router,
+        admin_outreach_router=admin_outreach_router,
+        internal_sendr_webhook_router=internal_sendr_webhook_router,
     )
     from app.api.routes.responses import router as responses_router
 

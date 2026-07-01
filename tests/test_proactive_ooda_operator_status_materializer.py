@@ -441,6 +441,77 @@ def test_materialize_proactive_ooda_operator_status_blocks_single_official_info_
     assert receipt["safe_work_audit"]["privacy"]["raw_candidate_exposed"] is False
 
 
+def test_materialize_proactive_ooda_operator_status_blocks_filtered_current_artifact(
+    tmp_path: Path, monkeypatch
+) -> None:
+    module = _load_script()
+    monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
+
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_route",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "source": "docker_compose_exec",
+            "runtime_service": "ea-proactive-ooda",
+            "observed_at": "2026-07-01T08:20:00Z",
+            "live_receipt_checked": True,
+            "live_receipt": {
+                "ok": True,
+                "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+                "errors": [],
+            },
+            "route_report": {
+                "ok": True,
+                "delivery_route": {"ready": True, "selected_channel": "telegram", "selected_by": "tool_runtime_binding"},
+                "delivery_guard": {"delivery_state": "eligible"},
+                "stage_packets": {"ready": True, "errors": []},
+                "safe_work_results": {"ready": True, "errors": []},
+                "receipt_observation_count": 1,
+                "actionable_count": 1,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_artifacts",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "source": "docker_compose_exec",
+            "stage_packet": {},
+            "safe_work_result": {},
+            "artifact_filter_reason": "single_official_info_link_not_decision_ready",
+        },
+    )
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_gmail_draft",
+        lambda **_kwargs: {"probe_ok": True, "status": "no_pending_draft", "source": "docker_compose_exec"},
+    )
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_source_coverage", _fake_source_coverage_probe)
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_approval_capture",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("filtered packets should not probe approval capture")),
+    )
+
+    receipt = module.build_proactive_ooda_operator_status(
+        output_path=tmp_path / "ea_proactive_ooda_operator_status.generated.json",
+        generated_at="2026-07-01T08:21:00Z",
+        report_args=Namespace(principal_id="exec-1"),
+    )
+
+    assert receipt["status"] == "blocked_local_runtime"
+    assert receipt["reason"] == "filtered_current_artifact_single_official_info_link_not_decision_ready"
+    assert receipt["next_action"] == "repair_proactive_safe_work_audit"
+    assert receipt["operator_action_state"] == "recovery_required"
+    assert receipt["safe_work_audit"]["present"] is False
+    assert receipt["current_artifact_filter"]["present"] is True
+    assert receipt["current_artifact_filter"]["requires_recovery"] is True
+    assert receipt["current_artifact_filter"]["issue_codes"] == ["single_official_info_link_not_decision_ready"]
+    assert receipt["current_artifact_filter"]["privacy"]["raw_candidate_exposed"] is False
+
+
 def test_materialize_proactive_ooda_operator_status_surfaces_suppressed_safe_work_projection(
     tmp_path: Path, monkeypatch
 ) -> None:

@@ -61,7 +61,7 @@ def test_disabled_flat_search_filters_current_runtime_property_candidate_artifac
     )
 
     assert bundle["flat_search_enabled"] is False
-    assert bundle["artifact_filter_reason"] == "flat_search_disabled"
+    assert bundle["artifact_filter_reason"] == "flat_search_disabled_property_scout"
     assert bundle["stage_packet"] == {}
     assert bundle["safe_work_result"] == {}
 

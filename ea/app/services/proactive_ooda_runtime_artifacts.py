@@ -11,7 +11,10 @@ from app.services.proactive_ooda_flat_search_policy import (
     material_mentions_flat_property_search,
     proactive_ooda_flat_search_enabled,
 )
-from app.services.proactive_ooda_safe_work import default_safe_work_result_dir
+from app.services.proactive_ooda_safe_work import (
+    default_safe_work_result_dir,
+    safe_work_decision_materiality_issue,
+)
 from app.services.proactive_ooda_stage_packets import default_stage_packet_dir
 
 
@@ -153,6 +156,14 @@ def load_runtime_artifact_bundle(
     if _artifacts_are_disabled_flat_search(stage_packet=stage_packet, safe_work_result=safe_work_result):
         artifact_filter_reason = "flat_search_disabled_property_scout"
         stage_packet_path, stage_packet, safe_work_result_path, safe_work_result = None, {}, None, {}
+    else:
+        materiality_issue = _artifact_materiality_filter_reason(
+            stage_packet=stage_packet,
+            safe_work_result=safe_work_result,
+        )
+        if materiality_issue:
+            artifact_filter_reason = materiality_issue
+            stage_packet_path, stage_packet, safe_work_result_path, safe_work_result = None, {}, None, {}
     run_receipt_path, run_receipt = choose_run_receipt(
         primary_run_receipt_path=primary_run_receipt_path,
         primary_run_receipt=primary_run_receipt,
@@ -269,6 +280,17 @@ def _artifacts_are_disabled_flat_search(
             "stage_packet": dict(stage_packet or {}),
             "safe_work_result": dict(safe_work_result or {}),
         }
+    )
+
+
+def _artifact_materiality_filter_reason(
+    *,
+    stage_packet: Mapping[str, Any],
+    safe_work_result: Mapping[str, Any],
+) -> str:
+    return safe_work_decision_materiality_issue(
+        stage_packet=stage_packet,
+        safe_work_result=safe_work_result,
     )
 
 

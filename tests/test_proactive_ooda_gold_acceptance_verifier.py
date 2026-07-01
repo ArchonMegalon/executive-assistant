@@ -216,6 +216,34 @@ def test_proactive_ooda_gold_acceptance_verifier_rejects_pass_with_suppressed_pr
     assert "pass requires operator_runtime_posture.suppressed_projection_ready=true" in issues
 
 
+def test_proactive_ooda_gold_acceptance_verifier_rejects_pass_with_filtered_current_artifact(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json"
+    payload = _base_payload()
+    payload["status"] = "pass"
+    payload["gold_claim_allowed"] = True
+    payload["remaining_external_proofs"] = []
+    payload["proofs"]["operator_runtime_posture"]["current_artifact_filter_ready"] = False
+    payload["proofs"]["operator_runtime_posture"]["current_artifact_filter_reason"] = (
+        "single_official_info_link_not_decision_ready"
+    )
+    payload["proofs"]["approval_outcome"]["approval_outcome_recorded"] = True
+    payload["proofs"]["approval_outcome"]["accepted"] = True
+    payload["proofs"]["approval_outcome"]["outcome"] = "approved"
+    payload["proofs"]["approval_outcome"]["evidence_sha256"] = "a" * 64
+    payload["proofs"]["approval_outcome"]["actor_sha256"] = "b" * 64
+    payload["proofs"]["approval_outcome"]["packet_ref_sha256"] = "c" * 64
+    payload["proofs"]["approval_outcome"]["staged_artifact_sha256"] = "d" * 64
+    _write_receipt(receipt, **payload)
+    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
+
+    issues = verifier.verify(receipt, root=tmp_path)
+
+    assert "pass requires operator_runtime_posture.current_artifact_filter_ready=true" in issues
+
+
 def test_proactive_ooda_gold_acceptance_verifier_allows_ready_state_before_action_required_proof(
     tmp_path: Path,
     monkeypatch,

@@ -2415,6 +2415,52 @@ def _single_official_info_link_not_decision_ready(
     return not _candidate_has_decision_material(candidate)
 
 
+def safe_work_decision_materiality_issue(
+    *,
+    safe_work_result: Mapping[str, Any],
+    stage_packet: Mapping[str, Any] | None = None,
+) -> str:
+    safe_work = dict(safe_work_result or {})
+    if not safe_work:
+        return ""
+    stage_packet = dict(stage_packet or {})
+    stage = dict(stage_packet.get("stage") or {})
+    stage_payload = dict(stage.get("payload") or {})
+    safe_work_order = dict(stage_packet.get("safe_work_order") or {})
+    input_contract = dict(safe_work_order.get("input_contract") or {})
+    candidate_items = [
+        dict(item)
+        for item in list(input_contract.get("candidate_items") or stage_payload.get("candidate_items") or [])
+        if isinstance(item, Mapping)
+    ]
+    if not candidate_items:
+        candidate_items = [
+            dict(item)
+            for item in list(safe_work.get("shortlist") or [])
+            if isinstance(item, Mapping)
+        ]
+    recommended = dict(safe_work.get("recommended_option_or_draft") or {})
+    if not candidate_items:
+        recommended_value = _mapping_value(recommended.get("value"))
+        if recommended_value:
+            candidate_items = [recommended_value]
+    work_type = str(
+        safe_work.get("work_type")
+        or safe_work_order.get("work_type")
+        or stage_payload.get("work_type")
+        or ""
+    ).strip()
+    if _single_official_info_link_not_decision_ready(
+        work_type=work_type,
+        input_contract=input_contract,
+        stage_payload=stage_payload,
+        candidate_items=candidate_items,
+        recommended=recommended,
+    ):
+        return "single_official_info_link_not_decision_ready"
+    return ""
+
+
 def _candidate_is_generic_official_info_link(candidate: Mapping[str, Any]) -> bool:
     source = _ascii_fold_text(str(candidate.get("source") or candidate.get("candidate_source") or ""))
     search_text = _ascii_fold_text(_candidate_search_text(candidate))

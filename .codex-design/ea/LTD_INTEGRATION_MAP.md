@@ -10,6 +10,59 @@ Use for:
 - approval links
 - delivery receipts
 
+## Sendr
+
+Use for:
+
+- founder/operator demo outreach
+- review-before-send trust campaigns
+- Google Workspace workflow campaigns
+- private beta and trial onboarding nudges
+- partner outreach
+- re-engagement of warm leads
+- personalized EA demo pages and approved intro videos
+
+Do not use for:
+
+- EA product truth
+- office memory
+- raw Gmail
+- raw Calendar
+- people memory
+- draft truth
+- decision truth
+- commitment truth
+- support truth
+- billing truth
+- automatic replies
+- publication approval
+- private workspace data
+
+Sendr is EA's governed outbound-growth lane, not another assistant runtime. EA creates approved outreach packets, validates product claims, recipient basis, suppression, privacy, and human review, then Sendr may sequence approved outreach. Replies and engagement return to EA as signals and review candidates only.
+
+Default posture:
+
+```text
+EA_SENDR_ENABLED=0
+EA_SENDR_API_ENABLED=0
+EA_SENDR_WEBHOOKS_ENABLED=0
+EA_SENDR_WHATSAPP_ENABLED=0
+EA_SENDR_DIRECT_SEND_ENABLED=0
+EA_SENDR_AUTO_REPLY_ENABLED=0
+EA_SENDR_PRIVATE_WORKSPACE_DATA_ALLOWED=0
+```
+
+Allowed Sendr inputs are limited to approved public EA docs, approved demo copy, synthetic demo snapshots, public business contacts, prior relationship contacts, inbound leads, and opt-in contacts. Raw office data, private people memory, commitments, decisions, drafts, attachments, support conversations, secrets, and billing data must never be sent to Sendr.
+
+Operator proof:
+
+- `python3 scripts/build_ea_sendr_campaign_packet.py --type FOUNDER_DEMO_OUTREACH --packet ea-founder-demo-review-before-send-001`
+- `python3 scripts/verify_ea_sendr_campaign_packet.py --packet .codex-studio/published/ea_sendr_campaign_packet.generated.json --pretty`
+- `python3 scripts/materialize_ea_sendr_campaign_receipt.py --packet .codex-studio/published/ea_sendr_campaign_packet.generated.json --dry-run`
+- `python3 scripts/verify_ltd_provider_lanes.py --lane sendr_ea_growth_outreach`
+
+The first pilot should stay email-first, capped at 50 contacts, and manually reviewed before any limited send. WhatsApp, direct send, auto-reply, and high-volume enrollment remain disabled until provider verification, recipient-basis, suppression sync, product-claim, privacy, message-copy, and human-approval receipts pass.
+
 ## Documentation.AI
 
 Use for:

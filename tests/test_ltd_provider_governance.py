@@ -63,6 +63,7 @@ def _sample_ltd_markdown() -> str:
 | `Signitic` | `Tier 4` | `1 account` | `Activated` |  | `Tier 4` | Credentials | Signature template candidate. |
 | `GetNextStep.io` | `Tier 5` | `1 account` | `Activated` |  | `Tier 4` | Credentials | Strategy workbench only. |
 | `ICanpreneur` | `Tier 3` | `1 account` | `Activated` |  | `Tier 4` | Credentials | Validation workbench only. |
+| `Sendr` | `License Tier 4` | `1 lifetime license` | `Owned / activated` |  | `Tier 4` | Governed EA outbound-growth lane scaffold | EA approved campaign packets only; no raw Gmail, raw Calendar, people memory, private commitments, customer drafts, direct send, auto-reply, WhatsApp, or product truth. |
 
 ## Discovery Tracking
 
@@ -77,6 +78,7 @@ def _sample_ltd_markdown() -> str:
 | `Rafter` | `ltd.account@example.test` | `manual_seeded` | `fleet_verified` | 2026-05-29T20:16:00Z | Fleet proof passes. |
 | `Pixefy` | `ltd.account@example.test` | `manual_seeded` | `fleet_verified` | 2026-05-29T20:16:00Z | Fleet proof passes. |
 | `Prompt Architects` |  | `manual_seeded` | `local_env + prompt_foundry_receipts` | 2026-06-01T20:54:48Z | Prompt Foundry receipts exist. |
+| `Sendr` |  | `manual_seeded` | `user_report_tier4 + governed_lane_scaffold` | 2026-06-30T20:45:00Z | License Tier 4 is recorded; EA campaign packet, provider proof, suppression sync, and human approval receipts remain pending. |
 """.strip()
 
 
@@ -124,6 +126,7 @@ def test_all_requested_ltd_provider_lanes_are_defined() -> None:
         "docs_draft_factory",
         "prompt_foundry",
         "subscribr_chummer_script_factory",
+        "sendr_ea_growth_outreach",
         "operator_control_plane",
         "video_provider_bakeoff",
         "commercial_ops",
@@ -169,6 +172,20 @@ def test_lane_boundaries_match_provider_risks() -> None:
     assert "EA_SUBSCRIBR_DIRECT_PUBLISH_ENABLED" in subscribr.off_switch_env
     assert "approved_public_source_packet" in subscribr.allowed_inputs
     assert {"direct_publish", "publication_approval", "rules_truth", "release_truth"} <= set(subscribr.forbidden_inputs)
+
+    sendr = lane_by_key("sendr_ea_growth_outreach")
+    assert sendr is not None
+    assert sendr.providers == ("Sendr",)
+    assert sendr.integration_lane == "governed_outbound_growth"
+    assert "EA_SENDR_DIRECT_SEND_ENABLED" in sendr.off_switch_env
+    assert "EA_SENDR_AUTO_REPLY_ENABLED" in sendr.off_switch_env
+    assert "EA_SENDR_PRIVATE_WORKSPACE_DATA_ALLOWED" in sendr.off_switch_env
+    assert {"raw_gmail", "raw_calendar", "people_memory", "private_commitment", "private_decision"} <= set(
+        sendr.forbidden_inputs
+    )
+    assert {"recipient_basis", "suppression_status", "reply_event_hash", "human_review_status"} <= set(
+        sendr.normalized_signal_schema
+    )
 
     hedy = lane_by_key("hedy_meeting_evidence")
     assert hedy is not None
@@ -261,6 +278,17 @@ def test_priority_ltd_lanes_are_bounded_until_live_proof_exists(tmp_path: Path) 
         "documentation_ai_publication": {
             "passed": {"inventory_recorded", "documentation_git_source_of_truth", "documentation_no_writeback", "documentation_privacy_boundary"},
             "missing": {"documentation_ai_provider_capability", "documentation_llms_txt"},
+        },
+        "sendr_ea_growth_outreach": {
+            "passed": {
+                "inventory_recorded",
+                "sendr_recipient_basis",
+                "sendr_claim_validation",
+                "sendr_privacy_boundary",
+                "sendr_human_review",
+                "sendr_reply_ingest",
+            },
+            "missing": {"sendr_provider_verification", "sendr_suppression_sync"},
         },
     }
 
@@ -435,6 +463,20 @@ def test_priority_ltd_lane_hard_contracts_prevent_scope_creep() -> None:
         forbidden_inputs=tuple(value for value in release.forbidden_inputs if value != "release_truth"),
     )
     assert "release_quality_truth_boundary_missing" in _hard_contract_failures(release_regressed)
+
+    sendr = lane_by_key("sendr_ea_growth_outreach")
+    assert sendr is not None
+    sendr_privacy_regressed = replace(
+        sendr,
+        forbidden_inputs=tuple(value for value in sendr.forbidden_inputs if value != "raw_gmail"),
+    )
+    assert "sendr_privacy_or_send_boundary_incomplete" in _hard_contract_failures(sendr_privacy_regressed)
+
+    sendr_switch_regressed = replace(
+        sendr,
+        off_switch_env=tuple(value for value in sendr.off_switch_env if value != "EA_SENDR_DIRECT_SEND_ENABLED"),
+    )
+    assert "sendr_fail_closed_switch_missing" in _hard_contract_failures(sendr_switch_regressed)
 
 
 def test_lane_receipt_never_leaks_env_secret_values(tmp_path: Path) -> None:

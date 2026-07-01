@@ -1,0 +1,52 @@
+{
+  "approved_claims_sha256": "ac667827824e6955f30e7ef0f14dae352436bfe0350b0d03146d85fc7a44f460",
+  "auto_reply_allowed": false,
+  "campaign_type": "FOUNDER_DEMO_OUTREACH",
+  "channels": {
+    "email": true,
+    "linkedin": true,
+    "whatsapp": false
+  },
+  "contract_name": "ea.sendr_campaign_receipt.v1",
+  "direct_send_allowed": false,
+  "dry_run": true,
+  "generated_at": "2026-07-01T03:59:59.449183Z",
+  "human_review": {
+    "approval_scope": "required_before_limited_send",
+    "reviewed_at": "",
+    "reviewer": ""
+  },
+  "license_tier": "AppSumo Tier 4",
+  "limited_send_allowed": false,
+  "max_contacts": 50,
+  "message_copy_sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+  "packet_id": "ea-founder-demo-review-before-send-001",
+  "personalized_page_template_sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+  "provider": "sendr",
+  "recipient_policy": {
+    "blocked_recipient_count": 0,
+    "recipient_basis": [],
+    "recipient_count": 0,
+    "suppression_checked": false
+  },
+  "sendr": {
+    "campaign_id": "",
+    "dynamic_video_id": "",
+    "page_template_id": "",
+    "sequence_id": ""
+  },
+  "source_packet_sha256": "e2f592d603ef1eb5dbcbe20fee115bf514723ab8f22e3aa43d02007534b76d59",
+  "status": "setup_review_required",
+  "validation": {
+    "claims": "pass",
+    "human_review": "pass",
+    "platform_policy": "pass",
+    "privacy": "pass",
+    "product_boundary": "pass",
+    "recipient_basis": "pass",
+    "suppression": "pass"
+  },
+  "validation_issues": [],
+  "validation_status": "pass",
+  "video_script_sha256": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126"
+}

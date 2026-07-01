@@ -784,6 +784,13 @@ def _operator_runtime_next_action(operator_status: Mapping[str, Any]) -> str:
         next_action = str(safe_work_audit_detail.get("next_action") or "").strip()
         if next_action:
             return next_action
+    current_artifact_filter_ready, current_artifact_filter_detail = _operator_runtime_current_artifact_filter_posture(
+        operator_status
+    )
+    if not current_artifact_filter_ready:
+        next_action = str(current_artifact_filter_detail.get("next_action") or "").strip()
+        if next_action:
+            return next_action
     suppressed_projection_ready, suppressed_projection_detail = _operator_runtime_suppressed_projection_posture(
         operator_status
     )
@@ -937,6 +944,36 @@ def _operator_runtime_safe_work_audit_posture(operator_status: Mapping[str, Any]
         "safe_work_audit_delivery_allowed": delivery_allowed,
         "safe_work_audit_blocks_operator_followthrough": blocks_operator,
         "safe_work_audit_blocking_reason": str(safe_work_audit.get("blocking_reason") or "").strip(),
+        "next_action": "" if ready else "repair_proactive_safe_work_audit",
+    }
+
+
+def _operator_runtime_current_artifact_filter_posture(operator_status: Mapping[str, Any]) -> tuple[bool, dict[str, Any]]:
+    filtered = dict(operator_status.get("current_artifact_filter") or {})
+    if not filtered:
+        return True, {
+            "current_artifact_filter_recorded": False,
+            "current_artifact_filter_present": False,
+            "current_artifact_filter_ready": True,
+            "current_artifact_filter_requires_recovery": False,
+            "current_artifact_filter_reason": "",
+            "current_artifact_filter_issue_codes": [],
+            "next_action": "",
+        }
+    requires_recovery = bool(filtered.get("requires_recovery"))
+    ready = not requires_recovery
+    return ready, {
+        "current_artifact_filter_recorded": True,
+        "current_artifact_filter_present": bool(filtered.get("present")),
+        "current_artifact_filter_ready": ready,
+        "current_artifact_filter_requires_recovery": requires_recovery,
+        "current_artifact_filter_reason": str(filtered.get("reason") or "").strip(),
+        "current_artifact_filter_blocking_reason": str(filtered.get("blocking_reason") or "").strip(),
+        "current_artifact_filter_issue_codes": [
+            str(item or "").strip()
+            for item in list(filtered.get("issue_codes") or [])
+            if str(item or "").strip()
+        ][:8],
         "next_action": "" if ready else "repair_proactive_safe_work_audit",
     }
 
@@ -1703,6 +1740,9 @@ def materialize_proactive_ooda_gold_acceptance(
     source_coverage_ready, source_coverage_detail = _operator_runtime_source_coverage_posture(operator_status)
     context_grounding_ready, context_grounding_detail = _operator_runtime_context_grounding_posture(operator_status)
     safe_work_audit_ready, safe_work_audit_detail = _operator_runtime_safe_work_audit_posture(operator_status)
+    current_artifact_filter_ready, current_artifact_filter_detail = _operator_runtime_current_artifact_filter_posture(
+        operator_status
+    )
     suppressed_projection_ready, suppressed_projection_detail = _operator_runtime_suppressed_projection_posture(
         operator_status
     )
@@ -1711,6 +1751,7 @@ def materialize_proactive_ooda_gold_acceptance(
         and source_coverage_ready
         and context_grounding_ready
         and safe_work_audit_ready
+        and current_artifact_filter_ready
         and suppressed_projection_ready
     )
     operator_runtime_next_action = _operator_runtime_next_action(operator_status)
@@ -1723,6 +1764,7 @@ def materialize_proactive_ooda_gold_acceptance(
             **source_coverage_detail,
             **context_grounding_detail,
             **safe_work_audit_detail,
+            **current_artifact_filter_detail,
             **suppressed_projection_detail,
             **_next_action_surface_fields(operator_runtime_next_action),
             "path": display_path(ROOT, operator_status_path),

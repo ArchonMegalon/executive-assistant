@@ -26,7 +26,7 @@
       "status": "ready_local_packet_pending_operator_acceptance"
     }
   },
-  "generated_at": "2026-07-01T03:32:44Z",
+  "generated_at": "2026-07-01T04:04:00Z",
   "generated_by": "ea/scripts/materialize_whole_project_scope_gap_audit.py",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
@@ -134,8 +134,8 @@
     ],
     "status": "active_local_goal"
   },
-  "source_git_head": "14587587b1f3e0cf26dded56fcd00da63d01f934",
-  "source_state_fingerprint": "6d2ae87a076a0401a23dd7a273116a56f545a4a1f21612773c3ee0ef2055b16a",
+  "source_git_head": "e9260adc0699c24009208d02e79e041186da1d73",
+  "source_state_fingerprint": "5868aafb7617d4bccf4e603f4bbd08ad2f272cbcbcd58f671198e98333fda174",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready_local_audit",
   "summary": "Whole-project scope gap audit is locally mapped; a human operator still has to review it against the current product spine."

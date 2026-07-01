@@ -286,6 +286,8 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
             issues.append("pass requires no operator_runtime_posture.source_coverage_missing_required_event_types")
         if operator_runtime.get("safe_work_audit_ready") is not True:
             issues.append("pass requires operator_runtime_posture.safe_work_audit_ready=true")
+        if operator_runtime.get("current_artifact_filter_ready", True) is not True:
+            issues.append("pass requires operator_runtime_posture.current_artifact_filter_ready=true")
         if operator_runtime.get("suppressed_projection_ready") is not True:
             issues.append("pass requires operator_runtime_posture.suppressed_projection_ready=true")
         if not approval_accepted:

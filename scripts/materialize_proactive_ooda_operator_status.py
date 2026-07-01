@@ -27,7 +27,7 @@ import scripts.verify_proactive_ooda as proactive_verifier
 import scripts.verify_proactive_ooda_live_receipt as live_receipt_verifier
 import scripts.ea_live_ops as ea_live_ops
 from app.services.proactive_ooda_operator_actions import proactive_next_action_surface
-from app.services.proactive_ooda_safe_work import _single_official_info_link_not_decision_ready
+from app.services.proactive_ooda_safe_work import safe_work_decision_materiality_issue
 from app.services.proactive_ooda_runtime_artifacts import load_runtime_artifact_bundle
 
 
@@ -657,39 +657,10 @@ def _safe_work_materiality_issue(
     stage_packet: Mapping[str, Any],
     safe_work_result: Mapping[str, Any],
 ) -> str:
-    if not safe_work_result:
-        return ""
-    stage = dict(stage_packet.get("stage") or {})
-    stage_payload = dict(stage.get("payload") or {})
-    safe_work_order = dict(stage_packet.get("safe_work_order") or {})
-    input_contract = dict(safe_work_order.get("input_contract") or {})
-    candidate_items = [
-        dict(item)
-        for item in list(input_contract.get("candidate_items") or stage_payload.get("candidate_items") or [])
-        if isinstance(item, Mapping)
-    ]
-    if not candidate_items:
-        candidate_items = [
-            dict(item)
-            for item in list(safe_work_result.get("shortlist") or [])
-            if isinstance(item, Mapping)
-        ]
-    recommended = dict(safe_work_result.get("recommended_option_or_draft") or {})
-    work_type = str(
-        safe_work_result.get("work_type")
-        or safe_work_order.get("work_type")
-        or stage_payload.get("work_type")
-        or ""
-    ).strip()
-    if _single_official_info_link_not_decision_ready(
-        work_type=work_type,
-        input_contract=input_contract,
-        stage_payload=stage_payload,
-        candidate_items=candidate_items,
-        recommended=recommended,
-    ):
-        return "single_official_info_link_not_decision_ready"
-    return ""
+    return safe_work_decision_materiality_issue(
+        stage_packet=stage_packet,
+        safe_work_result=safe_work_result,
+    )
 
 
 def _projection_table_record_count(projection_summary: Mapping[str, Any], table_name: str) -> int:
@@ -763,6 +734,34 @@ def _normalized_suppressed_projection(artifact_probe: Mapping[str, Any]) -> dict
         "suppressed_projection_reasons": reasons,
         "suppressed_safe_work_issue_codes": issue_codes,
         "inferred_from_packet_projection_gap": inferred_suppressed,
+        "privacy": {
+            "raw_packet_text_exposed": False,
+            "raw_candidate_exposed": False,
+            "raw_draft_text_exposed": False,
+            "raw_private_link_exposed": False,
+        },
+    }
+
+
+def _normalized_current_artifact_filter(artifact_probe: Mapping[str, Any]) -> dict[str, Any]:
+    probe = dict(artifact_probe or {})
+    reason = str(probe.get("artifact_filter_reason") or "").strip()
+    issue_codes: list[str] = []
+    if reason in {
+        "single_official_info_link_not_decision_ready",
+        "flat_search_disabled_property_scout",
+        "flat_search_disabled",
+    }:
+        issue_codes.append(reason)
+    requires_recovery = bool(reason)
+    return {
+        "present": requires_recovery,
+        "source": str(probe.get("source") or "").strip(),
+        "reason": reason,
+        "requires_recovery": requires_recovery,
+        "blocking_reason": f"filtered_current_artifact_{reason}" if reason else "",
+        "next_action": "repair_proactive_safe_work_audit" if requires_recovery else "",
+        "issue_codes": issue_codes,
         "privacy": {
             "raw_packet_text_exposed": False,
             "raw_candidate_exposed": False,
@@ -1385,6 +1384,8 @@ def build_proactive_ooda_operator_status(
         safe_work_audit_probe = {}
     safe_work_audit = _normalized_safe_work_audit(safe_work_audit_probe)
     safe_work_audit_blocks = _safe_work_audit_blocks_operator(safe_work_audit)
+    current_artifact_filter = _normalized_current_artifact_filter(artifact_probe)
+    current_artifact_filter_blocks = bool(current_artifact_filter.get("requires_recovery"))
     suppressed_projection = _normalized_suppressed_projection(artifact_probe)
     suppressed_projection_blocks = bool(suppressed_projection.get("requires_recovery"))
     status = _status(report, live_receipt=live_receipt, live_receipt_checked=live_receipt_checked)
@@ -1392,6 +1393,9 @@ def build_proactive_ooda_operator_status(
     if safe_work_audit_blocks:
         status = "blocked_local_runtime"
         reason = _safe_work_audit_blocking_reason(safe_work_audit)
+    elif current_artifact_filter_blocks:
+        status = "blocked_local_runtime"
+        reason = str(current_artifact_filter.get("blocking_reason") or "filtered_current_artifact").strip()
     elif suppressed_projection_blocks and status in {"ready_local_runtime", "ready_with_live_receipt", "ready_with_recovery_action"}:
         status = "ready_with_recovery_action"
         reason = str(suppressed_projection.get("blocking_reason") or "suppressed_safe_work_projection").strip()
@@ -1400,6 +1404,7 @@ def build_proactive_ooda_operator_status(
         allow_live_route_probe
         and live_receipt_path is None
         and not safe_work_audit_blocks
+        and not current_artifact_filter_blocks
         and _approval_capture_surface_ready(approval_capture_surface)
         and int(approval_capture_surface.get("current_packet_live_pending_count") or 0) > 0
         and live_receipt_checked
@@ -1415,7 +1420,7 @@ def build_proactive_ooda_operator_status(
         approval_capture=approval_capture,
     ):
         reason = str(approval_capture.get("blocking_reason") or "approval_capture_not_ready").strip()
-    if safe_work_audit_blocks or suppressed_projection_blocks:
+    if safe_work_audit_blocks or current_artifact_filter_blocks or suppressed_projection_blocks:
         next_action = "repair_proactive_safe_work_audit"
     else:
         next_action = _operator_followthrough_next_action(
@@ -1432,6 +1437,8 @@ def build_proactive_ooda_operator_status(
             "Proactive OODA has a current safe-work artifact, but the packet-quality auditor did not pass it "
             "for operator follow-through."
         )
+    elif current_artifact_filter_blocks:
+        summary = "Proactive OODA filtered the current packet before follow-through because it is not decision-ready."
     elif suppressed_projection_blocks:
         summary = (
             "Proactive OODA runtime is healthy, but the latest quiet run suppressed "
@@ -1472,7 +1479,7 @@ def build_proactive_ooda_operator_status(
         **next_action_surface,
         "operator_action_state": (
             "recovery_required"
-            if safe_work_audit_blocks or suppressed_projection_blocks
+            if safe_work_audit_blocks or current_artifact_filter_blocks or suppressed_projection_blocks
             else _operator_followthrough_action_state(
                 status,
                 report=report,
@@ -1499,6 +1506,7 @@ def build_proactive_ooda_operator_status(
         "stage_packets": _normalized_stage_packets(report),
         "safe_work_results": _normalized_safe_work_results(report),
         "safe_work_audit": safe_work_audit,
+        "current_artifact_filter": current_artifact_filter,
         "suppressed_projection": suppressed_projection,
         "receipt_observation_count": int(report.get("receipt_observation_count") or 0),
         "runtime_actionable_count": runtime_actionable_count,
