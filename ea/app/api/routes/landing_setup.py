@@ -160,11 +160,64 @@ def _google_oauth_denial_detail(
         )
     expected_google_email = str(payload.get("expected_google_email") or "").strip().lower()
     account_detail = f" for {expected_google_email}" if "@" in expected_google_email else ""
+    oauth_project_id = str(payload.get("oauth_client_project_id") or "").strip()
+    oauth_project_number = str(payload.get("oauth_client_project_number") or "").strip()
+    project_detail = ""
+    if oauth_project_id and oauth_project_number:
+        project_detail = f" OAuth project: {oauth_project_id} ({oauth_project_number})."
+    elif oauth_project_id:
+        project_detail = f" OAuth project: {oauth_project_id}."
+    elif oauth_project_number:
+        project_detail = f" OAuth project number: {oauth_project_number}."
+    action_detail = (
+        f" Add {expected_google_email} under Google Auth Platform > Audience > Test users, "
+        "or publish/verify the OAuth app, then retry the Full Workspace link."
+        if "@" in expected_google_email
+        else " Add the selected Google account under Google Auth Platform > Audience > Test users, "
+        "or publish/verify the OAuth app, then retry the Full Workspace link."
+    )
     return (
         f"Google denied OAuth access{account_detail}. "
         "If the consent screen says the app is still being tested, add this account as a Google OAuth test user "
-        "for myexternalbrain.com or publish the OAuth app after Google verification, then retry the Full Workspace link."
+        f"for myexternalbrain.com or publish the OAuth app after Google verification, then retry the Full Workspace link."
+        f"{project_detail}{action_detail}"
     )
+
+
+def _record_google_oauth_denial_observation(
+    *,
+    container: AppContainer,
+    state_payload: dict[str, object],
+    error: str,
+    error_description: str,
+) -> None:
+    principal_id = str(state_payload.get("principal_id") or "").strip()
+    if not principal_id:
+        return
+    normalized_error = str(error or "").strip()
+    expected_google_email = str(state_payload.get("expected_google_email") or "").strip().lower()
+    denial_reason = (
+        "oauth_test_user_or_verification_required" if normalized_error == "access_denied" else "google_oauth_denied"
+    )
+    try:
+        build_product_service(container).record_surface_event(
+            principal_id=principal_id,
+            event_type="google_oauth_access_denied",
+            surface="google_oauth_browser_callback",
+            actor=expected_google_email or principal_id,
+            metadata={
+                "error": normalized_error,
+                "error_description": str(error_description or "").strip(),
+                "denial_reason": denial_reason,
+                "expected_google_email": expected_google_email,
+                "scope_bundle": str(state_payload.get("scope_bundle") or "").strip(),
+                "oauth_client_project_id": str(state_payload.get("oauth_client_project_id") or "").strip(),
+                "oauth_client_project_number": str(state_payload.get("oauth_client_project_number") or "").strip(),
+                "raw_google_code_received": False,
+            },
+        )
+    except Exception:
+        pass
 
 
 @router.post("/setup/start")
@@ -365,6 +418,12 @@ def google_oauth_browser_callback(
             state_payload = read_google_oauth_state(state) if str(state or "").strip() else {}
         except Exception:
             state_payload = {}
+        _record_google_oauth_denial_observation(
+            container=container,
+            state_payload=state_payload,
+            error=error,
+            error_description=error_description,
+        )
         detail = _google_oauth_denial_detail(
             error=error,
             error_description=error_description,

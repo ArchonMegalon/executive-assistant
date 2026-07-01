@@ -502,6 +502,8 @@ class GoogleOAuthConfig:
     redirect_uri: str
     state_secret: str
     provider_secret_key: str
+    project_id: str = ""
+    client_project_number: str = ""
 
 
 @dataclass(frozen=True)
@@ -657,6 +659,7 @@ def load_google_oauth_config() -> GoogleOAuthConfig:
     redirect_uri = str(os.environ.get("EA_GOOGLE_OAUTH_REDIRECT_URI") or "").strip()
     state_secret = str(os.environ.get("EA_GOOGLE_OAUTH_STATE_SECRET") or "").strip()
     provider_secret_key = str(os.environ.get("EA_PROVIDER_SECRET_KEY") or "").strip()
+    project_id = str(os.environ.get("EA_GOOGLE_OAUTH_PROJECT_ID") or "").strip()
     if not client_id:
         raise RuntimeError("google_oauth_client_id_missing")
     if not client_secret:
@@ -673,7 +676,14 @@ def load_google_oauth_config() -> GoogleOAuthConfig:
         redirect_uri=redirect_uri,
         state_secret=state_secret,
         provider_secret_key=provider_secret_key,
+        project_id=project_id,
+        client_project_number=_oauth_client_project_number(client_id),
     )
+
+
+def _oauth_client_project_number(client_id: str) -> str:
+    prefix = str(client_id or "").strip().partition("-")[0]
+    return prefix if prefix.isdigit() else ""
 
 
 def normalize_scope_bundle(raw: str | None) -> str:
@@ -703,6 +713,12 @@ def build_google_oauth_start(
         "nonce": secrets.token_urlsafe(12),
         "issued_at": int(time.time()),
     }
+    oauth_project_id = str(getattr(config, "project_id", "") or "").strip()
+    oauth_client_project_number = str(getattr(config, "client_project_number", "") or "").strip()
+    if oauth_project_id:
+        state_payload["oauth_client_project_id"] = oauth_project_id
+    if oauth_client_project_number:
+        state_payload["oauth_client_project_number"] = oauth_client_project_number
     normalized_return_to = str(return_to or "").strip()
     if normalized_return_to:
         state_payload["return_to"] = normalized_return_to
