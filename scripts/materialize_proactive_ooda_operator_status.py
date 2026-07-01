@@ -1351,6 +1351,8 @@ def build_proactive_ooda_operator_status(
     report_args: argparse.Namespace | None = None,
     live_receipt_path: Path | None = None,
     allow_live_route_probe: bool = True,
+    skip_gmail_draft_followthrough_probe: bool = False,
+    skip_source_coverage_probe: bool = False,
 ) -> dict[str, Any]:
     effective_report_args = report_args or _default_report_args()
     route_probe: dict[str, Any] = {}
@@ -1377,8 +1379,10 @@ def build_proactive_ooda_operator_status(
                 )
             except Exception:
                 artifact_probe = {}
-            gmail_draft_probe = _gmail_draft_followthrough_probe(principal_id, timeout_seconds=live_probe_timeout_seconds)
-        source_coverage_probe = _source_coverage_probe(principal_id, timeout_seconds=live_probe_timeout_seconds)
+            if not skip_gmail_draft_followthrough_probe:
+                gmail_draft_probe = _gmail_draft_followthrough_probe(principal_id, timeout_seconds=live_probe_timeout_seconds)
+        if not skip_source_coverage_probe:
+            source_coverage_probe = _source_coverage_probe(principal_id, timeout_seconds=live_probe_timeout_seconds)
 
     if bool(route_probe.get("probe_ok")) and isinstance(route_probe.get("route_report"), dict):
         report = dict(route_probe.get("route_report") or {})
@@ -1602,6 +1606,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-skip-observation-source", dest="skip_observation_source", action="store_false")
     parser.add_argument("--skip-workspace-source", dest="skip_workspace_source", action="store_true", default=_env_truthy("EA_PROACTIVE_OODA_OPERATOR_SKIP_WORKSPACE_SOURCE", default=False))
     parser.add_argument("--no-skip-workspace-source", dest="skip_workspace_source", action="store_false")
+    parser.add_argument(
+        "--skip-gmail-draft-followthrough-probe",
+        action="store_true",
+        default=_env_truthy("EA_PROACTIVE_OODA_OPERATOR_SKIP_GMAIL_DRAFT_PROBE", default=False),
+    )
+    parser.add_argument(
+        "--skip-source-coverage-probe",
+        action="store_true",
+        default=_env_truthy("EA_PROACTIVE_OODA_OPERATOR_SKIP_SOURCE_COVERAGE_PROBE", default=False),
+    )
     parser.add_argument("--pretty", action="store_true")
     parser.add_argument("--require-ready", action="store_true")
     return parser.parse_args()
@@ -1621,6 +1635,8 @@ def main() -> int:
         generated_at=args.generated_at or None,
         report_args=report_args,
         live_receipt_path=live_receipt_path,
+        skip_gmail_draft_followthrough_probe=bool(args.skip_gmail_draft_followthrough_probe),
+        skip_source_coverage_probe=bool(args.skip_source_coverage_probe),
     )
     if args.pretty:
         print(json.dumps(receipt, indent=2, sort_keys=True))

@@ -676,18 +676,24 @@ def _whatsapp_playback_failure_action_context(receipt: dict[str, Any]) -> dict[s
 def _whatsapp_live_playback_blocked(receipt: dict[str, Any], blocking_reasons: list[str]) -> bool:
     if not any(str(reason or "").startswith("deliver:whatsapp_audiobook=blocked") for reason in blocking_reasons):
         return False
+    selected_delivery = receipt.get("selected_delivery")
+    selected = dict(selected_delivery) if isinstance(selected_delivery, dict) else {}
+    public_share_ready = (
+        str(selected.get("public_share_status") or "").strip() == "public_share_ready"
+        and bool(selected.get("public_share_url_present"))
+    )
+    if not public_share_ready:
+        return False
     failed_codes = {
         str(code or "").strip()
         for code in list(receipt.get("failed_codes") or [])
         if str(code or "").strip()
     }
-    selected_delivery = receipt.get("selected_delivery")
-    if isinstance(selected_delivery, dict):
-        failed_codes.update(
-            str(code or "").strip()
-            for code in list(selected_delivery.get("failed_codes") or [])
-            if str(code or "").strip()
-        )
+    failed_codes.update(
+        str(code or "").strip()
+        for code in list(selected.get("failed_codes") or [])
+        if str(code or "").strip()
+    )
     next_action = str(receipt.get("next_action") or "").strip()
     return "machine_playback_e2e_not_verified" in failed_codes or next_action == (
         "run_public_share_machine_playback_e2e_before_claiming_live_delivery"

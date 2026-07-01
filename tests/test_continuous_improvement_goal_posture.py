@@ -1935,6 +1935,8 @@ def test_goal_posture_models_blocked_whatsapp_playback_as_queue_only_repair(tmp_
             "machine_playback_e2e_media_error_present": True,
             "machine_playback_e2e_media_error_code": 4,
             "public_share_host": "audiobookshelf.example.test",
+            "public_share_status": "public_share_ready",
+            "public_share_url_present": True,
         },
     )
     _write_receipt(
@@ -1985,6 +1987,29 @@ def test_goal_posture_models_blocked_whatsapp_playback_as_queue_only_repair(tmp_
     assert queue_row["raw_track_url_exposed"] is False
     assert "deliver:whatsapp_audiobook=blocked" in receipt["blocking_reasons"]
     assert verify(output, root=tmp_path) == []
+
+
+def test_whatsapp_live_playback_blocked_ignores_waiting_public_share_scan() -> None:
+    receipt = {
+        "failed_codes": ["valid_live_audiobook_delivery_missing", "machine_playback_e2e_not_verified"],
+        "next_action": "finish_user_selected_voice_audiobook_before_sending_whatsapp_public_share_link",
+        "selected_delivery": {
+            "failed_codes": [
+                "audiobookshelf_public_share_not_ready",
+                "audiobookshelf_public_share_url_missing",
+                "machine_playback_e2e_not_verified",
+            ],
+            "public_share_status": "waiting_for_audiobookshelf_scan",
+            "public_share_url_present": False,
+            "machine_playback_e2e_track_response_status": 0,
+            "machine_playback_e2e_track_content_type": "",
+        },
+    }
+
+    assert posture_module._whatsapp_live_playback_blocked(  # noqa: SLF001
+        receipt,
+        ["deliver:whatsapp_audiobook=blocked"],
+    ) is False
 
 
 def test_goal_posture_verifier_accepts_post_commit_head_change_when_source_fingerprint_matches(

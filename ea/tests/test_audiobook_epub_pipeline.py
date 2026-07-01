@@ -572,5 +572,130 @@ class AudiobookCinematicNarrationTests(unittest.TestCase):
         self.assertEqual(result["reason"], "cinematic_master_track_missing")
         self.assertEqual(merge_m4b.call_count, 0)
 
+
+def _audiobookshelf_match_metadata() -> audiobook_epub_pipeline.EpubMetadata:
+    return audiobook_epub_pipeline.EpubMetadata(
+        title="Same Book",
+        author="Same Author",
+        language="en",
+        source_filename="same.epub",
+        source_sha256="source-sha",
+        cover_image_path="",
+        cover_media_type="",
+    )
+
+
+def test_audiobookshelf_item_match_rejects_same_title_wrong_absolute_path(tmp_path: Path) -> None:
+    import_root = tmp_path / "import"
+    target_path = import_root / "Same Author" / "Same Book" / "Same Book.m4b"
+    stale_path = tmp_path / "old-library" / "Same Author" / "Same Book" / "Same Book.m4b"
+    row = {
+        "media": {"title": "Same Book", "metadata": {"title": "Same Book"}},
+        "libraryFiles": [
+            {
+                "metadata": {
+                    "path": str(stale_path),
+                    "relPath": "Same Author/Same Book/Same Book.m4b",
+                }
+            }
+        ],
+    }
+    with patch.dict(os.environ, {"EA_AUDIOBOOKSHELF_IMPORT_ROOT": str(import_root)}, clear=False):
+        assert (
+            audiobook_epub_pipeline._audiobookshelf_item_matches_import(
+                row=row,
+                target_path=target_path,
+                metadata=_audiobookshelf_match_metadata(),
+            )
+            is False
+        )
+
+
+def test_audiobookshelf_item_match_accepts_exact_absolute_path(tmp_path: Path) -> None:
+    import_root = tmp_path / "import"
+    target_path = import_root / "Same Author" / "Same Book" / "Same Book.m4b"
+    row = {"libraryFiles": [{"metadata": {"path": str(target_path)}}]}
+    with patch.dict(os.environ, {"EA_AUDIOBOOKSHELF_IMPORT_ROOT": str(import_root)}, clear=False):
+        assert audiobook_epub_pipeline._audiobookshelf_item_matches_import(
+            row=row,
+            target_path=target_path,
+            metadata=_audiobookshelf_match_metadata(),
+        )
+
+
+def test_audiobookshelf_item_match_accepts_import_root_relative_path(tmp_path: Path) -> None:
+    import_root = tmp_path / "import"
+    target_path = import_root / "Same Author" / "Same Book" / "Same Book.m4b"
+    row = {"libraryFiles": [{"metadata": {"relPath": "Same Author/Same Book/Same Book.m4b"}}]}
+    with patch.dict(os.environ, {"EA_AUDIOBOOKSHELF_IMPORT_ROOT": str(import_root)}, clear=False):
+        assert audiobook_epub_pipeline._audiobookshelf_item_matches_import(
+            row=row,
+            target_path=target_path,
+            metadata=_audiobookshelf_match_metadata(),
+        )
+
+
+def test_preserve_ready_audiobookshelf_access_rejects_legacy_unbound_share() -> None:
+    result = audiobook_epub_pipeline._preserve_ready_audiobookshelf_access(
+        import_result={
+            "status": "imported",
+            "target_path": "/library/new/Same Book.m4b",
+            "public_share": {"status": "waiting_for_audiobookshelf_scan"},
+        },
+        previous_import={
+            "public_share": {
+                "status": "public_share_ready",
+                "absolute_url": "https://example.test/audiobookshelf/share/stale",
+            }
+        },
+    )
+
+    assert result["public_share"]["status"] == "waiting_for_audiobookshelf_scan"
+
+
+def test_preserve_ready_audiobookshelf_access_keeps_bound_share_after_refresh_failure() -> None:
+    target_path = "/library/current/Same Book.m4b"
+    target_hash = audiobook_epub_pipeline._sha256_bytes(target_path.encode("utf-8"))
+    result = audiobook_epub_pipeline._preserve_ready_audiobookshelf_access(
+        import_result={
+            "status": "imported",
+            "target_path": target_path,
+            "public_share": {"status": "waiting_for_audiobookshelf_scan", "reason": "scan_timeout"},
+        },
+        previous_import={
+            "public_share": {
+                "status": "public_share_ready",
+                "absolute_url": "https://example.test/audiobookshelf/share/current",
+                "audiobookshelf_target_path_sha256": target_hash,
+                "audiobookshelf_item_match_kind": "exact_absolute_path",
+            }
+        },
+    )
+
+    assert result["public_share"]["status"] == "public_share_ready"
+    assert result["public_share"]["preserved_after_refresh_failure"] is True
+
+
+def test_preserve_ready_audiobookshelf_access_rejects_share_without_match_kind() -> None:
+    target_path = "/library/current/Same Book.m4b"
+    target_hash = audiobook_epub_pipeline._sha256_bytes(target_path.encode("utf-8"))
+    result = audiobook_epub_pipeline._preserve_ready_audiobookshelf_access(
+        import_result={
+            "status": "imported",
+            "target_path": target_path,
+            "public_share": {"status": "waiting_for_audiobookshelf_scan"},
+        },
+        previous_import={
+            "public_share": {
+                "status": "public_share_ready",
+                "absolute_url": "https://example.test/audiobookshelf/share/stale",
+                "audiobookshelf_target_path_sha256": target_hash,
+            }
+        },
+    )
+
+    assert result["public_share"]["status"] == "waiting_for_audiobookshelf_scan"
+
+
 if __name__ == "__main__":
     unittest.main()

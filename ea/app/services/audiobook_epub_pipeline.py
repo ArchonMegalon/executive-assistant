@@ -9033,9 +9033,16 @@ def _preserve_ready_audiobookshelf_access(
     ):
         import_result["player_scoped_reference"] = previous_reference
     previous_share = dict(previous_import.get("public_share") or {})
+    current_target_path = str(import_result.get("target_path") or "").strip()
+    current_target_hash = _sha256_bytes(current_target_path.encode("utf-8")) if current_target_path else ""
+    previous_share_target_hash = str(previous_share.get("audiobookshelf_target_path_sha256") or "").strip()
+    previous_match_kind = str(previous_share.get("audiobookshelf_item_match_kind") or "").strip()
     if (
         str(previous_share.get("status") or "").strip() == "public_share_ready"
         and str(current_share.get("status") or "").strip() != "public_share_ready"
+        and previous_share_target_hash
+        and previous_share_target_hash == current_target_hash
+        and previous_match_kind in {"exact_absolute_path", "exact_absolute_parent", "import_root_relative_path"}
     ):
         preserved = dict(previous_share)
         preserved["preserved_after_refresh_failure"] = True
@@ -9281,10 +9288,17 @@ def _audiobookshelf_item_has_audio(row: dict[str, object]) -> bool:
     return any(Path(candidate).suffix.lower() in audio_extensions for candidate in candidate_paths if candidate)
 
 
-def _audiobookshelf_item_matches_import(*, row: dict[str, object], target_path: Path, metadata: EpubMetadata) -> bool:
+def _audiobookshelf_item_import_match_kind(*, row: dict[str, object], target_path: Path, metadata: EpubMetadata) -> str:
     target_name = target_path.name
-    target_stem = _normalize_match_text(target_name)
     target_resolved = str(target_path)
+    target_parent_resolved = str(target_path.parent)
+    relative_targets: set[str] = set()
+    try:
+        target_relative = target_path.expanduser().resolve().relative_to(audiobookshelf_import_root().expanduser().resolve())
+        relative_targets.add(target_relative.as_posix().strip("/"))
+        relative_targets.add(target_relative.parent.as_posix().strip("/"))
+    except Exception:
+        relative_targets = set()
     candidate_paths = [
         str(row.get("path") or ""),
         str(row.get("relPath") or ""),
@@ -9300,13 +9314,34 @@ def _audiobookshelf_item_matches_import(*, row: dict[str, object], target_path: 
                 str(file_metadata.get("filename") or ""),
             ]
         )
+    absolute_candidates = [str(candidate or "").strip() for candidate in candidate_paths if Path(str(candidate or "")).is_absolute()]
+    if absolute_candidates:
+        if target_resolved in absolute_candidates:
+            return "exact_absolute_path"
+        if target_parent_resolved in absolute_candidates:
+            return "exact_absolute_parent"
+        return ""
     for candidate in candidate_paths:
-        if candidate and (candidate == target_resolved or candidate.endswith(f"/{target_name}") or candidate.endswith(target_name)):
-            return True
+        candidate_text = str(candidate or "").strip()
+        if not candidate_text:
+            continue
+        candidate_path = Path(candidate_text)
+        if candidate_path.is_absolute():
+            continue
+        normalized_relative = candidate_text.replace("\\", "/").strip("/")
+        if normalized_relative and normalized_relative in relative_targets:
+            return "import_root_relative_path"
+    if not _env_bool("EA_AUDIOBOOKSHELF_ALLOW_TITLE_ONLY_ITEM_MATCH", False):
+        return ""
+    target_stem = _normalize_match_text(target_name)
     media = _audiobookshelf_item_media(row)
     media_metadata = dict(media.get("metadata") or {})
     title_match = _normalize_match_text(media_metadata.get("title") or media.get("title") or "")
-    return bool(target_stem and title_match and target_stem == title_match)
+    return "title_only_legacy" if target_stem and title_match and target_stem == title_match else ""
+
+
+def _audiobookshelf_item_matches_import(*, row: dict[str, object], target_path: Path, metadata: EpubMetadata) -> bool:
+    return bool(_audiobookshelf_item_import_match_kind(row=row, target_path=target_path, metadata=metadata))
 
 
 def _find_audiobookshelf_imported_item(*, target_path: Path, metadata: EpubMetadata) -> dict[str, object]:
@@ -9330,7 +9365,8 @@ def _find_audiobookshelf_imported_item(*, target_path: Path, metadata: EpubMetad
         row = dict(raw_row)
         if str(row.get("mediaType") or "") != "book":
             continue
-        if _audiobookshelf_item_matches_import(row=row, target_path=target_path, metadata=metadata):
+        match_kind = _audiobookshelf_item_import_match_kind(row=row, target_path=target_path, metadata=metadata)
+        if match_kind:
             if not _audiobookshelf_item_has_audio(row):
                 continue
             media = _audiobookshelf_item_media(row)
@@ -9342,6 +9378,7 @@ def _find_audiobookshelf_imported_item(*, target_path: Path, metadata: EpubMetad
                 "status": "item_found",
                 "library_item_id": str(row.get("id") or "").strip(),
                 "media_item_id": media_id,
+                "match_kind": match_kind,
                 "existing_share": {
                     "id": str(share.get("id") or "").strip(),
                     "slug": str(share.get("slug") or "").strip(),
@@ -9403,6 +9440,7 @@ def _create_or_reuse_audiobookshelf_public_share(
             }
         existing_share = dict(item.get("existing_share") or {})
         existing_slug = str(existing_share.get("slug") or "").strip()
+        target_path_sha256 = _sha256_bytes(str(target_path).encode("utf-8"))
         if existing_slug:
             return {
                 "status": "public_share_ready",
@@ -9410,6 +9448,8 @@ def _create_or_reuse_audiobookshelf_public_share(
                 "library_item_id_sha256": _sha256_bytes(str(item.get("library_item_id") or "").encode("utf-8")),
                 "media_item_id_sha256": _sha256_bytes(str(item.get("media_item_id") or "").encode("utf-8")),
                 "slug_sha256": _sha256_bytes(existing_slug.encode("utf-8")),
+                "audiobookshelf_target_path_sha256": target_path_sha256,
+                "audiobookshelf_item_match_kind": str(item.get("match_kind") or "").strip(),
                 "absolute_url": _audiobookshelf_public_share_url(existing_slug),
                 "expires_at": existing_share.get("expires_at") or "",
                 "is_downloadable": bool(existing_share.get("is_downloadable")),
@@ -9436,6 +9476,8 @@ def _create_or_reuse_audiobookshelf_public_share(
                     "library_item_id_sha256": _sha256_bytes(str(item.get("library_item_id") or "").encode("utf-8")),
                     "media_item_id_sha256": _sha256_bytes(str(item.get("media_item_id") or "").encode("utf-8")),
                     "slug_sha256": _sha256_bytes(existing_slug.encode("utf-8")),
+                    "audiobookshelf_target_path_sha256": target_path_sha256,
+                    "audiobookshelf_item_match_kind": str(item.get("match_kind") or "").strip(),
                     "absolute_url": _audiobookshelf_public_share_url(existing_slug),
                     "expires_at": existing_share.get("expires_at") or "",
                     "is_downloadable": bool(existing_share.get("is_downloadable")),
@@ -9452,6 +9494,8 @@ def _create_or_reuse_audiobookshelf_public_share(
             "media_item_id_sha256": _sha256_bytes(str(item.get("media_item_id") or "").encode("utf-8")),
             "share_id_sha256": _sha256_bytes(str(created.get("id") or "").encode("utf-8")) if created.get("id") else "",
             "slug_sha256": _sha256_bytes(created_slug.encode("utf-8")),
+            "audiobookshelf_target_path_sha256": target_path_sha256,
+            "audiobookshelf_item_match_kind": str(item.get("match_kind") or "").strip(),
             "absolute_url": _audiobookshelf_public_share_url(created_slug),
             "expires_at": str(created.get("expiresAt") or "").strip(),
             "is_downloadable": bool(created.get("isDownloadable")),

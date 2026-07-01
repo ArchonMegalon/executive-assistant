@@ -44,7 +44,7 @@
           "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
           "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
           "present": true,
-          "source_fresh_to_current_source": true,
+          "source_fresh_to_current_source": false,
           "source_git_head": "74f9ca91b6025d3da200104ed099f9bede1e5abb",
           "source_state_fingerprint": "360c9ce17420011126a347026eee16108f300a0c24d39f01109619bf85a19479",
           "status": "ready_real_world_acceptance_evidence"
@@ -119,16 +119,16 @@
         ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
         ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
       ],
-      "claim_boundary": "does_not_prove_the_broader_executive_assistant_goal_until_other_real_world_acceptance_lenses_clear",
+      "claim_boundary": "does_not_prove_assistant_grade_proactive_ooda_until_a_real_approval_outcome_is_captured",
       "evidence_kind": "approval_outcome",
       "key": "proactive_ooda_packet_acceptance",
       "lens": "decide",
-      "next_action": "maintain_proactive_ooda_gold_acceptance_evidence",
-      "next_action_form_href": "/app/today",
-      "next_action_form_label": "Open Today",
+      "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
+      "next_action_form_href": "/admin/proactive-ooda/approval",
+      "next_action_form_label": "Open approval capture",
       "next_action_form_method": "get",
-      "next_action_href": "/app/today",
-      "next_action_label": "Open Today",
+      "next_action_href": "/admin/proactive-ooda/approval",
+      "next_action_label": "Open approval capture",
       "next_action_method": "get",
       "required_next_receipt": "real proactive OODA packet accepted with action-required-only routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome",
       "source_receipts": [
@@ -137,21 +137,21 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "74f9ca91b6025d3da200104ed099f9bede1e5abb",
-          "source_state_fingerprint": "360c9ce17420011126a347026eee16108f300a0c24d39f01109619bf85a19479",
-          "status": "pass"
+          "source_git_head": "81c23d58c5aa16ab1f61d40c3b0e400aec2cd7fb",
+          "source_state_fingerprint": "20954765b2c87bafd9c4be79d1b4003eccea4ad0c3174b9387cc8f569e7d1de7",
+          "status": "blocked_operator_runtime_posture"
         },
         {
           "contract_name": "ea.proactive_ooda_operator_status.v1",
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "74f9ca91b6025d3da200104ed099f9bede1e5abb",
-          "source_state_fingerprint": "360c9ce17420011126a347026eee16108f300a0c24d39f01109619bf85a19479",
-          "status": "ready_with_live_receipt"
+          "source_git_head": "81c23d58c5aa16ab1f61d40c3b0e400aec2cd7fb",
+          "source_state_fingerprint": "20954765b2c87bafd9c4be79d1b4003eccea4ad0c3174b9387cc8f569e7d1de7",
+          "status": "blocked_delivery_route"
         }
       ],
-      "status": "satisfied",
+      "status": "pending_real_world_evidence",
       "title": "Proactive OODA packet approval outcome"
     },
     {
@@ -198,7 +198,7 @@
           "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
           "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
           "present": true,
-          "source_fresh_to_current_source": true,
+          "source_fresh_to_current_source": false,
           "source_git_head": "74f9ca91b6025d3da200104ed099f9bede1e5abb",
           "source_state_fingerprint": "360c9ce17420011126a347026eee16108f300a0c24d39f01109619bf85a19479",
           "status": "ready_real_world_acceptance_evidence"
@@ -260,7 +260,7 @@
           "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
           "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
           "present": true,
-          "source_fresh_to_current_source": true,
+          "source_fresh_to_current_source": false,
           "source_git_head": "74f9ca91b6025d3da200104ed099f9bede1e5abb",
           "source_state_fingerprint": "360c9ce17420011126a347026eee16108f300a0c24d39f01109619bf85a19479",
           "status": "ready_real_world_acceptance_evidence"
@@ -322,7 +322,7 @@
           "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
           "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
           "present": true,
-          "source_fresh_to_current_source": true,
+          "source_fresh_to_current_source": false,
           "source_git_head": "74f9ca91b6025d3da200104ed099f9bede1e5abb",
           "source_state_fingerprint": "360c9ce17420011126a347026eee16108f300a0c24d39f01109619bf85a19479",
           "status": "ready_real_world_acceptance_evidence"
@@ -521,39 +521,6 @@
       "title": "Telegram audiobook live delivery receipt"
     },
     {
-      "action_context": {
-        "attempted_playback_count": 1,
-        "callback_tokens_exposed": false,
-        "delivery_policy": "queue_only",
-        "failed_playback_count": 1,
-        "first_failure_reason": "play_failed",
-        "instruction": "Repair the WhatsApp/Audiobookshelf public-share playback route, then rerun the WhatsApp audiobook playback verifier.",
-        "kind": "public_share_playback_failure",
-        "media_error": true,
-        "media_error_code": 4,
-        "next_action_form_href": "/integrations/whatsapp",
-        "next_action_form_label": "Open WhatsApp",
-        "next_action_form_method": "get",
-        "non_action_progress_push_allowed": false,
-        "public_share_host": "audiobookshelf.girschele.com",
-        "raw_chat_ids_exposed": false,
-        "raw_private_context_exposed": false,
-        "raw_public_share_url_exposed": false,
-        "raw_secret_exposed": false,
-        "raw_token_exposed": false,
-        "raw_track_url_exposed": false,
-        "raw_voice_ids_exposed": false,
-        "repair_commands": [
-          "PYTHONPATH=ea python3 ea/scripts/verify_whatsapp_audiobook_public_share_playback.py",
-          "PYTHONPATH=ea python3 ea/scripts/materialize_whatsapp_audiobook_operator_proof_bundle.py",
-          "python3 scripts/materialize_continuous_improvement_goal_posture.py",
-          "python3 scripts/verify_continuous_improvement_goal_posture.py --pretty"
-        ],
-        "telegram_push_allowed": false,
-        "track_content_type": "text/html",
-        "track_response_status": 500,
-        "user_action_required": false
-      },
       "capture_surfaces": [
         ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
         ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json",
@@ -577,28 +544,28 @@
           "contract_name": "ea.whatsapp_audiobook_live_delivery_receipt.v1",
           "path": ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "1317ea9b91396170a4e900f7de9aa86e31c12fe1",
-          "source_state_fingerprint": "49b8df96cf969f2e6df60162a6baddf2c2efbbd855277db6d026a105fec59b30",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "81c23d58c5aa16ab1f61d40c3b0e400aec2cd7fb",
+          "source_state_fingerprint": "16d88285f366ea98c23a422c1c29ebbea6450d3975b25e10a6199a04b81573d0",
           "status": "blocked"
         },
         {
           "contract_name": "ea.whatsapp_audiobook_operator_proof_bundle.v1",
           "path": ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "1317ea9b91396170a4e900f7de9aa86e31c12fe1",
-          "source_state_fingerprint": "49b8df96cf969f2e6df60162a6baddf2c2efbbd855277db6d026a105fec59b30",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "81c23d58c5aa16ab1f61d40c3b0e400aec2cd7fb",
+          "source_state_fingerprint": "16d88285f366ea98c23a422c1c29ebbea6450d3975b25e10a6199a04b81573d0",
           "status": "blocked"
         },
         {
           "contract_name": "ea.whatsapp_audiobook_public_share_playback_e2e.v1",
           "path": ".codex-studio/published/whatsapp_audiobook_public_share_playback.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "c1fde7bd052936ed23a433c89964cec04059d876",
-          "source_state_fingerprint": "51355e969c7ffa9e0db2870d97ba6de20619f3ebbfdabffa77be050c48e04d6a",
-          "status": "failed"
+          "source_fresh_to_current_source": true,
+          "source_git_head": "81c23d58c5aa16ab1f61d40c3b0e400aec2cd7fb",
+          "source_state_fingerprint": "16d88285f366ea98c23a422c1c29ebbea6450d3975b25e10a6199a04b81573d0",
+          "status": "waiting"
         }
       ],
       "status": "pending_real_world_evidence",
@@ -618,7 +585,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-07-01T08:52:52Z",
+  "generated_at": "2026-07-01T09:34:59Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -798,33 +765,33 @@
               "contract_name": "ea.whatsapp_audiobook_operator_proof_bundle.v1",
               "path": ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json",
               "present": true,
-              "source_fresh_to_current_source": false,
-              "source_git_head": "1317ea9b91396170a4e900f7de9aa86e31c12fe1",
-              "source_state_fingerprint": "49b8df96cf969f2e6df60162a6baddf2c2efbbd855277db6d026a105fec59b30",
+              "source_fresh_to_current_source": true,
+              "source_git_head": "81c23d58c5aa16ab1f61d40c3b0e400aec2cd7fb",
+              "source_state_fingerprint": "16d88285f366ea98c23a422c1c29ebbea6450d3975b25e10a6199a04b81573d0",
               "status": "blocked"
             },
             {
               "contract_name": "ea.whatsapp_audiobook_live_delivery_receipt.v1",
               "path": ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
               "present": true,
-              "source_fresh_to_current_source": false,
-              "source_git_head": "1317ea9b91396170a4e900f7de9aa86e31c12fe1",
-              "source_state_fingerprint": "49b8df96cf969f2e6df60162a6baddf2c2efbbd855277db6d026a105fec59b30",
+              "source_fresh_to_current_source": true,
+              "source_git_head": "81c23d58c5aa16ab1f61d40c3b0e400aec2cd7fb",
+              "source_state_fingerprint": "16d88285f366ea98c23a422c1c29ebbea6450d3975b25e10a6199a04b81573d0",
               "status": "blocked"
             },
             {
               "contract_name": "ea.whatsapp_audiobook_public_share_playback_e2e.v1",
               "path": ".codex-studio/published/whatsapp_audiobook_public_share_playback.generated.json",
               "present": true,
-              "source_fresh_to_current_source": false,
-              "source_git_head": "c1fde7bd052936ed23a433c89964cec04059d876",
-              "source_state_fingerprint": "51355e969c7ffa9e0db2870d97ba6de20619f3ebbfdabffa77be050c48e04d6a",
-              "status": "failed"
+              "source_fresh_to_current_source": true,
+              "source_git_head": "81c23d58c5aa16ab1f61d40c3b0e400aec2cd7fb",
+              "source_state_fingerprint": "16d88285f366ea98c23a422c1c29ebbea6450d3975b25e10a6199a04b81573d0",
+              "status": "waiting"
             }
           ],
           "status": "blocked",
           "status_class": "blocking",
-          "summary": "intake pass; bundle blocked; live blocked; share failed; voice waiting",
+          "summary": "intake pass; bundle blocked; live blocked; share waiting; voice waiting",
           "title": "WhatsApp audiobook delivery"
         }
       ],
@@ -1051,19 +1018,13 @@
       "user_action_required": true
     },
     {
-      "attempted_playback_count": 1,
       "callback_tokens_exposed": false,
       "delivery_policy": "queue_only",
       "evidence_kind": "live_delivery_receipt",
-      "failed_playback_count": 1,
-      "first_failure_reason": "play_failed",
-      "instruction": "Repair the WhatsApp/Audiobookshelf public-share playback route, then rerun the WhatsApp audiobook playback verifier.",
       "interruption_budget": "none",
       "irreversible_actions_consent_gated": true,
       "key": "whatsapp_audiobook_live_delivery",
       "lens": "deliver",
-      "media_error": true,
-      "media_error_code": 4,
       "next_action": "capture_passing_whatsapp_audiobook_live_delivery_receipt",
       "next_action_form_href": "/integrations/whatsapp",
       "next_action_form_label": "Open WhatsApp",
@@ -1072,26 +1033,15 @@
       "next_action_label": "Open WhatsApp",
       "next_action_method": "get",
       "non_action_progress_push_allowed": false,
-      "public_share_host": "audiobookshelf.girschele.com",
       "quiet_hours_respected": true,
       "raw_chat_ids_exposed": false,
       "raw_private_context_exposed": false,
-      "raw_public_share_url_exposed": false,
       "raw_secret_exposed": false,
       "raw_token_exposed": false,
-      "raw_track_url_exposed": false,
       "raw_voice_ids_exposed": false,
-      "repair_commands": [
-        "PYTHONPATH=ea python3 ea/scripts/verify_whatsapp_audiobook_public_share_playback.py",
-        "PYTHONPATH=ea python3 ea/scripts/materialize_whatsapp_audiobook_operator_proof_bundle.py",
-        "python3 scripts/materialize_continuous_improvement_goal_posture.py",
-        "python3 scripts/verify_continuous_improvement_goal_posture.py --pretty"
-      ],
       "required_next_receipt": "passing WhatsApp audiobook live delivery receipt",
       "telegram_push_allowed": false,
       "title": "WhatsApp audiobook live delivery receipt",
-      "track_content_type": "text/html",
-      "track_response_status": 500,
       "user_action_required": false
     },
     {
@@ -1120,6 +1070,33 @@
       "telegram_push_allowed": false,
       "title": "Fresh-host Teable recovery drill",
       "user_action_required": false
+    },
+    {
+      "callback_tokens_exposed": false,
+      "delivery_policy": "queue_only",
+      "evidence_kind": "approval_outcome",
+      "interruption_budget": "none",
+      "irreversible_actions_consent_gated": true,
+      "key": "proactive_ooda_packet_acceptance",
+      "lens": "decide",
+      "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
+      "next_action_form_href": "/admin/proactive-ooda/approval",
+      "next_action_form_label": "Open approval capture",
+      "next_action_form_method": "get",
+      "next_action_href": "/admin/proactive-ooda/approval",
+      "next_action_label": "Open approval capture",
+      "next_action_method": "get",
+      "non_action_progress_push_allowed": false,
+      "quiet_hours_respected": true,
+      "raw_chat_ids_exposed": false,
+      "raw_private_context_exposed": false,
+      "raw_secret_exposed": false,
+      "raw_token_exposed": false,
+      "raw_voice_ids_exposed": false,
+      "required_next_receipt": "real proactive OODA packet accepted with action-required-only routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome",
+      "telegram_push_allowed": false,
+      "title": "Proactive OODA packet approval outcome",
+      "user_action_required": false
     }
   ],
   "operator_delivery_policy": {
@@ -1136,6 +1113,7 @@
   "real_use_claim_allowed": false,
   "required_next_receipts": [
     "real weekly signal-to-decision review acceptance receipt",
+    "real proactive OODA packet accepted with action-required-only routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome",
     "fresh-host Teable recovery drill receipt mirrored into the repo",
     "consented Manfred STT/TTS realtime conversation proof",
     "passing Telegram audiobook live delivery receipt",
@@ -1152,6 +1130,6 @@
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
   "source_git_head": "81c23d58c5aa16ab1f61d40c3b0e400aec2cd7fb",
-  "source_state_fingerprint": "360c9ce17420011126a347026eee16108f300a0c24d39f01109619bf85a19479",
+  "source_state_fingerprint": "20954765b2c87bafd9c4be79d1b4003eccea4ad0c3174b9387cc8f569e7d1de7",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }
