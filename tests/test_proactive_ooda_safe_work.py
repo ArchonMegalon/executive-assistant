@@ -652,6 +652,65 @@ def test_build_safe_work_result_blocks_provider_draft_when_candidate_misses_loca
     assert "draft_not_created" in issue_codes
 
 
+def test_build_safe_work_result_infers_locality_context_from_request_text_without_memory_context() -> None:
+    packet = _packet_with_cart_work()
+    request_text = (
+        "Suche mir einen Rauchfangkehrer in 1200 Wien fuer ein Gutachten, ob ich meinen "
+        "Zimmerkamin als Abluftrohr eines Klimageraets verwenden kann."
+    )
+    packet["stage"]["payload"] = {  # type: ignore[index]
+        "kind": "research_packet",
+        "summary": "One researched inquiry draft saved to Gmail for review.",
+        "work_type": "draft",
+        "draft_mode": "research_backed_inquiry",
+        "draft_request_text": request_text,
+        "research_query": "Rauchfangkehrer Gutachten Zimmerkamin Abluftrohr",
+        "search_queries": ["Rauchfangkehrer Gutachten Zimmerkamin Abluftrohr"],
+        "selection_criteria": ["contact details visible", "reachability", "fit to request"],
+        "locale": "de",
+        "auto_execute_action": "save_gmail_draft",
+        "post_approval_action": "save_gmail_draft",
+        "candidate_items": [
+            {
+                "label": "Rauchfangkehrermeister Salzburg Kontakt",
+                "url": "https://rauchfangkehrer-salzburg.example.at/kontakt",
+                "snippet": "Rauchfangkehrer in Salzburg fuer Befundung und Gutachten.",
+                "reachable": True,
+                "contact_email": "office@rauchfangkehrer-salzburg.example.at",
+            }
+        ],
+    }
+    packet["safe_work_order"]["work_type"] = "draft"  # type: ignore[index]
+    packet["safe_work_order"]["input_contract"] = {  # type: ignore[index]
+        "draft_mode": "research_backed_inquiry",
+        "draft_request_text": request_text,
+        "research_query": "Rauchfangkehrer Gutachten Zimmerkamin Abluftrohr",
+        "search_queries": ["Rauchfangkehrer Gutachten Zimmerkamin Abluftrohr"],
+        "selection_criteria": ["contact details visible", "reachability", "fit to request"],
+        "auto_execute_action": "save_gmail_draft",
+        "post_approval_action": "save_gmail_draft",
+        "expected_artifacts": ["shortlist", "draft_text"],
+        "private_payload_available": True,
+    }
+
+    result = build_safe_work_result(packet)
+
+    assert result["status"] == "blocked_needs_research_input"
+    assert result["recommended_option_or_draft"] == {}
+    assert result["comparison_table"][0]["recommended"] is False
+    assert "missing stored locality context" in result["comparison_table"][0]["constraint_violations"]
+    context_fit = result["execution_receipt"]["context_fit_receipt"]
+    assert context_fit["location_context_present"] is True
+    assert context_fit["locality_context_applied"] is True
+    assert context_fit["location_phrase_count"] == 1
+    assert context_fit["city_term_count"] == 1
+    assert context_fit["postal_code_count"] == 1
+    assert context_fit["raw_location_context_stored"] is False
+    serialized_context_fit = json.dumps(context_fit, sort_keys=True)
+    assert "1200" not in serialized_context_fit
+    assert "Wien" not in serialized_context_fit
+
+
 def test_build_safe_work_result_blocks_flat_provider_search_without_locality_or_source_scope(monkeypatch) -> None:
     packet = _packet_with_cart_work()
     request_text = "suche mir einen Rauchfangkehrer fuer ein Gutachten"
@@ -1169,6 +1228,34 @@ def test_search_queries_expand_with_recipient_location_context() -> None:
     assert queries[0] == "rauchfangkehrer 1200 Wien"
     assert "rauchfangkehrer Wien" in queries
     assert "rauchfangkehrer" in queries
+
+
+def test_search_queries_expand_with_locality_from_request_text_without_recipient_context() -> None:
+    queries = _search_queries(
+        input_contract={
+            "research_query": "rauchfangkehrer",
+            "draft_request_text": "Suche mir einen Rauchfangkehrer in 1200 Wien fuer ein Gutachten.",
+        },
+        stage_payload={},
+        limit=4,
+    )
+
+    assert queries[0] == "rauchfangkehrer 1200 Wien"
+    assert "rauchfangkehrer Wien" in queries
+    assert "rauchfangkehrer" in queries
+
+
+def test_search_queries_do_not_treat_dates_or_power_values_as_locality() -> None:
+    queries = _search_queries(
+        input_contract={
+            "research_query": "klimageraet abluft",
+            "draft_request_text": "Bitte pruefe ein Klimageraet mit 2000 Watt bis 2026 Juli.",
+        },
+        stage_payload={},
+        limit=4,
+    )
+
+    assert queries == ("klimageraet abluft", "Bitte pruefe ein Klimageraet mit 2000 Watt bis 2026 Juli.")
 
 
 def test_build_safe_work_result_records_redacted_context_fit_for_local_provider_search() -> None:

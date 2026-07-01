@@ -8,7 +8,7 @@
       "hash_verified": 423,
       "mode": "0o600",
       "path_recorded": true,
-      "path_sha256": "a01b0d359e4c16351dcc508b912419b12508b1e5140989a275cd78ba73d719a0",
+      "path_sha256": "967f3cd9f9b972d6d603af5a388e087bcbc42a7a70db8bb9282ca21907d45a08",
       "restored": 423,
       "scope": "ea_root"
     },
@@ -18,7 +18,7 @@
       "hash_verified": 100,
       "mode": "0o600",
       "path_recorded": true,
-      "path_sha256": "e3f9475d6e0a9b958c5f5f3a8a87a830a72f42d0a004cf0333b06e6c0838a929",
+      "path_sha256": "fd901bec0311c30578812ed86c6d1cc8c3f2ebf16a367df63eb7276a5afe728e",
       "restored": 100,
       "scope": "ea_root_local"
     },
@@ -28,13 +28,13 @@
       "hash_verified": 9,
       "mode": "0o600",
       "path_recorded": true,
-      "path_sha256": "60bb4d2e232e97c8bf09a183ec69a3304e01a394f04647d7492dbba81ecc80fe",
+      "path_sha256": "8711948077f3acad0378e1e5290eb21473e0db83368e3c399cdb0213425935c0",
       "restored": 9,
       "scope": "ea_service"
     }
   ],
   "fresh_host_api_key_source": "process_env",
-  "generated_at": "2026-07-01T15:17:02Z",
+  "generated_at": "2026-07-01T15:36:22Z",
   "generated_by": "scripts/materialize_teable_env_recovery_proof.py",
   "head_semantics": "source_state",
   "host_profile": "ea-prod",
@@ -53,37 +53,37 @@
     "modes": [
       {
         "mode": "0o600",
-        "path_sha256": "8da307e8975352c7eb2316e11ce8ec3116f5b0829ceb05089981283a49cc5474"
+        "path_sha256": "0619ae06f769e008a2c1632b7bacc23f59a4ef4e7780d6457089a129069fedc6"
       },
       {
         "mode": "0o600",
-        "path_sha256": "c20e16e85e872b4434b11fb4f381a9c54ff38329cb287ddcd6acfea75bb56515"
+        "path_sha256": "e69a111abf15aa3e1de56c18ff846f1a789f4607f8383156d17f5991899f52fd"
       },
       {
         "mode": "0o600",
-        "path_sha256": "9e3ec6a776c2aef90194c793c582404af6f7b32f37edf8d4eee30dfc394ceb24"
+        "path_sha256": "78ab936daaa9378e16b25360bcd1767c1eb44fe67e33adc8775ecb346b09a4cb"
       },
       {
         "mode": "0o600",
-        "path_sha256": "e103d959de495dcf55a8a18ecb61cd01c1322a57a198fd9f0a395a032826e3f1"
+        "path_sha256": "0678b65765a2817c187379ebceb90fc4111e840e32b54a236d0fa6c861086b6a"
       },
       {
         "mode": "0o600",
-        "path_sha256": "c8d456c2b959eeaaeb02a8ec2eec5a071d112e968db386f799bd906edd21978c"
+        "path_sha256": "60be8b8cceb27e1c11c3e6fe0b89638674bd1228f3138b9dc80d701558c5f9e0"
       },
       {
         "mode": "0o600",
-        "path_sha256": "6f469d1236071cd75de68d2e36ff0e58804c08a601494403a8b28735579e0530"
+        "path_sha256": "cba2348ba32aecf52c058d7efc5576702d2720e551cdcd0a51b09605f782c6d4"
       }
     ],
     "path_count": 6,
     "path_sha256": [
-      "8da307e8975352c7eb2316e11ce8ec3116f5b0829ceb05089981283a49cc5474",
-      "c20e16e85e872b4434b11fb4f381a9c54ff38329cb287ddcd6acfea75bb56515",
-      "9e3ec6a776c2aef90194c793c582404af6f7b32f37edf8d4eee30dfc394ceb24",
-      "e103d959de495dcf55a8a18ecb61cd01c1322a57a198fd9f0a395a032826e3f1",
-      "c8d456c2b959eeaaeb02a8ec2eec5a071d112e968db386f799bd906edd21978c",
-      "6f469d1236071cd75de68d2e36ff0e58804c08a601494403a8b28735579e0530"
+      "0619ae06f769e008a2c1632b7bacc23f59a4ef4e7780d6457089a129069fedc6",
+      "e69a111abf15aa3e1de56c18ff846f1a789f4607f8383156d17f5991899f52fd",
+      "78ab936daaa9378e16b25360bcd1767c1eb44fe67e33adc8775ecb346b09a4cb",
+      "0678b65765a2817c187379ebceb90fc4111e840e32b54a236d0fa6c861086b6a",
+      "60be8b8cceb27e1c11c3e6fe0b89638674bd1228f3138b9dc80d701558c5f9e0",
+      "cba2348ba32aecf52c058d7efc5576702d2720e551cdcd0a51b09605f782c6d4"
     ],
     "restored": 6
   },
@@ -93,8 +93,8 @@
     "Delete throwaway recovery outputs after verification so the mirrored receipt keeps the proof while the secret material is removed from disk."
   ],
   "secret_values_redacted": true,
-  "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-  "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+  "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+  "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "pass",
   "table_discovery_mode": "discovered_by_name",

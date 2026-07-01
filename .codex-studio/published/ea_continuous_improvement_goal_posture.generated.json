@@ -45,8 +45,8 @@
           "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-          "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+          "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+          "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
           "status": "ready_real_world_acceptance_evidence"
         },
         {
@@ -54,8 +54,8 @@
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-          "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+          "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+          "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
           "status": "ready_for_good_executive_assistant_claim_review"
         }
       ],
@@ -106,8 +106,8 @@
           "path": ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-          "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+          "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+          "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
           "status": "ready_local_packet_pending_operator_acceptance"
         }
       ],
@@ -137,8 +137,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-          "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+          "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+          "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
           "status": "pass"
         },
         {
@@ -146,8 +146,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-          "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+          "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+          "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
           "status": "ready_with_live_receipt"
         }
       ],
@@ -199,8 +199,8 @@
           "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-          "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+          "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+          "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
           "status": "ready_real_world_acceptance_evidence"
         },
         {
@@ -208,8 +208,8 @@
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-          "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+          "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+          "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
           "status": "ready_for_good_executive_assistant_claim_review"
         }
       ],
@@ -261,8 +261,8 @@
           "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-          "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+          "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+          "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
           "status": "ready_real_world_acceptance_evidence"
         },
         {
@@ -270,8 +270,8 @@
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-          "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+          "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+          "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
           "status": "ready_for_good_executive_assistant_claim_review"
         }
       ],
@@ -323,8 +323,8 @@
           "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-          "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+          "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+          "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
           "status": "ready_real_world_acceptance_evidence"
         },
         {
@@ -332,8 +332,8 @@
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-          "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+          "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+          "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
           "status": "ready_for_good_executive_assistant_claim_review"
         }
       ],
@@ -396,8 +396,8 @@
           "path": ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-          "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+          "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+          "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
           "status": "blocked_realtime_prerequisites"
         }
       ],
@@ -465,8 +465,8 @@
           "path": ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-          "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+          "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+          "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
           "status": "blocked"
         },
         {
@@ -474,8 +474,8 @@
           "path": ".codex-studio/published/telegram_audiobook_live_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-          "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+          "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+          "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
           "status": "ready_for_live_epub_delivery_test"
         }
       ],
@@ -530,7 +530,7 @@
             "status": "pending_after_pairing"
           }
         ],
-        "sidecar_qr_age_seconds": 51,
+        "sidecar_qr_age_seconds": 35,
         "sidecar_qr_fresh": true,
         "sidecar_qr_present": true,
         "sidecar_qr_required": true,
@@ -564,8 +564,8 @@
           "path": ".codex-studio/published/whatsapp_web_action_processor_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-          "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+          "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+          "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
           "status": "blocked"
         },
         {
@@ -573,8 +573,8 @@
           "path": ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-          "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+          "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+          "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
           "status": "blocked"
         },
         {
@@ -582,8 +582,8 @@
           "path": ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-          "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+          "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+          "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
           "status": "blocked"
         },
         {
@@ -591,8 +591,8 @@
           "path": ".codex-studio/published/whatsapp_audiobook_public_share_playback.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-          "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+          "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+          "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
           "status": "waiting"
         }
       ],
@@ -613,7 +613,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-07-01T15:19:32Z",
+  "generated_at": "2026-07-01T15:37:41Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -648,8 +648,8 @@
           "path": ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-          "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+          "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+          "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
           "status": "ready_local_packet_pending_operator_acceptance"
         },
         {
@@ -657,8 +657,8 @@
           "path": ".codex-studio/published/pocket_audio_archive_receipt.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-          "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+          "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+          "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
           "status": "pass"
         },
         {
@@ -666,8 +666,8 @@
           "path": ".codex-studio/published/telegram_business_signal_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-          "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+          "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+          "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
           "status": "pass"
         },
         {
@@ -675,8 +675,8 @@
           "path": ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-          "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+          "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+          "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
           "status": "pass"
         }
       ],
@@ -736,8 +736,8 @@
           "path": ".codex-studio/published/ea_office_loop_goal.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-          "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+          "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+          "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
           "status": "ready_local_evidence"
         }
       ],
@@ -777,8 +777,8 @@
               "path": ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
               "present": true,
               "source_fresh_to_current_source": true,
-              "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-              "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+              "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+              "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
               "status": "blocked_realtime_prerequisites"
             }
           ],
@@ -796,8 +796,8 @@
               "path": ".codex-studio/published/telegram_audiobook_live_readiness.generated.json",
               "present": true,
               "source_fresh_to_current_source": true,
-              "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-              "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+              "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+              "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
               "status": "ready_for_live_epub_delivery_test"
             },
             {
@@ -805,8 +805,8 @@
               "path": ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
               "present": true,
               "source_fresh_to_current_source": true,
-              "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-              "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+              "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+              "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
               "status": "blocked"
             }
           ],
@@ -824,8 +824,8 @@
               "path": ".codex-studio/published/whatsapp_web_action_processor_readiness.generated.json",
               "present": true,
               "source_fresh_to_current_source": true,
-              "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-              "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+              "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+              "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
               "status": "blocked"
             },
             {
@@ -833,8 +833,8 @@
               "path": ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json",
               "present": true,
               "source_fresh_to_current_source": true,
-              "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-              "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+              "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+              "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
               "status": "blocked"
             },
             {
@@ -842,8 +842,8 @@
               "path": ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
               "present": true,
               "source_fresh_to_current_source": true,
-              "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-              "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+              "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+              "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
               "status": "blocked"
             },
             {
@@ -851,8 +851,8 @@
               "path": ".codex-studio/published/whatsapp_audiobook_public_share_playback.generated.json",
               "present": true,
               "source_fresh_to_current_source": true,
-              "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-              "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+              "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+              "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
               "status": "waiting"
             }
           ],
@@ -890,8 +890,8 @@
           "path": ".codex-studio/published/teable_env_recovery_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-          "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+          "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+          "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
           "status": "ready_local_audit"
         },
         {
@@ -899,8 +899,8 @@
           "path": ".codex-studio/published/teable_env_recovery_proof.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-          "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+          "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+          "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
           "status": "pass"
         }
       ],
@@ -929,8 +929,8 @@
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-          "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+          "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+          "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
           "status": "ready_for_good_executive_assistant_claim_review"
         }
       ],
@@ -1145,7 +1145,7 @@
           "status": "pending_after_pairing"
         }
       ],
-      "sidecar_qr_age_seconds": 51,
+      "sidecar_qr_age_seconds": 35,
       "sidecar_qr_fresh": true,
       "sidecar_qr_present": true,
       "sidecar_qr_required": true,
@@ -1184,7 +1184,7 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "61be9e0f926b80e1874b917345a73f1737e57e66",
-  "source_state_fingerprint": "a87ed1a7f15f72cd627a55c09adfb445baebb14eb699ce73db67353b8fb6d2de",
+  "source_git_head": "7f3d2eebaf9b6b1c5ddb4ed597db2163a44ff5a3",
+  "source_state_fingerprint": "fbf3a81aca1774c459ba62e206fab76dcbd2f5ac71cc377671ed8449f26e300c",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }

@@ -963,7 +963,11 @@ def _candidate_evaluation_context(
     budget = _mapping_value(_stage_or_input(stage_payload=stage_payload, input_contract=input_contract, key="budget"))
     constraints = _mapping_value(_stage_or_input(stage_payload=stage_payload, input_contract=input_contract, key="constraints"))
     recipient_context = _mapping_value(_stage_or_input(stage_payload=stage_payload, input_contract=input_contract, key="recipient_context"))
-    location_context = _location_context(recipient_context)
+    provider_query_texts = _provider_query_texts(input_contract=input_contract, stage_payload=stage_payload)
+    location_context = _merge_location_context(
+        _location_context(recipient_context),
+        _inferred_location_context_from_texts(provider_query_texts),
+    )
     budget_max = _float_value(
         budget.get("max"),
         budget.get("budget_max"),
@@ -987,7 +991,6 @@ def _candidate_evaluation_context(
         delivery_window=_stage_or_input(stage_payload=stage_payload, input_contract=input_contract, key="delivery_window"),
         constraints=constraints,
     )
-    provider_query_texts = _provider_query_texts(input_contract=input_contract, stage_payload=stage_payload)
     provider_query_terms = _informative_provider_query_terms(provider_query_texts)
     all_text = tuple(dict.fromkeys((*selection_criteria, *comparison_dimensions, *preferences, *requirements)))
     provider_relevance_text = tuple(dict.fromkeys((*all_text, *provider_query_texts)))
@@ -2166,6 +2169,109 @@ def _location_context(recipient_context: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _merge_location_context(*contexts: Mapping[str, Any]) -> dict[str, Any]:
+    merged: dict[str, list[str]] = {
+        "phrases": [],
+        "city_terms": [],
+        "postal_codes": [],
+        "country_codes": [],
+        "country_names": [],
+    }
+    for context in contexts:
+        for key in ("phrases", "city_terms", "postal_codes", "country_names"):
+            merged[key].extend(str(item or "").strip() for item in list(context.get(key) or []) if str(item or "").strip())
+        merged["country_codes"].extend(
+            str(item or "").strip().upper()
+            for item in list(context.get("country_codes") or [])
+            if str(item or "").strip()
+        )
+    return {
+        "phrases": list(dict.fromkeys(merged["phrases"]))[:4],
+        "city_terms": list(dict.fromkeys(merged["city_terms"]))[:3],
+        "postal_codes": list(dict.fromkeys(merged["postal_codes"]))[:3],
+        "country_codes": list(dict.fromkeys(merged["country_codes"]))[:2],
+        "country_names": list(dict.fromkeys(merged["country_names"]))[:2],
+    }
+
+
+def _inferred_location_context_from_texts(texts: Iterable[str]) -> dict[str, Any]:
+    phrases: list[str] = []
+    city_terms: list[str] = []
+    postal_codes: list[str] = []
+    country_codes: list[str] = []
+    country_names: list[str] = []
+    for raw_text in texts:
+        text = " ".join(str(raw_text or "").split()).strip()
+        if not text:
+            continue
+        folded = _ascii_fold_text(text)
+        for match in re.finditer(r"\b(\d{4,5})\s+([A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß.\-]{2,})\b", text):
+            postal_code = str(match.group(1) or "").strip()
+            city = str(match.group(2) or "").strip(" .,-")
+            if (
+                not postal_code
+                or not city
+                or _inferred_location_city_is_unit(city)
+                or not _inferred_location_phrase_is_plausible(text=text, match_start=match.start(), city=city)
+            ):
+                continue
+            phrase = f"{postal_code} {city}"
+            phrases.append(phrase)
+            postal_codes.append(postal_code)
+            city_terms.append(city)
+        if re.search(r"\bwien\b", folded):
+            if "Wien" not in city_terms:
+                city_terms.append("Wien")
+        if re.search(r"\bvienna\b", folded):
+            if "Vienna" not in city_terms:
+                city_terms.append("Vienna")
+        if re.search(r"\b(?:wien|vienna)\b", folded):
+            if "AT" not in country_codes:
+                country_codes.append("AT")
+            if "Austria" not in country_names:
+                country_names.append("Austria")
+        if re.search(r"\b(?:austria|oesterreich|osterreich)\b", folded):
+            if "AT" not in country_codes:
+                country_codes.append("AT")
+            if "Austria" not in country_names:
+                country_names.append("Austria")
+    return {
+        "phrases": list(dict.fromkeys(phrases))[:4],
+        "city_terms": list(dict.fromkeys(city_terms))[:3],
+        "postal_codes": list(dict.fromkeys(postal_codes))[:3],
+        "country_codes": list(dict.fromkeys(country_codes))[:2],
+        "country_names": list(dict.fromkeys(country_names))[:2],
+    }
+
+
+def _inferred_location_city_is_unit(value: str) -> bool:
+    normalized = _ascii_fold_text(str(value or "")).strip().strip(".")
+    return normalized in {
+        "eur",
+        "euro",
+        "kw",
+        "kwh",
+        "mah",
+        "meter",
+        "min",
+        "mins",
+        "sek",
+        "sec",
+        "std",
+        "tage",
+        "volt",
+        "watt",
+    }
+
+
+def _inferred_location_phrase_is_plausible(*, text: str, match_start: int, city: str) -> bool:
+    normalized_city = _ascii_fold_text(str(city or "")).strip()
+    if normalized_city in {"wien", "vienna"}:
+        return True
+    prefix = _ascii_fold_text(str(text or "")[: max(int(match_start or 0), 0)])
+    return bool(re.search(r"(?:\bin|\bnear|\bbei|\bum|\baround|adresse|address)\s*$", prefix))
+
+
 def _location_query_variants(location_context: Mapping[str, Any]) -> tuple[str, ...]:
     variants: list[str] = []
     for phrase in list(location_context.get("phrases") or []):
@@ -2860,7 +2966,12 @@ def _search_queries(
             if text:
                 base_queries.append(text)
     hosts = _target_hosts(_stage_or_input(stage_payload=stage_payload, input_contract=input_contract, key="target_sites"))
-    location_variants = _location_query_variants(_location_context(_mapping_value(_stage_or_input(stage_payload=stage_payload, input_contract=input_contract, key="recipient_context"))))
+    explicit_location_context = _location_context(
+        _mapping_value(_stage_or_input(stage_payload=stage_payload, input_contract=input_contract, key="recipient_context"))
+    )
+    location_variants = _location_query_variants(
+        _merge_location_context(explicit_location_context, _inferred_location_context_from_texts(base_queries))
+    )
     queries: list[str] = []
     for query in base_queries:
         if not query:
