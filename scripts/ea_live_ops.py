@@ -53,6 +53,7 @@ _load_dotenv_if_present(ROOT / ".env")
 import check_whatsapp_web_session_readiness as readiness_script  # noqa: E402
 import materialize_google_workspace_oauth_readiness as google_workspace_oauth_readiness  # noqa: E402
 import materialize_whatsapp_web_action_processor_readiness as whatsapp_action_processor_readiness  # noqa: E402
+import verify_pocket_audio_archive as pocket_audio_archive_verifier  # noqa: E402
 from app.container import build_container  # noqa: E402
 from app.services import whatsapp_web_session_delivery  # noqa: E402
 from app.services.audiobook_epub_pipeline import audiobook_runtime_preflight  # noqa: E402
@@ -418,6 +419,63 @@ def _missing_required_event_types(rows: list[Mapping[str, object]], required_eve
     return [event_type for event_type in required_event_types if event_type.lower() not in observed]
 
 
+def _pocket_audio_archive_evidence() -> dict[str, object]:
+    archive_root = Path(
+        _env("EA_POCKET_AUDIO_ARCHIVE_ROOT", str(pocket_audio_archive_verifier.DEFAULT_ARCHIVE_ROOT))
+        or pocket_audio_archive_verifier.DEFAULT_ARCHIVE_ROOT.as_posix()
+    ).expanduser()
+    container = _env("EA_POSTGRES_CONTAINER", "ea-db") or "ea-db"
+    user = _env("POSTGRES_USER", "postgres") or "postgres"
+    database = _env("POSTGRES_DB", "ea_smoke_runtime") or "ea_smoke_runtime"
+    try:
+        index_rows = pocket_audio_archive_verifier.load_index_rows(
+            container=container,
+            user=user,
+            database=database,
+        )
+        completion_rows = pocket_audio_archive_verifier.load_completion_rows(
+            container=container,
+            user=user,
+            database=database,
+        )
+        receipt = pocket_audio_archive_verifier.build_receipt(
+            archive_root=archive_root,
+            index_rows=index_rows,
+            completion_rows=completion_rows,
+        )
+    except Exception as exc:
+        return {
+            "checked": False,
+            "status": "probe_failed",
+            "transcript_ingest_ready": False,
+            "evidence_mode": "",
+            "latest_backfill_event_type": "",
+            "latest_completion_event_type": "",
+            "blocking_reason": _compact_text(str(exc), limit=200) or type(exc).__name__,
+            "next_action": "sync_pocket_ai_audio_transcripts",
+        }
+    latest_backfill = dict(receipt.get("latest_backfill") or {})
+    latest_completion = dict(receipt.get("latest_completion") or {})
+    database_index = dict(receipt.get("database_index") or {})
+    failures = [str(item or "").strip() for item in list(receipt.get("failures") or []) if str(item or "").strip()]
+    return {
+        "checked": True,
+        "status": str(receipt.get("status") or "").strip(),
+        "transcript_ingest_ready": bool(receipt.get("transcript_ingest_ready")),
+        "evidence_mode": str(receipt.get("evidence_mode") or "").strip(),
+        "latest_backfill_event_type": str(latest_backfill.get("event_type") or "").strip(),
+        "latest_completion_event_type": str(latest_completion.get("event_type") or "").strip(),
+        "latest_backfill_created_at": str(latest_backfill.get("created_at") or "").strip(),
+        "latest_completion_created_at": str(latest_completion.get("created_at") or "").strip(),
+        "archived_total": int(latest_backfill.get("archived_total") or 0),
+        "dismissed_total": int(latest_backfill.get("archive_dismissed_total") or 0),
+        "failed_total": int(latest_backfill.get("archive_failed_total") or 0),
+        "distinct_recording_total": int(database_index.get("latest_distinct_recording_total") or 0),
+        "blocking_reason": failures[0] if failures else "",
+        "next_action": str(receipt.get("next_action") or "").strip() or "sync_pocket_ai_audio_transcripts",
+    }
+
+
 def _proactive_source_coverage_report(
     *,
     principal_id: str,
@@ -429,6 +487,7 @@ def _proactive_source_coverage_report(
     flat_search_enabled: bool | None = None,
     excluded_event_types: list[str] | None = None,
     excluded_event_type_counts: Mapping[str, object] | None = None,
+    pocket_archive_evidence: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     repository = str(observation_repository or "").strip()
     row_count = len(rows)
@@ -452,15 +511,43 @@ def _proactive_source_coverage_report(
         required_event_type_observed = not missing_required_event_types
         observed = bool(matched) and required_event_type_observed
         status = "observed" if observed else "missing_required_event_type" if matched and missing_required_event_types else "not_observed"
+        evidence_event_types = _event_types(matched)
+        record_count = len(matched)
+        latest_observed_at = _latest_observed_at(matched)
+        if (
+            lane_key == "pocket_ai_audio_transcripts"
+            and not observed
+            and bool(dict(pocket_archive_evidence or {}).get("transcript_ingest_ready"))
+        ):
+            archive_evidence = dict(pocket_archive_evidence or {})
+            observed = True
+            status = "observed_via_archive_evidence"
+            required_event_type_observed = True
+            missing_required_event_types = []
+            supplemental_event_types = [
+                str(archive_evidence.get("latest_backfill_event_type") or "").strip(),
+                str(archive_evidence.get("latest_completion_event_type") or "").strip(),
+            ]
+            evidence_event_types = sorted({item for item in supplemental_event_types if item})[:8]
+            record_count = max(
+                len(matched),
+                int(archive_evidence.get("distinct_recording_total") or 0),
+                int(archive_evidence.get("archived_total") or 0),
+            )
+            latest_observed_at = (
+                str(archive_evidence.get("latest_backfill_created_at") or "").strip()
+                or str(archive_evidence.get("latest_completion_created_at") or "").strip()
+                or latest_observed_at
+            )
         lanes.append(
             {
                 "key": lane_key,
                 "label": str(lane["label"]),
                 "status": status,
                 "observed": observed,
-                "record_count": len(matched),
-                "latest_observed_at": _latest_observed_at(matched),
-                "evidence_event_types": _event_types(matched),
+                "record_count": record_count,
+                "latest_observed_at": latest_observed_at,
+                "evidence_event_types": evidence_event_types,
                 "required_event_types": list(required_event_types),
                 "required_event_type_observed": required_event_type_observed,
                 "missing_required_event_types": missing_required_event_types,
@@ -3482,6 +3569,9 @@ def probe_proactive_source_coverage(
         return report
 
     rows = [dict(row) for row in list(payload.get("rows") or []) if isinstance(row, Mapping)]
+    pocket_archive_evidence: dict[str, object] = {}
+    if not any(_proactive_source_lane_matches(row, "pocket_ai_audio_transcripts") for row in rows):
+        pocket_archive_evidence = _pocket_audio_archive_evidence()
     report = _proactive_source_coverage_report(
         principal_id=str(principal_id or "").strip(),
         rows=rows,
@@ -3491,6 +3581,7 @@ def probe_proactive_source_coverage(
         flat_search_enabled=bool(payload.get("flat_search_enabled")) if "flat_search_enabled" in payload else None,
         excluded_event_types=[str(item) for item in list(payload.get("excluded_event_types") or [])],
         excluded_event_type_counts=dict(payload.get("excluded_event_type_counts") or {}),
+        pocket_archive_evidence=pocket_archive_evidence,
     )
     missing_next_action = next(
         (str(dict(lane).get("next_action") or "").strip() for lane in list(report.get("lanes") or []) if not bool(dict(lane).get("observed"))),

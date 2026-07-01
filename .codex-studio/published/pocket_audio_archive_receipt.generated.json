@@ -3,14 +3,14 @@
     "archive_root_exists": true,
     "archive_root_present": true,
     "archive_root_sha256": "68ddeeb3090df2dc48dd262e352ff8c9446d7455b0b8574ad177d78cf0dce54f",
-    "audio_file_total": 29,
-    "metadata_json_total": 29,
+    "audio_file_total": 36,
+    "metadata_json_total": 36,
     "raw_archive_root_exposed": false
   },
   "archive_metadata": {
     "latest_archived_at": "",
     "metadata_read_mode": "count_only",
-    "metadata_record_total": 29
+    "metadata_record_total": 36
   },
   "claim": "Pocket.ai audio transcript ingest is usable only when local archive metadata and index evidence prove non-dismissed recordings have transcripts without exposing raw transcript text.",
   "contract_name": "ea.pocket_audio_archive_receipt.v1",
@@ -30,32 +30,32 @@
   "evidence_mode": "filesystem_archive_scan",
   "failure_count": 0,
   "failures": [],
-  "generated_at": "2026-07-01T15:54:56Z",
+  "generated_at": "2026-07-01T20:08:24Z",
   "generated_by": "scripts/materialize_pocket_audio_archive_receipt.py",
   "head_semantics": "source_state",
   "latest_backfill": {
     "archive_dismissed_total": "0",
     "archive_failed_total": "0",
-    "archived_total": "29",
+    "archived_total": "36",
     "created_at": "",
     "event_type": "filesystem_archive_scan_completed",
     "failed_total": "0",
-    "recording_total": "29",
+    "recording_total": "36",
     "scan_truncated": "false",
-    "teable_index_row_total": "29",
+    "teable_index_row_total": "36",
     "teable_index_status": "filesystem_only",
     "teable_index_sync_attempted": "false"
   },
   "latest_completion": {
     "archive_dismissed_total": "0",
     "archive_failed_total": "0",
-    "archived_total": "29",
+    "archived_total": "36",
     "created_at": "",
     "event_type": "filesystem_archive_scan_completed",
     "failed_total": "0",
-    "recording_total": "29",
+    "recording_total": "36",
     "scan_truncated": "false",
-    "teable_index_row_total": "29",
+    "teable_index_row_total": "36",
     "teable_index_status": "filesystem_only"
   },
   "next_action": "maintain_pocket_ai_audio_transcript_archive",
@@ -68,8 +68,8 @@
     "raw_recording_ids_exposed": false,
     "raw_transcript_text_exposed": false
   },
-  "source_git_head": "8d7efd63a4f03e191b38d28e455c6732881b2359",
-  "source_state_fingerprint": "04acbe431d3ca087c1def5c2ba6be38f1ee63630dee9496f57a5b60e06808ad2",
+  "source_git_head": "2f0512a59c57c1aafd32b2ae3220cb1e56f896a3",
+  "source_state_fingerprint": "3ef72eaa298cc6fa6481b9019e95fc529eb013b625a6642c98424522044295d7",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "pass",
   "transcript_ingest_ready": true

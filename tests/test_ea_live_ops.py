@@ -3221,6 +3221,94 @@ def test_probe_proactive_source_coverage_surfaces_flat_search_filter(monkeypatch
         assert "property_scout_sync_completed" not in lane["evidence_event_types"]
 
 
+def test_probe_proactive_source_coverage_accepts_pocket_archive_evidence_when_event_rows_are_missing(monkeypatch) -> None:
+    module = _module()
+
+    def _fake_exec_json(**_kwargs: object) -> tuple[int, dict[str, object], str, str]:
+        return (
+            0,
+            {
+                "probe_ok": True,
+                "observation_repository": "PostgresObservationEventRepository",
+                "rows": [
+                    {
+                        "channel": "gmail",
+                        "event_type": "gmail.message",
+                        "created_at": "2026-06-29T07:59:00Z",
+                        "payload_keys": ["subject_sha256", "sender_sha256"],
+                        "hints": ["google_workspace", "commitment_and_deadline_signals"],
+                        "source_id_sha256_present": True,
+                        "raw_payload_exposed": False,
+                    },
+                    {
+                        "channel": "calendar",
+                        "event_type": "calendar.event",
+                        "created_at": "2026-06-29T08:00:00Z",
+                        "payload_keys": ["event_id_sha256"],
+                        "hints": ["calendar_and_renewal_signals"],
+                        "source_id_sha256_present": True,
+                        "raw_payload_exposed": False,
+                    },
+                    {
+                        "channel": "telegram",
+                        "event_type": "office_signal_ooda_evaluated",
+                        "created_at": "2026-06-29T08:01:00Z",
+                        "payload_keys": ["signal_id_sha256"],
+                        "hints": [
+                            "relationship_and_occasion_signals",
+                            "shopping_and_vendor_signals",
+                            "durable_profile_and_location_context",
+                        ],
+                        "source_id_sha256_present": True,
+                        "raw_payload_exposed": False,
+                    },
+                ],
+            },
+            "",
+            "",
+        )
+
+    monkeypatch.setattr(module, "_docker_compose_exec_json", _fake_exec_json)
+    monkeypatch.setattr(
+        module,
+        "_pocket_audio_archive_evidence",
+        lambda: {
+            "checked": True,
+            "status": "pass",
+            "transcript_ingest_ready": True,
+            "evidence_mode": "filesystem_archive_scan",
+            "latest_backfill_event_type": "filesystem_archive_scan_completed",
+            "latest_completion_event_type": "filesystem_archive_scan_completed",
+            "latest_backfill_created_at": "",
+            "latest_completion_created_at": "",
+            "archived_total": 36,
+            "dismissed_total": 0,
+            "failed_total": 0,
+            "distinct_recording_total": 36,
+            "blocking_reason": "",
+            "next_action": "maintain_pocket_ai_audio_transcript_archive",
+        },
+    )
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-06-29T08:02:00Z")
+
+    report = module.probe_proactive_source_coverage(
+        principal_id="exec-1",
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+    )
+
+    assert report["probe_ok"] is True
+    assert report["status"] == "ready"
+    assert report["missing_lane_keys"] == []
+    pocket_lane = next(row for row in report["lanes"] if row["key"] == "pocket_ai_audio_transcripts")
+    assert pocket_lane["observed"] is True
+    assert pocket_lane["status"] == "observed_via_archive_evidence"
+    assert pocket_lane["required_event_type_observed"] is True
+    assert pocket_lane["missing_required_event_types"] == []
+    assert pocket_lane["evidence_event_types"] == ["filesystem_archive_scan_completed"]
+    assert pocket_lane["record_count"] == 36
+
+
 def test_probe_proactive_source_coverage_treats_runtime_failure_as_probe_failed(monkeypatch) -> None:
     module = _module()
 
