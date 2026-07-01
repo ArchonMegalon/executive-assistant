@@ -336,6 +336,9 @@ def test_pending_quality_acceptance_keys_become_action_required_queue_items(
         assert context["raw_object_reference_exposed"] is False
 
     queue = {item["key"]: item for item in receipt["operator_action_queue"]}
+    assert receipt["next_action_key"] == "ea_real_commitment_recovered_or_closed"
+    assert receipt["next_action"] == "record_redacted_real_commitment_recovery_evidence"
+    assert receipt["operator_action_queue"][0]["key"] == "ea_real_commitment_recovered_or_closed"
     for proof_key, acceptance_key in expected.items():
         assert proof_key in queue
         assert queue[proof_key]["proof_key"] == acceptance_key
@@ -659,13 +662,13 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert duplicate_suppression["duplicate_active_pending_source_key_count"] == 0
     assert duplicate_suppression["raw_voice_ids_exposed"] is False
     assert duplicate_suppression["callback_tokens_exposed"] is False
-    assert receipt["next_action_key"] == "telegram_audiobook_live_delivery"
-    assert receipt["next_action"] == "choose_sent_replacement_voice_sample"
-    assert receipt["next_action_href"] == "/integrations/telegram"
-    assert receipt["next_action_label"] == "Open Telegram"
-    assert receipt["next_action_method"] == "get"
-    assert receipt["next_action_instruction"] == "Choose one sent replacement voice sample in Telegram."
-    assert receipt["operator_action_queue"][0]["key"] == "telegram_audiobook_live_delivery"
+    assert receipt["next_action_key"] == "morning_brief_operator_acceptance"
+    assert receipt["next_action"] == "record_redacted_operator_acceptance_for_real_morning_brief"
+    assert receipt["next_action_href"] == "/admin/actions/acceptance-evidence"
+    assert receipt["next_action_label"] == "Record a real-use outcome"
+    assert receipt["next_action_method"] == "post"
+    assert receipt["next_action_instruction"] == "Record redacted real-world acceptance evidence for the morning brief."
+    assert receipt["operator_action_queue"][0]["key"] == "morning_brief_operator_acceptance"
     assert receipt["operator_action_queue"][0]["user_action_required"] is True
     assert receipt["operator_action_queue"][0]["delivery_policy"] == "action_required_only"
     assert receipt["operator_action_queue"][0]["telegram_push_allowed"] is True
@@ -674,12 +677,15 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert receipt["operator_action_queue"][0]["non_action_progress_push_allowed"] is False
     assert receipt["operator_action_queue"][0]["irreversible_actions_consent_gated"] is True
     assert receipt["operator_action_queue"][0]["raw_private_context_exposed"] is False
-    assert receipt["operator_action_queue"][0]["candidate_labels"] == ["Dieter"]
-    assert receipt["operator_action_queue"][0]["candidate_labels_distinct"] is True
-    assert receipt["operator_action_queue"][0]["author_gender_signal"] == "male"
-    assert receipt["operator_action_queue"][0]["author_gender_matched_candidates_only"] is True
-    assert receipt["operator_action_queue"][0]["sent_samples_cover_expected"] is True
-    assert receipt["operator_action_queue"][0]["duplicate_suppression"]["active_pending_voice_job_count"] == 1
+    telegram_action = next(
+        item for item in receipt["operator_action_queue"] if item["key"] == "telegram_audiobook_live_delivery"
+    )
+    assert telegram_action["candidate_labels"] == ["Dieter"]
+    assert telegram_action["candidate_labels_distinct"] is True
+    assert telegram_action["author_gender_signal"] == "male"
+    assert telegram_action["author_gender_matched_candidates_only"] is True
+    assert telegram_action["sent_samples_cover_expected"] is True
+    assert telegram_action["duplicate_suppression"]["active_pending_voice_job_count"] == 1
     manfred_action = next(
         item for item in receipt["operator_action_queue"] if item["key"] == "manfred_stt_tts_realtime_conversation"
     )

@@ -648,13 +648,18 @@ def _whatsapp_live_playback_blocked_action_context(
 def _operator_action_priority(requirement: dict[str, Any]) -> tuple[int, int, int, str]:
     action_context = dict(requirement.get("action_context") or {})
     key_priority = {
-        "telegram_audiobook_live_delivery": 0,
-        "manfred_stt_tts_realtime_conversation": 1,
+        "ea_real_commitment_recovered_or_closed": 0,
+        "ea_real_approved_action_audited": 1,
+        "ea_real_provider_failure_recovered": 2,
+        "morning_brief_operator_acceptance": 3,
+        "weekly_signal_to_decision_review_acceptance": 4,
+        "telegram_audiobook_live_delivery": 10,
+        "manfred_stt_tts_realtime_conversation": 11,
     }
     lens_priority = {
-        "deliver": 1,
-        "prove": 2,
-        "detect": 3,
+        "prove": 1,
+        "detect": 2,
+        "deliver": 3,
         "recover": 4,
         "decide": 5,
     }
