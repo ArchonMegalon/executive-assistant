@@ -118,6 +118,22 @@ def test_signal_to_decision_receipt_materializes_local_packet_without_overclaim(
     )
     assert receipt["next_action_form_method"] == "get"
     assert receipt["next_action_evidence_part"] == "review"
+    packet = receipt["operator_action_packet"]
+    assert packet["status"] == "action_required"
+    assert packet["user_action_required"] is True
+    assert packet["action_required_reason"] == "real_world_acceptance_missing"
+    assert packet["next_action"] == "record_redacted_signal_review_acceptance"
+    assert packet["next_action_form_href"] == receipt["next_action_form_href"]
+    assert packet["next_action_evidence_part"] == "review"
+    assert packet["delivery_policy"] == "action_required_only"
+    assert packet["telegram_push_allowed"] is True
+    assert packet["interruption_budget"] == "action_required"
+    assert packet["quiet_hours_respected"] is True
+    assert packet["non_action_progress_push_allowed"] is False
+    assert packet["irreversible_actions_consent_gated"] is True
+    assert packet["raw_acceptance_text_exposed"] is False
+    assert packet["raw_actor_identity_exposed"] is False
+    assert packet["accepted_parts"] == {"review": False, "followthrough": False}
     assert receipt["real_weekly_operator_review_accepted"] is False
     assert receipt["closed_loop_followthrough_receipt_verified"] is False
     assert receipt["signal_evidence_capture_surface"]["path"] == "/admin/actions/signal-to-decision-evidence"  # type: ignore[index]
@@ -191,6 +207,11 @@ def test_signal_to_decision_receipt_hashes_operator_review_and_followthrough(tmp
     assert receipt["next_action_form_href"] == ""
     assert receipt["next_action_form_method"] == ""
     assert receipt["next_action_evidence_part"] == ""
+    assert receipt["operator_action_packet"]["status"] == "not_required"  # type: ignore[index]
+    assert receipt["operator_action_packet"]["user_action_required"] is False  # type: ignore[index]
+    assert receipt["operator_action_packet"]["delivery_policy"] == "queue_only"  # type: ignore[index]
+    assert receipt["operator_action_packet"]["telegram_push_allowed"] is False  # type: ignore[index]
+    assert receipt["operator_action_packet"]["interruption_budget"] == "none"  # type: ignore[index]
     assert receipt["real_weekly_operator_review_accepted"] is True
     assert receipt["closed_loop_followthrough_receipt_verified"] is True
     assert receipt["goal_completion_claim_allowed"] is False
@@ -264,6 +285,11 @@ def test_signal_to_decision_receipt_preserves_existing_redacted_operator_review(
     )
     assert second["next_action_form_method"] == "get"
     assert second["next_action_evidence_part"] == "followthrough"
+    packet = second["operator_action_packet"]
+    assert packet["status"] == "action_required"
+    assert packet["next_action"] == "record_redacted_signal_followthrough_acceptance"
+    assert packet["next_action_evidence_part"] == "followthrough"
+    assert packet["accepted_parts"] == {"review": True, "followthrough": False}
     requirements = {item["evidence_part"]: item for item in second["signal_evidence_capture_requirements"]}  # type: ignore[index]
     assert requirements["review"]["status"] == "accepted_redacted"
     assert requirements["followthrough"]["status"] == "pending_real_world_evidence"
@@ -307,6 +333,7 @@ def test_signal_to_decision_verifier_rejects_overclaim_and_missing_source(tmp_pa
     receipt["boundary_posture"]["ea_is_product_truth"] = True
     receipt.pop("signal_evidence_capture_surface")
     receipt["signal_evidence_capture_requirements"] = []
+    receipt.pop("operator_action_packet")
     receipt["next_action_href"] = ""
     receipt["next_action_label"] = ""
     receipt["next_action_method"] = ""
@@ -322,6 +349,7 @@ def test_signal_to_decision_verifier_rejects_overclaim_and_missing_source(tmp_pa
     assert "signal_decision_source_row_missing:provider_runtime_failures" in verification["issues"]
     assert "signal_decision_capture_surface_path_missing" in verification["issues"]
     assert "signal_decision_capture_requirement_missing:review" in verification["issues"]
+    assert "signal_decision_operator_action_packet_missing" in verification["issues"]
     assert "signal_decision_next_action_href_missing" in verification["issues"]
     assert "signal_decision_next_action_label_missing" in verification["issues"]
     assert "signal_decision_next_action_method_missing" in verification["issues"]

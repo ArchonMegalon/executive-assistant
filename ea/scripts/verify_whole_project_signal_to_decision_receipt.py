@@ -51,6 +51,83 @@ def _verify_source_state(receipt: dict[str, Any], issues: list[str]) -> None:
         issues.append("signal_decision_source_state_fingerprint_stale")
 
 
+def _verify_operator_action_packet(
+    receipt: dict[str, Any],
+    *,
+    expected_next_action: str,
+    expected_part: str,
+    issues: list[str],
+) -> None:
+    packet = dict(receipt.get("operator_action_packet") or {})
+    if not packet:
+        issues.append("signal_decision_operator_action_packet_missing")
+        return
+    for raw_key in (
+        "raw_acceptance_text_exposed",
+        "raw_actor_identity_exposed",
+        "raw_object_reference_exposed",
+        "raw_private_context_exposed",
+    ):
+        if packet.get(raw_key) is not False:
+            issues.append(f"signal_decision_operator_action_packet_raw_flag_not_false:{raw_key}")
+    if packet.get("quiet_hours_respected") is not True:
+        issues.append("signal_decision_operator_action_packet_quiet_hours_missing")
+    if packet.get("non_action_progress_push_allowed") is not False:
+        issues.append("signal_decision_operator_action_packet_non_action_push_allowed")
+    if packet.get("irreversible_actions_consent_gated") is not True:
+        issues.append("signal_decision_operator_action_packet_consent_gate_missing")
+    if expected_part:
+        if packet.get("status") != "action_required":
+            issues.append("signal_decision_operator_action_packet_status_mismatch")
+        if packet.get("user_action_required") is not True:
+            issues.append("signal_decision_operator_action_packet_must_require_user")
+        if packet.get("action_required_reason") != "real_world_acceptance_missing":
+            issues.append("signal_decision_operator_action_packet_reason_mismatch")
+        if packet.get("delivery_policy") != "action_required_only":
+            issues.append("signal_decision_operator_action_packet_delivery_policy_mismatch")
+        if packet.get("telegram_push_allowed") is not True:
+            issues.append("signal_decision_operator_action_packet_push_flag_mismatch")
+        if packet.get("interruption_budget") != "action_required":
+            issues.append("signal_decision_operator_action_packet_budget_mismatch")
+        expected_form_href = _signal_evidence_form_href(expected_part)
+        expected_fields = list(SIGNAL_EVIDENCE_CAPTURE_FORM_FIELDS)
+        expected_requirement = SIGNAL_EVIDENCE_PARTS[expected_part]["label"]
+        expectations = {
+            "next_action": expected_next_action,
+            "next_action_href": SIGNAL_EVIDENCE_CAPTURE_PATH,
+            "next_action_label": SIGNAL_EVIDENCE_CAPTURE_LABEL,
+            "next_action_method": SIGNAL_EVIDENCE_CAPTURE_METHOD.lower(),
+            "next_action_form_href": expected_form_href,
+            "next_action_form_label": SIGNAL_EVIDENCE_CAPTURE_LABEL,
+            "next_action_form_method": SIGNAL_EVIDENCE_CAPTURE_FORM_METHOD.lower(),
+            "next_action_evidence_part": expected_part,
+            "required_next_receipt": expected_requirement,
+        }
+        for key, expected_value in expectations.items():
+            if packet.get(key) != expected_value:
+                issues.append(f"signal_decision_operator_action_packet_{key}_mismatch")
+        if list(packet.get("required_form_fields") or []) != expected_fields:
+            issues.append("signal_decision_operator_action_packet_required_fields_mismatch")
+        if not str(packet.get("instruction") or "").strip():
+            issues.append("signal_decision_operator_action_packet_instruction_missing")
+        accepted_parts = dict(packet.get("accepted_parts") or {})
+        if accepted_parts.get("review") is not bool(receipt.get("real_weekly_operator_review_accepted")):
+            issues.append("signal_decision_operator_action_packet_review_state_mismatch")
+        if accepted_parts.get("followthrough") is not bool(receipt.get("closed_loop_followthrough_receipt_verified")):
+            issues.append("signal_decision_operator_action_packet_followthrough_state_mismatch")
+        return
+    if packet.get("status") != "not_required":
+        issues.append("signal_decision_operator_action_packet_closed_status_mismatch")
+    if packet.get("user_action_required") is not False:
+        issues.append("signal_decision_operator_action_packet_closed_must_not_require_user")
+    if packet.get("delivery_policy") != "queue_only":
+        issues.append("signal_decision_operator_action_packet_closed_delivery_policy_mismatch")
+    if packet.get("telegram_push_allowed") is not False:
+        issues.append("signal_decision_operator_action_packet_closed_push_flag_mismatch")
+    if packet.get("interruption_budget") != "none":
+        issues.append("signal_decision_operator_action_packet_closed_budget_mismatch")
+
+
 def verify_whole_project_signal_to_decision_receipt(receipt_path: str | Path) -> dict[str, Any]:
     receipt = _load(receipt_path)
     issues: list[str] = []
@@ -167,6 +244,12 @@ def verify_whole_project_signal_to_decision_receipt(receipt_path: str | Path) ->
             if evidence_row.get(raw_key) is not False:
                 issues.append(f"signal_decision_raw_field_flag_not_false:{part}:{raw_key}")
     if not bool(receipt.get("real_weekly_operator_review_accepted")):
+        _verify_operator_action_packet(
+            receipt,
+            expected_next_action=str(SIGNAL_EVIDENCE_PARTS["review"]["next_action"]),
+            expected_part="review",
+            issues=issues,
+        )
         if next_action != str(SIGNAL_EVIDENCE_PARTS["review"]["next_action"]):
             issues.append("signal_decision_next_action_review_missing")
         if next_action_evidence_part != "review":
@@ -184,6 +267,12 @@ def verify_whole_project_signal_to_decision_receipt(receipt_path: str | Path) ->
         if next_action_form_method != SIGNAL_EVIDENCE_CAPTURE_FORM_METHOD.lower():
             issues.append("signal_decision_next_action_form_method_missing:review")
     elif not bool(receipt.get("closed_loop_followthrough_receipt_verified")):
+        _verify_operator_action_packet(
+            receipt,
+            expected_next_action=str(SIGNAL_EVIDENCE_PARTS["followthrough"]["next_action"]),
+            expected_part="followthrough",
+            issues=issues,
+        )
         if next_action != str(SIGNAL_EVIDENCE_PARTS["followthrough"]["next_action"]):
             issues.append("signal_decision_next_action_followthrough_missing")
         if next_action_evidence_part != "followthrough":
@@ -201,6 +290,12 @@ def verify_whole_project_signal_to_decision_receipt(receipt_path: str | Path) ->
         if next_action_form_method != SIGNAL_EVIDENCE_CAPTURE_FORM_METHOD.lower():
             issues.append("signal_decision_next_action_form_method_missing:followthrough")
     else:
+        _verify_operator_action_packet(
+            receipt,
+            expected_next_action="review_closed_signal_to_decision_claim",
+            expected_part="",
+            issues=issues,
+        )
         if next_action != "review_closed_signal_to_decision_claim":
             issues.append("signal_decision_next_action_review_closed_claim_missing")
         for key, value in (

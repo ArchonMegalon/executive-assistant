@@ -249,6 +249,76 @@ def _signal_evidence_capture_requirements(*, review_accepted: bool, follow_accep
     return rows
 
 
+def _operator_action_packet(
+    *,
+    next_action: str,
+    next_action_evidence_part: str,
+    review_accepted: bool,
+    follow_accepted: bool,
+) -> dict[str, Any]:
+    if not next_action_evidence_part:
+        return {
+            "status": "not_required",
+            "user_action_required": False,
+            "action_required_reason": "",
+            "next_action": "review_closed_signal_to_decision_claim",
+            "next_action_href": "",
+            "next_action_label": "",
+            "next_action_method": "",
+            "next_action_form_href": "",
+            "next_action_form_label": "",
+            "next_action_form_method": "",
+            "instruction": "Both redacted weekly review and follow-through evidence are recorded; review the closed signal-to-decision claim before widening product claims.",
+            "delivery_policy": "queue_only",
+            "telegram_push_allowed": False,
+            "interruption_budget": "none",
+            "quiet_hours_respected": True,
+            "non_action_progress_push_allowed": False,
+            "irreversible_actions_consent_gated": True,
+            "raw_acceptance_text_exposed": False,
+            "raw_actor_identity_exposed": False,
+            "raw_object_reference_exposed": False,
+            "raw_private_context_exposed": False,
+        }
+    requirement = SIGNAL_EVIDENCE_PARTS[next_action_evidence_part]
+    instruction = (
+        "Record redacted evidence that the weekly signal-to-decision review was actually reviewed."
+        if next_action_evidence_part == "review"
+        else "Record redacted evidence that one reviewed signal led to a verified follow-through receipt."
+    )
+    return {
+        "status": "action_required",
+        "user_action_required": True,
+        "action_required_reason": "real_world_acceptance_missing",
+        "next_action": next_action,
+        "next_action_href": SIGNAL_EVIDENCE_CAPTURE_PATH,
+        "next_action_label": SIGNAL_EVIDENCE_CAPTURE_LABEL,
+        "next_action_method": SIGNAL_EVIDENCE_CAPTURE_METHOD.lower(),
+        "next_action_form_href": _signal_evidence_form_href(next_action_evidence_part),
+        "next_action_form_label": SIGNAL_EVIDENCE_CAPTURE_LABEL,
+        "next_action_form_method": SIGNAL_EVIDENCE_CAPTURE_FORM_METHOD.lower(),
+        "next_action_evidence_part": next_action_evidence_part,
+        "instruction": instruction,
+        "required_next_receipt": str(requirement["label"]),
+        "required_form_fields": SIGNAL_EVIDENCE_CAPTURE_FORM_FIELDS,
+        "accepted_parts": {
+            "review": review_accepted,
+            "followthrough": follow_accepted,
+        },
+        "delivery_policy": "action_required_only",
+        "telegram_push_allowed": True,
+        "interruption_budget": "action_required",
+        "quiet_hours_respected": True,
+        "non_action_progress_push_allowed": False,
+        "irreversible_actions_consent_gated": True,
+        "claim_boundary": "does_not_prove_closed_signal_to_decision_loop_until_review_and_followthrough_are_accepted",
+        "raw_acceptance_text_exposed": False,
+        "raw_actor_identity_exposed": False,
+        "raw_object_reference_exposed": False,
+        "raw_private_context_exposed": False,
+    }
+
+
 def _remaining(*receipts: dict[str, Any], accepted: bool, followed: bool) -> list[str]:
     values: list[str] = []
     for receipt in receipts:
@@ -333,6 +403,12 @@ def materialize_whole_project_signal_to_decision_receipt(
         "next_action_form_label": SIGNAL_EVIDENCE_CAPTURE_LABEL if next_action_evidence_part else "",
         "next_action_form_method": SIGNAL_EVIDENCE_CAPTURE_FORM_METHOD.lower() if next_action_evidence_part else "",
         "next_action_evidence_part": next_action_evidence_part,
+        "operator_action_packet": _operator_action_packet(
+            next_action=next_action,
+            next_action_evidence_part=next_action_evidence_part,
+            review_accepted=review_accepted,
+            follow_accepted=follow_accepted,
+        ),
         "real_weekly_operator_review_accepted": review_accepted,
         "closed_loop_followthrough_receipt_verified": follow_accepted,
         "signal_evidence_capture_surface": _signal_evidence_capture_surface(),
