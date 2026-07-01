@@ -13,7 +13,7 @@
   "digest_sha256": "7d1779ec8070b106f1843d7ad8efe948f2d914e2c244e3af48dfc1548e300549",
   "dry_run": true,
   "force": false,
-  "generated_at": "2026-07-01T13:38:33Z",
+  "generated_at": "2026-07-01T13:46:32Z",
   "generated_by": "scripts/materialize_operator_action_required_digest.py",
   "head_semantics": "source_state",
   "included_action_keys": [
@@ -213,10 +213,10 @@
   "source_receipt": {
     "path": ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json",
     "present": true,
-    "sha256": "c77d8b5d00ba3fe0c4e3955c46521787126e9cbe9fcde14e5faad781ac00fde1",
+    "sha256": "bb1bf6bc0713942fe0763553b77df3a487b5080b714ece7b9b6ad4242c81df9c",
     "status": "active_with_blockers"
   },
-  "source_state_fingerprint": "07817b6e9e26e9ecd97f6225900ed51be434c67e47fc541c995f64915e55d086",
+  "source_state_fingerprint": "284330b7391824d2f60a796fa3e7e165eb4ee01594069d67518ed08256c57a08",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "state_updated": false,
   "status": "suppressed_duplicate",

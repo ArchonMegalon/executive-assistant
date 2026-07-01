@@ -122,6 +122,13 @@ def test_manfred_realtime_readiness_blocks_real_stt_and_room_audio_without_overc
     )
 
     assert receipt["status"] == "blocked_realtime_prerequisites"
+    assert receipt["head_semantics"] == "source_state"
+    assert receipt["source_git_head"]
+    assert receipt["source_state_fingerprint"]
+    assert (
+        receipt["source_state_fingerprint_semantics"]
+        == "worktree_source_files_sha256_excluding_generated_only_paths"
+    )
     assert receipt["ready_for_realtime_conversation_review"] is False
     assert receipt["realtime_conversation_claim_allowed"] is False
     assert receipt["premium_spoken_claim_allowed"] is False
@@ -206,6 +213,55 @@ def test_manfred_realtime_readiness_verifier_rejects_overclaims(tmp_path: Path) 
     assert "manfred_realtime_next_action_method_missing" in verification["issues"]
     assert "manfred_realtime_blocked_next_action_href_drift" in verification["issues"]
     assert "manfred_realtime_blocked_next_action_label_drift" in verification["issues"]
+
+
+def test_manfred_realtime_readiness_verifier_rejects_stale_source_state(tmp_path: Path) -> None:
+    materializer = _load_script("materialize_manfred_realtime_conversation_readiness")
+    verifier = _load_script("verify_manfred_realtime_conversation_readiness")
+    receipt_path = tmp_path / "stale.generated.json"
+    materializer.materialize_manfred_realtime_conversation_readiness(
+        receipt_path=receipt_path,
+        generated_at=GENERATED_AT,
+        operator_status=_operator_status(ready=False),
+    )
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["source_git_head"] = "old-source-head"
+    receipt["source_state_fingerprint"] = "old-source-fingerprint"
+    receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    verification = verifier.verify_manfred_realtime_conversation_readiness(receipt_path)
+
+    assert verification["status"] == "fail"
+    assert "manfred_realtime_source_head_stale" in verification["issues"]
+    assert "manfred_realtime_source_fingerprint_stale" in verification["issues"]
+
+
+def test_manfred_realtime_readiness_verifier_rejects_missing_source_stamp(tmp_path: Path) -> None:
+    materializer = _load_script("materialize_manfred_realtime_conversation_readiness")
+    verifier = _load_script("verify_manfred_realtime_conversation_readiness")
+    receipt_path = tmp_path / "unstamped.generated.json"
+    materializer.materialize_manfred_realtime_conversation_readiness(
+        receipt_path=receipt_path,
+        generated_at=GENERATED_AT,
+        operator_status=_operator_status(ready=False),
+    )
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    for key in (
+        "source_git_head",
+        "head_semantics",
+        "source_state_fingerprint",
+        "source_state_fingerprint_semantics",
+    ):
+        receipt.pop(key, None)
+    receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    verification = verifier.verify_manfred_realtime_conversation_readiness(receipt_path)
+
+    assert verification["status"] == "fail"
+    assert "manfred_realtime_source_git_head_missing" in verification["issues"]
+    assert "manfred_realtime_source_fingerprint_missing" in verification["issues"]
+    assert "manfred_realtime_head_semantics_missing" in verification["issues"]
+    assert "manfred_realtime_source_fingerprint_semantics_missing" in verification["issues"]
 
 
 def test_manfred_realtime_readiness_clis_work(tmp_path: Path) -> None:

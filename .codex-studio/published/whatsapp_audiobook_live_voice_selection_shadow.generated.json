@@ -8,7 +8,7 @@
     "waiting_voice_selection_job_found": false
   },
   "contract_name": "ea.whatsapp_audiobook_live_voice_selection_shadow.v1",
-  "generated_at": "2026-07-01T13:30:54.291688Z",
+  "generated_at": "2026-07-01T13:44:39.809185Z",
   "reason": "waiting_whatsapp_voice_selection_job_not_found",
   "shadow": {},
   "status": "waiting"

@@ -106,11 +106,11 @@
     },
     "operator_status": {
       "contract_name": "ea.proactive_ooda_operator_status.v1",
-      "generated_at": "2026-07-01T13:33:42Z",
+      "generated_at": "2026-07-01T13:46:25Z",
       "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
       "present": true,
       "source_git_head": "8689a7af97f0392a3e08d1b28c9f8752e1068f3e",
-      "source_state_fingerprint": "07817b6e9e26e9ecd97f6225900ed51be434c67e47fc541c995f64915e55d086",
+      "source_state_fingerprint": "284330b7391824d2f60a796fa3e7e165eb4ee01594069d67518ed08256c57a08",
       "status": "ready_with_live_receipt"
     },
     "run_receipt": {
@@ -133,7 +133,7 @@
       "source": "local_filesystem"
     }
   },
-  "generated_at": "2026-07-01T13:33:54Z",
+  "generated_at": "2026-07-01T13:46:29Z",
   "generated_by": "scripts/materialize_proactive_ooda_gold_acceptance.py",
   "goal_completion_claim_allowed": false,
   "gold_claim_allowed": true,
@@ -419,7 +419,7 @@
     "Teable remains an admin projection and audit mirror rather than canonical queue or product truth."
   ],
   "source_git_head": "8689a7af97f0392a3e08d1b28c9f8752e1068f3e",
-  "source_state_fingerprint": "07817b6e9e26e9ecd97f6225900ed51be434c67e47fc541c995f64915e55d086",
+  "source_state_fingerprint": "284330b7391824d2f60a796fa3e7e165eb4ee01594069d67518ed08256c57a08",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "pass",
   "summary": "A proactive OODA packet has routed delivery, live browse evidence, a chosen candidate, a staged reversible artifact, mirrored Teable facts, and a redacted approved outcome.",

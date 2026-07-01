@@ -2,8 +2,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
+
+SCRIPT_PATH = Path(__file__).resolve()
+REPO_ROOT = SCRIPT_PATH.parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from materialize_manfred_realtime_conversation_readiness import REQUIRED_LIVE_PROOF_AFTER_READINESS
 from materialize_manfred_realtime_conversation_readiness import ACTION_METHOD
@@ -11,16 +17,33 @@ from materialize_manfred_realtime_conversation_readiness import MANFRED_PROOF_LA
 from materialize_manfred_realtime_conversation_readiness import MANFRED_PROOF_PATH
 from materialize_manfred_realtime_conversation_readiness import MANFRED_VOICE_GOLD_LABEL
 from materialize_manfred_realtime_conversation_readiness import MANFRED_VOICE_GOLD_PATH
+from scripts.source_state_head import resolve_source_state_head
+from scripts.source_state_head import resolve_source_worktree_fingerprint
 
 
-SCRIPT_PATH = Path(__file__).resolve()
-REPO_ROOT = SCRIPT_PATH.parents[2]
 DEFAULT_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "manfred_realtime_conversation_readiness.generated.json"
 
 
 def verify_manfred_realtime_conversation_readiness(receipt_path: str | Path) -> dict[str, Any]:
     receipt = json.loads(Path(receipt_path).read_text(encoding="utf-8"))
     issues: list[str] = []
+    current_head = resolve_source_state_head(REPO_ROOT)
+    current_fingerprint = resolve_source_worktree_fingerprint(REPO_ROOT)
+    recorded_head = str(receipt.get("source_git_head") or "").strip()
+    recorded_fingerprint = str(receipt.get("source_state_fingerprint") or "").strip()
+    fingerprint_matches = bool(current_fingerprint and recorded_fingerprint and current_fingerprint == recorded_fingerprint)
+    if receipt.get("head_semantics") != "source_state":
+        issues.append("manfred_realtime_head_semantics_missing")
+    if receipt.get("source_state_fingerprint_semantics") != "worktree_source_files_sha256_excluding_generated_only_paths":
+        issues.append("manfred_realtime_source_fingerprint_semantics_missing")
+    if not recorded_head:
+        issues.append("manfred_realtime_source_git_head_missing")
+    elif current_head and recorded_head != current_head and not fingerprint_matches:
+        issues.append("manfred_realtime_source_head_stale")
+    if not recorded_fingerprint:
+        issues.append("manfred_realtime_source_fingerprint_missing")
+    elif current_fingerprint and recorded_fingerprint != current_fingerprint:
+        issues.append("manfred_realtime_source_fingerprint_stale")
     next_action = str(receipt.get("next_action") or "").strip()
     next_action_href = str(receipt.get("next_action_href") or "").strip()
     next_action_label = str(receipt.get("next_action_label") or "").strip()

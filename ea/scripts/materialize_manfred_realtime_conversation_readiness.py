@@ -2,9 +2,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+
+SCRIPT_PATH = Path(__file__).resolve()
+REPO_ROOT = SCRIPT_PATH.parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.source_state_head import resolve_source_state_head
+from scripts.source_state_head import resolve_source_worktree_fingerprint
 
 
 REQUIRED_ROOM_CHECK_IDS = [
@@ -24,8 +34,6 @@ REQUIRED_LIVE_PROOF_AFTER_READINESS = [
     "real room audio acceptance with actual device and speaker",
 ]
 
-SCRIPT_PATH = Path(__file__).resolve()
-REPO_ROOT = SCRIPT_PATH.parents[2]
 DEFAULT_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "manfred_realtime_conversation_readiness.generated.json"
 MANFRED_VOICE_GOLD_PATH = "/admin/memorials/manfred/gold"
 MANFRED_VOICE_GOLD_LABEL = "Open voice gold"
@@ -42,6 +50,15 @@ def _write(path: str | Path, payload: dict[str, Any]) -> None:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _source_state() -> dict[str, str]:
+    return {
+        "source_git_head": resolve_source_state_head(REPO_ROOT),
+        "head_semantics": "source_state",
+        "source_state_fingerprint": resolve_source_worktree_fingerprint(REPO_ROOT),
+        "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
+    }
 
 
 def _default_operator_status() -> dict[str, Any]:
@@ -149,6 +166,7 @@ def materialize_manfred_realtime_conversation_readiness(
         "contract_name": "ea.manfred_realtime_conversation_readiness.v1",
         "status": "ready_for_realtime_conversation_review" if ready else "blocked_realtime_prerequisites",
         "generated_at": generated_at or _now(),
+        **_source_state(),
         "current_label": status.get("current_label"),
         "operator_status": status.get("status"),
         "ready_for_realtime_conversation_review": ready,
