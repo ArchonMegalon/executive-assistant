@@ -1,0 +1,74 @@
+{
+  "account_settings_url": "https://www.pushbullet.com/#settings/account",
+  "api_base_url": "https://api.pushbullet.com",
+  "claim_boundary": "A configured token can support Pushbullet note delivery, but live account ownership is proven only when --probe-live passes against /v2/users/me. This receipt does not send a push.",
+  "client_count": 1,
+  "clients": [
+    {
+      "client_key": "elisabeth",
+      "email_domain": "gmail.com",
+      "email_present": true,
+      "email_sha256": "d861bf9568c1f353353f8927baf0e6e388424420781f27ae3532473ff1281250",
+      "raw_email_exposed": false,
+      "raw_token_exposed": false,
+      "source": "named_env",
+      "token_env": "PB_TOKEN_ELISABETH",
+      "token_present": false
+    }
+  ],
+  "contract_name": "ea.pushbullet_delivery_readiness.v1",
+  "delivery_claim": {
+    "irreversible_actions_consent_gated": true,
+    "live_token_account_verified": false,
+    "non_action_progress_push_allowed": false,
+    "pushbullet_note_delivery_ready": false
+  },
+  "docs_url": "https://docs.pushbullet.com/",
+  "generated_at": "2026-07-01T15:03:52Z",
+  "generated_by": "scripts/materialize_pushbullet_delivery_readiness.py",
+  "head_semantics": "source_state",
+  "live_probes": [],
+  "missing_setup": [
+    "pushbullet_token_missing:elisabeth"
+  ],
+  "operator_action": {
+    "delivery_policy": "action_required_only",
+    "interruption_budget": "action_required",
+    "next_action": "create_missing_pushbullet_access_tokens",
+    "next_action_href": "https://www.pushbullet.com/#settings/account",
+    "next_action_label": "Open Pushbullet account settings",
+    "next_action_method": "get",
+    "raw_email_exposed": false,
+    "raw_private_context_exposed": false,
+    "raw_token_exposed": false,
+    "setup_checklist": [
+      {
+        "how": "Open Pushbullet Account Settings, sign in as the intended account, create an access token, store it in the listed token env var, then rerun this readiness receipt.",
+        "key": "create_pushbullet_access_token",
+        "label": "Create a Pushbullet access token for each blocked client"
+      },
+      {
+        "how": "Rerun this materializer with --probe-live so /v2/users/me can be compared against the configured account hash.",
+        "key": "verify_pushbullet_account_match",
+        "label": "Verify the token belongs to the expected account"
+      }
+    ],
+    "telegram_push_allowed": true,
+    "user_action_required": true
+  },
+  "privacy": {
+    "raw_email_exposed": false,
+    "raw_push_body_exposed": false,
+    "raw_push_ids_exposed": false,
+    "raw_token_exposed": false
+  },
+  "probe_live": false,
+  "provider": "pushbullet",
+  "required_client_keys": [
+    "elisabeth"
+  ],
+  "source_git_head": "b86e8c434d4ef95c32d18f6d0cb789b8f24f3bf2",
+  "source_state_fingerprint": "05e37521f809aa5da4898424b3add0efcbb6be2889a0ad637612ccf0a1abc22b",
+  "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
+  "status": "blocked_setup_required"
+}

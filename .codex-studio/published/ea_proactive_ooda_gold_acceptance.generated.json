@@ -106,11 +106,11 @@
     },
     "operator_status": {
       "contract_name": "ea.proactive_ooda_operator_status.v1",
-      "generated_at": "2026-07-01T14:34:32Z",
+      "generated_at": "2026-07-01T15:07:32Z",
       "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
       "present": true,
-      "source_git_head": "280213e194e12a71031cecc3ef027dbc1c1b0373",
-      "source_state_fingerprint": "7ee7a8f4384a474083ee728e0100f19d8189616e5e0f528176a72d0727c726a1",
+      "source_git_head": "b86e8c434d4ef95c32d18f6d0cb789b8f24f3bf2",
+      "source_state_fingerprint": "05e37521f809aa5da4898424b3add0efcbb6be2889a0ad637612ccf0a1abc22b",
       "status": "ready_with_live_receipt"
     },
     "run_receipt": {
@@ -133,7 +133,7 @@
       "source": "local_filesystem"
     }
   },
-  "generated_at": "2026-07-01T14:34:37Z",
+  "generated_at": "2026-07-01T15:07:34Z",
   "generated_by": "scripts/materialize_proactive_ooda_gold_acceptance.py",
   "goal_completion_claim_allowed": false,
   "gold_claim_allowed": true,
@@ -319,7 +319,7 @@
       "safe_work_audit_status": "",
       "source_coverage_checked": true,
       "source_coverage_excluded_event_type_counts": {
-        "property_scout_sync_completed": 25
+        "property_scout_sync_completed": 24
       },
       "source_coverage_excluded_event_types": [
         "property_scout_sync_completed"
@@ -418,8 +418,8 @@
     "Raw packet text, private links, actor identity, packet refs, and staged artifact refs must stay out of this published receipt; only hashes and coarse status may appear.",
     "Teable remains an admin projection and audit mirror rather than canonical queue or product truth."
   ],
-  "source_git_head": "280213e194e12a71031cecc3ef027dbc1c1b0373",
-  "source_state_fingerprint": "7ee7a8f4384a474083ee728e0100f19d8189616e5e0f528176a72d0727c726a1",
+  "source_git_head": "b86e8c434d4ef95c32d18f6d0cb789b8f24f3bf2",
+  "source_state_fingerprint": "05e37521f809aa5da4898424b3add0efcbb6be2889a0ad637612ccf0a1abc22b",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "pass",
   "summary": "A proactive OODA packet has routed delivery, live browse evidence, a chosen candidate, a staged reversible artifact, mirrored Teable facts, and a redacted approved outcome.",

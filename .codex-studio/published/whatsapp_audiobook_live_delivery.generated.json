@@ -1,22 +1,15 @@
 {
   "audiobook_runtime": {
-    "api_key_slot_count": 0,
-    "ready_for_live_intake": false,
-    "reason": "jobs_root_durable, external_tts_enabled, unmixr_auto_render_enabled, voice_catalog_configured, voice_catalog_audition_ready, unmixr_api_key_slot_present",
+    "api_key_slot_count": 7,
+    "ready_for_live_intake": true,
+    "reason": "",
     "receipt_present": true,
-    "sample_blockers": [
-      "jobs_root_durable",
-      "external_tts_enabled",
-      "unmixr_auto_render_enabled",
-      "voice_catalog_configured",
-      "voice_catalog_audition_ready",
-      "unmixr_api_key_slot_present"
-    ],
-    "status": "fail",
-    "unmixr_auto_render_enabled": false,
-    "voice_catalog_count": 0
+    "sample_blockers": [],
+    "status": "warn",
+    "unmixr_auto_render_enabled": true,
+    "voice_catalog_count": 290
   },
-  "blocking_reason": "valid_live_audiobook_delivery_missing, player_scoped_reference_not_ready, audiobookshelf_public_share_not_ready, audiobookshelf_public_share_url_missing, machine_playback_e2e_not_verified, job_not_audiobookshelf_imported, user_selected_voice_delivery_not_ready, audiobook_runtime_not_ready",
+  "blocking_reason": "valid_live_audiobook_delivery_missing, player_scoped_reference_not_ready, audiobookshelf_public_share_not_ready, audiobookshelf_public_share_url_missing, machine_playback_e2e_not_verified, job_not_audiobookshelf_imported, user_selected_voice_delivery_not_ready",
   "candidate_count": 2,
   "claim": "WhatsApp EPUB audiobook delivery has live proof only when a sanitized job receipt shows the M4B is ready, Audiobookshelf imported and public-shared it, WhatsApp sent the public share link, and machine playback works. Human playback acceptance is a separate claim and is not implied by machine-playable delivery.",
   "contract_name": "ea.whatsapp_audiobook_live_delivery_receipt.v1",
@@ -58,18 +51,17 @@
     "audiobookshelf_public_share_url_missing",
     "machine_playback_e2e_not_verified",
     "job_not_audiobookshelf_imported",
-    "user_selected_voice_delivery_not_ready",
-    "audiobook_runtime_not_ready"
+    "user_selected_voice_delivery_not_ready"
   ],
   "fresh_live_job_receipt_proven": false,
-  "generated_at": "2026-07-01T14:50:24.498489Z",
+  "generated_at": "2026-07-01T15:07:45.368400Z",
   "generated_by": "ea/scripts/materialize_whatsapp_audiobook_live_delivery_receipt.py",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
   "historical_evidence": {
     "historical_live_path_proven": false,
     "local_intake": {
-      "generated_at": "2026-07-01T14:50:27.500463Z",
+      "generated_at": "2026-07-01T15:07:46.147871Z",
       "local_path_proven": true,
       "receipt_present": true,
       "share_link_sent": 1,
@@ -89,7 +81,7 @@
     "present": true,
     "public_share_playback": {
       "attempted": 0,
-      "generated_at": "2026-07-01T14:38:56.644323Z",
+      "generated_at": "2026-07-01T15:07:35.140708Z",
       "passed": 0,
       "passed_result_count": 0,
       "playback_path_proven": false,
@@ -231,8 +223,8 @@
     "whatsapp_sender_bound": true,
     "whatsapp_session_bound": true
   },
-  "source_git_head": "280213e194e12a71031cecc3ef027dbc1c1b0373",
-  "source_state_fingerprint": "7ee7a8f4384a474083ee728e0100f19d8189616e5e0f528176a72d0727c726a1",
+  "source_git_head": "b86e8c434d4ef95c32d18f6d0cb789b8f24f3bf2",
+  "source_state_fingerprint": "05e37521f809aa5da4898424b3add0efcbb6be2889a0ad637612ccf0a1abc22b",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "stage_summary": {
     "counts": {
