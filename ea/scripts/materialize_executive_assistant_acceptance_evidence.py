@@ -240,6 +240,15 @@ def _existing_rows(receipt_path: Path, preserve_existing: bool) -> dict[str, dic
     return dict(rows) if isinstance(rows, dict) else {}
 
 
+def _default_proactive_ooda_receipt_for_target(target: Path) -> Path | None:
+    try:
+        if target.resolve() == DEFAULT_RECEIPT.resolve():
+            return DEFAULT_PROACTIVE_OODA_GOLD_RECEIPT
+    except Exception:
+        return None
+    return None
+
+
 def materialize_executive_assistant_acceptance_evidence(
     *,
     receipt_path: str | Path,
@@ -260,11 +269,15 @@ def materialize_executive_assistant_acceptance_evidence(
         if key in rows:
             rows[key] = _row_from_proof(proof)
     if rows["real_decision_cleared"].get("accepted") is not True:
-        proactive_decision_row = _proactive_ooda_gold_decision_row(
-            Path(proactive_ooda_gold_receipt_path) if proactive_ooda_gold_receipt_path else None
+        proactive_path = (
+            Path(proactive_ooda_gold_receipt_path)
+            if proactive_ooda_gold_receipt_path
+            else _default_proactive_ooda_receipt_for_target(target)
         )
-        if proactive_decision_row.get("accepted") is True:
-            rows["real_decision_cleared"] = proactive_decision_row
+        if proactive_path is not None:
+            proactive_decision_row = _proactive_ooda_gold_decision_row(proactive_path)
+            if proactive_decision_row.get("accepted") is True:
+                rows["real_decision_cleared"] = proactive_decision_row
     accepted_keys = [key for key in REQUIRED_ACCEPTANCE_KEYS if rows[key].get("accepted") is True]
     blocked_keys = [key for key in REQUIRED_ACCEPTANCE_KEYS if key not in accepted_keys]
     status = (
@@ -327,6 +340,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--receipt", default=str(DEFAULT_RECEIPT))
     parser.add_argument("--input")
     parser.add_argument("--generated-at", default="")
+    parser.add_argument("--proactive-ooda-gold-receipt")
     parser.add_argument("--reset", action="store_true")
     args = parser.parse_args(argv)
     input_payload = _load(args.input) if args.input else None
@@ -335,6 +349,7 @@ def main(argv: list[str] | None = None) -> int:
         input_payload=input_payload,
         generated_at=args.generated_at,
         preserve_existing=not args.reset,
+        proactive_ooda_gold_receipt_path=args.proactive_ooda_gold_receipt,
     )
     print(json.dumps({"status": receipt["status"], "receipt": str(args.receipt)}, sort_keys=True))
     return 0
