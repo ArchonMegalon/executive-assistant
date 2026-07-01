@@ -268,6 +268,40 @@ def test_stale_source_action_context_is_queue_only_and_redacted() -> None:
     assert context["raw_secret_exposed"] is False
 
 
+def test_whatsapp_sidecar_pairing_context_is_action_required_and_redacted() -> None:
+    context = posture_module._whatsapp_sidecar_pairing_action_context(
+        readiness_receipt={
+            "status": "blocked",
+            "reason": "sidecar_not_ready",
+            "reasons": ["sidecar_not_ready"],
+            "sidecar_ready": False,
+            "sidecar_status": "qr_required",
+            "sidecar_qr_required": True,
+            "sidecar_qr_present": True,
+            "sidecar_qr_fresh": True,
+            "sidecar_qr_age_seconds": 12,
+        },
+        bundle_receipt={
+            "live_readiness": {"status": "blocked", "reason": "sidecar_not_ready", "sidecar_ready": False},
+            "live_sidecar_inbox": {"session_status": "qr_required", "session_api_host_kind": "loopback"},
+        },
+    )
+
+    assert context["kind"] == "whatsapp_web_sidecar_pairing_required"
+    assert context["user_action_required"] is True
+    assert context["delivery_policy"] == "action_required_only"
+    assert context["telegram_push_allowed"] is True
+    assert context["sidecar_status"] == "qr_required"
+    assert context["sidecar_qr_required"] is True
+    assert context["sidecar_qr_present"] is True
+    assert context["pair_url_scope"] == "host_local"
+    assert context["pair_url_actionable_from_telegram"] is False
+    assert context["raw_pair_url_exposed"] is False
+    assert context["raw_qr_payload_exposed"] is False
+    assert context["raw_whatsapp_session_ref_exposed"] is False
+    assert "pair URLs or QR payloads" in context["telegram_message"]
+
+
 def test_accepted_morning_brief_evidence_is_satisfied_not_operator_action(tmp_path: Path, monkeypatch) -> None:
     _set_source_state(monkeypatch)
     _write_acceptance_receipt_with_morning_brief_accepted(tmp_path)
@@ -2010,6 +2044,162 @@ def test_whatsapp_live_playback_blocked_ignores_waiting_public_share_scan() -> N
         receipt,
         ["deliver:whatsapp_audiobook=blocked"],
     ) is False
+
+
+def test_goal_posture_models_whatsapp_qr_required_as_action_required_pairing(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _set_source_state(monkeypatch)
+    _write_acceptance_receipt_with_morning_brief_accepted(tmp_path)
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
+        status="ready_local_packet_pending_operator_acceptance",
+        next_action="review packet with operator",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_office_loop_goal.generated.json",
+        status="ready_local_evidence",
+        next_action="collect office-loop acceptance",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/active_media_ltd_goal_bundle.generated.json",
+        status="ready_local_evidence",
+        next_action="collect external media proofs",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/telegram_business_signal_readiness.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json",
+        status="pass",
+        scope_bundle="full_workspace",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/pocket_audio_archive_receipt.generated.json",
+        status="pass",
+        transcript_ingest_ready=True,
+        archive_audio_file_total=1,
+        archive_metadata_json_total=1,
+        missing_transcript_total=0,
+    )
+    _write_teable_recovery_proof_receipt(tmp_path, status="pass")
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/telegram_audiobook_live_readiness.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_web_action_processor_readiness.generated.json",
+        status="blocked",
+        reason="sidecar_not_ready",
+        reasons=["sidecar_not_ready"],
+        sidecar_ready=False,
+        sidecar_status="qr_required",
+        sidecar_qr_required=True,
+        sidecar_qr_present=True,
+        sidecar_qr_fresh=True,
+        sidecar_qr_age_seconds=12,
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_local_intake_proof.generated.json",
+        status="pass",
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json",
+        status="blocked",
+        live_readiness={"status": "blocked", "reason": "sidecar_not_ready", "sidecar_ready": False},
+        live_sidecar_inbox={"status": "pass", "session_status": "qr_required", "session_api_host_kind": "loopback"},
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
+        status="blocked",
+        next_action="finish_user_selected_voice_audiobook_before_sending_whatsapp_public_share_link",
+        failed_codes=["valid_live_audiobook_delivery_missing", "audiobookshelf_public_share_url_missing"],
+        selected_delivery={
+            "public_share_status": "waiting_for_audiobookshelf_scan",
+            "public_share_url_present": False,
+        },
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_public_share_playback.generated.json",
+        status="waiting",
+        attempted=0,
+        failed=0,
+        privacy={"raw_public_share_url_exposed": False, "raw_track_url_exposed": False},
+    )
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/whatsapp_audiobook_live_voice_selection_shadow.generated.json",
+        status="pass",
+    )
+    _write_proactive_ooda_receipts(
+        tmp_path,
+        gold_status="pass",
+        gold_claim_allowed=True,
+        gold_remaining_external_proofs=[],
+        gold_approval_accepted=True,
+    )
+
+    output = tmp_path / ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"
+    receipt = build_goal_posture(root=tmp_path, output_path=output, generated_at="2026-07-01T13:30:00Z")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+
+    proof_requirements = {item["key"]: item for item in receipt["acceptance_proof_requirements"]}
+    whatsapp = proof_requirements["whatsapp_audiobook_live_delivery"]
+    context = whatsapp["action_context"]
+    assert context["kind"] == "whatsapp_web_sidecar_pairing_required"
+    assert context["user_action_required"] is True
+    assert context["telegram_push_allowed"] is True
+    assert context["sidecar_status"] == "qr_required"
+    assert context["pair_url_scope"] == "host_local"
+    assert context["pair_url_actionable_from_telegram"] is False
+    assert context["raw_pair_url_exposed"] is False
+    assert context["raw_qr_payload_exposed"] is False
+    assert context["raw_whatsapp_session_ref_exposed"] is False
+
+    queue_row = next(item for item in receipt["operator_action_queue"] if item["key"] == "whatsapp_audiobook_live_delivery")
+    assert queue_row["kind"] == "whatsapp_web_sidecar_pairing_required"
+    assert queue_row["user_action_required"] is True
+    assert queue_row["delivery_policy"] == "action_required_only"
+    assert queue_row["telegram_push_allowed"] is True
+    assert queue_row["sidecar_status"] == "qr_required"
+    assert queue_row["sidecar_qr_required"] is True
+    assert queue_row["pair_url_scope"] == "host_local"
+    assert queue_row["pair_url_actionable_from_telegram"] is False
+    assert queue_row["raw_pair_url_exposed"] is False
+    assert queue_row["raw_qr_payload_exposed"] is False
+    assert queue_row["raw_whatsapp_session_ref_exposed"] is False
+    assert "deliver:whatsapp_audiobook=blocked" in receipt["blocking_reasons"]
+    assert verify(output, root=tmp_path) == []
 
 
 def test_goal_posture_verifier_accepts_post_commit_head_change_when_source_fingerprint_matches(

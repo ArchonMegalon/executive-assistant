@@ -38,6 +38,9 @@ DEFAULT_WHATSAPP_AUDIOBOOK_BUNDLE = ROOT / ".codex-studio/published/whatsapp_aud
 DEFAULT_WHATSAPP_AUDIOBOOK_DELIVERY = ROOT / ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json"
 DEFAULT_WHATSAPP_AUDIOBOOK_SHARE = ROOT / ".codex-studio/published/whatsapp_audiobook_public_share_playback.generated.json"
 DEFAULT_WHATSAPP_AUDIOBOOK_VOICE = ROOT / ".codex-studio/published/whatsapp_audiobook_live_voice_selection_shadow.generated.json"
+DEFAULT_WHATSAPP_WEB_ACTION_PROCESSOR_READINESS = (
+    ROOT / ".codex-studio/published/whatsapp_web_action_processor_readiness.generated.json"
+)
 
 BLOCKING_PREFIXES = ("blocked", "fail", "missing", "waiting", "error")
 MORNING_BRIEF_ACCEPTANCE_RECEIPT = "real operator acceptance that the morning brief was worth reading"
@@ -642,6 +645,9 @@ def _stale_source_action_context(*, receipts: list[dict[str, Any]], refresh_comm
         "raw_secret_exposed": False,
         "raw_voice_ids_exposed": False,
         "callback_tokens_exposed": False,
+        "raw_pair_url_exposed": False,
+        "raw_qr_payload_exposed": False,
+        "raw_whatsapp_session_ref_exposed": False,
     }
 
 
@@ -677,6 +683,9 @@ def _whatsapp_playback_failure_action_context(receipt: dict[str, Any]) -> dict[s
         "callback_tokens_exposed": False,
         "raw_public_share_url_exposed": False,
         "raw_track_url_exposed": False,
+        "raw_pair_url_exposed": False,
+        "raw_qr_payload_exposed": False,
+        "raw_whatsapp_session_ref_exposed": False,
     }
 
 
@@ -733,6 +742,129 @@ def _whatsapp_live_playback_blocked_action_context(
     }
 
 
+def _whatsapp_sidecar_pairing_required(
+    *,
+    readiness_receipt: dict[str, Any],
+    bundle_receipt: dict[str, Any],
+) -> bool:
+    if not readiness_receipt and not bundle_receipt:
+        return False
+    readiness_reasons = {
+        str(item or "").strip()
+        for item in list(readiness_receipt.get("reasons") or [])
+        if str(item or "").strip()
+    }
+    bundle_readiness = dict(bundle_receipt.get("live_readiness") or {})
+    bundle_inbox = dict(bundle_receipt.get("live_sidecar_inbox") or {})
+    sidecar_status = str(
+        readiness_receipt.get("sidecar_status")
+        or bundle_inbox.get("session_status")
+        or bundle_readiness.get("sidecar_status")
+        or ""
+    ).strip()
+    sidecar_qr_required = (
+        readiness_receipt.get("sidecar_qr_required") is True
+        or sidecar_status == "qr_required"
+        or bundle_inbox.get("session_status") == "qr_required"
+    )
+    sidecar_not_ready = (
+        "sidecar_not_ready" in readiness_reasons
+        or str(readiness_receipt.get("reason") or "").strip() == "sidecar_not_ready"
+        or str(bundle_readiness.get("reason") or "").strip() == "sidecar_not_ready"
+        or bundle_readiness.get("sidecar_ready") is False
+        or readiness_receipt.get("sidecar_ready") is False
+    )
+    return sidecar_not_ready and sidecar_qr_required
+
+
+def _whatsapp_sidecar_pairing_action_context(
+    *,
+    readiness_receipt: dict[str, Any],
+    bundle_receipt: dict[str, Any],
+) -> dict[str, Any]:
+    if not _whatsapp_sidecar_pairing_required(
+        readiness_receipt=readiness_receipt,
+        bundle_receipt=bundle_receipt,
+    ):
+        return {}
+
+    bundle_readiness = dict(bundle_receipt.get("live_readiness") or {})
+    bundle_inbox = dict(bundle_receipt.get("live_sidecar_inbox") or {})
+    sidecar_status = str(
+        readiness_receipt.get("sidecar_status")
+        or bundle_inbox.get("session_status")
+        or bundle_readiness.get("sidecar_status")
+        or ""
+    ).strip()
+    session_api_host_kind = str(bundle_inbox.get("session_api_host_kind") or "").strip()
+    pair_url_scope = str(readiness_receipt.get("pair_url_scope") or "").strip()
+    if not pair_url_scope and session_api_host_kind in {"loopback", "localhost", "host_local"}:
+        pair_url_scope = "host_local"
+    pair_url_actionable_from_telegram = (
+        readiness_receipt.get("pair_url_actionable_from_telegram") is True and pair_url_scope == "public"
+    )
+    instruction = (
+        "Pair the WhatsApp Web sidecar from the WhatsApp integration, then rerun the WhatsApp audiobook delivery checks."
+    )
+    telegram_message = (
+        "Action needed for EA WhatsApp: pair the WhatsApp Web sidecar. Open the WhatsApp integration locally; "
+        "EA will not send host-local pair URLs or QR payloads through Telegram."
+    )
+    return {
+        "kind": "whatsapp_web_sidecar_pairing_required",
+        "user_action_required": True,
+        "instruction": instruction,
+        "missing_setup": ["whatsapp_web_sidecar_pairing"],
+        "setup_checklist": [
+            {
+                "id": "open_whatsapp_integration",
+                "label": "Open WhatsApp setup",
+                "status": "action_required",
+            },
+            {
+                "id": "pair_whatsapp_web_sidecar",
+                "label": "Scan or refresh the WhatsApp Web pairing QR",
+                "status": "action_required",
+            },
+            {
+                "id": "rerun_delivery_checks",
+                "label": "Rerun WhatsApp audiobook delivery checks",
+                "status": "pending_after_pairing",
+            },
+        ],
+        "telegram_message": telegram_message,
+        "runtime_readiness_reason": str(
+            readiness_receipt.get("reason") or bundle_readiness.get("reason") or "sidecar_not_ready"
+        ).strip(),
+        "sidecar_status": sidecar_status,
+        "sidecar_qr_required": True,
+        "sidecar_qr_present": bool(readiness_receipt.get("sidecar_qr_present")),
+        "sidecar_qr_fresh": bool(readiness_receipt.get("sidecar_qr_fresh")),
+        "sidecar_qr_age_seconds": int(readiness_receipt.get("sidecar_qr_age_seconds") or 0),
+        "pair_url_scope": pair_url_scope,
+        "pair_url_actionable_from_telegram": pair_url_actionable_from_telegram,
+        "repair_commands": [
+            "python3 scripts/materialize_whatsapp_web_action_processor_readiness.py",
+            "PYTHONPATH=ea python3 ea/scripts/materialize_whatsapp_audiobook_live_delivery_receipt.py",
+            "PYTHONPATH=ea python3 ea/scripts/materialize_whatsapp_audiobook_operator_proof_bundle.py",
+            "python3 scripts/materialize_continuous_improvement_goal_posture.py",
+            "python3 scripts/verify_continuous_improvement_goal_posture.py --pretty",
+        ],
+        "delivery_policy": "action_required_only",
+        "telegram_push_allowed": True,
+        "non_action_progress_push_allowed": False,
+        "raw_private_context_exposed": False,
+        "raw_chat_ids_exposed": False,
+        "raw_token_exposed": False,
+        "raw_secret_exposed": False,
+        "raw_voice_ids_exposed": False,
+        "callback_tokens_exposed": False,
+        "raw_pair_url_exposed": False,
+        "raw_qr_payload_exposed": False,
+        "raw_whatsapp_session_ref_exposed": False,
+    }
+
+
 def _operator_action_priority(requirement: dict[str, Any]) -> tuple[int, int, int, str]:
     action_context = dict(requirement.get("action_context") or {})
     key_priority = {
@@ -744,6 +876,7 @@ def _operator_action_priority(requirement: dict[str, Any]) -> tuple[int, int, in
         "google_workspace_oauth_setup": 5,
         "telegram_audiobook_live_delivery": 10,
         "manfred_stt_tts_realtime_conversation": 11,
+        "whatsapp_audiobook_live_delivery": 12,
     }
     lens_priority = {
         "prove": 1,
@@ -767,6 +900,7 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
         user_action_required = bool(action_context.get("user_action_required"))
         row = {
             "key": str(requirement.get("key") or "").strip(),
+            "kind": str(action_context.get("kind") or "").strip(),
             "title": str(requirement.get("title") or "").strip(),
             "lens": str(requirement.get("lens") or "").strip(),
             "evidence_kind": str(requirement.get("evidence_kind") or "").strip(),
@@ -818,6 +952,14 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
             "media_error": bool(action_context.get("media_error")),
             "media_error_code": int(action_context.get("media_error_code") or 0),
             "public_share_host": str(action_context.get("public_share_host") or "").strip(),
+            "runtime_readiness_reason": str(action_context.get("runtime_readiness_reason") or "").strip(),
+            "sidecar_status": str(action_context.get("sidecar_status") or "").strip(),
+            "sidecar_qr_required": bool(action_context.get("sidecar_qr_required")),
+            "sidecar_qr_present": bool(action_context.get("sidecar_qr_present")),
+            "sidecar_qr_fresh": bool(action_context.get("sidecar_qr_fresh")),
+            "sidecar_qr_age_seconds": int(action_context.get("sidecar_qr_age_seconds") or 0),
+            "pair_url_scope": str(action_context.get("pair_url_scope") or "").strip(),
+            "pair_url_actionable_from_telegram": bool(action_context.get("pair_url_actionable_from_telegram")),
             "setup_checklist": [
                 dict(item)
                 for item in list(action_context.get("setup_checklist") or [])
@@ -871,8 +1013,12 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
             "raw_object_reference_exposed": bool(action_context.get("raw_object_reference_exposed")),
             "raw_transcript_fields_exposed": bool(action_context.get("raw_transcript_fields_exposed")),
             "candidate_raw_text_fields_exposed": bool(action_context.get("candidate_raw_text_fields_exposed")),
+            "raw_pair_url_exposed": bool(action_context.get("raw_pair_url_exposed")),
+            "raw_qr_payload_exposed": bool(action_context.get("raw_qr_payload_exposed")),
+            "raw_whatsapp_session_ref_exposed": bool(action_context.get("raw_whatsapp_session_ref_exposed")),
         }
         optional_context_keys = (
+            "kind",
             "proof_key",
             "evidence_part",
             "manual_only",
@@ -908,8 +1054,19 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
             "media_error",
             "media_error_code",
             "public_share_host",
+            "runtime_readiness_reason",
+            "sidecar_status",
+            "sidecar_qr_required",
+            "sidecar_qr_present",
+            "sidecar_qr_fresh",
+            "sidecar_qr_age_seconds",
+            "pair_url_scope",
+            "pair_url_actionable_from_telegram",
             "raw_public_share_url_exposed",
             "raw_track_url_exposed",
+            "raw_pair_url_exposed",
+            "raw_qr_payload_exposed",
+            "raw_whatsapp_session_ref_exposed",
             "raw_acceptance_text_exposed",
             "raw_actor_identity_exposed",
             "raw_object_reference_exposed",
@@ -977,6 +1134,10 @@ def build_goal_posture(
     wa_live, wa_live_path = _load_receipt(root, root / DEFAULT_WHATSAPP_AUDIOBOOK_DELIVERY.relative_to(ROOT))
     wa_share, wa_share_path = _load_receipt(root, root / DEFAULT_WHATSAPP_AUDIOBOOK_SHARE.relative_to(ROOT))
     wa_voice, wa_voice_path = _load_receipt(root, root / DEFAULT_WHATSAPP_AUDIOBOOK_VOICE.relative_to(ROOT))
+    wa_runtime, wa_runtime_path = _load_receipt(
+        root,
+        root / DEFAULT_WHATSAPP_WEB_ACTION_PROCESSOR_READINESS.relative_to(ROOT),
+    )
 
     detect_lens = _lens(
         key="detect",
@@ -1111,31 +1272,43 @@ def build_goal_posture(
         else "Telegram audiobook live receipts are not mirrored."
     )
     wa_summary = (
-        f"intake {_status(wa_intake)}; bundle {_status(wa_bundle)}; live {_status(wa_live)}; share {_status(wa_share)}; voice {_status(wa_voice)}"
-        if wa_intake or wa_bundle or wa_live or wa_share or wa_voice
+        f"runtime {_status(wa_runtime)}; intake {_status(wa_intake)}; bundle {_status(wa_bundle)}; live {_status(wa_live)}; share {_status(wa_share)}; voice {_status(wa_voice)}"
+        if wa_runtime or wa_intake or wa_bundle or wa_live or wa_share or wa_voice
         else "WhatsApp audiobook receipts are not mirrored."
     )
     whatsapp_voice_shadow_required = _whatsapp_voice_shadow_required(wa_voice)
-    whatsapp_component_receipts = [
-        _source_receipt(
-            wa_bundle_path,
-            wa_bundle,
-            current_source_head=current_source_head,
-            current_source_fingerprint=current_source_fingerprint,
-        ),
-        _source_receipt(
-            wa_live_path,
-            wa_live,
-            current_source_head=current_source_head,
-            current_source_fingerprint=current_source_fingerprint,
-        ),
-        _source_receipt(
-            wa_share_path,
-            wa_share,
-            current_source_head=current_source_head,
-            current_source_fingerprint=current_source_fingerprint,
-        ),
-    ]
+    whatsapp_component_receipts = []
+    if wa_runtime:
+        whatsapp_component_receipts.append(
+            _source_receipt(
+                wa_runtime_path,
+                wa_runtime,
+                current_source_head=current_source_head,
+                current_source_fingerprint=current_source_fingerprint,
+            )
+        )
+    whatsapp_component_receipts.extend(
+        [
+            _source_receipt(
+                wa_bundle_path,
+                wa_bundle,
+                current_source_head=current_source_head,
+                current_source_fingerprint=current_source_fingerprint,
+            ),
+            _source_receipt(
+                wa_live_path,
+                wa_live,
+                current_source_head=current_source_head,
+                current_source_fingerprint=current_source_fingerprint,
+            ),
+            _source_receipt(
+                wa_share_path,
+                wa_share,
+                current_source_head=current_source_head,
+                current_source_fingerprint=current_source_fingerprint,
+            ),
+        ]
+    )
     if whatsapp_voice_shadow_required:
         whatsapp_component_receipts.append(
             _source_receipt(
@@ -1684,7 +1857,18 @@ def build_goal_posture(
             )
         )
     if any(reason.startswith("deliver:whatsapp_audiobook") for reason in blocking_reasons):
-        whatsapp_acceptance_receipts = [
+        whatsapp_acceptance_receipts = []
+        if wa_runtime:
+            whatsapp_acceptance_receipts.append(
+                _source_receipt(
+                    wa_runtime_path,
+                    wa_runtime,
+                    current_source_head=current_source_head,
+                    current_source_fingerprint=current_source_fingerprint,
+                )
+            )
+        whatsapp_acceptance_receipts.extend(
+            [
             _source_receipt(
                 wa_live_path,
                 wa_live,
@@ -1703,7 +1887,8 @@ def build_goal_posture(
                 current_source_head=current_source_head,
                 current_source_fingerprint=current_source_fingerprint,
             ),
-        ]
+            ]
+        )
         if whatsapp_voice_shadow_required:
             whatsapp_acceptance_receipts.append(
                 _source_receipt(
@@ -1714,7 +1899,13 @@ def build_goal_posture(
                 )
             )
         whatsapp_action_context = {}
-        if any(
+        sidecar_action_context = _whatsapp_sidecar_pairing_action_context(
+            readiness_receipt=wa_runtime,
+            bundle_receipt=wa_bundle,
+        )
+        if sidecar_action_context:
+            whatsapp_action_context = sidecar_action_context
+        elif any(
             str(reason or "").startswith("deliver:whatsapp_audiobook=blocked_stale_source_evidence")
             for reason in blocking_reasons
         ):
@@ -1742,7 +1933,7 @@ def build_goal_posture(
                 lens="deliver",
                 required_next_receipt=WHATSAPP_AUDIOBOOK_LIVE_DELIVERY_RECEIPT,
                 evidence_kind="live_delivery_receipt",
-                capture_surfaces=[wa_live_path, wa_bundle_path, wa_share_path, wa_voice_path],
+                capture_surfaces=[wa_runtime_path, wa_live_path, wa_bundle_path, wa_share_path, wa_voice_path],
                 next_action="capture_passing_whatsapp_audiobook_live_delivery_receipt",
                 claim_boundary="does_not_prove_whatsapp_delivery_until_live_delivery_and_playback_receipts_pass",
                 source_receipts=whatsapp_acceptance_receipts,

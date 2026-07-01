@@ -427,6 +427,15 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
             ):
                 if acceptance_private_key in row and row.get(acceptance_private_key) is not False:
                     issues.append(f"operator_action_queue must not expose {acceptance_private_key}: {action_key}")
+            for whatsapp_private_key in (
+                "raw_public_share_url_exposed",
+                "raw_track_url_exposed",
+                "raw_pair_url_exposed",
+                "raw_qr_payload_exposed",
+                "raw_whatsapp_session_ref_exposed",
+            ):
+                if whatsapp_private_key in row and row.get(whatsapp_private_key) is not False:
+                    issues.append(f"operator_action_queue must not expose {whatsapp_private_key}: {action_key}")
             if row.get("raw_voice_ids_exposed") is not False:
                 issues.append(f"operator_action_queue must not expose raw voice IDs: {action_key}")
             if row.get("callback_tokens_exposed") is not False:
@@ -977,18 +986,75 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
         isinstance(whatsapp_action_context, dict)
         and whatsapp_action_context.get("kind") == "public_share_playback_failure"
     )
-    if whatsapp_requirement and (whatsapp_blocked_stale or whatsapp_failed_playback or whatsapp_blocked_playback):
+    whatsapp_sidecar_pairing = (
+        isinstance(whatsapp_action_context, dict)
+        and whatsapp_action_context.get("kind") == "whatsapp_web_sidecar_pairing_required"
+    )
+    if whatsapp_requirement and (
+        whatsapp_blocked_stale or whatsapp_failed_playback or whatsapp_blocked_playback or whatsapp_sidecar_pairing
+    ):
         action_context = whatsapp_requirement.get("action_context")
         if not isinstance(action_context, dict):
             issues.append("blocked WhatsApp audiobook proof must include action_context")
         else:
-            expected_kind = "stale_source_evidence_refresh" if whatsapp_blocked_stale else "public_share_playback_failure"
+            if whatsapp_sidecar_pairing:
+                expected_kind = "whatsapp_web_sidecar_pairing_required"
+            elif whatsapp_blocked_stale:
+                expected_kind = "stale_source_evidence_refresh"
+            else:
+                expected_kind = "public_share_playback_failure"
             if action_context.get("kind") != expected_kind:
                 issues.append("blocked WhatsApp audiobook action_context kind mismatch")
-            if action_context.get("user_action_required") is not False:
-                issues.append("blocked WhatsApp audiobook repair must not require user action")
-            if action_context.get("telegram_push_allowed") is not False:
-                issues.append("blocked WhatsApp audiobook repair must not allow Telegram push")
+            if whatsapp_sidecar_pairing:
+                if action_context.get("user_action_required") is not True:
+                    issues.append("WhatsApp sidecar pairing must require user action")
+                if action_context.get("telegram_push_allowed") is not True:
+                    issues.append("WhatsApp sidecar pairing may push only as an action-required item")
+                if str(action_context.get("delivery_policy") or "").strip() != "action_required_only":
+                    issues.append("WhatsApp sidecar pairing delivery_policy must be action_required_only")
+                if not str(action_context.get("instruction") or "").strip():
+                    issues.append("WhatsApp sidecar pairing must include instruction")
+                if "whatsapp_web_sidecar_pairing" not in [
+                    str(item).strip() for item in list(action_context.get("missing_setup") or []) if str(item).strip()
+                ]:
+                    issues.append("WhatsApp sidecar pairing must identify missing_setup")
+                if str(action_context.get("sidecar_status") or "").strip() != "qr_required":
+                    issues.append("WhatsApp sidecar pairing must preserve sidecar_status=qr_required")
+                if action_context.get("sidecar_qr_required") is not True:
+                    issues.append("WhatsApp sidecar pairing must preserve sidecar_qr_required=true")
+                pair_url_scope = str(action_context.get("pair_url_scope") or "").strip()
+                if pair_url_scope != "public" and action_context.get("pair_url_actionable_from_telegram") is not False:
+                    issues.append("non-public WhatsApp pair URLs must not be actionable from Telegram")
+                queue_row = next(
+                    (
+                        dict(row)
+                        for row in operator_action_queue
+                        if isinstance(row, dict) and str(row.get("key") or "").strip() == "whatsapp_audiobook_live_delivery"
+                    ),
+                    {},
+                )
+                if not queue_row:
+                    issues.append("WhatsApp sidecar pairing must appear in operator_action_queue")
+                else:
+                    if queue_row.get("user_action_required") is not True:
+                        issues.append("WhatsApp sidecar pairing queue row must require user action")
+                    if queue_row.get("telegram_push_allowed") is not True:
+                        issues.append("WhatsApp sidecar pairing queue row must allow action-required Telegram push")
+                    if str(queue_row.get("delivery_policy") or "").strip() != "action_required_only":
+                        issues.append("WhatsApp sidecar pairing queue row delivery_policy must be action_required_only")
+                    if str(queue_row.get("sidecar_status") or "").strip() != "qr_required":
+                        issues.append("WhatsApp sidecar pairing queue row must preserve sidecar_status=qr_required")
+                    if queue_row.get("sidecar_qr_required") is not True:
+                        issues.append("WhatsApp sidecar pairing queue row must preserve sidecar_qr_required=true")
+                    if str(queue_row.get("pair_url_scope") or "").strip() != "public" and queue_row.get(
+                        "pair_url_actionable_from_telegram"
+                    ) is not False:
+                        issues.append("non-public WhatsApp pair URL queue row must not be actionable from Telegram")
+            else:
+                if action_context.get("user_action_required") is not False:
+                    issues.append("blocked WhatsApp audiobook repair must not require user action")
+                if action_context.get("telegram_push_allowed") is not False:
+                    issues.append("blocked WhatsApp audiobook repair must not allow Telegram push")
             if whatsapp_blocked_stale:
                 stale_receipts = [str(item).strip() for item in list(action_context.get("stale_source_receipts") or []) if str(item).strip()]
                 if not stale_receipts:
@@ -1007,7 +1073,15 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                     issues.append("WhatsApp audiobook playback repair must not expose raw public share URL")
                 if action_context.get("raw_track_url_exposed") is not False:
                     issues.append("WhatsApp audiobook playback repair must not expose raw track URL")
-            for private_key in ("raw_private_context_exposed", "raw_chat_ids_exposed", "raw_token_exposed", "raw_secret_exposed"):
+            for private_key in (
+                "raw_private_context_exposed",
+                "raw_chat_ids_exposed",
+                "raw_token_exposed",
+                "raw_secret_exposed",
+                "raw_pair_url_exposed",
+                "raw_qr_payload_exposed",
+                "raw_whatsapp_session_ref_exposed",
+            ):
                 if action_context.get(private_key) is not False:
                     issues.append(f"blocked WhatsApp audiobook action_context must not expose {private_key}")
     if by_key.get("recover", {}).get("status") == "command_backed_no_published_receipt" and "recover=command_backed_no_published_receipt" not in blocking_reasons:

@@ -42,6 +42,9 @@ PRIVATE_EXPOSURE_FLAGS = (
     "raw_client_id_exposed",
     "raw_client_secret_exposed",
     "raw_error_description_exposed",
+    "raw_pair_url_exposed",
+    "raw_qr_payload_exposed",
+    "raw_whatsapp_session_ref_exposed",
 )
 
 
@@ -153,6 +156,9 @@ def _sanitize_action_item(row: dict[str, Any]) -> dict[str, Any]:
         "raw_client_id_exposed": False,
         "raw_client_secret_exposed": False,
         "raw_error_description_exposed": False,
+        "raw_pair_url_exposed": False,
+        "raw_qr_payload_exposed": False,
+        "raw_whatsapp_session_ref_exposed": False,
     }
 
 
@@ -457,6 +463,9 @@ def build_operator_action_required_digest(
             "raw_client_id_exposed": False,
             "raw_client_secret_exposed": False,
             "raw_error_description_exposed": False,
+            "raw_pair_url_exposed": False,
+            "raw_qr_payload_exposed": False,
+            "raw_whatsapp_session_ref_exposed": False,
         },
         "rules": [
             "Only operator_action_queue items that require user action may enter this digest.",

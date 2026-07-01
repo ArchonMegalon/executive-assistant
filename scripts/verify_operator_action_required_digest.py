@@ -27,6 +27,9 @@ PRIVATE_EXPOSURE_FLAGS = (
     "raw_client_id_exposed",
     "raw_client_secret_exposed",
     "raw_error_description_exposed",
+    "raw_pair_url_exposed",
+    "raw_qr_payload_exposed",
+    "raw_whatsapp_session_ref_exposed",
 )
 ACTION_STATUSES = {
     "ready_to_send",

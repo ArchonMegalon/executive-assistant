@@ -36,6 +36,9 @@ def _action_row() -> dict:
         "raw_token_exposed": False,
         "raw_secret_exposed": False,
         "raw_voice_ids_exposed": False,
+        "raw_pair_url_exposed": False,
+        "raw_qr_payload_exposed": False,
+        "raw_whatsapp_session_ref_exposed": False,
         "callback_tokens_exposed": False,
     }
 
@@ -95,6 +98,9 @@ def test_dedupe_proof_materializes_sanitized_pass_receipt(tmp_path, monkeypatch)
     assert receipt["suppressed_duplicate_expected"] is True
     assert receipt["state"]["last_digest_match"] is True
     assert receipt["state"]["raw_chat_ref_stored"] is False
+    assert receipt["privacy"]["raw_pair_url_exposed"] is False
+    assert receipt["privacy"]["raw_qr_payload_exposed"] is False
+    assert receipt["privacy"]["raw_whatsapp_session_ref_exposed"] is False
     assert receipt["source_receipts"]["sent_digest"]["digest_match"] is True
     assert output_path.exists()
     assert verify_proof.verify_receipt(receipt) == []
