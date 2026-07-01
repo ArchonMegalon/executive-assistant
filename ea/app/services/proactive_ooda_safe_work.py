@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import html
-import os
 import hashlib
 import json
 import re
@@ -19,6 +18,10 @@ from app.services.proactive_ooda_browser_actions import (
     browser_action_handoff_required,
     browser_action_user_prompt,
     build_browser_action_receipt,
+)
+from app.services.proactive_ooda_flat_search_policy import (
+    proactive_ooda_flat_search_enabled as _shared_flat_search_enabled,
+    text_mentions_flat_property_search,
 )
 from app.services.proactive_ooda_stage_packets import (
     FORBIDDEN_WITHOUT_EXPLICIT_APPROVAL,
@@ -411,11 +414,9 @@ def build_safe_work_result(
     work_type = str(order.get("work_type") or "research").strip() or "research"
     candidate_items = _candidate_items(input_contract=input_contract, stage_payload=stage_payload)
     context = _candidate_evaluation_context(input_contract=input_contract, stage_payload=stage_payload)
-    flat_search_disabled_by_policy = (
-        not _proactive_ooda_flat_search_enabled()
-        and _is_flat_property_search_context(context=context)
-        and not candidate_items
-    )
+    flat_search_disabled_by_policy = not _proactive_ooda_flat_search_enabled() and _is_flat_property_search_context(context=context)
+    if flat_search_disabled_by_policy:
+        candidate_items = []
     effective_network_fetch_enabled = bool(network_fetch_enabled) and not flat_search_disabled_by_policy
     if not candidate_items and effective_network_fetch_enabled:
         candidate_items = _research_candidate_items(
@@ -464,6 +465,8 @@ def build_safe_work_result(
         candidate_items=recommendable_candidate_items,
         context=context,
     )
+    if flat_search_disabled_by_policy:
+        recommended = {}
     draft_email_missing = _gmail_draft_recipient_missing(
         work_type=work_type,
         input_contract=input_contract,
@@ -819,56 +822,17 @@ def _flat_provider_search_blockers(*, context: Mapping[str, Any], queries: Itera
 
 
 def _proactive_ooda_flat_search_enabled() -> bool:
-    if _env_truthy(os.getenv("EA_PROACTIVE_OODA_DISABLE_FLAT_SEARCH"), default=False):
-        return False
-    raw = str(os.getenv("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED") or "").strip().lower()
-    if raw in {"1", "true", "yes", "on", "enabled"}:
-        return True
-    if raw in {"0", "false", "no", "off", "disabled"}:
-        return False
-    return False
-
-
-def _env_truthy(value: object, *, default: bool) -> bool:
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    normalized = str(value).strip().lower()
-    if normalized in {"1", "true", "yes", "on", "enabled"}:
-        return True
-    if normalized in {"0", "false", "no", "off", "disabled"}:
-        return False
-    return default
+    return _shared_flat_search_enabled()
 
 
 def _is_flat_property_search_context(*, context: Mapping[str, Any]) -> bool:
     search_terms = (
         tuple(_string_list(context.get("provider_query_terms") or ()))
         + tuple(_string_list(context.get("all_text") or ()))
+        + tuple(_string_list(context.get("provider_query_texts") or ()))
     )
     for term in search_terms:
-        lowered = f" {_ascii_fold_text(str(term or '')).lower()} "
-        if not lowered:
-            continue
-        tokens = set(re.findall(r"[a-z0-9]+", lowered))
-        if tokens & {
-            "apartment",
-            "flat",
-            "immo",
-            "immobilie",
-            "immobilien",
-            "wohnung",
-            "wohnungen",
-            "wohnraum",
-            "wohnungstausch",
-        }:
-            return True
-        if any(token.startswith(("immobili", "wohnung")) for token in tokens):
-            return True
-        weak_object_terms = {"haus", "studio", "objekt"}
-        property_action_terms = {"kauf", "kaufe", "kaufen", "miete", "mieten", "mietwohnung", "rental", "rent"}
-        if tokens & weak_object_terms and tokens & property_action_terms:
+        if text_mentions_flat_property_search(str(term or "")):
             return True
     return False
 

@@ -14,6 +14,10 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 from xml.etree import ElementTree
 
+from app.services.proactive_ooda_flat_search_policy import (
+    proactive_ooda_flat_search_enabled as _shared_flat_search_enabled,
+    text_mentions_flat_property_search,
+)
 from app.services.proactive_ooda_service import JsonOodaStateStore, ProactiveSignal
 
 _TRANSCRIPT_REQUEST_MARKERS = (
@@ -925,34 +929,11 @@ def _transcript_service_provider_request(lowered_request: str) -> bool:
 
 
 def _proactive_ooda_flat_search_enabled() -> bool:
-    if _truthy_default(os.getenv("EA_PROACTIVE_OODA_DISABLE_FLAT_SEARCH"), default=False):
-        return False
-    return _truthy_default(os.getenv("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED"), default=False)
+    return _shared_flat_search_enabled()
 
 
 def _transcript_is_flat_property_search(lowered_request: str) -> bool:
-    normalized = f" {_ascii_fold_text(str(lowered_request or '').strip().lower())} "
-    if not normalized.strip():
-        return False
-    tokens = set(re.findall(r"[a-z0-9]+", normalized))
-    if tokens & {
-        "apartment",
-        "flat",
-        "immo",
-        "immobilie",
-        "immobilien",
-        "wohnung",
-        "wohnungen",
-        "wohnungstausch",
-    }:
-        return True
-    if any(token.startswith(("immobili", "wohnung")) for token in tokens):
-        return True
-    weak_object_terms = {"haus", "studio", "objekt"}
-    property_action_terms = {"kauf", "kaufe", "kaufen", "miete", "mieten", "mietwohnung", "rental", "rent"}
-    if tokens & weak_object_terms and tokens & property_action_terms:
-        return True
-    return False
+    return text_mentions_flat_property_search(lowered_request)
 
 
 def _transcript_has_action_intent(lowered_request: str) -> bool:

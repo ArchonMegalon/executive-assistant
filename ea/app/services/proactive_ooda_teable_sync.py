@@ -8,6 +8,10 @@ from typing import Any, Iterable, Mapping
 from uuid import uuid4
 
 from app.domain.models import ToolDefinition, ToolInvocationRequest
+from app.services.proactive_ooda_flat_search_policy import (
+    material_mentions_flat_property_search,
+    proactive_ooda_flat_search_enabled,
+)
 from app.services.proactive_ooda_operator_actions import proactive_next_action_surface
 from app.services.proactive_ooda_service import OodaInk, ProactiveOodaDigest, ProactiveOodaRunReceipt
 from app.services.proactive_ooda_stage_packets import build_stage_packets
@@ -741,6 +745,8 @@ def _safe_work_result_is_projectable(safe_work_result: Mapping[str, Any]) -> boo
     safe_work = dict(safe_work_result or {})
     if not safe_work:
         return False
+    if not proactive_ooda_flat_search_enabled() and material_mentions_flat_property_search(safe_work):
+        return False
     audit = dict(safe_work.get("audit") or {})
     if str(audit.get("status") or "").strip().lower() == "pass":
         return True
@@ -755,6 +761,8 @@ def _safe_work_projection_suppression_reason(safe_work_result: Mapping[str, Any]
     safe_work = dict(safe_work_result or {})
     if not safe_work:
         return "safe_work_missing"
+    if not proactive_ooda_flat_search_enabled() and material_mentions_flat_property_search(safe_work):
+        return "flat_search_disabled"
     audit = dict(safe_work.get("audit") or {})
     audit_status = str(audit.get("status") or "").strip().lower()
     if not audit:

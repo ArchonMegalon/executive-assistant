@@ -156,6 +156,39 @@ def test_flat_property_search_does_not_fetch_network_candidates_when_disabled(
     assert "flat_provider_search_blocked:flat_search_disabled" in issue_codes
 
 
+def test_flat_property_search_drops_preexisting_candidate_material_when_disabled(monkeypatch: object) -> None:
+    monkeypatch.setenv("EA_PROACTIVE_OODA_DISABLE_FLAT_SEARCH", "1")
+    monkeypatch.setenv("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED", "1")
+    packet = {
+        "packet_ref": "packet-property-candidates-disabled",
+        "approval": {"required": False},
+        "safe_work_order": {
+            "schema": proactive_ooda_safe_work.SAFE_WORK_ORDER_SCHEMA,
+            "work_order_id": "work-property-candidates-disabled",
+            "work_type": "compare_options",
+            "requested_outcome": "Research a shortlist and stage one reversible option for review.",
+        },
+        "stage": {
+            "summary": "Research a shortlist and stage one reversible option for review.",
+            "payload": {
+                "research_query": "Compare the two best property candidates.",
+                "candidate_items": [
+                    {"label": "Apartment candidate", "url": "https://example.test/property/1"},
+                ],
+            },
+        },
+    }
+
+    result = proactive_ooda_safe_work.build_safe_work_result(packet, network_fetch_enabled=True)
+
+    assert result["status"] == "blocked_needs_research_input"
+    assert result["shortlist"] == []
+    assert result["recommended_option_or_draft"] == {}
+    assert result["execution_receipt"]["network_fetch_enabled"] is False
+    issue_codes = {item["code"] for item in result["audit"]["issues"]}
+    assert "flat_provider_search_blocked:flat_search_disabled" in issue_codes
+
+
 def test_flat_property_search_disabled_by_global_kill_switch(monkeypatch: object) -> None:
     monkeypatch.setenv("EA_PROACTIVE_OODA_DISABLE_FLAT_SEARCH", "1")
     monkeypatch.setenv("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED", "1")

@@ -84,6 +84,11 @@ def test_transcript_flat_search_query_in_english_is_ignored() -> None:
     assert signal is None
 
 
+def test_transcript_property_candidate_search_is_ignored() -> None:
+    signal = _telegram_message_signal(text="Compare the two best property candidates.")
+    assert signal is None
+
+
 def test_transcript_generic_purchase_query_is_not_flat_property() -> None:
     signal = _telegram_message_signal(text="Kauf bitte Blumen für meine Frau und such einen guten Anbieter.")
     assert signal is not None
