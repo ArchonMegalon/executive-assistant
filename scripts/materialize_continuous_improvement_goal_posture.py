@@ -361,12 +361,20 @@ def _manual_acceptance_action_context(
     acceptance_receipt: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     requirement: dict[str, Any] = {}
+    accepted = False
     if acceptance_receipt and proof_key:
         for row in list(acceptance_receipt.get("acceptance_capture_requirements") or []):
             if isinstance(row, dict) and str(row.get("proof_key") or row.get("key") or "").strip() == proof_key:
                 requirement = dict(row)
                 break
-    user_action_required = True
+        acceptance_row = dict(dict(acceptance_receipt.get("acceptance_keys") or {}).get(proof_key) or {})
+        accepted = (
+            requirement.get("accepted") is True
+            or str(requirement.get("status") or "").strip() == "accepted_redacted"
+            or acceptance_row.get("accepted") is True
+            or str(acceptance_row.get("status") or "").strip() == "accepted_redacted"
+        )
+    user_action_required = not accepted
     context = {
         "kind": "real_world_acceptance_capture",
         "proof_key": proof_key,
@@ -387,6 +395,22 @@ def _manual_acceptance_action_context(
         "raw_object_reference_exposed": False,
     }
     return {key: value for key, value in context.items() if value not in ("", [], None)}
+
+
+def _acceptance_proof_status(acceptance_receipt: dict[str, Any], proof_key: str) -> str:
+    if not proof_key:
+        return "pending_real_world_evidence"
+    for row in list(acceptance_receipt.get("acceptance_capture_requirements") or []):
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("proof_key") or row.get("key") or "").strip() != proof_key:
+            continue
+        if row.get("accepted") is True or str(row.get("status") or "").strip() == "accepted_redacted":
+            return "satisfied"
+    acceptance_row = dict(dict(acceptance_receipt.get("acceptance_keys") or {}).get(proof_key) or {})
+    if acceptance_row.get("accepted") is True or str(acceptance_row.get("status") or "").strip() == "accepted_redacted":
+        return "satisfied"
+    return "pending_real_world_evidence"
 
 
 def _manfred_realtime_action_context(receipt: dict[str, Any]) -> dict[str, Any]:
@@ -1157,6 +1181,7 @@ def build_goal_posture(
                     current_source_fingerprint=current_source_fingerprint,
                 )
             ],
+            status=_acceptance_proof_status(acceptance, "real_daily_morning_brief_accepted"),
             action_context=_manual_acceptance_action_context(
                 instruction="Record redacted real-world acceptance evidence for the morning brief.",
                 proof_key="real_daily_morning_brief_accepted",

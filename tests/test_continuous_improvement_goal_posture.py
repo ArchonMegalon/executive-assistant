@@ -145,6 +145,35 @@ def _write_teable_recovery_proof_receipt(
     )
 
 
+def _write_acceptance_receipt_with_morning_brief_accepted(root: Path) -> None:
+    accepted_row = {
+        "accepted": True,
+        "status": "accepted_redacted",
+        "source_kind": "operator_admin",
+        "recorded_at": "2026-06-30T10:41:57Z",
+        "evidence_sha256": "evidence-hash",
+        "actor_sha256": "actor-hash",
+        "object_ref_sha256": "object-hash",
+        "raw_evidence_exposed": False,
+        "raw_actor_exposed": False,
+        "raw_object_ref_exposed": False,
+    }
+    _write_receipt(
+        root,
+        ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
+        status="partial_real_world_acceptance_evidence",
+        acceptance_keys={"real_daily_morning_brief_accepted": accepted_row},
+        acceptance_capture_requirements=[
+            {
+                "key": "real_daily_morning_brief_accepted",
+                "proof_key": "real_daily_morning_brief_accepted",
+                "accepted": True,
+                "status": "accepted_redacted",
+            }
+        ],
+    )
+
+
 def test_stale_source_action_context_is_queue_only_and_redacted() -> None:
     context = posture_module._stale_source_action_context(
         receipts=[
@@ -176,6 +205,29 @@ def test_stale_source_action_context_is_queue_only_and_redacted() -> None:
     assert context["raw_chat_ids_exposed"] is False
     assert context["raw_token_exposed"] is False
     assert context["raw_secret_exposed"] is False
+
+
+def test_accepted_morning_brief_evidence_is_satisfied_not_operator_action(tmp_path: Path, monkeypatch) -> None:
+    _set_source_state(monkeypatch)
+    _write_acceptance_receipt_with_morning_brief_accepted(tmp_path)
+
+    receipt = build_goal_posture(
+        root=tmp_path,
+        output_path=Path(".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"),
+        generated_at="2026-06-22T15:00:00Z",
+    )
+
+    proof_requirements = {item["key"]: item for item in receipt["acceptance_proof_requirements"]}
+    morning_requirement = proof_requirements["morning_brief_operator_acceptance"]
+    assert morning_requirement["status"] == "satisfied"
+    assert morning_requirement["action_context"]["user_action_required"] is False
+    assert morning_requirement["action_context"]["delivery_policy"] == "queue_only"
+    assert morning_requirement["action_context"]["telegram_push_allowed"] is False
+    assert morning_requirement["action_context"]["interruption_budget"] == "none"
+    assert "real operator acceptance that the morning brief was worth reading" not in receipt["required_next_receipts"]
+    assert "morning_brief_operator_acceptance" not in {
+        item["key"] for item in receipt["operator_action_queue"]
+    }
 
 
 def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_path: Path, monkeypatch) -> None:
