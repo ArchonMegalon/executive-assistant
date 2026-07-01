@@ -546,7 +546,7 @@ def test_proactive_ooda_operator_status_verifier_rejects_ready_approval_surface_
 
     issues = verifier.verify(receipt, root=tmp_path)
 
-    assert "ready approval_capture_surface requires current_packet_live_pending_count>0" in issues
+    assert "ready approval_capture_surface requires live callback or manual_outcome_capture_ready" in issues
 
 
 def test_proactive_ooda_operator_status_verifier_rejects_clear_status_when_approval_capture_is_pending(

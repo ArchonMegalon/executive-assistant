@@ -1582,7 +1582,7 @@ def test_probe_proactive_route_prefers_approval_followthrough_when_surface_is_li
     assert report["next_action_method"] == "get"
 
 
-def test_probe_proactive_route_checks_workspace_source_by_default(monkeypatch) -> None:
+def test_probe_proactive_route_skips_workspace_source_for_route_readiness(monkeypatch) -> None:
     module = _module()
     seen_verify_command: list[str] = []
 
@@ -1599,6 +1599,28 @@ def test_probe_proactive_route_checks_workspace_source_by_default(monkeypatch) -
             )
         if "/app/scripts/verify_proactive_ooda.py" in command:
             seen_verify_command.extend(command)
+            if "--skip-workspace-source" in command:
+                return (
+                    0,
+                    {
+                        "ok": True,
+                        "delivery_route": {
+                            "ready": True,
+                            "route_error": "",
+                            "recovery_hint": "",
+                            "next_action": "",
+                            "selected_channel": "telegram",
+                            "selected_transport": "telegram",
+                            "selected_by": "tool_runtime_binding",
+                            "available_channels": ["telegram"],
+                        },
+                        "delivery_guard": {"delivery_state": "eligible"},
+                        "stage_packets": {"ready": True, "errors": []},
+                        "safe_work_results": {"ready": True, "errors": []},
+                    },
+                    '{"ok":true}',
+                    "",
+                )
             return (
                 0,
                 {
@@ -1650,16 +1672,13 @@ def test_probe_proactive_route_checks_workspace_source_by_default(monkeypatch) -
     )
 
     assert report["probe_ok"] is True
-    assert report["status"] == "blocked_local_runtime"
-    assert report["blocking_reason"] == "google_workspace_signal_source_unhealthy:google_oauth_invalid_grant"
-    assert report["next_action"] == "reauthorize_google_workspace_binding"
-    assert report["next_action_href"] == (
-        "https://myexternalbrain.com/app/actions/google/connect?"
-        "return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace"
-    )
-    assert report["next_action_label"] == "Reconnect Google workspace"
-    assert report["next_action_method"] == "get"
-    assert "--skip-workspace-source" not in seen_verify_command
+    assert report["status"] == "ready"
+    assert report["blocking_reason"] == ""
+    assert report["next_action"] == "inspect_proactive_delivery_route"
+    assert report["next_action_href"] == ""
+    assert report["next_action_label"] == ""
+    assert report["next_action_method"] == ""
+    assert "--skip-workspace-source" in seen_verify_command
 
 
 def test_probe_proactive_artifacts_reads_runtime_bundle(monkeypatch) -> None:

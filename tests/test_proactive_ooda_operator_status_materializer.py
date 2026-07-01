@@ -169,6 +169,31 @@ def test_source_coverage_summary_fallback_keeps_pocket_required_event_contract()
     assert pocket_lane["next_action"] == "sync_pocket_ai_audio_transcripts"
 
 
+def test_source_coverage_summary_probe_failure_keeps_required_lane_contract() -> None:
+    module = _load_script()
+
+    summary = module._source_coverage_summary(  # noqa: SLF001
+        {
+            "probe_ok": False,
+            "checked": False,
+            "status": "probe_failed",
+            "source": "docker_compose_exec",
+            "missing_lane_keys": list(module.ea_live_ops.PROACTIVE_SOURCE_COVERAGE_LANE_KEYS),
+            "lanes": [],
+            "lane_count": 0,
+            "observed_lane_count": 0,
+        }
+    )
+
+    assert summary["checked"] is False
+    assert summary["status"] == "probe_failed"
+    assert summary["lane_count"] == len(module.ea_live_ops.PROACTIVE_SOURCE_COVERAGE_LANE_KEYS)
+    assert [row["key"] for row in summary["lanes"]] == list(module.ea_live_ops.PROACTIVE_SOURCE_COVERAGE_LANE_KEYS)
+    pocket_lane = next(row for row in summary["lanes"] if row["key"] == "pocket_ai_audio_transcripts")
+    assert pocket_lane["missing_required_event_types"] == ["pocket_recording_archive_indexed"]
+    assert pocket_lane["raw_transcript_text_exposed"] is False
+
+
 def test_build_operator_status_uses_configured_live_probe_timeout(tmp_path: Path, monkeypatch) -> None:
     module = _load_script()
     monkeypatch.setenv("EA_PROACTIVE_OODA_LIVE_PROBE_TIMEOUT_SECONDS", "180")
@@ -902,6 +927,145 @@ def test_materialize_proactive_ooda_operator_status_counts_pending_approval_as_u
     assert receipt["approval_capture"]["current_packet_live_pending_count"] == 1
     assert receipt["approval_capture"]["privacy"]["raw_principal_id_exposed"] is False
     assert receipt["source_coverage"]["observed_lane_count"] == 3
+
+
+def test_materialize_proactive_ooda_operator_status_surfaces_manual_approval_capture_for_mirrored_packet(
+    tmp_path: Path, monkeypatch
+) -> None:
+    module = _load_script()
+    monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_route",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "source": "docker_compose_exec",
+            "runtime_service": "ea-proactive-ooda",
+            "observed_at": "2026-07-01T00:55:00Z",
+            "live_receipt_checked": True,
+            "live_receipt": {
+                "ok": True,
+                "receipt_path": "/data/provider-ledger/proactive_ooda_run_receipts/mirror.json",
+                "delivery_mode": "operator_safe_mirror",
+                "delivery_next_action": "",
+                "delivery_route_error": "",
+                "delivery_recovery_hint": "",
+                "errors": [],
+                "generated_at": "2026-07-01T00:54:00Z",
+                "notification_status": "deferred",
+                "telegram_message_count": 0,
+                "delivery_message_count": 0,
+            },
+            "route_report": {
+                "ok": True,
+                "delivery_route": {
+                    "ready": True,
+                    "route_error": "",
+                    "recovery_hint": "",
+                    "next_action": "",
+                    "selected_channel": "telegram",
+                    "selected_transport": "telegram",
+                    "selected_by": "tool_runtime_binding",
+                    "available_channels": ["telegram"],
+                },
+                "delivery_guard": {"delivery_state": "no_actionable_items", "armed_send": True},
+                "stage_packets": {"ready": True, "errors": []},
+                "safe_work_results": {"ready": True, "errors": []},
+                "receipt_observation_count": 1,
+                "actionable_count": 0,
+                "source_mode": "postgres_observations",
+            },
+        },
+    )
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_artifacts",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "source": "docker_compose_exec",
+            "approval_outcome_path": "/data/provider-ledger/proactive_ooda_latest_approval_outcome.generated.json",
+            "approval_callback_dir": "/data/provider-ledger/proactive_ooda_approval_callbacks",
+            "approval_callback_dir_exists": True,
+            "approval_callback_dir_writable": True,
+            "approval_callback_record_count": 27,
+            "approval_callback_pending_count": 0,
+            "approval_callback_recorded_count": 6,
+            "current_packet_callback_record_count": 0,
+            "current_packet_callback_pending_count": 0,
+            "current_packet_callback_recorded_count": 0,
+            "current_packet_live_callback_record_count": 0,
+            "current_packet_live_pending_count": 0,
+            "current_packet_callback_latest_status": "",
+            "current_packet_callback_latest_expired": False,
+            "current_packet": {
+                "present": True,
+                "status": "staged",
+                "approval_outcome_matches_current_packet": False,
+            },
+            "stage_packet": {
+                "schema": "proactive_ooda.stage_packet.v1",
+                "packet_ref": "stage_packet:mirror-proof",
+                "approval": {"required": True},
+                "stage": {
+                    "kind": "approval_packet",
+                    "payload": {
+                        "approval_prompt": "Approve this staged candidate.",
+                        "approval_url": "https://example.test/candidate",
+                    },
+                },
+            },
+            "safe_work_result": {
+                "schema": "proactive_ooda.safe_work_result.v1",
+                "result_ref": "safe_work_result:mirror-proof",
+                "status": "staged_for_user_decision",
+                "approval": {"required": True},
+                "approval_prompt": "Approve this staged candidate.",
+                "staged_action_url": "https://example.test/candidate",
+                "audit": {"status": "pass", "issues": []},
+            },
+            "approval_outcome": {},
+        },
+    )
+
+    def _unexpected_approval_capture(**_kwargs: object) -> dict[str, object]:
+        raise AssertionError("manual outcome capture must not require a Telegram callback probe")
+
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_approval_capture", _unexpected_approval_capture)
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_gmail_draft",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "status": "no_pending_draft",
+            "source": "docker_compose_exec",
+            "observed_at": "2026-07-01T00:55:30Z",
+        },
+    )
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_source_coverage", _fake_source_coverage_probe)
+
+    output = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
+    receipt = module.build_proactive_ooda_operator_status(
+        output_path=output,
+        generated_at="2026-07-01T00:56:00Z",
+        report_args=Namespace(principal_id="exec-1"),
+    )
+
+    assert receipt["status"] == "ready_with_live_receipt"
+    assert receipt["next_action"] == "record_proactive_ooda_approval_outcome"
+    assert receipt["operator_action_state"] == "approval_capture_pending"
+    assert receipt["actionable_count"] == 1
+    assert receipt["delivery_guard"]["runtime_delivery_state"] == "no_actionable_items"
+    assert receipt["delivery_guard"]["delivery_state"] == "approval_capture_pending"
+    assert receipt["delivery_guard"]["user_action_required"] is True
+    assert receipt["delivery_guard"]["manual_outcome_capture_ready"] is True
+    assert receipt["delivery_guard"]["current_packet_live_pending_count"] == 0
+    assert receipt["approval_capture"]["checked"] is False
+    assert receipt["approval_capture_surface"]["ready"] is True
+    assert receipt["approval_capture_surface"]["mode"] == "manual_outcome_capture_ready"
+    assert receipt["approval_capture_surface"]["current_packet_live_pending_count"] == 0
+    assert receipt["approval_capture_surface"]["manual_outcome_capture_ready"] is True
+    assert receipt["approval_capture_surface"]["current_packet_approval_request_recordable"] is True
+    assert receipt["approval_capture_surface"]["approval_outcome_matches_current_packet"] is False
 
 
 def test_materialize_proactive_ooda_operator_status_blocks_when_live_route_probe_reports_workspace_failure(

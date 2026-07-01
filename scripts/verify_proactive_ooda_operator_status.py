@@ -438,8 +438,12 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
     approval_capture_surface = dict(receipt.get("approval_capture_surface") or {})
     approval_capture = dict(receipt.get("approval_capture") or {})
     if approval_capture_surface:
-        approval_capture_required = bool(approval_capture_surface.get("ready"))
         approval_capture_ready = bool(approval_capture.get("ready"))
+        live_pending_count = int(approval_capture_surface.get("current_packet_live_pending_count") or 0)
+        manual_capture_ready = bool(approval_capture_surface.get("manual_outcome_capture_ready"))
+        approval_capture_required = bool(approval_capture_surface.get("ready")) and not (
+            manual_capture_ready and live_pending_count <= 0
+        )
         if bool(approval_capture_surface.get("ready")):
             if str(approval_capture_surface.get("selected_channel") or "").strip() != "telegram":
                 issues.append("ready approval_capture_surface requires selected_channel=telegram")
@@ -449,20 +453,33 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
                 issues.append("ready approval_capture_surface requires approval_outcome_path")
             if not str(approval_capture_surface.get("callback_dir") or "").strip():
                 issues.append("ready approval_capture_surface requires callback_dir")
-            if int(approval_capture_surface.get("current_packet_live_pending_count") or 0) <= 0:
-                issues.append("ready approval_capture_surface requires current_packet_live_pending_count>0")
-            if status == "ready_with_live_receipt" and approval_capture_ready:
-                if str(receipt.get("next_action") or "").strip() != "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome":
-                    issues.append("ready approval_capture_surface with ready_with_live_receipt requires approval-capture next_action")
+            if live_pending_count <= 0 and not manual_capture_ready:
+                issues.append("ready approval_capture_surface requires live callback or manual_outcome_capture_ready")
+            if manual_capture_ready:
+                if not bool(approval_capture_surface.get("current_packet_approval_request_recordable")):
+                    issues.append("manual approval_capture_surface requires current_packet_approval_request_recordable=true")
+                if bool(approval_capture_surface.get("approval_outcome_matches_current_packet")):
+                    issues.append("manual approval_capture_surface requires missing current approval outcome")
+            if status == "ready_with_live_receipt" and (approval_capture_ready or manual_capture_ready):
+                expected_next_action = (
+                    "record_proactive_ooda_approval_outcome"
+                    if manual_capture_ready and live_pending_count <= 0
+                    else "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome"
+                )
+                if str(receipt.get("next_action") or "").strip() != expected_next_action:
+                    issues.append(
+                        "ready approval_capture_surface with ready_with_live_receipt requires approval-capture next_action"
+                    )
                 if str(receipt.get("operator_action_state") or "").strip() != "approval_capture_pending":
                     issues.append("ready approval_capture_surface with ready_with_live_receipt requires operator_action_state=approval_capture_pending")
                 if str(delivery_guard.get("delivery_state") or "").strip() != "approval_capture_pending":
                     issues.append("ready approval_capture_surface with ready_with_live_receipt requires delivery_guard.delivery_state=approval_capture_pending")
                 if delivery_guard.get("user_action_required") is not True:
                     issues.append("ready approval_capture_surface with ready_with_live_receipt requires delivery_guard.user_action_required=true")
-                if int(receipt.get("actionable_count") or 0) < int(approval_capture_surface.get("current_packet_live_pending_count") or 0):
+                required_actionable_count = live_pending_count if live_pending_count > 0 else 1 if manual_capture_ready else 0
+                if int(receipt.get("actionable_count") or 0) < required_actionable_count:
                     issues.append("ready approval_capture_surface with ready_with_live_receipt requires actionable_count to include pending approval surfaces")
-            if status == "ready_with_live_receipt" and approval_capture and not approval_capture_ready:
+            if status == "ready_with_live_receipt" and approval_capture_required and approval_capture and not approval_capture_ready:
                 expected_next_action = str(approval_capture.get("next_action") or "").strip()
                 if expected_next_action and str(receipt.get("next_action") or "").strip() != expected_next_action:
                     issues.append("blocked approval_capture requires receipt.next_action to match approval_capture.next_action")

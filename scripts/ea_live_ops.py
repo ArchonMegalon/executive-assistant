@@ -1844,6 +1844,7 @@ def probe_proactive_route(
             "--principal-id",
             str(principal_id or "").strip(),
             "--skip-observation-source",
+            "--skip-workspace-source",
             "--no-require-source",
             "--no-require-telegram",
         ],

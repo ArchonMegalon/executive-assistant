@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -330,31 +331,7 @@ def _gmail_draft_followthrough_summary(probe: Mapping[str, Any]) -> dict[str, An
 
 def _source_coverage_summary(probe: Mapping[str, Any]) -> dict[str, Any]:
     if not probe:
-        lanes = []
-        for key in ea_live_ops.PROACTIVE_SOURCE_COVERAGE_LANE_KEYS:
-            lane_contract = SOURCE_COVERAGE_LANE_CONTRACTS.get(str(key), {})
-            required_event_types = [
-                str(item).strip()
-                for item in list(lane_contract.get("required_event_types") or [])
-                if str(item).strip()
-            ][:8]
-            lanes.append(
-                {
-                    "key": key,
-                    "status": "not_checked",
-                    "observed": False,
-                    "record_count": 0,
-                    "latest_observed_at": "",
-                    "evidence_event_types": [],
-                    "required_event_types": required_event_types,
-                    "required_event_type_observed": not required_event_types,
-                    "missing_required_event_types": required_event_types,
-                    "next_action": str(lane_contract.get("next_action") or "").strip(),
-                    "raw_payload_exposed": False,
-                    "raw_transcript_text_exposed": False,
-                    "raw_credential_exposed": False,
-                }
-            )
+        lanes = _source_coverage_fallback_lanes(status="not_checked")
         return {
             "checked": False,
             "status": "not_checked",
@@ -423,7 +400,16 @@ def _source_coverage_summary(probe: Mapping[str, Any]) -> dict[str, Any]:
                 "raw_credential_exposed": bool(lane.get("raw_credential_exposed")),
             }
         )
+    if not lanes:
+        lanes = _source_coverage_fallback_lanes(status=str(probe.get("status") or "probe_failed").strip() or "probe_failed")
     privacy = dict(probe.get("privacy") or {})
+    missing_lane_keys = [
+        str(item).strip()
+        for item in list(probe.get("missing_lane_keys") or [])
+        if str(item).strip()
+    ]
+    if not missing_lane_keys:
+        missing_lane_keys = [str(row["key"]) for row in lanes if not bool(row.get("observed"))]
     summary: dict[str, Any] = {
         "checked": bool(probe.get("checked", probe.get("probe_ok"))),
         "status": str(probe.get("status") or "").strip() or "unknown",
@@ -432,13 +418,13 @@ def _source_coverage_summary(probe: Mapping[str, Any]) -> dict[str, Any]:
         "observation_repository": str(probe.get("observation_repository") or "").strip(),
         "observation_limit": int(probe.get("observation_limit") or 0),
         "observation_row_count": int(probe.get("observation_row_count") or 0),
-        "lane_count": int(probe.get("lane_count") or len(lanes)),
+        "lane_count": max(
+            int(probe.get("lane_count") or 0),
+            len(lanes),
+            len(ea_live_ops.PROACTIVE_SOURCE_COVERAGE_LANE_KEYS),
+        ),
         "observed_lane_count": int(probe.get("observed_lane_count") or 0),
-        "missing_lane_keys": [
-            str(item).strip()
-            for item in list(probe.get("missing_lane_keys") or [])
-            if str(item).strip()
-        ],
+        "missing_lane_keys": missing_lane_keys,
         "lanes": lanes,
         "privacy": {
             "raw_rows_exposed": bool(privacy.get("raw_rows_exposed")),
@@ -461,6 +447,36 @@ def _source_coverage_summary(probe: Mapping[str, Any]) -> dict[str, Any]:
             if str(key or "").strip()
         }
     return summary
+
+
+def _source_coverage_fallback_lanes(*, status: str) -> list[dict[str, Any]]:
+    lanes: list[dict[str, Any]] = []
+    normalized_status = str(status or "not_checked").strip() or "not_checked"
+    for key in ea_live_ops.PROACTIVE_SOURCE_COVERAGE_LANE_KEYS:
+        lane_contract = SOURCE_COVERAGE_LANE_CONTRACTS.get(str(key), {})
+        required_event_types = [
+            str(item).strip()
+            for item in list(lane_contract.get("required_event_types") or [])
+            if str(item).strip()
+        ][:8]
+        lanes.append(
+            {
+                "key": key,
+                "status": normalized_status,
+                "observed": False,
+                "record_count": 0,
+                "latest_observed_at": "",
+                "evidence_event_types": [],
+                "required_event_types": required_event_types,
+                "required_event_type_observed": not required_event_types,
+                "missing_required_event_types": required_event_types,
+                "next_action": str(lane_contract.get("next_action") or "").strip(),
+                "raw_payload_exposed": False,
+                "raw_transcript_text_exposed": False,
+                "raw_credential_exposed": False,
+            }
+        )
+    return lanes
 
 
 def _report_errors(report: Mapping[str, Any]) -> list[str]:
@@ -846,6 +862,8 @@ def _operator_followthrough_next_action(
         approval_capture_surface=approval_capture_surface,
         approval_capture=approval_capture,
     ):
+        if bool(dict(approval_capture_surface or {}).get("manual_outcome_capture_ready")):
+            return "record_proactive_ooda_approval_outcome"
         return "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome"
     if _approval_capture_probe_blocks_followthrough(
         status=status,
@@ -910,6 +928,8 @@ def _summary(
             reason = str(dict(approval_capture or {}).get("blocking_reason") or "approval_capture_not_ready").strip()
             return f"Proactive OODA route, packet runtime, and latest host-visible live receipt are ready, but approval capture needs recovery: {reason}."
         if bool(dict(approval_capture_surface or {}).get("ready")):
+            if bool(dict(approval_capture_surface or {}).get("manual_outcome_capture_ready")):
+                return "Proactive OODA route, packet runtime, latest host-visible live receipt, and manual approval outcome capture are ready for operator follow-through."
             return "Proactive OODA route, packet runtime, latest host-visible live receipt, and Telegram approval capture surface are ready for operator follow-through."
         return "Proactive OODA route, packet runtime, and latest host-visible live receipt are ready for operator follow-through."
     if live_receipt_checked:
@@ -981,6 +1001,9 @@ def _operator_delivery_guard(
     guard["delivery_state"] = "approval_capture_pending"
     guard["user_action_required"] = True
     guard["pending_approval_surface"] = True
+    guard["manual_outcome_capture_ready"] = bool(
+        dict(approval_capture_surface or {}).get("manual_outcome_capture_ready")
+    )
     guard["current_packet_live_pending_count"] = int(
         dict(approval_capture_surface or {}).get("current_packet_live_pending_count") or 0
     )
@@ -1006,7 +1029,69 @@ def _operator_actionable_count(
     ):
         return runtime_count
     pending_count = int(dict(approval_capture_surface or {}).get("current_packet_live_pending_count") or 0)
+    if pending_count <= 0 and bool(dict(approval_capture_surface or {}).get("manual_outcome_capture_ready")):
+        pending_count = 1
     return max(runtime_count, pending_count, 1)
+
+
+def _hash_value(value: str) -> str:
+    normalized = str(value or "").strip()
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest() if normalized else ""
+
+
+def _stage_packet_ref(stage_packet: Mapping[str, Any]) -> str:
+    return str(stage_packet.get("packet_ref") or stage_packet.get("packet_id") or "").strip()
+
+
+def _safe_work_result_ref(safe_work_result: Mapping[str, Any]) -> str:
+    result_ref = str(safe_work_result.get("result_ref") or "").strip()
+    if result_ref:
+        return result_ref
+    result_id = str(safe_work_result.get("result_id") or "").strip()
+    return f"safe_work_result:{result_id}" if result_id else ""
+
+
+def _approval_outcome_matches_current_packet(artifact_probe: Mapping[str, Any]) -> bool:
+    current_packet = dict(artifact_probe.get("current_packet") or {})
+    if "approval_outcome_matches_current_packet" in current_packet:
+        return bool(current_packet.get("approval_outcome_matches_current_packet"))
+    if "approval_outcome_matches_current_packet" in artifact_probe:
+        return bool(artifact_probe.get("approval_outcome_matches_current_packet"))
+    approval_outcome = dict(artifact_probe.get("approval_outcome") or {})
+    if not bool(approval_outcome.get("approval_outcome_recorded")):
+        return False
+    stage_packet = dict(artifact_probe.get("stage_packet") or {})
+    safe_work_result = dict(artifact_probe.get("safe_work_result") or {})
+    packet_ref = _stage_packet_ref(stage_packet)
+    staged_artifact_ref = _safe_work_result_ref(safe_work_result)
+    return bool(
+        packet_ref
+        and staged_artifact_ref
+        and str(approval_outcome.get("packet_ref_sha256") or "").strip() == _hash_value(packet_ref)
+        and str(approval_outcome.get("staged_artifact_sha256") or "").strip() == _hash_value(staged_artifact_ref)
+    )
+
+
+def _current_packet_approval_request_recordable(artifact_probe: Mapping[str, Any]) -> bool:
+    stage_packet = dict(artifact_probe.get("stage_packet") or {})
+    safe_work_result = dict(artifact_probe.get("safe_work_result") or {})
+    packet_ref = _stage_packet_ref(stage_packet)
+    staged_artifact_ref = _safe_work_result_ref(safe_work_result)
+    stage_approval = dict(stage_packet.get("approval") or {})
+    safe_work_approval = dict(safe_work_result.get("approval") or {})
+    stage_payload = dict(dict(stage_packet.get("stage") or {}).get("payload") or {})
+    approval_required = bool(stage_approval.get("required")) or bool(safe_work_approval.get("required"))
+    approval_surface_present = bool(
+        str(safe_work_result.get("approval_prompt") or stage_payload.get("approval_prompt") or "").strip()
+        or str(safe_work_result.get("staged_action_url") or stage_payload.get("approval_url") or "").strip()
+    )
+    return bool(
+        packet_ref
+        and staged_artifact_ref
+        and str(safe_work_result.get("status") or "").strip() == "staged_for_user_decision"
+        and approval_required
+        and approval_surface_present
+    )
 
 
 def _approval_capture_surface(
@@ -1045,6 +1130,13 @@ def _approval_capture_surface(
     current_packet_callback_latest_seconds_until_expiry = int(
         artifact_probe.get("current_packet_callback_latest_seconds_until_expiry") or 0
     )
+    current_packet = dict(artifact_probe.get("current_packet") or {})
+    approval_outcome_matches_current_packet = _approval_outcome_matches_current_packet(artifact_probe)
+    manual_outcome_capture_ready = bool(
+        _current_packet_approval_request_recordable(artifact_probe)
+        and not approval_outcome_matches_current_packet
+        and current_packet_live_pending_count <= 0
+    )
     ready = (
         bool(delivery_route.get("ready"))
         and bool(dict(report.get("stage_packets") or {}).get("ready"))
@@ -1053,11 +1145,18 @@ def _approval_capture_surface(
         and bool(approval_outcome_path)
         and bool(callback_dir)
         and callback_dir_writable
-        and current_packet_live_pending_count > 0
+        and (current_packet_live_pending_count > 0 or manual_outcome_capture_ready)
     )
     return {
         "present": bool(approval_outcome_path or callback_dir),
         "ready": ready,
+        "mode": (
+            "telegram_callback_pending"
+            if current_packet_live_pending_count > 0
+            else "manual_outcome_capture_ready"
+            if manual_outcome_capture_ready
+            else ""
+        ),
         "selected_channel": selected_channel,
         "approval_outcome_path": approval_outcome_path,
         "callback_dir": callback_dir,
@@ -1091,6 +1190,13 @@ def _approval_capture_surface(
         "current_packet_callback_latest_expires_at": current_packet_callback_latest_expires_at,
         "current_packet_callback_latest_age_seconds": current_packet_callback_latest_age_seconds,
         "current_packet_callback_latest_seconds_until_expiry": current_packet_callback_latest_seconds_until_expiry,
+        "current_packet_status": str(current_packet.get("status") or "").strip(),
+        "current_packet_present": bool(current_packet.get("present")) or bool(
+            artifact_probe.get("stage_packet") or artifact_probe.get("safe_work_result")
+        ),
+        "current_packet_approval_request_recordable": _current_packet_approval_request_recordable(artifact_probe),
+        "approval_outcome_matches_current_packet": approval_outcome_matches_current_packet,
+        "manual_outcome_capture_ready": manual_outcome_capture_ready,
         "source": str(artifact_probe.get("source") or "").strip() or "",
     }
 
@@ -1147,6 +1253,7 @@ def _local_artifact_probe(
         ),
         "stage_packet": dict(bundle.get("stage_packet") or {}),
         "safe_work_result": dict(bundle.get("safe_work_result") or {}),
+        "approval_outcome": dict(bundle.get("approval_outcome") or {}),
         "run_receipt": dict(bundle.get("run_receipt") or {}),
         "action_required_only_quiet_receipt": dict(bundle.get("action_required_only_quiet_receipt") or {}),
     }
@@ -1245,6 +1352,7 @@ def build_proactive_ooda_operator_status(
         and live_receipt_path is None
         and not safe_work_audit_blocks
         and _approval_capture_surface_ready(approval_capture_surface)
+        and int(approval_capture_surface.get("current_packet_live_pending_count") or 0) > 0
         and live_receipt_checked
         and bool(live_receipt.get("ok"))
     ):
