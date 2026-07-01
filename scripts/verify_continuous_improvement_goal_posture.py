@@ -73,6 +73,9 @@ DELIVER_BLOCKER_PROOF_KEYS = {
 }
 EXPECTED_PROOF_ACTION_SURFACES = {
     "morning_brief_operator_acceptance": ("/admin/actions/acceptance-evidence", "post"),
+    "ea_real_commitment_recovered_or_closed": ("/admin/actions/acceptance-evidence", "post"),
+    "ea_real_approved_action_audited": ("/admin/actions/acceptance-evidence", "post"),
+    "ea_real_provider_failure_recovered": ("/admin/actions/acceptance-evidence", "post"),
     "weekly_signal_to_decision_review_acceptance": ("/admin/actions/signal-to-decision-evidence", "post"),
     "proactive_ooda_packet_acceptance": ("/admin/proactive-ooda/approval", "get"),
     "fresh_host_teable_recovery_drill": ("/admin/goals", "get"),
@@ -86,6 +89,11 @@ PROACTIVE_OODA_FRESH_SOURCE_RECEIPTS = {
     "ea_proactive_ooda_operator_status.generated.json",
 }
 TEABLE_RECOVERY_PROOF_RECEIPT_NAME = "teable_env_recovery_proof.generated.json"
+EA_QUALITY_ACCEPTANCE_PROOF_KEYS = {
+    "real_commitment_recovered_or_closed": "ea_real_commitment_recovered_or_closed",
+    "real_approved_action_audited": "ea_real_approved_action_audited",
+    "real_provider_failure_recovered": "ea_real_provider_failure_recovered",
+}
 
 
 def _json(path: Path) -> dict[str, Any]:
@@ -401,7 +409,11 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                 issues.append(f"operator_action_queue non-action progress push must be false: {action_key}")
             if row.get("irreversible_actions_consent_gated") is not True:
                 issues.append(f"operator_action_queue irreversible actions must be consent-gated: {action_key}")
-            if action_key in {"morning_brief_operator_acceptance", "weekly_signal_to_decision_review_acceptance"}:
+            if action_key in {
+                "morning_brief_operator_acceptance",
+                "weekly_signal_to_decision_review_acceptance",
+                *EA_QUALITY_ACCEPTANCE_PROOF_KEYS.values(),
+            }:
                 if row.get("user_action_required") is not True:
                     issues.append(f"real-world acceptance capture must require user action: {action_key}")
                 if row.get("delivery_policy") != "action_required_only":
@@ -560,6 +572,25 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
     }
     if queue_keys and queue_keys != pending_proof_keys:
         issues.append("operator_action_queue keys must match pending acceptance proof requirement keys")
+    acceptance_receipt_path = repo_root / ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json"
+    acceptance_receipt = _json(acceptance_receipt_path)
+    acceptance_rows = dict(acceptance_receipt.get("acceptance_keys") or {})
+    if acceptance_rows:
+        for acceptance_key, proof_key in EA_QUALITY_ACCEPTANCE_PROOF_KEYS.items():
+            row = dict(acceptance_rows.get(acceptance_key) or {})
+            accepted = row.get("accepted") is True or str(row.get("status") or "").strip() == "accepted_redacted"
+            requirement = proof_by_key.get(proof_key)
+            if not requirement:
+                issues.append(f"pending EA quality acceptance key must have proof requirement: {proof_key}")
+                continue
+            requirement_status = str(requirement.get("status") or "").strip()
+            if accepted and requirement_status != "satisfied":
+                issues.append(f"accepted EA quality proof must be satisfied: {proof_key}")
+            if not accepted:
+                if requirement_status != "pending_real_world_evidence":
+                    issues.append(f"pending EA quality proof must stay pending: {proof_key}")
+                if proof_key not in queue_keys:
+                    issues.append(f"pending EA quality proof must appear in operator_action_queue: {proof_key}")
     missing_proactive_sources = sorted(PROACTIVE_OODA_FRESH_SOURCE_RECEIPTS - proactive_source_receipt_names)
     if missing_proactive_sources:
         issues.append(f"proactive_ooda_packet_acceptance missing source receipts: {', '.join(missing_proactive_sources)}")

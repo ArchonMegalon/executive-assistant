@@ -50,9 +50,50 @@ TELEGRAM_BUSINESS_SIGNAL_SETUP_RECEIPT = "Telegram Business/Secretary bot connec
 MANFRED_REALTIME_ACCEPTANCE_RECEIPT = "consented Manfred STT/TTS realtime conversation proof"
 TELEGRAM_AUDIOBOOK_LIVE_DELIVERY_RECEIPT = "passing Telegram audiobook live delivery receipt"
 WHATSAPP_AUDIOBOOK_LIVE_DELIVERY_RECEIPT = "passing WhatsApp audiobook live delivery receipt"
+EA_QUALITY_ACCEPTANCE_PROOFS = {
+    "real_commitment_recovered_or_closed": {
+        "key": "ea_real_commitment_recovered_or_closed",
+        "title": "Real commitment recovered or closed",
+        "required_next_receipt": "real commitment recovered or closed with an evidence receipt",
+        "evidence_kind": "real_commitment_recovery_evidence",
+        "next_action": "record_redacted_real_commitment_recovery_evidence",
+        "instruction": "Record redacted evidence that a real commitment was recovered or closed.",
+    },
+    "real_approved_action_audited": {
+        "key": "ea_real_approved_action_audited",
+        "title": "Real approved outbound action audited",
+        "required_next_receipt": "real approved outbound action with audit trail",
+        "evidence_kind": "approved_outbound_action_audit_trail",
+        "next_action": "record_redacted_approved_action_audit_evidence",
+        "instruction": "Record redacted evidence for a real approved outbound action audit trail.",
+    },
+    "real_provider_failure_recovered": {
+        "key": "ea_real_provider_failure_recovered",
+        "title": "Real provider failure recovered",
+        "required_next_receipt": "real provider failure recovered with operator-grade reason",
+        "evidence_kind": "provider_failure_recovery_evidence",
+        "next_action": "record_redacted_provider_failure_recovery_evidence",
+        "instruction": "Record redacted evidence that a real provider failure was recovered with an operator-grade reason.",
+    },
+}
 
 ACTION_SURFACES = {
     "record_redacted_operator_acceptance_for_real_morning_brief": {
+        "href": "/admin/actions/acceptance-evidence",
+        "label": "Record a real-use outcome",
+        "method": "post",
+    },
+    "record_redacted_real_commitment_recovery_evidence": {
+        "href": "/admin/actions/acceptance-evidence",
+        "label": "Record a real-use outcome",
+        "method": "post",
+    },
+    "record_redacted_approved_action_audit_evidence": {
+        "href": "/admin/actions/acceptance-evidence",
+        "label": "Record a real-use outcome",
+        "method": "post",
+    },
+    "record_redacted_provider_failure_recovery_evidence": {
         "href": "/admin/actions/acceptance-evidence",
         "label": "Record a real-use outcome",
         "method": "post",
@@ -411,6 +452,56 @@ def _acceptance_proof_status(acceptance_receipt: dict[str, Any], proof_key: str)
     if acceptance_row.get("accepted") is True or str(acceptance_row.get("status") or "").strip() == "accepted_redacted":
         return "satisfied"
     return "pending_real_world_evidence"
+
+
+def _ea_quality_acceptance_proof_requirements(
+    *,
+    acceptance_receipt: dict[str, Any],
+    quality_receipt: dict[str, Any],
+    acceptance_path: str,
+    quality_path: str,
+    current_source_head: str,
+    current_source_fingerprint: str,
+) -> list[dict[str, Any]]:
+    if not acceptance_receipt:
+        return []
+    source_receipts = [
+        _source_receipt(
+            acceptance_path,
+            acceptance_receipt,
+            current_source_head=current_source_head,
+            current_source_fingerprint=current_source_fingerprint,
+        ),
+        _source_receipt(
+            quality_path,
+            quality_receipt,
+            current_source_head=current_source_head,
+            current_source_fingerprint=current_source_fingerprint,
+        ),
+    ]
+    requirements: list[dict[str, Any]] = []
+    for proof_key, spec in EA_QUALITY_ACCEPTANCE_PROOFS.items():
+        status = _acceptance_proof_status(acceptance_receipt, proof_key)
+        requirements.append(
+            _acceptance_proof_requirement(
+                key=str(spec["key"]),
+                title=str(spec["title"]),
+                lens="prove",
+                required_next_receipt=str(spec["required_next_receipt"]),
+                evidence_kind=str(spec["evidence_kind"]),
+                capture_surfaces=[acceptance_path, quality_path],
+                next_action=str(spec["next_action"]),
+                claim_boundary="does_not_prove_good_executive_assistant_until_all_required_acceptance_keys_are_accepted",
+                source_receipts=source_receipts,
+                status=status,
+                action_context=_manual_acceptance_action_context(
+                    instruction=str(spec["instruction"]),
+                    proof_key=proof_key,
+                    acceptance_receipt=acceptance_receipt,
+                ),
+            )
+        )
+    return requirements
 
 
 def _manfred_realtime_action_context(receipt: dict[str, Any]) -> dict[str, Any]:
@@ -1243,6 +1334,16 @@ def build_goal_posture(
             status="satisfied" if proactive_gold_accepted else "pending_real_world_evidence",
         ),
     ]
+    acceptance_proof_requirements.extend(
+        _ea_quality_acceptance_proof_requirements(
+            acceptance_receipt=acceptance,
+            quality_receipt=quality,
+            acceptance_path=acceptance_path,
+            quality_path=quality_path,
+            current_source_head=current_source_head,
+            current_source_fingerprint=current_source_fingerprint,
+        )
+    )
     if str(recover_lens.get("status") or "").strip() != "pass":
         acceptance_proof_requirements.append(
             _acceptance_proof_requirement(

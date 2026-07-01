@@ -174,6 +174,67 @@ def _write_acceptance_receipt_with_morning_brief_accepted(root: Path) -> None:
     )
 
 
+def _write_acceptance_receipt_with_pending_quality_keys(root: Path) -> None:
+    accepted_row = {
+        "accepted": True,
+        "status": "accepted_redacted",
+        "source_kind": "operator_admin",
+        "recorded_at": "2026-06-30T10:41:57Z",
+        "evidence_sha256": "evidence-hash",
+        "actor_sha256": "actor-hash",
+        "object_ref_sha256": "object-hash",
+        "raw_evidence_exposed": False,
+        "raw_actor_exposed": False,
+        "raw_object_ref_exposed": False,
+    }
+    pending_keys = [
+        "real_commitment_recovered_or_closed",
+        "real_approved_action_audited",
+        "real_provider_failure_recovered",
+    ]
+    acceptance_keys = {
+        "real_daily_morning_brief_accepted": accepted_row,
+        **{
+            key: {
+                "accepted": False,
+                "status": "missing_or_invalid",
+                "source_kind": "unknown",
+                "recorded_at": "",
+                "evidence_sha256": "",
+                "actor_sha256": "",
+                "object_ref_sha256": "",
+                "raw_evidence_exposed": False,
+                "raw_actor_exposed": False,
+                "raw_object_ref_exposed": False,
+            }
+            for key in pending_keys
+        },
+    }
+    _write_receipt(
+        root,
+        ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
+        status="partial_real_world_acceptance_evidence",
+        acceptance_keys=acceptance_keys,
+        acceptance_capture_requirements=[
+            {
+                "key": "real_daily_morning_brief_accepted",
+                "proof_key": "real_daily_morning_brief_accepted",
+                "accepted": True,
+                "status": "accepted_redacted",
+            },
+            *[
+                {
+                    "key": key,
+                    "proof_key": key,
+                    "accepted": False,
+                    "status": "pending_real_world_evidence",
+                }
+                for key in pending_keys
+            ],
+        ],
+    )
+
+
 def test_stale_source_action_context_is_queue_only_and_redacted() -> None:
     context = posture_module._stale_source_action_context(
         receipts=[
@@ -228,6 +289,60 @@ def test_accepted_morning_brief_evidence_is_satisfied_not_operator_action(tmp_pa
     assert "morning_brief_operator_acceptance" not in {
         item["key"] for item in receipt["operator_action_queue"]
     }
+
+
+def test_pending_quality_acceptance_keys_become_action_required_queue_items(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _set_source_state(monkeypatch)
+    _write_acceptance_receipt_with_pending_quality_keys(tmp_path)
+    _write_receipt(
+        tmp_path,
+        ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
+        status="blocked_real_world_acceptance",
+    )
+    _write_proactive_ooda_receipts(tmp_path)
+
+    output = tmp_path / ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"
+    receipt = build_goal_posture(
+        root=tmp_path,
+        output_path=output,
+        generated_at="2026-06-22T15:00:00Z",
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+
+    proof_requirements = {item["key"]: item for item in receipt["acceptance_proof_requirements"]}
+    expected = {
+        "ea_real_commitment_recovered_or_closed": "real_commitment_recovered_or_closed",
+        "ea_real_approved_action_audited": "real_approved_action_audited",
+        "ea_real_provider_failure_recovered": "real_provider_failure_recovered",
+    }
+    for proof_key, acceptance_key in expected.items():
+        requirement = proof_requirements[proof_key]
+        assert requirement["status"] == "pending_real_world_evidence"
+        assert requirement["next_action_href"] == "/admin/actions/acceptance-evidence"
+        assert requirement["next_action_method"] == "post"
+        context = requirement["action_context"]
+        assert context["kind"] == "real_world_acceptance_capture"
+        assert context["proof_key"] == acceptance_key
+        assert context["user_action_required"] is True
+        assert context["delivery_policy"] == "action_required_only"
+        assert context["telegram_push_allowed"] is True
+        assert context["interruption_budget"] == "action_required"
+        assert context["raw_acceptance_text_exposed"] is False
+        assert context["raw_actor_identity_exposed"] is False
+        assert context["raw_object_reference_exposed"] is False
+
+    queue = {item["key"]: item for item in receipt["operator_action_queue"]}
+    for proof_key, acceptance_key in expected.items():
+        assert proof_key in queue
+        assert queue[proof_key]["proof_key"] == acceptance_key
+        assert queue[proof_key]["user_action_required"] is True
+        assert queue[proof_key]["delivery_policy"] == "action_required_only"
+        assert queue[proof_key]["telegram_push_allowed"] is True
+    assert verify(output, root=tmp_path) == []
 
 
 def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_path: Path, monkeypatch) -> None:
