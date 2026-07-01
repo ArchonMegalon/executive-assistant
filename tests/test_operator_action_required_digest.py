@@ -274,6 +274,69 @@ def test_digest_sends_only_new_action_item_from_legacy_state(tmp_path, monkeypat
     assert verify_digest.verify_receipt(receipt) == []
 
 
+def test_digest_external_setup_url_hash_preserves_legacy_items(tmp_path, monkeypatch) -> None:
+    _patch_source_state(monkeypatch)
+    input_path = tmp_path / "posture.json"
+    output_path = tmp_path / "digest.json"
+    state_path = tmp_path / "state.json"
+    old_item = _action_row(key="weekly_signal_to_decision_review_acceptance", instruction="Already sent item.")
+    new_item = _action_row(
+        key="pushbullet_delivery_setup",
+        instruction="Create the missing Pushbullet token.",
+        next_action="create_missing_pushbullet_access_tokens",
+        external_setup_url="https://www.pushbullet.com/#settings/account",
+    )
+    _write_json(input_path, {"status": "active_with_blockers", "operator_action_queue": [old_item, new_item]})
+    legacy_hash = digest._sha256_json(
+        {
+            "key": "weekly_signal_to_decision_review_acceptance",
+            "instruction": "Already sent item.",
+            "next_action": "choose_sent_replacement_voice_sample",
+            "next_action_form_href": "/admin/goals",
+        }
+    )
+    _write_json(
+        state_path,
+        {
+            "last_digest_sha256": "legacy-digest-before-external-setup-url",
+            "last_item_keys": ["weekly_signal_to_decision_review_acceptance"],
+            "last_item_hashes": {"weekly_signal_to_decision_review_acceptance": legacy_hash},
+            "last_sent_at": "2026-07-01T12:00:00Z",
+            "message_id_count": 1,
+        },
+    )
+    calls = []
+
+    def fake_sender(principal_id: str, text: str, dry_run: bool, timeout_seconds: float):
+        calls.append((principal_id, text, dry_run, timeout_seconds))
+        return {"sent": True, "reason": "sent", "message_ids": ["1003"], "message_count": 1}
+
+    receipt = digest.build_operator_action_required_digest(
+        root=tmp_path,
+        input_path=input_path,
+        output_path=output_path,
+        state_path=state_path,
+        principal_id="principal-1",
+        send=True,
+        generated_at="2026-07-01T12:04:00Z",
+        telegram_sender=fake_sender,
+    )
+
+    assert receipt["status"] == "sent"
+    assert receipt["notification_mode"] == "delta"
+    assert receipt["notification_action_keys"] == ["pushbullet_delivery_setup"]
+    assert "Create the missing Pushbullet token" in receipt["telegram_text"]
+    assert "Setup: https://www.pushbullet.com/#settings/account" in receipt["telegram_text"]
+    assert "Already sent item" not in receipt["telegram_text"]
+    saved_state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert set(saved_state["last_item_hashes"]) == {
+        "weekly_signal_to_decision_review_acceptance",
+        "pushbullet_delivery_setup",
+    }
+    assert len(calls) == 1
+    assert verify_digest.verify_receipt(receipt) == []
+
+
 def test_digest_dry_run_checks_sender_without_persisting_state(tmp_path, monkeypatch) -> None:
     _patch_source_state(monkeypatch)
     input_path = tmp_path / "posture.json"

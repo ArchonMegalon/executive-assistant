@@ -198,31 +198,35 @@ def _select_items(posture: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[s
 
 
 def _digest_material(items: list[dict[str, Any]], queue_url: str) -> dict[str, Any]:
-    return {
-        "queue_url": queue_url,
-        "items": [
-            {
-                "key": item.get("key"),
-                "instruction": item.get("instruction"),
-                "next_action": item.get("next_action"),
-                "next_action_form_href": item.get("next_action_form_href"),
-                "external_setup_url": item.get("external_setup_url"),
-            }
-            for item in items
-        ],
-    }
-
-
-def _item_hash(item: dict[str, Any]) -> str:
-    return _sha256_json(
-        {
+    material_items: list[dict[str, Any]] = []
+    for item in items:
+        row = {
             "key": item.get("key"),
             "instruction": item.get("instruction"),
             "next_action": item.get("next_action"),
             "next_action_form_href": item.get("next_action_form_href"),
-            "external_setup_url": item.get("external_setup_url"),
         }
-    )
+        external_setup_url = str(item.get("external_setup_url") or "").strip()
+        if external_setup_url:
+            row["external_setup_url"] = external_setup_url
+        material_items.append(row)
+    return {
+        "queue_url": queue_url,
+        "items": material_items,
+    }
+
+
+def _item_hash(item: dict[str, Any]) -> str:
+    row = {
+        "key": item.get("key"),
+        "instruction": item.get("instruction"),
+        "next_action": item.get("next_action"),
+        "next_action_form_href": item.get("next_action_form_href"),
+    }
+    external_setup_url = str(item.get("external_setup_url") or "").strip()
+    if external_setup_url:
+        row["external_setup_url"] = external_setup_url
+    return _sha256_json(row)
 
 
 def _item_hashes_by_key(items: list[dict[str, Any]]) -> dict[str, str]:
