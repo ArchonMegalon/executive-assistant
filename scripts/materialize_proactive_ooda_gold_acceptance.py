@@ -576,7 +576,13 @@ def _browser_action_contract_proof(
     )
 
 
-def _summary_for_status(status: str, *, approval_capture_surface_ready: bool = False) -> str:
+def _summary_for_status(
+    status: str,
+    *,
+    approval_capture_surface_ready: bool = False,
+    approval_capture_telegram_ready: bool = False,
+    approval_capture_manual_ready: bool = False,
+) -> str:
     if status == "pass":
         return "A proactive OODA packet has routed delivery, live browse evidence, a chosen candidate, a staged reversible artifact, mirrored Teable facts, and a redacted approved outcome."
     if status == "blocked_operator_runtime_posture":
@@ -587,6 +593,8 @@ def _summary_for_status(status: str, *, approval_capture_surface_ready: bool = F
         return "A proactive OODA packet was routed and staged, but the recorded outcome was not accepted under ordinary use."
     if status == "ready_for_approval_outcome_capture":
         if approval_capture_surface_ready:
+            if approval_capture_manual_ready and not approval_capture_telegram_ready:
+                return "A proactive OODA packet has local gold-proof runtime evidence and manual approval outcome capture is ready; capture the redacted approval outcome next."
             return "A proactive OODA packet has local gold-proof runtime evidence and a live Telegram approval capture surface; capture the redacted approval outcome next."
         return "A proactive OODA packet has local gold-proof runtime evidence; capture the redacted approval outcome next."
     return "Proactive OODA gold proof is still blocked because one or more packet-evidence links are missing."
@@ -843,6 +851,7 @@ def _next_action(
     approval_capture_readiness_present: bool,
     approval_row: Mapping[str, Any],
     approval_capture_surface_ready: bool,
+    approval_capture_telegram_ready: bool,
 ) -> str:
     if not operator_runtime_ready:
         return _operator_runtime_next_action(operator_status)
@@ -864,7 +873,7 @@ def _next_action(
         approval_capture = dict(operator_status.get("approval_capture") or {})
         return str(approval_capture.get("next_action") or "repair_proactive_approval_capture").strip() or "repair_proactive_approval_capture"
     if not bool(approval_row.get("approval_outcome_recorded")):
-        if approval_capture_surface_ready:
+        if approval_capture_surface_ready and approval_capture_telegram_ready:
             return "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome"
         return "record_proactive_ooda_approval_outcome"
     if not bool(approval_row.get("accepted")):
@@ -961,6 +970,7 @@ def _approval_capture_readiness_proof(
     approval_outcome_matches_current_packet: bool,
 ) -> tuple[dict[str, Any], bool]:
     approval_capture = dict(operator_status.get("approval_capture") or {})
+    approval_capture_surface = dict(operator_status.get("approval_capture_surface") or {})
     privacy = dict(approval_capture.get("privacy") or {})
     checked = bool(approval_capture.get("checked"))
     raw_exposure = any(
@@ -973,28 +983,40 @@ def _approval_capture_readiness_proof(
             "raw_staged_artifact_ref_exposed",
         )
     )
-    ready = bool(approval_capture.get("ready"))
+    live_callback_ready = bool(approval_capture.get("ready"))
+    telegram_approval_surface_ready = bool(approval_capture_surface.get("telegram_approval_surface_ready")) or (
+        int(approval_capture_surface.get("current_packet_live_pending_count") or 0) > 0
+    )
+    manual_outcome_capture_ready = bool(
+        approval_capture_surface.get("manual_outcome_capture_ready")
+        and approval_capture_surface.get("current_packet_approval_request_recordable")
+        and approval_capture_surface.get("ready")
+    )
+    ready = bool(live_callback_ready or manual_outcome_capture_ready)
     satisfied_by_recorded_outcome = bool(
         approval_outcome_recorded and approval_outcome_matches_current_packet and not raw_exposure
     )
+    live_callback_present = bool(
+        checked
+        and bool(approval_capture.get("probe_ok"))
+        and live_callback_ready
+        and not raw_exposure
+        and bool(approval_capture.get("current_packet_refs_present"))
+        and int(approval_capture.get("current_packet_live_pending_count") or 0) > 0
+        and int(approval_capture.get("current_packet_callback_record_count") or 0) > 0
+        and bool(approval_capture.get("callback_principal_hash_present"))
+        and int(approval_capture.get("candidate_principal_hash_count") or 0) > 0
+        and bool(approval_capture.get("principal_match_ready"))
+        and bool(approval_capture.get("telegram_binding_ready"))
+        and bool(approval_capture.get("telegram_chat_ref_present"))
+        and bool(approval_capture.get("telegram_bot_token_present"))
+    )
+    manual_capture_present = bool(manual_outcome_capture_ready and not raw_exposure)
     present = (
         satisfied_by_recorded_outcome
         or (not required and not checked)
-        or (
-            checked
-            and bool(approval_capture.get("probe_ok"))
-            and ready
-            and not raw_exposure
-            and bool(approval_capture.get("current_packet_refs_present"))
-            and int(approval_capture.get("current_packet_live_pending_count") or 0) > 0
-            and int(approval_capture.get("current_packet_callback_record_count") or 0) > 0
-            and bool(approval_capture.get("callback_principal_hash_present"))
-            and int(approval_capture.get("candidate_principal_hash_count") or 0) > 0
-            and bool(approval_capture.get("principal_match_ready"))
-            and bool(approval_capture.get("telegram_binding_ready"))
-            and bool(approval_capture.get("telegram_chat_ref_present"))
-            and bool(approval_capture.get("telegram_bot_token_present"))
-        )
+        or live_callback_present
+        or manual_capture_present
     )
     return (
         _proof_row(
@@ -1004,6 +1026,17 @@ def _approval_capture_readiness_proof(
                 "checked": checked,
                 "probe_ok": bool(approval_capture.get("probe_ok")),
                 "ready": ready,
+                "live_callback_ready": live_callback_ready,
+                "live_callback_present": live_callback_present,
+                "manual_capture_present": manual_capture_present,
+                "approval_capture_surface_present": bool(approval_capture_surface.get("present")),
+                "approval_capture_surface_ready": bool(approval_capture_surface.get("ready")),
+                "approval_capture_surface_mode": str(approval_capture_surface.get("mode") or "").strip(),
+                "telegram_approval_surface_ready": telegram_approval_surface_ready,
+                "manual_outcome_capture_ready": manual_outcome_capture_ready,
+                "current_packet_approval_request_recordable": bool(
+                    approval_capture_surface.get("current_packet_approval_request_recordable")
+                ),
                 "satisfied_by_recorded_outcome": satisfied_by_recorded_outcome,
                 "approval_outcome_recorded": approval_outcome_recorded,
                 "approval_outcome_matches_current_packet": approval_outcome_matches_current_packet,
@@ -1042,7 +1075,9 @@ def _approval_capture_surface_receipt(
     approval_outcome_path: Path | None,
     used_live_runtime_probe: bool,
 ) -> tuple[dict[str, Any], bool]:
+    operator_surface = dict(operator_status.get("approval_capture_surface") or {})
     selected_channel = _first_text(
+        operator_surface.get("selected_channel"),
         dict(operator_status.get("delivery_route") or {}).get("selected_channel"),
         dict(operator_status.get("live_receipt") or {}).get("delivery_channel"),
     )
@@ -1123,17 +1158,34 @@ def _approval_capture_surface_receipt(
     )
     current_packet_callback_expired_count = int(bundle.get("current_packet_callback_expired_count") or 0)
     current_packet_callback_superseded_count = int(bundle.get("current_packet_callback_superseded_count") or 0)
+    current_packet_approval_request_recordable = bool(
+        operator_surface.get("current_packet_approval_request_recordable")
+    )
+    telegram_approval_surface_ready = bool(operator_surface.get("telegram_approval_surface_ready")) or (
+        current_packet_live_pending_count > 0
+    )
+    manual_outcome_capture_ready = bool(
+        operator_surface.get("manual_outcome_capture_ready") and current_packet_approval_request_recordable
+    )
     ready = (
         selected_channel == "telegram"
         and approval_outcome_path is not None
         and callback_dir_path is not None
         and callback_dir_writable
-        and current_packet_live_pending_count > 0
+        and (telegram_approval_surface_ready or manual_outcome_capture_ready)
+    )
+    mode = (
+        "telegram_callback_pending"
+        if telegram_approval_surface_ready
+        else "manual_outcome_capture_ready"
+        if manual_outcome_capture_ready
+        else str(operator_surface.get("mode") or "").strip()
     )
     return (
         {
             "present": bool(approval_outcome_path or callback_dir_path),
             "ready": ready,
+            "mode": mode,
             "selected_channel": selected_channel,
             "approval_outcome_path": display_path(ROOT, approval_outcome_path),
             "callback_dir": display_path(ROOT, callback_dir_path),
@@ -1167,7 +1219,16 @@ def _approval_capture_surface_receipt(
             "current_packet_callback_latest_expires_at": current_packet_callback_latest_expires_at,
             "current_packet_callback_latest_age_seconds": current_packet_callback_latest_age_seconds,
             "current_packet_callback_latest_seconds_until_expiry": current_packet_callback_latest_seconds_until_expiry,
+            "current_packet_status": str(operator_surface.get("current_packet_status") or "").strip(),
+            "current_packet_present": bool(operator_surface.get("current_packet_present")),
+            "current_packet_approval_request_recordable": current_packet_approval_request_recordable,
+            "approval_outcome_matches_current_packet": bool(
+                operator_surface.get("approval_outcome_matches_current_packet")
+            ),
+            "telegram_approval_surface_ready": telegram_approval_surface_ready,
+            "manual_outcome_capture_ready": manual_outcome_capture_ready,
             "source": "docker_compose_exec" if used_live_runtime_probe else "local_filesystem",
+            "operator_surface_source": str(operator_surface.get("source") or "").strip(),
         },
         ready,
     )
@@ -1461,6 +1522,8 @@ def materialize_proactive_ooda_gold_acceptance(
         approval_outcome_path=resolved_approval_outcome_path,
         used_live_runtime_probe=used_live_runtime_probe,
     )
+    approval_capture_telegram_ready = bool(approval_capture_surface.get("telegram_approval_surface_ready"))
+    approval_capture_manual_ready = bool(approval_capture_surface.get("manual_outcome_capture_ready"))
     approval_capture_readiness_required = approval_capture_surface_ready and not bool(approval_row.get("approval_outcome_recorded"))
     approval_capture_readiness_proof, approval_capture_readiness_present = _approval_capture_readiness_proof(
         operator_status=operator_status,
@@ -1733,7 +1796,7 @@ def materialize_proactive_ooda_gold_acceptance(
         and packet_artifacts_match_run_receipt
         and int(run_receipt.get("item_count") or 0) > 0
         and packet_projection_present
-        and (not approval_capture_surface_ready or approval_surface_projection_present)
+        and (not approval_capture_telegram_ready or approval_surface_projection_present)
     )
     teable_proof = _proof_row(
         present=teable_present,
@@ -1745,6 +1808,8 @@ def materialize_proactive_ooda_gold_acceptance(
             "projection_record_count": int(projection_summary.get("record_count") or 0),
             "packet_projection_present": packet_projection_present,
             "approval_capture_surface_ready": approval_capture_surface_ready,
+            "approval_capture_telegram_surface_ready": approval_capture_telegram_ready,
+            "approval_capture_manual_outcome_capture_ready": approval_capture_manual_ready,
             "approval_surface_projection_present": approval_surface_projection_present,
             "packet_artifacts_match_run_receipt": packet_artifacts_match_run_receipt,
             "missing_tables": [
@@ -1795,6 +1860,7 @@ def materialize_proactive_ooda_gold_acceptance(
         approval_capture_readiness_present=approval_capture_readiness_present,
         approval_row=approval_row,
         approval_capture_surface_ready=approval_capture_surface_ready,
+        approval_capture_telegram_ready=approval_capture_telegram_ready,
     )
 
     receipt = {
@@ -1807,7 +1873,12 @@ def materialize_proactive_ooda_gold_acceptance(
         "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
         "output_path": display_path(ROOT, output_path),
         "status": status,
-        "summary": _summary_for_status(status, approval_capture_surface_ready=approval_capture_surface_ready),
+        "summary": _summary_for_status(
+            status,
+            approval_capture_surface_ready=approval_capture_surface_ready,
+            approval_capture_telegram_ready=approval_capture_telegram_ready,
+            approval_capture_manual_ready=approval_capture_manual_ready,
+        ),
         "next_action": next_action,
         **_next_action_surface_fields(next_action),
         "goal_completion_claim_allowed": False,

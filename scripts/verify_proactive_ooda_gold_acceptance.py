@@ -74,9 +74,15 @@ def _load_json(path: Path) -> dict[str, Any]:
     return dict(payload) if isinstance(payload, dict) else {}
 
 
-def _verify_approval_capture(approval_capture: Mapping[str, Any], issues: list[str], *, required: bool) -> None:
+def _verify_approval_capture(
+    approval_capture: Mapping[str, Any],
+    issues: list[str],
+    *,
+    required: bool,
+    manual_ready: bool = False,
+) -> None:
     if not approval_capture:
-        if required:
+        if required and not manual_ready:
             issues.append("ready approval_capture_surface requires redacted approval_capture readiness proof")
         return
     privacy = dict(approval_capture.get("privacy") or {})
@@ -90,6 +96,8 @@ def _verify_approval_capture(approval_capture: Mapping[str, Any], issues: list[s
         if bool(privacy.get(flag)):
             issues.append(f"approval_capture.privacy.{flag} must remain false")
     if not required:
+        return
+    if manual_ready:
         return
     if bool(approval_capture.get("checked")) is not True:
         issues.append("ready approval_capture_surface requires approval_capture.checked=true")
@@ -314,6 +322,10 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
     approval_capture_surface = dict(evidence_receipts.get("approval_capture_surface") or {})
     approval_capture = dict(evidence_receipts.get("approval_capture") or {})
     if approval_capture_surface and bool(approval_capture_surface.get("ready")):
+        telegram_ready = bool(approval_capture_surface.get("telegram_approval_surface_ready")) or (
+            int(approval_capture_surface.get("current_packet_live_pending_count") or 0) > 0
+        )
+        manual_ready = bool(approval_capture_surface.get("manual_outcome_capture_ready"))
         if str(approval_capture_surface.get("selected_channel") or "").strip() != "telegram":
             issues.append("ready approval_capture_surface requires selected_channel=telegram")
         if not bool(approval_capture_surface.get("callback_dir_writable")):
@@ -322,9 +334,13 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
             issues.append("ready approval_capture_surface requires approval_outcome_path")
         if not str(approval_capture_surface.get("callback_dir") or "").strip():
             issues.append("ready approval_capture_surface requires callback_dir")
-        if int(approval_capture_surface.get("current_packet_live_pending_count") or 0) <= 0:
+        if not telegram_ready and not manual_ready:
+            issues.append("ready approval_capture_surface requires telegram or manual capture readiness")
+        if telegram_ready and int(approval_capture_surface.get("current_packet_live_pending_count") or 0) <= 0:
             issues.append("ready approval_capture_surface requires current_packet_live_pending_count>0")
-        _verify_approval_capture(approval_capture, issues, required=True)
+        if manual_ready and bool(approval_capture_surface.get("current_packet_approval_request_recordable")) is not True:
+            issues.append("manual approval_capture_surface requires current_packet_approval_request_recordable=true")
+        _verify_approval_capture(approval_capture, issues, required=True, manual_ready=manual_ready and not telegram_ready)
     elif approval_capture:
         _verify_approval_capture(approval_capture, issues, required=False)
     operator_status_evidence = dict(evidence_receipts.get("operator_status") or {})

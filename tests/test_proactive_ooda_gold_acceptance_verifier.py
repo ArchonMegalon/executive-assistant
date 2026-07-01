@@ -289,7 +289,69 @@ def test_proactive_ooda_gold_acceptance_verifier_rejects_ready_approval_surface_
 
     issues = verifier.verify(receipt, root=tmp_path)
 
-    assert "ready approval_capture_surface requires current_packet_live_pending_count>0" in issues
+    assert "ready approval_capture_surface requires telegram or manual capture readiness" in issues
+
+
+def test_proactive_ooda_gold_acceptance_verifier_accepts_ready_manual_approval_surface_without_live_callback(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json"
+    payload = _base_payload()
+    payload["summary"] = (
+        "A proactive OODA packet has local gold-proof runtime evidence and manual approval outcome capture is ready; "
+        "capture the redacted approval outcome next."
+    )
+    payload["proofs"]["approval_capture_readiness"] = {
+        "present": True,
+        "status": "pass",
+        "required": True,
+        "checked": False,
+        "ready": True,
+        "live_callback_ready": False,
+        "live_callback_present": False,
+        "manual_capture_present": True,
+        "approval_capture_surface_present": True,
+        "approval_capture_surface_ready": True,
+        "approval_capture_surface_mode": "manual_outcome_capture_ready",
+        "telegram_approval_surface_ready": False,
+        "manual_outcome_capture_ready": True,
+        "current_packet_approval_request_recordable": True,
+        "raw_callback_token_exposed": False,
+        "raw_principal_id_exposed": False,
+        "raw_chat_ref_exposed": False,
+        "raw_packet_ref_exposed": False,
+        "raw_staged_artifact_ref_exposed": False,
+    }
+    payload["evidence_receipts"] = {
+        "approval_capture_surface": {
+            "ready": True,
+            "mode": "manual_outcome_capture_ready",
+            "selected_channel": "telegram",
+            "callback_dir_writable": True,
+            "approval_outcome_path": "state/proactive_ooda_latest_approval_outcome.generated.json",
+            "callback_dir": "/data/provider-ledger/proactive_ooda_approval_callbacks",
+            "current_packet_live_pending_count": 0,
+            "telegram_approval_surface_ready": False,
+            "manual_outcome_capture_ready": True,
+            "current_packet_approval_request_recordable": True,
+        },
+        "approval_capture": {
+            "privacy": {
+                "raw_callback_token_exposed": False,
+                "raw_principal_id_exposed": False,
+                "raw_chat_ref_exposed": False,
+                "raw_packet_ref_exposed": False,
+                "raw_staged_artifact_ref_exposed": False,
+            }
+        },
+    }
+    _write_receipt(receipt, **payload)
+    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
+
+    issues = verifier.verify(receipt, root=tmp_path)
+
+    assert issues == []
 
 
 def test_proactive_ooda_gold_acceptance_verifier_accepts_blocked_operator_runtime_posture(
