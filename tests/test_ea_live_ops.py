@@ -798,6 +798,8 @@ def test_probe_telegram_readiness_runtime_reports_ready_without_chat_secret(monk
 
     def _fake_exec_json(*, code: str, timeout_seconds: float):
         assert "resolve_primary_telegram_binding" not in code
+        assert "build_container" not in code
+        assert "build_tool_runtime" in code
         assert "list_connector_bindings" in code
         assert "os._exit(0)" in code
         assert "flush=True" in code
@@ -1018,8 +1020,9 @@ def test_main_probe_telegram_readiness_operator_prints_plain_text(monkeypatch, c
         lambda: Namespace(command="probe-telegram-readiness", telegram_principal_id="principal-1", format="operator"),
     )
 
-    def _fake_probe_telegram_readiness(*, principal_id: str, output_format: str):
+    def _fake_probe_telegram_readiness(*, principal_id: str, timeout_seconds: float, output_format: str):
         assert principal_id == "principal-1"
+        assert timeout_seconds == 75.0
         assert output_format == "operator"
         return {"probe_ok": True, "operator_text": "telegram ok"}
 
@@ -1035,7 +1038,7 @@ def test_probe_operator_readiness_aggregates_components_without_raw_secrets(monk
     monkeypatch.setattr(
         module,
         "probe_telegram_readiness",
-        lambda principal_id, output_format="json": {
+        lambda principal_id, timeout_seconds=None, output_format="json": {
             "probe_ok": True,
             "ready": True,
             "status": "ready",
@@ -3998,10 +4001,12 @@ def test_send_telegram_dry_run_reuses_readiness_probe_without_sending(monkeypatc
     module = _module()
     monkeypatch.setattr(module, "_utc_now", lambda: "2026-06-29T14:00:00Z")
 
-    def _fake_probe_telegram_readiness(*, principal_id: str, output_format: str):
+    def _fake_probe_telegram_readiness(*, principal_id: str, timeout_seconds: float, output_format: str):
         assert principal_id == "principal-1"
+        assert timeout_seconds == 30.0
         assert output_format == "json"
         return {
+            "probe_ok": True,
             "ready": True,
             "status": "ready",
             "reason": "",
@@ -4023,6 +4028,7 @@ def test_send_telegram_dry_run_reuses_readiness_probe_without_sending(monkeypatc
     assert report["sent"] is False
     assert report["reason"] == "dry_run"
     assert report["ready"] is True
+    assert report["readiness_probe_ok"] is True
     assert report["delivery_transport"] == "telegram_bot"
     assert report["chat_ref_sha256"] == "c" * 64
     assert report["bot_token_present"] is True
@@ -4038,6 +4044,8 @@ def test_send_telegram_executes_runtime_without_exposing_chat_secret(monkeypatch
 
     def _fake_exec_json(*, code: str, timeout_seconds: float):
         assert "send_telegram_message_for_principal" in code
+        assert "build_container" not in code
+        assert "build_tool_runtime" in code
         assert "disable_web_page_preview=True" in code
         assert "os._exit(0)" in code
         assert "flush=True" in code
@@ -4082,7 +4090,8 @@ def test_send_telegram_document_dry_run_reuses_readiness_without_exposing_docume
     monkeypatch.setattr(
         module,
         "probe_telegram_readiness",
-        lambda principal_id, output_format="json": {
+        lambda principal_id, timeout_seconds=None, output_format="json": {
+            "probe_ok": True,
             "ready": True,
             "status": "ready",
             "reason": "",
@@ -4107,6 +4116,7 @@ def test_send_telegram_document_dry_run_reuses_readiness_without_exposing_docume
     assert report["sent"] is False
     assert report["reason"] == "dry_run"
     assert report["ready"] is True
+    assert report["readiness_probe_ok"] is True
     assert report["document_ref_present"] is True
     assert report["caption_present"] is True
     assert report["observed_at"] == "2026-06-29T14:02:00Z"
@@ -4134,6 +4144,8 @@ def test_send_telegram_document_stages_local_file_into_runtime_container(monkeyp
         assert str(document) not in code
         assert "/tmp/ea-live-ops-document.svg" in code
         assert "send_telegram_document_for_principal" in code
+        assert "build_container" not in code
+        assert "build_tool_runtime" in code
         assert "os._exit(0)" in code
         assert "flush=True" in code
         return (
@@ -4189,13 +4201,44 @@ def test_main_send_telegram_emits_json(monkeypatch, capsys) -> None:
         assert text == "status update"
         assert dry_run is True
         assert timeout_seconds == 90.0
-        return {"sent": False, "reason": "dry_run", "delivery_transport": "telegram_bot"}
+        return {"sent": False, "reason": "dry_run", "ready": True, "delivery_transport": "telegram_bot"}
 
     monkeypatch.setattr(module, "send_telegram", _fake_send_telegram)
 
     assert module.main() == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload == {"delivery_transport": "telegram_bot", "reason": "dry_run", "sent": False}
+    assert payload == {"delivery_transport": "telegram_bot", "ready": True, "reason": "dry_run", "sent": False}
+
+
+def test_main_send_telegram_dry_run_fails_closed_when_not_ready(monkeypatch, capsys) -> None:
+    module = _module()
+    monkeypatch.setattr(
+        module,
+        "parse_args",
+        lambda: Namespace(
+            command="send-telegram",
+            telegram_principal_id="principal-1",
+            text="status update",
+            dry_run=True,
+            timeout_seconds=20.0,
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "send_telegram",
+        lambda **_kwargs: {
+            "sent": False,
+            "reason": "dry_run",
+            "ready": False,
+            "readiness_status": "probe_failed",
+            "delivery_transport": "telegram_bot",
+        },
+    )
+
+    assert module.main() == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["reason"] == "dry_run"
+    assert payload["ready"] is False
 
 
 def test_main_probe_provider_operator_prints_plain_text(monkeypatch, capsys) -> None:

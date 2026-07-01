@@ -113,6 +113,21 @@ PROACTIVE_SOURCE_COVERAGE_LANES: tuple[dict[str, object], ...] = (
         "next_action": "refresh_principal_profile_context",
     },
 )
+
+
+def _telegram_readiness_timeout_seconds(timeout_seconds: float | None = None) -> float:
+    if timeout_seconds is not None:
+        try:
+            return max(float(timeout_seconds), 5.0)
+        except (TypeError, ValueError):
+            pass
+    try:
+        return max(
+            float(_env("EA_TELEGRAM_READINESS_TIMEOUT_SECONDS", str(DEFAULT_TELEGRAM_READINESS_TIMEOUT_SECONDS))),
+            5.0,
+        )
+    except ValueError:
+        return DEFAULT_TELEGRAM_READINESS_TIMEOUT_SECONDS
 PROACTIVE_SOURCE_COVERAGE_LANE_KEYS = tuple(row["key"] for row in PROACTIVE_SOURCE_COVERAGE_LANES)
 
 
@@ -1485,6 +1500,7 @@ def probe_teable_recovery(
 def probe_telegram_readiness(
     *,
     principal_id: str,
+    timeout_seconds: float | None = None,
     output_format: str = "json",
 ) -> dict[str, object]:
     observed_at = _utc_now()
@@ -1495,13 +1511,14 @@ def probe_telegram_readiness(
         + json.dumps(str(principal_id or "").strip())
         + "\n"
         "try:\n"
-        "    from app.container import build_container\n"
+        "    from app.settings import get_settings\n"
         "    from app.services.telegram_delivery import TELEGRAM_IDENTITY_CONNECTOR, _telegram_binding_principal_candidates, _telegram_bot_registry\n"
-        "    container = build_container()\n"
+        "    from app.services.tool_runtime import build_tool_runtime\n"
+        "    tool_runtime = build_tool_runtime(get_settings())\n"
         "    candidates = list(_telegram_binding_principal_candidates(principal_id))\n"
         "    ranked = []\n"
         "    for candidate_index, binding_principal_id in enumerate(candidates):\n"
-        "        for row in container.tool_runtime.list_connector_bindings(binding_principal_id, limit=200):\n"
+        "        for row in tool_runtime.list_connector_bindings(binding_principal_id, limit=200):\n"
         "            if str(getattr(row, 'connector_name', '') or '').strip() != TELEGRAM_IDENTITY_CONNECTOR:\n"
         "                continue\n"
         "            if str(getattr(row, 'status', '') or '').strip().lower() != 'enabled':\n"
@@ -1551,14 +1568,8 @@ def probe_telegram_readiness(
         "    print(json.dumps({'ok': False, 'ready': False, 'status': 'probe_failed', 'reason': type(exc).__name__}, sort_keys=True), flush=True)\n"
         "    os._exit(0)\n"
     )
-    try:
-        timeout_seconds = max(
-            float(_env("EA_TELEGRAM_READINESS_TIMEOUT_SECONDS", str(DEFAULT_TELEGRAM_READINESS_TIMEOUT_SECONDS))),
-            5.0,
-        )
-    except ValueError:
-        timeout_seconds = DEFAULT_TELEGRAM_READINESS_TIMEOUT_SECONDS
-    exit_code, payload, runtime_container = _runtime_container_exec_json(code=code, timeout_seconds=timeout_seconds)
+    effective_timeout_seconds = _telegram_readiness_timeout_seconds(timeout_seconds)
+    exit_code, payload, runtime_container = _runtime_container_exec_json(code=code, timeout_seconds=effective_timeout_seconds)
     payload_status = str(payload.get("status") or "probe_failed").strip() or "probe_failed"
     payload_ok = bool(payload.get("ok", payload_status != "probe_failed"))
     report = {
@@ -1576,6 +1587,7 @@ def probe_telegram_readiness(
         "bot_handle": str(payload.get("bot_handle") or "").strip(),
         "bot_token_present": bool(payload.get("bot_token_present")),
         "runtime_container": runtime_container,
+        "timeout_seconds": effective_timeout_seconds,
         "observed_at": observed_at,
         "source": source,
     }
@@ -4583,25 +4595,33 @@ def send_telegram_document(
     document_ref: str,
     caption: str = "",
     dry_run: bool = False,
+    timeout_seconds: float = 30.0,
 ) -> dict[str, object]:
     normalized_principal_id = str(principal_id or "").strip()
     normalized_document_ref = str(document_ref or "").strip()
     normalized_caption = str(caption or "").strip()
     observed_at = _utc_now()
+    effective_timeout_seconds = max(float(timeout_seconds or 30.0), 1.0)
     if not normalized_document_ref:
         return {
             "sent": False,
             "reason": "document_ref_missing",
             "principal_id": normalized_principal_id,
             "delivery_transport": "telegram_bot",
+            "timeout_seconds": effective_timeout_seconds,
             "observed_at": observed_at,
             "source": "runtime_container_exec:telegram_delivery.send_telegram_document_for_principal",
         }
     if dry_run:
-        readiness = probe_telegram_readiness(principal_id=normalized_principal_id, output_format="json")
+        readiness = probe_telegram_readiness(
+            principal_id=normalized_principal_id,
+            timeout_seconds=effective_timeout_seconds,
+            output_format="json",
+        )
         return {
             "sent": False,
             "reason": "dry_run",
+            "readiness_probe_ok": bool(readiness.get("probe_ok")),
             "ready": bool(readiness.get("ready")),
             "readiness_status": str(readiness.get("status") or "").strip(),
             "readiness_reason": str(readiness.get("reason") or "").strip(),
@@ -4616,6 +4636,7 @@ def send_telegram_document(
             "caption_present": bool(normalized_caption),
             "delivery_transport": "telegram_bot",
             "runtime_container": str(readiness.get("runtime_container") or "").strip(),
+            "timeout_seconds": effective_timeout_seconds,
             "observed_at": observed_at,
             "source": "runtime_container_exec:telegram_delivery.send_telegram_document_for_principal",
         }
@@ -4656,10 +4677,11 @@ def send_telegram_document(
         + json.dumps(normalized_caption)
         + "\n"
         "try:\n"
-        "    from app.container import build_container\n"
+        "    from app.settings import get_settings\n"
         "    from app.services.telegram_delivery import send_telegram_document_for_principal\n"
-        "    container = build_container()\n"
-        "    receipt = send_telegram_document_for_principal(container.tool_runtime, principal_id=principal_id, document_ref=document_ref, caption=caption)\n"
+        "    from app.services.tool_runtime import build_tool_runtime\n"
+        "    tool_runtime = build_tool_runtime(get_settings())\n"
+        "    receipt = send_telegram_document_for_principal(tool_runtime, principal_id=principal_id, document_ref=document_ref, caption=caption)\n"
         "    chat_ref = str(getattr(receipt, 'chat_id', '') or '').strip()\n"
         "    message_ids = [str(item or '').strip() for item in (getattr(receipt, 'message_ids', ()) or ()) if str(item or '').strip()]\n"
         "    print(json.dumps({\n"
@@ -5049,7 +5071,11 @@ def probe_operator_readiness(
     append_component(
         "telegram",
         "Telegram operator delivery",
-        lambda: probe_telegram_readiness(principal_id=str(telegram_principal_id or "").strip(), output_format="json"),
+        lambda: probe_telegram_readiness(
+            principal_id=str(telegram_principal_id or "").strip(),
+            timeout_seconds=timeout_seconds,
+            output_format="json",
+        ),
     )
     whatsapp_component = append_component(
         "whatsapp",
@@ -5174,10 +5200,15 @@ def send_telegram(
             "source": "runtime_container_exec:telegram_delivery.send_telegram_message_for_principal",
         }
     if dry_run:
-        readiness = probe_telegram_readiness(principal_id=normalized_principal_id, output_format="json")
+        readiness = probe_telegram_readiness(
+            principal_id=normalized_principal_id,
+            timeout_seconds=effective_timeout_seconds,
+            output_format="json",
+        )
         return {
             "sent": False,
             "reason": "dry_run",
+            "readiness_probe_ok": bool(readiness.get("probe_ok")),
             "ready": bool(readiness.get("ready")),
             "readiness_status": str(readiness.get("status") or "").strip(),
             "readiness_reason": str(readiness.get("reason") or "").strip(),
@@ -5203,10 +5234,11 @@ def send_telegram(
         + json.dumps(normalized_text)
         + "\n"
         "try:\n"
-        "    from app.container import build_container\n"
+        "    from app.settings import get_settings\n"
         "    from app.services.telegram_delivery import send_telegram_message_for_principal\n"
-        "    container = build_container()\n"
-        "    receipt = send_telegram_message_for_principal(container.tool_runtime, principal_id=principal_id, text=text, disable_web_page_preview=True)\n"
+        "    from app.services.tool_runtime import build_tool_runtime\n"
+        "    tool_runtime = build_tool_runtime(get_settings())\n"
+        "    receipt = send_telegram_message_for_principal(tool_runtime, principal_id=principal_id, text=text, disable_web_page_preview=True)\n"
         "    chat_ref = str(getattr(receipt, 'chat_id', '') or '').strip()\n"
         "    message_ids = [str(item or '').strip() for item in (getattr(receipt, 'message_ids', ()) or ()) if str(item or '').strip()]\n"
         "    print(json.dumps({\n"
@@ -5296,6 +5328,7 @@ def parse_args() -> argparse.Namespace:
     telegram_readiness = subparsers.add_parser("probe-telegram-readiness", help="Probe Telegram operator delivery readiness without sending a message.")
     telegram_readiness.add_argument("--principal-id", dest="telegram_principal_id", default=_default_proactive_principal_id())
     telegram_readiness.add_argument("--format", choices=("json", "operator"), default="json")
+    _add_timeout_seconds_argument(telegram_readiness)
 
     teable_recovery = subparsers.add_parser("probe-teable-recovery", help="Probe Teable env backup/restore posture without exposing secret values.")
     teable_recovery.add_argument("--format", choices=("json", "operator"), default="json")
@@ -5424,12 +5457,14 @@ def parse_args() -> argparse.Namespace:
     send_telegram_parser.add_argument("--principal-id", dest="telegram_principal_id", default=_default_proactive_principal_id())
     send_telegram_parser.add_argument("--text", required=True)
     send_telegram_parser.add_argument("--dry-run", action="store_true")
+    _add_timeout_seconds_argument(send_telegram_parser)
 
     send_telegram_document_parser = subparsers.add_parser("send-telegram-document", help="Send a local document over Telegram.")
     send_telegram_document_parser.add_argument("--principal-id", dest="telegram_principal_id", default=_default_proactive_principal_id())
     send_telegram_document_parser.add_argument("--document-ref", required=True)
     send_telegram_document_parser.add_argument("--caption", default="")
     send_telegram_document_parser.add_argument("--dry-run", action="store_true")
+    _add_timeout_seconds_argument(send_telegram_document_parser)
 
     return parser.parse_args()
 
@@ -5489,6 +5524,7 @@ def main() -> int:
     if args.command == "probe-telegram-readiness":
         report = probe_telegram_readiness(
             principal_id=str(getattr(args, "telegram_principal_id", "") or "").strip(),
+            timeout_seconds=float(getattr(args, "timeout_seconds", None) or DEFAULT_TELEGRAM_READINESS_TIMEOUT_SECONDS),
             output_format=args.format,
         )
         if args.format == "operator":
@@ -5674,16 +5710,21 @@ def main() -> int:
             timeout_seconds=float(getattr(args, "timeout_seconds", None) or 30.0),
         )
         print(_json_dumps(report))
-        return 0 if bool(report.get("sent")) or str(report.get("reason") or "") == "dry_run" else 2
+        return 0 if bool(report.get("sent")) or (
+            str(report.get("reason") or "") == "dry_run" and bool(report.get("ready"))
+        ) else 2
     if args.command == "send-telegram-document":
         report = send_telegram_document(
             principal_id=str(getattr(args, "telegram_principal_id", "") or "").strip(),
             document_ref=str(getattr(args, "document_ref", "") or "").strip(),
             caption=str(getattr(args, "caption", "") or ""),
             dry_run=bool(getattr(args, "dry_run", False)),
+            timeout_seconds=float(getattr(args, "timeout_seconds", None) or 30.0),
         )
         print(_json_dumps(report))
-        return 0 if bool(report.get("sent")) or str(report.get("reason") or "") == "dry_run" else 2
+        return 0 if bool(report.get("sent")) or (
+            str(report.get("reason") or "") == "dry_run" and bool(report.get("ready"))
+        ) else 2
     raise RuntimeError(f"unsupported_command:{args.command}")
 
 
