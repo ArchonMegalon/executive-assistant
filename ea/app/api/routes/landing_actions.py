@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 import sys
 from datetime import datetime, timezone
@@ -8,7 +9,7 @@ from pathlib import Path
 import urllib.parse
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.api.dependencies import RequestContext, get_container, get_request_context, require_operator_context
 from app.api.routes.admin_view_models import (
@@ -187,6 +188,175 @@ def _acceptance_capture_surface() -> dict[str, object]:
         },
         "claim_boundary": "capture_surface_collects_redacted_acceptance_evidence_only_not_goal_completion",
     }
+
+
+def _acceptance_form_option(key: str, selected_key: str, acceptance_keys: dict[str, object]) -> str:
+    row = dict(acceptance_keys.get(key) or {})
+    status = "accepted redacted" if row.get("accepted") is True else "pending evidence"
+    label = f"{_ACCEPTANCE_PROOF_LABELS[key]} ({status})"
+    selected = " selected" if key == selected_key else ""
+    return (
+        f'<option value="{html.escape(key, quote=True)}"{selected}>'
+        f"{html.escape(label, quote=True)}</option>"
+    )
+
+
+def _acceptance_evidence_form_html(*, proof_key: str, return_to: str) -> str:
+    receipt = _load_json(EA_ACCEPTANCE_EVIDENCE_RECEIPT) or _default_acceptance_receipt()
+    acceptance_keys = dict(receipt.get("acceptance_keys") or {})
+    blocked_keys = [
+        key for key in _ACCEPTANCE_KEYS
+        if dict(acceptance_keys.get(key) or {}).get("accepted") is not True
+    ]
+    selected_key = proof_key if proof_key in _ACCEPTANCE_KEYS else ""
+    if not selected_key:
+        selected_key = blocked_keys[0] if blocked_keys else _ACCEPTANCE_KEYS[0]
+    options = "\n".join(
+        _acceptance_form_option(key, selected_key, acceptance_keys)
+        for key in _ACCEPTANCE_KEYS
+    )
+    selected_label = _ACCEPTANCE_PROOF_LABELS.get(selected_key, selected_key)
+    pending_items = "\n".join(
+        f"<li>{html.escape(_ACCEPTANCE_PROOF_LABELS[key])}</li>"
+        for key in blocked_keys
+    ) or "<li>All required proofs are already accepted in the current receipt.</li>"
+    safe_return_to = html.escape(return_to, quote=True)
+    safe_action = html.escape(_ACCEPTANCE_CAPTURE_PATH, quote=True)
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Record EA Acceptance Evidence</title>
+  <style>
+    :root {{
+      color-scheme: light;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f7f7f5;
+      color: #1f2933;
+    }}
+    body {{
+      margin: 0;
+      padding: 32px;
+    }}
+    main {{
+      max-width: 760px;
+      margin: 0 auto;
+    }}
+    header {{
+      margin-bottom: 24px;
+    }}
+    h1 {{
+      font-size: 1.5rem;
+      line-height: 1.25;
+      margin: 0 0 8px;
+    }}
+    h2 {{
+      font-size: 1rem;
+      margin: 0 0 8px;
+    }}
+    p, li {{
+      line-height: 1.5;
+    }}
+    form {{
+      display: grid;
+      gap: 16px;
+      background: #ffffff;
+      border: 1px solid #d9ded8;
+      border-radius: 8px;
+      padding: 20px;
+    }}
+    label {{
+      display: grid;
+      gap: 6px;
+      font-weight: 650;
+    }}
+    input, select, textarea {{
+      width: 100%;
+      box-sizing: border-box;
+      border: 1px solid #b9c2bb;
+      border-radius: 6px;
+      padding: 10px 12px;
+      font: inherit;
+      background: #ffffff;
+      color: #1f2933;
+    }}
+    textarea {{
+      min-height: 120px;
+      resize: vertical;
+    }}
+    button, a.button {{
+      width: fit-content;
+      border: 0;
+      border-radius: 6px;
+      padding: 10px 14px;
+      background: #245b45;
+      color: #ffffff;
+      font: inherit;
+      font-weight: 700;
+      text-decoration: none;
+      cursor: pointer;
+    }}
+    .actions {{
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+    }}
+    .secondary {{
+      color: #4b5563;
+      font-size: 0.93rem;
+    }}
+    .pending {{
+      margin: 24px 0 0;
+      padding: 16px 20px;
+      border: 1px solid #d9ded8;
+      border-radius: 8px;
+      background: #fbfbfa;
+    }}
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Record EA Acceptance Evidence</h1>
+      <p class="secondary">Selected proof: {html.escape(selected_label)}. Enter a short redacted note and a redacted object reference. The receipt stores SHA-256 hashes only.</p>
+    </header>
+    <form method="post" action="{safe_action}">
+      <input type="hidden" name="return_to" value="{safe_return_to}">
+      <label>
+        Proof
+        <select name="proof_key" required>
+          {options}
+        </select>
+      </label>
+      <label>
+        Source kind
+        <input name="source_kind" value="operator_admin" autocomplete="off" required>
+      </label>
+      <label>
+        Evidence note
+        <textarea name="evidence" placeholder="Short redacted acceptance note, no private names or message text." required></textarea>
+      </label>
+      <label>
+        Object reference
+        <input name="object_ref" placeholder="Redacted receipt id, ticket id, message hash, or admin reference." autocomplete="off" required>
+      </label>
+      <div class="actions">
+        <button type="submit">Record evidence</button>
+        <a class="button" href="{safe_return_to}">Cancel</a>
+      </div>
+    </form>
+    <section class="pending">
+      <h2>Pending Proofs</h2>
+      <ul>
+        {pending_items}
+      </ul>
+    </section>
+  </main>
+</body>
+</html>
+"""
 
 
 def _empty_acceptance_row() -> dict[str, object]:
@@ -961,6 +1131,22 @@ async def app_create_commitment(
     return RedirectResponse(
         _normalize_browser_return_to(_form_value(body, "return_to", "/app/commitments"), default="/app/commitments"),
         status_code=303,
+    )
+
+
+@router.get("/admin/actions/acceptance-evidence")
+async def admin_acceptance_evidence_form(
+    request: Request,
+    _: None = Depends(require_operator_context),
+) -> HTMLResponse:
+    return_to = _normalize_browser_return_to(
+        str(request.query_params.get("return_to") or "/admin/goals"),
+        default="/admin/goals",
+    )
+    proof_key = str(request.query_params.get("proof_key") or "").strip()
+    return HTMLResponse(
+        _acceptance_evidence_form_html(proof_key=proof_key, return_to=return_to),
+        status_code=200,
     )
 
 

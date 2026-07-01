@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
+import urllib.parse
 
 try:
     from app.api.routes.responses import _codex_governance_payload, _codex_profiles
@@ -26,6 +27,21 @@ WHOLE_PROJECT_SIGNAL_TO_DECISION_RECEIPT = _REPO_ROOT / ".codex-studio" / "publi
 WHOLE_PROJECT_SCOPE_GAP_AUDIT_RECEIPT = _REPO_ROOT / ".codex-studio" / "published" / "ea_whole_project_scope_gap_audit.generated.json"
 PROACTIVE_OODA_OPERATOR_STATUS_RECEIPT = _REPO_ROOT / ".codex-studio" / "published" / "ea_proactive_ooda_operator_status.generated.json"
 PROACTIVE_OODA_GOLD_ACCEPTANCE_RECEIPT = _REPO_ROOT / ".codex-studio" / "published" / "ea_proactive_ooda_gold_acceptance.generated.json"
+_ACCEPTANCE_CAPTURE_PATH = "/admin/actions/acceptance-evidence"
+_ACCEPTANCE_PROOF_LABELS = {
+    "real_daily_morning_brief_accepted": "real daily morning brief acceptance",
+    "real_decision_cleared": "real decision cleared by the principal or operator",
+    "real_commitment_recovered_or_closed": "real commitment recovered or closed with an evidence receipt",
+    "real_approved_action_audited": "real approved outbound action with audit trail",
+    "real_provider_failure_recovered": "real provider failure recovered with operator-grade reason",
+}
+_ACCEPTANCE_PROOF_TITLES = {
+    "real_daily_morning_brief_accepted": "Morning brief accepted",
+    "real_decision_cleared": "Real decision cleared",
+    "real_commitment_recovered_or_closed": "Commitment recovered or closed",
+    "real_approved_action_audited": "Approved action audited",
+    "real_provider_failure_recovered": "Provider failure recovered",
+}
 
 
 def _load_receipt(path: Path) -> dict[str, object]:
@@ -107,6 +123,38 @@ def _row(
     if quaternary_return_to:
         row["quaternary_return_to"] = quaternary_return_to
     return row
+
+
+def _acceptance_capture_href(proof_key: str = "") -> str:
+    query = {"return_to": "/admin/goals"}
+    if proof_key:
+        query["proof_key"] = proof_key
+    return f"{_ACCEPTANCE_CAPTURE_PATH}?{urllib.parse.urlencode(query)}"
+
+
+def _first_missing_acceptance_key(acceptance_keys: dict[str, object], accepted_keys: set[str]) -> str:
+    for proof_key in _ACCEPTANCE_PROOF_LABELS:
+        row = dict(acceptance_keys.get(proof_key) or {})
+        if proof_key not in accepted_keys and row.get("accepted") is not True:
+            return proof_key
+    return next(iter(_ACCEPTANCE_PROOF_LABELS), "")
+
+
+def _acceptance_evidence_row(
+    proof_key: str,
+    acceptance_keys: dict[str, object],
+    accepted_keys: set[str],
+) -> dict[str, str]:
+    row = dict(acceptance_keys.get(proof_key) or {})
+    accepted = proof_key in accepted_keys or row.get("accepted") is True
+    return _row(
+        _ACCEPTANCE_PROOF_TITLES[proof_key],
+        str(row.get("status") or "missing"),
+        "Accepted" if accepted else "Missing",
+        action_href="" if accepted else _acceptance_capture_href(proof_key),
+        action_label="" if accepted else "Record evidence",
+        action_method="" if accepted else "get",
+    )
 
 
 def _humanize(value: str) -> str:
@@ -1064,6 +1112,10 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
     ]
     acceptance_keys = dict(acceptance_receipt.get("acceptance_keys") or {})
     accepted_keys = {str(value) for value in list(acceptance_receipt.get("accepted_keys") or []) if str(value).strip()}
+    acceptance_next_proof_key = str(acceptance_receipt.get("next_action_proof_key") or "").strip()
+    if acceptance_next_proof_key not in _ACCEPTANCE_PROOF_LABELS:
+        acceptance_next_proof_key = _first_missing_acceptance_key(acceptance_keys, accepted_keys)
+    acceptance_next_label = _ACCEPTANCE_PROOF_LABELS.get(acceptance_next_proof_key, "real-use acceptance evidence")
     proactive_operator_status = str(proactive_ooda_operator_receipt.get("status") or "missing").strip()
     proactive_operator_summary = str(
         proactive_ooda_operator_receipt.get("summary") or "No proactive OODA operator status is mirrored."
@@ -1124,11 +1176,11 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
     goal_real_use_rows = [
         _row(
             "Real-use outcomes",
-            "Capture real acceptance without exposing private context.",
+            f"Capture redacted evidence for: {acceptance_next_label}.",
             "Action",
-            action_href="/admin/actions/acceptance-evidence",
+            action_href=_acceptance_capture_href(acceptance_next_proof_key),
             action_label="Record a real-use outcome",
-            action_method="post",
+            action_method="get",
         ),
         _row(
             "Signal review and follow-through",
@@ -1202,11 +1254,11 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
         _row("Open approvals", "Review the approval lane and audit trail.", "Loop", href="/app/channel-loop/approvals"),
     ]
     acceptance_rows = [
-        _row("Morning brief accepted", str(dict(acceptance_keys.get("real_daily_morning_brief_accepted") or {}).get("status") or "missing"), "Accepted" if "real_daily_morning_brief_accepted" in accepted_keys else "Missing"),
-        _row("Real decision cleared", str(dict(acceptance_keys.get("real_decision_cleared") or {}).get("status") or "missing"), "Accepted" if "real_decision_cleared" in accepted_keys else "Missing"),
-        _row("Commitment recovered or closed", str(dict(acceptance_keys.get("real_commitment_recovered_or_closed") or {}).get("status") or "missing"), "Accepted" if "real_commitment_recovered_or_closed" in accepted_keys else "Missing"),
-        _row("Approved action audited", str(dict(acceptance_keys.get("real_approved_action_audited") or {}).get("status") or "missing"), "Accepted" if "real_approved_action_audited" in accepted_keys else "Missing"),
-        _row("Provider failure recovered", str(dict(acceptance_keys.get("real_provider_failure_recovered") or {}).get("status") or "missing"), "Accepted" if "real_provider_failure_recovered" in accepted_keys else "Missing"),
+        _acceptance_evidence_row("real_daily_morning_brief_accepted", acceptance_keys, accepted_keys),
+        _acceptance_evidence_row("real_decision_cleared", acceptance_keys, accepted_keys),
+        _acceptance_evidence_row("real_commitment_recovered_or_closed", acceptance_keys, accepted_keys),
+        _acceptance_evidence_row("real_approved_action_audited", acceptance_keys, accepted_keys),
+        _acceptance_evidence_row("real_provider_failure_recovered", acceptance_keys, accepted_keys),
         _row(
             "Redaction posture",
             "private-safe signal",

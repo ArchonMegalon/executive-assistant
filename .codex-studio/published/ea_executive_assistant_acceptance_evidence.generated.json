@@ -248,7 +248,7 @@
     "real_provider_failure_recovered"
   ],
   "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
-  "generated_at": "2026-07-01T05:10:36Z",
+  "generated_at": "2026-07-01T05:26:30Z",
   "generated_by": "ea/scripts/materialize_executive_assistant_acceptance_evidence.py",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
@@ -288,7 +288,7 @@
   "source_input": {
     "provided": false
   },
-  "source_state_fingerprint": "645a368cccd6b3daf1ec815c8d04f4a011c6be4bf89a20d051276aea793cbbf9",
+  "source_state_fingerprint": "325a73c1291e4546712003608321b42b1b059721e55d6e97769ae2a24b7ad987",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "partial_real_world_acceptance_evidence"
 }

@@ -672,6 +672,7 @@ def test_admin_goal_evidence_surface_shows_receipts_without_completion_overclaim
     goals = client.get("/admin/goals")
 
     assert goals.status_code == 200
+    goals_text = html.unescape(goals.text)
     assert "Goal Status" in goals.text
     assert "What is ready locally" in goals.text
     assert "Office-loop receipt" in goals.text
@@ -682,6 +683,11 @@ def test_admin_goal_evidence_surface_shows_receipts_without_completion_overclaim
     assert "Proactive OODA gold acceptance" in goals.text
     assert "What still needs real use" in goals.text
     assert "Real-use outcomes" in goals.text
+    assert "Record a real-use outcome" in goals.text
+    assert (
+        "/admin/actions/acceptance-evidence?return_to=%2Fadmin%2Fgoals"
+        "&proof_key=real_daily_morning_brief_accepted"
+    ) in goals_text
     assert "Signal review and follow-through" in goals.text
     assert "Proactive delivery recovery" in goals.text
     assert "Proactive OODA approval outcome" in goals.text
@@ -699,6 +705,8 @@ def test_admin_goal_evidence_surface_shows_receipts_without_completion_overclaim
     assert "Commitment recovered or closed" in goals.text
     assert "Approved action audited" in goals.text
     assert "Provider failure recovered" in goals.text
+    assert "Record evidence" in goals.text
+    assert "proof_key=real_provider_failure_recovered" in goals_text
     assert "Redaction posture" in goals.text
     assert "private-safe signal" in goals.text
     assert "Scope goals and protected project axes" in goals.text
@@ -899,10 +907,28 @@ def test_admin_acceptance_capture_records_redacted_goal_evidence(
     goals_before = client.get("/admin/goals")
     assert goals_before.status_code == 200
     assert "Record a real-use outcome" in goals_before.text
-    assert "/admin/actions/acceptance-evidence" in goals_before.text
+    goals_before_text = html.unescape(goals_before.text)
+    assert "/admin/actions/acceptance-evidence" in goals_before_text
+    assert "proof_key=real_daily_morning_brief_accepted" in goals_before_text
     assert "Record a signal-loop outcome" in goals_before.text
     assert "/admin/actions/signal-to-decision-evidence" in goals_before.text
     assert "Proactive delivery recovery" in goals_before.text
+
+    capture_form = client.get(
+        "/admin/actions/acceptance-evidence?"
+        "proof_key=real_daily_morning_brief_accepted&return_to=%2Fadmin%2Fgoals"
+    )
+
+    assert capture_form.status_code == 200
+    assert "Record EA Acceptance Evidence" in capture_form.text
+    assert 'method="post"' in capture_form.text
+    assert 'action="/admin/actions/acceptance-evidence"' in capture_form.text
+    assert 'name="proof_key"' in capture_form.text
+    assert 'value="real_daily_morning_brief_accepted" selected' in capture_form.text
+    assert 'name="source_kind"' in capture_form.text
+    assert 'name="evidence"' in capture_form.text
+    assert 'name="object_ref"' in capture_form.text
+    assert "SHA-256 hashes only" in capture_form.text
 
     raw_note = "Morning brief genuinely helped avoid missing the private board prep thread."
     raw_object_ref = "telegram-message-private-board-prep-123"
