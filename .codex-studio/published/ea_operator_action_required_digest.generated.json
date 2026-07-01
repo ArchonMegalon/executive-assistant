@@ -11,9 +11,9 @@
   "dedupe_suppressed": false,
   "delivery_policy": "action_required_only",
   "digest_sha256": "c23de20163e41de8a5cc5b1576dfce5a0eda85ad4ec75f6e550311eddec46da5",
-  "dry_run": true,
+  "dry_run": false,
   "force": false,
-  "generated_at": "2026-07-01T12:08:46Z",
+  "generated_at": "2026-07-01T12:11:06Z",
   "generated_by": "scripts/materialize_operator_action_required_digest.py",
   "head_semantics": "source_state",
   "included_action_keys": [
@@ -95,7 +95,7 @@
     }
   ],
   "non_action_progress_push_allowed": false,
-  "notification_status": "dry_run_ready",
+  "notification_status": "sent",
   "output_path": ".codex-studio/published/ea_operator_action_required_digest.generated.json",
   "privacy": {
     "callback_tokens_exposed": false,
@@ -125,13 +125,13 @@
     "bot_handle": "tibor_concierge_bot",
     "bot_key": "default",
     "chat_ref_present": true,
-    "chat_ref_sha256": "837e59d0396ab5fcfa64c48dfe989f496ed21386799399a7d43582900871a7a3",
-    "message_count": 0,
+    "chat_ref_sha256": "ce600202466351c6f33d3ee3a6e66551972cacab1864f045dbe6c9060096f5e2",
+    "message_count": 1,
     "process_exit_code": 0,
-    "readiness_status": "ready",
-    "ready": true,
-    "reason": "dry_run",
-    "sent": false
+    "readiness_status": "",
+    "ready": false,
+    "reason": "sent",
+    "sent": true
   },
   "source_git_head": "c857a1f737e86740d3f5d25b65fec5e8d3a94255",
   "source_receipt": {
@@ -142,8 +142,8 @@
   },
   "source_state_fingerprint": "a11f90d2918f73cd307aecf76bc45bd161d79f856d80738b6d5ea1990c5ccb60",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
-  "state_updated": false,
-  "status": "ready_to_send",
+  "state_updated": true,
+  "status": "sent",
   "telegram_push_allowed": true,
   "telegram_text": "Action needed for EA:\n1. Record redacted evidence that the weekly signal-to-decision review was actually reviewed.\n2. Choose one sent replacement voice sample in Telegram.\n3. Collect the manual real-room audio attestation for the Manfred spoken conversation proof.\nQueue: https://myexternalbrain.com/admin/goals",
   "telegram_text_preview": "Action needed for EA: 1. Record redacted evidence that the weekly signal-to-decision review was actually reviewed. 2. Choose one sent replacement voice sample in Telegram. 3. Collect the manual real-room audio attestation for the Manfred spoken conversation proof. Queue: https://myexternalbrain.com/admin/goals",
