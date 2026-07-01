@@ -170,18 +170,18 @@ def _google_oauth_denial_detail(
     elif oauth_project_number:
         project_detail = f" OAuth project number: {oauth_project_number}."
     action_detail = (
-        f" Add {expected_google_email} under Google Auth Platform > Audience > Test users, "
-        "or publish/verify the OAuth app, then retry the Full Workspace link."
+        f" Confirm {expected_google_email} is allowed under Google Auth Platform > Audience > Test users, "
+        "choose that same account in the consent screen, or publish/verify the OAuth app, then retry the Full Workspace link."
         if "@" in expected_google_email
-        else " Add the selected Google account under Google Auth Platform > Audience > Test users, "
-        "or publish/verify the OAuth app, then retry the Full Workspace link."
+        else " Confirm the selected Google account is allowed under Google Auth Platform > Audience > Test users, "
+        "choose that same account in the consent screen, or publish/verify the OAuth app, then retry the Full Workspace link."
     )
     google_detail = f" Google said: {detail}." if detail else ""
     return (
         f"Google denied OAuth access{account_detail}. "
         f"{google_detail} "
-        "If the consent screen says the app is still being tested, add this account as a Google OAuth test user "
-        f"for myexternalbrain.com or publish the OAuth app after Google verification, then retry the Full Workspace link."
+        "If the consent screen says the app is still being tested, confirm this account is already approved as a Google OAuth test user "
+        f"for myexternalbrain.com, select that same account during consent, or publish the OAuth app after Google verification, then retry the Full Workspace link."
         f"{project_detail}{action_detail}"
     )
 

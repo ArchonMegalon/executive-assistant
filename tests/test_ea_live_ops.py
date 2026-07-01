@@ -1126,6 +1126,52 @@ def test_probe_google_workspace_oauth_reports_mismatch_without_raw_email(monkeyp
     assert "work.tibor.girschele@gmail.com" not in serialized
 
 
+def test_probe_google_workspace_oauth_uses_retry_action_when_test_user_already_confirmed(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-01T19:42:00Z")
+    monkeypatch.setattr(
+        module.google_workspace_oauth_readiness,
+        "build_receipt",
+        lambda **_kwargs: {
+            "status": "blocked_setup_required",
+            "blocker_kind": "oauth_retry_or_account_selection_required",
+            "console_deep_link": "https://console.cloud.google.com/auth/audience?project=propertyquarry-498318",
+            "auth_link_template": "https://myexternalbrain.com/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace&expected_google_email=%3Credacted-email%3E",
+            "missing_setup": ["oauth_access_retry_or_account_selection_required"],
+            "expected_google_account": {"present": True, "domain": "gmail.com", "email_sha256": "abc"},
+            "oauth_client": {"client_project_id": "propertyquarry-498318", "client_project_number": "95627800296"},
+            "gcloud_probe": {
+                "active_project": "propertyquarry-498318",
+                "active_project_matches_oauth_project": True,
+                "active_account_present": True,
+            },
+            "operator_action": {
+                "user_action_required": True,
+                "next_action": "retry_full_workspace_auth_with_approved_account",
+                "next_action_href": "/integrations/google",
+                "next_action_label": "Retry Google auth",
+                "next_action_method": "get",
+                "delivery_policy": "action_required_only",
+                "instruction": "Retry the Full Workspace auth link and explicitly choose the approved work Google account.",
+                "telegram_message": "Action needed: Google Full Workspace auth is still denied even though the work account is already approved.",
+            },
+        },
+    )
+
+    report = module.probe_google_workspace_oauth(
+        expected_google_email="work.tibor.girschele@gmail.com",
+        observed_error="access_denied",
+        test_user_confirmed=True,
+        probe_gcloud=True,
+    )
+
+    assert report["status"] == "blocked_setup_required"
+    assert report["reason"] == "oauth_retry_or_account_selection_required"
+    assert report["missing_setup"] == ["oauth_access_retry_or_account_selection_required"]
+    assert report["next_action"] == "retry_full_workspace_auth_with_approved_account"
+    assert "missing=oauth_access_retry_or_account_selection_required" in report["operator_text"]
+
+
 def test_probe_operator_readiness_aggregates_components_without_raw_secrets(monkeypatch) -> None:
     module = _module()
     monkeypatch.setattr(module, "_utc_now", lambda: "2026-06-29T15:00:00Z")

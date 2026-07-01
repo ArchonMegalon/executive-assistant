@@ -217,6 +217,13 @@ def _setup_checklist(missing: list[str], *, console_link: str, auth_link_templat
                 f"or add it if missing, save, then retry {auth_link_template}."
             ),
         },
+        "oauth_access_retry_or_account_selection_required": {
+            "label": "Retry Full Workspace auth with the approved Google account",
+            "how": (
+                f"Open {auth_link_template}, explicitly choose the approved work Google account, finish consent, "
+                f"and if Google still denies access reopen {console_link} to confirm the Audience save and selected OAuth project."
+            ),
+        },
         "expected_google_email_missing": {
             "label": "Choose the expected work Google account",
             "how": "Pass --expected-google-email when building the auth-readiness receipt so the retry link can force account selection.",
@@ -250,6 +257,11 @@ def _instruction_text(*, missing: list[str]) -> str:
             "Open the Google Auth Platform Audience page for the OAuth project, confirm the requested work Google account "
             "is allowed there, then retry the Full Workspace auth link."
         )
+    if "oauth_access_retry_or_account_selection_required" in missing:
+        return (
+            "Retry the Full Workspace auth link and explicitly choose the approved work Google account. "
+            "If Google still denies access, reopen the Google Auth Platform Audience page and confirm the tester save has propagated."
+        )
     return (
         "Open the Google Auth Platform Audience page, confirm the requested work Google account is allowed there, "
         "add it if missing, save, then retry the Full Workspace auth link."
@@ -270,7 +282,21 @@ def _telegram_message(*, missing: list[str], console_link: str) -> str:
             "Open Google Auth Platform, confirm the requested work Google account is allowed there, "
             f"add it if missing, then retry the auth link. Console: {console_link}"
         )
+    if "oauth_access_retry_or_account_selection_required" in missing:
+        return (
+            "Action needed: Google Full Workspace auth is still denied even though the work account is already approved. "
+            "Retry the auth link, explicitly choose the approved account, and if Google still blocks it re-open the Audience page to confirm the save. "
+            f"Console: {console_link}"
+        )
     return "Action needed: Google Workspace OAuth setup is incomplete. Open the Google integration setup and clear the listed checks."
+
+
+def _operator_next_action(missing: list[str]) -> tuple[str, str]:
+    if "gcloud_project_mismatch" in missing:
+        return "select_google_oauth_project_and_retry_full_workspace_auth", "Open Google setup"
+    if "oauth_access_retry_or_account_selection_required" in missing:
+        return "retry_full_workspace_auth_with_approved_account", "Retry Google auth"
+    return "add_google_oauth_test_user_and_retry_full_workspace_auth", "Open Google setup"
 
 
 def build_receipt(
@@ -312,7 +338,11 @@ def build_receipt(
     # Being listed as a tester is not enough evidence on its own because the wrong project,
     # a stale audience save, or the wrong selected account all surface as the same denial.
     if access_denied:
-        missing.append("oauth_test_user_missing_or_app_unverified")
+        missing.append(
+            "oauth_access_retry_or_account_selection_required"
+            if test_user_confirmed
+            else "oauth_test_user_missing_or_app_unverified"
+        )
 
     gcloud = {"enabled": False, "raw_gcloud_account_exposed": False, "raw_gcloud_token_exposed": False}
     if probe_gcloud:
@@ -338,6 +368,7 @@ def build_receipt(
         status = "ready_manual_console_check"
     setup_checklist = _setup_checklist(missing, console_link=console_link, auth_link_template=auth_link_template)
     action_required = bool(missing)
+    next_action, next_action_label = _operator_next_action(missing)
     error_description_hash = _sha256(error_description)
     return {
         "contract_name": CONTRACT_NAME,
@@ -349,10 +380,19 @@ def build_receipt(
         "observed_error": str(observed_error or "").strip(),
         "observed_error_description_present": bool(str(error_description or "").strip()),
         "observed_error_description_sha256": error_description_hash,
-        "blocker_kind": "oauth_test_user_or_verification_required" if access_denied else "",
+        "blocker_kind": (
+            "oauth_retry_or_account_selection_required"
+            if access_denied and test_user_confirmed
+            else ("oauth_test_user_or_verification_required" if access_denied else "")
+        ),
         "google_auth_platform_path": GOOGLE_AUTH_AUDIENCE_PATH,
         "console_deep_link": console_link,
         "auth_link_template": auth_link_template,
+        "test_user_confirmation": {
+            "confirmed": bool(test_user_confirmed),
+            "evidence_type": "operator_asserted" if test_user_confirmed else "unconfirmed",
+            "raw_source_exposed": False,
+        },
         "expected_google_account": {
             "present": expected_email_present,
             "email_sha256": _sha256(normalized_email),
@@ -377,9 +417,9 @@ def build_receipt(
         "operator_action": {
             "user_action_required": action_required,
             "instruction": _instruction_text(missing=missing),
-            "next_action": "add_google_oauth_test_user_and_retry_full_workspace_auth",
+            "next_action": next_action,
             "next_action_href": "/integrations/google",
-            "next_action_label": "Open Google setup",
+            "next_action_label": next_action_label,
             "next_action_method": "get",
             "missing_setup": missing,
             "setup_checklist": setup_checklist,
@@ -426,7 +466,7 @@ def build_receipt(
         "rules": [
             "Google OAuth test-user setup is an operator action, not an autonomous external mutation.",
             "Published receipts may include project IDs, hashes, and console paths, but not raw Google accounts, OAuth codes, tokens, or secrets.",
-            "EA may retry the Full Workspace auth link only after the account is added as a test user or the OAuth app is published/verified.",
+            "EA may retry the Full Workspace auth link only after the account is allowed as a test user or the OAuth app is published/verified, and the approved account is selected during consent.",
         ],
     }
 

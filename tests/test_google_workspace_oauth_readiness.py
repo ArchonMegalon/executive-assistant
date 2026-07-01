@@ -72,6 +72,27 @@ def test_confirmed_test_user_receipt_passes_without_operator_push(monkeypatch) -
     assert verifier.verify_receipt_for_test(receipt) == []
 
 
+def test_confirmed_test_user_access_denied_switches_to_retry_instead_of_add_tester(monkeypatch) -> None:
+    _patch_source_state(monkeypatch)
+    _set_google_env(monkeypatch)
+
+    receipt = materializer.build_receipt(
+        expected_google_email="work.tibor.girschele@gmail.com",
+        observed_error="access_denied",
+        test_user_confirmed=True,
+    )
+
+    assert receipt["status"] == "blocked_setup_required"
+    assert receipt["blocker_kind"] == "oauth_retry_or_account_selection_required"
+    assert receipt["missing_setup"] == ["oauth_access_retry_or_account_selection_required"]
+    assert receipt["operator_action"]["next_action"] == "retry_full_workspace_auth_with_approved_account"
+    assert receipt["operator_action"]["next_action_label"] == "Retry Google auth"
+    assert "already approved" in receipt["operator_action"]["telegram_message"]
+    assert receipt["test_user_confirmation"]["confirmed"] is True
+    assert receipt["test_user_confirmation"]["evidence_type"] == "operator_asserted"
+    assert verifier.verify_receipt_for_test(receipt) == []
+
+
 def test_gcloud_probe_is_sanitized_and_keeps_manual_console_step(monkeypatch) -> None:
     _patch_source_state(monkeypatch)
     _set_google_env(monkeypatch)

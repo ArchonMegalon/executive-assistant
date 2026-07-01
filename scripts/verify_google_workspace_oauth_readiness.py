@@ -33,6 +33,14 @@ PRIVATE_FLAGS = (
 )
 
 
+def _expected_operator_next_action(missing_setup: list[str]) -> tuple[str, str]:
+    if "gcloud_project_mismatch" in missing_setup:
+        return "select_google_oauth_project_and_retry_full_workspace_auth", "Open Google setup"
+    if "oauth_access_retry_or_account_selection_required" in missing_setup:
+        return "retry_full_workspace_auth_with_approved_account", "Retry Google auth"
+    return "add_google_oauth_test_user_and_retry_full_workspace_auth", "Open Google setup"
+
+
 def _json(path: Path) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -96,6 +104,15 @@ def verify_receipt_for_test(receipt: dict[str, Any], *, root: Path = ROOT) -> li
     if expected.get("raw_expected_google_email_exposed") is not False:
         issues.append("expected_google_account must not expose raw email")
 
+    test_user_confirmation = dict(receipt.get("test_user_confirmation") or {})
+    if test_user_confirmation.get("confirmed") not in {True, False}:
+        issues.append("test_user_confirmation.confirmed must be boolean")
+    if test_user_confirmation.get("raw_source_exposed") is not False:
+        issues.append("test_user_confirmation.raw_source_exposed must be false")
+    evidence_type = str(test_user_confirmation.get("evidence_type") or "").strip()
+    if evidence_type not in {"operator_asserted", "unconfirmed"}:
+        issues.append("test_user_confirmation.evidence_type must be operator_asserted or unconfirmed")
+
     oauth_client = dict(receipt.get("oauth_client") or {})
     for key in (
         "raw_client_id_exposed",
@@ -132,10 +149,19 @@ def verify_receipt_for_test(receipt: dict[str, Any], *, root: Path = ROOT) -> li
     if status != "blocked_setup_required" and missing_setup:
         issues.append("non-blocked receipt must not include missing_setup")
     if str(receipt.get("observed_error") or "").strip() == "access_denied":
-        if receipt.get("blocker_kind") != "oauth_test_user_or_verification_required":
-            issues.append("access_denied must map to oauth_test_user_or_verification_required")
-        if "oauth_test_user_missing_or_app_unverified" not in missing_setup and status != "pass":
-            issues.append("access_denied must require OAuth test-user or verification setup until confirmed")
+        expected_blocker = (
+            "oauth_retry_or_account_selection_required"
+            if "oauth_access_retry_or_account_selection_required" in missing_setup
+            else "oauth_test_user_or_verification_required"
+        )
+        if receipt.get("blocker_kind") != expected_blocker:
+            issues.append(f"access_denied must map to {expected_blocker}")
+        if (
+            "oauth_test_user_missing_or_app_unverified" not in missing_setup
+            and "oauth_access_retry_or_account_selection_required" not in missing_setup
+            and status != "pass"
+        ):
+            issues.append("access_denied must require either OAuth tester setup or an explicit retry/account-selection step")
 
     operator_action = dict(receipt.get("operator_action") or {})
     if operator_action.get("user_action_required") is not bool(missing_setup):
@@ -152,10 +178,13 @@ def verify_receipt_for_test(receipt: dict[str, Any], *, root: Path = ROOT) -> li
         issues.append("operator_action must disallow non-action progress pushes")
     if operator_action.get("irreversible_actions_consent_gated") is not True:
         issues.append("operator_action must keep irreversible actions consent-gated")
-    if operator_action.get("next_action") != "add_google_oauth_test_user_and_retry_full_workspace_auth":
+    expected_next_action, expected_next_action_label = _expected_operator_next_action(missing_setup)
+    if operator_action.get("next_action") != expected_next_action:
         issues.append("operator_action.next_action mismatch")
     if operator_action.get("next_action_href") != "/integrations/google":
         issues.append("operator_action.next_action_href must target /integrations/google")
+    if operator_action.get("next_action_label") != expected_next_action_label:
+        issues.append("operator_action.next_action_label mismatch")
     if str(operator_action.get("next_action_method") or "").strip().lower() != "get":
         issues.append("operator_action.next_action_method must be get")
     if operator_action.get("console_deep_link") != console_link:

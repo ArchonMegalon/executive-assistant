@@ -20,6 +20,7 @@ def test_google_oauth_access_denied_names_expected_test_user_blocker() -> None:
     assert "propertyquarry-498318" in detail
     assert "95627800296" in detail
     assert "Google Auth Platform > Audience > Test users" in detail
+    assert "select that same account" in detail
 
 
 def test_google_location_history_access_denied_keeps_portability_detail() -> None:
