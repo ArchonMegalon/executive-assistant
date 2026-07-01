@@ -55,7 +55,7 @@
     "source_kind": "",
     "status": "missing_or_invalid"
   },
-  "generated_at": "2026-07-01T15:54:33Z",
+  "generated_at": "2026-07-01T16:04:05Z",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
   "next_action": "record_redacted_signal_review_acceptance",
@@ -66,6 +66,42 @@
   "next_action_href": "/admin/actions/signal-to-decision-evidence",
   "next_action_label": "Record a signal-loop outcome",
   "next_action_method": "post",
+  "operator_action_packet": {
+    "accepted_parts": {
+      "followthrough": false,
+      "review": false
+    },
+    "action_required_reason": "real_world_acceptance_missing",
+    "claim_boundary": "does_not_prove_closed_signal_to_decision_loop_until_review_and_followthrough_are_accepted",
+    "delivery_policy": "action_required_only",
+    "instruction": "Record redacted evidence that the weekly signal-to-decision review was actually reviewed.",
+    "interruption_budget": "action_required",
+    "irreversible_actions_consent_gated": true,
+    "next_action": "record_redacted_signal_review_acceptance",
+    "next_action_evidence_part": "review",
+    "next_action_form_href": "/admin/actions/signal-to-decision-evidence?return_to=%2Fadmin%2Fgoals&evidence_part=review",
+    "next_action_form_label": "Record a signal-loop outcome",
+    "next_action_form_method": "get",
+    "next_action_href": "/admin/actions/signal-to-decision-evidence",
+    "next_action_label": "Record a signal-loop outcome",
+    "next_action_method": "post",
+    "non_action_progress_push_allowed": false,
+    "quiet_hours_respected": true,
+    "raw_acceptance_text_exposed": false,
+    "raw_actor_identity_exposed": false,
+    "raw_object_reference_exposed": false,
+    "raw_private_context_exposed": false,
+    "required_form_fields": [
+      "evidence_part",
+      "source_kind",
+      "evidence",
+      "packet_ref"
+    ],
+    "required_next_receipt": "real weekly signal-to-decision review accepted by the operator",
+    "status": "action_required",
+    "telegram_push_allowed": true,
+    "user_action_required": true
+  },
   "operator_review": {
     "accepted": false,
     "actor_sha256": "",
@@ -254,8 +290,8 @@
       "status": "mapped_from_sources"
     }
   ],
-  "source_git_head": "8d7efd63a4f03e191b38d28e455c6732881b2359",
-  "source_state_fingerprint": "04acbe431d3ca087c1def5c2ba6be38f1ee63630dee9496f57a5b60e06808ad2",
+  "source_git_head": "64ced54a4953ff4d3fe15d178d2c9e193e760574",
+  "source_state_fingerprint": "86d6b9d503153aa4d8d3f2c86113bcea0f68a4d53034eb8f9ecae4b78a756188",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready_local_packet_pending_operator_acceptance"
 }
