@@ -35,6 +35,9 @@ from app.services.proactive_ooda_teable_sync import (
 _REPO_ROOT_FOR_SOURCE_STATE = Path(__file__).resolve().parents[4]
 if str(_REPO_ROOT_FOR_SOURCE_STATE) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT_FOR_SOURCE_STATE))
+_EA_SCRIPTS_FOR_SOURCE_STATE = Path(__file__).resolve().parents[3] / "scripts"
+if str(_EA_SCRIPTS_FOR_SOURCE_STATE) not in sys.path:
+    sys.path.insert(0, str(_EA_SCRIPTS_FOR_SOURCE_STATE))
 
 try:
     from scripts.source_state_head import resolve_source_state_head
@@ -449,11 +452,13 @@ def _record_admin_proactive_ooda_approval_outcome(
         }
     approval_outcome = dict(finalized.get("approval_outcome") or {})
     recorded = bool(approval_outcome.get("approval_outcome_recorded"))
+    followthrough_refresh = _refresh_admin_proactive_ooda_followthrough_receipts() if recorded else {}
     return {
         **finalized,
         "status": "recorded" if recorded else "record_failed",
         "recorded": recorded,
         "error": "" if recorded else str(approval_outcome.get("reason") or "approval_outcome_not_recorded"),
+        "followthrough_refresh": followthrough_refresh,
     }
 
 
@@ -708,6 +713,81 @@ def _update_scope_gap_evidence() -> None:
     }
     scope_gap["goal_completion_claim_allowed"] = False
     _write_json(EA_SCOPE_GAP_AUDIT_RECEIPT, scope_gap)
+
+
+def _materialize_admin_acceptance_evidence_from_sources() -> dict[str, object]:
+    from scripts.materialize_executive_assistant_acceptance_evidence import (
+        materialize_executive_assistant_acceptance_evidence,
+    )
+
+    return materialize_executive_assistant_acceptance_evidence(
+        receipt_path=EA_ACCEPTANCE_EVIDENCE_RECEIPT,
+        preserve_existing=True,
+        proactive_ooda_gold_receipt_path=EA_PROACTIVE_OODA_GOLD_ACCEPTANCE_RECEIPT,
+    )
+
+
+def _materialize_admin_quality_readiness_from_sources() -> dict[str, object]:
+    from scripts.materialize_executive_assistant_quality_readiness import (
+        materialize_executive_assistant_quality_readiness,
+    )
+
+    return materialize_executive_assistant_quality_readiness(
+        receipt_path=EA_QUALITY_READINESS_RECEIPT,
+        office_loop_receipt_path=EA_OFFICE_LOOP_GOAL_RECEIPT,
+        acceptance_evidence_receipt_path=EA_ACCEPTANCE_EVIDENCE_RECEIPT,
+    )
+
+
+def _materialize_admin_office_loop_goal_from_sources() -> dict[str, object]:
+    from scripts.materialize_office_loop_goal_receipt import materialize_office_loop_goal_receipt
+
+    return materialize_office_loop_goal_receipt(
+        receipt_path=EA_OFFICE_LOOP_GOAL_RECEIPT,
+        acceptance_evidence_receipt_path=EA_ACCEPTANCE_EVIDENCE_RECEIPT,
+        signal_to_decision_receipt_path=EA_SIGNAL_TO_DECISION_RECEIPT,
+        proactive_operator_status_receipt_path=EA_PROACTIVE_OODA_OPERATOR_STATUS_RECEIPT,
+        proactive_gold_acceptance_receipt_path=EA_PROACTIVE_OODA_GOLD_ACCEPTANCE_RECEIPT,
+        scope_gap_audit_receipt_path=EA_SCOPE_GAP_AUDIT_RECEIPT,
+    )
+
+
+def _materialize_admin_scope_gap_audit_from_sources() -> dict[str, object]:
+    from scripts.materialize_whole_project_scope_gap_audit import materialize_whole_project_scope_gap_audit
+
+    return materialize_whole_project_scope_gap_audit(
+        receipt_path=EA_SCOPE_GAP_AUDIT_RECEIPT,
+        office_loop_receipt_path=EA_OFFICE_LOOP_GOAL_RECEIPT,
+        acceptance_evidence_receipt_path=EA_ACCEPTANCE_EVIDENCE_RECEIPT,
+        ea_quality_receipt_path=EA_QUALITY_READINESS_RECEIPT,
+        active_media_receipt_path=EA_ACTIVE_MEDIA_LTD_GOAL_RECEIPT,
+        signal_to_decision_receipt_path=EA_SIGNAL_TO_DECISION_RECEIPT,
+    )
+
+
+def _refresh_admin_proactive_ooda_followthrough_receipts() -> dict[str, object]:
+    if not _load_json(EA_SIGNAL_TO_DECISION_RECEIPT):
+        _write_json(EA_SIGNAL_TO_DECISION_RECEIPT, _default_signal_receipt())
+
+    results: dict[str, object] = {}
+
+    def _run(label: str, materializer) -> None:
+        try:
+            receipt = materializer()
+        except Exception as exc:
+            results[label] = {"status": "failed", "error": type(exc).__name__}
+            return
+        results[label] = {
+            "status": "materialized",
+            "receipt_status": str(dict(receipt or {}).get("status") or "").strip(),
+        }
+
+    _run("acceptance_evidence", _materialize_admin_acceptance_evidence_from_sources)
+    _run("quality_readiness", _materialize_admin_quality_readiness_from_sources)
+    _run("office_loop_pre_scope", _materialize_admin_office_loop_goal_from_sources)
+    _run("scope_gap_audit", _materialize_admin_scope_gap_audit_from_sources)
+    _run("office_loop", _materialize_admin_office_loop_goal_from_sources)
+    return results
 
 
 def _record_acceptance_evidence_receipt(

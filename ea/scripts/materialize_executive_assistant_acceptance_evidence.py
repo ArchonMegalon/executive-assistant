@@ -246,6 +246,7 @@ def materialize_executive_assistant_acceptance_evidence(
     input_payload: dict[str, Any] | None = None,
     generated_at: str = "",
     preserve_existing: bool = True,
+    proactive_ooda_gold_receipt_path: str | Path | None = None,
 ) -> dict[str, Any]:
     target = Path(receipt_path)
     rows: dict[str, dict[str, Any]] = {key: _empty_row() for key in REQUIRED_ACCEPTANCE_KEYS}
@@ -259,7 +260,9 @@ def materialize_executive_assistant_acceptance_evidence(
         if key in rows:
             rows[key] = _row_from_proof(proof)
     if rows["real_decision_cleared"].get("accepted") is not True:
-        proactive_decision_row = _proactive_ooda_gold_decision_row()
+        proactive_decision_row = _proactive_ooda_gold_decision_row(
+            Path(proactive_ooda_gold_receipt_path) if proactive_ooda_gold_receipt_path else None
+        )
         if proactive_decision_row.get("accepted") is True:
             rows["real_decision_cleared"] = proactive_decision_row
     accepted_keys = [key for key in REQUIRED_ACCEPTANCE_KEYS if rows[key].get("accepted") is True]

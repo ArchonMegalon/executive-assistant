@@ -63,7 +63,6 @@ def test_landing_acceptance_receipt_refresh_matches_verifier_contract(tmp_path: 
 
 def test_acceptance_materializer_derives_decision_from_proactive_ooda_gold_only(
     tmp_path: Path,
-    monkeypatch,
 ) -> None:
     gold_path = tmp_path / "ooda-gold.json"
     _write_json(
@@ -91,12 +90,12 @@ def test_acceptance_materializer_derives_decision_from_proactive_ooda_gold_only(
             },
         },
     )
-    monkeypatch.setattr(acceptance_materializer, "DEFAULT_PROACTIVE_OODA_GOLD_RECEIPT", gold_path)
 
     receipt_path = tmp_path / "acceptance.json"
     receipt = acceptance_materializer.materialize_executive_assistant_acceptance_evidence(
         receipt_path=receipt_path,
         preserve_existing=False,
+        proactive_ooda_gold_receipt_path=gold_path,
     )
 
     verification = verify_executive_assistant_acceptance_evidence(receipt_path)

@@ -230,7 +230,7 @@
     }
   },
   "external_provider_runtime_verified": false,
-  "generated_at": "2026-07-01T02:58:22Z",
+  "generated_at": "2026-07-01T03:18:27Z",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
   "live_daily_use_verified": false,
@@ -287,8 +287,8 @@
   "seeded_fixture": {
     "raw_private_context_exposed": false
   },
-  "source_git_head": "b3f76246400adad230c09327e9b25df1a9752cff",
-  "source_state_fingerprint": "e83fb570c68422b49fe63c7ca4c798f738c5dd1ccbbd5902eafdac25e67d9b7b",
+  "source_git_head": "c9bc1108298a1b108228b65be3fbb913f2d30270",
+  "source_state_fingerprint": "478c20813ef150ff28b555109e441929c1f1bf8cebb13b5df7a36c040e51d54a",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready_local_evidence"
 }

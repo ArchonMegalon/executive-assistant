@@ -79,12 +79,17 @@ def _local_blockers(office_loop: dict[str, Any]) -> list[str]:
     return blockers
 
 
-def _acceptance(acceptance_evidence: dict[str, Any] | None, path: str | Path | None) -> dict[str, Any]:
+def _acceptance(
+    acceptance_evidence: dict[str, Any] | None,
+    path: str | Path | None,
+    *,
+    allow_default: bool = True,
+) -> dict[str, Any]:
     if acceptance_evidence is not None:
         return acceptance_evidence
     if path and Path(path).is_file():
         return _load(path)
-    if DEFAULT_ACCEPTANCE_RECEIPT.is_file():
+    if allow_default and DEFAULT_ACCEPTANCE_RECEIPT.is_file():
         return _load(DEFAULT_ACCEPTANCE_RECEIPT)
     return {"accepted_keys": [], "blocked_keys": REQUIRED_ACCEPTANCE_KEYS, "remaining_external_proofs": REQUIRED_REAL_WORLD_PROOF}
 
@@ -127,9 +132,14 @@ def materialize_executive_assistant_quality_readiness(
     refresh: bool = True,
 ) -> dict[str, Any]:
     del refresh
+    office_loop_provided = office_loop is not None
     if office_loop is None:
         office_loop = _load(office_loop_receipt_path or DEFAULT_OFFICE_RECEIPT)
-    acceptance = _acceptance(acceptance_evidence, acceptance_evidence_receipt_path)
+    acceptance = _acceptance(
+        acceptance_evidence,
+        acceptance_evidence_receipt_path,
+        allow_default=not office_loop_provided,
+    )
     local_blockers = _local_blockers(office_loop)
     accepted = set(acceptance.get("accepted_keys") or [])
     blocked_checks = [key for key in REQUIRED_ACCEPTANCE_KEYS if key not in accepted]

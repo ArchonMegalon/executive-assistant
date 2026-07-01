@@ -177,6 +177,88 @@ def _seed_admin_state(client: TestClient, *, principal_id: str) -> None:
     assert revoked.status_code == 200
 
 
+def _write_json(path, payload: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _seed_proactive_followthrough_receipt_paths(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    *,
+    proactive_gold_receipt,
+) -> dict[str, object]:
+    from app.api.routes import landing_actions
+
+    office_receipt = tmp_path / "ea_office_loop_goal.generated.json"
+    acceptance_receipt = tmp_path / "ea_executive_assistant_acceptance_evidence.generated.json"
+    quality_receipt = tmp_path / "ea_executive_assistant_quality_readiness.generated.json"
+    active_media_receipt = tmp_path / "active_media_ltd_goal_bundle.generated.json"
+    signal_receipt = tmp_path / "ea_whole_project_signal_to_decision.generated.json"
+    scope_audit_receipt = tmp_path / "ea_whole_project_scope_gap_audit.generated.json"
+    proactive_operator_receipt = tmp_path / "ea_proactive_ooda_operator_status.generated.json"
+    approval_outcome_receipt = tmp_path / "state" / "proactive_ooda_latest_approval_outcome.generated.json"
+
+    _write_json(
+        office_receipt,
+        {
+            "contract_name": "ea.office_loop_goal_receipt.v1",
+            "status": "ready_local_evidence",
+            "goal_completion_claim_allowed": False,
+            "components": {
+                key: {"status": "pass"}
+                for key in (
+                    "command_brief",
+                    "decision_queue",
+                    "commitment_ledger",
+                    "approved_action_workflow",
+                    "evidence_audit_trail",
+                    "support_recovery",
+                    "operator_control",
+                    "goal_evidence",
+                )
+            },
+            "diagnostics_summary": {
+                "analytics_counts_present": True,
+                "channel_loop_digest_keys": ["memo", "approvals", "operator"],
+            },
+            "remaining_external_proofs": [
+                "real decision cleared by the principal or operator",
+            ],
+        },
+    )
+    _write_json(
+        active_media_receipt,
+        {
+            "contract_name": "ea.active_media_ltd_goal_bundle.v1",
+            "status": "ready_local_evidence",
+            "goal_completion_claim_allowed": False,
+            "remaining_external_proofs": [],
+        },
+    )
+
+    monkeypatch.setattr(landing_actions, "EA_OFFICE_LOOP_GOAL_RECEIPT", office_receipt)
+    monkeypatch.setattr(landing_actions, "EA_ACCEPTANCE_EVIDENCE_RECEIPT", acceptance_receipt)
+    monkeypatch.setattr(landing_actions, "EA_QUALITY_READINESS_RECEIPT", quality_receipt)
+    monkeypatch.setattr(landing_actions, "EA_ACTIVE_MEDIA_LTD_GOAL_RECEIPT", active_media_receipt)
+    monkeypatch.setattr(landing_actions, "EA_SIGNAL_TO_DECISION_RECEIPT", signal_receipt)
+    monkeypatch.setattr(landing_actions, "EA_SCOPE_GAP_AUDIT_RECEIPT", scope_audit_receipt)
+    monkeypatch.setattr(landing_actions, "EA_PROACTIVE_OODA_OPERATOR_STATUS_RECEIPT", proactive_operator_receipt)
+    monkeypatch.setattr(landing_actions, "EA_PROACTIVE_OODA_GOLD_ACCEPTANCE_RECEIPT", proactive_gold_receipt)
+    monkeypatch.setattr(landing_actions, "EA_PROACTIVE_OODA_APPROVAL_OUTCOME_RECEIPT", approval_outcome_receipt)
+    return {
+        "office": office_receipt,
+        "acceptance": acceptance_receipt,
+        "quality": quality_receipt,
+        "active_media": active_media_receipt,
+        "signal": signal_receipt,
+        "scope": scope_audit_receipt,
+        "proactive_operator": proactive_operator_receipt,
+        "proactive_gold": proactive_gold_receipt,
+        "approval_outcome": approval_outcome_receipt,
+    }
+
+
 def test_admin_surfaces_render_live_runtime_state() -> None:
     principal_id = "exec-admin-surface"
     client = _operator_client(principal_id=principal_id)
@@ -955,7 +1037,11 @@ def test_admin_proactive_ooda_capture_records_redacted_gold_evidence(
     from scripts import materialize_proactive_ooda_gold_acceptance as proactive_gold_materializer
 
     proactive_gold_receipt = tmp_path / "ea_proactive_ooda_gold_acceptance.generated.json"
-    monkeypatch.setattr(landing_actions, "EA_PROACTIVE_OODA_GOLD_ACCEPTANCE_RECEIPT", proactive_gold_receipt)
+    receipt_paths = _seed_proactive_followthrough_receipt_paths(
+        monkeypatch,
+        tmp_path,
+        proactive_gold_receipt=proactive_gold_receipt,
+    )
     monkeypatch.setattr(
         proactive_gold_materializer,
         "load_runtime_artifact_bundle",
@@ -998,6 +1084,25 @@ def test_admin_proactive_ooda_capture_records_redacted_gold_evidence(
     assert raw_artifact_ref not in receipt_text
     assert "operator-admin-1" not in receipt_text
 
+    acceptance = json.loads(receipt_paths["acceptance"].read_text(encoding="utf-8"))
+    assert acceptance["contract_name"] == "ea.executive_assistant_acceptance_evidence.v1"
+    assert acceptance["privacy"]["raw_acceptance_text_exposed"] is False
+    assert raw_note not in receipt_paths["acceptance"].read_text(encoding="utf-8")
+
+    office = json.loads(receipt_paths["office"].read_text(encoding="utf-8"))
+    assert office["evidence_receipts"]["proactive_ooda_gold_acceptance"]["approval_outcome_recorded"] is True
+    assert office["evidence_receipts"]["proactive_ooda_gold_acceptance"]["approval_outcome_accepted"] is True
+    assert office["proactive_ooda_followthrough_posture"]["approval_outcome_recorded"] is True
+    assert office["proactive_ooda_followthrough_posture"]["approval_outcome_accepted"] is True
+    assert raw_note not in receipt_paths["office"].read_text(encoding="utf-8")
+
+    scope = json.loads(receipt_paths["scope"].read_text(encoding="utf-8"))
+    assert scope["evidence_receipts"]["office_loop"]["status"] == "ready_local_evidence"
+    assert scope["evidence_receipts"]["executive_assistant_acceptance_evidence"]["contract_name"] == (
+        "ea.executive_assistant_acceptance_evidence.v1"
+    )
+    assert raw_note not in receipt_paths["scope"].read_text(encoding="utf-8")
+
 
 def test_admin_proactive_ooda_capture_writes_runtime_approval_artifact_and_syncs_teable(
     monkeypatch: pytest.MonkeyPatch,
@@ -1011,7 +1116,11 @@ def test_admin_proactive_ooda_capture_writes_runtime_approval_artifact_and_syncs
     proactive_gold_receipt = tmp_path / "ea_proactive_ooda_gold_acceptance.generated.json"
     approval_outcome_receipt = tmp_path / "state" / "proactive_ooda_latest_approval_outcome.generated.json"
     sync_calls: list[dict[str, object]] = []
-    monkeypatch.setattr(landing_actions, "EA_PROACTIVE_OODA_GOLD_ACCEPTANCE_RECEIPT", proactive_gold_receipt)
+    _seed_proactive_followthrough_receipt_paths(
+        monkeypatch,
+        tmp_path,
+        proactive_gold_receipt=proactive_gold_receipt,
+    )
     monkeypatch.setattr(landing_actions, "EA_PROACTIVE_OODA_APPROVAL_OUTCOME_RECEIPT", approval_outcome_receipt)
     monkeypatch.setattr(landing_actions, "teable_sync_enabled", lambda: True)
     monkeypatch.setattr(
