@@ -5206,6 +5206,38 @@ def test_audiobook_runtime_preflight_passes_with_ffmpeg_fallback_without_secret_
     assert str(tmp_path) not in rendered
 
 
+def test_audiobook_runtime_preflight_reports_disconnected_jobs_root_without_crashing(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    jobs_root = tmp_path / "jobs"
+    monkeypatch.setenv("EA_AUDIOBOOK_ALLOW_NON_DURABLE_STORAGE", "1")
+    monkeypatch.setenv("EA_TELEGRAM_AUDIOBOOK_EPUB_ENABLED", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(jobs_root))
+    monkeypatch.setenv("EA_AUDIOBOOKSHELF_IMPORT_ROOT", str(tmp_path / "audiobookshelf"))
+    monkeypatch.setattr(pipeline, "_storage_path_accessible", lambda path: True)
+
+    real_exists = Path.exists
+
+    def disconnected_exists(self: Path) -> bool:
+        if self == jobs_root or self.as_posix() == jobs_root.as_posix():
+            raise OSError(errno.ENOTCONN, "Transport endpoint is not connected")
+        return real_exists(self)
+
+    monkeypatch.setattr(Path, "exists", disconnected_exists)
+
+    receipt = pipeline.audiobook_runtime_preflight()
+    rendered = json.dumps(receipt, sort_keys=True)
+
+    assert receipt["status"] == "fail"
+    assert "jobs_root_writable" in receipt["failed_checks"]
+    jobs_root_check = next(row for row in receipt["checks"] if row["key"] == "jobs_root_writable")
+    assert jobs_root_check["status"] == "fail"
+    assert str(jobs_root) not in rendered
+
+
 def test_audiobook_runtime_preflight_keeps_optional_player_access_base_url_and_bulk_pacing_as_warnings(
     monkeypatch,
     tmp_path: Path,

@@ -7600,10 +7600,13 @@ def _m4b_assembly_available() -> bool:
 
 
 def _writable_or_creatable(path: Path) -> bool:
-    current = path
-    while not current.exists() and current.parent != current:
-        current = current.parent
-    return current.exists() and os.access(current, os.W_OK)
+    try:
+        current = path
+        while not current.exists() and current.parent != current:
+            current = current.parent
+        return current.exists() and os.access(current, os.W_OK)
+    except OSError:
+        return False
 
 
 def audiobook_runtime_preflight() -> dict[str, object]:
