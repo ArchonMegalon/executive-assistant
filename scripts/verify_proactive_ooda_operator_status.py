@@ -84,13 +84,13 @@ def _source_coverage_missing_lane_keys(source_coverage: dict[str, Any]) -> list[
 
 def _source_coverage_requires_recovery(receipt: dict[str, Any]) -> bool:
     source_coverage = dict(receipt.get("source_coverage") or {})
-    if not bool(source_coverage.get("checked")):
-        return False
     if str(source_coverage.get("blocking_reason") or "").strip():
         return True
     if _source_coverage_missing_lane_keys(source_coverage):
         return True
     status = str(source_coverage.get("status") or "").strip()
+    if not bool(source_coverage.get("checked")):
+        return status not in {"", "not_checked"}
     return status not in {"", "not_checked", "ready", "pass", "fully_ready"}
 
 

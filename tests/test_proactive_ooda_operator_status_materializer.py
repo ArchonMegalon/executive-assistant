@@ -209,6 +209,47 @@ def _fake_source_coverage_gap_probe(**_kwargs: object) -> dict[str, object]:
     }
 
 
+def _fake_source_coverage_probe_failure(**_kwargs: object) -> dict[str, object]:
+    return {
+        "probe_ok": False,
+        "checked": False,
+        "status": "probe_failed",
+        "source": "docker_compose_exec",
+        "runtime_service": "ea-proactive-ooda",
+        "observed_at": "2026-07-01T21:23:57Z",
+        "blocking_reason": "TimeoutExpired:30s",
+        "next_action": "inspect_proactive_runtime_container",
+        "next_action_href": "",
+        "next_action_label": "",
+        "next_action_method": "",
+        "observation_repository": "",
+        "observation_limit": 0,
+        "observation_row_count": 0,
+        "lane_count": 8,
+        "observed_lane_count": 0,
+        "missing_lane_keys": list(
+            (
+                "postgres_observations",
+                "google_workspace",
+                "pocket_ai_audio_transcripts",
+                "calendar_and_renewal_signals",
+                "relationship_and_occasion_signals",
+                "shopping_and_vendor_signals",
+                "commitment_and_deadline_signals",
+                "durable_profile_and_location_context",
+            )
+        ),
+        "lanes": [],
+        "privacy": {
+            "raw_rows_exposed": False,
+            "raw_payload_exposed": False,
+            "raw_transcript_text_exposed": False,
+            "raw_credential_exposed": False,
+            "source_ids_hashed": True,
+        },
+    }
+
+
 def _fake_approval_capture_probe(**_kwargs: object) -> dict[str, object]:
     return {
         "probe_ok": True,
@@ -379,6 +420,97 @@ def test_materialize_proactive_ooda_operator_status_recovers_on_degraded_source_
     assert receipt["source_coverage"]["status"] == "ready_with_gaps"
     assert receipt["source_coverage"]["missing_lane_keys"] == ["pocket_ai_audio_transcripts"]
     assert receipt["source_coverage"]["next_action"] == "sync_pocket_ai_audio_transcripts"
+
+
+def test_materialize_proactive_ooda_operator_status_recovers_on_source_coverage_probe_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    module = _load_script()
+    monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_route", lambda **_kwargs: {
+        "probe_ok": True,
+        "source": "docker_compose_exec",
+        "runtime_service": "ea-proactive-ooda",
+        "observed_at": "2026-07-01T21:24:00Z",
+        "live_receipt_checked": True,
+        "live_receipt": {
+            "ok": True,
+            "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+            "errors": [],
+        },
+        "route_report": {
+            "ok": True,
+            "delivery_route": {
+                "ready": True,
+                "route_error": "",
+                "recovery_hint": "",
+                "next_action": "",
+                "selected_channel": "telegram",
+                "selected_by": "tool_runtime_binding",
+            },
+            "delivery_guard": {"delivery_state": "no_actionable_items"},
+            "stage_packets": {"ready": True, "errors": []},
+            "safe_work_results": {"ready": True, "errors": []},
+            "receipt_observation_count": 1,
+            "actionable_count": 0,
+        },
+    })
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_gmail_draft",
+        lambda **_kwargs: {"probe_ok": True, "status": "no_pending_draft", "source": "docker_compose_exec"},
+    )
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_artifacts",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "source": "docker_compose_exec",
+            "run_receipt": {
+                "generated_at": "2026-07-01T21:24:10Z",
+                "notification_status": "skipped_no_items",
+                "error_code": "",
+                "item_count": 0,
+                "teable_sync": {
+                    "status": "synced",
+                    "projection_summary": {
+                        "record_count": 1,
+                        "suppressed_item_count": 0,
+                        "suppressed_safe_work_review_count": 0,
+                        "suppressed_projection_reasons": [],
+                        "suppressed_safe_work_issue_codes": [],
+                        "tables": {
+                            "proactive_ooda_runs": {"record_count": 1},
+                            "proactive_ooda_items": {"record_count": 0},
+                            "proactive_ooda_safe_work": {"record_count": 0},
+                        },
+                    },
+                },
+            },
+            "action_required_only_quiet_receipt": {},
+        },
+    )
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_source_coverage", _fake_source_coverage_probe_failure)
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_approval_capture",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("failed source coverage should short-circuit approval followthrough")),
+    )
+
+    receipt = module.build_proactive_ooda_operator_status(
+        output_path=tmp_path / "ea_proactive_ooda_operator_status.generated.json",
+        generated_at="2026-07-01T21:24:30Z",
+        report_args=Namespace(principal_id="exec-1"),
+    )
+
+    assert receipt["status"] == "ready_with_recovery_action"
+    assert receipt["reason"] == "source_coverage_TimeoutExpired:30s"
+    assert receipt["next_action"] == "inspect_proactive_runtime_container"
+    assert receipt["operator_action_state"] == "recovery_required"
+    assert "source coverage probing needs recovery" in receipt["summary"]
+    assert receipt["source_coverage"]["checked"] is False
+    assert receipt["source_coverage"]["status"] == "probe_failed"
+    assert receipt["source_coverage"]["blocking_reason"] == "TimeoutExpired:30s"
 
 
 def test_build_operator_status_uses_configured_live_probe_timeout(tmp_path: Path, monkeypatch) -> None:

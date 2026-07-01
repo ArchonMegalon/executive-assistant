@@ -122,9 +122,9 @@
           "contract_name": "ea.whole_project_signal_to_decision_receipt.v1",
           "path": ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "4cf42d54abcf669920a230dd198431a0cac94354",
-          "source_state_fingerprint": "d8e6a169d73a760eaf1ce85b3626ede51c1b6c00837fd49a15d97910a51ea995",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "0be99a429cc23cfd89d5e4ddd482c48e6c81aa64",
+          "source_state_fingerprint": "17876ec36c140a005d773e8757a2cbf026be384fb4d54d02fb59925510bd66fc",
           "status": "ready_local_packet_pending_operator_acceptance"
         }
       ],
@@ -154,8 +154,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "f4cdc37251cfc6922181dece26a6d858633bab0b",
-          "source_state_fingerprint": "3ef72eaa298cc6fa6481b9019e95fc529eb013b625a6642c98424522044295d7",
+          "source_git_head": "0be99a429cc23cfd89d5e4ddd482c48e6c81aa64",
+          "source_state_fingerprint": "1415a1b336021203e05985c57ac5ebab837e570a63b4bdb3a486b5a266b4653a",
           "status": "pass"
         },
         {
@@ -163,9 +163,9 @@
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "f4cdc37251cfc6922181dece26a6d858633bab0b",
-          "source_state_fingerprint": "3ef72eaa298cc6fa6481b9019e95fc529eb013b625a6642c98424522044295d7",
-          "status": "ready_with_recovery_action"
+          "source_git_head": "0be99a429cc23cfd89d5e4ddd482c48e6c81aa64",
+          "source_state_fingerprint": "1415a1b336021203e05985c57ac5ebab837e570a63b4bdb3a486b5a266b4653a",
+          "status": "ready_with_live_receipt"
         }
       ],
       "status": "satisfied",
@@ -356,6 +356,109 @@
       ],
       "status": "satisfied",
       "title": "Real provider failure recovered"
+    },
+    {
+      "capture_surfaces": [
+        ".codex-studio/published/teable_env_recovery_readiness.generated.json",
+        ".codex-studio/published/teable_env_recovery_proof.generated.json"
+      ],
+      "claim_boundary": "does_not_prove_recovery_readiness_until_fresh_host_drill_evidence_is_mirrored",
+      "evidence_kind": "fresh_host_recovery_drill",
+      "key": "fresh_host_teable_recovery_drill",
+      "lens": "recover",
+      "next_action": "run_shell_seeded_fresh_host_probe_and_mirror_drill_evidence",
+      "next_action_form_href": "/admin/goals",
+      "next_action_form_label": "Open goal evidence",
+      "next_action_form_method": "get",
+      "next_action_href": "/admin/goals",
+      "next_action_label": "Open goal evidence",
+      "next_action_method": "get",
+      "required_next_receipt": "fresh-host Teable recovery drill receipt mirrored into the repo",
+      "source_receipts": [
+        {
+          "contract_name": "ea.teable_env_recovery_readiness.v1",
+          "path": ".codex-studio/published/teable_env_recovery_readiness.generated.json",
+          "present": true,
+          "source_fresh_to_current_source": false,
+          "source_git_head": "f4cdc37251cfc6922181dece26a6d858633bab0b",
+          "source_state_fingerprint": "3ef72eaa298cc6fa6481b9019e95fc529eb013b625a6642c98424522044295d7",
+          "status": "ready_local_audit"
+        },
+        {
+          "contract_name": "ea.teable_env_recovery_proof.v1",
+          "path": ".codex-studio/published/teable_env_recovery_proof.generated.json",
+          "present": true,
+          "source_fresh_to_current_source": false,
+          "source_git_head": "f4cdc37251cfc6922181dece26a6d858633bab0b",
+          "source_state_fingerprint": "3ef72eaa298cc6fa6481b9019e95fc529eb013b625a6642c98424522044295d7",
+          "status": "pass"
+        }
+      ],
+      "status": "pending_real_world_evidence",
+      "title": "Fresh-host Teable recovery drill"
+    },
+    {
+      "action_context": {
+        "auth_link_template": "https://myexternalbrain.com/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace&expected_google_email=%3Credacted-email%3E",
+        "callback_tokens_exposed": false,
+        "console_deep_link": "https://console.cloud.google.com/auth/audience?project=propertyquarry-498318",
+        "expected_google_domain": "gmail.com",
+        "expected_google_email_present": true,
+        "expected_google_email_sha256": "0d4e155b160b9ea9159f7b9be7451875fcdff0399e45ba180c3ee8e27c3752a4",
+        "instruction": "Retry the Full Workspace auth link and explicitly choose the approved work Google account. If Google still denies access, reopen the Google Auth Platform Audience page and confirm the tester save has propagated.",
+        "missing_setup": [
+          "oauth_access_retry_or_account_selection_required"
+        ],
+        "next_action_form_href": "/integrations/google",
+        "next_action_form_label": "Open Google setup",
+        "next_action_form_method": "get",
+        "raw_chat_ids_exposed": false,
+        "raw_client_id_exposed": false,
+        "raw_client_secret_exposed": false,
+        "raw_error_description_exposed": false,
+        "raw_expected_google_email_exposed": false,
+        "raw_secret_exposed": false,
+        "raw_token_exposed": false,
+        "raw_voice_ids_exposed": false,
+        "scope_bundle": "full_workspace",
+        "setup_checklist": [
+          {
+            "how": "Open https://myexternalbrain.com/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace&expected_google_email=%3Credacted-email%3E, explicitly choose the approved work Google account, finish consent, and if Google still denies access reopen https://console.cloud.google.com/auth/audience?project=propertyquarry-498318 to confirm the Audience save and selected OAuth project.",
+            "key": "oauth_access_retry_or_account_selection_required",
+            "label": "Retry Full Workspace auth with the approved Google account"
+          }
+        ],
+        "telegram_message": "Action needed: Google Full Workspace auth is still denied even though the work account is already approved. Retry the auth link, explicitly choose the approved account, and if Google still blocks it re-open the Audience page to confirm the save. Console: https://console.cloud.google.com/auth/audience?project=propertyquarry-498318",
+        "user_action_required": true
+      },
+      "capture_surfaces": [
+        ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json"
+      ],
+      "claim_boundary": "does_not_prove_google_workspace_signal_ingest_until_full_workspace_oauth_can_complete_for_the_requested_account",
+      "evidence_kind": "google_workspace_oauth_test_user_setup",
+      "key": "google_workspace_oauth_setup",
+      "lens": "detect",
+      "next_action": "add_google_oauth_test_user_and_retry_full_workspace_auth",
+      "next_action_form_href": "/integrations/google",
+      "next_action_form_label": "Open Google setup",
+      "next_action_form_method": "get",
+      "next_action_href": "/integrations/google",
+      "next_action_label": "Open Google setup",
+      "next_action_method": "get",
+      "required_next_receipt": "Google Workspace OAuth test-user or verified app access for Full Workspace auth",
+      "source_receipts": [
+        {
+          "contract_name": "ea.google_workspace_oauth_readiness.v1",
+          "path": ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json",
+          "present": true,
+          "source_fresh_to_current_source": false,
+          "source_git_head": "5d7b586cecb766325f43a58c1f4449b0f690e720",
+          "source_state_fingerprint": "17876ec36c140a005d773e8757a2cbf026be384fb4d54d02fb59925510bd66fc",
+          "status": "blocked_setup_required"
+        }
+      ],
+      "status": "pending_real_world_evidence",
+      "title": "Google Workspace OAuth test-user setup"
     },
     {
       "action_context": {
@@ -698,6 +801,7 @@
     }
   ],
   "blocking_reasons": [
+    "detect:google_workspace_oauth=blocked_setup_required",
     "deliver:manfred_speech=blocked_realtime_prerequisites",
     "deliver:telegram_audiobook=blocked",
     "deliver:whatsapp_audiobook=blocked",
@@ -711,7 +815,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-07-01T20:17:51Z",
+  "generated_at": "2026-07-01T21:31:39Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -722,12 +826,12 @@
       "components": [],
       "google_workspace_oauth_readiness": {
         "auth_link_template": "https://myexternalbrain.com/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace&expected_google_email=%3Credacted-email%3E",
-        "blocker_kind": "",
+        "blocker_kind": "oauth_retry_or_account_selection_required",
         "console_deep_link": "https://console.cloud.google.com/auth/audience?project=propertyquarry-498318",
         "expected_google_email_present": true,
         "expected_google_email_sha256": "0d4e155b160b9ea9159f7b9be7451875fcdff0399e45ba180c3ee8e27c3752a4",
         "key": "google_workspace_full_workspace_oauth",
-        "next_action": "add_google_oauth_test_user_and_retry_full_workspace_auth",
+        "next_action": "retry_full_workspace_auth_with_approved_account",
         "oauth_project_id": "propertyquarry-498318",
         "oauth_project_number": "95627800296",
         "raw_access_token_exposed": false,
@@ -736,7 +840,7 @@
         "raw_expected_google_email_exposed": false,
         "raw_refresh_token_exposed": false,
         "scope_bundle": "full_workspace",
-        "status": "pass"
+        "status": "blocked_setup_required"
       },
       "key": "detect",
       "next_action": "record_redacted_signal_review_acceptance",
@@ -745,16 +849,16 @@
           "contract_name": "ea.whole_project_signal_to_decision_receipt.v1",
           "path": ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "4cf42d54abcf669920a230dd198431a0cac94354",
-          "source_state_fingerprint": "d8e6a169d73a760eaf1ce85b3626ede51c1b6c00837fd49a15d97910a51ea995",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "0be99a429cc23cfd89d5e4ddd482c48e6c81aa64",
+          "source_state_fingerprint": "17876ec36c140a005d773e8757a2cbf026be384fb4d54d02fb59925510bd66fc",
           "status": "ready_local_packet_pending_operator_acceptance"
         },
         {
           "contract_name": "ea.pocket_audio_archive_receipt.v1",
           "path": ".codex-studio/published/pocket_audio_archive_receipt.generated.json",
           "present": true,
-          "source_fresh_to_current_source": true,
+          "source_fresh_to_current_source": false,
           "source_git_head": "2f0512a59c57c1aafd32b2ae3220cb1e56f896a3",
           "source_state_fingerprint": "3ef72eaa298cc6fa6481b9019e95fc529eb013b625a6642c98424522044295d7",
           "status": "pass"
@@ -773,9 +877,9 @@
           "path": ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": false,
-          "source_git_head": "e29c0e521224b8053d3d667e3149d9758aa233d1",
-          "source_state_fingerprint": "e4347b9d66c672c77f06aad4cfb43c5d404ec6ff7df1840df01fa2f44d00bc3e",
-          "status": "pass"
+          "source_git_head": "5d7b586cecb766325f43a58c1f4449b0f690e720",
+          "source_state_fingerprint": "17876ec36c140a005d773e8757a2cbf026be384fb4d54d02fb59925510bd66fc",
+          "status": "blocked_setup_required"
         }
       ],
       "status": "ready_local_packet_pending_operator_acceptance",
@@ -827,15 +931,15 @@
     {
       "components": [],
       "key": "decide",
-      "next_action": "verify_postgres_observation_source",
+      "next_action": "maintain_proactive_ooda_gold_acceptance_evidence",
       "source_receipts": [
         {
           "contract_name": "ea.office_loop_goal_receipt.v1",
           "path": ".codex-studio/published/ea_office_loop_goal.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "4cf42d54abcf669920a230dd198431a0cac94354",
-          "source_state_fingerprint": "d8e6a169d73a760eaf1ce85b3626ede51c1b6c00837fd49a15d97910a51ea995",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "0be99a429cc23cfd89d5e4ddd482c48e6c81aa64",
+          "source_state_fingerprint": "1415a1b336021203e05985c57ac5ebab837e570a63b4bdb3a486b5a266b4653a",
           "status": "ready_local_evidence"
         }
       ],
@@ -1018,7 +1122,7 @@
           "contract_name": "ea.teable_env_recovery_readiness.v1",
           "path": ".codex-studio/published/teable_env_recovery_readiness.generated.json",
           "present": true,
-          "source_fresh_to_current_source": true,
+          "source_fresh_to_current_source": false,
           "source_git_head": "f4cdc37251cfc6922181dece26a6d858633bab0b",
           "source_state_fingerprint": "3ef72eaa298cc6fa6481b9019e95fc529eb013b625a6642c98424522044295d7",
           "status": "ready_local_audit"
@@ -1027,15 +1131,15 @@
           "contract_name": "ea.teable_env_recovery_proof.v1",
           "path": ".codex-studio/published/teable_env_recovery_proof.generated.json",
           "present": true,
-          "source_fresh_to_current_source": true,
+          "source_fresh_to_current_source": false,
           "source_git_head": "f4cdc37251cfc6922181dece26a6d858633bab0b",
           "source_state_fingerprint": "3ef72eaa298cc6fa6481b9019e95fc529eb013b625a6642c98424522044295d7",
           "status": "pass"
         }
       ],
-      "status": "pass",
+      "status": "ready_local_audit",
       "status_class": "progress",
-      "summary": "Fresh-host-style Teable recovery proof is mirrored and passed with redacted evidence; keep it current when env/config recovery changes.",
+      "summary": "A Teable recovery proof is mirrored and passed, but its source-state evidence is stale; refresh the recovery drill proof before keeping the recover lens at pass.",
       "title": "Fresh-host recovery",
       "verifier_commands": [
         "make verify-teable-env-recovery-readiness",
@@ -1126,6 +1230,55 @@
       "source_action_packet_status": "action_required",
       "telegram_push_allowed": true,
       "title": "Weekly signal-to-decision review acceptance",
+      "user_action_required": true
+    },
+    {
+      "auth_link_template": "https://myexternalbrain.com/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace&expected_google_email=%3Credacted-email%3E",
+      "callback_tokens_exposed": false,
+      "console_deep_link": "https://console.cloud.google.com/auth/audience?project=propertyquarry-498318",
+      "delivery_policy": "action_required_only",
+      "evidence_kind": "google_workspace_oauth_test_user_setup",
+      "expected_google_domain": "gmail.com",
+      "expected_google_email_present": true,
+      "expected_google_email_sha256": "0d4e155b160b9ea9159f7b9be7451875fcdff0399e45ba180c3ee8e27c3752a4",
+      "instruction": "Retry the Full Workspace auth link and explicitly choose the approved work Google account. If Google still denies access, reopen the Google Auth Platform Audience page and confirm the tester save has propagated.",
+      "interruption_budget": "action_required",
+      "irreversible_actions_consent_gated": true,
+      "key": "google_workspace_oauth_setup",
+      "lens": "detect",
+      "missing_setup": [
+        "oauth_access_retry_or_account_selection_required"
+      ],
+      "next_action": "add_google_oauth_test_user_and_retry_full_workspace_auth",
+      "next_action_form_href": "/integrations/google",
+      "next_action_form_label": "Open Google setup",
+      "next_action_form_method": "get",
+      "next_action_href": "/integrations/google",
+      "next_action_label": "Open Google setup",
+      "next_action_method": "get",
+      "non_action_progress_push_allowed": false,
+      "quiet_hours_respected": true,
+      "raw_chat_ids_exposed": false,
+      "raw_client_id_exposed": false,
+      "raw_client_secret_exposed": false,
+      "raw_error_description_exposed": false,
+      "raw_expected_google_email_exposed": false,
+      "raw_private_context_exposed": false,
+      "raw_secret_exposed": false,
+      "raw_token_exposed": false,
+      "raw_voice_ids_exposed": false,
+      "required_next_receipt": "Google Workspace OAuth test-user or verified app access for Full Workspace auth",
+      "scope_bundle": "full_workspace",
+      "setup_checklist": [
+        {
+          "how": "Open https://myexternalbrain.com/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace&expected_google_email=%3Credacted-email%3E, explicitly choose the approved work Google account, finish consent, and if Google still denies access reopen https://console.cloud.google.com/auth/audience?project=propertyquarry-498318 to confirm the Audience save and selected OAuth project.",
+          "key": "oauth_access_retry_or_account_selection_required",
+          "label": "Retry Full Workspace auth with the approved Google account"
+        }
+      ],
+      "telegram_message": "Action needed: Google Full Workspace auth is still denied even though the work account is already approved. Retry the auth link, explicitly choose the approved account, and if Google still blocks it re-open the Audience page to confirm the save. Console: https://console.cloud.google.com/auth/audience?project=propertyquarry-498318",
+      "telegram_push_allowed": true,
+      "title": "Google Workspace OAuth test-user setup",
       "user_action_required": true
     },
     {
@@ -1355,6 +1508,33 @@
       "telegram_push_allowed": true,
       "title": "WhatsApp audiobook live delivery receipt",
       "user_action_required": true
+    },
+    {
+      "callback_tokens_exposed": false,
+      "delivery_policy": "queue_only",
+      "evidence_kind": "fresh_host_recovery_drill",
+      "interruption_budget": "none",
+      "irreversible_actions_consent_gated": true,
+      "key": "fresh_host_teable_recovery_drill",
+      "lens": "recover",
+      "next_action": "run_shell_seeded_fresh_host_probe_and_mirror_drill_evidence",
+      "next_action_form_href": "/admin/goals",
+      "next_action_form_label": "Open goal evidence",
+      "next_action_form_method": "get",
+      "next_action_href": "/admin/goals",
+      "next_action_label": "Open goal evidence",
+      "next_action_method": "get",
+      "non_action_progress_push_allowed": false,
+      "quiet_hours_respected": true,
+      "raw_chat_ids_exposed": false,
+      "raw_private_context_exposed": false,
+      "raw_secret_exposed": false,
+      "raw_token_exposed": false,
+      "raw_voice_ids_exposed": false,
+      "required_next_receipt": "fresh-host Teable recovery drill receipt mirrored into the repo",
+      "telegram_push_allowed": false,
+      "title": "Fresh-host Teable recovery drill",
+      "user_action_required": false
     }
   ],
   "operator_delivery_policy": {
@@ -1371,6 +1551,8 @@
   "real_use_claim_allowed": false,
   "required_next_receipts": [
     "real weekly signal-to-decision review acceptance receipt",
+    "fresh-host Teable recovery drill receipt mirrored into the repo",
+    "Google Workspace OAuth test-user or verified app access for Full Workspace auth",
     "Pushbullet delivery clients configured and live-verifiable for action-required delivery",
     "consented Manfred STT/TTS realtime conversation proof",
     "passing Telegram audiobook live delivery receipt",
@@ -1386,7 +1568,7 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "f4cdc37251cfc6922181dece26a6d858633bab0b",
-  "source_state_fingerprint": "3ef72eaa298cc6fa6481b9019e95fc529eb013b625a6642c98424522044295d7",
+  "source_git_head": "0be99a429cc23cfd89d5e4ddd482c48e6c81aa64",
+  "source_state_fingerprint": "1415a1b336021203e05985c57ac5ebab837e570a63b4bdb3a486b5a266b4653a",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }

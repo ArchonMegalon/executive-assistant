@@ -539,15 +539,16 @@ def _source_coverage_is_ready(source_coverage: Mapping[str, Any] | None) -> bool
 
 def _source_coverage_requires_recovery(source_coverage: Mapping[str, Any] | None) -> bool:
     normalized = dict(source_coverage or {})
-    if not bool(normalized.get("checked")):
-        return False
-    if _source_coverage_is_ready(normalized):
-        return False
     if _source_coverage_missing_lane_keys(normalized):
         return True
     if str(normalized.get("blocking_reason") or "").strip():
         return True
     status = str(normalized.get("status") or "").strip()
+    checked = bool(normalized.get("checked"))
+    if not checked:
+        return status not in {"", "not_checked"}
+    if _source_coverage_is_ready(normalized):
+        return False
     return status not in {"", "not_checked"}
 
 

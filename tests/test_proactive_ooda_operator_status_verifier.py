@@ -138,6 +138,62 @@ def _degraded_source_coverage() -> dict[str, object]:
     }
 
 
+def _failed_source_coverage() -> dict[str, object]:
+    return {
+        "checked": False,
+        "probe_ok": False,
+        "status": "probe_failed",
+        "source": "docker_compose_exec",
+        "runtime_service": "ea-proactive-ooda",
+        "observed_at": "2026-07-01T21:23:57Z",
+        "blocking_reason": "TimeoutExpired:30s",
+        "next_action": "inspect_proactive_runtime_container",
+        "next_action_href": "",
+        "next_action_label": "",
+        "next_action_method": "",
+        "observation_repository": "",
+        "observation_limit": 0,
+        "observation_row_count": 0,
+        "lane_count": 8,
+        "observed_lane_count": 0,
+        "missing_lane_keys": [
+            "postgres_observations",
+            "google_workspace",
+            "pocket_ai_audio_transcripts",
+            "calendar_and_renewal_signals",
+            "relationship_and_occasion_signals",
+            "shopping_and_vendor_signals",
+            "commitment_and_deadline_signals",
+            "durable_profile_and_location_context",
+        ],
+        "lanes": [
+            {
+                "key": "pocket_ai_audio_transcripts",
+                "label": "Pocket.ai audio transcripts",
+                "status": "probe_failed",
+                "observed": False,
+                "record_count": 0,
+                "latest_observed_at": "",
+                "evidence_event_types": [],
+                "required_event_types": ["pocket_recording_archive_indexed"],
+                "required_event_type_observed": False,
+                "missing_required_event_types": ["pocket_recording_archive_indexed"],
+                "next_action": "sync_pocket_ai_audio_transcripts",
+                "raw_payload_exposed": False,
+                "raw_transcript_text_exposed": False,
+                "raw_credential_exposed": False,
+            }
+        ],
+        "privacy": {
+            "raw_rows_exposed": False,
+            "raw_payload_exposed": False,
+            "raw_transcript_text_exposed": False,
+            "raw_credential_exposed": False,
+            "source_ids_hashed": True,
+        },
+    }
+
+
 def _base_payload() -> dict[str, object]:
     return {
         "contract_name": "ea.proactive_ooda_operator_status.v1",
@@ -410,6 +466,37 @@ def test_proactive_ooda_operator_status_verifier_rejects_live_receipt_overclaim_
     assert "degraded source_coverage without a higher-priority blocker requires operator_action_state=recovery_required" in issues
     assert "degraded source_coverage without a higher-priority blocker requires source_coverage reason" in issues
     assert "degraded source_coverage without a higher-priority blocker requires receipt.next_action to match source_coverage.next_action" in issues
+
+
+def test_proactive_ooda_operator_status_verifier_rejects_live_receipt_overclaim_with_failed_source_probe(
+    tmp_path: Path, monkeypatch
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
+    payload = _base_payload()
+    payload.update(
+        {
+            "source_git_head": "source-head-123",
+            "status": "ready_with_live_receipt",
+            "reason": "ready",
+            "summary": "Proactive OODA route, packet runtime, and latest host-visible live receipt are ready for operator follow-through.",
+            "next_action": "maintain_proactive_ooda_runtime",
+            "next_action_href": "https://myexternalbrain.com/app/today",
+            "next_action_label": "Open Today",
+            "next_action_method": "get",
+            "operator_action_state": "clear",
+            "live_receipt_checked": True,
+            "live_receipt": {"ok": True, "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json"},
+            "source_coverage": _failed_source_coverage(),
+        }
+    )
+    _write_receipt(receipt, **payload)
+    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
+
+    issues = verifier.verify(receipt, root=tmp_path)
+
+    assert "degraded source_coverage without a higher-priority blocker requires status=ready_with_recovery_action" in issues
+    assert "degraded source_coverage without a higher-priority blocker requires operator_action_state=recovery_required" in issues
+    assert "degraded source_coverage without a higher-priority blocker requires source_coverage reason" in issues
 
 
 def test_proactive_ooda_operator_status_verifier_rejects_clear_status_with_blocked_safe_work_audit(

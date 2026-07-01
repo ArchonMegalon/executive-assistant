@@ -11,11 +11,11 @@
     },
     "executive_assistant_acceptance_evidence": {
       "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
-      "status": "partial_real_world_acceptance_evidence"
+      "status": "ready_real_world_acceptance_evidence"
     },
     "executive_assistant_quality": {
       "contract_name": "ea.executive_assistant_quality_readiness.v1",
-      "status": "blocked_real_world_acceptance"
+      "status": "ready_for_good_executive_assistant_claim_review"
     },
     "office_loop": {
       "contract_name": "ea.office_loop_goal_receipt.v1",
@@ -26,7 +26,7 @@
       "status": "ready_local_packet_pending_operator_acceptance"
     }
   },
-  "generated_at": "2026-07-01T05:51:55Z",
+  "generated_at": "2026-07-01T21:31:38Z",
   "generated_by": "ea/scripts/materialize_whole_project_scope_gap_audit.py",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
@@ -53,9 +53,6 @@
   },
   "public_or_premium_claim_allowed": false,
   "remaining_external_proofs": [
-    "real commitment recovered or closed with an evidence receipt",
-    "real approved outbound action with audit trail",
-    "real provider failure recovered with operator-grade reason",
     "real weekly signal-to-decision review accepted by the operator",
     "closed-loop signal-to-decision follow-through receipt accepted by the operator",
     "real whole-project scope gap audit reviewed against the current product spine",
@@ -68,7 +65,8 @@
     "human review approval for public promo publication",
     "real user EPUB render and playback acceptance evidence",
     "real Manfred realtime conversation room acceptance evidence",
-    "real Manfred spoken-conversation STT/TTS roundtrip evidence"
+    "real Manfred spoken-conversation STT/TTS roundtrip evidence",
+    "real proactive OODA packet accepted with routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, pending-approval, stale-approval, and decision facts, and explicit approval outcome"
   ],
   "review_capture_surface": {
     "method": "post",
@@ -131,8 +129,8 @@
     ],
     "status": "active_local_goal"
   },
-  "source_git_head": "83fb978d17fa9c2474456337fea5fe28383145b7",
-  "source_state_fingerprint": "a7affd11bf5a7fd47a125a7757826c6e7519611fb21998a4b2c9d06d9339687f",
+  "source_git_head": "0be99a429cc23cfd89d5e4ddd482c48e6c81aa64",
+  "source_state_fingerprint": "1415a1b336021203e05985c57ac5ebab837e570a63b4bdb3a486b5a266b4653a",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready_local_audit",
   "summary": "Whole-project scope gap audit is locally mapped; a human operator still has to review it against the current product spine."
