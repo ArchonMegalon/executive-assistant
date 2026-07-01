@@ -1,0 +1,78 @@
+{
+  "contract_name": "ea.operator_action_required_dedupe_proof.v1",
+  "counts": {
+    "included_count": 3,
+    "input_count": 4,
+    "suppressed_policy_blocked_count": 0,
+    "suppressed_privacy_blocked_count": 0,
+    "suppressed_queue_only_count": 1
+  },
+  "current_digest_sha256": "c23de20163e41de8a5cc5b1576dfce5a0eda85ad4ec75f6e550311eddec46da5",
+  "dedupe_checked": true,
+  "delivery_policy": "action_required_only",
+  "force_required_to_resend": true,
+  "generated_at": "2026-07-01T12:18:10Z",
+  "generated_by": "scripts/materialize_operator_action_required_dedupe_proof.py",
+  "head_semantics": "source_state",
+  "included_action_keys": [
+    "weekly_signal_to_decision_review_acceptance",
+    "telegram_audiobook_live_delivery",
+    "manfred_stt_tts_realtime_conversation"
+  ],
+  "item_count": 3,
+  "output_path": ".codex-studio/published/ea_operator_action_required_dedupe_proof.generated.json",
+  "privacy": {
+    "callback_tokens_exposed": false,
+    "candidate_raw_text_fields_exposed": false,
+    "raw_acceptance_text_exposed": false,
+    "raw_actor_identity_exposed": false,
+    "raw_chat_ids_exposed": false,
+    "raw_message_ids_exposed": false,
+    "raw_object_reference_exposed": false,
+    "raw_private_context_exposed": false,
+    "raw_secret_exposed": false,
+    "raw_token_exposed": false,
+    "raw_transcript_fields_exposed": false,
+    "raw_voice_ids_exposed": false
+  },
+  "rules": [
+    "This receipt proves duplicate suppression from local digest state without attempting a Telegram send.",
+    "A matching digest may be resent only with an explicit force path or after the action set changes.",
+    "The proof may expose action keys and hashes, but not raw chat references, message IDs, tokens, or private context."
+  ],
+  "send_attempted": false,
+  "send_requested": false,
+  "source_git_head": "c857a1f737e86740d3f5d25b65fec5e8d3a94255",
+  "source_receipts": {
+    "posture": {
+      "path": ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json",
+      "present": true,
+      "sha256": "cbba5470ef412c32e7b4794262c15f2b86456b4abb3ba96352356177ea1a5364"
+    },
+    "sent_digest": {
+      "digest_match": true,
+      "message_count": 1,
+      "notification_status": "sent",
+      "path": ".codex-studio/published/ea_operator_action_required_digest.generated.json",
+      "present": true,
+      "status": "sent"
+    }
+  },
+  "source_state_fingerprint": "ef073e0740459ef01a154410f0f5f054fcea00e2e399604de2b5b45a49da92e2",
+  "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
+  "state": {
+    "last_digest_match": true,
+    "last_item_keys_match": true,
+    "last_sent_at_present": true,
+    "message_id_count": 1,
+    "path": ".runtime/ea_operator_action_required_digest_state.json",
+    "present": true,
+    "raw_chat_ref_stored": false,
+    "raw_message_ids_stored": false,
+    "raw_secret_stored": false,
+    "raw_token_stored": false
+  },
+  "status": "pass",
+  "suppressed_duplicate_expected": true,
+  "would_send_without_force": false
+}
