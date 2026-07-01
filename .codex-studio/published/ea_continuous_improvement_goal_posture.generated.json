@@ -512,7 +512,7 @@
           "python3 scripts/materialize_continuous_improvement_goal_posture.py",
           "python3 scripts/verify_continuous_improvement_goal_posture.py --pretty"
         ],
-        "runtime_readiness_reason": "sidecar_not_ready",
+        "runtime_readiness_reason": "state_file_container_probe_unavailable",
         "setup_checklist": [
           {
             "id": "open_whatsapp_integration",
@@ -530,7 +530,7 @@
             "status": "pending_after_pairing"
           }
         ],
-        "sidecar_qr_age_seconds": 7,
+        "sidecar_qr_age_seconds": 12,
         "sidecar_qr_fresh": true,
         "sidecar_qr_present": true,
         "sidecar_qr_required": true,
@@ -564,7 +564,7 @@
           "path": ".codex-studio/published/whatsapp_web_action_processor_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "8689a7af97f0392a3e08d1b28c9f8752e1068f3e",
+          "source_git_head": "9a64c8a8f7b515a995e4b167d96a68aceeef56d8",
           "status": "blocked"
         },
         {
@@ -572,7 +572,7 @@
           "path": ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "8689a7af97f0392a3e08d1b28c9f8752e1068f3e",
+          "source_git_head": "9a64c8a8f7b515a995e4b167d96a68aceeef56d8",
           "source_state_fingerprint": "284330b7391824d2f60a796fa3e7e165eb4ee01594069d67518ed08256c57a08",
           "status": "blocked"
         },
@@ -581,7 +581,7 @@
           "path": ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "8689a7af97f0392a3e08d1b28c9f8752e1068f3e",
+          "source_git_head": "9a64c8a8f7b515a995e4b167d96a68aceeef56d8",
           "source_state_fingerprint": "284330b7391824d2f60a796fa3e7e165eb4ee01594069d67518ed08256c57a08",
           "status": "blocked"
         },
@@ -612,7 +612,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-07-01T13:46:31Z",
+  "generated_at": "2026-07-01T13:56:22Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -823,7 +823,7 @@
               "path": ".codex-studio/published/whatsapp_web_action_processor_readiness.generated.json",
               "present": true,
               "source_fresh_to_current_source": true,
-              "source_git_head": "8689a7af97f0392a3e08d1b28c9f8752e1068f3e",
+              "source_git_head": "9a64c8a8f7b515a995e4b167d96a68aceeef56d8",
               "status": "blocked"
             },
             {
@@ -831,7 +831,7 @@
               "path": ".codex-studio/published/whatsapp_audiobook_operator_proof_bundle.generated.json",
               "present": true,
               "source_fresh_to_current_source": true,
-              "source_git_head": "8689a7af97f0392a3e08d1b28c9f8752e1068f3e",
+              "source_git_head": "9a64c8a8f7b515a995e4b167d96a68aceeef56d8",
               "source_state_fingerprint": "284330b7391824d2f60a796fa3e7e165eb4ee01594069d67518ed08256c57a08",
               "status": "blocked"
             },
@@ -840,7 +840,7 @@
               "path": ".codex-studio/published/whatsapp_audiobook_live_delivery.generated.json",
               "present": true,
               "source_fresh_to_current_source": true,
-              "source_git_head": "8689a7af97f0392a3e08d1b28c9f8752e1068f3e",
+              "source_git_head": "9a64c8a8f7b515a995e4b167d96a68aceeef56d8",
               "source_state_fingerprint": "284330b7391824d2f60a796fa3e7e165eb4ee01594069d67518ed08256c57a08",
               "status": "blocked"
             },
@@ -1125,7 +1125,7 @@
         "python3 scripts/verify_continuous_improvement_goal_posture.py --pretty"
       ],
       "required_next_receipt": "passing WhatsApp audiobook live delivery receipt",
-      "runtime_readiness_reason": "sidecar_not_ready",
+      "runtime_readiness_reason": "state_file_container_probe_unavailable",
       "setup_checklist": [
         {
           "id": "open_whatsapp_integration",
@@ -1143,7 +1143,7 @@
           "status": "pending_after_pairing"
         }
       ],
-      "sidecar_qr_age_seconds": 7,
+      "sidecar_qr_age_seconds": 12,
       "sidecar_qr_fresh": true,
       "sidecar_qr_present": true,
       "sidecar_qr_required": true,
@@ -1182,7 +1182,7 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "8689a7af97f0392a3e08d1b28c9f8752e1068f3e",
+  "source_git_head": "9a64c8a8f7b515a995e4b167d96a68aceeef56d8",
   "source_state_fingerprint": "284330b7391824d2f60a796fa3e7e165eb4ee01594069d67518ed08256c57a08",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }
