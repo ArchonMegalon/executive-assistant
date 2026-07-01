@@ -76,6 +76,51 @@ def test_send_telegram_message_for_principal_uses_bound_chat(monkeypatch) -> Non
     assert receipt.message_ids == ("7",)
     assert sent and sent[0]["payload"]["chat_id"] == "42"
     assert sent[0]["payload"]["text"] == "Hello from EA"
+    assert "disable_web_page_preview" not in sent[0]["payload"]
+
+
+def test_send_telegram_message_for_principal_can_disable_web_page_preview(monkeypatch) -> None:
+    runtime = _tool_runtime()
+    runtime.upsert_connector_binding(
+        principal_id="exec-telegram-link",
+        connector_name="telegram_identity",
+        external_account_ref="42",
+        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "ea_concierge_bot"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    monkeypatch.setenv(
+        "EA_TELEGRAM_BOT_REGISTRY_JSON",
+        json.dumps({"default": {"token": "telegram-token", "handle": "ea_concierge_bot"}}),
+    )
+
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 77}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        sent.append(json.loads(request.data.decode("utf-8")))
+        return _FakeResponse()
+
+    monkeypatch.setattr("app.services.telegram_delivery.urllib.request.urlopen", _fake_urlopen)
+    receipt = send_telegram_message_for_principal(
+        runtime,
+        principal_id="exec-telegram-link",
+        text="Open https://console.cloud.google.com/auth/audience?project=propertyquarry-498318",
+        disable_web_page_preview=True,
+    )
+
+    assert receipt.message_ids == ("77",)
+    assert sent
+    assert sent[0]["disable_web_page_preview"] is True
 
 
 def test_send_telegram_message_for_principal_includes_inline_buttons(monkeypatch) -> None:

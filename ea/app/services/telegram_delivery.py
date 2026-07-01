@@ -726,6 +726,7 @@ def send_telegram_message_for_principal(
     text: str,
     inline_buttons: list[list[tuple[str, str]]] | None = None,
     url_buttons: list[list[tuple[str, str]]] | None = None,
+    disable_web_page_preview: bool = False,
 ) -> TelegramDeliveryReceipt:
     binding = resolve_primary_telegram_binding(tool_runtime, principal_id=principal_id)
     if binding is None:
@@ -745,6 +746,8 @@ def send_telegram_message_for_principal(
     message_ids: list[str] = []
     for chunk in _chunk_telegram_text(text):
         payload: dict[str, object] = {"chat_id": chat_id, "text": chunk}
+        if disable_web_page_preview:
+            payload["disable_web_page_preview"] = True
         keyboard_rows: list[list[dict[str, str]]] = []
         for row in list(inline_buttons or []):
             buttons = [

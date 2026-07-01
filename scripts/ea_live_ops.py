@@ -5206,7 +5206,7 @@ def send_telegram(
         "    from app.container import build_container\n"
         "    from app.services.telegram_delivery import send_telegram_message_for_principal\n"
         "    container = build_container()\n"
-        "    receipt = send_telegram_message_for_principal(container.tool_runtime, principal_id=principal_id, text=text)\n"
+        "    receipt = send_telegram_message_for_principal(container.tool_runtime, principal_id=principal_id, text=text, disable_web_page_preview=True)\n"
         "    chat_ref = str(getattr(receipt, 'chat_id', '') or '').strip()\n"
         "    message_ids = [str(item or '').strip() for item in (getattr(receipt, 'message_ids', ()) or ()) if str(item or '').strip()]\n"
         "    print(json.dumps({\n"

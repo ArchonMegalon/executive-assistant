@@ -137,8 +137,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "2286bab88959115593416f81874dce5ad9130717",
-          "source_state_fingerprint": "c0b32edc99b564d20d2dc31d6ee04c1ad68de8e3ce0a6f7c7a6a793e6246d7b9",
+          "source_git_head": "294ae0371dcdf16ad2edacd8a3673661f131c55b",
+          "source_state_fingerprint": "29c25a4ad1e5a3dd8f3b1855a794b50e8cda2f5939b0b5fb4002aaa429e162ac",
           "status": "pass"
         },
         {
@@ -146,8 +146,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "2286bab88959115593416f81874dce5ad9130717",
-          "source_state_fingerprint": "c0b32edc99b564d20d2dc31d6ee04c1ad68de8e3ce0a6f7c7a6a793e6246d7b9",
+          "source_git_head": "294ae0371dcdf16ad2edacd8a3673661f131c55b",
+          "source_state_fingerprint": "29c25a4ad1e5a3dd8f3b1855a794b50e8cda2f5939b0b5fb4002aaa429e162ac",
           "status": "ready_with_live_receipt"
         }
       ],
@@ -339,46 +339,6 @@
       ],
       "status": "satisfied",
       "title": "Real provider failure recovered"
-    },
-    {
-      "capture_surfaces": [
-        ".codex-studio/published/teable_env_recovery_readiness.generated.json",
-        ".codex-studio/published/teable_env_recovery_proof.generated.json"
-      ],
-      "claim_boundary": "does_not_prove_recovery_readiness_until_fresh_host_drill_evidence_is_mirrored",
-      "evidence_kind": "fresh_host_recovery_drill",
-      "key": "fresh_host_teable_recovery_drill",
-      "lens": "recover",
-      "next_action": "run_shell_seeded_fresh_host_probe_and_mirror_drill_evidence",
-      "next_action_form_href": "/admin/goals",
-      "next_action_form_label": "Open goal evidence",
-      "next_action_form_method": "get",
-      "next_action_href": "/admin/goals",
-      "next_action_label": "Open goal evidence",
-      "next_action_method": "get",
-      "required_next_receipt": "fresh-host Teable recovery drill receipt mirrored into the repo",
-      "source_receipts": [
-        {
-          "contract_name": "ea.teable_env_recovery_readiness.v1",
-          "path": ".codex-studio/published/teable_env_recovery_readiness.generated.json",
-          "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "c1fde7bd052936ed23a433c89964cec04059d876",
-          "source_state_fingerprint": "51355e969c7ffa9e0db2870d97ba6de20619f3ebbfdabffa77be050c48e04d6a",
-          "status": "ready_local_audit"
-        },
-        {
-          "contract_name": "ea.teable_env_recovery_proof.v1",
-          "path": ".codex-studio/published/teable_env_recovery_proof.generated.json",
-          "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "c1fde7bd052936ed23a433c89964cec04059d876",
-          "source_state_fingerprint": "51355e969c7ffa9e0db2870d97ba6de20619f3ebbfdabffa77be050c48e04d6a",
-          "status": "pass"
-        }
-      ],
-      "status": "pending_real_world_evidence",
-      "title": "Fresh-host Teable recovery drill"
     },
     {
       "action_context": {
@@ -585,7 +545,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-07-01T10:30:58Z",
+  "generated_at": "2026-07-01T11:07:49Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -619,9 +579,9 @@
           "contract_name": "ea.telegram_business_signal_readiness.v1",
           "path": ".codex-studio/published/telegram_business_signal_readiness.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "150cbf8ff0f60b28c52d1418eb4d1e9056d1fd11",
-          "source_state_fingerprint": "08f5497c9af3c4cd0eb7a808222d6c287213395adb7dc3dbc424de4fd8ab4b2b",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "294ae0371dcdf16ad2edacd8a3673661f131c55b",
+          "source_state_fingerprint": "29c25a4ad1e5a3dd8f3b1855a794b50e8cda2f5939b0b5fb4002aaa429e162ac",
           "status": "pass"
         }
       ],
@@ -822,24 +782,24 @@
           "contract_name": "ea.teable_env_recovery_readiness.v1",
           "path": ".codex-studio/published/teable_env_recovery_readiness.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "c1fde7bd052936ed23a433c89964cec04059d876",
-          "source_state_fingerprint": "51355e969c7ffa9e0db2870d97ba6de20619f3ebbfdabffa77be050c48e04d6a",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "294ae0371dcdf16ad2edacd8a3673661f131c55b",
+          "source_state_fingerprint": "29c25a4ad1e5a3dd8f3b1855a794b50e8cda2f5939b0b5fb4002aaa429e162ac",
           "status": "ready_local_audit"
         },
         {
           "contract_name": "ea.teable_env_recovery_proof.v1",
           "path": ".codex-studio/published/teable_env_recovery_proof.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "c1fde7bd052936ed23a433c89964cec04059d876",
-          "source_state_fingerprint": "51355e969c7ffa9e0db2870d97ba6de20619f3ebbfdabffa77be050c48e04d6a",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "294ae0371dcdf16ad2edacd8a3673661f131c55b",
+          "source_state_fingerprint": "29c25a4ad1e5a3dd8f3b1855a794b50e8cda2f5939b0b5fb4002aaa429e162ac",
           "status": "pass"
         }
       ],
-      "status": "ready_local_audit",
+      "status": "pass",
       "status_class": "progress",
-      "summary": "A Teable recovery proof is mirrored and passed, but its source-state evidence is stale; refresh the recovery drill proof before keeping the recover lens at pass.",
+      "summary": "Fresh-host-style Teable recovery proof is mirrored and passed with redacted evidence; keep it current when env/config recovery changes.",
       "title": "Fresh-host recovery",
       "verifier_commands": [
         "make verify-teable-env-recovery-readiness",
@@ -1043,33 +1003,6 @@
       "telegram_push_allowed": false,
       "title": "WhatsApp audiobook live delivery receipt",
       "user_action_required": false
-    },
-    {
-      "callback_tokens_exposed": false,
-      "delivery_policy": "queue_only",
-      "evidence_kind": "fresh_host_recovery_drill",
-      "interruption_budget": "none",
-      "irreversible_actions_consent_gated": true,
-      "key": "fresh_host_teable_recovery_drill",
-      "lens": "recover",
-      "next_action": "run_shell_seeded_fresh_host_probe_and_mirror_drill_evidence",
-      "next_action_form_href": "/admin/goals",
-      "next_action_form_label": "Open goal evidence",
-      "next_action_form_method": "get",
-      "next_action_href": "/admin/goals",
-      "next_action_label": "Open goal evidence",
-      "next_action_method": "get",
-      "non_action_progress_push_allowed": false,
-      "quiet_hours_respected": true,
-      "raw_chat_ids_exposed": false,
-      "raw_private_context_exposed": false,
-      "raw_secret_exposed": false,
-      "raw_token_exposed": false,
-      "raw_voice_ids_exposed": false,
-      "required_next_receipt": "fresh-host Teable recovery drill receipt mirrored into the repo",
-      "telegram_push_allowed": false,
-      "title": "Fresh-host Teable recovery drill",
-      "user_action_required": false
     }
   ],
   "operator_delivery_policy": {
@@ -1086,7 +1019,6 @@
   "real_use_claim_allowed": false,
   "required_next_receipts": [
     "real weekly signal-to-decision review acceptance receipt",
-    "fresh-host Teable recovery drill receipt mirrored into the repo",
     "consented Manfred STT/TTS realtime conversation proof",
     "passing Telegram audiobook live delivery receipt",
     "passing WhatsApp audiobook live delivery receipt"
@@ -1101,7 +1033,7 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "2286bab88959115593416f81874dce5ad9130717",
-  "source_state_fingerprint": "c0b32edc99b564d20d2dc31d6ee04c1ad68de8e3ce0a6f7c7a6a793e6246d7b9",
+  "source_git_head": "294ae0371dcdf16ad2edacd8a3673661f131c55b",
+  "source_state_fingerprint": "29c25a4ad1e5a3dd8f3b1855a794b50e8cda2f5939b0b5fb4002aaa429e162ac",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }
