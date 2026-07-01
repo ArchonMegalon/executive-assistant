@@ -355,7 +355,7 @@ def test_proactive_ooda_operator_status_verifier_allows_suppressed_projection_re
     assert verifier.verify(receipt, root=tmp_path) == []
 
 
-def test_proactive_ooda_operator_status_verifier_allows_filtered_current_artifact_recovery(
+def test_proactive_ooda_operator_status_verifier_allows_non_material_current_artifact_filter(
     tmp_path: Path, monkeypatch
 ) -> None:
     receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
@@ -363,21 +363,24 @@ def test_proactive_ooda_operator_status_verifier_allows_filtered_current_artifac
     payload.update(
         {
             "source_git_head": "source-head-123",
-            "status": "blocked_local_runtime",
-            "reason": "filtered_current_artifact_single_official_info_link_not_decision_ready",
-            "summary": "Proactive OODA filtered the current packet before follow-through because it is not decision-ready.",
-            "next_action": "repair_proactive_safe_work_audit",
-            "next_action_href": "https://myexternalbrain.com/app/queue",
-            "next_action_label": "Review safe work",
+            "status": "ready_with_live_receipt",
+            "reason": "ready",
+            "summary": "Proactive OODA route, packet runtime, and latest host-visible live receipt are ready for operator follow-through.",
+            "next_action": "maintain_proactive_ooda_runtime",
+            "next_action_href": "https://myexternalbrain.com/app/today",
+            "next_action_label": "Open Today",
             "next_action_method": "get",
-            "operator_action_state": "recovery_required",
+            "operator_action_state": "clear",
+            "live_receipt_checked": True,
+            "live_receipt": {"ok": True, "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json"},
             "current_artifact_filter": {
                 "present": True,
                 "source": "docker_compose_exec",
                 "reason": "single_official_info_link_not_decision_ready",
-                "requires_recovery": True,
-                "blocking_reason": "filtered_current_artifact_single_official_info_link_not_decision_ready",
-                "next_action": "repair_proactive_safe_work_audit",
+                "filter_status": "suppressed_non_material",
+                "requires_recovery": False,
+                "blocking_reason": "",
+                "next_action": "",
                 "issue_codes": ["single_official_info_link_not_decision_ready"],
                 "privacy": {
                     "raw_packet_text_exposed": False,

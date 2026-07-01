@@ -261,6 +261,18 @@ def _verify_safe_work_audit(receipt: dict[str, Any], issues: list[str]) -> None:
         issues.append("safe_work_audit.delivery_allowed requires audit_passed or browser handoff")
     if delivery_allowed:
         return
+    if (
+        str(safe_work_audit.get("audit_status") or "").strip() == "filtered"
+        and bool(safe_work_audit.get("filtered_non_material"))
+        and safe_work_audit.get("issue_codes")
+    ):
+        if bool(safe_work_audit.get("blocks_operator_followthrough")):
+            issues.append("filtered non-material safe_work_audit must not block operator followthrough")
+        if str(safe_work_audit.get("next_action") or "").strip():
+            issues.append("filtered non-material safe_work_audit must not request recovery next_action")
+        if str(safe_work_audit.get("blocking_reason") or "").strip():
+            issues.append("filtered non-material safe_work_audit must not set blocking_reason")
+        return
     if bool(safe_work_audit.get("blocks_operator_followthrough")) is not True:
         issues.append("non-deliverable safe_work_audit requires blocks_operator_followthrough=true")
     if str(receipt.get("status") or "").strip() != "blocked_local_runtime":
@@ -346,6 +358,8 @@ def _verify_current_artifact_filter(receipt: dict[str, Any], issues: list[str]) 
             issues.append("current_artifact_filter recovery requires receipt.next_action=repair_proactive_safe_work_audit")
         if str(receipt.get("operator_action_state") or "").strip() != "recovery_required":
             issues.append("current_artifact_filter recovery requires operator_action_state=recovery_required")
+    elif str(filtered.get("next_action") or "").strip():
+        issues.append("current_artifact_filter without recovery must not request next_action")
 
 
 def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:

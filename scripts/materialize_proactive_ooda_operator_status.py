@@ -50,6 +50,11 @@ SOURCE_COVERAGE_LANE_CONTRACTS = {
     }
     for row in ea_live_ops.PROACTIVE_SOURCE_COVERAGE_LANES
 }
+NON_MATERIAL_ARTIFACT_FILTER_REASONS = {
+    "single_official_info_link_not_decision_ready",
+    "flat_search_disabled_property_scout",
+    "flat_search_disabled",
+}
 
 
 def _utc_now() -> str:
@@ -618,11 +623,12 @@ def _normalized_safe_work_audit(artifact_probe: Mapping[str, Any]) -> dict[str, 
     browser_handoff_user_action_required = bool(
         result_status == "blocked_human_handoff_required" and browser_receipt.get("user_action_required")
     )
-    effective_audit_status = "review" if materiality_issue and audit_status == "pass" else audit_status
+    effective_audit_status = "filtered" if materiality_issue else audit_status
     audit_passed = bool(effective_audit_status == "pass")
     delivery_allowed = bool(safe_work_result) and bool(audit_passed or browser_handoff_user_action_required)
     blocking_reason = ""
-    if safe_work_result and not delivery_allowed:
+    filtered_non_material = bool(materiality_issue)
+    if safe_work_result and not delivery_allowed and not filtered_non_material:
         blocking_reason = "safe_work_audit_not_pass"
         if not audit:
             blocking_reason = "safe_work_audit_missing"
@@ -638,9 +644,10 @@ def _normalized_safe_work_audit(artifact_probe: Mapping[str, Any]) -> dict[str, 
         "issue_count": len(issues),
         "issue_codes": issue_codes[:8],
         "issue_severity_counts": severity_counts,
+        "filtered_non_material": filtered_non_material,
         "browser_handoff_user_action_required": browser_handoff_user_action_required,
         "delivery_allowed": delivery_allowed,
-        "blocks_operator_followthrough": bool(safe_work_result and not delivery_allowed),
+        "blocks_operator_followthrough": bool(safe_work_result and not delivery_allowed and not filtered_non_material),
         "blocking_reason": blocking_reason,
         "next_action": "repair_proactive_safe_work_audit" if blocking_reason else "",
         "privacy": {
@@ -753,13 +760,14 @@ def _normalized_current_artifact_filter(artifact_probe: Mapping[str, Any]) -> di
         "flat_search_disabled",
     }:
         issue_codes.append(reason)
-    requires_recovery = bool(reason)
+    requires_recovery = bool(reason) and reason not in NON_MATERIAL_ARTIFACT_FILTER_REASONS
     return {
-        "present": requires_recovery,
+        "present": bool(reason),
         "source": str(probe.get("source") or "").strip(),
         "reason": reason,
+        "filter_status": "requires_recovery" if requires_recovery else "suppressed_non_material" if reason else "none",
         "requires_recovery": requires_recovery,
-        "blocking_reason": f"filtered_current_artifact_{reason}" if reason else "",
+        "blocking_reason": f"filtered_current_artifact_{reason}" if requires_recovery else "",
         "next_action": "repair_proactive_safe_work_audit" if requires_recovery else "",
         "issue_codes": issue_codes,
         "privacy": {

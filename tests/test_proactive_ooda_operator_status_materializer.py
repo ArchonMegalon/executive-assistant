@@ -345,7 +345,7 @@ def test_materialize_proactive_ooda_operator_status_blocks_current_safe_work_aud
     assert receipt["safe_work_audit"]["privacy"]["raw_issue_details_exposed"] is False
 
 
-def test_materialize_proactive_ooda_operator_status_blocks_single_official_info_link(
+def test_materialize_proactive_ooda_operator_status_suppresses_single_official_info_link(
     tmp_path: Path, monkeypatch
 ) -> None:
     module = _load_script()
@@ -423,7 +423,7 @@ def test_materialize_proactive_ooda_operator_status_blocks_single_official_info_
     monkeypatch.setattr(
         module.ea_live_ops,
         "probe_proactive_approval_capture",
-        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("materiality-blocked packets should not probe approval capture")),
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("filtered non-material packets should not probe approval capture")),
     )
 
     receipt = module.build_proactive_ooda_operator_status(
@@ -432,16 +432,20 @@ def test_materialize_proactive_ooda_operator_status_blocks_single_official_info_
         report_args=Namespace(principal_id="exec-1"),
     )
 
-    assert receipt["status"] == "blocked_local_runtime"
-    assert receipt["reason"] == "safe_work_audit_review"
-    assert receipt["next_action"] == "repair_proactive_safe_work_audit"
-    assert receipt["safe_work_audit"]["audit_status"] == "review"
+    assert receipt["status"] == "ready_with_live_receipt"
+    assert receipt["reason"] == "ready"
+    assert receipt["next_action"] == "maintain_proactive_ooda_runtime"
+    assert receipt["safe_work_audit"]["audit_status"] == "filtered"
     assert receipt["safe_work_audit"]["audit_passed"] is False
+    assert receipt["safe_work_audit"]["filtered_non_material"] is True
+    assert receipt["safe_work_audit"]["delivery_allowed"] is False
+    assert receipt["safe_work_audit"]["blocks_operator_followthrough"] is False
+    assert receipt["safe_work_audit"]["blocking_reason"] == ""
     assert receipt["safe_work_audit"]["issue_codes"] == ["single_official_info_link_not_decision_ready"]
     assert receipt["safe_work_audit"]["privacy"]["raw_candidate_exposed"] is False
 
 
-def test_materialize_proactive_ooda_operator_status_blocks_filtered_current_artifact(
+def test_materialize_proactive_ooda_operator_status_records_filtered_current_artifact_without_recovery(
     tmp_path: Path, monkeypatch
 ) -> None:
     module = _load_script()
@@ -492,7 +496,7 @@ def test_materialize_proactive_ooda_operator_status_blocks_filtered_current_arti
     monkeypatch.setattr(
         module.ea_live_ops,
         "probe_proactive_approval_capture",
-        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("filtered packets should not probe approval capture")),
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("filtered non-material packets should not probe approval capture")),
     )
 
     receipt = module.build_proactive_ooda_operator_status(
@@ -501,13 +505,16 @@ def test_materialize_proactive_ooda_operator_status_blocks_filtered_current_arti
         report_args=Namespace(principal_id="exec-1"),
     )
 
-    assert receipt["status"] == "blocked_local_runtime"
-    assert receipt["reason"] == "filtered_current_artifact_single_official_info_link_not_decision_ready"
-    assert receipt["next_action"] == "repair_proactive_safe_work_audit"
-    assert receipt["operator_action_state"] == "recovery_required"
+    assert receipt["status"] == "ready_with_live_receipt"
+    assert receipt["reason"] == "ready"
+    assert receipt["next_action"] == "maintain_proactive_ooda_runtime"
+    assert receipt["operator_action_state"] == "clear"
     assert receipt["safe_work_audit"]["present"] is False
     assert receipt["current_artifact_filter"]["present"] is True
-    assert receipt["current_artifact_filter"]["requires_recovery"] is True
+    assert receipt["current_artifact_filter"]["filter_status"] == "suppressed_non_material"
+    assert receipt["current_artifact_filter"]["requires_recovery"] is False
+    assert receipt["current_artifact_filter"]["blocking_reason"] == ""
+    assert receipt["current_artifact_filter"]["next_action"] == ""
     assert receipt["current_artifact_filter"]["issue_codes"] == ["single_official_info_link_not_decision_ready"]
     assert receipt["current_artifact_filter"]["privacy"]["raw_candidate_exposed"] is False
 
