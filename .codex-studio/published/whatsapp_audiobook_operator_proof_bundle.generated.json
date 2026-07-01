@@ -2,7 +2,7 @@
   "checks": {
     "historical_public_share_playback_proven": false,
     "human_playback_acceptance_status_explicit": true,
-    "live_action_processor_no_runtime_errors": false,
+    "live_action_processor_no_runtime_errors": true,
     "live_action_processor_ran": true,
     "live_action_processor_ready": false,
     "live_delivery_claim_scope_explicit": true,
@@ -28,7 +28,7 @@
   },
   "claim": "This bundle combines local WhatsApp EPUB intake proof, live WhatsApp action processor readiness, and the live WhatsApp audiobook delivery receipt. It separates implementation proof from live delivery proof.",
   "contract_name": "ea.whatsapp_audiobook_operator_proof_bundle.v1",
-  "generated_at": "2026-07-01T09:13:55.263593Z",
+  "generated_at": "2026-07-01T13:30:54.291688Z",
   "generated_by": "ea/scripts/materialize_whatsapp_audiobook_operator_proof_bundle.py",
   "head_semantics": "source_state",
   "live_delivery": {
@@ -40,8 +40,7 @@
       "audiobookshelf_public_share_url_missing",
       "machine_playback_e2e_not_verified",
       "job_not_audiobookshelf_imported",
-      "user_selected_voice_delivery_not_ready",
-      "audiobook_runtime_not_ready"
+      "user_selected_voice_delivery_not_ready"
     ],
     "fresh_live_job_receipt_proven": false,
     "goal_completion_claim_allowed": false,
@@ -94,9 +93,9 @@
     "candidate_count": 0,
     "container_attempted": true,
     "container_resolved": true,
-    "container_return_code": -1,
-    "container_stdout_json_present": false,
-    "container_timed_out": true,
+    "container_return_code": 0,
+    "container_stdout_json_present": true,
+    "container_timed_out": false,
     "container_timeout_seconds": 20.0,
     "conversation_fallback": {
       "attempted": false,
@@ -106,7 +105,7 @@
       "conversation_total": 0,
       "epub_candidate_count": 0,
       "message_count": 0,
-      "status": "",
+      "status": "skipped",
       "status_candidate_count": 0
     },
     "conversation_fallback_attempted": false,
@@ -114,8 +113,8 @@
     "effective_button_callback_candidate_count": 0,
     "epub_candidate_count": 0,
     "epub_processed": 0,
-    "errors": 1,
-    "execution_runtime": "host_fallback",
+    "errors": 0,
+    "execution_runtime": "container",
     "followup": {
       "attempted": 0,
       "errors": 0,
@@ -133,7 +132,7 @@
     "share_link_sent": 0,
     "sidecar_actionable_button_candidate_count": 0,
     "skipped_processed": 0,
-    "status": "failed",
+    "status": "pass",
     "status_candidate_count": 0,
     "status_processed": 0,
     "voice_sample_sent": 0,
@@ -217,7 +216,7 @@
     "delivery_stage_next_action": "run_public_share_machine_playback_e2e_before_claiming_live_delivery",
     "next_action": "choose_whatsapp_audiobook_voice_sample",
     "player_http_probe": {
-      "download_bytes": 29848,
+      "download_bytes": 27508,
       "download_content_type": "audio/mp4",
       "download_status_code": 200,
       "metadata_status_code": 200,
@@ -256,10 +255,10 @@
     "passed": 0,
     "status": "waiting"
   },
-  "recommended_action": "fix_whatsapp_action_processor_run",
+  "recommended_action": "fix_whatsapp_action_processor_readiness",
   "runtime_alignment": {
     "evaluated": true,
-    "processor_session_api_host_kind": "loopback",
+    "processor_session_api_host_kind": "internal_service",
     "processor_session_ref_sha256": "c20799d947e9afef",
     "processor_state_file_kind": "whatsapp_actions_volume",
     "processor_state_file_sha256": "66ca83b8b9eeebdc",
@@ -268,17 +267,15 @@
     "readiness_state_file_kind": "whatsapp_actions_volume",
     "readiness_state_file_sha256": "66ca83b8b9eeebdc",
     "secret_values_exposed": false,
-    "session_api_host_kind_exact_match": true,
+    "session_api_host_kind_exact_match": false,
     "session_api_host_kind_match": true,
     "session_ref_match": true,
     "state_file_kinds_match": true,
     "state_file_match": true
   },
-  "source_git_head": "81c23d58c5aa16ab1f61d40c3b0e400aec2cd7fb",
-  "source_state_fingerprint": "16d88285f366ea98c23a422c1c29ebbea6450d3975b25e10a6199a04b81573d0",
+  "source_git_head": "8689a7af97f0392a3e08d1b28c9f8752e1068f3e",
+  "source_state_fingerprint": "07817b6e9e26e9ecd97f6225900ed51be434c67e47fc541c995f64915e55d086",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "blocked",
-  "warnings": [
-    "live_processor_container_timeout"
-  ]
+  "warnings": []
 }
