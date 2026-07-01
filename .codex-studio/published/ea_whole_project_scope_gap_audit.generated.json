@@ -26,7 +26,7 @@
       "status": "ready_local_packet_pending_operator_acceptance"
     }
   },
-  "generated_at": "2026-07-01T04:10:45Z",
+  "generated_at": "2026-07-01T04:29:25Z",
   "generated_by": "ea/scripts/materialize_whole_project_scope_gap_audit.py",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
@@ -56,7 +56,6 @@
     "real commitment recovered or closed with an evidence receipt",
     "real approved outbound action with audit trail",
     "real provider failure recovered with operator-grade reason",
-    "real proactive OODA packet accepted with routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, pending-approval, stale-approval, and decision facts, and explicit approval outcome",
     "real weekly signal-to-decision review accepted by the operator",
     "closed-loop signal-to-decision follow-through receipt accepted by the operator",
     "real whole-project scope gap audit reviewed against the current product spine",
@@ -134,8 +133,8 @@
     ],
     "status": "active_local_goal"
   },
-  "source_git_head": "a8ba38b0dc0d2bf125e243da015096ffb8d7f525",
-  "source_state_fingerprint": "d78294d890630ecf5c49af8b80e2b111ca064ae1855e097951fe3750ca6fc69c",
+  "source_git_head": "e7881ad94bbafa69410960f261a7047ef0585343",
+  "source_state_fingerprint": "3be952cfdd9e8751e8e6dffb09e47e10edac96cbeab9437f787259301c11d7dc",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready_local_audit",
   "summary": "Whole-project scope gap audit is locally mapped; a human operator still has to review it against the current product spine."
