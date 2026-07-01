@@ -174,6 +174,22 @@ def test_whole_project_scope_gap_audit_materializes_axis_receipt(tmp_path: Path)
     )
 
     assert receipt["status"] == "ready_local_audit"
+    assert receipt["head_semantics"] == "source_state"
+    assert receipt["source_git_head"]
+    assert receipt["source_state_fingerprint"]
+    assert (
+        receipt["source_state_fingerprint_semantics"]
+        == "worktree_source_files_sha256_excluding_generated_only_paths"
+    )
+    assert receipt["summary"]
+    assert receipt["next_action"] == "review_scope_gap_audit_against_current_product_spine_with_a_human_operator"
+    assert receipt["next_action_href"] == "/admin/goals"
+    assert receipt["next_action_label"] == "Review scope gap audit"
+    assert receipt["next_action_method"] == "get"
+    assert receipt["reviewed_against_current_product_spine"] is False
+    assert receipt["operator_review_accepted"] is False
+    assert receipt["review_capture_surface"]["raw_input_not_persisted"] is True  # type: ignore[index]
+    assert receipt["review_capture_surface"]["privacy_contract"]["raw_review_text_persisted"] is False  # type: ignore[index]
     assert receipt["goal_completion_claim_allowed"] is False
     assert receipt["public_or_premium_claim_allowed"] is False
     assert receipt["boundary_posture"]["ea_is_product_truth"] is False  # type: ignore[index]
@@ -215,18 +231,24 @@ def test_whole_project_scope_gap_audit_verifier_rejects_missing_axis_and_overcla
         generated_at=GENERATED_AT,
     )
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt.pop("source_git_head", None)
+    receipt["next_action"] = "wrong_action"
     receipt["goal_completion_claim_allowed"] = True
     receipt["boundary_posture"]["ea_is_product_truth"] = True
     receipt["scope_axes"] = [row for row in receipt["scope_axes"] if row["key"] != "run_session"]
+    receipt["review_capture_surface"]["privacy_contract"]["raw_review_text_persisted"] = True
     receipt["project_learning_goal"]["protected_signal_sources"].remove("provider_runtime_failures")
     receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     verification = verifier.verify_whole_project_scope_gap_audit(receipt_path)
 
     assert verification["status"] == "fail"
+    assert "scope_gap_source_git_head_missing" in verification["issues"]
+    assert "scope_gap_next_action_drifted" in verification["issues"]
     assert "scope_gap_completion_overclaim" in verification["issues"]
     assert "scope_gap_ea_product_truth_overclaim" in verification["issues"]
     assert "scope_gap_axis_missing:run_session" in verification["issues"]
+    assert "scope_gap_review_capture_privacy_drifted:raw_review_text_persisted" in verification["issues"]
     assert "scope_gap_signal_to_decision_source_missing:provider_runtime_failures" in verification["issues"]
 
 

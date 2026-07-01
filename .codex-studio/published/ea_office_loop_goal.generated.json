@@ -207,6 +207,19 @@
       "status": "ready_with_live_receipt",
       "summary": "Proactive OODA route, packet runtime, latest host-visible live receipt, and manual approval outcome capture are ready for operator follow-through."
     },
+    "whole_project_scope_gap_audit": {
+      "contract_name": "ea.whole_project_scope_gap_audit.v1",
+      "next_action": "review_scope_gap_audit_against_current_product_spine_with_a_human_operator",
+      "next_action_href": "/admin/goals",
+      "next_action_label": "Review scope gap audit",
+      "next_action_method": "get",
+      "operator_review_accepted": false,
+      "path": ".codex-studio/published/ea_whole_project_scope_gap_audit.generated.json",
+      "present": true,
+      "reviewed_against_current_product_spine": false,
+      "status": "ready_local_audit",
+      "summary": "Whole-project scope gap audit is locally mapped; a human operator still has to review it against the current product spine."
+    },
     "whole_project_signal_to_decision": {
       "closed_loop_followthrough_receipt_verified": false,
       "contract_name": "ea.whole_project_signal_to_decision_receipt.v1",
@@ -217,7 +230,7 @@
     }
   },
   "external_provider_runtime_verified": false,
-  "generated_at": "2026-07-01T02:38:08Z",
+  "generated_at": "2026-07-01T02:58:22Z",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
   "live_daily_use_verified": false,
@@ -274,8 +287,8 @@
   "seeded_fixture": {
     "raw_private_context_exposed": false
   },
-  "source_git_head": "5c87038db73ea2617ffa78a38469cac621aaa70b",
-  "source_state_fingerprint": "1717feb0f65599fb33020fe4acb82040f7b7bd29c3e1779a15a351241761596d",
+  "source_git_head": "b3f76246400adad230c09327e9b25df1a9752cff",
+  "source_state_fingerprint": "e83fb570c68422b49fe63c7ca4c798f738c5dd1ccbbd5902eafdac25e67d9b7b",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready_local_evidence"
 }

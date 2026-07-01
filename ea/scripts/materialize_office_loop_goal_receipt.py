@@ -21,6 +21,7 @@ DEFAULT_ACCEPTANCE_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "ea_exe
 DEFAULT_SIGNAL_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "ea_whole_project_signal_to_decision.generated.json"
 DEFAULT_PROACTIVE_OPERATOR_STATUS_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "ea_proactive_ooda_operator_status.generated.json"
 DEFAULT_PROACTIVE_GOLD_ACCEPTANCE_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "ea_proactive_ooda_gold_acceptance.generated.json"
+DEFAULT_SCOPE_GAP_AUDIT_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "ea_whole_project_scope_gap_audit.generated.json"
 
 REMAINING_PROOF_LABELS = {
     "real_daily_morning_brief_accepted": "real daily morning brief acceptance",
@@ -157,6 +158,7 @@ def _remaining_external_proofs(
     acceptance: dict[str, Any],
     signal: dict[str, Any],
     proactive_gold: dict[str, Any],
+    scope_gap_audit: dict[str, Any],
 ) -> list[str]:
     remaining: list[str] = []
     accepted = {str(value).strip() for value in list(acceptance.get("accepted_keys") or []) if str(value).strip()}
@@ -169,7 +171,11 @@ def _remaining_external_proofs(
         remaining.append(SIGNAL_REVIEW_PROOF_LABEL)
     if not bool(signal.get("closed_loop_followthrough_receipt_verified")):
         remaining.append(SIGNAL_FOLLOWTHROUGH_PROOF_LABEL)
-    remaining.append(SCOPE_GAP_PROOF_LABEL)
+    if not (
+        bool(scope_gap_audit.get("reviewed_against_current_product_spine"))
+        and bool(scope_gap_audit.get("operator_review_accepted"))
+    ):
+        remaining.append(SCOPE_GAP_PROOF_LABEL)
     return remaining
 
 
@@ -304,6 +310,7 @@ def materialize_office_loop_goal_receipt(
     signal_to_decision_receipt_path: str | Path | None = None,
     proactive_operator_status_receipt_path: str | Path | None = None,
     proactive_gold_acceptance_receipt_path: str | Path | None = None,
+    scope_gap_audit_receipt_path: str | Path | None = None,
 ) -> dict[str, Any]:
     acceptance_path = _resolve_receipt_path(acceptance_evidence_receipt_path, DEFAULT_ACCEPTANCE_RECEIPT)
     signal_path = _resolve_receipt_path(signal_to_decision_receipt_path, DEFAULT_SIGNAL_RECEIPT)
@@ -315,10 +322,12 @@ def materialize_office_loop_goal_receipt(
         proactive_gold_acceptance_receipt_path,
         DEFAULT_PROACTIVE_GOLD_ACCEPTANCE_RECEIPT,
     )
+    scope_gap_path = _resolve_receipt_path(scope_gap_audit_receipt_path, DEFAULT_SCOPE_GAP_AUDIT_RECEIPT)
     acceptance_receipt = _load(acceptance_path)
     signal_receipt = _load(signal_path)
     proactive_operator_receipt = _load(proactive_operator_path)
     proactive_gold_receipt = _load(proactive_gold_path)
+    scope_gap_receipt = _load(scope_gap_path)
     proactive_posture = _proactive_followthrough_posture(
         proactive_operator=proactive_operator_receipt,
         proactive_gold=proactive_gold_receipt,
@@ -409,12 +418,25 @@ def materialize_office_loop_goal_receipt(
                     ),
                 },
             ),
+            "whole_project_scope_gap_audit": _receipt_summary(
+                scope_gap_path,
+                scope_gap_receipt,
+                extra={
+                    "summary": _text(scope_gap_receipt.get("summary")),
+                    **_next_action_surface(scope_gap_receipt),
+                    "reviewed_against_current_product_spine": bool(
+                        scope_gap_receipt.get("reviewed_against_current_product_spine")
+                    ),
+                    "operator_review_accepted": bool(scope_gap_receipt.get("operator_review_accepted")),
+                },
+            ),
         },
         "proactive_ooda_followthrough_posture": proactive_posture,
         "remaining_external_proofs": _remaining_external_proofs(
             acceptance=acceptance_receipt,
             signal=signal_receipt,
             proactive_gold=proactive_gold_receipt,
+            scope_gap_audit=scope_gap_receipt,
         ),
     }
     _write(receipt_path, receipt)
@@ -428,6 +450,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--signal-to-decision-receipt", default=str(DEFAULT_SIGNAL_RECEIPT))
     parser.add_argument("--proactive-operator-status-receipt", default=str(DEFAULT_PROACTIVE_OPERATOR_STATUS_RECEIPT))
     parser.add_argument("--proactive-gold-acceptance-receipt", default=str(DEFAULT_PROACTIVE_GOLD_ACCEPTANCE_RECEIPT))
+    parser.add_argument("--scope-gap-audit-receipt", default=str(DEFAULT_SCOPE_GAP_AUDIT_RECEIPT))
     parser.add_argument("--generated-at", default="")
     args = parser.parse_args(argv)
     receipt = materialize_office_loop_goal_receipt(
@@ -437,6 +460,7 @@ def main(argv: list[str] | None = None) -> int:
         signal_to_decision_receipt_path=args.signal_to_decision_receipt,
         proactive_operator_status_receipt_path=args.proactive_operator_status_receipt,
         proactive_gold_acceptance_receipt_path=args.proactive_gold_acceptance_receipt,
+        scope_gap_audit_receipt_path=args.scope_gap_audit_receipt,
     )
     print(json.dumps({"status": receipt["status"], "receipt": str(args.receipt)}, sort_keys=True))
     return 0

@@ -4,11 +4,18 @@ import argparse
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+import sys
 from typing import Any
 
 
 SCRIPT_PATH = Path(__file__).resolve()
 REPO_ROOT = SCRIPT_PATH.parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.source_state_head import resolve_source_state_head
+from scripts.source_state_head import resolve_source_worktree_fingerprint
+
 PUBLISHED_ROOT = REPO_ROOT / ".codex-studio" / "published"
 DEFAULT_RECEIPT = PUBLISHED_ROOT / "ea_whole_project_scope_gap_audit.generated.json"
 DEFAULT_OFFICE_RECEIPT = PUBLISHED_ROOT / "ea_office_loop_goal.generated.json"
@@ -22,6 +29,11 @@ REQUIRED_SCOPE_AXES = [
     "run_session",
     "privacy_retention",
 ]
+SCOPE_GAP_REVIEW_LABEL = "real whole-project scope gap audit reviewed against the current product spine"
+SCOPE_GAP_NEXT_ACTION = "review_scope_gap_audit_against_current_product_spine_with_a_human_operator"
+SCOPE_GAP_NEXT_ACTION_HREF = "/admin/goals"
+SCOPE_GAP_NEXT_ACTION_LABEL = "Review scope gap audit"
+SCOPE_GAP_NEXT_ACTION_METHOD = "get"
 
 
 def _now() -> str:
@@ -38,6 +50,15 @@ def _write(path: str | Path, payload: dict[str, Any]) -> None:
     target.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def _source_state_fields() -> dict[str, str]:
+    return {
+        "source_git_head": resolve_source_state_head(REPO_ROOT),
+        "head_semantics": "source_state",
+        "source_state_fingerprint": resolve_source_worktree_fingerprint(REPO_ROOT),
+        "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
+    }
+
+
 def _goal(office: dict[str, Any], key: str, fallback: dict[str, Any]) -> dict[str, Any]:
     for row in office.get("additional_goals") or []:
         if dict(row).get("key") == key:
@@ -52,7 +73,7 @@ def _remaining(*receipts: dict[str, Any]) -> list[str]:
             if item not in values:
                 values.append(str(item))
     for item in (
-        "real whole-project scope gap audit reviewed against the current product spine",
+        SCOPE_GAP_REVIEW_LABEL,
         "real weekly signal-to-decision review accepted by the operator",
         "closed-loop signal-to-decision follow-through receipt accepted by the operator",
     ):
@@ -94,6 +115,27 @@ def materialize_whole_project_scope_gap_audit(
         "contract_name": "ea.whole_project_scope_gap_audit.v1",
         "status": "ready_local_audit",
         "generated_at": generated_at or _now(),
+        "generated_by": "ea/scripts/materialize_whole_project_scope_gap_audit.py",
+        **_source_state_fields(),
+        "summary": "Whole-project scope gap audit is locally mapped; a human operator still has to review it against the current product spine.",
+        "next_action": SCOPE_GAP_NEXT_ACTION,
+        "next_action_href": SCOPE_GAP_NEXT_ACTION_HREF,
+        "next_action_label": SCOPE_GAP_NEXT_ACTION_LABEL,
+        "next_action_method": SCOPE_GAP_NEXT_ACTION_METHOD,
+        "reviewed_against_current_product_spine": False,
+        "operator_review_accepted": False,
+        "review_capture_surface": {
+            "method": "post",
+            "path": "/admin/actions/whole-project-scope-gap-review",
+            "required_form_fields": ["evidence", "actor", "object_ref"],
+            "raw_input_not_persisted": True,
+            "stored_evidence_shape": "sha256_only",
+            "privacy_contract": {
+                "raw_review_text_persisted": False,
+                "raw_actor_identity_persisted": False,
+                "raw_object_reference_persisted": False,
+            },
+        },
         "goal_completion_claim_allowed": False,
         "public_or_premium_claim_allowed": False,
         "boundary_posture": {

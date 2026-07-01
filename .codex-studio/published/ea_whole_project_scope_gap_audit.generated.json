@@ -26,8 +26,15 @@
       "status": "ready_local_packet_pending_operator_acceptance"
     }
   },
-  "generated_at": "2026-06-30T14:23:00Z",
+  "generated_at": "2026-07-01T02:58:22Z",
+  "generated_by": "ea/scripts/materialize_whole_project_scope_gap_audit.py",
   "goal_completion_claim_allowed": false,
+  "head_semantics": "source_state",
+  "next_action": "review_scope_gap_audit_against_current_product_spine_with_a_human_operator",
+  "next_action_href": "/admin/goals",
+  "next_action_label": "Review scope gap audit",
+  "next_action_method": "get",
+  "operator_review_accepted": false,
   "project_learning_goal": {
     "claim_limit": "local_signal_synthesis_not_canonical_queue_or_release_truth",
     "key": "whole_project_signal_to_decision_closure",
@@ -46,11 +53,10 @@
   },
   "public_or_premium_claim_allowed": false,
   "remaining_external_proofs": [
-    "real daily morning brief acceptance",
-    "real decision cleared by the principal or operator",
     "real commitment recovered or closed with an evidence receipt",
     "real approved outbound action with audit trail",
     "real provider failure recovered with operator-grade reason",
+    "real proactive OODA packet accepted with routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, pending-approval, stale-approval, and decision facts, and explicit approval outcome",
     "real weekly signal-to-decision review accepted by the operator",
     "closed-loop signal-to-decision follow-through receipt accepted by the operator",
     "real whole-project scope gap audit reviewed against the current product spine",
@@ -63,8 +69,27 @@
     "human review approval for public promo publication",
     "real user EPUB render and playback acceptance evidence",
     "real Manfred realtime conversation room acceptance evidence",
-    "real Manfred spoken-conversation STT/TTS roundtrip evidence"
+    "real Manfred spoken-conversation STT/TTS roundtrip evidence",
+    "real daily morning brief acceptance",
+    "real decision cleared by the principal or operator"
   ],
+  "review_capture_surface": {
+    "method": "post",
+    "path": "/admin/actions/whole-project-scope-gap-review",
+    "privacy_contract": {
+      "raw_actor_identity_persisted": false,
+      "raw_object_reference_persisted": false,
+      "raw_review_text_persisted": false
+    },
+    "raw_input_not_persisted": true,
+    "required_form_fields": [
+      "evidence",
+      "actor",
+      "object_ref"
+    ],
+    "stored_evidence_shape": "sha256_only"
+  },
+  "reviewed_against_current_product_spine": false,
   "scope_axes": [
     {
       "key": "build_character_and_rules",
@@ -109,5 +134,9 @@
     ],
     "status": "active_local_goal"
   },
-  "status": "ready_local_audit"
+  "source_git_head": "b3f76246400adad230c09327e9b25df1a9752cff",
+  "source_state_fingerprint": "e83fb570c68422b49fe63c7ca4c798f738c5dd1ccbbd5902eafdac25e67d9b7b",
+  "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
+  "status": "ready_local_audit",
+  "summary": "Whole-project scope gap audit is locally mapped; a human operator still has to review it against the current product spine."
 }

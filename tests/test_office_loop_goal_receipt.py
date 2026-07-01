@@ -115,6 +115,10 @@ def test_office_loop_goal_receipt_materializes_seeded_local_loop(tmp_path: Path)
     assert "real whole-project scope gap audit reviewed against the current product spine" in receipt["remaining_external_proofs"]
     assert "real proactive OODA packet accepted with routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, pending-approval, stale-approval, and decision facts, and explicit approval outcome" in receipt["remaining_external_proofs"]
     assert "real weekly signal-to-decision review accepted by the operator" in receipt["remaining_external_proofs"]
+    scope_gap_evidence = receipt["evidence_receipts"]["whole_project_scope_gap_audit"]  # type: ignore[index]
+    assert scope_gap_evidence["path"].endswith("ea_whole_project_scope_gap_audit.generated.json")
+    assert scope_gap_evidence["reviewed_against_current_product_spine"] is False
+    assert scope_gap_evidence["operator_review_accepted"] is False
 
     verification = verifier.verify_office_loop_goal_receipt(receipt_path)
 

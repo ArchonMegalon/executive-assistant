@@ -25,7 +25,12 @@ from app.api.routes.landing_shared_support import (
 )
 from app.container import AppContainer
 from app.product.service import build_product_service
-from app.services.proactive_ooda_live_ops_bridge import record_live_proactive_ooda_approval_outcome
+from app.services.proactive_ooda_approval_capture import finalize_proactive_ooda_approval_outcome
+from app.services.proactive_ooda_runtime_artifacts import load_runtime_artifact_bundle
+from app.services.proactive_ooda_teable_sync import (
+    sync_proactive_ooda_approval_outcome_to_teable,
+    teable_sync_enabled,
+)
 
 _REPO_ROOT_FOR_SOURCE_STATE = Path(__file__).resolve().parents[4]
 if str(_REPO_ROOT_FOR_SOURCE_STATE) not in sys.path:
@@ -42,6 +47,15 @@ router = APIRouter(tags=["landing"])
 
 EA_ROOT = _REPO_ROOT_FOR_SOURCE_STATE
 EA_QUALITY_READINESS_RECEIPT = EA_ROOT / ".codex-studio" / "published" / "ea_executive_assistant_quality_readiness.generated.json"
+EA_PROACTIVE_OODA_GOLD_ACCEPTANCE_RECEIPT = (
+    EA_ROOT / ".codex-studio" / "published" / "ea_proactive_ooda_gold_acceptance.generated.json"
+)
+EA_PROACTIVE_OODA_OPERATOR_STATUS_RECEIPT = (
+    EA_ROOT / ".codex-studio" / "published" / "ea_proactive_ooda_operator_status.generated.json"
+)
+EA_PROACTIVE_OODA_APPROVAL_OUTCOME_RECEIPT = (
+    EA_ROOT / "state" / "proactive_ooda_latest_approval_outcome.generated.json"
+)
 
 
 def _now_iso() -> str:
@@ -339,6 +353,107 @@ def _refresh_signal_evidence_contract(receipt: dict[str, object]) -> None:
         "raw_actor_identity_exposed": False,
         "raw_packet_reference_exposed": False,
         "raw_private_context_exposed": False,
+    }
+
+
+def _proactive_ooda_operator_status_path_for_gold(gold_path: Path) -> Path:
+    if gold_path != EA_PROACTIVE_OODA_GOLD_ACCEPTANCE_RECEIPT:
+        return gold_path.with_name("ea_proactive_ooda_operator_status.generated.json")
+    return EA_PROACTIVE_OODA_OPERATOR_STATUS_RECEIPT
+
+
+def _proactive_ooda_approval_outcome_path_for_gold(gold_path: Path) -> Path:
+    if (
+        gold_path != EA_PROACTIVE_OODA_GOLD_ACCEPTANCE_RECEIPT
+        and EA_PROACTIVE_OODA_APPROVAL_OUTCOME_RECEIPT
+        == EA_ROOT / "state" / "proactive_ooda_latest_approval_outcome.generated.json"
+    ):
+        return gold_path.parent / "proactive_ooda_latest_approval_outcome.generated.json"
+    return EA_PROACTIVE_OODA_APPROVAL_OUTCOME_RECEIPT
+
+
+def _materialize_admin_proactive_ooda_operator_status(
+    *,
+    output_path: Path,
+    live_receipt_path: Path | None = None,
+) -> None:
+    from scripts.materialize_proactive_ooda_operator_status import build_proactive_ooda_operator_status
+
+    build_proactive_ooda_operator_status(
+        output_path=output_path,
+        live_receipt_path=live_receipt_path,
+        allow_live_route_probe=False,
+    )
+
+
+def _materialize_admin_proactive_ooda_gold_acceptance(
+    *,
+    output_path: Path,
+    operator_status_path: Path,
+    run_receipt_path: Path | None,
+    stage_packet_dir: Path | None,
+    safe_work_result_dir: Path | None,
+    approval_outcome_path: Path,
+) -> None:
+    from scripts.materialize_proactive_ooda_gold_acceptance import materialize_proactive_ooda_gold_acceptance
+
+    materialize_proactive_ooda_gold_acceptance(
+        output_path=output_path,
+        operator_status_path=operator_status_path,
+        run_receipt_path=run_receipt_path,
+        stage_packet_dir=stage_packet_dir,
+        safe_work_result_dir=safe_work_result_dir,
+        approval_outcome_path=approval_outcome_path,
+        allow_live_runtime_probe=False,
+    )
+
+
+def _record_admin_proactive_ooda_approval_outcome(
+    *,
+    principal_id: str,
+    outcome: str,
+    evidence: str,
+    actor: str,
+    source_kind: str,
+    packet_ref: str,
+    staged_artifact_ref: str,
+    dry_run: bool,
+) -> dict[str, object]:
+    if dry_run:
+        return {"status": "dry_run", "recorded": False, "error": ""}
+    gold_path = Path(EA_PROACTIVE_OODA_GOLD_ACCEPTANCE_RECEIPT)
+    try:
+        finalized = finalize_proactive_ooda_approval_outcome(
+            principal_id=principal_id,
+            outcome=outcome,
+            evidence=evidence,
+            actor=actor,
+            packet_ref=packet_ref,
+            staged_artifact_ref=staged_artifact_ref,
+            source_kind=source_kind,
+            root=EA_ROOT,
+            approval_outcome_path=_proactive_ooda_approval_outcome_path_for_gold(gold_path),
+            operator_status_path=_proactive_ooda_operator_status_path_for_gold(gold_path),
+            gold_acceptance_path=gold_path,
+            runtime_artifact_loader=load_runtime_artifact_bundle,
+            teable_sync_decider=teable_sync_enabled,
+            teable_syncer=sync_proactive_ooda_approval_outcome_to_teable,
+            operator_status_materializer=_materialize_admin_proactive_ooda_operator_status,
+            gold_materializer=_materialize_admin_proactive_ooda_gold_acceptance,
+        )
+    except Exception as exc:
+        return {
+            "status": "record_failed",
+            "recorded": False,
+            "error": type(exc).__name__,
+        }
+    approval_outcome = dict(finalized.get("approval_outcome") or {})
+    recorded = bool(approval_outcome.get("approval_outcome_recorded"))
+    return {
+        **finalized,
+        "status": "recorded" if recorded else "record_failed",
+        "recorded": recorded,
+        "error": "" if recorded else str(approval_outcome.get("reason") or "approval_outcome_not_recorded"),
     }
 
 
@@ -879,7 +994,7 @@ async def admin_record_proactive_ooda_evidence(
     staged_artifact_ref = _form_value(body, "staged_artifact_ref", "")
     dry_run = _form_value(body, "dry_run", "").strip().lower() in {"1", "true", "yes", "on"}
     actor = str(context.operator_id or context.access_email or context.principal_id or "operator").strip()
-    result = record_live_proactive_ooda_approval_outcome(
+    result = _record_admin_proactive_ooda_approval_outcome(
         principal_id=context.principal_id,
         outcome=outcome,
         evidence=evidence,

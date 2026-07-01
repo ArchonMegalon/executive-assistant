@@ -30,6 +30,7 @@ PROACTIVE_OODA_PROOF_LABEL = (
 )
 SIGNAL_REVIEW_PROOF_LABEL = "real weekly signal-to-decision review accepted by the operator"
 SIGNAL_FOLLOWTHROUGH_PROOF_LABEL = "closed-loop signal-to-decision follow-through receipt accepted by the operator"
+SCOPE_GAP_PROOF_LABEL = "real whole-project scope gap audit reviewed against the current product spine"
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -94,6 +95,13 @@ def _verify_surface(
             issues.append(f"{prefix} approval-capture next_action_label drifted")
         if method != "get":
             issues.append(f"{prefix} approval-capture next_action_method must be get")
+    if action == "review_scope_gap_audit_against_current_product_spine_with_a_human_operator":
+        if href != "/admin/goals":
+            issues.append(f"{prefix} scope-gap-review next_action_href must target /admin/goals")
+        if label != "Review scope gap audit":
+            issues.append(f"{prefix} scope-gap-review next_action_label drifted")
+        if method != "get":
+            issues.append(f"{prefix} scope-gap-review next_action_method must be get")
 
 
 def _next_action_surface(payload: dict[str, Any]) -> dict[str, str]:
@@ -214,6 +222,7 @@ def verify_office_loop_goal_receipt(receipt_path: str | Path) -> dict[str, Any]:
         "whole_project_signal_to_decision",
         "proactive_ooda_operator_status",
         "proactive_ooda_gold_acceptance",
+        "whole_project_scope_gap_audit",
     }
     missing_evidence_keys = required_evidence_keys - set(evidence_receipts)
     for key in sorted(missing_evidence_keys):
@@ -223,6 +232,7 @@ def verify_office_loop_goal_receipt(receipt_path: str | Path) -> dict[str, Any]:
     signal_evidence = dict(evidence_receipts.get("whole_project_signal_to_decision") or {})
     proactive_operator_evidence = dict(evidence_receipts.get("proactive_ooda_operator_status") or {})
     proactive_gold_evidence = dict(evidence_receipts.get("proactive_ooda_gold_acceptance") or {})
+    scope_gap_evidence = dict(evidence_receipts.get("whole_project_scope_gap_audit") or {})
     proactive_posture = dict(receipt.get("proactive_ooda_followthrough_posture") or {})
     expected_followthrough_surface = _preferred_action_surface(
         _next_action_surface(proactive_gold_evidence),
@@ -252,6 +262,7 @@ def verify_office_loop_goal_receipt(receipt_path: str | Path) -> dict[str, Any]:
         ("whole_project_signal_to_decision", signal_evidence),
         ("proactive_ooda_operator_status", proactive_operator_evidence),
         ("proactive_ooda_gold_acceptance", proactive_gold_evidence),
+        ("whole_project_scope_gap_audit", scope_gap_evidence),
     ):
         path = _path_from_text(linked.get("path"))
         if path is None:
@@ -297,6 +308,18 @@ def verify_office_loop_goal_receipt(receipt_path: str | Path) -> dict[str, Any]:
             if bool(linked.get("approval_capture_surface_ready")) != bool(approval_capture_surface.get("ready")):
                 issues.append("office_loop_linked_receipt_drifted:proactive_ooda_gold_acceptance.approval_capture_surface_ready")
             _verify_surface(linked, issues, prefix="office_loop linked proactive_ooda_gold_acceptance")
+        if key == "whole_project_scope_gap_audit":
+            if str(linked.get("summary") or "").strip() != str(payload.get("summary") or "").strip():
+                issues.append("office_loop_linked_receipt_drifted:whole_project_scope_gap_audit.summary")
+            if str(linked.get("next_action") or "").strip() != str(payload.get("next_action") or "").strip():
+                issues.append("office_loop_linked_receipt_drifted:whole_project_scope_gap_audit.next_action")
+            if bool(linked.get("reviewed_against_current_product_spine")) != bool(
+                payload.get("reviewed_against_current_product_spine")
+            ):
+                issues.append("office_loop_linked_receipt_drifted:whole_project_scope_gap_audit.reviewed")
+            if bool(linked.get("operator_review_accepted")) != bool(payload.get("operator_review_accepted")):
+                issues.append("office_loop_linked_receipt_drifted:whole_project_scope_gap_audit.operator_review")
+            _verify_surface(linked, issues, prefix="office_loop linked whole_project_scope_gap_audit")
 
     if proactive_posture:
         if proactive_gold_evidence and bool(proactive_gold_evidence.get("present")):
@@ -336,6 +359,10 @@ def verify_office_loop_goal_receipt(receipt_path: str | Path) -> dict[str, Any]:
         issues.append("office_loop_remaining_external_proof_missing:proactive_ooda")
     review_accepted = bool(signal_evidence.get("real_weekly_operator_review_accepted"))
     followthrough_accepted = bool(signal_evidence.get("closed_loop_followthrough_receipt_verified"))
+    scope_review_accepted = bool(
+        scope_gap_evidence.get("reviewed_against_current_product_spine")
+        and scope_gap_evidence.get("operator_review_accepted")
+    )
     if review_accepted and SIGNAL_REVIEW_PROOF_LABEL in remaining:
         issues.append("office_loop_remaining_external_proof_stale:signal_review")
     if not review_accepted and SIGNAL_REVIEW_PROOF_LABEL not in remaining:
@@ -344,6 +371,10 @@ def verify_office_loop_goal_receipt(receipt_path: str | Path) -> dict[str, Any]:
         issues.append("office_loop_remaining_external_proof_stale:signal_followthrough")
     if not followthrough_accepted and SIGNAL_FOLLOWTHROUGH_PROOF_LABEL not in remaining:
         issues.append("office_loop_remaining_external_proof_missing:signal_followthrough")
+    if scope_review_accepted and SCOPE_GAP_PROOF_LABEL in remaining:
+        issues.append("office_loop_remaining_external_proof_stale:scope_gap_review")
+    if not scope_review_accepted and SCOPE_GAP_PROOF_LABEL not in remaining:
+        issues.append("office_loop_remaining_external_proof_missing:scope_gap_review")
     return {"contract_name": "ea.office_loop_goal_receipt.verify.v1", "status": "pass" if not issues else "fail", "issues": issues}
 
 
