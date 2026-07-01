@@ -1058,6 +1058,74 @@ def test_main_probe_telegram_readiness_operator_prints_plain_text(monkeypatch, c
     assert capsys.readouterr().out.strip() == "telegram ok"
 
 
+def test_parse_args_probe_google_workspace_oauth_uses_proactive_principal_default(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setenv("EA_PROACTIVE_OODA_PRINCIPAL_ID", "cf-email:test@example.com")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "ea_live_ops.py",
+            "probe-google-workspace-oauth",
+            "--expected-google-email",
+            "work.tibor.girschele@gmail.com",
+        ],
+    )
+
+    args = module.parse_args()
+
+    assert args.command == "probe-google-workspace-oauth"
+    assert args.telegram_principal_id == "cf-email:test@example.com"
+    assert args.scope_bundle == "full_workspace"
+    assert args.probe_gcloud is True
+
+
+def test_probe_google_workspace_oauth_reports_mismatch_without_raw_email(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-01T19:40:00Z")
+    monkeypatch.setattr(
+        module.google_workspace_oauth_readiness,
+        "build_receipt",
+        lambda **_kwargs: {
+            "status": "blocked_setup_required",
+            "blocker_kind": "oauth_test_user_or_verification_required",
+            "console_deep_link": "https://console.cloud.google.com/auth/audience?project=propertyquarry-498318",
+            "auth_link_template": "https://myexternalbrain.com/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace&expected_google_email=%3Credacted-email%3E",
+            "missing_setup": ["oauth_test_user_missing_or_app_unverified", "gcloud_project_mismatch"],
+            "expected_google_account": {"present": True, "domain": "gmail.com", "email_sha256": "abc"},
+            "oauth_client": {"client_project_id": "propertyquarry-498318", "client_project_number": "95627800296"},
+            "gcloud_probe": {
+                "active_project": "openclaw-concierge",
+                "active_project_matches_oauth_project": False,
+                "active_account_present": True,
+            },
+            "operator_action": {
+                "user_action_required": True,
+                "next_action": "add_google_oauth_test_user_and_retry_full_workspace_auth",
+                "next_action_href": "/integrations/google",
+                "next_action_label": "Open Google setup",
+                "next_action_method": "get",
+                "delivery_policy": "action_required_only",
+                "telegram_message": "Action needed: Google Full Workspace auth is tied to a different OAuth project than the current gcloud default.",
+            },
+        },
+    )
+
+    report = module.probe_google_workspace_oauth(
+        expected_google_email="work.tibor.girschele@gmail.com",
+        observed_error="access_denied",
+        probe_gcloud=True,
+    )
+
+    serialized = json.dumps(report, sort_keys=True)
+    assert report["probe_ok"] is True
+    assert report["status"] == "blocked_setup_required"
+    assert report["missing_setup"] == ["oauth_test_user_missing_or_app_unverified", "gcloud_project_mismatch"]
+    assert report["gcloud_project"] == "openclaw-concierge"
+    assert report["oauth_project_id"] == "propertyquarry-498318"
+    assert "work.tibor.girschele@gmail.com" not in serialized
+
+
 def test_probe_operator_readiness_aggregates_components_without_raw_secrets(monkeypatch) -> None:
     module = _module()
     monkeypatch.setattr(module, "_utc_now", lambda: "2026-06-29T15:00:00Z")
@@ -2935,6 +3003,66 @@ def test_main_probe_proactive_source_coverage_uses_long_default_timeout(monkeypa
     assert json.loads(capsys.readouterr().out)["status"] == "ready"
 
 
+def test_probe_google_workspace_oauth_send_telegram_uses_direct_auth_link(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-01T19:41:00Z")
+    monkeypatch.setattr(
+        module.google_workspace_oauth_readiness,
+        "build_receipt",
+        lambda **_kwargs: {
+            "status": "blocked_setup_required",
+            "blocker_kind": "oauth_test_user_or_verification_required",
+            "console_deep_link": "https://console.cloud.google.com/auth/audience?project=propertyquarry-498318",
+            "auth_link_template": "https://myexternalbrain.com/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace&expected_google_email=%3Credacted-email%3E",
+            "missing_setup": ["oauth_test_user_missing_or_app_unverified", "gcloud_project_mismatch"],
+            "expected_google_account": {"present": True, "domain": "gmail.com", "email_sha256": "abc"},
+            "oauth_client": {"client_project_id": "propertyquarry-498318", "client_project_number": "95627800296"},
+            "gcloud_probe": {
+                "active_project": "openclaw-concierge",
+                "active_project_matches_oauth_project": False,
+                "active_account_present": True,
+                "oauth_project_id": "propertyquarry-498318",
+            },
+            "operator_action": {
+                "user_action_required": True,
+                "next_action": "add_google_oauth_test_user_and_retry_full_workspace_auth",
+                "next_action_href": "/integrations/google",
+                "next_action_label": "Open Google setup",
+                "next_action_method": "get",
+                "delivery_policy": "action_required_only",
+                "instruction": "Open the Google Auth Platform Audience page for the OAuth project.",
+                "telegram_message": "Action needed",
+            },
+        },
+    )
+    captured: dict[str, object] = {}
+
+    def _fake_send_telegram(*, principal_id: str, text: str, dry_run: bool, timeout_seconds: float):
+        captured["principal_id"] = principal_id
+        captured["text"] = text
+        captured["dry_run"] = dry_run
+        captured["timeout_seconds"] = timeout_seconds
+        return {"sent": True, "reason": "sent", "delivery_transport": "telegram_bot"}
+
+    monkeypatch.setattr(module, "send_telegram", _fake_send_telegram)
+
+    report = module.probe_google_workspace_oauth(
+        expected_google_email="work.tibor.girschele@gmail.com",
+        observed_error="access_denied",
+        probe_gcloud=True,
+        send_telegram_to_principal="cf-email:tibor.girschele@gmail.com",
+        timeout_seconds=45.0,
+    )
+
+    assert report["telegram_delivery"]["sent"] is True
+    assert captured["principal_id"] == "cf-email:tibor.girschele@gmail.com"
+    assert captured["dry_run"] is False
+    assert captured["timeout_seconds"] == 45.0
+    assert "expected_google_email=work.tibor.girschele%40gmail.com" in str(captured["text"])
+    assert "propertyquarry-498318" in str(captured["text"])
+    assert "openclaw-concierge" in str(captured["text"])
+
+
 def test_main_probe_proactive_source_coverage_accepts_subcommand_timeout(monkeypatch, capsys) -> None:
     module = _module()
     captured: dict[str, object] = {}
@@ -4264,6 +4392,74 @@ def test_main_send_telegram_emits_json(monkeypatch, capsys) -> None:
     assert module.main() == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload == {"delivery_transport": "telegram_bot", "ready": True, "reason": "dry_run", "sent": False}
+
+
+def test_main_probe_google_workspace_oauth_operator_prints_plain_text(monkeypatch, capsys) -> None:
+    module = _module()
+    monkeypatch.setattr(
+        module,
+        "parse_args",
+        lambda: Namespace(
+            command="probe-google-workspace-oauth",
+            expected_google_email="work.tibor.girschele@gmail.com",
+            scope_bundle="full_workspace",
+            observed_error="access_denied",
+            error_description="",
+            test_user_confirmed=False,
+            probe_gcloud=True,
+            telegram_principal_id="principal-1",
+            send_telegram=False,
+            dry_run=False,
+            timeout_seconds=20.0,
+            format="operator",
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_google_workspace_oauth",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "operator_text": "google oauth ok",
+        },
+    )
+
+    assert module.main() == 0
+    assert capsys.readouterr().out.strip() == "google oauth ok"
+
+
+def test_main_probe_google_workspace_oauth_send_telegram_dry_run_fails_closed_when_not_ready(monkeypatch, capsys) -> None:
+    module = _module()
+    monkeypatch.setattr(
+        module,
+        "parse_args",
+        lambda: Namespace(
+            command="probe-google-workspace-oauth",
+            expected_google_email="work.tibor.girschele@gmail.com",
+            scope_bundle="full_workspace",
+            observed_error="access_denied",
+            error_description="",
+            test_user_confirmed=False,
+            probe_gcloud=True,
+            telegram_principal_id="principal-1",
+            send_telegram=True,
+            dry_run=True,
+            timeout_seconds=20.0,
+            format="json",
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_google_workspace_oauth",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "status": "blocked_setup_required",
+            "telegram_delivery": {"sent": False, "reason": "dry_run", "ready": False},
+        },
+    )
+
+    assert module.main() == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["telegram_delivery"]["reason"] == "dry_run"
 
 
 def test_main_send_telegram_dry_run_fails_closed_when_not_ready(monkeypatch, capsys) -> None:

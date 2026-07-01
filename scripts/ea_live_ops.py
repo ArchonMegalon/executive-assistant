@@ -51,6 +51,7 @@ def _load_dotenv_if_present(path: Path) -> None:
 _load_dotenv_if_present(ROOT / ".env")
 
 import check_whatsapp_web_session_readiness as readiness_script  # noqa: E402
+import materialize_google_workspace_oauth_readiness as google_workspace_oauth_readiness  # noqa: E402
 import materialize_whatsapp_web_action_processor_readiness as whatsapp_action_processor_readiness  # noqa: E402
 from app.container import build_container  # noqa: E402
 from app.services import whatsapp_web_session_delivery  # noqa: E402
@@ -5405,6 +5406,254 @@ def send_telegram(
     }
 
 
+def _google_workspace_oauth_direct_link(*, expected_google_email: str, scope_bundle: str) -> str:
+    public_base = (_env("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com") or "https://myexternalbrain.com").rstrip("/")
+    query: dict[str, str] = {
+        "return_to": "/app/settings/google",
+        "scope_bundle": str(scope_bundle or google_workspace_oauth_readiness.DEFAULT_SCOPE_BUNDLE).strip()
+        or google_workspace_oauth_readiness.DEFAULT_SCOPE_BUNDLE,
+    }
+    normalized_email = str(expected_google_email or "").strip().lower()
+    if "@" in normalized_email:
+        query["expected_google_email"] = normalized_email
+    return f"{public_base}/app/actions/google/connect?{urllib.parse.urlencode(query)}"
+
+
+def _google_workspace_oauth_telegram_text(
+    *,
+    receipt: Mapping[str, object],
+    expected_google_email: str,
+    direct_auth_link: str,
+) -> str:
+    normalized_email = str(expected_google_email or "").strip().lower()
+    operator_action = dict(receipt.get("operator_action") or {})
+    gcloud_probe = dict(receipt.get("gcloud_probe") or {})
+    oauth_client = dict(receipt.get("oauth_client") or {})
+    lines: list[str] = []
+    if "@" in normalized_email:
+        lines.append(f"Google Full Workspace retry for {normalized_email}")
+        lines.append("")
+    instruction = str(operator_action.get("instruction") or "").strip()
+    if instruction:
+        lines.append(instruction)
+        lines.append("")
+    lines.extend(
+        [
+            "Auth link:",
+            direct_auth_link,
+            "",
+            "Google Auth Platform Audience:",
+            str(receipt.get("console_deep_link") or "").strip(),
+        ]
+    )
+    oauth_project_id = str(gcloud_probe.get("oauth_project_id") or oauth_client.get("client_project_id") or "").strip()
+    active_project = str(gcloud_probe.get("active_project") or "").strip()
+    if oauth_project_id or active_project:
+        lines.append("")
+    if oauth_project_id:
+        lines.append(f"OAuth project: {oauth_project_id}")
+    if active_project and active_project != oauth_project_id:
+        lines.append(f"Current gcloud project: {active_project}")
+    return "\n".join(line for line in lines if line is not None).strip()
+
+
+def _operator_text_for_google_workspace_oauth(report: Mapping[str, object]) -> str:
+    missing_setup = [
+        str(item).strip()
+        for item in list(report.get("missing_setup") or [])
+        if str(item).strip()
+    ]
+    telegram_delivery = dict(report.get("telegram_delivery") or {})
+    parts = [
+        f"google_workspace_oauth status={str(report.get('status') or '').strip() or 'unknown'}",
+        f"action_required={bool(report.get('user_action_required'))}",
+        f"missing={','.join(missing_setup) if missing_setup else 'none'}",
+    ]
+    next_action = str(report.get("next_action") or "").strip()
+    if next_action:
+        parts.append(f"next={next_action}")
+    oauth_project_id = str(report.get("oauth_project_id") or "").strip()
+    if oauth_project_id:
+        parts.append(f"oauth_project={oauth_project_id}")
+    gcloud_project = str(report.get("gcloud_project") or "").strip()
+    if gcloud_project:
+        parts.append(f"gcloud_project={gcloud_project}")
+    telegram_reason = str(telegram_delivery.get("reason") or "").strip()
+    if telegram_reason:
+        parts.append(f"telegram={telegram_reason}")
+    parts.append(f"observed_at={str(report.get('observed_at') or '').strip()}")
+    parts.append(f"source={str(report.get('source') or '').strip()}")
+    return "; ".join(part for part in parts if part)
+
+
+def probe_google_workspace_oauth(
+    *,
+    expected_google_email: str,
+    scope_bundle: str = google_workspace_oauth_readiness.DEFAULT_SCOPE_BUNDLE,
+    observed_error: str = "",
+    error_description: str = "",
+    test_user_confirmed: bool = False,
+    probe_gcloud: bool = True,
+    send_telegram_to_principal: str = "",
+    dry_run: bool = False,
+    timeout_seconds: float = 30.0,
+    output_format: str = "json",
+) -> dict[str, object]:
+    normalized_email = str(expected_google_email or "").strip().lower()
+    normalized_scope = str(scope_bundle or google_workspace_oauth_readiness.DEFAULT_SCOPE_BUNDLE).strip()
+    if not normalized_scope:
+        normalized_scope = google_workspace_oauth_readiness.DEFAULT_SCOPE_BUNDLE
+    observed_at = _utc_now()
+    effective_timeout_seconds = max(float(timeout_seconds or 30.0), 1.0)
+    if "@" not in normalized_email:
+        report = {
+            "probe_ok": False,
+            "ready": False,
+            "status": "probe_failed",
+            "reason": "expected_google_email_missing",
+            "scope_bundle": normalized_scope,
+            "expected_google_email_present": False,
+            "expected_google_domain": "",
+            "missing_setup": ["expected_google_email_missing"],
+            "user_action_required": True,
+            "next_action": "add_google_oauth_test_user_and_retry_full_workspace_auth",
+            "next_action_href": "/integrations/google",
+            "next_action_label": "Open Google setup",
+            "next_action_method": "get",
+            "oauth_project_id": "",
+            "oauth_project_number": "",
+            "gcloud_project": "",
+            "gcloud_project_matches_oauth_project": False,
+            "gcloud_account_present": False,
+            "delivery_policy": "action_required_only",
+            "telegram_delivery": {},
+            "privacy": {
+                "raw_expected_google_email_exposed": False,
+                "raw_auth_link_exposed": False,
+            },
+            "observed_at": observed_at,
+            "source": "scripts.materialize_google_workspace_oauth_readiness.py",
+        }
+        report["operator_text"] = _operator_text_for_google_workspace_oauth(report)
+        return report
+
+    try:
+        receipt = google_workspace_oauth_readiness.build_receipt(
+            expected_google_email=normalized_email,
+            scope_bundle=normalized_scope,
+            observed_error=str(observed_error or "").strip(),
+            error_description=str(error_description or "").strip(),
+            test_user_confirmed=bool(test_user_confirmed),
+            probe_gcloud=bool(probe_gcloud),
+            include_env_file=ROOT / ".env",
+            timeout_seconds=effective_timeout_seconds,
+        )
+    except Exception as exc:
+        report = {
+            "probe_ok": False,
+            "ready": False,
+            "status": "probe_failed",
+            "reason": (str(exc).strip() or type(exc).__name__)[:160],
+            "scope_bundle": normalized_scope,
+            "expected_google_email_present": True,
+            "expected_google_domain": normalized_email.rsplit("@", 1)[-1],
+            "missing_setup": [],
+            "user_action_required": False,
+            "next_action": "",
+            "next_action_href": "",
+            "next_action_label": "",
+            "next_action_method": "",
+            "oauth_project_id": "",
+            "oauth_project_number": "",
+            "gcloud_project": "",
+            "gcloud_project_matches_oauth_project": False,
+            "gcloud_account_present": False,
+            "delivery_policy": "queue_only",
+            "telegram_delivery": {},
+            "privacy": {
+                "raw_expected_google_email_exposed": False,
+                "raw_auth_link_exposed": False,
+            },
+            "observed_at": observed_at,
+            "source": "scripts.materialize_google_workspace_oauth_readiness.py",
+        }
+        report["operator_text"] = _operator_text_for_google_workspace_oauth(report)
+        return report
+
+    operator_action = dict(receipt.get("operator_action") or {})
+    gcloud_probe = dict(receipt.get("gcloud_probe") or {})
+    oauth_client = dict(receipt.get("oauth_client") or {})
+    expected_account = dict(receipt.get("expected_google_account") or {})
+    missing_setup = [
+        str(item).strip()
+        for item in list(receipt.get("missing_setup") or [])
+        if str(item).strip()
+    ]
+    user_action_required = bool(operator_action.get("user_action_required"))
+    report = {
+        "probe_ok": True,
+        "ready": str(receipt.get("status") or "").strip() in {"pass", "ready_manual_console_check"},
+        "status": str(receipt.get("status") or "").strip(),
+        "reason": str(receipt.get("blocker_kind") or "").strip(),
+        "scope_bundle": normalized_scope,
+        "expected_google_email_present": bool(expected_account.get("present")),
+        "expected_google_domain": str(expected_account.get("domain") or "").strip(),
+        "missing_setup": missing_setup,
+        "user_action_required": user_action_required,
+        "next_action": str(operator_action.get("next_action") or "").strip(),
+        "next_action_href": str(operator_action.get("next_action_href") or "").strip(),
+        "next_action_label": str(operator_action.get("next_action_label") or "").strip(),
+        "next_action_method": str(operator_action.get("next_action_method") or "").strip(),
+        "delivery_policy": str(operator_action.get("delivery_policy") or "").strip(),
+        "console_deep_link": str(receipt.get("console_deep_link") or "").strip(),
+        "auth_link_template": str(receipt.get("auth_link_template") or "").strip(),
+        "oauth_project_id": str(oauth_client.get("client_project_id") or "").strip(),
+        "oauth_project_number": str(oauth_client.get("client_project_number") or "").strip(),
+        "gcloud_project": str(gcloud_probe.get("active_project") or "").strip(),
+        "gcloud_project_matches_oauth_project": bool(gcloud_probe.get("active_project_matches_oauth_project")),
+        "gcloud_account_present": bool(gcloud_probe.get("active_account_present")),
+        "action_context": operator_action,
+        "gcloud_probe": gcloud_probe,
+        "privacy": {
+            "raw_expected_google_email_exposed": False,
+            "raw_auth_link_exposed": False,
+        },
+        "telegram_delivery": {},
+        "observed_at": observed_at,
+        "source": "scripts.materialize_google_workspace_oauth_readiness.py",
+    }
+    if str(send_telegram_to_principal or "").strip():
+        if user_action_required:
+            direct_auth_link = _google_workspace_oauth_direct_link(
+                expected_google_email=normalized_email,
+                scope_bundle=normalized_scope,
+            )
+            telegram_delivery = send_telegram(
+                principal_id=str(send_telegram_to_principal or "").strip(),
+                text=_google_workspace_oauth_telegram_text(
+                    receipt=receipt,
+                    expected_google_email=normalized_email,
+                    direct_auth_link=direct_auth_link,
+                ),
+                dry_run=bool(dry_run),
+                timeout_seconds=effective_timeout_seconds,
+            )
+        else:
+            telegram_delivery = {
+                "sent": False,
+                "reason": "no_operator_action_required",
+                "principal_id": str(send_telegram_to_principal or "").strip(),
+                "delivery_transport": "telegram_bot",
+                "observed_at": observed_at,
+                "source": "scripts.materialize_google_workspace_oauth_readiness.py",
+            }
+        report["telegram_delivery"] = telegram_delivery
+    report["operator_text"] = _operator_text_for_google_workspace_oauth(report)
+    if output_format == "operator":
+        report["operator_text"] = _operator_text_for_google_workspace_oauth(report)
+    return report
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generic EA live-ops provider probing and operator delivery.")
     parser.add_argument("--database-url", default=_env("DATABASE_URL"))
@@ -5453,6 +5702,22 @@ def parse_args() -> argparse.Namespace:
     telegram_readiness.add_argument("--principal-id", dest="telegram_principal_id", default=_default_proactive_principal_id())
     telegram_readiness.add_argument("--format", choices=("json", "operator"), default="json")
     _add_timeout_seconds_argument(telegram_readiness)
+
+    google_workspace_oauth = subparsers.add_parser(
+        "probe-google-workspace-oauth",
+        help="Probe Google Workspace OAuth readiness and optionally send the action packet over Telegram.",
+    )
+    google_workspace_oauth.add_argument("--expected-google-email", required=True)
+    google_workspace_oauth.add_argument("--scope-bundle", default=google_workspace_oauth_readiness.DEFAULT_SCOPE_BUNDLE)
+    google_workspace_oauth.add_argument("--observed-error", default="")
+    google_workspace_oauth.add_argument("--error-description", default="")
+    google_workspace_oauth.add_argument("--test-user-confirmed", action="store_true")
+    google_workspace_oauth.add_argument("--no-probe-gcloud", dest="probe_gcloud", action="store_false", default=True)
+    google_workspace_oauth.add_argument("--telegram-principal-id", default=_default_proactive_principal_id())
+    google_workspace_oauth.add_argument("--send-telegram", action="store_true")
+    google_workspace_oauth.add_argument("--dry-run", action="store_true")
+    google_workspace_oauth.add_argument("--format", choices=("json", "operator"), default="json")
+    _add_timeout_seconds_argument(google_workspace_oauth)
 
     teable_recovery = subparsers.add_parser("probe-teable-recovery", help="Probe Teable env backup/restore posture without exposing secret values.")
     teable_recovery.add_argument("--format", choices=("json", "operator"), default="json")
@@ -5656,6 +5921,40 @@ def main() -> int:
         else:
             print(_json_dumps(report))
         return 0 if bool(report.get("probe_ok")) else 2
+    if args.command == "probe-google-workspace-oauth":
+        report = probe_google_workspace_oauth(
+            expected_google_email=str(getattr(args, "expected_google_email", "") or "").strip(),
+            scope_bundle=str(getattr(args, "scope_bundle", "") or "").strip(),
+            observed_error=str(getattr(args, "observed_error", "") or "").strip(),
+            error_description=str(getattr(args, "error_description", "") or "").strip(),
+            test_user_confirmed=bool(getattr(args, "test_user_confirmed", False)),
+            probe_gcloud=bool(getattr(args, "probe_gcloud", True)),
+            send_telegram_to_principal=(
+                str(getattr(args, "telegram_principal_id", "") or "").strip()
+                if bool(getattr(args, "send_telegram", False))
+                else ""
+            ),
+            dry_run=bool(getattr(args, "dry_run", False)),
+            timeout_seconds=float(getattr(args, "timeout_seconds", None) or 30.0),
+            output_format=args.format,
+        )
+        if args.format == "operator":
+            print(str(report.get("operator_text") or ""))
+        else:
+            print(_json_dumps(report))
+        if not bool(report.get("probe_ok")):
+            return 2
+        if not bool(getattr(args, "send_telegram", False)):
+            return 0
+        delivery = dict(report.get("telegram_delivery") or {})
+        reason = str(delivery.get("reason") or "").strip()
+        if bool(delivery.get("sent")):
+            return 0
+        if reason == "no_operator_action_required":
+            return 0
+        if reason == "dry_run" and bool(delivery.get("ready")):
+            return 0
+        return 2
     if args.command == "probe-teable-recovery":
         report = probe_teable_recovery(
             output_format=args.format,

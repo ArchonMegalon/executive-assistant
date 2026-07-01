@@ -241,9 +241,26 @@ def _setup_checklist(missing: list[str], *, console_link: str, auth_link_templat
     return result
 
 
+def _instruction_text(*, missing: list[str]) -> str:
+    if "gcloud_project_mismatch" in missing:
+        return (
+            "Open the Google Auth Platform Audience page for the OAuth project, confirm the requested work Google account "
+            "is allowed there, then retry the Full Workspace auth link."
+        )
+    return (
+        "Add the requested work Google account as a Google OAuth test user, save the Google Auth Platform Audience page, "
+        "then retry the Full Workspace auth link."
+    )
+
+
 def _telegram_message(*, missing: list[str], console_link: str) -> str:
     if not missing:
         return ""
+    if "gcloud_project_mismatch" in missing:
+        return (
+            "Action needed: Google Full Workspace auth is tied to a different OAuth project than the current gcloud default. "
+            f"Open the OAuth project's Audience page, confirm the work account is a test user there, then retry the auth link. Console: {console_link}"
+        )
     if "oauth_test_user_missing_or_app_unverified" in missing:
         return (
             "Action needed: Google Full Workspace auth is blocked because the OAuth app is still in testing. "
@@ -298,6 +315,13 @@ def build_receipt(
             timeout_seconds=timeout_seconds,
             runner=runner,
         )
+        if (
+            gcloud.get("enabled") is True
+            and str(gcloud.get("active_project") or "").strip()
+            and project_id
+            and gcloud.get("active_project_matches_oauth_project") is False
+        ):
+            missing.append("gcloud_project_mismatch")
     missing = list(dict.fromkeys(item for item in missing if item))
     if missing:
         status = "blocked_setup_required"
@@ -345,10 +369,7 @@ def build_receipt(
         "missing_setup": missing,
         "operator_action": {
             "user_action_required": action_required,
-            "instruction": (
-                "Add the requested work Google account as a Google OAuth test user, save the Google Auth Platform "
-                "Audience page, then retry the Full Workspace auth link."
-            ),
+            "instruction": _instruction_text(missing=missing),
             "next_action": "add_google_oauth_test_user_and_retry_full_workspace_auth",
             "next_action_href": "/integrations/google",
             "next_action_label": "Open Google setup",

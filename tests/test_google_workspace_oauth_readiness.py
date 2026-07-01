@@ -104,6 +104,42 @@ def test_gcloud_probe_is_sanitized_and_keeps_manual_console_step(monkeypatch) ->
     assert verifier.verify_receipt_for_test(receipt) == []
 
 
+def test_gcloud_project_mismatch_is_promoted_into_setup_checklist(monkeypatch) -> None:
+    _patch_source_state(monkeypatch)
+    _set_google_env(monkeypatch)
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_PROJECT_ID", "propertyquarry-498318")
+    monkeypatch.setenv(
+        "EA_GOOGLE_OAUTH_CLIENT_ID",
+        "95627800296-clientid.apps.googleusercontent.com",
+    )
+    monkeypatch.setattr(materializer.shutil, "which", lambda name: "/usr/bin/gcloud" if name == "gcloud" else None)
+
+    def fake_runner(command: list[str], _timeout_seconds: float):
+        if command[:4] == ["gcloud", "config", "get-value", "account"]:
+            return 0, "tibor.girschele@gmail.com\n", ""
+        if command[:4] == ["gcloud", "config", "get-value", "project"]:
+            return 0, "openclaw-concierge\n", ""
+        if command[:3] == ["gcloud", "projects", "describe"]:
+            return 0, json.dumps({"projectNumber": "95627800296"}), ""
+        return 1, "", "unknown"
+
+    receipt = materializer.build_receipt(
+        expected_google_email="work.tibor.girschele@gmail.com",
+        observed_error="access_denied",
+        probe_gcloud=True,
+        runner=fake_runner,
+    )
+
+    assert receipt["status"] == "blocked_setup_required"
+    assert "oauth_test_user_missing_or_app_unverified" in receipt["missing_setup"]
+    assert "gcloud_project_mismatch" in receipt["missing_setup"]
+    assert "OAuth project" in receipt["operator_action"]["instruction"]
+    assert "different OAuth project" in receipt["operator_action"]["telegram_message"]
+    checklist_keys = {row["key"] for row in receipt["operator_action"]["setup_checklist"]}
+    assert "gcloud_project_mismatch" in checklist_keys
+    assert verifier.verify_receipt_for_test(receipt) == []
+
+
 def test_verifier_rejects_private_google_fields(monkeypatch) -> None:
     _patch_source_state(monkeypatch)
     _set_google_env(monkeypatch)
