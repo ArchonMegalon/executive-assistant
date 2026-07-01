@@ -109,6 +109,21 @@ def verify_receipt(receipt: Mapping[str, Any]) -> list[str]:
         issues.append("sent status requires send_result.sent=true")
     if receipt.get("send_attempted") is True and receipt.get("send_requested") is not True:
         issues.append("send_attempted requires send_requested=true")
+    notification_status = str(receipt.get("notification_status") or "").strip()
+    send_result = dict(receipt.get("send_result") or {})
+    if notification_status == "dry_run_ready":
+        if receipt.get("dry_run") is not True:
+            issues.append("dry_run_ready requires dry_run=true")
+        if receipt.get("send_attempted") is not True:
+            issues.append("dry_run_ready requires send_attempted=true")
+        if send_result.get("ready") is not True:
+            issues.append("dry_run_ready requires send_result.ready=true")
+        if send_result.get("sent") is not False:
+            issues.append("dry_run_ready requires send_result.sent=false")
+        if int(send_result.get("message_count") or 0) != 0:
+            issues.append("dry_run_ready requires send_result.message_count=0")
+        if receipt.get("state_updated") is not False:
+            issues.append("dry_run_ready must not update dedupe state")
     if item_count > 0 and not str(receipt.get("telegram_text") or "").strip():
         issues.append("action digest with items requires telegram_text")
     for index, item in enumerate(items):

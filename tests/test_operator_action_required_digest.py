@@ -170,6 +170,51 @@ def test_digest_dry_run_checks_sender_without_persisting_state(tmp_path, monkeyp
     assert verify_digest.verify_receipt(receipt) == []
 
 
+def test_digest_verifier_requires_dry_run_ready_to_prove_zero_send() -> None:
+    receipt = {
+        "contract_name": "ea.operator_action_required_digest.v1",
+        "status": "ready_to_send",
+        "notification_status": "dry_run_ready",
+        "delivery_policy": "action_required_only",
+        "non_action_progress_push_allowed": False,
+        "quiet_hours_respected": True,
+        "irreversible_actions_consent_gated": True,
+        "item_count": 1,
+        "included_action_keys": ["needs_action"],
+        "items": [
+            {
+                "key": "needs_action",
+                "instruction": "Choose one item.",
+                "delivery_policy": "action_required_only",
+                "telegram_push_allowed": True,
+                "interruption_budget": "action_required",
+                "quiet_hours_respected": True,
+                "non_action_progress_push_allowed": False,
+                "irreversible_actions_consent_gated": True,
+            }
+        ],
+        "counts": {"included_count": 1},
+        "privacy": {flag: False for flag in verify_digest.PRIVATE_EXPOSURE_FLAGS},
+        "send_requested": True,
+        "send_attempted": True,
+        "dry_run": True,
+        "state_updated": False,
+        "send_result": {
+            "ready": False,
+            "sent": True,
+            "message_count": 1,
+        },
+        "telegram_text": "Action needed for EA:\n1. Choose one item.",
+        "source_receipt": {"path": "source.json"},
+    }
+
+    issues = verify_digest.verify_receipt(receipt)
+
+    assert "dry_run_ready requires send_result.ready=true" in issues
+    assert "dry_run_ready requires send_result.sent=false" in issues
+    assert "dry_run_ready requires send_result.message_count=0" in issues
+
+
 def test_digest_verifier_blocks_private_exposure() -> None:
     receipt = {
         "contract_name": "ea.operator_action_required_digest.v1",

@@ -2,18 +2,18 @@
   "contract_name": "ea.operator_action_required_digest.v1",
   "counts": {
     "included_count": 3,
-    "input_count": 5,
+    "input_count": 4,
     "suppressed_policy_blocked_count": 0,
     "suppressed_privacy_blocked_count": 0,
-    "suppressed_queue_only_count": 2
+    "suppressed_queue_only_count": 1
   },
   "dedupe_checked": true,
   "dedupe_suppressed": false,
   "delivery_policy": "action_required_only",
   "digest_sha256": "c23de20163e41de8a5cc5b1576dfce5a0eda85ad4ec75f6e550311eddec46da5",
-  "dry_run": false,
+  "dry_run": true,
   "force": false,
-  "generated_at": "2026-07-01T12:05:09Z",
+  "generated_at": "2026-07-01T12:08:46Z",
   "generated_by": "scripts/materialize_operator_action_required_digest.py",
   "head_semantics": "source_state",
   "included_action_keys": [
@@ -95,7 +95,7 @@
     }
   ],
   "non_action_progress_push_allowed": false,
-  "notification_status": "ready_to_send",
+  "notification_status": "dry_run_ready",
   "output_path": ".codex-studio/published/ea_operator_action_required_digest.generated.json",
   "privacy": {
     "callback_tokens_exposed": false,
@@ -119,25 +119,25 @@
     "Purchases, bookings, cancellations, external sends, posts, payments, and commitments still require explicit approval elsewhere.",
     "Duplicate suppression stores a digest hash in local runtime state, not raw private context or chat identifiers."
   ],
-  "send_attempted": false,
-  "send_requested": false,
+  "send_attempted": true,
+  "send_requested": true,
   "send_result": {
-    "bot_handle": "",
-    "bot_key": "",
-    "chat_ref_present": false,
-    "chat_ref_sha256": "",
+    "bot_handle": "tibor_concierge_bot",
+    "bot_key": "default",
+    "chat_ref_present": true,
+    "chat_ref_sha256": "837e59d0396ab5fcfa64c48dfe989f496ed21386799399a7d43582900871a7a3",
     "message_count": 0,
     "process_exit_code": 0,
-    "readiness_status": "",
-    "ready": false,
-    "reason": "",
+    "readiness_status": "ready",
+    "ready": true,
+    "reason": "dry_run",
     "sent": false
   },
-  "source_git_head": "b071680813abbb946afaaaf58d0257be9d8ea46b",
+  "source_git_head": "c857a1f737e86740d3f5d25b65fec5e8d3a94255",
   "source_receipt": {
     "path": ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json",
     "present": true,
-    "sha256": "5aead379c7ab7bc08120bf5ef8cb9c6bbe94598e773f549e5e4b08166fc04f3f",
+    "sha256": "cbba5470ef412c32e7b4794262c15f2b86456b4abb3ba96352356177ea1a5364",
     "status": "active_with_blockers"
   },
   "source_state_fingerprint": "a11f90d2918f73cd307aecf76bc45bd161d79f856d80738b6d5ea1990c5ccb60",
