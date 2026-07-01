@@ -5180,6 +5180,15 @@ OPERATOR_READINESS_READY_STATUSES: dict[str, set[str]] = {
     "proactive_artifacts": {"ok"},
 }
 
+OPERATOR_READINESS_STABLE_STATUSES: dict[str, set[str]] = {
+    "telegram": {"ready"},
+    "whatsapp": {"ready"},
+    "whatsapp_pairing": {"ready"},
+    "teable_recovery": {"ready"},
+    "proactive_route": {"ready"},
+    "proactive_artifacts": {"ok"},
+}
+
 
 def _operator_readiness_component(
     *,
@@ -5231,6 +5240,17 @@ def _operator_readiness_failed_component(key: str, label: str, reason: str) -> d
         "source": "ea_live_ops.aggregate",
         "details": {},
     }
+
+
+def _operator_readiness_component_requires_attention(component: Mapping[str, object]) -> bool:
+    if not bool(component.get("probe_ok")):
+        return True
+    if not bool(component.get("ready")):
+        return True
+    key = str(component.get("key") or "").strip()
+    status = str(component.get("status") or "").strip()
+    stable_statuses = OPERATOR_READINESS_STABLE_STATUSES.get(key, {"ready"})
+    return status not in stable_statuses
 
 
 def _operator_text_for_operator_readiness(report: Mapping[str, object]) -> str:
@@ -5343,11 +5363,7 @@ def probe_operator_readiness(
 
     probe_failed_count = sum(1 for item in components if not bool(item.get("probe_ok")))
     blocked_count = sum(1 for item in components if bool(item.get("probe_ok")) and not bool(item.get("ready")))
-    attention_required_count = sum(
-        1
-        for item in components
-        if (not bool(item.get("probe_ok"))) or (not bool(item.get("ready"))) or bool(str(item.get("next_action") or "").strip())
-    )
+    attention_required_count = sum(1 for item in components if _operator_readiness_component_requires_attention(item))
     has_pairing_qr_action = any(
         str(item.get("key") or "").strip() == "whatsapp_pairing"
         and str(item.get("next_action") or "").strip() == "scan_whatsapp_web_qr"
@@ -5355,6 +5371,8 @@ def probe_operator_readiness(
     )
     next_actions = []
     for item in components:
+        if not _operator_readiness_component_requires_attention(item):
+            continue
         component_key = str(item.get("key") or "").strip()
         action = str(item.get("next_action") or "").strip()
         if not action:

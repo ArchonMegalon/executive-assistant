@@ -1347,6 +1347,102 @@ def test_probe_operator_readiness_aggregates_components_without_raw_secrets(monk
     assert "large-private-payload" not in serialized
 
 
+def test_probe_operator_readiness_suppresses_next_action_noise_from_ready_proactive_route(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(
+        module,
+        "probe_telegram_readiness",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "observed_at": "2026-07-01T21:40:00Z",
+            "source": "telegram_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_whatsapp_readiness",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "observed_at": "2026-07-01T21:40:01Z",
+            "source": "whatsapp_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_teable_recovery",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "observed_at": "2026-07-01T21:40:02Z",
+            "source": "teable_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_proactive_route",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ready",
+            "next_action": "inspect_proactive_delivery_route",
+            "principal_id": "principal-1",
+            "runtime_service": "ea-proactive-ooda",
+            "delivery_route_ready": True,
+            "selected_channel": "telegram",
+            "selected_transport": "telegram",
+            "selected_by": "tool_runtime_binding",
+            "available_channels": ["telegram"],
+            "approval_capture_surface_ready": False,
+            "approval_capture_surface_pending_count": 0,
+            "observed_at": "2026-07-01T21:40:03Z",
+            "source": "proactive_route_probe",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "probe_proactive_artifacts",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "ready": True,
+            "status": "ok",
+            "runtime_service": "ea-proactive-ooda",
+            "run_receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+            "approval_callback_dir_exists": True,
+            "approval_callback_dir_writable": True,
+            "approval_callback_record_count": 1,
+            "approval_callback_live_pending_count": 0,
+            "approval_callback_stale_pending_count": 0,
+            "current_packet_live_pending_count": 0,
+            "approval_outcome_matches_current_packet": False,
+            "observed_at": "2026-07-01T21:40:04Z",
+            "source": "proactive_artifacts_probe",
+        },
+    )
+
+    report = module.probe_operator_readiness(
+        args=_args(session_ref="tibor-wa-web"),
+        telegram_principal_id="principal-1",
+        proactive_principal_id="principal-1",
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+        receipt_path="/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+        timeout_seconds=7.0,
+        include_pairing=False,
+        output_format="operator",
+    )
+
+    assert report["status"] == "ready"
+    assert report["ready"] is True
+    assert report["attention_required_count"] == 0
+    assert report["next_actions"] == []
+    assert "next=" not in str(report["operator_text"])
+
+
 def test_main_probe_operator_readiness_operator_prints_plain_text(monkeypatch, capsys) -> None:
     module = _module()
     monkeypatch.setattr(
