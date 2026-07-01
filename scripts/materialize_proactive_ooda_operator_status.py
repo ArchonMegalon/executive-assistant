@@ -55,6 +55,14 @@ NON_MATERIAL_ARTIFACT_FILTER_REASONS = {
     "flat_search_disabled_property_scout",
     "flat_search_disabled",
 }
+NON_MATERIAL_SUPPRESSED_PROJECTION_ISSUE_CODES = {
+    "no_decision_ready_material",
+    "single_official_info_link_not_decision_ready",
+}
+NON_MATERIAL_SUPPRESSED_PROJECTION_REASONS = {
+    "packet_projection_suppressed",
+    "safe_work_audit_review",
+}
 
 
 def _utc_now() -> str:
@@ -721,14 +729,35 @@ def _normalized_suppressed_projection(artifact_probe: Mapping[str, Any]) -> dict
         for item in list(selected_summary.get("suppressed_safe_work_issue_codes") or [])
         if str(item or "").strip()
     ][:12]
-    requires_recovery = suppressed_item_count > 0
+    quiet_no_action = (
+        str(selected_receipt.get("notification_status") or "").strip() == "deferred"
+        and str(selected_receipt.get("error_code") or "").strip() == "no_user_action_required"
+    )
+    non_material_suppression = bool(
+        suppressed_item_count > 0
+        and quiet_no_action
+        and issue_codes
+        and all(code in NON_MATERIAL_SUPPRESSED_PROJECTION_ISSUE_CODES for code in issue_codes)
+        and all(reason in NON_MATERIAL_SUPPRESSED_PROJECTION_REASONS for reason in reasons)
+    )
+    requires_recovery = suppressed_item_count > 0 and not non_material_suppression
     return {
         "present": bool(selected_receipt),
         "source": str(probe.get("source") or "").strip(),
-        "status": "suppressed" if requires_recovery else "clear" if selected_receipt else "not_observed",
+        "status": (
+            "suppressed"
+            if requires_recovery
+            else "suppressed_non_material"
+            if non_material_suppression
+            else "clear"
+            if selected_receipt
+            else "not_observed"
+        ),
         "requires_recovery": requires_recovery,
         "blocking_reason": "suppressed_safe_work_projection" if requires_recovery else "",
         "next_action": "repair_proactive_safe_work_audit" if requires_recovery else "",
+        "suppressed_non_material": non_material_suppression,
+        "suppressed_non_material_reason": "quiet_no_decision_ready_material" if non_material_suppression else "",
         "run_receipt_generated_at": str(selected_receipt.get("generated_at") or "").strip(),
         "notification_status": str(selected_receipt.get("notification_status") or "").strip(),
         "error_code": str(selected_receipt.get("error_code") or "").strip(),

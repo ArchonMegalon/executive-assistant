@@ -519,7 +519,7 @@ def test_materialize_proactive_ooda_operator_status_records_filtered_current_art
     assert receipt["current_artifact_filter"]["privacy"]["raw_candidate_exposed"] is False
 
 
-def test_materialize_proactive_ooda_operator_status_surfaces_suppressed_safe_work_projection(
+def test_materialize_proactive_ooda_operator_status_records_non_material_suppressed_projection_without_recovery(
     tmp_path: Path, monkeypatch
 ) -> None:
     module = _load_script()
@@ -611,21 +611,25 @@ def test_materialize_proactive_ooda_operator_status_surfaces_suppressed_safe_wor
         report_args=Namespace(principal_id="exec-1"),
     )
 
-    assert receipt["status"] == "ready_with_recovery_action"
-    assert receipt["reason"] == "suppressed_safe_work_projection"
-    assert receipt["next_action"] == "repair_proactive_safe_work_audit"
-    assert receipt["next_action_href"] == "https://myexternalbrain.com/app/queue"
-    assert receipt["operator_action_state"] == "recovery_required"
+    assert receipt["status"] == "ready_with_live_receipt"
+    assert receipt["reason"] == "ready"
+    assert receipt["next_action"] == "maintain_proactive_ooda_runtime"
+    assert receipt["next_action_href"] == "https://myexternalbrain.com/app/today"
+    assert receipt["operator_action_state"] == "clear"
     assert receipt["safe_work_audit"]["present"] is False
-    assert receipt["suppressed_projection"]["requires_recovery"] is True
-    assert receipt["suppressed_projection"]["status"] == "suppressed"
+    assert receipt["suppressed_projection"]["requires_recovery"] is False
+    assert receipt["suppressed_projection"]["status"] == "suppressed_non_material"
+    assert receipt["suppressed_projection"]["suppressed_non_material"] is True
+    assert receipt["suppressed_projection"]["suppressed_non_material_reason"] == "quiet_no_decision_ready_material"
+    assert receipt["suppressed_projection"]["blocking_reason"] == ""
+    assert receipt["suppressed_projection"]["next_action"] == ""
     assert receipt["suppressed_projection"]["suppressed_item_count"] == 2
     assert receipt["suppressed_projection"]["suppressed_safe_work_review_count"] == 2
     assert receipt["suppressed_projection"]["suppressed_projection_reasons"] == ["safe_work_audit_review"]
     assert receipt["suppressed_projection"]["suppressed_safe_work_issue_codes"] == ["no_decision_ready_material"]
     assert receipt["suppressed_projection"]["packet_projection_record_count"] == 0
     assert receipt["suppressed_projection"]["privacy"]["raw_candidate_exposed"] is False
-    assert "suppressed 2 non-deliverable safe-work item" in receipt["summary"]
+    assert "ready for operator follow-through" in receipt["summary"]
 
 
 def test_suppressed_projection_prefers_current_run_over_stale_quiet_receipt() -> None:
@@ -682,6 +686,44 @@ def test_suppressed_projection_prefers_current_run_over_stale_quiet_receipt() ->
     assert summary["run_receipt_generated_at"] == "2026-06-30T08:15:00Z"
     assert summary["suppressed_item_count"] == 0
     assert summary["suppressed_safe_work_issue_codes"] == []
+
+
+def test_suppressed_projection_with_recovery_issue_still_requires_repair() -> None:
+    module = _load_script()
+
+    summary = module._normalized_suppressed_projection(  # noqa: SLF001
+        {
+            "source": "docker_compose_exec",
+            "action_required_only_quiet_receipt": {
+                "generated_at": "2026-06-30T08:09:30Z",
+                "notification_status": "deferred",
+                "error_code": "no_user_action_required",
+                "item_count": 1,
+                "teable_sync": {
+                    "status": "synced",
+                    "projection_summary": {
+                        "record_count": 1,
+                        "suppressed_item_count": 1,
+                        "suppressed_safe_work_review_count": 1,
+                        "suppressed_projection_reasons": ["safe_work_audit_review"],
+                        "suppressed_safe_work_issue_codes": ["no_provider_safe_candidate"],
+                        "tables": {
+                            "proactive_ooda_runs": {"record_count": 1},
+                            "proactive_ooda_items": {"record_count": 0},
+                            "proactive_ooda_safe_work": {"record_count": 0},
+                        },
+                    },
+                },
+            },
+        }
+    )
+
+    assert summary["status"] == "suppressed"
+    assert summary["requires_recovery"] is True
+    assert summary["blocking_reason"] == "suppressed_safe_work_projection"
+    assert summary["next_action"] == "repair_proactive_safe_work_audit"
+    assert summary["suppressed_non_material"] is False
+    assert summary["suppressed_safe_work_issue_codes"] == ["no_provider_safe_candidate"]
 
 
 def test_materialize_proactive_ooda_operator_status_writes_recovery_receipt(tmp_path: Path, monkeypatch) -> None:

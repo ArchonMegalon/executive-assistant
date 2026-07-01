@@ -44,6 +44,14 @@ KNOWN_STATUSES = {
     "ready_with_live_receipt",
     "ready_with_recovery_action",
 }
+NON_MATERIAL_SUPPRESSED_PROJECTION_ISSUE_CODES = {
+    "no_decision_ready_material",
+    "single_official_info_link_not_decision_ready",
+}
+NON_MATERIAL_SUPPRESSED_PROJECTION_REASONS = {
+    "packet_projection_suppressed",
+    "safe_work_audit_review",
+}
 
 
 def _is_google_workspace_recovery(receipt: dict[str, Any]) -> bool:
@@ -322,10 +330,41 @@ def _verify_suppressed_projection(receipt: dict[str, Any], issues: list[str]) ->
         if str(receipt.get("operator_action_state") or "").strip() != "recovery_required":
             issues.append("suppressed_projection recovery requires operator_action_state=recovery_required")
         return
+    suppressed_count = int(suppressed.get("suppressed_item_count") or 0)
+    if suppressed_count > 0:
+        issue_codes = [
+            str(item or "").strip()
+            for item in list(suppressed.get("suppressed_safe_work_issue_codes") or [])
+            if str(item or "").strip()
+        ]
+        reasons = [
+            str(item or "").strip()
+            for item in list(suppressed.get("suppressed_projection_reasons") or [])
+            if str(item or "").strip()
+        ]
+        if status != "suppressed_non_material":
+            issues.append("non-material suppressed_projection requires status=suppressed_non_material")
+        if suppressed.get("suppressed_non_material") is not True:
+            issues.append("non-material suppressed_projection requires suppressed_non_material=true")
+        if str(suppressed.get("suppressed_non_material_reason") or "").strip() != "quiet_no_decision_ready_material":
+            issues.append("non-material suppressed_projection requires quiet_no_decision_ready_material reason")
+        if str(suppressed.get("notification_status") or "").strip() != "deferred":
+            issues.append("non-material suppressed_projection requires deferred notification_status")
+        if str(suppressed.get("error_code") or "").strip() != "no_user_action_required":
+            issues.append("non-material suppressed_projection requires no_user_action_required error_code")
+        if not issue_codes:
+            issues.append("non-material suppressed_projection requires issue codes")
+        elif any(code not in NON_MATERIAL_SUPPRESSED_PROJECTION_ISSUE_CODES for code in issue_codes):
+            issues.append("non-material suppressed_projection contains recovery issue code")
+        if any(reason not in NON_MATERIAL_SUPPRESSED_PROJECTION_REASONS for reason in reasons):
+            issues.append("non-material suppressed_projection contains recovery reason")
+        if str(suppressed.get("blocking_reason") or "").strip():
+            issues.append("non-material suppressed_projection must not set blocking_reason")
+        if str(suppressed.get("next_action") or "").strip():
+            issues.append("non-material suppressed_projection must not request next_action")
+        return
     if status == "suppressed":
         issues.append("suppressed_projection status=suppressed requires requires_recovery=true")
-    if int(suppressed.get("suppressed_item_count") or 0) > 0:
-        issues.append("suppressed_projection suppressed_item_count>0 requires requires_recovery=true")
 
 
 def _verify_current_artifact_filter(receipt: dict[str, Any], issues: list[str]) -> None:

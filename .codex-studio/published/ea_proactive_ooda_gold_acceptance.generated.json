@@ -106,12 +106,12 @@
     },
     "operator_status": {
       "contract_name": "ea.proactive_ooda_operator_status.v1",
-      "generated_at": "2026-07-01T06:43:40Z",
+      "generated_at": "2026-07-01T06:52:44Z",
       "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
       "present": true,
-      "source_git_head": "f22ce04097367c208b7094f7423b8278f23767e4",
-      "source_state_fingerprint": "917c27cfc1bf2e5a6a1d6f56489ee05a104c7d426021b321fd9ea5db0c671823",
-      "status": "ready_with_recovery_action"
+      "source_git_head": "591d5a9e7def7114cc208bf1551566f5b043f493",
+      "source_state_fingerprint": "033af787b83bce2d597c82637f0ca8cc61573b207cd1986d403f24e9d3383c7d",
+      "status": "ready_with_live_receipt"
     },
     "run_receipt": {
       "notification_status": "deferred",
@@ -133,15 +133,15 @@
       "source": "local_filesystem"
     }
   },
-  "generated_at": "2026-07-01T06:43:41Z",
+  "generated_at": "2026-07-01T06:52:51Z",
   "generated_by": "scripts/materialize_proactive_ooda_gold_acceptance.py",
   "goal_completion_claim_allowed": false,
-  "gold_claim_allowed": false,
+  "gold_claim_allowed": true,
   "head_semantics": "source_state",
-  "next_action": "repair_proactive_safe_work_audit",
-  "next_action_href": "https://myexternalbrain.com/app/queue",
-  "next_action_label": "Review safe work",
-  "next_action_method": "get",
+  "next_action": "maintain_proactive_ooda_gold_acceptance_evidence",
+  "next_action_href": "",
+  "next_action_label": "",
+  "next_action_method": "",
   "output_path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
   "proofs": {
     "action_required_only_delivery": {
@@ -300,13 +300,13 @@
       "current_artifact_filter_reason": "single_official_info_link_not_decision_ready",
       "current_artifact_filter_recorded": true,
       "current_artifact_filter_requires_recovery": false,
-      "next_action": "repair_proactive_safe_work_audit",
-      "next_action_href": "https://myexternalbrain.com/app/queue",
-      "next_action_label": "Review safe work",
+      "next_action": "",
+      "next_action_href": "https://myexternalbrain.com/app/today",
+      "next_action_label": "Open Today",
       "next_action_method": "get",
       "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
-      "present": false,
-      "reason": "suppressed_safe_work_projection",
+      "present": true,
+      "reason": "ready",
       "safe_work_audit_blocking_reason": "",
       "safe_work_audit_blocks_operator_followthrough": false,
       "safe_work_audit_delivery_allowed": false,
@@ -319,7 +319,7 @@
       "safe_work_audit_status": "",
       "source_coverage_checked": true,
       "source_coverage_excluded_event_type_counts": {
-        "property_scout_sync_completed": 39
+        "property_scout_sync_completed": 38
       },
       "source_coverage_excluded_event_types": [
         "property_scout_sync_completed"
@@ -331,8 +331,8 @@
       "source_coverage_observed_lane_count": 8,
       "source_coverage_ready": true,
       "source_coverage_status": "ready",
-      "status": "blocked",
-      "suppressed_projection_blocking_reason": "suppressed_safe_work_projection",
+      "status": "pass",
+      "suppressed_projection_blocking_reason": "",
       "suppressed_projection_inferred_from_packet_gap": false,
       "suppressed_projection_issue_codes": [
         "no_decision_ready_material"
@@ -340,15 +340,15 @@
       "suppressed_projection_item_count": 2,
       "suppressed_projection_packet_record_count": 0,
       "suppressed_projection_present": true,
-      "suppressed_projection_ready": false,
+      "suppressed_projection_ready": true,
       "suppressed_projection_reasons": [
         "safe_work_audit_review"
       ],
       "suppressed_projection_record_count": 1,
       "suppressed_projection_recorded": true,
-      "suppressed_projection_requires_recovery": true,
+      "suppressed_projection_requires_recovery": false,
       "suppressed_projection_safe_work_review_count": 2,
-      "suppressed_projection_status": "suppressed",
+      "suppressed_projection_status": "suppressed_non_material",
       "suppressed_projection_teable_status": "synced"
     },
     "routed_delivery": {
@@ -410,9 +410,7 @@
       "teable_status": "synced"
     }
   },
-  "remaining_external_proofs": [
-    "healthy operator runtime posture across approved proactive sources"
-  ],
+  "remaining_external_proofs": [],
   "rules": [
     "This receipt proves proactive OODA gold only when routed delivery, assistant-grade source intent, live browse evidence, a chosen candidate, a staged reversible artifact, mirrored Teable projection, and a redacted approval outcome are all present.",
     "Irreversible purchases, bookings, cancellations, sent messages, posts, and commitments remain consent-gated even when proactive staging is automated.",
@@ -420,11 +418,11 @@
     "Raw packet text, private links, actor identity, packet refs, and staged artifact refs must stay out of this published receipt; only hashes and coarse status may appear.",
     "Teable remains an admin projection and audit mirror rather than canonical queue or product truth."
   ],
-  "source_git_head": "f22ce04097367c208b7094f7423b8278f23767e4",
-  "source_state_fingerprint": "917c27cfc1bf2e5a6a1d6f56489ee05a104c7d426021b321fd9ea5db0c671823",
+  "source_git_head": "591d5a9e7def7114cc208bf1551566f5b043f493",
+  "source_state_fingerprint": "033af787b83bce2d597c82637f0ca8cc61573b207cd1986d403f24e9d3383c7d",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
-  "status": "blocked_operator_runtime_posture",
-  "summary": "The proactive OODA packet proofs exist, but operator runtime posture is blocked and gold cannot be claimed until approved source health is restored.",
+  "status": "pass",
+  "summary": "A proactive OODA packet has routed delivery, live browse evidence, a chosen candidate, a staged reversible artifact, mirrored Teable facts, and a redacted approved outcome.",
   "verifier_commands": [
     "make verify-proactive-ooda",
     "make verify-proactive-ooda-live-receipt",

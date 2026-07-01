@@ -152,6 +152,37 @@ def test_operator_runtime_suppressed_projection_posture_blocks_recovery() -> Non
     assert detail["next_action"] == "repair_proactive_safe_work_audit"
 
 
+def test_operator_runtime_suppressed_projection_posture_allows_non_material_quiet_suppression() -> None:
+    module = _load_script()
+
+    ready, detail = module._operator_runtime_suppressed_projection_posture(  # noqa: SLF001
+        {
+            "suppressed_projection": {
+                "present": True,
+                "status": "suppressed_non_material",
+                "requires_recovery": False,
+                "blocking_reason": "",
+                "suppressed_non_material": True,
+                "suppressed_non_material_reason": "quiet_no_decision_ready_material",
+                "suppressed_item_count": 2,
+                "suppressed_safe_work_review_count": 2,
+                "suppressed_projection_reasons": ["safe_work_audit_review"],
+                "suppressed_safe_work_issue_codes": ["no_decision_ready_material"],
+                "teable_status": "synced",
+                "projection_record_count": 1,
+                "packet_projection_record_count": 0,
+            }
+        }
+    )
+
+    assert ready is True
+    assert detail["suppressed_projection_ready"] is True
+    assert detail["suppressed_projection_requires_recovery"] is False
+    assert detail["suppressed_projection_item_count"] == 2
+    assert detail["suppressed_projection_issue_codes"] == ["no_decision_ready_material"]
+    assert detail["next_action"] == ""
+
+
 def test_materialize_proactive_ooda_gold_acceptance_passes_with_full_proof_chain(
     tmp_path: Path,
     monkeypatch,
