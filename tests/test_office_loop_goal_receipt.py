@@ -51,7 +51,8 @@ def test_office_loop_goal_receipt_materializes_seeded_local_loop(tmp_path: Path)
         assert row["status"] == "pass", key
         assert row["evidence_route"], key
     assert {"memo", "approvals", "operator"} <= set(receipt["diagnostics_summary"]["channel_loop_digest_keys"])  # type: ignore[index]
-    assert "real approved outbound action with audit trail" in receipt["remaining_external_proofs"]
+    assert "real approved outbound action with audit trail" not in receipt["remaining_external_proofs"]
+    assert "real provider failure recovered with operator-grade reason" not in receipt["remaining_external_proofs"]
     additional_goals = {row["key"]: row for row in receipt["additional_goals"]}  # type: ignore[index]
     quality_goal = additional_goals["executive_assistant_quality_readiness"]
     assert quality_goal["status"] == "active_local_goal"

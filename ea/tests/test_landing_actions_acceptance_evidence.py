@@ -233,6 +233,239 @@ def test_acceptance_materializer_does_not_derive_google_auth_action_without_requ
     assert row["accepted"] is False
 
 
+def test_acceptance_materializer_derives_commitment_closure_from_redacted_receipt(
+    tmp_path: Path,
+) -> None:
+    principal_id = "cf-email:owner@example.test"
+    commitment_id = "commitment-123"
+    source_ref = "ea-liveops:google-workspace-auth:work-inbox:20260701"
+    receipt_path = tmp_path / "acceptance.json"
+
+    receipt = acceptance_materializer.materialize_executive_assistant_acceptance_evidence(
+        receipt_path=receipt_path,
+        preserve_existing=False,
+        commitment_closure_bundle={
+            "principal_id": principal_id,
+            "commitments": [
+                {
+                    "commitment_id": commitment_id,
+                    "title": "Send Google Full Workspace auth request to the work inbox",
+                    "status": "completed",
+                    "source_json": {
+                        "source_type": "operator_commitment",
+                        "source_ref": source_ref,
+                        "resolution_code": "completed",
+                    },
+                    "updated_at": "2026-07-01T07:04:00Z",
+                }
+            ],
+            "observations": [
+                {
+                    "event_type": "commitment_created",
+                    "created_at": "2026-07-01T07:00:00Z",
+                    "source_id": commitment_id,
+                    "payload": {"kind": "commitment", "title": "Send Google auth"},
+                },
+                {
+                    "event_type": "commitment_closed",
+                    "created_at": "2026-07-01T07:04:00Z",
+                    "source_id": commitment_id,
+                    "payload": {
+                        "item_ref": f"commitment:{commitment_id}",
+                        "action": "close",
+                        "actor": "operator",
+                        "reason": "Auth request sent and audited.",
+                        "reason_code": "completed",
+                    },
+                },
+                {
+                    "event_type": "commitment_closure_evidence_receipt_recorded",
+                    "created_at": "2026-07-01T07:04:02Z",
+                    "source_id": commitment_id,
+                    "payload": {
+                        "contract_name": acceptance_materializer.COMMITMENT_CLOSURE_RECEIPT_CONTRACT,
+                        "item_ref": f"commitment:{commitment_id}",
+                        "source_ref": source_ref,
+                        "evidence_event_types": [
+                            "explicit_work_google_workspace_intake_requested",
+                            "workspace_access_session_issued",
+                            "google_connect_email_sent",
+                        ],
+                        "raw_private_context_exposed": False,
+                    },
+                },
+            ],
+        },
+    )
+
+    verification = verify_executive_assistant_acceptance_evidence(receipt_path)
+    assert verification["status"] == "pass"
+    assert "real_commitment_recovered_or_closed" in receipt["accepted_keys"]
+    row = dict(dict(receipt["acceptance_keys"])["real_commitment_recovered_or_closed"])
+    assert row["source_kind"] == "commitment_closure_live_observation"
+    assert row["claim_boundary"] == "proves_one_real_internal_commitment_was_closed_with_redacted_evidence_receipt_only"
+    assert row["derived_from_contract"] == "ea.commitment_closure_observations.v1"
+    assert row["raw_commitment_text_exposed"] is False
+    assert row["raw_private_context_exposed"] is False
+    receipt_text = receipt_path.read_text(encoding="utf-8")
+    assert principal_id not in receipt_text
+    assert commitment_id not in receipt_text
+    assert source_ref not in receipt_text
+    assert "Send Google Full Workspace auth request" not in receipt_text
+
+
+def test_acceptance_materializer_does_not_derive_commitment_closure_without_receipt(
+    tmp_path: Path,
+) -> None:
+    receipt_path = tmp_path / "acceptance.json"
+
+    receipt = acceptance_materializer.materialize_executive_assistant_acceptance_evidence(
+        receipt_path=receipt_path,
+        preserve_existing=False,
+        commitment_closure_bundle={
+            "principal_id": "cf-email:owner@example.test",
+            "commitments": [
+                {
+                    "commitment_id": "commitment-123",
+                    "status": "completed",
+                    "source_json": {"source_ref": "source-ref"},
+                    "updated_at": "2026-07-01T07:04:00Z",
+                }
+            ],
+            "observations": [
+                {
+                    "event_type": "commitment_closed",
+                    "created_at": "2026-07-01T07:04:00Z",
+                    "source_id": "commitment-123",
+                    "payload": {
+                        "item_ref": "commitment:commitment-123",
+                        "action": "close",
+                        "actor": "operator",
+                    },
+                }
+            ],
+        },
+    )
+
+    verification = verify_executive_assistant_acceptance_evidence(receipt_path)
+    assert verification["status"] == "pass"
+    assert "real_commitment_recovered_or_closed" in receipt["blocked_keys"]
+
+
+def test_acceptance_materializer_derives_provider_runtime_recovery_from_receipt_pair(
+    tmp_path: Path,
+) -> None:
+    receipt_path = tmp_path / "acceptance.json"
+
+    receipt = acceptance_materializer.materialize_executive_assistant_acceptance_evidence(
+        receipt_path=receipt_path,
+        preserve_existing=False,
+        provider_runtime_recovery_bundle={
+            "before_operator_status": {
+                "contract_name": "ea.proactive_ooda_operator_status.v1",
+                "status": "ready_with_recovery_action",
+                "generated_at": "2026-07-01T06:40:00Z",
+                "next_action": "repair_proactive_safe_work_audit",
+                "operator_action_state": "recovery_required",
+                "suppressed_projection": {
+                    "requires_recovery": True,
+                    "privacy": {
+                        "raw_candidate_exposed": False,
+                        "raw_draft_text_exposed": False,
+                        "raw_packet_text_exposed": False,
+                        "raw_private_link_exposed": False,
+                    },
+                },
+            },
+            "after_operator_status": {
+                "contract_name": "ea.proactive_ooda_operator_status.v1",
+                "status": "ready_with_live_receipt",
+                "generated_at": "2026-07-01T06:52:44Z",
+                "next_action": "maintain_proactive_ooda_runtime",
+                "operator_action_state": "clear",
+                "suppressed_projection": {
+                    "requires_recovery": False,
+                    "privacy": {
+                        "raw_candidate_exposed": False,
+                        "raw_draft_text_exposed": False,
+                        "raw_packet_text_exposed": False,
+                        "raw_private_link_exposed": False,
+                    },
+                },
+            },
+            "before_gold_acceptance": {
+                "contract_name": "ea.proactive_ooda_gold_acceptance.v1",
+                "status": "blocked_operator_runtime_posture",
+                "generated_at": "2026-07-01T06:40:10Z",
+                "next_action": "repair_proactive_safe_work_audit",
+                "remaining_external_proofs": ["healthy operator runtime posture across approved proactive sources"],
+            },
+            "after_gold_acceptance": {
+                "contract_name": "ea.proactive_ooda_gold_acceptance.v1",
+                "status": "pass",
+                "generated_at": "2026-07-01T06:52:51Z",
+                "gold_claim_allowed": True,
+                "next_action": "maintain_proactive_ooda_gold_acceptance_evidence",
+                "remaining_external_proofs": [],
+            },
+        },
+    )
+
+    verification = verify_executive_assistant_acceptance_evidence(receipt_path)
+    assert verification["status"] == "pass"
+    assert "real_provider_failure_recovered" in receipt["accepted_keys"]
+    row = dict(dict(receipt["acceptance_keys"])["real_provider_failure_recovered"])
+    assert row["source_kind"] == "proactive_runtime_recovery_receipt_pair"
+    assert row["claim_boundary"] == "proves_recovery_of_one_proactive_runtime_operator_posture_blocker_only"
+    assert row["before_status"] == "ready_with_recovery_action"
+    assert row["after_status"] == "ready_with_live_receipt"
+    assert row["before_gold_status"] == "blocked_operator_runtime_posture"
+    assert row["after_gold_status"] == "pass"
+    assert row["raw_private_context_exposed"] is False
+
+
+def test_acceptance_materializer_does_not_derive_provider_recovery_without_clear_after_state(
+    tmp_path: Path,
+) -> None:
+    receipt_path = tmp_path / "acceptance.json"
+
+    receipt = acceptance_materializer.materialize_executive_assistant_acceptance_evidence(
+        receipt_path=receipt_path,
+        preserve_existing=False,
+        provider_runtime_recovery_bundle={
+            "before_operator_status": {
+                "contract_name": "ea.proactive_ooda_operator_status.v1",
+                "status": "ready_with_recovery_action",
+                "next_action": "repair_proactive_safe_work_audit",
+                "operator_action_state": "recovery_required",
+                "suppressed_projection": {"requires_recovery": True},
+            },
+            "after_operator_status": {
+                "contract_name": "ea.proactive_ooda_operator_status.v1",
+                "status": "ready_with_recovery_action",
+                "next_action": "repair_proactive_safe_work_audit",
+                "operator_action_state": "recovery_required",
+                "suppressed_projection": {"requires_recovery": True},
+            },
+            "before_gold_acceptance": {
+                "contract_name": "ea.proactive_ooda_gold_acceptance.v1",
+                "status": "blocked_operator_runtime_posture",
+                "next_action": "repair_proactive_safe_work_audit",
+            },
+            "after_gold_acceptance": {
+                "contract_name": "ea.proactive_ooda_gold_acceptance.v1",
+                "status": "blocked_operator_runtime_posture",
+                "gold_claim_allowed": False,
+                "remaining_external_proofs": ["healthy operator runtime posture across approved proactive sources"],
+            },
+        },
+    )
+
+    verification = verify_executive_assistant_acceptance_evidence(receipt_path)
+    assert verification["status"] == "pass"
+    assert "real_provider_failure_recovered" in receipt["blocked_keys"]
+
+
 def test_landing_quality_receipt_refresh_preserves_acceptance_capture_contract(
     tmp_path: Path,
     monkeypatch,

@@ -176,11 +176,11 @@
   },
   "evidence_receipts": {
     "executive_assistant_acceptance_evidence": {
-      "accepted_keys_count": 3,
+      "accepted_keys_count": 5,
       "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
       "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
       "present": true,
-      "status": "partial_real_world_acceptance_evidence"
+      "status": "ready_real_world_acceptance_evidence"
     },
     "proactive_ooda_gold_acceptance": {
       "approval_capture_surface_ready": false,
@@ -230,7 +230,7 @@
     }
   },
   "external_provider_runtime_verified": false,
-  "generated_at": "2026-07-01T06:53:09Z",
+  "generated_at": "2026-07-01T07:19:53Z",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
   "live_daily_use_verified": false,
@@ -255,8 +255,6 @@
   },
   "real_operator_acceptance_verified": false,
   "remaining_external_proofs": [
-    "real commitment recovered or closed with an evidence receipt",
-    "real provider failure recovered with operator-grade reason",
     "real weekly signal-to-decision review accepted by the operator",
     "closed-loop signal-to-decision follow-through receipt accepted by the operator",
     "real whole-project scope gap audit reviewed against the current product spine"
@@ -285,8 +283,8 @@
   "seeded_fixture": {
     "raw_private_context_exposed": false
   },
-  "source_git_head": "591d5a9e7def7114cc208bf1551566f5b043f493",
-  "source_state_fingerprint": "033af787b83bce2d597c82637f0ca8cc61573b207cd1986d403f24e9d3383c7d",
+  "source_git_head": "eca36cbebe8360144ae032576a928c5f28107fc7",
+  "source_state_fingerprint": "d1d090ce304f665de1213c4151629b421f02a90b879e7d7ba1c030a6c43f7574",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready_local_evidence"
 }

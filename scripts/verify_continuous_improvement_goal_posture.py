@@ -23,6 +23,7 @@ KNOWN_STATUSES = {
     "ready_local_audit",
     "ready_local_direction",
     "ready_local_packet_pending_operator_acceptance",
+    "ready_for_good_executive_assistant_claim_review",
     "partial_real_signal_to_decision_closure",
     "ready_for_live_epub_delivery_test",
     "audiobookshelf_imported",

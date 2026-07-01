@@ -45,18 +45,18 @@
           "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "591d5a9e7def7114cc208bf1551566f5b043f493",
-          "source_state_fingerprint": "033af787b83bce2d597c82637f0ca8cc61573b207cd1986d403f24e9d3383c7d",
-          "status": "partial_real_world_acceptance_evidence"
+          "source_git_head": "eca36cbebe8360144ae032576a928c5f28107fc7",
+          "source_state_fingerprint": "d1d090ce304f665de1213c4151629b421f02a90b879e7d7ba1c030a6c43f7574",
+          "status": "ready_real_world_acceptance_evidence"
         },
         {
           "contract_name": "ea.executive_assistant_quality_readiness.v1",
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "591d5a9e7def7114cc208bf1551566f5b043f493",
-          "source_state_fingerprint": "033af787b83bce2d597c82637f0ca8cc61573b207cd1986d403f24e9d3383c7d",
-          "status": "blocked_real_world_acceptance"
+          "source_git_head": "eca36cbebe8360144ae032576a928c5f28107fc7",
+          "source_state_fingerprint": "d1d090ce304f665de1213c4151629b421f02a90b879e7d7ba1c030a6c43f7574",
+          "status": "ready_for_good_executive_assistant_claim_review"
         }
       ],
       "status": "satisfied",
@@ -137,8 +137,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "591d5a9e7def7114cc208bf1551566f5b043f493",
-          "source_state_fingerprint": "033af787b83bce2d597c82637f0ca8cc61573b207cd1986d403f24e9d3383c7d",
+          "source_git_head": "eca36cbebe8360144ae032576a928c5f28107fc7",
+          "source_state_fingerprint": "d1d090ce304f665de1213c4151629b421f02a90b879e7d7ba1c030a6c43f7574",
           "status": "pass"
         },
         {
@@ -146,8 +146,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "591d5a9e7def7114cc208bf1551566f5b043f493",
-          "source_state_fingerprint": "033af787b83bce2d597c82637f0ca8cc61573b207cd1986d403f24e9d3383c7d",
+          "source_git_head": "eca36cbebe8360144ae032576a928c5f28107fc7",
+          "source_state_fingerprint": "d1d090ce304f665de1213c4151629b421f02a90b879e7d7ba1c030a6c43f7574",
           "status": "ready_with_live_receipt"
         }
       ],
@@ -156,9 +156,9 @@
     },
     {
       "action_context": {
-        "delivery_policy": "action_required_only",
+        "delivery_policy": "queue_only",
         "instruction": "Record redacted evidence that a real commitment was recovered or closed.",
-        "interruption_budget": "action_required",
+        "interruption_budget": "none",
         "irreversible_actions_consent_gated": true,
         "kind": "real_world_acceptance_capture",
         "next_action_form_href": "/admin/actions/acceptance-evidence?return_to=%2Fadmin%2Fgoals&proof_key=real_commitment_recovered_or_closed",
@@ -174,8 +174,8 @@
         "raw_private_context_exposed": false,
         "raw_secret_exposed": false,
         "raw_token_exposed": false,
-        "telegram_push_allowed": true,
-        "user_action_required": true
+        "telegram_push_allowed": false,
+        "user_action_required": false
       },
       "capture_surfaces": [
         ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
@@ -199,21 +199,21 @@
           "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "591d5a9e7def7114cc208bf1551566f5b043f493",
-          "source_state_fingerprint": "033af787b83bce2d597c82637f0ca8cc61573b207cd1986d403f24e9d3383c7d",
-          "status": "partial_real_world_acceptance_evidence"
+          "source_git_head": "eca36cbebe8360144ae032576a928c5f28107fc7",
+          "source_state_fingerprint": "d1d090ce304f665de1213c4151629b421f02a90b879e7d7ba1c030a6c43f7574",
+          "status": "ready_real_world_acceptance_evidence"
         },
         {
           "contract_name": "ea.executive_assistant_quality_readiness.v1",
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "591d5a9e7def7114cc208bf1551566f5b043f493",
-          "source_state_fingerprint": "033af787b83bce2d597c82637f0ca8cc61573b207cd1986d403f24e9d3383c7d",
-          "status": "blocked_real_world_acceptance"
+          "source_git_head": "eca36cbebe8360144ae032576a928c5f28107fc7",
+          "source_state_fingerprint": "d1d090ce304f665de1213c4151629b421f02a90b879e7d7ba1c030a6c43f7574",
+          "status": "ready_for_good_executive_assistant_claim_review"
         }
       ],
-      "status": "pending_real_world_evidence",
+      "status": "satisfied",
       "title": "Real commitment recovered or closed"
     },
     {
@@ -261,18 +261,18 @@
           "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "591d5a9e7def7114cc208bf1551566f5b043f493",
-          "source_state_fingerprint": "033af787b83bce2d597c82637f0ca8cc61573b207cd1986d403f24e9d3383c7d",
-          "status": "partial_real_world_acceptance_evidence"
+          "source_git_head": "eca36cbebe8360144ae032576a928c5f28107fc7",
+          "source_state_fingerprint": "d1d090ce304f665de1213c4151629b421f02a90b879e7d7ba1c030a6c43f7574",
+          "status": "ready_real_world_acceptance_evidence"
         },
         {
           "contract_name": "ea.executive_assistant_quality_readiness.v1",
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "591d5a9e7def7114cc208bf1551566f5b043f493",
-          "source_state_fingerprint": "033af787b83bce2d597c82637f0ca8cc61573b207cd1986d403f24e9d3383c7d",
-          "status": "blocked_real_world_acceptance"
+          "source_git_head": "eca36cbebe8360144ae032576a928c5f28107fc7",
+          "source_state_fingerprint": "d1d090ce304f665de1213c4151629b421f02a90b879e7d7ba1c030a6c43f7574",
+          "status": "ready_for_good_executive_assistant_claim_review"
         }
       ],
       "status": "satisfied",
@@ -280,9 +280,9 @@
     },
     {
       "action_context": {
-        "delivery_policy": "action_required_only",
+        "delivery_policy": "queue_only",
         "instruction": "Record redacted evidence that a real provider failure was recovered with an operator-grade reason.",
-        "interruption_budget": "action_required",
+        "interruption_budget": "none",
         "irreversible_actions_consent_gated": true,
         "kind": "real_world_acceptance_capture",
         "next_action_form_href": "/admin/actions/acceptance-evidence?return_to=%2Fadmin%2Fgoals&proof_key=real_provider_failure_recovered",
@@ -298,8 +298,8 @@
         "raw_private_context_exposed": false,
         "raw_secret_exposed": false,
         "raw_token_exposed": false,
-        "telegram_push_allowed": true,
-        "user_action_required": true
+        "telegram_push_allowed": false,
+        "user_action_required": false
       },
       "capture_surfaces": [
         ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
@@ -323,21 +323,21 @@
           "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "591d5a9e7def7114cc208bf1551566f5b043f493",
-          "source_state_fingerprint": "033af787b83bce2d597c82637f0ca8cc61573b207cd1986d403f24e9d3383c7d",
-          "status": "partial_real_world_acceptance_evidence"
+          "source_git_head": "eca36cbebe8360144ae032576a928c5f28107fc7",
+          "source_state_fingerprint": "d1d090ce304f665de1213c4151629b421f02a90b879e7d7ba1c030a6c43f7574",
+          "status": "ready_real_world_acceptance_evidence"
         },
         {
           "contract_name": "ea.executive_assistant_quality_readiness.v1",
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "591d5a9e7def7114cc208bf1551566f5b043f493",
-          "source_state_fingerprint": "033af787b83bce2d597c82637f0ca8cc61573b207cd1986d403f24e9d3383c7d",
-          "status": "blocked_real_world_acceptance"
+          "source_git_head": "eca36cbebe8360144ae032576a928c5f28107fc7",
+          "source_state_fingerprint": "d1d090ce304f665de1213c4151629b421f02a90b879e7d7ba1c030a6c43f7574",
+          "status": "ready_for_good_executive_assistant_claim_review"
         }
       ],
-      "status": "pending_real_world_evidence",
+      "status": "satisfied",
       "title": "Real provider failure recovered"
     },
     {
@@ -607,8 +607,7 @@
   "blocking_reasons": [
     "deliver:manfred_speech=blocked_realtime_prerequisites",
     "deliver:telegram_audiobook=blocked",
-    "deliver:whatsapp_audiobook=blocked",
-    "prove=blocked_real_world_acceptance"
+    "deliver:whatsapp_audiobook=blocked"
   ],
   "contract_name": "ea.continuous_improvement_goal_posture.v1",
   "execution_lenses": [
@@ -618,7 +617,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-07-01T06:53:14Z",
+  "generated_at": "2026-07-01T07:19:53Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -713,8 +712,8 @@
           "path": ".codex-studio/published/ea_office_loop_goal.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "591d5a9e7def7114cc208bf1551566f5b043f493",
-          "source_state_fingerprint": "033af787b83bce2d597c82637f0ca8cc61573b207cd1986d403f24e9d3383c7d",
+          "source_git_head": "eca36cbebe8360144ae032576a928c5f28107fc7",
+          "source_state_fingerprint": "d1d090ce304f665de1213c4151629b421f02a90b879e7d7ba1c030a6c43f7574",
           "status": "ready_local_evidence"
         }
       ],
@@ -888,20 +887,20 @@
     {
       "components": [],
       "key": "prove",
-      "next_action": "collect_redacted_real_world_acceptance_evidence",
+      "next_action": "review_good_executive_assistant_claim",
       "source_receipts": [
         {
           "contract_name": "ea.executive_assistant_quality_readiness.v1",
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "591d5a9e7def7114cc208bf1551566f5b043f493",
-          "source_state_fingerprint": "033af787b83bce2d597c82637f0ca8cc61573b207cd1986d403f24e9d3383c7d",
-          "status": "blocked_real_world_acceptance"
+          "source_git_head": "eca36cbebe8360144ae032576a928c5f28107fc7",
+          "source_state_fingerprint": "d1d090ce304f665de1213c4151629b421f02a90b879e7d7ba1c030a6c43f7574",
+          "status": "ready_for_good_executive_assistant_claim_review"
         }
       ],
-      "status": "blocked_real_world_acceptance",
-      "status_class": "blocking",
+      "status": "ready_for_good_executive_assistant_claim_review",
+      "status_class": "progress",
       "summary": "Keep local route confidence separate from real operator/principal acceptance before calling EA a good executive assistant.",
       "title": "Real-world acceptance and claim limits",
       "verifier_commands": [
@@ -909,80 +908,16 @@
       ]
     }
   ],
-  "next_action": "record_redacted_real_commitment_recovery_evidence",
-  "next_action_form_href": "/admin/actions/acceptance-evidence?return_to=%2Fadmin%2Fgoals&proof_key=real_commitment_recovered_or_closed",
-  "next_action_form_label": "Record a real-use outcome",
+  "next_action": "record_weekly_signal_to_decision_review_acceptance",
+  "next_action_form_href": "/admin/actions/signal-to-decision-evidence?return_to=%2Fadmin%2Fgoals&evidence_part=review",
+  "next_action_form_label": "Record signal review evidence",
   "next_action_form_method": "get",
-  "next_action_href": "/admin/actions/acceptance-evidence",
-  "next_action_instruction": "Record redacted evidence that a real commitment was recovered or closed.",
-  "next_action_key": "ea_real_commitment_recovered_or_closed",
-  "next_action_label": "Record a real-use outcome",
+  "next_action_href": "/admin/actions/signal-to-decision-evidence",
+  "next_action_instruction": "Record redacted evidence that the weekly signal-to-decision review was actually reviewed.",
+  "next_action_key": "weekly_signal_to_decision_review_acceptance",
+  "next_action_label": "Record signal review evidence",
   "next_action_method": "post",
   "operator_action_queue": [
-    {
-      "callback_tokens_exposed": false,
-      "delivery_policy": "action_required_only",
-      "evidence_kind": "real_commitment_recovery_evidence",
-      "instruction": "Record redacted evidence that a real commitment was recovered or closed.",
-      "interruption_budget": "action_required",
-      "irreversible_actions_consent_gated": true,
-      "key": "ea_real_commitment_recovered_or_closed",
-      "lens": "prove",
-      "next_action": "record_redacted_real_commitment_recovery_evidence",
-      "next_action_form_href": "/admin/actions/acceptance-evidence?return_to=%2Fadmin%2Fgoals&proof_key=real_commitment_recovered_or_closed",
-      "next_action_form_label": "Record a real-use outcome",
-      "next_action_form_method": "get",
-      "next_action_href": "/admin/actions/acceptance-evidence",
-      "next_action_label": "Record a real-use outcome",
-      "next_action_method": "post",
-      "non_action_progress_push_allowed": false,
-      "proof_key": "real_commitment_recovered_or_closed",
-      "quiet_hours_respected": true,
-      "raw_acceptance_text_exposed": false,
-      "raw_actor_identity_exposed": false,
-      "raw_chat_ids_exposed": false,
-      "raw_object_reference_exposed": false,
-      "raw_private_context_exposed": false,
-      "raw_secret_exposed": false,
-      "raw_token_exposed": false,
-      "raw_voice_ids_exposed": false,
-      "required_next_receipt": "real commitment recovered or closed with an evidence receipt",
-      "telegram_push_allowed": true,
-      "title": "Real commitment recovered or closed",
-      "user_action_required": true
-    },
-    {
-      "callback_tokens_exposed": false,
-      "delivery_policy": "action_required_only",
-      "evidence_kind": "provider_failure_recovery_evidence",
-      "instruction": "Record redacted evidence that a real provider failure was recovered with an operator-grade reason.",
-      "interruption_budget": "action_required",
-      "irreversible_actions_consent_gated": true,
-      "key": "ea_real_provider_failure_recovered",
-      "lens": "prove",
-      "next_action": "record_redacted_provider_failure_recovery_evidence",
-      "next_action_form_href": "/admin/actions/acceptance-evidence?return_to=%2Fadmin%2Fgoals&proof_key=real_provider_failure_recovered",
-      "next_action_form_label": "Record a real-use outcome",
-      "next_action_form_method": "get",
-      "next_action_href": "/admin/actions/acceptance-evidence",
-      "next_action_label": "Record a real-use outcome",
-      "next_action_method": "post",
-      "non_action_progress_push_allowed": false,
-      "proof_key": "real_provider_failure_recovered",
-      "quiet_hours_respected": true,
-      "raw_acceptance_text_exposed": false,
-      "raw_actor_identity_exposed": false,
-      "raw_chat_ids_exposed": false,
-      "raw_object_reference_exposed": false,
-      "raw_private_context_exposed": false,
-      "raw_secret_exposed": false,
-      "raw_token_exposed": false,
-      "raw_voice_ids_exposed": false,
-      "required_next_receipt": "real provider failure recovered with operator-grade reason",
-      "telegram_push_allowed": true,
-      "title": "Real provider failure recovered",
-      "user_action_required": true
-    },
     {
       "callback_tokens_exposed": false,
       "delivery_policy": "action_required_only",
@@ -1195,12 +1130,10 @@
     "telegram_push_allowed_for_next_action": true
   },
   "output_path": ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json",
-  "overall_status": "blocked_real_world_acceptance",
+  "overall_status": "active_with_blockers",
   "real_use_claim_allowed": false,
   "required_next_receipts": [
     "real weekly signal-to-decision review acceptance receipt",
-    "real commitment recovered or closed with an evidence receipt",
-    "real provider failure recovered with operator-grade reason",
     "fresh-host Teable recovery drill receipt mirrored into the repo",
     "consented Manfred STT/TTS realtime conversation proof",
     "passing Telegram audiobook live delivery receipt",
@@ -1216,7 +1149,7 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "591d5a9e7def7114cc208bf1551566f5b043f493",
-  "source_state_fingerprint": "033af787b83bce2d597c82637f0ca8cc61573b207cd1986d403f24e9d3383c7d",
+  "source_git_head": "eca36cbebe8360144ae032576a928c5f28107fc7",
+  "source_state_fingerprint": "d1d090ce304f665de1213c4151629b421f02a90b879e7d7ba1c030a6c43f7574",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }
