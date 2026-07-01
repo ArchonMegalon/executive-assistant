@@ -291,7 +291,19 @@ def build_proactive_ooda_approval_outcome_projection_records(
         "approval_outcome_recorded_at": _compact_text(outcome.get("recorded_at"), 64),
         "approval_outcome_actor_sha256": _compact_text(outcome.get("actor_sha256"), 80),
         "approval_outcome_evidence_sha256": _compact_text(outcome.get("evidence_sha256"), 80),
+        "follow_through_recorded": bool(outcome.get("approval_outcome_recorded")),
+        "follow_through_status": _compact_text(outcome.get("status"), 80),
+        "follow_through_receipt_sha256": _follow_through_receipt_hash(outcome),
     }
+    approval_lifecycle = _projection_lifecycle_fields(
+        scope="approval_outcome",
+        projection_id=_approval_outcome_projection_id(outcome),
+        receipt=receipt,
+        approval_surface=approval_surface,
+        approval_outcome=outcome,
+        approval_required=True,
+        blockers=_projection_blockers(receipt=receipt, approval_surface=approval_surface),
+    )
     run_summary_fields = {
         **summary_fields,
         "delivery_next_action": _compact_text(_receipt_value(receipt, "delivery_next_action"), 120),
@@ -303,6 +315,8 @@ def build_proactive_ooda_approval_outcome_projection_records(
         "approval_surface_callback_token_sha256": _compact_text(approval_surface.get("callback_token_sha256"), 80),
         "approval_surface_message_count": len(approval_surface_message_ids),
         "approval_surface_message_ids": approval_surface_message_ids,
+        "delivery_route": _projection_delivery_route(receipt),
+        **approval_lifecycle,
     }
     rows: dict[str, list[dict[str, object]]] = {
         "proactive_ooda_runs": [{"projection_id": run_projection_id, **run_summary_fields}],
@@ -313,6 +327,27 @@ def build_proactive_ooda_approval_outcome_projection_records(
                 "safe_work_projection_id": safe_work_projection_id,
                 "sync_version": PROACTIVE_OODA_TEABLE_SYNC_VERSION,
                 "principal_id_hash": principal_id_hash,
+                "approval_state": _approval_state(
+                    approval_surface=approval_surface,
+                    approval_outcome=outcome,
+                    approval_required=True,
+                    receipt=receipt,
+                ),
+                "current_or_stale": _current_or_stale(approval_surface=approval_surface, approval_outcome=outcome),
+                "resume_cursor": _resume_cursor(
+                    scope="approval_outcome",
+                    projection_id=_approval_outcome_projection_id(outcome),
+                    approval_state=_approval_state(
+                        approval_surface=approval_surface,
+                        approval_outcome=outcome,
+                        approval_required=True,
+                        receipt=receipt,
+                    ),
+                    next_action=_receipt_value(receipt, "delivery_next_action"),
+                ),
+                "follow_through_recorded": bool(outcome.get("approval_outcome_recorded")),
+                "follow_through_status": _compact_text(outcome.get("status"), 80),
+                "follow_through_receipt_sha256": _follow_through_receipt_hash(outcome),
                 "outcome": _compact_text(outcome.get("outcome"), 80),
                 "accepted": bool(outcome.get("accepted")),
                 "status": _compact_text(outcome.get("status"), 80),
@@ -322,6 +357,7 @@ def build_proactive_ooda_approval_outcome_projection_records(
                 "actor_sha256": _compact_text(outcome.get("actor_sha256"), 80),
                 "packet_ref_sha256": _compact_text(outcome.get("packet_ref_sha256"), 80),
                 "staged_artifact_sha256": _compact_text(outcome.get("staged_artifact_sha256"), 80),
+                "staged_artifact_kind": _compact_text(outcome.get("staged_artifact_kind"), 80),
                 "privacy_raw_principal_id_stored": False,
                 "privacy_raw_actor_exposed": False,
                 "privacy_raw_evidence_exposed": False,
@@ -465,6 +501,14 @@ def _run_projection_row(
         for item in list(approval_surface.get("message_ids") or [])
         if str(item or "").strip()
     ]
+    lifecycle = _projection_lifecycle_fields(
+        scope="run",
+        projection_id=run_projection_id,
+        receipt=receipt,
+        approval_surface=approval_surface,
+        approval_required=any(item.approval_required for item in digest.items),
+        blockers=_projection_blockers(receipt=receipt, approval_surface=approval_surface),
+    )
     delivery_next_action_surface = _next_action_surface_fields(
         receipt.delivery_next_action,
         prefix="delivery_next_action",
@@ -490,6 +534,8 @@ def _run_projection_row(
         "delivery_recovery_hint": _compact_text(receipt.delivery_recovery_hint, 500),
         "delivery_next_action": _compact_text(receipt.delivery_next_action, 120),
         **delivery_next_action_surface,
+        "delivery_route": _projection_delivery_route(receipt),
+        **lifecycle,
         "telegram_message_count": len(receipt.telegram_message_ids),
         "telegram_message_ids": list(receipt.telegram_message_ids),
         "approval_surface_present": bool(approval_surface.get("present")),
@@ -536,6 +582,16 @@ def _item_projection_row(
     receipt_details = dict(safe_work_result.get("execution_receipt") or {}) if safe_work_result else {}
     context_fit = dict(receipt_details.get("context_fit_receipt") or {})
     search_queries = _search_query_texts(receipt_details)
+    lifecycle = _projection_lifecycle_fields(
+        scope="item",
+        projection_id=item_projection_id,
+        receipt=receipt,
+        approval_surface=_receipt_approval_surface(receipt),
+        approval_required=item.approval_required,
+        blockers=_projection_blockers(receipt=receipt, safe_work_result=safe_work_result),
+    )
+    staged_action_url = _compact_text(safe_work_result.get("staged_action_url"), 500)
+    staged_artifact_ref_hash = _safe_work_result_ref_hash(safe_work_result)
     return {
         "projection_id": item_projection_id,
         "run_projection_id": run_projection_id,
@@ -564,7 +620,11 @@ def _item_projection_row(
         "safe_work_status": _compact_text(safe_work_result.get("status"), 80),
         "safe_work_work_type": _compact_text(safe_work_result.get("work_type"), 80),
         "safe_work_summary": _compact_text(safe_work_result.get("summary"), 500),
-        "staged_action_url": _compact_text(safe_work_result.get("staged_action_url"), 500),
+        "staged_action_url": staged_action_url,
+        "staged_link_url_sha256": _hash_value(staged_action_url) if staged_action_url else "",
+        "staged_artifact_kind": _compact_text(_normalized_stage_kind(item.stage_kind) or recommended.get("kind"), 80),
+        "staged_artifact_ref_sha256": staged_artifact_ref_hash,
+        **lifecycle,
         "recommended_kind": _compact_text(recommended.get("kind"), 80),
         "recommended_label": _compact_text(
             recommended_value.get("label") or recommended_value.get("title") or recommended.get("value"),
@@ -610,6 +670,20 @@ def _safe_work_projection_row(
     search_queries = _search_query_texts(receipt_details)
     risks = [str(item).strip() for item in safe_work_result.get("risks_or_tradeoffs") or [] if str(item).strip()]
     projection_id = _safe_work_projection_id(safe_work_result=safe_work_result, item_projection_id=item_projection_id)
+    lifecycle = _projection_lifecycle_fields(
+        scope="safe_work",
+        projection_id=projection_id,
+        receipt=receipt,
+        approval_surface=_receipt_approval_surface(receipt),
+        approval_required=bool(safe_work_result.get("approval_prompt")),
+        blockers=_projection_blockers(receipt=receipt, safe_work_result=safe_work_result),
+    )
+    staged_action_url = _compact_text(safe_work_result.get("staged_action_url"), 500)
+    stage_payload = safe_work_result.get("stage") if isinstance(safe_work_result.get("stage"), Mapping) else {}
+    staged_artifact_kind = _compact_text(
+        safe_work_result.get("work_type") or recommended.get("kind") or dict(stage_payload).get("kind"),
+        80,
+    )
     return {
         "projection_id": projection_id,
         "run_projection_id": run_projection_id,
@@ -630,7 +704,11 @@ def _safe_work_projection_row(
             recommended_value.get("url") or recommended_value.get("link") or recommended_value.get("href"),
             500,
         ),
-        "staged_action_url": _compact_text(safe_work_result.get("staged_action_url"), 500),
+        "staged_action_url": staged_action_url,
+        "staged_link_url_sha256": _hash_value(staged_action_url) if staged_action_url else "",
+        "staged_artifact_kind": staged_artifact_kind,
+        "staged_artifact_ref_sha256": _safe_work_result_ref_hash(safe_work_result),
+        **lifecycle,
         "shortlist_count": len(shortlist),
         "shortlist": [_shortlist_projection_item(candidate) for candidate in shortlist[:5]],
         "comparison_row_count": len(comparison_rows),
@@ -687,6 +765,15 @@ def _approval_surface_projection_row(
         for item in list(approval_surface.get("message_ids") or [])
         if str(item or "").strip()
     ]
+    lifecycle = _projection_lifecycle_fields(
+        scope="approval_surface",
+        projection_id=_approval_surface_projection_id(approval_surface),
+        receipt=receipt,
+        approval_surface=approval_surface,
+        approval_outcome=outcome,
+        approval_required=True,
+        blockers=_projection_blockers(receipt=receipt, approval_surface=approval_surface),
+    )
     return {
         "projection_id": _approval_surface_projection_id(approval_surface),
         "run_projection_id": run_projection_id,
@@ -701,6 +788,9 @@ def _approval_surface_projection_row(
         "staged_artifact_sha256": _compact_text(approval_surface.get("staged_artifact_sha256"), 80),
         "approval_prompt_sha256": _compact_text(approval_surface.get("approval_prompt_sha256"), 80),
         "staged_action_url_sha256": _compact_text(approval_surface.get("staged_action_url_sha256"), 80),
+        "staged_link_url_sha256": _compact_text(approval_surface.get("staged_action_url_sha256"), 80),
+        "staged_artifact_kind": _compact_text(outcome.get("staged_artifact_kind"), 80),
+        **lifecycle,
         "inline_button_count": int(approval_surface.get("inline_button_count") or 0),
         "url_button_count": int(approval_surface.get("url_button_count") or 0),
         "message_count": len(message_ids),
@@ -717,6 +807,180 @@ def _approval_surface_projection_row(
         "privacy_raw_approval_prompt_stored": False,
         "privacy_raw_staged_action_url_stored": False,
     }
+
+
+def _projection_lifecycle_fields(
+    *,
+    scope: str,
+    projection_id: str,
+    receipt: ProactiveOodaRunReceipt | Mapping[str, Any],
+    approval_surface: Mapping[str, Any] | None = None,
+    approval_outcome: Mapping[str, Any] | None = None,
+    approval_required: bool = False,
+    blockers: Iterable[str] = (),
+) -> dict[str, object]:
+    surface = dict(approval_surface or {})
+    outcome = dict(approval_outcome or {})
+    approval_state = _approval_state(
+        approval_surface=surface,
+        approval_outcome=outcome,
+        approval_required=approval_required,
+        receipt=receipt,
+    )
+    current_or_stale = _current_or_stale(approval_surface=surface, approval_outcome=outcome)
+    next_action = _receipt_value(receipt, "delivery_next_action")
+    normalized_blockers = [_compact_text(item, 160) for item in blockers if str(item or "").strip()]
+    action_required_reason = _action_required_reason(
+        approval_state=approval_state,
+        next_action=next_action,
+        blockers=normalized_blockers,
+    )
+    return {
+        "approval_state": approval_state,
+        "user_action_required": bool(action_required_reason),
+        "action_required_reason": action_required_reason,
+        "blockers": normalized_blockers[:8],
+        "current_or_stale": current_or_stale,
+        "resume_cursor": _resume_cursor(
+            scope=scope,
+            projection_id=projection_id,
+            approval_state=approval_state,
+            next_action=next_action,
+        ),
+        "follow_through_recorded": bool(outcome.get("approval_outcome_recorded")),
+        "follow_through_status": _compact_text(outcome.get("status"), 80) if outcome else "not_recorded",
+        "follow_through_receipt_sha256": _follow_through_receipt_hash(outcome),
+    }
+
+
+def _projection_delivery_route(receipt: ProactiveOodaRunReceipt | Mapping[str, Any]) -> str:
+    channel = _receipt_value(receipt, "delivery_channel")
+    transport = _receipt_value(receipt, "delivery_transport")
+    selected_by = _receipt_value(receipt, "delivery_selected_by")
+    parts = [part for part in (channel, transport, selected_by) if part]
+    return _compact_text(" / ".join(parts), 240)
+
+
+def _projection_blockers(
+    *,
+    receipt: ProactiveOodaRunReceipt | Mapping[str, Any],
+    safe_work_result: Mapping[str, Any] | None = None,
+    approval_surface: Mapping[str, Any] | None = None,
+) -> list[str]:
+    blockers: list[str] = []
+    for value in (
+        _receipt_value(receipt, "delivery_route_error"),
+        _receipt_value(receipt, "error_code"),
+        dict(approval_surface or {}).get("delivery_error_code"),
+    ):
+        text = _compact_text(value, 160)
+        if text:
+            blockers.append(text)
+    safe_work = dict(safe_work_result or {})
+    status = str(safe_work.get("status") or "").strip()
+    if status.startswith("blocked"):
+        blockers.append(_compact_text(status, 160))
+    blockers.extend(_safe_work_issue_codes(safe_work))
+    return list(dict.fromkeys(item for item in blockers if item))[:8]
+
+
+def _approval_state(
+    *,
+    approval_surface: Mapping[str, Any] | None,
+    approval_outcome: Mapping[str, Any] | None = None,
+    approval_required: bool = False,
+    receipt: ProactiveOodaRunReceipt | Mapping[str, Any] | None = None,
+) -> str:
+    outcome = dict(approval_outcome or {})
+    if outcome.get("approval_outcome_recorded"):
+        normalized_outcome = str(outcome.get("outcome") or "").strip().lower()
+        if outcome.get("accepted") is True:
+            return "approved"
+        if normalized_outcome in {"rejected", "declined", "dismissed", "cancelled", "canceled"}:
+            return "rejected"
+        return "recorded_not_accepted"
+    surface = dict(approval_surface or {})
+    status = str(surface.get("status") or "").strip().lower()
+    if status in {"approved", "accepted"}:
+        return "approved"
+    if status in {"rejected", "declined", "dismissed", "cancelled", "canceled"}:
+        return "rejected"
+    if status in {"expired", "stale"}:
+        return "stale_pending"
+    if status in {"pending", "sent", "ready"} or surface.get("present"):
+        return "pending"
+    if receipt is not None and _receipt_value(receipt, "delivery_next_action"):
+        return "operator_action_required"
+    return "approval_required_not_sent" if approval_required else "not_required"
+
+
+def _current_or_stale(
+    *,
+    approval_surface: Mapping[str, Any] | None,
+    approval_outcome: Mapping[str, Any] | None = None,
+) -> str:
+    if dict(approval_outcome or {}).get("approval_outcome_recorded"):
+        return "current"
+    surface = dict(approval_surface or {})
+    status = str(surface.get("status") or "").strip().lower()
+    if status in {"expired", "stale"}:
+        return "stale"
+    expires_at = str(surface.get("expires_at") or "").strip()
+    if expires_at:
+        try:
+            parsed = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            if parsed < datetime.now(timezone.utc):
+                return "stale"
+        except Exception:
+            return "current"
+    return "current"
+
+
+def _action_required_reason(*, approval_state: str, next_action: str, blockers: Iterable[str]) -> str:
+    if approval_state == "pending":
+        return "approval_pending"
+    if approval_state == "approval_required_not_sent":
+        return "approval_required_not_sent"
+    if approval_state == "operator_action_required":
+        return _compact_text(next_action or "operator_action_required", 120)
+    if approval_state == "stale_pending":
+        return "approval_surface_stale"
+    if next_action:
+        return _compact_text(next_action, 120)
+    first_blocker = next((str(item or "").strip() for item in blockers if str(item or "").strip()), "")
+    return _compact_text(first_blocker, 120)
+
+
+def _resume_cursor(*, scope: str, projection_id: str, approval_state: str, next_action: str = "") -> str:
+    parts = [
+        str(scope or "").strip(),
+        str(projection_id or "").strip(),
+        str(approval_state or "").strip(),
+        str(next_action or "").strip(),
+    ]
+    return _compact_text(":".join(part for part in parts if part), 500)
+
+
+def _safe_work_result_ref_hash(safe_work_result: Mapping[str, Any]) -> str:
+    for key in ("result_ref", "result_id", "artifact_ref"):
+        value = str(dict(safe_work_result or {}).get(key) or "").strip()
+        if value:
+            return _hash_value(value)
+    if safe_work_result:
+        return _hash_value(json.dumps(dict(safe_work_result), sort_keys=True, default=str))
+    return ""
+
+
+def _follow_through_receipt_hash(outcome: Mapping[str, Any]) -> str:
+    data = dict(outcome or {})
+    if not data:
+        return ""
+    outcome_id = str(data.get("outcome_id") or "").strip()
+    if outcome_id:
+        return _hash_value(outcome_id)
+    return _hash_value(json.dumps(data, sort_keys=True, default=str))
 
 
 def _configured_teable_tables() -> dict[str, dict[str, object]]:

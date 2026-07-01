@@ -91,7 +91,7 @@ def _digest_and_safe_work(*, include_approval_surface: bool = False):
             "channel": "telegram",
             "status": "pending",
             "callback_token_sha256": "b" * 64,
-            "expires_at": "2026-07-05T10:00:00Z",
+            "expires_at": "2999-07-05T10:00:00Z",
             "packet_ref_sha256": "c" * 64,
             "staged_artifact_sha256": "d" * 64,
             "approval_prompt_sha256": "e" * 64,
@@ -183,10 +183,25 @@ def test_proactive_ooda_teable_projection_keeps_important_artifacts_without_raw_
     assert records["proactive_ooda_runs"][0]["delivery_next_action_href"] == "https://myexternalbrain.com/integrations/whatsapp"
     assert records["proactive_ooda_runs"][0]["delivery_next_action_label"] == "Open WhatsApp pairing"
     assert records["proactive_ooda_runs"][0]["delivery_next_action_method"] == "get"
+    assert records["proactive_ooda_runs"][0]["delivery_route"] == "telegram / telegram"
+    assert records["proactive_ooda_runs"][0]["approval_state"] == "operator_action_required"
+    assert records["proactive_ooda_runs"][0]["user_action_required"] is True
+    assert records["proactive_ooda_runs"][0]["action_required_reason"] == "scan_whatsapp_web_qr"
+    assert records["proactive_ooda_runs"][0]["blockers"] == ["whatsapp_web_session_not_ready:qr_required"]
+    assert records["proactive_ooda_runs"][0]["current_or_stale"] == "current"
+    assert records["proactive_ooda_runs"][0]["resume_cursor"].startswith("run:proactive_ooda_run:")
+    assert records["proactive_ooda_runs"][0]["follow_through_recorded"] is False
+    assert records["proactive_ooda_runs"][0]["follow_through_status"] == "not_recorded"
+    assert records["proactive_ooda_runs"][0]["follow_through_receipt_sha256"] == ""
     assert records["proactive_ooda_runs"][0]["suppressed_item_count"] == 0
     assert records["proactive_ooda_runs"][0]["suppressed_projection_reasons"] == []
     assert records["proactive_ooda_items"][0]["stage_kind"] == "approval_packet"
     assert records["proactive_ooda_items"][0]["staged_action_url"] == "https://example.test/approve/vendor-a"
+    assert len(records["proactive_ooda_items"][0]["staged_link_url_sha256"]) == 64
+    assert len(records["proactive_ooda_items"][0]["staged_artifact_ref_sha256"]) == 64
+    assert records["proactive_ooda_items"][0]["staged_artifact_kind"] == "approval_packet"
+    assert records["proactive_ooda_items"][0]["approval_state"] == "operator_action_required"
+    assert records["proactive_ooda_items"][0]["current_or_stale"] == "current"
     assert records["proactive_ooda_items"][0]["recommended_label"] == "Vendor A"
     assert records["proactive_ooda_items"][0]["search_candidate_count"] == 2
     assert records["proactive_ooda_items"][0]["search_query_count"] == 2
@@ -196,6 +211,11 @@ def test_proactive_ooda_teable_projection_keeps_important_artifacts_without_raw_
     assert records["proactive_ooda_items"][0]["privacy_raw_location_context_stored"] is False
     assert records["proactive_ooda_items"][0]["privacy_raw_recipient_context_stored"] is False
     assert records["proactive_ooda_safe_work"][0]["recommended_url"] == "https://example.test/vendor-a"
+    assert len(records["proactive_ooda_safe_work"][0]["staged_link_url_sha256"]) == 64
+    assert len(records["proactive_ooda_safe_work"][0]["staged_artifact_ref_sha256"]) == 64
+    assert records["proactive_ooda_safe_work"][0]["staged_artifact_kind"] == "compare_options"
+    assert records["proactive_ooda_safe_work"][0]["approval_state"] == "operator_action_required"
+    assert records["proactive_ooda_safe_work"][0]["user_action_required"] is True
     assert records["proactive_ooda_safe_work"][0]["shortlist_count"] == 2
     assert records["proactive_ooda_safe_work"][0]["network_fetch_enabled"] is True
     assert records["proactive_ooda_safe_work"][0]["search_candidate_count"] == 2
@@ -321,7 +341,13 @@ def test_proactive_ooda_teable_projection_keeps_browser_handoff_safe_work_as_act
     assert summary["record_count"] == 3
     assert records["proactive_ooda_runs"][0]["suppressed_item_count"] == 0
     assert records["proactive_ooda_items"][0]["safe_work_status"] == "blocked_human_handoff_required"
+    assert records["proactive_ooda_items"][0]["blockers"] == [
+        "whatsapp_web_session_not_ready:qr_required",
+        "blocked_human_handoff_required",
+        "browser_handoff_required",
+    ]
     assert records["proactive_ooda_safe_work"][0]["status"] == "blocked_human_handoff_required"
+    assert records["proactive_ooda_safe_work"][0]["user_action_required"] is True
 
 
 def test_proactive_ooda_teable_projection_includes_pending_approval_surface_without_raw_refs() -> None:
@@ -344,8 +370,16 @@ def test_proactive_ooda_teable_projection_includes_pending_approval_surface_with
     surface_row = records["proactive_ooda_approval_surfaces"][0]
     assert run_row["approval_surface_present"] is True
     assert run_row["approval_surface_status"] == "pending"
+    assert run_row["approval_state"] == "pending"
+    assert run_row["user_action_required"] is True
+    assert run_row["action_required_reason"] == "approval_pending"
+    assert run_row["current_or_stale"] == "current"
     assert run_row["approval_surface_message_count"] == 1
     assert surface_row["status"] == "pending"
+    assert surface_row["approval_state"] == "pending"
+    assert surface_row["user_action_required"] is True
+    assert surface_row["action_required_reason"] == "approval_pending"
+    assert surface_row["staged_link_url_sha256"] == "f" * 64
     assert surface_row["callback_token_sha256"] == "b" * 64
     assert surface_row["message_ids"] == ["124"]
     assert '"callback_token":' not in serialized
@@ -368,6 +402,16 @@ def test_proactive_ooda_teable_bootstrap_schema_includes_delivery_route_fields()
     assert "delivery_next_action_href" in run_fields
     assert "delivery_next_action_label" in run_fields
     assert "delivery_next_action_method" in run_fields
+    assert "delivery_route" in run_fields
+    assert "approval_state" in run_fields
+    assert "user_action_required" in run_fields
+    assert "action_required_reason" in run_fields
+    assert "blockers" in run_fields
+    assert "current_or_stale" in run_fields
+    assert "resume_cursor" in run_fields
+    assert "follow_through_recorded" in run_fields
+    assert "follow_through_status" in run_fields
+    assert "follow_through_receipt_sha256" in run_fields
     assert "suppressed_item_count" in run_fields
     assert "suppressed_safe_work_review_count" in run_fields
     assert "suppressed_projection_reasons" in run_fields
@@ -416,6 +460,15 @@ def test_proactive_ooda_teable_bootstrap_schema_includes_approval_outcome_projec
     assert "safe_work_projection_id" in approval_fields
     assert "packet_ref_sha256" in approval_fields
     assert "staged_artifact_sha256" in approval_fields
+    assert "staged_artifact_kind" in approval_fields
+    assert "approval_state" in approval_fields
+    assert "current_or_stale" in approval_fields
+    assert "resume_cursor" in approval_fields
+    assert "follow_through_recorded" in approval_fields
+    assert "follow_through_status" in approval_fields
+    assert "follow_through_receipt_sha256" in approval_fields
+    assert "approval_state" in approval_surface_fields
+    assert "staged_link_url_sha256" in approval_surface_fields
 
 
 def test_proactive_ooda_approval_outcome_projection_records_link_run_and_safe_work_without_raw_refs() -> None:
@@ -453,10 +506,22 @@ def test_proactive_ooda_approval_outcome_projection_records_link_run_and_safe_wo
     assert run_row["delivery_next_action"] == "scan_whatsapp_web_qr"
     assert run_row["delivery_next_action_href"] == "https://myexternalbrain.com/integrations/whatsapp"
     assert run_row["approval_surface_status"] == "approved"
+    assert run_row["approval_state"] == "approved"
+    assert run_row["follow_through_recorded"] is True
+    assert run_row["follow_through_status"] == "accepted_redacted"
+    assert len(run_row["follow_through_receipt_sha256"]) == 64
     assert safe_work_row["approval_outcome_status"] == "accepted_redacted"
+    assert safe_work_row["follow_through_recorded"] is True
+    assert len(safe_work_row["follow_through_receipt_sha256"]) == 64
     assert approval_surface_row["status"] == "approved"
     assert approval_surface_row["decision_recorded"] is True
+    assert approval_surface_row["approval_state"] == "approved"
+    assert approval_surface_row["follow_through_recorded"] is True
     assert approval_row["accepted"] is True
+    assert approval_row["approval_state"] == "approved"
+    assert approval_row["staged_artifact_kind"] == "safe_work_result"
+    assert approval_row["follow_through_recorded"] is True
+    assert approval_row["current_or_stale"] == "current"
     assert approval_row["run_projection_id"] == run_row["projection_id"]
     assert approval_row["safe_work_projection_id"] == safe_work_row["projection_id"]
     assert "Approved after reviewing the live shortlist." not in serialized
