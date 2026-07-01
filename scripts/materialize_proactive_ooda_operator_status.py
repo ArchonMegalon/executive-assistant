@@ -58,10 +58,18 @@ NON_MATERIAL_ARTIFACT_FILTER_REASONS = {
 NON_MATERIAL_SUPPRESSED_PROJECTION_ISSUE_CODES = {
     "no_decision_ready_material",
     "single_official_info_link_not_decision_ready",
+    "flat_search_disabled_property_scout",
+    "flat_search_disabled",
 }
 NON_MATERIAL_SUPPRESSED_PROJECTION_REASONS = {
     "packet_projection_suppressed",
     "safe_work_audit_review",
+    "flat_search_disabled_property_scout",
+    "flat_search_disabled",
+}
+CONFIGURED_SOURCE_EXCLUSION_REASONS = {
+    "flat_search_disabled_property_scout",
+    "flat_search_disabled",
 }
 
 
@@ -845,18 +853,37 @@ def _normalized_suppressed_projection(artifact_probe: Mapping[str, Any]) -> dict
         for item in list(selected_summary.get("suppressed_safe_work_issue_codes") or [])
         if str(item or "").strip()
     ][:12]
+    if not issue_codes:
+        issue_codes = [
+            reason
+            for reason in reasons
+            if reason in NON_MATERIAL_SUPPRESSED_PROJECTION_ISSUE_CODES
+        ][:12]
     quiet_no_action = (
         str(selected_receipt.get("notification_status") or "").strip() == "deferred"
         and str(selected_receipt.get("error_code") or "").strip() == "no_user_action_required"
     )
+    configured_source_exclusion = bool(
+        reasons
+        and all(reason in CONFIGURED_SOURCE_EXCLUSION_REASONS for reason in reasons)
+        and issue_codes
+        and all(code in CONFIGURED_SOURCE_EXCLUSION_REASONS for code in issue_codes)
+    )
     non_material_suppression = bool(
         suppressed_item_count > 0
-        and quiet_no_action
         and issue_codes
         and all(code in NON_MATERIAL_SUPPRESSED_PROJECTION_ISSUE_CODES for code in issue_codes)
         and all(reason in NON_MATERIAL_SUPPRESSED_PROJECTION_REASONS for reason in reasons)
+        and (quiet_no_action or configured_source_exclusion)
     )
     requires_recovery = suppressed_item_count > 0 and not non_material_suppression
+    non_material_reason = ""
+    if non_material_suppression:
+        non_material_reason = (
+            "configured_source_exclusion"
+            if configured_source_exclusion
+            else "quiet_no_decision_ready_material"
+        )
     return {
         "present": bool(selected_receipt),
         "source": str(probe.get("source") or "").strip(),
@@ -873,7 +900,7 @@ def _normalized_suppressed_projection(artifact_probe: Mapping[str, Any]) -> dict
         "blocking_reason": "suppressed_safe_work_projection" if requires_recovery else "",
         "next_action": "repair_proactive_safe_work_audit" if requires_recovery else "",
         "suppressed_non_material": non_material_suppression,
-        "suppressed_non_material_reason": "quiet_no_decision_ready_material" if non_material_suppression else "",
+        "suppressed_non_material_reason": non_material_reason,
         "run_receipt_generated_at": str(selected_receipt.get("generated_at") or "").strip(),
         "notification_status": str(selected_receipt.get("notification_status") or "").strip(),
         "error_code": str(selected_receipt.get("error_code") or "").strip(),

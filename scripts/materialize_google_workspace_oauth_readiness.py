@@ -211,8 +211,11 @@ def _gcloud_probe(
 def _setup_checklist(missing: list[str], *, console_link: str, auth_link_template: str) -> list[dict[str, str]]:
     entries = {
         "oauth_test_user_missing_or_app_unverified": {
-            "label": "Add the work Google account as OAuth test user",
-            "how": f"Open {console_link}, go to {GOOGLE_AUTH_AUDIENCE_PATH}, add the requested account, save, then retry {auth_link_template}.",
+            "label": "Confirm the work Google account is allowed in OAuth Audience",
+            "how": (
+                f"Open {console_link}, go to {GOOGLE_AUTH_AUDIENCE_PATH}, confirm the requested account is listed there "
+                f"or add it if missing, save, then retry {auth_link_template}."
+            ),
         },
         "expected_google_email_missing": {
             "label": "Choose the expected work Google account",
@@ -248,8 +251,8 @@ def _instruction_text(*, missing: list[str]) -> str:
             "is allowed there, then retry the Full Workspace auth link."
         )
     return (
-        "Add the requested work Google account as a Google OAuth test user, save the Google Auth Platform Audience page, "
-        "then retry the Full Workspace auth link."
+        "Open the Google Auth Platform Audience page, confirm the requested work Google account is allowed there, "
+        "add it if missing, save, then retry the Full Workspace auth link."
     )
 
 
@@ -264,7 +267,8 @@ def _telegram_message(*, missing: list[str], console_link: str) -> str:
     if "oauth_test_user_missing_or_app_unverified" in missing:
         return (
             "Action needed: Google Full Workspace auth is blocked because the OAuth app is still in testing. "
-            f"Add the requested work Google account as a test user in Google Auth Platform, then retry the auth link. Console: {console_link}"
+            "Open Google Auth Platform, confirm the requested work Google account is allowed there, "
+            f"add it if missing, then retry the auth link. Console: {console_link}"
         )
     return "Action needed: Google Workspace OAuth setup is incomplete. Open the Google integration setup and clear the listed checks."
 
@@ -304,7 +308,10 @@ def build_receipt(
     if not expected_email_present:
         missing.append("expected_google_email_missing")
     access_denied = str(observed_error or "").strip() == "access_denied"
-    if access_denied and not test_user_confirmed:
+    # A real Google access_denied must stay operator-actionable until a fresh retry succeeds.
+    # Being listed as a tester is not enough evidence on its own because the wrong project,
+    # a stale audience save, or the wrong selected account all surface as the same denial.
+    if access_denied:
         missing.append("oauth_test_user_missing_or_app_unverified")
 
     gcloud = {"enabled": False, "raw_gcloud_account_exposed": False, "raw_gcloud_token_exposed": False}

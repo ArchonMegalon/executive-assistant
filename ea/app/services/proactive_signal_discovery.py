@@ -145,16 +145,23 @@ _TRANSCRIPT_SERVICE_PROVIDER_MARKERS = (
     "befundung",
     "chimney sweep",
     "contractor",
+    "electrician",
     "estimate",
+    "elektriker",
+    "fensterhandwerker",
     "expert",
     "gutachten",
+    "handwerker",
     "inspection",
+    "installateur",
+    "plumber",
     "provider",
     "quote",
     "rauchfangkehrer",
     "repair",
     "schornsteinfeger",
     "specialist",
+    "tischler",
     "technician",
     "vendor",
 )
@@ -741,6 +748,24 @@ def _alexa_transcript_text(payload: Mapping[str, Any] | None) -> str:
     return fields.get("title", "")
 
 
+def _preferred_transcript_request_values(
+    *primary_values: Any,
+    summary_markdown: Any = "",
+    title: Any = "",
+) -> tuple[str, ...]:
+    values = [_clean_text(str(value or "")).strip() for value in primary_values]
+    filtered_primary = [value for value in values if value]
+    if filtered_primary:
+        if str(title or "").strip():
+            filtered_primary.append(_clean_text(str(title or "")).strip())
+        return tuple(value for value in filtered_primary if value)
+    fallback_values = [
+        _clean_text(str(summary_markdown or "")).strip(),
+        _clean_text(str(title or "")).strip(),
+    ]
+    return tuple(value for value in fallback_values if value)
+
+
 def _transcript_request_text(*values: Any) -> str:
     parts: list[str] = []
     lowered_parts: list[str] = []
@@ -782,10 +807,25 @@ def _draft_text_from_request(request_text: str) -> str:
     return f"Draft to review:\n\n{normalized}"
 
 
+def _marker_present(normalized_text: str, marker: str) -> bool:
+    candidate = _ascii_fold_text(_clean_text(str(normalized_text or "")).strip().lower())
+    needle = _ascii_fold_text(_clean_text(str(marker or "")).strip().lower())
+    if not candidate or not needle:
+        return False
+    return re.search(rf"\b{re.escape(needle)}\b", candidate) is not None
+
+
+def _any_marker_present(normalized_text: str, markers: Iterable[str]) -> bool:
+    return any(_marker_present(normalized_text, marker) for marker in markers)
+
+
 def _research_query_from_request(request_text: str) -> str:
     normalized = _clean_text(request_text).strip()
     if not normalized:
         return ""
+    focused_request = _transcript_task_focused_request_text(normalized)
+    if focused_request:
+        normalized = focused_request
     lowered = normalized.lower()
     split_markers = (
         " draft ",
@@ -827,6 +867,24 @@ def _research_query_from_request(request_text: str) -> str:
     )
     compacted = compacted_candidate != candidate
     candidate = compacted_candidate.strip()
+    candidate = re.sub(
+        r"^(ich\s+(?:moechte|möchte|will|brauche)\s+(?:auch\s+)?)",
+        "",
+        candidate,
+        flags=re.IGNORECASE,
+    ).strip()
+    candidate = re.sub(
+        r"^(i\s+(?:want|need|would\s+like)\s+(?:to\s+)?)",
+        "",
+        candidate,
+        flags=re.IGNORECASE,
+    ).strip()
+    candidate = re.sub(
+        r"\b(?:kommen\s+lassen|arrange|organize|organise)\b",
+        "",
+        candidate,
+        flags=re.IGNORECASE,
+    ).strip()
     candidate = re.sub(r"^(a|an|the|einen|eine|einer|einem|den|die|das)\s+", "", candidate, flags=re.IGNORECASE).strip()
     if compacted:
         candidate = candidate.strip(" ,.-")
@@ -850,8 +908,118 @@ def _research_query_from_request(request_text: str) -> str:
         if index > 0:
             cut = min(cut, index)
     candidate = candidate[:cut].strip(" ,")
+    provider_match: re.Match[str] | None = None
+    for marker in sorted(_TRANSCRIPT_SERVICE_PROVIDER_MARKERS, key=len, reverse=True):
+        match = re.search(rf"\b{re.escape(marker)}\b", candidate, flags=re.IGNORECASE)
+        if match is None:
+            continue
+        if provider_match is None or match.start() < provider_match.start():
+            provider_match = match
+    if provider_match is not None:
+        candidate = candidate[provider_match.start() :].strip(" ,")
     candidate = re.sub(r"\s+", " ", candidate).strip(" ,")
     return candidate or trimmed or normalized
+
+
+def _transcript_request_segments(request_text: str) -> list[str]:
+    normalized = _clean_text(request_text).strip()
+    if not normalized:
+        return []
+    segments = [
+        segment.strip(" ,")
+        for segment in re.split(r"(?<=[.!?])\s+|[\n;]+", normalized)
+        if segment.strip(" ,")
+    ]
+    return segments
+
+
+def _transcript_task_segment_score(segment: str) -> int:
+    normalized = f" {_ascii_fold_text(_clean_text(segment).strip().lower())} "
+    if not normalized.strip():
+        return 0
+    score = 0
+    if any(marker in normalized for marker in _TRANSCRIPT_REQUEST_MARKERS):
+        score += 3
+    if any(marker in normalized for marker in _TRANSCRIPT_DRAFT_TERMS):
+        score += 2
+    if _any_marker_present(normalized, _TRANSCRIPT_COMPARE_TERMS):
+        score += 2
+    if _any_marker_present(normalized, _TRANSCRIPT_BOOKING_TERMS):
+        score += 2
+    if _any_marker_present(normalized, _TRANSCRIPT_SERVICE_PROVIDER_MARKERS):
+        score += 3
+    if re.search(
+        r"\b(?:suche mir|such mir|suche|finde|find me|find|search for)\b.*\b(?:"
+        + "|".join(re.escape(marker) for marker in _TRANSCRIPT_SERVICE_PROVIDER_MARKERS)
+        + r")\b",
+        normalized,
+    ):
+        score += 4
+    if re.search(r"^\s*(?:suche mir|such mir|suche|finde|find me|find|search for)\b", normalized):
+        score += 3
+    if re.search(r"\b\d{4,5}\b", normalized):
+        score += 2
+    if any(
+        marker in normalized
+        for marker in (
+            " ich moechte ",
+            " ich will ",
+            " ich brauche ",
+            " i want ",
+            " i need ",
+            " come let ",
+            " kommen lassen ",
+            " arrange ",
+        )
+    ):
+        score += 2
+    if _any_marker_present(normalized, _TRANSCRIPT_SERVICE_PROVIDER_MARKERS) and any(
+        marker in normalized
+        for marker in (
+            " ich moechte ",
+            " ich will ",
+            " ich brauche ",
+            " i want ",
+            " i need ",
+        )
+    ):
+        score += 4
+    if any(
+        marker in normalized
+        for marker in (
+            " sag mir ",
+            " dann sag mir ",
+            " ich werde ",
+            " wenn du noch ",
+            " wenn du nicht willst ",
+            " keine mail ",
+            " no mail ",
+        )
+    ):
+        score -= 4
+    if "[mikrofongerausche]" in normalized or "[rauschen]" in normalized:
+        score -= 1
+    return score
+
+
+def _transcript_task_focused_request_text(request_text: str) -> str:
+    segments = _transcript_request_segments(request_text)
+    if not segments:
+        return ""
+    scored_segments = [(index, _transcript_task_segment_score(segment)) for index, segment in enumerate(segments)]
+    best_index, best_score = max(scored_segments, key=lambda item: item[1])
+    if best_score < 4:
+        return ""
+    selected_indexes = {best_index}
+    for offset in (1, 2):
+        next_index = best_index + offset
+        if next_index >= len(segments):
+            break
+        if _transcript_task_segment_score(segments[next_index]) <= 0:
+            break
+        selected_indexes.add(next_index)
+    selected = " ".join(segments[index] for index in sorted(selected_indexes)).strip()
+    return selected or segments[best_index]
 
 
 def _search_queries_from_request(*, research_query: str, request_text: str) -> list[str]:
@@ -917,15 +1085,66 @@ def _transcript_save_gmail_draft_requested(lowered_request: str) -> bool:
 
 def _transcript_service_provider_request(lowered_request: str) -> bool:
     normalized = f" {str(lowered_request or '').strip()} "
-    if any(marker in normalized for marker in _TRANSCRIPT_SERVICE_PROVIDER_MARKERS):
+    if _any_marker_present(normalized, _TRANSCRIPT_SERVICE_PROVIDER_MARKERS):
         return True
     if (
         any(marker in normalized for marker in (" suche mir ", " suche ", " find me ", " find ", " search for "))
         and any(marker in normalized for marker in (" ich brauche ", " i need ", " brauche ", " need "))
-        and not any(marker in normalized for marker in _TRANSCRIPT_SHOPPING_MARKERS)
+        and not _any_marker_present(normalized, _TRANSCRIPT_SHOPPING_MARKERS)
     ):
         return True
     return False
+
+
+def _transcript_query_is_researchable(query_text: str) -> bool:
+    normalized = f" {_ascii_fold_text(_clean_text(query_text).strip().lower())} "
+    if not normalized.strip():
+        return False
+    if _any_marker_present(normalized, _TRANSCRIPT_SERVICE_PROVIDER_MARKERS):
+        return True
+    if _any_marker_present(normalized, _TRANSCRIPT_BOOKING_TERMS):
+        return True
+    if _any_marker_present(normalized, _TRANSCRIPT_SHOPPING_MARKERS):
+        return True
+    if _any_marker_present(normalized, _TRANSCRIPT_COMPARE_TERMS):
+        return True
+    return False
+
+
+def _ambient_transcript_action_candidate(request_text: str) -> bool:
+    normalized = _clean_text(request_text).strip()
+    lowered = _ascii_fold_text(normalized.lower())
+    padded = f" {lowered} "
+    if not normalized:
+        return False
+    if _transcript_save_gmail_draft_requested(lowered):
+        return True
+    direct_patterns = (
+        r"\b(?:can you|could you|remember to|when you|if you)\b",
+        r"\b(?:kannst du|koenntest du|wenn du|suche mir|such mir)\b",
+        r"^\s*(?:book|buy|compare|draft|find|order|renew|reply|reserve|respond|review|schedule|search|send|shop|write)\b",
+        r"^\s*(?:buche|finde|formuliere|schick|schicke|schreib|schreibe|suche|such|bestell|bestelle|vergleiche|pruefe|prufe)\b",
+    )
+    if any(re.search(pattern, padded) for pattern in direct_patterns):
+        return True
+    candidate_query = _research_query_from_request(normalized)
+    if not _transcript_query_is_researchable(candidate_query):
+        return False
+    return any(
+        marker in padded
+        for marker in (
+            " ich moechte ",
+            " ich will ",
+            " ich brauche ",
+            " i want ",
+            " i need ",
+            " find me ",
+            " search for ",
+            " suche ",
+            " suche mir ",
+            " finde ",
+        )
+    )
 
 
 def _proactive_ooda_flat_search_enabled() -> bool:
@@ -944,8 +1163,8 @@ def _transcript_has_action_intent(lowered_request: str) -> bool:
     if _transcript_save_gmail_draft_requested(normalized) or _transcript_service_provider_request(normalized):
         return True
     direct_patterns = (
-        r"\b(?:can you|could you|please|remember to)\b",
-        r"\b(?:kannst du|koenntest du|wenn du|bitte|suche mir|such mir)\b",
+        r"\b(?:can you|could you|remember to)\b",
+        r"\b(?:kannst du|koenntest du|wenn du|suche mir|such mir)\b",
         r"\bshould\s+(?:book|buy|compare|draft|find|order|reply|research|schedule|send|shop|write)\b",
     )
     if any(re.search(pattern, padded) for pattern in direct_patterns):
@@ -969,6 +1188,41 @@ def _transcript_stage_notes(*values: Any) -> list[str]:
         seen.add(lowered)
         notes.append(normalized)
     return notes[:4]
+
+
+def _transcript_signal_display_text(
+    *,
+    title: str,
+    summary: str,
+    request_text: str,
+    ambient_transcript: bool,
+    ooda_loop: Mapping[str, Any] | None,
+) -> tuple[str, str]:
+    if not ambient_transcript or not isinstance(ooda_loop, Mapping):
+        return title, summary
+    stage = dict((dict(ooda_loop.get("act") or {})).get("stage") or {})
+    normalized_summary = _clean_text(summary).strip()
+    normalized_title = _clean_text(title).strip()
+    summary_requires_override = (
+        len(normalized_summary) >= 220
+        or len(normalized_title) >= 90
+        or "###" in normalized_summary
+        or "* **" in normalized_summary
+        or normalized_summary.count(" | ") >= 2
+    )
+    if not summary_requires_override:
+        return title, summary
+    normalized_request = _clean_text(request_text).strip()
+    focused_request = (
+        _clean_text(str(stage.get("research_query") or "")).strip()
+        or _transcript_task_focused_request_text(normalized_request)
+        or normalized_request
+    )
+    display_summary = _clean_text(focused_request).strip()
+    if not display_summary:
+        return title, summary
+    display_title = _first_sentence(display_summary, limit=140)
+    return display_title or title, display_summary or summary
 
 
 def _ascii_fold_text(value: str) -> str:
@@ -1140,10 +1394,15 @@ def _transcript_assistant_ooda(
     signal_type: str,
     counterparty: str,
     notes: Iterable[str] = (),
+    ambient_transcript: bool = False,
 ) -> dict[str, Any]:
     normalized_request = _clean_text(request_text).strip()
     lowered = normalized_request.lower()
-    if not normalized_request or not _transcript_has_action_intent(lowered):
+    if not normalized_request:
+        return {}
+    if ambient_transcript and not _ambient_transcript_action_candidate(normalized_request):
+        return {}
+    if not _transcript_has_action_intent(lowered):
         return {}
     if not _proactive_ooda_flat_search_enabled() and _transcript_is_flat_property_search(lowered):
         return {}
@@ -1152,11 +1411,13 @@ def _transcript_assistant_ooda(
     base_policy = "Research, compare, or draft only; require explicit approval before purchase, booking, cancellation, sending, posting, or commitment."
     draft_like = any(marker in lowered for marker in _TRANSCRIPT_DRAFT_TERMS)
     save_gmail_draft = _transcript_save_gmail_draft_requested(lowered)
-    booking_like = any(marker in lowered for marker in _TRANSCRIPT_BOOKING_TERMS)
-    compare_like = booking_like or any(marker in lowered for marker in _TRANSCRIPT_COMPARE_TERMS)
-    discovery_like = any(marker in lowered for marker in _TRANSCRIPT_COMPARE_TERMS) or "gefunden" in lowered or " found " in f" {lowered} "
+    booking_like = _any_marker_present(lowered, _TRANSCRIPT_BOOKING_TERMS)
+    compare_like = booking_like or _any_marker_present(lowered, _TRANSCRIPT_COMPARE_TERMS)
+    discovery_like = _any_marker_present(lowered, _TRANSCRIPT_COMPARE_TERMS) or "gefunden" in lowered or " found " in f" {lowered} "
     if draft_like and discovery_like:
         research_query = _research_query_from_request(normalized_request)
+        if ambient_transcript and not _transcript_query_is_researchable(research_query):
+            return {}
         search_queries = _search_queries_from_request(research_query=research_query, request_text=normalized_request)
         locale = _transcript_request_locale(normalized_request)
         subject_prefix = "Anfrage" if locale == "de" else "Inquiry"
@@ -1312,7 +1573,7 @@ def _transcript_assistant_ooda(
     )
     stage_research_query = normalized_request
     stage_search_queries = [normalized_request]
-    if booking_like or compare_like:
+    if booking_like or compare_like or service_provider_like:
         compact_query = _research_query_from_request(normalized_request)
         if compact_query:
             stage_research_query = compact_query
@@ -1320,6 +1581,9 @@ def _transcript_assistant_ooda(
                 research_query=compact_query,
                 request_text=normalized_request,
             ) or [compact_query]
+    if ambient_transcript and (booking_like or compare_like or service_provider_like):
+        if not _transcript_query_is_researchable(stage_research_query):
+            return {}
     selection_criteria = ["reversible before approval"]
     comparison_dimensions: list[str] = []
     if booking_like:
@@ -1481,14 +1745,13 @@ def observation_row_to_signal(
             payload.get("analysis_summary"),
             title,
         )
-        if not ooda_loop:
-            ooda_loop = _transcript_assistant_ooda(
-                request_text=transcript_request,
-                title=title,
-                channel=channel,
-                signal_type=signal_type,
-                counterparty=counterparty,
-            )
+        ooda_loop = _transcript_assistant_ooda(
+            request_text=transcript_request,
+            title=title,
+            channel=channel,
+            signal_type=signal_type,
+            counterparty=counterparty,
+        )
         proactive_suppression = _transcript_topic_suppression(
             request_text=transcript_request,
             title=title,
@@ -1512,18 +1775,17 @@ def observation_row_to_signal(
             payload.get("text_preview"),
             title,
         )
-        if not ooda_loop:
-            ooda_loop = _transcript_assistant_ooda(
-                request_text=transcript_request,
-                title=title,
-                channel=channel,
-                signal_type=signal_type,
-                counterparty=counterparty,
-                notes=_transcript_stage_notes(
-                    "Telegram Business/Secretary candidate from an allowlisted chat.",
-                    "Read-only ingest: do not reply or write memory before review.",
-                ),
-            )
+        ooda_loop = _transcript_assistant_ooda(
+            request_text=transcript_request,
+            title=title,
+            channel=channel,
+            signal_type=signal_type,
+            counterparty=counterparty,
+            notes=_transcript_stage_notes(
+                "Telegram Business/Secretary candidate from an allowlisted chat.",
+                "Read-only ingest: do not reply or write memory before review.",
+            ),
+        )
         proactive_suppression = _transcript_topic_suppression(
             request_text=transcript_request,
             title=title,
@@ -1552,24 +1814,35 @@ def observation_row_to_signal(
         if alexa_fields.get("skill_name"):
             extra_payload["skill_name"] = alexa_fields.get("skill_name", "")
         transcript_request = _transcript_request_text(
-            alexa_fields.get("utterance_text"),
-            alexa_fields.get("transcript_excerpt"),
-            alexa_fields.get("transcript_text"),
-            title,
-        )
-        if not ooda_loop:
-            ooda_loop = _transcript_assistant_ooda(
-                request_text=transcript_request,
+            *_preferred_transcript_request_values(
+                alexa_fields.get("utterance_text"),
+                alexa_fields.get("transcript_excerpt"),
+                alexa_fields.get("transcript_text"),
+                alexa_fields.get("response_text"),
+                summary_markdown=alexa_fields.get("summary_markdown"),
                 title=title,
-                channel=channel,
-                signal_type=signal_type,
-                counterparty=counterparty,
-                notes=_transcript_stage_notes(
-                    f"Device: {alexa_fields.get('device_name', '')}" if alexa_fields.get("device_name") else "",
-                    f"Skill: {alexa_fields.get('skill_name', '')}" if alexa_fields.get("skill_name") else "",
-                    f"Locale: {alexa_fields.get('locale', '')}" if alexa_fields.get("locale") else "",
-                ),
-            )
+            ),
+        )
+        ooda_loop = _transcript_assistant_ooda(
+            request_text=transcript_request,
+            title=title,
+            channel=channel,
+            signal_type=signal_type,
+            counterparty=counterparty,
+            notes=_transcript_stage_notes(
+                f"Device: {alexa_fields.get('device_name', '')}" if alexa_fields.get("device_name") else "",
+                f"Skill: {alexa_fields.get('skill_name', '')}" if alexa_fields.get("skill_name") else "",
+                f"Locale: {alexa_fields.get('locale', '')}" if alexa_fields.get("locale") else "",
+            ),
+            ambient_transcript=True,
+        )
+        title, summary = _transcript_signal_display_text(
+            title=title,
+            summary=summary,
+            request_text=transcript_request,
+            ambient_transcript=True,
+            ooda_loop=ooda_loop,
+        )
         proactive_suppression = _transcript_topic_suppression(
             request_text=transcript_request,
             title=title,
@@ -1598,24 +1871,33 @@ def observation_row_to_signal(
             )
         )
         transcript_request = _transcript_request_text(
-            pocket_fields.get("transcript_excerpt"),
-            pocket_fields.get("transcript_text"),
-            pocket_fields.get("summary_markdown"),
-            title,
-        )
-        if not ooda_loop:
-            ooda_loop = _transcript_assistant_ooda(
-                request_text=transcript_request,
+            *_preferred_transcript_request_values(
+                pocket_fields.get("transcript_excerpt"),
+                pocket_fields.get("transcript_text"),
+                summary_markdown=pocket_fields.get("summary_markdown"),
                 title=title,
-                channel=channel,
-                signal_type=signal_type,
-                counterparty=counterparty,
-                notes=_transcript_stage_notes(
-                    f"Topic keywords: {pocket_fields.get('topic_keywords_csv', '')}" if pocket_fields.get("topic_keywords_csv") else "",
-                    f"Tags: {pocket_fields.get('tags_csv', '')}" if pocket_fields.get("tags_csv") else "",
-                    f"Location: {pocket_fields.get('location_name', '')}" if pocket_fields.get("location_name") else "",
-                ),
-            )
+            ),
+        )
+        ooda_loop = _transcript_assistant_ooda(
+            request_text=transcript_request,
+            title=title,
+            channel=channel,
+            signal_type=signal_type,
+            counterparty=counterparty,
+            notes=_transcript_stage_notes(
+                f"Topic keywords: {pocket_fields.get('topic_keywords_csv', '')}" if pocket_fields.get("topic_keywords_csv") else "",
+                f"Tags: {pocket_fields.get('tags_csv', '')}" if pocket_fields.get("tags_csv") else "",
+                f"Location: {pocket_fields.get('location_name', '')}" if pocket_fields.get("location_name") else "",
+            ),
+            ambient_transcript=True,
+        )
+        title, summary = _transcript_signal_display_text(
+            title=title,
+            summary=summary,
+            request_text=transcript_request,
+            ambient_transcript=True,
+            ooda_loop=ooda_loop,
+        )
         proactive_suppression = _transcript_topic_suppression(
             request_text=transcript_request,
             title=title,

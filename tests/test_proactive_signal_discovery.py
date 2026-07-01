@@ -4,6 +4,7 @@ import json
 import sys
 from io import BytesIO
 
+from app.services import proactive_signal_discovery as signal_discovery
 from app.services.proactive_ooda_safe_work import build_safe_work_result
 from app.services.proactive_ooda_service import JsonOodaStateStore, ProactiveOodaService
 from app.services.proactive_ooda_stage_packets import build_stage_packets
@@ -901,6 +902,23 @@ def test_hyphenated_german_compare_task_extracts_compact_provider_query() -> Non
     assert stage["search_queries"][-1] == "rauchfangkehrer"
 
 
+def test_research_query_prefers_buried_service_task_clause_over_transcript_noise() -> None:
+    request = (
+        "[Mikrofongeraeusche] Also ich bin ein bisschen nervoes. "
+        "Ich bin entlassen worden. "
+        "Ich moechte auch einen Elektriker kommen lassen fuer zusaetzliche Steckdosen. "
+        "Wenn du noch irgendwo eine Steckdose haben willst, dann sag mir das einfach und ich werde einen Elektriker kommen lassen. "
+        "Ich soll keine Mail geschickt haben, wenn du nicht willst, ist auch in Ordnung."
+    )
+
+    query = signal_discovery._research_query_from_request(request)  # noqa: SLF001
+
+    assert "Elektriker" in query
+    assert "Steckdosen" in query
+    assert "nervoes" not in query.lower()
+    assert "[Mikrofongeraeusche]" not in query
+
+
 def test_transcript_request_text_prefers_the_longest_unique_variant() -> None:
     from app.services.proactive_signal_discovery import _transcript_request_text
 
@@ -1324,6 +1342,232 @@ def test_pocket_transcript_vendor_request_can_auto_stage_gmail_draft_without_raw
     assert result["recommended_option_or_draft"] == {}
     assert any(issue["code"] == "draft_not_created" for issue in result["audit"]["issues"])
     assert "research further" in result["approval_prompt"]
+
+
+def test_pocket_transcript_prefers_raw_transcript_over_markdown_summary_for_request_extraction() -> None:
+    transcript = (
+        "Suche mir einen Elektriker in 1200 Wien. "
+        "Ich brauche eine Unterputz-Steckdose in einer Regipswand."
+    )
+    signal = observation_row_to_signal(
+        observation_id="obs-pocket-summary-fallback",
+        principal_id="exec",
+        channel="product",
+        event_type="pocket_recording_archive_indexed",
+        payload={
+            "recording_id": "rec-summary-fallback",
+            "title": "Home notes",
+            "summary_markdown": (
+                "* **Window Maintenance:** A technician is scheduled for Wednesday between 08:00 and 14:00.\n"
+                "* **Proactive Contributions:** Tibor is organizing small home improvements."
+            ),
+            "transcript_excerpt": transcript,
+            "transcript_text": transcript,
+        },
+        created_at="2026-07-01T06:10:00+00:00",
+        source_id="pocket-recording:rec-summary-fallback",
+    )
+
+    assert signal is not None
+    ooda_loop = signal.payload.get("ooda_loop")
+    assert isinstance(ooda_loop, dict)
+    stage = ooda_loop["act"]["stage"]
+    assert stage["research_query"] == "Elektriker in 1200 Wien"
+    assert "Window Maintenance" not in stage["research_query"]
+
+
+def test_pocket_transcript_with_medical_chatter_and_buried_provider_note_keeps_compact_provider_query() -> None:
+    transcript = (
+        "[Mikrofongeraeusche] Also ich bin ein bisschen nervoes. "
+        "Ich bin entlassen worden. "
+        "Aehm, und zusaetzlich, ich moechte auch einen Elektriker fuer zusaetzliche Steckdosen."
+    )
+    signal = observation_row_to_signal(
+        observation_id="obs-pocket-buried-provider-note",
+        principal_id="exec",
+        channel="product",
+        event_type="pocket_recording_archive_indexed",
+        payload={
+            "recording_id": "rec-buried-provider-note",
+            "title": "Household note",
+            "transcript_excerpt": transcript,
+            "transcript_text": transcript,
+        },
+        created_at="2026-07-01T06:15:00+00:00",
+        source_id="pocket-recording:rec-buried-provider-note",
+    )
+
+    assert signal is not None
+    ooda_loop = signal.payload.get("ooda_loop")
+    assert isinstance(ooda_loop, dict)
+    stage = ooda_loop["act"]["stage"]
+    assert stage["research_query"] == "Elektriker fuer zusaetzliche Steckdosen."
+
+
+def test_pocket_transcript_uses_actionable_display_text_for_mixed_recordings() -> None:
+    transcript = (
+        "Also ich bin ein bisschen nervoes. "
+        "Der Blutdruck war zuletzt eher hoch. "
+        "Und zusaetzlich, ich moechte auch einen Elektriker kommen lassen fuer zusaetzliche Steckdosen. "
+        "Wenn du einen gefunden hast, formuliere bitte eine kurze Anfrage als Draft."
+    )
+    signal = observation_row_to_signal(
+        observation_id="obs-pocket-mixed-recording-display",
+        principal_id="exec",
+        channel="product",
+        event_type="pocket_recording_archive_indexed",
+        payload={
+            "recording_id": "rec-mixed-recording-display",
+            "title": "Follow-up on leg swelling care",
+            "summary_markdown": (
+                "This session covers a medical consultation regarding physical symptoms and blood pressure management, "
+                "followed by a personal coordination of household logistics. "
+                "### Medical Review: Edema & Blood Pressure "
+                "* **Edema Management:** Compression stockings, elevation, and warm wraps. "
+                "* **Medication Adjustments:** Blood pressure medication review. "
+                "### Household Coordination & Logistics "
+                "* **Electrical Upgrades:** Plans are underway to bring in an electrician for additional power outlets."
+            ),
+            "transcript_excerpt": transcript,
+            "transcript_text": transcript,
+        },
+        created_at="2026-07-01T06:16:00+00:00",
+        source_id="pocket-recording:rec-mixed-recording-display",
+    )
+
+    assert signal is not None
+    assert "Elektriker" in signal.title
+    assert "Elektriker" in signal.summary
+    assert "leg swelling" not in signal.title.lower()
+    assert "blood pressure" not in signal.summary.lower()
+    ooda_loop = signal.payload.get("ooda_loop")
+    assert isinstance(ooda_loop, dict)
+    assert ooda_loop["act"]["stage"]["research_query"] == "Elektriker fuer zusaetzliche Steckdosen."
+
+
+def test_pocket_transcript_ignores_ambient_self_talk_without_direct_task_marker() -> None:
+    signal = observation_row_to_signal(
+        observation_id="obs-pocket-self-talk",
+        principal_id="exec",
+        channel="product",
+        event_type="pocket_recording_archive_indexed",
+        payload={
+            "recording_id": "rec-self-talk",
+            "title": "Therapy note",
+            "transcript_excerpt": (
+                "Es passieren halt nach wie vor Missgeschicke. "
+                "Ja, also das muss ich schreiben."
+            ),
+            "transcript_text": (
+                "Es passieren halt nach wie vor Missgeschicke. "
+                "Ja, also das muss ich schreiben."
+            ),
+        },
+        created_at="2026-07-01T06:20:00+00:00",
+        source_id="pocket-recording:rec-self-talk",
+    )
+
+    assert signal is None
+
+
+def test_pocket_transcript_ignores_nonresearchable_ambient_compare_hint() -> None:
+    signal = observation_row_to_signal(
+        observation_id="obs-pocket-nonresearchable-compare",
+        principal_id="exec",
+        channel="product",
+        event_type="pocket_recording_archive_indexed",
+        payload={
+            "recording_id": "rec-nonresearchable-compare",
+            "title": "Planning",
+            "transcript_excerpt": "Versuchen Sie, sich da jetzt nicht frustrieren zu lassen.",
+            "transcript_text": "Versuchen Sie, sich da jetzt nicht frustrieren zu lassen.",
+        },
+        created_at="2026-07-01T06:25:00+00:00",
+        source_id="pocket-recording:rec-nonresearchable-compare",
+    )
+
+    assert signal is None
+
+
+def test_pocket_transcript_ignores_ambient_politeness_without_actionable_task() -> None:
+    signal = observation_row_to_signal(
+        observation_id="obs-pocket-ambient-bitte",
+        principal_id="exec",
+        channel="product",
+        event_type="pocket_recording_archive_indexed",
+        payload={
+            "recording_id": "rec-ambient-bitte",
+            "title": "Neuro training",
+            "transcript_excerpt": (
+                "Wie gehen wir das an? Bitte achten Sie darauf, dass die Uebungen heute nicht frustrieren."
+            ),
+            "transcript_text": (
+                "Wie gehen wir das an? Bitte achten Sie darauf, dass die Uebungen heute nicht frustrieren."
+            ),
+        },
+        created_at="2026-07-01T06:25:30+00:00",
+        source_id="pocket-recording:rec-ambient-bitte",
+    )
+
+    assert signal is None
+
+
+def test_pocket_transcript_rebuilds_stale_embedded_ooda_from_current_transcript_rules() -> None:
+    signal = observation_row_to_signal(
+        observation_id="obs-pocket-stale-embedded-ooda",
+        principal_id="exec",
+        channel="product",
+        event_type="pocket_recording_archive_indexed",
+        payload={
+            "recording_id": "rec-stale-embedded-ooda",
+            "title": "Therapy note",
+            "transcript_excerpt": "Versuchen Sie, sich da jetzt nicht frustrieren zu lassen.",
+            "transcript_text": "Versuchen Sie, sich da jetzt nicht frustrieren zu lassen.",
+            "ooda_loop": {
+                "reviewed": True,
+                "observe": {"summary": "stale"},
+                "orient": {"summary": "stale"},
+                "decide": {"summary": "stale"},
+                "act": {
+                    "summary": "stale",
+                    "stage": {
+                        "kind": "research_packet",
+                        "work_type": "compare_options",
+                        "research_query": "Versuchen Sie, sich da jetzt nicht frustrieren zu lassen.",
+                    },
+                },
+            },
+        },
+        created_at="2026-07-01T06:26:00+00:00",
+        source_id="pocket-recording:rec-stale-embedded-ooda",
+    )
+
+    assert signal is None
+
+
+def test_pocket_transcript_does_not_treat_visita_and_optionen_as_booking_or_compare_tasks() -> None:
+    signal = observation_row_to_signal(
+        observation_id="obs-pocket-visita-optionen",
+        principal_id="exec",
+        channel="product",
+        event_type="pocket_recording_archive_indexed",
+        payload={
+            "recording_id": "rec-visita-optionen",
+            "title": "Medical planning",
+            "transcript_excerpt": (
+                "Bei der Visita haben Sie gerade gesagt, dass meine Werte ziemlich gut wären. "
+                "Wo es für Sie dann diese Optionen so angenehmer ist wahrscheinlich."
+            ),
+            "transcript_text": (
+                "Bei der Visita haben Sie gerade gesagt, dass meine Werte ziemlich gut wären. "
+                "Wo es für Sie dann diese Optionen so angenehmer ist wahrscheinlich."
+            ),
+        },
+        created_at="2026-07-01T06:27:00+00:00",
+        source_id="pocket-recording:rec-visita-optionen",
+    )
+
+    assert signal is None
 
 
 def test_observation_mapper_skips_empty_property_scout_sync() -> None:

@@ -325,6 +325,36 @@ def test_materialize_proactive_ooda_operator_status_recovers_on_degraded_source_
         "probe_proactive_gmail_draft",
         lambda **_kwargs: {"probe_ok": True, "status": "no_pending_draft", "source": "docker_compose_exec"},
     )
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_artifacts",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "source": "docker_compose_exec",
+            "run_receipt": {
+                "generated_at": "2026-07-01T09:00:30Z",
+                "notification_status": "skipped_no_items",
+                "error_code": "",
+                "item_count": 0,
+                "teable_sync": {
+                    "status": "synced",
+                    "projection_summary": {
+                        "record_count": 1,
+                        "suppressed_item_count": 0,
+                        "suppressed_safe_work_review_count": 0,
+                        "suppressed_projection_reasons": [],
+                        "suppressed_safe_work_issue_codes": [],
+                        "tables": {
+                            "proactive_ooda_runs": {"record_count": 1},
+                            "proactive_ooda_items": {"record_count": 0},
+                            "proactive_ooda_safe_work": {"record_count": 0},
+                        },
+                    },
+                },
+            },
+            "action_required_only_quiet_receipt": {},
+        },
+    )
     monkeypatch.setattr(module.ea_live_ops, "probe_proactive_source_coverage", _fake_source_coverage_gap_probe)
     monkeypatch.setattr(
         module.ea_live_ops,
@@ -941,6 +971,46 @@ def test_suppressed_projection_with_recovery_issue_still_requires_repair() -> No
     assert summary["next_action"] == "repair_proactive_safe_work_audit"
     assert summary["suppressed_non_material"] is False
     assert summary["suppressed_safe_work_issue_codes"] == ["no_provider_safe_candidate"]
+
+
+def test_suppressed_projection_treats_flat_search_disabled_as_non_material_without_explicit_issue_codes() -> None:
+    module = _load_script()
+
+    summary = module._normalized_suppressed_projection(  # noqa: SLF001
+        {
+            "source": "docker_compose_exec",
+            "run_receipt": {
+                "generated_at": "2026-07-01T20:55:53Z",
+                "notification_status": "deferred",
+                "error_code": "no_user_action_required",
+                "item_count": 1,
+                "teable_sync": {
+                    "status": "synced",
+                    "projection_summary": {
+                        "record_count": 1,
+                        "suppressed_item_count": 1,
+                        "suppressed_safe_work_review_count": 0,
+                        "suppressed_projection_reasons": ["flat_search_disabled"],
+                        "suppressed_safe_work_issue_codes": [],
+                        "tables": {
+                            "proactive_ooda_runs": {"record_count": 1},
+                            "proactive_ooda_items": {"record_count": 0},
+                            "proactive_ooda_safe_work": {"record_count": 0},
+                        },
+                    },
+                },
+            },
+        }
+    )
+
+    assert summary["status"] == "suppressed_non_material"
+    assert summary["requires_recovery"] is False
+    assert summary["suppressed_non_material"] is True
+    assert summary["suppressed_non_material_reason"] == "configured_source_exclusion"
+    assert summary["blocking_reason"] == ""
+    assert summary["next_action"] == ""
+    assert summary["suppressed_projection_reasons"] == ["flat_search_disabled"]
+    assert summary["suppressed_safe_work_issue_codes"] == ["flat_search_disabled"]
 
 
 def test_materialize_proactive_ooda_operator_status_writes_recovery_receipt(tmp_path: Path, monkeypatch) -> None:

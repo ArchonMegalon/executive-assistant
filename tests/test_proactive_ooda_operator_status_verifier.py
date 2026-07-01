@@ -566,6 +566,62 @@ def test_proactive_ooda_operator_status_verifier_allows_non_material_suppressed_
     assert verifier.verify(receipt, root=tmp_path) == []
 
 
+def test_proactive_ooda_operator_status_verifier_allows_configured_source_exclusion_suppressed_projection(
+    tmp_path: Path, monkeypatch
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
+    payload = _base_payload()
+    payload.update(
+        {
+            "source_git_head": "source-head-123",
+            "status": "ready_with_live_receipt",
+            "reason": "ready",
+            "summary": "Proactive OODA route, packet runtime, and latest host-visible live receipt are ready for operator follow-through.",
+            "next_action": "maintain_proactive_ooda_runtime",
+            "next_action_href": "https://myexternalbrain.com/app/today",
+            "next_action_label": "Open Today",
+            "next_action_method": "get",
+            "operator_action_state": "clear",
+            "delivery_route_error": "",
+            "delivery_route": {"ready": True, "route_error": "", "next_action": ""},
+            "live_receipt_checked": True,
+            "live_receipt": {"ok": True, "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json"},
+            "suppressed_projection": {
+                "present": True,
+                "source": "docker_compose_exec",
+                "status": "suppressed_non_material",
+                "requires_recovery": False,
+                "blocking_reason": "",
+                "next_action": "",
+                "suppressed_non_material": True,
+                "suppressed_non_material_reason": "configured_source_exclusion",
+                "run_receipt_generated_at": "2026-07-01T20:55:53Z",
+                "notification_status": "sent",
+                "error_code": "",
+                "item_count": 1,
+                "teable_status": "synced",
+                "projection_record_count": 1,
+                "packet_projection_record_count": 0,
+                "suppressed_item_count": 1,
+                "suppressed_safe_work_review_count": 0,
+                "suppressed_projection_reasons": ["flat_search_disabled"],
+                "suppressed_safe_work_issue_codes": ["flat_search_disabled"],
+                "inferred_from_packet_projection_gap": False,
+                "privacy": {
+                    "raw_packet_text_exposed": False,
+                    "raw_candidate_exposed": False,
+                    "raw_draft_text_exposed": False,
+                    "raw_private_link_exposed": False,
+                },
+            },
+        }
+    )
+    _write_receipt(receipt, **payload)
+    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
+
+    assert verifier.verify(receipt, root=tmp_path) == []
+
+
 def test_proactive_ooda_operator_status_verifier_allows_non_material_current_artifact_filter(
     tmp_path: Path, monkeypatch
 ) -> None:
