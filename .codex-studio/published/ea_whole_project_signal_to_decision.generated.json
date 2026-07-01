@@ -55,7 +55,7 @@
     "source_kind": "",
     "status": "missing_or_invalid"
   },
-  "generated_at": "2026-07-01T16:12:41Z",
+  "generated_at": "2026-07-01T16:35:06Z",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
   "next_action": "record_redacted_signal_review_acceptance",
@@ -125,7 +125,6 @@
   "real_weekly_operator_review_accepted": false,
   "release_authority_claim_allowed": false,
   "remaining_external_proofs": [
-    "real proactive OODA packet accepted with routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, pending-approval, stale-approval, and decision facts, and explicit approval outcome",
     "real weekly signal-to-decision review accepted by the operator",
     "closed-loop signal-to-decision follow-through receipt accepted by the operator",
     "real whole-project scope gap audit reviewed against the current product spine",
@@ -291,8 +290,8 @@
       "status": "mapped_from_sources"
     }
   ],
-  "source_git_head": "d652beaa8144fbfb61f8f6b6052e3a1a5c6ecf66",
-  "source_state_fingerprint": "10bd0b05859a2aaa01582fd71be9f6335cbf941e9481cdb6a753aff6829e7b4f",
+  "source_git_head": "4cf42d54abcf669920a230dd198431a0cac94354",
+  "source_state_fingerprint": "d8e6a169d73a760eaf1ce85b3626ede51c1b6c00837fd49a15d97910a51ea995",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready_local_packet_pending_operator_acceptance"
 }
