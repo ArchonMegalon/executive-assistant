@@ -2,9 +2,9 @@
   "acceptance_proof_requirements": [
     {
       "action_context": {
-        "delivery_policy": "action_required_only",
+        "delivery_policy": "queue_only",
         "instruction": "Record redacted real-world acceptance evidence for the morning brief.",
-        "interruption_budget": "action_required",
+        "interruption_budget": "none",
         "irreversible_actions_consent_gated": true,
         "kind": "real_world_acceptance_capture",
         "non_action_progress_push_allowed": false,
@@ -17,8 +17,8 @@
         "raw_private_context_exposed": false,
         "raw_secret_exposed": false,
         "raw_token_exposed": false,
-        "telegram_push_allowed": true,
-        "user_action_required": true
+        "telegram_push_allowed": false,
+        "user_action_required": false
       },
       "capture_surfaces": [
         ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
@@ -39,8 +39,8 @@
           "path": ".codex-studio/published/ea_executive_assistant_acceptance_evidence.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "e7881ad94bbafa69410960f261a7047ef0585343",
-          "source_state_fingerprint": "3be952cfdd9e8751e8e6dffb09e47e10edac96cbeab9437f787259301c11d7dc",
+          "source_git_head": "a701ba4de7673b2ba6271aa20f4ec32e1b25acef",
+          "source_state_fingerprint": "aaaad55e1fa220b49c2ccefd1b61aa0f5cc4fa60c703143175edc63f565fe541",
           "status": "partial_real_world_acceptance_evidence"
         },
         {
@@ -48,12 +48,12 @@
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "e7881ad94bbafa69410960f261a7047ef0585343",
-          "source_state_fingerprint": "3be952cfdd9e8751e8e6dffb09e47e10edac96cbeab9437f787259301c11d7dc",
+          "source_git_head": "a701ba4de7673b2ba6271aa20f4ec32e1b25acef",
+          "source_state_fingerprint": "aaaad55e1fa220b49c2ccefd1b61aa0f5cc4fa60c703143175edc63f565fe541",
           "status": "blocked_real_world_acceptance"
         }
       ],
-      "status": "pending_real_world_evidence",
+      "status": "satisfied",
       "title": "Morning brief operator acceptance"
     },
     {
@@ -121,8 +121,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "e7881ad94bbafa69410960f261a7047ef0585343",
-          "source_state_fingerprint": "3be952cfdd9e8751e8e6dffb09e47e10edac96cbeab9437f787259301c11d7dc",
+          "source_git_head": "a701ba4de7673b2ba6271aa20f4ec32e1b25acef",
+          "source_state_fingerprint": "aaaad55e1fa220b49c2ccefd1b61aa0f5cc4fa60c703143175edc63f565fe541",
           "status": "pass"
         },
         {
@@ -130,8 +130,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "e7881ad94bbafa69410960f261a7047ef0585343",
-          "source_state_fingerprint": "3be952cfdd9e8751e8e6dffb09e47e10edac96cbeab9437f787259301c11d7dc",
+          "source_git_head": "a701ba4de7673b2ba6271aa20f4ec32e1b25acef",
+          "source_state_fingerprint": "aaaad55e1fa220b49c2ccefd1b61aa0f5cc4fa60c703143175edc63f565fe541",
           "status": "ready_with_live_receipt"
         }
       ],
@@ -395,7 +395,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-07-01T04:29:33Z",
+  "generated_at": "2026-07-01T04:37:04Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -490,8 +490,8 @@
           "path": ".codex-studio/published/ea_office_loop_goal.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "e7881ad94bbafa69410960f261a7047ef0585343",
-          "source_state_fingerprint": "3be952cfdd9e8751e8e6dffb09e47e10edac96cbeab9437f787259301c11d7dc",
+          "source_git_head": "a701ba4de7673b2ba6271aa20f4ec32e1b25acef",
+          "source_state_fingerprint": "aaaad55e1fa220b49c2ccefd1b61aa0f5cc4fa60c703143175edc63f565fe541",
           "status": "ready_local_evidence"
         }
       ],
@@ -672,8 +672,8 @@
           "path": ".codex-studio/published/ea_executive_assistant_quality_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "e7881ad94bbafa69410960f261a7047ef0585343",
-          "source_state_fingerprint": "3be952cfdd9e8751e8e6dffb09e47e10edac96cbeab9437f787259301c11d7dc",
+          "source_git_head": "a701ba4de7673b2ba6271aa20f4ec32e1b25acef",
+          "source_state_fingerprint": "aaaad55e1fa220b49c2ccefd1b61aa0f5cc4fa60c703143175edc63f565fe541",
           "status": "blocked_real_world_acceptance"
         }
       ],
@@ -788,35 +788,6 @@
     {
       "callback_tokens_exposed": false,
       "delivery_policy": "action_required_only",
-      "evidence_kind": "real_operator_acceptance",
-      "instruction": "Record redacted real-world acceptance evidence for the morning brief.",
-      "interruption_budget": "action_required",
-      "irreversible_actions_consent_gated": true,
-      "key": "morning_brief_operator_acceptance",
-      "lens": "prove",
-      "next_action": "record_redacted_operator_acceptance_for_real_morning_brief",
-      "next_action_href": "/admin/actions/acceptance-evidence",
-      "next_action_label": "Record a real-use outcome",
-      "next_action_method": "post",
-      "non_action_progress_push_allowed": false,
-      "proof_key": "real_daily_morning_brief_accepted",
-      "quiet_hours_respected": true,
-      "raw_acceptance_text_exposed": false,
-      "raw_actor_identity_exposed": false,
-      "raw_chat_ids_exposed": false,
-      "raw_object_reference_exposed": false,
-      "raw_private_context_exposed": false,
-      "raw_secret_exposed": false,
-      "raw_token_exposed": false,
-      "raw_voice_ids_exposed": false,
-      "required_next_receipt": "real operator acceptance that the morning brief was worth reading",
-      "telegram_push_allowed": true,
-      "title": "Morning brief operator acceptance",
-      "user_action_required": true
-    },
-    {
-      "callback_tokens_exposed": false,
-      "delivery_policy": "action_required_only",
       "evidence_kind": "real_review_acceptance",
       "instruction": "Record redacted evidence that the weekly signal-to-decision review was actually reviewed.",
       "interruption_budget": "action_required",
@@ -921,7 +892,6 @@
   "overall_status": "blocked_real_world_acceptance",
   "real_use_claim_allowed": false,
   "required_next_receipts": [
-    "real operator acceptance that the morning brief was worth reading",
     "real weekly signal-to-decision review acceptance receipt",
     "fresh-host Teable recovery drill receipt mirrored into the repo",
     "consented Manfred STT/TTS realtime conversation proof",
@@ -938,7 +908,7 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "e7881ad94bbafa69410960f261a7047ef0585343",
-  "source_state_fingerprint": "3be952cfdd9e8751e8e6dffb09e47e10edac96cbeab9437f787259301c11d7dc",
+  "source_git_head": "a701ba4de7673b2ba6271aa20f4ec32e1b25acef",
+  "source_state_fingerprint": "aaaad55e1fa220b49c2ccefd1b61aa0f5cc4fa60c703143175edc63f565fe541",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }
