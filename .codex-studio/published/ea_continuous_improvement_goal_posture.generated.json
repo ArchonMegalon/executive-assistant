@@ -645,19 +645,19 @@
           "contract_name": "ea.telegram_audiobook_live_delivery_receipt.v1",
           "path": ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "8d7efd63a4f03e191b38d28e455c6732881b2359",
-          "source_state_fingerprint": "04acbe431d3ca087c1def5c2ba6be38f1ee63630dee9496f57a5b60e06808ad2",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "2193107bdfaf10f9ee944741af6a696878bfdd87",
+          "source_state_fingerprint": "d01e36e231e36d5dd1f5964cf49815a78653a54914001b1895b88ae8c4fb25a5",
           "status": "blocked"
         },
         {
           "contract_name": "ea.telegram_audiobook_live_readiness_checklist.v1",
           "path": ".codex-studio/published/telegram_audiobook_live_readiness.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "8d7efd63a4f03e191b38d28e455c6732881b2359",
-          "source_state_fingerprint": "04acbe431d3ca087c1def5c2ba6be38f1ee63630dee9496f57a5b60e06808ad2",
-          "status": "ready_for_live_epub_delivery_test"
+          "source_fresh_to_current_source": true,
+          "source_git_head": "2193107bdfaf10f9ee944741af6a696878bfdd87",
+          "source_state_fingerprint": "d01e36e231e36d5dd1f5964cf49815a78653a54914001b1895b88ae8c4fb25a5",
+          "status": "blocked_live_prerequisites"
         }
       ],
       "status": "pending_real_world_evidence",
@@ -796,7 +796,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-07-02T08:27:39Z",
+  "generated_at": "2026-07-02T08:29:34Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -1020,24 +1020,24 @@
               "contract_name": "ea.telegram_audiobook_live_readiness_checklist.v1",
               "path": ".codex-studio/published/telegram_audiobook_live_readiness.generated.json",
               "present": true,
-              "source_fresh_to_current_source": false,
-              "source_git_head": "8d7efd63a4f03e191b38d28e455c6732881b2359",
-              "source_state_fingerprint": "04acbe431d3ca087c1def5c2ba6be38f1ee63630dee9496f57a5b60e06808ad2",
-              "status": "ready_for_live_epub_delivery_test"
+              "source_fresh_to_current_source": true,
+              "source_git_head": "2193107bdfaf10f9ee944741af6a696878bfdd87",
+              "source_state_fingerprint": "d01e36e231e36d5dd1f5964cf49815a78653a54914001b1895b88ae8c4fb25a5",
+              "status": "blocked_live_prerequisites"
             },
             {
               "contract_name": "ea.telegram_audiobook_live_delivery_receipt.v1",
               "path": ".codex-studio/published/telegram_audiobook_live_delivery.generated.json",
               "present": true,
-              "source_fresh_to_current_source": false,
-              "source_git_head": "8d7efd63a4f03e191b38d28e455c6732881b2359",
-              "source_state_fingerprint": "04acbe431d3ca087c1def5c2ba6be38f1ee63630dee9496f57a5b60e06808ad2",
+              "source_fresh_to_current_source": true,
+              "source_git_head": "2193107bdfaf10f9ee944741af6a696878bfdd87",
+              "source_state_fingerprint": "d01e36e231e36d5dd1f5964cf49815a78653a54914001b1895b88ae8c4fb25a5",
               "status": "blocked"
             }
           ],
           "status": "blocked",
           "status_class": "blocking",
-          "summary": "live delivery blocked; readiness ready_for_live_epub_delivery_test",
+          "summary": "live delivery blocked; readiness blocked_live_prerequisites",
           "title": "Telegram audiobook delivery"
         },
         {

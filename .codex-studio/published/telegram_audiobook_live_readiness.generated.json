@@ -1,10 +1,10 @@
 {
-  "can_run_live_epub_delivery_test": true,
+  "can_run_live_epub_delivery_test": false,
   "contract_name": "ea.telegram_audiobook_live_readiness_checklist.v1",
   "delivery": {
     "audiobookshelf_auto_import_enabled": true,
-    "audiobookshelf_public_share_configured": true,
-    "audiobookshelf_public_share_enabled": true,
+    "audiobookshelf_public_share_configured": false,
+    "audiobookshelf_public_share_enabled": false,
     "items": [
       {
         "env_values_exposed": false,
@@ -56,7 +56,7 @@
         ],
         "key": "audiobookshelf_public_share_enabled",
         "operator_action": "Enable Audiobookshelf public-share creation after scan/import.",
-        "status": "ready",
+        "status": "blocked",
         "verification_command": "make verify-telegram-audiobook-live-readiness"
       },
       {
@@ -69,7 +69,7 @@
         ],
         "key": "audiobookshelf_public_share_configured",
         "operator_action": "Configure the Audiobookshelf API/public base URL, library id, and admin token.",
-        "status": "ready",
+        "status": "blocked",
         "verification_command": "make verify-telegram-audiobook-live-readiness"
       },
       {
@@ -79,7 +79,7 @@
         ],
         "key": "player_access_signing_secret_present",
         "operator_action": "Configure the EA signing secret for player-scoped audiobook links.",
-        "status": "ready",
+        "status": "blocked",
         "verification_command": "make verify-telegram-audiobook-live-readiness"
       },
       {
@@ -106,35 +106,45 @@
     ],
     "m4b_assembly_available": true,
     "scheduler_resume_enabled": true,
-    "status": "ready"
+    "status": "blocked"
   },
-  "delivery_blockers": [],
-  "generated_at": "2026-07-01T15:55:07.001465Z",
+  "delivery_blockers": [
+    "audiobookshelf_public_share_enabled",
+    "audiobookshelf_public_share_configured",
+    "player_access_signing_secret_present"
+  ],
+  "generated_at": "2026-07-02T08:28:41.846299Z",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
   "live_delivery_claim_allowed": false,
-  "next_action": "run_real_telegram_epub_audiobook_delivery_test",
-  "observation_source": "runtime_container",
+  "next_action": "Approve raw owned audiobook source text leaving EA for governed external audiobook TTS.",
+  "observation_source": "host_env",
   "operator_commands": [
     "make verify-telegram-audiobook-live-readiness",
     "make verify-telegram-audiobook-live-delivery-receipt",
     "make verify-active-media-ltd-goal-bundle"
   ],
-  "preflight_failed_checks": [],
-  "preflight_status": "warn",
+  "preflight_failed_checks": [
+    "external_tts_enabled",
+    "unmixr_auto_render_enabled",
+    "voice_catalog_configured",
+    "player_access_signing_secret_present"
+  ],
+  "preflight_status": "fail",
   "preflight_warned_checks": [
-    "player_access_base_url_present",
-    "unmixr_bulk_pacing_configured"
+    "voice_catalog_audition_ready",
+    "audiobookshelf_public_share_configured",
+    "player_access_base_url_present"
   ],
   "privacy": {
     "env_values_exposed": false,
-    "preflight_contract_sha256": "d6f6cd3a23fe81a925efe4757e0ced4662d544e5abb9c6d03ae6d7b18a9bef33",
+    "preflight_contract_sha256": "99a49e3848ec0298dd4dc19aa11e1638835efe293adc17aaa5fe4a5da154348d",
     "raw_provider_voice_ids_exposed": false,
     "raw_public_share_url_included": false,
     "raw_storage_paths_included": false,
     "raw_telegram_chat_id_included": false
   },
-  "public_share_delivery_prereqs_ready": true,
+  "public_share_delivery_prereqs_ready": false,
   "real_user_playback_acceptance_verified": false,
   "required_live_proof_after_readiness": [
     "real Telegram audiobook source upload",
@@ -146,15 +156,21 @@
     "sanitized live delivery receipt materialized",
     "separate human playback acceptance captured"
   ],
-  "runtime_container": "ea-api",
-  "sample_blockers": [],
-  "source_git_head": "8d7efd63a4f03e191b38d28e455c6732881b2359",
-  "source_state_fingerprint": "04acbe431d3ca087c1def5c2ba6be38f1ee63630dee9496f57a5b60e06808ad2",
+  "runtime_container": "",
+  "sample_blockers": [
+    "external_tts_enabled",
+    "unmixr_auto_render_enabled",
+    "voice_catalog_configured",
+    "voice_catalog_audition_ready",
+    "unmixr_api_key_slot_present"
+  ],
+  "source_git_head": "2193107bdfaf10f9ee944741af6a696878bfdd87",
+  "source_state_fingerprint": "d01e36e231e36d5dd1f5964cf49815a78653a54914001b1895b88ae8c4fb25a5",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
-  "status": "ready_for_live_epub_delivery_test",
-  "voice_sample_prereqs_ready": true,
+  "status": "blocked_live_prerequisites",
+  "voice_sample_prereqs_ready": false,
   "voice_samples": {
-    "api_key_slot_count": 7,
+    "api_key_slot_count": 0,
     "items": [
       {
         "env_values_exposed": false,
@@ -196,7 +212,7 @@
         ],
         "key": "external_tts_enabled",
         "operator_action": "Approve raw owned audiobook source text leaving EA for governed external audiobook TTS.",
-        "status": "ready",
+        "status": "blocked",
         "verification_command": "make verify-telegram-audiobook-live-readiness"
       },
       {
@@ -216,7 +232,7 @@
         ],
         "key": "unmixr_auto_render_enabled",
         "operator_action": "Enable automatic Unmixr rendering after the user chooses a voice.",
-        "status": "ready",
+        "status": "blocked",
         "verification_command": "make verify-telegram-audiobook-live-readiness"
       },
       {
@@ -231,7 +247,7 @@
         ],
         "key": "voice_catalog_configured",
         "operator_action": "Configure or discover the Unmixr audiobook voice catalog.",
-        "status": "ready",
+        "status": "blocked",
         "verification_command": "make verify-telegram-audiobook-live-readiness"
       },
       {
@@ -245,7 +261,7 @@
         ],
         "key": "voice_catalog_audition_ready",
         "operator_action": "Provide or discover at least three audiobook voices so Telegram can send comparison samples.",
-        "status": "ready",
+        "status": "blocked",
         "verification_command": "make verify-telegram-audiobook-live-readiness"
       },
       {
@@ -257,13 +273,13 @@
         ],
         "key": "unmixr_api_key_slot_present",
         "operator_action": "Configure at least one owned Unmixr API-key slot for sample and chapter rendering.",
-        "status": "ready",
+        "status": "blocked",
         "verification_command": "make verify-telegram-audiobook-live-readiness"
       }
     ],
-    "status": "ready",
+    "status": "blocked",
     "voice_audition_min_candidates": 3,
-    "voice_catalog_count": 290,
+    "voice_catalog_count": 0,
     "voice_discovery_enabled": true,
     "voice_discovery_target_count": 30
   }

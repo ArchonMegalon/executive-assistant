@@ -12,7 +12,7 @@
   "dedupe_checked": true,
   "delivery_policy": "action_required_only",
   "force_required_to_resend": true,
-  "generated_at": "2026-07-02T08:27:39Z",
+  "generated_at": "2026-07-02T08:29:34Z",
   "generated_by": "scripts/materialize_operator_action_required_dedupe_proof.py",
   "head_semantics": "source_state",
   "included_action_keys": [
@@ -56,7 +56,7 @@
     "posture": {
       "path": ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json",
       "present": true,
-      "sha256": "04e0d519fd228dd2a1b49b842b2c28bfe96347c49f7c2cc44191557ae49e2ea6"
+      "sha256": "db4620f43aa050068d2cea824b467a3165a8ac9941b4766d30f89053d1b8cbf7"
     },
     "sent_digest": {
       "digest_match": true,
