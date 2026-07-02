@@ -65,6 +65,7 @@ from app.services.property_billing import property_commercial_snapshot
 from app.services.public_urls import ea_public_app_base_url
 from app.services.proactive_ooda_approval_outcomes import default_proactive_ooda_artifact_dir
 from app.services.proactive_ooda_context_grounding import ground_digest_for_principal
+from app.services.proactive_ooda_flat_search_policy import text_mentions_flat_property_search
 from app.services.proactive_ooda_receipts import persist_proactive_ooda_receipt
 from app.services.proactive_ooda_safe_work import (
     build_safe_work_result,
@@ -4476,6 +4477,8 @@ def _telegram_is_actionable_focus_summary(value: object) -> bool:
     summary = str(value or "").strip().lower()
     if not summary or _telegram_is_low_signal_summary(summary):
         return False
+    if text_mentions_flat_property_search(summary):
+        return False
     actionable_markers = (
         "approve",
         "review",
@@ -4497,6 +4500,8 @@ def _telegram_is_actionable_focus_summary(value: object) -> bool:
 def _telegram_compact_focus_text(value: object, *, limit: int = 120) -> str:
     text_value = " ".join(str(value or "").strip().split())
     if not text_value:
+        return ""
+    if text_mentions_flat_property_search(text_value):
         return ""
     if text_value.lower().startswith("review apartment alert:"):
         suffix = text_value.split(":", 1)[1].strip()

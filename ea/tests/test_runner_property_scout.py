@@ -61,6 +61,15 @@ def test_scheduler_property_scout_disabled_when_flat_search_is_disallowed(monkey
     assert runner._scheduler_property_scout_enabled() is False
 
 
+def test_scheduler_property_alert_accounts_require_property_runtime_profile(monkeypatch: object) -> None:
+    monkeypatch.setenv("EA_ASSISTANT_PROPERTY_LANE_ENABLED", "1")
+    monkeypatch.setenv("EA_PROPERTY_ALERT_ACCOUNT_EMAILS", "alerts@example.com")
+    monkeypatch.delenv("PROPERTYQUARRY_SCHEDULER_PROFILE", raising=False)
+    monkeypatch.delenv("PROPERTYQUARRY_WORKER_PROFILE", raising=False)
+
+    assert runner._scheduler_property_alert_account_emails() == ()
+
+
 def test_sync_direct_property_scout_is_blocked_when_flat_search_is_disabled_by_kill_switch(monkeypatch: object) -> None:
     monkeypatch.setenv("EA_PROACTIVE_OODA_DISABLE_FLAT_SEARCH", "1")
     monkeypatch.setenv("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED", "1")

@@ -19401,6 +19401,8 @@ class ProductService:
         payload: dict[str, object],
         actor: str,
     ) -> dict[str, object] | None:
+        if not assistant_property_lane_enabled():
+            return None
         if str(signal_type or "").strip().lower() != "email_thread":
             return None
         if str(channel or "").strip().lower() != "gmail":

@@ -112,3 +112,15 @@ def test_recent_persisted_property_memory_is_stripped_from_telegram_context() ->
     }
     assert channels._telegram_recent_persisted_comparison_state(container, principal_id="principal-1") == {}
     assert channels._telegram_recent_persisted_intent_state(container, principal_id="principal-1") == {}
+
+
+def test_property_focus_summary_is_not_actionable_in_telegram() -> None:
+    assert channels._telegram_is_actionable_focus_summary(
+        "Apartment alert: 2 Zimmer Wohnung in 1200 Wien"
+    ) is False
+
+
+def test_property_focus_summary_is_suppressed_from_compact_telegram_text() -> None:
+    assert channels._telegram_compact_focus_text(
+        "Review apartment alert: 2 Zimmer Wohnung in 1200 Wien"
+    ) == ""
