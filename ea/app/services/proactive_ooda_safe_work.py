@@ -2038,7 +2038,9 @@ def _outreach_request_text_has_actionable_content(text: str) -> bool:
 
 
 def _draft_request_text(*, input_contract: Mapping[str, Any], stage_payload: Mapping[str, Any]) -> str:
-    candidates: list[tuple[int, int, str]] = []
+    explicit_source_indexes = {0, 1, 2, 3, 4, 7, 8, 9, 10, 11}
+    explicit_candidates: list[tuple[int, int, str]] = []
+    derived_candidates: list[tuple[int, int, str]] = []
     for index, value in enumerate(
         (
             stage_payload.get("draft_request_text"),
@@ -2061,9 +2063,15 @@ def _draft_request_text(*, input_contract: Mapping[str, Any], stage_payload: Map
         if text:
             score = _draft_request_text_score(text, source_index=index)
             if score > 0:
-                candidates.append((score, -index, text))
-    if candidates:
-        return max(candidates, key=lambda item: (item[0], item[1]))[2]
+                candidate = (score, -index, text)
+                if index in explicit_source_indexes:
+                    explicit_candidates.append(candidate)
+                else:
+                    derived_candidates.append(candidate)
+    if explicit_candidates:
+        return max(explicit_candidates, key=lambda item: (item[0], item[1]))[2]
+    if derived_candidates:
+        return max(derived_candidates, key=lambda item: (item[0], item[1]))[2]
     return ""
 
 

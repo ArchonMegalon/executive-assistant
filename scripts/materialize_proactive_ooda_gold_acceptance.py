@@ -1414,12 +1414,14 @@ def _approval_capture_surface_receipt(
     current_packet_approval_request_recordable = bool(
         operator_surface.get("current_packet_approval_request_recordable")
     )
-    telegram_approval_surface_candidate = bool(operator_surface.get("telegram_approval_surface_ready")) or (
-        current_packet_live_pending_count > 0
-    )
     approval_capture_checked = bool(operator_capture.get("checked"))
+    approval_capture_reported = bool(operator_capture) and any(
+        key in operator_capture
+        for key in ("checked", "probe_ok", "status", "blocking_reason", "next_action")
+    )
+    explicit_unverified_capture = approval_capture_reported and not approval_capture_checked
     telegram_approval_surface_ready = bool(
-        operator_surface.get("telegram_approval_surface_ready")
+        operator_surface.get("telegram_approval_surface_ready") and not explicit_unverified_capture
     ) or bool(
         current_packet_live_pending_count > 0
         and approval_capture_checked

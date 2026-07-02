@@ -1379,6 +1379,12 @@ def _summary(
     if status == "deferred":
         if deferred_reason == "deferred_by_unarmed_send":
             return "Proactive OODA delivery is intentionally stage-only because send arming is disabled for this runtime."
+        if deferred_reason == "deferred_by_quiet_hours":
+            return "Proactive OODA delivery is currently deferred by quiet hours."
+        if deferred_reason == "deferred_by_interruption_budget":
+            return "Proactive OODA delivery is currently deferred because the interruption budget is exhausted."
+        if deferred_reason == "deferred_by_operator_pause":
+            return "Proactive OODA delivery is currently deferred by operator pause."
         return f"Proactive OODA delivery is currently deferred by {delivery_state or 'operator policy'}."
     if status == "ready_with_recovery_action":
         first_error = _report_errors(report)[0] if _report_errors(report) else ""

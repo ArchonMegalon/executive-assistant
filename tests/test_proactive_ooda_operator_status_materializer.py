@@ -2600,6 +2600,142 @@ def test_materialize_proactive_ooda_operator_status_reports_unarmed_stage_only_p
     assert receipt["delivery_guard"]["armed_send"] is False
 
 
+def test_materialize_proactive_ooda_operator_status_humanizes_quiet_hours_deferral(
+    tmp_path: Path, monkeypatch
+) -> None:
+    module = _load_script()
+    monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
+    monkeypatch.setattr(
+        module.proactive_verifier,
+        "_build_report",
+        lambda _args: {
+            "ok": True,
+            "delivery_route": {
+                "ready": True,
+                "route_error": "",
+                "recovery_hint": "",
+                "next_action": "",
+                "selected_channel": "telegram",
+                "selected_transport": "telegram",
+                "selected_by": "tool_runtime_binding",
+                "available_channels": ["telegram"],
+            },
+            "delivery_guard": {
+                "delivery_state": "deferred",
+                "deferred_reason": "deferred_by_quiet_hours",
+                "armed_send": True,
+                "quiet_hours_active": True,
+                "interruption_budget_exhausted": False,
+            },
+            "stage_packets": {"ready": True, "errors": []},
+            "safe_work_results": {"ready": True, "errors": []},
+            "receipt_observation_count": 0,
+            "actionable_count": 1,
+            "source_mode": "signals_json",
+        },
+    )
+    monkeypatch.setattr(
+        module.live_receipt_verifier,
+        "verify_receipt",
+        lambda _path: {
+            "ok": False,
+            "errors": ["receipt_missing"],
+            "receipt_path": str(tmp_path / "live-receipt.json"),
+            "notification_status": "",
+            "delivery_channel": "",
+            "delivery_message_count": 0,
+            "telegram_message_count": 0,
+            "delivery_route_error": "",
+            "delivery_recovery_hint": "",
+            "delivery_next_action": "",
+            "generated_at": "",
+        },
+    )
+
+    receipt = module.build_proactive_ooda_operator_status(
+        output_path=tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
+        generated_at="2026-07-02T22:30:00Z",
+        report_args=Namespace(armed_send=True),
+        live_receipt_path=tmp_path / "live-receipt.json",
+        allow_live_route_probe=False,
+    )
+
+    assert receipt["status"] == "deferred"
+    assert receipt["reason"] == "deferred_by_quiet_hours"
+    assert receipt["next_action"] == "resume_after_quiet_hours"
+    assert receipt["operator_action_state"] == "deferred"
+    assert receipt["summary"] == "Proactive OODA delivery is currently deferred by quiet hours."
+    assert receipt["delivery_guard"]["quiet_hours_active"] is True
+
+
+def test_materialize_proactive_ooda_operator_status_humanizes_interruption_budget_deferral(
+    tmp_path: Path, monkeypatch
+) -> None:
+    module = _load_script()
+    monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
+    monkeypatch.setattr(
+        module.proactive_verifier,
+        "_build_report",
+        lambda _args: {
+            "ok": True,
+            "delivery_route": {
+                "ready": True,
+                "route_error": "",
+                "recovery_hint": "",
+                "next_action": "",
+                "selected_channel": "telegram",
+                "selected_transport": "telegram",
+                "selected_by": "tool_runtime_binding",
+                "available_channels": ["telegram"],
+            },
+            "delivery_guard": {
+                "delivery_state": "deferred",
+                "deferred_reason": "deferred_by_interruption_budget",
+                "armed_send": True,
+                "quiet_hours_active": False,
+                "interruption_budget_exhausted": True,
+            },
+            "stage_packets": {"ready": True, "errors": []},
+            "safe_work_results": {"ready": True, "errors": []},
+            "receipt_observation_count": 0,
+            "actionable_count": 1,
+            "source_mode": "signals_json",
+        },
+    )
+    monkeypatch.setattr(
+        module.live_receipt_verifier,
+        "verify_receipt",
+        lambda _path: {
+            "ok": False,
+            "errors": ["receipt_missing"],
+            "receipt_path": str(tmp_path / "live-receipt.json"),
+            "notification_status": "",
+            "delivery_channel": "",
+            "delivery_message_count": 0,
+            "telegram_message_count": 0,
+            "delivery_route_error": "",
+            "delivery_recovery_hint": "",
+            "delivery_next_action": "",
+            "generated_at": "",
+        },
+    )
+
+    receipt = module.build_proactive_ooda_operator_status(
+        output_path=tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
+        generated_at="2026-07-02T22:45:00Z",
+        report_args=Namespace(armed_send=True),
+        live_receipt_path=tmp_path / "live-receipt.json",
+        allow_live_route_probe=False,
+    )
+
+    assert receipt["status"] == "deferred"
+    assert receipt["reason"] == "deferred_by_interruption_budget"
+    assert receipt["next_action"] == "wait_for_interruption_budget_window"
+    assert receipt["operator_action_state"] == "deferred"
+    assert receipt["summary"] == "Proactive OODA delivery is currently deferred because the interruption budget is exhausted."
+    assert receipt["delivery_guard"]["interruption_budget_exhausted"] is True
+
+
 def test_materialize_proactive_ooda_operator_status_uses_local_callback_surface_when_live_probe_is_skipped(
     tmp_path: Path, monkeypatch
 ) -> None:
