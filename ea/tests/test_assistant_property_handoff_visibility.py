@@ -41,6 +41,7 @@ def _service(tasks: list[HumanTask]) -> ProductService:
             list_pending_approvals_for_principal=lambda **_kwargs: [],
             list_approval_history_for_principal=lambda **_kwargs: [],
             list_human_tasks=lambda **_kwargs: list(tasks),
+            list_operator_profiles=lambda **_kwargs: [SimpleNamespace(operator_id="operator-1")],
         ),
         memory_runtime=SimpleNamespace(
             list_decision_windows=lambda **_kwargs: [],
@@ -140,3 +141,49 @@ def test_ea_support_bundle_hides_property_human_tasks_when_assistant_lane_is_off
     bundle = service.workspace_support_bundle(principal_id="principal-1")
 
     assert [row["human_task_id"] for row in bundle["human_tasks"]] == ["normal-1"]
+
+
+def test_cleanup_hidden_property_tasks_closes_property_tasks_only() -> None:
+    service = _service(
+        [
+            _task("property-1", "property_alert_review", "Review apartment alert"),
+            _task("normal-1", "delivery_followup", "Send follow-up"),
+        ]
+    )
+    completed: list[str] = []
+    events: list[str] = []
+
+    def _complete_handoff(**kwargs):  # type: ignore[no-untyped-def]
+        completed.append(str(kwargs["handoff_ref"]))
+        return SimpleNamespace(id=str(kwargs["handoff_ref"]))
+
+    def _record_product_event(**kwargs):  # type: ignore[no-untyped-def]
+        events.append(str(kwargs["event_type"]))
+
+    service.complete_handoff = _complete_handoff  # type: ignore[method-assign]
+    service._record_product_event = _record_product_event  # type: ignore[method-assign]
+
+    result = service.cleanup_hidden_property_tasks(
+        principal_id="principal-1",
+        actor="test",
+    )
+
+    assert result["closed_total"] == 1
+    assert result["skipped_total"] == 0
+    assert completed == ["human_task:property-1"]
+    assert events == ["assistant_property_task_auto_closed"]
+
+
+def test_cleanup_hidden_property_tasks_skips_when_no_active_operator_profile_exists() -> None:
+    service = _service([
+        _task("property-1", "property_alert_review", "Review apartment alert"),
+    ])
+    service._container.orchestrator.list_operator_profiles = lambda **_kwargs: []  # type: ignore[attr-defined]
+
+    result = service.cleanup_hidden_property_tasks(
+        principal_id="principal-1",
+        actor="test",
+    )
+
+    assert result["status"] == "skipped"
+    assert result["reason"] == "no_active_operator_profile"

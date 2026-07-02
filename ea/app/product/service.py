@@ -25416,6 +25416,86 @@ class ProductService:
             "closed_refs": closed,
         }
 
+    def cleanup_hidden_property_tasks(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+    ) -> dict[str, object]:
+        if assistant_property_lane_enabled():
+            return {
+                "generated_at": _now_iso(),
+                "closed_total": 0,
+                "closed_refs": [],
+                "status": "skipped",
+                "reason": "assistant_property_lane_enabled",
+            }
+        operator_id = self._assistant_boundary_cleanup_operator_id(principal_id=principal_id)
+        if not operator_id:
+            return {
+                "generated_at": _now_iso(),
+                "closed_total": 0,
+                "closed_refs": [],
+                "skipped_total": 0,
+                "skipped_refs": [],
+                "status": "skipped",
+                "reason": "no_active_operator_profile",
+            }
+        closed: list[str] = []
+        skipped: list[str] = []
+        for row in self._container.orchestrator.list_human_tasks(principal_id=principal_id, status="pending", limit=500):
+            task_type = str(getattr(row, "task_type", "") or "").strip()
+            if not assistant_property_task_hidden_from_ea(task_type):
+                continue
+            handoff_ref = f"human_task:{row.human_task_id}"
+            completed = self.complete_handoff(
+                principal_id=principal_id,
+                handoff_ref=handoff_ref,
+                operator_id=operator_id,
+                actor=actor,
+                resolution="ea_property_lane_disabled",
+            )
+            if completed is None:
+                skipped.append(handoff_ref)
+                continue
+            closed.append(handoff_ref)
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="assistant_property_task_auto_closed",
+                payload={
+                    "handoff_ref": handoff_ref,
+                    "task_type": task_type,
+                    "actor": str(actor or "").strip() or "assistant_property_boundary_cleanup",
+                    "reason": "property_work_removed_from_ea",
+                },
+                source_id=handoff_ref,
+                dedupe_key=f"{principal_id}|{handoff_ref}|assistant-property-task-auto-closed",
+            )
+        return {
+            "generated_at": _now_iso(),
+            "closed_total": len(closed),
+            "closed_refs": closed,
+            "skipped_total": len(skipped),
+            "skipped_refs": skipped,
+            "status": "completed",
+        }
+
+    def _assistant_boundary_cleanup_operator_id(self, *, principal_id: str) -> str:
+        profiles = self._container.orchestrator.list_operator_profiles(
+            principal_id=principal_id,
+            status="active",
+            limit=25,
+        )
+        ordered_ids = [
+            str(row.operator_id or "").strip()
+            for row in profiles
+            if str(row.operator_id or "").strip()
+        ]
+        for operator_id in ordered_ids:
+            if not operator_id.startswith("property-"):
+                return operator_id
+        return ordered_ids[0] if ordered_ids else ""
+
     def create_google_photos_picker_session(
         self,
         *,
