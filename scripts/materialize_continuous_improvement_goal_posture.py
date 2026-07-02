@@ -269,6 +269,7 @@ def _provider_cost_control_from_office(office: dict[str, Any]) -> dict[str, Any]
             "background_routing": {
                 "primary_background_provider": "onemin",
                 "primary_background_provider_label": "1min.ai",
+                "default_provider_order": ["onemin", "magixai", "gemini_vortex"],
                 "groundwork_provider_order": ["onemin", "magixai", "gemini_vortex"],
                 "cost_sensitive_lanes": ["groundwork", "fast", "overflow", "review", "review_light", "audit"],
                 "onemin_preferred_when_speed_is_not_critical": True,
@@ -299,6 +300,11 @@ def _provider_cost_control_from_office(office: dict[str, Any]) -> dict[str, Any]
         "source": "ea_office_loop_goal.provider_cost_routing_posture",
         "primary_background_provider": str(background.get("primary_background_provider") or "").strip(),
         "primary_background_provider_label": str(background.get("primary_background_provider_label") or "").strip(),
+        "default_provider_order": [
+            str(item).strip()
+            for item in list(background.get("default_provider_order") or [])
+            if str(item).strip()
+        ],
         "groundwork_provider_order": [
             str(item).strip()
             for item in list(background.get("groundwork_provider_order") or [])

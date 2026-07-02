@@ -264,6 +264,12 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                     issues.append("decide provider_cost_control status must be active_cost_control")
                 if provider_cost.get("primary_background_provider") != "onemin":
                     issues.append("decide provider_cost_control primary background provider must be onemin")
+                if list(provider_cost.get("default_provider_order") or [])[:3] != [
+                    "onemin",
+                    "magixai",
+                    "gemini_vortex",
+                ]:
+                    issues.append("decide provider_cost_control default provider order drifted")
                 if list(provider_cost.get("groundwork_provider_order") or [])[:3] != [
                     "onemin",
                     "magixai",

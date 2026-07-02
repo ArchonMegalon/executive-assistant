@@ -4551,8 +4551,8 @@ def _provider_order_from_env(raw: str, *, fallback: tuple[str, ...], env_name: s
 
 
 def _provider_order() -> tuple[str, ...]:
-    raw = _env("EA_RESPONSES_PROVIDER_ORDER", "onemin,gemini_vortex,magixai")
-    return _provider_order_from_env(raw, fallback=("onemin", "gemini_vortex", "magixai"), env_name="EA_RESPONSES_PROVIDER_ORDER")
+    raw = _env("EA_RESPONSES_PROVIDER_ORDER", "onemin,magixai,gemini_vortex")
+    return _provider_order_from_env(raw, fallback=("onemin", "magixai", "gemini_vortex"), env_name="EA_RESPONSES_PROVIDER_ORDER")
 
 
 def _cheap_provider_order() -> tuple[str, ...]:

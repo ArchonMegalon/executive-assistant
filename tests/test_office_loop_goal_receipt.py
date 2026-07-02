@@ -128,6 +128,11 @@ def test_office_loop_goal_receipt_materializes_seeded_local_loop(tmp_path: Path)
     cost_posture = receipt["provider_cost_routing_posture"]
     assert cost_posture["status"] == "active_cost_control"
     assert cost_posture["background_routing"]["primary_background_provider"] == "onemin"
+    assert cost_posture["background_routing"]["default_provider_order"] == [
+        "onemin",
+        "magixai",
+        "gemini_vortex",
+    ]
     assert cost_posture["background_routing"]["groundwork_provider_order"] == [
         "onemin",
         "magixai",
@@ -272,6 +277,10 @@ def test_office_loop_goal_verifier_rejects_overclaim_and_route_regression(tmp_pa
     receipt["diagnostics_summary"]["channel_loop_digest_keys"] = ["memo"]
     receipt["diagnostics_summary"]["provider_cost_routing_status"] = "missing"
     receipt["provider_cost_routing_posture"]["background_routing"]["primary_background_provider"] = "gemini_vortex"
+    receipt["provider_cost_routing_posture"]["background_routing"]["default_provider_order"] = [
+        "gemini_vortex",
+        "onemin",
+    ]
     receipt["provider_cost_routing_posture"]["background_routing"]["groundwork_provider_order"] = [
         "gemini_vortex",
         "onemin",

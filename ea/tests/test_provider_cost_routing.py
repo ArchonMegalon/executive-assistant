@@ -82,6 +82,13 @@ def test_groundwork_response_candidates_use_onemin_then_magicx_before_gemini() -
     assert _provider_first_occurrence(candidates)[:3] == ["onemin", "magixai", "gemini_vortex"]
 
 
+def test_default_provider_order_keeps_magicx_before_gemini_for_non_hard_work() -> None:
+    with patch.dict(os.environ, _provider_env(), clear=True):
+        provider_order = responses_upstream._provider_order()
+
+    assert provider_order[:3] == ("onemin", "magixai", "gemini_vortex")
+
+
 def test_groundwork_response_candidates_spill_to_magicx_before_gemini_when_onemin_unavailable() -> None:
     with (
         patch.dict(os.environ, _provider_env(), clear=True),

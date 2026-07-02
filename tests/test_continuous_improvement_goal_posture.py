@@ -15,6 +15,7 @@ def _office_provider_cost_routing_posture() -> dict[str, object]:
         "background_routing": {
             "primary_background_provider": "onemin",
             "primary_background_provider_label": "1min.ai",
+            "default_provider_order": ["onemin", "magixai", "gemini_vortex"],
             "groundwork_provider_order": ["onemin", "magixai", "gemini_vortex"],
             "cost_sensitive_lanes": ["groundwork", "fast", "overflow", "review", "review_light", "audit"],
             "onemin_preferred_when_speed_is_not_critical": True,
@@ -1015,6 +1016,7 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert provider_cost["status"] == "active_cost_control"
     assert provider_cost["primary_background_provider"] == "onemin"
     assert provider_cost["primary_background_provider_label"] == "1min.ai"
+    assert provider_cost["default_provider_order"] == ["onemin", "magixai", "gemini_vortex"]
     assert provider_cost["groundwork_provider_order"] == ["onemin", "magixai", "gemini_vortex"]
     assert "groundwork" in provider_cost["cost_sensitive_lanes"]
     assert provider_cost["onemin_preferred_when_speed_is_not_critical"] is True

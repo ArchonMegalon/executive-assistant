@@ -321,6 +321,7 @@ def _provider_cost_routing_posture() -> dict[str, Any]:
         "background_routing": {
             "primary_background_provider": "onemin",
             "primary_background_provider_label": "1min.ai",
+            "default_provider_order": ["onemin", "magixai", "gemini_vortex"],
             "groundwork_profile": "groundwork",
             "groundwork_public_model": "ea-groundwork-gemini",
             "groundwork_provider_order": ["onemin", "magixai", "gemini_vortex"],

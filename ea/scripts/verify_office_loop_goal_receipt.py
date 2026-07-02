@@ -243,6 +243,8 @@ def verify_office_loop_goal_receipt(receipt_path: str | Path) -> dict[str, Any]:
     background_routing = dict(provider_cost_posture.get("background_routing") or {})
     if background_routing.get("primary_background_provider") != "onemin":
         issues.append("office_loop_provider_cost_background_primary_not_onemin")
+    if list(background_routing.get("default_provider_order") or [])[:3] != ["onemin", "magixai", "gemini_vortex"]:
+        issues.append("office_loop_provider_cost_default_order_drifted")
     if list(background_routing.get("groundwork_provider_order") or [])[:3] != ["onemin", "magixai", "gemini_vortex"]:
         issues.append("office_loop_provider_cost_groundwork_order_drifted")
     if background_routing.get("onemin_preferred_when_speed_is_not_critical") is not True:
