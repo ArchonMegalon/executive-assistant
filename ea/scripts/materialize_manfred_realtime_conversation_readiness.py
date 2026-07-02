@@ -40,6 +40,7 @@ MANFRED_VOICE_GOLD_LABEL = "Open voice gold"
 MANFRED_PROOF_PATH = "/memorials/manfred/voice-config"
 MANFRED_PROOF_LABEL = "Spoken conversation proof"
 ACTION_METHOD = "get"
+MANFRED_OPERATOR_ACTION_KEY = "manfred_stt_tts_realtime_conversation"
 
 
 def _now() -> str:
@@ -125,6 +126,67 @@ def _next_action_surface(
     }
 
 
+def _operator_action_packet(
+    *,
+    ready: bool,
+    blocked_checks: list[str],
+    next_action_surface: dict[str, str],
+    attestation: dict[str, Any],
+) -> dict[str, Any]:
+    required_check_ids = [
+        str(item).strip()
+        for item in list(attestation.get("required_check_ids") or [])
+        if str(item).strip()
+    ]
+    manual_only = attestation.get("manual_only") is True
+    common = {
+        "operator_action_key": MANFRED_OPERATOR_ACTION_KEY if not ready else "",
+        "kind": "manual_room_audio_attestation",
+        "next_action": str(next_action_surface.get("next_action") or ""),
+        "next_action_href": str(next_action_surface.get("next_action_href") or ""),
+        "next_action_label": str(next_action_surface.get("next_action_label") or ""),
+        "next_action_method": str(next_action_surface.get("next_action_method") or ACTION_METHOD).lower(),
+        "manual_only": manual_only,
+        "ci_must_not_auto_assert": attestation.get("ci_must_not_auto_assert") is True,
+        "required_check_ids": required_check_ids,
+        "required_check_count": len(required_check_ids),
+        "blocked_checks": list(blocked_checks),
+        "quiet_hours_respected": True,
+        "non_action_progress_push_allowed": False,
+        "irreversible_actions_consent_gated": True,
+        "raw_private_context_exposed": False,
+        "raw_chat_ids_exposed": False,
+        "raw_token_exposed": False,
+        "raw_secret_exposed": False,
+        "raw_transcript_fields_exposed": False,
+        "candidate_raw_text_fields_exposed": False,
+        "raw_voice_ids_exposed": False,
+    }
+    if ready:
+        return {
+            **common,
+            "status": "not_required",
+            "user_action_required": False,
+            "action_required_reason": "",
+            "instruction": "Review the Manfred realtime conversation in a real room before widening product claims.",
+            "delivery_policy": "queue_only",
+            "telegram_push_allowed": False,
+            "interruption_budget": "none",
+        }
+    return {
+        **common,
+        "status": "action_required",
+        "user_action_required": True,
+        "action_required_reason": "real_room_realtime_proof_missing",
+        "instruction": "Capture the manual real-room audio attestation for the Manfred spoken conversation proof. CI must not auto-assert this.",
+        "delivery_policy": "action_required_only",
+        "telegram_push_allowed": True,
+        "interruption_budget": "action_required",
+        "required_next_receipt": "consented Manfred STT/TTS realtime conversation proof",
+        "claim_boundary": "does_not_prove_realtime_conversation_until_real_room_audio_and_operator_acceptance_are_recorded",
+    }
+
+
 def materialize_manfred_realtime_conversation_readiness(
     *,
     receipt_path: str | Path,
@@ -164,6 +226,7 @@ def materialize_manfred_realtime_conversation_readiness(
     )
     receipt = {
         "contract_name": "ea.manfred_realtime_conversation_readiness.v1",
+        "generated_by": "ea/scripts/materialize_manfred_realtime_conversation_readiness.py",
         "status": "ready_for_realtime_conversation_review" if ready else "blocked_realtime_prerequisites",
         "generated_at": generated_at or _now(),
         **_source_state(),
@@ -174,6 +237,13 @@ def materialize_manfred_realtime_conversation_readiness(
         "premium_spoken_claim_allowed": ready,
         "goal_completion_claim_allowed": False,
         "blocked_checks": blocked,
+        "operator_action_key": "" if ready else MANFRED_OPERATOR_ACTION_KEY,
+        "operator_action": _operator_action_packet(
+            ready=ready,
+            blocked_checks=blocked,
+            next_action_surface=next_action_surface,
+            attestation=attestation,
+        ),
         "stt": stt,
         "captured_candidate_diagnostic": diagnostic,
         "tts": tts,

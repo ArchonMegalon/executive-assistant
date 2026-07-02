@@ -122,6 +122,7 @@ def test_manfred_realtime_readiness_blocks_real_stt_and_room_audio_without_overc
     )
 
     assert receipt["status"] == "blocked_realtime_prerequisites"
+    assert receipt["generated_by"] == "ea/scripts/materialize_manfred_realtime_conversation_readiness.py"
     assert receipt["head_semantics"] == "source_state"
     assert receipt["source_git_head"]
     assert receipt["source_state_fingerprint"]
@@ -145,6 +146,18 @@ def test_manfred_realtime_readiness_blocks_real_stt_and_room_audio_without_overc
     assert receipt["next_action_href"] == "/memorials/manfred/voice-config"
     assert receipt["next_action_label"] == "Spoken conversation proof"
     assert receipt["next_action_method"] == "get"
+    assert receipt["operator_action_key"] == "manfred_stt_tts_realtime_conversation"
+    operator_action = receipt["operator_action"]
+    assert operator_action["status"] == "action_required"
+    assert operator_action["operator_action_key"] == "manfred_stt_tts_realtime_conversation"
+    assert operator_action["user_action_required"] is True
+    assert operator_action["delivery_policy"] == "action_required_only"
+    assert operator_action["telegram_push_allowed"] is True
+    assert operator_action["manual_only"] is True
+    assert operator_action["ci_must_not_auto_assert"] is True
+    assert operator_action["required_check_count"] == len(ROOM_CHECK_IDS)
+    assert operator_action["raw_private_context_exposed"] is False
+    assert operator_action["raw_transcript_fields_exposed"] is False
 
     verification = verifier.verify_manfred_realtime_conversation_readiness(receipt_path)
 
@@ -175,6 +188,11 @@ def test_manfred_realtime_readiness_can_be_ready_without_closing_whole_goal(tmp_
     assert receipt["next_action_href"] == "/memorials/manfred/voice-config"
     assert receipt["next_action_label"] == "Spoken conversation proof"
     assert receipt["next_action_method"] == "get"
+    assert receipt["operator_action_key"] == ""
+    assert receipt["operator_action"]["status"] == "not_required"
+    assert receipt["operator_action"]["user_action_required"] is False
+    assert receipt["operator_action"]["delivery_policy"] == "queue_only"
+    assert receipt["operator_action"]["telegram_push_allowed"] is False
 
     verification = verifier.verify_manfred_realtime_conversation_readiness(receipt_path)
 
@@ -193,6 +211,7 @@ def test_manfred_realtime_readiness_verifier_rejects_overclaims(tmp_path: Path) 
     )
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     receipt["goal_completion_claim_allowed"] = True
+    receipt["generated_by"] = "wrong"
     receipt["realtime_conversation_claim_allowed"] = True
     receipt["captured_candidate_diagnostic"]["promotion_allowed"] = True
     receipt["privacy"]["candidate_raw_text_fields"] = True
@@ -200,11 +219,15 @@ def test_manfred_realtime_readiness_verifier_rejects_overclaims(tmp_path: Path) 
     receipt["next_action_href"] = ""
     receipt["next_action_label"] = ""
     receipt["next_action_method"] = ""
+    receipt["operator_action"]["raw_token_exposed"] = True
+    receipt["operator_action"]["telegram_push_allowed"] = False
+    receipt["operator_action_key"] = ""
     receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     verification = verifier.verify_manfred_realtime_conversation_readiness(receipt_path)
 
     assert verification["status"] == "fail"
+    assert "manfred_realtime_generated_by_mismatch" in verification["issues"]
     assert "manfred_realtime_goal_completion_overclaim" in verification["issues"]
     assert "manfred_realtime_claim_overclaim" in verification["issues"]
     assert "manfred_realtime_captured_diagnostic_overclaim" in verification["issues"]
@@ -213,6 +236,9 @@ def test_manfred_realtime_readiness_verifier_rejects_overclaims(tmp_path: Path) 
     assert "manfred_realtime_next_action_method_missing" in verification["issues"]
     assert "manfred_realtime_blocked_next_action_href_drift" in verification["issues"]
     assert "manfred_realtime_blocked_next_action_label_drift" in verification["issues"]
+    assert "manfred_realtime_operator_action_raw_flag_not_false:raw_token_exposed" in verification["issues"]
+    assert "manfred_realtime_operator_action_push_flag_mismatch" in verification["issues"]
+    assert "manfred_realtime_operator_action_key_missing" in verification["issues"]
 
 
 def test_manfred_realtime_readiness_verifier_rejects_stale_source_state(tmp_path: Path) -> None:

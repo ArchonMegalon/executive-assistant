@@ -123,8 +123,8 @@
           "path": ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "dc73f51176e311490c594cd72fc5b1d07fad16f2",
-          "source_state_fingerprint": "c0f327d3f5005b42e189220a72dbe2363cd78d6a84699a63254662b895f5118d",
+          "source_git_head": "c898db842f7f219092cecebd2f0a7690470ad505",
+          "source_state_fingerprint": "8b000d822dfd80fbf98d20352f19dc3f4dd65723cd38cfac54f8aad3a1689919",
           "status": "ready_local_packet_pending_operator_acceptance"
         }
       ],
@@ -154,17 +154,17 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "dc73f51176e311490c594cd72fc5b1d07fad16f2",
-          "source_state_fingerprint": "c0f327d3f5005b42e189220a72dbe2363cd78d6a84699a63254662b895f5118d",
-          "status": "ready_for_approval_outcome_capture"
+          "source_git_head": "c898db842f7f219092cecebd2f0a7690470ad505",
+          "source_state_fingerprint": "8b000d822dfd80fbf98d20352f19dc3f4dd65723cd38cfac54f8aad3a1689919",
+          "status": "blocked_not_accepted_under_ordinary_use"
         },
         {
           "contract_name": "ea.proactive_ooda_operator_status.v1",
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "dc73f51176e311490c594cd72fc5b1d07fad16f2",
-          "source_state_fingerprint": "c0f327d3f5005b42e189220a72dbe2363cd78d6a84699a63254662b895f5118d",
+          "source_git_head": "c898db842f7f219092cecebd2f0a7690470ad505",
+          "source_state_fingerprint": "8b000d822dfd80fbf98d20352f19dc3f4dd65723cd38cfac54f8aad3a1689919",
           "status": "ready_with_live_receipt"
         }
       ],
@@ -555,9 +555,9 @@
           "contract_name": "ea.manfred_realtime_conversation_readiness.v1",
           "path": ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "8d7efd63a4f03e191b38d28e455c6732881b2359",
-          "source_state_fingerprint": "04acbe431d3ca087c1def5c2ba6be38f1ee63630dee9496f57a5b60e06808ad2",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "c898db842f7f219092cecebd2f0a7690470ad505",
+          "source_state_fingerprint": "8b000d822dfd80fbf98d20352f19dc3f4dd65723cd38cfac54f8aad3a1689919",
           "status": "blocked_realtime_prerequisites"
         }
       ],
@@ -775,7 +775,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-07-02T06:53:14Z",
+  "generated_at": "2026-07-02T06:59:58Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -810,8 +810,8 @@
           "path": ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "dc73f51176e311490c594cd72fc5b1d07fad16f2",
-          "source_state_fingerprint": "c0f327d3f5005b42e189220a72dbe2363cd78d6a84699a63254662b895f5118d",
+          "source_git_head": "c898db842f7f219092cecebd2f0a7690470ad505",
+          "source_state_fingerprint": "8b000d822dfd80fbf98d20352f19dc3f4dd65723cd38cfac54f8aad3a1689919",
           "status": "ready_local_packet_pending_operator_acceptance"
         },
         {
@@ -936,8 +936,8 @@
           "path": ".codex-studio/published/ea_office_loop_goal.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "dc73f51176e311490c594cd72fc5b1d07fad16f2",
-          "source_state_fingerprint": "c0f327d3f5005b42e189220a72dbe2363cd78d6a84699a63254662b895f5118d",
+          "source_git_head": "c898db842f7f219092cecebd2f0a7690470ad505",
+          "source_state_fingerprint": "8b000d822dfd80fbf98d20352f19dc3f4dd65723cd38cfac54f8aad3a1689919",
           "status": "ready_local_evidence"
         }
       ],
@@ -976,9 +976,9 @@
               "contract_name": "ea.manfred_realtime_conversation_readiness.v1",
               "path": ".codex-studio/published/manfred_realtime_conversation_readiness.generated.json",
               "present": true,
-              "source_fresh_to_current_source": false,
-              "source_git_head": "8d7efd63a4f03e191b38d28e455c6732881b2359",
-              "source_state_fingerprint": "04acbe431d3ca087c1def5c2ba6be38f1ee63630dee9496f57a5b60e06808ad2",
+              "source_fresh_to_current_source": true,
+              "source_git_head": "c898db842f7f219092cecebd2f0a7690470ad505",
+              "source_state_fingerprint": "8b000d822dfd80fbf98d20352f19dc3f4dd65723cd38cfac54f8aad3a1689919",
               "status": "blocked_realtime_prerequisites"
             }
           ],
@@ -1121,8 +1121,8 @@
           "path": ".codex-studio/published/teable_env_recovery_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "dc73f51176e311490c594cd72fc5b1d07fad16f2",
-          "source_state_fingerprint": "c0f327d3f5005b42e189220a72dbe2363cd78d6a84699a63254662b895f5118d",
+          "source_git_head": "c898db842f7f219092cecebd2f0a7690470ad505",
+          "source_state_fingerprint": "8b000d822dfd80fbf98d20352f19dc3f4dd65723cd38cfac54f8aad3a1689919",
           "status": "ready_local_audit"
         },
         {
@@ -1130,8 +1130,8 @@
           "path": ".codex-studio/published/teable_env_recovery_proof.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "dc73f51176e311490c594cd72fc5b1d07fad16f2",
-          "source_state_fingerprint": "c0f327d3f5005b42e189220a72dbe2363cd78d6a84699a63254662b895f5118d",
+          "source_git_head": "c898db842f7f219092cecebd2f0a7690470ad505",
+          "source_state_fingerprint": "8b000d822dfd80fbf98d20352f19dc3f4dd65723cd38cfac54f8aad3a1689919",
           "status": "pass"
         }
       ],
@@ -1567,7 +1567,7 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "dc73f51176e311490c594cd72fc5b1d07fad16f2",
-  "source_state_fingerprint": "c0f327d3f5005b42e189220a72dbe2363cd78d6a84699a63254662b895f5118d",
+  "source_git_head": "c898db842f7f219092cecebd2f0a7690470ad505",
+  "source_state_fingerprint": "8b000d822dfd80fbf98d20352f19dc3f4dd65723cd38cfac54f8aad3a1689919",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }

@@ -55,7 +55,7 @@
     "source_kind": "",
     "status": "missing_or_invalid"
   },
-  "generated_at": "2026-07-02T06:52:24Z",
+  "generated_at": "2026-07-02T06:59:15Z",
   "generated_by": "ea/scripts/materialize_whole_project_signal_to_decision_receipt.py",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
@@ -293,8 +293,8 @@
       "status": "mapped_from_sources"
     }
   ],
-  "source_git_head": "dc73f51176e311490c594cd72fc5b1d07fad16f2",
-  "source_state_fingerprint": "c0f327d3f5005b42e189220a72dbe2363cd78d6a84699a63254662b895f5118d",
+  "source_git_head": "c898db842f7f219092cecebd2f0a7690470ad505",
+  "source_state_fingerprint": "8b000d822dfd80fbf98d20352f19dc3f4dd65723cd38cfac54f8aad3a1689919",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready_local_packet_pending_operator_acceptance"
 }
