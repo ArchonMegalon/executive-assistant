@@ -416,8 +416,11 @@ def _merged_delivery_guard_status(args: argparse.Namespace, live_guard_status: d
     persisted_guard_status = _persisted_delivery_guard_status(args)
     if not persisted_guard_status:
         return live_guard_status
-    merged = dict(live_guard_status)
-    merged.update(persisted_guard_status)
+    # The current runtime guard is authoritative for delivery eligibility, deferral,
+    # quiet hours, and interruption-budget posture. Persisted run receipts may still
+    # contribute auxiliary fields that the live guard does not compute directly.
+    merged = dict(persisted_guard_status)
+    merged.update(live_guard_status)
     return merged
 
 

@@ -1237,3 +1237,46 @@ def test_runner_delivery_guard_snapshot_tracks_action_required_and_budget_state(
     assert guard["interruption_budget_exhausted"] is True
     assert guard["notification_requires_user_action"] is True
     assert guard["action_required_delivery_only"] is True
+
+
+def test_verifier_merged_delivery_guard_prefers_live_runtime_state_over_stale_receipt(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(verifier, "ROOT", tmp_path)
+    receipt_path = tmp_path / "state" / "proactive_ooda_latest_run.generated.json"
+    receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    receipt_path.write_text(
+        json.dumps(
+            {
+                "delivery_guard": {
+                    "delivery_state": "deferred",
+                    "deferred_reason": "deferred_by_quiet_hours",
+                    "quiet_hours_active": True,
+                    "interruption_budget_exhausted": False,
+                    "notification_requires_user_action": True,
+                    "decision_ready_safe_work": True,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    args = SimpleNamespace(
+        receipt_path=str(receipt_path),
+        state_path="state/proactive_ooda_notified.json",
+    )
+
+    merged = verifier._merged_delivery_guard_status(
+        args,
+        {
+            "delivery_state": "eligible",
+            "deferred_reason": "",
+            "quiet_hours_active": False,
+            "interruption_budget_exhausted": False,
+            "armed_send": True,
+        },
+    )
+
+    assert merged["delivery_state"] == "eligible"
+    assert merged["deferred_reason"] == ""
+    assert merged["quiet_hours_active"] is False
+    assert merged["armed_send"] is True
+    assert merged["notification_requires_user_action"] is True
+    assert merged["decision_ready_safe_work"] is True
