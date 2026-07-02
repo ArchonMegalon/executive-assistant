@@ -1705,7 +1705,7 @@ def test_principal_scoped_compact_status_keeps_safe_pressure_and_fast_lane_route
     assert full["provider_health"] == {}
 
 
-def test_review_light_public_model_prefers_onemin_with_gemini_and_chatplayground_fallback(
+def test_review_light_public_model_prefers_onemin_with_chatplayground_before_gemini_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
@@ -1718,13 +1718,14 @@ def test_review_light_public_model_prefers_onemin_with_gemini_and_chatplayground
         (config.provider_key, model)
         for config, model in upstream._provider_candidates(upstream.REVIEW_LIGHT_PUBLIC_MODEL)
     ]
+    gemini_model = upstream._gemini_vortex_models()[0]
 
     assert candidates == [
         ("onemin", "deepseek-chat"),
         ("onemin", "gpt-4.1-nano"),
         ("onemin", "gpt-4.1"),
-        ("gemini_vortex", "gemini-3.5-flash"),
         ("chatplayground", "gpt-4.1"),
+        ("gemini_vortex", gemini_model),
     ]
 
 
@@ -1771,10 +1772,11 @@ def test_audit_model_candidates_route_to_chatplayground(monkeypatch: pytest.Monk
         (config.provider_key, model)
         for config, model in upstream._provider_candidates(upstream.AUDIT_PUBLIC_MODEL)
     ]
+    gemini_model = upstream._gemini_vortex_models()[0]
     assert candidates == [
-        ("gemini_vortex", "gemini-3.5-flash"),
         ("chatplayground", "judge-model"),
         ("chatplayground", "jury-model"),
+        ("gemini_vortex", gemini_model),
     ]
 
 
@@ -1798,9 +1800,10 @@ def test_audit_alias_candidates_route_to_chatplayground(monkeypatch: pytest.Monk
         (config.provider_key, model)
         for config, model in upstream._provider_candidates(upstream.AUDIT_PUBLIC_MODEL_ALIAS)
     ]
+    gemini_model = upstream._gemini_vortex_models()[0]
     assert candidates == [
-        ("gemini_vortex", "gemini-3.5-flash"),
         ("chatplayground", "judge-model"),
+        ("gemini_vortex", gemini_model),
     ]
 
 
@@ -1818,12 +1821,13 @@ def test_audit_model_candidates_prefer_onemin_with_chatplayground_fallback(
         (config.provider_key, model)
         for config, model in upstream._provider_candidates(upstream.AUDIT_PUBLIC_MODEL)
     ]
+    gemini_model = upstream._gemini_vortex_models()[0]
     assert candidates == [
         ("onemin", "deepseek-chat"),
         ("onemin", "gpt-4.1-nano"),
         ("onemin", "gpt-4.1"),
-        ("gemini_vortex", "gemini-3.5-flash"),
         ("chatplayground", "judge-model"),
+        ("gemini_vortex", gemini_model),
     ]
 
 def test_audit_model_candidates_route_to_chatplayground_when_onemin_unconfigured(
@@ -1838,9 +1842,10 @@ def test_audit_model_candidates_route_to_chatplayground_when_onemin_unconfigured
         (config.provider_key, model)
         for config, model in upstream._provider_candidates(upstream.AUDIT_PUBLIC_MODEL)
     ]
+    gemini_model = upstream._gemini_vortex_models()[0]
     assert candidates == [
-        ("gemini_vortex", "gemini-3.5-flash"),
         ("chatplayground", "judge-model"),
+        ("gemini_vortex", gemini_model),
     ]
 
 

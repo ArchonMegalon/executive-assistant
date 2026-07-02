@@ -596,6 +596,8 @@ class ProviderDispatchEvent:
     model: str
     lane: str
     estimated_onemin_credits: int | None
+    tokens_in: int = 0
+    tokens_out: int = 0
     backend: str = ""
     latency_ms: int = 0
     principal_id: str | None = None
@@ -955,6 +957,8 @@ def _load_provider_ledgers_once() -> None:
                                 if row.get("estimated_onemin_credits") is not None
                                 else None
                             ),
+                            tokens_in=int(row.get("tokens_in") or 0),
+                            tokens_out=int(row.get("tokens_out") or 0),
                         )
                     )
                 except Exception:
@@ -4574,6 +4578,89 @@ def _hard_provider_order() -> tuple[str, ...]:
     return _provider_order_from_env(raw, fallback=("onemin", "gemini_vortex", "magixai"), env_name="EA_RESPONSES_HARD_PROVIDER_ORDER")
 
 
+_GEMINI_VORTEX_COST_GATED_LANES = frozenset(
+    {
+        _LANE_FAST,
+        _LANE_OVERFLOW,
+        _LANE_REVIEW,
+        _LANE_AUDIT,
+        _LANE_REVIEW_LIGHT,
+        _LANE_GROUNDWORK,
+    }
+)
+
+
+def _gemini_vortex_token_soft_cap_24h() -> int:
+    return _to_int(
+        _env("EA_RESPONSES_GEMINI_VORTEX_TOKEN_SOFT_CAP_24H", "200000"),
+        200000,
+        minimum=0,
+        maximum=10_000_000_000,
+    )
+
+
+def _gemini_vortex_token_soft_cap_window_seconds() -> float:
+    return _to_float(
+        _env("EA_RESPONSES_GEMINI_VORTEX_TOKEN_SOFT_CAP_WINDOW_SECONDS", "86400"),
+        86400.0,
+        minimum=3600.0,
+        maximum=2_592_000.0,
+    )
+
+
+def _provider_token_usage_summary(
+    *,
+    provider_key: str,
+    now: float | None = None,
+    window_seconds: float | None = None,
+    principal_id: str = "",
+) -> dict[str, object]:
+    _load_provider_ledgers_once()
+    current = float(now if now is not None else _now_epoch())
+    window = float(window_seconds if window_seconds is not None else 86400.0)
+    normalized_provider = str(provider_key or "").strip()
+    normalized_principal = str(principal_id or "").strip()
+    with _ONEMIN_USAGE_LOCK:
+        rows = [
+            item
+            for item in _PROVIDER_DISPATCH_EVENTS
+            if item.provider_key == normalized_provider
+            and current - item.happened_at <= window
+            and (not normalized_principal or str(item.principal_id or "").strip() == normalized_principal)
+        ]
+    tokens_in = sum(max(0, int(item.tokens_in or 0)) for item in rows)
+    tokens_out = sum(max(0, int(item.tokens_out or 0)) for item in rows)
+    total_tokens = tokens_in + tokens_out
+    soft_cap = _gemini_vortex_token_soft_cap_24h() if normalized_provider == "gemini_vortex" else 0
+    if soft_cap <= 0:
+        state = "unlimited"
+    elif total_tokens >= soft_cap:
+        state = "soft_cap_exceeded"
+    else:
+        state = "within_soft_cap"
+    return {
+        "window_seconds": window,
+        "request_count": len(rows),
+        "tokens_in": tokens_in,
+        "tokens_out": tokens_out,
+        "total_tokens": total_tokens,
+        "soft_cap_tokens": soft_cap,
+        "state": state,
+    }
+
+
+def _gemini_vortex_token_soft_cap_exceeded(*, now: float | None = None) -> bool:
+    cap = _gemini_vortex_token_soft_cap_24h()
+    if cap <= 0:
+        return False
+    summary = _provider_token_usage_summary(
+        provider_key="gemini_vortex",
+        now=now,
+        window_seconds=_gemini_vortex_token_soft_cap_window_seconds(),
+    )
+    return int(summary.get("total_tokens") or 0) >= cap
+
+
 def _provider_row_is_ready(provider: dict[str, object]) -> bool:
     state = str(provider.get("state") or "").strip().lower()
     if state == "ready":
@@ -4612,6 +4699,9 @@ def _provider_order_for_lane_health(
         _LANE_GROUNDWORK,
     }:
         return ordered
+    gemini_cost_gated = lane in _GEMINI_VORTEX_COST_GATED_LANES and _gemini_vortex_token_soft_cap_exceeded()
+    if gemini_cost_gated and "gemini_vortex" in ordered:
+        ordered = tuple(provider_key for provider_key in ordered if provider_key != "gemini_vortex")
     if lane in {_LANE_FAST, _LANE_OVERFLOW} and "gemini_vortex" in ordered:
         try:
             gemini_state, _ = _gemini_vortex_health_state()
@@ -4628,8 +4718,15 @@ def _provider_order_for_lane_health(
     preferred: list[str] = []
     if lane in {_LANE_REVIEW, _LANE_AUDIT, _LANE_REVIEW_LIGHT} and _provider_row_is_ready(dict(providers.get("chatplayground") or {})):
         preferred.append("chatplayground")
-    fallback_order = ("magixai", "gemini_vortex") if lane == _LANE_GROUNDWORK else ("gemini_vortex", "magixai")
+    if lane == _LANE_GROUNDWORK:
+        fallback_order = ("magixai", "gemini_vortex")
+    elif lane in {_LANE_REVIEW, _LANE_AUDIT, _LANE_REVIEW_LIGHT}:
+        fallback_order = ("chatplayground", "gemini_vortex", "magixai")
+    else:
+        fallback_order = ("gemini_vortex", "magixai")
     for provider_key in fallback_order:
+        if provider_key == "gemini_vortex" and gemini_cost_gated:
+            continue
         if _provider_row_is_ready(dict(providers.get(provider_key) or {})):
             preferred.append(provider_key)
     if not preferred:
@@ -5811,10 +5908,12 @@ def _provider_candidates(
         onemin_config = configs.get("onemin")
         if onemin_config is not None and onemin_config.api_keys:
             ordered.append("onemin")
+        chatplayground_config = configs.get("chatplayground")
+        if chatplayground_config is not None and chatplayground_config.api_keys:
+            ordered.append("chatplayground")
         gemini_config = configs.get("gemini_vortex")
         if gemini_config is not None and gemini_config.api_keys:
             ordered.append("gemini_vortex")
-        ordered.append("chatplayground")
         return tuple(dict.fromkeys(ordered))
 
     if lane == _LANE_DEFAULT:
@@ -7908,6 +8007,8 @@ def _run_text_request(
                         principal_label=principal_label(chatplayground_audit_principal_id),
                         owner_category=principal_owner_category(chatplayground_audit_principal_id),
                         estimated_onemin_credits=estimated_onemin_credits if estimated_onemin_credits > 0 else None,
+                        tokens_in=int(result.tokens_in or 0),
+                        tokens_out=int(result.tokens_out or 0),
                     )
                     return result
                 errors.append(f"{config.provider_key}:unsupported_provider")
@@ -8551,6 +8652,8 @@ def _record_provider_dispatch_event(
     principal_label: str = "",
     owner_category: str = "",
     estimated_onemin_credits: int | None,
+    tokens_in: int = 0,
+    tokens_out: int = 0,
     latency_ms: int = 0,
     happened_at: float | None = None,
 ) -> None:
@@ -8566,6 +8669,8 @@ def _record_provider_dispatch_event(
         principal_label=str(principal_label or "").strip() or None,
         owner_category=str(owner_category or "").strip() or None,
         estimated_onemin_credits=int(estimated_onemin_credits) if estimated_onemin_credits is not None else None,
+        tokens_in=max(0, int(tokens_in or 0)),
+        tokens_out=max(0, int(tokens_out or 0)),
     )
     with _ONEMIN_USAGE_LOCK:
         _PROVIDER_DISPATCH_EVENTS.append(event)
@@ -8582,6 +8687,9 @@ def _record_provider_dispatch_event(
             "principal_label": event.principal_label,
             "owner_category": event.owner_category,
             "estimated_onemin_credits": event.estimated_onemin_credits,
+            "tokens_in": event.tokens_in,
+            "tokens_out": event.tokens_out,
+            "total_tokens": event.tokens_in + event.tokens_out,
         },
     )
 
@@ -8616,6 +8724,8 @@ def _lane_telemetry_summary(*, now: float, window_seconds: float, principal_id: 
                 "provider_counts": {},
                 "latencies": [],
                 "estimated_onemin_credits": 0,
+                "tokens_in": 0,
+                "tokens_out": 0,
             },
         )
         bucket["request_count"] = int(bucket.get("request_count") or 0) + 1
@@ -8630,12 +8740,19 @@ def _lane_telemetry_summary(*, now: float, window_seconds: float, principal_id: 
             0,
             int(item.estimated_onemin_credits or 0),
         )
+        bucket["tokens_in"] = int(bucket.get("tokens_in") or 0) + max(0, int(item.tokens_in or 0))
+        bucket["tokens_out"] = int(bucket.get("tokens_out") or 0) + max(0, int(item.tokens_out or 0))
     lanes: dict[str, dict[str, object]] = {}
     for lane, bucket in by_lane.items():
         latencies = list(bucket.get("latencies") or [])
+        tokens_in = int(bucket.get("tokens_in") or 0)
+        tokens_out = int(bucket.get("tokens_out") or 0)
         lanes[lane] = {
             "request_count": int(bucket.get("request_count") or 0),
             "estimated_onemin_credits": int(bucket.get("estimated_onemin_credits") or 0),
+            "tokens_in": tokens_in,
+            "tokens_out": tokens_out,
+            "total_tokens": tokens_in + tokens_out,
             "p50_latency_ms": _latency_percentile(latencies, 50.0),
             "p95_latency_ms": _latency_percentile(latencies, 95.0),
             "max_latency_ms": max(latencies) if latencies else None,
@@ -8675,6 +8792,9 @@ def _provider_dispatch_summary(
             "last_used_lane": "",
             "last_used_backend": "",
             "last_used_at": None,
+            "last_used_tokens_in": 0,
+            "last_used_tokens_out": 0,
+            "last_used_total_tokens": 0,
             "active_lease_count": len(active_principals),
             "active_lease_principals": active_principals,
             "active_lease_labels": active_labels,
@@ -8682,6 +8802,8 @@ def _provider_dispatch_summary(
             "active_lease_lane_roles": [principal_lane_role(item) for item in active_principals if principal_lane_role(item)],
         }
     principal_id = str(latest.principal_id or "").strip()
+    last_tokens_in = max(0, int(latest.tokens_in or 0))
+    last_tokens_out = max(0, int(latest.tokens_out or 0))
     return {
         "last_used_principal_id": principal_id,
         "last_used_principal_label": str(latest.principal_label or principal_label(principal_id) or "").strip(),
@@ -8690,6 +8812,9 @@ def _provider_dispatch_summary(
         "last_used_lane": str(latest.lane or "").strip(),
         "last_used_backend": str(latest.backend or "").strip(),
         "last_used_at": latest.happened_at,
+        "last_used_tokens_in": last_tokens_in,
+        "last_used_tokens_out": last_tokens_out,
+        "last_used_total_tokens": last_tokens_in + last_tokens_out,
         "active_lease_count": len(active_principals),
         "active_lease_principals": active_principals,
         "active_lease_labels": active_labels,
@@ -10654,6 +10779,11 @@ def _provider_health_report(*, lightweight: bool = False) -> dict[str, object]:
         provider_key="gemini_vortex",
         active_lease_principals=gemini_active_lease_principals,
     )
+    gemini_token_usage_24h = _provider_token_usage_summary(
+        provider_key="gemini_vortex",
+        now=now,
+        window_seconds=_gemini_vortex_token_soft_cap_window_seconds(),
+    )
     hard_max_active, hard_queue_timeout, _ = _resolve_hard_defaults()
     onemin_max_requests_per_hour = _onemin_max_requests_per_hour()
     onemin_max_credits_per_hour = _onemin_max_credits_per_hour()
@@ -10781,6 +10911,7 @@ def _provider_health_report(*, lightweight: bool = False) -> dict[str, object]:
                 "last_used_hub_group_id": str(gemini_last_used_slot.get("last_used_hub_group_id") or "").strip(),
                 "last_used_sponsor_session_id": str(gemini_last_used_slot.get("last_used_sponsor_session_id") or "").strip(),
                 "last_used_at": gemini_last_used_slot.get("last_used_at"),
+                "token_usage_24h": gemini_token_usage_24h,
             },
         },
         "provider_config": {
@@ -10814,6 +10945,8 @@ def _provider_health_report(*, lightweight: bool = False) -> dict[str, object]:
             "gemini_vortex_accounts": list(gemini_key_names),
             "gemini_vortex_models": list(_gemini_vortex_models()),
             "gemini_vortex_selection_mode": _gemini_vortex_selection_mode(),
+            "gemini_vortex_token_soft_cap_24h": _gemini_vortex_token_soft_cap_24h(),
+            "gemini_vortex_token_soft_cap_window_seconds": _gemini_vortex_token_soft_cap_window_seconds(),
             "hard_max_active_requests": hard_max_active,
             "hard_queue_timeout_seconds": hard_queue_timeout,
             "lane_caps": {

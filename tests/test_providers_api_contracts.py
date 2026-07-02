@@ -9061,6 +9061,7 @@ def test_provider_registry_endpoint_exposes_lane_backend_and_capacity(monkeypatc
     monkeypatch.setenv("EA_GEMINI_VORTEX_SLOT_DEFAULT_OWNER", "fleet-primary")
     monkeypatch.setenv("EA_GEMINI_VORTEX_SLOT_FALLBACK_1_OWNER", "fleet-shadow")
     monkeypatch.setenv("BROWSERACT_API_KEY", "browseract-key")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
 
     response = owner.get("/v1/providers/registry")
     assert response.status_code == 200
@@ -9070,10 +9071,9 @@ def test_provider_registry_endpoint_exposes_lane_backend_and_capacity(monkeypatc
     assert body["principal_id"] == "exec-1"
 
     groundwork = next(item for item in body["lanes"] if item["profile"] == "groundwork")
-    assert groundwork["backend"] == "gemini_vortex"
-    assert groundwork["health_provider_key"] == "gemini_vortex"
-    assert groundwork["capacity_summary"]["configured_slots"] == 2
-    assert groundwork["capacity_summary"]["slot_owners"] == ["fleet-primary", "fleet-shadow"]
+    assert groundwork["backend"] == "onemin"
+    assert groundwork["health_provider_key"] == "onemin"
+    assert groundwork["provider_hint_order"][0] == "onemin"
 
     review_light = next(item for item in body["lanes"] if item["profile"] == "review_light")
     assert review_light["backend"] == "browseract"

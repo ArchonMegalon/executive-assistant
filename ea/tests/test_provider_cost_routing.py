@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -89,6 +90,82 @@ def test_groundwork_response_candidates_spill_to_magicx_before_gemini_when_onemi
         candidates = responses_upstream._provider_candidates(GROUNDWORK_PUBLIC_MODEL)
 
     assert _provider_first_occurrence(candidates)[:3] == ["magixai", "gemini_vortex", "onemin"]
+
+
+def test_gemini_dispatch_events_track_tokens(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(tmp_path))
+    responses_upstream._test_reset_onemin_states()
+    try:
+        now = responses_upstream._now_epoch()
+        responses_upstream._record_provider_dispatch_event(
+            provider_key="gemini_vortex",
+            model="gemini-3.5-flash",
+            lane="groundwork",
+            backend="gemini_vortex_cli",
+            estimated_onemin_credits=366,
+            tokens_in=321,
+            tokens_out=45,
+            latency_ms=100,
+            happened_at=now,
+        )
+
+        provider_summary = responses_upstream._provider_dispatch_summary(provider_key="gemini_vortex")
+        lane_summary = responses_upstream._lane_telemetry_summary(now=now + 1.0, window_seconds=3600.0)
+        token_summary = responses_upstream._provider_token_usage_summary(
+            provider_key="gemini_vortex",
+            now=now + 1.0,
+            window_seconds=3600.0,
+        )
+
+        assert provider_summary["last_used_tokens_in"] == 321
+        assert provider_summary["last_used_tokens_out"] == 45
+        assert provider_summary["last_used_total_tokens"] == 366
+        assert lane_summary["lanes"]["groundwork"]["total_tokens"] == 366
+        assert token_summary["total_tokens"] == 366
+
+        rows = [
+            json.loads(line)
+            for line in (tmp_path / "provider_dispatch_events.jsonl").read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        assert rows[-1]["tokens_in"] == 321
+        assert rows[-1]["tokens_out"] == 45
+        assert rows[-1]["total_tokens"] == 366
+    finally:
+        responses_upstream._test_reset_onemin_states()
+
+
+def test_gemini_soft_cap_removes_background_candidates_but_not_explicit(monkeypatch, tmp_path) -> None:
+    for key, value in _provider_env().items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(tmp_path))
+    monkeypatch.setenv("EA_RESPONSES_GEMINI_VORTEX_TOKEN_SOFT_CAP_24H", "100")
+    responses_upstream._test_reset_onemin_states()
+    try:
+        now = responses_upstream._now_epoch()
+        responses_upstream._record_provider_dispatch_event(
+            provider_key="gemini_vortex",
+            model="gemini-3.5-flash",
+            lane="groundwork",
+            backend="gemini_vortex_cli",
+            estimated_onemin_credits=120,
+            tokens_in=120,
+            tokens_out=0,
+            happened_at=now,
+        )
+
+        with patch.object(responses_upstream, "_provider_health_snapshot", return_value=_health(onemin_dispatchable=False)):
+            candidates = responses_upstream._provider_candidates(GROUNDWORK_PUBLIC_MODEL)
+        provider_order = _provider_first_occurrence(candidates)
+
+        assert "gemini_vortex" not in provider_order
+        assert provider_order[:2] == ["magixai", "onemin"]
+
+        explicit = responses_upstream._provider_candidates(GEMINI_VORTEX_PUBLIC_MODEL)
+        assert explicit
+        assert {config.provider_key for config, _model in explicit} == {"gemini_vortex"}
+    finally:
+        responses_upstream._test_reset_onemin_states()
 
 
 def test_explicit_gemini_model_stays_gemini_only() -> None:

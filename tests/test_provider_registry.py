@@ -758,11 +758,9 @@ def test_provider_registry_read_model_exposes_lane_backend_capacity(monkeypatch:
     assert payload["principal_id"] == "codex-fleet"
 
     groundwork = next(item for item in payload["lanes"] if item["profile"] == "groundwork")
-    assert groundwork["backend"] == "gemini_vortex"
-    assert groundwork["health_provider_key"] == "gemini_vortex"
-    assert groundwork["providers"][0]["provider_key"] == "gemini_vortex"
-    assert groundwork["capacity_summary"]["configured_slots"] == 2
-    assert groundwork["capacity_summary"]["slot_owners"] == ["fleet-primary", "fleet-shadow"]
+    assert groundwork["backend"] == "onemin"
+    assert groundwork["health_provider_key"] == "onemin"
+    assert groundwork["provider_hint_order"][0] == "onemin"
 
     review_light = next(item for item in payload["lanes"] if item["profile"] == "review_light")
     assert review_light["backend"] == "browseract"

@@ -105,6 +105,8 @@ def test_gcloud_probe_is_sanitized_and_keeps_manual_console_step(monkeypatch) ->
             return 0, "openclaw-concierge\n", ""
         if command[:3] == ["gcloud", "projects", "describe"]:
             return 0, json.dumps({"projectNumber": "103036758852"}), ""
+        if command[:3] == ["gcloud", "services", "list"]:
+            return 0, "\n".join(materializer.REQUIRED_WORKSPACE_APIS), ""
         return 1, "", "unknown"
 
     receipt = materializer.build_receipt(
@@ -119,6 +121,8 @@ def test_gcloud_probe_is_sanitized_and_keeps_manual_console_step(monkeypatch) ->
     assert probe["active_account_present"] is True
     assert probe["active_account_sha256"]
     assert probe["raw_gcloud_account_exposed"] is False
+    assert receipt["google_workspace_apis"]["status"] == "pass"
+    assert receipt["google_workspace_apis"]["missing_required"] == []
     assert probe["test_user_mutation_supported_by_gcloud_cli"] is False
     assert probe["manual_console_test_user_step_required"] is True
     assert "tibor.girschele@gmail.com" not in json.dumps(receipt, sort_keys=True)
@@ -142,6 +146,8 @@ def test_gcloud_project_mismatch_is_promoted_into_setup_checklist(monkeypatch) -
             return 0, "openclaw-concierge\n", ""
         if command[:3] == ["gcloud", "projects", "describe"]:
             return 0, json.dumps({"projectNumber": "95627800296"}), ""
+        if command[:3] == ["gcloud", "services", "list"]:
+            return 0, "\n".join(materializer.REQUIRED_WORKSPACE_APIS), ""
         return 1, "", "unknown"
 
     receipt = materializer.build_receipt(
@@ -158,6 +164,42 @@ def test_gcloud_project_mismatch_is_promoted_into_setup_checklist(monkeypatch) -
     assert "different OAuth project" in receipt["operator_action"]["telegram_message"]
     checklist_keys = {row["key"] for row in receipt["operator_action"]["setup_checklist"]}
     assert "gcloud_project_mismatch" in checklist_keys
+    assert verifier.verify_receipt_for_test(receipt) == []
+
+
+def test_missing_workspace_apis_block_full_workspace_readiness(monkeypatch) -> None:
+    _patch_source_state(monkeypatch)
+    _set_google_env(monkeypatch)
+    monkeypatch.setattr(materializer.shutil, "which", lambda name: "/usr/bin/gcloud" if name == "gcloud" else None)
+
+    def fake_runner(command: list[str], _timeout_seconds: float):
+        if command[:4] == ["gcloud", "config", "get-value", "account"]:
+            return 0, "tibor.girschele@gmail.com\n", ""
+        if command[:4] == ["gcloud", "config", "get-value", "project"]:
+            return 0, "openclaw-concierge\n", ""
+        if command[:3] == ["gcloud", "projects", "describe"]:
+            return 0, json.dumps({"projectNumber": "103036758852"}), ""
+        if command[:3] == ["gcloud", "services", "list"]:
+            return 0, "gmail.googleapis.com\n", ""
+        return 1, "", "unknown"
+
+    receipt = materializer.build_receipt(
+        expected_google_email="work.tibor.girschele@gmail.com",
+        test_user_confirmed=True,
+        probe_gcloud=True,
+        runner=fake_runner,
+    )
+
+    assert receipt["status"] == "blocked_setup_required"
+    assert "google_workspace_apis_missing" in receipt["missing_setup"]
+    assert receipt["google_workspace_apis"]["status"] == "blocked"
+    assert set(receipt["google_workspace_apis"]["missing_required"]) == {
+        "calendar-json.googleapis.com",
+        "people.googleapis.com",
+        "drive.googleapis.com",
+    }
+    checklist_keys = {row["key"] for row in receipt["operator_action"]["setup_checklist"]}
+    assert "google_workspace_apis_missing" in checklist_keys
     assert verifier.verify_receipt_for_test(receipt) == []
 
 

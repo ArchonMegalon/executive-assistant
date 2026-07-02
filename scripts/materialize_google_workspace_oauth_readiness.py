@@ -34,6 +34,12 @@ REQUIRED_ENV = (
     "EA_GOOGLE_OAUTH_STATE_SECRET",
     "EA_PROVIDER_SECRET_KEY",
 )
+REQUIRED_WORKSPACE_APIS = (
+    "gmail.googleapis.com",
+    "calendar-json.googleapis.com",
+    "people.googleapis.com",
+    "drive.googleapis.com",
+)
 PRIVATE_FLAGS = (
     "raw_expected_google_email_exposed",
     "raw_client_id_exposed",
@@ -153,6 +159,10 @@ def _gcloud_probe(
         "oauth_project_number": oauth_project_number,
         "project_describe_status": "skipped",
         "project_number_matches_client_id": False,
+        "required_workspace_apis": list(REQUIRED_WORKSPACE_APIS),
+        "enabled_required_workspace_apis": [],
+        "missing_required_workspace_apis": list(REQUIRED_WORKSPACE_APIS),
+        "workspace_api_probe_status": "skipped",
         "test_user_mutation_supported_by_gcloud_cli": False,
         "test_user_mutation_command": "",
         "manual_console_test_user_step_required": True,
@@ -193,11 +203,36 @@ def _gcloud_probe(
         probe["project_number_matches_client_id"] = bool(
             described_number and oauth_project_number and described_number == oauth_project_number
         )
+        code, stdout, _stderr = runner(
+            [
+                "gcloud",
+                "services",
+                "list",
+                "--enabled",
+                f"--project={project_to_describe}",
+                "--format=value(config.name)",
+            ],
+            timeout_seconds,
+        )
+        if code == 0:
+            enabled = {
+                str(line or "").strip()
+                for line in str(stdout or "").splitlines()
+                if str(line or "").strip()
+            }
+            enabled_required = [api for api in REQUIRED_WORKSPACE_APIS if api in enabled]
+            missing_required = [api for api in REQUIRED_WORKSPACE_APIS if api not in enabled]
+            probe["workspace_api_probe_status"] = "pass" if not missing_required else "blocked"
+            probe["enabled_required_workspace_apis"] = enabled_required
+            probe["missing_required_workspace_apis"] = missing_required
+        else:
+            probe["workspace_api_probe_status"] = "blocked"
 
     probe["status"] = (
         "pass"
         if probe["active_account_present"]
         and (not oauth_project_id or probe["active_project_matches_oauth_project"])
+        and probe["workspace_api_probe_status"] == "pass"
         else "blocked"
     )
     probe["reason"] = (
@@ -236,6 +271,20 @@ def _setup_checklist(missing: list[str], *, console_link: str, auth_link_templat
             "label": "Select the OAuth project in gcloud",
             "how": "Run gcloud config set project <oauth-project-id>, then rerun the readiness materializer.",
         },
+        "google_workspace_apis_missing": {
+            "label": "Enable the required Google Workspace APIs",
+            "how": (
+                "Enable Gmail API, Google Calendar API, People API, and Google Drive API on the OAuth project, "
+                "then rerun the readiness materializer."
+            ),
+        },
+        "google_workspace_api_probe_unavailable": {
+            "label": "Verify required Google Workspace APIs",
+            "how": (
+                "Run gcloud services list --enabled on the OAuth project and confirm Gmail, Calendar, People, "
+                "and Drive APIs are enabled."
+            ),
+        },
     }
     for env_key in REQUIRED_ENV:
         entries[f"env_{env_key.lower()}_missing"] = {
@@ -262,6 +311,10 @@ def _instruction_text(*, missing: list[str]) -> str:
             "Retry the Full Workspace auth link and explicitly choose the approved work Google account. "
             "If Google still denies access, reopen the Google Auth Platform Audience page and confirm the tester save has propagated."
         )
+    if "google_workspace_apis_missing" in missing:
+        return (
+            "Enable the required Google Workspace APIs on the OAuth project, then retry the Full Workspace auth link."
+        )
     return (
         "Open the Google Auth Platform Audience page, confirm the requested work Google account is allowed there, "
         "add it if missing, save, then retry the Full Workspace auth link."
@@ -287,6 +340,11 @@ def _telegram_message(*, missing: list[str], console_link: str) -> str:
             "Action needed: Google Full Workspace auth is still denied even though the work account is already approved. "
             "Retry the auth link, explicitly choose the approved account, and if Google still blocks it re-open the Audience page to confirm the save. "
             f"Console: {console_link}"
+        )
+    if "google_workspace_apis_missing" in missing:
+        return (
+            "Action needed: Google Full Workspace auth is not ready because required APIs are missing on the OAuth project. "
+            "Enable Gmail, Calendar, People, and Drive APIs, then retry the auth link."
         )
     return "Action needed: Google Workspace OAuth setup is incomplete. Open the Google integration setup and clear the listed checks."
 
@@ -345,6 +403,13 @@ def build_receipt(
         )
 
     gcloud = {"enabled": False, "raw_gcloud_account_exposed": False, "raw_gcloud_token_exposed": False}
+    workspace_api_status = {
+        "probe_enabled": False,
+        "status": "not_probed",
+        "required": list(REQUIRED_WORKSPACE_APIS),
+        "enabled_required": [],
+        "missing_required": list(REQUIRED_WORKSPACE_APIS),
+    }
     if probe_gcloud:
         gcloud = _gcloud_probe(
             oauth_project_id=project_id,
@@ -352,6 +417,13 @@ def build_receipt(
             timeout_seconds=timeout_seconds,
             runner=runner,
         )
+        workspace_api_status = {
+            "probe_enabled": True,
+            "status": str(gcloud.get("workspace_api_probe_status") or "blocked").strip() or "blocked",
+            "required": list(REQUIRED_WORKSPACE_APIS),
+            "enabled_required": list(gcloud.get("enabled_required_workspace_apis") or []),
+            "missing_required": list(gcloud.get("missing_required_workspace_apis") or []),
+        }
         if (
             gcloud.get("enabled") is True
             and str(gcloud.get("active_project") or "").strip()
@@ -359,6 +431,11 @@ def build_receipt(
             and gcloud.get("active_project_matches_oauth_project") is False
         ):
             missing.append("gcloud_project_mismatch")
+        if workspace_api_status["status"] == "blocked":
+            if workspace_api_status["missing_required"]:
+                missing.append("google_workspace_apis_missing")
+            else:
+                missing.append("google_workspace_api_probe_unavailable")
     missing = list(dict.fromkeys(item for item in missing if item))
     if missing:
         status = "blocked_setup_required"
@@ -412,6 +489,7 @@ def build_receipt(
             "raw_state_secret_exposed": False,
             "raw_provider_secret_exposed": False,
         },
+        "google_workspace_apis": workspace_api_status,
         "gcloud_probe": gcloud,
         "missing_setup": missing,
         "operator_action": {

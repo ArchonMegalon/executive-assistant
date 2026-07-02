@@ -18,6 +18,12 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RECEIPT = ROOT / ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json"
 CONTRACT_NAME = "ea.google_workspace_oauth_readiness.v1"
 KNOWN_STATUSES = {"pass", "ready_manual_console_check", "blocked_setup_required"}
+REQUIRED_WORKSPACE_APIS = {
+    "gmail.googleapis.com",
+    "calendar-json.googleapis.com",
+    "people.googleapis.com",
+    "drive.googleapis.com",
+}
 PRIVATE_FLAGS = (
     "raw_expected_google_email_exposed",
     "raw_client_id_exposed",
@@ -138,6 +144,38 @@ def verify_receipt_for_test(receipt: dict[str, Any], *, root: Path = ROOT) -> li
             issues.append("gcloud_probe must not claim an unsupported gcloud test-user mutation")
         if gcloud.get("manual_console_test_user_step_required") is not True:
             issues.append("gcloud_probe must preserve the manual console test-user step")
+
+    workspace_apis = dict(receipt.get("google_workspace_apis") or {})
+    required_apis = {
+        str(item or "").strip()
+        for item in list(workspace_apis.get("required") or [])
+        if str(item or "").strip()
+    }
+    missing_apis = [
+        str(item or "").strip()
+        for item in list(workspace_apis.get("missing_required") or [])
+        if str(item or "").strip()
+    ]
+    enabled_apis = {
+        str(item or "").strip()
+        for item in list(workspace_apis.get("enabled_required") or [])
+        if str(item or "").strip()
+    }
+    if required_apis != REQUIRED_WORKSPACE_APIS:
+        issues.append("google_workspace_apis.required must include Gmail, Calendar, People, and Drive APIs")
+    if workspace_apis.get("probe_enabled") is True:
+        if str(workspace_apis.get("status") or "").strip() not in {"pass", "blocked"}:
+            issues.append("google_workspace_apis.status must be pass or blocked when probed")
+        if missing_apis and "google_workspace_apis_missing" not in list(receipt.get("missing_setup") or []):
+            issues.append("missing Google Workspace APIs must block setup")
+        if str(workspace_apis.get("status") or "").strip() == "pass":
+            if missing_apis:
+                issues.append("google_workspace_apis pass must not include missing APIs")
+            if enabled_apis != REQUIRED_WORKSPACE_APIS:
+                issues.append("google_workspace_apis pass must prove all required APIs enabled")
+    else:
+        if str(workspace_apis.get("status") or "").strip() not in {"not_probed", ""}:
+            issues.append("google_workspace_apis.status must be not_probed when probe is disabled")
 
     missing_setup = [
         str(item).strip()

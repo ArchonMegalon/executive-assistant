@@ -451,9 +451,9 @@
           "contract_name": "ea.google_workspace_oauth_readiness.v1",
           "path": ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "5d7b586cecb766325f43a58c1f4449b0f690e720",
-          "source_state_fingerprint": "17876ec36c140a005d773e8757a2cbf026be384fb4d54d02fb59925510bd66fc",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "94fb9fde5bb7359721eb886c286ea2f1d92c38eb",
+          "source_state_fingerprint": "f4f32bcf26f6cf888210e9f4a5cb388d90317e4f5e0d5729fb3f1ccdb0b70116",
           "status": "blocked_setup_required"
         }
       ],
@@ -815,7 +815,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-07-02T04:05:54Z",
+  "generated_at": "2026-07-02T04:41:30Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -876,9 +876,9 @@
           "contract_name": "ea.google_workspace_oauth_readiness.v1",
           "path": ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "5d7b586cecb766325f43a58c1f4449b0f690e720",
-          "source_state_fingerprint": "17876ec36c140a005d773e8757a2cbf026be384fb4d54d02fb59925510bd66fc",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "94fb9fde5bb7359721eb886c286ea2f1d92c38eb",
+          "source_state_fingerprint": "f4f32bcf26f6cf888210e9f4a5cb388d90317e4f5e0d5729fb3f1ccdb0b70116",
           "status": "blocked_setup_required"
         }
       ],
@@ -1569,6 +1569,6 @@
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
   "source_git_head": "94fb9fde5bb7359721eb886c286ea2f1d92c38eb",
-  "source_state_fingerprint": "a62669c2045e4ba0d2c2c1d331fd3edff53e9e8417089100ed06513b0cc8fd3c",
+  "source_state_fingerprint": "f4f32bcf26f6cf888210e9f4a5cb388d90317e4f5e0d5729fb3f1ccdb0b70116",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }

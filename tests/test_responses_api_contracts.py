@@ -6874,21 +6874,16 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     assert repair_profile["health_provider_key"] == "onemin"
     groundwork_profile = next(profile for profile in body["profiles"] if profile["profile"] == "groundwork")
     assert groundwork_profile["lane"] == "groundwork"
-    assert groundwork_profile["provider_hint_order"] == ["gemini_vortex"]
-    assert groundwork_profile["model"] == "ea-groundwork-gemini"
-    assert groundwork_profile["backend"] == "gemini_vortex"
-    assert groundwork_profile["health_provider_key"] == "gemini_vortex"
-    assert groundwork_profile["provider_slot_pool"]["selection_mode"] in {"fallback", "round_robin"}
-    assert [slot["slot_owner"] for slot in groundwork_profile["provider_slots"]] == ["", ""]
-    assert groundwork_profile["provider_slot_pool"]["last_used_hub_user_id"] == ""
-    assert groundwork_profile["provider_slot_pool"]["last_used_hub_group_id"] == ""
-    assert groundwork_profile["provider_slot_pool"]["last_used_sponsor_session_id"] == ""
-    assert groundwork_profile["provider_slot_pool"]["last_used_lane_role"] == ""
+    assert groundwork_profile["provider_hint_order"][0] == "onemin"
+    assert "gemini_vortex" in groundwork_profile["provider_hint_order"]
+    assert groundwork_profile["model"] == "ea-onemin-coder"
+    assert groundwork_profile["backend"] == "onemin"
+    assert groundwork_profile["health_provider_key"] == "onemin"
     assert groundwork_profile["work_class"] == "groundwork"
     assert "Groundwork lane" in groundwork_profile["expectation_summary"]
     review_light_profile = next(profile for profile in body["profiles"] if profile["profile"] == "review_light")
     assert review_light_profile["lane"] == "review"
-    assert review_light_profile["provider_hint_order"] == ["onemin", "gemini_vortex", "browseract"]
+    assert review_light_profile["provider_hint_order"] == ["onemin", "browseract", "gemini_vortex"]
     assert review_light_profile["backend"] == "onemin"
     assert review_light_profile["health_provider_key"] == "onemin"
     survival_profile = next(profile for profile in body["profiles"] if profile["profile"] == "survival")
@@ -6904,13 +6899,9 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     assert body["provider_health"]["provider_config"]["chatplayground_accounts"] == []
     assert body["provider_registry"]["contract_name"] == "ea.provider_registry"
     groundwork_lane = next(item for item in body["provider_registry"]["lanes"] if item["profile"] == "groundwork")
-    assert groundwork_lane["backend"] == "gemini_vortex"
-    assert groundwork_lane["capacity_summary"]["configured_slots"] == 2
-    assert groundwork_lane["capacity_summary"]["slot_owners"] == []
-    assert groundwork_lane["capacity_summary"]["last_used_hub_user_id"] == ""
-    assert groundwork_lane["capacity_summary"]["last_used_hub_group_id"] == ""
-    assert groundwork_lane["capacity_summary"]["last_used_sponsor_session_id"] == ""
-    assert groundwork_lane["capacity_summary"]["last_used_lane_role"] == ""
+    assert groundwork_lane["backend"] == "onemin"
+    assert groundwork_lane["health_provider_key"] == "onemin"
+    assert groundwork_lane["provider_hint_order"][0] == "onemin"
     review_light_lane = next(item for item in body["provider_registry"]["lanes"] if item["profile"] == "review_light")
     assert review_light_lane["backend"] == "browseract"
     assert review_light_lane["health_provider_key"] == "browseract"

@@ -18,8 +18,15 @@
     "active_project_matches_oauth_project": true,
     "described_project_number_present": true,
     "enabled": true,
+    "enabled_required_workspace_apis": [
+      "gmail.googleapis.com",
+      "calendar-json.googleapis.com",
+      "people.googleapis.com",
+      "drive.googleapis.com"
+    ],
     "gcloud_available": true,
     "manual_console_test_user_step_required": true,
+    "missing_required_workspace_apis": [],
     "oauth_project_id": "propertyquarry-498318",
     "oauth_project_number": "95627800296",
     "project_describe_status": "pass",
@@ -27,13 +34,37 @@
     "raw_gcloud_account_exposed": false,
     "raw_gcloud_token_exposed": false,
     "reason": "gcloud_project_ready_but_manual_auth_platform_test_user_step_required",
+    "required_workspace_apis": [
+      "gmail.googleapis.com",
+      "calendar-json.googleapis.com",
+      "people.googleapis.com",
+      "drive.googleapis.com"
+    ],
     "status": "pass",
     "test_user_mutation_command": "",
-    "test_user_mutation_supported_by_gcloud_cli": false
+    "test_user_mutation_supported_by_gcloud_cli": false,
+    "workspace_api_probe_status": "pass"
   },
-  "generated_at": "2026-07-01T21:19:35Z",
+  "generated_at": "2026-07-02T04:41:05Z",
   "generated_by": "scripts/materialize_google_workspace_oauth_readiness.py",
   "google_auth_platform_path": "Google Auth Platform > Audience > Test users",
+  "google_workspace_apis": {
+    "enabled_required": [
+      "gmail.googleapis.com",
+      "calendar-json.googleapis.com",
+      "people.googleapis.com",
+      "drive.googleapis.com"
+    ],
+    "missing_required": [],
+    "probe_enabled": true,
+    "required": [
+      "gmail.googleapis.com",
+      "calendar-json.googleapis.com",
+      "people.googleapis.com",
+      "drive.googleapis.com"
+    ],
+    "status": "pass"
+  },
   "head_semantics": "source_state",
   "missing_setup": [
     "oauth_access_retry_or_account_selection_required"
@@ -52,8 +83,8 @@
     "state_secret_present": true
   },
   "observed_error": "access_denied",
-  "observed_error_description_present": false,
-  "observed_error_description_sha256": "",
+  "observed_error_description_present": true,
+  "observed_error_description_sha256": "ad16b9651a359574ab4e4957e43f4ca7ccdeecfe7fe96825c656bed5c868bc1c",
   "operator_action": {
     "auth_link_template": "https://myexternalbrain.com/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace&expected_google_email=%3Credacted-email%3E",
     "console_deep_link": "https://console.cloud.google.com/auth/audience?project=propertyquarry-498318",
@@ -118,8 +149,8 @@
     "python3 scripts/materialize_google_workspace_oauth_readiness.py --observed-error access_denied --probe-gcloud",
     "python3 scripts/verify_google_workspace_oauth_readiness.py"
   ],
-  "source_git_head": "5d7b586cecb766325f43a58c1f4449b0f690e720",
-  "source_state_fingerprint": "17876ec36c140a005d773e8757a2cbf026be384fb4d54d02fb59925510bd66fc",
+  "source_git_head": "94fb9fde5bb7359721eb886c286ea2f1d92c38eb",
+  "source_state_fingerprint": "f4f32bcf26f6cf888210e9f4a5cb388d90317e4f5e0d5729fb3f1ccdb0b70116",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "blocked_setup_required",
   "telegram_notification": {
