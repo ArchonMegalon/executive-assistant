@@ -35,6 +35,7 @@ PRIVATE_FLAGS = (
     "raw_refresh_token_exposed",
     "raw_gcloud_token_exposed",
     "raw_gcloud_account_exposed",
+    "raw_observed_google_email_exposed",
     "raw_error_description_exposed",
 )
 
@@ -42,6 +43,8 @@ PRIVATE_FLAGS = (
 def _expected_operator_next_action(missing_setup: list[str]) -> tuple[str, str]:
     if "gcloud_project_mismatch" in missing_setup:
         return "select_google_oauth_project_and_retry_full_workspace_auth", "Open Google setup"
+    if "oauth_account_selection_mismatch" in missing_setup:
+        return "retry_full_workspace_auth_with_expected_account", "Retry Google auth"
     if "oauth_access_retry_or_account_selection_required" in missing_setup:
         return "retry_full_workspace_auth_with_approved_account", "Retry Google auth"
     return "add_google_oauth_test_user_and_retry_full_workspace_auth", "Open Google setup"
@@ -109,6 +112,16 @@ def verify_receipt_for_test(receipt: dict[str, Any], *, root: Path = ROOT) -> li
         issues.append("expected_google_account.email_sha256 must be present when expected account is present")
     if expected.get("raw_expected_google_email_exposed") is not False:
         issues.append("expected_google_account must not expose raw email")
+
+    observed = dict(receipt.get("observed_google_account") or {})
+    if observed:
+        if observed.get("present") is True and not str(observed.get("email_sha256") or "").strip():
+            issues.append("observed_google_account.email_sha256 must be present when observed account is present")
+        if observed.get("raw_observed_google_email_exposed") is not False:
+            issues.append("observed_google_account must not expose raw email")
+        if observed.get("present") is True and expected.get("present") is True:
+            if observed.get("matches_expected") not in {True, False}:
+                issues.append("observed_google_account.matches_expected must be boolean when both accounts are present")
 
     test_user_confirmation = dict(receipt.get("test_user_confirmation") or {})
     if test_user_confirmation.get("confirmed") not in {True, False}:
@@ -187,19 +200,29 @@ def verify_receipt_for_test(receipt: dict[str, Any], *, root: Path = ROOT) -> li
     if status != "blocked_setup_required" and missing_setup:
         issues.append("non-blocked receipt must not include missing_setup")
     if str(receipt.get("observed_error") or "").strip() == "access_denied":
-        expected_blocker = (
-            "oauth_retry_or_account_selection_required"
-            if "oauth_access_retry_or_account_selection_required" in missing_setup
-            else "oauth_test_user_or_verification_required"
-        )
+        if "oauth_account_selection_mismatch" in missing_setup:
+            expected_blocker = "oauth_account_selection_mismatch"
+        elif "oauth_access_retry_or_account_selection_required" in missing_setup:
+            expected_blocker = "oauth_retry_or_account_selection_required"
+        else:
+            expected_blocker = "oauth_test_user_or_verification_required"
         if receipt.get("blocker_kind") != expected_blocker:
             issues.append(f"access_denied must map to {expected_blocker}")
         if (
             "oauth_test_user_missing_or_app_unverified" not in missing_setup
             and "oauth_access_retry_or_account_selection_required" not in missing_setup
+            and "oauth_account_selection_mismatch" not in missing_setup
             and status != "pass"
         ):
             issues.append("access_denied must require either OAuth tester setup or an explicit retry/account-selection step")
+    if (
+        observed.get("present") is True
+        and expected.get("present") is True
+        and observed.get("matches_expected") is False
+        and str(receipt.get("observed_error") or "").strip() == "access_denied"
+        and "oauth_account_selection_mismatch" not in missing_setup
+    ):
+        issues.append("access_denied with mismatched observed Google account must require oauth_account_selection_mismatch")
 
     operator_action = dict(receipt.get("operator_action") or {})
     if operator_action.get("user_action_required") is not bool(missing_setup):
@@ -235,6 +258,7 @@ def verify_receipt_for_test(receipt: dict[str, Any], *, root: Path = ROOT) -> li
         "raw_private_context_exposed",
         "raw_client_id_exposed",
         "raw_client_secret_exposed",
+        "raw_observed_google_email_exposed",
         "raw_token_exposed",
         "raw_secret_exposed",
         "raw_error_description_exposed",

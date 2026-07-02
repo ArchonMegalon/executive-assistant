@@ -93,6 +93,33 @@ def test_confirmed_test_user_access_denied_switches_to_retry_instead_of_add_test
     assert verifier.verify_receipt_for_test(receipt) == []
 
 
+def test_access_denied_with_wrong_selected_account_promotes_account_selection_mismatch(monkeypatch) -> None:
+    _patch_source_state(monkeypatch)
+    _set_google_env(monkeypatch)
+
+    receipt = materializer.build_receipt(
+        expected_google_email="work.tibor.girschele@gmail.com",
+        observed_google_email="archon.megalon@gmail.com",
+        observed_error="access_denied",
+        test_user_confirmed=True,
+    )
+
+    serialized = json.dumps(receipt, sort_keys=True)
+    assert receipt["status"] == "blocked_setup_required"
+    assert receipt["blocker_kind"] == "oauth_account_selection_mismatch"
+    assert receipt["missing_setup"] == ["oauth_account_selection_mismatch"]
+    assert receipt["operator_action"]["next_action"] == "retry_full_workspace_auth_with_expected_account"
+    assert receipt["operator_action"]["next_action_label"] == "Retry Google auth"
+    assert receipt["observed_google_account"]["present"] is True
+    assert receipt["observed_google_account"]["matches_expected"] is False
+    assert receipt["observed_google_account"]["email_sha256"]
+    assert receipt["operator_action"]["observed_google_account_matches_expected"] is False
+    assert "different selected Google account" in receipt["operator_action"]["telegram_message"]
+    assert "work.tibor.girschele@gmail.com" not in serialized
+    assert "archon.megalon@gmail.com" not in serialized
+    assert verifier.verify_receipt_for_test(receipt) == []
+
+
 def test_gcloud_probe_is_sanitized_and_keeps_manual_console_step(monkeypatch) -> None:
     _patch_source_state(monkeypatch)
     _set_google_env(monkeypatch)

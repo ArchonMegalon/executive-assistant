@@ -51,6 +51,7 @@ PRIVATE_FLAGS = (
     "raw_refresh_token_exposed",
     "raw_gcloud_token_exposed",
     "raw_gcloud_account_exposed",
+    "raw_observed_google_email_exposed",
     "raw_error_description_exposed",
 )
 RunCommand = Callable[[list[str], float], tuple[int, str, str]]
@@ -259,6 +260,13 @@ def _setup_checklist(missing: list[str], *, console_link: str, auth_link_templat
                 f"and if Google still denies access reopen {console_link} to confirm the Audience save and selected OAuth project."
             ),
         },
+        "oauth_account_selection_mismatch": {
+            "label": "Retry Full Workspace auth with the intended Google account",
+            "how": (
+                f"Open {auth_link_template}, switch to the intended work Google account in the account chooser, "
+                f"then finish consent. If Google still denies access, reopen {console_link} to confirm that exact account is listed."
+            ),
+        },
         "expected_google_email_missing": {
             "label": "Choose the expected work Google account",
             "how": "Pass --expected-google-email when building the auth-readiness receipt so the retry link can force account selection.",
@@ -301,6 +309,11 @@ def _setup_checklist(missing: list[str], *, console_link: str, auth_link_templat
 
 
 def _instruction_text(*, missing: list[str]) -> str:
+    if "oauth_account_selection_mismatch" in missing:
+        return (
+            "Retry the Full Workspace auth link and switch to the intended work Google account in the Google account chooser. "
+            "The selected Google account observed on the failed consent attempt did not match the expected work account."
+        )
     if "gcloud_project_mismatch" in missing:
         return (
             "Open the Google Auth Platform Audience page for the OAuth project, confirm the requested work Google account "
@@ -324,6 +337,12 @@ def _instruction_text(*, missing: list[str]) -> str:
 def _telegram_message(*, missing: list[str], console_link: str) -> str:
     if not missing:
         return ""
+    if "oauth_account_selection_mismatch" in missing:
+        return (
+            "Action needed: Google Full Workspace auth was attempted with a different selected Google account than the intended work account. "
+            "Retry the auth link and switch to the intended work account in the Google account chooser. "
+            f"If it still fails, confirm that exact account on the Audience page. Console: {console_link}"
+        )
     if "gcloud_project_mismatch" in missing:
         return (
             "Action needed: Google Full Workspace auth is tied to a different OAuth project than the current gcloud default. "
@@ -352,6 +371,8 @@ def _telegram_message(*, missing: list[str], console_link: str) -> str:
 def _operator_next_action(missing: list[str]) -> tuple[str, str]:
     if "gcloud_project_mismatch" in missing:
         return "select_google_oauth_project_and_retry_full_workspace_auth", "Open Google setup"
+    if "oauth_account_selection_mismatch" in missing:
+        return "retry_full_workspace_auth_with_expected_account", "Retry Google auth"
     if "oauth_access_retry_or_account_selection_required" in missing:
         return "retry_full_workspace_auth_with_approved_account", "Retry Google auth"
     return "add_google_oauth_test_user_and_retry_full_workspace_auth", "Open Google setup"
@@ -363,6 +384,7 @@ def build_receipt(
     scope_bundle: str = DEFAULT_SCOPE_BUNDLE,
     observed_error: str = "",
     error_description: str = "",
+    observed_google_email: str = "",
     test_user_confirmed: bool = False,
     probe_gcloud: bool = False,
     include_env_file: Path | None = None,
@@ -372,7 +394,14 @@ def build_receipt(
     _load_env_file(include_env_file)
     normalized_scope = str(scope_bundle or DEFAULT_SCOPE_BUNDLE).strip() or DEFAULT_SCOPE_BUNDLE
     normalized_email = str(expected_google_email or "").strip().lower()
+    normalized_observed_google_email = str(observed_google_email or "").strip().lower()
     expected_email_present = "@" in normalized_email
+    observed_email_present = "@" in normalized_observed_google_email
+    observed_matches_expected = bool(
+        observed_email_present
+        and expected_email_present
+        and normalized_observed_google_email == normalized_email
+    )
     client_id = _env("EA_GOOGLE_OAUTH_CLIENT_ID")
     project_id = _env("EA_GOOGLE_OAUTH_PROJECT_ID")
     project_number = _project_number_from_client_id(client_id)
@@ -396,11 +425,14 @@ def build_receipt(
     # Being listed as a tester is not enough evidence on its own because the wrong project,
     # a stale audience save, or the wrong selected account all surface as the same denial.
     if access_denied:
-        missing.append(
-            "oauth_access_retry_or_account_selection_required"
-            if test_user_confirmed
-            else "oauth_test_user_missing_or_app_unverified"
-        )
+        if observed_email_present and expected_email_present and not observed_matches_expected:
+            missing.append("oauth_account_selection_mismatch")
+        else:
+            missing.append(
+                "oauth_access_retry_or_account_selection_required"
+                if test_user_confirmed
+                else "oauth_test_user_missing_or_app_unverified"
+            )
 
     gcloud = {"enabled": False, "raw_gcloud_account_exposed": False, "raw_gcloud_token_exposed": False}
     workspace_api_status = {
@@ -447,6 +479,14 @@ def build_receipt(
     action_required = bool(missing)
     next_action, next_action_label = _operator_next_action(missing)
     error_description_hash = _sha256(error_description)
+    blocker_kind = ""
+    if access_denied:
+        if "oauth_account_selection_mismatch" in missing:
+            blocker_kind = "oauth_account_selection_mismatch"
+        elif test_user_confirmed:
+            blocker_kind = "oauth_retry_or_account_selection_required"
+        else:
+            blocker_kind = "oauth_test_user_or_verification_required"
     return {
         "contract_name": CONTRACT_NAME,
         "generated_at": _utc_now(),
@@ -457,11 +497,7 @@ def build_receipt(
         "observed_error": str(observed_error or "").strip(),
         "observed_error_description_present": bool(str(error_description or "").strip()),
         "observed_error_description_sha256": error_description_hash,
-        "blocker_kind": (
-            "oauth_retry_or_account_selection_required"
-            if access_denied and test_user_confirmed
-            else ("oauth_test_user_or_verification_required" if access_denied else "")
-        ),
+        "blocker_kind": blocker_kind,
         "google_auth_platform_path": GOOGLE_AUTH_AUDIENCE_PATH,
         "console_deep_link": console_link,
         "auth_link_template": auth_link_template,
@@ -475,6 +511,14 @@ def build_receipt(
             "email_sha256": _sha256(normalized_email),
             "domain": _email_domain(normalized_email),
             "raw_expected_google_email_exposed": False,
+        },
+        "observed_google_account": {
+            "present": observed_email_present,
+            "email_sha256": _sha256(normalized_observed_google_email),
+            "domain": _email_domain(normalized_observed_google_email),
+            "expected_account_present": expected_email_present,
+            "matches_expected": observed_matches_expected,
+            "raw_observed_google_email_exposed": False,
         },
         "oauth_client": {
             "client_id_present": bool(client_id),
@@ -507,6 +551,10 @@ def build_receipt(
             "expected_google_email_present": expected_email_present,
             "expected_google_email_sha256": _sha256(normalized_email),
             "expected_google_domain": _email_domain(normalized_email),
+            "observed_google_email_present": observed_email_present,
+            "observed_google_email_sha256": _sha256(normalized_observed_google_email),
+            "observed_google_domain": _email_domain(normalized_observed_google_email),
+            "observed_google_account_matches_expected": observed_matches_expected,
             "telegram_message": _telegram_message(missing=missing, console_link=console_link),
             "delivery_policy": "action_required_only" if action_required else "queue_only",
             "telegram_push_allowed": action_required,
@@ -516,6 +564,7 @@ def build_receipt(
             "irreversible_actions_consent_gated": True,
             "raw_private_context_exposed": False,
             "raw_expected_google_email_exposed": False,
+            "raw_observed_google_email_exposed": False,
             "raw_client_id_exposed": False,
             "raw_client_secret_exposed": False,
             "raw_token_exposed": False,
@@ -534,7 +583,7 @@ def build_receipt(
             "gcloud config get-value account",
             "gcloud config get-value project",
             "gcloud projects describe <oauth-project-id> --format=json",
-            "python3 scripts/materialize_google_workspace_oauth_readiness.py --observed-error access_denied --probe-gcloud",
+            "python3 scripts/materialize_google_workspace_oauth_readiness.py --observed-error access_denied --observed-google-email <redacted-email> --probe-gcloud",
             "python3 scripts/verify_google_workspace_oauth_readiness.py",
         ],
         "privacy": {key: False for key in PRIVATE_FLAGS},
@@ -556,6 +605,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--scope-bundle", default=DEFAULT_SCOPE_BUNDLE)
     parser.add_argument("--observed-error", default="")
     parser.add_argument("--error-description", default="")
+    parser.add_argument("--observed-google-email", default="")
     parser.add_argument("--test-user-confirmed", action="store_true")
     parser.add_argument("--probe-gcloud", action="store_true")
     parser.add_argument("--timeout-seconds", type=float, default=5.0)
@@ -573,6 +623,7 @@ def main() -> int:
         scope_bundle=args.scope_bundle,
         observed_error=args.observed_error,
         error_description=args.error_description,
+        observed_google_email=args.observed_google_email,
         test_user_confirmed=bool(args.test_user_confirmed),
         probe_gcloud=bool(args.probe_gcloud),
         include_env_file=None if args.no_env_file else args.env_file,

@@ -1202,6 +1202,7 @@ def test_parse_args_probe_google_workspace_oauth_uses_proactive_principal_defaul
     assert args.telegram_principal_id == "cf-email:test@example.com"
     assert args.scope_bundle == "full_workspace"
     assert args.probe_gcloud is True
+    assert args.observed_google_email == ""
 
 
 def test_probe_google_workspace_oauth_reports_mismatch_without_raw_email(monkeypatch) -> None:
@@ -1294,6 +1295,66 @@ def test_probe_google_workspace_oauth_uses_retry_action_when_test_user_already_c
     assert report["missing_setup"] == ["oauth_access_retry_or_account_selection_required"]
     assert report["next_action"] == "retry_full_workspace_auth_with_approved_account"
     assert "missing=oauth_access_retry_or_account_selection_required" in report["operator_text"]
+
+
+def test_probe_google_workspace_oauth_reports_observed_account_mismatch_without_raw_email(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-01T19:43:00Z")
+    captured: dict[str, object] = {}
+
+    def fake_build_receipt(**kwargs):
+        captured.update(kwargs)
+        return {
+            "status": "blocked_setup_required",
+            "blocker_kind": "oauth_account_selection_mismatch",
+            "console_deep_link": "https://console.cloud.google.com/auth/audience?project=propertyquarry-498318",
+            "auth_link_template": "https://myexternalbrain.com/app/actions/google/connect?return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace&expected_google_email=%3Credacted-email%3E",
+            "missing_setup": ["oauth_account_selection_mismatch"],
+            "expected_google_account": {"present": True, "domain": "gmail.com", "email_sha256": "abc"},
+            "observed_google_account": {
+                "present": True,
+                "domain": "gmail.com",
+                "email_sha256": "def",
+                "matches_expected": False,
+                "raw_observed_google_email_exposed": False,
+            },
+            "oauth_client": {"client_project_id": "propertyquarry-498318", "client_project_number": "95627800296"},
+            "gcloud_probe": {
+                "active_project": "propertyquarry-498318",
+                "active_project_matches_oauth_project": True,
+                "active_account_present": True,
+            },
+            "operator_action": {
+                "user_action_required": True,
+                "next_action": "retry_full_workspace_auth_with_expected_account",
+                "next_action_href": "/integrations/google",
+                "next_action_label": "Retry Google auth",
+                "next_action_method": "get",
+                "delivery_policy": "action_required_only",
+                "instruction": "Retry with the intended work Google account.",
+                "telegram_message": "Action needed: selected account mismatch.",
+            },
+        }
+
+    monkeypatch.setattr(module.google_workspace_oauth_readiness, "build_receipt", fake_build_receipt)
+
+    report = module.probe_google_workspace_oauth(
+        expected_google_email="work.tibor.girschele@gmail.com",
+        observed_google_email="archon.megalon@gmail.com",
+        observed_error="access_denied",
+        test_user_confirmed=True,
+        probe_gcloud=True,
+    )
+
+    serialized = json.dumps(report, sort_keys=True)
+    assert captured["observed_google_email"] == "archon.megalon@gmail.com"
+    assert report["reason"] == "oauth_account_selection_mismatch"
+    assert report["missing_setup"] == ["oauth_account_selection_mismatch"]
+    assert report["next_action"] == "retry_full_workspace_auth_with_expected_account"
+    assert report["observed_google_email_present"] is True
+    assert report["observed_google_account_matches_expected"] is False
+    assert "work.tibor.girschele@gmail.com" not in serialized
+    assert "archon.megalon@gmail.com" not in serialized
 
 
 def test_probe_operator_readiness_aggregates_components_without_raw_secrets(monkeypatch) -> None:

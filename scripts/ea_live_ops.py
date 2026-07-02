@@ -6262,6 +6262,7 @@ def probe_google_workspace_oauth(
     scope_bundle: str = google_workspace_oauth_readiness.DEFAULT_SCOPE_BUNDLE,
     observed_error: str = "",
     error_description: str = "",
+    observed_google_email: str = "",
     test_user_confirmed: bool = False,
     probe_gcloud: bool = True,
     send_telegram_to_principal: str = "",
@@ -6270,6 +6271,7 @@ def probe_google_workspace_oauth(
     output_format: str = "json",
 ) -> dict[str, object]:
     normalized_email = str(expected_google_email or "").strip().lower()
+    normalized_observed_google_email = str(observed_google_email or "").strip().lower()
     normalized_scope = str(scope_bundle or google_workspace_oauth_readiness.DEFAULT_SCOPE_BUNDLE).strip()
     if not normalized_scope:
         normalized_scope = google_workspace_oauth_readiness.DEFAULT_SCOPE_BUNDLE
@@ -6284,6 +6286,13 @@ def probe_google_workspace_oauth(
             "scope_bundle": normalized_scope,
             "expected_google_email_present": False,
             "expected_google_domain": "",
+            "observed_google_email_present": "@" in normalized_observed_google_email,
+            "observed_google_domain": (
+                normalized_observed_google_email.rsplit("@", 1)[-1]
+                if "@" in normalized_observed_google_email
+                else ""
+            ),
+            "observed_google_account_matches_expected": False,
             "missing_setup": ["expected_google_email_missing"],
             "user_action_required": True,
             "next_action": "add_google_oauth_test_user_and_retry_full_workspace_auth",
@@ -6313,6 +6322,7 @@ def probe_google_workspace_oauth(
             scope_bundle=normalized_scope,
             observed_error=str(observed_error or "").strip(),
             error_description=str(error_description or "").strip(),
+            observed_google_email=normalized_observed_google_email,
             test_user_confirmed=bool(test_user_confirmed),
             probe_gcloud=bool(probe_gcloud),
             include_env_file=ROOT / ".env",
@@ -6327,6 +6337,13 @@ def probe_google_workspace_oauth(
             "scope_bundle": normalized_scope,
             "expected_google_email_present": True,
             "expected_google_domain": normalized_email.rsplit("@", 1)[-1],
+            "observed_google_email_present": "@" in normalized_observed_google_email,
+            "observed_google_domain": (
+                normalized_observed_google_email.rsplit("@", 1)[-1]
+                if "@" in normalized_observed_google_email
+                else ""
+            ),
+            "observed_google_account_matches_expected": False,
             "missing_setup": [],
             "user_action_required": False,
             "next_action": "",
@@ -6354,6 +6371,7 @@ def probe_google_workspace_oauth(
     gcloud_probe = dict(receipt.get("gcloud_probe") or {})
     oauth_client = dict(receipt.get("oauth_client") or {})
     expected_account = dict(receipt.get("expected_google_account") or {})
+    observed_account = dict(receipt.get("observed_google_account") or {})
     missing_setup = [
         str(item).strip()
         for item in list(receipt.get("missing_setup") or [])
@@ -6368,6 +6386,9 @@ def probe_google_workspace_oauth(
         "scope_bundle": normalized_scope,
         "expected_google_email_present": bool(expected_account.get("present")),
         "expected_google_domain": str(expected_account.get("domain") or "").strip(),
+        "observed_google_email_present": bool(observed_account.get("present")),
+        "observed_google_domain": str(observed_account.get("domain") or "").strip(),
+        "observed_google_account_matches_expected": bool(observed_account.get("matches_expected")),
         "missing_setup": missing_setup,
         "user_action_required": user_action_required,
         "next_action": str(operator_action.get("next_action") or "").strip(),
@@ -6490,6 +6511,7 @@ def parse_args() -> argparse.Namespace:
     google_workspace_oauth.add_argument("--scope-bundle", default=google_workspace_oauth_readiness.DEFAULT_SCOPE_BUNDLE)
     google_workspace_oauth.add_argument("--observed-error", default="")
     google_workspace_oauth.add_argument("--error-description", default="")
+    google_workspace_oauth.add_argument("--observed-google-email", default="")
     google_workspace_oauth.add_argument("--test-user-confirmed", action="store_true")
     google_workspace_oauth.add_argument("--no-probe-gcloud", dest="probe_gcloud", action="store_false", default=True)
     google_workspace_oauth.add_argument("--telegram-principal-id", default=_default_proactive_principal_id())
@@ -6728,6 +6750,7 @@ def main() -> int:
             scope_bundle=str(getattr(args, "scope_bundle", "") or "").strip(),
             observed_error=str(getattr(args, "observed_error", "") or "").strip(),
             error_description=str(getattr(args, "error_description", "") or "").strip(),
+            observed_google_email=str(getattr(args, "observed_google_email", "") or "").strip(),
             test_user_confirmed=bool(getattr(args, "test_user_confirmed", False)),
             probe_gcloud=bool(getattr(args, "probe_gcloud", True)),
             send_telegram_to_principal=(
