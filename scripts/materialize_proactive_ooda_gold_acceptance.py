@@ -1355,7 +1355,7 @@ def _approval_capture_readiness_proof(
         and current_packet_matches_packet_artifacts
         and not raw_exposure
         and bool(approval_capture.get("current_packet_refs_present"))
-        and int(approval_capture.get("current_packet_live_pending_count") or 0) > 0
+        and int(approval_capture.get("current_packet_live_pending_count") or 0) == 1
         and int(approval_capture.get("current_packet_callback_record_count") or 0) > 0
         and bool(approval_capture.get("callback_principal_hash_present"))
         and int(approval_capture.get("candidate_principal_hash_count") or 0) > 0
@@ -1404,6 +1404,10 @@ def _approval_capture_readiness_proof(
                 "current_packet_refs_present": bool(approval_capture.get("current_packet_refs_present")),
                 "current_packet_callback_record_count": int(approval_capture.get("current_packet_callback_record_count") or 0),
                 "current_packet_live_pending_count": int(approval_capture.get("current_packet_live_pending_count") or 0),
+                "current_packet_duplicate_live_pending_count": max(
+                    int(approval_capture.get("current_packet_live_pending_count") or 0) - 1,
+                    0,
+                ),
                 "current_packet_callback_latest_status": str(
                     approval_capture.get("current_packet_callback_latest_status") or ""
                 ).strip(),
@@ -1564,6 +1568,7 @@ def _approval_capture_surface_receipt(
     )
     current_packet_callback_expired_count = int(bundle.get("current_packet_callback_expired_count") or 0)
     current_packet_callback_superseded_count = int(bundle.get("current_packet_callback_superseded_count") or 0)
+    current_packet_duplicate_live_pending_count = max(current_packet_live_pending_count - 1, 0)
     current_packet_approval_request_recordable = bool(
         operator_surface.get("current_packet_approval_request_recordable")
     )
@@ -1576,7 +1581,7 @@ def _approval_capture_surface_receipt(
     telegram_approval_surface_ready = bool(
         operator_surface.get("telegram_approval_surface_ready") and not explicit_unverified_capture
     ) or bool(
-        current_packet_live_pending_count > 0
+        current_packet_live_pending_count == 1
         and approval_capture_checked
     )
     manual_outcome_capture_ready = bool(
@@ -1588,7 +1593,7 @@ def _approval_capture_surface_receipt(
         and (
             (
                 not used_operator_surface_current_packet_fallback
-                and (current_packet_callback_record_count > 0 or current_packet_live_pending_count > 0)
+                and (current_packet_callback_record_count > 0 or current_packet_live_pending_count == 1)
             )
             or (
                 operator_current_packet_ref_sha256 == bundle_packet_ref_sha256
@@ -1643,6 +1648,7 @@ def _approval_capture_surface_receipt(
             "current_packet_callback_superseded_count": current_packet_callback_superseded_count,
             "current_packet_live_callback_record_count": current_packet_live_callback_record_count,
             "current_packet_live_pending_count": current_packet_live_pending_count,
+            "current_packet_duplicate_live_pending_count": current_packet_duplicate_live_pending_count,
             "current_packet_callback_latest_status": current_packet_callback_latest_status,
             "current_packet_callback_latest_expired": current_packet_callback_latest_expired,
             "current_packet_callback_latest_created_at": current_packet_callback_latest_created_at,
@@ -1657,6 +1663,7 @@ def _approval_capture_surface_receipt(
                 operator_surface.get("approval_outcome_matches_current_packet")
             ),
             "telegram_approval_surface_ready": telegram_approval_surface_ready,
+            "duplicate_live_pending_callbacks_present": current_packet_duplicate_live_pending_count > 0,
             "manual_outcome_capture_ready": manual_outcome_capture_ready,
             "source": "docker_compose_exec" if used_live_runtime_probe else "local_filesystem",
             "operator_surface_source": str(operator_surface.get("source") or "").strip(),

@@ -81,9 +81,32 @@ def prepare_proactive_ooda_telegram_approval(
     normalized_chat_id = str(chat_id or "").strip()
     if not normalized_packet_ref or not normalized_artifact_ref or not normalized_chat_id:
         return {"inline_buttons": [], "url_buttons": [], "callback_token": "", "record_path": ""}
-    created = str(created_at or _now_iso()).strip()
     normalized_execution_mode = _normalize_approved_execution_mode(approved_execution_mode)
     normalized_approved_action = str(approved_action or "").strip().lower()
+    approval_prompt_sha256 = _hash_value(approval_prompt)
+    staged_action_url_sha256 = _hash_value(staged_action_url)
+    collapsed_live_record = _collapse_live_matching_callback_records(
+        directory=directory,
+        packet_ref=normalized_packet_ref,
+        staged_artifact_ref=normalized_artifact_ref,
+        principal_id_hash=_hash_value(principal_id),
+        chat_id_hash=_hash_value(normalized_chat_id),
+        approved_execution_mode=normalized_execution_mode,
+        approved_action=normalized_approved_action,
+        approval_prompt_sha256=approval_prompt_sha256,
+        staged_action_url_sha256=staged_action_url_sha256,
+    )
+    if collapsed_live_record is not None:
+        return _prepared_telegram_approval_payload(
+            record_path=collapsed_live_record["path"],
+            record=collapsed_live_record["record"],
+            chat_id=normalized_chat_id,
+            bot_token=bot_token,
+            staged_action_url=staged_action_url,
+            reused_existing=True,
+            superseded_duplicate_count=int(collapsed_live_record["superseded_duplicate_count"] or 0),
+        )
+    created = str(created_at or _now_iso()).strip()
     callback_token = _callback_token(
         principal_id=principal_id,
         packet_ref=normalized_packet_ref,
@@ -105,8 +128,8 @@ def prepare_proactive_ooda_telegram_approval(
         "staged_artifact_ref_sha256": _hash_value(normalized_artifact_ref),
         "approved_execution_mode": normalized_execution_mode,
         "approved_action": normalized_approved_action,
-        "approval_prompt_sha256": _hash_value(approval_prompt),
-        "staged_action_url_sha256": _hash_value(staged_action_url),
+        "approval_prompt_sha256": approval_prompt_sha256,
+        "staged_action_url_sha256": staged_action_url_sha256,
         "privacy": {
             "raw_principal_id_stored": False,
             "raw_chat_id_stored": False,
@@ -116,11 +139,77 @@ def prepare_proactive_ooda_telegram_approval(
     record_path = directory / f"{callback_token}.json"
     record_path.parent.mkdir(parents=True, exist_ok=True)
     record_path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    collapsed_live_record = _collapse_live_matching_callback_records(
+        directory=directory,
+        packet_ref=normalized_packet_ref,
+        staged_artifact_ref=normalized_artifact_ref,
+        principal_id_hash=_hash_value(principal_id),
+        chat_id_hash=_hash_value(normalized_chat_id),
+        approved_execution_mode=normalized_execution_mode,
+        approved_action=normalized_approved_action,
+        approval_prompt_sha256=approval_prompt_sha256,
+        staged_action_url_sha256=staged_action_url_sha256,
+    )
+    if collapsed_live_record is not None:
+        return _prepared_telegram_approval_payload(
+            record_path=collapsed_live_record["path"],
+            record=collapsed_live_record["record"],
+            chat_id=normalized_chat_id,
+            bot_token=bot_token,
+            staged_action_url=staged_action_url,
+            reused_existing=str(collapsed_live_record["path"]) != str(record_path),
+            superseded_duplicate_count=int(collapsed_live_record["superseded_duplicate_count"] or 0),
+        )
+    return _prepared_telegram_approval_payload(
+        record_path=record_path,
+        record=record,
+        chat_id=normalized_chat_id,
+        bot_token=bot_token,
+        staged_action_url=staged_action_url,
+        reused_existing=False,
+        superseded_duplicate_count=0,
+    )
 
+
+def _prepared_telegram_approval_payload(
+    *,
+    record_path: Path,
+    record: dict[str, Any],
+    chat_id: str,
+    bot_token: str,
+    staged_action_url: str,
+    reused_existing: bool,
+    superseded_duplicate_count: int,
+) -> dict[str, Any]:
+    callback_token = str(record.get("callback_token") or "").strip()
     inline_buttons = [[
-        ("Approve", encode_proactive_ooda_telegram_callback(action="approved", callback_token=callback_token, chat_id=normalized_chat_id, bot_token=bot_token)),
-        ("Reject", encode_proactive_ooda_telegram_callback(action="rejected", callback_token=callback_token, chat_id=normalized_chat_id, bot_token=bot_token)),
-        ("Later", encode_proactive_ooda_telegram_callback(action="deferred", callback_token=callback_token, chat_id=normalized_chat_id, bot_token=bot_token)),
+        (
+            "Approve",
+            encode_proactive_ooda_telegram_callback(
+                action="approved",
+                callback_token=callback_token,
+                chat_id=chat_id,
+                bot_token=bot_token,
+            ),
+        ),
+        (
+            "Reject",
+            encode_proactive_ooda_telegram_callback(
+                action="rejected",
+                callback_token=callback_token,
+                chat_id=chat_id,
+                bot_token=bot_token,
+            ),
+        ),
+        (
+            "Later",
+            encode_proactive_ooda_telegram_callback(
+                action="deferred",
+                callback_token=callback_token,
+                chat_id=chat_id,
+                bot_token=bot_token,
+            ),
+        ),
     ]]
     inline_buttons = [[(label, data) for label, data in row if data] for row in inline_buttons]
     inline_buttons = [row for row in inline_buttons if row]
@@ -131,13 +220,90 @@ def prepare_proactive_ooda_telegram_approval(
         "record_path": record_path,
         "inline_buttons": inline_buttons,
         "url_buttons": url_buttons,
-        "status": record["status"],
-        "expires_at": record["expires_at"],
-        "packet_ref_sha256": record["packet_ref_sha256"],
-        "staged_artifact_ref_sha256": record["staged_artifact_ref_sha256"],
-        "approval_prompt_sha256": record["approval_prompt_sha256"],
-        "staged_action_url_sha256": record["staged_action_url_sha256"],
+        "status": str(record.get("status") or "").strip() or "pending",
+        "expires_at": str(record.get("expires_at") or "").strip(),
+        "packet_ref_sha256": str(record.get("packet_ref_sha256") or "").strip(),
+        "staged_artifact_ref_sha256": str(record.get("staged_artifact_ref_sha256") or "").strip(),
+        "approval_prompt_sha256": str(record.get("approval_prompt_sha256") or "").strip(),
+        "staged_action_url_sha256": str(record.get("staged_action_url_sha256") or "").strip(),
+        "reused_existing": reused_existing,
+        "superseded_duplicate_count": max(int(superseded_duplicate_count or 0), 0),
     }
+
+
+def _collapse_live_matching_callback_records(
+    *,
+    directory: Path,
+    packet_ref: str,
+    staged_artifact_ref: str,
+    principal_id_hash: str,
+    chat_id_hash: str,
+    approved_execution_mode: str,
+    approved_action: str,
+    approval_prompt_sha256: str,
+    staged_action_url_sha256: str,
+) -> dict[str, Any] | None:
+    matching_records: list[tuple[Path, dict[str, Any]]] = []
+    if not directory.is_dir():
+        return None
+    for candidate in sorted(directory.glob("*.json")):
+        record = _load_json(candidate)
+        if not record:
+            continue
+        if _callback_record_status(record) != "pending" or _callback_record_expired(record):
+            continue
+        if not _callback_record_matches_refs(
+            record,
+            packet_ref=packet_ref,
+            staged_artifact_ref=staged_artifact_ref,
+        ):
+            continue
+        if str(record.get("principal_id_hash") or "").strip() != principal_id_hash:
+            continue
+        if str(record.get("chat_id_hash") or "").strip() != chat_id_hash:
+            continue
+        if _normalize_approved_execution_mode(record.get("approved_execution_mode")) != approved_execution_mode:
+            continue
+        if str(record.get("approved_action") or "").strip().lower() != approved_action:
+            continue
+        if str(record.get("approval_prompt_sha256") or "").strip() != approval_prompt_sha256:
+            continue
+        if str(record.get("staged_action_url_sha256") or "").strip() != staged_action_url_sha256:
+            continue
+        matching_records.append((candidate, record))
+    if not matching_records:
+        return None
+    matching_records.sort(
+        key=lambda item: _live_callback_record_rank(item[1]),
+        reverse=True,
+    )
+    primary_path, primary_record = matching_records[0]
+    superseded_duplicate_count = 0
+    for duplicate_path, duplicate_record in matching_records[1:]:
+        _mark_callback_record_superseded(
+            duplicate_path,
+            duplicate_record,
+            superseded_reason="duplicate_live_callback_replaced",
+        )
+        superseded_duplicate_count += 1
+    return {
+        "path": primary_path,
+        "record": primary_record,
+        "superseded_duplicate_count": superseded_duplicate_count,
+    }
+
+
+def _live_callback_record_rank(record: dict[str, Any]) -> tuple[int, int, float, str]:
+    delivered_at = _parse_callback_datetime(record.get("delivered_at"))
+    created_at = _parse_callback_datetime(record.get("created_at"))
+    prompt_message_count = max(int(record.get("prompt_message_count") or 0), 0)
+    best_timestamp = delivered_at or created_at or datetime.fromtimestamp(0, tz=timezone.utc)
+    return (
+        1 if delivered_at is not None else 0,
+        1 if prompt_message_count > 0 else 0,
+        float(best_timestamp.timestamp()),
+        str(record.get("callback_token") or "").strip(),
+    )
 
 
 def record_proactive_ooda_telegram_approval_delivery(
@@ -203,6 +369,7 @@ def expire_stale_proactive_ooda_telegram_approval_callbacks(
     superseded_count = 0
     skipped_count = 0
     errors: list[dict[str, str]] = []
+    current_live_pending_rows: list[tuple[Path, dict[str, Any]]] = []
     normalized_active_packet_ref = str(active_packet_ref or "").strip()
     normalized_active_artifact_ref = str(active_staged_artifact_ref or "").strip()
     if supersede_noncurrent and (not normalized_active_packet_ref or not normalized_active_artifact_ref):
@@ -225,6 +392,12 @@ def expire_stale_proactive_ooda_telegram_approval_callbacks(
                 skipped_count += 1
                 continue
             if not _callback_record_expired(record, now=observed_at):
+                if active_refs_present and _callback_record_matches_refs(
+                    record,
+                    packet_ref=normalized_active_packet_ref,
+                    staged_artifact_ref=normalized_active_artifact_ref,
+                ):
+                    current_live_pending_rows.append((candidate, record))
                 if supersede_noncurrent and (
                     not active_refs_present
                     or not _callback_record_matches_refs(
@@ -242,6 +415,19 @@ def expire_stale_proactive_ooda_telegram_approval_callbacks(
             expired_count += 1
         except Exception as exc:
             errors.append({"path": candidate.name, "error": exc.__class__.__name__})
+    if len(current_live_pending_rows) > 1:
+        current_live_pending_rows.sort(key=lambda item: _live_callback_record_rank(item[1]), reverse=True)
+        for duplicate_path, duplicate_record in current_live_pending_rows[1:]:
+            try:
+                _mark_callback_record_superseded(
+                    duplicate_path,
+                    duplicate_record,
+                    superseded_at=observed_at,
+                    superseded_reason="duplicate_live_callback_replaced",
+                )
+                superseded_count += 1
+            except Exception as exc:
+                errors.append({"path": duplicate_path.name, "error": exc.__class__.__name__})
     return {
         "status": "ok" if not errors else "partial",
         "callback_dir": directory.as_posix(),
@@ -1772,11 +1958,12 @@ def _mark_callback_record_superseded(
     record: dict[str, Any],
     *,
     superseded_at: datetime | None = None,
+    superseded_reason: str = "not_current_proactive_ooda_packet",
 ) -> dict[str, Any]:
     previous_status = _callback_record_status(record)
     record["status"] = "superseded"
     record["superseded_at"] = _datetime_or_now(superseded_at).isoformat().replace("+00:00", "Z")
-    record["superseded_reason"] = "not_current_proactive_ooda_packet"
+    record["superseded_reason"] = str(superseded_reason or "").strip() or "not_current_proactive_ooda_packet"
     if previous_status and previous_status != "superseded":
         record["previous_status"] = previous_status
     path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")

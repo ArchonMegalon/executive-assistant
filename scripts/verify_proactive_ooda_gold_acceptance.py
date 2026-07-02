@@ -148,8 +148,8 @@ def _verify_approval_capture(
         issues.append("ready approval_capture_surface requires approval_capture.current_packet_refs_present=true")
     if int(approval_capture.get("current_packet_callback_record_count") or 0) <= 0:
         issues.append("ready approval_capture_surface requires approval_capture.current_packet_callback_record_count>0")
-    if int(approval_capture.get("current_packet_live_pending_count") or 0) <= 0:
-        issues.append("ready approval_capture_surface requires approval_capture.current_packet_live_pending_count>0")
+    if int(approval_capture.get("current_packet_live_pending_count") or 0) != 1:
+        issues.append("ready approval_capture_surface requires approval_capture.current_packet_live_pending_count=1")
     if str(approval_capture.get("current_packet_callback_latest_status") or "").strip() != "pending":
         issues.append("ready approval_capture_surface requires approval_capture.current_packet_callback_latest_status=pending")
     if bool(approval_capture.get("callback_principal_hash_present")) is not True:
@@ -371,8 +371,8 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
             issues.append("ready approval_capture_surface requires telegram or manual capture readiness")
         if bool(approval_capture_surface.get("current_packet_matches_packet_artifacts")) is not True:
             issues.append("ready approval_capture_surface requires current_packet_matches_packet_artifacts=true")
-        if telegram_ready and int(approval_capture_surface.get("current_packet_live_pending_count") or 0) <= 0:
-            issues.append("ready approval_capture_surface requires current_packet_live_pending_count>0")
+        if telegram_ready and int(approval_capture_surface.get("current_packet_live_pending_count") or 0) != 1:
+            issues.append("ready approval_capture_surface requires current_packet_live_pending_count=1")
         if manual_ready and bool(approval_capture_surface.get("current_packet_approval_request_recordable")) is not True:
             issues.append("manual approval_capture_surface requires current_packet_approval_request_recordable=true")
         _verify_approval_capture(approval_capture, issues, required=True, manual_ready=manual_ready and not telegram_ready)

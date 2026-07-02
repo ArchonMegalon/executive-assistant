@@ -347,8 +347,8 @@ def _verify_approval_capture(approval_capture: dict[str, Any], issues: list[str]
         issues.append("ready approval_capture_surface requires approval_capture.current_packet_refs_present=true")
     if int(approval_capture.get("current_packet_callback_record_count") or 0) <= 0:
         issues.append("ready approval_capture_surface requires approval_capture.current_packet_callback_record_count>0")
-    if int(approval_capture.get("current_packet_live_pending_count") or 0) <= 0:
-        issues.append("ready approval_capture_surface requires approval_capture.current_packet_live_pending_count>0")
+    if int(approval_capture.get("current_packet_live_pending_count") or 0) != 1:
+        issues.append("ready approval_capture_surface requires approval_capture.current_packet_live_pending_count=1")
     if str(approval_capture.get("current_packet_callback_latest_status") or "").strip() != "pending":
         issues.append("ready approval_capture_surface requires approval_capture.current_packet_callback_latest_status=pending")
     if bool(approval_capture.get("callback_principal_hash_present")) is not True:
@@ -695,8 +695,8 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
                 issues.append("ready approval_capture_surface requires callback_dir")
             if not telegram_capture_ready and not manual_capture_ready:
                 issues.append("ready approval_capture_surface requires live callback or manual_outcome_capture_ready")
-            if telegram_capture_ready and live_pending_count <= 0:
-                issues.append("ready approval_capture_surface requires current_packet_live_pending_count>0")
+            if telegram_capture_ready and live_pending_count != 1:
+                issues.append("ready approval_capture_surface requires current_packet_live_pending_count=1")
             if manual_capture_ready:
                 if not bool(approval_capture_surface.get("current_packet_approval_request_recordable")):
                     issues.append("manual approval_capture_surface requires current_packet_approval_request_recordable=true")

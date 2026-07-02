@@ -3802,11 +3802,12 @@ def probe_proactive_approval_capture(
 
     current_refs_present = bool(payload.get("current_packet_refs_present"))
     current_pending = int(payload.get("current_packet_live_pending_count") or 0)
+    duplicate_live_pending_count = max(current_pending - 1, 0)
     callback_hash_present = bool(payload.get("callback_principal_hash_present"))
     principal_match_ready = bool(payload.get("principal_match_ready"))
     telegram_ready = bool(payload.get("telegram_binding_ready"))
     telegram_reason = str(payload.get("telegram_blocking_reason") or "").strip()
-    ready = bool(current_refs_present and current_pending > 0 and callback_hash_present and principal_match_ready and telegram_ready)
+    ready = bool(current_refs_present and current_pending == 1 and callback_hash_present and principal_match_ready and telegram_ready)
     blocking_reason = ""
     next_action = ""
     if not current_refs_present:
@@ -3815,6 +3816,9 @@ def probe_proactive_approval_capture(
     elif current_pending <= 0:
         blocking_reason = "current_packet_approval_callback_missing"
         next_action = "reissue_proactive_approval"
+    elif duplicate_live_pending_count > 0:
+        blocking_reason = "duplicate_live_approval_callbacks"
+        next_action = "cleanup_proactive_approval_callbacks"
     elif not callback_hash_present:
         blocking_reason = "approval_callback_principal_hash_missing"
         next_action = "reissue_proactive_approval"
@@ -3851,6 +3855,7 @@ def probe_proactive_approval_capture(
         "current_packet_refs_present": current_refs_present,
         "current_packet_callback_record_count": int(payload.get("current_packet_callback_record_count") or 0),
         "current_packet_live_pending_count": current_pending,
+        "current_packet_duplicate_live_pending_count": duplicate_live_pending_count,
         "current_packet_callback_latest_status": str(payload.get("current_packet_callback_latest_status") or "").strip(),
         "current_packet_callback_latest_expired": bool(payload.get("current_packet_callback_latest_expired")),
         "current_packet_callback_latest_age_seconds": int(payload.get("current_packet_callback_latest_age_seconds") or 0),
@@ -4563,12 +4568,13 @@ def record_proactive_approval(
             packet_ref=resolved_packet_ref,
             staged_artifact_ref=resolved_staged_artifact_ref,
         ),
-        "approval_capture_surface_ready": bool(live_pending_count > 0 or manual_outcome_capture_ready),
-        "telegram_approval_surface_ready": bool(live_pending_count > 0),
+        "approval_capture_surface_ready": bool(live_pending_count == 1 or manual_outcome_capture_ready),
+        "telegram_approval_surface_ready": bool(live_pending_count == 1),
         "manual_outcome_capture_ready": manual_outcome_capture_ready,
         "current_packet_approval_request_recordable": current_packet_recordable,
         "approval_outcome_matches_current_packet": approval_outcome_current,
         "approval_capture_surface_pending_count": live_pending_count,
+        "approval_capture_surface_duplicate_pending_count": max(live_pending_count - 1, 0),
         "privacy": {
             "raw_principal_id_exposed": False,
             "raw_actor_exposed": False,

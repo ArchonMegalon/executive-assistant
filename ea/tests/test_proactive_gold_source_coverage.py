@@ -396,6 +396,80 @@ def test_gold_approval_capture_surface_uses_live_operator_surface_counts_for_run
     assert surface["current_packet_callback_latest_status"] == "pending"
 
 
+def test_operator_status_approval_capture_surface_blocks_duplicate_live_pending_callbacks() -> None:
+    surface = operator_status_receipt._approval_capture_surface(  # noqa: SLF001
+        report={
+            "delivery_route": {"ready": True, "selected_channel": "telegram"},
+            "stage_packets": {"ready": True},
+            "safe_work_results": {"ready": True},
+        },
+        artifact_probe={
+            "approval_outcome_path": str(ROOT / "state" / "proactive_ooda_latest_approval_outcome.generated.json"),
+            "approval_callback_dir": str(ROOT / "state" / "proactive_ooda_approval_callbacks"),
+            "approval_callback_dir_exists": True,
+            "approval_callback_dir_writable": True,
+            "current_packet_callback_record_count": 2,
+            "current_packet_callback_pending_count": 2,
+            "current_packet_live_callback_record_count": 2,
+            "current_packet_live_pending_count": 2,
+            "current_packet_callback_latest_status": "pending",
+            "current_packet": {"present": True, "status": "pending_approval"},
+            "stage_packet": {"packet_ref": "stage_packet:live"},
+            "safe_work_result": {"result_ref": "safe_work_result:live", "status": "staged_for_user_decision"},
+            "source": "unit_test",
+        },
+    )
+
+    assert surface["ready"] is False
+    assert surface["telegram_approval_surface_ready"] is False
+    assert surface["duplicate_live_pending_callbacks_present"] is True
+    assert surface["current_packet_duplicate_live_pending_count"] == 1
+
+
+def test_gold_approval_capture_surface_blocks_duplicate_live_pending_callbacks() -> None:
+    surface, ready = gold_acceptance._approval_capture_surface_receipt(  # noqa: SLF001
+        operator_status={
+            "approval_capture": {
+                "current_packet_ref_sha256": gold_acceptance._hash_value("stage_packet:live"),  # noqa: SLF001
+                "current_staged_artifact_ref_sha256": gold_acceptance._hash_value("safe_work_result:live"),  # noqa: SLF001
+            },
+            "approval_capture_surface": {
+                "selected_channel": "telegram",
+                "callback_dir_exists": True,
+                "callback_record_count": 2,
+                "callback_pending_count": 2,
+                "callback_recorded_count": 0,
+                "current_packet_present": True,
+                "current_packet_status": "pending_approval",
+                "current_packet_approval_request_recordable": True,
+                "current_packet_callback_record_count": 2,
+                "current_packet_callback_pending_count": 2,
+                "current_packet_live_callback_record_count": 2,
+                "current_packet_live_pending_count": 2,
+                "current_packet_callback_latest_status": "pending",
+                "telegram_approval_surface_ready": False,
+                "manual_outcome_capture_ready": False,
+            },
+        },
+        bundle={
+            "approval_callback_dir": ROOT / "state" / "proactive_ooda_approval_callbacks",
+            "approval_callback_dir_exists": True,
+            "approval_callback_dir_writable": True,
+            "approval_callback_record_count": 2,
+            "approval_callback_pending_count": 2,
+            "stage_packet": {"packet_ref": "stage_packet:live"},
+            "safe_work_result": {"result_ref": "safe_work_result:live"},
+        },
+        approval_outcome_path=ROOT / "state" / "proactive_ooda_latest_approval_outcome.generated.json",
+        used_live_runtime_probe=True,
+    )
+
+    assert ready is False
+    assert surface["telegram_approval_surface_ready"] is False
+    assert surface["duplicate_live_pending_callbacks_present"] is True
+    assert surface["current_packet_duplicate_live_pending_count"] == 1
+
+
 def test_gold_approval_capture_surface_fails_closed_when_operator_current_packet_hashes_do_not_match_bundle() -> None:
     surface, ready = gold_acceptance._approval_capture_surface_receipt(  # noqa: SLF001
         operator_status={

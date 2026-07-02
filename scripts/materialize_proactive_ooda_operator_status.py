@@ -1713,6 +1713,7 @@ def _approval_capture_surface(
     current_packet_callback_superseded_count = int(artifact_probe.get("current_packet_callback_superseded_count") or 0)
     current_packet_live_callback_record_count = int(artifact_probe.get("current_packet_live_callback_record_count") or 0)
     current_packet_live_pending_count = int(artifact_probe.get("current_packet_live_pending_count") or 0)
+    current_packet_duplicate_live_pending_count = max(current_packet_live_pending_count - 1, 0)
     current_packet_callback_latest_status = str(artifact_probe.get("current_packet_callback_latest_status") or "").strip()
     current_packet_callback_latest_expired = bool(artifact_probe.get("current_packet_callback_latest_expired"))
     current_packet_callback_latest_created_at = str(
@@ -1741,14 +1742,14 @@ def _approval_capture_surface(
         and bool(approval_outcome_path)
         and bool(callback_dir)
         and callback_dir_writable
-        and (current_packet_live_pending_count > 0 or manual_outcome_capture_ready)
+        and (current_packet_live_pending_count == 1 or manual_outcome_capture_ready)
     )
     return {
         "present": bool(approval_outcome_path or callback_dir),
         "ready": ready,
         "mode": (
             "telegram_callback_pending"
-            if current_packet_live_pending_count > 0
+            if current_packet_live_pending_count == 1
             else "manual_outcome_capture_ready"
             if manual_outcome_capture_ready
             else ""
@@ -1780,6 +1781,7 @@ def _approval_capture_surface(
         "current_packet_callback_superseded_count": current_packet_callback_superseded_count,
         "current_packet_live_callback_record_count": current_packet_live_callback_record_count,
         "current_packet_live_pending_count": current_packet_live_pending_count,
+        "current_packet_duplicate_live_pending_count": current_packet_duplicate_live_pending_count,
         "current_packet_callback_latest_status": current_packet_callback_latest_status,
         "current_packet_callback_latest_expired": current_packet_callback_latest_expired,
         "current_packet_callback_latest_created_at": current_packet_callback_latest_created_at,
@@ -1792,7 +1794,8 @@ def _approval_capture_surface(
         ),
         "current_packet_approval_request_recordable": _current_packet_approval_request_recordable(artifact_probe),
         "approval_outcome_matches_current_packet": approval_outcome_matches_current_packet,
-        "telegram_approval_surface_ready": current_packet_live_pending_count > 0,
+        "telegram_approval_surface_ready": current_packet_live_pending_count == 1,
+        "duplicate_live_pending_callbacks_present": current_packet_duplicate_live_pending_count > 0,
         "manual_outcome_capture_ready": manual_outcome_capture_ready,
         "source": str(artifact_probe.get("source") or "").strip() or "",
     }
