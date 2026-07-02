@@ -60,7 +60,7 @@ def test_verify_proactive_ooda_accepts_static_signal_source(tmp_path, monkeypatc
     assert report["delivery_guard"]["delivery_state"] == "eligible"
 
 
-def test_verify_proactive_ooda_prefers_persisted_delivery_guard_snapshot(tmp_path, monkeypatch) -> None:
+def test_verify_proactive_ooda_prefers_live_delivery_guard_state_over_stale_persisted_snapshot(tmp_path, monkeypatch) -> None:
     monkeypatch.delenv("EA_TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID", raising=False)
     signal_file = tmp_path / "signals.json"
@@ -122,9 +122,9 @@ def test_verify_proactive_ooda_prefers_persisted_delivery_guard_snapshot(tmp_pat
     )
 
     assert report["ok"] is True
-    assert report["delivery_guard"]["delivery_state"] == "deferred"
-    assert report["delivery_guard"]["deferred_reason"] == "deferred_by_quiet_hours"
-    assert report["delivery_guard"]["quiet_hours_active"] is True
+    assert report["delivery_guard"]["delivery_state"] == "eligible"
+    assert report["delivery_guard"]["deferred_reason"] == ""
+    assert report["delivery_guard"]["quiet_hours_active"] is False
     assert report["delivery_guard"]["notification_requires_user_action"] is True
 
 

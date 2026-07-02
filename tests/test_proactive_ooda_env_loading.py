@@ -834,6 +834,216 @@ def test_runner_main_defers_when_safe_work_has_no_decision_ready_material(tmp_pa
     assert '"notification_status": "deferred"' in captured.out
 
 
+def _write_action_required_signal(path) -> None:
+    path.write_text(
+        json.dumps(
+            [
+                {
+                    "source_ref": "manual:approval-packet",
+                    "signal_type": "operator_signal",
+                    "channel": "operator_feed",
+                    "title": "Prepare one vendor approval packet",
+                    "summary": "A reversible vendor choice is ready.",
+                    "payload": {
+                        "ooda_loop": {
+                            "reviewed": True,
+                            "observe": {"summary": "Review the vendor shortlist."},
+                            "orient": {"summary": "A reversible option can be staged before approval."},
+                            "decide": {"summary": "Approve whether EA should proceed.", "approval_required": True},
+                            "act": {
+                                "summary": "Prepare the best approval link.",
+                                "stage": {
+                                    "kind": "approval_packet",
+                                    "summary": "One vendor candidate ready for approval.",
+                                    "approval_url": "https://example.test/approve/vendor-a",
+                                    "candidate_items": [
+                                        {"label": "Vendor A", "url": "https://example.test/vendor-a"},
+                                        {"label": "Vendor B", "url": "https://example.test/vendor-b"},
+                                    ],
+                                },
+                                "external_action_policy": "Do not buy, book, send, cancel, post, or commit without explicit approval.",
+                            },
+                        }
+                    },
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_runner_main_quiet_hours_defers_then_sends_once_when_quiet_hours_end(tmp_path, monkeypatch) -> None:
+    class _FrozenNoonUtcDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            current = cls(2026, 7, 3, 12, 0, tzinfo=timezone.utc)
+            return current if tz is None else current.astimezone(tz)
+
+    monkeypatch.setattr(runner, "datetime", _FrozenNoonUtcDateTime)
+    signal_file = tmp_path / "signals.json"
+    state_path = tmp_path / "state.json"
+    _write_action_required_signal(signal_file)
+    sent: list[tuple[str, str, object]] = []
+    monkeypatch.setattr(
+        runner,
+        "_deliver_notification",
+        lambda principal_id, text, *, digest=None: sent.append((principal_id, text, digest)) or {"message_id": "telegram-live-1"},
+    )
+    monkeypatch.setattr(runner, "persist_proactive_ooda_receipt", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        runner,
+        "sync_proactive_ooda_to_teable",
+        lambda **_kwargs: {"status": "disabled", "sync_attempted": False, "blocked_reason": ""},
+    )
+
+    common_args = [
+        "run_proactive_ooda.py",
+        "--no-include-goal-action-queue",
+        "--principal-id",
+        "exec",
+        "--signals-json",
+        str(signal_file),
+        "--state-path",
+        str(state_path),
+        "--stage-packet-dir",
+        str(tmp_path / "packets"),
+        "--safe-work-result-dir",
+        str(tmp_path / "results"),
+        "--skip-observation-source",
+        "--skip-workspace-source",
+        "--no-safe-work-network-fetch",
+        "--armed-send",
+    ]
+
+    monkeypatch.setattr(
+        runner.sys,
+        "argv",
+        [
+            *common_args,
+            "--quiet-hours-start",
+            "00:00",
+            "--quiet-hours-end",
+            "23:59",
+            "--quiet-hours-timezone",
+            "UTC",
+            "--no-quiet-hours-allow-high-priority",
+        ],
+    )
+    assert runner.main() == 0
+    first_receipt = json.loads((tmp_path / "proactive_ooda_latest_run.generated.json").read_text(encoding="utf-8"))
+    assert sent == []
+    assert first_receipt["notification_status"] == "deferred"
+    assert first_receipt["error_code"] == "deferred_by_quiet_hours"
+    assert JsonOodaStateStore(state_path).load_notified_refs("exec") == set()
+
+    monkeypatch.setattr(runner.sys, "argv", list(common_args))
+    assert runner.main() == 0
+    second_receipt = json.loads((tmp_path / "proactive_ooda_latest_run.generated.json").read_text(encoding="utf-8"))
+    assert len(sent) == 1
+    assert second_receipt["notification_status"] == "sent"
+    assert second_receipt["error_code"] == ""
+    assert JsonOodaStateStore(state_path).load_notified_refs("exec")
+
+    monkeypatch.setattr(runner.sys, "argv", list(common_args))
+    assert runner.main() == 0
+    third_receipt = json.loads((tmp_path / "proactive_ooda_latest_run.generated.json").read_text(encoding="utf-8"))
+    assert len(sent) == 1
+    assert third_receipt["notification_status"] == "skipped_no_items"
+    assert third_receipt["item_count"] == 0
+
+
+def test_runner_main_interruption_budget_defers_then_sends_once_when_budget_recovers(tmp_path, monkeypatch) -> None:
+    signal_file = tmp_path / "signals.json"
+    state_path = tmp_path / "state.json"
+    _write_action_required_signal(signal_file)
+    JsonOodaStateStore(state_path).save_interruption_events("exec", [datetime.now(timezone.utc).isoformat()])
+    sent: list[tuple[str, str, object]] = []
+    monkeypatch.setattr(
+        runner,
+        "_deliver_notification",
+        lambda principal_id, text, *, digest=None: sent.append((principal_id, text, digest)) or {"message_id": "telegram-live-2"},
+    )
+    monkeypatch.setattr(runner, "persist_proactive_ooda_receipt", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        runner,
+        "sync_proactive_ooda_to_teable",
+        lambda **_kwargs: {"status": "disabled", "sync_attempted": False, "blocked_reason": ""},
+    )
+
+    base_args = [
+        "run_proactive_ooda.py",
+        "--no-include-goal-action-queue",
+        "--principal-id",
+        "exec",
+        "--signals-json",
+        str(signal_file),
+        "--state-path",
+        str(state_path),
+        "--stage-packet-dir",
+        str(tmp_path / "packets"),
+        "--safe-work-result-dir",
+        str(tmp_path / "results"),
+        "--skip-observation-source",
+        "--skip-workspace-source",
+        "--no-safe-work-network-fetch",
+        "--armed-send",
+        "--no-interruption-budget-allow-high-priority",
+    ]
+
+    monkeypatch.setattr(
+        runner.sys,
+        "argv",
+        [
+            *base_args,
+            "--interruption-budget-limit",
+            "1",
+            "--interruption-budget-window-hours",
+            "24",
+        ],
+    )
+    assert runner.main() == 0
+    first_receipt = json.loads((tmp_path / "proactive_ooda_latest_run.generated.json").read_text(encoding="utf-8"))
+    assert sent == []
+    assert first_receipt["notification_status"] == "deferred"
+    assert first_receipt["error_code"] == "deferred_by_interruption_budget"
+    assert JsonOodaStateStore(state_path).load_notified_refs("exec") == set()
+
+    monkeypatch.setattr(
+        runner.sys,
+        "argv",
+        [
+            *base_args,
+            "--interruption-budget-limit",
+            "2",
+            "--interruption-budget-window-hours",
+            "24",
+        ],
+    )
+    assert runner.main() == 0
+    second_receipt = json.loads((tmp_path / "proactive_ooda_latest_run.generated.json").read_text(encoding="utf-8"))
+    assert len(sent) == 1
+    assert second_receipt["notification_status"] == "sent"
+    assert second_receipt["error_code"] == ""
+    assert JsonOodaStateStore(state_path).load_notified_refs("exec")
+
+    monkeypatch.setattr(
+        runner.sys,
+        "argv",
+        [
+            *base_args,
+            "--interruption-budget-limit",
+            "3",
+            "--interruption-budget-window-hours",
+            "24",
+        ],
+    )
+    assert runner.main() == 0
+    third_receipt = json.loads((tmp_path / "proactive_ooda_latest_run.generated.json").read_text(encoding="utf-8"))
+    assert len(sent) == 1
+    assert third_receipt["notification_status"] == "skipped_no_items"
+    assert third_receipt["item_count"] == 0
+
+
 def test_runner_archives_each_receipt_next_to_state_path(tmp_path, monkeypatch) -> None:
     signal_file = tmp_path / "signals.json"
     signal_file.write_text(
