@@ -1417,9 +1417,12 @@ def _approval_capture_surface_receipt(
     telegram_approval_surface_candidate = bool(operator_surface.get("telegram_approval_surface_ready")) or (
         current_packet_live_pending_count > 0
     )
+    approval_capture_checked = bool(operator_capture.get("checked"))
     telegram_approval_surface_ready = bool(
-        telegram_approval_surface_candidate
-        and bool(operator_capture.get("checked"))
+        operator_surface.get("telegram_approval_surface_ready")
+    ) or bool(
+        current_packet_live_pending_count > 0
+        and approval_capture_checked
     )
     manual_outcome_capture_ready = bool(
         operator_surface.get("manual_outcome_capture_ready") and current_packet_approval_request_recordable
