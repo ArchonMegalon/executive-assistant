@@ -516,6 +516,7 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                 issues.append(f"operator_action_queue must not expose raw_email_exposed: {action_key}")
             for google_private_key in (
                 "raw_expected_google_email_exposed",
+                "raw_observed_google_email_exposed",
                 "raw_client_id_exposed",
                 "raw_client_secret_exposed",
                 "raw_error_description_exposed",
@@ -889,6 +890,7 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
     if google_oauth:
         for private_key in (
             "raw_expected_google_email_exposed",
+            "raw_observed_google_email_exposed",
             "raw_client_secret_exposed",
             "raw_access_token_exposed",
             "raw_refresh_token_exposed",
@@ -916,6 +918,12 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
             issues.append("google_workspace_oauth_setup must cite the Google Workspace OAuth readiness surface")
         if google_oauth_requirement.get("evidence_kind") != "google_workspace_oauth_test_user_setup":
             issues.append("google_workspace_oauth_setup evidence_kind mismatch")
+        expected_google_next_action = str(google_oauth.get("next_action") or "").strip()
+        if (
+            expected_google_next_action
+            and str(google_oauth_requirement.get("next_action") or "").strip() != expected_google_next_action
+        ):
+            issues.append("google_workspace_oauth_setup next_action must mirror OAuth readiness next_action")
         action_context = google_oauth_requirement.get("action_context")
         strict_google_action = isinstance(action_context, dict) and action_context.get("user_action_required") is True
         if google_oauth_blocked and strict_google_action:
@@ -952,6 +960,7 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                     issues.append("blocked google_workspace_oauth_setup action_context must include telegram_message")
                 for private_key in (
                     "raw_expected_google_email_exposed",
+                    "raw_observed_google_email_exposed",
                     "raw_client_id_exposed",
                     "raw_client_secret_exposed",
                     "raw_error_description_exposed",
@@ -972,6 +981,11 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
             if not google_queue_row:
                 issues.append("blocked google_workspace_oauth_setup must appear in operator_action_queue")
             else:
+                if (
+                    expected_google_next_action
+                    and str(google_queue_row.get("next_action") or "").strip() != expected_google_next_action
+                ):
+                    issues.append("google_workspace_oauth_setup queue row next_action must mirror OAuth readiness next_action")
                 if not google_queue_row.get("setup_checklist"):
                     issues.append("google_workspace_oauth_setup queue row must include setup_checklist")
                 if not str(google_queue_row.get("console_deep_link") or "").startswith(
@@ -984,6 +998,7 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                     issues.append("google_workspace_oauth_setup queue row must include telegram_message")
                 for private_key in (
                     "raw_expected_google_email_exposed",
+                    "raw_observed_google_email_exposed",
                     "raw_client_id_exposed",
                     "raw_client_secret_exposed",
                     "raw_error_description_exposed",

@@ -587,6 +587,77 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     )
     _write_receipt(
         tmp_path,
+        ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json",
+        status="blocked_setup_required",
+        scope_bundle="full_workspace",
+        console_deep_link="https://console.cloud.google.com/auth/audience?project=propertyquarry-498318",
+        auth_link_template=(
+            "https://myexternalbrain.com/app/actions/google/connect?"
+            "return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace&"
+            "expected_google_email=%3Credacted-email%3E"
+        ),
+        missing_setup=["oauth_access_retry_or_account_selection_required"],
+        privacy={
+            "raw_expected_google_email_exposed": False,
+            "raw_observed_google_email_exposed": False,
+            "raw_client_id_exposed": False,
+            "raw_client_secret_exposed": False,
+            "raw_state_secret_exposed": False,
+            "raw_provider_secret_exposed": False,
+            "raw_google_code_exposed": False,
+            "raw_access_token_exposed": False,
+            "raw_refresh_token_exposed": False,
+            "raw_gcloud_token_exposed": False,
+            "raw_gcloud_account_exposed": False,
+            "raw_error_description_exposed": False,
+        },
+        operator_action={
+            "user_action_required": True,
+            "instruction": (
+                "Retry the Full Workspace auth link and explicitly choose the approved work Google account."
+            ),
+            "next_action": "retry_full_workspace_auth_with_approved_account",
+            "next_action_href": "/integrations/google",
+            "next_action_label": "Retry Google auth",
+            "next_action_method": "get",
+            "missing_setup": ["oauth_access_retry_or_account_selection_required"],
+            "setup_checklist": [
+                {
+                    "key": "oauth_access_retry_or_account_selection_required",
+                    "label": "Retry Full Workspace auth with the approved Google account",
+                    "how": "Open the redacted auth link, choose the approved work account, and finish consent.",
+                }
+            ],
+            "console_deep_link": "https://console.cloud.google.com/auth/audience?project=propertyquarry-498318",
+            "auth_link_template": (
+                "https://myexternalbrain.com/app/actions/google/connect?"
+                "return_to=%2Fapp%2Fsettings%2Fgoogle&scope_bundle=full_workspace&"
+                "expected_google_email=%3Credacted-email%3E"
+            ),
+            "scope_bundle": "full_workspace",
+            "expected_google_email_present": True,
+            "expected_google_email_sha256": "expected-google-email-hash",
+            "expected_google_domain": "gmail.com",
+            "observed_google_email_present": True,
+            "observed_google_email_sha256": "observed-google-email-hash",
+            "observed_google_domain": "gmail.com",
+            "observed_google_account_matches_expected": True,
+            "telegram_message": "Action needed: Google Full Workspace auth is still denied even though the work account is already approved.",
+            "delivery_policy": "action_required_only",
+            "telegram_push_allowed": True,
+            "interruption_budget": "action_required",
+            "raw_private_context_exposed": False,
+            "raw_expected_google_email_exposed": False,
+            "raw_observed_google_email_exposed": False,
+            "raw_client_id_exposed": False,
+            "raw_client_secret_exposed": False,
+            "raw_token_exposed": False,
+            "raw_secret_exposed": False,
+            "raw_error_description_exposed": False,
+        },
+    )
+    _write_receipt(
+        tmp_path,
         ".codex-studio/published/ea_pushbullet_delivery_readiness.generated.json",
         status="blocked_setup_required",
         provider="pushbullet",
@@ -730,6 +801,7 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
         "proactive_ooda_packet_acceptance",
         "fresh_host_teable_recovery_drill",
         "telegram_business_signal_setup",
+        "google_workspace_oauth_setup",
         "pushbullet_delivery_setup",
         "manfred_stt_tts_realtime_conversation",
         "telegram_audiobook_live_delivery",
@@ -804,6 +876,20 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert telegram_business_context["raw_chat_ids_exposed"] is False
     assert telegram_business_context["raw_token_exposed"] is False
     assert telegram_business_context["raw_secret_exposed"] is False
+    assert proof_requirements["google_workspace_oauth_setup"]["evidence_kind"] == "google_workspace_oauth_test_user_setup"
+    assert proof_requirements["google_workspace_oauth_setup"]["next_action"] == "retry_full_workspace_auth_with_approved_account"
+    assert proof_requirements["google_workspace_oauth_setup"]["next_action_href"] == "/integrations/google"
+    assert proof_requirements["google_workspace_oauth_setup"]["next_action_label"] == "Retry Google auth"
+    google_context = proof_requirements["google_workspace_oauth_setup"]["action_context"]
+    assert google_context["user_action_required"] is True
+    assert google_context["missing_setup"] == ["oauth_access_retry_or_account_selection_required"]
+    assert google_context["setup_checklist"][0]["key"] == "oauth_access_retry_or_account_selection_required"
+    assert google_context["observed_google_email_present"] is True
+    assert google_context["observed_google_account_matches_expected"] is True
+    assert google_context["raw_expected_google_email_exposed"] is False
+    assert google_context["raw_observed_google_email_exposed"] is False
+    assert google_context["raw_client_id_exposed"] is False
+    assert google_context["raw_client_secret_exposed"] is False
     assert proof_requirements["pushbullet_delivery_setup"]["evidence_kind"] == "delivery_channel_setup"
     pushbullet_context = proof_requirements["pushbullet_delivery_setup"]["action_context"]
     assert pushbullet_context["kind"] == "pushbullet_delivery_setup"
@@ -955,6 +1041,20 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert telegram_business_action["raw_chat_ids_exposed"] is False
     assert telegram_business_action["raw_token_exposed"] is False
     assert telegram_business_action["raw_secret_exposed"] is False
+    google_action = next(
+        item for item in receipt["operator_action_queue"] if item["key"] == "google_workspace_oauth_setup"
+    )
+    assert google_action["user_action_required"] is True
+    assert google_action["next_action"] == "retry_full_workspace_auth_with_approved_account"
+    assert google_action["next_action_href"] == "/integrations/google"
+    assert google_action["next_action_label"] == "Retry Google auth"
+    assert google_action["missing_setup"] == ["oauth_access_retry_or_account_selection_required"]
+    assert google_action["observed_google_email_present"] is True
+    assert google_action["observed_google_account_matches_expected"] is True
+    assert google_action["raw_expected_google_email_exposed"] is False
+    assert google_action["raw_observed_google_email_exposed"] is False
+    assert google_action["raw_client_id_exposed"] is False
+    assert google_action["raw_client_secret_exposed"] is False
     pushbullet_action = next(
         item for item in receipt["operator_action_queue"] if item["key"] == "pushbullet_delivery_setup"
     )
@@ -1060,7 +1160,19 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     output = tmp_path / ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json"
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
-    assert verify(output) == []
+    assert verify(output, root=tmp_path) == []
+
+    stale_google_action_receipt = json.loads(json.dumps(receipt))
+    for requirement in stale_google_action_receipt["acceptance_proof_requirements"]:
+        if requirement["key"] == "google_workspace_oauth_setup":
+            requirement["next_action"] = "add_google_oauth_test_user_and_retry_full_workspace_auth"
+    for queue_row in stale_google_action_receipt["operator_action_queue"]:
+        if queue_row["key"] == "google_workspace_oauth_setup":
+            queue_row["next_action"] = "add_google_oauth_test_user_and_retry_full_workspace_auth"
+    output.write_text(json.dumps(stale_google_action_receipt, indent=2) + "\n", encoding="utf-8")
+    issues = verify(output, root=tmp_path)
+    assert "google_workspace_oauth_setup next_action must mirror OAuth readiness next_action" in issues
+    assert "google_workspace_oauth_setup queue row next_action must mirror OAuth readiness next_action" in issues
 
     receipt["acceptance_proof_requirements"] = [
         item

@@ -136,6 +136,16 @@ ACTION_SURFACES = {
         "label": "Open Google setup",
         "method": "get",
     },
+    "retry_full_workspace_auth_with_approved_account": {
+        "href": "/integrations/google",
+        "label": "Retry Google auth",
+        "method": "get",
+    },
+    "retry_full_workspace_auth_with_expected_account": {
+        "href": "/integrations/google",
+        "label": "Retry Google auth",
+        "method": "get",
+    },
     "create_missing_pushbullet_access_tokens": {
         "href": "https://www.pushbullet.com/#settings/account",
         "label": "Open Pushbullet account settings",
@@ -1206,6 +1216,12 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
             "expected_google_email_present": bool(action_context.get("expected_google_email_present")),
             "expected_google_email_sha256": str(action_context.get("expected_google_email_sha256") or "").strip(),
             "expected_google_domain": str(action_context.get("expected_google_domain") or "").strip(),
+            "observed_google_email_present": bool(action_context.get("observed_google_email_present")),
+            "observed_google_email_sha256": str(action_context.get("observed_google_email_sha256") or "").strip(),
+            "observed_google_domain": str(action_context.get("observed_google_domain") or "").strip(),
+            "observed_google_account_matches_expected": bool(
+                action_context.get("observed_google_account_matches_expected")
+            ),
             "external_setup_url": str(action_context.get("external_setup_url") or "").strip(),
             "required_client_keys": [
                 str(item).strip()
@@ -1255,6 +1271,7 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
             "raw_token_exposed": bool(action_context.get("raw_token_exposed")),
             "raw_secret_exposed": bool(action_context.get("raw_secret_exposed")),
             "raw_expected_google_email_exposed": bool(action_context.get("raw_expected_google_email_exposed")),
+            "raw_observed_google_email_exposed": bool(action_context.get("raw_observed_google_email_exposed")),
             "raw_client_id_exposed": bool(action_context.get("raw_client_id_exposed")),
             "raw_client_secret_exposed": bool(action_context.get("raw_client_secret_exposed")),
             "raw_error_description_exposed": bool(action_context.get("raw_error_description_exposed")),
@@ -1305,6 +1322,10 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
             "expected_google_email_present",
             "expected_google_email_sha256",
             "expected_google_domain",
+            "observed_google_email_present",
+            "observed_google_email_sha256",
+            "observed_google_domain",
+            "observed_google_account_matches_expected",
             "external_setup_url",
             "required_client_keys",
             "token_missing_client_keys",
@@ -1340,6 +1361,7 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
             "raw_transcript_fields_exposed",
             "candidate_raw_text_fields_exposed",
             "raw_expected_google_email_exposed",
+            "raw_observed_google_email_exposed",
             "raw_client_id_exposed",
             "raw_client_secret_exposed",
             "raw_error_description_exposed",
@@ -1494,6 +1516,13 @@ def build_goal_posture(
         "expected_google_email_sha256": str(
             dict(google_oauth.get("expected_google_account") or {}).get("email_sha256") or ""
         ).strip(),
+        "observed_google_email_present": bool(dict(google_oauth.get("observed_google_account") or {}).get("present")),
+        "observed_google_email_sha256": str(
+            dict(google_oauth.get("observed_google_account") or {}).get("email_sha256") or ""
+        ).strip(),
+        "observed_google_account_matches_expected": bool(
+            dict(google_oauth.get("observed_google_account") or {}).get("matches_expected")
+        ),
         "oauth_project_id": str(dict(google_oauth.get("oauth_client") or {}).get("client_project_id") or "").strip(),
         "oauth_project_number": str(
             dict(google_oauth.get("oauth_client") or {}).get("client_project_number") or ""
@@ -1502,6 +1531,9 @@ def build_goal_posture(
         "auth_link_template": str(google_oauth.get("auth_link_template") or "").strip(),
         "raw_expected_google_email_exposed": bool(
             dict(google_oauth.get("privacy") or {}).get("raw_expected_google_email_exposed")
+        ),
+        "raw_observed_google_email_exposed": bool(
+            dict(google_oauth.get("privacy") or {}).get("raw_observed_google_email_exposed")
         ),
         "raw_client_secret_exposed": bool(dict(google_oauth.get("privacy") or {}).get("raw_client_secret_exposed")),
         "raw_access_token_exposed": bool(dict(google_oauth.get("privacy") or {}).get("raw_access_token_exposed")),
@@ -2061,6 +2093,9 @@ def build_goal_posture(
         )
     if any(reason.startswith("detect:google_workspace_oauth") for reason in blocking_reasons):
         google_oauth_action = dict(google_oauth.get("operator_action") or {})
+        google_oauth_next_action = str(
+            google_oauth_action.get("next_action") or "add_google_oauth_test_user_and_retry_full_workspace_auth"
+        ).strip()
         acceptance_proof_requirements.append(
             _acceptance_proof_requirement(
                 key="google_workspace_oauth_setup",
@@ -2069,11 +2104,14 @@ def build_goal_posture(
                 required_next_receipt=GOOGLE_WORKSPACE_OAUTH_SETUP_RECEIPT,
                 evidence_kind="google_workspace_oauth_test_user_setup",
                 capture_surfaces=[google_oauth_path],
-                next_action="add_google_oauth_test_user_and_retry_full_workspace_auth",
+                next_action=google_oauth_next_action,
                 claim_boundary="does_not_prove_google_workspace_signal_ingest_until_full_workspace_oauth_can_complete_for_the_requested_account",
                 action_context={
                     "user_action_required": bool(google_oauth_action.get("user_action_required")),
                     "instruction": str(google_oauth_action.get("instruction") or "").strip(),
+                    "next_action_href": str(google_oauth_action.get("next_action_href") or "").strip(),
+                    "next_action_label": str(google_oauth_action.get("next_action_label") or "").strip(),
+                    "next_action_method": str(google_oauth_action.get("next_action_method") or "").strip(),
                     "missing_setup": [
                         str(item).strip()
                         for item in list(google_oauth_action.get("missing_setup") or [])
@@ -2093,8 +2131,21 @@ def build_goal_posture(
                         google_oauth_action.get("expected_google_email_sha256") or ""
                     ).strip(),
                     "expected_google_domain": str(google_oauth_action.get("expected_google_domain") or "").strip(),
+                    "observed_google_email_present": bool(
+                        google_oauth_action.get("observed_google_email_present")
+                    ),
+                    "observed_google_email_sha256": str(
+                        google_oauth_action.get("observed_google_email_sha256") or ""
+                    ).strip(),
+                    "observed_google_domain": str(google_oauth_action.get("observed_google_domain") or "").strip(),
+                    "observed_google_account_matches_expected": bool(
+                        google_oauth_action.get("observed_google_account_matches_expected")
+                    ),
                     "raw_expected_google_email_exposed": bool(
                         google_oauth_action.get("raw_expected_google_email_exposed")
+                    ),
+                    "raw_observed_google_email_exposed": bool(
+                        google_oauth_action.get("raw_observed_google_email_exposed")
                     ),
                     "raw_client_id_exposed": bool(google_oauth_action.get("raw_client_id_exposed")),
                     "raw_client_secret_exposed": bool(google_oauth_action.get("raw_client_secret_exposed")),
