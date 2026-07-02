@@ -105,6 +105,7 @@ def test_signal_to_decision_receipt_materializes_local_packet_without_overclaim(
     )
 
     assert receipt["status"] == "ready_local_packet_pending_operator_acceptance"
+    assert receipt["generated_by"] == "ea/scripts/materialize_whole_project_signal_to_decision_receipt.py"
     assert receipt["goal_completion_claim_allowed"] is False
     assert receipt["queue_truth_claim_allowed"] is False
     assert receipt["release_authority_claim_allowed"] is False
@@ -118,6 +119,7 @@ def test_signal_to_decision_receipt_materializes_local_packet_without_overclaim(
     )
     assert receipt["next_action_form_method"] == "get"
     assert receipt["next_action_evidence_part"] == "review"
+    assert receipt["operator_action_key"] == "weekly_signal_to_decision_review_acceptance"
     packet = receipt["operator_action_packet"]
     assert packet["status"] == "action_required"
     assert packet["user_action_required"] is True
@@ -207,6 +209,7 @@ def test_signal_to_decision_receipt_hashes_operator_review_and_followthrough(tmp
     assert receipt["next_action_form_href"] == ""
     assert receipt["next_action_form_method"] == ""
     assert receipt["next_action_evidence_part"] == ""
+    assert receipt["operator_action_key"] == ""
     assert receipt["operator_action_packet"]["status"] == "not_required"  # type: ignore[index]
     assert receipt["operator_action_packet"]["user_action_required"] is False  # type: ignore[index]
     assert receipt["operator_action_packet"]["delivery_policy"] == "queue_only"  # type: ignore[index]
@@ -285,6 +288,7 @@ def test_signal_to_decision_receipt_preserves_existing_redacted_operator_review(
     )
     assert second["next_action_form_method"] == "get"
     assert second["next_action_evidence_part"] == "followthrough"
+    assert second["operator_action_key"] == "weekly_signal_to_decision_review_acceptance"
     packet = second["operator_action_packet"]
     assert packet["status"] == "action_required"
     assert packet["next_action"] == "record_redacted_signal_followthrough_acceptance"
@@ -329,6 +333,7 @@ def test_signal_to_decision_verifier_rejects_overclaim_and_missing_source(tmp_pa
     )
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     receipt["goal_completion_claim_allowed"] = True
+    receipt["generated_by"] = "wrong"
     receipt["queue_truth_claim_allowed"] = True
     receipt["boundary_posture"]["ea_is_product_truth"] = True
     receipt.pop("signal_evidence_capture_surface")
@@ -343,6 +348,7 @@ def test_signal_to_decision_verifier_rejects_overclaim_and_missing_source(tmp_pa
     verification = verifier.verify_whole_project_signal_to_decision_receipt(receipt_path)
 
     assert verification["status"] == "fail"
+    assert "signal_decision_generated_by_mismatch" in verification["issues"]
     assert "signal_decision_completion_overclaim" in verification["issues"]
     assert "signal_decision_queue_truth_overclaim" in verification["issues"]
     assert "signal_decision_ea_product_truth_overclaim" in verification["issues"]

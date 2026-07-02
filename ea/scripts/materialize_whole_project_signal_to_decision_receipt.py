@@ -42,6 +42,7 @@ SIGNAL_EVIDENCE_CAPTURE_METHOD = "POST"
 SIGNAL_EVIDENCE_CAPTURE_FORM_FIELDS = ["evidence_part", "source_kind", "evidence", "packet_ref"]
 SIGNAL_EVIDENCE_CAPTURE_LABEL = "Record a signal-loop outcome"
 SIGNAL_EVIDENCE_CAPTURE_FORM_METHOD = "GET"
+SIGNAL_OPERATOR_ACTION_KEY = "weekly_signal_to_decision_review_acceptance"
 SIGNAL_EVIDENCE_PARTS = {
     "review": {
         "label": "real weekly signal-to-decision review accepted by the operator",
@@ -385,6 +386,7 @@ def materialize_whole_project_signal_to_decision_receipt(
         next_action_evidence_part = ""
     receipt = {
         "contract_name": "ea.whole_project_signal_to_decision_receipt.v1",
+        "generated_by": "ea/scripts/materialize_whole_project_signal_to_decision_receipt.py",
         **_source_state_fields(),
         "status": "ready_real_signal_to_decision_closure"
         if review_accepted and follow_accepted
@@ -396,6 +398,7 @@ def materialize_whole_project_signal_to_decision_receipt(
         "queue_truth_claim_allowed": False,
         "release_authority_claim_allowed": False,
         "next_action": next_action,
+        "operator_action_key": SIGNAL_OPERATOR_ACTION_KEY if next_action_evidence_part else "",
         "next_action_href": SIGNAL_EVIDENCE_CAPTURE_PATH if next_action_evidence_part else "",
         "next_action_label": SIGNAL_EVIDENCE_CAPTURE_LABEL if next_action_evidence_part else "",
         "next_action_method": SIGNAL_EVIDENCE_CAPTURE_METHOD.lower() if next_action_evidence_part else "",

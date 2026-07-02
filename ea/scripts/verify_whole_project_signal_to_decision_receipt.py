@@ -18,6 +18,7 @@ from materialize_whole_project_signal_to_decision_receipt import (
     SIGNAL_EVIDENCE_CAPTURE_FORM_METHOD,
     SIGNAL_EVIDENCE_CAPTURE_METHOD,
     SIGNAL_EVIDENCE_CAPTURE_PATH,
+    SIGNAL_OPERATOR_ACTION_KEY,
     SIGNAL_EVIDENCE_PARTS,
     _signal_evidence_form_href,
 )
@@ -132,6 +133,8 @@ def verify_whole_project_signal_to_decision_receipt(receipt_path: str | Path) ->
     receipt = _load(receipt_path)
     issues: list[str] = []
     _verify_source_state(receipt, issues)
+    if receipt.get("generated_by") != "ea/scripts/materialize_whole_project_signal_to_decision_receipt.py":
+        issues.append("signal_decision_generated_by_mismatch")
     if receipt.get("goal_completion_claim_allowed") is True:
         issues.append("signal_decision_completion_overclaim")
     if receipt.get("queue_truth_claim_allowed") is True:
@@ -139,6 +142,7 @@ def verify_whole_project_signal_to_decision_receipt(receipt_path: str | Path) ->
     if dict(receipt.get("boundary_posture") or {}).get("ea_is_product_truth") is True:
         issues.append("signal_decision_ea_product_truth_overclaim")
     next_action = str(receipt.get("next_action") or "").strip()
+    operator_action_key = str(receipt.get("operator_action_key") or "").strip()
     next_action_href = str(receipt.get("next_action_href") or "").strip()
     next_action_label = str(receipt.get("next_action_label") or "").strip()
     next_action_method = str(receipt.get("next_action_method") or "").strip().lower()
@@ -252,6 +256,8 @@ def verify_whole_project_signal_to_decision_receipt(receipt_path: str | Path) ->
         )
         if next_action != str(SIGNAL_EVIDENCE_PARTS["review"]["next_action"]):
             issues.append("signal_decision_next_action_review_missing")
+        if operator_action_key != SIGNAL_OPERATOR_ACTION_KEY:
+            issues.append("signal_decision_operator_action_key_missing:review")
         if next_action_evidence_part != "review":
             issues.append("signal_decision_next_action_evidence_part_mismatch:review")
         if next_action_href != SIGNAL_EVIDENCE_CAPTURE_PATH:
@@ -275,6 +281,8 @@ def verify_whole_project_signal_to_decision_receipt(receipt_path: str | Path) ->
         )
         if next_action != str(SIGNAL_EVIDENCE_PARTS["followthrough"]["next_action"]):
             issues.append("signal_decision_next_action_followthrough_missing")
+        if operator_action_key != SIGNAL_OPERATOR_ACTION_KEY:
+            issues.append("signal_decision_operator_action_key_missing:followthrough")
         if next_action_evidence_part != "followthrough":
             issues.append("signal_decision_next_action_evidence_part_mismatch:followthrough")
         if next_action_href != SIGNAL_EVIDENCE_CAPTURE_PATH:
@@ -298,6 +306,8 @@ def verify_whole_project_signal_to_decision_receipt(receipt_path: str | Path) ->
         )
         if next_action != "review_closed_signal_to_decision_claim":
             issues.append("signal_decision_next_action_review_closed_claim_missing")
+        if operator_action_key:
+            issues.append("signal_decision_operator_action_key_should_be_empty_after_acceptance")
         for key, value in (
             ("href", next_action_href),
             ("label", next_action_label),
