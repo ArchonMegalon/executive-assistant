@@ -107,7 +107,7 @@
       <p class="copy">We sent {{ sign_in_link_count }} secure links to {{ sign_in_link_email }}. {{ sign_in_link_failed_total }} delivery {{ 'failed' if sign_in_link_failed_total == 1 else 'failures' }} still need attention.</p>
       {% elif sign_in_link_status == 'not_found' %}
       <strong>No existing workspace matched that email.</strong>
-      <p class="copy">We could not find workspace access for {{ sign_in_link_email }}. Start with a new property workspace if this is a first-time account.</p>
+      <p class="copy">We could not find workspace access for {{ sign_in_link_email }}. Start at {% if brand.key == 'propertyquarry' %}/register{% else %}/get-started{% endif %} if this is a first-time account.</p>
       {% elif sign_in_link_status == 'invalid' %}
       <strong>Enter a valid email address.</strong>
       <p class="copy">Use the inbox that already has workspace access or an invite.</p>
@@ -150,8 +150,8 @@
         <p class="copy">If you do not already have access, the right next step is {% if brand.key == 'propertyquarry' %}/register{% else %}/get-started{% endif %}, not a support ticket or a deeper settings page.</p>
       </section>
       <section class="access-card">
-        <strong>Shared review when needed</strong>
-        <p class="copy">Add collaborators, invites, and broader review only after the shortlist and research packet are already proving value.</p>
+        <strong>{% if brand.key == 'propertyquarry' %}Shared review when needed{% else %}Collaborators when needed{% endif %}</strong>
+        <p class="copy">{% if brand.key == 'propertyquarry' %}Add collaborators, invites, and broader review only after the shortlist and research packet are already proving value.{% else %}Add collaborators, invites, and broader review only after Today, the queue, and commitments are already useful.{% endif %}</p>
       </section>
     </div>
     <ul class="muted-list">

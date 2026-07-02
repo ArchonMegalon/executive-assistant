@@ -2291,13 +2291,13 @@ def app_search(
         "console_shell.html",
         **_console_shell_context(
             request=request,
-            page_title="PropertyQuarry property search",
+            page_title="PropertyQuarry property search" if request_brand(request)["key"] == "propertyquarry" else "Workspace search",
             current_nav="settings",
             context=context,
             console_title="Workspace search",
             console_summary="Search is the fastest way to jump across the office object model and execute the next obvious action.",
             nav_groups=app_nav_groups_for_brand(request_brand(request)["key"]),
-            workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+            workspace_label=str(workspace.get("name") or ("PropertyQuarry Workspace" if request_brand(request)["key"] == "propertyquarry" else "Executive Assistant Workspace")),
             cards=cards,
             stats=stats,
             console_form={

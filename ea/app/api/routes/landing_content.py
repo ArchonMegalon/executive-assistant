@@ -145,12 +145,27 @@ PRODUCT_MODULES = (
     {"title": "Preferences", "body": "Keep profile, limits, integrations, and billing visible without dragging the user through unrelated assistant tooling."},
 )
 
-SIGN_IN_NOTES = (
+EA_SIGN_IN_NOTES = (
+    "Return through a current session, a secure email link, a workspace invite, or SSO.",
+    "Start at /get-started if this is a first-time account.",
+    "Google connection is optional until it improves the office loop.",
+    "Workspace controls come later from Settings after Today is already useful.",
+)
+
+PROPERTY_SIGN_IN_NOTES = (
     "Return through a current session, a secure email link, a workspace invite, or SSO.",
     "Create a property workspace from /register if you are starting fresh.",
     "Google connection is optional identity and return access, not the required center of the product.",
     "Shared review, billing, and broader workspace controls come later from Preferences after the first shortlist proves useful.",
 )
+
+SIGN_IN_NOTES = PROPERTY_SIGN_IN_NOTES
+
+
+def sign_in_notes_for_brand(brand_key: str) -> tuple[str, ...]:
+    if str(brand_key or "").strip().lower() == "propertyquarry":
+        return PROPERTY_SIGN_IN_NOTES
+    return EA_SIGN_IN_NOTES
 
 PRICING_TIERS = (
     {

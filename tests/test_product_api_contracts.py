@@ -14245,7 +14245,7 @@ def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_re
         follow_redirects=False,
     )
     assert opened_access_today.status_code == 303
-    assert opened_access_today.headers["location"] == "/app/properties"
+    assert opened_access_today.headers["location"] == "/app/today"
     opened_access = client.get(access_body["access_url"], follow_redirects=False)
     assert opened_access.status_code == 303
     assert opened_access.headers["location"] == "/app/today"

@@ -52,7 +52,6 @@ from app.api.routes.landing_content import (
     PRICING_TIERS,
     PRODUCT_MODULES,
     PUBLIC_NAV,
-    SIGN_IN_NOTES,
     TRUST_CARDS,
 )
 from app.api.routes.landing_object_support import (
@@ -1246,7 +1245,6 @@ def app_shell(
                 "commitments",
                 "people",
                 "evidence",
-                "properties",
                 "settings",
                 "search",
                 "channel-loop",

@@ -26,7 +26,12 @@ from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, Prop
 from app.services.public_branding import request_brand
 
 
-authenticated_router = APIRouter(tags=["fliplink"])
+def _require_propertyquarry_brand(request: Request) -> None:
+    if request_brand(request)["key"] != "propertyquarry":
+        raise HTTPException(status_code=404, detail="property_surface_not_found")
+
+
+authenticated_router = APIRouter(tags=["fliplink"], dependencies=[Depends(_require_propertyquarry_brand)])
 public_router = APIRouter(prefix="/v1/integrations/fliplink", tags=["fliplink"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[2] / "templates"))
 

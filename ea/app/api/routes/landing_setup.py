@@ -360,7 +360,8 @@ async def setup_finalize(
         auto_brief_recipient_email=_form_value(form_data, "auto_brief_recipient_email", ""),
         auto_brief_delivery_channel=_form_value(form_data, "auto_brief_delivery_channel", "email"),
     )
-    return RedirectResponse("/app/properties", status_code=303)
+    target = "/app/properties" if request_brand(request)["key"] == "propertyquarry" else "/app/today"
+    return RedirectResponse(target, status_code=303)
 
 
 @router.post("/google/connect", response_model=None)
@@ -535,8 +536,10 @@ def google_oauth_browser_callback(
     return_to = _normalize_browser_return_to(str(state_payload.get("return_to") or ""), default="")
     if browser_source == "sign_in":
         onboarding_status = container.onboarding.status(principal_id=account.binding.principal_id)
+        brand = request_brand(request)
+        default_target = "/app/properties" if brand["key"] == "propertyquarry" else "/app/today"
         workspace_name = str(dict(onboarding_status.get("workspace") or {}).get("name") or "").strip() or str(
-            account.google_email or account.binding.principal_id or "PropertyQuarry"
+            account.google_email or account.binding.principal_id or brand["name"]
         ).strip()
         access = product.issue_workspace_access_session(
             principal_id=account.binding.principal_id,
@@ -544,9 +547,9 @@ def google_oauth_browser_callback(
             role="principal",
             display_name=workspace_name,
             source_kind="google_sign_in",
-            default_target="/app/properties",
+            default_target=default_target,
         )
-        return RedirectResponse(str(access.get("access_url") or "/app/properties"), status_code=303)
+        return RedirectResponse(str(access.get("access_url") or default_target), status_code=303)
     if browser_source == "settings_google" and return_to:
         redirect_values = {
             "account_status": "account_connected",

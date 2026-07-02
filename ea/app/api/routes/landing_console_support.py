@@ -99,7 +99,6 @@ def app_shell(
                 "commitments",
                 "people",
                 "evidence",
-                "properties",
                 "settings",
                 "search",
                 "channel-loop",

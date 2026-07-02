@@ -98,9 +98,11 @@ def test_ea_public_pages_do_not_fall_back_to_propertyquarry_brand_copy() -> None
     integrations = client.get("/integrations")
     pricing = client.get("/pricing")
     docs = client.get("/docs")
+    sign_in = client.get("/sign-in")
     register = client.get("/register", follow_redirects=False)
     google = client.get("/integrations/google")
     whatsapp = client.get("/integrations/whatsapp")
+    retired_properties = client.get("/app/properties")
 
     assert product.status_code == 200
     assert landing.status_code == 200
@@ -109,9 +111,11 @@ def test_ea_public_pages_do_not_fall_back_to_propertyquarry_brand_copy() -> None
     assert integrations.status_code == 200
     assert pricing.status_code == 200
     assert docs.status_code == 200
+    assert sign_in.status_code == 200
     assert register.status_code == 307
     assert google.status_code == 200
     assert whatsapp.status_code == 200
+    assert retired_properties.status_code == 404
     assert "Run one office loop without rebuilding it by hand each morning." in product.text
     assert "PropertyQuarry is designed for the daily loop" not in product.text
     assert "Run one office loop without rebuilding it by hand each morning." in landing.text
@@ -132,6 +136,9 @@ def test_ea_public_pages_do_not_fall_back_to_propertyquarry_brand_copy() -> None
     assert "Choose the plan that matches the office load, review needs, and delivery posture." not in pricing.text
     assert "See what Executive Assistant can do before you let it act." in docs.text
     assert "Executive Assistant Docs" not in docs.text
+    assert "Create a property workspace" not in sign_in.text
+    assert "Shared review when needed" not in sign_in.text
+    assert "shortlist and research packet" not in sign_in.text
     assert register.headers["location"] == "/get-started"
     assert "PropertyQuarry only needs Google identity" not in google.text
     assert "live assistant path" not in whatsapp.text

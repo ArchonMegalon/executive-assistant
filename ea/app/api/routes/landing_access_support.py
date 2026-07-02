@@ -14,7 +14,7 @@ from app.api.dependencies import (
     get_request_context,
 )
 from app.api.routes.landing_browser import _form_value, _normalize_browser_return_to, _shared_browser_fields, _workspace_session_cookie_kwargs
-from app.api.routes.landing_content import SIGN_IN_NOTES
+from app.api.routes.landing_content import sign_in_notes_for_brand
 from app.api.routes.landing_public_support import (
     _activation_preview_for_brand,
     _load_status,
@@ -70,18 +70,19 @@ def sign_in_page(
     link_failed_total = int(request.query_params.get("link_failed_total") or 0)
     link_error = str(request.query_params.get("link_error") or "").strip()
     google_error = str(request.query_params.get("google_error") or "").strip()
+    brand = request_brand(request)
     return _render_public_template(
         request,
         "sign_in.html",
         **_public_context(
             request=request,
             current_nav="sign-in",
-            page_title=f"Sign in to {request_brand(request)['name']}",
+            page_title=f"Sign in to {brand['name']}",
             principal_id=principal_id,
             status=status,
             access_identity=access_identity,
             extra={
-                "sign_in_notes": SIGN_IN_NOTES,
+                "sign_in_notes": sign_in_notes_for_brand(brand["key"]),
                 "sign_in_link_enabled": email_delivery_enabled(),
                 "sign_in_link_status": link_status,
                 "sign_in_link_email": link_email,
@@ -262,6 +263,8 @@ def workspace_access_session(token: str, request: Request, container: AppContain
         )
     session_default_target = str(session.get("default_target") or "").strip() or str(brand.get("app_home") or "/app/today")
     target = _normalize_browser_return_to(request.query_params.get("return_to") or session_default_target, default=session_default_target)
+    if brand["key"] == "ea" and (target == "/app/properties" or target.startswith("/app/properties?") or target.startswith("/app/properties/")):
+        target = str(brand.get("app_home") or "/app/today")
     response = RedirectResponse(target, status_code=303)
     response.set_cookie("ea_workspace_session", str(session.get("access_token") or "").strip(), **_workspace_session_cookie_kwargs(request, expires_at=str(session.get("expires_at") or "").strip()))
     response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
