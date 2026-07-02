@@ -344,6 +344,80 @@ def _provider_cost_control_from_office(office: dict[str, Any]) -> dict[str, Any]
     }
 
 
+def _provider_cost_pressure_from_operator_status(ooda_status: dict[str, Any]) -> dict[str, Any]:
+    provider_cost = dict(ooda_status.get("provider_cost_pressure") or {})
+    if not provider_cost:
+        return {
+            "present": False,
+            "checked": False,
+            "status": "missing",
+            "source": "",
+            "observed_at": "",
+            "primary_background_provider": "",
+            "onemin_preferred_when_speed_is_not_critical": False,
+            "onemin_usable": False,
+            "onemin_ready_slots": 0,
+            "gemini_provider_key": "gemini_vortex",
+            "gemini_24h_total_tokens": 0,
+            "gemini_24h_soft_cap_tokens": 0,
+            "gemini_background_cost_gate": "",
+            "requires_recovery": False,
+            "raw_provider_secret_exposed": False,
+            "raw_prompt_or_response_text_exposed": False,
+            "raw_google_cloud_billing_account_exposed": False,
+            "raw_provider_slots_exposed": False,
+        }
+    gemini = dict(provider_cost.get("gemini_token_tracking") or {})
+    window_24h = dict(gemini.get("24h") or {})
+    privacy = dict(provider_cost.get("privacy") or {})
+    return {
+        "present": True,
+        "checked": bool(provider_cost.get("checked")),
+        "status": str(provider_cost.get("status") or "").strip(),
+        "source": str(provider_cost.get("source") or "").strip(),
+        "observed_at": str(provider_cost.get("observed_at") or "").strip(),
+        "primary_background_provider": str(provider_cost.get("primary_background_provider") or "").strip(),
+        "provider_order": [
+            str(item).strip()
+            for item in list(provider_cost.get("provider_order") or [])
+            if str(item).strip()
+        ],
+        "groundwork_provider_order": [
+            str(item).strip()
+            for item in list(provider_cost.get("groundwork_provider_order") or [])
+            if str(item).strip()
+        ],
+        "cost_sensitive_lanes": [
+            str(item).strip()
+            for item in list(provider_cost.get("cost_sensitive_lanes") or [])
+            if str(item).strip()
+        ],
+        "onemin_preferred_when_speed_is_not_critical": bool(
+            provider_cost.get("onemin_preferred_when_speed_is_not_critical")
+        ),
+        "onemin_usable": bool(provider_cost.get("onemin_usable")),
+        "onemin_ready_slots": int(provider_cost.get("onemin_ready_slots") or 0),
+        "onemin_configured_slots": int(provider_cost.get("onemin_configured_slots") or 0),
+        "gemini_provider_key": str(provider_cost.get("gemini_provider_key") or "gemini_vortex").strip(),
+        "gemini_billing_truth_boundary": str(gemini.get("billing_truth_boundary") or "").strip(),
+        "gemini_24h_request_count": int(window_24h.get("request_count") or 0),
+        "gemini_24h_tokens_in": int(window_24h.get("tokens_in") or 0),
+        "gemini_24h_tokens_out": int(window_24h.get("tokens_out") or 0),
+        "gemini_24h_total_tokens": int(window_24h.get("total_tokens") or 0),
+        "gemini_24h_soft_cap_tokens": int(window_24h.get("soft_cap_tokens") or 0),
+        "gemini_24h_state": str(window_24h.get("state") or "").strip(),
+        "gemini_soft_cap_percent_24h": gemini.get("soft_cap_percent_24h"),
+        "gemini_background_cost_gate": str(gemini.get("background_cost_gate") or "").strip(),
+        "explicit_gemini_requests_allowed": bool(gemini.get("explicit_gemini_requests_allowed")),
+        "routing_decision": str(provider_cost.get("routing_decision") or "").strip(),
+        "requires_recovery": bool(provider_cost.get("requires_recovery")),
+        "raw_provider_secret_exposed": bool(privacy.get("raw_provider_secret_exposed")),
+        "raw_prompt_or_response_text_exposed": bool(privacy.get("raw_prompt_or_response_text_exposed")),
+        "raw_google_cloud_billing_account_exposed": bool(privacy.get("raw_google_cloud_billing_account_exposed")),
+        "raw_provider_slots_exposed": bool(privacy.get("raw_provider_slots_exposed")),
+    }
+
+
 def _is_blocking(status: str) -> bool:
     normalized = _compact(status).lower()
     return normalized.startswith(BLOCKING_PREFIXES) or normalized == "command_backed_no_published_receipt"
@@ -1599,6 +1673,7 @@ def build_goal_posture(
         ],
     )
     decide_lens["provider_cost_control"] = _provider_cost_control_from_office(office)
+    decide_lens["provider_cost_pressure"] = _provider_cost_pressure_from_operator_status(ooda_status)
 
     tg_summary = (
         f"live delivery {_status(tg_live)}; readiness {_status(tg_ready)}"

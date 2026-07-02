@@ -194,6 +194,60 @@ def _failed_source_coverage() -> dict[str, object]:
     }
 
 
+def _provider_cost_pressure_recovery() -> dict[str, object]:
+    return {
+        "checked": True,
+        "probe_ok": True,
+        "status": "misconfigured",
+        "source": "runtime_container_exec:ea-api:provider_ledger_cache",
+        "observed_at": "2026-07-02T09:25:00Z",
+        "window": "24h",
+        "blocking_reason": "",
+        "next_action": "repair_provider_cost_routing",
+        "primary_background_provider": "gemini_vortex",
+        "provider_order": ["gemini_vortex", "onemin"],
+        "groundwork_provider_order": ["gemini_vortex", "onemin"],
+        "cost_sensitive_lanes": ["groundwork"],
+        "onemin_preferred_when_speed_is_not_critical": False,
+        "onemin_usable": True,
+        "onemin_ready_slots": 18,
+        "onemin_configured_slots": 70,
+        "gemini_provider_key": "gemini_vortex",
+        "gemini_token_tracking": {
+            "billing_truth_boundary": "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth",
+            "selected_window": {
+                "window_seconds": 86400.0,
+                "request_count": 1,
+                "tokens_in": 10,
+                "tokens_out": 5,
+                "total_tokens": 15,
+                "soft_cap_tokens": 200000,
+                "state": "within_soft_cap",
+            },
+            "24h": {
+                "window_seconds": 86400.0,
+                "request_count": 1,
+                "tokens_in": 10,
+                "tokens_out": 5,
+                "total_tokens": 15,
+                "soft_cap_tokens": 200000,
+                "state": "within_soft_cap",
+            },
+            "soft_cap_percent_24h": 0.01,
+            "background_cost_gate": "open",
+            "explicit_gemini_requests_allowed": True,
+        },
+        "routing_decision": "repair_provider_cost_routing",
+        "requires_recovery": True,
+        "privacy": {
+            "raw_prompt_or_response_text_exposed": False,
+            "raw_provider_secret_exposed": False,
+            "raw_google_cloud_billing_account_exposed": False,
+            "raw_provider_slots_exposed": False,
+        },
+    }
+
+
 def _base_payload() -> dict[str, object]:
     return {
         "contract_name": "ea.proactive_ooda_operator_status.v1",
@@ -434,6 +488,65 @@ def test_proactive_ooda_operator_status_verifier_accepts_source_coverage_recover
     monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
 
     assert verifier.verify(receipt, root=tmp_path) == []
+
+
+def test_proactive_ooda_operator_status_verifier_accepts_provider_cost_recovery(
+    tmp_path: Path, monkeypatch
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
+    monkeypatch.setattr(verifier, "_git_head", lambda root=tmp_path: "source-head-123")
+    monkeypatch.setattr(verifier, "_source_fingerprint", lambda root=tmp_path: "source-fingerprint-123")
+    payload = _base_payload()
+    payload.update(
+        {
+            "source_git_head": "source-head-123",
+            "status": "ready_with_recovery_action",
+            "reason": "provider_cost_pressure_misconfigured",
+            "summary": "Proactive OODA route and packet runtime are available, but provider cost routing needs recovery.",
+            "next_action": "repair_provider_cost_routing",
+            "next_action_href": "https://myexternalbrain.com/admin/goals",
+            "next_action_label": "Open goals",
+            "next_action_method": "get",
+            "operator_action_state": "recovery_required",
+            "provider_cost_pressure": _provider_cost_pressure_recovery(),
+        }
+    )
+    _write_receipt(receipt, **payload)
+
+    assert verifier.verify(receipt, root=tmp_path) == []
+
+
+def test_proactive_ooda_operator_status_verifier_rejects_provider_cost_privacy_leak(
+    tmp_path: Path, monkeypatch
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
+    monkeypatch.setattr(verifier, "_git_head", lambda root=tmp_path: "source-head-123")
+    monkeypatch.setattr(verifier, "_source_fingerprint", lambda root=tmp_path: "source-fingerprint-123")
+    provider_cost = _provider_cost_pressure_recovery()
+    privacy = dict(provider_cost["privacy"])
+    privacy["raw_provider_secret_exposed"] = True
+    provider_cost["privacy"] = privacy
+    payload = _base_payload()
+    payload.update(
+        {
+            "source_git_head": "source-head-123",
+            "status": "ready_with_recovery_action",
+            "reason": "provider_cost_pressure_misconfigured",
+            "summary": "Proactive OODA route and packet runtime are available, but provider cost routing needs recovery.",
+            "next_action": "repair_provider_cost_routing",
+            "next_action_href": "https://myexternalbrain.com/admin/goals",
+            "next_action_label": "Open goals",
+            "next_action_method": "get",
+            "operator_action_state": "recovery_required",
+            "provider_cost_pressure": provider_cost,
+        }
+    )
+    _write_receipt(receipt, **payload)
+
+    assert "provider_cost_pressure.privacy.raw_provider_secret_exposed must remain false" in verifier.verify(
+        receipt,
+        root=tmp_path,
+    )
 
 
 def test_proactive_ooda_operator_status_verifier_rejects_live_receipt_overclaim_with_degraded_source_coverage(

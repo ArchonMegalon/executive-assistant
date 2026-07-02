@@ -316,6 +316,52 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                 ):
                     if provider_cost.get(privacy_key) is not False:
                         issues.append(f"decide provider_cost_control must not expose {privacy_key}")
+            provider_pressure = lens.get("provider_cost_pressure")
+            if not isinstance(provider_pressure, dict):
+                issues.append("decide lens must include provider_cost_pressure")
+            else:
+                if provider_pressure.get("present") is not True:
+                    issues.append("decide provider_cost_pressure must be present")
+                if provider_pressure.get("checked") is not True:
+                    issues.append("decide provider_cost_pressure must be checked")
+                if provider_pressure.get("primary_background_provider") != "onemin":
+                    issues.append("decide provider_cost_pressure primary background provider must be onemin")
+                if list(provider_pressure.get("provider_order") or [])[:3] != [
+                    "onemin",
+                    "magixai",
+                    "gemini_vortex",
+                ]:
+                    issues.append("decide provider_cost_pressure provider order drifted")
+                if list(provider_pressure.get("groundwork_provider_order") or [])[:3] != [
+                    "onemin",
+                    "magixai",
+                    "gemini_vortex",
+                ]:
+                    issues.append("decide provider_cost_pressure groundwork provider order drifted")
+                if provider_pressure.get("onemin_preferred_when_speed_is_not_critical") is not True:
+                    issues.append("decide provider_cost_pressure must prefer 1min.ai when speed is not critical")
+                if provider_pressure.get("gemini_provider_key") != "gemini_vortex":
+                    issues.append("decide provider_cost_pressure Gemini provider key drifted")
+                if (
+                    provider_pressure.get("gemini_billing_truth_boundary")
+                    != "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth"
+                ):
+                    issues.append("decide provider_cost_pressure Gemini billing truth boundary missing")
+                for token_key in ("gemini_24h_request_count", "gemini_24h_tokens_in", "gemini_24h_tokens_out", "gemini_24h_total_tokens"):
+                    if int(provider_pressure.get(token_key) or 0) < 0:
+                        issues.append(f"decide provider_cost_pressure {token_key} must be non-negative")
+                if provider_pressure.get("gemini_background_cost_gate") not in {"open", "closed", "unlimited"}:
+                    issues.append("decide provider_cost_pressure Gemini background cost gate missing")
+                if provider_pressure.get("explicit_gemini_requests_allowed") is not True:
+                    issues.append("decide provider_cost_pressure must keep explicit Gemini requests allowed")
+                for privacy_key in (
+                    "raw_provider_secret_exposed",
+                    "raw_prompt_or_response_text_exposed",
+                    "raw_google_cloud_billing_account_exposed",
+                    "raw_provider_slots_exposed",
+                ):
+                    if provider_pressure.get(privacy_key) is not False:
+                        issues.append(f"decide provider_cost_pressure must not expose {privacy_key}")
         if key == "deliver":
             components = list(lens.get("components") or [])
             component_keys = {str(component.get("key") or "") for component in components if isinstance(component, dict)}

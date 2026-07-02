@@ -115,6 +115,72 @@ def _fake_source_coverage_probe(**_kwargs: object) -> dict[str, object]:
     }
 
 
+def _fake_provider_cost_pressure_probe(**_kwargs: object) -> dict[str, object]:
+    return {
+        "probe_ok": True,
+        "status": "active_cost_control",
+        "observed_at": "2026-07-02T09:25:00Z",
+        "source": "runtime_container_exec:ea-api:provider_ledger_cache",
+        "window": "24h",
+        "primary_background_provider": "onemin",
+        "provider_order": ["onemin", "magixai", "gemini_vortex"],
+        "groundwork_provider_order": ["onemin", "magixai", "gemini_vortex"],
+        "cost_sensitive_lanes": ["audit", "fast", "groundwork", "overflow", "review", "review_light"],
+        "onemin_preferred_when_speed_is_not_critical": True,
+        "onemin_usable": True,
+        "onemin_ready_slots": 18,
+        "onemin_configured_slots": 70,
+        "onemin_remaining_credits": 133270343.0,
+        "gemini_provider_key": "gemini_vortex",
+        "gemini_token_tracking": {
+            "billing_truth_boundary": "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth",
+            "selected_window": {
+                "window_seconds": 86400.0,
+                "request_count": 0,
+                "tokens_in": 0,
+                "tokens_out": 0,
+                "total_tokens": 0,
+                "soft_cap_tokens": 200000,
+                "state": "within_soft_cap",
+            },
+            "24h": {
+                "window_seconds": 86400.0,
+                "request_count": 0,
+                "tokens_in": 0,
+                "tokens_out": 0,
+                "total_tokens": 0,
+                "soft_cap_tokens": 200000,
+                "state": "within_soft_cap",
+            },
+            "soft_cap_percent_24h": 0.0,
+            "background_cost_gate": "open",
+            "explicit_gemini_requests_allowed": True,
+        },
+        "routing_decision": "prefer_onemin_background_when_usable",
+        "privacy": {
+            "raw_prompt_or_response_text_exposed": False,
+            "raw_provider_secret_exposed": False,
+            "raw_google_cloud_billing_account_exposed": False,
+            "raw_provider_slots_exposed": False,
+        },
+    }
+
+
+def _fake_provider_cost_pressure_misconfigured_probe(**_kwargs: object) -> dict[str, object]:
+    payload = dict(_fake_provider_cost_pressure_probe(**_kwargs))
+    payload.update(
+        {
+            "status": "misconfigured",
+            "primary_background_provider": "gemini_vortex",
+            "provider_order": ["gemini_vortex", "onemin"],
+            "groundwork_provider_order": ["gemini_vortex", "onemin"],
+            "onemin_preferred_when_speed_is_not_critical": False,
+            "routing_decision": "repair_provider_cost_routing",
+        }
+    )
+    return payload
+
+
 def _fake_source_coverage_gap_probe(**_kwargs: object) -> dict[str, object]:
     return {
         "probe_ok": True,
@@ -541,6 +607,137 @@ def test_materialize_proactive_ooda_operator_status_recovers_on_runtime_source_h
     assert receipt["source_health"]["user_action_required"] is False
     assert receipt["source_health"]["privacy"]["raw_payload_exposed"] is False
     assert receipt["source_coverage"]["status"] == "ready"
+
+
+def test_materialize_proactive_ooda_operator_status_projects_provider_cost_pressure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    module = _load_script()
+    monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_route", lambda **_kwargs: {
+        "probe_ok": True,
+        "source": "docker_compose_exec",
+        "runtime_service": "ea-proactive-ooda",
+        "observed_at": "2026-07-02T09:25:00Z",
+        "live_receipt_checked": True,
+        "live_receipt": {
+            "ok": True,
+            "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+            "errors": [],
+        },
+        "route_report": {
+            "ok": True,
+            "delivery_route": {
+                "ready": True,
+                "route_error": "",
+                "recovery_hint": "",
+                "next_action": "",
+                "selected_channel": "telegram",
+                "selected_by": "tool_runtime_binding",
+            },
+            "delivery_guard": {"delivery_state": "no_actionable_items"},
+            "stage_packets": {"ready": True, "errors": []},
+            "safe_work_results": {"ready": True, "errors": []},
+            "receipt_observation_count": 1,
+            "actionable_count": 0,
+        },
+    })
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_gmail_draft",
+        lambda **_kwargs: {"probe_ok": True, "status": "no_pending_draft", "source": "docker_compose_exec"},
+    )
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_artifacts",
+        lambda **_kwargs: {"probe_ok": True, "source": "docker_compose_exec", "run_receipt": {}},
+    )
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_source_coverage", _fake_source_coverage_probe)
+    monkeypatch.setattr(module.ea_live_ops, "probe_provider_cost_pressure", _fake_provider_cost_pressure_probe)
+
+    receipt = module.build_proactive_ooda_operator_status(
+        output_path=tmp_path / "ea_proactive_ooda_operator_status.generated.json",
+        generated_at="2026-07-02T09:26:00Z",
+        report_args=Namespace(principal_id="exec-1"),
+        skip_provider_cost_pressure_probe=False,
+    )
+
+    assert receipt["status"] == "ready_with_live_receipt"
+    assert receipt["provider_cost_pressure"]["checked"] is True
+    assert receipt["provider_cost_pressure"]["status"] == "active_cost_control"
+    assert receipt["provider_cost_pressure"]["requires_recovery"] is False
+    assert receipt["provider_cost_pressure"]["primary_background_provider"] == "onemin"
+    assert receipt["provider_cost_pressure"]["onemin_preferred_when_speed_is_not_critical"] is True
+    assert receipt["provider_cost_pressure"]["gemini_token_tracking"]["24h"]["total_tokens"] == 0
+    assert receipt["provider_cost_pressure"]["privacy"]["raw_provider_secret_exposed"] is False
+
+
+def test_materialize_proactive_ooda_operator_status_recovers_on_provider_cost_misconfiguration(
+    tmp_path: Path, monkeypatch
+) -> None:
+    module = _load_script()
+    monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_route", lambda **_kwargs: {
+        "probe_ok": True,
+        "source": "docker_compose_exec",
+        "runtime_service": "ea-proactive-ooda",
+        "observed_at": "2026-07-02T09:25:00Z",
+        "live_receipt_checked": True,
+        "live_receipt": {
+            "ok": True,
+            "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+            "errors": [],
+        },
+        "route_report": {
+            "ok": True,
+            "delivery_route": {
+                "ready": True,
+                "route_error": "",
+                "recovery_hint": "",
+                "next_action": "",
+                "selected_channel": "telegram",
+                "selected_by": "tool_runtime_binding",
+            },
+            "delivery_guard": {"delivery_state": "no_actionable_items"},
+            "stage_packets": {"ready": True, "errors": []},
+            "safe_work_results": {"ready": True, "errors": []},
+            "receipt_observation_count": 1,
+            "actionable_count": 0,
+        },
+    })
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_gmail_draft",
+        lambda **_kwargs: {"probe_ok": True, "status": "no_pending_draft", "source": "docker_compose_exec"},
+    )
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_artifacts",
+        lambda **_kwargs: {"probe_ok": True, "source": "docker_compose_exec", "run_receipt": {}},
+    )
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_source_coverage", _fake_source_coverage_probe)
+    monkeypatch.setattr(module.ea_live_ops, "probe_provider_cost_pressure", _fake_provider_cost_pressure_misconfigured_probe)
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_approval_capture",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("provider cost recovery should short-circuit approval followthrough")),
+    )
+
+    receipt = module.build_proactive_ooda_operator_status(
+        output_path=tmp_path / "ea_proactive_ooda_operator_status.generated.json",
+        generated_at="2026-07-02T09:26:00Z",
+        report_args=Namespace(principal_id="exec-1"),
+        skip_provider_cost_pressure_probe=False,
+    )
+
+    assert receipt["status"] == "ready_with_recovery_action"
+    assert receipt["reason"] == "provider_cost_pressure_misconfigured"
+    assert receipt["next_action"] == "repair_provider_cost_routing"
+    assert receipt["next_action_label"] == "Open goals"
+    assert receipt["operator_action_state"] == "recovery_required"
+    assert receipt["provider_cost_pressure"]["requires_recovery"] is True
+    assert receipt["provider_cost_pressure"]["primary_background_provider"] == "gemini_vortex"
+    assert "provider cost routing needs recovery" in receipt["summary"]
 
 
 def test_materialize_proactive_ooda_operator_status_recovers_on_source_coverage_probe_failure(

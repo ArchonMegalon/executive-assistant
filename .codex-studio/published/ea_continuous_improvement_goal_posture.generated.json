@@ -154,8 +154,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "401bcde697bf33f9605fd35f65b8991f9fae7490",
-          "source_state_fingerprint": "e8be474538297c56de0faa8f1a81a291ae143a7b95c20c9cffecba0eab0b0a5e",
+          "source_git_head": "0a03967ed9176273de840655280c20c2960cd0be",
+          "source_state_fingerprint": "b55703a9c0f496f8f63b47a0dabd0bbf07b3a8f002cccc085bcae83872f59a83",
           "status": "ready_for_approval_outcome_capture"
         },
         {
@@ -163,8 +163,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "401bcde697bf33f9605fd35f65b8991f9fae7490",
-          "source_state_fingerprint": "e8be474538297c56de0faa8f1a81a291ae143a7b95c20c9cffecba0eab0b0a5e",
+          "source_git_head": "0a03967ed9176273de840655280c20c2960cd0be",
+          "source_state_fingerprint": "b55703a9c0f496f8f63b47a0dabd0bbf07b3a8f002cccc085bcae83872f59a83",
           "status": "ready_with_live_receipt"
         }
       ],
@@ -836,7 +836,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-07-02T09:22:57Z",
+  "generated_at": "2026-07-02T09:38:46Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -993,6 +993,53 @@
         "raw_prompt_or_response_text_exposed": false,
         "raw_provider_secret_exposed": false,
         "source": "ea_office_loop_goal.provider_cost_routing_posture",
+        "status": "active_cost_control"
+      },
+      "provider_cost_pressure": {
+        "checked": true,
+        "cost_sensitive_lanes": [
+          "audit",
+          "fast",
+          "groundwork",
+          "overflow",
+          "review",
+          "review_light"
+        ],
+        "explicit_gemini_requests_allowed": true,
+        "gemini_24h_request_count": 0,
+        "gemini_24h_soft_cap_tokens": 200000,
+        "gemini_24h_state": "within_soft_cap",
+        "gemini_24h_tokens_in": 0,
+        "gemini_24h_tokens_out": 0,
+        "gemini_24h_total_tokens": 0,
+        "gemini_background_cost_gate": "open",
+        "gemini_billing_truth_boundary": "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth",
+        "gemini_provider_key": "gemini_vortex",
+        "gemini_soft_cap_percent_24h": 0.0,
+        "groundwork_provider_order": [
+          "onemin",
+          "magixai",
+          "gemini_vortex"
+        ],
+        "observed_at": "2026-07-02T09:38:35Z",
+        "onemin_configured_slots": 70,
+        "onemin_preferred_when_speed_is_not_critical": true,
+        "onemin_ready_slots": 18,
+        "onemin_usable": true,
+        "present": true,
+        "primary_background_provider": "onemin",
+        "provider_order": [
+          "onemin",
+          "magixai",
+          "gemini_vortex"
+        ],
+        "raw_google_cloud_billing_account_exposed": false,
+        "raw_prompt_or_response_text_exposed": false,
+        "raw_provider_secret_exposed": false,
+        "raw_provider_slots_exposed": false,
+        "requires_recovery": false,
+        "routing_decision": "prefer_onemin_background_when_usable",
+        "source": "runtime_container_exec:ea-api:provider_ledger_cache",
         "status": "active_cost_control"
       },
       "source_receipts": [
@@ -1678,7 +1725,7 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "401bcde697bf33f9605fd35f65b8991f9fae7490",
-  "source_state_fingerprint": "e8be474538297c56de0faa8f1a81a291ae143a7b95c20c9cffecba0eab0b0a5e",
+  "source_git_head": "0a03967ed9176273de840655280c20c2960cd0be",
+  "source_state_fingerprint": "b55703a9c0f496f8f63b47a0dabd0bbf07b3a8f002cccc085bcae83872f59a83",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }

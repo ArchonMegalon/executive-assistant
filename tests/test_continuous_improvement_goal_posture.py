@@ -40,6 +40,48 @@ def _office_provider_cost_routing_posture() -> dict[str, object]:
     }
 
 
+def _operator_provider_cost_pressure() -> dict[str, object]:
+    return {
+        "checked": True,
+        "probe_ok": True,
+        "status": "active_cost_control",
+        "source": "runtime_container_exec:ea-api:provider_ledger_cache",
+        "observed_at": "2026-07-02T09:25:00Z",
+        "window": "24h",
+        "primary_background_provider": "onemin",
+        "provider_order": ["onemin", "magixai", "gemini_vortex"],
+        "groundwork_provider_order": ["onemin", "magixai", "gemini_vortex"],
+        "cost_sensitive_lanes": ["groundwork", "fast", "overflow", "review", "review_light", "audit"],
+        "onemin_preferred_when_speed_is_not_critical": True,
+        "onemin_usable": True,
+        "onemin_ready_slots": 18,
+        "onemin_configured_slots": 70,
+        "gemini_provider_key": "gemini_vortex",
+        "gemini_token_tracking": {
+            "billing_truth_boundary": "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth",
+            "24h": {
+                "request_count": 0,
+                "tokens_in": 0,
+                "tokens_out": 0,
+                "total_tokens": 0,
+                "soft_cap_tokens": 200000,
+                "state": "within_soft_cap",
+            },
+            "background_cost_gate": "open",
+            "explicit_gemini_requests_allowed": True,
+            "soft_cap_percent_24h": 0.0,
+        },
+        "routing_decision": "prefer_onemin_background_when_usable",
+        "requires_recovery": False,
+        "privacy": {
+            "raw_provider_secret_exposed": False,
+            "raw_prompt_or_response_text_exposed": False,
+            "raw_google_cloud_billing_account_exposed": False,
+            "raw_provider_slots_exposed": False,
+        },
+    }
+
+
 def _write_receipt(
     root: Path,
     relative_path: str,
@@ -97,6 +139,7 @@ def _write_proactive_ooda_receipts(
         root,
         ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
         status="ready_with_live_receipt",
+        provider_cost_pressure=_operator_provider_cost_pressure(),
         **extra,
     )
 
@@ -1177,6 +1220,28 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert provider_cost["raw_provider_secret_exposed"] is False
     assert provider_cost["raw_prompt_or_response_text_exposed"] is False
     assert provider_cost["raw_google_cloud_billing_account_exposed"] is False
+    provider_pressure = lenses["decide"]["provider_cost_pressure"]
+    assert provider_pressure["present"] is True
+    assert provider_pressure["checked"] is True
+    assert provider_pressure["status"] == "active_cost_control"
+    assert provider_pressure["primary_background_provider"] == "onemin"
+    assert provider_pressure["provider_order"] == ["onemin", "magixai", "gemini_vortex"]
+    assert provider_pressure["groundwork_provider_order"] == ["onemin", "magixai", "gemini_vortex"]
+    assert provider_pressure["onemin_preferred_when_speed_is_not_critical"] is True
+    assert provider_pressure["onemin_usable"] is True
+    assert provider_pressure["gemini_provider_key"] == "gemini_vortex"
+    assert provider_pressure["gemini_billing_truth_boundary"] == (
+        "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth"
+    )
+    assert provider_pressure["gemini_24h_total_tokens"] == 0
+    assert provider_pressure["gemini_24h_soft_cap_tokens"] == 200000
+    assert provider_pressure["gemini_background_cost_gate"] == "open"
+    assert provider_pressure["explicit_gemini_requests_allowed"] is True
+    assert provider_pressure["requires_recovery"] is False
+    assert provider_pressure["raw_provider_secret_exposed"] is False
+    assert provider_pressure["raw_prompt_or_response_text_exposed"] is False
+    assert provider_pressure["raw_google_cloud_billing_account_exposed"] is False
+    assert provider_pressure["raw_provider_slots_exposed"] is False
     assert lenses["deliver"]["status"] == "mixed_local_progress"
     assert lenses["recover"]["status"] == "ready_local_audit"
     assert "make probe-teable-recovery" in lenses["recover"]["verifier_commands"]

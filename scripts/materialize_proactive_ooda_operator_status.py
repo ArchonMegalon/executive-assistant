@@ -618,6 +618,177 @@ def _source_coverage_recovery_summary(source_coverage: Mapping[str, Any] | None)
     )
 
 
+def _provider_cost_pressure_probe(principal_id: str, *, timeout_seconds: float | None = None) -> dict[str, Any]:
+    try:
+        return ea_live_ops.probe_provider_cost_pressure(
+            window="24h",
+            principal_id=principal_id,
+            timeout_seconds=float(timeout_seconds or _live_probe_timeout_seconds()),
+            output_format="json",
+        )
+    except Exception as exc:
+        return {
+            "probe_ok": False,
+            "status": "probe_failed",
+            "observed_at": _utc_now(),
+            "source": "runtime_container_exec:provider_ledger_cache",
+            "window": "24h",
+            "blocking_reason": type(exc).__name__,
+            "privacy": {
+                "raw_prompt_or_response_text_exposed": False,
+                "raw_provider_secret_exposed": False,
+                "raw_google_cloud_billing_account_exposed": False,
+                "raw_provider_slots_exposed": False,
+            },
+        }
+
+
+def _provider_cost_pressure_summary(probe: Mapping[str, Any]) -> dict[str, Any]:
+    if not probe:
+        return {
+            "checked": False,
+            "probe_ok": False,
+            "status": "not_checked",
+            "source": "",
+            "observed_at": "",
+            "window": "",
+            "blocking_reason": "",
+            "next_action": "",
+            "primary_background_provider": "",
+            "provider_order": [],
+            "groundwork_provider_order": [],
+            "cost_sensitive_lanes": [],
+            "onemin_preferred_when_speed_is_not_critical": False,
+            "onemin_usable": False,
+            "onemin_ready_slots": 0,
+            "onemin_configured_slots": 0,
+            "gemini_provider_key": "gemini_vortex",
+            "gemini_token_tracking": _empty_gemini_token_tracking(),
+            "routing_decision": "",
+            "requires_recovery": False,
+            "privacy": _provider_cost_privacy({}),
+        }
+    privacy = dict(probe.get("privacy") or {})
+    gemini = dict(probe.get("gemini_token_tracking") or {})
+    status = str(probe.get("status") or "").strip() or "unknown"
+    blocking_reason = str(probe.get("blocking_reason") or "").strip()
+    requires_recovery = _provider_cost_pressure_requires_recovery_status(status=status, blocking_reason=blocking_reason)
+    return {
+        "checked": True,
+        "probe_ok": bool(probe.get("probe_ok")),
+        "status": status,
+        "source": str(probe.get("source") or "").strip(),
+        "observed_at": str(probe.get("observed_at") or "").strip(),
+        "window": str(probe.get("window") or "").strip(),
+        "blocking_reason": blocking_reason,
+        "next_action": "repair_provider_cost_routing" if requires_recovery else "",
+        "primary_background_provider": str(probe.get("primary_background_provider") or "").strip(),
+        "provider_order": _string_list(probe.get("provider_order"), limit=8),
+        "groundwork_provider_order": _string_list(probe.get("groundwork_provider_order"), limit=8),
+        "cost_sensitive_lanes": _string_list(probe.get("cost_sensitive_lanes"), limit=12),
+        "onemin_preferred_when_speed_is_not_critical": bool(probe.get("onemin_preferred_when_speed_is_not_critical")),
+        "onemin_usable": bool(probe.get("onemin_usable")),
+        "onemin_ready_slots": int(probe.get("onemin_ready_slots") or 0),
+        "onemin_configured_slots": int(probe.get("onemin_configured_slots") or 0),
+        "onemin_remaining_credits": _safe_float_or_none(probe.get("onemin_remaining_credits")),
+        "onemin_remaining_percent_total": _safe_float_or_none(probe.get("onemin_remaining_percent_total")),
+        "onemin_next_topup_at": str(probe.get("onemin_next_topup_at") or "").strip(),
+        "onemin_burn_basis": str(probe.get("onemin_burn_basis") or "").strip(),
+        "gemini_provider_key": str(probe.get("gemini_provider_key") or "gemini_vortex").strip(),
+        "gemini_token_tracking": _provider_cost_gemini_tracking(gemini),
+        "routing_decision": str(probe.get("routing_decision") or "").strip(),
+        "requires_recovery": requires_recovery,
+        "privacy": _provider_cost_privacy(privacy),
+    }
+
+
+def _empty_gemini_token_tracking() -> dict[str, Any]:
+    return {
+        "billing_truth_boundary": "",
+        "selected_window": {},
+        "24h": {},
+        "soft_cap_percent_24h": None,
+        "background_cost_gate": "",
+        "explicit_gemini_requests_allowed": False,
+    }
+
+
+def _provider_cost_gemini_tracking(gemini: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "billing_truth_boundary": str(gemini.get("billing_truth_boundary") or "").strip(),
+        "selected_window": _token_window_summary(gemini.get("selected_window")),
+        "24h": _token_window_summary(gemini.get("24h")),
+        "soft_cap_percent_24h": _safe_float_or_none(gemini.get("soft_cap_percent_24h")),
+        "background_cost_gate": str(gemini.get("background_cost_gate") or "").strip(),
+        "explicit_gemini_requests_allowed": bool(gemini.get("explicit_gemini_requests_allowed")),
+    }
+
+
+def _token_window_summary(value: Any) -> dict[str, Any]:
+    window = dict(value or {}) if isinstance(value, Mapping) else {}
+    return {
+        "window_seconds": _safe_float_or_none(window.get("window_seconds")),
+        "request_count": int(window.get("request_count") or 0),
+        "tokens_in": int(window.get("tokens_in") or 0),
+        "tokens_out": int(window.get("tokens_out") or 0),
+        "total_tokens": int(window.get("total_tokens") or 0),
+        "soft_cap_tokens": int(window.get("soft_cap_tokens") or 0),
+        "state": str(window.get("state") or "").strip(),
+    }
+
+
+def _provider_cost_privacy(value: Mapping[str, Any]) -> dict[str, bool]:
+    return {
+        "raw_prompt_or_response_text_exposed": bool(value.get("raw_prompt_or_response_text_exposed")),
+        "raw_provider_secret_exposed": bool(value.get("raw_provider_secret_exposed")),
+        "raw_google_cloud_billing_account_exposed": bool(value.get("raw_google_cloud_billing_account_exposed")),
+        "raw_provider_slots_exposed": bool(value.get("raw_provider_slots_exposed")),
+    }
+
+
+def _provider_cost_pressure_requires_recovery_status(*, status: str, blocking_reason: str = "") -> bool:
+    normalized = str(status or "").strip()
+    if str(blocking_reason or "").strip():
+        return True
+    return normalized in {"probe_failed", "misconfigured", "active_cost_control_onemin_not_live_ready"}
+
+
+def _provider_cost_pressure_recovery_reason(provider_cost_pressure: Mapping[str, Any] | None) -> str:
+    normalized = dict(provider_cost_pressure or {})
+    status = str(normalized.get("status") or "recovery_required").strip() or "recovery_required"
+    blocking_reason = str(normalized.get("blocking_reason") or "").strip()
+    if blocking_reason:
+        return f"provider_cost_pressure_{blocking_reason}"
+    return f"provider_cost_pressure_{status}"
+
+
+def _provider_cost_pressure_recovery_summary(provider_cost_pressure: Mapping[str, Any] | None) -> str:
+    normalized = dict(provider_cost_pressure or {})
+    status = str(normalized.get("status") or "unknown").strip() or "unknown"
+    primary = str(normalized.get("primary_background_provider") or "unknown").strip() or "unknown"
+    return (
+        "Proactive OODA route and packet runtime are available, but provider cost routing needs recovery "
+        f"before background work can safely stay off Gemini/Vertex ({status}, primary={primary})."
+    )
+
+
+def _safe_float_or_none(value: Any) -> float | None:
+    try:
+        if value in (None, ""):
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _string_list(value: Any, *, limit: int) -> list[str]:
+    return [
+        str(item).strip()
+        for item in list(value or [])
+        if str(item).strip()
+    ][: max(int(limit or 1), 1)]
+
+
 def _runtime_source_health_summary(artifact_probe: Mapping[str, Any] | None) -> dict[str, Any]:
     run_receipt = dict(dict(artifact_probe or {}).get("run_receipt") or {})
     source_health = dict(run_receipt.get("source_health") or {})
@@ -1591,6 +1762,7 @@ def build_proactive_ooda_operator_status(
     allow_live_route_probe: bool = True,
     skip_gmail_draft_followthrough_probe: bool = False,
     skip_source_coverage_probe: bool = False,
+    skip_provider_cost_pressure_probe: bool = True,
 ) -> dict[str, Any]:
     effective_report_args = report_args or _default_report_args()
     route_probe: dict[str, Any] = {}
@@ -1598,6 +1770,7 @@ def build_proactive_ooda_operator_status(
     approval_capture_probe: dict[str, Any] = {}
     gmail_draft_probe: dict[str, Any] = {}
     source_coverage_probe: dict[str, Any] = {}
+    provider_cost_pressure_probe: dict[str, Any] = {}
     principal_id = str(getattr(effective_report_args, "principal_id", "") or proactive_verifier._default_principal_id()).strip()
     live_probe_timeout_seconds = _live_probe_timeout_seconds()
     effective_live_receipt_path = live_receipt_path if live_receipt_path is not None else _default_live_receipt_path()
@@ -1625,6 +1798,11 @@ def build_proactive_ooda_operator_status(
                 gmail_draft_probe = _gmail_draft_followthrough_probe(principal_id, timeout_seconds=live_probe_timeout_seconds)
         if not skip_source_coverage_probe:
             source_coverage_probe = _source_coverage_probe(principal_id, timeout_seconds=live_probe_timeout_seconds)
+        if not skip_provider_cost_pressure_probe:
+            provider_cost_pressure_probe = _provider_cost_pressure_probe(
+                principal_id,
+                timeout_seconds=live_probe_timeout_seconds,
+            )
 
     if bool(route_probe.get("probe_ok")) and isinstance(route_probe.get("route_report"), dict):
         report = dict(route_probe.get("route_report") or {})
@@ -1680,6 +1858,7 @@ def build_proactive_ooda_operator_status(
     suppressed_projection_blocks = bool(suppressed_projection.get("requires_recovery"))
     runtime_source_health = _runtime_source_health_summary(artifact_probe)
     source_coverage = _source_coverage_summary(source_coverage_probe)
+    provider_cost_pressure = _provider_cost_pressure_summary(provider_cost_pressure_probe)
     status = _status(report, live_receipt=live_receipt, live_receipt_checked=live_receipt_checked)
     reason = _reason(report, live_receipt=live_receipt, live_receipt_checked=live_receipt_checked)
     if safe_work_audit_blocks:
@@ -1701,11 +1880,23 @@ def build_proactive_ooda_operator_status(
     if source_health_recovery_active:
         status = "ready_with_recovery_action"
         reason = _runtime_source_health_recovery_reason(runtime_source_health)
+    provider_cost_pressure_recovery_active = bool(
+        not safe_work_audit_blocks
+        and not current_artifact_filter_blocks
+        and not suppressed_projection_blocks
+        and not source_health_recovery_active
+        and status in {"ready_local_runtime", "ready_with_live_receipt"}
+        and bool(provider_cost_pressure.get("requires_recovery"))
+    )
+    if provider_cost_pressure_recovery_active:
+        status = "ready_with_recovery_action"
+        reason = _provider_cost_pressure_recovery_reason(provider_cost_pressure)
     source_coverage_recovery_active = bool(
         not safe_work_audit_blocks
         and not current_artifact_filter_blocks
         and not suppressed_projection_blocks
         and not source_health_recovery_active
+        and not provider_cost_pressure_recovery_active
         and status in {"ready_local_runtime", "ready_with_live_receipt"}
         and _source_coverage_requires_recovery(source_coverage)
     )
@@ -1737,6 +1928,8 @@ def build_proactive_ooda_operator_status(
         next_action = "repair_proactive_safe_work_audit"
     elif source_health_recovery_active:
         next_action = _runtime_source_health_recovery_next_action(runtime_source_health)
+    elif provider_cost_pressure_recovery_active:
+        next_action = "repair_provider_cost_routing"
     elif source_coverage_recovery_active:
         next_action = _source_coverage_recovery_next_action(source_coverage)
     else:
@@ -1767,6 +1960,8 @@ def build_proactive_ooda_operator_status(
         )
     elif source_health_recovery_active:
         summary = _runtime_source_health_recovery_summary(runtime_source_health)
+    elif provider_cost_pressure_recovery_active:
+        summary = _provider_cost_pressure_recovery_summary(provider_cost_pressure)
     elif source_coverage_recovery_active:
         summary = _source_coverage_recovery_summary(source_coverage)
     else:
@@ -1807,6 +2002,7 @@ def build_proactive_ooda_operator_status(
             or current_artifact_filter_blocks
             or suppressed_projection_blocks
             or source_health_recovery_active
+            or provider_cost_pressure_recovery_active
             else _operator_followthrough_action_state(
                 status,
                 report=report,
@@ -1836,6 +2032,7 @@ def build_proactive_ooda_operator_status(
         "current_artifact_filter": current_artifact_filter,
         "suppressed_projection": suppressed_projection,
         "source_health": runtime_source_health,
+        "provider_cost_pressure": provider_cost_pressure,
         "receipt_observation_count": int(report.get("receipt_observation_count") or 0),
         "runtime_actionable_count": runtime_actionable_count,
         "actionable_count": _operator_actionable_count(
@@ -1901,6 +2098,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         default=_env_truthy("EA_PROACTIVE_OODA_OPERATOR_SKIP_SOURCE_COVERAGE_PROBE", default=False),
     )
+    parser.add_argument(
+        "--skip-provider-cost-pressure-probe",
+        action="store_true",
+        default=_env_truthy("EA_PROACTIVE_OODA_OPERATOR_SKIP_PROVIDER_COST_PRESSURE_PROBE", default=False),
+    )
     parser.add_argument("--pretty", action="store_true")
     parser.add_argument("--require-ready", action="store_true")
     return parser.parse_args()
@@ -1922,6 +2124,7 @@ def main() -> int:
         live_receipt_path=live_receipt_path,
         skip_gmail_draft_followthrough_probe=bool(args.skip_gmail_draft_followthrough_probe),
         skip_source_coverage_probe=bool(args.skip_source_coverage_probe),
+        skip_provider_cost_pressure_probe=bool(args.skip_provider_cost_pressure_probe),
     )
     if args.pretty:
         print(json.dumps(receipt, indent=2, sort_keys=True))

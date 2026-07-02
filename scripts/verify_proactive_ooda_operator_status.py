@@ -98,6 +98,15 @@ def _is_source_coverage_recovery(receipt: dict[str, Any]) -> bool:
     return str(receipt.get("reason") or "").strip().startswith("source_coverage_")
 
 
+def _provider_cost_pressure_requires_recovery(receipt: dict[str, Any]) -> bool:
+    provider_cost = dict(receipt.get("provider_cost_pressure") or {})
+    if not provider_cost:
+        return False
+    if str(provider_cost.get("blocking_reason") or "").strip():
+        return True
+    return bool(provider_cost.get("requires_recovery"))
+
+
 def _higher_priority_recovery_present(receipt: dict[str, Any]) -> bool:
     delivery_route = dict(receipt.get("delivery_route") or {})
     delivery_guard = dict(receipt.get("delivery_guard") or {})
@@ -116,6 +125,7 @@ def _higher_priority_recovery_present(receipt: dict[str, Any]) -> bool:
         or bool(current_artifact_filter.get("requires_recovery"))
         or _is_suppressed_projection_recovery(receipt)
         or _is_google_workspace_recovery(receipt)
+        or _provider_cost_pressure_requires_recovery(receipt)
     )
 
 
@@ -140,6 +150,19 @@ def _verify_next_action_surface(receipt: dict[str, Any], issues: list[str]) -> N
         expected_method = "post" if next_action == "sync_pocket_ai_audio_transcripts" else "get"
         if method != expected_method:
             issues.append(f"{next_action} requires next_action_method={expected_method}")
+        return
+    if next_action == "repair_provider_cost_routing":
+        href = str(receipt.get("next_action_href") or "").strip()
+        label = str(receipt.get("next_action_label") or "").strip()
+        method = str(receipt.get("next_action_method") or "").strip().lower()
+        if not href:
+            issues.append("repair_provider_cost_routing requires next_action_href")
+        elif "/admin/goals" not in href:
+            issues.append("repair_provider_cost_routing next_action_href must target goal evidence")
+        if not label:
+            issues.append("repair_provider_cost_routing requires next_action_label")
+        if method != "get":
+            issues.append("repair_provider_cost_routing requires next_action_method=get")
         return
     if next_action != "reauthorize_google_workspace_binding":
         return
@@ -238,6 +261,53 @@ def _verify_source_coverage(receipt: dict[str, Any], issues: list[str]) -> None:
         expected_next_action = str(source_coverage.get("next_action") or "").strip()
         if expected_next_action and str(receipt.get("next_action") or "").strip() != expected_next_action:
             issues.append("degraded source_coverage without a higher-priority blocker requires receipt.next_action to match source_coverage.next_action")
+
+
+def _verify_provider_cost_pressure(receipt: dict[str, Any], issues: list[str]) -> None:
+    provider_cost = dict(receipt.get("provider_cost_pressure") or {})
+    if not provider_cost:
+        return
+    if "checked" not in provider_cost:
+        issues.append("provider_cost_pressure.checked missing")
+    if "probe_ok" not in provider_cost:
+        issues.append("provider_cost_pressure.probe_ok missing")
+    status = str(provider_cost.get("status") or "").strip()
+    if not status:
+        issues.append("provider_cost_pressure.status missing")
+    if bool(provider_cost.get("checked")) and status != "not_checked":
+        if not str(provider_cost.get("source") or "").strip():
+            issues.append("checked provider_cost_pressure requires source")
+        if not str(provider_cost.get("observed_at") or "").strip():
+            issues.append("checked provider_cost_pressure requires observed_at")
+    privacy = dict(provider_cost.get("privacy") or {})
+    for key in (
+        "raw_prompt_or_response_text_exposed",
+        "raw_provider_secret_exposed",
+        "raw_google_cloud_billing_account_exposed",
+        "raw_provider_slots_exposed",
+    ):
+        if privacy.get(key) is not False:
+            issues.append(f"provider_cost_pressure.privacy.{key} must remain false")
+    gemini = dict(provider_cost.get("gemini_token_tracking") or {})
+    if provider_cost.get("gemini_provider_key") not in {"", "gemini_vortex"}:
+        issues.append("provider_cost_pressure gemini_provider_key must remain gemini_vortex")
+    if gemini:
+        boundary = str(gemini.get("billing_truth_boundary") or "").strip()
+        if bool(provider_cost.get("checked")) and boundary != "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth":
+            issues.append("provider_cost_pressure Gemini token tracking boundary missing")
+        window_24h = dict(gemini.get("24h") or {})
+        for key in ("tokens_in", "tokens_out", "total_tokens", "request_count"):
+            if int(window_24h.get(key) or 0) < 0:
+                issues.append(f"provider_cost_pressure Gemini 24h {key} must be non-negative")
+    if _provider_cost_pressure_requires_recovery(receipt):
+        if str(receipt.get("status") or "").strip() != "ready_with_recovery_action":
+            issues.append("provider_cost_pressure recovery requires status=ready_with_recovery_action")
+        if str(receipt.get("operator_action_state") or "").strip() != "recovery_required":
+            issues.append("provider_cost_pressure recovery requires operator_action_state=recovery_required")
+        if not str(receipt.get("reason") or "").strip().startswith("provider_cost_pressure_"):
+            issues.append("provider_cost_pressure recovery requires provider_cost_pressure reason")
+        if str(receipt.get("next_action") or "").strip() != "repair_provider_cost_routing":
+            issues.append("provider_cost_pressure recovery requires next_action=repair_provider_cost_routing")
 
 
 def _verify_approval_capture(approval_capture: dict[str, Any], issues: list[str], *, required: bool) -> None:
@@ -556,6 +626,7 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
     _verify_safe_work_audit(receipt, issues)
     _verify_current_artifact_filter(receipt, issues)
     _verify_suppressed_projection(receipt, issues)
+    _verify_provider_cost_pressure(receipt, issues)
 
     gmail_draft_followthrough = dict(receipt.get("gmail_draft_followthrough") or {})
     if "checked" not in gmail_draft_followthrough:
@@ -595,6 +666,7 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
         and not _is_google_workspace_recovery(receipt)
         and not _is_source_coverage_recovery(receipt)
         and not _is_suppressed_projection_recovery(receipt)
+        and not _provider_cost_pressure_requires_recovery(receipt)
     ):
         issues.append("ready_with_recovery_action requires delivery_route_error")
     if status == "blocked_delivery_route" and bool(receipt.get("delivery_route_ready")):
