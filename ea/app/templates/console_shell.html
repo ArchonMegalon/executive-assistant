@@ -1,5 +1,6 @@
 {% extends base_console_template|default("base_console_ea.html") %}
 {% block content %}
+{% set is_property_console_form = console_form.get('variant') == 'property_search' %}
 <style>
   .console-stage,
   .console-section-grid,
@@ -284,6 +285,7 @@
     from { opacity: 0; transform: translateY(8px); }
     to { opacity: 1; transform: translateY(0); }
   }
+  {% if is_property_console_form %}
   .console-form[data-console-form-variant="property_search"] {
     gap: 16px;
   }
@@ -497,6 +499,7 @@
     color: var(--text-dim);
     font-size: 12px;
   }
+  {% endif %}
   .console-focus {
     display: grid;
     gap: 14px;
@@ -691,6 +694,7 @@
     .console-tag {
       white-space: normal;
     }
+    {% if is_property_console_form %}
     .console-form[data-console-form-variant="property_search"] .console-field-grid {
       grid-template-columns: 1fr;
     }
@@ -728,6 +732,7 @@
     .property-shortlist-grid {
       grid-template-columns: 1fr;
     }
+    {% endif %}
   }
 </style>
 
@@ -1413,6 +1418,7 @@
 </section>
 {% endif %}
 
+{% if is_property_console_form %}
 <script>
 (() => {
   const forms = [...document.querySelectorAll('[data-console-form-variant="property_search"]')];
@@ -1974,4 +1980,5 @@
   }
 })();
 </script>
+{% endif %}
 {% endblock %}

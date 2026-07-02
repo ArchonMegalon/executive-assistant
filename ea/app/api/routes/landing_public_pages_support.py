@@ -14,8 +14,8 @@ from app.api.routes.landing_content import (
     PRODUCT_MODULES,
     PROPERTY_DOC_LINKS,
     PROPERTY_LANDING_FAQS,
-    TRUST_CARDS,
     app_nav_groups_for_brand,
+    trust_cards_for_brand,
 )
 from app.api.routes.landing_public_support import (
     _activation_preview_for_brand,
@@ -43,6 +43,7 @@ def landing(
     is_ea = brand["key"] == "ea"
     landing_faqs = EA_LANDING_FAQS if is_ea else PROPERTY_LANDING_FAQS
     doc_links = EA_DOC_LINKS if is_ea else PROPERTY_DOC_LINKS
+    trust_cards = trust_cards_for_brand(brand["key"])
     seo_title = (
         "Executive Assistant | Morning memo, decision queue, commitments"
         if is_ea
@@ -67,7 +68,7 @@ def landing(
             extra={
                 "feature_cards": FEATURE_CARDS,
                 "how_steps": HOW_STEPS,
-                "trust_cards": TRUST_CARDS,
+                "trust_cards": trust_cards,
                 "landing_faqs": landing_faqs,
                 "doc_links": doc_links,
                 "activation_preview": activation_preview,
@@ -302,7 +303,7 @@ def security_page(
             status=status,
             access_identity=access_identity,
             extra={
-                "trust_cards": TRUST_CARDS,
+                "trust_cards": trust_cards_for_brand(brand["key"]),
                 **_public_page_context(
                     request=request,
                     page_title=f"{brand['name']} Security",

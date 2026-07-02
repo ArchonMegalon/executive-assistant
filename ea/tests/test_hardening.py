@@ -784,6 +784,35 @@ class HardeningTests(unittest.TestCase):
         self.assertEqual(seen["actor"], "workspace_access")
         self.assertEqual(getattr(response, "status_code", None), 303)
 
+    def test_workspace_access_session_rewrites_ea_property_targets_back_home(self) -> None:
+        request = SimpleNamespace(
+            headers={},
+            query_params={"return_to": "/app/research/candidate-123"},
+            cookies={},
+            client=SimpleNamespace(host="198.51.100.10"),
+            url=SimpleNamespace(path="/workspace-access/token-1"),
+        )
+        product = SimpleNamespace(
+            open_workspace_access_session=lambda token, actor: {
+                "access_token": "session-token",
+                "expires_at": "2030-01-01T00:00:00+00:00",
+                "default_target": "/app/research/candidate-123",
+            }
+        )
+        with (
+            patch.object(landing_access_support, "build_product_service", lambda container: product),
+            patch.object(landing_access_support, "request_brand", lambda request: {"key": "ea", "app_home": "/app/today"}),
+            patch.object(landing_access_support, "get_cloudflare_access_identity", side_effect=HTTPException(status_code=401, detail="cloudflare_access_invalid")),
+            patch.object(landing_access_support, "get_request_context", side_effect=HTTPException(status_code=401, detail="auth_required")),
+            patch.object(landing_access_support, "_workspace_session_payload", lambda request, container: None),
+            patch.object(landing_access_support, "_workspace_session_cookie_kwargs", lambda request, expires_at: {"httponly": True}),
+            patch.object(landing_access_support, "_normalize_browser_return_to", lambda value, default: str(value or default)),
+        ):
+            response = landing_access_support.workspace_access_session("token-1", request, SimpleNamespace())
+
+        self.assertEqual(getattr(response, "status_code", None), 303)
+        self.assertEqual(response.headers.get("location"), "/app/today")
+
     def test_workspace_invite_accept_prefers_verified_identity_sources(self) -> None:
         request = SimpleNamespace(
             headers={"X-EA-Operator-ID": "spoofed-operator", "X-EA-Principal-ID": "spoofed-user"},

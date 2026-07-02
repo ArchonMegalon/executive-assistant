@@ -100,11 +100,19 @@ PERSONAS = (
     {"title": "Commercial depth later", "body": "Paid research, broader portal coverage, and heavier agent work should expand only after the first shortlist proves useful."},
 )
 
-TRUST_CARDS = (
+EA_TRUST_CARDS = (
+    {"title": "Tight account permissions", "body": "Google is optional identity and return access, not a hidden demand for broad mailbox permissions."},
+    {"title": "Visible review boundaries", "body": "The product should say clearly what it can read, draft, recommend, or send today, and where approval is still required."},
+    {"title": "Durable office context", "body": "People context, commitments, and evidence should stay attached to the office loop instead of drifting across isolated chats and prompts."},
+)
+
+PROPERTY_TRUST_CARDS = (
     {"title": "Tight account permissions", "body": "Google is optional identity and return access, not a hidden demand for broad mailbox permissions."},
     {"title": "Visible research posture", "body": "The product should make clear which portals were scanned, which assumptions were made, and what still needs verification."},
     {"title": "Saved learning loop", "body": "Feedback, property reasons, and shortlist context stay visible so search quality improves instead of drifting."},
 )
+
+TRUST_CARDS = PROPERTY_TRUST_CARDS
 
 EA_LANDING_FAQS = (
     {
@@ -166,6 +174,12 @@ def sign_in_notes_for_brand(brand_key: str) -> tuple[str, ...]:
     if str(brand_key or "").strip().lower() == "propertyquarry":
         return PROPERTY_SIGN_IN_NOTES
     return EA_SIGN_IN_NOTES
+
+
+def trust_cards_for_brand(brand_key: str) -> tuple[dict[str, str], ...]:
+    if str(brand_key or "").strip().lower() == "propertyquarry":
+        return PROPERTY_TRUST_CARDS
+    return EA_TRUST_CARDS
 
 PRICING_TIERS = (
     {

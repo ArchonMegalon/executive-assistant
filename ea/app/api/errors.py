@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
-from app.services.public_branding import request_brand
+from app.api.routes.property_surface_boundary import property_surface_boundary_response
 
 try:
     from psycopg import InterfaceError as PsycopgInterfaceError
@@ -65,16 +65,6 @@ def _code_from_http(status_code: int, detail: Any) -> str:
     return "request_failed"
 
 
-def _retired_ea_property_path(request: Request) -> bool:
-    path = str(request.url.path or "").strip()
-    if not (path == "/app/properties" or path.startswith("/app/properties/")):
-        return False
-    try:
-        return request_brand(request)["key"] != "propertyquarry"
-    except Exception:
-        return True
-
-
 def _browser_auth_redirect(request: Request, *, code: str) -> Response | None:
     if str(code or "").strip() != "auth_required":
         return None
@@ -91,16 +81,9 @@ def _browser_auth_redirect(request: Request, *, code: str) -> Response | None:
     wants_html = "text/html" in accept or sec_fetch_dest == "document"
     if not wants_html:
         return None
-    if _retired_ea_property_path(request):
-        response = _error_payload(
-            request=request,
-            status_code=404,
-            code="not_found",
-            message="property_search_not_available",
-            details="property_search_not_available",
-        )
-        response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
-        return response
+    boundary = property_surface_boundary_response(request)
+    if boundary is not None:
+        return boundary
     target = "/sign-in?" + urllib.parse.urlencode({"return_to": path})
     response = RedirectResponse(target, status_code=303)
     response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"

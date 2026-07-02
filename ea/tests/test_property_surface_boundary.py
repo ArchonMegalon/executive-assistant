@@ -6,6 +6,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from fastapi.testclient import TestClient
+
+from app.api.app import create_app
 from app.api.routes import property_surface_boundary
 from app.api.routes.landing_view_models import property_workspace_payload
 from app.services import public_branding
@@ -126,3 +129,52 @@ def test_property_workspace_payload_keeps_propertyquarry_brand_renderable() -> N
     assert "Country" not in [str(row.get("label") or "") for row in payload["stats"]]
     assert payload["hero_highlights"][0]["label"] == "Posture"
     assert payload["hero_highlights"][0]["value"] == "Search"
+
+
+def test_ea_property_route_returns_boundary_before_sign_in_redirect() -> None:
+    client = TestClient(create_app())
+
+    response = client.get(
+        "/app/properties",
+        headers={"host": "myexternalbrain.com", "accept": "text/html"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {
+        "detail": "property_search_not_available",
+        "product_boundary": "propertyquarry",
+    }
+    assert response.headers["X-EA-Product-Boundary"] == "propertyquarry"
+    assert response.headers["X-Robots-Tag"] == "noindex, nofollow, noarchive, nosnippet"
+    assert "location" not in response.headers
+
+
+def test_ea_security_page_uses_ea_trust_copy_only() -> None:
+    client = TestClient(create_app())
+
+    response = client.get(
+        "/security",
+        headers={"host": "myexternalbrain.com", "accept": "text/html"},
+    )
+
+    assert response.status_code == 200
+    assert "Visible review boundaries" in response.text
+    assert "Durable office context" in response.text
+    assert "Visible research posture" not in response.text
+    assert "Saved learning loop" not in response.text
+    assert "shortlist context" not in response.text
+
+
+def test_ea_today_page_omits_property_console_assets() -> None:
+    client = TestClient(create_app())
+
+    response = client.get(
+        "/app/today",
+        headers={"host": "myexternalbrain.com", "accept": "text/html"},
+    )
+
+    assert response.status_code == 200
+    assert "data-console-form-variant=\"property_search\"" not in response.text
+    assert "Could not save property search defaults." not in response.text
+    assert "property-shortlist-grid" not in response.text

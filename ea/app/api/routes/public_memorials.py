@@ -8850,20 +8850,32 @@ def _cartesia_transcribe_audio(*, api_key: str, payload: bytes, content_type: st
 def _minimal_public_memorial_html(
     *,
     slug: str,
+    person_name: str,
     page_title: str,
     subtitle: str,
+    page_intro: str,
     memorial_avatar_url: str,
     pwa_short_name: str,
     clickrank_html: str,
+    hero_badges: tuple[str, ...] = (),
     video_call_avatar_fallback_html: str = "",
 ) -> str:
+    safe_person_name = html.escape(person_name)
+    safe_subtitle = html.escape(subtitle)
+    safe_intro = html.escape(page_intro)
+    hero_badges_html = "".join(
+        f'<span class="hero-badge">{html.escape(str(label).strip())}</span>'
+        for label in hero_badges
+        if str(label).strip()
+    )
+    hero_badges_block = f'<div class="hero-badges">{hero_badges_html}</div>' if hero_badges_html else ""
     return f"""<!doctype html>
 <html lang="de">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{page_title}</title>
-    <meta name="description" content="{html.escape(subtitle)}">
+    <meta name="description" content="{safe_subtitle}">
     <meta name="theme-color" content="#48677e">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -8890,7 +8902,8 @@ def _minimal_public_memorial_html(
       html {{
         -webkit-text-size-adjust: 100%;
         min-height: 100dvh;
-        overflow: hidden;
+        overflow-x: hidden;
+        overflow-y: auto;
       }}
       body {{
         margin: 0;
@@ -8900,17 +8913,79 @@ def _minimal_public_memorial_html(
           linear-gradient(180deg, #d7e0e5 0%, #f7f2e8 22%, #f7f2e8 100%);
         color: var(--ink);
         font: 16px/1.6 Georgia, "Times New Roman", serif;
-        overflow: hidden;
+        overflow-x: hidden;
+        overflow-y: auto;
       }}
       .wrap {{ width: min(100vw - 28px, 720px); margin: 0 auto; }}
       header {{
         min-height: 100dvh;
         min-height: 100svh;
         display: grid;
-        align-items: center;
+        align-items: start;
+        padding: clamp(28px, 6vh, 56px) 0 calc(320px + env(safe-area-inset-bottom, 0px));
       }}
       .hero {{ padding: 0; display: grid; gap: 18px; justify-items: center; text-align: center; }}
+      .hero-shell {{ width: min(100%, 560px); display: grid; gap: 18px; justify-items: center; }}
+      .hero-avatar {{
+        width: clamp(84px, 18vw, 108px);
+        height: clamp(84px, 18vw, 108px);
+        border-radius: 28px;
+        object-fit: cover;
+        border: 1px solid rgba(72,103,126,.16);
+        box-shadow: 0 14px 32px rgba(56, 45, 36, .12);
+        background: rgba(255,255,255,.82);
+      }}
       .hero-copy {{ display: grid; gap: 14px; justify-items: center; width: 100%; }}
+      .hero-kicker {{
+        margin: 0;
+        color: var(--blue);
+        font: 700 .78rem/1.2 ui-sans-serif, system-ui, sans-serif;
+        letter-spacing: .12em;
+        text-transform: uppercase;
+      }}
+      .hero-copy h1 {{
+        margin: 0;
+        max-width: 12ch;
+        color: var(--ink);
+        font-size: clamp(2.2rem, 8vw, 4rem);
+        line-height: .98;
+      }}
+      .hero-subtitle {{
+        margin: 0;
+        max-width: 30ch;
+        color: var(--ink);
+        font-size: clamp(1rem, 2.8vw, 1.2rem);
+        line-height: 1.45;
+      }}
+      .hero-summary,
+      .hero-guidance {{
+        margin: 0;
+        max-width: 38ch;
+        color: var(--muted);
+        font: 600 .95rem/1.55 ui-sans-serif, system-ui, sans-serif;
+      }}
+      .hero-guidance {{
+        font-size: .83rem;
+        line-height: 1.45;
+      }}
+      .hero-badges {{
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        justify-content: center;
+        max-width: 100%;
+      }}
+      .hero-badge {{
+        display: inline-flex;
+        align-items: center;
+        min-height: 32px;
+        padding: 6px 12px;
+        border-radius: 999px;
+        border: 1px solid rgba(72,103,126,.16);
+        background: rgba(255,255,255,.6);
+        color: var(--ink);
+        font: 700 12px/1 ui-sans-serif, system-ui, sans-serif;
+      }}
       .hero-actions {{ display: grid; gap: 14px; justify-items: center; width: 100%; }}
       .hero-cta {{
         appearance: none;
@@ -9388,14 +9463,23 @@ def _minimal_public_memorial_html(
   <body>
     <header>
       <div class="wrap hero">
-        <div class="hero-copy">
-          <div class="hero-actions is-readying" id="memorial-hero-actions">
-            <button type="button" id="memorial-conversation" class="hero-cta is-readying" data-hero-action="conversation" title="Gespräch beginnen" aria-label="Gespräch beginnen" aria-disabled="true" disabled>Gleich bereit …</button>
+        <div class="hero-shell">
+          <img class="hero-avatar" src="{memorial_avatar_url}" alt="{safe_person_name}">
+          <div class="hero-copy">
+            <p class="hero-kicker">Memorial</p>
+            <h1>{page_title}</h1>
+            <p class="hero-subtitle">{safe_subtitle}</p>
+            <p class="hero-summary">{safe_intro}</p>
+            {hero_badges_block}
+            <div class="hero-actions is-readying" id="memorial-hero-actions">
+              <button type="button" id="memorial-conversation" class="hero-cta is-readying" data-hero-action="conversation" title="Gespräch beginnen" aria-label="Gespräch beginnen" aria-disabled="true" disabled>Gespräch wird vorbereitet …</button>
+            </div>
+            <p class="hero-guidance">Das Mikrofon wird erst nach deinem Start verwendet. Antworten bleiben als Text sichtbar.</p>
+            <p class="install-hint" id="memorial-install-hint" hidden>
+              Optional als App installieren.
+              <button type="button" id="memorial-install-button" hidden>Installieren</button>
+            </p>
           </div>
-          <p class="install-hint" id="memorial-install-hint" hidden>
-            Am Handy/Desktop installieren.
-            <button type="button" id="memorial-install-button" hidden>Am Handy/Desktop installieren</button>
-          </p>
         </div>
       </div>
     </header>
@@ -9828,7 +9912,7 @@ def _minimal_public_memorial_html(
 
       function syncConversationButton() {{
         if (!conversationButton) return;
-        let label = "Gleich bereit …";
+        let label = "Gespräch wird vorbereitet …";
         let disabled = true;
         if (recordingActive) {{
           label = "Gespräch stoppen";
@@ -16345,14 +16429,32 @@ def _public_memorial_page_html(
         payload.get("subtitle"),
         "Eine ruhige Seite fuer Erinnerungen, Originalstimme und dokumentierte Gedanken.",
     )
+    intro = _text(
+        payload.get("intro"),
+        "Diese Seite sammelt echte Aufnahmen und belegte Erinnerungen. Neue Texte sind keine direkte Rede.",
+    )
+    audio_clip_count = len(_list_of_dicts(payload.get("audio_clips")))
+    memory_card_count = len(_list_of_dicts(payload.get("memory_cards")))
+    hero_badges = tuple(
+        label
+        for label in (
+            f"{audio_clip_count} Archivaufnahmen" if audio_clip_count else "",
+            f"{memory_card_count} belegte Erinnerungen" if memory_card_count else "",
+            "Ruhiges Gespraech",
+        )
+        if label
+    )
     video_call_avatar = _memorial_video_call_avatar(payload, slug)
     return _minimal_public_memorial_html(
         slug=slug,
+        person_name=person_name,
         page_title=title,
         subtitle=subtitle,
+        page_intro=intro,
         memorial_avatar_url=html.escape(_memorial_pwa_icon_url(slug, payload, 180)),
         pwa_short_name=_memorial_pwa_short_name(payload),
         clickrank_html=clickrank_head_snippet(hostname),
+        hero_badges=hero_badges,
         video_call_avatar_fallback_html=_memorial_video_call_avatar_fallback_html(video_call_avatar),
     )
 

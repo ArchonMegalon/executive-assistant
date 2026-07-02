@@ -16,6 +16,31 @@ class MemorialRuntimeTests(unittest.TestCase):
     def setUp(self) -> None:
         public_memorials._MEMORIAL_RUNTIME_READINESS_CACHE_STATE.clear()
 
+    def test_public_memorial_page_opens_with_person_context_before_runtime_button(self) -> None:
+        payload = {
+            "slug": "manfred",
+            "person_name": "Manfred",
+            "title": "Erinnerungen an Manfred",
+            "subtitle": "Eine ruhige Seite fuer Erinnerungen, Originalstimme und dokumentierte Gedanken.",
+            "intro": "Diese Seite sammelt echte Aufnahmen und belegte Erinnerungen. Neue Texte sind keine direkte Rede.",
+            "audio_clips": [{"asset_relpath": "voice.mp3"}],
+            "memory_cards": [{"title": "Kindheit", "body": "Kurzfassung"}],
+        }
+        with (
+            patch.object(public_memorials, "clickrank_head_snippet", return_value=""),
+            patch.object(public_memorials, "_memorial_pwa_icon_url", return_value="/memorials/manfred/icon-180.png"),
+            patch.object(public_memorials, "_memorial_video_call_avatar", return_value={}),
+            patch.object(public_memorials, "_memorial_video_call_avatar_fallback_html", return_value=""),
+        ):
+            html = public_memorials._public_memorial_page_html(payload, hostname="myexternalbrain.com", private_profile={})
+
+        self.assertIn("<h1>Erinnerungen an Manfred</h1>", html)
+        self.assertIn("Diese Seite sammelt echte Aufnahmen und belegte Erinnerungen.", html)
+        self.assertIn("1 Archivaufnahmen", html)
+        self.assertIn("1 belegte Erinnerungen", html)
+        self.assertIn("Das Mikrofon wird erst nach deinem Start verwendet.", html)
+        self.assertIn("Gespräch wird vorbereitet …", html)
+
     def test_schedule_memorial_live_warmup_queues_voice_when_base_warmup_ready(self) -> None:
         with (
             patch.object(

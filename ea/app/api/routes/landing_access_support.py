@@ -15,6 +15,7 @@ from app.api.dependencies import (
 )
 from app.api.routes.landing_browser import _form_value, _normalize_browser_return_to, _shared_browser_fields, _workspace_session_cookie_kwargs
 from app.api.routes.landing_content import sign_in_notes_for_brand
+from app.api.routes.property_surface_boundary import is_property_app_surface_path
 from app.api.routes.landing_public_support import (
     _activation_preview_for_brand,
     _load_status,
@@ -29,6 +30,19 @@ from app.services.cloudflare_access import CloudflareAccessIdentity
 from app.services.google_oauth import browser_google_oauth_redirect_uri, build_google_oauth_start
 from app.services.public_branding import request_brand
 from app.services.registration_email import email_delivery_enabled
+
+
+def _brand_create_account_href(brand: dict[str, str]) -> str:
+    return "/register" if str(brand.get("key") or "").strip().lower() == "propertyquarry" else "/get-started"
+
+
+def _brand_safe_return_target(brand: dict[str, str], target: str) -> str:
+    normalized_target = str(target or "").strip() or str(brand.get("app_home") or "/app/today")
+    if str(brand.get("key") or "").strip().lower() != "ea":
+        return normalized_target
+    if is_property_app_surface_path(urllib.parse.urlsplit(normalized_target).path):
+        return str(brand.get("app_home") or "/app/today")
+    return normalized_target
 
 
 def _trusted_public_actor(
@@ -182,6 +196,7 @@ def workspace_invite_preview(
     product = build_product_service(container)
     invite = product.preview_workspace_invitation(token=token)
     if invite is None:
+        create_account_href = _brand_create_account_href(request_brand(request))
         return _render_secure_link_page(
             request,
             page_title="Workspace invite unavailable",
@@ -197,7 +212,7 @@ def workspace_invite_preview(
             ],
             primary_action_href="/sign-in",
             primary_action_label="Request new sign-in link",
-            secondary_action_href="/register",
+            secondary_action_href=create_account_href,
             secondary_action_label="Create account",
             status_code=404,
         )
@@ -242,6 +257,7 @@ def workspace_access_session(token: str, request: Request, container: AppContain
     )
     session = product.open_workspace_access_session(token=token, actor=actor)
     if session is None:
+        create_account_href = _brand_create_account_href(brand)
         return _render_secure_link_page(
             request,
             page_title="Sign-in link unavailable",
@@ -257,14 +273,13 @@ def workspace_access_session(token: str, request: Request, container: AppContain
             ],
             primary_action_href="/sign-in",
             primary_action_label="Request new sign-in link",
-            secondary_action_href="/register",
+            secondary_action_href=create_account_href,
             secondary_action_label="Create account",
             status_code=404,
         )
     session_default_target = str(session.get("default_target") or "").strip() or str(brand.get("app_home") or "/app/today")
     target = _normalize_browser_return_to(request.query_params.get("return_to") or session_default_target, default=session_default_target)
-    if str(brand.get("key") or "") == "ea" and (target == "/app/properties" or target.startswith("/app/properties?") or target.startswith("/app/properties/")):
-        target = str(brand.get("app_home") or "/app/today")
+    target = _brand_safe_return_target(brand, target)
     response = RedirectResponse(target, status_code=303)
     response.set_cookie("ea_workspace_session", str(session.get("access_token") or "").strip(), **_workspace_session_cookie_kwargs(request, expires_at=str(session.get("expires_at") or "").strip()))
     response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
@@ -288,6 +303,7 @@ def workspace_invite_accept(
         invite = product.accept_workspace_invitation(token=token, accepted_by=actor)
     except ValueError as exc:
         if str(exc or "").strip() == "operator_seat_limit_reached":
+            create_account_href = _brand_create_account_href(request_brand(request))
             return _render_secure_link_page(
                 request,
                 page_title="Invite cannot be accepted",
@@ -303,12 +319,13 @@ def workspace_invite_accept(
                 ],
                 primary_action_href="/sign-in",
                 primary_action_label="Return to sign in",
-                secondary_action_href="/register",
+                secondary_action_href=create_account_href,
                 secondary_action_label="Create account",
                 status_code=409,
             )
         raise
     if invite is None:
+        create_account_href = _brand_create_account_href(request_brand(request))
         return _render_secure_link_page(
             request,
             page_title="Workspace invite unavailable",
@@ -324,7 +341,7 @@ def workspace_invite_accept(
             ],
             primary_action_href="/sign-in",
             primary_action_label="Request new sign-in link",
-            secondary_action_href="/register",
+            secondary_action_href=create_account_href,
             secondary_action_label="Create account",
             status_code=404,
         )
