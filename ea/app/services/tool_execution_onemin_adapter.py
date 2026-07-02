@@ -271,6 +271,14 @@ class OneminToolAdapter:
 
         return _env_value("EA_ONEMIN_TOOL_CODE_MODEL") or next(iter(upstream._onemin_hard_models()), "gpt-5")
 
+    def _default_groundwork_model(self) -> str:
+        from app.services import responses_upstream as upstream
+
+        return _env_value("EA_ONEMIN_TOOL_GROUNDWORK_MODEL") or next(
+            iter(upstream._onemin_groundwork_candidate_models()),
+            "deepseek-chat",
+        )
+
     def _default_review_model(self) -> str:
         from app.services import responses_upstream as upstream
 
@@ -289,15 +297,37 @@ class OneminToolAdapter:
         instructions = _extract_text(payload.get("instructions"))
         goal = _extract_text(payload.get("goal"))
         context_pack = payload.get("context_pack")
+        desired_output_json = payload.get("desired_output_json")
+        brain_profile = _extract_text(payload.get("brain_profile"))
         parts: list[str] = []
         if instructions:
             parts.append(instructions)
+        if brain_profile == "groundwork":
+            parts.append(
+                "Prepare a compact groundwork brief. Prefer JSON when asked for structure; otherwise keep the answer concise."
+            )
         if goal:
             parts.append(f"Goal: {goal}")
         if isinstance(context_pack, dict) and context_pack:
             parts.append("Context:\n" + json.dumps(context_pack, ensure_ascii=True))
+        if isinstance(desired_output_json, dict) and desired_output_json:
+            parts.append("Desired output:\n" + json.dumps(desired_output_json, ensure_ascii=True))
         parts.append(prompt)
         return "\n\n".join(part for part in parts if part).strip()
+
+    def _code_model_for_payload(self, payload: dict[str, Any]) -> str:
+        explicit = str(payload.get("model") or "").strip()
+        if explicit:
+            return explicit
+        if _extract_text(payload.get("brain_profile")) == "groundwork":
+            return self._default_groundwork_model()
+        return self._default_code_model()
+
+    @staticmethod
+    def _code_lane_for_payload(payload: dict[str, Any]) -> str:
+        if _extract_text(payload.get("brain_profile")) == "groundwork":
+            return "groundwork"
+        return "hard"
 
     def _build_review_prompt(self, payload: dict[str, Any]) -> str:
         diff_text = _extract_text(payload.get("diff_text"))
@@ -534,11 +564,11 @@ class OneminToolAdapter:
     def execute_code_generate(self, request: ToolInvocationRequest, definition: ToolDefinition) -> ToolInvocationResult:
         payload = dict(request.payload_json or {})
         prompt = self._build_code_prompt(payload)
-        model = str(payload.get("model") or self._default_code_model()).strip() or self._default_code_model()
+        model = self._code_model_for_payload(payload)
         result = self._call_text(
             prompt=prompt,
             model=model,
-            lane="hard",
+            lane=self._code_lane_for_payload(payload),
             principal_id=self._request_principal_id(request),
         )
         normalized_text, structured_output_json, mime_type = _parse_structured(result.text)

@@ -1206,10 +1206,10 @@ def _groundwork_ready_provider(
     providers = dict(((provider_health or {}).get("providers") or {}))
     gemini = dict(providers.get("gemini_vortex") or {})
     onemin = dict(providers.get("onemin") or {})
-    if _profile_provider_row_ready(gemini):
-        return "gemini_vortex"
-    if _profile_provider_row_explicitly_bad(gemini) and not _profile_provider_row_explicitly_bad(onemin):
+    if _profile_provider_row_ready(onemin):
         return "onemin"
+    if _profile_provider_row_explicitly_bad(onemin) and not _profile_provider_row_explicitly_bad(gemini):
+        return "gemini_vortex"
     for provider_key in ("onemin", "magixai", "chatplayground", "gemini_vortex"):
         row = dict(providers.get(provider_key) or {})
         if _profile_provider_row_ready(row):

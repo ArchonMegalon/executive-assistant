@@ -796,6 +796,11 @@ class ProviderRegistryService:
                 capabilities=(
                     ProviderCapability(
                         provider_key="onemin",
+                        capability_key="structured_generate",
+                        tool_name="provider.onemin.code_generate",
+                    ),
+                    ProviderCapability(
+                        provider_key="onemin",
                         capability_key="code_generate",
                         tool_name="provider.onemin.code_generate",
                     ),

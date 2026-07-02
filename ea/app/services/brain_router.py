@@ -66,12 +66,7 @@ class BrainRouterService:
         profile = self._brain_profile(name_or_model)
         merged_hints = self._merge_provider_hints(profile.provider_hint_order, provider_hints)
         filtered_hints = self._filter_available_provider_hints(merged_hints, principal_id=principal_id)
-        # Groundwork stays Gemini-first even when alternate hints are available so
-        # route intent does not silently drift into non-groundwork providers.
-        if profile.profile == "groundwork":
-            effective_hints = merged_hints
-        else:
-            effective_hints = filtered_hints or merged_hints
+        effective_hints = filtered_hints or merged_hints
         default_provider_key = effective_hints[0] if effective_hints else ""
         backend_key = str(profile.backend_key or default_provider_key).strip()
         health_provider_key = str(profile.health_provider_key or default_provider_key or backend_key).strip()

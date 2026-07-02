@@ -109,6 +109,7 @@ _LANE_OVERFLOW = "overflow"
 _LANE_DEFAULT = "default"
 _LANE_AUDIT = "audit"
 _LANE_REVIEW_LIGHT = "review_light"
+_LANE_GROUNDWORK = "groundwork"
 
 _AUDIT_OUTPUT_TEXT_HEADER = "BrowserAct ChatPlayground audit"
 
@@ -3774,6 +3775,8 @@ def _lane_max_output_tokens(lane: str) -> int | None:
         return _to_int(_env("EA_RESPONSES_MAX_OUTPUT_TOKENS_REVIEW", "2048"), 2048, minimum=16)
     if lane == _LANE_FAST:
         return _to_int(_env("EA_RESPONSES_MAX_OUTPUT_TOKENS_FAST", "2048"), 2048, minimum=16)
+    if lane == _LANE_GROUNDWORK:
+        return _to_int(_env("EA_RESPONSES_MAX_OUTPUT_TOKENS_GROUNDWORK", "2048"), 2048, minimum=16)
     if lane == _LANE_OVERFLOW:
         return _to_int(_env("EA_RESPONSES_MAX_OUTPUT_TOKENS_OVERFLOW", "1536"), 1536, minimum=16)
     return None
@@ -4549,11 +4552,20 @@ def _provider_order() -> tuple[str, ...]:
 
 
 def _cheap_provider_order() -> tuple[str, ...]:
-    raw = _env("EA_RESPONSES_CHEAP_PROVIDER_ORDER", "gemini_vortex,magixai,onemin")
+    raw = _env("EA_RESPONSES_CHEAP_PROVIDER_ORDER", "onemin,magixai,gemini_vortex")
     return _provider_order_from_env(
         raw,
-        fallback=("gemini_vortex", "magixai", "onemin"),
+        fallback=("onemin", "magixai", "gemini_vortex"),
         env_name="EA_RESPONSES_CHEAP_PROVIDER_ORDER",
+    )
+
+
+def _groundwork_provider_order() -> tuple[str, ...]:
+    raw = _env("EA_RESPONSES_GROUNDWORK_PROVIDER_ORDER", "onemin,magixai,gemini_vortex")
+    return _provider_order_from_env(
+        raw,
+        fallback=("onemin", "magixai", "gemini_vortex"),
+        env_name="EA_RESPONSES_GROUNDWORK_PROVIDER_ORDER",
     )
 
 
@@ -4597,6 +4609,7 @@ def _provider_order_for_lane_health(
         _LANE_REVIEW,
         _LANE_AUDIT,
         _LANE_REVIEW_LIGHT,
+        _LANE_GROUNDWORK,
     }:
         return ordered
     if lane in {_LANE_FAST, _LANE_OVERFLOW} and "gemini_vortex" in ordered:
@@ -4615,10 +4628,10 @@ def _provider_order_for_lane_health(
     preferred: list[str] = []
     if lane in {_LANE_REVIEW, _LANE_AUDIT, _LANE_REVIEW_LIGHT} and _provider_row_is_ready(dict(providers.get("chatplayground") or {})):
         preferred.append("chatplayground")
-    if _provider_row_is_ready(dict(providers.get("gemini_vortex") or {})):
-        preferred.append("gemini_vortex")
-    if _provider_row_is_ready(dict(providers.get("magixai") or {})):
-        preferred.append("magixai")
+    fallback_order = ("magixai", "gemini_vortex") if lane == _LANE_GROUNDWORK else ("gemini_vortex", "magixai")
+    for provider_key in fallback_order:
+        if _provider_row_is_ready(dict(providers.get(provider_key) or {})):
+            preferred.append(provider_key)
     if not preferred:
         return ordered
     return tuple(dict.fromkeys([*preferred, *ordered]))
@@ -4639,7 +4652,7 @@ def _effective_request_lane(*, requested_model: str, max_output_tokens: int | No
     if normalized == GEMINI_VORTEX_PUBLIC_MODEL or normalized in {item.lower() for item in _gemini_vortex_models()}:
         return _LANE_FAST
     if normalized in {GROUNDWORK_PUBLIC_MODEL, GROUNDWORK_PUBLIC_MODEL_ALIAS}:
-        return _LANE_FAST
+        return _LANE_GROUNDWORK
     if normalized == FAST_PUBLIC_MODEL:
         return _LANE_FAST
     if normalized == REPAIR_GEMINI_PUBLIC_MODEL:
@@ -4671,7 +4684,7 @@ def _provider_model_order_for_lane(
             return (requested,)
         if normalized == GEMINI_VORTEX_PUBLIC_MODEL:
             return _gemini_vortex_models()
-        if lane in {_LANE_FAST, _LANE_OVERFLOW, _LANE_HARD, _LANE_REVIEW, _LANE_AUDIT, _LANE_REVIEW_LIGHT}:
+        if lane in {_LANE_FAST, _LANE_OVERFLOW, _LANE_HARD, _LANE_REVIEW, _LANE_AUDIT, _LANE_REVIEW_LIGHT, _LANE_GROUNDWORK}:
             return _gemini_vortex_models()
         return ()
 
@@ -4693,6 +4706,8 @@ def _provider_model_order_for_lane(
         return _onemin_models()
     if normalized == REVIEW_LIGHT_PUBLIC_MODEL or lane in {_LANE_REVIEW, _LANE_AUDIT, _LANE_REVIEW_LIGHT}:
         return _onemin_review_models()
+    if normalized in {GROUNDWORK_PUBLIC_MODEL, GROUNDWORK_PUBLIC_MODEL_ALIAS} or lane == _LANE_GROUNDWORK:
+        return _onemin_groundwork_candidate_models()
     if normalized in {AUDIT_PUBLIC_MODEL, AUDIT_PUBLIC_MODEL_ALIAS, "chatplayground", "browseract"}:
         return _onemin_review_models()
     if normalized in {"ea-review", "ea-critic"}:
@@ -4717,6 +4732,14 @@ def _audit_lane_models() -> tuple[str, ...]:
 def _groundwork_lane_models() -> tuple[str, ...]:
     models = _gemini_vortex_models()
     return models[:1] or models
+
+
+def _onemin_groundwork_candidate_models() -> tuple[str, ...]:
+    configured = _csv_values(_env("EA_RESPONSES_ONEMIN_GROUNDWORK_MODELS"))
+    defaults = ("deepseek-chat", "gpt-4.1-nano", "gpt-4.1", "gpt-4o")
+    if configured:
+        return _merge_unique(configured, defaults)
+    return defaults
 
 
 def _review_light_lane_models() -> tuple[str, ...]:
@@ -5809,6 +5832,8 @@ def _provider_candidates(
     provider_keys_by_lane: tuple[str, ...]
     if lane in {_LANE_FAST, _LANE_OVERFLOW}:
         provider_keys_by_lane = _cheap_provider_order()
+    elif lane == _LANE_GROUNDWORK:
+        provider_keys_by_lane = _groundwork_provider_order()
     elif lane in {_LANE_REVIEW_LIGHT, _LANE_AUDIT}:
         provider_keys_by_lane = _review_audit_provider_order()
     else:
@@ -5874,11 +5899,21 @@ def _provider_candidates(
         return [(configs["gemini_vortex"], model_name) for model_name in model_names]
 
     if normalized in {GROUNDWORK_PUBLIC_MODEL, GROUNDWORK_PUBLIC_MODEL_ALIAS}:
-        return [
-            (configs["gemini_vortex"], model_name)
-            for model_name in _provider_model_order_for_lane("gemini_vortex", lane, requested)
-            or _groundwork_lane_models()
-        ]
+        candidates: list[tuple[ProviderConfig, str]] = []
+        for provider_key in _provider_order_for_lane_health(
+            lane=lane,
+            ordered=_groundwork_provider_order(),
+        ):
+            config = configs.get(provider_key)
+            if config is None:
+                continue
+            model_names = (
+                _provider_model_order_for_lane(provider_key, lane, requested)
+                or (_groundwork_lane_models() if provider_key == "gemini_vortex" else config.default_models)
+            )
+            for model_name in tuple(model_names)[:2]:
+                candidates.append((config, model_name))
+        return candidates
 
     if normalized == REVIEW_LIGHT_PUBLIC_MODEL:
         candidates: list[tuple[ProviderConfig, str]] = []

@@ -270,6 +270,7 @@ class TaskContractService:
                 default_risk_class="low",
                 default_approval_class="none",
                 allowed_tools=(
+                    "provider.onemin.code_generate",
                     "provider.gemini_vortex.structured_generate",
                     "provider.magixai.structured_generate",
                     "browseract.chatplayground_audit",
@@ -294,7 +295,7 @@ class TaskContractService:
                         "memory_reads": list(memory_reads),
                         "memory_writes": [memory_write_key] if memory_write_key else [],
                         "provider_hints_json": {
-                            "primary": ["Gemini Vortex", "AI Magicx", "BrowserAct"],
+                            "primary": ["1min.AI", "AI Magicx", "Gemini Vortex", "BrowserAct"],
                         },
                         "output_schema_json": {
                             "type": "object",
