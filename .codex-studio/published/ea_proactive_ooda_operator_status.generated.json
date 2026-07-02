@@ -7,9 +7,9 @@
     "callback_record_count": 51,
     "candidate_principal_hash_count": 3,
     "checked": true,
-    "current_packet_callback_latest_age_seconds": 7466,
+    "current_packet_callback_latest_age_seconds": 9733,
     "current_packet_callback_latest_expired": false,
-    "current_packet_callback_latest_seconds_until_expiry": 597332,
+    "current_packet_callback_latest_seconds_until_expiry": 595065,
     "current_packet_callback_latest_status": "pending",
     "current_packet_callback_record_count": 2,
     "current_packet_live_pending_count": 1,
@@ -20,7 +20,7 @@
     "next_action_href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
     "next_action_label": "Open approval capture",
     "next_action_method": "get",
-    "observed_at": "2026-07-02T15:16:51Z",
+    "observed_at": "2026-07-02T15:54:38Z",
     "principal_match_ready": true,
     "privacy": {
       "raw_callback_token_exposed": false,
@@ -42,7 +42,7 @@
     "telegram_chat_ref_sha256": "ce600202466351c6f33d3ee3a6e66551972cacab1864f045dbe6c9060096f5e2"
   },
   "approval_capture_surface": {
-    "approval_outcome_matches_current_packet": false,
+    "approval_outcome_matches_current_packet": true,
     "approval_outcome_path": "/data/provider-ledger/proactive_ooda_latest_approval_outcome.generated.json",
     "callback_dir": "/data/provider-ledger/proactive_ooda_approval_callbacks",
     "callback_dir_exists": true,
@@ -62,11 +62,11 @@
     "current_packet_approval_request_recordable": true,
     "current_packet_callback_expired_count": 0,
     "current_packet_callback_expired_pending_count": 0,
-    "current_packet_callback_latest_age_seconds": 7453,
+    "current_packet_callback_latest_age_seconds": 9723,
     "current_packet_callback_latest_created_at": "2026-07-02T13:12:26.427038Z",
     "current_packet_callback_latest_expired": false,
     "current_packet_callback_latest_expires_at": "2026-07-09T13:12:26Z",
-    "current_packet_callback_latest_seconds_until_expiry": 597346,
+    "current_packet_callback_latest_seconds_until_expiry": 595076,
     "current_packet_callback_latest_status": "pending",
     "current_packet_callback_pending_count": 1,
     "current_packet_callback_raw_pending_count": 1,
@@ -78,9 +78,9 @@
     "current_packet_live_callback_record_count": 2,
     "current_packet_live_pending_count": 1,
     "current_packet_present": true,
-    "current_packet_status": "pending_approval",
+    "current_packet_status": "accepted_redacted",
     "duplicate_live_pending_callbacks_present": false,
-    "manual_outcome_capture_ready": true,
+    "manual_outcome_capture_ready": false,
     "mode": "telegram_callback_pending",
     "present": true,
     "ready": true,
@@ -90,7 +90,7 @@
   },
   "claim_limit": "operator_runtime_posture_not_real_daily_acceptance",
   "context_grounding": {
-    "applied_context_count": 0,
+    "applied_context_count": 6,
     "candidate_assessment_count": 0,
     "current_packet_context_grounding": {
       "applied_context_count": 6,
@@ -110,14 +110,14 @@
     },
     "deadline_count": 0,
     "exclusion_count": 0,
-    "grounded": false,
-    "grounded_item_count": 0,
-    "item_count": 0,
-    "notes_count": 0,
+    "grounded": true,
+    "grounded_item_count": 1,
+    "item_count": 1,
+    "notes_count": 2,
     "preference_count": 0,
-    "recipient_context_count": 0,
-    "recipient_location_count": 0,
-    "requirement_count": 0,
+    "recipient_context_count": 1,
+    "recipient_location_count": 1,
+    "requirement_count": 2,
     "ungrounded_item_count": 0
   },
   "contract_name": "ea.proactive_ooda_operator_status.v1",
@@ -151,7 +151,7 @@
     "interruption_budget_limit": 0,
     "interruption_budget_used": 23,
     "interruption_budget_window_hours": 24,
-    "manual_outcome_capture_ready": true,
+    "manual_outcome_capture_ready": false,
     "mirror_delivery_proof_enabled": false,
     "notification_requires_user_action": false,
     "operator_paused": false,
@@ -187,7 +187,7 @@
   },
   "delivery_route_error": "",
   "delivery_route_ready": true,
-  "generated_at": "2026-07-02T15:16:53Z",
+  "generated_at": "2026-07-02T15:54:40Z",
   "generated_by": "scripts/materialize_proactive_ooda_operator_status.py",
   "gmail_draft_followthrough": {
     "action": "",
@@ -203,7 +203,7 @@
     "next_action_href": "https://myexternalbrain.com/app/queue",
     "next_action_label": "Open queue",
     "next_action_method": "get",
-    "observed_at": "2026-07-02T15:16:39Z",
+    "observed_at": "2026-07-02T15:54:29Z",
     "raw_execution_payload_exposed": false,
     "recipient_email_hash_present": false,
     "source": "docker_compose_exec",
@@ -290,7 +290,7 @@
       "gemini_vortex"
     ],
     "next_action": "",
-    "observed_at": "2026-07-02T15:16:50Z",
+    "observed_at": "2026-07-02T15:54:38Z",
     "onemin_burn_basis": "insufficient_observations",
     "onemin_configured_slots": 70,
     "onemin_next_topup_at": "",
@@ -319,11 +319,11 @@
     "window": "24h"
   },
   "reason": "ready",
-  "receipt_observation_count": 810,
+  "receipt_observation_count": 813,
   "remaining_external_proofs": [
     "real proactive OODA packet accepted with routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome"
   ],
-  "route_probe_observed_at": "2026-07-02T15:16:37Z",
+  "route_probe_observed_at": "2026-07-02T15:54:21Z",
   "route_probe_runtime_service": "ea-proactive-ooda",
   "route_probe_source": "docker_compose_exec",
   "route_ready_claim_allowed": true,
@@ -333,7 +333,7 @@
     "A live sent receipt can prove one routed delivery happened, but it does not by itself prove ordinary-use usefulness or approval correctness.",
     "Gold-production claims still require accepted proactive packets, routed delivery proof, approved-source or transcript signal evidence, live browse evidence, an auditor-passed chosen candidate, staged reversible artifacts, mirrored Teable current/stale delivery and decision facts, explicit approval outcome evidence, and consent-gated irreversible actions."
   ],
-  "runtime_actionable_count": 0,
+  "runtime_actionable_count": 1,
   "safe_work_audit": {
     "audit_passed": true,
     "audit_present": true,
@@ -376,24 +376,24 @@
       {
         "evidence_event_types": [
           "approval_requested",
+          "assistant_property_task_auto_closed",
           "commitment_candidate_staged",
-          "commitment_closed",
-          "commitment_closure_evidence_receipt_recorded",
-          "commitment_created",
-          "explicit_work_google_workspace_intake_requested",
           "google_connect_email_sent",
-          "google_workspace_signal_sync_completed"
+          "google_workspace_signal_sync_completed",
+          "handoff_completed",
+          "office_signal_audio_recording",
+          "office_signal_email_thread"
         ],
         "key": "postgres_observations",
         "label": "Postgres observations",
-        "latest_observed_at": "2026-07-02T17:05:53.712087+02:00",
+        "latest_observed_at": "2026-07-02T17:51:27.291588+02:00",
         "missing_required_event_types": [],
         "next_action": "",
         "observed": true,
         "raw_credential_exposed": false,
         "raw_payload_exposed": false,
         "raw_transcript_text_exposed": false,
-        "record_count": 398,
+        "record_count": 400,
         "required_event_type_observed": true,
         "required_event_types": [],
         "status": "observed"
@@ -401,24 +401,24 @@
       {
         "evidence_event_types": [
           "approval_requested",
-          "commitment_closed",
-          "commitment_closure_evidence_receipt_recorded",
-          "commitment_created",
-          "explicit_work_google_workspace_intake_requested",
           "google_connect_email_sent",
           "google_workspace_signal_sync_completed",
-          "google_workspace_work_inbox_auth_action_needed_sent"
+          "office_signal_audio_recording",
+          "office_signal_email_thread",
+          "office_signal_ingested",
+          "office_signal_ooda_evaluated",
+          "pocket_recording_archive_indexed"
         ],
         "key": "google_workspace",
         "label": "Google workspace",
-        "latest_observed_at": "2026-07-02T17:05:53.712087+02:00",
+        "latest_observed_at": "2026-07-02T17:51:27.291588+02:00",
         "missing_required_event_types": [],
         "next_action": "",
         "observed": true,
         "raw_credential_exposed": false,
         "raw_payload_exposed": false,
         "raw_transcript_text_exposed": false,
-        "record_count": 234,
+        "record_count": 166,
         "required_event_type_observed": true,
         "required_event_types": [],
         "status": "observed"
@@ -451,20 +451,19 @@
       },
       {
         "evidence_event_types": [
-          "explicit_work_google_workspace_intake_requested",
           "google_workspace_signal_sync_completed",
           "office_signal_email_thread"
         ],
         "key": "calendar_and_renewal_signals",
         "label": "Calendar and renewal signals",
-        "latest_observed_at": "2026-07-02T17:05:53.712087+02:00",
+        "latest_observed_at": "2026-07-02T17:51:27.291588+02:00",
         "missing_required_event_types": [],
         "next_action": "",
         "observed": true,
         "raw_credential_exposed": false,
         "raw_payload_exposed": false,
         "raw_transcript_text_exposed": false,
-        "record_count": 132,
+        "record_count": 123,
         "required_event_type_observed": true,
         "required_event_types": [],
         "status": "observed"
@@ -494,13 +493,13 @@
       {
         "evidence_event_types": [
           "approval_requested",
-          "commitment_candidate_staged",
           "google_connect_email_sent",
           "office_signal_audio_recording",
           "office_signal_email_thread",
           "office_signal_ingested",
           "office_signal_ooda_evaluated",
-          "pocket_recording_archive_indexed"
+          "pocket_recording_archive_indexed",
+          "pocket_recording_audio_archived"
         ],
         "key": "shopping_and_vendor_signals",
         "label": "Shopping and vendor signals",
@@ -511,7 +510,7 @@
         "raw_credential_exposed": false,
         "raw_payload_exposed": false,
         "raw_transcript_text_exposed": false,
-        "record_count": 98,
+        "record_count": 41,
         "required_event_type_observed": true,
         "required_event_types": [],
         "status": "observed"
@@ -519,13 +518,11 @@
       {
         "evidence_event_types": [
           "commitment_candidate_staged",
-          "commitment_closed",
-          "commitment_closure_evidence_receipt_recorded",
-          "commitment_created",
-          "explicit_work_google_workspace_intake_requested",
           "office_signal_audio_recording",
           "office_signal_email_thread",
-          "office_signal_ooda_evaluated"
+          "office_signal_ooda_evaluated",
+          "pocket_recording_archive_indexed",
+          "pocket_recording_audio_archived"
         ],
         "key": "commitment_and_deadline_signals",
         "label": "Commitment and deadline signals",
@@ -536,14 +533,13 @@
         "raw_credential_exposed": false,
         "raw_payload_exposed": false,
         "raw_transcript_text_exposed": false,
-        "record_count": 79,
+        "record_count": 40,
         "required_event_type_observed": true,
         "required_event_types": [],
         "status": "observed"
       },
       {
         "evidence_event_types": [
-          "commitment_closure_evidence_receipt_recorded",
           "office_signal_audio_recording",
           "office_signal_email_thread",
           "office_signal_ooda_evaluated",
@@ -560,7 +556,7 @@
         "raw_credential_exposed": false,
         "raw_payload_exposed": false,
         "raw_transcript_text_exposed": false,
-        "record_count": 70,
+        "record_count": 38,
         "required_event_type_observed": true,
         "required_event_types": [],
         "status": "observed"
@@ -573,8 +569,8 @@
     "next_action_method": "",
     "observation_limit": 400,
     "observation_repository": "PostgresObservationEventRepository",
-    "observation_row_count": 398,
-    "observed_at": "2026-07-02T15:16:41Z",
+    "observation_row_count": 400,
+    "observed_at": "2026-07-02T15:54:32Z",
     "observed_lane_count": 8,
     "privacy": {
       "raw_credential_exposed": false,
@@ -588,7 +584,7 @@
     "source": "docker_compose_exec",
     "status": "ready"
   },
-  "source_git_head": "1b1211b5fb9ade2bb13e4001f9a5dd3b43c9bfbb",
+  "source_git_head": "7d53eb9c1653144d4e569255aa85fc3e3c28cb06",
   "source_health": {
     "issue_count": 0,
     "issues": [],
@@ -603,8 +599,8 @@
     "status": "clear",
     "user_action_required": false
   },
-  "source_mode": "none",
-  "source_state_fingerprint": "3e2da9ff339512f121899c26e2b1297ac90fc001ec6170fa0f15c316513fd3c4",
+  "source_mode": "docker_compose_exec",
+  "source_state_fingerprint": "7b970a5c174299ac96bd5fe67cbdae28a3530e9e38c529d104e17b88a0ed98b0",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "stage_packets": {
     "enabled": true,
@@ -618,7 +614,7 @@
     "safe_work_order_count": 0
   },
   "status": "ready_with_live_receipt",
-  "summary": "Proactive OODA route, packet runtime, latest host-visible live receipt, Telegram approval, and manual approval outcome capture are ready for operator follow-through.",
+  "summary": "Proactive OODA route, packet runtime, latest host-visible live receipt, and Telegram approval capture surface are ready for operator follow-through.",
   "suppressed_projection": {
     "blocking_reason": "",
     "error_code": "",

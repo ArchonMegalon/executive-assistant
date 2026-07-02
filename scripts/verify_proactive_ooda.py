@@ -16,6 +16,13 @@ for candidate in (str(ROOT), str(EA_ROOT)):
     if candidate not in sys.path:
         sys.path.insert(0, candidate)
 
+try:
+    from scripts.source_state_head import resolve_source_state_head
+    from scripts.source_state_head import resolve_source_worktree_fingerprint
+except ModuleNotFoundError:  # pragma: no cover - script execution path
+    from source_state_head import resolve_source_state_head
+    from source_state_head import resolve_source_worktree_fingerprint
+
 
 def _load_dotenv_if_present(path: Path) -> None:
     if not path.exists():
@@ -64,6 +71,26 @@ from app.services.proactive_signal_discovery import (  # noqa: E402
     load_signal_sources_config,
 )
 from app.services.proactive_telegram_binding import proactive_telegram_ready  # noqa: E402
+
+
+DEFAULT_OPERATOR_STATUS_RECEIPT = ROOT / ".codex-studio" / "published" / "ea_proactive_ooda_operator_status.generated.json"
+OPERATOR_STATUS_CONTRACT = "ea.proactive_ooda_operator_status.v1"
+OPERATOR_STATUS_GENERATOR = "scripts/materialize_proactive_ooda_operator_status.py"
+READY_SOURCE_COVERAGE_STATUSES = {"ready", "pass", "fully_ready"}
+READY_LANE_STATUSES = {"ready", "observed", "pass"}
+STAGE_PACKET_ERROR_CODES = {
+    "stage_packets_disabled",
+    "stage_packet_count_mismatch",
+    "safe_work_order_count_mismatch",
+}
+SAFE_WORK_RESULT_ERROR_CODES = {
+    "safe_work_results_disabled",
+    "safe_work_result_count_mismatch",
+    "safe_work_result_schema_count_mismatch",
+}
+STAGE_PACKET_ERROR_PREFIXES = ("stage_packet_dir_unwritable:", "stage_packet_build_failed:")
+SAFE_WORK_RESULT_ERROR_PREFIXES = ("safe_work_result_dir_unwritable:", "safe_work_result_build_failed:")
+WORKSPACE_ERROR_PREFIXES = ("google_workspace_signal_source_unhealthy:",)
 
 
 def _default_principal_id() -> str:
@@ -177,6 +204,15 @@ def main() -> int:
         ),
     )
     parser.add_argument("--require-receipt-observation", action="store_true")
+    parser.add_argument(
+        "--operator-status-receipt",
+        default=os.getenv("EA_PROACTIVE_OODA_OPERATOR_STATUS_RECEIPT", str(DEFAULT_OPERATOR_STATUS_RECEIPT)),
+    )
+    parser.add_argument(
+        "--allow-operator-status-receipt-fallback",
+        action=argparse.BooleanOptionalAction,
+        default=_env_truthy("EA_PROACTIVE_OODA_OPERATOR_STATUS_RECEIPT_FALLBACK", default=True),
+    )
     parser.add_argument("--pretty", action="store_true")
     args = parser.parse_args()
 
@@ -312,11 +348,13 @@ def _build_report(args: argparse.Namespace) -> dict[str, Any]:
     if safe_work_result_status["required"] and not safe_work_result_status["ready"]:
         errors.extend(safe_work_result_status["errors"])
 
-    return {
+    report = {
         "ok": not errors,
         "errors": errors,
         "warnings": warnings,
         "principal_id": args.principal_id,
+        "verification_source": "host_runtime",
+        "source_count_label": "signals",
         "source_mode": source_mode,
         "signal_count": len(signals),
         "actionable_count": digest_items,
@@ -335,6 +373,7 @@ def _build_report(args: argparse.Namespace) -> dict[str, Any]:
         "safe_work_results": safe_work_result_status,
         "digest": digest_payload,
     }
+    return _apply_operator_status_receipt_fallback(report, args)
 
 
 def _load_signal_file(path_value: str) -> list[dict[str, Any]]:
@@ -464,6 +503,196 @@ def _load_json_payload(path: Path) -> dict[str, Any]:
     except Exception:
         return {}
     return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _apply_operator_status_receipt_fallback(report: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
+    if not bool(getattr(args, "allow_operator_status_receipt_fallback", True)):
+        return report
+    receipt_path = _resolved_operator_status_receipt_path(args)
+    receipt = _load_json_payload(receipt_path)
+    if not _operator_status_receipt_fresh(receipt):
+        return report
+    merged = dict(report)
+    merged["warnings"] = list(report.get("warnings") or [])
+    merged["operator_status_receipt"] = {
+        "path": str(receipt_path),
+        "status": str(receipt.get("status") or "").strip(),
+        "observed_at": str(receipt.get("generated_at") or "").strip(),
+    }
+
+    fallback_applied = False
+    source_coverage = dict(receipt.get("source_coverage") or {})
+    if _operator_status_source_coverage_ready(source_coverage):
+        merged["verification_source"] = "operator_status_receipt"
+        merged["source_count_label"] = "observations"
+        merged["source_mode"] = str(source_coverage.get("source") or "operator_status_receipt").strip() or "operator_status_receipt"
+        merged["signal_count"] = max(
+            _safe_int(report.get("signal_count"), default=0),
+            _safe_int(source_coverage.get("observation_row_count"), default=0),
+        )
+        merged["actionable_count"] = max(
+            _safe_int(report.get("actionable_count"), default=0),
+            _safe_int(receipt.get("actionable_count"), default=0),
+        )
+        merged["errors"] = _without_error_markers(merged.get("errors"), exact={"no_signal_source_configured"})
+        fallback_applied = True
+
+    delivery_route = dict(receipt.get("delivery_route") or {})
+    if delivery_route:
+        merged["delivery_route"] = delivery_route
+    if _operator_status_telegram_ready(receipt):
+        merged["verification_source"] = "operator_status_receipt"
+        merged["telegram_ready"] = True
+        merged["errors"] = _without_error_markers(merged.get("errors"), exact={"telegram_notification_not_configured"})
+        fallback_applied = True
+
+    workspace_lane = _operator_status_workspace_lane(receipt)
+    if _operator_status_workspace_ready(workspace_lane):
+        merged["verification_source"] = "operator_status_receipt"
+        merged["workspace_source_checked"] = True
+        merged["workspace_source_healthy"] = True
+        merged["workspace_source_status"] = "ready"
+        merged["workspace_source_reason"] = ""
+        merged["errors"] = _without_error_markers(merged.get("errors"), prefixes=WORKSPACE_ERROR_PREFIXES)
+        fallback_applied = True
+
+    receipt_observation_count = _safe_int(receipt.get("receipt_observation_count"), default=0)
+    if receipt_observation_count > 0:
+        merged["verification_source"] = "operator_status_receipt"
+        merged["receipt_observation_count"] = max(
+            _safe_int(report.get("receipt_observation_count"), default=0),
+            receipt_observation_count,
+        )
+        merged["errors"] = _without_error_markers(merged.get("errors"), exact={"receipt_observation_missing"})
+        fallback_applied = True
+
+    delivery_guard = dict(receipt.get("delivery_guard") or {})
+    if delivery_guard:
+        merged["delivery_guard"] = delivery_guard
+    context_grounding = _operator_status_context_grounding(receipt)
+    if context_grounding:
+        merged["context_grounding"] = context_grounding
+    stage_packets = dict(receipt.get("stage_packets") or {})
+    if stage_packets:
+        merged["stage_packets"] = stage_packets
+        if bool(stage_packets.get("ready")):
+            merged["errors"] = _without_error_markers(
+                merged.get("errors"),
+                exact=STAGE_PACKET_ERROR_CODES,
+                prefixes=STAGE_PACKET_ERROR_PREFIXES,
+            )
+    safe_work_results = dict(receipt.get("safe_work_results") or {})
+    if safe_work_results:
+        merged["safe_work_results"] = safe_work_results
+        if bool(safe_work_results.get("ready")):
+            merged["errors"] = _without_error_markers(
+                merged.get("errors"),
+                exact=SAFE_WORK_RESULT_ERROR_CODES,
+                prefixes=SAFE_WORK_RESULT_ERROR_PREFIXES,
+            )
+
+    if fallback_applied:
+        warnings = list(merged.get("warnings") or [])
+        note = "operator_status_receipt_fallback_applied"
+        if note not in warnings:
+            warnings.append(note)
+        merged["warnings"] = warnings
+    merged["ok"] = not list(merged.get("errors") or [])
+    return merged
+
+
+def _resolved_operator_status_receipt_path(args: argparse.Namespace) -> Path:
+    explicit = str(getattr(args, "operator_status_receipt", "") or "").strip()
+    if not explicit:
+        return DEFAULT_OPERATOR_STATUS_RECEIPT
+    path = Path(explicit)
+    return path if path.is_absolute() else ROOT / path
+
+
+def _operator_status_receipt_fresh(receipt: dict[str, Any]) -> bool:
+    if not receipt:
+        return False
+    if str(receipt.get("contract_name") or "").strip() != OPERATOR_STATUS_CONTRACT:
+        return False
+    if str(receipt.get("generated_by") or "").strip() != OPERATOR_STATUS_GENERATOR:
+        return False
+    current_head = resolve_source_state_head(ROOT)
+    current_fingerprint = resolve_source_worktree_fingerprint(ROOT)
+    recorded_head = str(receipt.get("source_git_head") or "").strip()
+    recorded_fingerprint = str(receipt.get("source_state_fingerprint") or "").strip()
+    if current_fingerprint and recorded_fingerprint and current_fingerprint == recorded_fingerprint:
+        return True
+    if current_head and recorded_head and current_head == recorded_head:
+        return True
+    return False
+
+
+def _operator_status_source_coverage_ready(source_coverage: dict[str, Any]) -> bool:
+    if not source_coverage:
+        return False
+    if source_coverage.get("checked") is not True:
+        return False
+    if source_coverage.get("probe_ok") is not True:
+        return False
+    if str(source_coverage.get("status") or "").strip() not in READY_SOURCE_COVERAGE_STATUSES:
+        return False
+    return _safe_int(source_coverage.get("observed_lane_count"), default=0) > 0 or _safe_int(
+        source_coverage.get("observation_row_count"),
+        default=0,
+    ) > 0
+
+
+def _operator_status_telegram_ready(receipt: dict[str, Any]) -> bool:
+    approval_capture = dict(receipt.get("approval_capture") or {})
+    if approval_capture.get("telegram_binding_ready") is True:
+        return True
+    delivery_route = dict(receipt.get("delivery_route") or {})
+    if delivery_route.get("ready") is not True:
+        return False
+    selected_transport = str(delivery_route.get("selected_transport") or "").strip().lower()
+    selected_channel = str(delivery_route.get("selected_channel") or "").strip().lower()
+    return "telegram" in {selected_transport, selected_channel}
+
+
+def _operator_status_workspace_lane(receipt: dict[str, Any]) -> dict[str, Any]:
+    source_coverage = dict(receipt.get("source_coverage") or {})
+    for lane in list(source_coverage.get("lanes") or []):
+        if not isinstance(lane, dict):
+            continue
+        if str(lane.get("key") or "").strip() == "google_workspace":
+            return dict(lane)
+    return {}
+
+
+def _operator_status_workspace_ready(lane: dict[str, Any]) -> bool:
+    if not lane:
+        return False
+    if lane.get("observed") is not True:
+        return False
+    return str(lane.get("status") or "").strip() in READY_LANE_STATUSES
+
+
+def _operator_status_context_grounding(receipt: dict[str, Any]) -> dict[str, Any]:
+    context_grounding = dict(receipt.get("context_grounding") or {})
+    current_packet_context = dict(context_grounding.get("current_packet_context_grounding") or {})
+    if current_packet_context and _safe_int(context_grounding.get("item_count"), default=0) < 1:
+        return current_packet_context
+    return context_grounding
+
+
+def _without_error_markers(
+    errors: Any,
+    *,
+    exact: set[str] | None = None,
+    prefixes: tuple[str, ...] = (),
+) -> list[str]:
+    blocked = exact or set()
+    normalized = [str(item or "").strip() for item in list(errors or []) if str(item or "").strip()]
+    return [
+        item
+        for item in normalized
+        if item not in blocked and not any(item.startswith(prefix) for prefix in prefixes)
+    ]
 
 
 def _env_truthy(name: str, *, default: bool = False) -> bool:
@@ -847,9 +1076,10 @@ def _safe_int(value: Any, *, default: int) -> int:
 
 def _format_report(report: dict[str, Any]) -> str:
     status = "ok" if report["ok"] else "not ready"
+    count_label = str(report.get("source_count_label") or "signals").strip() or "signals"
     lines = [
         f"proactive OODA: {status}",
-        f"source: {report['source_mode']} ({report['signal_count']} signals, {report['actionable_count']} actionable)",
+        f"source: {report['source_mode']} ({report['signal_count']} {count_label}, {report['actionable_count']} actionable)",
         f"telegram: {'ready' if report['telegram_ready'] else 'not configured'}",
         f"delivery route: {_delivery_route_summary(report)}",
         f"workspace: {_workspace_status(report)}",
@@ -860,6 +1090,9 @@ def _format_report(report: dict[str, Any]) -> str:
         f"receipt observations: {report['receipt_observation_count']}",
         f"state: {report['state_path']}",
     ]
+    verification_source = str(report.get("verification_source") or "").strip()
+    if verification_source and verification_source != "host_runtime":
+        lines.insert(1, f"verification: {verification_source}")
     recovery = _delivery_recovery_summary(report)
     if recovery:
         lines.append(f"delivery recovery: {recovery}")
@@ -938,6 +1171,9 @@ def _delivery_guard_summary(report: dict[str, Any]) -> str:
 
 def _context_grounding_summary(report: dict[str, Any]) -> str:
     status = dict(report.get("context_grounding") or {})
+    current_packet_context = dict(status.get("current_packet_context_grounding") or {})
+    if current_packet_context and _safe_int(status.get("item_count"), default=0) < 1:
+        status = current_packet_context
     if not status.get("grounded"):
         item_count = int(status.get("item_count") or 0)
         if item_count:
