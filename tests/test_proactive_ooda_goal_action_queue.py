@@ -68,16 +68,12 @@ def test_goal_action_queue_signal_uses_only_prioritized_action_required_row() ->
     assert ooda_loop["reviewed"] is True
     assert ooda_loop["decide"]["approval_required"] is True
     stage = ooda_loop["act"]["stage"]
-    assert stage["kind"] == "approval_packet"
+    assert stage["kind"] == "internal_action"
+    assert stage["work_type"] == "record_internal_action"
     assert stage["approval_url"] == "https://ea.test/integrations/google"
-    assert stage["candidate_items"] == [
-        {
-            "label": "Open Google setup",
-            "url": "https://ea.test/integrations/google",
-            "candidate_source": "goal_action_queue",
-            "title": "Google Workspace OAuth test-user setup",
-        }
-    ]
+    assert stage["action_label"] == "Open Google setup"
+    assert stage["action_url"] == "https://ea.test/integrations/google"
+    assert stage["candidate_items"] == []
     assert "https://console.cloud.google.com/auth/audience?project=propertyquarry-498318" in stage["links"]
     assert signal.payload["raw_private_context_exposed"] is False  # type: ignore[index]
     assert signal.payload["raw_secret_exposed"] is False  # type: ignore[index]
@@ -112,11 +108,77 @@ def test_goal_action_queue_signal_builds_decision_ready_stage_packet() -> None:
     packet = build_stage_packets(digest)[0]
     result = build_safe_work_result(packet, network_fetch_enabled=False)
 
-    assert packet["stage"]["kind"] == "approval_packet"
-    assert packet["safe_work_order"]["work_type"] == "prepare_shortlist"
+    assert packet["stage"]["kind"] == "internal_action"
+    assert packet["safe_work_order"]["work_type"] == "record_internal_action"
     assert result["status"] == "staged_for_user_decision"
+    assert result["work_type"] == "record_internal_action"
+    assert result["recommended_option_or_draft"] == {
+        "kind": "internal_action",
+        "source": "stage_payload",
+        "value": {
+            "label": "Open Google setup",
+            "method": "get",
+            "url": "https://ea.test/integrations/google",
+        },
+    }
     assert result["staged_action_url"] == "https://ea.test/integrations/google"
+    assert result["shortlist"] == []
+    assert result["comparison_table"] == []
     assert result["audit"]["status"] == "pass"
+    assert result["approval_prompt"].startswith("Open Google setup:")
+    assert not result["approval_prompt"].startswith("Approve whether EA should proceed with this staged shortlist")
+    assert result["execution_receipt"]["network_fetch_enabled"] is False
+    assert result["execution_receipt"]["network_fetch_count"] == 0
+    assert result["execution_receipt"]["search_queries_used"] == []
+    assert result["execution_receipt"]["research_search_plan"]["mode"] == "internal_action"
+    assert result["execution_receipt"]["stop_condition"] == "account_review_ready_for_user_decision"
+
+
+def test_goal_action_queue_internal_action_bypasses_network_fetch_when_enabled() -> None:
+    digest = ProactiveOodaService(max_items=1).build_digest(
+        principal_id="exec",
+        signals=goal_action_queue_signals(_posture(), limit=1, public_base_url="https://ea.test"),
+    )
+    packet = build_stage_packets(digest)[0]
+
+    result = build_safe_work_result(packet, network_fetch_enabled=True)
+
+    assert result["work_type"] == "record_internal_action"
+    assert result["shortlist"] == []
+    assert result["comparison_table"] == []
+    assert result["evidence_refs"] == [
+        {
+            "kind": "internal_action",
+            "label": "Open Google setup",
+            "method": "get",
+            "url": "https://ea.test/integrations/google",
+            "url_hash": "3dc372cda2b7299517db24f95c4a25aad6afb2f51adb51579e5651d5e2bcb99a",
+        }
+    ]
+    assert result["execution_receipt"]["network_fetch_enabled"] is False
+    assert result["execution_receipt"]["page_checks"] == []
+    assert result["execution_receipt"]["search_queries_used"] == []
+
+
+def test_goal_action_queue_internal_action_requires_action_url() -> None:
+    digest = ProactiveOodaService(max_items=1).build_digest(
+        principal_id="exec",
+        signals=goal_action_queue_signals(_posture(), limit=1, public_base_url="https://ea.test"),
+    )
+    packet = build_stage_packets(digest)[0]
+    packet["stage"]["payload"].pop("action_url")  # type: ignore[index]
+    packet["stage"]["payload"].pop("approval_url")  # type: ignore[index]
+    packet["stage"]["payload"]["links"] = []  # type: ignore[index]
+    packet["safe_work_order"]["input_contract"].pop("action_url")  # type: ignore[index]
+    packet["safe_work_order"]["input_contract"]["links"] = []  # type: ignore[index]
+
+    result = build_safe_work_result(packet)
+
+    assert result["status"] == "blocked_needs_research_input"
+    assert result["recommended_option_or_draft"] == {}
+    assert result["audit"]["status"] == "review"
+    assert [issue["code"] for issue in result["audit"]["issues"]] == ["internal_action_surface_missing"]
+    assert result["execution_receipt"]["stop_condition"] == "quality_gate_failed"
 
 
 def test_runner_load_signals_ingests_goal_action_queue_when_enabled(tmp_path) -> None:

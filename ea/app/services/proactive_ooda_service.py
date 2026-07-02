@@ -1400,6 +1400,10 @@ def _structured_stage_payload(
         "google_binding_id",
         "google_account_email",
         "account_email",
+        "action_label",
+        "action_url",
+        "action_method",
+        "approval_prompt",
     ):
         if key in stage_section:
             payload[key] = (

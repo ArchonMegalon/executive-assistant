@@ -433,6 +433,16 @@ def build_safe_work_result(
     stage = packet.get("stage") if isinstance(packet.get("stage"), Mapping) else {}
     stage_payload = stage.get("payload") if isinstance(stage.get("payload"), Mapping) else {}
     work_type = str(order.get("work_type") or "research").strip() or "research"
+    if _is_internal_action_work_type(work_type):
+        return _build_internal_action_safe_work_result(
+            packet=packet,
+            order=order,
+            input_contract=input_contract,
+            order_quality_gate=order_quality_gate,
+            stage_payload=stage_payload,
+            work_type=work_type,
+            generated_at=generated_at,
+        )
     candidate_items = _candidate_items(input_contract=input_contract, stage_payload=stage_payload)
     context = _candidate_evaluation_context(input_contract=input_contract, stage_payload=stage_payload)
     flat_search_disabled_by_policy = not _proactive_ooda_flat_search_enabled() and _is_flat_property_search_context(context=context)
@@ -629,6 +639,141 @@ def build_safe_work_result(
 
 def build_safe_work_results(packets: Iterable[Mapping[str, Any]]) -> tuple[dict[str, Any], ...]:
     return tuple(build_safe_work_result(packet) for packet in packets)
+
+
+def _is_internal_action_work_type(work_type: str) -> bool:
+    return str(work_type or "").strip().lower() in {"record_internal_action", "internal_action", "operator_action"}
+
+
+def _build_internal_action_safe_work_result(
+    *,
+    packet: Mapping[str, Any],
+    order: Mapping[str, Any],
+    input_contract: Mapping[str, Any],
+    order_quality_gate: Mapping[str, Any],
+    stage_payload: Mapping[str, Any],
+    work_type: str,
+    generated_at: str | None,
+) -> dict[str, Any]:
+    action = _internal_action_surface(input_contract=input_contract, stage_payload=stage_payload)
+    has_material = bool(str(action.get("url") or "").strip())
+    status = "staged_for_user_decision" if has_material else "blocked_needs_research_input"
+    recommended = {"kind": "internal_action", "value": action, "source": "stage_payload"} if has_material else {}
+    audit = {
+        "status": "pass" if has_material else "review",
+        "issues": []
+        if has_material
+        else [
+            {
+                "code": "internal_action_surface_missing",
+                "severity": "warn",
+                "detail": "EA did not have enough internal action surface data to stage a user action.",
+            }
+        ],
+    }
+    audit_receipt = _audit_receipt(
+        audit=audit,
+        quality_gate=order_quality_gate,
+        status=status,
+    )
+    result_id = _result_id(packet=packet, order=order, generated_at=generated_at or "")
+    action_url = str(action.get("url") or "").strip()
+    action_label = str(action.get("label") or "").strip()
+    return {
+        "schema": SAFE_WORK_RESULT_SCHEMA,
+        "result_id": result_id,
+        "result_ref": f"safe_work_result:{result_id}",
+        "generated_at": generated_at or datetime.now(timezone.utc).isoformat(),
+        "source_packet_ref_hash": _hash_value(str(packet.get("packet_ref") or packet.get("packet_id") or "")),
+        "work_order_id_hash": _hash_value(str(order.get("work_order_id") or "")),
+        "work_order_schema": str(order.get("schema") or ""),
+        "status": status,
+        "work_type": "record_internal_action",
+        "summary": _internal_action_summary(order=order, action=action, has_material=has_material),
+        "recommended_option_or_draft": recommended,
+        "staged_action_url": action_url,
+        "shortlist": [],
+        "comparison_table": [],
+        "browser_action_receipt": {},
+        "quality_gate": _quality_gate_result(
+            quality_gate=order_quality_gate,
+            audit=audit,
+            status=status,
+        ),
+        "audit": audit,
+        "audit_receipt": audit_receipt,
+        "evidence_refs": (
+            [
+                {
+                    "kind": "internal_action",
+                    "label": action_label or "Open action",
+                    "url": action_url,
+                    "url_hash": _hash_value(action_url) if action_url else "",
+                    "method": str(action.get("method") or "get").strip() or "get",
+                }
+            ]
+            if action_url
+            else []
+        ),
+        "risks_or_tradeoffs": _risks_or_tradeoffs(input_contract=input_contract, stage_payload=stage_payload),
+        "approval_prompt": _internal_action_approval_prompt(
+            order=order,
+            stage_payload=stage_payload,
+            action=action,
+            has_material=has_material,
+        ),
+        "approval": {
+            "required": bool(dict(packet.get("approval") or {}).get("required")),
+            "gate": str(order.get("approval_gate") or _approval_gate(packet) or "").strip(),
+            "irreversible_actions_require_explicit_approval": True,
+        },
+        "execution_receipt": {
+            "network_fetch_enabled": False,
+            "network_fetch_count": 0,
+            "network_fetch_success_count": 0,
+            "search_candidate_count": 0,
+            "search_queries_used": [],
+            "research_search_plan": {
+                "policy": "internal_action_surface",
+                "mode": "internal_action",
+                "query_count": 0,
+                "target_host_count": 0,
+                "provider_query_terms": [],
+                "location_terms": [],
+                "flat_search_blockers": [],
+                "flat_search_allowed": False,
+            },
+            "context_fit_receipt": {
+                "schema": "proactive_ooda.context_fit_receipt.v1",
+                "provider_discovery_relevant": False,
+                "location_context_present": False,
+                "locality_context_applied": False,
+                "country_context_applied": False,
+                "provider_query_term_count": 0,
+                "provider_search_query_too_generic": False,
+                "raw_location_context_stored": False,
+                "raw_recipient_context_stored": False,
+                "raw_principal_id_stored": False,
+            },
+            "page_checks": [],
+            "browser_action_receipt_ref": "",
+            "browser_action_status": "",
+            "browser_action_user_action_required": False,
+            "quality_gate_status": str(audit_receipt.get("status") or "").strip(),
+            "stop_condition": "account_review_ready_for_user_decision" if has_material else "quality_gate_failed",
+            "external_actions_attempted": [],
+            "irreversible_actions_attempted": [],
+            "forbidden_without_explicit_approval": list(FORBIDDEN_WITHOUT_EXPLICIT_APPROVAL),
+            "safe_work_order_schema_valid": str(order.get("schema") or "") == SAFE_WORK_ORDER_SCHEMA,
+        },
+        "privacy": {
+            "raw_principal_id_stored": False,
+            "raw_signal_ref_stored": False,
+            "raw_location_context_stored": False,
+            "raw_recipient_context_stored": False,
+            "private_links_may_be_present": True,
+        },
+    }
 
 
 def _quality_gate_result(
@@ -1889,6 +2034,65 @@ def _browser_action_summary(receipt: Mapping[str, Any]) -> str:
     if reason:
         return "Browser task needs a human handoff before EA can continue."
     return ""
+
+
+def _internal_action_surface(*, input_contract: Mapping[str, Any], stage_payload: Mapping[str, Any]) -> dict[str, str]:
+    label = _first_present_string(
+        stage_payload.get("action_label"),
+        input_contract.get("action_label"),
+        stage_payload.get("next_action_label"),
+        input_contract.get("next_action_label"),
+        "Open action",
+    )
+    url = _first_present_string(
+        stage_payload.get("action_url"),
+        input_contract.get("action_url"),
+        stage_payload.get("approval_url"),
+        input_contract.get("approval_url"),
+        _first_string(stage_payload.get("links")),
+        _first_string(input_contract.get("links")),
+    )
+    method = _first_present_string(
+        stage_payload.get("action_method"),
+        input_contract.get("action_method"),
+        stage_payload.get("next_action_method"),
+        input_contract.get("next_action_method"),
+        "get",
+    ).lower()
+    return {
+        "label": label,
+        "url": url,
+        "method": method if method in {"get", "post"} else "get",
+    }
+
+
+def _internal_action_summary(*, order: Mapping[str, Any], action: Mapping[str, str], has_material: bool) -> str:
+    requested = str(order.get("requested_outcome") or "").strip()
+    label = str(action.get("label") or "Open action").strip()
+    if has_material:
+        return requested or f"Action needed: {label}."
+    return requested or "Internal action needs a usable action surface before EA can ask the user to proceed."
+
+
+def _internal_action_approval_prompt(
+    *,
+    order: Mapping[str, Any],
+    stage_payload: Mapping[str, Any],
+    action: Mapping[str, str],
+    has_material: bool,
+) -> str:
+    explicit = str(stage_payload.get("approval_prompt") or "").strip()
+    if explicit:
+        return explicit
+    if not has_material:
+        return "Action surface missing; inspect the goal action queue before asking the user to proceed."
+    label = str(action.get("label") or "Open action").strip()
+    requested = str(order.get("requested_outcome") or "").strip()
+    if requested and label:
+        return f"Action needed: {label}. {requested}"
+    if label:
+        return f"Action needed: {label}."
+    return "Action needed: open the staged EA action surface."
 
 
 def _staged_action_url(

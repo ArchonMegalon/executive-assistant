@@ -19,6 +19,7 @@ ALLOWED_BEFORE_APPROVAL = (
     "prepare_shortlist",
     "prepare_cart_or_link",
     "prepare_booking_candidate",
+    "record_internal_action",
 )
 FORBIDDEN_WITHOUT_EXPLICIT_APPROVAL = (
     "purchase",
@@ -351,6 +352,11 @@ def _normalized_work_type(value: Any) -> str:
         "reservation": "prepare_booking_candidate",
         "prepare_booking": "prepare_booking_candidate",
         "prepare_booking_candidate": "prepare_booking_candidate",
+        "internal_action": "record_internal_action",
+        "record_action": "record_internal_action",
+        "record_internal_action": "record_internal_action",
+        "operator_action": "record_internal_action",
+        "action_surface": "record_internal_action",
     }
     return aliases.get(normalized, "")
 
@@ -461,6 +467,10 @@ def _work_input_contract(*, stage_payload: Mapping[str, Any], stage_artifacts: t
         "google_binding_id",
         "google_account_email",
         "account_email",
+        "action_label",
+        "action_url",
+        "action_method",
+        "approval_prompt",
     )
     inputs = {key: _json_safe(stage_payload.get(key)) for key in keys if key in stage_payload}
     inputs["expected_artifacts"] = list(stage_artifacts)
