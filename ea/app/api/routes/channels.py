@@ -4624,7 +4624,7 @@ def _telegram_tomorrow_focus_reply(
         return " ".join(parts)
     if profile_lines:
         return "I do not see a concrete appointment for tomorrow yet. " + " ".join(line.rstrip(". ") + "." for line in profile_lines[:2] if line.strip())
-    return "I do not see a concrete appointment for tomorrow yet. Focus on clearing the most important inbox and property follow-ups first."
+    return "I do not see a concrete appointment for tomorrow yet. Focus on clearing the most important inbox and queue follow-ups first."
 
 
 def _telegram_summary_reply(
@@ -5064,7 +5064,7 @@ def _telegram_profile_followup_reply_text(
         normalized_ref = str(item or "").strip()
         if normalized_ref and normalized_ref not in theme_refs:
             theme_refs.append(normalized_ref)
-    for key in ("active_queue_profile_refs", "active_property_profile_refs"):
+    for key in ("active_queue_profile_refs",):
         raw = str(persisted_object_map.get(key) or "").strip()
         if not raw:
             continue
@@ -5387,74 +5387,68 @@ def _telegram_profile_followup_refs_text(item: object) -> str:
     return ", ".join(refs[:3])
 
 
+_TELEGRAM_PROPERTY_OBJECT_KEYS = (
+    "active_property_candidate",
+    "active_property_refs",
+    "active_property_profile_refs",
+)
+_TELEGRAM_PROPERTY_COMPARISON_KEYS = (
+    "comparison_primary",
+    "comparison_primary_action",
+    "comparison_primary_reason",
+    "comparison_primary_score",
+    "comparison_secondary",
+    "comparison_secondary_action",
+    "comparison_secondary_reason",
+    "comparison_secondary_score",
+    "comparison_pair",
+    "comparison_pair_refs",
+)
+_TELEGRAM_PROPERTY_INTENTS = {"property_compare", "property_review"}
+
+
+def _telegram_strip_property_object_map(active_object_map: dict[str, str] | None) -> dict[str, str]:
+    sanitized = {
+        str(key or "").strip(): str(value or "").strip()
+        for key, value in dict(active_object_map or {}).items()
+        if str(key or "").strip() and str(value or "").strip()
+    }
+    for key in _TELEGRAM_PROPERTY_OBJECT_KEYS:
+        sanitized.pop(key, None)
+    return sanitized
+
+
+def _telegram_strip_property_comparison_state(comparison_state: dict[str, str] | None) -> dict[str, str]:
+    sanitized = {
+        str(key or "").strip(): str(value or "").strip()
+        for key, value in dict(comparison_state or {}).items()
+        if str(key or "").strip() and str(value or "").strip()
+    }
+    for key in _TELEGRAM_PROPERTY_COMPARISON_KEYS:
+        sanitized.pop(key, None)
+    return sanitized
+
+
+def _telegram_strip_property_intent_state(intent_state: dict[str, str] | None) -> dict[str, str]:
+    sanitized = {
+        str(key or "").strip(): str(value or "").strip()
+        for key, value in dict(intent_state or {}).items()
+        if str(key or "").strip() and str(value or "").strip()
+    }
+    if str(sanitized.get("active_intent") or "").strip().lower() in _TELEGRAM_PROPERTY_INTENTS:
+        sanitized.pop("active_intent", None)
+        sanitized.pop("active_profile_themes", None)
+    return sanitized
+
+
 def _telegram_property_comparison_lines(brief_items: list[object], *, limit: int = 2) -> list[str]:
-    candidates: list[object] = []
-    for item in brief_items:
-        title = str(getattr(item, "title", "") or "").strip()
-        object_ref = str(getattr(item, "object_ref", "") or "").strip().lower()
-        why_now = str(getattr(item, "why_now", "") or "").strip()
-        recommended_action = str(getattr(item, "recommended_action", "") or "").strip()
-        score = float(getattr(item, "score", 0.0) or 0.0)
-        if score <= 0.0:
-            continue
-        title_lower = title.lower()
-        looks_property = (
-            object_ref.startswith("willhaben:")
-            or "listing" in title_lower
-            or "apartment" in title_lower
-            or "wohnung" in title_lower
-            or "property" in title_lower
-        )
-        if not looks_property:
-            continue
-        if not why_now and not recommended_action:
-            continue
-        candidates.append(item)
-    if len(candidates) < 2:
-        return []
-    candidates.sort(key=lambda row: float(getattr(row, "score", 0.0) or 0.0), reverse=True)
-    lines: list[str] = []
-    top = candidates[:limit]
-    for index, item in enumerate(top, start=1):
-        title = str(getattr(item, "title", "") or "").strip()
-        score = int(round(float(getattr(item, "score", 0.0) or 0.0)))
-        why_now = str(getattr(item, "why_now", "") or "").strip()
-        recommended_action = str(getattr(item, "recommended_action", "") or "").strip()
-        detail = f"- option {index}: {title} (score {score})"
-        if why_now:
-            detail += f": {why_now}"
-        if recommended_action:
-            detail += f" | next: {recommended_action}"
-        detail += _telegram_brief_reference_suffix(item)
-        lines.append(detail)
-    return lines
+    # Apartment/property comparison belongs to PropertyQuarry, not the EA Telegram assistant.
+    return []
 
 
 def _telegram_property_candidates(brief_items: list[object]) -> list[object]:
-    candidates: list[object] = []
-    for item in brief_items:
-        title = str(getattr(item, "title", "") or "").strip()
-        object_ref = str(getattr(item, "object_ref", "") or "").strip().lower()
-        why_now = str(getattr(item, "why_now", "") or "").strip()
-        recommended_action = str(getattr(item, "recommended_action", "") or "").strip()
-        score = float(getattr(item, "score", 0.0) or 0.0)
-        if score <= 0.0:
-            continue
-        title_lower = title.lower()
-        looks_property = (
-            object_ref.startswith("willhaben:")
-            or "listing" in title_lower
-            or "apartment" in title_lower
-            or "wohnung" in title_lower
-            or "property" in title_lower
-        )
-        if not looks_property:
-            continue
-        if not why_now and not recommended_action:
-            continue
-        candidates.append(item)
-    candidates.sort(key=lambda row: float(getattr(row, "score", 0.0) or 0.0), reverse=True)
-    return candidates
+    # Apartment/property candidates belong to PropertyQuarry, not the EA Telegram assistant.
+    return []
 
 
 def _telegram_build_intent_state(
@@ -5463,10 +5457,10 @@ def _telegram_build_intent_state(
     reply_text: str = "",
     active_object_map: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    active_object_map = dict(active_object_map or {})
+    active_object_map = _telegram_strip_property_object_map(active_object_map)
     lowered = " ".join((str(text or "") + " " + str(reply_text or "")).lower().split())
     existing_theme_refs: list[str] = []
-    for key in ("active_property_profile_refs", "active_queue_profile_refs"):
+    for key in ("active_queue_profile_refs",):
         raw = str(active_object_map.get(key) or "").strip()
         if not raw:
             continue
@@ -5475,10 +5469,7 @@ def _telegram_build_intent_state(
             if normalized and normalized not in existing_theme_refs:
                 existing_theme_refs.append(normalized)
     intent = ""
-    if any(marker in lowered for marker in ("compare", "better", "other one", "that one", "which one", "vs ")):
-        if active_object_map.get("active_property_candidate"):
-            intent = "property_compare"
-    if not intent and any(
+    if any(
         marker in lowered
         for marker in (
             "rehab",
@@ -5502,20 +5493,6 @@ def _telegram_build_intent_state(
         marker in lowered for marker in ("paperwork", "that", "that one", "the follow-up", "the paperwork", "the admin")
     ):
         intent = "admin_followup"
-    if not intent and any(
-        marker in lowered
-        for marker in (
-            "property",
-            "listing",
-            "apartment",
-            "wohnung",
-            "tour",
-            "shortlist",
-            "willhaben",
-        )
-    ):
-        if active_object_map.get("active_property_candidate") or active_object_map.get("active_queue_item"):
-            intent = "property_review"
     if not intent and any(marker in lowered for marker in ("approve", "approval", "reply", "draft", "email thread")):
         if active_object_map.get("active_email_thread") or active_object_map.get("active_queue_item"):
             intent = "email_approval"
@@ -5537,8 +5514,8 @@ def _telegram_reinforced_profile_themes_from_reply(
     active_object_map: dict[str, str] | None = None,
 ) -> str:
     theme_refs: list[str] = []
-    active_object_map = dict(active_object_map or {})
-    for key in ("active_property_profile_refs", "active_queue_profile_refs"):
+    active_object_map = _telegram_strip_property_object_map(active_object_map)
+    for key in ("active_queue_profile_refs",):
         raw = str(active_object_map.get(key) or "").strip()
         if not raw:
             continue
@@ -5577,11 +5554,7 @@ def _telegram_reinforced_intent_state_from_reply(
     reply_text: str,
     active_object_map: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    reinforced = {
-        str(key or "").strip(): str(value or "").strip()
-        for key, value in dict(intent_state or {}).items()
-        if str(key or "").strip() and str(value or "").strip()
-    }
+    reinforced = _telegram_strip_property_intent_state(intent_state)
     lowered_reply = " ".join(str(reply_text or "").lower().split())
     if not lowered_reply:
         return reinforced
@@ -5612,8 +5585,8 @@ def _telegram_reinforced_intent_state_from_reply(
         for item in str(reinforced.get("active_profile_themes") or "").split(",")
         if str(item or "").strip()
     ]
-    active_object_map = dict(active_object_map or {})
-    for key in ("active_property_profile_refs", "active_queue_profile_refs"):
+    active_object_map = _telegram_strip_property_object_map(active_object_map)
+    for key in ("active_queue_profile_refs",):
         raw = str(active_object_map.get(key) or "").strip()
         if not raw:
             continue
@@ -5647,11 +5620,7 @@ def _telegram_with_admin_followup_state(
     queue_items: list[object],
     active_object_map: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    enriched = {
-        str(key or "").strip(): str(value or "").strip()
-        for key, value in dict(intent_state or {}).items()
-        if str(key or "").strip() and str(value or "").strip()
-    }
+    enriched = _telegram_strip_property_intent_state(intent_state)
     if str(enriched.get("active_intent") or "").strip().lower() != "admin_followup":
         return enriched
     theme_refs: list[str] = []
@@ -5659,8 +5628,8 @@ def _telegram_with_admin_followup_state(
         normalized = str(item or "").strip()
         if normalized and normalized not in theme_refs:
             theme_refs.append(normalized)
-    active_object_map = dict(active_object_map or {})
-    for key in ("active_property_profile_refs", "active_queue_profile_refs"):
+    active_object_map = _telegram_strip_property_object_map(active_object_map)
+    for key in ("active_queue_profile_refs",):
         raw = str(active_object_map.get(key) or "").strip()
         if not raw:
             continue
@@ -5706,21 +5675,6 @@ def _telegram_build_active_object_map(
             return
         result[normalized_label] = normalized_value
 
-    property_briefs = _telegram_property_candidates(brief_items)
-    if property_briefs:
-        top_property = property_briefs[0]
-        _set(
-            "active_property_candidate",
-            f"{str(getattr(top_property, 'title', '') or '').strip()} | "
-            f"{str(getattr(top_property, 'object_ref', '') or '').strip()}",
-        )
-        refs = _telegram_brief_reference_suffix(top_property).replace(" | refs: ", "", 1).strip()
-        if refs:
-            _set("active_property_refs", refs)
-        profile_refs = _telegram_profile_followup_refs_text(top_property)
-        if profile_refs:
-            _set("active_property_profile_refs", profile_refs)
-
     queue_items_sorted = list(queue_items)
     queue_items_sorted.sort(
         key=lambda row: (
@@ -5753,7 +5707,7 @@ def _telegram_build_active_object_map(
     if email_thread_refs:
         _set("active_email_thread", email_thread_refs[0])
 
-    return result
+    return _telegram_strip_property_object_map(result)
 
 
 def _telegram_build_comparison_state(brief_items: list[object]) -> dict[str, str]:
@@ -5797,7 +5751,7 @@ def _telegram_build_comparison_state(brief_items: list[object]) -> dict[str, str
         result["comparison_secondary_action"] = second_action
     if second_score > 0.0:
         result["comparison_secondary_score"] = str(int(round(second_score)))
-    return result
+    return _telegram_strip_property_comparison_state(result)
 
 
 def _telegram_reinforce_comparison_state_from_reply(
@@ -5806,7 +5760,7 @@ def _telegram_reinforce_comparison_state_from_reply(
     brief_items: list[object],
     reply_text: str,
 ) -> dict[str, str]:
-    reinforced = dict(comparison_state or {})
+    reinforced = _telegram_strip_property_comparison_state(comparison_state)
     lowered_reply = " ".join(str(reply_text or "").lower().split())
     if not lowered_reply:
         return reinforced
@@ -5869,7 +5823,7 @@ def _telegram_reinforce_comparison_state_from_reply(
             reinforced["comparison_secondary_action"] = second_action
         if second_score > 0.0:
             reinforced["comparison_secondary_score"] = str(int(round(second_score)))
-    return reinforced
+    return _telegram_strip_property_comparison_state(reinforced)
 
 
 def _telegram_reinforce_active_object_map_from_reply(
@@ -5879,30 +5833,10 @@ def _telegram_reinforce_active_object_map_from_reply(
     queue_items: list[object],
     reply_text: str,
 ) -> dict[str, str]:
-    reinforced = dict(active_object_map or {})
+    reinforced = _telegram_strip_property_object_map(active_object_map)
     lowered_reply = " ".join(str(reply_text or "").lower().split())
     if not lowered_reply:
         return reinforced
-
-    property_briefs = sorted(
-        list(brief_items),
-        key=lambda row: float(getattr(row, "score", 0.0) or 0.0),
-        reverse=True,
-    )
-    for item in property_briefs:
-        title = str(getattr(item, "title", "") or "").strip()
-        object_ref = str(getattr(item, "object_ref", "") or "").strip()
-        title_lower = title.lower()
-        object_ref_lower = object_ref.lower()
-        if title and title_lower in lowered_reply or (object_ref and object_ref_lower in lowered_reply):
-            reinforced["active_property_candidate"] = f"{title} | {object_ref}".strip(" |")
-            refs = _telegram_brief_reference_suffix(item).replace(" | refs: ", "", 1).strip()
-            if refs:
-                reinforced["active_property_refs"] = refs
-            profile_refs = _telegram_profile_followup_refs_text(item)
-            if profile_refs:
-                reinforced["active_property_profile_refs"] = profile_refs
-            break
 
     queue_candidates = sorted(
         list(queue_items),
@@ -5929,15 +5863,13 @@ def _telegram_reinforce_active_object_map_from_reply(
                     break
             break
 
-    return reinforced
+    return _telegram_strip_property_object_map(reinforced)
 
 
 def _telegram_active_object_map_lines(active_object_map: dict[str, str]) -> list[str]:
+    active_object_map = _telegram_strip_property_object_map(active_object_map)
     lines: list[str] = []
     for key in (
-        "active_property_candidate",
-        "active_property_refs",
-        "active_property_profile_refs",
         "active_queue_item",
         "active_queue_refs",
         "active_queue_profile_refs",
@@ -5965,11 +5897,7 @@ def _telegram_recent_persisted_comparison_state(
         payload = dict(row.payload or {})
         comparison_state = payload.get("comparison_state")
         if isinstance(comparison_state, dict) and comparison_state:
-            return {
-                str(key or "").strip(): str(value or "").strip()
-                for key, value in comparison_state.items()
-                if str(key or "").strip() and str(value or "").strip()
-            }
+            return _telegram_strip_property_comparison_state(comparison_state)
     return {}
 
 
@@ -5989,11 +5917,7 @@ def _telegram_recent_persisted_intent_state(
         payload = dict(row.payload or {})
         intent_state = payload.get("intent_state")
         if isinstance(intent_state, dict) and intent_state:
-            return {
-                str(key or "").strip(): str(value or "").strip()
-                for key, value in intent_state.items()
-                if str(key or "").strip() and str(value or "").strip()
-            }
+            return _telegram_strip_property_intent_state(intent_state)
     return {}
 
 
@@ -6013,11 +5937,7 @@ def _telegram_recent_persisted_object_map(
         payload = dict(row.payload or {})
         active_object_map = payload.get("active_object_map")
         if isinstance(active_object_map, dict) and active_object_map:
-            return {
-                str(key or "").strip(): str(value or "").strip()
-                for key, value in active_object_map.items()
-                if str(key or "").strip() and str(value or "").strip()
-            }
+            return _telegram_strip_property_object_map(active_object_map)
     return {}
 
 
@@ -6028,28 +5948,6 @@ def _telegram_office_grounding_text(container: AppContainer, *, principal_id: st
     ltd_profiles = _telegram_ltd_runtime_profiles(container)
     brief_items = []
     queue_items = []
-    preference_lines: list[str] = []
-    try:
-        bundle = product_service.get_preference_profile(principal_id=principal_id, person_id="self")
-        nodes = list(bundle.get("preference_nodes") or [])
-        active_nodes = [
-            row
-            for row in nodes
-            if str(row.get("domain") or "").strip().lower() == "willhaben"
-            and str(row.get("status") or "").strip().lower() == "active"
-        ]
-        for row in active_nodes[:8]:
-            key = str(row.get("key") or "").strip()
-            value = row.get("value_json")
-            confidence = float(row.get("confidence") or 0.0)
-            if isinstance(value, list):
-                rendered = ", ".join(str(item or "").strip() for item in value if str(item or "").strip())
-            else:
-                rendered = str(value).strip()
-            if key and rendered:
-                preference_lines.append(f"- {key}: {rendered} (confidence {confidence:.2f})")
-    except Exception:
-        preference_lines = []
     admin_focus_lines = _telegram_profile_admin_lines(container, principal_id=principal_id, limit=4)
     try:
         brief_items = list(product_service.list_brief_items(principal_id=principal_id, limit=5))
@@ -6084,9 +5982,7 @@ def _telegram_office_grounding_text(container: AppContainer, *, principal_id: st
                 derived_admin_refs.append(normalized_ref)
     for raw in (
         str(persisted_intent_state.get("active_profile_themes") or "").strip(),
-        str(active_object_map.get("active_property_profile_refs") or "").strip(),
         str(active_object_map.get("active_queue_profile_refs") or "").strip(),
-        str(persisted_object_map.get("active_property_profile_refs") or "").strip(),
         str(persisted_object_map.get("active_queue_profile_refs") or "").strip(),
     ):
         if not raw:
@@ -6158,9 +6054,6 @@ def _telegram_office_grounding_text(container: AppContainer, *, principal_id: st
         active_admin_secondary_title = str(persisted_intent_state.get("active_admin_secondary_title") or "").strip()
         if active_admin_secondary_title:
             lines.append(f"- active_admin_secondary_title: {active_admin_secondary_title}")
-    if preference_lines:
-        lines.append("Active housing preferences:")
-        lines.extend(preference_lines)
     if admin_focus_lines:
         lines.append("Active admin focus:")
         lines.extend(f"- {line}" for line in admin_focus_lines)
@@ -6778,7 +6671,7 @@ def _telegram_command_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDec
         return TelegramTurnDecision(
             reply_text=(
                 f"{handle} is connected to Executive Assistant.\n\n"
-                "You can send messages, links, property alerts, and follow-up requests here. "
+                "You can send messages, links, and follow-up requests here. "
                 f"EA will capture this chat for {_assistant_owner_label()} and use it as a live assistant inbox."
             )
         )
@@ -6789,8 +6682,7 @@ def _telegram_command_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDec
                 "/start - connect this chat to Executive Assistant\n"
                 "/help - show this help text\n"
                 "/status - check bot and routing status\n\n"
-                "/scout_update /scout-update /scoutupdate - generate Scout bundle from a listing link\n"
-                "You can also send property links, notes, or requests in plain text."
+                "You can also send notes, links, or direct assistant requests in plain text."
             )
         )
     if command == "/status":
@@ -6798,7 +6690,7 @@ def _telegram_command_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDec
             reply_text=(
                 "EA is online.\n"
                 "Telegram ingest is active.\n"
-                "Property email sync is active.\n"
+                "Google signal sync is active.\n"
                 "Pocket sync is active.\n"
                 "Teable preference review sync is active."
             )

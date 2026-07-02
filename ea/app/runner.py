@@ -850,6 +850,8 @@ def _run_scheduler_google_signal_sync(container, log: logging.Logger) -> dict[st
 
 
 def _scheduler_property_scout_enabled() -> bool:
+    if not _scheduler_property_only_profile_enabled():
+        return False
     if _env_bool("EA_PROACTIVE_OODA_DISABLE_FLAT_SEARCH", False):
         return False
     if not _env_bool("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED", False):
