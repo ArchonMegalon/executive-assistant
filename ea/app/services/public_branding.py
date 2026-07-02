@@ -19,6 +19,11 @@ PROPERTYQUARRY_HOSTS = _normalized_hosts_from_env(
     default=("propertyquarry.com", "www.propertyquarry.com"),
 )
 
+EA_PUBLIC_HOSTS = _normalized_hosts_from_env(
+    "EA_PUBLIC_HOSTS",
+    default=("myexternalbrain.com", "www.myexternalbrain.com"),
+)
+
 
 def _propertyquarry_default_enabled() -> bool:
     raw = str(os.getenv("PROPERTYQUARRY_DEFAULT_BRAND") or "0").strip().lower()
@@ -45,6 +50,18 @@ def _propertyquarry_brand() -> dict[str, str]:
 
 def brand_from_hostname(hostname: str | None) -> dict[str, str]:
     normalized = str(hostname or "").strip().lower().rstrip(".")
+    if normalized in EA_PUBLIC_HOSTS:
+        return {
+            "key": "ea",
+            "name": "Executive Assistant",
+            "mark": "EA",
+            "create_label": "Create personal workspace",
+            "sign_in_label": "Sign in",
+            "workspace_label": "Assistant workspace",
+            "app_home": "/app/today",
+            "public_base_url": str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "").strip().rstrip("/"),
+            "repo_url": "https://github.com/ArchonMegalon/executive-assistant/blob/main/ARCHITECTURE_MAP.md",
+        }
     if normalized in PROPERTYQUARRY_HOSTS or _propertyquarry_default_enabled():
         return _propertyquarry_brand()
     return {

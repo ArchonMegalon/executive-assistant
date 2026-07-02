@@ -1344,7 +1344,6 @@ def app_section_payload(
                 },
             ],
             "stats": [
-                {"label": "Country", "value": property_country_label},
                 {"label": "Providers", "value": str(len(property_selected_platform_labels) or 0)},
                 {"label": "Sources", "value": str(int(property_summary.get("sources_total") or 0))},
                 {"label": "Listings", "value": str(int(property_summary.get("listing_total") or 0))},
@@ -2029,7 +2028,6 @@ def property_workspace_payload(
             "title": "Current saved search",
             "detail": " | ".join(
                 part for part in (
-                    str(property_state.get("country_label") or "").strip(),
                     f"{len(selected_locations)} target area(s)" if selected_locations else "",
                     f"{len(selected_platforms)} provider(s)" if selected_platforms else "",
                 ) if part
