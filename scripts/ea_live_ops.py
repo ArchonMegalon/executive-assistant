@@ -5794,9 +5794,21 @@ def probe_whatsapp_pairing(
         "qr_svg_written": qr_svg_written,
         "qr_svg_path": str(qr_svg_path) if qr_svg_written else "",
         "qr_svg_error": qr_svg_error,
+        "next_action_href": "",
+        "next_action_label": "",
+        "next_action_method": "",
         "observed_at": observed_at,
         "source": "whatsapp_web_session_sidecar.qr",
     }
+    if next_action == "scan_whatsapp_web_qr":
+        action_href = str(pair_url or "").strip()
+        action_label = "Open WhatsApp pairing"
+        if not action_href and qr_svg_written:
+            action_href = str(qr_svg_path).strip()
+            action_label = "Open WhatsApp QR"
+        report["next_action_href"] = action_href
+        report["next_action_label"] = action_label if action_href else ""
+        report["next_action_method"] = "get" if action_href else ""
 
     if send_telegram_to_principal:
         pair_url_scope = str(report["pair_url_scope"])
@@ -5872,6 +5884,10 @@ OPERATOR_READINESS_DETAIL_FIELDS: dict[str, tuple[str, ...]] = {
         "pair_url_scope",
         "pair_url_actionable_from_telegram",
         "qr_svg_written",
+        "qr_svg_path",
+        "next_action_href",
+        "next_action_label",
+        "next_action_method",
         "telegram_caption_includes_pair_url",
     ),
     "teable_recovery": (
@@ -5969,6 +5985,9 @@ def _operator_readiness_component(
         "status": status,
         "reason": str(report.get("reason") or report.get("blocking_reason") or "").strip(),
         "next_action": str(report.get("next_action") or "").strip(),
+        "next_action_href": str(report.get("next_action_href") or "").strip(),
+        "next_action_label": str(report.get("next_action_label") or "").strip(),
+        "next_action_method": str(report.get("next_action_method") or "").strip(),
         "observed_at": str(report.get("observed_at") or "").strip(),
         "source": str(report.get("source") or "").strip(),
         "details": details,
@@ -5984,6 +6003,9 @@ def _operator_readiness_failed_component(key: str, label: str, reason: str) -> d
         "status": "probe_failed",
         "reason": str(reason or "probe_failed").strip() or "probe_failed",
         "next_action": f"inspect_{key}_probe",
+        "next_action_href": "",
+        "next_action_label": "",
+        "next_action_method": "",
         "observed_at": _utc_now(),
         "source": "ea_live_ops.aggregate",
         "details": {},
@@ -6077,7 +6099,7 @@ def probe_operator_readiness(
             lambda: probe_whatsapp_pairing(
                 args=args,
                 output_format="json",
-                write_qr_svg=False,
+                write_qr_svg=True,
             ),
         )
     append_component(
@@ -6133,6 +6155,9 @@ def probe_operator_readiness(
                 "component_label": str(item.get("label") or "").strip(),
                 "action": action,
                 "reason": str(item.get("reason") or "").strip(),
+                "href": str(item.get("next_action_href") or "").strip(),
+                "label": str(item.get("next_action_label") or "").strip(),
+                "method": str(item.get("next_action_method") or "").strip(),
             }
         )
     if probe_failed_count:
@@ -6152,6 +6177,9 @@ def probe_operator_readiness(
         "probe_failed_count": probe_failed_count,
         "components": components,
         "next_actions": next_actions,
+        "next_action_href": str(next_actions[0].get("href") or "").strip() if next_actions else "",
+        "next_action_label": str(next_actions[0].get("label") or "").strip() if next_actions else "",
+        "next_action_method": str(next_actions[0].get("method") or "").strip() if next_actions else "",
         "observed_at": observed_at,
         "source": "ea_live_ops.aggregate",
     }
