@@ -43,6 +43,81 @@ def test_gold_operator_runtime_blocks_when_source_coverage_has_missing_lane() ->
     assert detail["next_action"] == "sync_pocket_ai_audio_transcripts"
 
 
+def test_gold_materializer_prefers_live_runtime_probe_when_operator_status_is_live(
+    monkeypatch: object,
+    tmp_path: Path,
+) -> None:
+    operator_status_path = tmp_path / "operator_status.json"
+    output_path = tmp_path / "gold.json"
+    operator_status_path.write_text(
+        json.dumps(
+            {
+                "status": "ready_with_live_receipt",
+                "live_receipt_checked": True,
+                "approval_capture_surface": {"source": "docker_compose_exec"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured: dict[str, object] = {}
+
+    def _fake_runtime_bundle(**kwargs: object) -> tuple[dict[str, object], bool]:
+        captured.update(kwargs)
+        return (
+            {
+                "run_receipt": {},
+                "stage_packet": {},
+                "safe_work_result": {},
+                "approval_outcome": {},
+            },
+            False,
+        )
+
+    monkeypatch.setattr(gold_acceptance, "_runtime_artifact_bundle", _fake_runtime_bundle)
+    monkeypatch.setattr(gold_acceptance, "_refresh_operator_status_snapshot", lambda path, current: current)
+    monkeypatch.setattr(gold_acceptance, "_git_head", lambda path=gold_acceptance.ROOT: "head")
+    monkeypatch.setattr(gold_acceptance, "_source_fingerprint", lambda path=gold_acceptance.ROOT: "fingerprint")
+
+    receipt = gold_acceptance.materialize_proactive_ooda_gold_acceptance(
+        output_path=output_path,
+        operator_status_path=operator_status_path,
+    )
+
+    assert captured["allow_live_runtime_probe"] is True
+    assert receipt["evidence_receipts"]["operator_status"]["status"] == "ready_with_live_receipt"
+
+
+def test_gold_runtime_bundle_live_probe_prefers_current_packet_over_browse_backed_override(
+    monkeypatch: object,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_probe(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {
+            "probe_ok": True,
+            "run_receipt": {"notification_status": "sent"},
+            "stage_packet": {"packet_ref": "stage_packet:current"},
+            "safe_work_result": {"result_ref": "safe_work_result:current", "status": "staged_for_user_decision"},
+            "approval_outcome": {},
+        }
+
+    monkeypatch.setattr(gold_acceptance.ea_live_ops, "probe_proactive_artifacts", _fake_probe)
+    monkeypatch.setattr(gold_acceptance, "load_runtime_artifact_bundle", lambda **_: {})
+
+    bundle, used_live = gold_acceptance._runtime_artifact_bundle(  # noqa: SLF001
+        run_receipt_path=None,
+        stage_packet_dir=None,
+        safe_work_result_dir=None,
+        allow_live_runtime_probe=True,
+        allow_default_local_artifacts=False,
+    )
+
+    assert used_live is True
+    assert captured["prefer_browse_backed_delivery"] is False
+    assert dict(bundle.get("stage_packet") or {})["packet_ref"] == "stage_packet:current"
+
+
 def test_gold_operator_runtime_accepts_complete_source_coverage() -> None:
     ready, detail = gold_acceptance._operator_runtime_source_coverage_posture(  # noqa: SLF001
         {
@@ -101,6 +176,38 @@ def test_gold_operator_runtime_accepts_operator_status_receipt_for_current_sourc
     assert detail["operator_status_source_current"] is True
     assert detail["operator_status_source_git_head_matches_current"] is True
     assert detail["operator_status_source_fingerprint_matches_current"] is True
+
+
+def test_browse_evidence_not_required_for_internal_action_packet() -> None:
+    required, reason = gold_acceptance._browse_evidence_required(  # noqa: SLF001
+        stage_packet={
+            "stage": {"payload": {"work_type": "record_internal_action"}},
+            "safe_work_order": {"work_type": "record_internal_action"},
+        },
+        safe_work_result={
+            "work_type": "record_internal_action",
+            "execution_receipt": {"research_search_plan": {"mode": "internal_action_surface"}},
+        },
+    )
+
+    assert required is False
+    assert reason in {"work_type:record_internal_action", "research_mode:internal_action_surface"}
+
+
+def test_browse_evidence_required_for_compare_options_packet() -> None:
+    required, reason = gold_acceptance._browse_evidence_required(  # noqa: SLF001
+        stage_packet={
+            "stage": {"payload": {"work_type": "compare_options", "research_query": "compare options"}},
+            "safe_work_order": {"work_type": "compare_options"},
+        },
+        safe_work_result={
+            "work_type": "compare_options",
+            "execution_receipt": {"research_search_plan": {"mode": "web_search"}},
+        },
+    )
+
+    assert required is True
+    assert reason in {"research_or_browser_payload", "work_type:compare_options"}
 
 
 def test_gold_context_grounding_blocks_assistant_grade_shortlist_without_any_grounding() -> None:

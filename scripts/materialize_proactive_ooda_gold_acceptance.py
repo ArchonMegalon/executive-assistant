@@ -44,7 +44,7 @@ DEFAULT_SAFE_WORK_RESULT_DIR = ROOT / "state" / "proactive_ooda_safe_work_result
 DEFAULT_RUN_RECEIPT = ROOT / "state" / "proactive_ooda_latest_run.generated.json"
 CONTRACT_NAME = "ea.proactive_ooda_gold_acceptance.v1"
 RULES = [
-    "This receipt proves proactive OODA gold only when routed delivery, assistant-grade source intent, live browse evidence, a chosen candidate, a staged reversible artifact, mirrored Teable projection, and a redacted approval outcome are all present.",
+    "This receipt proves proactive OODA gold only when routed delivery, assistant-grade source intent, and, when the selected packet depends on website research or browser work, live browse evidence are present alongside a chosen candidate, a staged reversible artifact, mirrored Teable projection, and a redacted approval outcome.",
     "Irreversible purchases, bookings, cancellations, sent messages, posts, and commitments remain consent-gated even when proactive staging is automated.",
     "Website browser work must produce a redacted browser-action receipt; CAPTCHA, Cloudflare, MFA, passkey, or credential blockers require a human handoff and must not be counted as completed work.",
     "Raw packet text, private links, actor identity, packet refs, and staged artifact refs must stay out of this published receipt; only hashes and coarse status may appear.",
@@ -761,6 +761,63 @@ def _browser_action_contract_proof(
         ),
         present,
     )
+
+
+def _browse_evidence_required(
+    *,
+    stage_packet: Mapping[str, Any],
+    safe_work_result: Mapping[str, Any],
+) -> tuple[bool, str]:
+    stage = _as_mapping(stage_packet.get("stage"))
+    payload = _as_mapping(stage.get("payload"))
+    safe_work_order = _as_mapping(stage_packet.get("safe_work_order"))
+    execution_receipt = _as_mapping(safe_work_result.get("execution_receipt"))
+    research_plan = _as_mapping(execution_receipt.get("research_search_plan"))
+    browser_action_receipt = _as_mapping(safe_work_result.get("browser_action_receipt"))
+    work_type = _first_text(
+        payload.get("work_type"),
+        safe_work_order.get("work_type"),
+        safe_work_result.get("work_type"),
+    ).strip().lower()
+    if browser_action_receipt:
+        return True, "browser_action_receipt_present"
+    if work_type in {"record_internal_action", "internal_action"}:
+        return False, f"work_type:{work_type}"
+    search_mode = _first_text(research_plan.get("mode")).strip().lower()
+    if search_mode in {"internal_action", "internal_action_surface"}:
+        return False, f"research_mode:{search_mode}"
+    if int(execution_receipt.get("network_fetch_count") or 0) > 0:
+        return True, "network_fetch_count"
+    if int(execution_receipt.get("search_candidate_count") or 0) > 0:
+        return True, "search_candidate_count"
+    if list(execution_receipt.get("search_queries_used") or []):
+        return True, "search_queries_used"
+    if list(payload.get("candidate_items") or []):
+        return True, "candidate_items_present"
+    if list(safe_work_result.get("shortlist") or []):
+        return True, "shortlist_present"
+    if _first_text(
+        payload.get("research_query"),
+        payload.get("approval_url"),
+        payload.get("browser_task"),
+        payload.get("browser_action"),
+        payload.get("target_url"),
+        payload.get("site_url"),
+        payload.get("browser_login_url"),
+    ):
+        return True, "research_or_browser_payload"
+    if work_type in {
+        "booking",
+        "booking_candidate",
+        "booking_request",
+        "browser_research",
+        "compare_options",
+        "prepare_shortlist",
+        "research",
+        "shopping",
+    }:
+        return True, f"work_type:{work_type}"
+    return False, ""
 
 
 def _summary_for_status(
@@ -1791,7 +1848,7 @@ def _runtime_artifact_bundle(
             receipt_path=run_receipt_path or "",
             stage_packet_dir=stage_packet_dir or "",
             safe_work_result_dir=safe_work_result_dir or "",
-            prefer_browse_backed_delivery=True,
+            prefer_browse_backed_delivery=False,
         )
         if use_local_bundle
         else {}
@@ -1800,7 +1857,7 @@ def _runtime_artifact_bundle(
     if allow_live_runtime_probe:
         live_report = ea_live_ops.probe_proactive_artifacts(
             output_format="json",
-            prefer_browse_backed_delivery=True,
+            prefer_browse_backed_delivery=False,
         )
         if bool(live_report.get("probe_ok")):
             live_bundle = {
@@ -1881,6 +1938,23 @@ def _allow_default_local_artifacts(*paths: Path) -> bool:
     return False
 
 
+def _operator_status_prefers_live_runtime_bundle(operator_status: Mapping[str, Any] | None) -> bool:
+    payload = dict(operator_status or {})
+    status = str(payload.get("status") or "").strip().lower()
+    if not status.startswith("ready"):
+        return False
+    if bool(payload.get("live_receipt_checked")):
+        return True
+    source_candidates = (
+        str(payload.get("source") or "").strip(),
+        str(payload.get("route_probe_source") or "").strip(),
+        str(payload.get("artifact_probe_source") or "").strip(),
+        str(dict(payload.get("approval_capture_surface") or {}).get("source") or "").strip(),
+        str(dict(payload.get("source_coverage") or {}).get("source") or "").strip(),
+    )
+    return any("docker_compose_exec" in candidate for candidate in source_candidates if candidate)
+
+
 def materialize_proactive_ooda_gold_acceptance(
     *,
     output_path: Path = DEFAULT_OUTPUT,
@@ -1895,13 +1969,14 @@ def materialize_proactive_ooda_gold_acceptance(
 ) -> dict[str, Any]:
     operator_status = _load_json(operator_status_path)
     allow_default_local_artifacts = _allow_default_local_artifacts(output_path, operator_status_path)
+    prefer_live_runtime_probe = bool(allow_live_runtime_probe or _operator_status_prefers_live_runtime_bundle(operator_status))
     bundle, used_live_runtime_probe = _runtime_artifact_bundle(
         run_receipt_path=run_receipt_path
         if run_receipt_path is not None
         else (DEFAULT_RUN_RECEIPT if allow_default_local_artifacts and DEFAULT_RUN_RECEIPT.exists() else None),
         stage_packet_dir=stage_packet_dir,
         safe_work_result_dir=safe_work_result_dir,
-        allow_live_runtime_probe=allow_live_runtime_probe,
+        allow_live_runtime_probe=prefer_live_runtime_probe,
         allow_default_local_artifacts=allow_default_local_artifacts,
     )
     run_path = bundle.get("run_receipt_path")
@@ -2086,11 +2161,20 @@ def materialize_proactive_ooda_gold_acceptance(
     reachable_page_count = sum(1 for row in page_checks if row.get("reachable") is True)
     network_fetch_count = int(execution_receipt.get("network_fetch_count") or 0)
     network_fetch_success_count = int(execution_receipt.get("network_fetch_success_count") or 0)
-    browse_present = network_fetch_count > 0 and network_fetch_success_count > 0 and reachable_page_count > 0
-    browse_present = browse_present and packet_artifacts_match_run_receipt
+    browse_required, browse_requirement_reason = _browse_evidence_required(
+        stage_packet=stage_packet,
+        safe_work_result=safe_work_result,
+    )
+    browse_evidence_observed = network_fetch_count > 0 and network_fetch_success_count > 0 and reachable_page_count > 0
+    browse_present = packet_artifacts_match_run_receipt and (
+        browse_evidence_observed if browse_required else bool(stage_packet and safe_work_result)
+    )
     browse_proof = _proof_row(
         present=browse_present,
         detail={
+            "required_for_selected_packet": browse_required,
+            "requirement_reason": browse_requirement_reason,
+            "browse_evidence_observed": browse_evidence_observed,
             "network_fetch_count": network_fetch_count,
             "network_fetch_success_count": network_fetch_success_count,
             "reachable_page_check_count": reachable_page_count,

@@ -24,7 +24,7 @@ except ModuleNotFoundError:  # pragma: no cover - script execution path
 
 DEFAULT_RECEIPT = ROOT / ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json"
 EXPECTED_RULES = {
-    "This receipt proves proactive OODA gold only when routed delivery, assistant-grade source intent, live browse evidence, a chosen candidate, a staged reversible artifact, mirrored Teable projection, and a redacted approval outcome are all present.",
+    "This receipt proves proactive OODA gold only when routed delivery, assistant-grade source intent, and, when the selected packet depends on website research or browser work, live browse evidence are present alongside a chosen candidate, a staged reversible artifact, mirrored Teable projection, and a redacted approval outcome.",
     "Irreversible purchases, bookings, cancellations, sent messages, posts, and commitments remain consent-gated even when proactive staging is automated.",
     "Website browser work must produce a redacted browser-action receipt; CAPTCHA, Cloudflare, MFA, passkey, or credential blockers require a human handoff and must not be counted as completed work.",
     "Raw packet text, private links, actor identity, packet refs, and staged artifact refs must stay out of this published receipt; only hashes and coarse status may appear.",
