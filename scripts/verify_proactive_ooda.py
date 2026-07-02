@@ -47,6 +47,11 @@ from app.services.proactive_ooda_safe_work import (  # noqa: E402
     build_safe_work_results,
     default_safe_work_result_dir,
 )
+from app.services.proactive_ooda_runtime_artifacts import (  # noqa: E402
+    default_run_receipt_dir,
+    default_run_receipt_path,
+    latest_run_receipts,
+)
 from app.services.proactive_ooda_stage_packets import (  # noqa: E402
     SAFE_WORK_ORDER_SCHEMA,
     build_stage_packets,
@@ -76,6 +81,7 @@ def main() -> int:
         default=os.getenv("EA_PROACTIVE_OODA_OPPORTUNITY_RULES_JSON", os.getenv("EA_PROACTIVE_OODA_PERSONAL_RULES_JSON", "")),
     )
     parser.add_argument("--state-path", default=os.getenv("EA_PROACTIVE_OODA_STATE_PATH", "state/proactive_ooda_notified.json"))
+    parser.add_argument("--receipt-path", default=os.getenv("EA_PROACTIVE_OODA_RECEIPT_PATH", ""))
     parser.add_argument("--max-items", type=int, default=int(os.getenv("EA_PROACTIVE_OODA_MAX_ITEMS", "5")))
     parser.add_argument(
         "--observation-lookback-hours",
@@ -280,7 +286,8 @@ def _build_report(args: argparse.Namespace) -> dict[str, Any]:
         digest_items = len(grounded_digest.items)
         notified_refs = list(grounded_digest.notified_refs)
         digest_payload = digest_to_dict(grounded_digest)
-        guard_status = _delivery_guard_status(args, state_store=state_store, digest=grounded_digest)
+        live_guard_status = _delivery_guard_status(args, state_store=state_store, digest=grounded_digest)
+        guard_status = _merged_delivery_guard_status(args, live_guard_status)
         context_grounding_status = _context_grounding_status(grounded_digest)
         delivery_route_status = _delivery_route_status(
             args.principal_id,
@@ -290,7 +297,8 @@ def _build_report(args: argparse.Namespace) -> dict[str, Any]:
     else:
         grounded_digest = None
         digest_payload = {}
-        guard_status = _delivery_guard_status(args, state_store=state_store, digest=None)
+        live_guard_status = _delivery_guard_status(args, state_store=state_store, digest=None)
+        guard_status = _merged_delivery_guard_status(args, live_guard_status)
         context_grounding_status = _context_grounding_status(None)
         delivery_route_status = _delivery_route_status(
             args.principal_id,
@@ -402,6 +410,57 @@ def _receipt_observation_count(principal_id: str) -> int:
     except Exception:
         return 0
     return int(row[0] or 0) if row else 0
+
+
+def _merged_delivery_guard_status(args: argparse.Namespace, live_guard_status: dict[str, Any]) -> dict[str, Any]:
+    persisted_guard_status = _persisted_delivery_guard_status(args)
+    if not persisted_guard_status:
+        return live_guard_status
+    merged = dict(live_guard_status)
+    merged.update(persisted_guard_status)
+    return merged
+
+
+def _persisted_delivery_guard_status(args: argparse.Namespace) -> dict[str, Any]:
+    _receipt_path, receipt_payload = _resolved_run_receipt(args)
+    guard = receipt_payload.get("delivery_guard") if isinstance(receipt_payload, dict) else {}
+    return dict(guard) if isinstance(guard, dict) else {}
+
+
+def _resolved_run_receipt(args: argparse.Namespace) -> tuple[Path, dict[str, Any]]:
+    primary_path = _resolved_run_receipt_path(args)
+    primary_payload = _load_json_payload(primary_path)
+    if primary_payload:
+        return primary_path, primary_payload
+    archived_dir = default_run_receipt_dir(
+        root=ROOT,
+        state_path=getattr(args, "state_path", "state/proactive_ooda_notified.json"),
+        receipt_path=getattr(args, "receipt_path", ""),
+    )
+    archived_rows = latest_run_receipts(archived_dir)
+    if archived_rows:
+        archived_path, archived_payload, _mtime = archived_rows[0]
+        return archived_path, dict(archived_payload)
+    return primary_path, {}
+
+
+def _resolved_run_receipt_path(args: argparse.Namespace) -> Path:
+    explicit = str(getattr(args, "receipt_path", "") or "").strip()
+    if explicit:
+        path = Path(explicit)
+        return path if path.is_absolute() else ROOT / path
+    return default_run_receipt_path(
+        root=ROOT,
+        state_path=getattr(args, "state_path", "state/proactive_ooda_notified.json"),
+    )
+
+
+def _load_json_payload(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return dict(payload) if isinstance(payload, dict) else {}
 
 
 def _env_truthy(name: str, *, default: bool = False) -> bool:

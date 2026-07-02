@@ -60,6 +60,74 @@ def test_verify_proactive_ooda_accepts_static_signal_source(tmp_path, monkeypatc
     assert report["delivery_guard"]["delivery_state"] == "eligible"
 
 
+def test_verify_proactive_ooda_prefers_persisted_delivery_guard_snapshot(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv("EA_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID", raising=False)
+    signal_file = tmp_path / "signals.json"
+    signal_file.write_text(
+        json.dumps(
+            [
+                {
+                    "source_ref": "operator:approval",
+                    "title": "Approval needed today",
+                    "summary": "Approve the provider renewal.",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    receipt_path = tmp_path / "proactive_ooda_latest_run.generated.json"
+    receipt_path.write_text(
+        json.dumps(
+            {
+                "notification_status": "deferred",
+                "delivery_guard": {
+                    "delivery_state": "deferred",
+                    "deferred_reason": "deferred_by_quiet_hours",
+                    "quiet_hours_active": True,
+                    "notification_requires_user_action": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = verifier._build_report(
+        Namespace(
+            principal_id="exec",
+            signals_json=str(signal_file),
+            discovery_json="",
+            opportunity_rules_json="",
+            state_path=str(tmp_path / "state.json"),
+            receipt_path="",
+            max_items=5,
+            observation_lookback_hours=24,
+            observation_limit=50,
+            skip_observation_source=True,
+            skip_workspace_source=True,
+            armed_send=True,
+            paused=False,
+            pause_reason="",
+            quiet_hours_start="",
+            quiet_hours_end="",
+            quiet_hours_timezone="UTC",
+            quiet_hours_allow_high_priority=True,
+            interruption_budget_limit=0,
+            interruption_budget_window_hours=24,
+            interruption_budget_allow_high_priority=True,
+            require_source=True,
+            require_telegram=False,
+            require_receipt_observation=False,
+        )
+    )
+
+    assert report["ok"] is True
+    assert report["delivery_guard"]["delivery_state"] == "deferred"
+    assert report["delivery_guard"]["deferred_reason"] == "deferred_by_quiet_hours"
+    assert report["delivery_guard"]["quiet_hours_active"] is True
+    assert report["delivery_guard"]["notification_requires_user_action"] is True
+
+
 def test_verify_proactive_ooda_aggregates_static_discovery_and_observations(tmp_path, monkeypatch) -> None:
     monkeypatch.delenv("EA_TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID", raising=False)
