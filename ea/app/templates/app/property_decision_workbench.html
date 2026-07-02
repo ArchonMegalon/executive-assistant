@@ -1275,6 +1275,7 @@
     <div hidden data-property-workspace-meta='{{ property_meta|tojson|safe }}'></div>
     <span hidden>Run a premium market sweep</span>
     <span hidden>What this search is optimizing for</span>
+    {% set brief_areas = brief.get('areas') or [] %}
 
     <header class="pqx-topbar">
       <a class="pqx-brand" href="/app/properties{{ '?run_id=' ~ run.get('run_id') if run.get('run_id') else '' }}" aria-label="PropertyQuarry">
@@ -1290,8 +1291,8 @@
           <strong data-pqx-run-status>{{ run.get('status_label') or ('Ready' if setup_mode else 'Not started') }}</strong>
         </div>
         <div class="pqx-state-pill">
-          <span>Market</span>
-          <strong>{{ brief.get('country') or 'Austria' }}{% if brief.get('region') %} · {{ brief.get('region') }}{% endif %}</strong>
+          <span>Areas</span>
+          <strong>{% if brief_areas|length %}{{ brief_areas|length }} selected{% elif brief.get('region') %}{{ brief.get('region') }}{% else %}Not set{% endif %}</strong>
         </div>
         <div class="pqx-state-pill">
           <span>Plan</span>
@@ -1337,8 +1338,8 @@
           </div>
           <div class="pqx-brief-stack">
             <div class="pqx-fact-grid">
-              <div class="pqx-fact"><span>Country</span><strong>{{ brief.get('country') or 'Austria' }}</strong></div>
               <div class="pqx-fact"><span>Mode</span><strong>{{ brief.get('mode') or 'Buy' }}</strong></div>
+              <div class="pqx-fact"><span>Areas</span><strong>{% if brief_areas|length %}{{ brief_areas|length }}{% elif brief.get('region') %}{{ brief.get('region') }}{% else %}Not set{% endif %}</strong></div>
               <div class="pqx-fact"><span>Providers</span><strong>{{ (brief.get('providers') or [])|length }}</strong></div>
               <div class="pqx-fact"><span>Research</span><strong>{{ brief.get('research_depth') or 'deep' }}</strong></div>
             </div>

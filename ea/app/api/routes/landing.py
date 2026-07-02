@@ -61,6 +61,7 @@ from app.api.routes.landing_object_support import (
 )
 from app.api.routes import landing_public_pages_support as public_pages_support
 from app.api.routes.landing_property_support import property_console_context as _property_console_context
+from app.api.routes.property_surface_boundary import property_surface_boundary_response
 from app.api.routes.landing_public_support import (
     _activation_preview_for_brand,
     _anonymous_onboarding_status,
@@ -1214,6 +1215,9 @@ def app_shell(
     run_id: str = Query(default=""),
 ) -> HTMLResponse:
     brand = request_brand(request)
+    boundary = property_surface_boundary_response(request)
+    if boundary is not None:
+        return boundary
     property_brand = brand["key"] == "propertyquarry"
     nav_groups = app_nav_groups_for_brand(brand["key"])
     allowed = {item["href"].rstrip("/").rsplit("/", 1)[-1] for group in nav_groups for item in group["items"]}

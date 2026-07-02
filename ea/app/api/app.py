@@ -7,6 +7,7 @@ from app.api.errors import install_error_handlers
 from app.api.threadpool_compat import inline_sync_handlers_enabled, install_inline_threadpool_compat
 from app.container import build_container
 from app.settings import get_settings, validate_startup_settings
+from app.api.routes.property_surface_boundary import install_property_surface_boundary
 
 
 async def _prewarm_provider_health_cache() -> None:
@@ -186,6 +187,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title=s.app_name, version=s.app_version, docs_url="/api/docs", redoc_url="/api/redoc")
     install_error_handlers(app)
+    install_property_surface_boundary(app)
     app.state.container = build_container(settings=s)
     app.router.on_startup.append(_prewarm_provider_health_cache)
     _include_public_routes(

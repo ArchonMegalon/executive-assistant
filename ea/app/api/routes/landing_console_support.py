@@ -12,6 +12,7 @@ from app.api.routes.admin_view_models import build_admin_section_payload as _bui
 from app.api.routes.landing_content import ADMIN_NAV_GROUPS, app_nav_groups_for_brand
 from app.api.routes.landing_object_support import _object_detail_row, _render_console_object_detail
 from app.api.routes.landing_property_support import property_console_context
+from app.api.routes.property_surface_boundary import property_surface_boundary_response
 from app.api.routes.landing_public_support import _console_shell_context, _render_public_template, _today_activation_banner
 from app.api.routes.landing_shared_support import (
     _app_live_feed,
@@ -70,6 +71,9 @@ def app_shell(
     run_id: str = "",
 ) -> HTMLResponse:
     brand = request_brand(request)
+    boundary = property_surface_boundary_response(request)
+    if boundary is not None:
+        return boundary
     property_brand = brand["key"] == "propertyquarry"
     nav_groups = app_nav_groups_for_brand(brand["key"])
     legacy_redirects = {

@@ -504,11 +504,10 @@ def app_section_payload(
         if str(option.get("value") or "").strip() in selected_platforms
     ]
     property_market_summary_items = [
-        row_item("Country", property_country_label, "Market"),
-        row_item("Research language", property_language_label, "Research"),
         row_item("Search mode", property_listing_mode_label, "Mode"),
-        row_item("Investment research", property_investment_research_mode_label, "Underwriting"),
         row_item("Property type", property_type_label, "Type"),
+        row_item("Research language", property_language_label, "Research"),
+        row_item("Investment research", property_investment_research_mode_label, "Underwriting"),
     ]
     if str(property_preferences.get("location_query") or "").strip():
         property_market_summary_items.append(
@@ -1272,12 +1271,12 @@ def app_section_payload(
                 },
                 {
                     "eyebrow": "Market coverage",
-                    "title": "Which providers this country unlocks",
-                    "body": "Each market switches the provider catalog. The saved selection should be a deliberate subset, not a hard-coded Austria-only list.",
+                    "title": "Provider coverage",
+                    "body": "The selected provider set stays visible without repeating fields the user edits in the brief.",
                     "items": [
                         row_item(
-                            "Country bundle",
-                            f"{property_country_label} | {property_provider_total_for_country or len(platform_options)} supported providers",
+                            "Supported providers",
+                            str(property_provider_total_for_country or len(platform_options)),
                             "Coverage",
                         ),
                         row_item(
@@ -1406,6 +1405,12 @@ def property_workspace_payload(
     selected_locations = _csv_values(property_preferences.get("location_query"))
     selected_keywords = _csv_values(property_preferences.get("keywords"))
     selected_platforms = [str(value).strip() for value in list(property_state.get("selected_platforms") or []) if str(value).strip()]
+    workspace_listing_mode_label = str(
+        property_state.get("listing_mode_label") or property_preferences.get("listing_mode") or "Search"
+    ).strip().title()
+    workspace_property_type_label = str(
+        property_state.get("property_type_label") or property_preferences.get("property_type") or "Any type"
+    ).strip() or "Any type"
     run_id = str(run_payload.get("run_id") or "").strip()
     run_suffix = f"?run_id={run_id}" if run_id else ""
     search_posture_items = list(search_posture_card.get("items") or [])
@@ -1859,9 +1864,9 @@ def property_workspace_payload(
     hero_highlights = {
         "properties": [
             {
-                "label": "Market",
-                "value": str(property_state.get("country_label") or "Austria"),
-                "detail": str(search_posture_items[0].get("detail") or "").strip() if search_posture_items else "",
+                "label": "Posture",
+                "value": workspace_listing_mode_label,
+                "detail": workspace_property_type_label,
                 "href": f"/app/properties{run_suffix}",
             },
             {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:3]) or "Choose the target districts.", "href": f"/app/profile{run_suffix}"},
