@@ -1450,7 +1450,8 @@ def _transcript_assistant_ooda(
         return {}
     if not _transcript_has_action_intent(lowered):
         return {}
-    if not _proactive_ooda_flat_search_enabled() and _transcript_is_flat_property_search(lowered):
+    if _transcript_is_flat_property_search(lowered):
+        # Apartment and property-search work belongs to PropertyQuarry, not the EA assistant loop.
         return {}
     note_list = [str(item).strip() for item in notes if str(item).strip()][:4]
     delivery_window = _transcript_delivery_window_days(lowered)

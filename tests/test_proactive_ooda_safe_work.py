@@ -110,6 +110,26 @@ def test_build_safe_work_result_blocks_when_no_research_input_exists() -> None:
     assert result["execution_receipt"]["external_actions_attempted"] == []
 
 
+def test_build_safe_work_result_blocks_flat_property_search_even_when_feature_flag_is_on(monkeypatch) -> None:
+    monkeypatch.setenv("EA_PROACTIVE_OODA_DISABLE_FLAT_SEARCH", "0")
+    monkeypatch.setenv("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED", "1")
+    packet = _packet_with_cart_work()
+    packet["stage"]["payload"] = {  # type: ignore[index]
+        "research_query": "Compare the two best property candidates.",
+        "candidate_items": [{"label": "Apartment candidate", "url": "https://example.test/property/1"}],
+    }
+    packet["safe_work_order"]["work_type"] = "compare_options"  # type: ignore[index]
+    packet["safe_work_order"]["requested_outcome"] = "Research a shortlist and stage one reversible option for review."  # type: ignore[index]
+
+    result = build_safe_work_result(packet, network_fetch_enabled=True)
+
+    assert result["status"] == "blocked_needs_research_input"
+    assert result["recommended_option_or_draft"] == {}
+    assert result["shortlist"] == []
+    assert result["execution_receipt"]["network_fetch_enabled"] is False
+    assert {issue["code"] for issue in result["audit"]["issues"]} >= {"flat_provider_search_blocked:flat_search_disabled"}
+
+
 def test_build_safe_work_result_reviews_single_official_info_link_without_user_request() -> None:
     packet = _packet_with_cart_work()
     candidate = {

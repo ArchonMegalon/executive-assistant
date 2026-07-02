@@ -355,6 +355,87 @@ def test_load_runtime_artifact_bundle_hides_property_scout_packet_when_flat_sear
     assert bundle["current_packet_callback_record_count"] == 0
 
 
+def test_load_runtime_artifact_bundle_hides_property_scout_packet_even_when_feature_flag_is_on(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("EA_PROACTIVE_OODA_DISABLE_FLAT_SEARCH", "0")
+    monkeypatch.setenv("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED", "1")
+    state_path = "state/proactive_ooda_notified.json"
+    primary_receipt_path = tmp_path / "state" / "proactive_ooda_latest_run.generated.json"
+    archive_receipt_path = tmp_path / "state" / "proactive_ooda_run_receipts" / "20260630T000522Z-sent-property.json"
+    stage_dir = tmp_path / "state" / "proactive_ooda_stage_packets"
+    safe_dir = tmp_path / "state" / "proactive_ooda_safe_work_results"
+
+    property_stage = {
+        "schema": "proactive_ooda.stage_packet.v1",
+        "packet_ref": "stage_packet:pkt-property",
+        "observe": "Property scout found no viable matches.",
+        "decide": "Approve whether EA should stage one filter-review packet.",
+        "stage": {
+            "kind": "research_packet",
+            "payload": {
+                "research_query": "Review why the current property scout filters produced zero viable matches.",
+            },
+        },
+        "approval": {"required": True},
+    }
+    property_safe = {
+        "schema": "proactive_ooda.safe_work_result.v1",
+        "result_ref": "safe_work_result:res-property",
+        "source_packet_ref_hash": _sha256(property_stage["packet_ref"]),
+        "status": "staged_for_user_decision",
+        "summary": "One property scout filter-review packet.",
+        "recommended_option_or_draft": {
+            "kind": "shortlist_candidate",
+            "value": {"label": "IMMMO Wien rentals", "url": "https://www.immmo.at/immo/Wohnung-mieten/Wien"},
+        },
+        "approval": {"required": True},
+        "execution_receipt": {
+            "network_fetch_count": 1,
+            "network_fetch_success_count": 1,
+            "page_checks": [{"url": "https://www.immmo.at/immo/Wohnung-mieten/Wien", "reachable": True}],
+            "irreversible_actions_attempted": [],
+        },
+    }
+    _write_json(stage_dir / "pkt-property.json", property_stage)
+    _write_json(safe_dir / "res-property.json", property_safe)
+    _write_json(
+        primary_receipt_path,
+        {
+            "notification_status": "skipped_no_items",
+            "item_count": 0,
+            "stage_packet_output_dir": str(stage_dir),
+            "safe_work_result_output_dir": str(safe_dir),
+            "stage_packet_ref_hashes": [],
+            "safe_work_result_ref_hashes": [],
+            "telegram_message_ids": [],
+        },
+    )
+    _write_json(
+        archive_receipt_path,
+        {
+            "notification_status": "sent",
+            "item_count": 1,
+            "stage_packet_ref_hashes": [_sha256(property_stage["packet_ref"])],
+            "safe_work_result_ref_hashes": [_sha256(property_safe["result_ref"])],
+            "telegram_message_ids": ["3379"],
+            "teable_sync": {"status": "synced", "sync_attempted": True},
+        },
+    )
+
+    bundle = load_runtime_artifact_bundle(root=tmp_path, state_path=state_path)
+
+    assert bundle["run_receipt_path"] == primary_receipt_path
+    assert bundle["stage_packet_path"] is None
+    assert bundle["stage_packet"] == {}
+    assert bundle["safe_work_result_path"] is None
+    assert bundle["safe_work_result"] == {}
+    assert bundle["artifact_filter_reason"] == "flat_search_disabled_property_scout"
+    assert bundle["flat_search_enabled"] is True
+    assert bundle["current_packet_callback_record_count"] == 0
+
+
 def test_load_runtime_artifact_bundle_hides_single_official_info_link_packet(tmp_path: Path) -> None:
     state_path = "state/proactive_ooda_notified.json"
     primary_receipt_path = tmp_path / "state" / "proactive_ooda_latest_run.generated.json"
@@ -704,6 +785,69 @@ def test_load_runtime_artifact_bundle_includes_current_packet_approval_callback_
     assert bundle["current_packet_callback_latest_expires_at"] == "2099-01-01T00:00:00Z"
     assert isinstance(bundle["current_packet_callback_latest_age_seconds"], int)
     assert bundle["current_packet_callback_latest_seconds_until_expiry"] > 0
+
+
+def test_load_runtime_artifact_bundle_uses_shared_artifact_root_for_archived_receipt_path(tmp_path: Path) -> None:
+    state_path = "state/proactive_ooda_notified.json"
+    archive_receipt_path = tmp_path / "state" / "proactive_ooda_run_receipts" / "20260702T113932Z-sent.json"
+    stage_dir = tmp_path / "state" / "proactive_ooda_stage_packets"
+    safe_dir = tmp_path / "state" / "proactive_ooda_safe_work_results"
+    callback_dir = tmp_path / "state" / "proactive_ooda_approval_callbacks"
+
+    stage_packet = {
+        "schema": "proactive_ooda.stage_packet.v1",
+        "packet_ref": "stage_packet:pkt-archive",
+        "stage": {"kind": "approval_packet"},
+        "approval": {"required": True},
+    }
+    safe_work_result = {
+        "schema": "proactive_ooda.safe_work_result.v1",
+        "result_ref": "safe_work_result:res-archive",
+        "source_packet_ref_hash": _sha256(stage_packet["packet_ref"]),
+        "status": "staged_for_user_decision",
+        "approval": {"required": True},
+        "approval_prompt": "Approve this staged packet.",
+        "staged_action_url": "https://example.test/archive",
+    }
+    _write_json(stage_dir / "pkt-archive.json", stage_packet)
+    _write_json(safe_dir / "res-archive.json", safe_work_result)
+    _write_json(
+        archive_receipt_path,
+        {
+            "notification_status": "sent",
+            "item_count": 1,
+            "stage_packet_ref_hashes": [_sha256(stage_packet["packet_ref"])],
+            "safe_work_result_ref_hashes": [_sha256(safe_work_result["result_ref"])],
+            "stage_packet_output_dir": str(stage_dir),
+            "safe_work_result_output_dir": str(safe_dir),
+            "telegram_message_ids": ["3131"],
+        },
+    )
+    _write_json(
+        callback_dir / "pending.json",
+        {
+            "schema": "ea.proactive_ooda_telegram_approval_callback.v1",
+            "callback_token": "cb-archive",
+            "status": "pending",
+            "created_at": "2026-07-02T11:39:34Z",
+            "expires_at": "2099-01-01T00:00:00Z",
+            "packet_ref": stage_packet["packet_ref"],
+            "staged_artifact_ref": safe_work_result["result_ref"],
+        },
+    )
+
+    bundle = load_runtime_artifact_bundle(
+        root=tmp_path,
+        state_path=state_path,
+        receipt_path=archive_receipt_path,
+        stage_packet_dir=stage_dir,
+        safe_work_result_dir=safe_dir,
+    )
+
+    assert bundle["run_receipt_dir"] == tmp_path / "state" / "proactive_ooda_run_receipts"
+    assert bundle["approval_outcome_path"] == tmp_path / "state" / "proactive_ooda_latest_approval_outcome.generated.json"
+    assert bundle["approval_callback_dir"] == callback_dir
+    assert bundle["current_packet_live_pending_count"] == 1
 
 
 def test_select_current_approval_outcome_ignores_stale_saved_artifact() -> None:

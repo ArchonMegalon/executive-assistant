@@ -62,6 +62,12 @@ def test_transcript_flat_property_query_is_ignored() -> None:
     assert signal is None
 
 
+def test_transcript_flat_property_query_is_ignored_even_when_feature_flag_is_on(monkeypatch: object) -> None:
+    monkeypatch.setenv("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED", "1")
+    signal = _telegram_message_signal(text="Find me an apartment in 1200 Vienna and compare the best ones")
+    assert signal is None
+
+
 def test_transcript_flat_property_query_is_ignored_when_flat_search_is_disabled_explicitly(monkeypatch: object) -> None:
     monkeypatch.setenv("EA_PROACTIVE_OODA_DISABLE_FLAT_SEARCH", "1")
     signal = _telegram_message_signal(text="Find me an apartment in Vienna and compare prices")

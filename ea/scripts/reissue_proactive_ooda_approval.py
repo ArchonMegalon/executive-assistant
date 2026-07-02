@@ -58,6 +58,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--stage-packet-dir", default=_default_stage_packet_dir())
     parser.add_argument("--safe-work-result-dir", default=_default_safe_work_result_dir())
     parser.add_argument("--force", action="store_true")
+    parser.add_argument(
+        "--reissue-after-seconds",
+        type=int,
+        default=int(os.getenv("EA_PROACTIVE_OODA_APPROVAL_REISSUE_AFTER_SECONDS", "0") or "0"),
+        help="Allow reissue of a live pending approval only after this age threshold; 0 keeps no-spam behavior.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
@@ -82,6 +88,7 @@ def main() -> int:
         stage_packet_dir=args.stage_packet_dir,
         safe_work_result_dir=args.safe_work_result_dir,
         force=bool(args.force),
+        reissue_after_seconds=max(int(args.reissue_after_seconds or 0), 0),
         dry_run=bool(args.dry_run),
     )
     print(json.dumps(_jsonable(result), sort_keys=True))

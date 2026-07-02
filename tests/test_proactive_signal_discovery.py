@@ -784,6 +784,20 @@ def test_observation_mapper_turns_telegram_task_message_into_transcript_ooda_sig
     assert ooda_loop["act"]["stage"]["search_queries"] == ["chimney sweep"]
 
 
+def test_observation_mapper_ignores_flat_property_request_even_when_feature_flag_is_on(monkeypatch) -> None:
+    monkeypatch.setenv("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED", "1")
+    signal = observation_row_to_signal(
+        observation_id="obs-telegram-property-request",
+        principal_id="exec",
+        channel="telegram",
+        event_type="telegram.message",
+        payload={"text": "Find me an apartment in 1200 Vienna and compare the best options."},
+        created_at="2026-06-20T10:00:00+00:00",
+    )
+
+    assert signal is None
+
+
 def test_observation_mapper_turns_german_telegram_task_message_into_transcript_ooda_signal() -> None:
     signal = observation_row_to_signal(
         observation_id="obs-telegram-task-de",

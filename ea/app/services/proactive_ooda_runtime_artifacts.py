@@ -45,7 +45,8 @@ def default_run_receipt_dir(*, root: Path, state_path: str | Path, receipt_path:
         default=default_run_receipt_path(root=root, state_path=state_path),
     )
     assert resolved_receipt_path is not None
-    return resolved_receipt_path.parent / RUN_RECEIPT_DIRNAME
+    artifact_root = _artifact_root_from_run_receipt_path(resolved_receipt_path)
+    return artifact_root / RUN_RECEIPT_DIRNAME
 
 
 def resolve_runtime_artifact_paths(
@@ -90,6 +91,12 @@ def resolve_runtime_artifact_paths(
         "approval_outcome_path": resolved_approval_outcome_path,
         "approval_callback_dir": resolved_approval_callback_dir,
     }
+
+
+def _artifact_root_from_run_receipt_path(path: Path) -> Path:
+    if path.parent.name == RUN_RECEIPT_DIRNAME:
+        return path.parent.parent
+    return path.parent
 
 
 def load_runtime_artifact_bundle(
@@ -378,8 +385,6 @@ def _artifacts_are_disabled_flat_search(
     stage_packet: Mapping[str, Any],
     safe_work_result: Mapping[str, Any],
 ) -> bool:
-    if _flat_search_enabled():
-        return False
     return material_mentions_flat_property_search(
         {
             "stage_packet": dict(stage_packet or {}),

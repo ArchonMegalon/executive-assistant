@@ -2259,7 +2259,7 @@ def test_probe_proactive_artifacts_uses_in_process_fallback_without_docker_cli(m
     monkeypatch.setattr(
         module,
         "_probe_proactive_artifacts_in_process_payload",
-        lambda: {
+        lambda **_kwargs: {
             "probe_ok": True,
             "state_path": "/data/provider-ledger/proactive_ooda_notified.json",
             "run_receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
@@ -3418,6 +3418,63 @@ def test_reissue_proactive_approval_reports_sent_action_surface(monkeypatch) -> 
     assert report["approval_surface"]["present"] is True
 
 
+def test_reissue_proactive_approval_passes_reissue_threshold(monkeypatch) -> None:
+    module = _module()
+
+    monkeypatch.setattr(
+        module,
+        "probe_proactive_artifacts",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "state_path": "/data/provider-ledger/proactive_ooda_notified.json",
+            "run_receipt_path": "/data/provider-ledger/proactive_ooda_run_receipts/current.json",
+            "stage_packet_dir": "/data/provider-ledger/proactive_ooda_stage_packets",
+            "safe_work_result_dir": "/data/provider-ledger/proactive_ooda_safe_work_results",
+            "current_packet_live_pending_count": 1,
+        },
+    )
+
+    commands: list[list[str]] = []
+
+    def _fake_exec_json(*, command: list[str], **_kwargs):
+        commands.append(list(command))
+        return (
+            0,
+            {
+                "status": "dry_run",
+                "reason": "approval_surface_ready_to_reissue",
+                "message_count": 0,
+                "message_ids": [],
+                "approval_surface": {},
+                "packet_ref_sha256": "a" * 64,
+                "staged_artifact_ref_sha256": "b" * 64,
+                "approval_prompt_sha256": "c" * 64,
+                "staged_action_url_sha256": "d" * 64,
+                "has_staged_action_url": True,
+                "stage_kind": "research_packet",
+                "safe_work_status": "staged_for_user_decision",
+            },
+            '{"status":"dry_run"}',
+            "",
+        )
+
+    monkeypatch.setattr(module, "_docker_compose_exec_json", _fake_exec_json)
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-06-29T08:30:00Z")
+
+    report = module.reissue_proactive_approval(
+        principal_id="exec-1",
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+        dry_run=True,
+        reissue_after_seconds=3600,
+        output_format="json",
+    )
+
+    assert report["status"] == "dry_run"
+    command = commands[0]
+    assert command[command.index("--reissue-after-seconds") + 1] == "3600"
+
+
 def test_parse_args_probe_proactive_route_uses_proactive_principal_default(monkeypatch) -> None:
     module = _module()
     monkeypatch.setenv("EA_PROACTIVE_OODA_PRINCIPAL_ID", "cf-email:test@example.com")
@@ -3665,8 +3722,9 @@ def test_probe_proactive_source_coverage_reports_required_lanes_without_raw_payl
     assert report["observed_lane_count"] == 7
     assert captured["timeout_seconds"] == 60.0
     probe_code = str(list(captured["command"])[2])
-    assert "EA_PROACTIVE_OODA_DISABLE_FLAT_SEARCH" in probe_code
+    assert "EA_PROACTIVE_OODA_DISABLE_FLAT_SEARCH" not in probe_code
     assert "property_scout_sync_completed" in probe_code
+    assert "excluded_event_types" not in probe_code
     assert "pocket_ai_audio_transcripts" not in report["missing_lane_keys"]
     assert report["privacy"]["raw_payload_exposed"] is False
     assert report["privacy"]["raw_transcript_text_exposed"] is False
@@ -3676,7 +3734,7 @@ def test_probe_proactive_source_coverage_reports_required_lanes_without_raw_payl
     assert "/mnt/pcloud" not in serialized
 
 
-def test_probe_proactive_source_coverage_surfaces_flat_search_filter(monkeypatch) -> None:
+def test_probe_proactive_source_coverage_omits_property_exclusion_noise(monkeypatch) -> None:
     module = _module()
 
     def _fake_exec_json(**_kwargs: object) -> tuple[int, dict[str, object], str, str]:
@@ -3685,9 +3743,6 @@ def test_probe_proactive_source_coverage_surfaces_flat_search_filter(monkeypatch
             {
                 "probe_ok": True,
                 "observation_repository": "PostgresObservationEventRepository",
-                "flat_search_enabled": False,
-                "excluded_event_types": ["property_scout_sync_completed"],
-                "excluded_event_type_counts": {"property_scout_sync_completed": 3},
                 "rows": [
                     {
                         "channel": "product",
@@ -3733,9 +3788,9 @@ def test_probe_proactive_source_coverage_surfaces_flat_search_filter(monkeypatch
 
     assert report["probe_ok"] is True
     assert report["status"] == "ready"
-    assert report["flat_search_enabled"] is False
-    assert report["excluded_event_types"] == ["property_scout_sync_completed"]
-    assert report["excluded_event_type_counts"] == {"property_scout_sync_completed": 3}
+    assert "flat_search_enabled" not in report
+    assert "excluded_event_types" not in report
+    assert "excluded_event_type_counts" not in report
     for lane in report["lanes"]:
         assert "property_scout_sync_completed" not in lane["evidence_event_types"]
 

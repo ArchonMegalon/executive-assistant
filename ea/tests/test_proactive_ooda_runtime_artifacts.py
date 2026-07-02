@@ -145,6 +145,36 @@ def test_disabled_flat_search_safe_work_is_not_teable_projectable(monkeypatch: o
     assert proactive_ooda_teable_sync._safe_work_projection_suppression_reason(safe_work) == "flat_search_disabled"
 
 
+def test_property_candidate_artifacts_stay_filtered_even_when_feature_flag_is_on(monkeypatch: object, tmp_path: Path) -> None:
+    monkeypatch.setenv("EA_PROACTIVE_OODA_DISABLE_FLAT_SEARCH", "0")
+    monkeypatch.setenv("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED", "1")
+    stage_dir = tmp_path / "stage"
+    safe_dir = tmp_path / "safe"
+    _write_json(stage_dir / "stage.json", _property_candidate_stage_packet())
+    _write_json(safe_dir / "safe.json", _property_candidate_safe_work_result())
+
+    bundle = proactive_ooda_runtime_artifacts.load_runtime_artifact_bundle(
+        root=tmp_path,
+        state_path="state/proactive_ooda_notified.json",
+        stage_packet_dir=stage_dir,
+        safe_work_result_dir=safe_dir,
+    )
+
+    assert bundle["flat_search_enabled"] is True
+    assert bundle["artifact_filter_reason"] == "flat_search_disabled_property_scout"
+    assert bundle["stage_packet"] == {}
+    assert bundle["safe_work_result"] == {}
+
+
+def test_property_safe_work_is_not_teable_projectable_even_when_feature_flag_is_on(monkeypatch: object) -> None:
+    monkeypatch.setenv("EA_PROACTIVE_OODA_DISABLE_FLAT_SEARCH", "0")
+    monkeypatch.setenv("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED", "1")
+    safe_work = _property_candidate_safe_work_result()
+
+    assert proactive_ooda_teable_sync._safe_work_result_is_projectable(safe_work) is False
+    assert proactive_ooda_teable_sync._safe_work_projection_suppression_reason(safe_work) == "flat_search_disabled"
+
+
 def test_runtime_artifacts_prefer_delivered_browse_backed_receipt_over_newer_internal_action(
     tmp_path: Path,
 ) -> None:

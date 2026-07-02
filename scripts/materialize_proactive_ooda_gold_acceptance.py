@@ -882,18 +882,6 @@ def _operator_runtime_source_coverage_posture(operator_status: Mapping[str, Any]
         "source_coverage_missing_required_event_types": sorted(set(missing_required_event_types)),
         "next_action": next_action or "probe_proactive_source_coverage",
     }
-    if "flat_search_enabled" in source_coverage:
-        detail["source_coverage_flat_search_enabled"] = bool(source_coverage.get("flat_search_enabled"))
-        detail["source_coverage_excluded_event_types"] = [
-            str(item).strip()
-            for item in list(source_coverage.get("excluded_event_types") or [])
-            if str(item).strip()
-        ][:8]
-        detail["source_coverage_excluded_event_type_counts"] = {
-            str(key or "").strip(): int(value or 0)
-            for key, value in dict(source_coverage.get("excluded_event_type_counts") or {}).items()
-            if str(key or "").strip()
-        }
     return (ready, detail)
 
 

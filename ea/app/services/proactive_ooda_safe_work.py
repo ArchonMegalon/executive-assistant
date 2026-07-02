@@ -502,7 +502,7 @@ def build_safe_work_result(
     )
     if request_quality_issues:
         candidate_items = []
-    flat_search_disabled_by_policy = not _proactive_ooda_flat_search_enabled() and _is_flat_property_search_context(context=context)
+    flat_search_disabled_by_policy = _is_flat_property_search_context(context=context)
     if flat_search_disabled_by_policy:
         candidate_items = []
     effective_network_fetch_enabled = bool(network_fetch_enabled) and not flat_search_disabled_by_policy and not request_quality_issues
@@ -1131,7 +1131,7 @@ def _context_fit_receipt(context: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _flat_provider_search_blockers(*, context: Mapping[str, Any], queries: Iterable[str]) -> list[str]:
-    if not _proactive_ooda_flat_search_enabled() and _is_flat_property_search_context(context=context):
+    if _is_flat_property_search_context(context=context):
         return ["flat_search_disabled"]
     if not context.get("provider_discovery_relevant"):
         return []

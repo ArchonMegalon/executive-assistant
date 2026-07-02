@@ -34,9 +34,6 @@ def _fake_source_coverage_probe(**_kwargs: object) -> dict[str, object]:
         "observation_row_count": 8,
         "lane_count": 8,
         "observed_lane_count": 8,
-        "flat_search_enabled": False,
-        "excluded_event_types": ["property_scout_sync_completed"],
-        "excluded_event_type_counts": {"property_scout_sync_completed": 3},
         "missing_lane_keys": [],
         "next_action": "",
         "next_action_href": "",
@@ -194,9 +191,6 @@ def _fake_source_coverage_gap_probe(**_kwargs: object) -> dict[str, object]:
         "observation_row_count": 7,
         "lane_count": 8,
         "observed_lane_count": 7,
-        "flat_search_enabled": False,
-        "excluded_event_types": ["property_scout_sync_completed"],
-        "excluded_event_type_counts": {"property_scout_sync_completed": 3},
         "missing_lane_keys": ["pocket_ai_audio_transcripts"],
         "next_action": "sync_pocket_ai_audio_transcripts",
         "next_action_href": "https://myexternalbrain.com/app/api/signals/pocket/sync?limit=10",
@@ -1764,9 +1758,9 @@ def test_materialize_proactive_ooda_operator_status_prefers_live_route_probe_whe
     assert receipt["gmail_draft_followthrough"]["gmail_draft_id_hash_present"] is True
     assert receipt["gmail_draft_followthrough"]["raw_execution_payload_exposed"] is False
     assert receipt["source_coverage"]["status"] == "ready"
-    assert receipt["source_coverage"]["flat_search_enabled"] is False
-    assert receipt["source_coverage"]["excluded_event_types"] == ["property_scout_sync_completed"]
-    assert receipt["source_coverage"]["excluded_event_type_counts"] == {"property_scout_sync_completed": 3}
+    assert "flat_search_enabled" not in receipt["source_coverage"]
+    assert "excluded_event_types" not in receipt["source_coverage"]
+    assert "excluded_event_type_counts" not in receipt["source_coverage"]
     assert receipt["source_coverage"]["privacy"]["raw_transcript_text_exposed"] is False
 
 

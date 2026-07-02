@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from types import SimpleNamespace
 
 from app.services.proactive_ooda_approval_reissue import (
     current_proactive_ooda_approval_request,
     reissue_current_proactive_ooda_approval,
 )
+from app.services.proactive_ooda_runtime_artifacts import load_runtime_artifact_bundle
 
 
 def _bundle(*, live_pending: int = 0, live_pending_age_seconds: int = 0) -> dict[str, object]:
@@ -270,3 +272,79 @@ def test_reissue_current_proactive_ooda_approval_sends_stale_live_surface_after_
     assert result["reissue_after_seconds"] == 3600
     assert result["reissue_eligible"] is True
     assert sent
+
+
+def test_reissue_current_proactive_ooda_approval_skips_archived_receipt_when_live_callback_still_exists(tmp_path) -> None:
+    state_path = "state/proactive_ooda_notified.json"
+    archive_receipt_path = tmp_path / "state" / "proactive_ooda_run_receipts" / "20260702T113932Z-sent.json"
+    stage_dir = tmp_path / "state" / "proactive_ooda_stage_packets"
+    safe_dir = tmp_path / "state" / "proactive_ooda_safe_work_results"
+    callback_dir = tmp_path / "state" / "proactive_ooda_approval_callbacks"
+
+    stage_packet = {
+        "schema": "proactive_ooda.stage_packet.v1",
+        "packet_ref": "stage_packet:packet-1",
+        "stage": {"kind": "approval_packet"},
+        "approval": {"required": True},
+    }
+    safe_work_result = {
+        "schema": "proactive_ooda.safe_work_result.v1",
+        "result_ref": "safe_work_result:result-1",
+        "source_packet_ref_hash": _hash(stage_packet["packet_ref"]),
+        "status": "staged_for_user_decision",
+        "approval": {"required": True},
+        "approval_prompt": "Approve whether EA should keep this staged packet.",
+        "staged_action_url": "https://example.test/candidate",
+    }
+    stage_dir.mkdir(parents=True, exist_ok=True)
+    safe_dir.mkdir(parents=True, exist_ok=True)
+    callback_dir.mkdir(parents=True, exist_ok=True)
+    (stage_dir / "packet-1.json").write_text(json.dumps(stage_packet) + "\n", encoding="utf-8")
+    (safe_dir / "result-1.json").write_text(json.dumps(safe_work_result) + "\n", encoding="utf-8")
+    archive_receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    archive_receipt_path.write_text(
+        json.dumps(
+            {
+                "notification_status": "sent",
+                "item_count": 1,
+                "stage_packet_ref_hashes": [_hash(stage_packet["packet_ref"])],
+                "safe_work_result_ref_hashes": [_hash(safe_work_result["result_ref"])],
+                "stage_packet_output_dir": str(stage_dir),
+                "safe_work_result_output_dir": str(safe_dir),
+                "telegram_message_ids": ["tg-1"],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (callback_dir / "pending.json").write_text(
+        json.dumps(
+            {
+                "schema": "ea.proactive_ooda_telegram_approval_callback.v1",
+                "callback_token": "cb-1",
+                "status": "pending",
+                "created_at": "2026-07-02T11:39:34Z",
+                "expires_at": "2099-01-01T00:00:00Z",
+                "packet_ref": stage_packet["packet_ref"],
+                "staged_artifact_ref": safe_work_result["result_ref"],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    send_calls: list[dict[str, object]] = []
+    result = reissue_current_proactive_ooda_approval(
+        principal_id="exec",
+        root=tmp_path,
+        state_path=state_path,
+        receipt_path=archive_receipt_path,
+        stage_packet_dir=stage_dir,
+        safe_work_result_dir=safe_dir,
+        bundle_loader=load_runtime_artifact_bundle,
+        sender=lambda **kwargs: send_calls.append(dict(kwargs)),
+    )
+
+    assert result["status"] == "already_live_pending"
+    assert result["current_packet_live_pending_count"] == 1
+    assert send_calls == []

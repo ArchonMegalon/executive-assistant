@@ -12,6 +12,7 @@ from uuid import uuid4
 PROACTIVE_OODA_APPROVAL_OUTCOME_SCHEMA = "ea.proactive_ooda_approval_outcome.v1"
 PROACTIVE_OODA_APPROVAL_OUTCOME_EVENT_TYPE = "proactive_ooda.approval_outcome"
 PROACTIVE_OODA_APPROVAL_OUTCOME_FILENAME = "proactive_ooda_latest_approval_outcome.generated.json"
+PROACTIVE_OODA_RUN_RECEIPT_DIRNAME = "proactive_ooda_run_receipts"
 
 
 def default_proactive_ooda_artifact_dir(*, root: Path, preferred: Path | None = None) -> Path:
@@ -38,7 +39,8 @@ def default_proactive_ooda_approval_outcome_path(
 ) -> Path:
     receipt = _path_from_value(root, receipt_path)
     if receipt is not None:
-        return default_proactive_ooda_artifact_dir(root=root, preferred=receipt.parent) / PROACTIVE_OODA_APPROVAL_OUTCOME_FILENAME
+        preferred = receipt.parent.parent if receipt.parent.name == PROACTIVE_OODA_RUN_RECEIPT_DIRNAME else receipt.parent
+        return default_proactive_ooda_artifact_dir(root=root, preferred=preferred) / PROACTIVE_OODA_APPROVAL_OUTCOME_FILENAME
     state = _path_from_value(root, state_path)
     if state is not None:
         return default_proactive_ooda_artifact_dir(root=root, preferred=state.parent) / PROACTIVE_OODA_APPROVAL_OUTCOME_FILENAME
