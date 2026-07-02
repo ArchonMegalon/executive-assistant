@@ -732,18 +732,19 @@ def build_google_oauth_start(
     prompt = "consent" if normalized_expected_google_email == "" else "select_account consent"
     if normalized_bundle == "identity":
         prompt = "select_account"
-    query = urllib.parse.urlencode(
-        {
-            "response_type": "code",
-            "client_id": config.client_id,
-            "redirect_uri": redirect_uri,
-            "scope": " ".join(requested_scopes),
-            "access_type": "online" if normalized_bundle == "identity" else "offline",
-            "include_granted_scopes": "false",
-            "prompt": prompt,
-            "state": state,
-        }
-    )
+    query_params = {
+        "response_type": "code",
+        "client_id": config.client_id,
+        "redirect_uri": redirect_uri,
+        "scope": " ".join(requested_scopes),
+        "access_type": "online" if normalized_bundle == "identity" else "offline",
+        "include_granted_scopes": "false",
+        "prompt": prompt,
+        "state": state,
+    }
+    if "@" in normalized_expected_google_email:
+        query_params["login_hint"] = normalized_expected_google_email
+    query = urllib.parse.urlencode(query_params)
     return GoogleOAuthStartPacket(
         principal_id=principal_id,
         scope_bundle=normalized_bundle,

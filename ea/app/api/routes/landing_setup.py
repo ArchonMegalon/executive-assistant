@@ -171,10 +171,14 @@ def _google_oauth_denial_detail(
         project_detail = f" OAuth project number: {oauth_project_number}."
     action_detail = (
         f" Confirm {expected_google_email} is allowed under Google Auth Platform > Audience > Test users, "
-        "choose that same account in the consent screen, or publish/verify the OAuth app, then retry the Full Workspace link."
+        "choose that same account in the consent screen, or publish/verify the OAuth app, then retry the Full Workspace link. "
+        "If the account is already listed, retry from a fresh browser session after a short propagation delay and verify the "
+        "OAuth project/client shown here matches the Google Console project you edited."
         if "@" in expected_google_email
         else " Confirm the selected Google account is allowed under Google Auth Platform > Audience > Test users, "
-        "choose that same account in the consent screen, or publish/verify the OAuth app, then retry the Full Workspace link."
+        "choose that same account in the consent screen, or publish/verify the OAuth app, then retry the Full Workspace link. "
+        "If the account is already listed, retry from a fresh browser session after a short propagation delay and verify the "
+        "OAuth project/client shown here matches the Google Console project you edited."
     )
     google_detail = f" Google said: {detail}." if detail else ""
     return (

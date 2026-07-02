@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from urllib.parse import parse_qs, urlparse
+
 from app.services.google_oauth import build_google_oauth_start, read_google_oauth_state_unchecked
 from app.api.routes.landing_setup import _google_oauth_denial_detail
 
@@ -21,6 +23,8 @@ def test_google_oauth_access_denied_names_expected_test_user_blocker() -> None:
     assert "95627800296" in detail
     assert "Google Auth Platform > Audience > Test users" in detail
     assert "select that same account" in detail
+    assert "already listed" in detail
+    assert "OAuth project/client shown here" in detail
 
 
 def test_google_location_history_access_denied_keeps_portability_detail() -> None:
@@ -60,6 +64,9 @@ def test_google_oauth_start_state_carries_non_secret_project_metadata(monkeypatc
     )
 
     state = read_google_oauth_state_unchecked(packet.state)
+    query = parse_qs(urlparse(packet.auth_url).query)
     assert state["oauth_client_project_id"] == "propertyquarry-498318"
     assert state["oauth_client_project_number"] == "95627800296"
     assert state["expected_google_email"] == "work.tibor.girschele@gmail.com"
+    assert query["login_hint"] == ["work.tibor.girschele@gmail.com"]
+    assert query["prompt"] == ["select_account consent"]
