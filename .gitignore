@@ -67,6 +67,7 @@ memorial_data/
 state/proactive_ooda_latest_approval_outcome.generated.json
 state/proactive_ooda_latest_run.generated.json
 state/proactive_ooda_notified.json
+state/assistant_property_boundary_archive/
 state/proactive_ooda_run_receipts/
 state/proactive_ooda_safe_work_results/
 state/proactive_ooda_stage_packets/

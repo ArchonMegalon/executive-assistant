@@ -264,3 +264,57 @@ def test_build_report_ignores_stale_operator_status_receipt(tmp_path: Path, monk
     assert "receipt_observation_missing" in report["errors"]
     assert "stage_packet_count_mismatch" in report["errors"]
     assert "safe_work_result_count_mismatch" in report["errors"]
+
+
+def test_build_report_keeps_stronger_host_delivery_route_over_weaker_receipt(tmp_path: Path, monkeypatch) -> None:
+    module = _load_script(VERIFY_OODA_PATH, "verify_proactive_ooda_receipt_route_precedence_test")
+    receipt = _operator_status_receipt(module)
+    receipt["delivery_route"] = {
+        "ready": False,
+        "selected_channel": "",
+        "selected_transport": "",
+        "selected_by": "",
+        "selected_reason": "",
+        "binding_id_present": False,
+        "recipient_ref_hash_present": False,
+        "available_channels": [],
+        "errors": ["telegram_notification_not_configured"],
+        "route_error": "telegram_notification_not_configured",
+        "recovery_hint": "Link Telegram delivery.",
+        "next_action": "configure_telegram_proactive_delivery",
+        "preference_count": 0,
+        "policy_count": 0,
+        "follow_up_hint_count": 0,
+    }
+    receipt_path = tmp_path / "operator_status.json"
+    receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _patch_host_blindness(module, monkeypatch)
+    monkeypatch.setattr(
+        module,
+        "_delivery_route_status",
+        lambda *args, **kwargs: {
+            "mode": "lightweight",
+            "ready": True,
+            "selected_channel": "telegram",
+            "selected_transport": "telegram",
+            "selected_by": "env_telegram_fallback",
+            "selected_reason": "Telegram bot token and proactive chat id available",
+            "binding_id_present": False,
+            "recipient_ref_hash_present": True,
+            "available_channels": ["telegram"],
+            "errors": [],
+            "route_error": "",
+            "recovery_hint": "",
+            "next_action": "",
+            "preference_count": 0,
+            "policy_count": 0,
+            "follow_up_hint_count": 0,
+        },
+    )
+    monkeypatch.setattr(module, "_telegram_ready", lambda principal_id: True)
+
+    report = module._build_report(_base_args(module, receipt_path))  # noqa: SLF001
+
+    assert report["delivery_route"]["ready"] is True
+    assert report["delivery_route"]["selected_channel"] == "telegram"
+    assert report["delivery_route"]["route_error"] == ""

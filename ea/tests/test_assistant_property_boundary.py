@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from app.product.service import ProductService
+from app.services.assistant_property_lane import assistant_property_lane_enabled
 
 
 def _product_service() -> ProductService:
@@ -45,6 +46,7 @@ def test_sync_google_willhaben_signals_is_disabled_for_ea_by_default(monkeypatch
 
 def test_sync_google_willhaben_signals_stays_disabled_without_property_runtime_profile(monkeypatch: object) -> None:
     monkeypatch.setenv("EA_ASSISTANT_PROPERTY_LANE_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_DEFAULT_BRAND", "1")
     monkeypatch.delenv("PROPERTYQUARRY_SCHEDULER_PROFILE", raising=False)
     monkeypatch.delenv("PROPERTYQUARRY_WORKER_PROFILE", raising=False)
     service = _product_service()
@@ -58,6 +60,35 @@ def test_sync_google_willhaben_signals_stays_disabled_without_property_runtime_p
     assert payload["status"] == "disabled"
     assert payload["reason"] == "property_search_not_available"
     assert payload["product_boundary"] == "propertyquarry"
+
+
+def test_property_lane_stays_disabled_in_mixed_deploy_modes(monkeypatch: object) -> None:
+    monkeypatch.setenv("EA_ASSISTANT_PROPERTY_LANE_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_DEFAULT_BRAND", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_SCHEDULER_PROFILE", "property")
+    monkeypatch.setenv("EA_DEPLOY_ENABLED_MODES", "EA_CORE,PROPERTY")
+
+    assert assistant_property_lane_enabled() is False
+
+
+def test_property_lane_stays_disabled_without_explicit_property_deploy_mode(monkeypatch: object) -> None:
+    monkeypatch.setenv("EA_ASSISTANT_PROPERTY_LANE_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_DEFAULT_BRAND", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_SCHEDULER_PROFILE", "property")
+    monkeypatch.delenv("EA_DEPLOY_PRIMARY_MODE", raising=False)
+    monkeypatch.delenv("EA_DEPLOY_PROJECT_MODE", raising=False)
+    monkeypatch.delenv("EA_DEPLOY_ENABLED_MODES", raising=False)
+
+    assert assistant_property_lane_enabled() is False
+
+
+def test_property_lane_enables_only_for_dedicated_property_primary_mode(monkeypatch: object) -> None:
+    monkeypatch.setenv("EA_ASSISTANT_PROPERTY_LANE_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_DEFAULT_BRAND", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_SCHEDULER_PROFILE", "property")
+    monkeypatch.setenv("EA_DEPLOY_PRIMARY_MODE", "PROPERTY")
+
+    assert assistant_property_lane_enabled() is True
 
 
 def test_ingest_office_signal_marks_property_alert_email_ignored(monkeypatch: object) -> None:
@@ -89,6 +120,7 @@ def test_ingest_office_signal_marks_property_alert_email_ignored(monkeypatch: ob
 
 def test_ingest_office_signal_property_alert_stays_ignored_without_property_runtime_profile(monkeypatch: object) -> None:
     monkeypatch.setenv("EA_ASSISTANT_PROPERTY_LANE_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_DEFAULT_BRAND", "1")
     monkeypatch.delenv("PROPERTYQUARRY_SCHEDULER_PROFILE", raising=False)
     monkeypatch.delenv("PROPERTYQUARRY_WORKER_PROFILE", raising=False)
     service = _product_service()
@@ -102,6 +134,33 @@ def test_ingest_office_signal_property_alert_stays_ignored_without_property_runt
         counterparty="Willhaben Suchagent",
         source_ref="gmail:thread-2",
         external_id="thread-2",
+        payload={
+            "from_email": "no-reply@agent.willhaben.at",
+            "from_name": "Willhaben Suchagent",
+        },
+        actor="test",
+    )
+
+    assert payload["ignored"] is True
+    assert payload["ignore_reason"] == "property_search_not_available"
+    assert payload["product_boundary"] == "propertyquarry"
+
+
+def test_property_alert_ingest_stays_disabled_without_propertyquarry_brand(monkeypatch: object) -> None:
+    monkeypatch.setenv("EA_ASSISTANT_PROPERTY_LANE_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_SCHEDULER_PROFILE", "property")
+    monkeypatch.delenv("PROPERTYQUARRY_DEFAULT_BRAND", raising=False)
+    service = _product_service()
+
+    payload = service.ingest_office_signal(
+        principal_id="principal-1",
+        signal_type="email_thread",
+        channel="gmail",
+        title="Willhaben Suchagent: Neue Anzeige in Wien",
+        summary="Neue Anzeige fuer deine Suche.",
+        counterparty="Willhaben Suchagent",
+        source_ref="gmail:thread-3",
+        external_id="thread-3",
         payload={
             "from_email": "no-reply@agent.willhaben.at",
             "from_name": "Willhaben Suchagent",

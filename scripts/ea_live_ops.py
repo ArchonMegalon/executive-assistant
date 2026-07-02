@@ -2452,6 +2452,10 @@ def probe_proactive_route(
             "timed_out": True,
             "timeout_seconds": float(live_receipt_payload.get("timeout_seconds") or effective_timeout_seconds),
         }
+    route_payload = _reconcile_route_payload_with_live_receipt(
+        route_payload=route_payload,
+        live_receipt_payload=live_receipt_payload,
+    )
     delivery_route = dict(route_payload.get("delivery_route") or {})
     delivery_guard = dict(route_payload.get("delivery_guard") or {})
     runtime_errors = [str(item).strip() for item in list(route_payload.get("errors") or []) if str(item).strip()]
@@ -2541,6 +2545,83 @@ def probe_proactive_route(
             f"ready={str(route_ready).lower()}; source=docker_compose_exec{tail}"
         )
     return report
+
+
+def _reconcile_route_payload_with_live_receipt(
+    *,
+    route_payload: Mapping[str, object],
+    live_receipt_payload: Mapping[str, object],
+) -> dict[str, object]:
+    payload = dict(route_payload or {})
+    if not _live_receipt_proves_delivery_route(live_receipt_payload):
+        return payload
+    route = dict(payload.get("delivery_route") or {})
+    route_error = str(route.get("route_error") or "").strip()
+    if bool(route.get("ready")) and not route_error:
+        return payload
+    selected_channel = _live_receipt_selected_channel(live_receipt_payload)
+    selected_transport = selected_channel or "telegram"
+    live_route = dict(route)
+    live_route.update(
+        {
+            "ready": True,
+            "selected_channel": selected_channel,
+            "selected_transport": selected_transport,
+            "selected_by": str(route.get("selected_by") or "").strip() or "live_receipt",
+            "selected_reason": (
+                str(route.get("selected_reason") or "").strip()
+                or "Latest host-visible live receipt proves delivery succeeded."
+            ),
+            "available_channels": _merged_nonempty_text_list(route.get("available_channels"), [selected_channel]),
+            "errors": [
+                item
+                for item in [str(entry).strip() for entry in list(route.get("errors") or []) if str(entry).strip()]
+                if item != "telegram_notification_not_configured"
+            ],
+            "route_error": "",
+            "recovery_hint": "",
+            "next_action": "",
+        }
+    )
+    payload["delivery_route"] = live_route
+    warnings = [str(item).strip() for item in list(payload.get("warnings") or []) if str(item).strip()]
+    note = "live_receipt_route_override_applied"
+    if note not in warnings:
+        warnings.append(note)
+    payload["warnings"] = warnings
+    return payload
+
+
+def _live_receipt_proves_delivery_route(live_receipt_payload: Mapping[str, object]) -> bool:
+    payload = dict(live_receipt_payload or {})
+    if not bool(payload.get("ok")):
+        return False
+    if str(payload.get("delivery_mode") or "").strip() != "telegram_sent":
+        return False
+    if int(payload.get("delivery_message_count") or 0) < 1 and int(payload.get("telegram_message_count") or 0) < 1:
+        return False
+    return bool(_live_receipt_selected_channel(payload))
+
+
+def _live_receipt_selected_channel(live_receipt_payload: Mapping[str, object]) -> str:
+    payload = dict(live_receipt_payload or {})
+    channel = str(payload.get("delivery_channel") or "").strip().lower()
+    if channel:
+        return channel
+    if int(payload.get("telegram_message_count") or 0) > 0:
+        return "telegram"
+    return ""
+
+
+def _merged_nonempty_text_list(*values: object) -> list[str]:
+    ordered: list[str] = []
+    for value in values:
+        items = value if isinstance(value, (list, tuple, set)) else [value]
+        for item in items:
+            normalized = str(item or "").strip()
+            if normalized and normalized not in ordered:
+                ordered.append(normalized)
+    return ordered
 
 
 def _proactive_guard_next_action(reason: str) -> str:

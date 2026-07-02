@@ -852,6 +852,91 @@ def _run_scheduler_google_signal_sync(container, log: logging.Logger) -> dict[st
     return result
 
 
+def _scheduler_assistant_property_boundary_cleanup_interval_seconds() -> float:
+    return _env_float(
+        "EA_SCHEDULER_ASSISTANT_PROPERTY_BOUNDARY_CLEANUP_INTERVAL_SECONDS",
+        900.0,
+    )
+
+
+def _assistant_property_boundary_cleanup_principal_ids(container) -> tuple[str, ...]:  # type: ignore[no-untyped-def]
+    from app.services.google_oauth import GOOGLE_CONNECTOR_NAME
+    from app.services.telegram_onboarding_service import TELEGRAM_IDENTITY_CONNECTOR
+
+    principals = {
+        str(getattr(getattr(container.settings, "auth", None), "default_principal_id", "") or "").strip(),
+        str(os.environ.get("EA_DEFAULT_PRINCIPAL_ID") or "").strip(),
+        str(os.environ.get("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID") or "").strip(),
+    }
+    for connector_name in (GOOGLE_CONNECTOR_NAME, TELEGRAM_IDENTITY_CONNECTOR):
+        try:
+            bindings = container.tool_runtime.list_connector_bindings_for_connector(connector_name, limit=1000)
+        except Exception:
+            continue
+        for binding in bindings:
+            principal_id = str(getattr(binding, "principal_id", "") or "").strip()
+            if principal_id:
+                principals.add(principal_id)
+    return tuple(sorted(value for value in principals if value))
+
+
+def _run_scheduler_assistant_property_boundary_cleanup(
+    container,
+    log: logging.Logger,
+) -> dict[str, object]:  # type: ignore[no-untyped-def]
+    from app.product.service import build_product_service
+    from app.services.assistant_property_boundary_cleanup import cleanup_hidden_property_runtime_state
+
+    if assistant_property_lane_enabled():
+        return {
+            "ran": False,
+            "reason": "assistant_property_lane_enabled",
+            "archived_total": 0,
+            "task_cleanup_attempted": 0,
+            "task_cleanup_closed": 0,
+            "task_cleanup_skipped": 0,
+            "errors": 0,
+            "principals": [],
+        }
+
+    cleanup_result = cleanup_hidden_property_runtime_state(
+        state_path=os.environ.get("EA_PROACTIVE_OODA_STATE_PATH") or "state/proactive_ooda_notified.json",
+    )
+    principals = _assistant_property_boundary_cleanup_principal_ids(container)
+    task_cleanup_attempted = 0
+    task_cleanup_closed = 0
+    task_cleanup_skipped = 0
+    errors = 0
+    if principals:
+        service = build_product_service(container)
+        for principal_id in principals:
+            task_cleanup_attempted += 1
+            try:
+                summary = service.cleanup_hidden_property_tasks(
+                    principal_id=principal_id,
+                    actor="scheduler",
+                )
+            except Exception:
+                errors += 1
+                log.exception("scheduler assistant property boundary cleanup failed principal=%s", principal_id)
+                continue
+            task_cleanup_closed += int(summary.get("closed_total") or 0)
+            task_cleanup_skipped += int(summary.get("skipped_total") or 0)
+    return {
+        "ran": True,
+        "reason": "",
+        "archived_total": int(cleanup_result.get("archived_total") or 0),
+        "archived_stage_packets": int(cleanup_result.get("stage_packet_total") or 0),
+        "archived_safe_work_results": int(cleanup_result.get("safe_work_result_total") or 0),
+        "archived_approval_callbacks": int(cleanup_result.get("approval_callback_total") or 0),
+        "task_cleanup_attempted": task_cleanup_attempted,
+        "task_cleanup_closed": task_cleanup_closed,
+        "task_cleanup_skipped": task_cleanup_skipped,
+        "errors": errors,
+        "principals": list(principals),
+    }
+
+
 def _scheduler_property_scout_enabled() -> bool:
     if not assistant_property_lane_enabled():
         return False
@@ -1566,6 +1651,7 @@ def _run_execution_worker(role: str) -> None:
     last_google_signal_sync_at = 0.0
     last_property_scout_at = 0.0
     last_property_results_finalize_at = 0.0
+    last_assistant_property_boundary_cleanup_at = 0.0
     last_pocket_signal_sync_at = 0.0
     last_alexa_history_sync_at = 0.0
     last_morning_memo_at = 0.0
@@ -1646,6 +1732,29 @@ def _run_execution_worker(role: str) -> None:
                 except Exception:
                     log.exception("role=%s scheduler google signal sync failed", role)
                     last_google_signal_sync_at = now
+            if not property_only_scheduler and (
+                now - last_assistant_property_boundary_cleanup_at
+                >= _scheduler_assistant_property_boundary_cleanup_interval_seconds()
+            ):
+                try:
+                    cleanup_summary = _run_scheduler_assistant_property_boundary_cleanup(container, log)
+                    last_assistant_property_boundary_cleanup_at = now
+                    if cleanup_summary.get("ran") and (
+                        int(cleanup_summary.get("archived_total") or 0) > 0
+                        or int(cleanup_summary.get("task_cleanup_closed") or 0) > 0
+                        or int(cleanup_summary.get("errors") or 0) > 0
+                    ):
+                        log.info(
+                            "role=%s assistant property boundary cleanup archived=%s tasks_closed=%s principals=%s errors=%s",
+                            role,
+                            cleanup_summary.get("archived_total"),
+                            cleanup_summary.get("task_cleanup_closed"),
+                            ",".join(list(cleanup_summary.get("principals") or [])),
+                            cleanup_summary.get("errors"),
+                        )
+                except Exception:
+                    log.exception("role=%s assistant property boundary cleanup failed", role)
+                    last_assistant_property_boundary_cleanup_at = now
             if _scheduler_property_scout_enabled() and (
                 now - last_property_scout_at >= _scheduler_property_scout_interval_seconds()
             ):

@@ -338,6 +338,252 @@ def _coherent_approval_outcome_row(
     }
 
 
+def _payload_sort_key(payload: Mapping[str, Any], path: Path) -> tuple[str, str]:
+    row = dict(payload or {})
+    return (
+        _first_text(row.get("generated_at"), row.get("created_at"), row.get("recorded_at")),
+        path.name,
+    )
+
+
+def _json_payload_candidates(directory: Path | None) -> list[tuple[Path, dict[str, Any]]]:
+    if directory is None or not directory.is_dir():
+        return []
+    rows: list[tuple[Path, dict[str, Any]]] = []
+    try:
+        for path in directory.glob("*.json"):
+            if not path.is_file():
+                continue
+            payload = _load_json(path)
+            if payload:
+                rows.append((path, payload))
+    except Exception:
+        return []
+    rows.sort(key=lambda item: _payload_sort_key(item[1], item[0]))
+    return rows
+
+
+def _matching_stage_packet_for_ref_hash(
+    *,
+    stage_packet_dir: Path | None,
+    packet_ref_sha256: str,
+) -> tuple[Path | None, dict[str, Any]]:
+    target_hash = str(packet_ref_sha256 or "").strip()
+    if not target_hash:
+        return None, {}
+    matched: list[tuple[Path, dict[str, Any]]] = []
+    for path, payload in _json_payload_candidates(stage_packet_dir):
+        if _hash_value(_stage_packet_ref(payload)) == target_hash:
+            matched.append((path, payload))
+    if not matched:
+        return None, {}
+    return matched[-1]
+
+
+def _matching_safe_work_result_for_ref_hash(
+    *,
+    safe_work_result_dir: Path | None,
+    staged_artifact_sha256: str,
+) -> tuple[Path | None, dict[str, Any]]:
+    target_hash = str(staged_artifact_sha256 or "").strip()
+    if not target_hash:
+        return None, {}
+    matched: list[tuple[Path, dict[str, Any]]] = []
+    for path, payload in _json_payload_candidates(safe_work_result_dir):
+        if _hash_value(_safe_work_result_ref(payload)) == target_hash:
+            matched.append((path, payload))
+    if not matched:
+        return None, {}
+    return matched[-1]
+
+
+def _run_receipt_dir(
+    *,
+    run_receipt_path: Path | None,
+    stage_packet_dir: Path | None,
+    safe_work_result_dir: Path | None,
+) -> Path | None:
+    if isinstance(run_receipt_path, Path):
+        parent = run_receipt_path.parent
+        if parent.is_dir() and parent.name == "proactive_ooda_run_receipts":
+            return parent
+        sibling = parent / "proactive_ooda_run_receipts"
+        if sibling.is_dir():
+            return sibling
+    for directory in (stage_packet_dir, safe_work_result_dir):
+        if not isinstance(directory, Path):
+            continue
+        candidate = directory.parent / "proactive_ooda_run_receipts"
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+def _matching_run_receipt_for_artifact_hashes(
+    *,
+    run_receipt_path: Path | None,
+    stage_packet_dir: Path | None,
+    safe_work_result_dir: Path | None,
+    packet_ref_sha256: str,
+    staged_artifact_sha256: str,
+) -> tuple[Path | None, dict[str, Any]]:
+    target_packet_hash = str(packet_ref_sha256 or "").strip()
+    target_safe_hash = str(staged_artifact_sha256 or "").strip()
+    if not target_packet_hash or not target_safe_hash:
+        return None, {}
+    directory = _run_receipt_dir(
+        run_receipt_path=run_receipt_path,
+        stage_packet_dir=stage_packet_dir,
+        safe_work_result_dir=safe_work_result_dir,
+    )
+    if directory is None:
+        return None, {}
+    matched: list[tuple[Path, dict[str, Any]]] = []
+    for path, payload in _json_payload_candidates(directory):
+        stage_hashes = {
+            str(item or "").strip()
+            for item in list(payload.get("stage_packet_ref_hashes") or [])
+            if str(item or "").strip()
+        }
+        safe_hashes = {
+            str(item or "").strip()
+            for item in list(payload.get("safe_work_result_ref_hashes") or [])
+            if str(item or "").strip()
+        }
+        if target_packet_hash in stage_hashes and target_safe_hash in safe_hashes:
+            matched.append((path, payload))
+    if not matched:
+        return None, {}
+    return matched[-1]
+
+
+def _historical_accepted_bundle_from_approval_outcome(
+    *,
+    approval_row: Mapping[str, Any],
+    run_receipt_path: Path | None,
+    stage_packet_dir: Path | None,
+    safe_work_result_dir: Path | None,
+) -> dict[str, Any]:
+    row = dict(approval_row or {})
+    if not bool(row.get("approval_outcome_recorded")) or not bool(row.get("accepted")):
+        return {}
+    packet_ref_sha256 = str(row.get("packet_ref_sha256") or "").strip()
+    staged_artifact_sha256 = str(row.get("staged_artifact_sha256") or "").strip()
+    stage_path, stage_packet = _matching_stage_packet_for_ref_hash(
+        stage_packet_dir=stage_packet_dir,
+        packet_ref_sha256=packet_ref_sha256,
+    )
+    safe_path, safe_work_result = _matching_safe_work_result_for_ref_hash(
+        safe_work_result_dir=safe_work_result_dir,
+        staged_artifact_sha256=staged_artifact_sha256,
+    )
+    matched_run_receipt_path, matched_run_receipt = _matching_run_receipt_for_artifact_hashes(
+        run_receipt_path=run_receipt_path,
+        stage_packet_dir=stage_packet_dir,
+        safe_work_result_dir=safe_work_result_dir,
+        packet_ref_sha256=packet_ref_sha256,
+        staged_artifact_sha256=staged_artifact_sha256,
+    )
+    if not (matched_run_receipt and stage_packet and safe_work_result):
+        return {}
+    return {
+        "run_receipt_path": matched_run_receipt_path,
+        "run_receipt": matched_run_receipt,
+        "stage_packet_path": stage_path,
+        "stage_packet": stage_packet,
+        "safe_work_result_path": safe_path,
+        "safe_work_result": safe_work_result,
+        "selection_source": "historical_accepted_approval_outcome",
+    }
+
+
+def _path_requires_live_runtime_lookup(path: Path | None) -> bool:
+    if not isinstance(path, Path):
+        return False
+    if not path.is_absolute():
+        return False
+    return not path.exists()
+
+
+def _live_historical_accepted_bundle_from_approval_outcome(
+    *,
+    approval_row: Mapping[str, Any],
+    run_receipt_path: Path | None,
+    stage_packet_dir: Path | None,
+    safe_work_result_dir: Path | None,
+    timeout_seconds: float = 8.0,
+) -> dict[str, Any]:
+    row = dict(approval_row or {})
+    if not bool(row.get("approval_outcome_recorded")) or not bool(row.get("accepted")):
+        return {}
+    if not any(
+        _path_requires_live_runtime_lookup(path)
+        for path in (run_receipt_path, stage_packet_dir, safe_work_result_dir)
+    ):
+        return {}
+    payload = {
+        "approval_row": row,
+        "run_receipt_path": str(run_receipt_path or ""),
+        "stage_packet_dir": str(stage_packet_dir or ""),
+        "safe_work_result_dir": str(safe_work_result_dir or ""),
+    }
+    command = [
+        "python",
+        "-c",
+        (
+            "import json, sys\n"
+            "from pathlib import Path\n"
+            "sys.path.insert(0, '/app')\n"
+            "sys.path.insert(0, '/app/scripts')\n"
+            "import materialize_proactive_ooda_gold_acceptance as gold\n"
+            "payload = json.loads(sys.argv[1])\n"
+            "bundle = gold._historical_accepted_bundle_from_approval_outcome(\n"
+            "    approval_row=dict(payload.get('approval_row') or {}),\n"
+            "    run_receipt_path=Path(payload['run_receipt_path']) if payload.get('run_receipt_path') else None,\n"
+            "    stage_packet_dir=Path(payload['stage_packet_dir']) if payload.get('stage_packet_dir') else None,\n"
+            "    safe_work_result_dir=Path(payload['safe_work_result_dir']) if payload.get('safe_work_result_dir') else None,\n"
+            ")\n"
+            "print(json.dumps({\n"
+            "    'ok': bool(bundle),\n"
+            "    'selection_source': str(bundle.get('selection_source') or ''),\n"
+            "    'run_receipt_path': str(bundle.get('run_receipt_path') or ''),\n"
+            "    'run_receipt': dict(bundle.get('run_receipt') or {}),\n"
+            "    'stage_packet_path': str(bundle.get('stage_packet_path') or ''),\n"
+            "    'stage_packet': dict(bundle.get('stage_packet') or {}),\n"
+            "    'safe_work_result_path': str(bundle.get('safe_work_result_path') or ''),\n"
+            "    'safe_work_result': dict(bundle.get('safe_work_result') or {}),\n"
+            "}, sort_keys=True))\n"
+        ),
+        json.dumps(payload, sort_keys=True),
+    ]
+    code, live_payload, stdout, stderr = ea_live_ops._docker_compose_exec_json(  # noqa: SLF001
+        compose_file=str(
+            os.environ.get("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE")
+            or ea_live_ops.DEFAULT_PROACTIVE_OODA_COMPOSE_FILE
+        ).strip(),
+        service=str(
+            os.environ.get("EA_PROACTIVE_OODA_RUNTIME_SERVICE")
+            or ea_live_ops.DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE
+        ).strip(),
+        command=command,
+        timeout_seconds=max(float(timeout_seconds or 1.0), 1.0),
+    )
+    if int(code or 0) != 0 or not bool(live_payload.get("ok")):
+        return {}
+    return {
+        "run_receipt_path": _path_from_text(ROOT, str(live_payload.get("run_receipt_path") or "")),
+        "run_receipt": dict(live_payload.get("run_receipt") or {}),
+        "stage_packet_path": _path_from_text(ROOT, str(live_payload.get("stage_packet_path") or "")),
+        "stage_packet": dict(live_payload.get("stage_packet") or {}),
+        "safe_work_result_path": _path_from_text(ROOT, str(live_payload.get("safe_work_result_path") or "")),
+        "safe_work_result": dict(live_payload.get("safe_work_result") or {}),
+        "selection_source": str(live_payload.get("selection_source") or "").strip() or "historical_accepted_approval_outcome",
+        "source": "docker_compose_exec",
+        "stdout_excerpt": str(stdout or "").strip()[:200],
+        "stderr_excerpt": str(stderr or "").strip()[:200],
+    }
+
+
 def _first_text(*values: object) -> str:
     for value in values:
         text = str(value or "").strip()
@@ -1371,7 +1617,7 @@ def _approval_capture_readiness_proof(
     approval_capture_surface: Mapping[str, Any] | None = None,
     required: bool,
     approval_outcome_recorded: bool,
-    approval_outcome_matches_current_packet: bool,
+    approval_outcome_matches_selected_packet: bool,
 ) -> tuple[dict[str, Any], bool]:
     approval_capture = dict(operator_status.get("approval_capture") or {})
     approval_capture_surface = dict(
@@ -1403,7 +1649,7 @@ def _approval_capture_readiness_proof(
     )
     ready = bool(live_callback_ready or manual_outcome_capture_ready)
     satisfied_by_recorded_outcome = bool(
-        approval_outcome_recorded and approval_outcome_matches_current_packet and not raw_exposure
+        approval_outcome_recorded and approval_outcome_matches_selected_packet and not raw_exposure
     )
     live_callback_present = bool(
         checked
@@ -1452,7 +1698,8 @@ def _approval_capture_readiness_proof(
                 ),
                 "satisfied_by_recorded_outcome": satisfied_by_recorded_outcome,
                 "approval_outcome_recorded": approval_outcome_recorded,
-                "approval_outcome_matches_current_packet": approval_outcome_matches_current_packet,
+                "approval_outcome_matches_selected_packet": approval_outcome_matches_selected_packet,
+                "approval_outcome_matches_current_packet": approval_outcome_matches_selected_packet,
                 "capture_status": str(approval_capture.get("status") or "").strip(),
                 "source": str(approval_capture.get("source") or "").strip(),
                 "observed_at": str(approval_capture.get("observed_at") or "").strip(),
@@ -2007,11 +2254,6 @@ def materialize_proactive_ooda_gold_acceptance(
         approval_outcome_input=None,
         runtime_approval_outcome=callback_approval_outcome,
     )
-    packet_artifacts_match_run_receipt = _run_receipt_matches_packet_artifacts(
-        run_receipt=run_receipt,
-        stage_packet=stage_packet,
-        safe_work_result=safe_work_result,
-    )
     file_approval_matches_current_packet = _approval_outcome_matches_packet_artifacts(
         approval_row=file_approval_row,
         stage_packet=stage_packet,
@@ -2019,6 +2261,44 @@ def materialize_proactive_ooda_gold_acceptance(
     )
     callback_approval_matches_current_packet = _approval_outcome_matches_packet_artifacts(
         approval_row=callback_approval_row,
+        stage_packet=stage_packet,
+        safe_work_result=safe_work_result,
+    )
+    selected_bundle_source = "current_runtime_bundle"
+    if not callback_approval_matches_current_packet and not file_approval_matches_current_packet:
+        historical_accepted_bundle = _historical_accepted_bundle_from_approval_outcome(
+            approval_row=file_approval_row,
+            run_receipt_path=run_path if isinstance(run_path, Path) else None,
+            stage_packet_dir=resolved_stage_dir if isinstance(resolved_stage_dir, Path) else None,
+            safe_work_result_dir=resolved_safe_dir if isinstance(resolved_safe_dir, Path) else None,
+        )
+        if not historical_accepted_bundle and used_live_runtime_probe:
+            historical_accepted_bundle = _live_historical_accepted_bundle_from_approval_outcome(
+                approval_row=file_approval_row,
+                run_receipt_path=run_path if isinstance(run_path, Path) else None,
+                stage_packet_dir=resolved_stage_dir if isinstance(resolved_stage_dir, Path) else None,
+                safe_work_result_dir=resolved_safe_dir if isinstance(resolved_safe_dir, Path) else None,
+            )
+        if historical_accepted_bundle:
+            selected_bundle_source = str(historical_accepted_bundle.get("selection_source") or "").strip() or "historical_accepted_approval_outcome"
+            run_path = historical_accepted_bundle.get("run_receipt_path")
+            run_receipt = dict(historical_accepted_bundle.get("run_receipt") or {})
+            stage_path = historical_accepted_bundle.get("stage_packet_path")
+            stage_packet = dict(historical_accepted_bundle.get("stage_packet") or {})
+            safe_path = historical_accepted_bundle.get("safe_work_result_path")
+            safe_work_result = dict(historical_accepted_bundle.get("safe_work_result") or {})
+            file_approval_matches_current_packet = _approval_outcome_matches_packet_artifacts(
+                approval_row=file_approval_row,
+                stage_packet=stage_packet,
+                safe_work_result=safe_work_result,
+            )
+            callback_approval_matches_current_packet = _approval_outcome_matches_packet_artifacts(
+                approval_row=callback_approval_row,
+                stage_packet=stage_packet,
+                safe_work_result=safe_work_result,
+            )
+    packet_artifacts_match_run_receipt = _run_receipt_matches_packet_artifacts(
+        run_receipt=run_receipt,
         stage_packet=stage_packet,
         safe_work_result=safe_work_result,
     )
@@ -2050,7 +2330,7 @@ def materialize_proactive_ooda_gold_acceptance(
         approval_capture_surface=approval_capture_surface,
         required=approval_capture_readiness_required,
         approval_outcome_recorded=bool(approval_row.get("approval_outcome_recorded")),
-        approval_outcome_matches_current_packet=approval_artifact_matches_current_packet,
+        approval_outcome_matches_selected_packet=approval_artifact_matches_current_packet,
     )
 
     delivery_route = dict(operator_status.get("delivery_route") or {})
@@ -2435,6 +2715,7 @@ def materialize_proactive_ooda_gold_acceptance(
             approval_capture_telegram_ready=approval_capture_telegram_ready,
             approval_capture_manual_ready=approval_capture_manual_ready,
         ),
+        "selected_bundle_source": selected_bundle_source,
         "next_action": next_action,
         **_next_action_surface_fields(next_action),
         "goal_completion_claim_allowed": False,
@@ -2498,6 +2779,7 @@ def materialize_proactive_ooda_gold_acceptance(
                 "approval_outcome_source": approval_row_source,
                 "approval_outcome_recorded": bool(approval_row.get("approval_outcome_recorded")),
                 "accepted": bool(approval_row.get("accepted")),
+                "selected_bundle_source": selected_bundle_source,
                 "packet_artifacts_match_current_packet": approval_artifact_matches_current_packet,
                 "source": "docker_compose_exec" if used_live_runtime_probe else "local_filesystem",
             },

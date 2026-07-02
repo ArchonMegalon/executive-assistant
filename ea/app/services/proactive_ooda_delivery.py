@@ -15,7 +15,10 @@ from app.services.proactive_ooda_telegram_policy import (
     approval_request_needs_telegram_user_action,
     telegram_ooda_text_is_internal_noise,
 )
-from app.services.proactive_telegram_binding import proactive_telegram_ready, resolve_proactive_telegram_chat_id
+from app.services.proactive_telegram_binding import (
+    proactive_telegram_ready,
+    resolve_proactive_telegram_target,
+)
 from app.services.pushbullet_delivery import pushbullet_client_by_key, send_pushbullet_note
 from app.services.telegram_delivery import (
     _telegram_bot_registry,
@@ -445,14 +448,18 @@ def _telegram_route_status(*, principal_id: str, tool_runtime: Any | None) -> Pr
                     binding_id=str(getattr(binding, "binding_id", "") or ""),
                     available_channels=("telegram",),
                 )
-    if proactive_telegram_ready(principal_id=principal_id):
+    proactive_target = resolve_proactive_telegram_target(principal_id=principal_id)
+    proactive_chat_id = str(proactive_target.get("chat_id") or "").strip()
+    proactive_bot_key = str(proactive_target.get("bot_key") or "default").strip() or "default"
+    proactive_token = str(dict(_telegram_bot_registry().get(proactive_bot_key) or {}).get("token") or "").strip()
+    if proactive_chat_id and proactive_token and proactive_telegram_ready(principal_id=principal_id):
         return ProactiveOodaDeliveryStatus(
             ready=True,
             selected_channel="telegram",
             selected_transport="telegram",
             selected_by="env_telegram_fallback",
             selected_reason="Telegram bot token and proactive chat id available",
-            recipient_ref_hash=_hash_text(resolve_proactive_telegram_chat_id(principal_id=principal_id)),
+            recipient_ref_hash=_hash_text(proactive_chat_id),
             available_channels=("telegram",),
         )
     return ProactiveOodaDeliveryStatus(
@@ -728,8 +735,10 @@ def _send_telegram_message_from_env(
     inline_buttons: list[list[tuple[str, str]]] | None = None,
     url_buttons: list[list[tuple[str, str]]] | None = None,
 ) -> dict[str, object]:
-    token = str(os.getenv("EA_TELEGRAM_BOT_TOKEN") or "").strip()
-    chat_id = resolve_proactive_telegram_chat_id(principal_id=principal_id)
+    target = resolve_proactive_telegram_target(principal_id=principal_id)
+    chat_id = str(target.get("chat_id") or "").strip()
+    bot_key = str(target.get("bot_key") or "default").strip() or "default"
+    token = str(dict(_telegram_bot_registry().get(bot_key) or {}).get("token") or "").strip()
     if not token or not chat_id:
         raise RuntimeError("telegram_notification_not_configured")
     payload: dict[str, object] = {"chat_id": chat_id, "text": text}
@@ -868,7 +877,11 @@ def _telegram_route_identity(
             chat_id = str(metadata.get("default_chat_ref") or getattr(binding, "external_account_ref", "") or "").strip()
             if chat_id and token:
                 return chat_id, token
-    return resolve_proactive_telegram_chat_id(principal_id=principal_id), str(os.getenv("EA_TELEGRAM_BOT_TOKEN") or "").strip()
+    target = resolve_proactive_telegram_target(principal_id=principal_id)
+    chat_id = str(target.get("chat_id") or "").strip()
+    bot_key = str(target.get("bot_key") or "default").strip() or "default"
+    token = str(dict(_telegram_bot_registry().get(bot_key) or {}).get("token") or "").strip()
+    return chat_id, token
 
 
 def _active_delivery_preferences(memory_runtime: Any | None, *, principal_id: str) -> list[Any]:

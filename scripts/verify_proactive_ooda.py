@@ -537,9 +537,14 @@ def _apply_operator_status_receipt_fallback(report: dict[str, Any], args: argpar
         merged["errors"] = _without_error_markers(merged.get("errors"), exact={"no_signal_source_configured"})
         fallback_applied = True
 
-    delivery_route = dict(receipt.get("delivery_route") or {})
-    if delivery_route:
-        merged["delivery_route"] = delivery_route
+    report_delivery_route = dict(report.get("delivery_route") or {})
+    receipt_delivery_route = dict(receipt.get("delivery_route") or {})
+    merged_delivery_route = _preferred_operator_status_delivery_route(
+        current_route=report_delivery_route,
+        receipt_route=receipt_delivery_route,
+    )
+    if merged_delivery_route:
+        merged["delivery_route"] = merged_delivery_route
     if _operator_status_telegram_ready(receipt):
         merged["verification_source"] = "operator_status_receipt"
         merged["telegram_ready"] = True
@@ -598,6 +603,40 @@ def _apply_operator_status_receipt_fallback(report: dict[str, Any], args: argpar
             warnings.append(note)
         merged["warnings"] = warnings
     merged["ok"] = not list(merged.get("errors") or [])
+    return merged
+
+
+def _preferred_operator_status_delivery_route(
+    *,
+    current_route: Mapping[str, Any] | None,
+    receipt_route: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    current = dict(current_route or {})
+    receipt = dict(receipt_route or {})
+    if not current:
+        return receipt
+    if not receipt:
+        return current
+    current_ready = bool(current.get("ready"))
+    receipt_ready = bool(receipt.get("ready"))
+    if current_ready and not receipt_ready:
+        return current
+    if receipt_ready and not current_ready:
+        return receipt
+    current_selected = bool(str(current.get("selected_channel") or current.get("selected_transport") or "").strip())
+    receipt_selected = bool(str(receipt.get("selected_channel") or receipt.get("selected_transport") or "").strip())
+    if current_selected and not receipt_selected:
+        return current
+    if receipt_selected and not current_selected:
+        return receipt
+    current_error_count = len([str(item).strip() for item in list(current.get("errors") or []) if str(item).strip()])
+    receipt_error_count = len([str(item).strip() for item in list(receipt.get("errors") or []) if str(item).strip()])
+    if current_error_count < receipt_error_count:
+        return current
+    if receipt_error_count < current_error_count:
+        return receipt
+    merged = dict(current)
+    merged.update({key: value for key, value in receipt.items() if value not in ("", [], {}, None)})
     return merged
 
 

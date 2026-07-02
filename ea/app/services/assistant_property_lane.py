@@ -4,6 +4,7 @@ import os
 from typing import Any
 
 _PROPERTY_RUNTIME_PROFILES = {"property_only", "property-only", "property"}
+_PROPERTY_DEPLOY_MODES = {"property", "propertyquarry"}
 ASSISTANT_HIDDEN_PROPERTY_TASK_TYPES = (
     "property_alert_review",
     "property_market_bootstrap",
@@ -36,10 +37,40 @@ def _property_runtime_profile_enabled() -> bool:
     return False
 
 
+def _propertyquarry_default_brand_enabled() -> bool:
+    normalized = str(os.getenv("PROPERTYQUARRY_DEFAULT_BRAND") or "").strip().lower()
+    return normalized not in {"", "0", "false", "no", "off"}
+
+
+def _normalized_mode_tokens(raw: str) -> tuple[str, ...]:
+    values = [
+        part.strip().lower()
+        for chunk in str(raw or "").replace(";", ",").split(",")
+        for part in chunk.split()
+        if part.strip()
+    ]
+    return tuple(dict.fromkeys(values))
+
+
+def _property_deploy_mode_enabled() -> bool:
+    for env_name in ("EA_DEPLOY_PRIMARY_MODE", "EA_DEPLOY_PROJECT_MODE"):
+        primary_modes = _normalized_mode_tokens(str(os.getenv(env_name) or ""))
+        if primary_modes:
+            return all(mode in _PROPERTY_DEPLOY_MODES for mode in primary_modes)
+    enabled_modes = _normalized_mode_tokens(str(os.getenv("EA_DEPLOY_ENABLED_MODES") or ""))
+    if enabled_modes:
+        return all(mode in _PROPERTY_DEPLOY_MODES for mode in enabled_modes)
+    return False
+
+
 def assistant_property_lane_enabled() -> bool:
     # Property work belongs to PropertyQuarry. Keep it out of the EA assistant
-    # unless a dedicated PropertyQuarry runtime opts into it explicitly.
+    # unless a dedicated PropertyQuarry deployment opts into it explicitly.
     if not _env_truthy("EA_ASSISTANT_PROPERTY_LANE_ENABLED"):
+        return False
+    if not _propertyquarry_default_brand_enabled():
+        return False
+    if not _property_deploy_mode_enabled():
         return False
     return _property_runtime_profile_enabled()
 
