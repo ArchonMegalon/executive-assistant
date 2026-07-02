@@ -1225,12 +1225,109 @@ def _has_explicit_artifact_dirs(report_args: argparse.Namespace) -> bool:
     )
 
 
-def _normalized_context_grounding(report: Mapping[str, Any]) -> dict[str, Any]:
+def _mapping_value(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
+def _text_list(value: Any) -> list[str]:
+    if isinstance(value, (list, tuple)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return []
+
+
+def _object_list(value: Any) -> list[dict[str, Any]]:
+    if isinstance(value, (list, tuple)):
+        return [dict(item) for item in value if isinstance(item, Mapping)]
+    return []
+
+
+def _stage_or_input(stage_payload: Mapping[str, Any], input_contract: Mapping[str, Any], key: str) -> Any:
+    stage_value = stage_payload.get(key)
+    if stage_value not in (None, "", [], (), {}):
+        return stage_value
+    return input_contract.get(key)
+
+
+def _recipient_location_count(recipient_context: Mapping[str, Any]) -> int:
+    location = _mapping_value(recipient_context.get("location"))
+    return 1 if any(_text_list(location.get(key)) for key in ("phrases", "city_terms", "postal_codes", "country_codes", "country_names")) else 0
+
+
+def _candidate_assessment_count_for_current_packet(
+    *,
+    stage_payload: Mapping[str, Any],
+    input_contract: Mapping[str, Any],
+    safe_work_result: Mapping[str, Any],
+) -> int:
+    for key in ("candidate_items", "candidates", "booking_options"):
+        candidates = _object_list(_stage_or_input(stage_payload, input_contract, key))
+        if candidates:
+            return sum(1 for candidate in candidates if isinstance(candidate.get("preference_assessment"), Mapping))
+    shortlist = _object_list(safe_work_result.get("shortlist"))
+    if shortlist:
+        return sum(1 for candidate in shortlist if isinstance(candidate.get("preference_assessment"), Mapping))
+    recommended = _mapping_value(safe_work_result.get("recommended_option_or_draft"))
+    recommended_value = _mapping_value(recommended.get("value"))
+    return 1 if isinstance(recommended_value.get("preference_assessment"), Mapping) else 0
+
+
+def _normalized_current_packet_context_grounding(artifact_probe: Mapping[str, Any]) -> dict[str, Any]:
+    stage_packet = _mapping_value(dict(artifact_probe or {}).get("stage_packet"))
+    safe_work_result = _mapping_value(dict(artifact_probe or {}).get("safe_work_result"))
+    stage_payload = _mapping_value(_mapping_value(stage_packet.get("stage")).get("payload"))
+    input_contract = _mapping_value(_mapping_value(stage_packet.get("safe_work_order")).get("input_contract"))
+    packet_present = bool(stage_packet or safe_work_result)
+    notes_count = len(_text_list(_stage_or_input(stage_payload, input_contract, "notes")))
+    preference_count = len(_text_list(_stage_or_input(stage_payload, input_contract, "preferences")))
+    requirement_count = len(_text_list(_stage_or_input(stage_payload, input_contract, "requirements")))
+    exclusion_count = len(_text_list(_stage_or_input(stage_payload, input_contract, "exclusions")))
+    deadline_count = 1 if str(_stage_or_input(stage_payload, input_contract, "deadline") or "").strip() else 0
+    recipient_context = _mapping_value(_stage_or_input(stage_payload, input_contract, "recipient_context"))
+    recipient_context_count = 1 if recipient_context else 0
+    recipient_location_count = _recipient_location_count(recipient_context)
+    candidate_assessment_count = _candidate_assessment_count_for_current_packet(
+        stage_payload=stage_payload,
+        input_contract=input_contract,
+        safe_work_result=safe_work_result,
+    )
+    applied_context_count = (
+        notes_count
+        + preference_count
+        + requirement_count
+        + exclusion_count
+        + deadline_count
+        + recipient_context_count
+        + recipient_location_count
+        + candidate_assessment_count
+    )
+    grounded = packet_present and applied_context_count > 0
+    item_count = 1 if packet_present else 0
+    grounded_item_count = 1 if grounded else 0
+    return {
+        "grounded": grounded,
+        "item_count": item_count,
+        "grounded_item_count": grounded_item_count,
+        "ungrounded_item_count": max(item_count - grounded_item_count, 0),
+        "applied_context_count": applied_context_count,
+        "notes_count": notes_count,
+        "preference_count": preference_count,
+        "requirement_count": requirement_count,
+        "exclusion_count": exclusion_count,
+        "deadline_count": deadline_count,
+        "candidate_assessment_count": candidate_assessment_count,
+        "recipient_context_count": recipient_context_count,
+        "recipient_location_count": recipient_location_count,
+        "source": "current_packet_runtime_artifact",
+    }
+
+
+def _normalized_context_grounding(report: Mapping[str, Any], *, artifact_probe: Mapping[str, Any] | None = None) -> dict[str, Any]:
     context = dict(report.get("context_grounding") or {})
     item_count = int(context.get("item_count") or report.get("actionable_count") or 0)
     grounded_item_count = int(context.get("grounded_item_count") or 0)
     applied_context_count = int(context.get("applied_context_count") or 0)
     ungrounded_item_count = int(context.get("ungrounded_item_count") or max(item_count - grounded_item_count, 0))
+    current_packet_context = _normalized_current_packet_context_grounding(artifact_probe or {})
     return {
         "grounded": bool(context.get("grounded")) and applied_context_count > 0 and ungrounded_item_count == 0,
         "item_count": item_count,
@@ -1245,6 +1342,7 @@ def _normalized_context_grounding(report: Mapping[str, Any]) -> dict[str, Any]:
         "candidate_assessment_count": int(context.get("candidate_assessment_count") or 0),
         "recipient_context_count": int(context.get("recipient_context_count") or 0),
         "recipient_location_count": int(context.get("recipient_location_count") or 0),
+        "current_packet_context_grounding": current_packet_context,
     }
 
 
@@ -2066,7 +2164,7 @@ def build_proactive_ooda_operator_status(
         "delivery_next_action": str(_normalized_delivery_route(report).get("next_action") or "").strip(),
         "delivery_route": _normalized_delivery_route(report),
         "delivery_guard": operator_delivery_guard,
-        "context_grounding": _normalized_context_grounding(report),
+        "context_grounding": _normalized_context_grounding(report, artifact_probe=artifact_probe),
         "stage_packets": _normalized_stage_packets(report),
         "safe_work_results": _normalized_safe_work_results(report),
         "safe_work_audit": safe_work_audit,

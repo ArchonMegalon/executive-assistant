@@ -967,7 +967,9 @@ def _operator_runtime_context_grounding_posture_for_packet(
     stage_packet: Mapping[str, Any],
     safe_work_result: Mapping[str, Any],
 ) -> tuple[bool, dict[str, Any]]:
-    context = dict(operator_status.get("context_grounding") or {})
+    overall_context = dict(operator_status.get("context_grounding") or {})
+    current_packet_context = dict(overall_context.get("current_packet_context_grounding") or {})
+    context = current_packet_context or overall_context
     required, requirement_reason = _packet_requires_context_grounding(
         stage_packet=stage_packet,
         safe_work_result=safe_work_result,
@@ -976,6 +978,7 @@ def _operator_runtime_context_grounding_posture_for_packet(
         ready = not required
         return ready, {
             "context_grounding_recorded": False,
+            "context_grounding_source": "missing",
             "context_grounding_grounded": False,
             "context_grounding_item_count": 0,
             "context_grounding_grounded_item_count": 0,
@@ -995,6 +998,7 @@ def _operator_runtime_context_grounding_posture_for_packet(
     ready = grounded if required else (item_count <= 0 or grounded)
     return ready, {
         "context_grounding_recorded": True,
+        "context_grounding_source": "current_packet_context_grounding" if current_packet_context else "context_grounding",
         "context_grounding_grounded": grounded,
         "context_grounding_required_for_packet": required,
         "context_grounding_requirement_reason": requirement_reason,

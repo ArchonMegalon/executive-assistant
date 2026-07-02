@@ -7,9 +7,9 @@
     "callback_record_count": 51,
     "candidate_principal_hash_count": 3,
     "checked": true,
-    "current_packet_callback_latest_age_seconds": 5401,
+    "current_packet_callback_latest_age_seconds": 5732,
     "current_packet_callback_latest_expired": false,
-    "current_packet_callback_latest_seconds_until_expiry": 599398,
+    "current_packet_callback_latest_seconds_until_expiry": 599066,
     "current_packet_callback_latest_status": "pending",
     "current_packet_callback_record_count": 2,
     "current_packet_live_pending_count": 2,
@@ -20,7 +20,7 @@
     "next_action_href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
     "next_action_label": "Open approval capture",
     "next_action_method": "get",
-    "observed_at": "2026-07-02T14:42:25Z",
+    "observed_at": "2026-07-02T14:47:52Z",
     "principal_match_ready": true,
     "privacy": {
       "raw_callback_token_exposed": false,
@@ -62,11 +62,11 @@
     "current_packet_approval_request_recordable": true,
     "current_packet_callback_expired_count": 0,
     "current_packet_callback_expired_pending_count": 0,
-    "current_packet_callback_latest_age_seconds": 5393,
+    "current_packet_callback_latest_age_seconds": 5701,
     "current_packet_callback_latest_created_at": "2026-07-02T13:12:26.427038Z",
     "current_packet_callback_latest_expired": false,
     "current_packet_callback_latest_expires_at": "2026-07-09T13:12:26Z",
-    "current_packet_callback_latest_seconds_until_expiry": 599405,
+    "current_packet_callback_latest_seconds_until_expiry": 599098,
     "current_packet_callback_latest_status": "pending",
     "current_packet_callback_pending_count": 2,
     "current_packet_callback_raw_pending_count": 2,
@@ -90,6 +90,22 @@
   "context_grounding": {
     "applied_context_count": 0,
     "candidate_assessment_count": 0,
+    "current_packet_context_grounding": {
+      "applied_context_count": 6,
+      "candidate_assessment_count": 0,
+      "deadline_count": 0,
+      "exclusion_count": 0,
+      "grounded": true,
+      "grounded_item_count": 1,
+      "item_count": 1,
+      "notes_count": 2,
+      "preference_count": 0,
+      "recipient_context_count": 1,
+      "recipient_location_count": 1,
+      "requirement_count": 2,
+      "source": "current_packet_runtime_artifact",
+      "ungrounded_item_count": 0
+    },
     "deadline_count": 0,
     "exclusion_count": 0,
     "grounded": false,
@@ -169,7 +185,7 @@
   },
   "delivery_route_error": "",
   "delivery_route_ready": true,
-  "generated_at": "2026-07-02T14:42:27Z",
+  "generated_at": "2026-07-02T14:47:59Z",
   "generated_by": "scripts/materialize_proactive_ooda_operator_status.py",
   "gmail_draft_followthrough": {
     "action": "",
@@ -185,7 +201,7 @@
     "next_action_href": "https://myexternalbrain.com/app/queue",
     "next_action_label": "Open queue",
     "next_action_method": "get",
-    "observed_at": "2026-07-02T14:42:20Z",
+    "observed_at": "2026-07-02T14:47:28Z",
     "raw_execution_payload_exposed": false,
     "recipient_email_hash_present": false,
     "source": "docker_compose_exec",
@@ -272,7 +288,7 @@
       "gemini_vortex"
     ],
     "next_action": "",
-    "observed_at": "2026-07-02T14:42:25Z",
+    "observed_at": "2026-07-02T14:47:52Z",
     "onemin_burn_basis": "insufficient_observations",
     "onemin_configured_slots": 70,
     "onemin_next_topup_at": "",
@@ -301,11 +317,11 @@
     "window": "24h"
   },
   "reason": "ready",
-  "receipt_observation_count": 807,
+  "receipt_observation_count": 808,
   "remaining_external_proofs": [
     "real proactive OODA packet accepted with routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome"
   ],
-  "route_probe_observed_at": "2026-07-02T14:42:18Z",
+  "route_probe_observed_at": "2026-07-02T14:47:23Z",
   "route_probe_runtime_service": "ea-proactive-ooda",
   "route_probe_source": "docker_compose_exec",
   "route_ready_claim_allowed": true,
@@ -368,7 +384,7 @@
         ],
         "key": "postgres_observations",
         "label": "Postgres observations",
-        "latest_observed_at": "2026-07-02T16:40:01.406605+02:00",
+        "latest_observed_at": "2026-07-02T16:43:41.354681+02:00",
         "missing_required_event_types": [],
         "next_action": "",
         "observed": true,
@@ -400,7 +416,7 @@
         "raw_credential_exposed": false,
         "raw_payload_exposed": false,
         "raw_transcript_text_exposed": false,
-        "record_count": 236,
+        "record_count": 235,
         "required_event_type_observed": true,
         "required_event_types": [],
         "status": "observed"
@@ -493,7 +509,7 @@
         "raw_credential_exposed": false,
         "raw_payload_exposed": false,
         "raw_transcript_text_exposed": false,
-        "record_count": 101,
+        "record_count": 100,
         "required_event_type_observed": true,
         "required_event_types": [],
         "status": "observed"
@@ -556,7 +572,7 @@
     "observation_limit": 400,
     "observation_repository": "PostgresObservationEventRepository",
     "observation_row_count": 397,
-    "observed_at": "2026-07-02T14:42:22Z",
+    "observed_at": "2026-07-02T14:47:38Z",
     "observed_lane_count": 8,
     "privacy": {
       "raw_credential_exposed": false,
@@ -570,7 +586,7 @@
     "source": "docker_compose_exec",
     "status": "ready"
   },
-  "source_git_head": "e0d8b26403e37c8392d4ccf82c5b6caf1a6ab302",
+  "source_git_head": "0e116c02a3f0dffcc4e355ec8e593d45d592e7a7",
   "source_health": {
     "issue_count": 0,
     "issues": [],
@@ -586,7 +602,7 @@
     "user_action_required": false
   },
   "source_mode": "none",
-  "source_state_fingerprint": "00fac6794ced96aa11fcbe50bed510e462e9fcb6ba284abd59e63a8d07e7721c",
+  "source_state_fingerprint": "f34c778f67d506dd7ba12c761e39139b89383502b9a3964e9f5ee727e8c9ba71",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "stage_packets": {
     "enabled": true,

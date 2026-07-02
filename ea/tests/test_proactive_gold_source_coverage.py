@@ -10,6 +10,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts import materialize_proactive_ooda_gold_acceptance as gold_acceptance  # noqa: E402
+from scripts import materialize_proactive_ooda_operator_status as operator_status_receipt  # noqa: E402
 from scripts import verify_proactive_ooda_gold_acceptance as gold_acceptance_verifier  # noqa: E402
 
 
@@ -179,6 +180,87 @@ def test_gold_context_grounding_accepts_grounded_shortlist_packet() -> None:
     assert detail["context_grounding_required_for_packet"] is True
     assert detail["context_grounding_grounded"] is True
     assert detail["context_grounding_ready"] is True
+
+
+def test_operator_status_surfaces_current_packet_context_grounding_from_runtime_artifacts() -> None:
+    normalized = operator_status_receipt._normalized_context_grounding(  # noqa: SLF001
+        {"context_grounding": {"grounded": False, "item_count": 0, "grounded_item_count": 0, "applied_context_count": 0}},
+        artifact_probe={
+            "stage_packet": {
+                "stage": {
+                    "payload": {
+                        "notes": ["real_world_acceptance_missing"],
+                        "requirements": ["real_review_acceptance"],
+                        "recipient_context": {
+                            "location": {
+                                "phrases": ["1200 Wien"],
+                                "postal_codes": ["1200"],
+                                "city_terms": ["Wien"],
+                                "country_codes": ["AT"],
+                            }
+                        },
+                        "candidate_items": [
+                            {
+                                "label": "Record a signal-loop outcome",
+                                "preference_assessment": {"recommendation": "ask_for_clarification"},
+                            }
+                        ],
+                    }
+                },
+                "safe_work_order": {"input_contract": {}},
+            },
+            "safe_work_result": {
+                "recommended_option_or_draft": {"kind": "shortlist_candidate", "value": {"label": "Record a signal-loop outcome"}},
+                "shortlist": [{"label": "Record a signal-loop outcome"}],
+            },
+        },
+    )
+
+    current_packet = normalized["current_packet_context_grounding"]
+    assert current_packet["grounded"] is True
+    assert current_packet["item_count"] == 1
+    assert current_packet["applied_context_count"] >= 4
+    assert current_packet["recipient_location_count"] == 1
+    assert current_packet["candidate_assessment_count"] == 1
+
+
+def test_gold_context_grounding_prefers_current_packet_context_from_operator_status() -> None:
+    ready, detail = gold_acceptance._operator_runtime_context_grounding_posture_for_packet(  # noqa: SLF001
+        {
+            "context_grounding": {
+                "grounded": False,
+                "item_count": 0,
+                "grounded_item_count": 0,
+                "ungrounded_item_count": 0,
+                "applied_context_count": 0,
+                "current_packet_context_grounding": {
+                    "grounded": True,
+                    "item_count": 1,
+                    "grounded_item_count": 1,
+                    "ungrounded_item_count": 0,
+                    "applied_context_count": 4,
+                    "notes_count": 1,
+                    "requirement_count": 1,
+                    "recipient_context_count": 1,
+                    "recipient_location_count": 1,
+                    "candidate_assessment_count": 1,
+                },
+            }
+        },
+        stage_packet={
+            "stage": {"kind": "approval_packet", "payload": {"request_text": "Record a signal-loop outcome"}},
+            "safe_work_order": {"work_type": "prepare_shortlist"},
+        },
+        safe_work_result={
+            "work_type": "prepare_shortlist",
+            "recommended_option_or_draft": {"kind": "shortlist_candidate", "value": {"label": "Record a signal-loop outcome"}},
+            "shortlist": [{"label": "Record a signal-loop outcome"}],
+        },
+    )
+
+    assert ready is True
+    assert detail["context_grounding_source"] == "current_packet_context_grounding"
+    assert detail["context_grounding_grounded"] is True
 
 
 def test_assistant_grade_quality_accepts_clean_safe_work_from_noisy_transcript() -> None:
