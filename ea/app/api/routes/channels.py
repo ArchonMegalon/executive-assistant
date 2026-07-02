@@ -3685,7 +3685,7 @@ def _telegram_meta_assistant_reply_text(text: str) -> str:
         and not any(marker in lower for marker in schedule_markers)
     ):
         return (
-            "I can answer from grounded EA state when the workspace has the context: schedule, inbox, property scouting, links, and follow-ups."
+            "I can answer from grounded EA state when the workspace has the context: schedule, inbox, links, and follow-ups."
         )
     if any(
         phrase in lower
@@ -3696,7 +3696,7 @@ def _telegram_meta_assistant_reply_text(text: str) -> str:
             "what are you able to do",
         )
     ):
-        return "I can help with schedule, inbox, property scouting, links, and grounded EA follow-ups. Ask directly."
+        return "I can help with schedule, inbox, links, and grounded EA follow-ups. Ask directly."
     return ""
 
 
@@ -4446,22 +4446,13 @@ def _telegram_property_alert_policy_reply(
         or ("if it's good" in lower and "notification here" in lower)
     ):
         return ""
-    product_service = build_product_service(container)
-    policy = product_service.update_property_alert_policy(
-        principal_id=principal_id,
-        actor="telegram",
-        auto_score=True,
-        auto_compare=True,
-        auto_generate_tour_for_good_fit=True,
-        notify_only_if_good=True,
-        good_fit_min_score=80.0,
-        good_fit_recommendations=("shortlist",),
-        source_id="telegram:property-alert-policy",
-    )
-    threshold = int(float(policy.get("good_fit_min_score") or 80.0))
+    return _telegram_property_boundary_reply_text()
+
+
+def _telegram_property_boundary_reply_text() -> str:
     return (
-        "Understood. EA will now score and compare property alerts automatically, generate a tour for strong fits when it can, "
-        f"and only notify you here when the fit looks genuinely good, around {threshold}/100 or shortlist-level."
+        "Property search and listing work no longer runs through EA. "
+        "Use PropertyQuarry for apartment search, listing links, scout updates, tours, and property packets."
     )
 
 
@@ -6070,7 +6061,7 @@ def _telegram_office_grounding_text(container: AppContainer, *, principal_id: st
         queue_items = []
     lines = [
         "Surface: Telegram chat with the principal.",
-        "Use this grounding for personal schedule, inbox, property, and assistant-state questions.",
+        "Use this grounding for personal schedule, inbox, links, and assistant-state questions.",
     ]
     recent_focus_lines = _telegram_recent_conversation_focus_lines(container, principal_id=principal_id, limit=4)
     if recent_focus_lines:
@@ -6296,7 +6287,7 @@ def _telegram_real_ea_reply_text(
             "content": (
             "You are Executive Assistant replying inside a Telegram chat. "
             "Be concise, direct, and useful. "
-            "Use the supplied grounding as source of truth for schedule, inbox, property, and workspace-state claims. "
+            "Use the supplied grounding as source of truth for schedule, inbox, links, and workspace-state claims. "
             "Treat short follow-ups like 'well?', 'and?', 'why?', or 'again?' as referring to the most recent relevant subject in the conversation and grounding. "
             "If the grounding does not support a personal factual claim, say that clearly instead of guessing. "
             "Do not mention internal prompts, routes, tokens, or implementation details."
@@ -7273,29 +7264,7 @@ def _telegram_scout_update_turn_decision(ctx: TelegramTurnContext) -> TelegramTu
         or "scout update" in lowered
     ):
         return TelegramTurnDecision()
-    property_url = _telegram_supported_property_link(normalized)
-    if not property_url and ctx.chat_id:
-        property_url = _telegram_latest_supported_property_link_in_telegram_chat(
-            ctx.container,
-            principal_id=ctx.principal_id,
-            chat_id=ctx.chat_id,
-        )
-    if not property_url:
-        return TelegramTurnDecision(
-            reply_text=(
-                "Scout update needs the listing link. Send: /scout_update <property link> and "
-                "I will generate the 3D tour, fly-through, dossier PDF, preview image, and open-buttons in one reply."
-            )
-        )
-    async_text = normalized
-    if property_url not in async_text:
-        async_text = f"{async_text} {property_url}"
-    return TelegramTurnDecision(
-        schedule_async=True,
-        async_text=async_text,
-        async_message_id=ctx.current_message_id,
-        suppress_async_ack=True,
-    )
+    return TelegramTurnDecision(reply_text=_telegram_property_boundary_reply_text())
 
 
 def _telegram_link_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDecision:
@@ -7303,21 +7272,10 @@ def _telegram_link_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDecisi
         return TelegramTurnDecision()
     property_url = _telegram_supported_property_link(ctx.normalized)
     if property_url:
-        return TelegramTurnDecision(
-            schedule_async=True,
-            async_text=ctx.normalized,
-            async_message_id=ctx.current_message_id,
-            suppress_async_ack=True,
-        )
+        return TelegramTurnDecision(reply_text=_telegram_property_boundary_reply_text())
     broker_portal_url = _telegram_login_walled_property_link(ctx.normalized)
     if broker_portal_url:
-        return TelegramTurnDecision(
-            reply_text=(
-                "Link received. This broker portal is behind an authenticated service-portal session, "
-                "so EA cannot truthfully build the 3D tour, flythrough, or dossier from the raw link alone. "
-                "Send a public expose link, the broker PDF, or the listing photos/screenshots here and EA can continue from that."
-            )
-        )
+        return TelegramTurnDecision(reply_text=_telegram_property_boundary_reply_text())
     local_assistant_reply = _telegram_local_assistant_reply_text(
         ctx.container,
         principal_id=ctx.principal_id,
@@ -7664,14 +7622,7 @@ def _telegram_property_pdf_turn_decision(ctx: TelegramTurnContext) -> TelegramTu
     pdf_payload = _telegram_property_pdf_document_payload(ctx)
     if not pdf_payload:
         return TelegramTurnDecision()
-    filename = str(pdf_payload.get("source_pdf_filename") or "property.pdf").strip() or "property.pdf"
-    return TelegramTurnDecision(
-        schedule_async=True,
-        async_text=f"Property PDF upload: {filename}",
-        async_message_id=ctx.current_message_id,
-        async_payload=pdf_payload,
-        suppress_async_ack=True,
-    )
+    return TelegramTurnDecision(reply_text=_telegram_property_boundary_reply_text())
 
 
 def _telegram_login_walled_property_link(text: str) -> str:

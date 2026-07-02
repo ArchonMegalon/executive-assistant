@@ -36,9 +36,9 @@ def _property_scout_signal(*, payload: dict) -> object | None:
     )
 
 
-def test_property_scout_signal_is_dropped_when_flat_search_disabled(monkeypatch: object) -> None:
+def test_property_scout_signal_is_always_dropped_from_ea(monkeypatch: object) -> None:
     monkeypatch.setenv("EA_PROACTIVE_OODA_PROPERTY_SCOUT_SIGNALS_ENABLED", "1")
-    monkeypatch.setenv("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED", "0")
+    monkeypatch.setenv("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED", "1")
     signal = _property_scout_signal(
         payload={
             "status": "completed",

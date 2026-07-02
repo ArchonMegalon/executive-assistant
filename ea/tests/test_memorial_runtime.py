@@ -35,9 +35,10 @@ class MemorialRuntimeTests(unittest.TestCase):
             html = public_memorials._public_memorial_page_html(payload, hostname="myexternalbrain.com", private_profile={})
 
         self.assertIn("<h1>Erinnerungen an Manfred</h1>", html)
-        self.assertIn("Diese Seite sammelt echte Aufnahmen und belegte Erinnerungen.", html)
-        self.assertIn("1 Archivaufnahmen", html)
-        self.assertIn("1 belegte Erinnerungen", html)
+        self.assertIn("Eine ruhige Seite fuer Erinnerungen, Originalstimme und dokumentierte Gedanken.", html)
+        self.assertNotIn("Diese Seite sammelt echte Aufnahmen und belegte Erinnerungen.", html)
+        self.assertNotIn("1 Archivaufnahmen", html)
+        self.assertNotIn("1 belegte Erinnerungen", html)
         self.assertIn("Das Mikrofon wird erst nach deinem Start verwendet.", html)
         self.assertIn("Gespräch wird vorbereitet …", html)
 

@@ -2755,9 +2755,8 @@ def _signal_from_row(row: Mapping[str, Any], *, source: SignalSource, index: int
 
 
 def _proactive_ooda_property_scout_signals_enabled() -> bool:
-    if not _proactive_ooda_flat_search_enabled():
-        return False
-    return _truthy_default(os.getenv("EA_PROACTIVE_OODA_PROPERTY_SCOUT_SIGNALS_ENABLED"), default=False)
+    # Property scouting belongs to PropertyQuarry, not the EA assistant loop.
+    return False
 
 
 def _candidate_principals(principal_id: str) -> list[str]:
