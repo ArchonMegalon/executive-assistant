@@ -2253,6 +2253,78 @@ def test_materialize_proactive_ooda_operator_status_uses_live_route_probe_with_e
     assert receipt["source_coverage"]["source"] == "docker_compose_exec"
 
 
+def test_default_report_args_uses_configured_runtime_receipt_path(tmp_path: Path, monkeypatch) -> None:
+    receipt_path = tmp_path / "state" / "custom-proactive-ooda.json"
+    monkeypatch.setenv("EA_PROACTIVE_OODA_RECEIPT_PATH", str(receipt_path))
+
+    module = _load_script()
+    report_args = module._default_report_args()
+
+    assert report_args.receipt_path == str(receipt_path)
+
+
+def test_materialize_proactive_ooda_operator_status_uses_effective_default_receipt_path_for_route_probe(
+    tmp_path: Path, monkeypatch
+) -> None:
+    receipt_path = tmp_path / "state" / "proactive_ooda_latest_run.generated.json"
+    receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    receipt_path.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setenv("EA_PROACTIVE_OODA_RECEIPT_PATH", str(receipt_path))
+
+    module = _load_script()
+    monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
+    monkeypatch.setattr(module, "_source_fingerprint", lambda path=module.ROOT: "source-fingerprint-123")
+    calls: dict[str, object] = {}
+
+    def _fake_route_probe(**kwargs: object) -> dict[str, object]:
+        calls["route"] = dict(kwargs)
+        return {
+            "probe_ok": True,
+            "source": "docker_compose_exec",
+            "runtime_service": "ea-proactive-ooda",
+            "observed_at": "2026-07-02T15:00:00Z",
+            "live_receipt_checked": True,
+            "live_receipt": {
+                "ok": True,
+                "errors": [],
+                "notification_status": "deferred",
+            },
+            "route_report": {
+                "ok": True,
+                "errors": [],
+                "delivery_route": {
+                    "ready": True,
+                    "route_error": "",
+                    "recovery_hint": "",
+                    "next_action": "",
+                    "selected_channel": "telegram",
+                    "selected_transport": "telegram",
+                    "selected_by": "tool_runtime_binding",
+                    "available_channels": ["telegram"],
+                },
+                "delivery_guard": {"delivery_state": "no_actionable_items", "armed_send": True},
+                "stage_packets": {"ready": True, "errors": []},
+                "safe_work_results": {"ready": True, "errors": []},
+                "receipt_observation_count": 3,
+                "actionable_count": 0,
+                "source_mode": "none",
+            },
+        }
+
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_route", _fake_route_probe)
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_source_coverage", _fake_source_coverage_probe)
+
+    output = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
+    receipt = module.build_proactive_ooda_operator_status(
+        output_path=output,
+        generated_at="2026-07-02T15:01:00Z",
+        report_args=Namespace(principal_id="exec-1"),
+    )
+
+    assert calls["route"]["receipt_path"] == str(receipt_path)
+    assert receipt["live_receipt"]["receipt_path"] == str(receipt_path)
+
+
 def test_materialize_proactive_ooda_operator_status_fills_missing_live_receipt_path_from_route_probe(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -2309,6 +2381,77 @@ def test_materialize_proactive_ooda_operator_status_fills_missing_live_receipt_p
     )
 
     assert receipt["live_receipt_checked"] is True
+    assert receipt["live_receipt"]["receipt_path"] == str(receipt_path)
+
+
+def test_materialize_proactive_ooda_operator_status_propagates_effective_default_receipt_path_to_host_verifier(
+    tmp_path: Path, monkeypatch
+) -> None:
+    receipt_path = tmp_path / "state" / "proactive_ooda_latest_run.generated.json"
+    receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    receipt_path.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setenv("EA_PROACTIVE_OODA_RECEIPT_PATH", str(receipt_path))
+
+    module = _load_script()
+    monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
+    monkeypatch.setattr(module, "_source_fingerprint", lambda path=module.ROOT: "source-fingerprint-123")
+    calls: dict[str, object] = {}
+
+    def _fake_build_report(args: Namespace) -> dict[str, object]:
+        calls["build_report_receipt_path"] = getattr(args, "receipt_path", "")
+        return {
+            "ok": True,
+            "errors": [],
+            "delivery_route": {
+                "ready": True,
+                "route_error": "",
+                "recovery_hint": "",
+                "next_action": "",
+                "selected_channel": "telegram",
+                "selected_transport": "telegram",
+                "selected_by": "tool_runtime_binding",
+                "available_channels": ["telegram"],
+            },
+            "delivery_guard": {
+                "delivery_state": "no_actionable_items",
+                "armed_send": False,
+            },
+            "stage_packets": {"ready": True, "errors": []},
+            "safe_work_results": {"ready": True, "errors": []},
+            "receipt_observation_count": 0,
+            "actionable_count": 0,
+            "source_mode": "none",
+        }
+
+    def _fake_verify_receipt(path: Path) -> dict[str, object]:
+        calls["verify_receipt_path"] = str(path)
+        return {
+            "ok": True,
+            "errors": [],
+            "receipt_path": str(path),
+            "notification_status": "deferred",
+            "delivery_channel": "telegram",
+            "delivery_message_count": 1,
+            "telegram_message_count": 1,
+            "delivery_route_error": "",
+            "delivery_recovery_hint": "",
+            "delivery_next_action": "",
+            "generated_at": "2026-07-02T15:02:00Z",
+        }
+
+    monkeypatch.setattr(module.proactive_verifier, "_build_report", _fake_build_report)
+    monkeypatch.setattr(module.live_receipt_verifier, "verify_receipt", _fake_verify_receipt)
+
+    output = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
+    receipt = module.build_proactive_ooda_operator_status(
+        output_path=output,
+        generated_at="2026-07-02T15:03:00Z",
+        report_args=Namespace(principal_id="exec-1"),
+        allow_live_route_probe=False,
+    )
+
+    assert calls["build_report_receipt_path"] == str(receipt_path)
+    assert calls["verify_receipt_path"] == str(receipt_path)
     assert receipt["live_receipt"]["receipt_path"] == str(receipt_path)
 
 

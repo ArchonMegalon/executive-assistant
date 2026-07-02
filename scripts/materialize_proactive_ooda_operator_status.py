@@ -124,6 +124,7 @@ def _default_report_args() -> argparse.Namespace:
             or ""
         ).strip(),
         state_path=str(os.getenv("EA_PROACTIVE_OODA_STATE_PATH") or "state/proactive_ooda_notified.json").strip(),
+        receipt_path=str(os.getenv("EA_PROACTIVE_OODA_RECEIPT_PATH") or "").strip(),
         max_items=_safe_int(str(os.getenv("EA_PROACTIVE_OODA_MAX_ITEMS") or "5"), default=5),
         observation_lookback_hours=_safe_int(str(os.getenv("EA_PROACTIVE_OODA_OBSERVATION_LOOKBACK_HOURS") or "24"), default=24),
         observation_limit=_safe_int(str(os.getenv("EA_PROACTIVE_OODA_OBSERVATION_LIMIT") or "50"), default=50),
@@ -1764,7 +1765,7 @@ def build_proactive_ooda_operator_status(
     skip_source_coverage_probe: bool = False,
     skip_provider_cost_pressure_probe: bool = True,
 ) -> dict[str, Any]:
-    effective_report_args = report_args or _default_report_args()
+    effective_report_args = argparse.Namespace(**vars(report_args)) if report_args is not None else _default_report_args()
     route_probe: dict[str, Any] = {}
     artifact_probe: dict[str, Any] = {}
     approval_capture_probe: dict[str, Any] = {}
@@ -1774,11 +1775,15 @@ def build_proactive_ooda_operator_status(
     principal_id = str(getattr(effective_report_args, "principal_id", "") or proactive_verifier._default_principal_id()).strip()
     live_probe_timeout_seconds = _live_probe_timeout_seconds()
     effective_live_receipt_path = live_receipt_path if live_receipt_path is not None else _default_live_receipt_path()
+    if effective_live_receipt_path is not None:
+        effective_report_args.receipt_path = str(effective_live_receipt_path)
+    elif not hasattr(effective_report_args, "receipt_path"):
+        effective_report_args.receipt_path = ""
     if allow_live_route_probe:
         try:
             route_probe = ea_live_ops.probe_proactive_route(
                 principal_id=principal_id,
-                receipt_path=str(live_receipt_path or ""),
+                receipt_path=str(effective_live_receipt_path or ""),
                 timeout_seconds=live_probe_timeout_seconds,
             )
         except Exception:
@@ -1841,7 +1846,7 @@ def build_proactive_ooda_operator_status(
     if not artifact_probe:
         artifact_probe = _local_artifact_probe(
             report_args=effective_report_args,
-            live_receipt_path=live_receipt_path,
+            live_receipt_path=effective_live_receipt_path,
         )
     safe_work_audit_probe: Mapping[str, Any] = artifact_probe
     if (
