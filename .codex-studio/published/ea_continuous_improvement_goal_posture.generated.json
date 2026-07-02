@@ -154,18 +154,18 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "0f350da68336e61ebda04fa40b1c2e488fbd79e1",
-          "source_state_fingerprint": "e086d1d3bbf175046df334498aca226e154f087c3927e5f07b6a140b2afa2950",
-          "status": "blocked_missing_proactive_packet_evidence"
+          "source_git_head": "7acd5c14ec4d4793f82eaae637605bc253dbe021",
+          "source_state_fingerprint": "718b20a56474c5dc2024f9069201631a99b713a8d695cb17949ede197907718d",
+          "status": "ready_for_approval_outcome_capture"
         },
         {
           "contract_name": "ea.proactive_ooda_operator_status.v1",
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "0f350da68336e61ebda04fa40b1c2e488fbd79e1",
-          "source_state_fingerprint": "0db7deb0ef1761b51849aea089b3371e6515d0c7851cdcf84bb427b700f26352",
-          "status": "ready_local_runtime"
+          "source_git_head": "7acd5c14ec4d4793f82eaae637605bc253dbe021",
+          "source_state_fingerprint": "c0c8642283b811857100349e7189f9e3ad0ad60666c8125528150c16b77a8ff0",
+          "status": "ready_with_live_receipt"
         }
       ],
       "status": "pending_real_world_evidence",
@@ -836,7 +836,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-07-02T10:52:07Z",
+  "generated_at": "2026-07-02T11:17:55Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -1021,7 +1021,7 @@
           "magixai",
           "gemini_vortex"
         ],
-        "observed_at": "2026-07-02T10:52:00Z",
+        "observed_at": "2026-07-02T11:17:37Z",
         "onemin_configured_slots": 70,
         "onemin_preferred_when_speed_is_not_critical": true,
         "onemin_ready_slots": 18,
@@ -1725,7 +1725,7 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "0f350da68336e61ebda04fa40b1c2e488fbd79e1",
-  "source_state_fingerprint": "0db7deb0ef1761b51849aea089b3371e6515d0c7851cdcf84bb427b700f26352",
+  "source_git_head": "7acd5c14ec4d4793f82eaae637605bc253dbe021",
+  "source_state_fingerprint": "c0c8642283b811857100349e7189f9e3ad0ad60666c8125528150c16b77a8ff0",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }

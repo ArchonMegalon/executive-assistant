@@ -103,3 +103,90 @@ def test_assistant_grade_quality_accepts_clean_safe_work_from_noisy_transcript()
     assert present is True
     assert proof["status"] == "pass"
     assert proof["issues"] == []
+
+
+def test_gold_approval_capture_surface_uses_live_operator_surface_counts_when_local_callbacks_absent() -> None:
+    surface, ready = gold_acceptance._approval_capture_surface_receipt(  # noqa: SLF001
+        operator_status={
+            "approval_capture_surface": {
+                "selected_channel": "telegram",
+                "callback_dir_exists": True,
+                "callback_record_count": 47,
+                "callback_pending_count": 1,
+                "callback_recorded_count": 12,
+                "current_packet_present": True,
+                "current_packet_status": "pending_approval",
+                "current_packet_approval_request_recordable": True,
+                "current_packet_callback_record_count": 1,
+                "current_packet_callback_pending_count": 1,
+                "current_packet_live_callback_record_count": 1,
+                "current_packet_live_pending_count": 1,
+                "current_packet_callback_latest_status": "pending",
+                "current_packet_callback_latest_created_at": "2026-07-02T10:52:41Z",
+                "current_packet_callback_latest_expires_at": "2026-07-09T10:52:41Z",
+                "current_packet_callback_latest_seconds_until_expiry": 604000,
+                "telegram_approval_surface_ready": True,
+                "manual_outcome_capture_ready": True,
+            }
+        },
+        bundle={
+            "stage_packet": {"packet_ref": "stage_packet:live"},
+            "safe_work_result": {"result_ref": "safe_work_result:live"},
+        },
+        approval_outcome_path=ROOT / "state" / "proactive_ooda_latest_approval_outcome.generated.json",
+        used_live_runtime_probe=False,
+    )
+
+    assert ready is True
+    assert surface["current_packet_live_pending_count"] == 1
+    assert surface["current_packet_callback_latest_status"] == "pending"
+    assert surface["telegram_approval_surface_ready"] is True
+
+
+def test_gold_approval_capture_surface_uses_live_operator_surface_counts_for_runtime_probe() -> None:
+    surface, ready = gold_acceptance._approval_capture_surface_receipt(  # noqa: SLF001
+        operator_status={
+            "approval_capture_surface": {
+                "selected_channel": "telegram",
+                "callback_dir_exists": True,
+                "callback_record_count": 49,
+                "callback_pending_count": 1,
+                "callback_recorded_count": 13,
+                "current_packet_present": True,
+                "current_packet_status": "pending_approval",
+                "current_packet_approval_request_recordable": True,
+                "current_packet_callback_record_count": 1,
+                "current_packet_callback_pending_count": 1,
+                "current_packet_live_callback_record_count": 1,
+                "current_packet_live_pending_count": 1,
+                "current_packet_callback_latest_status": "pending",
+                "current_packet_callback_latest_created_at": "2026-07-02T10:52:41Z",
+                "current_packet_callback_latest_expires_at": "2026-07-09T10:52:41Z",
+                "current_packet_callback_latest_seconds_until_expiry": 604000,
+                "telegram_approval_surface_ready": True,
+                "manual_outcome_capture_ready": True,
+            }
+        },
+        bundle={
+            "approval_callback_dir": ROOT / "state" / "proactive_ooda_approval_callbacks",
+            "approval_callback_dir_exists": True,
+            "approval_callback_dir_writable": True,
+            "approval_callback_record_count": 48,
+            "approval_callback_pending_count": 0,
+            "approval_callback_recorded_count": 12,
+            "current_packet_callback_record_count": 0,
+            "current_packet_callback_pending_count": 0,
+            "current_packet_live_callback_record_count": 0,
+            "current_packet_live_pending_count": 0,
+            "stage_packet": {"packet_ref": "stage_packet:older-browse-proof"},
+            "safe_work_result": {"result_ref": "safe_work_result:older-browse-proof"},
+        },
+        approval_outcome_path=ROOT / "state" / "proactive_ooda_latest_approval_outcome.generated.json",
+        used_live_runtime_probe=True,
+    )
+
+    assert ready is True
+    assert surface["callback_record_count"] == 49
+    assert surface["current_packet_callback_record_count"] == 1
+    assert surface["current_packet_live_pending_count"] == 1
+    assert surface["current_packet_callback_latest_status"] == "pending"

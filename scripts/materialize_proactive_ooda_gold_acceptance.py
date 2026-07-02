@@ -1359,6 +1359,43 @@ def _approval_capture_surface_receipt(
             stage_packet=stage_packet,
             safe_work_result=safe_work_result,
         )
+    if current_packet_live_pending_count <= 0 and int(operator_surface.get("current_packet_live_pending_count") or 0) > 0:
+        callback_dir_exists = bool(operator_surface.get("callback_dir_exists") or callback_dir_exists)
+        callback_record_count = int(operator_surface.get("callback_record_count") or callback_record_count)
+        callback_pending_count = int(operator_surface.get("callback_pending_count") or callback_pending_count)
+        callback_recorded_count = int(operator_surface.get("callback_recorded_count") or callback_recorded_count)
+        current_packet_callback_record_count = int(
+            operator_surface.get("current_packet_callback_record_count") or current_packet_callback_record_count
+        )
+        current_packet_callback_pending_count = int(
+            operator_surface.get("current_packet_callback_pending_count") or current_packet_callback_pending_count
+        )
+        current_packet_callback_recorded_count = int(
+            operator_surface.get("current_packet_callback_recorded_count") or current_packet_callback_recorded_count
+        )
+        current_packet_live_callback_record_count = int(
+            operator_surface.get("current_packet_live_callback_record_count") or current_packet_live_callback_record_count
+        )
+        current_packet_live_pending_count = int(operator_surface.get("current_packet_live_pending_count") or 0)
+        current_packet_callback_latest_status = str(
+            operator_surface.get("current_packet_callback_latest_status") or current_packet_callback_latest_status
+        ).strip()
+        current_packet_callback_latest_expired = bool(
+            operator_surface.get("current_packet_callback_latest_expired")
+        )
+        current_packet_callback_latest_created_at = str(
+            operator_surface.get("current_packet_callback_latest_created_at") or current_packet_callback_latest_created_at
+        ).strip()
+        current_packet_callback_latest_expires_at = str(
+            operator_surface.get("current_packet_callback_latest_expires_at") or current_packet_callback_latest_expires_at
+        ).strip()
+        current_packet_callback_latest_age_seconds = int(
+            operator_surface.get("current_packet_callback_latest_age_seconds") or current_packet_callback_latest_age_seconds
+        )
+        current_packet_callback_latest_seconds_until_expiry = int(
+            operator_surface.get("current_packet_callback_latest_seconds_until_expiry")
+            or current_packet_callback_latest_seconds_until_expiry
+        )
     callback_raw_pending_count = int(bundle.get("approval_callback_raw_pending_count") or callback_pending_count)
     callback_live_pending_count = int(bundle.get("approval_callback_live_pending_count") or callback_pending_count)
     callback_unexpired_pending_count = int(bundle.get("approval_callback_unexpired_pending_count") or callback_live_pending_count)
@@ -1577,13 +1614,17 @@ def _runtime_artifact_bundle(
             receipt_path=run_receipt_path or "",
             stage_packet_dir=stage_packet_dir or "",
             safe_work_result_dir=safe_work_result_dir or "",
+            prefer_browse_backed_delivery=True,
         )
         if use_local_bundle
         else {}
     )
     local_complete = bool(local_bundle.get("run_receipt")) and bool(local_bundle.get("stage_packet")) and bool(local_bundle.get("safe_work_result"))
     if allow_live_runtime_probe:
-        live_report = ea_live_ops.probe_proactive_artifacts(output_format="json")
+        live_report = ea_live_ops.probe_proactive_artifacts(
+            output_format="json",
+            prefer_browse_backed_delivery=True,
+        )
         if bool(live_report.get("probe_ok")):
             live_bundle = {
                 "run_receipt_path": _path_from_text(ROOT, str(live_report.get("run_receipt_path") or "")),

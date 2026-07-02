@@ -688,7 +688,10 @@ def _callback_row_is_live(row: Mapping[str, object]) -> bool:
     return expires_at <= 0.0 or expires_at > datetime.now(UTC).timestamp()
 
 
-def _proactive_runtime_bundle_snapshot() -> tuple[dict[str, object], dict[str, object]]:
+def _proactive_runtime_bundle_snapshot(
+    *,
+    prefer_browse_backed_delivery: bool = False,
+) -> tuple[dict[str, object], dict[str, object]]:
     inputs = _proactive_runtime_inputs()
     bundle = dict(
         load_runtime_artifact_bundle(
@@ -697,13 +700,19 @@ def _proactive_runtime_bundle_snapshot() -> tuple[dict[str, object], dict[str, o
             receipt_path=str(inputs["receipt_path"]),
             stage_packet_dir=str(inputs["stage_packet_dir"]),
             safe_work_result_dir=str(inputs["safe_work_result_dir"]),
+            prefer_browse_backed_delivery=prefer_browse_backed_delivery,
         )
     )
     return inputs, bundle
 
 
-def _probe_proactive_artifacts_in_process_payload() -> dict[str, object]:
-    _inputs, bundle = _proactive_runtime_bundle_snapshot()
+def _probe_proactive_artifacts_in_process_payload(
+    *,
+    prefer_browse_backed_delivery: bool = False,
+) -> dict[str, object]:
+    _inputs, bundle = _proactive_runtime_bundle_snapshot(
+        prefer_browse_backed_delivery=prefer_browse_backed_delivery,
+    )
     stage_packet = dict(bundle.get("stage_packet") or {})
     safe_work_result = dict(bundle.get("safe_work_result") or {})
     callback_dir_value = bundle.get("approval_callback_dir")
@@ -715,6 +724,7 @@ def _probe_proactive_artifacts_in_process_payload() -> dict[str, object]:
     )
     return {
         "probe_ok": True,
+        "prefer_browse_backed_delivery": bool(prefer_browse_backed_delivery),
         "state_path": _path_text(bundle.get("state_path")),
         "run_receipt_path": _path_text(bundle.get("run_receipt_path")),
         "action_required_only_quiet_receipt_path": _path_text(bundle.get("action_required_only_quiet_receipt_path")),
@@ -2717,6 +2727,7 @@ def probe_proactive_artifacts(
     runtime_service: str = "",
     timeout_seconds: float = 60.0,
     output_format: str = "json",
+    prefer_browse_backed_delivery: bool = False,
 ) -> dict[str, object]:
     effective_compose_file = str(compose_file or _env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE))).strip()
     effective_runtime_service = str(runtime_service or _env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE)).strip()
@@ -2749,7 +2760,8 @@ def probe_proactive_artifacts(
             "receipt_path = os.getenv('EA_PROACTIVE_OODA_RECEIPT_PATH') or ''\n"
             "stage_packet_dir = os.getenv('EA_PROACTIVE_OODA_STAGE_PACKET_DIR') or ''\n"
             "safe_work_result_dir = os.getenv('EA_PROACTIVE_OODA_SAFE_WORK_RESULT_DIR') or ''\n"
-            "bundle = load_runtime_artifact_bundle(root=root, state_path=state_path, receipt_path=receipt_path, stage_packet_dir=stage_packet_dir, safe_work_result_dir=safe_work_result_dir)\n"
+            f"prefer_browse_backed_delivery = {bool(prefer_browse_backed_delivery)!r}\n"
+            "bundle = load_runtime_artifact_bundle(root=root, state_path=state_path, receipt_path=receipt_path, stage_packet_dir=stage_packet_dir, safe_work_result_dir=safe_work_result_dir, prefer_browse_backed_delivery=prefer_browse_backed_delivery)\n"
             "callback_dir = default_proactive_ooda_telegram_approval_callback_dir(root=root, state_path=state_path, receipt_path=receipt_path)\n"
             "def _text(path):\n"
             "    return '' if path is None else path.as_posix()\n"
@@ -2844,6 +2856,7 @@ def probe_proactive_artifacts(
             "current_superseded_rows = [row for row in current_packet_rows if _status(row) == 'superseded']\n"
             "print(json.dumps({\n"
             "  'probe_ok': True,\n"
+            "  'prefer_browse_backed_delivery': prefer_browse_backed_delivery,\n"
             "  'state_path': _text(bundle.get('state_path')),\n"
             "  'run_receipt_path': _text(bundle.get('run_receipt_path')),\n"
             "  'action_required_only_quiet_receipt_path': _text(bundle.get('action_required_only_quiet_receipt_path')),\n"
@@ -2899,7 +2912,9 @@ def probe_proactive_artifacts(
         source = "in_process_runtime"
         try:
             code = 0
-            payload = _probe_proactive_artifacts_in_process_payload()
+            payload = _probe_proactive_artifacts_in_process_payload(
+                prefer_browse_backed_delivery=prefer_browse_backed_delivery,
+            )
             stdout = json.dumps(payload, sort_keys=True)
             stderr = ""
         except Exception as exc:
@@ -2951,6 +2966,7 @@ def probe_proactive_artifacts(
     report = {
         "probe_ok": True,
         "status": "ok",
+        "prefer_browse_backed_delivery": bool(payload.get("prefer_browse_backed_delivery")),
         "compose_file": effective_compose_file,
         "runtime_service": effective_runtime_service,
         "observed_at": observed_at,

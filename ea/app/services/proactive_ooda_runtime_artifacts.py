@@ -99,6 +99,7 @@ def load_runtime_artifact_bundle(
     receipt_path: str | Path = "",
     stage_packet_dir: str | Path = "",
     safe_work_result_dir: str | Path = "",
+    prefer_browse_backed_delivery: bool = False,
 ) -> dict[str, Any]:
     paths = resolve_runtime_artifact_paths(
         root=root,
@@ -115,43 +116,68 @@ def load_runtime_artifact_bundle(
     approval_outcome_path = paths["approval_outcome_path"]
     approval_callback_dir = paths["approval_callback_dir"]
     approval_outcome = _load_json(approval_outcome_path)
-    _, run_receipt_for_artifacts = choose_best_run_receipt_for_artifact_selection(
-        primary_run_receipt_path=primary_run_receipt_path,
-        primary_run_receipt=primary_run_receipt,
-        run_receipt_dir=run_receipt_dir,
-    )
-    run_stage_dir = _path_from_value(
-        root,
-        str(
-            run_receipt_for_artifacts.get("stage_packet_output_dir")
-            or primary_run_receipt.get("stage_packet_output_dir")
-            or ""
-        ),
-    )
-    run_safe_dir = _path_from_value(
-        root,
-        str(
-            run_receipt_for_artifacts.get("safe_work_result_output_dir")
-            or primary_run_receipt.get("safe_work_result_output_dir")
-            or ""
-        ),
-    )
-    if run_stage_dir is not None and not stage_packet_dir:
-        resolved_stage_dir = run_stage_dir
-    if run_safe_dir is not None and not safe_work_result_dir:
-        resolved_safe_dir = run_safe_dir
-    preferred_pair = choose_stage_and_safe_work_for_run_receipt(
-        stage_packet_dir=resolved_stage_dir,
-        safe_work_result_dir=resolved_safe_dir,
-        run_receipt=run_receipt_for_artifacts,
-    )
-    if preferred_pair is None:
-        stage_packet_path, stage_packet, safe_work_result_path, safe_work_result = choose_stage_and_safe_work(
+    selected_artifact_candidate = None
+    if prefer_browse_backed_delivery:
+        selected_artifact_candidate = choose_best_run_receipt_artifact_candidate(
+            root=root,
+            primary_run_receipt_path=primary_run_receipt_path,
+            primary_run_receipt=primary_run_receipt,
+            run_receipt_dir=run_receipt_dir,
+            default_stage_packet_dir=resolved_stage_dir,
+            default_safe_work_result_dir=resolved_safe_dir,
+            explicit_stage_packet_dir=bool(stage_packet_dir),
+            explicit_safe_work_result_dir=bool(safe_work_result_dir),
+        )
+
+    if selected_artifact_candidate is not None:
+        (
+            _run_receipt_path_for_artifacts,
+            run_receipt_for_artifacts,
+            resolved_stage_dir,
+            resolved_safe_dir,
+            stage_packet_path,
+            stage_packet,
+            safe_work_result_path,
+            safe_work_result,
+        ) = selected_artifact_candidate
+    else:
+        _, run_receipt_for_artifacts = choose_best_run_receipt_for_artifact_selection(
+            primary_run_receipt_path=primary_run_receipt_path,
+            primary_run_receipt=primary_run_receipt,
+            run_receipt_dir=run_receipt_dir,
+        )
+        run_stage_dir = _path_from_value(
+            root,
+            str(
+                run_receipt_for_artifacts.get("stage_packet_output_dir")
+                or primary_run_receipt.get("stage_packet_output_dir")
+                or ""
+            ),
+        )
+        run_safe_dir = _path_from_value(
+            root,
+            str(
+                run_receipt_for_artifacts.get("safe_work_result_output_dir")
+                or primary_run_receipt.get("safe_work_result_output_dir")
+                or ""
+            ),
+        )
+        if run_stage_dir is not None and not stage_packet_dir:
+            resolved_stage_dir = run_stage_dir
+        if run_safe_dir is not None and not safe_work_result_dir:
+            resolved_safe_dir = run_safe_dir
+        preferred_pair = choose_stage_and_safe_work_for_run_receipt(
             stage_packet_dir=resolved_stage_dir,
             safe_work_result_dir=resolved_safe_dir,
+            run_receipt=run_receipt_for_artifacts,
         )
-    else:
-        stage_packet_path, stage_packet, safe_work_result_path, safe_work_result = preferred_pair
+        if preferred_pair is None:
+            stage_packet_path, stage_packet, safe_work_result_path, safe_work_result = choose_stage_and_safe_work(
+                stage_packet_dir=resolved_stage_dir,
+                safe_work_result_dir=resolved_safe_dir,
+            )
+        else:
+            stage_packet_path, stage_packet, safe_work_result_path, safe_work_result = preferred_pair
     artifact_filter_reason = ""
     if _artifacts_are_disabled_flat_search(stage_packet=stage_packet, safe_work_result=safe_work_result):
         artifact_filter_reason = "flat_search_disabled_property_scout"
@@ -219,6 +245,85 @@ def choose_best_run_receipt_for_artifact_selection(
     if best is None:
         return primary_run_receipt_path, primary_run_receipt
     return best[0], best[1]
+
+
+def choose_best_run_receipt_artifact_candidate(
+    *,
+    root: Path,
+    primary_run_receipt_path: Path | None,
+    primary_run_receipt: dict[str, Any],
+    run_receipt_dir: Path,
+    default_stage_packet_dir: Path,
+    default_safe_work_result_dir: Path,
+    explicit_stage_packet_dir: bool,
+    explicit_safe_work_result_dir: bool,
+) -> tuple[Path | None, dict[str, Any], Path, Path, Path | None, dict[str, Any], Path | None, dict[str, Any]] | None:
+    best: tuple[
+        Path | None,
+        dict[str, Any],
+        Path,
+        Path,
+        Path | None,
+        dict[str, Any],
+        Path | None,
+        dict[str, Any],
+    ] | None = None
+    best_score: tuple[int, int, int, int, int, int, int, float, int, int] | None = None
+    for path, payload, mtime in _run_receipt_candidates(
+        primary_run_receipt_path=primary_run_receipt_path,
+        primary_run_receipt=primary_run_receipt,
+        run_receipt_dir=run_receipt_dir,
+    ):
+        stage_dir = default_stage_packet_dir
+        safe_dir = default_safe_work_result_dir
+        if not explicit_stage_packet_dir:
+            stage_dir = (
+                _path_from_value(root, str(payload.get("stage_packet_output_dir") or ""))
+                or default_stage_packet_dir
+            )
+        if not explicit_safe_work_result_dir:
+            safe_dir = (
+                _path_from_value(root, str(payload.get("safe_work_result_output_dir") or ""))
+                or default_safe_work_result_dir
+            )
+        preferred_pair = choose_stage_and_safe_work_for_run_receipt(
+            stage_packet_dir=stage_dir,
+            safe_work_result_dir=safe_dir,
+            run_receipt=payload,
+        )
+        if preferred_pair is None:
+            continue
+        stage_path, stage_packet, safe_path, safe_work_result = preferred_pair
+        if _artifacts_are_disabled_flat_search(stage_packet=stage_packet, safe_work_result=safe_work_result):
+            continue
+        if _artifact_materiality_filter_reason(stage_packet=stage_packet, safe_work_result=safe_work_result):
+            continue
+
+        notification_status = str(payload.get("notification_status") or "").strip().lower()
+        message_count = _message_id_count(payload)
+        item_count = int(payload.get("item_count") or 0)
+        operator_safe_mirror = _receipt_proves_operator_safe_mirror(payload)
+        delivery_proof = (
+            notification_status == "sent" and item_count > 0 and message_count > 0
+        ) or operator_safe_mirror
+        teable_sync = dict(payload.get("teable_sync") or {})
+        artifact_score = _stage_safe_pair_score(stage_packet, safe_work_result, mtime)
+        score = (
+            1 if delivery_proof else 0,
+            artifact_score[0],
+            artifact_score[1],
+            artifact_score[2],
+            1 if item_count > 0 else 0,
+            1 if str(teable_sync.get("status") or "").strip() in {"synced", "partial"} else 0,
+            1 if operator_safe_mirror else 0,
+            mtime,
+            1 if notification_status == "sent" else 0,
+            message_count,
+        )
+        if best_score is None or score > best_score:
+            best = (path, payload, stage_dir, safe_dir, stage_path, stage_packet, safe_path, safe_work_result)
+            best_score = score
+    return best
 
 
 def choose_action_required_only_quiet_receipt(
