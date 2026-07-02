@@ -195,12 +195,27 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
     if execution_lenses != REQUIRED_LENSES:
         issues.append("execution_lenses must stay ordered as detect/decide/deliver/recover/prove")
 
+    overall_status = str(receipt.get("overall_status") or "").strip()
+    top_level_status = str(receipt.get("status") or "").strip()
+    if not top_level_status:
+        issues.append("top-level status missing")
+    elif overall_status and top_level_status != overall_status:
+        issues.append("top-level status must mirror overall_status")
+
     lenses = receipt.get("lenses")
     if not isinstance(lenses, list):
         return issues + ["lenses must be a list"]
     by_key = {str(lens.get("key") or ""): lens for lens in lenses if isinstance(lens, dict)}
     if sorted(by_key) != sorted(REQUIRED_LENSES):
         issues.append("receipt must contain exactly the required lenses")
+
+    decide_lens = by_key.get("decide") or {}
+    top_level_provider_cost_control = receipt.get("provider_cost_control")
+    if top_level_provider_cost_control != decide_lens.get("provider_cost_control"):
+        issues.append("top-level provider_cost_control must mirror decide.provider_cost_control")
+    top_level_provider_cost_pressure = receipt.get("provider_cost_pressure")
+    if top_level_provider_cost_pressure != decide_lens.get("provider_cost_pressure"):
+        issues.append("top-level provider_cost_pressure must mirror decide.provider_cost_pressure")
 
     for key in REQUIRED_LENSES:
         lens = by_key.get(key) or {}

@@ -154,8 +154,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "7acd5c14ec4d4793f82eaae637605bc253dbe021",
-          "source_state_fingerprint": "718b20a56474c5dc2024f9069201631a99b713a8d695cb17949ede197907718d",
+          "source_git_head": "2e29169d1d10cdc09fce7aef54c683b13ebf02ee",
+          "source_state_fingerprint": "09ba3e98c426d8eb31fcb4ddbb6edd159bb4bc4035006de06f306285e93928e4",
           "status": "ready_for_approval_outcome_capture"
         },
         {
@@ -163,8 +163,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "7acd5c14ec4d4793f82eaae637605bc253dbe021",
-          "source_state_fingerprint": "c0c8642283b811857100349e7189f9e3ad0ad60666c8125528150c16b77a8ff0",
+          "source_git_head": "2e29169d1d10cdc09fce7aef54c683b13ebf02ee",
+          "source_state_fingerprint": "09ba3e98c426d8eb31fcb4ddbb6edd159bb4bc4035006de06f306285e93928e4",
           "status": "ready_with_live_receipt"
         }
       ],
@@ -836,7 +836,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-07-02T11:17:55Z",
+  "generated_at": "2026-07-02T11:25:46Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -1021,7 +1021,7 @@
           "magixai",
           "gemini_vortex"
         ],
-        "observed_at": "2026-07-02T11:17:37Z",
+        "observed_at": "2026-07-02T11:24:51Z",
         "onemin_configured_slots": 70,
         "onemin_preferred_when_speed_is_not_critical": true,
         "onemin_ready_slots": 18,
@@ -1703,6 +1703,91 @@
   },
   "output_path": ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json",
   "overall_status": "active_with_blockers",
+  "provider_cost_control": {
+    "billing_truth_boundary": "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth",
+    "cost_sensitive_lanes": [
+      "groundwork",
+      "fast",
+      "overflow",
+      "review",
+      "review_light",
+      "audit"
+    ],
+    "default_provider_order": [
+      "onemin",
+      "magixai",
+      "gemini_vortex"
+    ],
+    "explicit_gemini_requests_allowed": true,
+    "gemini_dispatch_ledger": "provider_dispatch_events.jsonl",
+    "gemini_live_pressure_probe_command": "python3 scripts/ea_live_ops.py probe-provider-cost-pressure --window 24h --format json",
+    "gemini_live_pressure_probe_source": "runtime_container_exec:provider_ledger_cache",
+    "gemini_provider_key": "gemini_vortex",
+    "gemini_soft_cap_action": "remove_gemini_vortex_from_cost_gated_background_candidate_lists",
+    "gemini_soft_cap_env": "EA_RESPONSES_GEMINI_VORTEX_TOKEN_SOFT_CAP_24H",
+    "gemini_soft_cap_window_env": "EA_RESPONSES_GEMINI_VORTEX_TOKEN_SOFT_CAP_WINDOW_SECONDS",
+    "gemini_token_tracking_required": true,
+    "groundwork_provider_order": [
+      "onemin",
+      "magixai",
+      "gemini_vortex"
+    ],
+    "onemin_preferred_when_speed_is_not_critical": true,
+    "primary_background_provider": "onemin",
+    "primary_background_provider_label": "1min.ai",
+    "raw_google_cloud_billing_account_exposed": false,
+    "raw_prompt_or_response_text_exposed": false,
+    "raw_provider_secret_exposed": false,
+    "source": "ea_office_loop_goal.provider_cost_routing_posture",
+    "status": "active_cost_control"
+  },
+  "provider_cost_pressure": {
+    "checked": true,
+    "cost_sensitive_lanes": [
+      "audit",
+      "fast",
+      "groundwork",
+      "overflow",
+      "review",
+      "review_light"
+    ],
+    "explicit_gemini_requests_allowed": true,
+    "gemini_24h_request_count": 0,
+    "gemini_24h_soft_cap_tokens": 200000,
+    "gemini_24h_state": "within_soft_cap",
+    "gemini_24h_tokens_in": 0,
+    "gemini_24h_tokens_out": 0,
+    "gemini_24h_total_tokens": 0,
+    "gemini_background_cost_gate": "open",
+    "gemini_billing_truth_boundary": "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth",
+    "gemini_provider_key": "gemini_vortex",
+    "gemini_soft_cap_percent_24h": 0.0,
+    "groundwork_provider_order": [
+      "onemin",
+      "magixai",
+      "gemini_vortex"
+    ],
+    "observed_at": "2026-07-02T11:24:51Z",
+    "onemin_configured_slots": 70,
+    "onemin_preferred_when_speed_is_not_critical": true,
+    "onemin_ready_slots": 18,
+    "onemin_usable": true,
+    "present": true,
+    "primary_background_provider": "onemin",
+    "provider_order": [
+      "onemin",
+      "magixai",
+      "gemini_vortex"
+    ],
+    "raw_google_cloud_billing_account_exposed": false,
+    "raw_prompt_or_response_text_exposed": false,
+    "raw_provider_secret_exposed": false,
+    "raw_provider_slots_exposed": false,
+    "requires_recovery": false,
+    "routing_decision": "prefer_onemin_background_when_usable",
+    "source": "runtime_container_exec:ea-api:provider_ledger_cache",
+    "status": "active_cost_control"
+  },
   "real_use_claim_allowed": false,
   "required_next_receipts": [
     "real weekly signal-to-decision review acceptance receipt",
@@ -1725,7 +1810,8 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "7acd5c14ec4d4793f82eaae637605bc253dbe021",
-  "source_state_fingerprint": "c0c8642283b811857100349e7189f9e3ad0ad60666c8125528150c16b77a8ff0",
-  "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
+  "source_git_head": "2e29169d1d10cdc09fce7aef54c683b13ebf02ee",
+  "source_state_fingerprint": "09ba3e98c426d8eb31fcb4ddbb6edd159bb4bc4035006de06f306285e93928e4",
+  "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
+  "status": "active_with_blockers"
 }
