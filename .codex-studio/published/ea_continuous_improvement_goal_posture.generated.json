@@ -123,8 +123,8 @@
           "path": ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "0be99a429cc23cfd89d5e4ddd482c48e6c81aa64",
-          "source_state_fingerprint": "17876ec36c140a005d773e8757a2cbf026be384fb4d54d02fb59925510bd66fc",
+          "source_git_head": "94fb9fde5bb7359721eb886c286ea2f1d92c38eb",
+          "source_state_fingerprint": "a62669c2045e4ba0d2c2c1d331fd3edff53e9e8417089100ed06513b0cc8fd3c",
           "status": "ready_local_packet_pending_operator_acceptance"
         }
       ],
@@ -154,8 +154,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "0be99a429cc23cfd89d5e4ddd482c48e6c81aa64",
-          "source_state_fingerprint": "1415a1b336021203e05985c57ac5ebab837e570a63b4bdb3a486b5a266b4653a",
+          "source_git_head": "94fb9fde5bb7359721eb886c286ea2f1d92c38eb",
+          "source_state_fingerprint": "a62669c2045e4ba0d2c2c1d331fd3edff53e9e8417089100ed06513b0cc8fd3c",
           "status": "pass"
         },
         {
@@ -163,8 +163,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "0be99a429cc23cfd89d5e4ddd482c48e6c81aa64",
-          "source_state_fingerprint": "1415a1b336021203e05985c57ac5ebab837e570a63b4bdb3a486b5a266b4653a",
+          "source_git_head": "94fb9fde5bb7359721eb886c286ea2f1d92c38eb",
+          "source_state_fingerprint": "a62669c2045e4ba0d2c2c1d331fd3edff53e9e8417089100ed06513b0cc8fd3c",
           "status": "ready_with_live_receipt"
         }
       ],
@@ -815,7 +815,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-07-01T21:31:39Z",
+  "generated_at": "2026-07-02T04:05:54Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -850,8 +850,8 @@
           "path": ".codex-studio/published/ea_whole_project_signal_to_decision.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "0be99a429cc23cfd89d5e4ddd482c48e6c81aa64",
-          "source_state_fingerprint": "17876ec36c140a005d773e8757a2cbf026be384fb4d54d02fb59925510bd66fc",
+          "source_git_head": "94fb9fde5bb7359721eb886c286ea2f1d92c38eb",
+          "source_state_fingerprint": "a62669c2045e4ba0d2c2c1d331fd3edff53e9e8417089100ed06513b0cc8fd3c",
           "status": "ready_local_packet_pending_operator_acceptance"
         },
         {
@@ -938,8 +938,8 @@
           "path": ".codex-studio/published/ea_office_loop_goal.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "0be99a429cc23cfd89d5e4ddd482c48e6c81aa64",
-          "source_state_fingerprint": "1415a1b336021203e05985c57ac5ebab837e570a63b4bdb3a486b5a266b4653a",
+          "source_git_head": "94fb9fde5bb7359721eb886c286ea2f1d92c38eb",
+          "source_state_fingerprint": "a62669c2045e4ba0d2c2c1d331fd3edff53e9e8417089100ed06513b0cc8fd3c",
           "status": "ready_local_evidence"
         }
       ],
@@ -1568,7 +1568,7 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "0be99a429cc23cfd89d5e4ddd482c48e6c81aa64",
-  "source_state_fingerprint": "1415a1b336021203e05985c57ac5ebab837e570a63b4bdb3a486b5a266b4653a",
+  "source_git_head": "94fb9fde5bb7359721eb886c286ea2f1d92c38eb",
+  "source_state_fingerprint": "a62669c2045e4ba0d2c2c1d331fd3edff53e9e8417089100ed06513b0cc8fd3c",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }
