@@ -316,6 +316,38 @@ def test_proactive_ooda_teable_projection_suppresses_single_official_info_link_m
     assert summary["suppressed_safe_work_issue_codes"] == ["single_official_info_link_not_decision_ready"]
 
 
+def test_proactive_ooda_teable_projection_suppresses_quality_gate_review_even_if_legacy_audit_passes() -> None:
+    digest, result, receipt = _digest_and_safe_work()
+    result = {
+        **result,
+        "audit": {"status": "pass", "issues": []},
+        "audit_receipt": {
+            "status": "review",
+            "fail_closed": True,
+            "issues": [{"code": "candidate_quality_failed"}],
+        },
+        "quality_gate": {"status": "review"},
+        "execution_receipt": {
+            **dict(result.get("execution_receipt") or {}),
+            "stop_condition": "quality_gate_failed",
+        },
+    }
+
+    records = build_proactive_ooda_teable_projection_records(
+        digest=digest,
+        receipt=receipt,
+        safe_work_results=(result,),
+    )
+    summary = build_proactive_ooda_teable_projection_summary(records)
+
+    assert records["proactive_ooda_items"] == []
+    assert records["proactive_ooda_safe_work"] == []
+    assert summary["suppressed_item_count"] == 1
+    assert summary["suppressed_safe_work_review_count"] == 1
+    assert summary["suppressed_projection_reasons"] == ["safe_work_quality_gate_review"]
+    assert summary["suppressed_safe_work_issue_codes"] == ["candidate_quality_failed"]
+
+
 def test_proactive_ooda_teable_projection_suppresses_provider_reference_materiality() -> None:
     digest, result, receipt = _digest_and_safe_work()
     candidate = {

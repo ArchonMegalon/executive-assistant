@@ -255,6 +255,8 @@ def current_proactive_ooda_approval_request(bundle: Mapping[str, Any]) -> dict[s
         return {"ready": False, "reason": "current_packet_refs_missing"}
     if str(safe_work_result.get("status") or "").strip() != "staged_for_user_decision":
         return {"ready": False, "reason": "safe_work_not_staged_for_user_decision"}
+    if _safe_work_quality_gate_blocks_approval(safe_work_result):
+        return {"ready": False, "reason": "safe_work_quality_gate_review"}
     stage_approval = dict(stage_packet.get("approval") or {})
     safe_work_approval = dict(safe_work_result.get("approval") or {})
     if not (bool(stage_approval.get("required")) or bool(safe_work_approval.get("required"))):
@@ -275,6 +277,17 @@ def current_proactive_ooda_approval_request(bundle: Mapping[str, Any]) -> dict[s
         "stage_kind": str(dict(stage_packet.get("stage") or {}).get("kind") or "").strip(),
         "safe_work_status": str(safe_work_result.get("status") or "").strip(),
     }
+
+
+def _safe_work_quality_gate_blocks_approval(safe_work_result: Mapping[str, Any]) -> bool:
+    audit_receipt = dict(safe_work_result.get("audit_receipt") or {})
+    if bool(audit_receipt.get("fail_closed")):
+        return True
+    quality_gate = dict(safe_work_result.get("quality_gate") or {})
+    if str(quality_gate.get("status") or "").strip().lower() == "review":
+        return True
+    execution_receipt = dict(safe_work_result.get("execution_receipt") or {})
+    return str(execution_receipt.get("stop_condition") or "").strip().lower() == "quality_gate_failed"
 
 
 def _default_container_factory() -> Any:

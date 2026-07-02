@@ -1012,6 +1012,12 @@ def _safe_work_result_is_projectable(safe_work_result: Mapping[str, Any]) -> boo
         return False
     if not proactive_ooda_flat_search_enabled() and material_mentions_flat_property_search(safe_work):
         return False
+    if _safe_work_quality_gate_blocks_projection(safe_work):
+        browser_receipt = dict(safe_work.get("browser_action_receipt") or {})
+        return bool(
+            str(safe_work.get("status") or "").strip() == "blocked_human_handoff_required"
+            and browser_receipt.get("user_action_required") is True
+        )
     if _safe_work_materiality_issue(safe_work):
         return False
     audit = dict(safe_work.get("audit") or {})
@@ -1030,6 +1036,8 @@ def _safe_work_projection_suppression_reason(safe_work_result: Mapping[str, Any]
         return "safe_work_missing"
     if not proactive_ooda_flat_search_enabled() and material_mentions_flat_property_search(safe_work):
         return "flat_search_disabled"
+    if _safe_work_quality_gate_blocks_projection(safe_work):
+        return "safe_work_quality_gate_review"
     if _safe_work_materiality_issue(safe_work):
         return "safe_work_audit_review"
     audit = dict(safe_work.get("audit") or {})
@@ -1046,6 +1054,10 @@ def _safe_work_issue_codes(safe_work_result: Mapping[str, Any]) -> list[str]:
         for issue in list(audit.get("issues") or [])
         if isinstance(issue, Mapping) and str(issue.get("code") or "").strip()
     ]
+    audit_receipt = dict(dict(safe_work_result or {}).get("audit_receipt") or {})
+    for issue in list(audit_receipt.get("issues") or []):
+        if isinstance(issue, Mapping) and str(issue.get("code") or "").strip():
+            codes.append(str(issue.get("code") or "").strip())
     materiality_issue = _safe_work_materiality_issue(safe_work_result)
     if materiality_issue:
         codes.append(materiality_issue)
@@ -1054,6 +1066,18 @@ def _safe_work_issue_codes(safe_work_result: Mapping[str, Any]) -> list[str]:
 
 def _safe_work_materiality_issue(safe_work_result: Mapping[str, Any]) -> str:
     return safe_work_decision_materiality_issue(safe_work_result=safe_work_result)
+
+
+def _safe_work_quality_gate_blocks_projection(safe_work_result: Mapping[str, Any]) -> bool:
+    safe_work = dict(safe_work_result or {})
+    audit_receipt = dict(safe_work.get("audit_receipt") or {})
+    if bool(audit_receipt.get("fail_closed")):
+        return True
+    quality_gate = dict(safe_work.get("quality_gate") or {})
+    if str(quality_gate.get("status") or "").strip().lower() == "review":
+        return True
+    execution_receipt = dict(safe_work.get("execution_receipt") or {})
+    return str(execution_receipt.get("stop_condition") or "").strip().lower() == "quality_gate_failed"
 
 
 def _suppressed_safe_work_projection_summary(
@@ -1071,7 +1095,11 @@ def _suppressed_safe_work_projection_summary(
         reason = _safe_work_projection_suppression_reason(safe_work_result)
         suppressed_reasons.append(reason)
         audit_status = str(dict(safe_work_result.get("audit") or {}).get("status") or "").strip().lower()
-        if audit_status == "review" or _safe_work_materiality_issue(safe_work_result):
+        if (
+            audit_status == "review"
+            or _safe_work_materiality_issue(safe_work_result)
+            or _safe_work_quality_gate_blocks_projection(safe_work_result)
+        ):
             review_count += 1
         suppressed_issue_codes.extend(_safe_work_issue_codes(safe_work_result))
     return {

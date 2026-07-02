@@ -12,7 +12,7 @@
   "dedupe_checked": true,
   "delivery_policy": "action_required_only",
   "force_required_to_resend": true,
-  "generated_at": "2026-07-02T09:07:44Z",
+  "generated_at": "2026-07-02T09:12:38Z",
   "generated_by": "scripts/materialize_operator_action_required_dedupe_proof.py",
   "head_semantics": "source_state",
   "included_action_keys": [
@@ -51,12 +51,12 @@
   ],
   "send_attempted": false,
   "send_requested": false,
-  "source_git_head": "1f56e6853ccc665cd98ad34ef4200bd51783198f",
+  "source_git_head": "7fc8f671424c5d2c471cb5dcc0adeb801c47b549",
   "source_receipts": {
     "posture": {
       "path": ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json",
       "present": true,
-      "sha256": "97c7f6e730f3702763361942d0fa4d394425ed319b62e0ac5bb8a0842a40b26e"
+      "sha256": "7b1a03c5aa6a11974063f09032d160980ceb217233264765507582d832cb839d"
     },
     "sent_digest": {
       "digest_match": true,
@@ -68,7 +68,7 @@
       "status": "sent"
     }
   },
-  "source_state_fingerprint": "9baaae909c7eea5637eec777d40434807376d668b6ec5aa4be028ba7b065c243",
+  "source_state_fingerprint": "b3c165074d7a54b76b914f53a9b141050ab674ecd8ed5df8e744b6e2429846f0",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "state": {
     "last_digest_match": true,

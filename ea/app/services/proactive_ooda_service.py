@@ -678,9 +678,25 @@ def format_telegram_digest(
 ) -> str:
     if not digest.items:
         return ""
-    needs_decision = any(item.approval_required for item in digest.items)
-    lines = ["EA needs your decision" if needs_decision else "EA staged a next step"]
     safe_results = tuple(dict(row) for row in safe_work_results if isinstance(row, Mapping))
+    needs_decision = any(
+        item.approval_required
+        and not _safe_work_fail_closed(safe_results[index])
+        for index, item in enumerate(digest.items)
+        if index < len(safe_results)
+    ) or any(
+        item.approval_required
+        for index, item in enumerate(digest.items)
+        if index >= len(safe_results)
+    )
+    has_blocked_safe_work = any(_safe_work_fail_closed(result) for result in safe_results)
+    if needs_decision:
+        header = "EA needs your decision"
+    elif has_blocked_safe_work:
+        header = "EA needs follow-up"
+    else:
+        header = "EA staged a next step"
+    lines = [header]
     for index, item in enumerate(digest.items, start=1):
         lines.extend(
             (
@@ -714,6 +730,8 @@ def format_telegram_digest(
 
 def _safe_work_preview_lines(result: Mapping[str, Any]) -> list[str]:
     summary = _compact(str(result.get("summary") or ""), 220)
+    if _safe_work_fail_closed(result):
+        return _safe_work_blocked_preview_lines(result, summary=summary)
     recommended = _recommended_preview(result.get("recommended_option_or_draft"))
     staged_action_url = _compact(str(result.get("staged_action_url") or ""), 180)
     shortlist = _shortlist_preview(result.get("shortlist"))
@@ -730,6 +748,54 @@ def _safe_work_preview_lines(result: Mapping[str, Any]) -> list[str]:
     if prompt:
         lines.append(f"Please decide: {prompt}")
     return lines
+
+
+def _safe_work_blocked_preview_lines(result: Mapping[str, Any], *, summary: str) -> list[str]:
+    execution = result.get("execution_receipt") if isinstance(result.get("execution_receipt"), Mapping) else {}
+    stop_condition = _compact(str(dict(execution).get("stop_condition") or ""), 80)
+    issue_codes = _safe_work_issue_codes(result)
+    prompt = _compact(str(result.get("approval_prompt") or ""), 220)
+    status = str(result.get("status") or "").strip()
+    browser_receipt = result.get("browser_action_receipt") if isinstance(result.get("browser_action_receipt"), Mapping) else {}
+    user_action_required = bool(dict(browser_receipt).get("user_action_required"))
+    lines: list[str] = []
+    if status == "blocked_human_handoff_required" and user_action_required and prompt:
+        lines.append(f"Action needed: {prompt}")
+    else:
+        lines.append(f"Blocked: {summary or 'Safe work did not pass the pre-user quality gate.'}")
+    if issue_codes:
+        lines.append(f"Needs work: {', '.join(issue_codes[:4])}")
+    if stop_condition:
+        lines.append(f"Stop: {stop_condition}")
+    return lines
+
+
+def _safe_work_fail_closed(result: Mapping[str, Any]) -> bool:
+    if not isinstance(result, Mapping):
+        return False
+    audit_receipt = result.get("audit_receipt") if isinstance(result.get("audit_receipt"), Mapping) else {}
+    if bool(dict(audit_receipt).get("fail_closed")):
+        return True
+    quality_gate = result.get("quality_gate") if isinstance(result.get("quality_gate"), Mapping) else {}
+    if str(dict(quality_gate).get("status") or "").strip().lower() == "review":
+        return True
+    execution = result.get("execution_receipt") if isinstance(result.get("execution_receipt"), Mapping) else {}
+    if str(dict(execution).get("stop_condition") or "").strip().lower() == "quality_gate_failed":
+        return True
+    return False
+
+
+def _safe_work_issue_codes(result: Mapping[str, Any]) -> list[str]:
+    codes: list[str] = []
+    for bucket_name in ("audit_receipt", "audit"):
+        bucket = result.get(bucket_name) if isinstance(result.get(bucket_name), Mapping) else {}
+        for issue in list(dict(bucket).get("issues") or []):
+            if not isinstance(issue, Mapping):
+                continue
+            code = str(issue.get("code") or "").strip()
+            if code:
+                codes.append(code)
+    return list(dict.fromkeys(codes))
 
 
 def _recommended_preview(value: Any) -> str:

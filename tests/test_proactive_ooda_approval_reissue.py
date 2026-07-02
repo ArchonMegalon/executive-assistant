@@ -45,6 +45,21 @@ def test_current_proactive_ooda_approval_request_requires_staged_decision_packet
     assert request["staged_action_url"] == "https://example.test/candidate"
 
 
+def test_current_proactive_ooda_approval_request_blocks_quality_gate_review() -> None:
+    bundle = _bundle()
+    bundle["safe_work_result"]["audit_receipt"] = {
+        "status": "review",
+        "fail_closed": True,
+        "issues": [{"code": "candidate_quality_failed"}],
+    }
+    bundle["safe_work_result"]["quality_gate"] = {"status": "review"}
+    bundle["safe_work_result"]["execution_receipt"] = {"stop_condition": "quality_gate_failed"}
+
+    request = current_proactive_ooda_approval_request(bundle)
+
+    assert request == {"ready": False, "reason": "safe_work_quality_gate_review"}
+
+
 def test_reissue_current_proactive_ooda_approval_dry_run_returns_redacted_surface_summary(tmp_path) -> None:
     result = reissue_current_proactive_ooda_approval(
         principal_id="exec",

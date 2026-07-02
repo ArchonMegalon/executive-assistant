@@ -691,3 +691,45 @@ def test_format_telegram_digest_can_embed_safe_work_preview() -> None:
     assert "Please decide: Approve whether EA should proceed with this staged shortlist candidate." in text
     assert "Prepared:" not in text
     assert "Approve:" not in text
+
+
+def test_format_telegram_digest_fail_closed_safe_work_does_not_ask_for_approval() -> None:
+    digest = ProactiveOodaService().build_digest(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "opportunity:bad-provider",
+                "signal_type": "opportunity",
+                "channel": "assistant_opportunity",
+                "title": "Prepare a vendor approval packet",
+                "summary": "A vendor choice needs research before it can be reviewed.",
+                "payload": {
+                    "ooda_loop": {
+                        "reviewed": True,
+                        "observe": {"summary": "Review the vendor shortlist."},
+                        "orient": {"summary": "The current search result is not decision-ready."},
+                        "decide": {"summary": "Approve whether EA should proceed.", "approval_required": True},
+                        "act": {
+                            "summary": "Prepare the best approval link.",
+                            "stage": {
+                                "kind": "approval_packet",
+                                "summary": "One vendor candidate ready for approval.",
+                                "work_type": "compare_options",
+                            },
+                            "external_action_policy": "Do not buy, book, send, cancel, post, or commit without explicit approval.",
+                        },
+                    }
+                },
+            }
+        ],
+    )
+    result = build_safe_work_result(build_stage_packets(digest)[0])
+
+    text = format_telegram_digest(digest, safe_work_results=(result,))
+
+    assert text.startswith("EA needs follow-up")
+    assert "Blocked:" in text
+    assert "Needs work: no_decision_ready_material" in text
+    assert "Stop: quality_gate_failed" in text
+    assert "Please decide:" not in text
+    assert "Approve whether EA should research further" not in text
