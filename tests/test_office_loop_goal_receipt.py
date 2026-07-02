@@ -31,6 +31,7 @@ def test_office_loop_goal_receipt_materializes_seeded_local_loop(tmp_path: Path)
         generated_at=GENERATED_AT,
         proactive_operator_status_receipt_path=tmp_path / "missing-proactive-operator.generated.json",
         proactive_gold_acceptance_receipt_path=tmp_path / "missing-proactive-gold.generated.json",
+        google_workspace_oauth_readiness_receipt_path=tmp_path / "missing-google-oauth.generated.json",
     )
 
     assert receipt["status"] == "ready_local_evidence"
@@ -51,8 +52,10 @@ def test_office_loop_goal_receipt_materializes_seeded_local_loop(tmp_path: Path)
         assert row["status"] == "pass", key
         assert row["evidence_route"], key
     assert {"memo", "approvals", "operator"} <= set(receipt["diagnostics_summary"]["channel_loop_digest_keys"])  # type: ignore[index]
+    assert receipt["diagnostics_summary"]["google_workspace_oauth_status"] == "missing"
     assert "real approved outbound action with audit trail" not in receipt["remaining_external_proofs"]
     assert "real provider failure recovered with operator-grade reason" not in receipt["remaining_external_proofs"]
+    assert "Google Workspace OAuth test-user or verified app access for Full Workspace auth" in receipt["remaining_external_proofs"]
     additional_goals = {row["key"]: row for row in receipt["additional_goals"]}  # type: ignore[index]
     quality_goal = additional_goals["executive_assistant_quality_readiness"]
     assert quality_goal["status"] == "active_local_goal"
@@ -167,6 +170,9 @@ def test_office_loop_goal_receipt_materializes_seeded_local_loop(tmp_path: Path)
     assert scope_gap_evidence["path"].endswith("ea_whole_project_scope_gap_audit.generated.json")
     assert scope_gap_evidence["reviewed_against_current_product_spine"] is False
     assert scope_gap_evidence["operator_review_accepted"] is False
+    google_workspace_evidence = receipt["evidence_receipts"]["google_workspace_oauth_readiness"]  # type: ignore[index]
+    assert google_workspace_evidence["present"] is False
+    assert google_workspace_evidence["ready"] is False
 
     verification = verifier.verify_office_loop_goal_receipt(receipt_path)
 
@@ -181,6 +187,7 @@ def test_office_loop_goal_verifier_rejects_missing_source_state(tmp_path: Path) 
     materializer.materialize_office_loop_goal_receipt(
         receipt_path=receipt_path,
         generated_at=GENERATED_AT,
+        google_workspace_oauth_readiness_receipt_path=tmp_path / "missing-google-oauth.generated.json",
     )
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     receipt.pop("source_git_head", None)
@@ -243,16 +250,113 @@ def test_office_loop_goal_receipt_propagates_proactive_approval_capture_surface(
         generated_at=GENERATED_AT,
         proactive_operator_status_receipt_path=proactive_operator_path,
         proactive_gold_acceptance_receipt_path=proactive_gold_path,
+        google_workspace_oauth_readiness_receipt_path=tmp_path / "missing-google-oauth.generated.json",
     )
 
     assert receipt["next_action"] == "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome"
     assert receipt["next_action_href"] == "https://myexternalbrain.com/admin/proactive-ooda/approval"
     assert receipt["next_action_label"] == "Open approval capture"
     assert receipt["next_action_method"] == "get"
+    assert receipt["operator_next_action_source"] == "proactive_ooda_followthrough"
     assert receipt["proactive_ooda_followthrough_posture"]["next_action"] == receipt["next_action"]
     assert receipt["proactive_ooda_followthrough_posture"]["next_action_href"] == receipt["next_action_href"]
     assert receipt["proactive_ooda_followthrough_posture"]["next_action_label"] == receipt["next_action_label"]
     assert receipt["proactive_ooda_followthrough_posture"]["next_action_method"] == receipt["next_action_method"]
+
+    verification = verifier.verify_office_loop_goal_receipt(receipt_path)
+    assert verification["status"] == "pass"
+    assert verification["issues"] == []
+
+
+def test_office_loop_goal_receipt_prioritizes_google_workspace_oauth_when_blocked(tmp_path: Path) -> None:
+    materializer = _load_script("materialize_office_loop_goal_receipt")
+    verifier = _load_script("verify_office_loop_goal_receipt")
+    receipt_path = tmp_path / "office-loop-google-oauth-blocked.generated.json"
+    proactive_gold_path = tmp_path / "ea_proactive_ooda_gold_acceptance.generated.json"
+    proactive_operator_path = tmp_path / "ea_proactive_ooda_operator_status.generated.json"
+    google_oauth_path = tmp_path / "ea_google_workspace_oauth_readiness.generated.json"
+
+    proactive_gold_path.write_text(
+        json.dumps(
+            {
+                "contract_name": "ea.proactive_ooda_gold_acceptance.v1",
+                "status": "pass",
+                "summary": "Gold proactive OODA proof is present.",
+                "next_action": "maintain_proactive_ooda_gold_acceptance_evidence",
+                "next_action_href": "https://myexternalbrain.com/admin/goals",
+                "next_action_label": "Open goals",
+                "next_action_method": "get",
+                "proofs": {"approval_outcome": {"approval_outcome_recorded": True, "accepted": True}},
+                "evidence_receipts": {"approval_capture_surface": {"ready": True}},
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    proactive_operator_path.write_text(
+        json.dumps(
+            {
+                "contract_name": "ea.proactive_ooda_operator_status.v1",
+                "status": "ready_with_live_receipt",
+                "summary": "Operator runtime ready.",
+                "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
+                "next_action_href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
+                "next_action_label": "Open approval capture",
+                "next_action_method": "get",
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    google_oauth_path.write_text(
+        json.dumps(
+            {
+                "contract_name": "ea.google_workspace_oauth_readiness.v1",
+                "status": "blocked_setup_required",
+                "next_action": "retry_full_workspace_auth_with_approved_account",
+                "next_action_href": "/integrations/google",
+                "next_action_label": "Retry Google auth",
+                "next_action_method": "get",
+                "operator_action": {
+                    "instruction": "Retry the Full Workspace auth link with the approved work account.",
+                    "next_action": "retry_full_workspace_auth_with_approved_account",
+                    "next_action_href": "/integrations/google",
+                    "next_action_label": "Retry Google auth",
+                    "next_action_method": "get",
+                    "user_action_required": True,
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    receipt = materializer.materialize_office_loop_goal_receipt(
+        receipt_path=receipt_path,
+        generated_at=GENERATED_AT,
+        proactive_operator_status_receipt_path=proactive_operator_path,
+        proactive_gold_acceptance_receipt_path=proactive_gold_path,
+        google_workspace_oauth_readiness_receipt_path=google_oauth_path,
+    )
+
+    assert receipt["next_action"] == "retry_full_workspace_auth_with_approved_account"
+    assert receipt["next_action_href"] == "/integrations/google"
+    assert receipt["next_action_label"] == "Retry Google auth"
+    assert receipt["next_action_method"] == "get"
+    assert receipt["operator_next_action_source"] == "google_workspace_oauth_readiness"
+    assert receipt["proactive_ooda_followthrough_posture"]["next_action"] == "maintain_proactive_ooda_gold_acceptance_evidence"
+    google_workspace_evidence = receipt["evidence_receipts"]["google_workspace_oauth_readiness"]
+    assert google_workspace_evidence["present"] is True
+    assert google_workspace_evidence["ready"] is False
+    assert google_workspace_evidence["user_action_required"] is True
+    assert google_workspace_evidence["summary"] == "Retry the Full Workspace auth link with the approved work account."
+    assert "Google Workspace OAuth test-user or verified app access for Full Workspace auth" in receipt["remaining_external_proofs"]
 
     verification = verifier.verify_office_loop_goal_receipt(receipt_path)
     assert verification["status"] == "pass"
@@ -266,6 +370,7 @@ def test_office_loop_goal_verifier_rejects_overclaim_and_route_regression(tmp_pa
     materializer.materialize_office_loop_goal_receipt(
         receipt_path=receipt_path,
         generated_at=GENERATED_AT,
+        google_workspace_oauth_readiness_receipt_path=tmp_path / "missing-google-oauth.generated.json",
     )
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     receipt["goal_completion_claim_allowed"] = True
@@ -440,6 +545,7 @@ def test_office_loop_goal_verifier_rejects_missing_proactive_action_surface(tmp_
         generated_at=GENERATED_AT,
         proactive_operator_status_receipt_path=proactive_operator_path,
         proactive_gold_acceptance_receipt_path=proactive_gold_path,
+        google_workspace_oauth_readiness_receipt_path=tmp_path / "missing-google-oauth.generated.json",
     )
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     receipt["next_action"] = "collect a real proactive OODA packet"

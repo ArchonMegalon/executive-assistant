@@ -22,6 +22,7 @@ DEFAULT_SIGNAL_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "ea_whole_p
 DEFAULT_PROACTIVE_OPERATOR_STATUS_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "ea_proactive_ooda_operator_status.generated.json"
 DEFAULT_PROACTIVE_GOLD_ACCEPTANCE_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "ea_proactive_ooda_gold_acceptance.generated.json"
 DEFAULT_SCOPE_GAP_AUDIT_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "ea_whole_project_scope_gap_audit.generated.json"
+DEFAULT_GOOGLE_WORKSPACE_OAUTH_RECEIPT = REPO_ROOT / ".codex-studio" / "published" / "ea_google_workspace_oauth_readiness.generated.json"
 
 REMAINING_PROOF_LABELS = {
     "real_daily_morning_brief_accepted": "real daily morning brief acceptance",
@@ -38,6 +39,7 @@ PROACTIVE_OODA_PROOF_LABEL = (
 SCOPE_GAP_PROOF_LABEL = "real whole-project scope gap audit reviewed against the current product spine"
 SIGNAL_REVIEW_PROOF_LABEL = "real weekly signal-to-decision review accepted by the operator"
 SIGNAL_FOLLOWTHROUGH_PROOF_LABEL = "closed-loop signal-to-decision follow-through receipt accepted by the operator"
+GOOGLE_WORKSPACE_OAUTH_PROOF_LABEL = "Google Workspace OAuth test-user or verified app access for Full Workspace auth"
 DEFAULT_NARRATIVE_NEXT_ACTION = (
     "collect a real proactive OODA packet that starts from an approved source or transcript signal, browses live "
     "options, auditor-checks provider and context fit, chooses a candidate, stages a reversible shortlist, cart, "
@@ -159,6 +161,7 @@ def _remaining_external_proofs(
     signal: dict[str, Any],
     proactive_gold: dict[str, Any],
     scope_gap_audit: dict[str, Any],
+    google_workspace_oauth: dict[str, Any],
 ) -> list[str]:
     remaining: list[str] = []
     accepted = {str(value).strip() for value in list(acceptance.get("accepted_keys") or []) if str(value).strip()}
@@ -176,6 +179,8 @@ def _remaining_external_proofs(
         and bool(scope_gap_audit.get("operator_review_accepted"))
     ):
         remaining.append(SCOPE_GAP_PROOF_LABEL)
+    if _text(google_workspace_oauth.get("status")) != "pass":
+        remaining.append(GOOGLE_WORKSPACE_OAUTH_PROOF_LABEL)
     return remaining
 
 
@@ -314,6 +319,29 @@ def _additional_goals() -> list[dict[str, Any]]:
     ]
 
 
+def _google_workspace_oauth_surface(payload: dict[str, Any]) -> dict[str, str]:
+    operator_action = dict(payload.get("operator_action") or {})
+    return _preferred_action_surface(_next_action_surface(operator_action), _next_action_surface(payload))
+
+
+def _google_workspace_oauth_ready(payload: dict[str, Any]) -> bool:
+    return _text(payload.get("status")) == "pass"
+
+
+def _google_workspace_oauth_requires_action(payload: dict[str, Any]) -> bool:
+    return _text(payload.get("status")) in {"blocked_setup_required", "ready_manual_console_check"}
+
+
+def _google_workspace_oauth_summary(payload: dict[str, Any]) -> str:
+    operator_action = dict(payload.get("operator_action") or {})
+    return (
+        _text(operator_action.get("instruction"))
+        or _text(payload.get("claim_boundary"))
+        or _text(payload.get("blocker_kind"))
+        or "Google Workspace OAuth readiness is not mirrored."
+    )
+
+
 def _provider_cost_routing_posture() -> dict[str, Any]:
     return {
         "status": "active_cost_control",
@@ -370,6 +398,7 @@ def materialize_office_loop_goal_receipt(
     proactive_operator_status_receipt_path: str | Path | None = None,
     proactive_gold_acceptance_receipt_path: str | Path | None = None,
     scope_gap_audit_receipt_path: str | Path | None = None,
+    google_workspace_oauth_readiness_receipt_path: str | Path | None = None,
 ) -> dict[str, Any]:
     acceptance_path = _resolve_receipt_path(acceptance_evidence_receipt_path, DEFAULT_ACCEPTANCE_RECEIPT)
     signal_path = _resolve_receipt_path(signal_to_decision_receipt_path, DEFAULT_SIGNAL_RECEIPT)
@@ -382,15 +411,33 @@ def materialize_office_loop_goal_receipt(
         DEFAULT_PROACTIVE_GOLD_ACCEPTANCE_RECEIPT,
     )
     scope_gap_path = _resolve_receipt_path(scope_gap_audit_receipt_path, DEFAULT_SCOPE_GAP_AUDIT_RECEIPT)
+    google_workspace_oauth_path = _resolve_receipt_path(
+        google_workspace_oauth_readiness_receipt_path,
+        DEFAULT_GOOGLE_WORKSPACE_OAUTH_RECEIPT,
+    )
     acceptance_receipt = _load(acceptance_path)
     signal_receipt = _load(signal_path)
     proactive_operator_receipt = _load(proactive_operator_path)
     proactive_gold_receipt = _load(proactive_gold_path)
     scope_gap_receipt = _load(scope_gap_path)
+    google_workspace_oauth_receipt = _load(google_workspace_oauth_path)
     proactive_posture = _proactive_followthrough_posture(
         proactive_operator=proactive_operator_receipt,
         proactive_gold=proactive_gold_receipt,
         signal=signal_receipt,
+    )
+    proactive_surface = _next_action_surface(proactive_posture)
+    google_workspace_oauth_surface = (
+        _google_workspace_oauth_surface(google_workspace_oauth_receipt)
+        if _google_workspace_oauth_requires_action(google_workspace_oauth_receipt)
+        else {}
+    )
+    selected_surface = _preferred_action_surface(google_workspace_oauth_surface, proactive_surface)
+    next_action_source = (
+        "google_workspace_oauth_readiness"
+        if google_workspace_oauth_surface
+        and _text(selected_surface.get("next_action")) == _text(google_workspace_oauth_surface.get("next_action"))
+        else "proactive_ooda_followthrough"
     )
     receipt = {
         "contract_name": "ea.office_loop_goal_receipt.v1",
@@ -427,12 +474,14 @@ def materialize_office_loop_goal_receipt(
             "channel_loop_digest_keys": ["memo", "approvals", "operator"],
             "proactive_followthrough_status": proactive_posture["status"],
             "provider_cost_routing_status": "active_cost_control",
+            "google_workspace_oauth_status": _text(google_workspace_oauth_receipt.get("status")) or "missing",
         },
         "provider_cost_routing_posture": _provider_cost_routing_posture(),
-        "next_action": proactive_posture["next_action"],
-        "next_action_href": proactive_posture["next_action_href"],
-        "next_action_label": proactive_posture["next_action_label"],
-        "next_action_method": proactive_posture["next_action_method"],
+        "next_action": _text(selected_surface.get("next_action")) or proactive_posture["next_action"],
+        "next_action_href": _text(selected_surface.get("next_action_href")),
+        "next_action_label": _text(selected_surface.get("next_action_label")),
+        "next_action_method": _text(selected_surface.get("next_action_method")),
+        "operator_next_action_source": next_action_source,
         "additional_goals": _additional_goals(),
         "evidence_receipts": {
             "executive_assistant_acceptance_evidence": _receipt_summary(
@@ -491,6 +540,18 @@ def materialize_office_loop_goal_receipt(
                     "operator_review_accepted": bool(scope_gap_receipt.get("operator_review_accepted")),
                 },
             ),
+            "google_workspace_oauth_readiness": _receipt_summary(
+                google_workspace_oauth_path,
+                google_workspace_oauth_receipt,
+                extra={
+                    "summary": _google_workspace_oauth_summary(google_workspace_oauth_receipt),
+                    **_google_workspace_oauth_surface(google_workspace_oauth_receipt),
+                    "user_action_required": bool(
+                        dict(google_workspace_oauth_receipt.get("operator_action") or {}).get("user_action_required")
+                    ),
+                    "ready": _google_workspace_oauth_ready(google_workspace_oauth_receipt),
+                },
+            ),
         },
         "proactive_ooda_followthrough_posture": proactive_posture,
         "remaining_external_proofs": _remaining_external_proofs(
@@ -498,6 +559,7 @@ def materialize_office_loop_goal_receipt(
             signal=signal_receipt,
             proactive_gold=proactive_gold_receipt,
             scope_gap_audit=scope_gap_receipt,
+            google_workspace_oauth=google_workspace_oauth_receipt,
         ),
     }
     _write(receipt_path, receipt)
@@ -512,6 +574,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--proactive-operator-status-receipt", default=str(DEFAULT_PROACTIVE_OPERATOR_STATUS_RECEIPT))
     parser.add_argument("--proactive-gold-acceptance-receipt", default=str(DEFAULT_PROACTIVE_GOLD_ACCEPTANCE_RECEIPT))
     parser.add_argument("--scope-gap-audit-receipt", default=str(DEFAULT_SCOPE_GAP_AUDIT_RECEIPT))
+    parser.add_argument("--google-workspace-oauth-readiness-receipt", default=str(DEFAULT_GOOGLE_WORKSPACE_OAUTH_RECEIPT))
     parser.add_argument("--generated-at", default="")
     args = parser.parse_args(argv)
     receipt = materialize_office_loop_goal_receipt(
@@ -522,6 +585,7 @@ def main(argv: list[str] | None = None) -> int:
         proactive_operator_status_receipt_path=args.proactive_operator_status_receipt,
         proactive_gold_acceptance_receipt_path=args.proactive_gold_acceptance_receipt,
         scope_gap_audit_receipt_path=args.scope_gap_audit_receipt,
+        google_workspace_oauth_readiness_receipt_path=args.google_workspace_oauth_readiness_receipt,
     )
     print(json.dumps({"status": receipt["status"], "receipt": str(args.receipt)}, sort_keys=True))
     return 0

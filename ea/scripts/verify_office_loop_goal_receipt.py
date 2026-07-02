@@ -31,6 +31,7 @@ PROACTIVE_OODA_PROOF_LABEL = (
 SIGNAL_REVIEW_PROOF_LABEL = "real weekly signal-to-decision review accepted by the operator"
 SIGNAL_FOLLOWTHROUGH_PROOF_LABEL = "closed-loop signal-to-decision follow-through receipt accepted by the operator"
 SCOPE_GAP_PROOF_LABEL = "real whole-project scope gap audit reviewed against the current product spine"
+GOOGLE_WORKSPACE_OAUTH_PROOF_LABEL = "Google Workspace OAuth test-user or verified app access for Full Workspace auth"
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -85,6 +86,13 @@ def _verify_surface(
             issues.append(f"{prefix} reauthorize_google_workspace_binding next_action_label drifted")
         if method != "get":
             issues.append(f"{prefix} reauthorize_google_workspace_binding requires next_action_method=get")
+    if action == "retry_full_workspace_auth_with_approved_account":
+        if href != "/integrations/google":
+            issues.append(f"{prefix} retry_full_workspace_auth_with_approved_account next_action_href must target /integrations/google")
+        if label != "Retry Google auth":
+            issues.append(f"{prefix} retry_full_workspace_auth_with_approved_account next_action_label drifted")
+        if method != "get":
+            issues.append(f"{prefix} retry_full_workspace_auth_with_approved_account requires next_action_method=get")
     if action in {
         "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
         "record_proactive_ooda_approval_outcome",
@@ -144,6 +152,20 @@ def _preferred_action_surface(*surfaces: dict[str, str]) -> dict[str, str]:
     return selected
 
 
+def _google_workspace_requires_action(payload: dict[str, Any]) -> bool:
+    return str(payload.get("status") or "").strip() in {"blocked_setup_required", "ready_manual_console_check"}
+
+
+def _google_workspace_summary(payload: dict[str, Any]) -> str:
+    operator_action = dict(payload.get("operator_action") or {})
+    return (
+        str(operator_action.get("instruction") or "").strip()
+        or str(payload.get("claim_boundary") or "").strip()
+        or str(payload.get("blocker_kind") or "").strip()
+        or "Google Workspace OAuth readiness is not mirrored."
+    )
+
+
 def verify_office_loop_goal_receipt(receipt_path: str | Path) -> dict[str, Any]:
     receipt = _load(Path(receipt_path))
     issues: list[str] = []
@@ -168,6 +190,8 @@ def verify_office_loop_goal_receipt(receipt_path: str | Path) -> dict[str, Any]:
         issues.append("office_loop_diagnostics_missing:proactive_followthrough_status")
     if str(dict(receipt.get("diagnostics_summary") or {}).get("provider_cost_routing_status") or "").strip() != "active_cost_control":
         issues.append("office_loop_diagnostics_missing:provider_cost_routing_status")
+    if not str(dict(receipt.get("diagnostics_summary") or {}).get("google_workspace_oauth_status") or "").strip():
+        issues.append("office_loop_diagnostics_missing:google_workspace_oauth_status")
     goals = {dict(row).get("key"): row for row in receipt.get("additional_goals") or []}
     if "approved_action_workflow" not in dict(goals.get("executive_assistant_quality_readiness") or {}).get("protected_quality_dimensions", []):
         issues.append("office_loop_executive_assistant_quality_dimension_missing:approved_action_workflow")
@@ -294,6 +318,7 @@ def verify_office_loop_goal_receipt(receipt_path: str | Path) -> dict[str, Any]:
         "proactive_ooda_operator_status",
         "proactive_ooda_gold_acceptance",
         "whole_project_scope_gap_audit",
+        "google_workspace_oauth_readiness",
     }
     missing_evidence_keys = required_evidence_keys - set(evidence_receipts)
     for key in sorted(missing_evidence_keys):
@@ -304,19 +329,26 @@ def verify_office_loop_goal_receipt(receipt_path: str | Path) -> dict[str, Any]:
     proactive_operator_evidence = dict(evidence_receipts.get("proactive_ooda_operator_status") or {})
     proactive_gold_evidence = dict(evidence_receipts.get("proactive_ooda_gold_acceptance") or {})
     scope_gap_evidence = dict(evidence_receipts.get("whole_project_scope_gap_audit") or {})
+    google_workspace_evidence = dict(evidence_receipts.get("google_workspace_oauth_readiness") or {})
     proactive_posture = dict(receipt.get("proactive_ooda_followthrough_posture") or {})
     expected_followthrough_surface = _preferred_action_surface(
         _next_action_surface(proactive_gold_evidence),
         _next_action_surface(proactive_operator_evidence),
     )
+    expected_google_workspace_surface = (
+        _next_action_surface(google_workspace_evidence) if _google_workspace_requires_action(google_workspace_evidence) else {}
+    )
+    expected_operator_surface = _preferred_action_surface(expected_google_workspace_surface, expected_followthrough_surface)
+    expected_operator_action_source = (
+        "google_workspace_oauth_readiness"
+        if expected_google_workspace_surface
+        and str(expected_operator_surface.get("next_action") or "").strip()
+        == str(expected_google_workspace_surface.get("next_action") or "").strip()
+        else "proactive_ooda_followthrough"
+    )
     if not proactive_posture:
         issues.append("office_loop_followthrough_posture_missing")
     else:
-        if str(proactive_posture.get("next_action") or "").strip() != str(receipt.get("next_action") or "").strip():
-            issues.append("office_loop_next_action_drifted_from_followthrough_posture")
-        for key in ("next_action_href", "next_action_label", "next_action_method"):
-            if str(proactive_posture.get(key) or "").strip() != str(receipt.get(key) or "").strip():
-                issues.append(f"office_loop_{key}_drifted_from_followthrough_posture")
         if expected_followthrough_surface:
             for key, issue in (
                 ("next_action", "office_loop_followthrough_posture_missing_action_surface"),
@@ -327,6 +359,18 @@ def verify_office_loop_goal_receipt(receipt_path: str | Path) -> dict[str, Any]:
                 if str(proactive_posture.get(key) or "").strip() != str(expected_followthrough_surface.get(key) or "").strip():
                     issues.append(issue)
         _verify_surface(proactive_posture, issues, prefix="office_loop_followthrough_posture")
+    if expected_operator_surface:
+        if str(receipt.get("operator_next_action_source") or "").strip() != expected_operator_action_source:
+            issues.append("office_loop_operator_next_action_source_drifted")
+        for key, issue in (
+            ("next_action", "office_loop_operator_next_action_surface_drifted"),
+            ("next_action_href", "office_loop_operator_next_action_href_drifted"),
+            ("next_action_label", "office_loop_operator_next_action_label_drifted"),
+            ("next_action_method", "office_loop_operator_next_action_method_drifted"),
+        ):
+            if str(receipt.get(key) or "").strip() != str(expected_operator_surface.get(key) or "").strip():
+                issues.append(issue)
+        _verify_surface(receipt, issues, prefix="office_loop")
 
     for key, linked in (
         ("executive_assistant_acceptance_evidence", acceptance_evidence),
@@ -334,6 +378,7 @@ def verify_office_loop_goal_receipt(receipt_path: str | Path) -> dict[str, Any]:
         ("proactive_ooda_operator_status", proactive_operator_evidence),
         ("proactive_ooda_gold_acceptance", proactive_gold_evidence),
         ("whole_project_scope_gap_audit", scope_gap_evidence),
+        ("google_workspace_oauth_readiness", google_workspace_evidence),
     ):
         path = _path_from_text(linked.get("path"))
         if path is None:
@@ -391,6 +436,17 @@ def verify_office_loop_goal_receipt(receipt_path: str | Path) -> dict[str, Any]:
             if bool(linked.get("operator_review_accepted")) != bool(payload.get("operator_review_accepted")):
                 issues.append("office_loop_linked_receipt_drifted:whole_project_scope_gap_audit.operator_review")
             _verify_surface(linked, issues, prefix="office_loop linked whole_project_scope_gap_audit")
+        if key == "google_workspace_oauth_readiness":
+            operator_action = dict(payload.get("operator_action") or {})
+            if str(linked.get("summary") or "").strip() != _google_workspace_summary(payload):
+                issues.append("office_loop_linked_receipt_drifted:google_workspace_oauth_readiness.summary")
+            if str(linked.get("next_action") or "").strip() != str(operator_action.get("next_action") or payload.get("next_action") or "").strip():
+                issues.append("office_loop_linked_receipt_drifted:google_workspace_oauth_readiness.next_action")
+            if bool(linked.get("user_action_required")) != bool(operator_action.get("user_action_required")):
+                issues.append("office_loop_linked_receipt_drifted:google_workspace_oauth_readiness.user_action_required")
+            if bool(linked.get("ready")) != bool(str(payload.get("status") or "").strip() == "pass"):
+                issues.append("office_loop_linked_receipt_drifted:google_workspace_oauth_readiness.ready")
+            _verify_surface(linked, issues, prefix="office_loop linked google_workspace_oauth_readiness")
 
     if proactive_posture:
         if proactive_gold_evidence and bool(proactive_gold_evidence.get("present")):
@@ -446,6 +502,11 @@ def verify_office_loop_goal_receipt(receipt_path: str | Path) -> dict[str, Any]:
         issues.append("office_loop_remaining_external_proof_stale:scope_gap_review")
     if not scope_review_accepted and SCOPE_GAP_PROOF_LABEL not in remaining:
         issues.append("office_loop_remaining_external_proof_missing:scope_gap_review")
+    google_workspace_ready = bool(google_workspace_evidence.get("ready"))
+    if google_workspace_ready and GOOGLE_WORKSPACE_OAUTH_PROOF_LABEL in remaining:
+        issues.append("office_loop_remaining_external_proof_stale:google_workspace_oauth")
+    if not google_workspace_ready and GOOGLE_WORKSPACE_OAUTH_PROOF_LABEL not in remaining:
+        issues.append("office_loop_remaining_external_proof_missing:google_workspace_oauth")
     return {"contract_name": "ea.office_loop_goal_receipt.verify.v1", "status": "pass" if not issues else "fail", "issues": issues}
 
 

@@ -184,7 +184,8 @@
       "approvals",
       "operator"
     ],
-    "proactive_followthrough_status": "pass",
+    "google_workspace_oauth_status": "blocked_setup_required",
+    "proactive_followthrough_status": "ready_for_approval_outcome_capture",
     "provider_cost_routing_status": "active_cost_control"
   },
   "evidence_receipts": {
@@ -195,19 +196,32 @@
       "present": true,
       "status": "ready_real_world_acceptance_evidence"
     },
+    "google_workspace_oauth_readiness": {
+      "contract_name": "ea.google_workspace_oauth_readiness.v1",
+      "next_action": "retry_full_workspace_auth_with_approved_account",
+      "next_action_href": "/integrations/google",
+      "next_action_label": "Retry Google auth",
+      "next_action_method": "get",
+      "path": ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json",
+      "present": true,
+      "ready": false,
+      "status": "blocked_setup_required",
+      "summary": "Retry the Full Workspace auth link and explicitly choose the approved work Google account. If Google still denies access, reopen the Google Auth Platform Audience page and confirm the tester save has propagated.",
+      "user_action_required": true
+    },
     "proactive_ooda_gold_acceptance": {
       "approval_capture_surface_ready": true,
-      "approval_outcome_accepted": true,
-      "approval_outcome_recorded": true,
+      "approval_outcome_accepted": false,
+      "approval_outcome_recorded": false,
       "contract_name": "ea.proactive_ooda_gold_acceptance.v1",
-      "next_action": "maintain_proactive_ooda_gold_acceptance_evidence",
-      "next_action_href": "https://myexternalbrain.com/admin/goals",
-      "next_action_label": "Open goals",
+      "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
+      "next_action_href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
+      "next_action_label": "Open approval capture",
       "next_action_method": "get",
       "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
       "present": true,
-      "status": "pass",
-      "summary": "A proactive OODA packet has routed delivery, live browse evidence, a chosen candidate, a staged reversible artifact, mirrored Teable facts, and a redacted approved outcome."
+      "status": "ready_for_approval_outcome_capture",
+      "summary": "A proactive OODA packet has local gold-proof runtime evidence and a live Telegram approval capture surface; capture the redacted approval outcome next."
     },
     "proactive_ooda_operator_status": {
       "contract_name": "ea.proactive_ooda_operator_status.v1",
@@ -218,7 +232,7 @@
       "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
       "present": true,
       "status": "ready_with_live_receipt",
-      "summary": "Proactive OODA route, packet runtime, latest host-visible live receipt, and Telegram approval capture surface are ready for operator follow-through."
+      "summary": "Proactive OODA route, packet runtime, latest host-visible live receipt, Telegram approval, and manual approval outcome capture are ready for operator follow-through."
     },
     "whole_project_scope_gap_audit": {
       "contract_name": "ea.whole_project_scope_gap_audit.v1",
@@ -243,28 +257,29 @@
     }
   },
   "external_provider_runtime_verified": false,
-  "generated_at": "2026-07-02T15:57:01Z",
+  "generated_at": "2026-07-02T16:10:17Z",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
   "live_daily_use_verified": false,
-  "next_action": "maintain_proactive_ooda_gold_acceptance_evidence",
-  "next_action_href": "https://myexternalbrain.com/admin/goals",
-  "next_action_label": "Open goals",
+  "next_action": "retry_full_workspace_auth_with_approved_account",
+  "next_action_href": "/integrations/google",
+  "next_action_label": "Retry Google auth",
   "next_action_method": "get",
+  "operator_next_action_source": "google_workspace_oauth_readiness",
   "proactive_ooda_followthrough_posture": {
     "approval_capture_surface_ready": true,
-    "approval_outcome_accepted": true,
-    "approval_outcome_recorded": true,
+    "approval_outcome_accepted": false,
+    "approval_outcome_recorded": false,
     "closed_loop_followthrough_receipt_verified": false,
-    "gold_acceptance_status": "pass",
-    "next_action": "maintain_proactive_ooda_gold_acceptance_evidence",
-    "next_action_href": "https://myexternalbrain.com/admin/goals",
-    "next_action_label": "Open goals",
+    "gold_acceptance_status": "ready_for_approval_outcome_capture",
+    "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
+    "next_action_href": "https://myexternalbrain.com/admin/proactive-ooda/approval",
+    "next_action_label": "Open approval capture",
     "next_action_method": "get",
     "operator_runtime_status": "ready_with_live_receipt",
     "real_weekly_operator_review_accepted": false,
-    "status": "pass",
-    "summary": "A proactive OODA packet has routed delivery, live browse evidence, a chosen candidate, a staged reversible artifact, mirrored Teable facts, and a redacted approved outcome."
+    "status": "ready_for_approval_outcome_capture",
+    "summary": "A proactive OODA packet has local gold-proof runtime evidence and a live Telegram approval capture surface; capture the redacted approval outcome next."
   },
   "provider_cost_routing_posture": {
     "background_routing": {
@@ -331,9 +346,11 @@
   },
   "real_operator_acceptance_verified": false,
   "remaining_external_proofs": [
+    "real proactive OODA packet accepted with routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, pending-approval, stale-approval, and decision facts, and explicit approval outcome",
     "real weekly signal-to-decision review accepted by the operator",
     "closed-loop signal-to-decision follow-through receipt accepted by the operator",
-    "real whole-project scope gap audit reviewed against the current product spine"
+    "real whole-project scope gap audit reviewed against the current product spine",
+    "Google Workspace OAuth test-user or verified app access for Full Workspace auth"
   ],
   "route_snapshots": {
     "proactive_ooda": {
@@ -360,7 +377,7 @@
     "raw_private_context_exposed": false
   },
   "source_git_head": "cc6df243013fba7690e3c77ba4c7675e071dd1aa",
-  "source_state_fingerprint": "7b970a5c174299ac96bd5fe67cbdae28a3530e9e38c529d104e17b88a0ed98b0",
+  "source_state_fingerprint": "068b0bf8b38dab2d1570e6de9e9a56f7e22822fe11606988300d9650654cec56",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready_local_evidence"
 }
