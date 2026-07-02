@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -31,6 +32,11 @@ from app.services.pushbullet_delivery import (
 
 DEFAULT_OUTPUT = ROOT / ".codex-studio/published/ea_pushbullet_delivery_readiness.generated.json"
 CONTRACT_NAME = "ea.pushbullet_delivery_readiness.v1"
+DEFAULT_SECOND_CLIENT_KEY = "elisabeth"
+DEFAULT_PRIMARY_CLIENT_KEY = "default"
+REQUIRED_CLIENTS_ENV = "EA_PUSHBULLET_REQUIRED_CLIENTS"
+MULTI_CLIENT_REQUIRED_ENV = "EA_PUSHBULLET_MULTI_CLIENT_REQUIRED"
+CLIENT_KEY_RE = re.compile(r"[^a-z0-9_]+")
 
 
 def _utc_now() -> str:
@@ -73,6 +79,109 @@ def _client_row(client: object) -> dict[str, object]:
     }
 
 
+def _client_key(value: object) -> str:
+    normalized = str(value or "").strip().lower()
+    normalized = CLIENT_KEY_RE.sub("_", normalized).strip("_")
+    return normalized or DEFAULT_PRIMARY_CLIENT_KEY
+
+
+def _unique(values: list[str] | tuple[str, ...]) -> tuple[str, ...]:
+    seen: set[str] = set()
+    keys: list[str] = []
+    for value in values:
+        key = _client_key(value)
+        if key and key not in seen:
+            keys.append(key)
+            seen.add(key)
+    return tuple(keys)
+
+
+def _env_bool(values: Mapping[str, str], key: str, *, default: bool) -> bool:
+    raw = str(values.get(key) or "").strip().lower()
+    if not raw:
+        return default
+    return raw not in {"0", "false", "no", "off"}
+
+
+def _env_required_clients(values: Mapping[str, str]) -> tuple[str, ...]:
+    raw = str(values.get(REQUIRED_CLIENTS_ENV) or "").strip()
+    if not raw:
+        return ()
+    if raw.startswith("["):
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            parsed = []
+        if isinstance(parsed, list):
+            return _unique([str(item) for item in parsed])
+    return _unique([item for item in re.split(r"[,;\s]+", raw) if item.strip()])
+
+
+def _required_client_keys(
+    *,
+    rows: list[dict[str, object]],
+    values: Mapping[str, str],
+    required_clients: tuple[str, ...],
+    multi_client_expected: bool,
+) -> tuple[str, ...]:
+    explicit = _unique(list(required_clients) + list(_env_required_clients(values)))
+    configured = _unique([str(row.get("client_key") or "") for row in rows])
+    if not multi_client_expected:
+        return explicit or configured
+
+    primary_candidates = [
+        key
+        for key in list(explicit) + list(configured)
+        if key and key != DEFAULT_SECOND_CLIENT_KEY
+    ]
+    keys = list(_unique(primary_candidates)) or [DEFAULT_PRIMARY_CLIENT_KEY]
+    if DEFAULT_SECOND_CLIENT_KEY not in keys:
+        keys.append(DEFAULT_SECOND_CLIENT_KEY)
+    for key in explicit:
+        if key not in keys:
+            keys.append(key)
+    return tuple(keys)
+
+
+def _client_coverage(
+    *,
+    rows: list[dict[str, object]],
+    required_keys: tuple[str, ...],
+    multi_client_expected: bool,
+) -> dict[str, object]:
+    by_key = {str(row.get("client_key") or ""): row for row in rows}
+    missing_client_keys = [key for key in required_keys if key not in by_key]
+    missing_token_keys = [
+        key
+        for key in required_keys
+        if key in by_key and not bool(by_key[key].get("token_present"))
+    ]
+    configured_required_count = len([key for key in required_keys if key in by_key])
+    token_present_required_count = len(
+        [
+            key
+            for key in required_keys
+            if key in by_key and bool(by_key[key].get("token_present"))
+        ]
+    )
+    multi_client_ready = (
+        bool(multi_client_expected)
+        and len(required_keys) >= 2
+        and not missing_client_keys
+        and not missing_token_keys
+    )
+    return {
+        "multi_client_expected": bool(multi_client_expected),
+        "expected_client_count": len(required_keys),
+        "configured_client_count": len(rows),
+        "configured_required_client_count": configured_required_count,
+        "token_present_required_client_count": token_present_required_count,
+        "missing_client_keys": missing_client_keys,
+        "missing_token_keys": missing_token_keys,
+        "multi_client_ready": multi_client_ready,
+    }
+
+
 def build_receipt(
     *,
     env: Mapping[str, str] | None = None,
@@ -84,8 +193,18 @@ def build_receipt(
     clients = list(discover_pushbullet_clients(values))
     rows = [_client_row(client) for client in clients]
     by_key = {str(row.get("client_key") or ""): row for row in rows}
-    required = tuple(str(item or "").strip().lower() for item in required_clients if str(item or "").strip())
-    required_keys = required or tuple(str(row.get("client_key") or "") for row in rows if str(row.get("client_key") or ""))
+    multi_client_expected = _env_bool(values, MULTI_CLIENT_REQUIRED_ENV, default=True)
+    required_keys = _required_client_keys(
+        rows=rows,
+        values=values,
+        required_clients=required_clients,
+        multi_client_expected=multi_client_expected,
+    )
+    coverage = _client_coverage(
+        rows=rows,
+        required_keys=required_keys,
+        multi_client_expected=multi_client_expected,
+    )
 
     missing_setup: list[str] = []
     if not rows:
@@ -115,8 +234,16 @@ def build_receipt(
 
     setup_checklist = [
         {
+            "key": "configure_pushbullet_clients",
+            "label": "Configure every expected Pushbullet client",
+            "how": (
+                "Keep the original/default Pushbullet client configured and add the Elisabeth client. "
+                "Use the listed token env vars so action-required delivery can target the right account."
+            ),
+        },
+        {
             "key": "create_pushbullet_access_token",
-            "label": "Create a Pushbullet access token for each blocked client",
+            "label": "Create a Pushbullet access token for each missing token",
             "how": (
                 "Open Pushbullet Account Settings, sign in as the intended account, create an access token, "
                 "store it in the listed token env var, then rerun this readiness receipt."
@@ -136,9 +263,11 @@ def build_receipt(
         **_source_state(),
         "status": status,
         "provider": "pushbullet",
+        "multi_client_expected": bool(multi_client_expected),
         "client_count": len(rows),
         "clients": rows,
         "required_client_keys": list(required_keys),
+        "client_coverage": coverage,
         "missing_setup": missing_setup,
         "probe_live": bool(probe_live),
         "live_probes": live_probes,
@@ -153,12 +282,18 @@ def build_receipt(
         },
         "delivery_claim": {
             "pushbullet_note_delivery_ready": status in {"ready_configured", "ready_live_verified"},
+            "multi_client_delivery_ready": (
+                status in {"ready_configured", "ready_live_verified"} and bool(coverage.get("multi_client_ready"))
+            ),
             "live_token_account_verified": status == "ready_live_verified",
             "irreversible_actions_consent_gated": True,
             "non_action_progress_push_allowed": False,
         },
         "operator_action": {
             "user_action_required": bool(missing_setup),
+            "missing_setup": missing_setup,
+            "required_client_keys": list(required_keys),
+            "client_coverage": coverage,
             "delivery_policy": "action_required_only" if missing_setup else "queue_only",
             "telegram_push_allowed": bool(missing_setup),
             "interruption_budget": "action_required" if missing_setup else "none",

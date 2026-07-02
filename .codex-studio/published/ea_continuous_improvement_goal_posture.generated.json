@@ -154,8 +154,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "ec799010c58627e88b76d115075d80c78a811db5",
-          "source_state_fingerprint": "135a137882b3e178ef2307546a27f9417619854fa79b5b7c5158e4a068cf9054",
+          "source_git_head": "f352ffd272eaa4ff06ed8493e80cc706989746ce",
+          "source_state_fingerprint": "d01e36e231e36d5dd1f5964cf49815a78653a54914001b1895b88ae8c4fb25a5",
           "status": "ready_for_approval_outcome_capture"
         },
         {
@@ -163,8 +163,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "ec799010c58627e88b76d115075d80c78a811db5",
-          "source_state_fingerprint": "135a137882b3e178ef2307546a27f9417619854fa79b5b7c5158e4a068cf9054",
+          "source_git_head": "f352ffd272eaa4ff06ed8493e80cc706989746ce",
+          "source_state_fingerprint": "d01e36e231e36d5dd1f5964cf49815a78653a54914001b1895b88ae8c4fb25a5",
           "status": "ready_with_live_receipt"
         }
       ],
@@ -459,7 +459,7 @@
           "contract_name": "ea.google_workspace_oauth_readiness.v1",
           "path": ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json",
           "present": true,
-          "source_fresh_to_current_source": true,
+          "source_fresh_to_current_source": false,
           "source_git_head": "ec799010c58627e88b76d115075d80c78a811db5",
           "source_state_fingerprint": "135a137882b3e178ef2307546a27f9417619854fa79b5b7c5158e4a068cf9054",
           "status": "blocked_setup_required"
@@ -478,9 +478,15 @@
         "irreversible_actions_consent_gated": true,
         "kind": "pushbullet_delivery_setup",
         "live_token_account_verified": false,
+        "missing_client_keys": [
+          "default"
+        ],
         "missing_setup": [
+          "pushbullet_client_missing:default",
           "pushbullet_token_missing:elisabeth"
         ],
+        "multi_client_delivery_ready": false,
+        "multi_client_expected": true,
         "next_action_form_href": "https://www.pushbullet.com/#settings/account",
         "next_action_form_label": "Open Pushbullet account settings",
         "next_action_form_method": "get",
@@ -488,7 +494,8 @@
         "pushbullet_client_count": 1,
         "pushbullet_note_delivery_ready": false,
         "pushbullet_token_envs": [
-          "PB_TOKEN_ELISABETH"
+          "PB_TOKEN_ELISABETH",
+          "PB_TOKEN"
         ],
         "quiet_hours_respected": true,
         "raw_chat_ids_exposed": false,
@@ -498,13 +505,19 @@
         "raw_token_exposed": false,
         "raw_voice_ids_exposed": false,
         "required_client_keys": [
+          "default",
           "elisabeth"
         ],
         "setup_checklist": [
           {
+            "how": "Keep the original/default Pushbullet client configured and add the Elisabeth client. Use the listed token env vars so action-required delivery can target the right account.",
+            "key": "configure_pushbullet_clients",
+            "label": "Configure every expected Pushbullet client"
+          },
+          {
             "how": "Open Pushbullet Account Settings, sign in as the intended account, create an access token, store it in the listed token env var, then rerun this readiness receipt.",
             "key": "create_pushbullet_access_token",
-            "label": "Create a Pushbullet access token for each blocked client"
+            "label": "Create a Pushbullet access token for each missing token"
           },
           {
             "how": "Rerun this materializer with --probe-live so /v2/users/me can be compared against the configured account hash.",
@@ -512,7 +525,7 @@
             "label": "Verify the token belongs to the expected account"
           }
         ],
-        "telegram_message": "Action needed: Pushbullet delivery is not ready. Create the missing access token for the configured client and rerun the Pushbullet readiness receipt. Missing: pushbullet_token_missing:elisabeth.",
+        "telegram_message": "Action needed: Pushbullet delivery is not ready. Configure the expected Pushbullet clients, create missing access tokens, then rerun the Pushbullet readiness receipt. Missing: pushbullet_client_missing:default, pushbullet_token_missing:elisabeth.",
         "telegram_push_allowed": true,
         "token_missing_client_keys": [
           "elisabeth"
@@ -540,8 +553,8 @@
           "path": ".codex-studio/published/ea_pushbullet_delivery_readiness.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "ec799010c58627e88b76d115075d80c78a811db5",
-          "source_state_fingerprint": "135a137882b3e178ef2307546a27f9417619854fa79b5b7c5158e4a068cf9054",
+          "source_git_head": "f352ffd272eaa4ff06ed8493e80cc706989746ce",
+          "source_state_fingerprint": "d01e36e231e36d5dd1f5964cf49815a78653a54914001b1895b88ae8c4fb25a5",
           "status": "blocked_setup_required"
         }
       ],
@@ -823,7 +836,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-07-02T07:59:42Z",
+  "generated_at": "2026-07-02T08:23:54Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -888,7 +901,7 @@
           "contract_name": "ea.google_workspace_oauth_readiness.v1",
           "path": ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json",
           "present": true,
-          "source_fresh_to_current_source": true,
+          "source_fresh_to_current_source": false,
           "source_git_head": "ec799010c58627e88b76d115075d80c78a811db5",
           "source_state_fingerprint": "135a137882b3e178ef2307546a27f9417619854fa79b5b7c5158e4a068cf9054",
           "status": "blocked_setup_required"
@@ -1118,6 +1131,7 @@
           "key": "pushbullet_delivery",
           "live_token_account_verified": false,
           "missing_setup": [
+            "pushbullet_client_missing:default",
             "pushbullet_token_missing:elisabeth"
           ],
           "next_action": "create_missing_pushbullet_access_tokens",
@@ -1125,6 +1139,7 @@
           "raw_email_exposed": false,
           "raw_token_exposed": false,
           "required_client_keys": [
+            "default",
             "elisabeth"
           ],
           "source_receipts": [
@@ -1133,14 +1148,14 @@
               "path": ".codex-studio/published/ea_pushbullet_delivery_readiness.generated.json",
               "present": true,
               "source_fresh_to_current_source": true,
-              "source_git_head": "ec799010c58627e88b76d115075d80c78a811db5",
-              "source_state_fingerprint": "135a137882b3e178ef2307546a27f9417619854fa79b5b7c5158e4a068cf9054",
+              "source_git_head": "f352ffd272eaa4ff06ed8493e80cc706989746ce",
+              "source_state_fingerprint": "d01e36e231e36d5dd1f5964cf49815a78653a54914001b1895b88ae8c4fb25a5",
               "status": "blocked_setup_required"
             }
           ],
           "status": "blocked_setup_required",
           "status_class": "blocking",
-          "summary": "Pushbullet clients: 1 configured; missing setup: 1.",
+          "summary": "Pushbullet clients: 1 configured; missing setup: 2.",
           "title": "Pushbullet action-required delivery"
         }
       ],
@@ -1348,9 +1363,15 @@
       "kind": "pushbullet_delivery_setup",
       "lens": "deliver",
       "live_token_account_verified": false,
+      "missing_client_keys": [
+        "default"
+      ],
       "missing_setup": [
+        "pushbullet_client_missing:default",
         "pushbullet_token_missing:elisabeth"
       ],
+      "multi_client_delivery_ready": false,
+      "multi_client_expected": true,
       "next_action": "create_missing_pushbullet_access_tokens",
       "next_action_form_href": "https://www.pushbullet.com/#settings/account",
       "next_action_form_label": "Open Pushbullet account settings",
@@ -1362,7 +1383,8 @@
       "pushbullet_client_count": 1,
       "pushbullet_note_delivery_ready": false,
       "pushbullet_token_envs": [
-        "PB_TOKEN_ELISABETH"
+        "PB_TOKEN_ELISABETH",
+        "PB_TOKEN"
       ],
       "quiet_hours_respected": true,
       "raw_chat_ids_exposed": false,
@@ -1372,14 +1394,20 @@
       "raw_token_exposed": false,
       "raw_voice_ids_exposed": false,
       "required_client_keys": [
+        "default",
         "elisabeth"
       ],
       "required_next_receipt": "Pushbullet delivery clients configured and live-verifiable for action-required delivery",
       "setup_checklist": [
         {
+          "how": "Keep the original/default Pushbullet client configured and add the Elisabeth client. Use the listed token env vars so action-required delivery can target the right account.",
+          "key": "configure_pushbullet_clients",
+          "label": "Configure every expected Pushbullet client"
+        },
+        {
           "how": "Open Pushbullet Account Settings, sign in as the intended account, create an access token, store it in the listed token env var, then rerun this readiness receipt.",
           "key": "create_pushbullet_access_token",
-          "label": "Create a Pushbullet access token for each blocked client"
+          "label": "Create a Pushbullet access token for each missing token"
         },
         {
           "how": "Rerun this materializer with --probe-live so /v2/users/me can be compared against the configured account hash.",
@@ -1387,7 +1415,7 @@
           "label": "Verify the token belongs to the expected account"
         }
       ],
-      "telegram_message": "Action needed: Pushbullet delivery is not ready. Create the missing access token for the configured client and rerun the Pushbullet readiness receipt. Missing: pushbullet_token_missing:elisabeth.",
+      "telegram_message": "Action needed: Pushbullet delivery is not ready. Configure the expected Pushbullet clients, create missing access tokens, then rerun the Pushbullet readiness receipt. Missing: pushbullet_client_missing:default, pushbullet_token_missing:elisabeth.",
       "telegram_push_allowed": true,
       "title": "Pushbullet delivery setup",
       "token_missing_client_keys": [
@@ -1652,7 +1680,7 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "ec799010c58627e88b76d115075d80c78a811db5",
-  "source_state_fingerprint": "135a137882b3e178ef2307546a27f9417619854fa79b5b7c5158e4a068cf9054",
+  "source_git_head": "f352ffd272eaa4ff06ed8493e80cc706989746ce",
+  "source_state_fingerprint": "d01e36e231e36d5dd1f5964cf49815a78653a54914001b1895b88ae8c4fb25a5",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }

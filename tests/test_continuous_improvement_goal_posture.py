@@ -662,11 +662,23 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
         status="blocked_setup_required",
         provider="pushbullet",
         client_count=1,
-        required_client_keys=["elisabeth"],
-        missing_setup=["pushbullet_token_missing:elisabeth"],
+        multi_client_expected=True,
+        required_client_keys=["default", "elisabeth"],
+        client_coverage={
+            "multi_client_expected": True,
+            "expected_client_count": 2,
+            "configured_client_count": 1,
+            "configured_required_client_count": 1,
+            "token_present_required_client_count": 0,
+            "missing_client_keys": ["default"],
+            "missing_token_keys": ["elisabeth"],
+            "multi_client_ready": False,
+        },
+        missing_setup=["pushbullet_client_missing:default", "pushbullet_token_missing:elisabeth"],
         account_settings_url="https://www.pushbullet.com/#settings/account",
         delivery_claim={
             "pushbullet_note_delivery_ready": False,
+            "multi_client_delivery_ready": False,
             "live_token_account_verified": False,
             "irreversible_actions_consent_gated": True,
             "non_action_progress_push_allowed": False,
@@ -691,6 +703,18 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
         },
         operator_action={
             "user_action_required": True,
+            "missing_setup": ["pushbullet_client_missing:default", "pushbullet_token_missing:elisabeth"],
+            "required_client_keys": ["default", "elisabeth"],
+            "client_coverage": {
+                "multi_client_expected": True,
+                "expected_client_count": 2,
+                "configured_client_count": 1,
+                "configured_required_client_count": 1,
+                "token_present_required_client_count": 0,
+                "missing_client_keys": ["default"],
+                "missing_token_keys": ["elisabeth"],
+                "multi_client_ready": False,
+            },
             "delivery_policy": "action_required_only",
             "telegram_push_allowed": True,
             "interruption_budget": "action_required",
@@ -700,8 +724,13 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
             "next_action_method": "get",
             "setup_checklist": [
                 {
+                    "key": "configure_pushbullet_clients",
+                    "label": "Configure every expected Pushbullet client",
+                    "how": "Keep the original/default Pushbullet client configured and add the Elisabeth client.",
+                },
+                {
                     "key": "create_pushbullet_access_token",
-                    "label": "Create a Pushbullet access token for each blocked client",
+                    "label": "Create a Pushbullet access token for each missing token",
                     "how": "Open Pushbullet Account Settings, create an access token, store it in the listed token env var, then rerun this readiness receipt.",
                 }
             ],
@@ -894,10 +923,16 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     pushbullet_context = proof_requirements["pushbullet_delivery_setup"]["action_context"]
     assert pushbullet_context["kind"] == "pushbullet_delivery_setup"
     assert pushbullet_context["user_action_required"] is True
-    assert pushbullet_context["missing_setup"] == ["pushbullet_token_missing:elisabeth"]
-    assert pushbullet_context["required_client_keys"] == ["elisabeth"]
+    assert pushbullet_context["missing_setup"] == [
+        "pushbullet_client_missing:default",
+        "pushbullet_token_missing:elisabeth",
+    ]
+    assert pushbullet_context["required_client_keys"] == ["default", "elisabeth"]
+    assert pushbullet_context["missing_client_keys"] == ["default"]
     assert pushbullet_context["token_missing_client_keys"] == ["elisabeth"]
-    assert pushbullet_context["pushbullet_token_envs"] == ["PB_TOKEN_ELISABETH"]
+    assert pushbullet_context["multi_client_expected"] is True
+    assert pushbullet_context["pushbullet_token_envs"] == ["PB_TOKEN_ELISABETH", "PB_TOKEN"]
+    assert pushbullet_context["multi_client_delivery_ready"] is False
     assert pushbullet_context["external_setup_url"] == "https://www.pushbullet.com/#settings/account"
     assert pushbullet_context["raw_email_exposed"] is False
     assert pushbullet_context["raw_token_exposed"] is False
@@ -1061,10 +1096,16 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert pushbullet_action["user_action_required"] is True
     assert pushbullet_action["delivery_policy"] == "action_required_only"
     assert pushbullet_action["telegram_push_allowed"] is True
-    assert pushbullet_action["missing_setup"] == ["pushbullet_token_missing:elisabeth"]
-    assert pushbullet_action["required_client_keys"] == ["elisabeth"]
+    assert pushbullet_action["missing_setup"] == [
+        "pushbullet_client_missing:default",
+        "pushbullet_token_missing:elisabeth",
+    ]
+    assert pushbullet_action["required_client_keys"] == ["default", "elisabeth"]
+    assert pushbullet_action["missing_client_keys"] == ["default"]
     assert pushbullet_action["token_missing_client_keys"] == ["elisabeth"]
-    assert pushbullet_action["pushbullet_token_envs"] == ["PB_TOKEN_ELISABETH"]
+    assert pushbullet_action["multi_client_expected"] is True
+    assert pushbullet_action["pushbullet_token_envs"] == ["PB_TOKEN_ELISABETH", "PB_TOKEN"]
+    assert pushbullet_action["multi_client_delivery_ready"] is False
     assert pushbullet_action["external_setup_url"] == "https://www.pushbullet.com/#settings/account"
     assert pushbullet_action["raw_email_exposed"] is False
     assert pushbullet_action["raw_token_exposed"] is False
@@ -1149,7 +1190,10 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert deliver_components["telegram_audiobook"]["status"] == "blocked"
     assert deliver_components["whatsapp_audiobook"]["status"] == "blocked"
     assert deliver_components["pushbullet_delivery"]["status"] == "blocked_setup_required"
-    assert deliver_components["pushbullet_delivery"]["missing_setup"] == ["pushbullet_token_missing:elisabeth"]
+    assert deliver_components["pushbullet_delivery"]["missing_setup"] == [
+        "pushbullet_client_missing:default",
+        "pushbullet_token_missing:elisabeth",
+    ]
     assert deliver_components["pushbullet_delivery"]["raw_email_exposed"] is False
     assert deliver_components["pushbullet_delivery"]["raw_token_exposed"] is False
     assert "deliver:manfred_speech=blocked_realtime_prerequisites" in receipt["blocking_reasons"]

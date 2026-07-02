@@ -77,12 +77,15 @@ def verify_receipt_for_test(receipt: dict[str, Any], *, root: Path = ROOT) -> li
     if int(receipt.get("client_count") or 0) != len(clients):
         issues.append("client_count must match clients")
 
+    by_key: dict[str, dict[str, Any]] = {}
     for index, row in enumerate(clients):
         if not isinstance(row, dict):
             issues.append(f"clients[{index}] must be an object")
             continue
         if not str(row.get("client_key") or "").strip():
             issues.append(f"clients[{index}].client_key missing")
+        else:
+            by_key[str(row.get("client_key") or "").strip()] = row
         if bool(row.get("email_present")) and not str(row.get("email_sha256") or "").strip():
             issues.append(f"clients[{index}].email_sha256 missing")
         if not str(row.get("token_env") or "").strip():
@@ -92,11 +95,68 @@ def verify_receipt_for_test(receipt: dict[str, Any], *, root: Path = ROOT) -> li
         if row.get("raw_token_exposed") is not False:
             issues.append(f"clients[{index}].raw_token_exposed must be false")
 
+    required_client_keys = [
+        str(item or "").strip()
+        for item in list(receipt.get("required_client_keys") or [])
+        if str(item or "").strip()
+    ]
+    if not required_client_keys:
+        issues.append("required_client_keys must include at least one client")
+    multi_client_expected = bool(receipt.get("multi_client_expected"))
+    coverage = dict(receipt.get("client_coverage") or {})
+    if coverage.get("multi_client_expected") is not multi_client_expected:
+        issues.append("client_coverage.multi_client_expected must match receipt")
+
+    missing_client_keys = [key for key in required_client_keys if key not in by_key]
+    missing_token_keys = [
+        key
+        for key in required_client_keys
+        if key in by_key and not bool(by_key[key].get("token_present"))
+    ]
+    configured_required_count = len([key for key in required_client_keys if key in by_key])
+    token_present_required_count = len(
+        [
+            key
+            for key in required_client_keys
+            if key in by_key and bool(by_key[key].get("token_present"))
+        ]
+    )
+    expected_multi_ready = (
+        bool(multi_client_expected)
+        and len(required_client_keys) >= 2
+        and not missing_client_keys
+        and not missing_token_keys
+    )
+    if int(coverage.get("expected_client_count") or 0) != len(required_client_keys):
+        issues.append("client_coverage.expected_client_count must match required_client_keys")
+    if int(coverage.get("configured_client_count") or 0) != len(clients):
+        issues.append("client_coverage.configured_client_count must match clients")
+    if int(coverage.get("configured_required_client_count") or 0) != configured_required_count:
+        issues.append("client_coverage.configured_required_client_count mismatch")
+    if int(coverage.get("token_present_required_client_count") or 0) != token_present_required_count:
+        issues.append("client_coverage.token_present_required_client_count mismatch")
+    if sorted(list(coverage.get("missing_client_keys") or [])) != sorted(missing_client_keys):
+        issues.append("client_coverage.missing_client_keys mismatch")
+    if sorted(list(coverage.get("missing_token_keys") or [])) != sorted(missing_token_keys):
+        issues.append("client_coverage.missing_token_keys mismatch")
+    if bool(coverage.get("multi_client_ready")) != expected_multi_ready:
+        issues.append("client_coverage.multi_client_ready mismatch")
+    if multi_client_expected and len(required_client_keys) < 2:
+        issues.append("multi_client_expected requires at least two required_client_keys")
+
     missing_setup = [str(item or "").strip() for item in list(receipt.get("missing_setup") or []) if str(item or "").strip()]
+    for key in missing_client_keys:
+        if f"pushbullet_client_missing:{key}" not in missing_setup:
+            issues.append(f"missing_setup must include pushbullet_client_missing:{key}")
+    for key in missing_token_keys:
+        if f"pushbullet_token_missing:{key}" not in missing_setup:
+            issues.append(f"missing_setup must include pushbullet_token_missing:{key}")
     if status == "blocked_setup_required" and not missing_setup:
         issues.append("blocked_setup_required receipt must include missing_setup")
     if status != "blocked_setup_required" and missing_setup:
         issues.append("non-blocked receipt must not include missing_setup")
+    if status in {"ready_configured", "ready_live_verified"} and multi_client_expected and not expected_multi_ready:
+        issues.append("ready Pushbullet receipt must cover every expected multi-client account")
 
     privacy = dict(receipt.get("privacy") or {})
     for key in ("raw_email_exposed", "raw_token_exposed", "raw_push_body_exposed", "raw_push_ids_exposed"):
@@ -110,10 +170,30 @@ def verify_receipt_for_test(receipt: dict[str, Any], *, root: Path = ROOT) -> li
         issues.append("delivery_claim must disallow non-action progress pushes")
     if bool(claim.get("pushbullet_note_delivery_ready")) != (status in {"ready_configured", "ready_live_verified"}):
         issues.append("pushbullet_note_delivery_ready must match status")
+    if bool(claim.get("multi_client_delivery_ready")) != (
+        status in {"ready_configured", "ready_live_verified"} and expected_multi_ready
+    ):
+        issues.append("multi_client_delivery_ready must match status and expected-client coverage")
     if bool(claim.get("live_token_account_verified")) != (status == "ready_live_verified"):
         issues.append("live_token_account_verified must match status")
 
     operator_action = dict(receipt.get("operator_action") or {})
+    if operator_action.get("missing_setup") is not None:
+        action_missing_setup = [
+            str(item or "").strip()
+            for item in list(operator_action.get("missing_setup") or [])
+            if str(item or "").strip()
+        ]
+        if sorted(action_missing_setup) != sorted(missing_setup):
+            issues.append("operator_action.missing_setup must match receipt")
+    if operator_action.get("required_client_keys") is not None:
+        action_required_keys = [
+            str(item or "").strip()
+            for item in list(operator_action.get("required_client_keys") or [])
+            if str(item or "").strip()
+        ]
+        if action_required_keys != required_client_keys:
+            issues.append("operator_action.required_client_keys must match receipt")
     if operator_action.get("user_action_required") is not bool(missing_setup):
         issues.append("operator_action.user_action_required must match missing_setup")
     if operator_action.get("delivery_policy") != ("action_required_only" if missing_setup else "queue_only"):

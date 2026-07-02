@@ -681,6 +681,7 @@ def _signal_review_acceptance_status(signal_receipt: dict[str, Any]) -> str:
 
 def _pushbullet_delivery_action_context(receipt: dict[str, Any]) -> dict[str, Any]:
     action = dict(receipt.get("operator_action") or {})
+    coverage = dict(receipt.get("client_coverage") or action.get("client_coverage") or {})
     missing_setup = [
         str(item).strip()
         for item in list(action.get("missing_setup") or receipt.get("missing_setup") or [])
@@ -692,6 +693,19 @@ def _pushbullet_delivery_action_context(receipt: dict[str, Any]) -> dict[str, An
         if str(item).strip()
     ]
     missing_client_keys = [
+        str(item).strip()
+        for item in list(coverage.get("missing_client_keys") or [])
+        if str(item).strip()
+    ] or [
+        item.removeprefix("pushbullet_client_missing:").strip()
+        for item in missing_setup
+        if item.startswith("pushbullet_client_missing:") and item.removeprefix("pushbullet_client_missing:").strip()
+    ]
+    token_missing_client_keys = [
+        str(item).strip()
+        for item in list(coverage.get("missing_token_keys") or [])
+        if str(item).strip()
+    ] or [
         item.removeprefix("pushbullet_token_missing:").strip()
         for item in missing_setup
         if item.startswith("pushbullet_token_missing:") and item.removeprefix("pushbullet_token_missing:").strip()
@@ -716,13 +730,17 @@ def _pushbullet_delivery_action_context(receipt: dict[str, Any]) -> dict[str, An
         for item in clients
         if str(item.get("token_env") or "").strip()
     ]
+    for key in required_client_keys:
+        expected_token_env = "PB_TOKEN" if key == "default" else f"PB_TOKEN_{key.upper()}"
+        if expected_token_env not in token_envs:
+            token_envs.append(expected_token_env)
     telegram_message = str(action.get("telegram_message") or "").strip()
     if not telegram_message and missing_setup:
         missing_label = ", ".join(missing_setup[:3])
         suffix = f" Missing: {missing_label}." if missing_label else ""
         telegram_message = (
-            "Action needed: Pushbullet delivery is not ready. Create the missing access token for the configured "
-            f"client and rerun the Pushbullet readiness receipt.{suffix}"
+            "Action needed: Pushbullet delivery is not ready. Configure the expected Pushbullet clients, create "
+            f"missing access tokens, then rerun the Pushbullet readiness receipt.{suffix}"
         )
     return {
         "kind": "pushbullet_delivery_setup",
@@ -734,10 +752,15 @@ def _pushbullet_delivery_action_context(receipt: dict[str, Any]) -> dict[str, An
         "missing_setup": missing_setup,
         "setup_checklist": setup_checklist,
         "required_client_keys": required_client_keys,
-        "token_missing_client_keys": missing_client_keys,
+        "missing_client_keys": missing_client_keys,
+        "token_missing_client_keys": token_missing_client_keys,
+        "multi_client_expected": bool(receipt.get("multi_client_expected") or coverage.get("multi_client_expected")),
         "pushbullet_client_count": int(receipt.get("client_count") or len(clients) or 0),
         "pushbullet_token_envs": token_envs,
         "pushbullet_note_delivery_ready": bool(dict(receipt.get("delivery_claim") or {}).get("pushbullet_note_delivery_ready")),
+        "multi_client_delivery_ready": bool(
+            dict(receipt.get("delivery_claim") or {}).get("multi_client_delivery_ready")
+        ),
         "live_token_account_verified": bool(dict(receipt.get("delivery_claim") or {}).get("live_token_account_verified")),
         "external_setup_url": setup_url,
         "telegram_message": telegram_message,
@@ -1233,6 +1256,12 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
                 for item in list(action_context.get("token_missing_client_keys") or [])
                 if str(item).strip()
             ],
+            "missing_client_keys": [
+                str(item).strip()
+                for item in list(action_context.get("missing_client_keys") or [])
+                if str(item).strip()
+            ],
+            "multi_client_expected": bool(action_context.get("multi_client_expected")),
             "pushbullet_client_count": int(action_context.get("pushbullet_client_count") or 0),
             "pushbullet_token_envs": [
                 str(item).strip()
@@ -1240,6 +1269,7 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
                 if str(item).strip()
             ],
             "pushbullet_note_delivery_ready": bool(action_context.get("pushbullet_note_delivery_ready")),
+            "multi_client_delivery_ready": bool(action_context.get("multi_client_delivery_ready")),
             "live_token_account_verified": bool(action_context.get("live_token_account_verified")),
             "candidate_count": int(action_context.get("candidate_count") or 0),
             "candidate_labels": [
@@ -1328,10 +1358,13 @@ def _operator_action_queue(requirements: list[dict[str, Any]]) -> list[dict[str,
             "observed_google_account_matches_expected",
             "external_setup_url",
             "required_client_keys",
+            "missing_client_keys",
             "token_missing_client_keys",
+            "multi_client_expected",
             "pushbullet_client_count",
             "pushbullet_token_envs",
             "pushbullet_note_delivery_ready",
+            "multi_client_delivery_ready",
             "live_token_account_verified",
             "failed_playback_count",
             "attempted_playback_count",

@@ -3,6 +3,20 @@
   "api_base_url": "https://api.pushbullet.com",
   "claim_boundary": "A configured token can support Pushbullet note delivery, but live account ownership is proven only when --probe-live passes against /v2/users/me. This receipt does not send a push.",
   "client_count": 1,
+  "client_coverage": {
+    "configured_client_count": 1,
+    "configured_required_client_count": 1,
+    "expected_client_count": 2,
+    "missing_client_keys": [
+      "default"
+    ],
+    "missing_token_keys": [
+      "elisabeth"
+    ],
+    "multi_client_expected": true,
+    "multi_client_ready": false,
+    "token_present_required_client_count": 0
+  },
   "clients": [
     {
       "client_key": "elisabeth",
@@ -20,20 +34,41 @@
   "delivery_claim": {
     "irreversible_actions_consent_gated": true,
     "live_token_account_verified": false,
+    "multi_client_delivery_ready": false,
     "non_action_progress_push_allowed": false,
     "pushbullet_note_delivery_ready": false
   },
   "docs_url": "https://docs.pushbullet.com/",
-  "generated_at": "2026-07-02T07:59:14Z",
+  "generated_at": "2026-07-02T08:23:43Z",
   "generated_by": "scripts/materialize_pushbullet_delivery_readiness.py",
   "head_semantics": "source_state",
   "live_probes": [],
   "missing_setup": [
+    "pushbullet_client_missing:default",
     "pushbullet_token_missing:elisabeth"
   ],
+  "multi_client_expected": true,
   "operator_action": {
+    "client_coverage": {
+      "configured_client_count": 1,
+      "configured_required_client_count": 1,
+      "expected_client_count": 2,
+      "missing_client_keys": [
+        "default"
+      ],
+      "missing_token_keys": [
+        "elisabeth"
+      ],
+      "multi_client_expected": true,
+      "multi_client_ready": false,
+      "token_present_required_client_count": 0
+    },
     "delivery_policy": "action_required_only",
     "interruption_budget": "action_required",
+    "missing_setup": [
+      "pushbullet_client_missing:default",
+      "pushbullet_token_missing:elisabeth"
+    ],
     "next_action": "create_missing_pushbullet_access_tokens",
     "next_action_href": "https://www.pushbullet.com/#settings/account",
     "next_action_label": "Open Pushbullet account settings",
@@ -41,11 +76,20 @@
     "raw_email_exposed": false,
     "raw_private_context_exposed": false,
     "raw_token_exposed": false,
+    "required_client_keys": [
+      "default",
+      "elisabeth"
+    ],
     "setup_checklist": [
+      {
+        "how": "Keep the original/default Pushbullet client configured and add the Elisabeth client. Use the listed token env vars so action-required delivery can target the right account.",
+        "key": "configure_pushbullet_clients",
+        "label": "Configure every expected Pushbullet client"
+      },
       {
         "how": "Open Pushbullet Account Settings, sign in as the intended account, create an access token, store it in the listed token env var, then rerun this readiness receipt.",
         "key": "create_pushbullet_access_token",
-        "label": "Create a Pushbullet access token for each blocked client"
+        "label": "Create a Pushbullet access token for each missing token"
       },
       {
         "how": "Rerun this materializer with --probe-live so /v2/users/me can be compared against the configured account hash.",
@@ -65,10 +109,11 @@
   "probe_live": false,
   "provider": "pushbullet",
   "required_client_keys": [
+    "default",
     "elisabeth"
   ],
-  "source_git_head": "ec799010c58627e88b76d115075d80c78a811db5",
-  "source_state_fingerprint": "135a137882b3e178ef2307546a27f9417619854fa79b5b7c5158e4a068cf9054",
+  "source_git_head": "f352ffd272eaa4ff06ed8493e80cc706989746ce",
+  "source_state_fingerprint": "d01e36e231e36d5dd1f5964cf49815a78653a54914001b1895b88ae8c4fb25a5",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "blocked_setup_required"
 }
