@@ -154,8 +154,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "4deac1444d2affa1179a270594aaa6759a488e08",
-          "source_state_fingerprint": "761968bebda7cfe46c03f1f4ea4ce187e5ee066fa9219637fc3a1c7266ef70b7",
+          "source_git_head": "1f56e6853ccc665cd98ad34ef4200bd51783198f",
+          "source_state_fingerprint": "9baaae909c7eea5637eec777d40434807376d668b6ec5aa4be028ba7b065c243",
           "status": "ready_for_approval_outcome_capture"
         },
         {
@@ -163,8 +163,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "4deac1444d2affa1179a270594aaa6759a488e08",
-          "source_state_fingerprint": "761968bebda7cfe46c03f1f4ea4ce187e5ee066fa9219637fc3a1c7266ef70b7",
+          "source_git_head": "1f56e6853ccc665cd98ad34ef4200bd51783198f",
+          "source_state_fingerprint": "9baaae909c7eea5637eec777d40434807376d668b6ec5aa4be028ba7b065c243",
           "status": "ready_with_live_receipt"
         }
       ],
@@ -836,7 +836,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-07-02T09:00:14Z",
+  "generated_at": "2026-07-02T09:07:44Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -1678,7 +1678,7 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "4deac1444d2affa1179a270594aaa6759a488e08",
-  "source_state_fingerprint": "761968bebda7cfe46c03f1f4ea4ce187e5ee066fa9219637fc3a1c7266ef70b7",
+  "source_git_head": "1f56e6853ccc665cd98ad34ef4200bd51783198f",
+  "source_state_fingerprint": "9baaae909c7eea5637eec777d40434807376d668b6ec5aa4be028ba7b065c243",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }

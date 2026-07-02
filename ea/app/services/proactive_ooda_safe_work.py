@@ -429,6 +429,7 @@ def build_safe_work_result(
 ) -> dict[str, Any]:
     order = packet.get("safe_work_order") if isinstance(packet.get("safe_work_order"), Mapping) else {}
     input_contract = order.get("input_contract") if isinstance(order.get("input_contract"), Mapping) else {}
+    order_quality_gate = order.get("quality_gate") if isinstance(order.get("quality_gate"), Mapping) else {}
     stage = packet.get("stage") if isinstance(packet.get("stage"), Mapping) else {}
     stage_payload = stage.get("payload") if isinstance(stage.get("payload"), Mapping) else {}
     work_type = str(order.get("work_type") or "research").strip() or "research"
@@ -550,6 +551,11 @@ def build_safe_work_result(
     if status == "blocked_human_handoff_required":
         summary = _browser_action_summary(browser_action_receipt) or summary
         approval_prompt = browser_action_user_prompt(browser_action_receipt) or approval_prompt
+    audit_receipt = _audit_receipt(
+        audit=audit,
+        quality_gate=order_quality_gate,
+        status=status,
+    )
     result_id = _result_id(packet=packet, order=order, generated_at=generated_at or "")
     return {
         "schema": SAFE_WORK_RESULT_SCHEMA,
@@ -567,7 +573,13 @@ def build_safe_work_result(
         "shortlist": candidate_items,
         "comparison_table": comparison_table,
         "browser_action_receipt": browser_action_receipt,
+        "quality_gate": _quality_gate_result(
+            quality_gate=order_quality_gate,
+            audit=audit,
+            status=status,
+        ),
         "audit": audit,
+        "audit_receipt": audit_receipt,
         "evidence_refs": _evidence_refs(
             input_contract=input_contract,
             stage_payload=stage_payload,
@@ -593,6 +605,13 @@ def build_safe_work_result(
             "browser_action_receipt_ref": str(browser_action_receipt.get("receipt_ref") or "").strip(),
             "browser_action_status": str(browser_action_receipt.get("status") or "").strip(),
             "browser_action_user_action_required": bool(browser_action_receipt.get("user_action_required")),
+            "quality_gate_status": str(audit_receipt.get("status") or "").strip(),
+            "stop_condition": _safe_work_stop_condition(
+                status=status,
+                audit=audit,
+                browser_action_receipt=browser_action_receipt,
+                work_type=work_type,
+            ),
             "external_actions_attempted": [],
             "irreversible_actions_attempted": [],
             "forbidden_without_explicit_approval": list(FORBIDDEN_WITHOUT_EXPLICIT_APPROVAL),
@@ -610,6 +629,90 @@ def build_safe_work_result(
 
 def build_safe_work_results(packets: Iterable[Mapping[str, Any]]) -> tuple[dict[str, Any], ...]:
     return tuple(build_safe_work_result(packet) for packet in packets)
+
+
+def _quality_gate_result(
+    *,
+    quality_gate: Mapping[str, Any],
+    audit: Mapping[str, Any],
+    status: str,
+) -> dict[str, Any]:
+    required = bool(quality_gate.get("pre_user_audit_required"))
+    audit_status = str(audit.get("status") or "").strip().lower()
+    return {
+        "required": required,
+        "status": "pass" if audit_status == "pass" and not str(status or "").startswith("blocked") else "review",
+        "pre_user_audit_required": required,
+        "work_type": str(quality_gate.get("work_type") or "").strip(),
+        "checks": [str(item).strip() for item in list(quality_gate.get("checks") or []) if str(item).strip()],
+        "fail_closed_if": [
+            str(item).strip()
+            for item in list(quality_gate.get("fail_closed_if") or [])
+            if str(item).strip()
+        ],
+        "notification_policy": str(quality_gate.get("notification_policy") or "action_required_only").strip()
+        or "action_required_only",
+        "failure_reason": _quality_gate_failure_reason(audit=audit, status=status),
+    }
+
+
+def _audit_receipt(
+    *,
+    audit: Mapping[str, Any],
+    quality_gate: Mapping[str, Any],
+    status: str,
+) -> dict[str, Any]:
+    issues = [
+        {
+            "code": str(issue.get("code") or "").strip(),
+            "severity": str(issue.get("severity") or "warn").strip(),
+            "detail": str(issue.get("detail") or "").strip(),
+        }
+        for issue in list(audit.get("issues") or [])
+        if isinstance(issue, Mapping) and str(issue.get("code") or "").strip()
+    ]
+    return {
+        "status": "pass" if str(audit.get("status") or "").strip().lower() == "pass" and not str(status or "").startswith("blocked") else "review",
+        "source": "safe_work_pre_user_audit",
+        "pre_user_audit_required": bool(quality_gate.get("pre_user_audit_required")),
+        "issue_count": len(issues),
+        "issues": issues,
+        "fail_closed": bool(issues or str(status or "").startswith("blocked")),
+    }
+
+
+def _quality_gate_failure_reason(*, audit: Mapping[str, Any], status: str) -> str:
+    if str(status or "").startswith("blocked"):
+        return str(status or "").strip()
+    for issue in list(audit.get("issues") or []):
+        if isinstance(issue, Mapping) and str(issue.get("code") or "").strip():
+            return str(issue.get("code") or "").strip()
+    return ""
+
+
+def _safe_work_stop_condition(
+    *,
+    status: str,
+    audit: Mapping[str, Any],
+    browser_action_receipt: Mapping[str, Any],
+    work_type: str,
+) -> str:
+    if browser_action_handoff_required(browser_action_receipt):
+        return "human_challenge_required"
+    if str(audit.get("status") or "").strip().lower() == "review":
+        return "quality_gate_failed"
+    if status == "blocked_needs_browser_action":
+        return "site_blocked_automation"
+    if status == "blocked_needs_research_input":
+        return "quality_gate_failed"
+    normalized_work_type = str(work_type or "").strip().lower()
+    if normalized_work_type == "draft":
+        return "draft_ready_for_user_review"
+    if normalized_work_type == "prepare_cart_or_link":
+        return "cart_ready_for_user_review"
+    if normalized_work_type == "prepare_booking_candidate":
+        return "booking_candidate_ready_for_user_review"
+    return "comparison_ready_for_user_decision"
 
 
 def persist_safe_work_results(

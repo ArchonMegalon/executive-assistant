@@ -28,6 +28,65 @@ FORBIDDEN_WITHOUT_EXPLICIT_APPROVAL = (
     "post",
     "commit",
 )
+PRE_USER_AUDIT_CHECKS = (
+    "task_alignment",
+    "source_relevance",
+    "counterparty_type_match",
+    "geography_or_locality_fit",
+    "user_context_fit",
+    "contact_channel_validity",
+    "draft_recipient_validity",
+    "final_review_surface_proof",
+    "account_context_match",
+    "no_irreversible_actions_attempted",
+    "privacy_redaction",
+    "action_required_only_notification",
+)
+PRE_USER_AUDIT_FAIL_CLOSED_IF = (
+    "irrelevant_source_for_requested_counterparty",
+    "wrong_country_or_location",
+    "missing_contact_channel_for_draft",
+    "draft_body_does_not_match_user_intent",
+    "cart_confirmation_missing",
+    "booking_candidate_confirmation_missing",
+    "account_context_mismatch",
+    "candidate_quality_failed",
+    "flat_search_blocked",
+    "irreversible_action_requested_without_approval",
+    "privacy_or_secret_leak",
+    "product_boundary_mismatch",
+)
+BROWSER_RECEIPT_REQUIRED_FIELDS = (
+    "site",
+    "account_ref",
+    "work_type",
+    "task_summary",
+    "requested_actions",
+    "completed_actions",
+    "context_used",
+    "quality_gate",
+    "staged_items",
+    "final_surface_url",
+    "notification_policy",
+    "stop_condition",
+    "irreversible_actions_attempted",
+    "blockers",
+    "evidence",
+)
+BROWSER_STOP_CONDITIONS = (
+    "cart_ready_for_user_review",
+    "draft_ready_for_user_review",
+    "booking_candidate_ready_for_user_review",
+    "comparison_ready_for_user_decision",
+    "account_review_ready_for_user_decision",
+    "human_challenge_required",
+    "mfa_required",
+    "account_mismatch",
+    "item_unavailable",
+    "site_blocked_automation",
+    "quality_gate_failed",
+    "approval_required_before_irreversible_action",
+)
 
 
 @dataclass(frozen=True)
@@ -142,6 +201,12 @@ def _safe_work_order(
     approval_gate: str,
 ) -> dict[str, Any]:
     work_type = _work_type(stage_payload=stage_payload, stage_kind=stage_kind, stage_summary=stage_summary, item=item)
+    quality_gate = _quality_gate(
+        work_type=work_type,
+        stage_payload=stage_payload,
+        stage_summary=stage_summary,
+        item=item,
+    )
     return {
         "schema": SAFE_WORK_ORDER_SCHEMA,
         "work_order_id": f"safe_work:{packet_id}",
@@ -154,12 +219,15 @@ def _safe_work_order(
         "approval_gate": approval_gate,
         "tool_hints": _tool_hints(stage_payload),
         "input_contract": _work_input_contract(stage_payload=stage_payload, stage_artifacts=stage_artifacts),
+        "quality_gate": quality_gate,
         "output_contract": {
             "return_status": "staged_for_user_decision",
             "must_include": [
                 "summary",
                 "recommended_option_or_draft",
                 "evidence_refs",
+                "quality_gate",
+                "audit_receipt",
                 "risks_or_tradeoffs",
                 "approval_prompt",
             ],
@@ -169,6 +237,7 @@ def _safe_work_order(
                 "booking_candidate",
                 "draft_text",
                 "comparison_table",
+                "browser_receipt",
             ],
             "must_not_include": [
                 "completed_purchase",
@@ -182,6 +251,43 @@ def _safe_work_order(
             "safe_to_execute_before_approval": True,
             "external_actions_remain_staged_only": True,
         },
+    }
+
+
+def _quality_gate(
+    *,
+    work_type: str,
+    stage_payload: Mapping[str, Any],
+    stage_summary: str,
+    item: OodaInk,
+) -> dict[str, Any]:
+    return {
+        "status": "required",
+        "pre_user_audit_required": True,
+        "audit_scope": "before_user_delivery_teable_projection_or_external_followthrough",
+        "work_type": work_type,
+        "task_summary": stage_summary or item.act,
+        "checks": list(PRE_USER_AUDIT_CHECKS),
+        "fail_closed_if": list(PRE_USER_AUDIT_FAIL_CLOSED_IF),
+        "browser_receipt_required_fields": list(BROWSER_RECEIPT_REQUIRED_FIELDS),
+        "accepted_stop_conditions": list(BROWSER_STOP_CONDITIONS),
+        "notification_policy": "action_required_only",
+        "source_relevance_requirements": _quality_requirement_list(
+            stage_payload,
+            keys=(
+                "source_relevance_requirements",
+                "selection_criteria",
+                "requirements",
+                "comparison_dimensions",
+            ),
+        ),
+        "expected_counterparty_type": str(stage_payload.get("expected_counterparty_type") or "").strip(),
+        "required_location": _json_safe(stage_payload.get("required_location") or stage_payload.get("geography_context") or ""),
+        "required_locale": str(stage_payload.get("required_locale") or stage_payload.get("locale") or "").strip(),
+        "requires_validated_contact_for_draft": _requires_validated_contact_for_draft(
+            work_type=work_type,
+            stage_payload=stage_payload,
+        ),
     }
 
 
@@ -249,6 +355,35 @@ def _normalized_work_type(value: Any) -> str:
     return aliases.get(normalized, "")
 
 
+def _quality_requirement_list(stage_payload: Mapping[str, Any], *, keys: tuple[str, ...]) -> list[Any]:
+    values: list[Any] = []
+    for key in keys:
+        raw = stage_payload.get(key)
+        if raw is None:
+            continue
+        if isinstance(raw, (list, tuple)):
+            values.extend(_json_safe(item) for item in raw if str(item).strip())
+            continue
+        if isinstance(raw, Mapping):
+            values.append(_json_safe(raw))
+            continue
+        text = str(raw).strip()
+        if text:
+            values.append(text)
+    return values
+
+
+def _requires_validated_contact_for_draft(*, work_type: str, stage_payload: Mapping[str, Any]) -> bool:
+    if work_type != "draft":
+        return False
+    if str(stage_payload.get("contact_channel_required") or "").strip():
+        return True
+    if str(stage_payload.get("recipient_email") or stage_payload.get("counterparty_email") or "").strip():
+        return True
+    draft_mode = str(stage_payload.get("draft_mode") or "").strip().lower()
+    return draft_mode in {"research_backed_inquiry", "provider_outreach", "vendor_outreach"}
+
+
 def _worker_status(stage_payload: Mapping[str, Any]) -> str:
     normalized = str(stage_payload.get("worker_status") or stage_payload.get("work_status") or "queued").strip().lower()
     return normalized if normalized in {"queued", "ready", "in_progress", "blocked", "done"} else "queued"
@@ -289,6 +424,22 @@ def _work_input_contract(*, stage_payload: Mapping[str, Any], stage_artifacts: t
         "recipient",
         "delivery_recipient_email",
         "counterparty_email",
+        "expected_counterparty_type",
+        "expected_profession",
+        "expected_vendor_type",
+        "contact_channel_required",
+        "final_surface_required",
+        "source_relevance_requirements",
+        "audit_requirements",
+        "known_bad_source_patterns",
+        "required_location",
+        "geography_context",
+        "stored_location_context",
+        "required_locale",
+        "account_ref",
+        "account_identity",
+        "site",
+        "site_host",
         "locale",
         "currency",
         "quantity",

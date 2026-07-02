@@ -90,9 +90,95 @@ def test_stage_packet_preserves_reversible_action_contract_without_raw_identity(
         "fits constraints",
         "reversible before approval",
     ]
+    assert packet["safe_work_order"]["quality_gate"]["pre_user_audit_required"] is True
+    assert packet["safe_work_order"]["quality_gate"]["notification_policy"] == "action_required_only"
+    assert "source_relevance" in packet["safe_work_order"]["quality_gate"]["checks"]
+    assert "candidate_quality_failed" in packet["safe_work_order"]["quality_gate"]["fail_closed_if"]
+    assert "final_surface_url" in packet["safe_work_order"]["quality_gate"]["browser_receipt_required_fields"]
+    assert "quality_gate" in packet["safe_work_order"]["output_contract"]["must_include"]
+    assert "audit_receipt" in packet["safe_work_order"]["output_contract"]["must_include"]
     assert "approval_prompt" in packet["safe_work_order"]["output_contract"]["must_include"]
     assert "cf-email:user@example.test" not in serialized
     assert "opportunity:private-source" not in serialized
+
+
+def test_stage_packet_requires_generic_pre_user_audit_for_provider_outreach_draft() -> None:
+    digest = ProactiveOodaService().build_digest(
+        principal_id="cf-email:tibor@example.test",
+        signals=[
+            {
+                "source_ref": "telegram:vendor-draft-quality-gate",
+                "signal_type": "telegram_message",
+                "channel": "telegram",
+                "title": "Suche einen Rauchfangkehrer",
+                "summary": "Find a chimney sweep and save a Gmail draft.",
+                "payload": {
+                    "ooda_loop": {
+                        "reviewed": True,
+                        "observe": {"summary": "The user asked EA to find a provider and create a draft."},
+                        "orient": {"summary": "Use stored Vienna context and validate the provider before drafting."},
+                        "decide": {"summary": "EA can draft only after candidate quality passes.", "approval_required": False},
+                        "act": {
+                            "summary": "Find a provider and draft the inquiry.",
+                            "stage": {
+                                "kind": "research_packet",
+                                "summary": "Research-backed inquiry draft.",
+                                "work_type": "draft",
+                                "draft_mode": "research_backed_inquiry",
+                                "request": "suche mir rauchfangkehrer fuer ein Gutachten in 1200 Wien",
+                                "expected_counterparty_type": "rauchfangkehrer",
+                                "required_location": "1200 Wien",
+                                "required_locale": "de-AT",
+                                "contact_channel_required": "email",
+                                "source_relevance_requirements": [
+                                    "direct Rauchfangkehrer or chimney-sweep provider page",
+                                    "Vienna or Austria service area",
+                                    "visible contact path",
+                                ],
+                                "known_bad_source_patterns": [
+                                    "grammar lesson",
+                                    "language translation",
+                                    "generic reference page",
+                                ],
+                                "candidate_items": [
+                                    {
+                                        "label": "Difference between ein, eine, einen, and einem in German",
+                                        "url": "https://planforgermany.com/difference-ein-eine-einen-einem-german-language/",
+                                        "snippet": "German language grammar lesson",
+                                    }
+                                ],
+                            },
+                            "external_action_policy": "Draft only; do not send externally.",
+                        },
+                    }
+                },
+            }
+        ],
+    )
+
+    packet = build_stage_packets(digest)[0]
+    order = packet["safe_work_order"]
+    quality_gate = order["quality_gate"]
+    input_contract = order["input_contract"]
+
+    assert order["work_type"] == "draft"
+    assert input_contract["expected_counterparty_type"] == "rauchfangkehrer"
+    assert input_contract["required_location"] == "1200 Wien"
+    assert input_contract["contact_channel_required"] == "email"
+    assert "grammar lesson" in input_contract["known_bad_source_patterns"]
+    assert quality_gate["pre_user_audit_required"] is True
+    assert quality_gate["expected_counterparty_type"] == "rauchfangkehrer"
+    assert quality_gate["required_location"] == "1200 Wien"
+    assert quality_gate["required_locale"] == "de-AT"
+    assert quality_gate["requires_validated_contact_for_draft"] is True
+    assert "counterparty_type_match" in quality_gate["checks"]
+    assert "geography_or_locality_fit" in quality_gate["checks"]
+    assert "draft_recipient_validity" in quality_gate["checks"]
+    assert "irrelevant_source_for_requested_counterparty" in quality_gate["fail_closed_if"]
+    assert "wrong_country_or_location" in quality_gate["fail_closed_if"]
+    assert "missing_contact_channel_for_draft" in quality_gate["fail_closed_if"]
+    assert "quality_gate_failed" in quality_gate["accepted_stop_conditions"]
+    assert "irreversible_actions_attempted" in quality_gate["browser_receipt_required_fields"]
 
 
 def test_persist_stage_packets_writes_private_packet_files(tmp_path) -> None:

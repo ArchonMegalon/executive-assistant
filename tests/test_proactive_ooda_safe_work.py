@@ -78,6 +78,15 @@ def test_build_safe_work_result_materializes_reversible_cart_contract() -> None:
     assert result["shortlist"] == [{"label": "Candidate A", "url": "https://example.test/item-a"}]
     assert result["comparison_table"][0]["recommended"] is True
     assert result["approval"]["required"] is True
+    assert result["quality_gate"]["pre_user_audit_required"] is True
+    assert result["quality_gate"]["notification_policy"] == "action_required_only"
+    assert result["audit_receipt"]["source"] == "safe_work_pre_user_audit"
+    assert result["audit_receipt"]["pre_user_audit_required"] is True
+    assert result["execution_receipt"]["quality_gate_status"] == result["audit_receipt"]["status"]
+    assert result["execution_receipt"]["stop_condition"] in {
+        "cart_ready_for_user_review",
+        "quality_gate_failed",
+    }
     assert result["execution_receipt"]["external_actions_attempted"] == []
     assert result["execution_receipt"]["irreversible_actions_attempted"] == []
     assert "purchase" in result["execution_receipt"]["forbidden_without_explicit_approval"]
