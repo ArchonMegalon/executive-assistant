@@ -9,9 +9,7 @@ from app.services.public_clickrank import request_hostname
 def _normalized_hosts_from_env(name: str, *, default: tuple[str, ...]) -> tuple[str, ...]:
     raw = str(os.getenv(name) or "").strip()
     values = [entry.strip().lower().rstrip(".") for entry in raw.split(",") if entry.strip()]
-    if values:
-        return tuple(dict.fromkeys(values))
-    return default
+    return tuple(dict.fromkeys([*default, *values]))
 
 
 PROPERTYQUARRY_HOSTS = _normalized_hosts_from_env(
