@@ -330,6 +330,7 @@ class ProactiveOodaRunReceipt:
     delivery_recovery_hint: str = ""
     delivery_next_action: str = ""
     approval_surface: Mapping[str, Any] | None = None
+    delivery_guard: Mapping[str, Any] | None = None
 
 
 class JsonOodaStateStore:
@@ -918,6 +919,7 @@ def build_run_receipt(
     stage_packet_error_count: int = 0,
     safe_work_result_refs: Iterable[str] = (),
     safe_work_result_error_count: int = 0,
+    delivery_guard: Mapping[str, Any] | None = None,
 ) -> ProactiveOodaRunReceipt:
     status = "skipped_no_items"
     if dry_run:
@@ -952,6 +954,7 @@ def build_run_receipt(
         delivery_recovery_hint=delivery_recovery["recovery_hint"],
         delivery_next_action=delivery_recovery["next_action"],
         approval_surface=_extract_approval_surface(notification_result),
+        delivery_guard=dict(delivery_guard or {}) or None,
     )
 
 

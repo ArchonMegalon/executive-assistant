@@ -63,6 +63,11 @@ def test_verify_proactive_ooda_live_receipt_accepts_operator_safe_mirror_receipt
                     "raw_approval_prompt_exposed": False,
                     "raw_private_url_exposed": False,
                 },
+                "delivery_guard": {
+                    "delivery_state": "deferred",
+                    "deferred_reason": "mirrored_delivery_proof",
+                    "notification_requires_user_action": True,
+                },
             }
         ),
         encoding="utf-8",
@@ -75,6 +80,9 @@ def test_verify_proactive_ooda_live_receipt_accepts_operator_safe_mirror_receipt
     assert report["operator_safe_mirror_present"] is True
     assert report["delivery_message_count"] == 0
     assert report["telegram_message_count"] == 0
+    assert report["delivery_guard_state"] == "deferred"
+    assert report["delivery_guard_deferred_reason"] == "mirrored_delivery_proof"
+    assert report["notification_requires_user_action"] is True
 
 
 def test_verify_proactive_ooda_live_receipt_uses_archived_sent_receipt_when_latest_is_quiet(tmp_path) -> None:

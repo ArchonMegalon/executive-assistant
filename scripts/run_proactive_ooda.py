@@ -387,6 +387,15 @@ def main() -> int:
                 state_store.save_notified_refs(args.principal_id, stored_refs.union(digest.notified_markers))
         except Exception as exc:
             error_code = _notification_error_code(exc)
+    delivery_guard = _delivery_guard_snapshot(
+        args,
+        state_store=state_store,
+        principal_id=args.principal_id,
+        digest=digest,
+        approval_request=approval_request,
+        safe_work_results=safe_work_results,
+        error_code=error_code,
+    )
     receipt = build_run_receipt(
         digest=digest,
         dry_run=args.dry_run,
@@ -396,6 +405,7 @@ def main() -> int:
         stage_packet_error_count=stage_packet_error_count,
         safe_work_result_refs=safe_work_result_refs,
         safe_work_result_error_count=safe_work_result_error_count,
+        delivery_guard=delivery_guard,
     )
     if notification_result is not None and digest.notified_refs and not args.dry_run and not error_code:
         _record_interruption_event(
@@ -861,6 +871,65 @@ def _notification_requires_user_action(approval_request: Mapping[str, Any] | Non
     return approval_request_needs_telegram_user_action(approval_request)
 
 
+def _delivery_guard_snapshot(
+    args: argparse.Namespace,
+    *,
+    state_store: JsonOodaStateStore,
+    principal_id: str,
+    digest: Any,
+    approval_request: Mapping[str, Any] | None,
+    safe_work_results: Iterable[Mapping[str, Any]],
+    error_code: str,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    items = tuple(getattr(digest, "items", ()) or ())
+    has_items = bool(items)
+    has_high_priority = any(getattr(item, "priority", "") == "high" for item in items)
+    paused = bool(getattr(args, "paused", False))
+    quiet_active = _quiet_hours_active(args, now=now)
+    quiet_allows_high = bool(getattr(args, "quiet_hours_allow_high_priority", True))
+    armed_send = bool(getattr(args, "armed_send", False))
+    budget_limit = max(int(getattr(args, "interruption_budget_limit", 0) or 0), 0)
+    budget_window_hours = max(int(getattr(args, "interruption_budget_window_hours", 24) or 24), 1)
+    budget_allows_high = bool(getattr(args, "interruption_budget_allow_high_priority", True))
+    recent_budget_events = _recent_interruption_events(
+        state_store.load_interruption_events(principal_id),
+        now=now or datetime.now(timezone.utc),
+        window_hours=budget_window_hours,
+    )
+    budget_used = len(recent_budget_events)
+    budget_exhausted = budget_limit > 0 and budget_used >= budget_limit
+    user_action_required = _notification_requires_user_action(approval_request)
+    decision_ready_safe_work = _has_decision_ready_safe_work(safe_work_results)
+    if not has_items:
+        delivery_state = "no_actionable_items"
+    elif error_code:
+        delivery_state = "deferred" if _is_deferred_error(error_code) else "failed"
+    else:
+        delivery_state = "eligible"
+    return {
+        "delivery_state": delivery_state,
+        "deferred_reason": str(error_code or "").strip() if _is_deferred_error(error_code) else "",
+        "armed_send": armed_send,
+        "operator_paused": paused,
+        "pause_reason_present": bool(str(getattr(args, "pause_reason", "") or "").strip()),
+        "quiet_hours_configured": _quiet_hours_configured(args),
+        "quiet_hours_active": quiet_active,
+        "quiet_hours_allow_high_priority": quiet_allows_high,
+        "interruption_budget_limit": budget_limit,
+        "interruption_budget_window_hours": budget_window_hours,
+        "interruption_budget_used": budget_used,
+        "interruption_budget_exhausted": budget_exhausted,
+        "interruption_budget_allow_high_priority": budget_allows_high,
+        "has_high_priority": has_high_priority,
+        "action_required_delivery_only": bool(getattr(args, "action_required_delivery_only", True)),
+        "notification_requires_user_action": user_action_required,
+        "decision_ready_safe_work_present": decision_ready_safe_work,
+        "mirror_delivery_proof_enabled": bool(getattr(args, "mirror_delivery_proof", False)),
+        "delivery_mirrored_for_proof": str(error_code or "").strip() == "mirrored_delivery_proof",
+    }
+
+
 def _read_json_object(path: str | Path) -> dict[str, Any]:
     try:
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -1015,6 +1084,21 @@ def _parse_local_time(value: str) -> datetime_time | None:
     if not (0 <= hour <= 23 and 0 <= minute <= 59):
         return None
     return datetime_time(hour=hour, minute=minute)
+
+
+def _quiet_hours_configured(args: argparse.Namespace) -> bool:
+    start = _parse_local_time(getattr(args, "quiet_hours_start", ""))
+    end = _parse_local_time(getattr(args, "quiet_hours_end", ""))
+    return start is not None and end is not None
+
+
+def _quiet_hours_active(args: argparse.Namespace, *, now: datetime | None = None) -> bool:
+    start = _parse_local_time(getattr(args, "quiet_hours_start", ""))
+    end = _parse_local_time(getattr(args, "quiet_hours_end", ""))
+    if start is None or end is None:
+        return False
+    local_now = (now or datetime.now(timezone.utc)).astimezone(_quiet_hours_timezone(getattr(args, "quiet_hours_timezone", "")))
+    return _is_time_within_quiet_hours(local_now.time(), start=start, end=end)
 
 
 def _quiet_hours_timezone(value: str):

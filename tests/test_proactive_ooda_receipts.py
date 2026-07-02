@@ -238,6 +238,40 @@ def test_receipt_payload_keeps_safe_deferred_reason() -> None:
     assert "Private vendor context" not in serialized
 
 
+def test_receipt_payload_keeps_structured_delivery_guard_snapshot() -> None:
+    digest = ProactiveOodaService().build_digest(
+        principal_id="cf-email:user@example.test",
+        signals=[
+            {
+                "source_ref": "opportunity:private-source",
+                "signal_type": "opportunity",
+                "channel": "assistant_opportunity",
+                "title": "Review vendor options",
+                "summary": "Private vendor context.",
+            }
+        ],
+    )
+    receipt = build_run_receipt(
+        digest=digest,
+        dry_run=False,
+        error_code="deferred_by_quiet_hours",
+        delivery_guard={
+            "delivery_state": "deferred",
+            "deferred_reason": "deferred_by_quiet_hours",
+            "quiet_hours_active": True,
+            "interruption_budget_exhausted": False,
+            "notification_requires_user_action": True,
+        },
+    )
+
+    payload = proactive_ooda_receipt_payload(digest=digest, receipt=receipt)
+
+    assert payload["delivery_guard"]["delivery_state"] == "deferred"
+    assert payload["delivery_guard"]["deferred_reason"] == "deferred_by_quiet_hours"
+    assert payload["delivery_guard"]["quiet_hours_active"] is True
+    assert payload["delivery_guard"]["notification_requires_user_action"] is True
+
+
 def test_receipt_payload_derives_delivery_recovery_from_failed_error_code() -> None:
     digest = ProactiveOodaService().build_digest(
         principal_id="cf-email:user@example.test",

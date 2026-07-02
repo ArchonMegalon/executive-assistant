@@ -130,6 +130,9 @@ def proactive_ooda_receipt_payload(
         payload["approval_surface_present"] = bool(approval_surface.get("present"))
         payload["approval_surface_status"] = str(approval_surface.get("status") or "").strip()
         payload["approval_surface_message_count"] = len(message_ids)
+    delivery_guard = dict(receipt.delivery_guard or {})
+    if delivery_guard:
+        payload["delivery_guard"] = delivery_guard
     payload["privacy"] = {
         "raw_principal_id_stored": False,
         "raw_chat_id_stored": False,

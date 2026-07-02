@@ -75,6 +75,7 @@ def verify_receipt(path: Path) -> dict[str, Any]:
             errors.extend(_sent_receipt_errors(payload))
     errors.extend(f"quiet_{error}" for error in quiet_receipt_errors)
     delivery_mode = _delivery_mode(payload)
+    delivery_guard = dict(payload.get("delivery_guard") or {})
 
     return {
         "ok": not errors,
@@ -101,6 +102,11 @@ def verify_receipt(path: Path) -> dict[str, Any]:
         "delivery_route_error": str(payload.get("delivery_route_error") or ""),
         "delivery_recovery_hint": str(payload.get("delivery_recovery_hint") or ""),
         "delivery_next_action": str(payload.get("delivery_next_action") or ""),
+        "delivery_guard_state": str(delivery_guard.get("delivery_state") or ""),
+        "delivery_guard_deferred_reason": str(delivery_guard.get("deferred_reason") or ""),
+        "quiet_hours_active": bool(delivery_guard.get("quiet_hours_active")),
+        "interruption_budget_exhausted": bool(delivery_guard.get("interruption_budget_exhausted")),
+        "notification_requires_user_action": bool(delivery_guard.get("notification_requires_user_action")),
         "generated_at": payload.get("generated_at", ""),
     }
 

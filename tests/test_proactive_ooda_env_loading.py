@@ -1176,3 +1176,64 @@ def test_verifier_delivery_guard_reports_unarmed_send_state(tmp_path) -> None:
     assert status["delivery_state"] == "deferred"
     assert status["deferred_reason"] == "deferred_by_unarmed_send"
     assert status["armed_send"] is False
+
+
+def test_runner_delivery_guard_snapshot_tracks_action_required_and_budget_state(tmp_path) -> None:
+    state_store = JsonOodaStateStore(tmp_path / "ooda.json")
+    now = datetime(2026, 7, 2, 12, 0, tzinfo=timezone.utc)
+    state_store.save_interruption_events(
+        "exec",
+        (
+            "2026-07-02T08:00:00+00:00",
+            "2026-07-02T10:00:00+00:00",
+        ),
+    )
+    digest = ProactiveOodaService().build_digest(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "opportunity:vendor-shortlist",
+                "signal_type": "opportunity",
+                "channel": "assistant_opportunity",
+                "title": "Review vendor shortlist",
+                "summary": "Action needed today.",
+            }
+        ],
+    )
+    args = SimpleNamespace(
+        principal_id="exec",
+        paused=False,
+        pause_reason="",
+        armed_send=True,
+        quiet_hours_start="",
+        quiet_hours_end="",
+        quiet_hours_timezone="UTC",
+        quiet_hours_allow_high_priority=True,
+        interruption_budget_limit=2,
+        interruption_budget_window_hours=24,
+        interruption_budget_allow_high_priority=False,
+        action_required_delivery_only=True,
+        mirror_delivery_proof=False,
+    )
+
+    guard = runner._delivery_guard_snapshot(
+        args,
+        state_store=state_store,
+        principal_id="exec",
+        digest=digest,
+        approval_request={
+            "packet_ref": "packet:1",
+            "staged_artifact_ref": "safe_work:1",
+            "approval_prompt": "Approve whether EA should proceed.",
+        },
+        safe_work_results=(),
+        error_code="deferred_by_interruption_budget",
+        now=now,
+    )
+
+    assert guard["delivery_state"] == "deferred"
+    assert guard["deferred_reason"] == "deferred_by_interruption_budget"
+    assert guard["interruption_budget_used"] == 2
+    assert guard["interruption_budget_exhausted"] is True
+    assert guard["notification_requires_user_action"] is True
+    assert guard["action_required_delivery_only"] is True
