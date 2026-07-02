@@ -1696,6 +1696,36 @@ def _approval_capture_surface(
     }
 
 
+def _normalize_approval_capture_surface(
+    surface: Mapping[str, Any] | None,
+    approval_capture: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    normalized = dict(surface or {})
+    if not normalized:
+        return {}
+    manual_outcome_capture_ready = bool(
+        normalized.get("manual_outcome_capture_ready")
+        and normalized.get("current_packet_approval_request_recordable")
+    )
+    telegram_approval_surface_ready = bool(
+        normalized.get("telegram_approval_surface_ready")
+        and bool(dict(approval_capture or {}).get("checked"))
+    )
+    normalized["manual_outcome_capture_ready"] = manual_outcome_capture_ready
+    normalized["telegram_approval_surface_ready"] = telegram_approval_surface_ready
+    normalized["ready"] = bool(normalized.get("ready")) and bool(
+        telegram_approval_surface_ready or manual_outcome_capture_ready
+    )
+    normalized["mode"] = (
+        "telegram_callback_pending"
+        if telegram_approval_surface_ready
+        else "manual_outcome_capture_ready"
+        if manual_outcome_capture_ready
+        else str(normalized.get("mode") or "").strip()
+    )
+    return normalized
+
+
 def _local_artifact_probe(
     *,
     report_args: argparse.Namespace,
@@ -1921,6 +1951,7 @@ def build_proactive_ooda_operator_status(
     ):
         approval_capture_probe = _approval_capture_probe(principal_id, timeout_seconds=live_probe_timeout_seconds)
     approval_capture = _approval_capture_summary(approval_capture_probe)
+    approval_capture_surface = _normalize_approval_capture_surface(approval_capture_surface, approval_capture)
     if _approval_capture_probe_blocks_followthrough(
         status=status,
         live_receipt=live_receipt,

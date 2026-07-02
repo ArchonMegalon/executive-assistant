@@ -1058,6 +1058,63 @@ def test_proactive_ooda_operator_status_verifier_rejects_ready_approval_surface_
     assert "ready approval_capture_surface requires live callback or manual_outcome_capture_ready" in issues
 
 
+def test_proactive_ooda_operator_status_verifier_accepts_manual_capture_with_unverified_live_pending_callback(
+    tmp_path: Path, monkeypatch
+) -> None:
+    receipt = tmp_path / ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
+    payload = _base_payload()
+    payload.update(
+        {
+            "source_git_head": "source-head-123",
+            "status": "ready_with_live_receipt",
+            "live_receipt_checked": True,
+            "live_receipt": {"ok": True, "receipt_path": str(tmp_path / "receipt.json")},
+            "next_action": "record_proactive_ooda_approval_outcome",
+            "operator_action_state": "approval_capture_pending",
+            "actionable_count": 1,
+            "delivery_guard": {
+                "delivery_state": "approval_capture_pending",
+                "user_action_required": True,
+            },
+            "approval_capture_surface": {
+                "ready": True,
+                "mode": "manual_outcome_capture_ready",
+                "selected_channel": "telegram",
+                "callback_dir_writable": True,
+                "approval_outcome_path": "state/proactive_ooda_latest_approval_outcome.generated.json",
+                "callback_dir": "/data/provider-ledger/proactive_ooda_approval_callbacks",
+                "current_packet_live_pending_count": 1,
+                "telegram_approval_surface_ready": False,
+                "manual_outcome_capture_ready": True,
+                "current_packet_approval_request_recordable": True,
+                "approval_outcome_matches_current_packet": False,
+            },
+            "approval_capture": {
+                "checked": False,
+                "ready": False,
+                "status": "not_checked",
+                "source": "",
+                "observed_at": "",
+                "blocking_reason": "",
+                "next_action": "",
+                "privacy": {
+                    "raw_callback_token_exposed": False,
+                    "raw_principal_id_exposed": False,
+                    "raw_chat_ref_exposed": False,
+                    "raw_packet_ref_exposed": False,
+                    "raw_staged_artifact_ref_exposed": False,
+                },
+            },
+        }
+    )
+    _write_receipt(receipt, **payload)
+    monkeypatch.setattr(verifier, "_git_head", lambda path=verifier.ROOT: "source-head-123")
+
+    issues = verifier.verify(receipt, root=tmp_path)
+
+    assert issues == []
+
+
 def test_proactive_ooda_operator_status_verifier_rejects_clear_status_when_approval_capture_is_pending(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -1078,6 +1135,7 @@ def test_proactive_ooda_operator_status_verifier_rejects_clear_status_when_appro
                 "approval_outcome_path": "state/proactive_ooda_latest_approval_outcome.generated.json",
                 "callback_dir": "/data/provider-ledger/proactive_ooda_approval_callbacks",
                 "current_packet_live_pending_count": 1,
+                "telegram_approval_surface_ready": True,
             },
             "approval_capture": _approval_capture_ready(),
         }

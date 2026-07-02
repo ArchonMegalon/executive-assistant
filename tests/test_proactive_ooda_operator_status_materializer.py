@@ -2068,6 +2068,28 @@ def test_approval_capture_surface_keeps_manual_capture_ready_with_live_pending_c
     assert surface["current_packet_live_pending_count"] == 1
 
 
+def test_normalize_approval_capture_surface_downgrades_unverified_live_callback_to_manual_capture() -> None:
+    module = _load_script()
+
+    surface = module._normalize_approval_capture_surface(  # noqa: SLF001
+        {
+            "ready": True,
+            "mode": "telegram_callback_pending",
+            "telegram_approval_surface_ready": True,
+            "manual_outcome_capture_ready": True,
+            "current_packet_approval_request_recordable": True,
+            "current_packet_live_pending_count": 1,
+        },
+        {"checked": False},
+    )
+
+    assert surface["ready"] is True
+    assert surface["mode"] == "manual_outcome_capture_ready"
+    assert surface["telegram_approval_surface_ready"] is False
+    assert surface["manual_outcome_capture_ready"] is True
+    assert surface["current_packet_live_pending_count"] == 1
+
+
 def test_materialize_proactive_ooda_operator_status_blocks_when_live_route_probe_reports_workspace_failure(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -2609,6 +2631,8 @@ def test_materialize_proactive_ooda_operator_status_uses_local_callback_surface_
                 "source_packet_ref_hash": __import__("hashlib").sha256("stage_packet:packet-1".encode("utf-8")).hexdigest(),
                 "status": "staged_for_user_decision",
                 "approval": {"required": True},
+                "approval_prompt": "Approve this staged candidate.",
+                "staged_action_url": "https://example.test/candidate",
                 "audit": {"status": "pass", "issues": []},
             }
         )
@@ -2648,6 +2672,9 @@ def test_materialize_proactive_ooda_operator_status_uses_local_callback_surface_
 
     assert receipt["approval_capture_surface"]["source"] == "local_filesystem"
     assert receipt["approval_capture_surface"]["ready"] is True
+    assert receipt["approval_capture_surface"]["mode"] == "manual_outcome_capture_ready"
+    assert receipt["approval_capture_surface"]["telegram_approval_surface_ready"] is False
+    assert receipt["approval_capture_surface"]["manual_outcome_capture_ready"] is True
     assert receipt["approval_capture_surface"]["callback_dir_exists"] is True
     assert receipt["approval_capture_surface"]["current_packet_callback_record_count"] == 1
     assert receipt["approval_capture_surface"]["current_packet_live_pending_count"] == 1

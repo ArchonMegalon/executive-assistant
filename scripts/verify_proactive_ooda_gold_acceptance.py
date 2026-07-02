@@ -357,9 +357,7 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
     approval_capture_surface = dict(evidence_receipts.get("approval_capture_surface") or {})
     approval_capture = dict(evidence_receipts.get("approval_capture") or {})
     if approval_capture_surface and bool(approval_capture_surface.get("ready")):
-        telegram_ready = bool(approval_capture_surface.get("telegram_approval_surface_ready")) or (
-            int(approval_capture_surface.get("current_packet_live_pending_count") or 0) > 0
-        )
+        telegram_ready = bool(approval_capture_surface.get("telegram_approval_surface_ready"))
         manual_ready = bool(approval_capture_surface.get("manual_outcome_capture_ready"))
         if str(approval_capture_surface.get("selected_channel") or "").strip() != "telegram":
             issues.append("ready approval_capture_surface requires selected_channel=telegram")
