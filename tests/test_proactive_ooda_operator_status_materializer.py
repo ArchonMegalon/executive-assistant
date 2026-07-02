@@ -1705,6 +1705,51 @@ def test_materialize_proactive_ooda_operator_status_surfaces_manual_approval_cap
     assert receipt["approval_capture_surface"]["approval_outcome_matches_current_packet"] is False
 
 
+def test_approval_capture_surface_keeps_manual_capture_ready_with_live_pending_callback() -> None:
+    module = _load_script()
+
+    surface = module._approval_capture_surface(  # noqa: SLF001
+        report={
+            "delivery_route": {"ready": True, "selected_channel": "telegram"},
+            "stage_packets": {"ready": True},
+            "safe_work_results": {"ready": True},
+        },
+        artifact_probe={
+            "approval_outcome_path": "/data/provider-ledger/proactive_ooda_latest_approval_outcome.generated.json",
+            "approval_callback_dir": "/data/provider-ledger/proactive_ooda_approval_callbacks",
+            "approval_callback_dir_exists": True,
+            "approval_callback_dir_writable": True,
+            "approval_callback_record_count": 1,
+            "approval_callback_pending_count": 1,
+            "current_packet_callback_record_count": 1,
+            "current_packet_callback_pending_count": 1,
+            "current_packet_live_callback_record_count": 1,
+            "current_packet_live_pending_count": 1,
+            "current_packet_callback_latest_status": "pending",
+            "stage_packet": {
+                "packet_ref": "stage_packet:pkt-live",
+                "approval": {"required": True},
+                "stage": {"payload": {"approval_url": "https://example.test/candidate"}},
+            },
+            "safe_work_result": {
+                "result_ref": "safe_work_result:res-live",
+                "status": "staged_for_user_decision",
+                "approval": {"required": True},
+                "approval_prompt": "Approve this staged candidate.",
+                "staged_action_url": "https://example.test/candidate",
+            },
+            "approval_outcome": {},
+        },
+    )
+
+    assert surface["ready"] is True
+    assert surface["mode"] == "telegram_callback_pending"
+    assert surface["telegram_approval_surface_ready"] is True
+    assert surface["manual_outcome_capture_ready"] is True
+    assert surface["current_packet_approval_request_recordable"] is True
+    assert surface["current_packet_live_pending_count"] == 1
+
+
 def test_materialize_proactive_ooda_operator_status_blocks_when_live_route_probe_reports_workspace_failure(
     tmp_path: Path, monkeypatch
 ) -> None:

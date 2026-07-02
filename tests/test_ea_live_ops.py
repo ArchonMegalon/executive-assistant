@@ -2916,8 +2916,19 @@ def test_record_proactive_approval_dry_run_uses_current_runtime_packet(monkeypat
             {
                 "probe_ok": True,
                 "run_receipt_path": "/data/provider-ledger/proactive_ooda_run_receipts/20260628T122109_024304_0000-sent-a4eb56dcf249.json",
-                "stage_packet": {"packet_ref": "stage_packet:pkt-live"},
-                "safe_work_result": {"result_ref": "safe_work_result:res-live"},
+                "stage_packet": {
+                    "packet_ref": "stage_packet:pkt-live",
+                    "approval": {"required": True},
+                    "stage": {"payload": {"approval_url": "https://example.test/candidate"}},
+                },
+                "safe_work_result": {
+                    "result_ref": "safe_work_result:res-live",
+                    "status": "staged_for_user_decision",
+                    "approval": {"required": True},
+                    "approval_prompt": "Approve this staged candidate.",
+                    "staged_action_url": "https://example.test/candidate",
+                },
+                "approval_outcome": {},
                 "current_packet_live_pending_count": 1,
             },
             '{"probe_ok":true}',
@@ -2943,6 +2954,9 @@ def test_record_proactive_approval_dry_run_uses_current_runtime_packet(monkeypat
     assert report["staged_artifact_ref_sha256"] == module._hash_text("safe_work_result:res-live")
     assert report["current_packet_refs_present"] is True
     assert report["approval_capture_surface_ready"] is True
+    assert report["telegram_approval_surface_ready"] is True
+    assert report["manual_outcome_capture_ready"] is True
+    assert report["current_packet_approval_request_recordable"] is True
     assert report["approval_capture_surface_pending_count"] == 1
     assert report["privacy"]["raw_packet_ref_exposed"] is False
     assert report["privacy"]["raw_artifact_probe_exposed"] is False

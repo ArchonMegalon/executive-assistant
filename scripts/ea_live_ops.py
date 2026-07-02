@@ -4544,7 +4544,7 @@ def record_proactive_approval(
         safe_work_result=dict(artifact_probe.get("safe_work_result") or {}),
     ) or bool(dict(artifact_probe.get("current_packet") or {}).get("approval_outcome_matches_current_packet"))
     live_pending_count = int(artifact_probe.get("current_packet_live_pending_count") or 0)
-    manual_outcome_capture_ready = bool(current_packet_recordable and not approval_outcome_current and live_pending_count <= 0)
+    manual_outcome_capture_ready = bool(current_packet_recordable and not approval_outcome_current)
     base_report: dict[str, object] = {
         "recorded": False,
         "reason": "",

@@ -218,7 +218,7 @@
       "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
       "present": true,
       "status": "ready_with_live_receipt",
-      "summary": "Proactive OODA route, packet runtime, latest host-visible live receipt, and Telegram approval capture surface are ready for operator follow-through."
+      "summary": "Proactive OODA route, packet runtime, latest host-visible live receipt, Telegram approval, and manual approval outcome capture are ready for operator follow-through."
     },
     "whole_project_scope_gap_audit": {
       "contract_name": "ea.whole_project_scope_gap_audit.v1",
@@ -243,7 +243,7 @@
     }
   },
   "external_provider_runtime_verified": false,
-  "generated_at": "2026-07-02T06:18:09Z",
+  "generated_at": "2026-07-02T06:28:02Z",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
   "live_daily_use_verified": false,
@@ -355,8 +355,8 @@
   "seeded_fixture": {
     "raw_private_context_exposed": false
   },
-  "source_git_head": "805143c0375280c52c0b523461acf982a0ca200c",
-  "source_state_fingerprint": "1088cf5982e58a5f3ee916f47a7e27df3a645135e11968c63ac46fa63f88768b",
+  "source_git_head": "f9e53c9feea434234ad1b6474c5f990a8088b130",
+  "source_state_fingerprint": "3b22eaabf5fb7c22373f6e6dcfc9b5802bcd145cc8bf45bb5acbd4a3daf59796",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready_local_evidence"
 }

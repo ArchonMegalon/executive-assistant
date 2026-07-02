@@ -1091,7 +1091,9 @@ def _operator_followthrough_next_action(
         approval_capture_surface=approval_capture_surface,
         approval_capture=approval_capture,
     ):
-        if bool(dict(approval_capture_surface or {}).get("manual_outcome_capture_ready")):
+        surface = dict(approval_capture_surface or {})
+        live_pending_count = int(surface.get("current_packet_live_pending_count") or 0)
+        if bool(surface.get("manual_outcome_capture_ready")) and live_pending_count <= 0:
             return "record_proactive_ooda_approval_outcome"
         return "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome"
     if _approval_capture_probe_blocks_followthrough(
@@ -1157,7 +1159,14 @@ def _summary(
             reason = str(dict(approval_capture or {}).get("blocking_reason") or "approval_capture_not_ready").strip()
             return f"Proactive OODA route, packet runtime, and latest host-visible live receipt are ready, but approval capture needs recovery: {reason}."
         if bool(dict(approval_capture_surface or {}).get("ready")):
-            if bool(dict(approval_capture_surface or {}).get("manual_outcome_capture_ready")):
+            surface = dict(approval_capture_surface or {})
+            live_pending_count = int(surface.get("current_packet_live_pending_count") or 0)
+            if bool(surface.get("manual_outcome_capture_ready")) and live_pending_count > 0:
+                return (
+                    "Proactive OODA route, packet runtime, latest host-visible live receipt, "
+                    "Telegram approval, and manual approval outcome capture are ready for operator follow-through."
+                )
+            if bool(surface.get("manual_outcome_capture_ready")):
                 return "Proactive OODA route, packet runtime, latest host-visible live receipt, and manual approval outcome capture are ready for operator follow-through."
             return "Proactive OODA route, packet runtime, latest host-visible live receipt, and Telegram approval capture surface are ready for operator follow-through."
         return "Proactive OODA route, packet runtime, and latest host-visible live receipt are ready for operator follow-through."
@@ -1364,7 +1373,6 @@ def _approval_capture_surface(
     manual_outcome_capture_ready = bool(
         _current_packet_approval_request_recordable(artifact_probe)
         and not approval_outcome_matches_current_packet
-        and current_packet_live_pending_count <= 0
     )
     ready = (
         bool(delivery_route.get("ready"))
@@ -1425,6 +1433,7 @@ def _approval_capture_surface(
         ),
         "current_packet_approval_request_recordable": _current_packet_approval_request_recordable(artifact_probe),
         "approval_outcome_matches_current_packet": approval_outcome_matches_current_packet,
+        "telegram_approval_surface_ready": current_packet_live_pending_count > 0,
         "manual_outcome_capture_ready": manual_outcome_capture_ready,
         "source": str(artifact_probe.get("source") or "").strip() or "",
     }
