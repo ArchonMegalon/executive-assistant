@@ -23,6 +23,7 @@ EXPECTED_PRIVACY = {
     "raw_api_key_exposed": False,
     "secret_values_exposed": False,
 }
+ALLOWED_CONFIG_SOURCES = {"argument", "process_env", "targeted_env_file", "default", "missing"}
 
 
 def _json(path: Path) -> dict[str, Any]:
@@ -72,6 +73,18 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
         issues.append("recovery_status must be recovered")
     if receipt.get("fresh_host_api_key_source") != "process_env":
         issues.append("fresh_host_api_key_source must stay process_env")
+    config_sources = receipt.get("teable_config_sources")
+    if not isinstance(config_sources, dict):
+        issues.append("teable_config_sources must be recorded")
+        config_sources = {}
+    for key in ("api_key", "base_url", "table_id", "table_name", "host_profile"):
+        source = str(config_sources.get(key) or "").strip()
+        if source not in ALLOWED_CONFIG_SOURCES:
+            issues.append(f"teable_config_sources.{key} invalid")
+    if str(config_sources.get("api_key") or "").strip() not in {"argument", "process_env", "targeted_env_file"}:
+        issues.append("teable_config_sources.api_key must identify a seeded secret source")
+    if not isinstance(config_sources.get("targeted_env_file_fallback_used"), bool):
+        issues.append("teable_config_sources.targeted_env_file_fallback_used must be boolean")
     if receipt.get("secret_values_redacted") is not True:
         issues.append("secret_values_redacted must be true")
     if receipt.get("drill_output_removed") is not True:

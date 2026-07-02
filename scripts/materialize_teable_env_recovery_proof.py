@@ -27,6 +27,13 @@ except ModuleNotFoundError:  # pragma: no cover - script execution path
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT = ROOT / ".codex-studio/published/teable_env_recovery_proof.generated.json"
 DEFAULT_TABLE_NAME = "ea_environment_secrets_recovery"
+TEABLE_ENV_KEYS = {
+    "TEABLE_API_KEY",
+    "TEABLE_BASE_URL",
+    "EA_ENV_TEABLE_TABLE_ID",
+    "EA_ENV_TEABLE_TABLE_NAME",
+    "EA_ENV_TEABLE_HOST_PROFILE",
+}
 
 
 def _utc_now() -> str:
@@ -51,6 +58,49 @@ def _int_value(value: object) -> int:
         return int(value or 0)
     except Exception:
         return 0
+
+
+def _targeted_env_file_values(root: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for path in (root / ".env", root / ".env.local", root / "ea" / ".env"):
+        if not path.is_file():
+            continue
+        try:
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except Exception:
+            continue
+        for line in lines:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                continue
+            key, value = stripped.split("=", 1)
+            key = key.strip()
+            if key not in TEABLE_ENV_KEYS or key in values:
+                continue
+            normalized = value.strip()
+            if len(normalized) >= 2 and normalized[0] == normalized[-1] and normalized[0] in {"'", '"'}:
+                normalized = normalized[1:-1]
+            values[key] = normalized
+    return values
+
+
+def _config_value(
+    *,
+    env_file_values: dict[str, str],
+    explicit: object = "",
+    env_key: str,
+    default: str = "",
+) -> tuple[str, str]:
+    normalized_explicit = str(explicit or "").strip()
+    if normalized_explicit:
+        return normalized_explicit, "argument"
+    normalized_env = str(os.environ.get(env_key) or "").strip()
+    if normalized_env:
+        return normalized_env, "process_env"
+    normalized_file = str(env_file_values.get(env_key) or "").strip()
+    if normalized_file:
+        return normalized_file, "targeted_env_file"
+    return default, "default" if default else "missing"
 
 
 def _sanitize_env_files(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -107,7 +157,12 @@ def build_teable_env_recovery_proof(
     generated_at: str | None = None,
     require_seeded_api_key: bool = True,
 ) -> dict[str, Any]:
-    seeded_api_key = str(api_key or os.environ.get("TEABLE_API_KEY") or "").strip()
+    env_file_values = _targeted_env_file_values(root)
+    seeded_api_key, api_key_config_source = _config_value(
+        env_file_values=env_file_values,
+        explicit=api_key,
+        env_key="TEABLE_API_KEY",
+    )
     if not seeded_api_key:
         if require_seeded_api_key:
             raise SystemExit("teable_seeded_api_key_required")
@@ -119,9 +174,32 @@ def build_teable_env_recovery_proof(
             generated_at=generated_at,
             reason="teable_seeded_api_key_required",
         )
-    resolved_base_url = str(base_url or os.environ.get("TEABLE_BASE_URL") or sync_env_to_teable.DEFAULT_BASE_URL).strip().rstrip("/")
-    resolved_table_id = str(table_id or "").strip()
-    resolved_table_name = str(table_name or DEFAULT_TABLE_NAME).strip() or DEFAULT_TABLE_NAME
+    resolved_base_url, base_url_config_source = _config_value(
+        env_file_values=env_file_values,
+        explicit=base_url,
+        env_key="TEABLE_BASE_URL",
+        default=sync_env_to_teable.DEFAULT_BASE_URL,
+    )
+    resolved_base_url = resolved_base_url.rstrip("/")
+    resolved_table_id, table_id_config_source = _config_value(
+        env_file_values=env_file_values,
+        explicit=table_id,
+        env_key="EA_ENV_TEABLE_TABLE_ID",
+    )
+    resolved_table_name, table_name_config_source = _config_value(
+        env_file_values=env_file_values,
+        explicit=table_name,
+        env_key="EA_ENV_TEABLE_TABLE_NAME",
+        default=DEFAULT_TABLE_NAME,
+    )
+    resolved_table_name = resolved_table_name or DEFAULT_TABLE_NAME
+    resolved_host_profile, host_profile_config_source = _config_value(
+        env_file_values=env_file_values,
+        explicit=host_profile,
+        env_key="EA_ENV_TEABLE_HOST_PROFILE",
+        default="ea-prod",
+    )
+    resolved_host_profile = resolved_host_profile or "ea-prod"
     discovery_mode = "explicit_table_id"
     if not resolved_table_id:
         resolved_table_id = sync_env_to_teable.discover_table_id(
@@ -142,7 +220,7 @@ def build_teable_env_recovery_proof(
             root_env_path=drill_root / ".env",
             local_env_path=drill_root / ".env.local",
             service_env_path=drill_root / "ea" / ".env",
-            host_profile=host_profile,
+            host_profile=resolved_host_profile,
             backup_existing=False,
         )
         raw_proof = dict(result.get("recovery_proof") or {})
@@ -163,8 +241,25 @@ def build_teable_env_recovery_proof(
             "output_path": str(output_path if output_path.is_absolute() else output_path.as_posix()),
             "status": status,
             "recovery_status": str(result.get("status") or "").strip(),
-            "host_profile": str(raw_proof.get("host_profile") or host_profile).strip() or host_profile,
+            "host_profile": str(raw_proof.get("host_profile") or resolved_host_profile).strip() or resolved_host_profile,
             "fresh_host_api_key_source": "process_env",
+            "teable_config_sources": {
+                "api_key": api_key_config_source,
+                "base_url": base_url_config_source,
+                "table_id": table_id_config_source,
+                "table_name": table_name_config_source,
+                "host_profile": host_profile_config_source,
+                "targeted_env_file_fallback_used": any(
+                    source == "targeted_env_file"
+                    for source in (
+                        api_key_config_source,
+                        base_url_config_source,
+                        table_id_config_source,
+                        table_name_config_source,
+                        host_profile_config_source,
+                    )
+                ),
+            },
             "table_discovery_mode": discovery_mode,
             "table_id_sha256": _sha256_text(resolved_table_id),
             "table_name": resolved_table_name,
