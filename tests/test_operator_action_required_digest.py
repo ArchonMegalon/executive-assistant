@@ -10,6 +10,8 @@ from scripts import verify_operator_action_required_digest as verify_digest
 def _patch_source_state(monkeypatch) -> None:
     monkeypatch.setattr(digest, "resolve_source_state_head", lambda _root: "source-head")
     monkeypatch.setattr(digest, "resolve_source_worktree_fingerprint", lambda _root: "source-fingerprint")
+    monkeypatch.setattr(verify_digest, "resolve_source_state_head", lambda _root: "source-head")
+    monkeypatch.setattr(verify_digest, "resolve_source_worktree_fingerprint", lambda _root: "source-fingerprint")
 
 
 def _action_row(**overrides):
@@ -335,6 +337,73 @@ def test_digest_external_setup_url_hash_preserves_legacy_items(tmp_path, monkeyp
     }
     assert len(calls) == 1
     assert verify_digest.verify_receipt(receipt) == []
+
+
+def test_digest_file_verifier_rejects_stale_source_posture_hash(tmp_path, monkeypatch) -> None:
+    _patch_source_state(monkeypatch)
+    input_path = tmp_path / "posture.json"
+    output_path = tmp_path / "digest.json"
+    state_path = tmp_path / "state.json"
+    _write_json(input_path, {"status": "active_with_blockers", "operator_action_queue": [_action_row()]})
+
+    receipt = digest.build_operator_action_required_digest(
+        root=tmp_path,
+        input_path=input_path,
+        output_path=output_path,
+        state_path=state_path,
+        generated_at="2026-07-01T12:05:00Z",
+    )
+    assert verify_digest.verify(output_path, root=tmp_path) == []
+
+    _write_json(
+        input_path,
+        {
+            "status": "active_with_blockers",
+            "operator_action_queue": [
+                _action_row(),
+                _action_row(key="google_workspace_oauth_setup", instruction="Retry Google auth."),
+            ],
+        },
+    )
+
+    issues = verify_digest.verify(output_path, root=tmp_path)
+
+    assert "source_receipt.sha256 stale" in issues
+    assert verify_digest.verify_receipt(receipt) == []
+
+
+def test_digest_excludes_observed_google_email_exposure(tmp_path, monkeypatch) -> None:
+    _patch_source_state(monkeypatch)
+    input_path = tmp_path / "posture.json"
+    output_path = tmp_path / "digest.json"
+    state_path = tmp_path / "state.json"
+    _write_json(
+        input_path,
+        {
+            "status": "active_with_blockers",
+            "operator_action_queue": [
+                _action_row(
+                    key="google_workspace_oauth_setup",
+                    instruction="Retry Google auth.",
+                    raw_observed_google_email_exposed=True,
+                )
+            ],
+        },
+    )
+
+    receipt = digest.build_operator_action_required_digest(
+        root=tmp_path,
+        input_path=input_path,
+        output_path=output_path,
+        state_path=state_path,
+        generated_at="2026-07-01T12:06:00Z",
+    )
+
+    assert receipt["status"] == "no_user_action_required"
+    assert receipt["item_count"] == 0
+    assert receipt["counts"]["suppressed_privacy_blocked_count"] == 1
+    assert receipt["privacy"]["raw_observed_google_email_exposed"] is False
+    assert verify_digest.verify(output_path, root=tmp_path) == []
 
 
 def test_digest_dry_run_checks_sender_without_persisting_state(tmp_path, monkeypatch) -> None:

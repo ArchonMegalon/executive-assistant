@@ -1,28 +1,29 @@
 {
   "contract_name": "ea.operator_action_required_dedupe_proof.v1",
   "counts": {
-    "included_count": 5,
-    "input_count": 7,
+    "included_count": 6,
+    "input_count": 8,
     "suppressed_policy_blocked_count": 0,
     "suppressed_privacy_blocked_count": 0,
     "suppressed_queue_only_count": 2
   },
   "current_actions_covered_by_prior_state": true,
-  "current_digest_sha256": "133bb1a750368639b49c97dbe5d8070731c080ebf77a4b836b88cdbf1b40482a",
+  "current_digest_sha256": "2ddf8c90fe31c1e913a47829bdc7c8e08caf7f2fcd4f189951fb320fdc58c3d3",
   "dedupe_checked": true,
   "delivery_policy": "action_required_only",
   "force_required_to_resend": true,
-  "generated_at": "2026-07-01T18:56:54Z",
+  "generated_at": "2026-07-02T08:00:02Z",
   "generated_by": "scripts/materialize_operator_action_required_dedupe_proof.py",
   "head_semantics": "source_state",
   "included_action_keys": [
     "weekly_signal_to_decision_review_acceptance",
+    "google_workspace_oauth_setup",
     "pushbullet_delivery_setup",
     "telegram_audiobook_live_delivery",
     "manfred_stt_tts_realtime_conversation",
     "whatsapp_audiobook_live_delivery"
   ],
-  "item_count": 5,
+  "item_count": 6,
   "notification_item_count_without_force": 0,
   "notification_mode_without_force": "duplicate_suppressed",
   "output_path": ".codex-studio/published/ea_operator_action_required_dedupe_proof.generated.json",
@@ -50,24 +51,24 @@
   ],
   "send_attempted": false,
   "send_requested": false,
-  "source_git_head": "4cf42d54abcf669920a230dd198431a0cac94354",
+  "source_git_head": "ec799010c58627e88b76d115075d80c78a811db5",
   "source_receipts": {
     "posture": {
       "path": ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json",
       "present": true,
-      "sha256": "7065211229610516736d56a618154658c9a0be29f0f6fe643e40874b04d64b2e"
+      "sha256": "dc036505b150477483e040cde0a4f3fa3c3972f5c0a29f5c337269668b817c08"
     },
     "sent_digest": {
       "digest_match": true,
-      "message_count": 0,
-      "notification_item_count": 0,
-      "notification_status": "suppressed_duplicate",
+      "message_count": 1,
+      "notification_item_count": 1,
+      "notification_status": "sent",
       "path": ".codex-studio/published/ea_operator_action_required_digest.generated.json",
       "present": true,
-      "status": "suppressed_duplicate"
+      "status": "sent"
     }
   },
-  "source_state_fingerprint": "48bb605becd292a4ce85c34a5359df90bf1d57ad3231d77bd49b1bf00b65aadc",
+  "source_state_fingerprint": "135a137882b3e178ef2307546a27f9417619854fa79b5b7c5158e4a068cf9054",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "state": {
     "last_digest_match": true,

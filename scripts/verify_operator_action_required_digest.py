@@ -2,9 +2,17 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, Mapping
+
+try:
+    from scripts.source_state_head import resolve_source_state_head
+    from scripts.source_state_head import resolve_source_worktree_fingerprint
+except ModuleNotFoundError:  # pragma: no cover - direct script execution
+    from source_state_head import resolve_source_state_head
+    from source_state_head import resolve_source_worktree_fingerprint
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,6 +33,7 @@ PRIVATE_EXPOSURE_FLAGS = (
     "raw_transcript_fields_exposed",
     "candidate_raw_text_fields_exposed",
     "raw_expected_google_email_exposed",
+    "raw_observed_google_email_exposed",
     "raw_client_id_exposed",
     "raw_client_secret_exposed",
     "raw_error_description_exposed",
@@ -47,6 +56,19 @@ def _load_json(path: Path) -> dict[str, Any]:
     except Exception:
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def _sha256_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _sha256_json(value: object) -> str:
+    return _sha256_text(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+
+
+def _resolve_receipt_path(path_text: str, *, root: Path) -> Path:
+    path = Path(path_text)
+    return path if path.is_absolute() else root / path
 
 
 def _issues_for_item(row: Mapping[str, Any], index: int) -> list[str]:
@@ -185,6 +207,46 @@ def verify_receipt(receipt: Mapping[str, Any]) -> list[str]:
     return issues
 
 
+def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
+    receipt = _load_json(path)
+    issues = verify_receipt(receipt)
+    if not receipt:
+        return issues
+
+    current_head = resolve_source_state_head(root)
+    current_fingerprint = resolve_source_worktree_fingerprint(root)
+    source_head = str(receipt.get("source_git_head") or "").strip()
+    source_fingerprint = str(receipt.get("source_state_fingerprint") or "").strip()
+    if receipt.get("head_semantics") != "source_state":
+        issues.append("head_semantics must be source_state")
+    if receipt.get("source_state_fingerprint_semantics") != "worktree_source_files_sha256_excluding_generated_only_paths":
+        issues.append("source_state_fingerprint_semantics mismatch")
+    if not source_head:
+        issues.append("source_git_head missing")
+    elif source_head != current_head and source_fingerprint != current_fingerprint:
+        issues.append("source state stale")
+    if not source_fingerprint:
+        issues.append("source_state_fingerprint missing")
+    elif source_fingerprint != current_fingerprint:
+        issues.append("source_state_fingerprint stale")
+
+    source_receipt = dict(receipt.get("source_receipt") or {})
+    source_path_text = str(source_receipt.get("path") or "").strip()
+    source_sha256 = str(source_receipt.get("sha256") or "").strip()
+    if source_path_text:
+        source_path = _resolve_receipt_path(source_path_text, root=root)
+        source_payload = _load_json(source_path)
+        if not source_payload:
+            issues.append("source_receipt.path must point to a readable posture receipt")
+        else:
+            current_source_sha256 = _sha256_json(source_payload)
+            if not source_sha256:
+                issues.append("source_receipt.sha256 must be present")
+            elif source_sha256 != current_source_sha256:
+                issues.append("source_receipt.sha256 stale")
+    return issues
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Verify EA operator action-required digest receipt.")
     parser.add_argument("--receipt", default=str(DEFAULT_RECEIPT))
@@ -195,8 +257,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     receipt_path = Path(args.receipt)
-    receipt = _load_json(receipt_path)
-    issues = verify_receipt(receipt)
+    issues = verify(receipt_path)
     payload = {
         "status": "pass" if not issues else "fail",
         "receipt": str(receipt_path),
