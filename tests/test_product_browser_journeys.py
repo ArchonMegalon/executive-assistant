@@ -98,9 +98,11 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     start_workspace(client, mode="personal", workspace_name="Property Office")
     monkeypatch.setenv("PAYPAL_CLIENT_ID", "paypal-client")
     monkeypatch.setenv("PAYPAL_SECRET", "paypal-secret")
+    property_headers = {"host": "propertyquarry.com"}
 
     stored = client.post(
         "/v1/onboarding/property-search/preferences",
+        headers=property_headers,
         json={
             "country_code": "DE",
             "language_code": "de",
@@ -243,7 +245,6 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     monkeypatch.setattr(landing_routes, "_property_investment_research_access_level", lambda *args, **kwargs: "full")
     monkeypatch.setattr(landing_routes, "_property_investment_research_snapshot", _fake_investment_snapshot)
 
-    property_headers = {"host": "propertyquarry.com"}
     response = client.get("/app/properties", params={"run_id": "run-42"}, headers=property_headers)
     assert response.status_code == 200
     assert 'data-property-decision-workbench' in response.text
@@ -321,9 +322,11 @@ def test_legacy_console_property_shell_renders_match_threshold_slider() -> None:
     principal_id = "exec-browser-property-legacy-slider"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Office")
+    property_headers = {"host": "propertyquarry.com"}
 
     stored = client.post(
         "/v1/onboarding/property-search/preferences",
+        headers=property_headers,
         json={
             "country_code": "AT",
             "language_code": "de",
@@ -337,7 +340,7 @@ def test_legacy_console_property_shell_renders_match_threshold_slider() -> None:
     )
     assert stored.status_code == 200, stored.text
 
-    response = client.get("/app/properties")
+    response = client.get("/app/properties", headers=property_headers)
     assert response.status_code == 200
     assert 'data-console-form-variant="property_search"' in response.text
     assert 'name="min_match_score"' in response.text

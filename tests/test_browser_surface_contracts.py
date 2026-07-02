@@ -150,7 +150,9 @@ def test_unauthenticated_browser_app_navigation_redirects_to_sign_in() -> None:
     client = TestClient(create_app())
     response = client.get("/app/properties", headers={"accept": "text/html"}, follow_redirects=False)
     assert response.status_code == 404
-    assert response.json()["error"]["message"] == "property_search_not_available"
+    assert response.json()["detail"] == "property_search_not_available"
+    assert response.json()["product_boundary"] == "propertyquarry"
+    assert response.headers["X-EA-Product-Boundary"] == "propertyquarry"
 
 
 def test_unauthenticated_api_calls_still_return_json_auth_error() -> None:

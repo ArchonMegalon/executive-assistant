@@ -159,7 +159,7 @@ PROPERTY_SIGN_IN_NOTES = (
     "Shared review, billing, and broader workspace controls come later from Preferences after the first shortlist proves useful.",
 )
 
-SIGN_IN_NOTES = PROPERTY_SIGN_IN_NOTES
+SIGN_IN_NOTES = EA_SIGN_IN_NOTES
 
 
 def sign_in_notes_for_brand(brand_key: str) -> tuple[str, ...]:

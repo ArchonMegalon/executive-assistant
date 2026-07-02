@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,16 +17,24 @@ def _request(path: str, query: str = "", *, host: str = "myexternalbrain.com") -
     return SimpleNamespace(url=SimpleNamespace(path=path, query=query, hostname=host), headers={"host": host})
 
 
-def test_ea_property_app_surface_redirects_to_propertyquarry() -> None:
+def _json_body(response) -> dict[str, object]:  # type: ignore[no-untyped-def]
+    return json.loads(response.body.decode("utf-8"))
+
+
+def test_ea_property_app_surface_is_not_available_from_ea() -> None:
     with patch.object(property_surface_boundary, "request_brand", return_value={"key": "ea"}):
         response = property_surface_boundary.property_surface_boundary_response(
             _request("/app/properties", "run_id=abc123")
         )
 
     assert response is not None
-    assert response.status_code == 307
-    assert response.headers["location"] == "https://propertyquarry.com/app/properties?run_id=abc123"
+    assert response.status_code == 404
+    assert _json_body(response) == {
+        "detail": "property_search_not_available",
+        "product_boundary": "propertyquarry",
+    }
     assert response.headers["X-EA-Product-Boundary"] == "propertyquarry"
+    assert response.headers["X-Robots-Tag"] == "noindex, nofollow, noarchive, nosnippet"
 
 
 def test_myexternalbrain_stays_ea_even_when_propertyquarry_default_brand_is_enabled() -> None:
@@ -36,8 +45,8 @@ def test_myexternalbrain_stays_ea_even_when_propertyquarry_default_brand_is_enab
         )
 
     assert response is not None
-    assert response.status_code == 307
-    assert response.headers["location"] == "https://propertyquarry.com/app/properties?run_id=abc123"
+    assert response.status_code == 404
+    assert _json_body(response)["detail"] == "property_search_not_available"
 
 
 def test_myexternalbrain_stays_ea_when_ea_hosts_env_omits_production_domain() -> None:
@@ -55,8 +64,8 @@ def test_myexternalbrain_stays_ea_when_ea_hosts_env_omits_production_domain() ->
         )
 
     assert response is not None
-    assert response.status_code == 307
-    assert response.headers["location"] == "https://propertyquarry.com/app/properties?run_id=abc123"
+    assert response.status_code == 404
+    assert _json_body(response)["detail"] == "property_search_not_available"
     assert response.headers["X-EA-Product-Boundary"] == "propertyquarry"
 
 
@@ -65,18 +74,16 @@ def test_propertyquarry_default_brand_still_supports_unmapped_preview_hosts() ->
         assert public_branding.brand_from_hostname("preview.internal")["key"] == "propertyquarry"
 
 
-def test_ea_property_subsurface_redirects_to_propertyquarry() -> None:
+def test_ea_property_subsurface_is_not_available_from_ea() -> None:
     with patch.object(property_surface_boundary, "request_brand", return_value={"key": "ea"}):
         response = property_surface_boundary.property_surface_boundary_response(
             _request("/app/research/candidate-123", "investment=1")
         )
 
     assert response is not None
-    assert response.status_code == 307
-    assert (
-        response.headers["location"]
-        == "https://propertyquarry.com/app/research/candidate-123?investment=1"
-    )
+    assert response.status_code == 404
+    assert _json_body(response)["detail"] == "property_search_not_available"
+    assert response.headers["X-EA-Product-Boundary"] == "propertyquarry"
 
 
 def test_property_api_surface_is_not_served_from_ea_brand() -> None:

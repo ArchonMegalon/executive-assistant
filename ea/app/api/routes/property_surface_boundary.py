@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, RedirectResponse, Response
+from fastapi.responses import JSONResponse, Response
 
 from app.services.public_branding import request_brand
 from app.services.public_urls import propertyquarry_public_base_url
@@ -71,10 +71,16 @@ def property_surface_boundary_response(request: Request) -> Response | None:
         return None
 
     path = str(request.url.path or "")
-    query = str(request.url.query or "")
     if is_property_app_surface_path(path):
-        response = RedirectResponse(propertyquarry_url_for_path(path, query), status_code=307)
+        response = JSONResponse(
+            {
+                "detail": "property_search_not_available",
+                "product_boundary": "propertyquarry",
+            },
+            status_code=404,
+        )
         response.headers["X-EA-Product-Boundary"] = "propertyquarry"
+        response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
         return response
 
     if is_property_api_surface_path(path):
@@ -86,6 +92,7 @@ def property_surface_boundary_response(request: Request) -> Response | None:
             status_code=404,
         )
         response.headers["X-EA-Product-Boundary"] = "propertyquarry"
+        response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
         return response
 
     return None
