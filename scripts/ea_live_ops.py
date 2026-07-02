@@ -2698,6 +2698,315 @@ def probe_proactive_artifacts(
     return report
 
 
+def _proactive_action_required_quiet_probe_code(
+    *,
+    principal_id: str,
+    root_path: str,
+    ledger_dir: str,
+) -> str:
+    return "\n".join(
+        (
+            "import json, os, subprocess, sys",
+            "from datetime import datetime, timezone",
+            "from pathlib import Path",
+            f"root = Path({json.dumps(str(root_path or '/app'))})",
+            f"ledger_dir = Path({json.dumps(str(ledger_dir or '/data/provider-ledger'))})",
+            f"principal_id = {json.dumps(str(principal_id or '').strip())}",
+            "ledger_dir.mkdir(parents=True, exist_ok=True)",
+            "signal_path = ledger_dir / 'proactive_ooda_action_required_quiet_probe_signals.generated.json'",
+            "receipt_path = ledger_dir / 'proactive_ooda_action_required_quiet_probe.generated.json'",
+            "source_ref = 'live_ops:action_required_quiet_probe:' + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')",
+            "signals = [{",
+            "    'source_ref': source_ref,",
+            "    'signal_type': 'opportunity',",
+            "    'channel': 'assistant_opportunity',",
+            "    'title': 'Decision needed for EA quiet-delivery proof',",
+            "    'summary': 'Approve the internal proactive OODA delivery-policy proof. No external action is staged.',",
+            "    'counterparty': 'EA',",
+            "    'payload': {'tags': ['live_ops', 'action_required_only', 'quiet_delivery_probe']},",
+            "}]",
+            "signal_path.write_text(json.dumps(signals, ensure_ascii=True, sort_keys=True) + '\\n', encoding='utf-8')",
+            "env = dict(os.environ)",
+            "env['EA_PROACTIVE_OODA_PERSIST_RECEIPTS'] = '0'",
+            "cmd = [",
+            "    sys.executable, str(root / 'scripts' / 'run_proactive_ooda.py'),",
+            "    '--principal-id', principal_id or 'principal-default',",
+            "    '--signals-json', str(signal_path),",
+            "    '--state-path', str(ledger_dir / 'proactive_ooda_notified.json'),",
+            "    '--receipt-path', str(receipt_path),",
+            "    '--max-items', '1',",
+            "    '--skip-observation-source',",
+            "    '--skip-workspace-source',",
+            "    '--no-include-goal-action-queue',",
+            "    '--armed-send',",
+            "    '--no-paused',",
+            "    '--quiet-hours-start', '',",
+            "    '--quiet-hours-end', '',",
+            "    '--interruption-budget-limit', '0',",
+            "    '--no-stage-packets',",
+            "    '--no-safe-work-results',",
+            "    '--action-required-delivery-only',",
+            "    '--no-mirror-delivery-proof',",
+            "    '--no-teable-sync',",
+            "]",
+            "proc = subprocess.run(cmd, cwd=str(root), env=env, capture_output=True, text=True, check=False)",
+            "def _load_json(path):",
+            "    try:",
+            "        payload = json.loads(path.read_text(encoding='utf-8'))",
+            "    except Exception:",
+            "        return {}",
+            "    return payload if isinstance(payload, dict) else {}",
+            "def _last_json(text):",
+            "    stripped = str(text or '').strip()",
+            "    if not stripped:",
+            "        return {}",
+            "    try:",
+            "        payload = json.loads(stripped)",
+            "        return payload if isinstance(payload, dict) else {}",
+            "    except Exception:",
+            "        pass",
+            "    for line in reversed(stripped.splitlines()):",
+            "        try:",
+            "            payload = json.loads(line.strip())",
+            "        except Exception:",
+            "            continue",
+            "        return payload if isinstance(payload, dict) else {}",
+            "    return {}",
+            "def _message_count(payload):",
+            "    total = 0",
+            "    for key in ('telegram_message_ids', 'delivery_message_ids', 'message_ids'):",
+            "        value = payload.get(key)",
+            "        if isinstance(value, (list, tuple)):",
+            "            total += len([item for item in value if str(item or '').strip()])",
+            "        elif str(value or '').strip():",
+            "            total += 1",
+            "    return total",
+            "def _quiet(payload):",
+            "    return (",
+            "        bool(payload)",
+            "        and not bool(payload.get('dry_run'))",
+            "        and str(payload.get('notification_status') or '').strip().lower() == 'deferred'",
+            "        and str(payload.get('error_code') or '').strip() == 'no_user_action_required'",
+            "        and int(payload.get('item_count') or 0) > 0",
+            "        and _message_count(payload) == 0",
+            "    )",
+            "receipt = _load_json(receipt_path)",
+            "archive_path = ''",
+            "archive_dir = receipt_path.parent / 'proactive_ooda_run_receipts'",
+            "if archive_dir.is_dir():",
+            "    for candidate in sorted(archive_dir.glob('*.json'), key=lambda path: path.stat().st_mtime, reverse=True):",
+            "        archived = _load_json(candidate)",
+            "        if _quiet(archived):",
+            "            archive_path = candidate.as_posix()",
+            "            break",
+            "runner_payload = _last_json(proc.stdout)",
+            "quiet = _quiet(receipt)",
+            "message_count = _message_count(receipt)",
+            "status = 'quiet_receipt_created' if proc.returncode == 0 and quiet else 'probe_failed'",
+            "print(json.dumps({",
+            "    'probe_ok': proc.returncode == 0 and quiet,",
+            "    'status': status,",
+            "    'runner_returncode': int(proc.returncode or 0),",
+            "    'runner_payload_seen': bool(runner_payload),",
+            "    'principal_id_hash': str(receipt.get('principal_id_hash') or ''),",
+            "    'signal_path': signal_path.as_posix(),",
+            "    'receipt_path': receipt_path.as_posix(),",
+            "    'archive_path': archive_path,",
+            "    'notification_status': str(receipt.get('notification_status') or ''),",
+            "    'error_code': str(receipt.get('error_code') or ''),",
+            "    'item_count': int(receipt.get('item_count') or 0),",
+            "    'dry_run': bool(receipt.get('dry_run')),",
+            "    'message_count': message_count,",
+            "    'telegram_message_count': len(receipt.get('telegram_message_ids') or []),",
+            "    'delivery_message_count': len(receipt.get('delivery_message_ids') or []),",
+            "    'quiet_receipt_proves_action_required_only': quiet,",
+            "    'action_required_delivery_only': True,",
+            "    'telegram_notification_suppressed': quiet,",
+            "    'raw_signal_exposed': False,",
+            "    'raw_notification_text_exposed': False,",
+            "    'raw_credentials_exposed': False,",
+            "    'stderr_excerpt': str(proc.stderr or '').strip()[:240],",
+            "}, sort_keys=True))",
+            "raise SystemExit(0 if proc.returncode == 0 and quiet else 2)",
+        )
+    )
+
+
+def _run_proactive_action_required_quiet_probe_in_process(
+    *,
+    principal_id: str,
+    timeout_seconds: float,
+) -> tuple[int, dict[str, Any], str, str]:
+    root = _proactive_runtime_root()
+    ledger_dir = Path(_env("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(root / "state")) or str(root / "state"))
+    code = _proactive_action_required_quiet_probe_code(
+        principal_id=principal_id,
+        root_path=root.as_posix(),
+        ledger_dir=ledger_dir.as_posix(),
+    )
+    effective_timeout = max(float(timeout_seconds or 1.0), 1.0)
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=root,
+            env=dict(os.environ),
+            capture_output=True,
+            text=True,
+            check=False,
+            start_new_session=True,
+            timeout=effective_timeout + 5.0,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout.decode("utf-8", errors="replace") if isinstance(exc.stdout, bytes) else str(exc.stdout or "")
+        stderr = exc.stderr.decode("utf-8", errors="replace") if isinstance(exc.stderr, bytes) else str(exc.stderr or "")
+        return (
+            124,
+            {
+                "ok": False,
+                "timed_out": True,
+                "reason": f"TimeoutExpired:{effective_timeout:g}s",
+                "timeout_seconds": effective_timeout,
+            },
+            stdout,
+            stderr,
+        )
+    stdout = str(completed.stdout or "")
+    return int(completed.returncode or 0), _json_from_stdout(stdout), stdout, str(completed.stderr or "")
+
+
+def probe_proactive_action_required_quiet(
+    *,
+    principal_id: str = "",
+    compose_file: str = "",
+    runtime_service: str = "",
+    timeout_seconds: float = 60.0,
+    output_format: str = "json",
+) -> dict[str, object]:
+    effective_compose_file = str(compose_file or _env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE))).strip()
+    effective_runtime_service = str(runtime_service or _env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE)).strip()
+    effective_principal_id = str(principal_id or _default_proactive_principal_id()).strip()
+    observed_at = _utc_now()
+    if not effective_compose_file or not effective_runtime_service:
+        report = {
+            "probe_ok": False,
+            "status": "probe_failed",
+            "compose_file": effective_compose_file,
+            "runtime_service": effective_runtime_service,
+            "principal_id": effective_principal_id,
+            "observed_at": observed_at,
+            "source": "docker_compose_exec",
+            "blocking_reason": "runtime_probe_configuration_missing",
+        }
+        if output_format == "operator":
+            report["operator_text"] = "proactive quiet-delivery probe failed; configure runtime probe inputs"
+        return report
+
+    command = [
+        "python",
+        "-c",
+        _proactive_action_required_quiet_probe_code(
+            principal_id=effective_principal_id,
+            root_path="/app",
+            ledger_dir="/data/provider-ledger",
+        ),
+    ]
+    source = "docker_compose_exec"
+    if _use_in_process_proactive_runtime_fallback():
+        source = "in_process_runtime"
+        code, payload, stdout, stderr = _run_proactive_action_required_quiet_probe_in_process(
+            principal_id=effective_principal_id,
+            timeout_seconds=timeout_seconds,
+        )
+    else:
+        code, payload, stdout, stderr = _docker_compose_exec_json(
+            compose_file=effective_compose_file,
+            service=effective_runtime_service,
+            command=command,
+            timeout_seconds=timeout_seconds,
+        )
+    if bool(payload.get("timed_out")):
+        reason = str(payload.get("reason") or f"TimeoutExpired:{float(timeout_seconds):g}s").strip()
+        report = {
+            "probe_ok": False,
+            "status": "probe_failed",
+            "compose_file": effective_compose_file,
+            "runtime_service": effective_runtime_service,
+            "principal_id": effective_principal_id,
+            "observed_at": observed_at,
+            "source": source,
+            "blocking_reason": f"runtime_quiet_delivery_probe_timed_out:{reason}",
+            "timed_out": True,
+            "timeout_seconds": float(payload.get("timeout_seconds") or timeout_seconds),
+            "stdout_excerpt": stdout.strip()[:200],
+            "stderr_excerpt": stderr.strip()[:200],
+        }
+        if output_format == "operator":
+            report["operator_text"] = "proactive quiet-delivery probe timed out; inspect ea-proactive-ooda"
+        return report
+    if not payload:
+        report = {
+            "probe_ok": False,
+            "status": "probe_failed",
+            "compose_file": effective_compose_file,
+            "runtime_service": effective_runtime_service,
+            "principal_id": effective_principal_id,
+            "observed_at": observed_at,
+            "source": source,
+            "blocking_reason": f"runtime_quiet_delivery_probe_failed:exit_{code}",
+            "stdout_excerpt": stdout.strip()[:200],
+            "stderr_excerpt": stderr.strip()[:200],
+        }
+        if output_format == "operator":
+            report["operator_text"] = "proactive quiet-delivery probe failed; inspect ea-proactive-ooda"
+        return report
+
+    quiet_proof = bool(payload.get("quiet_receipt_proves_action_required_only"))
+    probe_ok = bool(payload.get("probe_ok")) and quiet_proof and int(payload.get("message_count") or 0) == 0
+    report = {
+        "probe_ok": probe_ok,
+        "status": "quiet_receipt_created" if probe_ok else "probe_failed",
+        "compose_file": effective_compose_file,
+        "runtime_service": effective_runtime_service,
+        "principal_id": effective_principal_id,
+        "observed_at": observed_at,
+        "source": source,
+        "runner_returncode": int(payload.get("runner_returncode") or code or 0),
+        "runner_payload_seen": bool(payload.get("runner_payload_seen")),
+        "receipt_path": str(payload.get("receipt_path") or "").strip(),
+        "archive_path": str(payload.get("archive_path") or "").strip(),
+        "notification_status": str(payload.get("notification_status") or "").strip(),
+        "error_code": str(payload.get("error_code") or "").strip(),
+        "item_count": int(payload.get("item_count") or 0),
+        "dry_run": bool(payload.get("dry_run")),
+        "message_count": int(payload.get("message_count") or 0),
+        "telegram_message_count": int(payload.get("telegram_message_count") or 0),
+        "delivery_message_count": int(payload.get("delivery_message_count") or 0),
+        "action_required_delivery_only": bool(payload.get("action_required_delivery_only")),
+        "telegram_notification_suppressed": bool(payload.get("telegram_notification_suppressed")),
+        "quiet_receipt_proves_action_required_only": quiet_proof,
+        "raw_signal_exposed": bool(payload.get("raw_signal_exposed")),
+        "raw_notification_text_exposed": bool(payload.get("raw_notification_text_exposed")),
+        "raw_credentials_exposed": bool(payload.get("raw_credentials_exposed")),
+    }
+    if not probe_ok:
+        report["blocking_reason"] = (
+            "quiet_receipt_missing_or_noisy"
+            if int(report["runner_returncode"]) == 0
+            else f"runtime_quiet_delivery_probe_failed:exit_{int(report['runner_returncode'])}"
+        )
+        report["stderr_excerpt"] = str(payload.get("stderr_excerpt") or stderr or "").strip()[:240]
+    if output_format == "operator":
+        report["operator_text"] = (
+            "proactive_action_required_quiet "
+            f"status={str(report['status'])} "
+            f"quiet={str(bool(report['quiet_receipt_proves_action_required_only'])).lower()} "
+            f"messages={int(report['message_count'])} "
+            f"error={str(report['error_code']) or 'none'} "
+            f"receipt={str(report['receipt_path'])}"
+        )
+    return report
+
+
 def cleanup_proactive_approval_callbacks(
     *,
     compose_file: str = "",
@@ -5856,6 +6165,16 @@ def parse_args() -> argparse.Namespace:
     proactive_artifacts.add_argument("--runtime-service", default=_env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE))
     _add_timeout_seconds_argument(proactive_artifacts)
 
+    proactive_quiet = subparsers.add_parser(
+        "probe-proactive-action-required-quiet",
+        help="Create a live quiet receipt proving non-actionable proactive OODA packets do not notify Telegram.",
+    )
+    proactive_quiet.add_argument("--principal-id", dest="proactive_principal_id", default=_default_proactive_principal_id())
+    proactive_quiet.add_argument("--format", choices=("json", "operator"), default="json")
+    proactive_quiet.add_argument("--compose-file", default=_env("EA_PROACTIVE_OODA_RUNTIME_COMPOSE_FILE", str(DEFAULT_PROACTIVE_OODA_COMPOSE_FILE)))
+    proactive_quiet.add_argument("--runtime-service", default=_env("EA_PROACTIVE_OODA_RUNTIME_SERVICE", DEFAULT_PROACTIVE_OODA_RUNTIME_SERVICE))
+    _add_timeout_seconds_argument(proactive_quiet)
+
     proactive_approval_capture = subparsers.add_parser(
         "probe-proactive-approval-capture",
         help="Probe whether the current Telegram approval callback can be accepted without exposing secret values.",
@@ -6108,6 +6427,19 @@ def main() -> int:
         return 0 if bool(report.get("probe_ok")) else 2
     if args.command == "probe-proactive-artifacts":
         report = probe_proactive_artifacts(
+            compose_file=str(args.compose_file or "").strip(),
+            runtime_service=str(args.runtime_service or "").strip(),
+            timeout_seconds=float(args.timeout_seconds or 60.0),
+            output_format=args.format,
+        )
+        if args.format == "operator":
+            print(str(report.get("operator_text") or ""))
+        else:
+            print(_json_dumps(report))
+        return 0 if bool(report.get("probe_ok")) else 2
+    if args.command == "probe-proactive-action-required-quiet":
+        report = probe_proactive_action_required_quiet(
+            principal_id=str(getattr(args, "proactive_principal_id", "") or "").strip(),
             compose_file=str(args.compose_file or "").strip(),
             runtime_service=str(args.runtime_service or "").strip(),
             timeout_seconds=float(args.timeout_seconds or 60.0),

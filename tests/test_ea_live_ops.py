@@ -2137,6 +2137,107 @@ def test_probe_proactive_artifacts_uses_in_process_fallback_without_docker_cli(m
     assert report["current_packet_live_pending_count"] == 1
 
 
+def test_probe_proactive_action_required_quiet_creates_sanitized_report(monkeypatch) -> None:
+    module = _module()
+    seen: dict[str, object] = {}
+
+    def _fake_exec_json(*, command: list[str], **_kwargs):
+        seen["command"] = list(command)
+        return (
+            0,
+            {
+                "probe_ok": True,
+                "status": "quiet_receipt_created",
+                "runner_returncode": 0,
+                "runner_payload_seen": True,
+                "receipt_path": "/data/provider-ledger/proactive_ooda_action_required_quiet_probe.generated.json",
+                "archive_path": "/data/provider-ledger/proactive_ooda_run_receipts/20260702T090000-deferred-proof.json",
+                "notification_status": "deferred",
+                "error_code": "no_user_action_required",
+                "item_count": 1,
+                "dry_run": False,
+                "message_count": 0,
+                "telegram_message_count": 0,
+                "delivery_message_count": 0,
+                "action_required_delivery_only": True,
+                "telegram_notification_suppressed": True,
+                "quiet_receipt_proves_action_required_only": True,
+                "raw_signal_exposed": False,
+                "raw_notification_text_exposed": False,
+                "raw_credentials_exposed": False,
+            },
+            '{"probe_ok":true}',
+            "",
+        )
+
+    monkeypatch.setattr(module, "_docker_compose_exec_json", _fake_exec_json)
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-02T09:00:00Z")
+
+    report = module.probe_proactive_action_required_quiet(
+        principal_id="exec-1",
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+        output_format="json",
+    )
+
+    assert report["probe_ok"] is True
+    assert report["status"] == "quiet_receipt_created"
+    assert report["observed_at"] == "2026-07-02T09:00:00Z"
+    assert report["notification_status"] == "deferred"
+    assert report["error_code"] == "no_user_action_required"
+    assert report["message_count"] == 0
+    assert report["telegram_notification_suppressed"] is True
+    assert report["quiet_receipt_proves_action_required_only"] is True
+    assert report["raw_signal_exposed"] is False
+    assert report["raw_notification_text_exposed"] is False
+    assert report["raw_credentials_exposed"] is False
+    command = list(seen["command"])
+    assert command[:2] == ["python", "-c"]
+    runtime_code = str(command[2])
+    assert "'--armed-send'" in runtime_code
+    assert "'--no-stage-packets'" in runtime_code
+    assert "'--no-safe-work-results'" in runtime_code
+    assert "'--no-teable-sync'" in runtime_code
+
+
+def test_probe_proactive_action_required_quiet_reports_failed_payload(monkeypatch) -> None:
+    module = _module()
+
+    def _fake_exec_json(*, command: list[str], **_kwargs):
+        assert command[:2] == ["python", "-c"]
+        return (
+            2,
+            {
+                "probe_ok": False,
+                "runner_returncode": 2,
+                "notification_status": "deferred",
+                "error_code": "deferred_by_quiet_hours",
+                "item_count": 1,
+                "message_count": 0,
+                "quiet_receipt_proves_action_required_only": False,
+                "stderr_excerpt": "blocked",
+            },
+            '{"probe_ok":false}',
+            "blocked",
+        )
+
+    monkeypatch.setattr(module, "_docker_compose_exec_json", _fake_exec_json)
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-02T09:05:00Z")
+
+    report = module.probe_proactive_action_required_quiet(
+        principal_id="exec-1",
+        compose_file="/docker/EA/docker-compose.yml",
+        runtime_service="ea-proactive-ooda",
+        output_format="operator",
+    )
+
+    assert report["probe_ok"] is False
+    assert report["status"] == "probe_failed"
+    assert report["blocking_reason"] == "runtime_quiet_delivery_probe_failed:exit_2"
+    assert report["stderr_excerpt"] == "blocked"
+    assert "quiet=false" in str(report["operator_text"])
+
+
 def test_current_packet_summary_ignores_mismatched_approval_outcome() -> None:
     module = _module()
     current = module._proactive_current_packet_summary(

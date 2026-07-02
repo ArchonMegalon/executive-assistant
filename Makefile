@@ -223,11 +223,11 @@ verify-proactive-ooda-operator-status:
 
 materialize-proactive-ooda-gold-acceptance:
 	$(PYTHON_BIN) scripts/materialize_proactive_ooda_operator_status.py
-	$(PYTHON_BIN) scripts/materialize_proactive_ooda_gold_acceptance.py --pretty
+	$(PYTHON_BIN) scripts/materialize_proactive_ooda_gold_acceptance.py --live-runtime-probe --pretty
 
 verify-proactive-ooda-gold-acceptance:
 	$(PYTHON_BIN) scripts/materialize_proactive_ooda_operator_status.py
-	$(PYTHON_BIN) scripts/materialize_proactive_ooda_gold_acceptance.py
+	$(PYTHON_BIN) scripts/materialize_proactive_ooda_gold_acceptance.py --live-runtime-probe
 	$(PYTHON_BIN) scripts/verify_proactive_ooda_gold_acceptance.py --pretty
 
 operator-summary:
