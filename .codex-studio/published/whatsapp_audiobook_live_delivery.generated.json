@@ -1,22 +1,15 @@
 {
   "audiobook_runtime": {
-    "api_key_slot_count": 0,
-    "ready_for_live_intake": false,
-    "reason": "jobs_root_durable, external_tts_enabled, unmixr_auto_render_enabled, voice_catalog_configured, voice_catalog_audition_ready, unmixr_api_key_slot_present",
+    "api_key_slot_count": 7,
+    "ready_for_live_intake": true,
+    "reason": "",
     "receipt_present": true,
-    "sample_blockers": [
-      "jobs_root_durable",
-      "external_tts_enabled",
-      "unmixr_auto_render_enabled",
-      "voice_catalog_configured",
-      "voice_catalog_audition_ready",
-      "unmixr_api_key_slot_present"
-    ],
-    "status": "fail",
-    "unmixr_auto_render_enabled": false,
-    "voice_catalog_count": 0
+    "sample_blockers": [],
+    "status": "warn",
+    "unmixr_auto_render_enabled": true,
+    "voice_catalog_count": 292
   },
-  "blocking_reason": "valid_live_audiobook_delivery_missing, player_scoped_reference_not_ready, audiobookshelf_public_share_not_ready, audiobookshelf_public_share_url_missing, machine_playback_e2e_not_verified, job_not_audiobookshelf_imported, user_selected_voice_delivery_not_ready, audiobook_runtime_not_ready",
+  "blocking_reason": "valid_live_audiobook_delivery_missing, player_scoped_reference_not_ready, audiobookshelf_public_share_not_ready, audiobookshelf_public_share_url_missing, machine_playback_e2e_not_verified, job_not_audiobookshelf_imported, user_selected_voice_delivery_not_ready",
   "candidate_count": 2,
   "claim": "WhatsApp EPUB audiobook delivery has live proof only when a sanitized job receipt shows the M4B is ready, Audiobookshelf imported and public-shared it, WhatsApp sent the public share link, and machine playback works. Human playback acceptance is a separate claim and is not implied by machine-playable delivery.",
   "contract_name": "ea.whatsapp_audiobook_live_delivery_receipt.v1",
@@ -58,18 +51,17 @@
     "audiobookshelf_public_share_url_missing",
     "machine_playback_e2e_not_verified",
     "job_not_audiobookshelf_imported",
-    "user_selected_voice_delivery_not_ready",
-    "audiobook_runtime_not_ready"
+    "user_selected_voice_delivery_not_ready"
   ],
   "fresh_live_job_receipt_proven": false,
-  "generated_at": "2026-07-01T15:55:33.950588Z",
+  "generated_at": "2026-07-02T08:47:55.590167Z",
   "generated_by": "ea/scripts/materialize_whatsapp_audiobook_live_delivery_receipt.py",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
   "historical_evidence": {
     "historical_live_path_proven": false,
     "local_intake": {
-      "generated_at": "2026-07-01T15:55:34.450235Z",
+      "generated_at": "2026-07-02T08:47:55.893093Z",
       "local_path_proven": true,
       "receipt_present": true,
       "share_link_sent": 1,
@@ -77,19 +69,19 @@
       "voice_sample_sent": 3
     },
     "operator_bundle": {
-      "generated_at": "2026-07-01T15:50:59.585314Z",
+      "generated_at": "2026-07-02T08:34:07.981459Z",
       "live_delivery_claim_allowed": false,
       "live_delivery_status": "blocked",
       "live_path_proven": false,
       "receipt_present": true,
-      "recommended_action": "fix_whatsapp_action_processor_readiness",
+      "recommended_action": "fix_whatsapp_action_processor_run",
       "status": "blocked",
       "voice_selection_text_fallback_ready": true
     },
     "present": true,
     "public_share_playback": {
       "attempted": 0,
-      "generated_at": "2026-07-01T15:55:12.191248Z",
+      "generated_at": "2026-07-02T08:47:33.671884Z",
       "passed": 0,
       "passed_result_count": 0,
       "playback_path_proven": false,
@@ -231,8 +223,8 @@
     "whatsapp_sender_bound": true,
     "whatsapp_session_bound": true
   },
-  "source_git_head": "8d7efd63a4f03e191b38d28e455c6732881b2359",
-  "source_state_fingerprint": "04acbe431d3ca087c1def5c2ba6be38f1ee63630dee9496f57a5b60e06808ad2",
+  "source_git_head": "2193107bdfaf10f9ee944741af6a696878bfdd87",
+  "source_state_fingerprint": "61b4b71c059b3caf8e83b43b10141b9ec5f14a09e6959c848ea2979641aa5096",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "stage_summary": {
     "counts": {

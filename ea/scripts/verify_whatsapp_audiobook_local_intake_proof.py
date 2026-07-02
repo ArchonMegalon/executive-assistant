@@ -195,9 +195,9 @@ def verify(path: Path = DEFAULT_RECEIPT) -> list[str]:
         issues.append("local_stage_receipt_summary.delivery.status must be blocked")
     if bool(delivery_stage.get("live_delivery_claim_allowed")):
         issues.append("local_stage_receipt_summary.delivery.live_delivery_claim_allowed must remain false")
-    if delivery_stage.get("next_action") != "finish_user_selected_voice_audiobook_before_sending_whatsapp_public_share_link":
+    if delivery_stage.get("next_action") != "run_public_share_machine_playback_e2e_before_claiming_live_delivery":
         issues.append(
-            "local_stage_receipt_summary.delivery.next_action must be finish_user_selected_voice_audiobook_before_sending_whatsapp_public_share_link"
+            "local_stage_receipt_summary.delivery.next_action must be run_public_share_machine_playback_e2e_before_claiming_live_delivery"
         )
     if dict(delivery_stage.get("stage_counts") or {}) != {"waiting_machine_playback_verification": 1}:
         issues.append(

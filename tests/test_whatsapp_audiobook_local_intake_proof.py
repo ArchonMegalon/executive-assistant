@@ -74,6 +74,10 @@ def test_whatsapp_audiobook_local_intake_proof_passes_and_is_sanitized(tmp_path:
     assert proof["sanitized_receipt_summary"]["whatsapp_message_hash_present"] is True
     assert proof["local_stage_receipt_summary"]["intake"]["next_action"] == "choose_whatsapp_audiobook_voice_sample"
     assert proof["local_stage_receipt_summary"]["intake"]["stage_counts"] == {"waiting_voice_choice": 1}
+    assert (
+        proof["local_stage_receipt_summary"]["delivery"]["next_action"]
+        == "run_public_share_machine_playback_e2e_before_claiming_live_delivery"
+    )
     assert proof["local_stage_receipt_summary"]["delivery"]["stage_counts"] == {
         "waiting_machine_playback_verification": 1
     }

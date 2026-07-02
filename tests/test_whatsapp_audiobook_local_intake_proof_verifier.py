@@ -120,7 +120,7 @@ def _base_receipt() -> dict[str, object]:
             "delivery": {
                 "status": "blocked",
                 "live_delivery_claim_allowed": False,
-                "next_action": "finish_user_selected_voice_audiobook_before_sending_whatsapp_public_share_link",
+                "next_action": "run_public_share_machine_playback_e2e_before_claiming_live_delivery",
                 "stage_counts": {"waiting_machine_playback_verification": 1},
             },
         },
