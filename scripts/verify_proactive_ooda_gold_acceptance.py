@@ -396,6 +396,12 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
                     actual = str(linked_operator_status.get(key) or "").strip()
                     if expected != actual:
                         issues.append(f"linked operator_status {key} drifted")
+                linked_head = str(linked_operator_status.get("source_git_head") or "").strip()
+                linked_fingerprint = str(linked_operator_status.get("source_state_fingerprint") or "").strip()
+                if recorded_head and linked_head and linked_head != recorded_head:
+                    issues.append("linked operator_status is stale relative to gold receipt source HEAD")
+                if recorded_fingerprint and linked_fingerprint and linked_fingerprint != recorded_fingerprint:
+                    issues.append("linked operator_status is stale relative to gold receipt source fingerprint")
     return issues
 
 

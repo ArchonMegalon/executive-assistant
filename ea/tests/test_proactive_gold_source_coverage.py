@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -9,6 +10,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts import materialize_proactive_ooda_gold_acceptance as gold_acceptance  # noqa: E402
+from scripts import verify_proactive_ooda_gold_acceptance as gold_acceptance_verifier  # noqa: E402
 
 
 def test_gold_operator_runtime_blocks_when_source_coverage_has_missing_lane() -> None:
@@ -65,6 +67,118 @@ def test_gold_operator_runtime_accepts_complete_source_coverage() -> None:
     assert detail["source_coverage_ready"] is True
     assert detail["source_coverage_missing_lane_keys"] == []
     assert detail["source_coverage_missing_required_event_types"] == []
+
+
+def test_gold_operator_runtime_blocks_when_operator_status_receipt_is_stale_for_current_source() -> None:
+    ready, detail = gold_acceptance._operator_status_source_posture(  # noqa: SLF001
+        {
+            "source_git_head": "old-head",
+            "source_state_fingerprint": "old-fingerprint",
+        },
+        current_source_git_head="new-head",
+        current_source_fingerprint="new-fingerprint",
+    )
+
+    assert ready is False
+    assert detail["operator_status_source_current"] is False
+    assert detail["operator_status_source_git_head_matches_current"] is False
+    assert detail["operator_status_source_fingerprint_matches_current"] is False
+    assert detail["next_action"] == "repair_proactive_operator_runtime_posture"
+
+
+def test_gold_operator_runtime_accepts_operator_status_receipt_for_current_source() -> None:
+    ready, detail = gold_acceptance._operator_status_source_posture(  # noqa: SLF001
+        {
+            "source_git_head": "same-head",
+            "source_state_fingerprint": "same-fingerprint",
+        },
+        current_source_git_head="same-head",
+        current_source_fingerprint="same-fingerprint",
+    )
+
+    assert ready is True
+    assert detail["operator_status_source_current"] is True
+    assert detail["operator_status_source_git_head_matches_current"] is True
+    assert detail["operator_status_source_fingerprint_matches_current"] is True
+
+
+def test_gold_context_grounding_blocks_assistant_grade_shortlist_without_any_grounding() -> None:
+    ready, detail = gold_acceptance._operator_runtime_context_grounding_posture_for_packet(  # noqa: SLF001
+        {
+            "context_grounding": {
+                "grounded": False,
+                "item_count": 0,
+                "grounded_item_count": 0,
+                "ungrounded_item_count": 0,
+                "applied_context_count": 0,
+            }
+        },
+        stage_packet={
+            "stage": {
+                "kind": "approval_packet",
+                "payload": {
+                    "research_query": "Elektriker 1200 Wien",
+                    "search_queries": ["Elektriker 1200 Wien"],
+                },
+            },
+            "safe_work_order": {"work_type": "prepare_shortlist"},
+        },
+        safe_work_result={
+            "work_type": "prepare_shortlist",
+            "recommended_option_or_draft": {
+                "kind": "shortlist_candidate",
+                "value": {"label": "Elektriker 1200 Wien"},
+            },
+            "shortlist": [{"label": "Elektriker 1200 Wien"}],
+        },
+    )
+
+    assert ready is False
+    assert detail["context_grounding_required_for_packet"] is True
+    assert detail["context_grounding_requirement_reason"] == "shortlist_present"
+    assert detail["context_grounding_ready"] is False
+    assert detail["next_action"] == "repair_proactive_context_grounding"
+
+
+def test_gold_context_grounding_accepts_grounded_shortlist_packet() -> None:
+    ready, detail = gold_acceptance._operator_runtime_context_grounding_posture_for_packet(  # noqa: SLF001
+        {
+            "context_grounding": {
+                "grounded": True,
+                "item_count": 1,
+                "grounded_item_count": 1,
+                "ungrounded_item_count": 0,
+                "applied_context_count": 3,
+                "preference_count": 1,
+                "requirement_count": 1,
+                "recipient_context_count": 1,
+                "recipient_location_count": 1,
+            }
+        },
+        stage_packet={
+            "stage": {
+                "kind": "approval_packet",
+                "payload": {
+                    "research_query": "Elektriker 1200 Wien",
+                    "search_queries": ["Elektriker 1200 Wien"],
+                },
+            },
+            "safe_work_order": {"work_type": "prepare_shortlist"},
+        },
+        safe_work_result={
+            "work_type": "prepare_shortlist",
+            "recommended_option_or_draft": {
+                "kind": "shortlist_candidate",
+                "value": {"label": "Elektriker 1200 Wien"},
+            },
+            "shortlist": [{"label": "Elektriker 1200 Wien"}],
+        },
+    )
+
+    assert ready is True
+    assert detail["context_grounding_required_for_packet"] is True
+    assert detail["context_grounding_grounded"] is True
+    assert detail["context_grounding_ready"] is True
 
 
 def test_assistant_grade_quality_accepts_clean_safe_work_from_noisy_transcript() -> None:
@@ -314,3 +428,67 @@ def test_gold_next_action_uses_manual_outcome_capture_when_live_surface_targets_
     )
 
     assert action == "record_proactive_ooda_approval_outcome"
+
+
+def test_gold_verifier_blocks_linked_operator_status_that_is_stale_for_current_source(tmp_path: Path) -> None:
+    current_head = gold_acceptance_verifier._git_head(gold_acceptance_verifier.ROOT)  # noqa: SLF001
+    current_fingerprint = gold_acceptance_verifier._source_fingerprint(gold_acceptance_verifier.ROOT)  # noqa: SLF001
+    operator_status_path = tmp_path / "operator_status.json"
+    operator_status_path.write_text(
+        json.dumps(
+            {
+                "contract_name": "ea.proactive_ooda_operator_status.v1",
+                "status": "ready_with_live_receipt",
+                "generated_at": "2026-07-02T15:00:00Z",
+                "source_git_head": "stale-head",
+                "source_state_fingerprint": "stale-fingerprint",
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    receipt_path = tmp_path / "gold_receipt.json"
+    receipt_path.write_text(
+        json.dumps(
+            {
+                "contract_name": "ea.proactive_ooda_gold_acceptance.v1",
+                "generated_by": "scripts/materialize_proactive_ooda_gold_acceptance.py",
+                "head_semantics": "source_state",
+                "source_git_head": current_head,
+                "source_state_fingerprint": current_fingerprint,
+                "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
+                "status": "ready_for_approval_outcome_capture",
+                "goal_completion_claim_allowed": False,
+                "gold_claim_allowed": False,
+                "summary": "x",
+                "next_action": "repair_proactive_operator_runtime_posture",
+                "next_action_href": "https://myexternalbrain.com/admin/goals",
+                "next_action_label": "Open goals",
+                "next_action_method": "get",
+                "rules": sorted(gold_acceptance_verifier.EXPECTED_RULES),
+                "proofs": {key: {"present": False} for key in gold_acceptance_verifier.EXPECTED_PROOF_KEYS},
+                "evidence_receipts": {
+                    "operator_status": {
+                        "present": True,
+                        "path": str(operator_status_path),
+                        "contract_name": "ea.proactive_ooda_operator_status.v1",
+                        "status": "ready_with_live_receipt",
+                        "generated_at": "2026-07-02T15:00:00Z",
+                        "source_git_head": "stale-head",
+                        "source_state_fingerprint": "stale-fingerprint",
+                    }
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    issues = gold_acceptance_verifier.verify(receipt_path)
+
+    assert "linked operator_status is stale relative to gold receipt source HEAD" in issues
+    assert "linked operator_status is stale relative to gold receipt source fingerprint" in issues

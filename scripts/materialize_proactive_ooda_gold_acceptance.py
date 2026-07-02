@@ -787,7 +787,21 @@ def _summary_for_status(
     return "Proactive OODA gold proof is still blocked because one or more packet-evidence links are missing."
 
 
-def _operator_runtime_next_action(operator_status: Mapping[str, Any]) -> str:
+def _operator_runtime_next_action(
+    operator_status: Mapping[str, Any],
+    *,
+    stage_packet: Mapping[str, Any] | None = None,
+    safe_work_result: Mapping[str, Any] | None = None,
+) -> str:
+    operator_status_source_ready, operator_status_source_detail = _operator_status_source_posture(
+        operator_status,
+        current_source_git_head=_git_head(ROOT),
+        current_source_fingerprint=_source_fingerprint(ROOT),
+    )
+    if not operator_status_source_ready:
+        next_action = str(operator_status_source_detail.get("next_action") or "").strip()
+        if next_action:
+            return next_action
     reason = str(operator_status.get("reason") or "").strip()
     if reason.startswith("google_workspace_signal_source_unhealthy:"):
         return "reauthorize_google_workspace_binding"
@@ -796,7 +810,11 @@ def _operator_runtime_next_action(operator_status: Mapping[str, Any]) -> str:
         next_action = str(source_detail.get("next_action") or "").strip()
         if next_action:
             return next_action
-    context_ready, context_detail = _operator_runtime_context_grounding_posture(operator_status)
+    context_ready, context_detail = _operator_runtime_context_grounding_posture_for_packet(
+        operator_status,
+        stage_packet=dict(stage_packet or {}),
+        safe_work_result=dict(safe_work_result or {}),
+    )
     if not context_ready:
         next_action = str(context_detail.get("next_action") or "").strip()
         if next_action:
@@ -886,9 +904,77 @@ def _operator_runtime_source_coverage_posture(operator_status: Mapping[str, Any]
 
 
 def _operator_runtime_context_grounding_posture(operator_status: Mapping[str, Any]) -> tuple[bool, dict[str, Any]]:
+    return _operator_runtime_context_grounding_posture_for_packet(
+        operator_status,
+        stage_packet={},
+        safe_work_result={},
+    )
+
+
+def _packet_requires_context_grounding(
+    *,
+    stage_packet: Mapping[str, Any],
+    safe_work_result: Mapping[str, Any],
+) -> tuple[bool, str]:
+    payload, input_contract, _tool_hints = _stage_payload_and_input(stage_packet)
+    override = _first_text(
+        payload.get("context_grounding_requirement"),
+        input_contract.get("context_grounding_requirement"),
+        safe_work_result.get("context_grounding_requirement"),
+    ).strip().lower()
+    if override in {"optional", "waived", "not_required", "not-required"}:
+        return False, "packet_override"
+    if override in {"required", "must", "must_ground"}:
+        return True, "packet_override"
+    recommended = _as_mapping(safe_work_result.get("recommended_option_or_draft"))
+    recommended_kind = str(recommended.get("kind") or "").strip().lower()
+    shortlist_count = len(list(safe_work_result.get("shortlist") or []))
+    work_type = _first_text(
+        payload.get("work_type"),
+        _as_mapping(stage_packet.get("safe_work_order")).get("work_type"),
+        safe_work_result.get("work_type"),
+    ).strip().lower()
+    request_text_count = len(_request_texts_for_quality(stage_packet))
+    if shortlist_count > 0:
+        return True, "shortlist_present"
+    if recommended_kind in {
+        "approval_link",
+        "booking_candidate",
+        "cart_candidate",
+        "draft_text",
+        "shortlist_candidate",
+    }:
+        return True, f"recommended_kind:{recommended_kind}"
+    if work_type in {
+        "booking",
+        "booking_candidate",
+        "booking_request",
+        "browser_research",
+        "compare_options",
+        "draft",
+        "prepare_shortlist",
+        "shopping",
+    }:
+        return True, f"work_type:{work_type}"
+    if request_text_count > 0:
+        return True, "request_text_present"
+    return False, ""
+
+
+def _operator_runtime_context_grounding_posture_for_packet(
+    operator_status: Mapping[str, Any],
+    *,
+    stage_packet: Mapping[str, Any],
+    safe_work_result: Mapping[str, Any],
+) -> tuple[bool, dict[str, Any]]:
     context = dict(operator_status.get("context_grounding") or {})
+    required, requirement_reason = _packet_requires_context_grounding(
+        stage_packet=stage_packet,
+        safe_work_result=safe_work_result,
+    )
     if not context:
-        return True, {
+        ready = not required
+        return ready, {
             "context_grounding_recorded": False,
             "context_grounding_grounded": False,
             "context_grounding_item_count": 0,
@@ -896,20 +982,27 @@ def _operator_runtime_context_grounding_posture(operator_status: Mapping[str, An
             "context_grounding_ungrounded_item_count": 0,
             "context_grounding_applied_context_count": 0,
             "context_grounding_recipient_location_count": 0,
-            "context_grounding_ready": True,
-            "next_action": "",
+            "context_grounding_required_for_packet": required,
+            "context_grounding_requirement_reason": requirement_reason,
+            "context_grounding_ready": ready,
+            "next_action": "" if ready else "repair_proactive_context_grounding",
         }
     item_count = int(context.get("item_count") or 0)
-    grounded = bool(context.get("grounded"))
-    ready = item_count <= 0 or grounded
+    grounded_item_count = int(context.get("grounded_item_count") or 0)
+    applied_context_count = int(context.get("applied_context_count") or 0)
+    ungrounded_item_count = int(context.get("ungrounded_item_count") or max(item_count - grounded_item_count, 0))
+    grounded = bool(context.get("grounded")) and applied_context_count > 0 and ungrounded_item_count == 0
+    ready = grounded if required else (item_count <= 0 or grounded)
     return ready, {
         "context_grounding_recorded": True,
         "context_grounding_grounded": grounded,
+        "context_grounding_required_for_packet": required,
+        "context_grounding_requirement_reason": requirement_reason,
         "context_grounding_ready": ready,
         "context_grounding_item_count": item_count,
-        "context_grounding_grounded_item_count": int(context.get("grounded_item_count") or 0),
-        "context_grounding_ungrounded_item_count": int(context.get("ungrounded_item_count") or 0),
-        "context_grounding_applied_context_count": int(context.get("applied_context_count") or 0),
+        "context_grounding_grounded_item_count": grounded_item_count,
+        "context_grounding_ungrounded_item_count": ungrounded_item_count,
+        "context_grounding_applied_context_count": applied_context_count,
         "context_grounding_preference_count": int(context.get("preference_count") or 0),
         "context_grounding_requirement_count": int(context.get("requirement_count") or 0),
         "context_grounding_deadline_count": int(context.get("deadline_count") or 0),
@@ -917,6 +1010,30 @@ def _operator_runtime_context_grounding_posture(operator_status: Mapping[str, An
         "context_grounding_recipient_context_count": int(context.get("recipient_context_count") or 0),
         "context_grounding_recipient_location_count": int(context.get("recipient_location_count") or 0),
         "next_action": "" if ready else "repair_proactive_context_grounding",
+    }
+
+
+def _operator_status_source_posture(
+    operator_status: Mapping[str, Any],
+    *,
+    current_source_git_head: str,
+    current_source_fingerprint: str,
+) -> tuple[bool, dict[str, Any]]:
+    recorded_head = str(operator_status.get("source_git_head") or "").strip()
+    recorded_fingerprint = str(operator_status.get("source_state_fingerprint") or "").strip()
+    head_matches = bool(current_source_git_head and recorded_head and current_source_git_head == recorded_head)
+    fingerprint_matches = bool(
+        current_source_fingerprint and recorded_fingerprint and current_source_fingerprint == recorded_fingerprint
+    )
+    source_current = fingerprint_matches or (head_matches and not current_source_fingerprint)
+    return source_current, {
+        "operator_status_source_current_required": True,
+        "operator_status_source_git_head": recorded_head,
+        "operator_status_source_fingerprint": recorded_fingerprint,
+        "operator_status_source_git_head_matches_current": head_matches,
+        "operator_status_source_fingerprint_matches_current": fingerprint_matches,
+        "operator_status_source_current": source_current,
+        "next_action": "" if source_current else "repair_proactive_operator_runtime_posture",
     }
 
 
@@ -1052,6 +1169,8 @@ def _next_action(
     *,
     operator_runtime_ready: bool,
     operator_status: Mapping[str, Any],
+    stage_packet: Mapping[str, Any] | None = None,
+    safe_work_result: Mapping[str, Any] | None = None,
     delivery_present: bool,
     action_required_delivery_present: bool,
     assistant_grade_present: bool,
@@ -1068,7 +1187,11 @@ def _next_action(
     approval_capture_surface_matches_packet_artifacts: bool,
 ) -> str:
     if not operator_runtime_ready:
-        return _operator_runtime_next_action(operator_status)
+        return _operator_runtime_next_action(
+            operator_status,
+            stage_packet=stage_packet,
+            safe_work_result=safe_work_result,
+        )
     if not delivery_present:
         return "send_or_mirror_one_real_proactive_packet_with_routed_delivery_proof"
     if not assistant_grade_present:
@@ -1847,8 +1970,19 @@ def materialize_proactive_ooda_gold_acceptance(
     delivery_route = dict(operator_status.get("delivery_route") or {})
     live_receipt = dict(operator_status.get("live_receipt") or {})
     operator_status_state = str(operator_status.get("status") or "").strip()
+    current_source_git_head = _git_head(ROOT)
+    current_source_fingerprint = _source_fingerprint(ROOT)
+    operator_status_source_ready, operator_status_source_detail = _operator_status_source_posture(
+        operator_status,
+        current_source_git_head=current_source_git_head,
+        current_source_fingerprint=current_source_fingerprint,
+    )
     source_coverage_ready, source_coverage_detail = _operator_runtime_source_coverage_posture(operator_status)
-    context_grounding_ready, context_grounding_detail = _operator_runtime_context_grounding_posture(operator_status)
+    context_grounding_ready, context_grounding_detail = _operator_runtime_context_grounding_posture_for_packet(
+        operator_status,
+        stage_packet=stage_packet,
+        safe_work_result=safe_work_result,
+    )
     safe_work_audit_ready, safe_work_audit_detail = _operator_runtime_safe_work_audit_posture(operator_status)
     current_artifact_filter_ready, current_artifact_filter_detail = _operator_runtime_current_artifact_filter_posture(
         operator_status
@@ -1858,19 +1992,25 @@ def materialize_proactive_ooda_gold_acceptance(
     )
     operator_runtime_ready = (
         operator_status_state.startswith("ready")
+        and operator_status_source_ready
         and source_coverage_ready
         and context_grounding_ready
         and safe_work_audit_ready
         and current_artifact_filter_ready
         and suppressed_projection_ready
     )
-    operator_runtime_next_action = _operator_runtime_next_action(operator_status)
+    operator_runtime_next_action = _operator_runtime_next_action(
+        operator_status,
+        stage_packet=stage_packet,
+        safe_work_result=safe_work_result,
+    )
     operator_runtime_proof = _proof_row(
         present=operator_runtime_ready,
         detail={
             "status": operator_status_state,
             "reason": str(operator_status.get("reason") or "").strip(),
             "next_action": operator_runtime_next_action,
+            **operator_status_source_detail,
             **source_coverage_detail,
             **context_grounding_detail,
             **safe_work_audit_detail,
@@ -2166,6 +2306,8 @@ def materialize_proactive_ooda_gold_acceptance(
     next_action = _next_action(
         operator_runtime_ready=operator_runtime_ready,
         operator_status=operator_status,
+        stage_packet=stage_packet,
+        safe_work_result=safe_work_result,
         delivery_present=delivery_present,
         action_required_delivery_present=action_required_delivery_present,
         assistant_grade_present=assistant_grade_present,
