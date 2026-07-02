@@ -1138,11 +1138,89 @@ def test_build_safe_work_result_rejects_reference_page_with_email_from_generic_p
     assert "draft_not_created" in issue_codes
 
 
+def test_build_safe_work_result_rejects_google_translate_proxy_as_provider_candidate() -> None:
+    packet = _packet_with_cart_work()
+    request_text = (
+        "suche mir rauchfangkehrer in 1200 Wien - ich brauche ein Gutachten, ob ich meinen "
+        "Zimmerkamin als Abluftrohr eines Klimageraets verwenden kann. "
+        "formuliere eine kurze emailanfrage und speicher sie als draft in meiner inbox."
+    )
+    packet["stage"]["payload"] = {  # type: ignore[index]
+        "kind": "research_packet",
+        "summary": "One researched inquiry draft saved to Gmail for review.",
+        "work_type": "draft",
+        "draft_mode": "research_backed_inquiry",
+        "draft_request_text": request_text,
+        "research_query": "rauchfangkehrer 1200 Wien Gutachten Kamin Abluft",
+        "search_queries": ["rauchfangkehrer 1200 Wien Gutachten Kamin Abluft"],
+        "selection_criteria": ["contact details visible", "reachability", "fit to request"],
+        "candidate_items": [
+            {
+                "label": "Google Translate",
+                "url": "https://translate.google.com/translate?u=https%3A%2F%2Fexample.invalid%2Frauchfangkehrer",
+                "snippet": "Translated result page.",
+                "reachable": True,
+                "contact_email": "kontakt@example.invalid",
+            }
+        ],
+    }
+    packet["safe_work_order"]["work_type"] = "draft"  # type: ignore[index]
+    packet["safe_work_order"]["input_contract"] = {  # type: ignore[index]
+        "draft_mode": "research_backed_inquiry",
+        "draft_request_text": request_text,
+        "research_query": "rauchfangkehrer 1200 Wien Gutachten Kamin Abluft",
+        "search_queries": ["rauchfangkehrer 1200 Wien Gutachten Kamin Abluft"],
+        "selection_criteria": ["contact details visible", "reachability", "fit to request"],
+        "expected_artifacts": ["shortlist", "draft_text"],
+        "private_payload_available": True,
+    }
+
+    result = build_safe_work_result(packet)
+
+    assert result["status"] == "blocked_needs_research_input"
+    assert result["recommended_option_or_draft"] == {}
+    assert "educational or reference page" in result["comparison_table"][0]["constraint_violations"]
+    issue_codes = [issue["code"] for issue in result["audit"]["issues"]]
+    assert "top_candidate_not_provider_like" in issue_codes
+    assert "draft_not_created" in issue_codes
+
+
 def test_safe_work_materiality_rechecks_provider_reference_candidate_even_if_audit_passes() -> None:
     candidate = {
         "label": "Difference between ein, eine, einen, and einem in the German language",
         "url": "https://planforgermany.com/difference-ein-eine-einen-einem-german-language/",
         "snippet": "German language grammar explainer article.",
+        "reachable": True,
+    }
+    safe_work_result = {
+        "schema": SAFE_WORK_RESULT_SCHEMA,
+        "status": "staged_for_user_decision",
+        "work_type": "compare_options",
+        "recommended_option_or_draft": {"kind": "shortlist_candidate", "value": candidate},
+        "shortlist": [candidate],
+        "comparison_table": [
+            {
+                **candidate,
+                "recommended": True,
+                "constraint_violations": [],
+            }
+        ],
+        "execution_receipt": {
+            "context_fit_receipt": {
+                "provider_discovery_relevant": True,
+            }
+        },
+        "audit": {"status": "pass", "issues": []},
+    }
+
+    assert safe_work_decision_materiality_issue(safe_work_result=safe_work_result) == "top_candidate_not_provider_like"
+
+
+def test_safe_work_materiality_rechecks_google_translate_proxy_even_if_audit_passes() -> None:
+    candidate = {
+        "label": "Google Translate",
+        "url": "https://translate.google.com/translate?u=https%3A%2F%2Fexample.invalid%2Fprovider",
+        "snippet": "Translated result page.",
         "reachable": True,
     }
     safe_work_result = {

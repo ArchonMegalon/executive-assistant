@@ -80,6 +80,7 @@ _NON_PROVIDER_MARKERS = (
 _EDUCATIONAL_REFERENCE_MARKERS = (
     "difference between",
     "german language",
+    "google translate",
     "grammar",
     "how to say",
     "language lesson",
@@ -1111,7 +1112,7 @@ def _candidate_analysis(
         provider_signal = _candidate_has_provider_signal(search_text)
         strong_provider_signal = _candidate_has_strong_provider_signal(search_text, context=context)
         request_term_matches = _provider_query_term_matches(search_text, context=context)
-        educational_reference = _candidate_is_educational_reference(search_text)
+        educational_reference = _candidate_is_educational_reference(search_text) or _candidate_host_is_translation_reference(candidate_host)
         non_provider_reference = _candidate_is_non_provider_reference(search_text)
         generic_provider_query = bool(context.get("provider_search_query_too_generic"))
         if generic_provider_query and not strong_provider_signal:
@@ -2028,6 +2029,11 @@ def _candidate_is_educational_reference(search_text: str) -> bool:
     return _text_mentions(search_text, _EDUCATIONAL_REFERENCE_MARKERS)
 
 
+def _candidate_host_is_translation_reference(candidate_host: str) -> bool:
+    normalized = str(candidate_host or "").strip().lower().rstrip(".")
+    return normalized == "translate.google.com" or normalized.endswith(".translate.goog")
+
+
 def _candidate_is_non_provider_reference(search_text: str) -> bool:
     return _text_mentions(search_text, _NON_PROVIDER_MARKERS) or _candidate_is_educational_reference(search_text)
 
@@ -2363,6 +2369,8 @@ def _candidate_suitable_for_outreach_draft(candidate: Mapping[str, Any], *, cont
         return False
     if candidate_host.endswith("wikipedia.org"):
         return False
+    if _candidate_host_is_translation_reference(candidate_host):
+        return False
     if _candidate_is_educational_reference(search_text) and not strong_provider_marker:
         return False
     if _candidate_is_non_provider_reference(search_text) and not strong_provider_marker:
@@ -2675,6 +2683,8 @@ def _provider_candidate_materiality_issue(candidate: Mapping[str, Any]) -> str:
     search_text = _candidate_search_text(candidate)
     candidate_host = _url_host(str(candidate.get("final_url") or candidate.get("url") or candidate.get("link") or candidate.get("href") or ""))
     if candidate_host.endswith("wikipedia.org"):
+        return "top_candidate_not_provider_like"
+    if _candidate_host_is_translation_reference(candidate_host):
         return "top_candidate_not_provider_like"
     if _candidate_is_educational_reference(search_text):
         return "top_candidate_not_provider_like"
