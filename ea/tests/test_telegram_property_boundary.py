@@ -124,3 +124,16 @@ def test_property_focus_summary_is_suppressed_from_compact_telegram_text() -> No
     assert channels._telegram_compact_focus_text(
         "Review apartment alert: 2 Zimmer Wohnung in 1200 Wien"
     ) == ""
+
+
+def test_property_boundary_reply_stays_short_and_does_not_route_into_property_copy() -> None:
+    reply = channels._telegram_property_boundary_reply_text()
+
+    assert reply == "Wohnungssuche und Property-Alerts laufen nicht über EA."
+    assert "PropertyQuarry" not in reply
+
+
+def test_processing_ack_no_longer_mentions_property_render_priority() -> None:
+    reply = channels._telegram_processing_ack_text("https://www.willhaben.at/iad/object", render_priority="paid")
+
+    assert reply == "Saved. EA is processing this asynchronously now."

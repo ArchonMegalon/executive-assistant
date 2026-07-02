@@ -4,10 +4,15 @@ from typing import Any, Mapping
 
 
 INTERNAL_TELEGRAM_NOISE_MARKERS = (
+    "apartment alert",
     "proof packet",
     "live proof packet",
     "canonical live check",
     "preserve this proof",
+    "property alert",
+    "property candidate",
+    "property scout",
+    "property search",
     "record that proactive ooda decision",
     "proactive ooda decision",
     "operator status",

@@ -4451,10 +4451,7 @@ def _telegram_property_alert_policy_reply(
 
 
 def _telegram_property_boundary_reply_text() -> str:
-    return (
-        "Property search and listing work no longer runs through EA. "
-        "Use PropertyQuarry for apartment search, listing links, scout updates, tours, and property packets."
-    )
+    return "Wohnungssuche und Property-Alerts laufen nicht über EA."
 
 
 def _telegram_is_low_signal_summary(value: object) -> bool:
@@ -8659,10 +8656,6 @@ def _telegram_processing_ack_buttons_payload(
 def _telegram_processing_ack_text(text: str, *, render_priority: str = "") -> str:
     normalized = str(text or "").strip()
     base = "Saved. EA is processing this asynchronously now."
-    if _telegram_supported_property_link(normalized):
-        if str(render_priority or "").strip().lower() == "paid":
-            return f"{base} Your render request is in the paid-priority lane."
-        return f"{base} Free-tier requests are processed after paid render requests."
     if "?" in normalized or any(marker in normalized.lower() for marker in ("what", "why", "how", "where", "when", "which")):
         return "Working on it. EA saved your request and is processing it asynchronously."
     return base

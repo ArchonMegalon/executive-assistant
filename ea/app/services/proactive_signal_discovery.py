@@ -14,6 +14,10 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 from xml.etree import ElementTree
 
+from app.services.assistant_property_lane import (
+    assistant_property_lane_enabled,
+    assistant_property_signal_present,
+)
 from app.services.proactive_ooda_flat_search_policy import (
     proactive_ooda_flat_search_enabled as _shared_flat_search_enabled,
     text_mentions_flat_property_search,
@@ -1194,7 +1198,13 @@ def _ambient_transcript_action_candidate(request_text: str) -> bool:
 
 
 def _proactive_ooda_flat_search_enabled() -> bool:
+    if not assistant_property_lane_enabled():
+        return False
     return _shared_flat_search_enabled()
+
+
+def _proactive_ooda_property_lane_signal(value: object) -> bool:
+    return assistant_property_signal_present(value)
 
 
 def _transcript_is_flat_property_search(lowered_request: str) -> bool:
@@ -1961,6 +1971,17 @@ def observation_row_to_signal(
         "alexa_history_indexed",
         "pocket_recording_archive_indexed",
     } and not ooda_loop and proactive_suppression is None:
+        return None
+    if not assistant_property_lane_enabled() and (
+        _proactive_ooda_property_lane_signal(title)
+        or _proactive_ooda_property_lane_signal(summary)
+        or _proactive_ooda_property_lane_signal(counterparty)
+        or _proactive_ooda_property_lane_signal(signal_type)
+        or _proactive_ooda_property_lane_signal(payload.get("summary"))
+        or _proactive_ooda_property_lane_signal(payload.get("title"))
+        or _proactive_ooda_property_lane_signal(payload.get("counterparty"))
+        or _proactive_ooda_property_lane_signal(ooda_loop)
+    ):
         return None
     if not title and not summary:
         return None

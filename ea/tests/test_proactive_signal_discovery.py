@@ -123,3 +123,31 @@ def test_transcript_search_query_expansion_ignores_ambient_context_terms() -> No
     )
 
     assert queries == ["Elektriker fuer zusaetzliche Steckdosen"]
+
+
+def test_office_signal_property_scout_ooda_is_ignored_from_ea_loop() -> None:
+    signal = observation_row_to_signal(
+        observation_id="obs-property-ooda",
+        principal_id="principal-1",
+        channel="product",
+        event_type="office_signal_ooda_evaluated",
+        payload={
+            "summary": "Property scout found items to review.",
+            "counterparty": "Property Scout",
+            "signal_type": "office_signal",
+            "ooda_loop": {
+                "summary": "Property scout found items to review.",
+                "observe": {
+                    "summary": "Apartment alert: 2 Zimmer Wohnung in 1200 Wien",
+                    "counterparty": "Property Scout",
+                    "signal_type": "property_scout",
+                },
+            },
+        },
+        created_at="2026-07-02T12:00:00+00:00",
+        source_id="property-scout-sync:principal-1",
+        external_id="property-scout-sync",
+        dedupe_key="property-scout-sync",
+    )
+
+    assert signal is None

@@ -59,7 +59,11 @@ from app.services.public_urls import (
     propertyquarry_public_base_url,
     propertyquarry_public_tour_base_url,
 )
-from app.services.assistant_property_lane import assistant_property_lane_enabled
+from app.services.assistant_property_lane import (
+    assistant_property_lane_enabled,
+    assistant_property_signal_present,
+    assistant_property_task_hidden_from_ea,
+)
 from app.product.extractors import extract_commitment_candidates
 from app.product.models import (
     BriefItem,
@@ -18679,6 +18683,13 @@ class ProductService:
             if wanted_type and normalized_type != wanted_type:
                 continue
             payload = dict(row.payload or {})
+            if not self._assistant_visible_observation_event(
+                event_type=normalized_type,
+                payload=payload,
+                source_id=str(row.source_id or ""),
+                external_id=str(row.external_id or ""),
+            ):
+                continue
             summary = (
                 str(payload.get("summary") or "").strip()
                 or str(payload.get("title") or "").strip()
@@ -33091,6 +33102,8 @@ class ProductService:
         items: list[DecisionQueueItem] = []
         items.extend(self._queue_item_from_approval(row) for row in self._container.orchestrator.list_pending_approvals_for_principal(principal_id=principal_id, limit=limit))
         for row in self._container.orchestrator.list_human_tasks(principal_id=principal_id, status="pending", limit=limit):
+            if not self._assistant_visible_human_task(row):
+                continue
             assigned = str(row.assigned_operator_id or "").strip()
             if operator_key and assigned and assigned != operator_key:
                 continue
@@ -34478,6 +34491,8 @@ class ProductService:
         operator_key = str(operator_id or "").strip()
         rows: list[HandoffNote] = []
         for task in self._container.orchestrator.list_human_tasks(principal_id=principal_id, status=status, limit=limit):
+            if not self._assistant_visible_human_task(task):
+                continue
             assigned = str(task.assigned_operator_id or "").strip()
             if operator_key and assigned and assigned != operator_key:
                 continue
@@ -34593,7 +34608,11 @@ class ProductService:
         operator_id: str = "",
     ) -> tuple[dict[str, object], tuple[HandoffNote, ...]]:
         operator_key = str(operator_id or "").strip()
-        pending_tasks = list(self._container.orchestrator.list_human_tasks(principal_id=principal_id, status="pending", limit=200))
+        pending_tasks = [
+            row
+            for row in self._container.orchestrator.list_human_tasks(principal_id=principal_id, status="pending", limit=200)
+            if self._assistant_visible_human_task(row)
+        ]
         visible_tasks: list[HumanTask] = []
         for task in pending_tasks:
             assigned = str(task.assigned_operator_id or "").strip()
@@ -34672,6 +34691,43 @@ class ProductService:
             },
             suggestion_rows,
         )
+
+    def _assistant_visible_human_task(self, task: object) -> bool:
+        if assistant_property_lane_enabled():
+            return True
+        return not assistant_property_task_hidden_from_ea(str(getattr(task, "task_type", "") or "").strip())
+
+    def _assistant_visible_observation_event(
+        self,
+        *,
+        event_type: str,
+        payload: dict[str, object],
+        source_id: str,
+        external_id: str,
+    ) -> bool:
+        if assistant_property_lane_enabled():
+            return True
+        normalized_event_type = str(event_type or "").strip().lower()
+        if normalized_event_type.startswith("property_"):
+            return False
+        if assistant_property_task_hidden_from_ea(str(payload.get("task_type") or "").strip()):
+            return False
+        if assistant_property_signal_present(
+            normalized_event_type,
+            source_id,
+            external_id,
+            payload.get("summary"),
+            payload.get("title"),
+            payload.get("reason"),
+            payload.get("text"),
+            payload.get("counterparty"),
+            payload.get("signal_type"),
+            payload.get("product_boundary"),
+            payload.get("source_ref"),
+            payload.get("ooda_loop"),
+        ):
+            return False
+        return True
 
     def workspace_snapshot(self, *, principal_id: str, operator_id: str = "") -> ProductSnapshot:
         brief_items = self.list_brief_items(principal_id=principal_id, limit=8, operator_id=operator_id)
@@ -35832,7 +35888,11 @@ class ProductService:
         queue_health = dict(diagnostics.get("queue_health") or {})
         approvals = self._container.orchestrator.list_pending_approvals_for_principal(principal_id=principal_id, limit=25)
         approval_history = self._container.orchestrator.list_approval_history_for_principal(principal_id=principal_id, limit=25)
-        human_tasks = self._container.orchestrator.list_human_tasks(principal_id=principal_id, status=None, limit=25)
+        human_tasks = [
+            row
+            for row in self._container.orchestrator.list_human_tasks(principal_id=principal_id, status=None, limit=25)
+            if self._assistant_visible_human_task(row)
+        ]
         provider_registry = self._container.provider_registry.registry_read_model(principal_id=principal_id)
         pending_delivery = self._container.channel_runtime.list_pending_delivery(limit=25, principal_id=principal_id)
         return {

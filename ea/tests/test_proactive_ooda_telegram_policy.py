@@ -10,6 +10,8 @@ def test_flat_search_text_is_internal_noise() -> None:
     assert telegram_ooda_text_is_internal_noise("flat search disabled")
     assert telegram_ooda_text_is_internal_noise("flat_provider_search_blocked:flat_search_disabled")
     assert telegram_ooda_text_is_internal_noise("I suppressed flat search flow for safety")
+    assert telegram_ooda_text_is_internal_noise("Apartment alert: 2 Zimmer Wohnung in 1200 Wien")
+    assert telegram_ooda_text_is_internal_noise("Property scout found items to review")
 
 
 def test_low_value_research_prompt_is_not_telegram_user_action() -> None:
