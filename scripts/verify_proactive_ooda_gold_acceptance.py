@@ -369,6 +369,8 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path = ROOT) -> list[str]:
             issues.append("ready approval_capture_surface requires callback_dir")
         if not telegram_ready and not manual_ready:
             issues.append("ready approval_capture_surface requires telegram or manual capture readiness")
+        if bool(approval_capture_surface.get("current_packet_matches_packet_artifacts")) is not True:
+            issues.append("ready approval_capture_surface requires current_packet_matches_packet_artifacts=true")
         if telegram_ready and int(approval_capture_surface.get("current_packet_live_pending_count") or 0) <= 0:
             issues.append("ready approval_capture_surface requires current_packet_live_pending_count>0")
         if manual_ready and bool(approval_capture_surface.get("current_packet_approval_request_recordable")) is not True:

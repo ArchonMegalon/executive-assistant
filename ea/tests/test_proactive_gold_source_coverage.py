@@ -108,6 +108,10 @@ def test_assistant_grade_quality_accepts_clean_safe_work_from_noisy_transcript()
 def test_gold_approval_capture_surface_uses_live_operator_surface_counts_when_local_callbacks_absent() -> None:
     surface, ready = gold_acceptance._approval_capture_surface_receipt(  # noqa: SLF001
         operator_status={
+            "approval_capture": {
+                "current_packet_ref_sha256": gold_acceptance._hash_value("stage_packet:live"),  # noqa: SLF001
+                "current_staged_artifact_ref_sha256": gold_acceptance._hash_value("safe_work_result:live"),  # noqa: SLF001
+            },
             "approval_capture_surface": {
                 "selected_channel": "telegram",
                 "callback_dir_exists": True,
@@ -146,6 +150,10 @@ def test_gold_approval_capture_surface_uses_live_operator_surface_counts_when_lo
 def test_gold_approval_capture_surface_uses_live_operator_surface_counts_for_runtime_probe() -> None:
     surface, ready = gold_acceptance._approval_capture_surface_receipt(  # noqa: SLF001
         operator_status={
+            "approval_capture": {
+                "current_packet_ref_sha256": gold_acceptance._hash_value("stage_packet:older-browse-proof"),  # noqa: SLF001
+                "current_staged_artifact_ref_sha256": gold_acceptance._hash_value("safe_work_result:older-browse-proof"),  # noqa: SLF001
+            },
             "approval_capture_surface": {
                 "selected_channel": "telegram",
                 "callback_dir_exists": True,
@@ -190,3 +198,119 @@ def test_gold_approval_capture_surface_uses_live_operator_surface_counts_for_run
     assert surface["current_packet_callback_record_count"] == 1
     assert surface["current_packet_live_pending_count"] == 1
     assert surface["current_packet_callback_latest_status"] == "pending"
+
+
+def test_gold_approval_capture_surface_fails_closed_when_operator_current_packet_hashes_do_not_match_bundle() -> None:
+    surface, ready = gold_acceptance._approval_capture_surface_receipt(  # noqa: SLF001
+        operator_status={
+            "approval_capture": {
+                "current_packet_ref_sha256": gold_acceptance._hash_value("stage_packet:other"),  # noqa: SLF001
+                "current_staged_artifact_ref_sha256": gold_acceptance._hash_value("safe_work_result:other"),  # noqa: SLF001
+            },
+            "approval_capture_surface": {
+                "selected_channel": "telegram",
+                "callback_dir_exists": True,
+                "callback_record_count": 49,
+                "callback_pending_count": 1,
+                "callback_recorded_count": 13,
+                "current_packet_present": True,
+                "current_packet_status": "pending_approval",
+                "current_packet_approval_request_recordable": True,
+                "current_packet_callback_record_count": 1,
+                "current_packet_callback_pending_count": 1,
+                "current_packet_live_callback_record_count": 1,
+                "current_packet_live_pending_count": 1,
+                "current_packet_callback_latest_status": "pending",
+                "telegram_approval_surface_ready": True,
+                "manual_outcome_capture_ready": True,
+            },
+        },
+        bundle={
+            "approval_callback_dir": ROOT / "state" / "proactive_ooda_approval_callbacks",
+            "approval_callback_dir_exists": True,
+            "approval_callback_dir_writable": True,
+            "approval_callback_record_count": 48,
+            "approval_callback_pending_count": 0,
+            "approval_callback_recorded_count": 12,
+            "current_packet_callback_record_count": 0,
+            "current_packet_callback_pending_count": 0,
+            "current_packet_live_callback_record_count": 0,
+            "current_packet_live_pending_count": 0,
+            "stage_packet": {"packet_ref": "stage_packet:assistant-grade-packet"},
+            "safe_work_result": {"result_ref": "safe_work_result:assistant-grade-packet"},
+        },
+        approval_outcome_path=ROOT / "state" / "proactive_ooda_latest_approval_outcome.generated.json",
+        used_live_runtime_probe=True,
+    )
+
+    assert ready is False
+    assert surface["telegram_approval_surface_ready"] is True
+    assert surface["current_packet_matches_packet_artifacts"] is False
+
+
+def test_gold_approval_capture_readiness_rejects_mismatched_current_packet_surface() -> None:
+    proof, present = gold_acceptance._approval_capture_readiness_proof(  # noqa: SLF001
+        operator_status={
+            "approval_capture": {
+                "checked": True,
+                "probe_ok": True,
+                "ready": True,
+                "status": "ready",
+                "current_packet_refs_present": True,
+                "current_packet_callback_record_count": 1,
+                "current_packet_live_pending_count": 1,
+                "callback_principal_hash_present": True,
+                "candidate_principal_hash_count": 1,
+                "principal_match_ready": True,
+                "telegram_binding_ready": True,
+                "telegram_chat_ref_present": True,
+                "telegram_bot_token_present": True,
+                "privacy": {
+                    "raw_callback_token_exposed": False,
+                    "raw_principal_id_exposed": False,
+                    "raw_chat_ref_exposed": False,
+                    "raw_packet_ref_exposed": False,
+                    "raw_staged_artifact_ref_exposed": False,
+                },
+            }
+        },
+        approval_capture_surface={
+            "present": True,
+            "ready": False,
+            "telegram_approval_surface_ready": True,
+            "manual_outcome_capture_ready": True,
+            "current_packet_approval_request_recordable": True,
+            "current_packet_matches_packet_artifacts": False,
+        },
+        required=True,
+        approval_outcome_recorded=False,
+        approval_outcome_matches_current_packet=False,
+    )
+
+    assert present is False
+    assert proof["current_packet_matches_packet_artifacts"] is False
+    assert proof["manual_capture_present"] is False
+    assert proof["live_callback_present"] is False
+
+
+def test_gold_next_action_uses_manual_outcome_capture_when_live_surface_targets_other_packet() -> None:
+    action = gold_acceptance._next_action(  # noqa: SLF001
+        operator_runtime_ready=True,
+        operator_status={"approval_capture": {"next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome"}},
+        delivery_present=True,
+        action_required_delivery_present=False,
+        assistant_grade_present=True,
+        browser_action_contract_present=True,
+        browse_present=True,
+        chosen_present=True,
+        staged_present=True,
+        teable_present=True,
+        approval_capture_readiness_present=False,
+        approval_row={"approval_outcome_recorded": False, "accepted": False},
+        approval_capture_surface_ready=False,
+        approval_capture_telegram_ready=True,
+        approval_capture_manual_ready=True,
+        approval_capture_surface_matches_packet_artifacts=False,
+    )
+
+    assert action == "record_proactive_ooda_approval_outcome"

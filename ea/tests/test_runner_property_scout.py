@@ -7,6 +7,7 @@ from app.product.service import ProductService
 
 
 def test_scheduler_property_scout_requires_flat_search_enabled(monkeypatch: object) -> None:
+    monkeypatch.setenv("EA_ASSISTANT_PROPERTY_LANE_ENABLED", "1")
     monkeypatch.setenv("PROPERTYQUARRY_SCHEDULER_PROFILE", "property")
     monkeypatch.setenv("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED", "0")
     monkeypatch.setenv("EA_SCHEDULER_PROPERTY_SCOUT_ENABLED", "1")
@@ -15,6 +16,7 @@ def test_scheduler_property_scout_requires_flat_search_enabled(monkeypatch: obje
 
 
 def test_scheduler_property_scout_requires_scheduler_flag(monkeypatch: object) -> None:
+    monkeypatch.setenv("EA_ASSISTANT_PROPERTY_LANE_ENABLED", "1")
     monkeypatch.setenv("PROPERTYQUARRY_SCHEDULER_PROFILE", "property")
     monkeypatch.setenv("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED", "1")
     monkeypatch.setenv("EA_SCHEDULER_PROPERTY_SCOUT_ENABLED", "0")
@@ -23,6 +25,7 @@ def test_scheduler_property_scout_requires_scheduler_flag(monkeypatch: object) -
 
 
 def test_scheduler_property_scout_requires_propertyquarry_profile(monkeypatch: object) -> None:
+    monkeypatch.setenv("EA_ASSISTANT_PROPERTY_LANE_ENABLED", "1")
     monkeypatch.delenv("PROPERTYQUARRY_SCHEDULER_PROFILE", raising=False)
     monkeypatch.setenv("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED", "1")
     monkeypatch.setenv("EA_SCHEDULER_PROPERTY_SCOUT_ENABLED", "1")
@@ -30,8 +33,18 @@ def test_scheduler_property_scout_requires_propertyquarry_profile(monkeypatch: o
     assert runner._scheduler_property_scout_enabled() is False
 
 
-def test_scheduler_property_scout_enabled_only_with_both_flags(monkeypatch: object) -> None:
+def test_scheduler_property_scout_stays_disabled_without_assistant_property_lane(monkeypatch: object) -> None:
     monkeypatch.setenv("PROPERTYQUARRY_SCHEDULER_PROFILE", "property")
+    monkeypatch.setenv("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED", "1")
+    monkeypatch.setenv("EA_SCHEDULER_PROPERTY_SCOUT_ENABLED", "1")
+
+    assert runner._scheduler_property_scout_enabled() is False
+
+
+def test_scheduler_property_scout_enabled_only_with_boundary_and_flags(monkeypatch: object) -> None:
+    monkeypatch.setenv("EA_ASSISTANT_PROPERTY_LANE_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_SCHEDULER_PROFILE", "property")
+    monkeypatch.setenv("EA_PROACTIVE_OODA_DISABLE_FLAT_SEARCH", "0")
     monkeypatch.setenv("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED", "1")
     monkeypatch.setenv("EA_SCHEDULER_PROPERTY_SCOUT_ENABLED", "1")
 
@@ -39,6 +52,7 @@ def test_scheduler_property_scout_enabled_only_with_both_flags(monkeypatch: obje
 
 
 def test_scheduler_property_scout_disabled_when_flat_search_is_disallowed(monkeypatch: object) -> None:
+    monkeypatch.setenv("EA_ASSISTANT_PROPERTY_LANE_ENABLED", "1")
     monkeypatch.setenv("PROPERTYQUARRY_SCHEDULER_PROFILE", "property")
     monkeypatch.setenv("EA_PROACTIVE_OODA_DISABLE_FLAT_SEARCH", "1")
     monkeypatch.setenv("EA_PROACTIVE_OODA_FLAT_SEARCH_ENABLED", "1")

@@ -18,6 +18,7 @@ from app.api.routes.channels import (
 )
 from app.container import build_container
 from app.logging_utils import configure_logging
+from app.services.assistant_property_lane import assistant_property_lane_enabled
 from app.services import whatsapp_delivery
 from app.settings import get_settings
 
@@ -89,6 +90,8 @@ def _scheduler_google_signal_sync_interval_seconds() -> float:
 
 
 def _scheduler_property_alert_account_emails() -> tuple[str, ...]:
+    if not assistant_property_lane_enabled():
+        return ()
     raw = str(
         os.environ.get("EA_PROPERTY_ALERT_ACCOUNT_EMAILS")
         or os.environ.get("EA_GOOGLE_PROPERTY_ALERT_ACCOUNT_EMAILS")
@@ -850,6 +853,8 @@ def _run_scheduler_google_signal_sync(container, log: logging.Logger) -> dict[st
 
 
 def _scheduler_property_scout_enabled() -> bool:
+    if not assistant_property_lane_enabled():
+        return False
     if not _scheduler_property_only_profile_enabled():
         return False
     if _env_bool("EA_PROACTIVE_OODA_DISABLE_FLAT_SEARCH", False):

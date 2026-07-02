@@ -59,6 +59,7 @@ from app.services.public_urls import (
     propertyquarry_public_base_url,
     propertyquarry_public_tour_base_url,
 )
+from app.services.assistant_property_lane import assistant_property_lane_enabled
 from app.product.extractors import extract_commitment_candidates
 from app.product.models import (
     BriefItem,
@@ -6530,6 +6531,8 @@ def _proactive_ooda_flat_search_enabled() -> bool:
 
 
 def _willhaben_search_agent_auto_create_enabled() -> bool:
+    if not assistant_property_lane_enabled():
+        return False
     return _env_flag("EA_WILLHABEN_SEARCH_AGENT_AUTO_CREATE_PROPERTY_TOUR", default=False)
 
 
@@ -18742,6 +18745,103 @@ class ProductService:
         source_text_fragment = source_text[:80]
         if normalized_channel == "pocket" and stable_external_identity:
             source_text_fragment = ""
+        dedupe_parts = [
+            "office-signal",
+            principal_id,
+            normalized_signal,
+            str(external_id or "").strip(),
+            str(source_ref or "").strip(),
+            source_text_fragment,
+        ]
+        dedupe_key = "|".join(part for part in dedupe_parts if part)
+        resolved_signal_source_id = str(source_ref or external_id or dedupe_key).strip()
+        if is_willhaben_search_agent and not assistant_property_lane_enabled():
+            existing_event = self._existing_office_signal_event(
+                principal_id=principal_id,
+                dedupe_key=dedupe_key,
+                channel=normalized_channel,
+                signal_type=normalized_signal,
+                source_ref=str(source_ref or "").strip(),
+                external_id=str(external_id or "").strip(),
+                stable_external_identity=stable_external_identity,
+            )
+            if existing_event is not None:
+                existing_payload = dict(getattr(existing_event, "payload", {}) or {})
+                return {
+                    "observation_id": str(existing_event.observation_id or ""),
+                    "channel": str(existing_event.channel or normalized_channel),
+                    "event_type": str(existing_event.event_type or f"office_signal_{normalized_signal}"),
+                    "source_id": str(existing_event.source_id or source_ref or "").strip(),
+                    "external_id": str(existing_event.external_id or external_id or "").strip(),
+                    "created_at": str(existing_event.created_at or ""),
+                    "staged_candidates": [],
+                    "staged_drafts": [],
+                    "staged_count": 0,
+                    "draft_count": 0,
+                    "deduplicated": True,
+                    "ignored": True,
+                    "ignore_reason": str(existing_payload.get("ignore_reason") or "property_search_not_available").strip(),
+                    "product_boundary": str(existing_payload.get("product_boundary") or "propertyquarry").strip(),
+                    "ooda_loop": {},
+                }
+            ignored_payload = {
+                "signal_type": normalized_signal,
+                "title": title_text,
+                "summary": summary_text,
+                "text": source_text,
+                "counterparty": str(counterparty or "").strip(),
+                "stakeholder_id": str(stakeholder_id or "").strip(),
+                "due_at": str(due_at or "").strip(),
+                "actor": str(actor or "").strip() or "office_api",
+                "ignored": True,
+                "ignore_reason": "property_search_not_available",
+                "product_boundary": "propertyquarry",
+                "candidate_staging_suppressed_reason": "propertyquarry_boundary",
+                **dict(payload or {}),
+            }
+            event = self._container.channel_runtime.ingest_observation(
+                principal_id=principal_id,
+                channel=normalized_channel,
+                event_type=f"office_signal_{normalized_signal}",
+                payload=ignored_payload,
+                source_id=str(source_ref or "").strip(),
+                external_id=str(external_id or "").strip(),
+                dedupe_key=dedupe_key,
+            )
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="office_signal_ingested",
+                payload={
+                    "signal_type": normalized_signal,
+                    "channel": normalized_channel,
+                    "source_ref": str(source_ref or "").strip(),
+                    "external_id": str(external_id or "").strip(),
+                    "staged_count": 0,
+                    "draft_count": 0,
+                    "ooda_recommended_ltd_count": 0,
+                    "ignored": True,
+                    "ignore_reason": "property_search_not_available",
+                    "product_boundary": "propertyquarry",
+                },
+                source_id=str(resolved_signal_source_id or event.observation_id or "").strip(),
+            )
+            return {
+                "observation_id": str(event.observation_id or ""),
+                "channel": str(event.channel or ""),
+                "event_type": str(event.event_type or ""),
+                "source_id": str(event.source_id or ""),
+                "external_id": str(event.external_id or ""),
+                "created_at": str(event.created_at or ""),
+                "staged_candidates": [],
+                "staged_drafts": [],
+                "staged_count": 0,
+                "draft_count": 0,
+                "deduplicated": False,
+                "ignored": True,
+                "ignore_reason": "property_search_not_available",
+                "product_boundary": "propertyquarry",
+                "ooda_loop": {},
+            }
         suppress_candidate_staging = (
             normalized_channel == "gmail"
             and normalized_signal == "email_thread"
@@ -18765,15 +18865,6 @@ class ProductService:
             payload=payload_json,
             actor=str(actor or "").strip() or "office_api",
         )
-        dedupe_parts = [
-            "office-signal",
-            principal_id,
-            normalized_signal,
-            str(external_id or "").strip(),
-            str(source_ref or "").strip(),
-            source_text_fragment,
-        ]
-        dedupe_key = "|".join(part for part in dedupe_parts if part)
         existing_event = self._existing_office_signal_event(
             principal_id=principal_id,
             dedupe_key=dedupe_key,
@@ -18868,7 +18959,6 @@ class ProductService:
             payload=payload_json,
             staged_candidates=staged,
         )
-        resolved_signal_source_id = str(source_ref or external_id or dedupe_key).strip()
         base_payload_json = {
             "signal_type": normalized_signal,
             "title": title_text,
@@ -22519,6 +22609,23 @@ class ProductService:
         account_email: str = "",
         email_limit: int = 10,
     ) -> dict[str, object]:
+        if not assistant_property_lane_enabled():
+            normalized_account_email = str(account_email or "").strip().lower()
+            return {
+                "generated_at": _now_iso(),
+                "status": "disabled",
+                "reason": "property_search_not_available",
+                "product_boundary": "propertyquarry",
+                "account_email": normalized_account_email,
+                "account_emails": [normalized_account_email] if normalized_account_email else [],
+                "granted_scopes": [],
+                "items": [],
+                "total": 0,
+                "synced_total": 0,
+                "deduplicated_total": 0,
+                "suppressed_total": 0,
+                "ignored_total": 0,
+            }
         seen_source_refs: set[str] = set()
         seen_external_ids: set[str] = set()
         for row in self._container.channel_runtime.list_recent_observations(limit=4000, principal_id=principal_id):
@@ -26145,8 +26252,9 @@ class ProductService:
             for row in curated_signals
         ]
         suppressed_total = len(suppressed_signals)
+        ignored_total = sum(1 for item in items if bool(item.get("ignored")))
         deduplicated_total = sum(1 for item in items if bool(item.get("deduplicated")))
-        synced_total = len(items) - deduplicated_total
+        synced_total = len(items) - deduplicated_total - ignored_total
         account_rollups: dict[str, dict[str, object]] = {}
         account_order: list[str] = []
 
@@ -26164,6 +26272,7 @@ class ProductService:
                     "processed_total": 0,
                     "synced_total": 0,
                     "deduplicated_total": 0,
+                    "ignored_total": 0,
                     "suppressed_total": 0,
                 }
                 account_order.append(key)
@@ -26180,7 +26289,9 @@ class ProductService:
         for signal, item in zip(curated_signals, items):
             row = _ensure_account_rollup(_signal_account_email(signal))
             row["processed_total"] = int(row["processed_total"] or 0) + 1
-            if bool(item.get("deduplicated")):
+            if bool(item.get("ignored")):
+                row["ignored_total"] = int(row["ignored_total"] or 0) + 1
+            elif bool(item.get("deduplicated")):
                 row["deduplicated_total"] = int(row["deduplicated_total"] or 0) + 1
             else:
                 row["synced_total"] = int(row["synced_total"] or 0) + 1
@@ -26202,6 +26313,7 @@ class ProductService:
                 "processed_total": len(items),
                 "synced_total": synced_total,
                 "deduplicated_total": deduplicated_total,
+                "ignored_total": ignored_total,
                 "suppressed_total": suppressed_total,
                 "gmail_total": sum(1 for row in packet.signals if row.channel == "gmail"),
                 "calendar_total": sum(1 for row in packet.signals if row.channel == "calendar"),
@@ -26218,6 +26330,7 @@ class ProductService:
             "total": len(items),
             "synced_total": synced_total,
             "deduplicated_total": deduplicated_total,
+            "ignored_total": ignored_total,
             "suppressed_total": suppressed_total,
         }
 
