@@ -962,6 +962,16 @@ def _default_live_receipt_path() -> Path | None:
     return live_receipt_verifier.default_receipt_path()
 
 
+def _configured_live_receipt_path() -> Path | None:
+    explicit = str(
+        os.getenv("EA_PROACTIVE_OODA_OPERATOR_RECEIPT_PATH")
+        or os.getenv("EA_PROACTIVE_OODA_LIVE_RECEIPT_PATH")
+        or os.getenv("EA_PROACTIVE_OODA_RECEIPT_PATH")
+        or ""
+    ).strip()
+    return Path(explicit) if explicit else None
+
+
 def _normalized_delivery_route(report: Mapping[str, Any]) -> dict[str, Any]:
     route = dict(report.get("delivery_route") or {})
     route.setdefault("ready", False)
@@ -1804,6 +1814,7 @@ def build_proactive_ooda_operator_status(
     provider_cost_pressure_probe: dict[str, Any] = {}
     principal_id = str(getattr(effective_report_args, "principal_id", "") or proactive_verifier._default_principal_id()).strip()
     live_probe_timeout_seconds = _live_probe_timeout_seconds()
+    configured_live_receipt_path = live_receipt_path if live_receipt_path is not None else _configured_live_receipt_path()
     effective_live_receipt_path = live_receipt_path if live_receipt_path is not None else _default_live_receipt_path()
     if effective_live_receipt_path is not None:
         effective_report_args.receipt_path = str(effective_live_receipt_path)
@@ -1813,7 +1824,7 @@ def build_proactive_ooda_operator_status(
         try:
             route_probe = ea_live_ops.probe_proactive_route(
                 principal_id=principal_id,
-                receipt_path=str(effective_live_receipt_path or ""),
+                receipt_path=str(configured_live_receipt_path or ""),
                 timeout_seconds=live_probe_timeout_seconds,
             )
         except Exception:
