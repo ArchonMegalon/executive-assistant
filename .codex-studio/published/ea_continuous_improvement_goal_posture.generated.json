@@ -154,8 +154,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "0a03967ed9176273de840655280c20c2960cd0be",
-          "source_state_fingerprint": "b55703a9c0f496f8f63b47a0dabd0bbf07b3a8f002cccc085bcae83872f59a83",
+          "source_git_head": "7f998706af4e2f44ca64f0136140593496a3e13f",
+          "source_state_fingerprint": "673958632b79b64d68a7f9b7779c342524ebe06f81c72abe91108c9f7f89ab62",
           "status": "ready_for_approval_outcome_capture"
         },
         {
@@ -163,8 +163,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "0a03967ed9176273de840655280c20c2960cd0be",
-          "source_state_fingerprint": "b55703a9c0f496f8f63b47a0dabd0bbf07b3a8f002cccc085bcae83872f59a83",
+          "source_git_head": "7f998706af4e2f44ca64f0136140593496a3e13f",
+          "source_state_fingerprint": "673958632b79b64d68a7f9b7779c342524ebe06f81c72abe91108c9f7f89ab62",
           "status": "ready_with_live_receipt"
         }
       ],
@@ -836,7 +836,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-07-02T09:38:46Z",
+  "generated_at": "2026-07-02T09:46:12Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -1021,7 +1021,7 @@
           "magixai",
           "gemini_vortex"
         ],
-        "observed_at": "2026-07-02T09:38:35Z",
+        "observed_at": "2026-07-02T09:45:59Z",
         "onemin_configured_slots": 70,
         "onemin_preferred_when_speed_is_not_critical": true,
         "onemin_ready_slots": 18,
@@ -1725,7 +1725,7 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "0a03967ed9176273de840655280c20c2960cd0be",
-  "source_state_fingerprint": "b55703a9c0f496f8f63b47a0dabd0bbf07b3a8f002cccc085bcae83872f59a83",
+  "source_git_head": "7f998706af4e2f44ca64f0136140593496a3e13f",
+  "source_state_fingerprint": "673958632b79b64d68a7f9b7779c342524ebe06f81c72abe91108c9f7f89ab62",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }

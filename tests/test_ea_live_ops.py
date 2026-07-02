@@ -2891,6 +2891,83 @@ def test_cleanup_proactive_approval_callbacks_execute_calls_runtime_cleanup_and_
     assert "stale_after=0" in str(report["operator_text"])
 
 
+def test_cleanup_proactive_approval_callbacks_execute_uses_in_process_fallback(monkeypatch) -> None:
+    module = _module()
+    probes = [
+        {
+            "probe_ok": True,
+            "state_path": "/data/provider-ledger/proactive_ooda_notified.json",
+            "run_receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+            "approval_callback_dir": "/data/provider-ledger/proactive_ooda_approval_callbacks",
+            "approval_callback_dir_exists": True,
+            "approval_callback_dir_writable": True,
+            "approval_callback_record_count": 20,
+            "approval_callback_raw_pending_count": 4,
+            "approval_callback_live_pending_count": 1,
+            "approval_callback_stale_pending_count": 3,
+            "approval_callback_noncurrent_pending_count": 2,
+            "approval_callback_expired_pending_count": 1,
+            "approval_callback_expired_count": 0,
+            "approval_callback_superseded_count": 9,
+            "current_packet_live_pending_count": 1,
+        },
+        {
+            "probe_ok": True,
+            "approval_callback_record_count": 20,
+            "approval_callback_raw_pending_count": 1,
+            "approval_callback_live_pending_count": 1,
+            "approval_callback_stale_pending_count": 0,
+            "approval_callback_noncurrent_pending_count": 0,
+            "approval_callback_expired_pending_count": 0,
+            "approval_callback_expired_count": 1,
+            "approval_callback_superseded_count": 11,
+            "current_packet_live_pending_count": 1,
+        },
+    ]
+    captured: dict[str, object] = {}
+
+    def _fake_probe(**_kwargs):
+        return probes.pop(0)
+
+    def _fake_cleanup(**kwargs):
+        captured.update(kwargs)
+        return {
+            "status": "ok",
+            "inspected_count": 20,
+            "expired_count": 1,
+            "superseded_count": 2,
+            "skipped_count": 17,
+            "error_count": 0,
+            "active_packet_ref_sha256": "a" * 64,
+            "active_staged_artifact_ref_sha256": "b" * 64,
+        }
+
+    monkeypatch.setenv("EA_ROLE", "api")
+    monkeypatch.setattr(module, "_docker_cli_available", lambda: False)
+    monkeypatch.setattr(
+        module,
+        "_docker_compose_exec_json",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("docker compose exec should not run for in-process cleanup")),
+    )
+    monkeypatch.setattr(module, "probe_proactive_artifacts", _fake_probe)
+    monkeypatch.setattr(module, "expire_stale_proactive_ooda_telegram_approval_callbacks", _fake_cleanup)
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-06-30T08:20:00Z")
+
+    report = module.cleanup_proactive_approval_callbacks(execute=True, output_format="operator")
+
+    assert report["status"] == "cleaned"
+    assert report["source"] == "in_process_runtime:proactive_callback_cleanup"
+    assert report["expired_count"] == 1
+    assert report["superseded_count"] == 2
+    assert report["before"]["stale_pending_count"] == 3
+    assert report["after"]["stale_pending_count"] == 0
+    assert captured["state_path"] == "/data/provider-ledger/proactive_ooda_notified.json"
+    assert captured["receipt_path"] == "/data/provider-ledger/proactive_ooda_latest_run.generated.json"
+    assert captured["callback_dir"] == "/data/provider-ledger/proactive_ooda_approval_callbacks"
+    assert captured["supersede_noncurrent"] is True
+    assert "status=cleaned" in str(report["operator_text"])
+
+
 def test_probe_proactive_gmail_draft_reports_live_google_blocker(monkeypatch) -> None:
     module = _module()
 

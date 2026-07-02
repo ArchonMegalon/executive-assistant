@@ -59,6 +59,7 @@ from app.services import whatsapp_web_session_delivery  # noqa: E402
 from app.services.audiobook_epub_pipeline import audiobook_runtime_preflight  # noqa: E402
 from app.services.proactive_ooda_operator_actions import proactive_next_action_surface  # noqa: E402
 from app.services.proactive_ooda_runtime_artifacts import approval_callback_runtime_summary, load_runtime_artifact_bundle  # noqa: E402
+from app.services.proactive_ooda_telegram_approval import expire_stale_proactive_ooda_telegram_approval_callbacks  # noqa: E402
 from app.services.responses_upstream import _provider_health_report  # noqa: E402
 
 
@@ -3464,13 +3465,18 @@ def cleanup_proactive_approval_callbacks(
             }
         ),
     ]
-    source = "docker_compose_exec:proactive_approval_capture"
+    source = "docker_compose_exec:proactive_callback_cleanup"
     if _use_in_process_proactive_runtime_fallback():
-        source = "in_process_runtime:proactive_approval_capture"
+        source = "in_process_runtime:proactive_callback_cleanup"
         try:
             code = 0
-            payload = _probe_proactive_approval_capture_in_process_payload(
-                principal_id=str(principal_id or "").strip(),
+            inputs = _proactive_runtime_inputs()
+            payload = expire_stale_proactive_ooda_telegram_approval_callbacks(
+                root=Path(inputs["root"]),
+                state_path=str(artifact_probe.get("state_path") or inputs.get("state_path") or ""),
+                receipt_path=str(artifact_probe.get("run_receipt_path") or inputs.get("receipt_path") or ""),
+                callback_dir=str(artifact_probe.get("approval_callback_dir") or ""),
+                supersede_noncurrent=bool(supersede_noncurrent),
             )
             stdout = json.dumps(payload, sort_keys=True)
             stderr = ""
@@ -3489,6 +3495,7 @@ def cleanup_proactive_approval_callbacks(
     if not payload:
         report = {
             **base_report,
+            "source": source,
             "status": "cleanup_failed",
             "blocking_reason": f"cleanup_failed:exit_{code}",
             "next_action": "inspect_proactive_runtime_container",
@@ -3509,6 +3516,7 @@ def cleanup_proactive_approval_callbacks(
     superseded_count = int(payload.get("superseded_count") or 0)
     report = {
         **base_report,
+        "source": source,
         "probe_ok": bool(after_probe.get("probe_ok")),
         "status": "cleaned" if expired_count or superseded_count else "clean",
         "mutated": bool(expired_count or superseded_count),
