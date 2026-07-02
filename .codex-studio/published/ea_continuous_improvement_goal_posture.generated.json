@@ -136,16 +136,16 @@
         ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
         ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json"
       ],
-      "claim_boundary": "does_not_prove_assistant_grade_proactive_ooda_until_a_real_approval_outcome_is_captured",
+      "claim_boundary": "does_not_prove_the_broader_executive_assistant_goal_until_other_real_world_acceptance_lenses_clear",
       "evidence_kind": "approval_outcome",
       "key": "proactive_ooda_packet_acceptance",
       "lens": "decide",
-      "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
-      "next_action_form_href": "/admin/proactive-ooda/approval",
-      "next_action_form_label": "Open approval capture",
+      "next_action": "maintain_proactive_ooda_gold_acceptance_evidence",
+      "next_action_form_href": "/app/today",
+      "next_action_form_label": "Open Today",
       "next_action_form_method": "get",
-      "next_action_href": "/admin/proactive-ooda/approval",
-      "next_action_label": "Open approval capture",
+      "next_action_href": "/app/today",
+      "next_action_label": "Open Today",
       "next_action_method": "get",
       "required_next_receipt": "real proactive OODA packet accepted with action-required-only routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome",
       "source_receipts": [
@@ -154,21 +154,21 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "2e29169d1d10cdc09fce7aef54c683b13ebf02ee",
-          "source_state_fingerprint": "09ba3e98c426d8eb31fcb4ddbb6edd159bb4bc4035006de06f306285e93928e4",
-          "status": "ready_for_approval_outcome_capture"
+          "source_git_head": "7d53eb9c1653144d4e569255aa85fc3e3c28cb06",
+          "source_state_fingerprint": "7b970a5c174299ac96bd5fe67cbdae28a3530e9e38c529d104e17b88a0ed98b0",
+          "status": "pass"
         },
         {
           "contract_name": "ea.proactive_ooda_operator_status.v1",
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "2e29169d1d10cdc09fce7aef54c683b13ebf02ee",
-          "source_state_fingerprint": "09ba3e98c426d8eb31fcb4ddbb6edd159bb4bc4035006de06f306285e93928e4",
+          "source_git_head": "7d53eb9c1653144d4e569255aa85fc3e3c28cb06",
+          "source_state_fingerprint": "7b970a5c174299ac96bd5fe67cbdae28a3530e9e38c529d104e17b88a0ed98b0",
           "status": "ready_with_live_receipt"
         }
       ],
-      "status": "pending_real_world_evidence",
+      "status": "satisfied",
       "title": "Proactive OODA packet approval outcome"
     },
     {
@@ -415,10 +415,10 @@
         "next_action_href": "/integrations/google",
         "next_action_label": "Retry Google auth",
         "next_action_method": "get",
-        "observed_google_account_matches_expected": false,
-        "observed_google_domain": "",
-        "observed_google_email_present": false,
-        "observed_google_email_sha256": "",
+        "observed_google_account_matches_expected": true,
+        "observed_google_domain": "gmail.com",
+        "observed_google_email_present": true,
+        "observed_google_email_sha256": "0d4e155b160b9ea9159f7b9be7451875fcdff0399e45ba180c3ee8e27c3752a4",
         "raw_chat_ids_exposed": false,
         "raw_client_id_exposed": false,
         "raw_client_secret_exposed": false,
@@ -459,9 +459,9 @@
           "contract_name": "ea.google_workspace_oauth_readiness.v1",
           "path": ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "2193107bdfaf10f9ee944741af6a696878bfdd87",
-          "source_state_fingerprint": "61b4b71c059b3caf8e83b43b10141b9ec5f14a09e6959c848ea2979641aa5096",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "cc6df243013fba7690e3c77ba4c7675e071dd1aa",
+          "source_state_fingerprint": "7b970a5c174299ac96bd5fe67cbdae28a3530e9e38c529d104e17b88a0ed98b0",
           "status": "blocked_setup_required"
         }
       ],
@@ -836,7 +836,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-07-02T11:25:46Z",
+  "generated_at": "2026-07-02T15:58:42Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -855,9 +855,9 @@
         "next_action": "retry_full_workspace_auth_with_approved_account",
         "oauth_project_id": "propertyquarry-498318",
         "oauth_project_number": "95627800296",
-        "observed_google_account_matches_expected": false,
-        "observed_google_email_present": false,
-        "observed_google_email_sha256": "",
+        "observed_google_account_matches_expected": true,
+        "observed_google_email_present": true,
+        "observed_google_email_sha256": "0d4e155b160b9ea9159f7b9be7451875fcdff0399e45ba180c3ee8e27c3752a4",
         "raw_access_token_exposed": false,
         "raw_client_secret_exposed": false,
         "raw_error_description_exposed": false,
@@ -901,9 +901,9 @@
           "contract_name": "ea.google_workspace_oauth_readiness.v1",
           "path": ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "2193107bdfaf10f9ee944741af6a696878bfdd87",
-          "source_state_fingerprint": "61b4b71c059b3caf8e83b43b10141b9ec5f14a09e6959c848ea2979641aa5096",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "cc6df243013fba7690e3c77ba4c7675e071dd1aa",
+          "source_state_fingerprint": "7b970a5c174299ac96bd5fe67cbdae28a3530e9e38c529d104e17b88a0ed98b0",
           "status": "blocked_setup_required"
         }
       ],
@@ -956,7 +956,7 @@
     {
       "components": [],
       "key": "decide",
-      "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
+      "next_action": "maintain_proactive_ooda_gold_acceptance_evidence",
       "provider_cost_control": {
         "billing_truth_boundary": "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth",
         "cost_sensitive_lanes": [
@@ -1021,10 +1021,10 @@
           "magixai",
           "gemini_vortex"
         ],
-        "observed_at": "2026-07-02T11:24:51Z",
+        "observed_at": "2026-07-02T15:54:38Z",
         "onemin_configured_slots": 70,
         "onemin_preferred_when_speed_is_not_critical": true,
-        "onemin_ready_slots": 18,
+        "onemin_ready_slots": 16,
         "onemin_usable": true,
         "present": true,
         "primary_background_provider": "onemin",
@@ -1047,9 +1047,9 @@
           "contract_name": "ea.office_loop_goal_receipt.v1",
           "path": ".codex-studio/published/ea_office_loop_goal.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "a3572c150100e1a3be707546aa269d5cbd227499",
-          "source_state_fingerprint": "7d23f1a04f223d186a1d0c0cad8c6506c58e553ce83bb1577ba13e8c5d8006f3",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "cc6df243013fba7690e3c77ba4c7675e071dd1aa",
+          "source_state_fingerprint": "7b970a5c174299ac96bd5fe67cbdae28a3530e9e38c529d104e17b88a0ed98b0",
           "status": "ready_local_evidence"
         }
       ],
@@ -1369,8 +1369,10 @@
       "next_action_label": "Retry Google auth",
       "next_action_method": "get",
       "non_action_progress_push_allowed": false,
-      "observed_google_account_matches_expected": false,
-      "observed_google_email_present": false,
+      "observed_google_account_matches_expected": true,
+      "observed_google_domain": "gmail.com",
+      "observed_google_email_present": true,
+      "observed_google_email_sha256": "0d4e155b160b9ea9159f7b9be7451875fcdff0399e45ba180c3ee8e27c3752a4",
       "quiet_hours_respected": true,
       "raw_chat_ids_exposed": false,
       "raw_client_id_exposed": false,
@@ -1663,33 +1665,6 @@
       "telegram_push_allowed": false,
       "title": "Fresh-host Teable recovery drill",
       "user_action_required": false
-    },
-    {
-      "callback_tokens_exposed": false,
-      "delivery_policy": "queue_only",
-      "evidence_kind": "approval_outcome",
-      "interruption_budget": "none",
-      "irreversible_actions_consent_gated": true,
-      "key": "proactive_ooda_packet_acceptance",
-      "lens": "decide",
-      "next_action": "tap_proactive_telegram_approval_button_or_record_proactive_ooda_approval_outcome",
-      "next_action_form_href": "/admin/proactive-ooda/approval",
-      "next_action_form_label": "Open approval capture",
-      "next_action_form_method": "get",
-      "next_action_href": "/admin/proactive-ooda/approval",
-      "next_action_label": "Open approval capture",
-      "next_action_method": "get",
-      "non_action_progress_push_allowed": false,
-      "quiet_hours_respected": true,
-      "raw_chat_ids_exposed": false,
-      "raw_private_context_exposed": false,
-      "raw_secret_exposed": false,
-      "raw_token_exposed": false,
-      "raw_voice_ids_exposed": false,
-      "required_next_receipt": "real proactive OODA packet accepted with action-required-only routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome",
-      "telegram_push_allowed": false,
-      "title": "Proactive OODA packet approval outcome",
-      "user_action_required": false
     }
   ],
   "operator_delivery_policy": {
@@ -1767,10 +1742,10 @@
       "magixai",
       "gemini_vortex"
     ],
-    "observed_at": "2026-07-02T11:24:51Z",
+    "observed_at": "2026-07-02T15:54:38Z",
     "onemin_configured_slots": 70,
     "onemin_preferred_when_speed_is_not_critical": true,
-    "onemin_ready_slots": 18,
+    "onemin_ready_slots": 16,
     "onemin_usable": true,
     "present": true,
     "primary_background_provider": "onemin",
@@ -1791,7 +1766,6 @@
   "real_use_claim_allowed": false,
   "required_next_receipts": [
     "real weekly signal-to-decision review acceptance receipt",
-    "real proactive OODA packet accepted with action-required-only routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome",
     "fresh-host Teable recovery drill receipt mirrored into the repo",
     "Google Workspace OAuth test-user or verified app access for Full Workspace auth",
     "Pushbullet delivery clients configured and live-verifiable for action-required delivery",
@@ -1810,8 +1784,8 @@
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "2e29169d1d10cdc09fce7aef54c683b13ebf02ee",
-  "source_state_fingerprint": "09ba3e98c426d8eb31fcb4ddbb6edd159bb4bc4035006de06f306285e93928e4",
+  "source_git_head": "cc6df243013fba7690e3c77ba4c7675e071dd1aa",
+  "source_state_fingerprint": "7b970a5c174299ac96bd5fe67cbdae28a3530e9e38c529d104e17b88a0ed98b0",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "active_with_blockers"
 }
