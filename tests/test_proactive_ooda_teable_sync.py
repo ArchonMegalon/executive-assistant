@@ -741,6 +741,7 @@ def test_runner_main_emits_teable_sync_result_when_enabled(tmp_path, monkeypatch
         "argv",
         [
             "run_proactive_ooda.py",
+            "--no-include-goal-action-queue",
             "--principal-id",
             "exec",
             "--signals-json",

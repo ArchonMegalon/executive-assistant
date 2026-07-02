@@ -387,6 +387,7 @@ def test_runner_main_sends_safe_work_preview_to_telegram(tmp_path, monkeypatch, 
         "argv",
         [
             "run_proactive_ooda.py",
+            "--no-include-goal-action-queue",
             "--principal-id",
             "exec",
             "--signals-json",
@@ -594,6 +595,7 @@ def test_runner_defaults_receipt_path_next_to_state_path(tmp_path, monkeypatch) 
         "argv",
         [
             "run_proactive_ooda.py",
+            "--no-include-goal-action-queue",
             "--principal-id",
             "exec",
             "--signals-json",
@@ -641,6 +643,7 @@ def test_runner_main_unarmed_send_stages_without_notifying(tmp_path, monkeypatch
         "argv",
         [
             "run_proactive_ooda.py",
+            "--no-include-goal-action-queue",
             "--principal-id",
             "exec",
             "--signals-json",
@@ -714,6 +717,7 @@ def test_runner_main_mirror_delivery_proof_stages_without_notifying(tmp_path, mo
         "argv",
         [
             "run_proactive_ooda.py",
+            "--no-include-goal-action-queue",
             "--principal-id",
             "exec",
             "--signals-json",
@@ -789,6 +793,7 @@ def test_runner_main_defers_when_safe_work_has_no_decision_ready_material(tmp_pa
         "argv",
         [
             "run_proactive_ooda.py",
+            "--no-include-goal-action-queue",
             "--principal-id",
             "exec",
             "--signals-json",
@@ -844,6 +849,7 @@ def test_runner_archives_each_receipt_next_to_state_path(tmp_path, monkeypatch) 
         "argv",
         [
             "run_proactive_ooda.py",
+            "--no-include-goal-action-queue",
             "--principal-id",
             "exec",
             "--signals-json",
@@ -948,6 +954,7 @@ def test_runner_main_preserves_safe_delivery_error_detail_in_receipt(tmp_path, m
         "argv",
         [
             "run_proactive_ooda.py",
+            "--no-include-goal-action-queue",
             "--principal-id",
             "exec",
             "--signals-json",

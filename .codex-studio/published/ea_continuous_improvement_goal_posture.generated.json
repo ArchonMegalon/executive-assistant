@@ -155,8 +155,8 @@
           "present": true,
           "source_fresh_to_current_source": true,
           "source_git_head": "b94f7c57b2a723ec0eb8d86bba49289d975d0f51",
-          "source_state_fingerprint": "f4f32bcf26f6cf888210e9f4a5cb388d90317e4f5e0d5729fb3f1ccdb0b70116",
-          "status": "blocked_missing_proactive_packet_evidence"
+          "source_state_fingerprint": "10f9658c47730f5aecb1a57faaa7f435232809cc773412af12fd562db71532c3",
+          "status": "ready_for_approval_outcome_capture"
         },
         {
           "contract_name": "ea.proactive_ooda_operator_status.v1",
@@ -164,7 +164,7 @@
           "present": true,
           "source_fresh_to_current_source": true,
           "source_git_head": "b94f7c57b2a723ec0eb8d86bba49289d975d0f51",
-          "source_state_fingerprint": "f4f32bcf26f6cf888210e9f4a5cb388d90317e4f5e0d5729fb3f1ccdb0b70116",
+          "source_state_fingerprint": "10f9658c47730f5aecb1a57faaa7f435232809cc773412af12fd562db71532c3",
           "status": "ready_with_live_receipt"
         }
       ],
@@ -411,7 +411,7 @@
           "contract_name": "ea.google_workspace_oauth_readiness.v1",
           "path": ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json",
           "present": true,
-          "source_fresh_to_current_source": true,
+          "source_fresh_to_current_source": false,
           "source_git_head": "94fb9fde5bb7359721eb886c286ea2f1d92c38eb",
           "source_state_fingerprint": "f4f32bcf26f6cf888210e9f4a5cb388d90317e4f5e0d5729fb3f1ccdb0b70116",
           "status": "blocked_setup_required"
@@ -775,7 +775,7 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-07-02T04:56:50Z",
+  "generated_at": "2026-07-02T05:14:04Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
@@ -836,7 +836,7 @@
           "contract_name": "ea.google_workspace_oauth_readiness.v1",
           "path": ".codex-studio/published/ea_google_workspace_oauth_readiness.generated.json",
           "present": true,
-          "source_fresh_to_current_source": true,
+          "source_fresh_to_current_source": false,
           "source_git_head": "94fb9fde5bb7359721eb886c286ea2f1d92c38eb",
           "source_state_fingerprint": "f4f32bcf26f6cf888210e9f4a5cb388d90317e4f5e0d5729fb3f1ccdb0b70116",
           "status": "blocked_setup_required"
@@ -1529,6 +1529,6 @@
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
   "source_git_head": "b94f7c57b2a723ec0eb8d86bba49289d975d0f51",
-  "source_state_fingerprint": "f4f32bcf26f6cf888210e9f4a5cb388d90317e4f5e0d5729fb3f1ccdb0b70116",
+  "source_state_fingerprint": "10f9658c47730f5aecb1a57faaa7f435232809cc773412af12fd562db71532c3",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }

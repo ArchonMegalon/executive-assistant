@@ -83,6 +83,10 @@ from app.services.proactive_ooda_delivery import (  # noqa: E402
     resolve_proactive_ooda_delivery_status,
     send_proactive_ooda_notification,
 )
+from app.services.proactive_ooda_goal_actions import (  # noqa: E402
+    DEFAULT_GOAL_ACTION_QUEUE_LIMIT,
+    load_goal_action_queue_signals,
+)
 from app.services.proactive_ooda_telegram_policy import approval_request_needs_telegram_user_action  # noqa: E402
 from app.services.proactive_ooda_teable_sync import (  # noqa: E402
     sync_proactive_ooda_to_teable,
@@ -118,6 +122,26 @@ def main() -> int:
         dest="opportunity_rules_json",
         default=os.getenv("EA_PROACTIVE_OODA_OPPORTUNITY_RULES_JSON", os.getenv("EA_PROACTIVE_OODA_PERSONAL_RULES_JSON", "")),
         help="JSON list/object configuring local OODA opportunity rules.",
+    )
+    parser.add_argument(
+        "--goal-posture-json",
+        default=os.getenv(
+            "EA_PROACTIVE_OODA_GOAL_POSTURE_JSON",
+            ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json",
+        ),
+        help="Continuous-improvement goal posture receipt whose operator action queue can become action-required OODA signals.",
+    )
+    parser.add_argument(
+        "--include-goal-action-queue",
+        action=argparse.BooleanOptionalAction,
+        default=_env_truthy("EA_PROACTIVE_OODA_INCLUDE_GOAL_ACTION_QUEUE", default=True),
+        help="Ingest sanitized user-action-required rows from the goal posture operator action queue.",
+    )
+    parser.add_argument(
+        "--goal-action-queue-limit",
+        type=int,
+        default=int(os.getenv("EA_PROACTIVE_OODA_GOAL_ACTION_QUEUE_LIMIT", str(DEFAULT_GOAL_ACTION_QUEUE_LIMIT)) or "1"),
+        help="Maximum goal-posture action queue rows to surface per run. Defaults to one prioritized action.",
     )
     parser.add_argument(
         "--observation-lookback-hours",
@@ -1056,6 +1080,14 @@ def _load_signals(
         )
         rows.extend(signal.__dict__ for signal in opportunity.signals)
         rows.extend(_source_error_signals(opportunity.errors, source_label="opportunity_rules"))
+    if bool(getattr(args, "include_goal_action_queue", False)):
+        goal_posture_path = _goal_posture_json_path(str(getattr(args, "goal_posture_json", "") or ""))
+        if goal_posture_path:
+            goal_action_signals = load_goal_action_queue_signals(
+                goal_posture_path,
+                limit=max(int(getattr(args, "goal_action_queue_limit", DEFAULT_GOAL_ACTION_QUEUE_LIMIT) or 0), 0),
+            )
+            rows.extend(signal.__dict__ for signal in goal_action_signals)
     if not args.skip_observation_source:
         observation_signals = discover_postgres_observation_signals(
             principal_id=args.principal_id,
@@ -1090,6 +1122,14 @@ def _load_signals(
         if hasattr(signal, "__dict__"):
             rows.append(dict(signal.__dict__))
     return _apply_recent_topic_suppressions(rows)
+
+
+def _goal_posture_json_path(value: str) -> Path | None:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return None
+    path = Path(normalized)
+    return path if path.is_absolute() else ROOT / path
 
 
 def _apply_recent_topic_suppressions(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
