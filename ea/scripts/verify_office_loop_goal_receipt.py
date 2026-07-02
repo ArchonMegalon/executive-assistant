@@ -166,6 +166,8 @@ def verify_office_loop_goal_receipt(receipt_path: str | Path) -> dict[str, Any]:
             issues.append(f"office_loop_channel_loop_digest_missing:{key}")
     if not str(dict(receipt.get("diagnostics_summary") or {}).get("proactive_followthrough_status") or "").strip():
         issues.append("office_loop_diagnostics_missing:proactive_followthrough_status")
+    if str(dict(receipt.get("diagnostics_summary") or {}).get("provider_cost_routing_status") or "").strip() != "active_cost_control":
+        issues.append("office_loop_diagnostics_missing:provider_cost_routing_status")
     goals = {dict(row).get("key"): row for row in receipt.get("additional_goals") or []}
     if "approved_action_workflow" not in dict(goals.get("executive_assistant_quality_readiness") or {}).get("protected_quality_dimensions", []):
         issues.append("office_loop_executive_assistant_quality_dimension_missing:approved_action_workflow")
@@ -181,6 +183,8 @@ def verify_office_loop_goal_receipt(receipt_path: str | Path) -> dict[str, Any]:
     proactive_requires = list(proactive_goal.get("requires", []))
     for key in (
         "live_browse_backed_candidate_research",
+        "cost_aware_background_model_routing_to_1min_ai",
+        "gemini_vertex_token_telemetry_and_soft_cap",
         "pocket_ai_audio_transcript_signal_ingest",
         "context_aware_auditor_before_user_delivery",
         "candidate_provider_fit_and_locality_validation",
@@ -212,9 +216,70 @@ def verify_office_loop_goal_receipt(receipt_path: str | Path) -> dict[str, Any]:
         "gmail_draft_execution_state",
         "telegram_interruption_action_required_state",
         "current_packet_and_stale_approval_state",
+        "provider_token_usage_and_cost_pressure_state",
     ):
         if key not in proactive_sources:
             issues.append(f"office_loop_proactive_ooda_source_missing:{key}")
+    provider_cost_controls = dict(proactive_goal.get("provider_cost_controls") or {})
+    if provider_cost_controls.get("background_work_primary_provider") != "onemin":
+        issues.append("office_loop_provider_cost_control_background_provider_not_onemin")
+    if provider_cost_controls.get("gemini_vertex_alias") != "gemini_vortex":
+        issues.append("office_loop_provider_cost_control_gemini_alias_missing")
+    if provider_cost_controls.get("gemini_token_tracking_required") is not True:
+        issues.append("office_loop_provider_cost_control_gemini_token_tracking_not_required")
+    if provider_cost_controls.get("gemini_soft_cap_required") is not True:
+        issues.append("office_loop_provider_cost_control_gemini_soft_cap_not_required")
+    if provider_cost_controls.get("explicit_gemini_requests_allowed") is not True:
+        issues.append("office_loop_provider_cost_control_explicit_gemini_not_allowed")
+    if (
+        provider_cost_controls.get("billing_truth_boundary")
+        != "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth"
+    ):
+        issues.append("office_loop_provider_cost_control_billing_truth_boundary_missing")
+
+    provider_cost_posture = dict(receipt.get("provider_cost_routing_posture") or {})
+    if provider_cost_posture.get("status") != "active_cost_control":
+        issues.append("office_loop_provider_cost_routing_posture_not_active")
+    background_routing = dict(provider_cost_posture.get("background_routing") or {})
+    if background_routing.get("primary_background_provider") != "onemin":
+        issues.append("office_loop_provider_cost_background_primary_not_onemin")
+    if list(background_routing.get("groundwork_provider_order") or [])[:3] != ["onemin", "magixai", "gemini_vortex"]:
+        issues.append("office_loop_provider_cost_groundwork_order_drifted")
+    if background_routing.get("onemin_preferred_when_speed_is_not_critical") is not True:
+        issues.append("office_loop_provider_cost_onemin_preference_missing")
+    if "groundwork" not in list(background_routing.get("cost_sensitive_lanes") or []):
+        issues.append("office_loop_provider_cost_groundwork_lane_missing")
+    gemini_vertex = dict(provider_cost_posture.get("gemini_vertex") or {})
+    if gemini_vertex.get("provider_key") != "gemini_vortex":
+        issues.append("office_loop_provider_cost_gemini_provider_key_drifted")
+    if gemini_vertex.get("token_tracking_required") is not True:
+        issues.append("office_loop_provider_cost_gemini_token_tracking_missing")
+    if gemini_vertex.get("dispatch_ledger") != "provider_dispatch_events.jsonl":
+        issues.append("office_loop_provider_cost_dispatch_ledger_drifted")
+    tracked_fields = set(str(item) for item in list(gemini_vertex.get("tracked_dispatch_fields") or []))
+    for field in ("tokens_in", "tokens_out", "total_tokens", "lane", "model", "backend"):
+        if field not in tracked_fields:
+            issues.append(f"office_loop_provider_cost_tracked_field_missing:{field}")
+    if gemini_vertex.get("soft_cap_env") != "EA_RESPONSES_GEMINI_VORTEX_TOKEN_SOFT_CAP_24H":
+        issues.append("office_loop_provider_cost_gemini_soft_cap_env_drifted")
+    if gemini_vertex.get("soft_cap_window_env") != "EA_RESPONSES_GEMINI_VORTEX_TOKEN_SOFT_CAP_WINDOW_SECONDS":
+        issues.append("office_loop_provider_cost_gemini_soft_cap_window_env_drifted")
+    if int(gemini_vertex.get("default_soft_cap_tokens_24h") or 0) <= 0:
+        issues.append("office_loop_provider_cost_gemini_soft_cap_default_missing")
+    if gemini_vertex.get("soft_cap_action") != "remove_gemini_vortex_from_cost_gated_background_candidate_lists":
+        issues.append("office_loop_provider_cost_gemini_soft_cap_action_drifted")
+    if gemini_vertex.get("explicit_gemini_requests_allowed") is not True:
+        issues.append("office_loop_provider_cost_explicit_gemini_not_allowed")
+    if gemini_vertex.get("billing_truth_boundary") != "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth":
+        issues.append("office_loop_provider_cost_billing_truth_boundary_missing")
+    privacy = dict(provider_cost_posture.get("privacy") or {})
+    for privacy_key in (
+        "raw_provider_secret_exposed",
+        "raw_prompt_or_response_text_exposed",
+        "raw_google_cloud_billing_account_exposed",
+    ):
+        if privacy.get(privacy_key) is not False:
+            issues.append(f"office_loop_provider_cost_privacy_leak:{privacy_key}")
 
     evidence_receipts = dict(receipt.get("evidence_receipts") or {})
     required_evidence_keys = {

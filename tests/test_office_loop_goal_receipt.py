@@ -87,6 +87,8 @@ def test_office_loop_goal_receipt_materializes_seeded_local_loop(tmp_path: Path)
     assert proactive_goal["claim_limit"] == "local_proactive_ooda_readiness_not_real_assistant_grade_acceptance"
     assert "pocket_ai_audio_transcript_signal_ingest" in proactive_goal["requires"]
     assert "generic_safe_work_packets" in proactive_goal["requires"]
+    assert "cost_aware_background_model_routing_to_1min_ai" in proactive_goal["requires"]
+    assert "gemini_vertex_token_telemetry_and_soft_cap" in proactive_goal["requires"]
     assert "context_aware_auditor_before_user_delivery" in proactive_goal["requires"]
     assert "candidate_provider_fit_and_locality_validation" in proactive_goal["requires"]
     assert "live_browse_backed_candidate_research" in proactive_goal["requires"]
@@ -113,6 +115,41 @@ def test_office_loop_goal_receipt_materializes_seeded_local_loop(tmp_path: Path)
     assert "gmail_draft_execution_state" in proactive_goal["protected_signal_sources"]
     assert "telegram_interruption_action_required_state" in proactive_goal["protected_signal_sources"]
     assert "current_packet_and_stale_approval_state" in proactive_goal["protected_signal_sources"]
+    assert "provider_token_usage_and_cost_pressure_state" in proactive_goal["protected_signal_sources"]
+    assert proactive_goal["provider_cost_controls"] == {
+        "background_work_primary_provider": "onemin",
+        "background_work_primary_provider_label": "1min.ai",
+        "gemini_vertex_alias": "gemini_vortex",
+        "gemini_token_tracking_required": True,
+        "gemini_soft_cap_required": True,
+        "explicit_gemini_requests_allowed": True,
+        "billing_truth_boundary": "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth",
+    }
+    cost_posture = receipt["provider_cost_routing_posture"]
+    assert cost_posture["status"] == "active_cost_control"
+    assert cost_posture["background_routing"]["primary_background_provider"] == "onemin"
+    assert cost_posture["background_routing"]["groundwork_provider_order"] == [
+        "onemin",
+        "magixai",
+        "gemini_vortex",
+    ]
+    assert cost_posture["background_routing"]["onemin_preferred_when_speed_is_not_critical"] is True
+    assert cost_posture["gemini_vertex"]["provider_key"] == "gemini_vortex"
+    assert cost_posture["gemini_vertex"]["token_tracking_required"] is True
+    assert cost_posture["gemini_vertex"]["dispatch_ledger"] == "provider_dispatch_events.jsonl"
+    assert "tokens_in" in cost_posture["gemini_vertex"]["tracked_dispatch_fields"]
+    assert "tokens_out" in cost_posture["gemini_vertex"]["tracked_dispatch_fields"]
+    assert "total_tokens" in cost_posture["gemini_vertex"]["tracked_dispatch_fields"]
+    assert cost_posture["gemini_vertex"]["soft_cap_env"] == "EA_RESPONSES_GEMINI_VORTEX_TOKEN_SOFT_CAP_24H"
+    assert cost_posture["gemini_vertex"]["soft_cap_action"] == "remove_gemini_vortex_from_cost_gated_background_candidate_lists"
+    assert cost_posture["gemini_vertex"]["explicit_gemini_requests_allowed"] is True
+    assert (
+        cost_posture["gemini_vertex"]["billing_truth_boundary"]
+        == "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth"
+    )
+    assert cost_posture["privacy"]["raw_provider_secret_exposed"] is False
+    assert cost_posture["privacy"]["raw_prompt_or_response_text_exposed"] is False
+    assert cost_posture["privacy"]["raw_google_cloud_billing_account_exposed"] is False
     assert "real whole-project scope gap audit reviewed against the current product spine" in receipt["remaining_external_proofs"]
     assert "real proactive OODA packet accepted with routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, pending-approval, stale-approval, and decision facts, and explicit approval outcome" in receipt["remaining_external_proofs"]
     assert "real weekly signal-to-decision review accepted by the operator" in receipt["remaining_external_proofs"]
@@ -228,6 +265,18 @@ def test_office_loop_goal_verifier_rejects_overclaim_and_route_regression(tmp_pa
     receipt["route_snapshots"]["queue"]["markers_pass"] = False
     receipt["route_snapshots"]["queue"]["marker_results"]["Queue"] = False
     receipt["diagnostics_summary"]["channel_loop_digest_keys"] = ["memo"]
+    receipt["diagnostics_summary"]["provider_cost_routing_status"] = "missing"
+    receipt["provider_cost_routing_posture"]["background_routing"]["primary_background_provider"] = "gemini_vortex"
+    receipt["provider_cost_routing_posture"]["background_routing"]["groundwork_provider_order"] = [
+        "gemini_vortex",
+        "onemin",
+    ]
+    receipt["provider_cost_routing_posture"]["background_routing"]["onemin_preferred_when_speed_is_not_critical"] = False
+    receipt["provider_cost_routing_posture"]["gemini_vertex"]["token_tracking_required"] = False
+    receipt["provider_cost_routing_posture"]["gemini_vertex"]["tracked_dispatch_fields"].remove("tokens_in")
+    receipt["provider_cost_routing_posture"]["gemini_vertex"]["soft_cap_env"] = "WRONG"
+    receipt["provider_cost_routing_posture"]["gemini_vertex"]["billing_truth_boundary"] = "google_cloud_invoice_truth"
+    receipt["provider_cost_routing_posture"]["privacy"]["raw_provider_secret_exposed"] = True
     additional_goals = {row["key"]: row for row in receipt["additional_goals"]}
     additional_goals["executive_assistant_quality_readiness"]["protected_quality_dimensions"].remove("approved_action_workflow")
     additional_goals["executive_assistant_acceptance_evidence"]["protected_acceptance_dimensions"].remove("privacy_and_redaction")
@@ -235,6 +284,8 @@ def test_office_loop_goal_verifier_rejects_overclaim_and_route_regression(tmp_pa
     additional_goals["whole_project_scope_gap_audit"]["protected_scope_axes"].remove("run_session")
     additional_goals["whole_project_signal_to_decision_closure"]["protected_signal_sources"].remove("provider_runtime_failures")
     additional_goals["proactive_ooda_gold_production"]["requires"].remove("pocket_ai_audio_transcript_signal_ingest")
+    additional_goals["proactive_ooda_gold_production"]["requires"].remove("cost_aware_background_model_routing_to_1min_ai")
+    additional_goals["proactive_ooda_gold_production"]["requires"].remove("gemini_vertex_token_telemetry_and_soft_cap")
     additional_goals["proactive_ooda_gold_production"]["requires"].remove("context_aware_auditor_before_user_delivery")
     additional_goals["proactive_ooda_gold_production"]["requires"].remove("candidate_provider_fit_and_locality_validation")
     additional_goals["proactive_ooda_gold_production"]["requires"].remove("live_browse_backed_candidate_research")
@@ -261,6 +312,9 @@ def test_office_loop_goal_verifier_rejects_overclaim_and_route_regression(tmp_pa
     additional_goals["proactive_ooda_gold_production"]["protected_signal_sources"].remove("gmail_draft_execution_state")
     additional_goals["proactive_ooda_gold_production"]["protected_signal_sources"].remove("telegram_interruption_action_required_state")
     additional_goals["proactive_ooda_gold_production"]["protected_signal_sources"].remove("current_packet_and_stale_approval_state")
+    additional_goals["proactive_ooda_gold_production"]["protected_signal_sources"].remove("provider_token_usage_and_cost_pressure_state")
+    additional_goals["proactive_ooda_gold_production"]["provider_cost_controls"]["background_work_primary_provider"] = "gemini_vortex"
+    additional_goals["proactive_ooda_gold_production"]["provider_cost_controls"]["gemini_token_tracking_required"] = False
     receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     verification = verifier.verify_office_loop_goal_receipt(receipt_path)
@@ -273,12 +327,15 @@ def test_office_loop_goal_verifier_rejects_overclaim_and_route_regression(tmp_pa
     assert "office_loop_route_markers_not_pass:queue" in verification["issues"]
     assert "office_loop_channel_loop_digest_missing:approvals" in verification["issues"]
     assert "office_loop_channel_loop_digest_missing:operator" in verification["issues"]
+    assert "office_loop_diagnostics_missing:provider_cost_routing_status" in verification["issues"]
     assert "office_loop_executive_assistant_quality_dimension_missing:approved_action_workflow" in verification["issues"]
     assert "office_loop_executive_assistant_acceptance_dimension_missing:privacy_and_redaction" in verification["issues"]
     assert "office_loop_product_governor_pressure_missing:ready_tonight" in verification["issues"]
     assert "office_loop_scope_gap_audit_axis_missing:run_session" in verification["issues"]
     assert "office_loop_signal_to_decision_source_missing:provider_runtime_failures" in verification["issues"]
     assert "office_loop_proactive_ooda_requirement_missing:pocket_ai_audio_transcript_signal_ingest" in verification["issues"]
+    assert "office_loop_proactive_ooda_requirement_missing:cost_aware_background_model_routing_to_1min_ai" in verification["issues"]
+    assert "office_loop_proactive_ooda_requirement_missing:gemini_vertex_token_telemetry_and_soft_cap" in verification["issues"]
     assert "office_loop_proactive_ooda_requirement_missing:context_aware_auditor_before_user_delivery" in verification["issues"]
     assert "office_loop_proactive_ooda_requirement_missing:candidate_provider_fit_and_locality_validation" in verification["issues"]
     assert "office_loop_proactive_ooda_requirement_missing:live_browse_backed_candidate_research" in verification["issues"]
@@ -305,6 +362,17 @@ def test_office_loop_goal_verifier_rejects_overclaim_and_route_regression(tmp_pa
     assert "office_loop_proactive_ooda_source_missing:gmail_draft_execution_state" in verification["issues"]
     assert "office_loop_proactive_ooda_source_missing:telegram_interruption_action_required_state" in verification["issues"]
     assert "office_loop_proactive_ooda_source_missing:current_packet_and_stale_approval_state" in verification["issues"]
+    assert "office_loop_proactive_ooda_source_missing:provider_token_usage_and_cost_pressure_state" in verification["issues"]
+    assert "office_loop_provider_cost_control_background_provider_not_onemin" in verification["issues"]
+    assert "office_loop_provider_cost_control_gemini_token_tracking_not_required" in verification["issues"]
+    assert "office_loop_provider_cost_background_primary_not_onemin" in verification["issues"]
+    assert "office_loop_provider_cost_groundwork_order_drifted" in verification["issues"]
+    assert "office_loop_provider_cost_onemin_preference_missing" in verification["issues"]
+    assert "office_loop_provider_cost_gemini_token_tracking_missing" in verification["issues"]
+    assert "office_loop_provider_cost_tracked_field_missing:tokens_in" in verification["issues"]
+    assert "office_loop_provider_cost_gemini_soft_cap_env_drifted" in verification["issues"]
+    assert "office_loop_provider_cost_billing_truth_boundary_missing" in verification["issues"]
+    assert "office_loop_provider_cost_privacy_leak:raw_provider_secret_exposed" in verification["issues"]
 
 
 def test_office_loop_goal_verifier_rejects_missing_proactive_action_surface(tmp_path: Path) -> None:

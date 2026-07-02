@@ -9454,6 +9454,18 @@ def codex_status_report(
     burn_7d_summary = _onemin_lane_burn_summary(now=now, window_seconds=604800.0, principal_id=normalized_principal)
     selected_window_burn = _onemin_lane_burn_summary(now=now, window_seconds=window_seconds, principal_id=normalized_principal)
     selected_window_avoided = _avoided_onemin_credit_summary(now=now, window_seconds=window_seconds, principal_id=normalized_principal)
+    gemini_token_usage_24h = _provider_token_usage_summary(
+        provider_key="gemini_vortex",
+        now=now,
+        window_seconds=_gemini_vortex_token_soft_cap_window_seconds(),
+        principal_id=normalized_principal,
+    )
+    gemini_token_usage_selected_window = _provider_token_usage_summary(
+        provider_key="gemini_vortex",
+        now=now,
+        window_seconds=window_seconds,
+        principal_id=normalized_principal,
+    )
     basis_counts = dict(onemin.get("balance_basis_counts") or {})
     state_counts: dict[str, int] = {}
     precomputed_slots: list[dict[str, object]] = []
@@ -9816,6 +9828,12 @@ def codex_status_report(
             "24h": _lane_telemetry_summary(now=now, window_seconds=86400.0, principal_id=normalized_principal),
             "7d": _lane_telemetry_summary(now=now, window_seconds=604800.0, principal_id=normalized_principal),
             "selected_window": _lane_telemetry_summary(now=now, window_seconds=window_seconds, principal_id=normalized_principal),
+        },
+        "gemini_token_usage": {
+            "provider_key": "gemini_vortex",
+            "billing_truth_boundary": "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth",
+            "24h": gemini_token_usage_24h,
+            "selected_window": gemini_token_usage_selected_window,
         },
         "avoided_credits": {
             "1h": _avoided_onemin_credit_summary(now=now, window_seconds=3600.0, principal_id=normalized_principal),

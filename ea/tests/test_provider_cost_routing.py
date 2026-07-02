@@ -135,6 +135,43 @@ def test_gemini_dispatch_events_track_tokens(monkeypatch, tmp_path) -> None:
         responses_upstream._test_reset_onemin_states()
 
 
+def test_codex_status_report_exposes_gemini_token_usage(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(tmp_path))
+    responses_upstream._test_reset_onemin_states()
+    try:
+        now = responses_upstream._now_epoch()
+        responses_upstream._record_provider_dispatch_event(
+            provider_key="gemini_vortex",
+            model="gemini-3.5-flash",
+            lane="groundwork",
+            backend="gemini_vortex_cli",
+            estimated_onemin_credits=55,
+            tokens_in=40,
+            tokens_out=15,
+            happened_at=now,
+            principal_id="principal-1",
+        )
+
+        report = responses_upstream.codex_status_report(
+            window="1h",
+            principal_id="principal-1",
+            provider_health={"providers": {"onemin": {"slots": []}}, "provider_config": {}, "jury_service": {}},
+        )
+
+        token_usage = report["gemini_token_usage"]
+        assert token_usage["provider_key"] == "gemini_vortex"
+        assert (
+            token_usage["billing_truth_boundary"]
+            == "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth"
+        )
+        assert token_usage["selected_window"]["tokens_in"] == 40
+        assert token_usage["selected_window"]["tokens_out"] == 15
+        assert token_usage["selected_window"]["total_tokens"] == 55
+        assert token_usage["24h"]["total_tokens"] == 55
+    finally:
+        responses_upstream._test_reset_onemin_states()
+
+
 def test_gemini_soft_cap_removes_background_candidates_but_not_explicit(monkeypatch, tmp_path) -> None:
     for key, value in _provider_env().items():
         monkeypatch.setenv(key, value)

@@ -261,6 +261,69 @@ def _status(payload: dict[str, Any], default: str = "missing_receipt") -> str:
     return _compact(payload.get("status"), default=default).lower()
 
 
+def _provider_cost_control_from_office(office: dict[str, Any]) -> dict[str, Any]:
+    posture = dict(office.get("provider_cost_routing_posture") or {})
+    if not posture and not office:
+        posture = {
+            "status": "active_cost_control",
+            "background_routing": {
+                "primary_background_provider": "onemin",
+                "primary_background_provider_label": "1min.ai",
+                "groundwork_provider_order": ["onemin", "magixai", "gemini_vortex"],
+                "cost_sensitive_lanes": ["groundwork", "fast", "overflow", "review", "review_light", "audit"],
+                "onemin_preferred_when_speed_is_not_critical": True,
+            },
+            "gemini_vertex": {
+                "provider_key": "gemini_vortex",
+                "token_tracking_required": True,
+                "dispatch_ledger": "provider_dispatch_events.jsonl",
+                "soft_cap_env": "EA_RESPONSES_GEMINI_VORTEX_TOKEN_SOFT_CAP_24H",
+                "soft_cap_window_env": "EA_RESPONSES_GEMINI_VORTEX_TOKEN_SOFT_CAP_WINDOW_SECONDS",
+                "soft_cap_action": "remove_gemini_vortex_from_cost_gated_background_candidate_lists",
+                "explicit_gemini_requests_allowed": True,
+                "billing_truth_boundary": "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth",
+            },
+            "privacy": {
+                "raw_provider_secret_exposed": False,
+                "raw_prompt_or_response_text_exposed": False,
+                "raw_google_cloud_billing_account_exposed": False,
+            },
+        }
+    background = dict(posture.get("background_routing") or {})
+    gemini = dict(posture.get("gemini_vertex") or {})
+    privacy = dict(posture.get("privacy") or {})
+    return {
+        "status": str(posture.get("status") or "missing").strip(),
+        "source": "ea_office_loop_goal.provider_cost_routing_posture",
+        "primary_background_provider": str(background.get("primary_background_provider") or "").strip(),
+        "primary_background_provider_label": str(background.get("primary_background_provider_label") or "").strip(),
+        "groundwork_provider_order": [
+            str(item).strip()
+            for item in list(background.get("groundwork_provider_order") or [])
+            if str(item).strip()
+        ],
+        "cost_sensitive_lanes": [
+            str(item).strip()
+            for item in list(background.get("cost_sensitive_lanes") or [])
+            if str(item).strip()
+        ],
+        "onemin_preferred_when_speed_is_not_critical": bool(
+            background.get("onemin_preferred_when_speed_is_not_critical")
+        ),
+        "gemini_provider_key": str(gemini.get("provider_key") or "").strip(),
+        "gemini_token_tracking_required": bool(gemini.get("token_tracking_required")),
+        "gemini_dispatch_ledger": str(gemini.get("dispatch_ledger") or "").strip(),
+        "gemini_soft_cap_env": str(gemini.get("soft_cap_env") or "").strip(),
+        "gemini_soft_cap_window_env": str(gemini.get("soft_cap_window_env") or "").strip(),
+        "gemini_soft_cap_action": str(gemini.get("soft_cap_action") or "").strip(),
+        "explicit_gemini_requests_allowed": bool(gemini.get("explicit_gemini_requests_allowed")),
+        "billing_truth_boundary": str(gemini.get("billing_truth_boundary") or "").strip(),
+        "raw_provider_secret_exposed": bool(privacy.get("raw_provider_secret_exposed")),
+        "raw_prompt_or_response_text_exposed": bool(privacy.get("raw_prompt_or_response_text_exposed")),
+        "raw_google_cloud_billing_account_exposed": bool(privacy.get("raw_google_cloud_billing_account_exposed")),
+    }
+
+
 def _is_blocking(status: str) -> bool:
     normalized = _compact(status).lower()
     return normalized.startswith(BLOCKING_PREFIXES) or normalized == "command_backed_no_published_receipt"
@@ -1460,6 +1523,7 @@ def build_goal_posture(
             )
         ],
     )
+    decide_lens["provider_cost_control"] = _provider_cost_control_from_office(office)
 
     tg_summary = (
         f"live delivery {_status(tg_live)}; readiness {_status(tg_ready)}"
@@ -2222,7 +2286,7 @@ def build_goal_posture(
         "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
         "output_path": _display_path(root, output_path),
         "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
-        "goal_shorthand": "Make EA the user's dependable executive operating system: paid-human-assistant-grade proactive OODA with transcript-aware ingest, auditor-passed decision-ready packets, staged follow-through, Teable-mirrored current/stale state, self-healing, and governed by owning truth planes rather than assistant-local lore.",
+        "goal_shorthand": "Make EA the user's dependable executive operating system: paid-human-assistant-grade proactive OODA with transcript-aware ingest, auditor-passed decision-ready packets, staged follow-through, Teable-mirrored current/stale state, cost-aware 1min.ai-first background routing with Gemini/Vertex token telemetry, self-healing, and governed by owning truth planes rather than assistant-local lore.",
         "execution_lenses": [lens["key"] for lens in lenses],
         "overall_status": overall_status,
         "goal_completion_claim_allowed": False,
@@ -2248,6 +2312,7 @@ def build_goal_posture(
             "Telegram is an action surface, not a progress log; proactive delivery must stay quiet unless the user needs to approve, choose, unblock, review, or answer something.",
             "Proactive OODA packets must pass a context/provider-fit auditor before user delivery; reachable URLs, extracted email addresses, or generic search hits are not sufficient.",
             "Pocket.ai or other consented audio transcripts may feed OODA only as approved signals with privacy, retention, source, and current/stale status preserved.",
+            "Provider-cost governance is part of the goal: background and non-urgent work should prefer 1min.ai, Gemini/Vertex usage must be token-tracked, and Gemini soft caps may remove it from background candidate lists without blocking explicit Gemini requests.",
             "The recover lens may use a mirrored local readiness receipt, but it must not claim pass until a source-fresh fresh-host Teable recovery drill receipt is mirrored.",
             "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
             "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open.",

@@ -154,8 +154,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_gold_acceptance.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "b94f7c57b2a723ec0eb8d86bba49289d975d0f51",
-          "source_state_fingerprint": "10f9658c47730f5aecb1a57faaa7f435232809cc773412af12fd562db71532c3",
+          "source_git_head": "fa2cb6524f53e3286f04369d9560c973334eff28",
+          "source_state_fingerprint": "6625783f560fbbc97f881d9de01e47da6136910a63b6389c4e94f4824795dad7",
           "status": "ready_for_approval_outcome_capture"
         },
         {
@@ -163,8 +163,8 @@
           "path": ".codex-studio/published/ea_proactive_ooda_operator_status.generated.json",
           "present": true,
           "source_fresh_to_current_source": true,
-          "source_git_head": "b94f7c57b2a723ec0eb8d86bba49289d975d0f51",
-          "source_state_fingerprint": "10f9658c47730f5aecb1a57faaa7f435232809cc773412af12fd562db71532c3",
+          "source_git_head": "fa2cb6524f53e3286f04369d9560c973334eff28",
+          "source_state_fingerprint": "6625783f560fbbc97f881d9de01e47da6136910a63b6389c4e94f4824795dad7",
           "status": "ready_with_live_receipt"
         }
       ],
@@ -356,6 +356,46 @@
       ],
       "status": "satisfied",
       "title": "Real provider failure recovered"
+    },
+    {
+      "capture_surfaces": [
+        ".codex-studio/published/teable_env_recovery_readiness.generated.json",
+        ".codex-studio/published/teable_env_recovery_proof.generated.json"
+      ],
+      "claim_boundary": "does_not_prove_recovery_readiness_until_fresh_host_drill_evidence_is_mirrored",
+      "evidence_kind": "fresh_host_recovery_drill",
+      "key": "fresh_host_teable_recovery_drill",
+      "lens": "recover",
+      "next_action": "run_shell_seeded_fresh_host_probe_and_mirror_drill_evidence",
+      "next_action_form_href": "/admin/goals",
+      "next_action_form_label": "Open goal evidence",
+      "next_action_form_method": "get",
+      "next_action_href": "/admin/goals",
+      "next_action_label": "Open goal evidence",
+      "next_action_method": "get",
+      "required_next_receipt": "fresh-host Teable recovery drill receipt mirrored into the repo",
+      "source_receipts": [
+        {
+          "contract_name": "ea.teable_env_recovery_readiness.v1",
+          "path": ".codex-studio/published/teable_env_recovery_readiness.generated.json",
+          "present": true,
+          "source_fresh_to_current_source": false,
+          "source_git_head": "b94f7c57b2a723ec0eb8d86bba49289d975d0f51",
+          "source_state_fingerprint": "f4f32bcf26f6cf888210e9f4a5cb388d90317e4f5e0d5729fb3f1ccdb0b70116",
+          "status": "ready_local_audit"
+        },
+        {
+          "contract_name": "ea.teable_env_recovery_proof.v1",
+          "path": ".codex-studio/published/teable_env_recovery_proof.generated.json",
+          "present": true,
+          "source_fresh_to_current_source": false,
+          "source_git_head": "b94f7c57b2a723ec0eb8d86bba49289d975d0f51",
+          "source_state_fingerprint": "f4f32bcf26f6cf888210e9f4a5cb388d90317e4f5e0d5729fb3f1ccdb0b70116",
+          "status": "pass"
+        }
+      ],
+      "status": "pending_real_world_evidence",
+      "title": "Fresh-host Teable recovery drill"
     },
     {
       "action_context": {
@@ -775,11 +815,11 @@
     "recover",
     "prove"
   ],
-  "generated_at": "2026-07-02T05:14:04Z",
+  "generated_at": "2026-07-02T05:36:20Z",
   "generated_by": "scripts/materialize_continuous_improvement_goal_posture.py",
   "goal_completion_claim_allowed": false,
   "goal_doc": ".codex-design/ea/CONTINUOUS_IMPROVEMENT_GOAL.md",
-  "goal_shorthand": "Make EA the user's dependable executive operating system: paid-human-assistant-grade proactive OODA with transcript-aware ingest, auditor-passed decision-ready packets, staged follow-through, Teable-mirrored current/stale state, self-healing, and governed by owning truth planes rather than assistant-local lore.",
+  "goal_shorthand": "Make EA the user's dependable executive operating system: paid-human-assistant-grade proactive OODA with transcript-aware ingest, auditor-passed decision-ready packets, staged follow-through, Teable-mirrored current/stale state, cost-aware 1min.ai-first background routing with Gemini/Vertex token telemetry, self-healing, and governed by owning truth planes rather than assistant-local lore.",
   "head_semantics": "source_state",
   "lenses": [
     {
@@ -891,15 +931,46 @@
     {
       "components": [],
       "key": "decide",
-      "next_action": "maintain_proactive_ooda_gold_acceptance_evidence",
+      "next_action": "record_proactive_ooda_approval_outcome",
+      "provider_cost_control": {
+        "billing_truth_boundary": "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth",
+        "cost_sensitive_lanes": [
+          "groundwork",
+          "fast",
+          "overflow",
+          "review",
+          "review_light",
+          "audit"
+        ],
+        "explicit_gemini_requests_allowed": true,
+        "gemini_dispatch_ledger": "provider_dispatch_events.jsonl",
+        "gemini_provider_key": "gemini_vortex",
+        "gemini_soft_cap_action": "remove_gemini_vortex_from_cost_gated_background_candidate_lists",
+        "gemini_soft_cap_env": "EA_RESPONSES_GEMINI_VORTEX_TOKEN_SOFT_CAP_24H",
+        "gemini_soft_cap_window_env": "EA_RESPONSES_GEMINI_VORTEX_TOKEN_SOFT_CAP_WINDOW_SECONDS",
+        "gemini_token_tracking_required": true,
+        "groundwork_provider_order": [
+          "onemin",
+          "magixai",
+          "gemini_vortex"
+        ],
+        "onemin_preferred_when_speed_is_not_critical": true,
+        "primary_background_provider": "onemin",
+        "primary_background_provider_label": "1min.ai",
+        "raw_google_cloud_billing_account_exposed": false,
+        "raw_prompt_or_response_text_exposed": false,
+        "raw_provider_secret_exposed": false,
+        "source": "ea_office_loop_goal.provider_cost_routing_posture",
+        "status": "active_cost_control"
+      },
       "source_receipts": [
         {
           "contract_name": "ea.office_loop_goal_receipt.v1",
           "path": ".codex-studio/published/ea_office_loop_goal.generated.json",
           "present": true,
-          "source_fresh_to_current_source": false,
-          "source_git_head": "94fb9fde5bb7359721eb886c286ea2f1d92c38eb",
-          "source_state_fingerprint": "a62669c2045e4ba0d2c2c1d331fd3edff53e9e8417089100ed06513b0cc8fd3c",
+          "source_fresh_to_current_source": true,
+          "source_git_head": "fa2cb6524f53e3286f04369d9560c973334eff28",
+          "source_state_fingerprint": "6625783f560fbbc97f881d9de01e47da6136910a63b6389c4e94f4824795dad7",
           "status": "ready_local_evidence"
         }
       ],
@@ -1082,7 +1153,7 @@
           "contract_name": "ea.teable_env_recovery_readiness.v1",
           "path": ".codex-studio/published/teable_env_recovery_readiness.generated.json",
           "present": true,
-          "source_fresh_to_current_source": true,
+          "source_fresh_to_current_source": false,
           "source_git_head": "b94f7c57b2a723ec0eb8d86bba49289d975d0f51",
           "source_state_fingerprint": "f4f32bcf26f6cf888210e9f4a5cb388d90317e4f5e0d5729fb3f1ccdb0b70116",
           "status": "ready_local_audit"
@@ -1091,15 +1162,15 @@
           "contract_name": "ea.teable_env_recovery_proof.v1",
           "path": ".codex-studio/published/teable_env_recovery_proof.generated.json",
           "present": true,
-          "source_fresh_to_current_source": true,
+          "source_fresh_to_current_source": false,
           "source_git_head": "b94f7c57b2a723ec0eb8d86bba49289d975d0f51",
           "source_state_fingerprint": "f4f32bcf26f6cf888210e9f4a5cb388d90317e4f5e0d5729fb3f1ccdb0b70116",
           "status": "pass"
         }
       ],
-      "status": "pass",
+      "status": "ready_local_audit",
       "status_class": "progress",
-      "summary": "Fresh-host-style Teable recovery proof is mirrored and passed with redacted evidence; keep it current when env/config recovery changes.",
+      "summary": "A Teable recovery proof is mirrored and passed, but its source-state evidence is stale; refresh the recovery drill proof before keeping the recover lens at pass.",
       "title": "Fresh-host recovery",
       "verifier_commands": [
         "make verify-teable-env-recovery-readiness",
@@ -1472,6 +1543,33 @@
     {
       "callback_tokens_exposed": false,
       "delivery_policy": "queue_only",
+      "evidence_kind": "fresh_host_recovery_drill",
+      "interruption_budget": "none",
+      "irreversible_actions_consent_gated": true,
+      "key": "fresh_host_teable_recovery_drill",
+      "lens": "recover",
+      "next_action": "run_shell_seeded_fresh_host_probe_and_mirror_drill_evidence",
+      "next_action_form_href": "/admin/goals",
+      "next_action_form_label": "Open goal evidence",
+      "next_action_form_method": "get",
+      "next_action_href": "/admin/goals",
+      "next_action_label": "Open goal evidence",
+      "next_action_method": "get",
+      "non_action_progress_push_allowed": false,
+      "quiet_hours_respected": true,
+      "raw_chat_ids_exposed": false,
+      "raw_private_context_exposed": false,
+      "raw_secret_exposed": false,
+      "raw_token_exposed": false,
+      "raw_voice_ids_exposed": false,
+      "required_next_receipt": "fresh-host Teable recovery drill receipt mirrored into the repo",
+      "telegram_push_allowed": false,
+      "title": "Fresh-host Teable recovery drill",
+      "user_action_required": false
+    },
+    {
+      "callback_tokens_exposed": false,
+      "delivery_policy": "queue_only",
       "evidence_kind": "approval_outcome",
       "interruption_budget": "none",
       "irreversible_actions_consent_gated": true,
@@ -1512,6 +1610,7 @@
   "required_next_receipts": [
     "real weekly signal-to-decision review acceptance receipt",
     "real proactive OODA packet accepted with action-required-only routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome",
+    "fresh-host Teable recovery drill receipt mirrored into the repo",
     "Google Workspace OAuth test-user or verified app access for Full Workspace auth",
     "Pushbullet delivery clients configured and live-verifiable for action-required delivery",
     "consented Manfred STT/TTS realtime conversation proof",
@@ -1524,11 +1623,12 @@
     "Telegram is an action surface, not a progress log; proactive delivery must stay quiet unless the user needs to approve, choose, unblock, review, or answer something.",
     "Proactive OODA packets must pass a context/provider-fit auditor before user delivery; reachable URLs, extracted email addresses, or generic search hits are not sufficient.",
     "Pocket.ai or other consented audio transcripts may feed OODA only as approved signals with privacy, retention, source, and current/stale status preserved.",
+    "Provider-cost governance is part of the goal: background and non-urgent work should prefer 1min.ai, Gemini/Vertex usage must be token-tracked, and Gemini soft caps may remove it from background candidate lists without blocking explicit Gemini requests.",
     "The recover lens may use a mirrored local readiness receipt, but it must not claim pass until a source-fresh fresh-host Teable recovery drill receipt is mirrored.",
     "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth.",
     "The prove lens controls good-executive-assistant overclaims; if it is blocked, the goal stays open."
   ],
-  "source_git_head": "b94f7c57b2a723ec0eb8d86bba49289d975d0f51",
-  "source_state_fingerprint": "10f9658c47730f5aecb1a57faaa7f435232809cc773412af12fd562db71532c3",
+  "source_git_head": "fa2cb6524f53e3286f04369d9560c973334eff28",
+  "source_state_fingerprint": "6625783f560fbbc97f881d9de01e47da6136910a63b6389c4e94f4824795dad7",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths"
 }

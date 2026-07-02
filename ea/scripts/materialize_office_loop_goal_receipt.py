@@ -263,6 +263,8 @@ def _additional_goals() -> list[dict[str, Any]]:
                 "approved_signal_ingest",
                 "pocket_ai_audio_transcript_signal_ingest",
                 "generic_safe_work_packets",
+                "cost_aware_background_model_routing_to_1min_ai",
+                "gemini_vertex_token_telemetry_and_soft_cap",
                 "context_aware_auditor_before_user_delivery",
                 "candidate_provider_fit_and_locality_validation",
                 "live_browse_backed_candidate_research",
@@ -296,10 +298,64 @@ def _additional_goals() -> list[dict[str, Any]]:
                 "gmail_draft_execution_state",
                 "telegram_interruption_action_required_state",
                 "current_packet_and_stale_approval_state",
+                "provider_token_usage_and_cost_pressure_state",
                 "provider_runtime_failures",
             ],
+            "provider_cost_controls": {
+                "background_work_primary_provider": "onemin",
+                "background_work_primary_provider_label": "1min.ai",
+                "gemini_vertex_alias": "gemini_vortex",
+                "gemini_token_tracking_required": True,
+                "gemini_soft_cap_required": True,
+                "explicit_gemini_requests_allowed": True,
+                "billing_truth_boundary": "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth",
+            },
         },
     ]
+
+
+def _provider_cost_routing_posture() -> dict[str, Any]:
+    return {
+        "status": "active_cost_control",
+        "goal": "Track Gemini/Vertex token pressure and shift non-urgent/background assistant work toward 1min.ai when usable.",
+        "background_routing": {
+            "primary_background_provider": "onemin",
+            "primary_background_provider_label": "1min.ai",
+            "groundwork_profile": "groundwork",
+            "groundwork_public_model": "ea-groundwork-gemini",
+            "groundwork_provider_order": ["onemin", "magixai", "gemini_vortex"],
+            "cost_sensitive_lanes": ["groundwork", "fast", "overflow", "review", "review_light", "audit"],
+            "onemin_preferred_when_speed_is_not_critical": True,
+            "fallback_when_onemin_unavailable": ["magixai", "gemini_vortex", "onemin"],
+        },
+        "gemini_vertex": {
+            "provider_key": "gemini_vortex",
+            "provider_label": "Gemini/Vertex",
+            "token_tracking_required": True,
+            "dispatch_ledger": "provider_dispatch_events.jsonl",
+            "tracked_dispatch_fields": [
+                "provider_key",
+                "model",
+                "lane",
+                "backend",
+                "tokens_in",
+                "tokens_out",
+                "total_tokens",
+                "latency_ms",
+            ],
+            "soft_cap_env": "EA_RESPONSES_GEMINI_VORTEX_TOKEN_SOFT_CAP_24H",
+            "soft_cap_window_env": "EA_RESPONSES_GEMINI_VORTEX_TOKEN_SOFT_CAP_WINDOW_SECONDS",
+            "default_soft_cap_tokens_24h": 200000,
+            "soft_cap_action": "remove_gemini_vortex_from_cost_gated_background_candidate_lists",
+            "explicit_gemini_requests_allowed": True,
+            "billing_truth_boundary": "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth",
+        },
+        "privacy": {
+            "raw_provider_secret_exposed": False,
+            "raw_prompt_or_response_text_exposed": False,
+            "raw_google_cloud_billing_account_exposed": False,
+        },
+    }
 
 
 def materialize_office_loop_goal_receipt(
@@ -367,7 +423,9 @@ def materialize_office_loop_goal_receipt(
             "analytics_counts_present": True,
             "channel_loop_digest_keys": ["memo", "approvals", "operator"],
             "proactive_followthrough_status": proactive_posture["status"],
+            "provider_cost_routing_status": "active_cost_control",
         },
+        "provider_cost_routing_posture": _provider_cost_routing_posture(),
         "next_action": proactive_posture["next_action"],
         "next_action_href": proactive_posture["next_action_href"],
         "next_action_label": proactive_posture["next_action_label"],

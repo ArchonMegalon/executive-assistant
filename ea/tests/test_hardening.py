@@ -1141,6 +1141,27 @@ class HardeningTests(unittest.TestCase):
 
         self.assertNotEqual(first_signature, second_signature)
 
+    def test_provider_health_env_signature_tracks_cost_routing_knobs(self) -> None:
+        base_env = {
+            "EA_RESPONSES_PROVIDER_ORDER": "onemin,magixai,gemini_vortex",
+            "EA_RESPONSES_GROUNDWORK_PROVIDER_ORDER": "onemin,magixai,gemini_vortex",
+            "EA_RESPONSES_GEMINI_VORTEX_TOKEN_SOFT_CAP_24H": "200000",
+            "EA_RESPONSES_GEMINI_VORTEX_TOKEN_SOFT_CAP_WINDOW_SECONDS": "86400",
+        }
+        with patch.dict(os.environ, base_env, clear=True):
+            first_signature = responses_route._provider_health_env_signature()
+        updated_env = dict(base_env)
+        updated_env["EA_RESPONSES_GEMINI_VORTEX_TOKEN_SOFT_CAP_24H"] = "100000"
+        with patch.dict(os.environ, updated_env, clear=True):
+            second_signature = responses_route._provider_health_env_signature()
+        updated_env = dict(base_env)
+        updated_env["EA_RESPONSES_GROUNDWORK_PROVIDER_ORDER"] = "magixai,onemin,gemini_vortex"
+        with patch.dict(os.environ, updated_env, clear=True):
+            third_signature = responses_route._provider_health_env_signature()
+
+        self.assertNotEqual(first_signature, second_signature)
+        self.assertNotEqual(first_signature, third_signature)
+
     def test_onemin_shell_resolver_discovers_six_indexed_accounts_from_env_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             env_file = Path(tmpdir) / ".env"

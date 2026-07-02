@@ -9,6 +9,34 @@ import scripts.verify_continuous_improvement_goal_posture as verifier_module
 from scripts.verify_continuous_improvement_goal_posture import verify
 
 
+def _office_provider_cost_routing_posture() -> dict[str, object]:
+    return {
+        "status": "active_cost_control",
+        "background_routing": {
+            "primary_background_provider": "onemin",
+            "primary_background_provider_label": "1min.ai",
+            "groundwork_provider_order": ["onemin", "magixai", "gemini_vortex"],
+            "cost_sensitive_lanes": ["groundwork", "fast", "overflow", "review", "review_light", "audit"],
+            "onemin_preferred_when_speed_is_not_critical": True,
+        },
+        "gemini_vertex": {
+            "provider_key": "gemini_vortex",
+            "token_tracking_required": True,
+            "dispatch_ledger": "provider_dispatch_events.jsonl",
+            "soft_cap_env": "EA_RESPONSES_GEMINI_VORTEX_TOKEN_SOFT_CAP_24H",
+            "soft_cap_window_env": "EA_RESPONSES_GEMINI_VORTEX_TOKEN_SOFT_CAP_WINDOW_SECONDS",
+            "soft_cap_action": "remove_gemini_vortex_from_cost_gated_background_candidate_lists",
+            "explicit_gemini_requests_allowed": True,
+            "billing_truth_boundary": "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth",
+        },
+        "privacy": {
+            "raw_provider_secret_exposed": False,
+            "raw_prompt_or_response_text_exposed": False,
+            "raw_google_cloud_billing_account_exposed": False,
+        },
+    }
+
+
 def _write_receipt(
     root: Path,
     relative_path: str,
@@ -25,6 +53,8 @@ def _write_receipt(
         payload["source_git_head"] = source_git_head
     if source_state_fingerprint:
         payload["source_state_fingerprint"] = source_state_fingerprint
+    if relative_path.endswith("ea_office_loop_goal.generated.json"):
+        payload["provider_cost_routing_posture"] = _office_provider_cost_routing_posture()
     payload.update(extra)
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
@@ -687,6 +717,8 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert "transcript-aware ingest" in receipt["goal_shorthand"]
     assert "auditor-passed decision-ready packets" in receipt["goal_shorthand"]
     assert "Teable-mirrored current/stale state" in receipt["goal_shorthand"]
+    assert "cost-aware 1min.ai-first background routing" in receipt["goal_shorthand"]
+    assert "Gemini/Vertex token telemetry" in receipt["goal_shorthand"]
     assert "real proactive OODA packet accepted with action-required-only routed delivery, approved-source or transcript signal, live browse evidence, auditor-passed chosen candidate, staged reversible artifact, mirrored Teable delivery, current-packet, stale-approval, and decision facts, and explicit approval outcome" in receipt["required_next_receipts"]
     proof_requirements = {item["key"]: item for item in receipt["acceptance_proof_requirements"]}
     assert set(proof_requirements) == {
@@ -960,6 +992,7 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert "Telegram is an action surface, not a progress log; proactive delivery must stay quiet unless the user needs to approve, choose, unblock, review, or answer something." in receipt["rules"]
     assert "Proactive OODA packets must pass a context/provider-fit auditor before user delivery; reachable URLs, extracted email addresses, or generic search hits are not sufficient." in receipt["rules"]
     assert "Pocket.ai or other consented audio transcripts may feed OODA only as approved signals with privacy, retention, source, and current/stale status preserved." in receipt["rules"]
+    assert "Provider-cost governance is part of the goal: background and non-urgent work should prefer 1min.ai, Gemini/Vertex usage must be token-tracked, and Gemini soft caps may remove it from background candidate lists without blocking explicit Gemini requests." in receipt["rules"]
     assert "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth." in receipt["rules"]
 
     lenses = {lens["key"]: lens for lens in receipt["lenses"]}
@@ -976,6 +1009,24 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert transcript_evidence["raw_archive_root_exposed"] is False
     assert transcript_evidence["raw_credential_exposed"] is False
     assert lenses["decide"]["status"] == "ready_local_evidence"
+    provider_cost = lenses["decide"]["provider_cost_control"]
+    assert provider_cost["status"] == "active_cost_control"
+    assert provider_cost["primary_background_provider"] == "onemin"
+    assert provider_cost["primary_background_provider_label"] == "1min.ai"
+    assert provider_cost["groundwork_provider_order"] == ["onemin", "magixai", "gemini_vortex"]
+    assert "groundwork" in provider_cost["cost_sensitive_lanes"]
+    assert provider_cost["onemin_preferred_when_speed_is_not_critical"] is True
+    assert provider_cost["gemini_provider_key"] == "gemini_vortex"
+    assert provider_cost["gemini_token_tracking_required"] is True
+    assert provider_cost["gemini_dispatch_ledger"] == "provider_dispatch_events.jsonl"
+    assert provider_cost["gemini_soft_cap_env"] == "EA_RESPONSES_GEMINI_VORTEX_TOKEN_SOFT_CAP_24H"
+    assert provider_cost["gemini_soft_cap_window_env"] == "EA_RESPONSES_GEMINI_VORTEX_TOKEN_SOFT_CAP_WINDOW_SECONDS"
+    assert provider_cost["gemini_soft_cap_action"] == "remove_gemini_vortex_from_cost_gated_background_candidate_lists"
+    assert provider_cost["explicit_gemini_requests_allowed"] is True
+    assert provider_cost["billing_truth_boundary"] == "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth"
+    assert provider_cost["raw_provider_secret_exposed"] is False
+    assert provider_cost["raw_prompt_or_response_text_exposed"] is False
+    assert provider_cost["raw_google_cloud_billing_account_exposed"] is False
     assert lenses["deliver"]["status"] == "mixed_local_progress"
     assert lenses["recover"]["status"] == "ready_local_audit"
     assert "make probe-teable-recovery" in lenses["recover"]["verifier_commands"]

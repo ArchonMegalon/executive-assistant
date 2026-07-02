@@ -169,6 +169,11 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
         issues.append("goal_shorthand drifted away from the governed north-star wording")
     if "proactive ooda" not in str(receipt.get("goal_shorthand") or "").lower():
         issues.append("goal_shorthand must keep the proactive OODA posture explicit")
+    shorthand = str(receipt.get("goal_shorthand") or "").lower()
+    if "1min.ai-first background routing" not in shorthand:
+        issues.append("goal_shorthand must keep cost-aware 1min.ai-first background routing explicit")
+    if "gemini/vertex token telemetry" not in shorthand:
+        issues.append("goal_shorthand must keep Gemini/Vertex token telemetry explicit")
 
     current_head = _git_head(repo_root)
     current_fingerprint = _source_fingerprint(repo_root)
@@ -250,6 +255,54 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                     issues.append("detect lens verifier_commands must include Telegram Business readiness verifier")
                 if not any("verify_google_workspace_oauth_readiness.py" in str(command) for command in commands):
                     issues.append("detect lens verifier_commands must include Google Workspace OAuth readiness verifier")
+        if key == "decide":
+            provider_cost = lens.get("provider_cost_control")
+            if not isinstance(provider_cost, dict):
+                issues.append("decide lens must include provider_cost_control")
+            else:
+                if provider_cost.get("status") != "active_cost_control":
+                    issues.append("decide provider_cost_control status must be active_cost_control")
+                if provider_cost.get("primary_background_provider") != "onemin":
+                    issues.append("decide provider_cost_control primary background provider must be onemin")
+                if list(provider_cost.get("groundwork_provider_order") or [])[:3] != [
+                    "onemin",
+                    "magixai",
+                    "gemini_vortex",
+                ]:
+                    issues.append("decide provider_cost_control groundwork provider order drifted")
+                if "groundwork" not in list(provider_cost.get("cost_sensitive_lanes") or []):
+                    issues.append("decide provider_cost_control must include groundwork as cost-sensitive")
+                if provider_cost.get("onemin_preferred_when_speed_is_not_critical") is not True:
+                    issues.append("decide provider_cost_control must prefer 1min.ai when speed is not critical")
+                if provider_cost.get("gemini_provider_key") != "gemini_vortex":
+                    issues.append("decide provider_cost_control Gemini provider key drifted")
+                if provider_cost.get("gemini_token_tracking_required") is not True:
+                    issues.append("decide provider_cost_control must require Gemini token tracking")
+                if provider_cost.get("gemini_dispatch_ledger") != "provider_dispatch_events.jsonl":
+                    issues.append("decide provider_cost_control dispatch ledger drifted")
+                if provider_cost.get("gemini_soft_cap_env") != "EA_RESPONSES_GEMINI_VORTEX_TOKEN_SOFT_CAP_24H":
+                    issues.append("decide provider_cost_control Gemini soft-cap env drifted")
+                if provider_cost.get("gemini_soft_cap_window_env") != "EA_RESPONSES_GEMINI_VORTEX_TOKEN_SOFT_CAP_WINDOW_SECONDS":
+                    issues.append("decide provider_cost_control Gemini soft-cap window env drifted")
+                if (
+                    provider_cost.get("gemini_soft_cap_action")
+                    != "remove_gemini_vortex_from_cost_gated_background_candidate_lists"
+                ):
+                    issues.append("decide provider_cost_control Gemini soft-cap action drifted")
+                if provider_cost.get("explicit_gemini_requests_allowed") is not True:
+                    issues.append("decide provider_cost_control must keep explicit Gemini requests allowed")
+                if (
+                    provider_cost.get("billing_truth_boundary")
+                    != "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth"
+                ):
+                    issues.append("decide provider_cost_control billing truth boundary missing")
+                for privacy_key in (
+                    "raw_provider_secret_exposed",
+                    "raw_prompt_or_response_text_exposed",
+                    "raw_google_cloud_billing_account_exposed",
+                ):
+                    if provider_cost.get(privacy_key) is not False:
+                        issues.append(f"decide provider_cost_control must not expose {privacy_key}")
         if key == "deliver":
             components = list(lens.get("components") or [])
             component_keys = {str(component.get("key") or "") for component in components if isinstance(component, dict)}
@@ -379,6 +432,10 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
         str(item) for item in list(receipt.get("rules") or [])
     ):
         issues.append("missing transcript-ingest rule")
+    if "Provider-cost governance is part of the goal: background and non-urgent work should prefer 1min.ai, Gemini/Vertex usage must be token-tracked, and Gemini soft caps may remove it from background candidate lists without blocking explicit Gemini requests." not in "\n".join(
+        str(item) for item in list(receipt.get("rules") or [])
+    ):
+        issues.append("missing provider-cost governance rule")
     if "Teable may mirror important proactive OODA facts and blockers, but it remains an admin projection rather than canonical truth." not in "\n".join(
         str(item) for item in list(receipt.get("rules") or [])
     ):
