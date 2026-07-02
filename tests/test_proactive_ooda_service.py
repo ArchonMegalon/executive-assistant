@@ -531,6 +531,44 @@ def test_proactive_ooda_suppresses_internal_structured_stage_without_material() 
     assert digest.items == ()
 
 
+def test_proactive_ooda_suppresses_internal_source_health_without_user_action() -> None:
+    service = ProactiveOodaService()
+
+    digest = service.build_digest(
+        principal_id="exec",
+        signals=[
+            {
+                "source_ref": "proactive_source_error:discovery:abc123",
+                "signal_type": "proactive_source_health",
+                "channel": "proactive_runtime",
+                "title": "EA proactive source needs attention",
+                "summary": "A configured proactive source failed.",
+                "counterparty": "EA runtime",
+                "payload": {
+                    "source_health": {
+                        "source_key": "discovery",
+                        "status": "failed",
+                        "operator_action_required": True,
+                        "user_action_required": False,
+                        "next_action": "repair_proactive_signal_source",
+                    },
+                    "ooda_loop": {
+                        "reviewed": True,
+                        "observe": {"summary": "A configured proactive source failed."},
+                        "decide": {
+                            "summary": "Repair the source.",
+                            "recommended_actions": ["Repair the source."],
+                        },
+                        "act": {"summary": "Check the configured source."},
+                    },
+                },
+            }
+        ],
+    )
+
+    assert digest.items == ()
+
+
 def test_proactive_ooda_suppresses_internal_structured_commitment_counter_without_stage_material() -> None:
     service = ProactiveOodaService()
 

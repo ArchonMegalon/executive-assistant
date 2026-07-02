@@ -233,6 +233,11 @@ STRUCTURED_BOOKKEEPING_MARKERS = (
     "stage 1 commitment candidate",
 )
 
+SOURCE_HEALTH_SIGNAL_TYPES = {
+    "proactive_source_health",
+    "source_health",
+}
+
 
 @dataclass(frozen=True)
 class ProactiveSignal:
@@ -475,6 +480,8 @@ class ProactiveOodaService:
         return digest, notification_result
 
     def _orient_signal(self, signal: ProactiveSignal) -> OodaInk:
+        if _is_internal_source_health_signal(signal) and not _source_health_requires_user_action(signal):
+            return _suppressed_source_health_ink(signal)
         structured = _structured_ooda_ink(signal)
         if structured is not None:
             return structured
@@ -527,6 +534,57 @@ class ProactiveOodaService:
             notify=notify,
             external_action_policy=_default_external_action_policy(approval_required=approval_required),
         )
+
+
+def _is_internal_source_health_signal(signal: ProactiveSignal) -> bool:
+    signal_type = str(signal.signal_type or "").strip().lower()
+    channel = str(signal.channel or "").strip().lower()
+    source_ref = str(signal.source_ref or "").strip().lower()
+    payload = signal.payload if isinstance(signal.payload, Mapping) else {}
+    return bool(
+        signal_type in SOURCE_HEALTH_SIGNAL_TYPES
+        or (channel == "proactive_runtime" and source_ref.startswith("proactive_source_error:"))
+        or isinstance(payload.get("source_health"), Mapping)
+    )
+
+
+def _source_health_requires_user_action(signal: ProactiveSignal) -> bool:
+    payload = signal.payload if isinstance(signal.payload, Mapping) else {}
+    health = payload.get("source_health") if isinstance(payload.get("source_health"), Mapping) else {}
+    ooda_loop = payload.get("ooda_loop") if isinstance(payload.get("ooda_loop"), Mapping) else {}
+    decide = ooda_loop.get("decide") if isinstance(ooda_loop.get("decide"), Mapping) else {}
+    act = ooda_loop.get("act") if isinstance(ooda_loop.get("act"), Mapping) else {}
+    return bool(
+        payload.get("user_action_required") is True
+        or dict(health).get("user_action_required") is True
+        or dict(decide).get("user_action_required") is True
+        or dict(act).get("user_action_required") is True
+    )
+
+
+def _suppressed_source_health_ink(signal: ProactiveSignal) -> OodaInk:
+    return OodaInk(
+        signal_ref=signal.stable_ref(),
+        priority="low",
+        observe=_compact(signal.title or signal.summary or "EA proactive source health changed.", 180),
+        orient="Internal source-health telemetry is routed to operator status, not the user's OODA digest.",
+        decide="",
+        act="",
+        evidence=tuple(
+            part
+            for part in (
+                f"{signal.channel}:{signal.stable_ref()}",
+                f"type:{signal.signal_type}" if signal.signal_type else "",
+                "source_health:operator_telemetry",
+            )
+            if part
+        ),
+        approval_required=False,
+        ignored_consequence="",
+        notify=False,
+        stage_kind="source_health",
+        external_action_policy="Do not notify the user unless a source-health row explicitly requires user action.",
+    )
 
 
 def _structured_ooda_ink(signal: ProactiveSignal) -> OodaInk | None:

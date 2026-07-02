@@ -618,6 +618,91 @@ def _source_coverage_recovery_summary(source_coverage: Mapping[str, Any] | None)
     )
 
 
+def _runtime_source_health_summary(artifact_probe: Mapping[str, Any] | None) -> dict[str, Any]:
+    run_receipt = dict(dict(artifact_probe or {}).get("run_receipt") or {})
+    source_health = dict(run_receipt.get("source_health") or {})
+    issues: list[dict[str, Any]] = []
+    for issue in list(source_health.get("issues") or []):
+        if not isinstance(issue, Mapping):
+            continue
+        normalized = {
+            "source_key": str(issue.get("source_key") or "unknown").strip()[:80] or "unknown",
+            "source_type": str(issue.get("source_type") or issue.get("source_key") or "unknown").strip()[:80]
+            or "unknown",
+            "status": str(issue.get("status") or "failed").strip()[:80] or "failed",
+            "error_code": str(issue.get("error_code") or "source_error").strip()[:160] or "source_error",
+            "error_ref_hash": str(issue.get("error_ref_hash") or "").strip()[:24],
+            "operator_action_required": bool(issue.get("operator_action_required", True)),
+            "user_action_required": bool(issue.get("user_action_required")),
+            "next_action": str(issue.get("next_action") or "repair_proactive_signal_source").strip()[:120]
+            or "repair_proactive_signal_source",
+            "raw_source_ref_exposed": False,
+            "raw_payload_exposed": False,
+            "raw_credential_exposed": False,
+        }
+        issues.append(normalized)
+    operator_action_required = any(bool(issue.get("operator_action_required")) for issue in issues)
+    user_action_required = any(bool(issue.get("user_action_required")) for issue in issues)
+    return {
+        "present": bool(issues),
+        "status": str(source_health.get("status") or ("recovery_required" if issues else "clear")).strip()
+        or ("recovery_required" if issues else "clear"),
+        "issue_count": len(issues),
+        "operator_action_required": operator_action_required,
+        "user_action_required": user_action_required,
+        "issues": issues[:10],
+        "privacy": {
+            "raw_source_ref_exposed": False,
+            "raw_payload_exposed": False,
+            "raw_credential_exposed": False,
+            "source_refs_hashed": True,
+        },
+    }
+
+
+def _runtime_source_health_requires_recovery(source_health: Mapping[str, Any] | None) -> bool:
+    normalized = dict(source_health or {})
+    if not bool(normalized.get("present")):
+        return False
+    if bool(normalized.get("operator_action_required")) or bool(normalized.get("user_action_required")):
+        return True
+    return str(normalized.get("status") or "").strip() not in {"", "clear", "healthy", "ready"}
+
+
+def _runtime_source_health_recovery_reason(source_health: Mapping[str, Any] | None) -> str:
+    normalized = dict(source_health or {})
+    for issue in list(normalized.get("issues") or []):
+        issue_payload = dict(issue or {}) if isinstance(issue, Mapping) else {}
+        source_key = str(issue_payload.get("source_key") or "unknown").strip() or "unknown"
+        error_code = str(issue_payload.get("error_code") or "source_error").strip() or "source_error"
+        return f"source_health_{source_key}:{error_code}"
+    return "source_health_recovery_required"
+
+
+def _runtime_source_health_recovery_next_action(source_health: Mapping[str, Any] | None) -> str:
+    normalized = dict(source_health or {})
+    for issue in list(normalized.get("issues") or []):
+        issue_payload = dict(issue or {}) if isinstance(issue, Mapping) else {}
+        next_action = str(issue_payload.get("next_action") or "").strip()
+        if next_action:
+            return next_action
+    return "repair_proactive_signal_source"
+
+
+def _runtime_source_health_recovery_summary(source_health: Mapping[str, Any] | None) -> str:
+    normalized = dict(source_health or {})
+    issues = [dict(issue or {}) for issue in list(normalized.get("issues") or []) if isinstance(issue, Mapping)]
+    if not issues:
+        return "Proactive OODA route and packet runtime are available, but source-health posture needs review."
+    preview = ", ".join(str(issue.get("source_key") or "unknown").strip() or "unknown" for issue in issues[:3])
+    extra_count = max(len(issues) - 3, 0)
+    suffix = f" (+{extra_count} more)" if extra_count else ""
+    return (
+        "Proactive OODA route and packet runtime are available, but "
+        f"{len(issues)} signal source health issue(s) need operator recovery: {preview}{suffix}."
+    )
+
+
 def _report_errors(report: Mapping[str, Any]) -> list[str]:
     return [str(item).strip() for item in list(report.get("errors") or []) if str(item).strip()]
 
@@ -1593,6 +1678,7 @@ def build_proactive_ooda_operator_status(
     current_artifact_filter_blocks = bool(current_artifact_filter.get("requires_recovery"))
     suppressed_projection = _normalized_suppressed_projection(artifact_probe)
     suppressed_projection_blocks = bool(suppressed_projection.get("requires_recovery"))
+    runtime_source_health = _runtime_source_health_summary(artifact_probe)
     source_coverage = _source_coverage_summary(source_coverage_probe)
     status = _status(report, live_receipt=live_receipt, live_receipt_checked=live_receipt_checked)
     reason = _reason(report, live_receipt=live_receipt, live_receipt_checked=live_receipt_checked)
@@ -1605,10 +1691,21 @@ def build_proactive_ooda_operator_status(
     elif suppressed_projection_blocks and status in {"ready_local_runtime", "ready_with_live_receipt", "ready_with_recovery_action"}:
         status = "ready_with_recovery_action"
         reason = str(suppressed_projection.get("blocking_reason") or "suppressed_safe_work_projection").strip()
+    source_health_recovery_active = bool(
+        not safe_work_audit_blocks
+        and not current_artifact_filter_blocks
+        and not suppressed_projection_blocks
+        and status in {"ready_local_runtime", "ready_with_live_receipt"}
+        and _runtime_source_health_requires_recovery(runtime_source_health)
+    )
+    if source_health_recovery_active:
+        status = "ready_with_recovery_action"
+        reason = _runtime_source_health_recovery_reason(runtime_source_health)
     source_coverage_recovery_active = bool(
         not safe_work_audit_blocks
         and not current_artifact_filter_blocks
         and not suppressed_projection_blocks
+        and not source_health_recovery_active
         and status in {"ready_local_runtime", "ready_with_live_receipt"}
         and _source_coverage_requires_recovery(source_coverage)
     )
@@ -1638,6 +1735,8 @@ def build_proactive_ooda_operator_status(
         reason = str(approval_capture.get("blocking_reason") or "approval_capture_not_ready").strip()
     if safe_work_audit_blocks or current_artifact_filter_blocks or suppressed_projection_blocks:
         next_action = "repair_proactive_safe_work_audit"
+    elif source_health_recovery_active:
+        next_action = _runtime_source_health_recovery_next_action(runtime_source_health)
     elif source_coverage_recovery_active:
         next_action = _source_coverage_recovery_next_action(source_coverage)
     else:
@@ -1666,6 +1765,8 @@ def build_proactive_ooda_operator_status(
             f"{int(suppressed_projection.get('suppressed_item_count') or 0)} non-deliverable safe-work "
             "item(s) from user and Teable packet projection."
         )
+    elif source_health_recovery_active:
+        summary = _runtime_source_health_recovery_summary(runtime_source_health)
     elif source_coverage_recovery_active:
         summary = _source_coverage_recovery_summary(source_coverage)
     else:
@@ -1702,7 +1803,10 @@ def build_proactive_ooda_operator_status(
         **next_action_surface,
         "operator_action_state": (
             "recovery_required"
-            if safe_work_audit_blocks or current_artifact_filter_blocks or suppressed_projection_blocks
+            if safe_work_audit_blocks
+            or current_artifact_filter_blocks
+            or suppressed_projection_blocks
+            or source_health_recovery_active
             else _operator_followthrough_action_state(
                 status,
                 report=report,
@@ -1731,6 +1835,7 @@ def build_proactive_ooda_operator_status(
         "safe_work_audit": safe_work_audit,
         "current_artifact_filter": current_artifact_filter,
         "suppressed_projection": suppressed_projection,
+        "source_health": runtime_source_health,
         "receipt_observation_count": int(report.get("receipt_observation_count") or 0),
         "runtime_actionable_count": runtime_actionable_count,
         "actionable_count": _operator_actionable_count(

@@ -253,6 +253,7 @@ def main() -> int:
         state_store=state_store,
         persist_opportunity_state=not args.dry_run,
     )
+    source_health = _source_health_summary(signals)
     service = ProactiveOodaService(
         state_store=state_store,
         max_items=args.max_items,
@@ -425,6 +426,7 @@ def main() -> int:
             safe_work_result_dir=safe_work_result_dir,
             auto_execute_results=auto_execution_results,
             delivery_mirror=delivery_mirror,
+            source_health=source_health,
         )
         _write_receipt(Path(args.receipt_path), receipt_payload)
         _write_receipt(_archived_receipt_path(args, payload=receipt_payload), receipt_payload)
@@ -443,6 +445,7 @@ def main() -> int:
                         stage_packet_dir=stage_packet_dir,
                         safe_work_result_dir=safe_work_result_dir,
                         delivery_mirror=delivery_mirror,
+                        source_health=source_health,
                     ),
                     "teable_sync": teable_sync,
                 },
@@ -493,6 +496,7 @@ def _receipt_payload(
     safe_work_result_dir: Path,
     auto_execute_results: Iterable[Mapping[str, Any]] = (),
     delivery_mirror: Mapping[str, Any] | None = None,
+    source_health: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     payload = receipt_to_dict(receipt)
     payload["stage_packet_output_dir"] = str(stage_packet_dir)
@@ -513,6 +517,7 @@ def _receipt_payload(
     }
     if delivery_mirror:
         payload["delivery_mirror"] = dict(delivery_mirror)
+    payload["source_health"] = dict(source_health or _source_health_summary(()))
     return payload
 
 
@@ -1191,6 +1196,13 @@ def _source_error_signals(errors: tuple[str, ...], *, source_label: str) -> list
         error_label = str(error or "").strip()
         if not error_label:
             continue
+        source_health = _source_health_issue_payload(
+            source_key=source_label,
+            source_type=source_label,
+            status="failed",
+            error_code=_source_health_error_code(error_label),
+            next_action="repair_proactive_signal_source",
+        )
         signals.append(
             {
                 "source_ref": f"proactive_source_error:{source_label}:{_short_hash(error_label)}",
@@ -1200,6 +1212,7 @@ def _source_error_signals(errors: tuple[str, ...], *, source_label: str) -> list
                 "summary": "A configured proactive source failed. EA kept running, but this source may be missing from the brief.",
                 "counterparty": "EA runtime",
                 "payload": {
+                    "source_health": source_health,
                     "ooda_loop": _source_health_ooda(
                         "A configured proactive source failed.",
                         "Check the configured source and repair credentials, URL, or table mapping.",
@@ -1236,6 +1249,13 @@ def _workspace_source_error_signal(exc: Exception) -> dict[str, Any]:
     error_text = _workspace_source_error_detail(exc)
     summary = "Google workspace scanning is failing, so EA cannot reliably inspect Gmail or Calendar for proactive nudges."
     action = "Reauthorize Google for the EA principal, then rerun the proactive OODA verifier."
+    source_health = _source_health_issue_payload(
+        source_key="google_workspace",
+        source_type="google_workspace",
+        status="unhealthy",
+        error_code=error_text or error_name,
+        next_action="reauthorize_google_workspace_binding",
+    )
     return {
         "source_ref": f"proactive_source_error:google_workspace:{_short_hash(error_text or error_name)}",
         "signal_type": "proactive_source_health",
@@ -1244,10 +1264,122 @@ def _workspace_source_error_signal(exc: Exception) -> dict[str, Any]:
         "summary": summary,
         "counterparty": "Google workspace",
         "payload": {
+            "source_health": source_health,
             "reason_code": error_text or error_name,
             "ooda_loop": _source_health_ooda(summary, action),
         },
     }
+
+
+def _source_health_issue_payload(
+    *,
+    source_key: str,
+    source_type: str,
+    status: str,
+    error_code: str,
+    next_action: str,
+) -> dict[str, Any]:
+    return {
+        "schema": "ea.proactive_ooda.source_health.v1",
+        "source_key": str(source_key or "unknown").strip() or "unknown",
+        "source_type": str(source_type or "unknown").strip() or "unknown",
+        "status": str(status or "failed").strip() or "failed",
+        "error_code": _source_health_error_code(error_code),
+        "error_ref_hash": _short_hash(error_code),
+        "operator_action_required": True,
+        "user_action_required": False,
+        "next_action": str(next_action or "repair_proactive_signal_source").strip() or "repair_proactive_signal_source",
+        "raw_source_ref_exposed": False,
+        "raw_payload_exposed": False,
+        "raw_credential_exposed": False,
+    }
+
+
+def _source_health_summary(rows: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
+    issues: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        if not _is_source_health_row(row):
+            continue
+        payload = row.get("payload") if isinstance(row.get("payload"), Mapping) else {}
+        issue = dict(payload.get("source_health") or {}) if isinstance(payload.get("source_health"), Mapping) else {}
+        if not issue:
+            issue = _source_health_issue_from_row(row)
+        if issue:
+            issues.append(_compact_source_health_issue(issue))
+    user_action_required = any(bool(issue.get("user_action_required")) for issue in issues)
+    operator_action_required = any(bool(issue.get("operator_action_required")) for issue in issues)
+    return {
+        "schema": "ea.proactive_ooda.source_health_summary.v1",
+        "present": bool(issues),
+        "status": "recovery_required" if operator_action_required or user_action_required else "clear",
+        "issue_count": len(issues),
+        "operator_action_required": operator_action_required,
+        "user_action_required": user_action_required,
+        "issues": issues[:10],
+        "privacy": {
+            "raw_source_ref_exposed": False,
+            "raw_payload_exposed": False,
+            "raw_credential_exposed": False,
+            "source_refs_hashed": True,
+        },
+    }
+
+
+def _is_source_health_row(row: Mapping[str, Any]) -> bool:
+    signal_type = str(row.get("signal_type") or row.get("type") or "").strip().lower()
+    channel = str(row.get("channel") or "").strip().lower()
+    source_ref = str(row.get("source_ref") or row.get("ref") or row.get("id") or "").strip().lower()
+    payload = row.get("payload") if isinstance(row.get("payload"), Mapping) else {}
+    return bool(
+        signal_type in {"proactive_source_health", "source_health"}
+        or (channel == "proactive_runtime" and source_ref.startswith("proactive_source_error:"))
+        or isinstance(payload.get("source_health"), Mapping)
+    )
+
+
+def _source_health_issue_from_row(row: Mapping[str, Any]) -> dict[str, Any]:
+    source_ref = str(row.get("source_ref") or row.get("ref") or row.get("id") or "").strip()
+    parts = source_ref.split(":")
+    source_key = parts[1] if len(parts) > 2 and parts[0] == "proactive_source_error" else "unknown"
+    payload = row.get("payload") if isinstance(row.get("payload"), Mapping) else {}
+    return _source_health_issue_payload(
+        source_key=source_key,
+        source_type=source_key,
+        status="failed",
+        error_code=str(payload.get("reason_code") or source_ref or "source_health_issue"),
+        next_action="repair_proactive_signal_source",
+    )
+
+
+def _compact_source_health_issue(issue: Mapping[str, Any]) -> dict[str, Any]:
+    source_key = str(issue.get("source_key") or "unknown").strip() or "unknown"
+    source_type = str(issue.get("source_type") or source_key).strip() or source_key
+    error_code = _source_health_error_code(str(issue.get("error_code") or issue.get("reason_code") or "source_error"))
+    return {
+        "source_key": source_key[:80],
+        "source_type": source_type[:80],
+        "status": str(issue.get("status") or "failed").strip()[:80] or "failed",
+        "error_code": error_code,
+        "error_ref_hash": str(issue.get("error_ref_hash") or _short_hash(error_code)).strip()[:24],
+        "operator_action_required": bool(issue.get("operator_action_required", True)),
+        "user_action_required": bool(issue.get("user_action_required")),
+        "next_action": str(issue.get("next_action") or "repair_proactive_signal_source").strip()[:120]
+        or "repair_proactive_signal_source",
+        "raw_source_ref_exposed": False,
+        "raw_payload_exposed": False,
+        "raw_credential_exposed": False,
+    }
+
+
+def _source_health_error_code(value: str) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return "source_error"
+    if all(char.isalnum() or char in {"_", ":", ".", "-", "+"} for char in normalized):
+        return normalized[:160]
+    return "source_error"
 
 
 def _source_health_ooda(summary: str, action: str) -> dict[str, Any]:

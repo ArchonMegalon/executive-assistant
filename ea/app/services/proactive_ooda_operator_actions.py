@@ -120,6 +120,7 @@ def proactive_next_action_surface(action: str, *, public_base_url: str = "") -> 
         "probe_proactive_source_coverage",
         "inspect_teable_projection",
         "inspect_pocket_sync_runtime",
+        "repair_proactive_signal_source",
         "mirror_the_proactive_packet_into_teable",
         "send_or_mirror_one_real_proactive_packet_with_routed_delivery_proof",
         "prove_proactive_delivery_only_notifies_for_user_action",

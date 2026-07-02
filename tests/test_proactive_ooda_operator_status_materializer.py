@@ -422,6 +422,127 @@ def test_materialize_proactive_ooda_operator_status_recovers_on_degraded_source_
     assert receipt["source_coverage"]["next_action"] == "sync_pocket_ai_audio_transcripts"
 
 
+def test_materialize_proactive_ooda_operator_status_recovers_on_runtime_source_health_issue(
+    tmp_path: Path, monkeypatch
+) -> None:
+    module = _load_script()
+    monkeypatch.setattr(module, "_git_head", lambda path=module.ROOT: "source-head-123")
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_route", lambda **_kwargs: {
+        "probe_ok": True,
+        "source": "docker_compose_exec",
+        "runtime_service": "ea-proactive-ooda",
+        "observed_at": "2026-07-01T09:00:00Z",
+        "live_receipt_checked": True,
+        "live_receipt": {
+            "ok": True,
+            "receipt_path": "/data/provider-ledger/proactive_ooda_latest_run.generated.json",
+            "errors": [],
+        },
+        "route_report": {
+            "ok": True,
+            "delivery_route": {
+                "ready": True,
+                "route_error": "",
+                "recovery_hint": "",
+                "next_action": "",
+                "selected_channel": "telegram",
+                "selected_by": "tool_runtime_binding",
+            },
+            "delivery_guard": {"delivery_state": "no_actionable_items"},
+            "stage_packets": {"ready": True, "errors": []},
+            "safe_work_results": {"ready": True, "errors": []},
+            "receipt_observation_count": 1,
+            "actionable_count": 0,
+        },
+    })
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_gmail_draft",
+        lambda **_kwargs: {"probe_ok": True, "status": "no_pending_draft", "source": "docker_compose_exec"},
+    )
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_artifacts",
+        lambda **_kwargs: {
+            "probe_ok": True,
+            "source": "docker_compose_exec",
+            "run_receipt": {
+                "generated_at": "2026-07-01T09:00:30Z",
+                "notification_status": "skipped_no_items",
+                "error_code": "",
+                "item_count": 0,
+                "source_health": {
+                    "present": True,
+                    "status": "recovery_required",
+                    "issue_count": 1,
+                    "operator_action_required": True,
+                    "user_action_required": False,
+                    "issues": [
+                        {
+                            "source_key": "discovery",
+                            "source_type": "json",
+                            "status": "failed",
+                            "error_code": "FileNotFoundError",
+                            "error_ref_hash": "abc123",
+                            "operator_action_required": True,
+                            "user_action_required": False,
+                            "next_action": "repair_proactive_signal_source",
+                            "raw_source_ref_exposed": False,
+                            "raw_payload_exposed": False,
+                            "raw_credential_exposed": False,
+                        }
+                    ],
+                    "privacy": {
+                        "raw_source_ref_exposed": False,
+                        "raw_payload_exposed": False,
+                        "raw_credential_exposed": False,
+                        "source_refs_hashed": True,
+                    },
+                },
+                "teable_sync": {
+                    "status": "synced",
+                    "projection_summary": {
+                        "record_count": 1,
+                        "suppressed_item_count": 0,
+                        "suppressed_safe_work_review_count": 0,
+                        "suppressed_projection_reasons": [],
+                        "suppressed_safe_work_issue_codes": [],
+                        "tables": {
+                            "proactive_ooda_runs": {"record_count": 1},
+                            "proactive_ooda_items": {"record_count": 0},
+                            "proactive_ooda_safe_work": {"record_count": 0},
+                        },
+                    },
+                },
+            },
+            "action_required_only_quiet_receipt": {},
+        },
+    )
+    monkeypatch.setattr(module.ea_live_ops, "probe_proactive_source_coverage", _fake_source_coverage_probe)
+    monkeypatch.setattr(
+        module.ea_live_ops,
+        "probe_proactive_approval_capture",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("source health recovery should short-circuit approval followthrough")),
+    )
+
+    receipt = module.build_proactive_ooda_operator_status(
+        output_path=tmp_path / "ea_proactive_ooda_operator_status.generated.json",
+        generated_at="2026-07-01T09:01:00Z",
+        report_args=Namespace(principal_id="exec-1"),
+    )
+
+    assert receipt["status"] == "ready_with_recovery_action"
+    assert receipt["reason"] == "source_health_discovery:FileNotFoundError"
+    assert receipt["next_action"] == "repair_proactive_signal_source"
+    assert receipt["next_action_label"] == "Open goals"
+    assert receipt["operator_action_state"] == "recovery_required"
+    assert "signal source health issue" in receipt["summary"]
+    assert receipt["source_health"]["present"] is True
+    assert receipt["source_health"]["user_action_required"] is False
+    assert receipt["source_health"]["privacy"]["raw_payload_exposed"] is False
+    assert receipt["source_coverage"]["status"] == "ready"
+
+
 def test_materialize_proactive_ooda_operator_status_recovers_on_source_coverage_probe_failure(
     tmp_path: Path, monkeypatch
 ) -> None:
