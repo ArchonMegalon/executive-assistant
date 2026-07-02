@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.services import proactive_signal_discovery
 from app.services.proactive_signal_discovery import observation_row_to_signal
 
 
@@ -104,3 +105,15 @@ def test_transcript_recording_studio_query_is_not_flat_property() -> None:
 def test_transcript_house_purchase_query_is_ignored_when_flat_search_disabled() -> None:
     signal = _telegram_message_signal(text="Suche mir ein Haus zum Kaufen in Wien.")
     assert signal is None
+
+
+def test_transcript_search_query_expansion_ignores_ambient_context_terms() -> None:
+    queries = proactive_signal_discovery._search_queries_from_request(
+        research_query="Elektriker fuer zusaetzliche Steckdosen",
+        request_text=(
+            "[Mikrofongeraeusche] Also ich bin ein bisschen nervoes. "
+            "Ich bin entlassen worden. Suche einen Elektriker fuer zusaetzliche Steckdosen."
+        ),
+    )
+
+    assert queries == ["Elektriker fuer zusaetzliche Steckdosen"]

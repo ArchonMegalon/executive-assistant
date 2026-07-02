@@ -32,6 +32,9 @@ _TRANSCRIPT_REQUEST_MARKERS = (
     "brauch",
     "brauche",
     "ich brauche",
+    "kauf",
+    "kaufe",
+    "kaufen",
     "kannst du",
     "koenntest du",
     "need to",
@@ -244,6 +247,37 @@ _TRANSCRIPT_SEARCH_QUERY_STOPWORDS = {
     "we",
     "wenn",
     "you",
+}
+_TRANSCRIPT_AMBIENT_MARKERS = (
+    "background noise",
+    "geraeusch",
+    "geraeusche",
+    "gerausch",
+    "gerausche",
+    "mikrofongeraeusch",
+    "mikrofongeraeusche",
+    "mikrofongerausch",
+    "mikrofongerausche",
+    "mikrofonger",
+    "rauschen",
+    "unverstaendlich",
+)
+_TRANSCRIPT_AMBIENT_CONTEXT_STOPWORDS = {
+    "bisschen",
+    "entlassen",
+    "geraeusch",
+    "geraeusche",
+    "gerausch",
+    "gerausche",
+    "hintergrund",
+    "mikrofonger",
+    "mikrofongerausch",
+    "mikrofongerausche",
+    "nervoes",
+    "nervos",
+    "rauschen",
+    "usche",
+    "worden",
 }
 _TRANSCRIPT_HIGH_RISK_TERMS = (
     "beauftrage",
@@ -819,6 +853,13 @@ def _any_marker_present(normalized_text: str, markers: Iterable[str]) -> bool:
     return any(_marker_present(normalized_text, marker) for marker in markers)
 
 
+def _transcript_has_ambient_marker(text: str) -> bool:
+    folded = _ascii_fold_text(_clean_text(str(text or "")).strip().lower())
+    if not folded:
+        return False
+    return any(marker in folded for marker in _TRANSCRIPT_AMBIENT_MARKERS)
+
+
 def _research_query_from_request(request_text: str) -> str:
     normalized = _clean_text(request_text).strip()
     if not normalized:
@@ -1032,15 +1073,20 @@ def _search_queries_from_request(*, research_query: str, request_text: str) -> l
         for token in re.findall(r"[A-Za-z0-9]+", base)
         if _ascii_fold_text(token).strip()
     }
+    if _transcript_has_ambient_marker(request_text):
+        context_source = base
+    else:
+        context_source = _transcript_task_focused_request_text(request_text) or request_text
     context_terms: list[str] = []
     seen_context: set[str] = set()
-    for token in re.findall(r"[A-Za-z0-9]+", _clean_text(request_text)):
+    for token in re.findall(r"[A-Za-z0-9]+", _clean_text(context_source)):
         normalized = _ascii_fold_text(token).lower()
         if (
             not normalized
             or len(normalized) < 5
             or normalized in base_terms
             or normalized in _TRANSCRIPT_SEARCH_QUERY_STOPWORDS
+            or normalized in _TRANSCRIPT_AMBIENT_CONTEXT_STOPWORDS
             or normalized in seen_context
         ):
             continue
@@ -1123,7 +1169,7 @@ def _ambient_transcript_action_candidate(request_text: str) -> bool:
         r"\b(?:can you|could you|remember to|when you|if you)\b",
         r"\b(?:kannst du|koenntest du|wenn du|suche mir|such mir)\b",
         r"^\s*(?:book|buy|compare|draft|find|order|renew|reply|reserve|respond|review|schedule|search|send|shop|write)\b",
-        r"^\s*(?:buche|finde|formuliere|schick|schicke|schreib|schreibe|suche|such|bestell|bestelle|vergleiche|pruefe|prufe)\b",
+        r"^\s*(?:buche|finde|formuliere|kauf|kaufe|kaufen|schick|schicke|schreib|schreibe|suche|such|bestell|bestelle|vergleiche|pruefe|prufe)\b",
     )
     if any(re.search(pattern, padded) for pattern in direct_patterns):
         return True
@@ -1171,7 +1217,7 @@ def _transcript_has_action_intent(lowered_request: str) -> bool:
         return True
     action_patterns = (
         r"\b(?:book|buy|compare|draft|find|order|renew|reply|reserve|respond|review|schedule|search|send|shop|write)\b",
-        r"\b(?:buche|finde|formuliere|rauchfangkehrer|schicke|schick|schreibe|schreib|suche|termin)\b",
+        r"\b(?:buche|finde|formuliere|kauf|kaufe|kaufen|rauchfangkehrer|schicke|schick|schreibe|schreib|suche|termin)\b",
         r"\b(?:brauch|brauche|brauchst|brauchen)\b",
     )
     return any(re.search(pattern, padded) for pattern in action_patterns)

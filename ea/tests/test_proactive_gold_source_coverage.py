@@ -65,3 +65,41 @@ def test_gold_operator_runtime_accepts_complete_source_coverage() -> None:
     assert detail["source_coverage_ready"] is True
     assert detail["source_coverage_missing_lane_keys"] == []
     assert detail["source_coverage_missing_required_event_types"] == []
+
+
+def test_assistant_grade_quality_accepts_clean_safe_work_from_noisy_transcript() -> None:
+    proof, present = gold_acceptance._assistant_grade_packet_quality_proof(  # noqa: SLF001
+        stage_packet={
+            "stage": {
+                "kind": "approval_packet",
+                "payload": {
+                    "adapter_hint": "transcript_signal",
+                    "work_type": "draft",
+                    "draft_request_text": (
+                        "[Mikrofongeraeusche] Also ich bin ein bisschen nervoes. "
+                        "Ich bin entlassen worden."
+                    ),
+                    "research_query": "Elektriker fuer zusaetzliche Steckdosen",
+                    "search_queries": ["Elektriker fuer zusaetzliche Steckdosen"],
+                },
+            },
+            "safe_work_order": {"work_type": "draft"},
+        },
+        safe_work_result={
+            "work_type": "draft",
+            "audit": {"status": "pass", "issues": []},
+            "execution_receipt": {
+                "search_queries_used": ["Elektriker fuer zusaetzliche Steckdosen 1200 Wien"],
+            },
+            "recommended_option_or_draft": {
+                "kind": "draft_text",
+                "value": "Draft to review: Elektriker fuer zusaetzliche Steckdosen",
+            },
+            "shortlist": [{"label": "Elektriker 1200 Wien"}],
+        },
+        packet_artifacts_match_run_receipt=True,
+    )
+
+    assert present is True
+    assert proof["status"] == "pass"
+    assert proof["issues"] == []

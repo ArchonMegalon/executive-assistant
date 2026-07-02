@@ -233,3 +233,107 @@ def test_flat_property_search_disabled_by_global_kill_switch(monkeypatch: object
     assert result["status"] == "blocked_needs_research_input"
     assert result["execution_receipt"]["network_fetch_enabled"] is False
     assert call_count["fetch_page_check"] == 0
+
+
+def test_ambient_transcript_noise_does_not_stage_bogus_search_results() -> None:
+    packet = {
+        "packet_ref": "packet-ambient-transcript-noise",
+        "approval": {"required": False},
+        "safe_work_order": {
+            "schema": proactive_ooda_safe_work.SAFE_WORK_ORDER_SCHEMA,
+            "work_order_id": "work-ambient-transcript-noise",
+            "work_type": "research",
+            "requested_outcome": "Research the request and stage the smallest reversible next step.",
+        },
+        "stage": {
+            "summary": "ambient transcript",
+            "payload": {
+                "research_query": (
+                    "[Mikrofongeraeusche] Nein, hier ist es besser. "
+                    "Noah enters pellets and background audio continues."
+                ),
+                "candidate_items": [
+                    {
+                        "label": "Songtexte und Lyrics",
+                        "url": "https://songtextes.de/",
+                        "snippet": "Song lyrics and music text archive.",
+                        "reachable": True,
+                    },
+                    {
+                        "label": "Difference between ein, eine, einen",
+                        "url": "https://studyflix.de/deutsch/ein-eine-einen-grammar",
+                        "snippet": "German language grammar lesson.",
+                        "reachable": True,
+                    },
+                ],
+            },
+        },
+    }
+
+    result = proactive_ooda_safe_work.build_safe_work_result(packet)
+
+    assert result["status"] == "blocked_needs_research_input"
+    assert result["recommended_option_or_draft"] == {}
+    assert result["shortlist"] == []
+    assert list(result["execution_receipt"]["search_queries_used"]) == []
+    issue_codes = {item["code"] for item in result["audit"]["issues"]}
+    assert "ambient_transcript_not_decision_ready" in issue_codes
+
+
+def test_research_backed_draft_prefers_clean_query_over_transcript_noise() -> None:
+    packet = {
+        "packet_ref": "packet-electrician-clean-draft",
+        "approval": {"required": True},
+        "safe_work_order": {
+            "schema": proactive_ooda_safe_work.SAFE_WORK_ORDER_SCHEMA,
+            "work_order_id": "work-electrician-clean-draft",
+            "work_type": "draft",
+            "requested_outcome": "Research candidates, prepare one inquiry draft, and save it as a Gmail draft.",
+        },
+        "stage": {
+            "summary": "electrician draft",
+            "payload": {
+                "work_type": "draft",
+                "draft_mode": "research_backed_inquiry",
+                "draft_request_text": (
+                    "[Mikrofongeraeusche] Also ich bin ein bisschen nervoes. "
+                    "Ich bin entlassen worden und rede weiter."
+                ),
+                "research_query": "Elektriker fuer zusaetzliche Steckdosen",
+                "search_queries": [
+                    "Elektriker fuer zusaetzliche Steckdosen 1200 Wien",
+                    "Elektriker fuer zusaetzliche Steckdosen Mikrofonger usche bisschen entlassen",
+                ],
+                "selection_criteria": ["contact details visible", "reachability", "fit to request"],
+                "appointment_type": "Vor Ort Termin",
+                "locale": "de",
+                "recipient_context": {
+                    "location": {"city_terms": ["Wien"], "postal_codes": ["1200"]},
+                    "address": "1200 Wien",
+                    "phone": "+43 664 7916419",
+                },
+                "candidate_items": [
+                    {
+                        "label": "DUE Energie GmbH Elektriker Wien 1200",
+                        "url": "https://www.due-energie.at/elektriker-wien-1200/",
+                        "snippet": "Elektriker in 1200 Wien fuer Steckdosen, Kontakt und Leistungen.",
+                        "contact_email": "office@due-energie.at",
+                        "reachable": True,
+                    }
+                ],
+            },
+        },
+    }
+
+    result = proactive_ooda_safe_work.build_safe_work_result(packet)
+    draft = str(result["recommended_option_or_draft"].get("value") or "")
+
+    assert result["status"] == "staged_for_user_decision"
+    assert "Elektriker fuer zusaetzliche Steckdosen" in draft
+    assert "Adresse: 1200 Wien" in draft
+    assert "Telefon: +43 664 7916419" in draft
+    assert "Mikrofonger" not in draft
+    assert "entlassen" not in draft
+    search_queries = " ".join(result["execution_receipt"]["search_queries_used"])
+    assert "Mikrofonger" not in search_queries
+    assert "entlassen" not in search_queries

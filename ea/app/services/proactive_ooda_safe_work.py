@@ -71,10 +71,13 @@ _NON_PROVIDER_MARKERS = (
     "cuisine",
     "encyclopedia",
     "german language",
+    "lyrics",
     "michelin",
     "menu",
     "opera",
     "restaurant",
+    "songtext",
+    "songtexte",
     "wikipedia",
 )
 _EDUCATIONAL_REFERENCE_MARKERS = (
@@ -221,6 +224,52 @@ _PROVIDER_MATERIALITY_CONSTRAINT_TO_CODE = (
     ("provider search query too generic", "provider_query_too_generic"),
     ("provider request terms missing", "top_candidate_not_provider_like"),
     ("link not reachable", "no_provider_safe_candidate"),
+)
+_AMBIENT_TRANSCRIPT_MARKERS = (
+    "background noise",
+    "geraeusch",
+    "geraeusche",
+    "gerausch",
+    "gerausche",
+    "geraesch",
+    "geraesche",
+    "hintergrundgeraeusch",
+    "hintergrundgeraeusche",
+    "mikrofongeraeusch",
+    "mikrofongeraeusche",
+    "mikrofongerausch",
+    "mikrofongerausche",
+    "mikrofonger",
+    "rauschen",
+    "unverstaendlich",
+)
+_REQUEST_TASK_MARKERS = (
+    "anfrage",
+    "appointment",
+    "befund",
+    "book",
+    "booking",
+    "buy",
+    "compare",
+    "draft",
+    "electrician",
+    "elektriker",
+    "estimate",
+    "find",
+    "finde",
+    "formuliere",
+    "gutachten",
+    "inquiry",
+    "order",
+    "quote",
+    "rauchfangkehrer",
+    "research",
+    "schedule",
+    "schreibe",
+    "shortlist",
+    "suche",
+    "termin",
+    "vendor",
 )
 
 
@@ -445,10 +494,18 @@ def build_safe_work_result(
         )
     candidate_items = _candidate_items(input_contract=input_contract, stage_payload=stage_payload)
     context = _candidate_evaluation_context(input_contract=input_contract, stage_payload=stage_payload)
+    request_quality_issues = _safe_work_request_quality_issues(
+        work_type=work_type,
+        input_contract=input_contract,
+        stage_payload=stage_payload,
+        context=context,
+    )
+    if request_quality_issues:
+        candidate_items = []
     flat_search_disabled_by_policy = not _proactive_ooda_flat_search_enabled() and _is_flat_property_search_context(context=context)
     if flat_search_disabled_by_policy:
         candidate_items = []
-    effective_network_fetch_enabled = bool(network_fetch_enabled) and not flat_search_disabled_by_policy
+    effective_network_fetch_enabled = bool(network_fetch_enabled) and not flat_search_disabled_by_policy and not request_quality_issues
     if not candidate_items and effective_network_fetch_enabled:
         candidate_items = _research_candidate_items(
             input_contract=input_contract,
@@ -496,6 +553,8 @@ def build_safe_work_result(
         candidate_items=recommendable_candidate_items,
         context=context,
     )
+    if request_quality_issues:
+        recommended = {}
     if flat_search_disabled_by_policy:
         recommended = {}
     draft_email_missing = _gmail_draft_recipient_missing(
@@ -529,6 +588,7 @@ def build_safe_work_result(
         recommended=recommended,
         recommendable_candidate_items=recommendable_candidate_items,
         draft_email_missing=draft_email_missing,
+        request_quality_issues=request_quality_issues,
     )
     browser_action_receipt = build_browser_action_receipt(
         packet,
@@ -1978,25 +2038,62 @@ def _outreach_request_text_has_actionable_content(text: str) -> bool:
 
 
 def _draft_request_text(*, input_contract: Mapping[str, Any], stage_payload: Mapping[str, Any]) -> str:
-    for value in (
-        stage_payload.get("draft_request_text"),
-        stage_payload.get("request"),
-        stage_payload.get("request_text"),
-        stage_payload.get("user_request"),
-        stage_payload.get("task_request"),
-        stage_payload.get("research_query"),
-        input_contract.get("draft_request_text"),
-        input_contract.get("request"),
-        input_contract.get("request_text"),
-        input_contract.get("user_request"),
-        input_contract.get("task_request"),
-        input_contract.get("research_query"),
-        _first_string(input_contract.get("search_queries")),
+    candidates: list[tuple[int, int, str]] = []
+    for index, value in enumerate(
+        (
+            stage_payload.get("draft_request_text"),
+            stage_payload.get("request"),
+            stage_payload.get("request_text"),
+            stage_payload.get("user_request"),
+            stage_payload.get("task_request"),
+            stage_payload.get("research_query"),
+            _first_string(stage_payload.get("search_queries")),
+            input_contract.get("draft_request_text"),
+            input_contract.get("request"),
+            input_contract.get("request_text"),
+            input_contract.get("user_request"),
+            input_contract.get("task_request"),
+            input_contract.get("research_query"),
+            _first_string(input_contract.get("search_queries")),
+        )
     ):
         text = str(value or "").strip()
         if text:
-            return text
+            score = _draft_request_text_score(text, source_index=index)
+            if score > 0:
+                candidates.append((score, -index, text))
+    if candidates:
+        return max(candidates, key=lambda item: (item[0], item[1]))[2]
     return ""
+
+
+def _draft_request_text_score(text: str, *, source_index: int) -> int:
+    normalized = " ".join(str(text or "").split()).strip()
+    if not normalized:
+        return 0
+    sanitized = _sanitize_outreach_request_text(normalized) or normalized
+    if not _outreach_request_text_has_actionable_content(sanitized):
+        return 0
+    folded = _ascii_fold_text(normalized.lower())
+    score = 10
+    score += min(len(_informative_provider_query_terms((sanitized,))), 6)
+    if any(marker in _ascii_fold_text(sanitized.lower()) for marker in _REQUEST_TASK_MARKERS):
+        score += 4
+    if not _text_has_ambient_transcript_marker(normalized):
+        score += 8
+    else:
+        score -= 10
+    if len(normalized) <= 160:
+        score += 4
+    elif len(normalized) > 320:
+        score -= 8
+    if source_index in {5, 12}:
+        score += 8
+    elif source_index in {6, 13}:
+        score += 3
+    if any(marker in folded for marker in ("draft in meiner inbox", "speicher", "save it as draft", "save it as a draft")):
+        score -= 3
+    return score
 
 
 def _draft_locale(stage_payload: Mapping[str, Any]) -> str:
@@ -2290,6 +2387,82 @@ def _provider_query_texts(*, input_contract: Mapping[str, Any], stage_payload: M
         if text:
             texts.append(text)
     return tuple(dict.fromkeys(text for text in texts if text))
+
+
+def _safe_work_request_quality_issues(
+    *,
+    work_type: str,
+    input_contract: Mapping[str, Any],
+    stage_payload: Mapping[str, Any],
+    context: Mapping[str, Any],
+) -> list[dict[str, str]]:
+    texts = _request_source_texts(input_contract=input_contract, stage_payload=stage_payload)
+    if not texts:
+        return []
+    if _ambient_transcript_source_without_clean_task(texts=texts, context=context):
+        return [
+            {
+                "code": "ambient_transcript_not_decision_ready",
+                "severity": "warn",
+                "detail": "The signal looked like ambient transcript noise without a clean task clause, so EA did not stage web-search results for the user.",
+            }
+        ]
+    return []
+
+
+def _request_source_texts(*, input_contract: Mapping[str, Any], stage_payload: Mapping[str, Any]) -> tuple[str, ...]:
+    texts: list[str] = []
+    for key in (
+        "research_query",
+        "search_queries",
+        "request",
+        "request_text",
+        "user_request",
+        "task_request",
+        "draft_request_text",
+        "subject_hint",
+    ):
+        value = _stage_or_input(stage_payload=stage_payload, input_contract=input_contract, key=key)
+        if isinstance(value, (list, tuple)):
+            texts.extend(_string_list(value))
+            continue
+        text = str(value or "").strip()
+        if text:
+            texts.append(text)
+    return tuple(dict.fromkeys(text for text in texts if text))
+
+
+def _ambient_transcript_source_without_clean_task(*, texts: Iterable[str], context: Mapping[str, Any]) -> bool:
+    text_list = tuple(str(text or "").strip() for text in texts if str(text or "").strip())
+    if not text_list:
+        return False
+    if not any(_text_has_ambient_transcript_marker(text) for text in text_list):
+        return False
+    if any(_request_text_is_clean_task(text, context=context) for text in text_list):
+        return False
+    combined = " ".join(text_list)
+    return _text_has_ambient_transcript_marker(combined)
+
+
+def _request_text_is_clean_task(text: str, *, context: Mapping[str, Any]) -> bool:
+    normalized = " ".join(str(text or "").split()).strip()
+    if not normalized:
+        return False
+    if _text_has_ambient_transcript_marker(normalized):
+        return False
+    folded = _ascii_fold_text(normalized.lower())
+    if len(normalized) > 240:
+        return False
+    if _informative_provider_query_terms((normalized,)):
+        return True
+    return any(marker in folded for marker in _REQUEST_TASK_MARKERS)
+
+
+def _text_has_ambient_transcript_marker(text: str) -> bool:
+    folded = _ascii_fold_text(str(text or "").lower())
+    if not folded:
+        return False
+    return any(marker in folded for marker in _AMBIENT_TRANSCRIPT_MARKERS)
 
 
 def _informative_provider_query_terms(query_texts: Iterable[str]) -> tuple[str, ...]:
@@ -2699,8 +2872,10 @@ def _safe_work_audit(
     recommended: Mapping[str, Any],
     recommendable_candidate_items: list[dict[str, Any]] | None = None,
     draft_email_missing: bool = False,
+    request_quality_issues: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     issues: list[dict[str, str]] = []
+    issues.extend(dict(issue) for issue in list(request_quality_issues or []) if issue.get("code"))
     recommendable_count = len(recommendable_candidate_items or [])
     if not recommended and not candidate_items:
         issues.append(
@@ -3447,6 +3622,9 @@ def _search_queries(
             text = str(value or "").strip()
             if text:
                 base_queries.append(text)
+    base_queries = _clean_search_base_queries(base_queries)
+    if not base_queries:
+        return ()
     hosts = _target_hosts(_stage_or_input(stage_payload=stage_payload, input_contract=input_contract, key="target_sites"))
     explicit_location_context = _location_context(
         _mapping_value(_stage_or_input(stage_payload=stage_payload, input_contract=input_contract, key="recipient_context"))
@@ -3470,6 +3648,16 @@ def _search_queries(
             queries.append(expanded_query)
     deduped = tuple(dict.fromkeys(text.strip() for text in queries if text.strip()))
     return deduped[: max(int(limit or 1), 1)]
+
+
+def _clean_search_base_queries(base_queries: Iterable[str]) -> list[str]:
+    queries = [str(query or "").strip() for query in base_queries if str(query or "").strip()]
+    if not queries:
+        return []
+    if not any(_text_has_ambient_transcript_marker(query) for query in queries):
+        return queries
+    clean_queries = [query for query in queries if not _text_has_ambient_transcript_marker(query)]
+    return clean_queries
 
 
 def _search_results_for_query(*, query: str, timeout_seconds: int, limit: int) -> list[dict[str, str]]:

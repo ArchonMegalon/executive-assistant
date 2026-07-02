@@ -398,6 +398,22 @@ def _request_texts_for_quality(stage_packet: Mapping[str, Any]) -> list[str]:
     return list(dict.fromkeys(value for value in values if value))
 
 
+def _safe_work_texts_for_quality(safe_work_result: Mapping[str, Any]) -> list[str]:
+    values: list[str] = []
+    execution = _as_mapping(safe_work_result.get("execution_receipt"))
+    values.extend(_string_list(execution.get("search_queries_used")))
+    recommended = _as_mapping(safe_work_result.get("recommended_option_or_draft"))
+    value = recommended.get("value")
+    if isinstance(value, str):
+        values.append(value)
+    candidate = recommended.get("candidate")
+    if isinstance(candidate, Mapping):
+        for key in ("label", "title", "page_title", "snippet", "source_query"):
+            values.extend(_string_list(candidate.get(key)))
+    values.extend(_string_list(safe_work_result.get("summary")))
+    return list(dict.fromkeys(value for value in values if str(value or "").strip()))
+
+
 def _transcript_signal_adapter_hint(stage_packet: Mapping[str, Any]) -> str:
     payload, _input_contract, tool_hints = _stage_payload_and_input(stage_packet)
     return _first_text(payload.get("adapter_hint"), tool_hints.get("adapter_hint"))
@@ -608,16 +624,21 @@ def _assistant_grade_packet_quality_proof(
     issues: list[str] = []
     payload, input_contract, tool_hints = _stage_payload_and_input(stage_packet)
     request_texts = _request_texts_for_quality(stage_packet)
+    safe_work_texts = _safe_work_texts_for_quality(safe_work_result)
     adapter_hint = _transcript_signal_adapter_hint(stage_packet)
     transcript_signal = adapter_hint == "transcript_signal"
     if not packet_artifacts_match_run_receipt:
         issues.append("packet_artifacts_do_not_match_run_receipt")
     if transcript_signal:
-        has_action_intent = any(_transcript_has_action_intent(_folded_text(text)) for text in request_texts)
-        noise_like = any(_text_is_noise_like(text) for text in request_texts)
+        has_action_intent = any(_transcript_has_action_intent(_folded_text(text)) for text in (*request_texts, *safe_work_texts))
+        raw_noise_like = any(_text_is_noise_like(text) for text in request_texts)
+        safe_work_noise_like = any(_text_is_noise_like(text) for text in safe_work_texts)
+        safe_work_clean_action_text_present = bool(safe_work_texts) and not safe_work_noise_like and any(
+            _transcript_has_action_intent(_folded_text(text)) for text in safe_work_texts
+        )
         if not has_action_intent:
             issues.append("transcript_signal_lacks_action_intent")
-        if noise_like:
+        if raw_noise_like and not safe_work_clean_action_text_present:
             issues.append("transcript_signal_noise_like_query")
     audit = _as_mapping(safe_work_result.get("audit"))
     audit_status = str(audit.get("status") or "").strip().lower()
@@ -653,6 +674,7 @@ def _assistant_grade_packet_quality_proof(
             ),
             "transcript_signal": transcript_signal,
             "request_text_count": len(request_texts),
+            "safe_work_text_count": len(safe_work_texts),
             "safe_work_audit_status": audit_status,
             "safe_work_audit_issue_codes": audit_issue_codes[:8],
             "recommended_kind": str(recommended.get("kind") or "").strip(),

@@ -263,7 +263,7 @@ def workspace_access_session(token: str, request: Request, container: AppContain
         )
     session_default_target = str(session.get("default_target") or "").strip() or str(brand.get("app_home") or "/app/today")
     target = _normalize_browser_return_to(request.query_params.get("return_to") or session_default_target, default=session_default_target)
-    if brand["key"] == "ea" and (target == "/app/properties" or target.startswith("/app/properties?") or target.startswith("/app/properties/")):
+    if str(brand.get("key") or "") == "ea" and (target == "/app/properties" or target.startswith("/app/properties?") or target.startswith("/app/properties/")):
         target = str(brand.get("app_home") or "/app/today")
     response = RedirectResponse(target, status_code=303)
     response.set_cookie("ea_workspace_session", str(session.get("access_token") or "").strip(), **_workspace_session_cookie_kwargs(request, expires_at=str(session.get("expires_at") or "").strip()))
