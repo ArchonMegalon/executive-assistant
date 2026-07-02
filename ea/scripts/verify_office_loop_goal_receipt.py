@@ -256,6 +256,10 @@ def verify_office_loop_goal_receipt(receipt_path: str | Path) -> dict[str, Any]:
         issues.append("office_loop_provider_cost_gemini_token_tracking_missing")
     if gemini_vertex.get("dispatch_ledger") != "provider_dispatch_events.jsonl":
         issues.append("office_loop_provider_cost_dispatch_ledger_drifted")
+    if gemini_vertex.get("live_pressure_probe_command") != "python3 scripts/ea_live_ops.py probe-provider-cost-pressure --window 24h --format json":
+        issues.append("office_loop_provider_cost_live_pressure_probe_command_missing")
+    if gemini_vertex.get("live_pressure_probe_source") != "runtime_container_exec:provider_ledger_cache":
+        issues.append("office_loop_provider_cost_live_pressure_probe_source_missing")
     tracked_fields = set(str(item) for item in list(gemini_vertex.get("tracked_dispatch_fields") or []))
     for field in ("tokens_in", "tokens_out", "total_tokens", "lane", "model", "backend"):
         if field not in tracked_fields:

@@ -300,6 +300,130 @@ def test_probe_provider_unmixr_prefers_runtime_container_preflight(monkeypatch) 
     assert report["raw"]["preflight_status"] == "warn"
 
 
+def test_probe_provider_cost_pressure_reports_runtime_token_pressure(monkeypatch) -> None:
+    module = _module()
+
+    monkeypatch.setattr(
+        module,
+        "_runtime_provider_cost_pressure_payload",
+        lambda **_kwargs: (
+            0,
+            {
+                "ok": True,
+                "observed_at": "2026-07-02T10:00:00Z",
+                "window": "24h",
+                "provider_order": ["onemin", "magixai", "gemini_vortex"],
+                "groundwork_provider_order": ["onemin", "magixai", "gemini_vortex"],
+                "cheap_provider_order": ["onemin", "magixai", "gemini_vortex"],
+                "hard_provider_order": ["onemin", "gemini_vortex", "magixai"],
+                "cost_gated_lanes": ["audit", "fast", "groundwork", "overflow", "review", "review_light"],
+                "gemini_token_usage": {
+                    "provider_key": "gemini_vortex",
+                    "billing_truth_boundary": "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth",
+                    "selected_window": {
+                        "window_seconds": 86400.0,
+                        "request_count": 3,
+                        "tokens_in": 190000,
+                        "tokens_out": 15000,
+                        "total_tokens": 205000,
+                        "soft_cap_tokens": 200000,
+                        "state": "soft_cap_exceeded",
+                    },
+                    "24h": {
+                        "window_seconds": 86400.0,
+                        "request_count": 3,
+                        "tokens_in": 190000,
+                        "tokens_out": 15000,
+                        "total_tokens": 205000,
+                        "soft_cap_tokens": 200000,
+                        "state": "soft_cap_exceeded",
+                    },
+                },
+                "onemin_capacity": {
+                    "configured_slots": 70,
+                    "ready_slots": 12,
+                    "degraded_slots": 2,
+                    "unknown_slots": 56,
+                    "state": "ready",
+                },
+                "onemin_aggregate": {
+                    "sum_free_credits": 12345,
+                    "remaining_percent_total": 81.2,
+                    "burn_basis": "observed_usage",
+                },
+                "onemin_billing_aggregate": {
+                    "sum_free_credits": 12000,
+                    "remaining_percent_total": 80.0,
+                    "next_topup_at": "2026-07-03T00:00:00Z",
+                },
+                "fast_lane_route": {"effective_order": ["onemin", "magixai"]},
+            },
+            "ea-api",
+        ),
+    )
+    monkeypatch.setattr(module, "_utc_now", lambda: "2026-07-02T10:00:01Z")
+
+    report = module.probe_provider_cost_pressure(output_format="operator")
+
+    assert report["probe_ok"] is True
+    assert report["status"] == "gemini_soft_cap_exceeded"
+    assert report["source"] == "runtime_container_exec:ea-api:provider_ledger_cache"
+    assert report["primary_background_provider"] == "onemin"
+    assert report["groundwork_provider_order"][:3] == ["onemin", "magixai", "gemini_vortex"]
+    assert report["onemin_preferred_when_speed_is_not_critical"] is True
+    assert report["onemin_usable"] is True
+    assert report["onemin_ready_slots"] == 12
+    assert report["gemini_token_tracking"]["24h"]["total_tokens"] == 205000
+    assert report["gemini_token_tracking"]["soft_cap_percent_24h"] == 102.5
+    assert report["gemini_token_tracking"]["background_cost_gate"] == "closed"
+    assert report["routing_decision"] == "prefer_onemin_background_and_remove_gemini_from_cost_gated_background_lanes"
+    assert report["privacy"]["raw_provider_secret_exposed"] is False
+    assert report["privacy"]["raw_prompt_or_response_text_exposed"] is False
+    assert "gemini_24h_tokens=205000/200000" in str(report["operator_text"])
+
+
+def test_probe_provider_cost_pressure_falls_back_to_host_payload(monkeypatch) -> None:
+    module = _module()
+
+    monkeypatch.setattr(
+        module,
+        "_runtime_provider_cost_pressure_payload",
+        lambda **_kwargs: (124, {"ok": False, "reason": "TimeoutExpired:30s"}, "ea-api"),
+    )
+    monkeypatch.setattr(
+        module,
+        "_provider_cost_pressure_payload_from_host",
+        lambda **_kwargs: {
+            "ok": True,
+            "observed_at": "2026-07-02T10:05:00Z",
+            "window": "24h",
+            "provider_order": ["onemin", "magixai", "gemini_vortex"],
+            "groundwork_provider_order": ["onemin", "magixai", "gemini_vortex"],
+            "cheap_provider_order": ["onemin", "magixai", "gemini_vortex"],
+            "hard_provider_order": ["onemin", "gemini_vortex", "magixai"],
+            "cost_gated_lanes": ["groundwork"],
+            "gemini_token_usage": {
+                "provider_key": "gemini_vortex",
+                "billing_truth_boundary": "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth",
+                "selected_window": {"total_tokens": 10, "soft_cap_tokens": 200000, "state": "within_soft_cap"},
+                "24h": {"total_tokens": 10, "soft_cap_tokens": 200000, "state": "within_soft_cap"},
+            },
+            "onemin_capacity": {"configured_slots": 70, "ready_slots": 0},
+            "onemin_aggregate": {},
+            "onemin_billing_aggregate": {},
+        },
+    )
+
+    report = module.probe_provider_cost_pressure(output_format="json")
+
+    assert report["probe_ok"] is True
+    assert report["source"] == "host_process:provider_ledger_cache"
+    assert report["status"] == "active_cost_control_onemin_not_live_ready"
+    assert report["onemin_usable"] is False
+    assert report["gemini_token_tracking"]["background_cost_gate"] == "open"
+    assert report["routing_decision"] == "keep_onemin_first_but_use_cost_gated_fallback_until_onemin_ready"
+
+
 def test_probe_provider_onemin_prefers_runtime_container_aggregate(monkeypatch) -> None:
     module = _module()
 

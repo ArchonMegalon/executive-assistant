@@ -243,7 +243,7 @@
     }
   },
   "external_provider_runtime_verified": false,
-  "generated_at": "2026-07-02T06:02:48Z",
+  "generated_at": "2026-07-02T06:18:09Z",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
   "live_daily_use_verified": false,
@@ -297,6 +297,8 @@
       "default_soft_cap_tokens_24h": 200000,
       "dispatch_ledger": "provider_dispatch_events.jsonl",
       "explicit_gemini_requests_allowed": true,
+      "live_pressure_probe_command": "python3 scripts/ea_live_ops.py probe-provider-cost-pressure --window 24h --format json",
+      "live_pressure_probe_source": "runtime_container_exec:provider_ledger_cache",
       "provider_key": "gemini_vortex",
       "provider_label": "Gemini/Vertex",
       "soft_cap_action": "remove_gemini_vortex_from_cost_gated_background_candidate_lists",
@@ -353,8 +355,8 @@
   "seeded_fixture": {
     "raw_private_context_exposed": false
   },
-  "source_git_head": "861a2b9e21975405c648fe16467199d6d11712a1",
-  "source_state_fingerprint": "15819be5d6646fed94a328e5e43041df26ad10ddce9a2b53b26281952d0022a7",
+  "source_git_head": "805143c0375280c52c0b523461acf982a0ca200c",
+  "source_state_fingerprint": "1088cf5982e58a5f3ee916f47a7e27df3a645135e11968c63ac46fa63f88768b",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready_local_evidence"
 }

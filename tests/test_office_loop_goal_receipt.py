@@ -137,6 +137,11 @@ def test_office_loop_goal_receipt_materializes_seeded_local_loop(tmp_path: Path)
     assert cost_posture["gemini_vertex"]["provider_key"] == "gemini_vortex"
     assert cost_posture["gemini_vertex"]["token_tracking_required"] is True
     assert cost_posture["gemini_vertex"]["dispatch_ledger"] == "provider_dispatch_events.jsonl"
+    assert (
+        cost_posture["gemini_vertex"]["live_pressure_probe_command"]
+        == "python3 scripts/ea_live_ops.py probe-provider-cost-pressure --window 24h --format json"
+    )
+    assert cost_posture["gemini_vertex"]["live_pressure_probe_source"] == "runtime_container_exec:provider_ledger_cache"
     assert "tokens_in" in cost_posture["gemini_vertex"]["tracked_dispatch_fields"]
     assert "tokens_out" in cost_posture["gemini_vertex"]["tracked_dispatch_fields"]
     assert "total_tokens" in cost_posture["gemini_vertex"]["tracked_dispatch_fields"]
@@ -275,6 +280,7 @@ def test_office_loop_goal_verifier_rejects_overclaim_and_route_regression(tmp_pa
     receipt["provider_cost_routing_posture"]["gemini_vertex"]["token_tracking_required"] = False
     receipt["provider_cost_routing_posture"]["gemini_vertex"]["tracked_dispatch_fields"].remove("tokens_in")
     receipt["provider_cost_routing_posture"]["gemini_vertex"]["soft_cap_env"] = "WRONG"
+    receipt["provider_cost_routing_posture"]["gemini_vertex"].pop("live_pressure_probe_command", None)
     receipt["provider_cost_routing_posture"]["gemini_vertex"]["billing_truth_boundary"] = "google_cloud_invoice_truth"
     receipt["provider_cost_routing_posture"]["privacy"]["raw_provider_secret_exposed"] = True
     additional_goals = {row["key"]: row for row in receipt["additional_goals"]}
@@ -371,6 +377,7 @@ def test_office_loop_goal_verifier_rejects_overclaim_and_route_regression(tmp_pa
     assert "office_loop_provider_cost_gemini_token_tracking_missing" in verification["issues"]
     assert "office_loop_provider_cost_tracked_field_missing:tokens_in" in verification["issues"]
     assert "office_loop_provider_cost_gemini_soft_cap_env_drifted" in verification["issues"]
+    assert "office_loop_provider_cost_live_pressure_probe_command_missing" in verification["issues"]
     assert "office_loop_provider_cost_billing_truth_boundary_missing" in verification["issues"]
     assert "office_loop_provider_cost_privacy_leak:raw_provider_secret_exposed" in verification["issues"]
 

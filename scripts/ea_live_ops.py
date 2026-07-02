@@ -1100,6 +1100,358 @@ def _operator_text_for_provider(report: dict[str, object]) -> str:
     return "; ".join(str(item) for item in pieces if str(item).strip())
 
 
+def _provider_cost_pressure_runtime_code(window: str, principal_id: str) -> str:
+    return "\n".join(
+        (
+            "import json, os, time",
+            "from datetime import datetime, timezone",
+            "from pathlib import Path",
+            f"window = {json.dumps(str(window or '24h'))}",
+            f"principal_id = {json.dumps(str(principal_id or '').strip())}",
+            "def _window_seconds(value):",
+            "    normalized = str(value or '24h').strip().lower()",
+            "    if normalized == '7d':",
+            "        return 604800.0",
+            "    if normalized == '1h':",
+            "        return 3600.0",
+            "    return 86400.0",
+            "def _num(value, default=0):",
+            "    try:",
+            "        if value in (None, ''):",
+            "            return default",
+            "        return float(value)",
+            "    except Exception:",
+            "        return default",
+            "def _int(value, default=0):",
+            "    return int(_num(value, default))",
+            "aliases = {'1min': 'onemin', '1minai': 'onemin', '1min_ai': 'onemin', 'magicx': 'magixai', 'magicxai': 'magixai', 'gemini': 'gemini_vortex'}",
+            "def _provider_key(value):",
+            "    key = str(value or '').strip().lower().replace('-', '_').replace(' ', '_').replace('.', '')",
+            "    return aliases.get(key, key)",
+            "def _order(env_name, default):",
+            "    raw = str(os.getenv(env_name, default) or default)",
+            "    ordered = []",
+            "    for item in raw.split(','):",
+            "        key = _provider_key(item)",
+            "        if key and key not in ordered:",
+            "            ordered.append(key)",
+            "    fallback = [_provider_key(item) for item in default.split(',') if _provider_key(item)]",
+            "    return ordered or fallback",
+            "ledger_dir = Path(os.getenv('EA_RESPONSES_PROVIDER_LEDGER_DIR') or '/data/provider-ledger')",
+            "if not ledger_dir.exists() and Path('state').exists():",
+            "    ledger_dir = Path('state')",
+            "cache_path = ledger_dir / 'provider-health-cache' / 'lightweight.json'",
+            "provider_health = {}",
+            "cache_payload = {}",
+            "try:",
+            "    cache_payload = json.loads(cache_path.read_text(encoding='utf-8'))",
+            "    provider_health = dict(cache_payload.get('payload') or {})",
+            "except Exception:",
+            "    provider_health = {}",
+            "providers = dict(provider_health.get('providers') or {})",
+            "provider_config = dict(provider_health.get('provider_config') or {})",
+            "onemin = dict(providers.get('onemin') or {})",
+            "soft_cap = _int(os.getenv('EA_RESPONSES_GEMINI_VORTEX_TOKEN_SOFT_CAP_24H') or provider_config.get('gemini_vortex_token_soft_cap_24h'), 200000)",
+            "soft_cap_window = _num(os.getenv('EA_RESPONSES_GEMINI_VORTEX_TOKEN_SOFT_CAP_WINDOW_SECONDS') or provider_config.get('gemini_vortex_token_soft_cap_window_seconds'), 86400.0)",
+            "now = time.time()",
+            "dispatch_path = ledger_dir / 'provider_dispatch_events.jsonl'",
+            "def _token_summary(seconds):",
+            "    tokens_in = 0",
+            "    tokens_out = 0",
+            "    total_tokens = 0",
+            "    count = 0",
+            "    if dispatch_path.exists():",
+            "        try:",
+            "            lines = dispatch_path.read_text(encoding='utf-8', errors='ignore').splitlines()",
+            "        except Exception:",
+            "            lines = []",
+            "        for line in lines:",
+            "            if not line.strip():",
+            "                continue",
+            "            try:",
+            "                row = json.loads(line)",
+            "            except Exception:",
+            "                continue",
+            "            if str(row.get('provider_key') or '').strip() != 'gemini_vortex':",
+            "                continue",
+            "            if principal_id and str(row.get('principal_id') or '').strip() != principal_id:",
+            "                continue",
+            "            happened_at = _num(row.get('happened_at'), 0.0)",
+            "            if happened_at <= 0 or now - happened_at > float(seconds):",
+            "                continue",
+            "            row_in = _int(row.get('tokens_in'), 0)",
+            "            row_out = _int(row.get('tokens_out'), 0)",
+            "            row_total = _int(row.get('total_tokens'), row_in + row_out)",
+            "            tokens_in += max(row_in, 0)",
+            "            tokens_out += max(row_out, 0)",
+            "            total_tokens += max(row_total, 0)",
+            "            count += 1",
+            "    state = 'unlimited' if soft_cap <= 0 else 'soft_cap_exceeded' if total_tokens >= soft_cap else 'within_soft_cap'",
+            "    return {'window_seconds': float(seconds), 'request_count': count, 'tokens_in': tokens_in, 'tokens_out': tokens_out, 'total_tokens': total_tokens, 'soft_cap_tokens': soft_cap, 'state': state}",
+            "selected = _token_summary(_window_seconds(window))",
+            "usage_24h = _token_summary(soft_cap_window or 86400.0)",
+            "configured_slots = _int(onemin.get('configured_slots') or onemin.get('slot_count'), 0)",
+            "ready_slots = _int(onemin.get('live_dispatchable_slot_count') or onemin.get('live_ready_slot_count') or onemin.get('ready_slot_count'), 0)",
+            "degraded_slots = _int(onemin.get('degraded_slot_count') or onemin.get('observed_error_slot_count'), 0)",
+            "unknown_slots = max(configured_slots - ready_slots - degraded_slots, 0)",
+            "payload = {",
+            "    'ok': True,",
+            "    'observed_at': datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z'),",
+            "    'window': window,",
+            "    'provider_order': _order('EA_RESPONSES_PROVIDER_ORDER', 'onemin,magixai,gemini_vortex'),",
+            "    'groundwork_provider_order': _order('EA_RESPONSES_GROUNDWORK_PROVIDER_ORDER', 'onemin,magixai,gemini_vortex'),",
+            "    'cheap_provider_order': _order('EA_RESPONSES_CHEAP_PROVIDER_ORDER', 'onemin,magixai,gemini_vortex'),",
+            "    'hard_provider_order': _order('EA_RESPONSES_HARD_PROVIDER_ORDER', 'onemin,gemini_vortex,magixai'),",
+            "    'cost_gated_lanes': ['audit', 'fast', 'groundwork', 'overflow', 'review', 'review_light'],",
+            "    'gemini_token_usage': {",
+            "        'provider_key': 'gemini_vortex',",
+            "        'billing_truth_boundary': 'token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth',",
+            "        'selected_window': selected,",
+            "        '24h': usage_24h,",
+            "    },",
+            "    'onemin_capacity': {",
+            "        'configured_slots': configured_slots,",
+            "        'ready_slots': ready_slots,",
+            "        'degraded_slots': degraded_slots,",
+            "        'unknown_slots': unknown_slots,",
+            "        'state': str(onemin.get('state') or ''),",
+            "    },",
+            "    'onemin_aggregate': {",
+            "        'sum_free_credits': onemin.get('live_remaining_credits_total') if onemin.get('live_remaining_credits_total') is not None else onemin.get('estimated_remaining_credits_total'),",
+            "        'remaining_percent_total': onemin.get('actual_remaining_percent_of_max') if onemin.get('actual_remaining_percent_of_max') is not None else onemin.get('remaining_percent_of_max'),",
+            "        'current_pace_burn_credits_per_hour': onemin.get('estimated_burn_credits_per_hour'),",
+            "        'hours_remaining_at_current_pace': onemin.get('estimated_hours_remaining_at_current_pace'),",
+            "        'burn_basis': onemin.get('burn_estimate_basis') or onemin.get('credit_estimation_mode'),",
+            "        'last_probe_at': onemin.get('last_probe_at') or onemin.get('last_actual_balance_at'),",
+            "    },",
+            "    'onemin_billing_aggregate': {",
+            "        'sum_free_credits': onemin.get('actual_remaining_credits_total') if onemin.get('actual_remaining_credits_total') is not None else onemin.get('estimated_remaining_credits_total'),",
+            "        'remaining_percent_total': onemin.get('actual_remaining_percent_of_max') if onemin.get('actual_remaining_percent_of_max') is not None else onemin.get('remaining_percent_of_max'),",
+            "        'next_topup_at': onemin.get('next_topup_at'),",
+            "        'hours_until_next_topup': onemin.get('hours_until_next_topup'),",
+            "        'depletes_before_next_topup': onemin.get('depletes_before_next_topup'),",
+            "        'basis_summary': onemin.get('balance_basis_summary'),",
+            "    },",
+            "    'fast_lane_route': {},",
+            "}",
+            "print(json.dumps(payload, sort_keys=True, default=str))",
+        )
+    )
+
+
+def _runtime_provider_cost_pressure_payload(
+    *,
+    window: str,
+    principal_id: str,
+    timeout_seconds: float,
+) -> tuple[int, dict[str, Any], str]:
+    return _runtime_container_exec_json(
+        code=_provider_cost_pressure_runtime_code(window, principal_id),
+        timeout_seconds=timeout_seconds,
+    )
+
+
+def _provider_cost_pressure_payload_from_host(*, window: str, principal_id: str) -> dict[str, Any]:
+    try:
+        code = _provider_cost_pressure_runtime_code(window, principal_id)
+        namespace: dict[str, Any] = {}
+        # Reuse the same extraction contract as the runtime path without exposing the full status report.
+        completed = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=ROOT,
+            env=dict(os.environ),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30.0,
+        )
+        if int(completed.returncode or 0) != 0:
+            return {"ok": False, "reason": f"host_probe_exit_{int(completed.returncode or 0)}"}
+        return _json_from_stdout(completed.stdout)
+    except Exception as exc:
+        return {"ok": False, "reason": type(exc).__name__}
+
+
+def _number_or_none(value: object) -> float | None:
+    try:
+        if value in (None, ""):
+            return None
+        return float(value)
+    except Exception:
+        return None
+
+
+def _provider_cost_pressure_report(
+    *,
+    payload: Mapping[str, object],
+    source: str,
+    observed_at: str,
+    output_format: str = "json",
+) -> dict[str, object]:
+    provider_order = [str(item or "").strip() for item in list(payload.get("provider_order") or []) if str(item or "").strip()]
+    groundwork_order = [
+        str(item or "").strip()
+        for item in list(payload.get("groundwork_provider_order") or [])
+        if str(item or "").strip()
+    ]
+    cheap_order = [str(item or "").strip() for item in list(payload.get("cheap_provider_order") or []) if str(item or "").strip()]
+    hard_order = [str(item or "").strip() for item in list(payload.get("hard_provider_order") or []) if str(item or "").strip()]
+    gemini = dict(payload.get("gemini_token_usage") or {})
+    selected = dict(gemini.get("selected_window") or {})
+    usage_24h = dict(gemini.get("24h") or {})
+    onemin_capacity = dict(payload.get("onemin_capacity") or {})
+    onemin_aggregate = dict(payload.get("onemin_aggregate") or {})
+    onemin_billing = dict(payload.get("onemin_billing_aggregate") or {})
+    total_tokens_24h = int(usage_24h.get("total_tokens") or 0)
+    soft_cap_tokens = int(usage_24h.get("soft_cap_tokens") or selected.get("soft_cap_tokens") or 0)
+    soft_cap_percent = None
+    if soft_cap_tokens > 0:
+        soft_cap_percent = round((float(total_tokens_24h) / float(soft_cap_tokens)) * 100.0, 2)
+    token_state = str(usage_24h.get("state") or selected.get("state") or "").strip() or "unknown"
+    onemin_ready_slots = int(onemin_capacity.get("ready_slots") or 0)
+    onemin_usable = onemin_ready_slots > 0
+    onemin_first = bool(provider_order and provider_order[0] == "onemin")
+    groundwork_onemin_first = bool(groundwork_order and groundwork_order[0] == "onemin")
+    billing_truth_boundary = str(gemini.get("billing_truth_boundary") or "").strip()
+    cost_control_active = (
+        onemin_first
+        and groundwork_onemin_first
+        and billing_truth_boundary == "token_ledger_is_cost_pressure_telemetry_not_google_cloud_billing_truth"
+        and token_state in {"within_soft_cap", "soft_cap_exceeded", "unlimited"}
+    )
+    if not cost_control_active:
+        status = "misconfigured"
+    elif token_state == "soft_cap_exceeded":
+        status = "gemini_soft_cap_exceeded"
+    elif not onemin_usable:
+        status = "active_cost_control_onemin_not_live_ready"
+    else:
+        status = "active_cost_control"
+    if token_state == "soft_cap_exceeded":
+        gemini_background_gate = "closed"
+    elif token_state == "unlimited":
+        gemini_background_gate = "unlimited"
+    else:
+        gemini_background_gate = "open"
+    routing_decision = (
+        "prefer_onemin_background_and_remove_gemini_from_cost_gated_background_lanes"
+        if token_state == "soft_cap_exceeded"
+        else "prefer_onemin_background_when_usable"
+        if onemin_usable
+        else "keep_onemin_first_but_use_cost_gated_fallback_until_onemin_ready"
+    )
+    report: dict[str, object] = {
+        "probe_ok": True,
+        "status": status,
+        "observed_at": str(payload.get("observed_at") or observed_at).strip(),
+        "source": source,
+        "window": str(payload.get("window") or "").strip(),
+        "primary_background_provider": provider_order[0] if provider_order else "",
+        "provider_order": provider_order,
+        "groundwork_provider_order": groundwork_order,
+        "cheap_provider_order": cheap_order,
+        "hard_provider_order": hard_order,
+        "cost_sensitive_lanes": [str(item or "").strip() for item in list(payload.get("cost_gated_lanes") or []) if str(item or "").strip()],
+        "onemin_preferred_when_speed_is_not_critical": onemin_first and groundwork_onemin_first,
+        "onemin_usable": onemin_usable,
+        "onemin_ready_slots": onemin_ready_slots,
+        "onemin_configured_slots": int(onemin_capacity.get("configured_slots") or 0),
+        "onemin_remaining_credits": _number_or_none(
+            onemin_billing.get("sum_free_credits")
+            if onemin_billing.get("sum_free_credits") not in (None, "")
+            else onemin_aggregate.get("sum_free_credits")
+        ),
+        "onemin_remaining_percent_total": _number_or_none(
+            onemin_billing.get("remaining_percent_total")
+            if onemin_billing.get("remaining_percent_total") not in (None, "")
+            else onemin_aggregate.get("remaining_percent_total")
+        ),
+        "onemin_next_topup_at": str(onemin_billing.get("next_topup_at") or "").strip(),
+        "onemin_burn_basis": str(onemin_aggregate.get("burn_basis") or "").strip(),
+        "gemini_provider_key": str(gemini.get("provider_key") or "gemini_vortex").strip(),
+        "gemini_token_tracking": {
+            "billing_truth_boundary": billing_truth_boundary,
+            "selected_window": selected,
+            "24h": usage_24h,
+            "soft_cap_percent_24h": soft_cap_percent,
+            "background_cost_gate": gemini_background_gate,
+            "explicit_gemini_requests_allowed": True,
+        },
+        "routing_decision": routing_decision,
+        "privacy": {
+            "raw_prompt_or_response_text_exposed": False,
+            "raw_provider_secret_exposed": False,
+            "raw_google_cloud_billing_account_exposed": False,
+            "raw_provider_slots_exposed": False,
+        },
+    }
+    if output_format == "operator":
+        report["operator_text"] = (
+            "provider_cost_pressure "
+            f"status={status} "
+            f"gemini_24h_tokens={total_tokens_24h}/{soft_cap_tokens or 'unlimited'} "
+            f"gemini_gate={gemini_background_gate} "
+            f"onemin_ready_slots={onemin_ready_slots} "
+            f"primary={report['primary_background_provider']} "
+            f"decision={routing_decision} "
+            f"observed_at={report['observed_at']}"
+        )
+    return report
+
+
+def probe_provider_cost_pressure(
+    *,
+    window: str = "24h",
+    principal_id: str = "",
+    timeout_seconds: float = 30.0,
+    output_format: str = "json",
+) -> dict[str, object]:
+    observed_at = _utc_now()
+    code, payload, runtime_container = _runtime_provider_cost_pressure_payload(
+        window=window,
+        principal_id=principal_id,
+        timeout_seconds=timeout_seconds,
+    )
+    source = (
+        f"runtime_container_exec:{runtime_container}:provider_ledger_cache"
+        if runtime_container
+        else "runtime_container_exec:provider_ledger_cache"
+    )
+    if code != 0 or not bool(payload.get("ok")):
+        host_payload = _provider_cost_pressure_payload_from_host(window=window, principal_id=principal_id)
+        if bool(host_payload.get("ok")):
+            payload = host_payload
+            source = "host_process:provider_ledger_cache"
+        else:
+            reason = str(payload.get("reason") or host_payload.get("reason") or f"exit_{code}").strip()
+            report = {
+                "probe_ok": False,
+                "status": "probe_failed",
+                "observed_at": observed_at,
+                "source": source,
+                "window": str(window or "").strip(),
+                "blocking_reason": _compact_text(reason, limit=220),
+                "privacy": {
+                    "raw_prompt_or_response_text_exposed": False,
+                    "raw_provider_secret_exposed": False,
+                    "raw_google_cloud_billing_account_exposed": False,
+                    "raw_provider_slots_exposed": False,
+                },
+            }
+            if output_format == "operator":
+                report["operator_text"] = (
+                    "provider_cost_pressure "
+                    f"status=probe_failed reason={str(report['blocking_reason'])} observed_at={observed_at}"
+                )
+            return report
+    return _provider_cost_pressure_report(
+        payload=payload,
+        source=source,
+        observed_at=observed_at,
+        output_format=output_format,
+    )
+
+
 def _unmixr_runtime_operational_status(preflight: dict[str, object]) -> str:
     provider_payload = dict(preflight.get("provider") or {})
     checks = {
@@ -6087,6 +6439,15 @@ def parse_args() -> argparse.Namespace:
     probe.add_argument("--provider", required=True)
     probe.add_argument("--format", choices=("json", "operator"), default="json")
 
+    provider_cost_pressure = subparsers.add_parser(
+        "probe-provider-cost-pressure",
+        help="Probe Gemini token pressure and cost-aware background provider routing.",
+    )
+    provider_cost_pressure.add_argument("--window", choices=("1h", "24h", "7d"), default="24h")
+    provider_cost_pressure.add_argument("--principal-id", default="")
+    provider_cost_pressure.add_argument("--format", choices=("json", "operator"), default="json")
+    _add_timeout_seconds_argument(provider_cost_pressure)
+
     whatsapp_readiness = subparsers.add_parser("probe-whatsapp-readiness", help="Probe WhatsApp Web action processor readiness.")
     whatsapp_readiness.add_argument("--format", choices=("json", "operator"), default="json")
     whatsapp_readiness.add_argument("--receipt-path", default="")
@@ -6295,6 +6656,18 @@ def main() -> int:
         else:
             print(_json_dumps(report))
         return 0
+    if args.command == "probe-provider-cost-pressure":
+        report = probe_provider_cost_pressure(
+            window=str(getattr(args, "window", "") or "24h"),
+            principal_id=str(getattr(args, "principal_id", "") or "").strip(),
+            timeout_seconds=float(getattr(args, "timeout_seconds", None) or 30.0),
+            output_format=args.format,
+        )
+        if args.format == "operator":
+            print(str(report.get("operator_text") or ""))
+        else:
+            print(_json_dumps(report))
+        return 0 if bool(report.get("probe_ok")) else 2
     if args.command == "probe-whatsapp-readiness":
         report = probe_whatsapp_readiness(
             refresh=bool(getattr(args, "refresh", True)),

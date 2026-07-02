@@ -280,6 +280,13 @@ def verify(path: Path = DEFAULT_RECEIPT, *, root: Path | None = None) -> list[st
                     issues.append("decide provider_cost_control must require Gemini token tracking")
                 if provider_cost.get("gemini_dispatch_ledger") != "provider_dispatch_events.jsonl":
                     issues.append("decide provider_cost_control dispatch ledger drifted")
+                if (
+                    provider_cost.get("gemini_live_pressure_probe_command")
+                    != "python3 scripts/ea_live_ops.py probe-provider-cost-pressure --window 24h --format json"
+                ):
+                    issues.append("decide provider_cost_control Gemini live pressure probe command missing")
+                if provider_cost.get("gemini_live_pressure_probe_source") != "runtime_container_exec:provider_ledger_cache":
+                    issues.append("decide provider_cost_control Gemini live pressure probe source missing")
                 if provider_cost.get("gemini_soft_cap_env") != "EA_RESPONSES_GEMINI_VORTEX_TOKEN_SOFT_CAP_24H":
                     issues.append("decide provider_cost_control Gemini soft-cap env drifted")
                 if provider_cost.get("gemini_soft_cap_window_env") != "EA_RESPONSES_GEMINI_VORTEX_TOKEN_SOFT_CAP_WINDOW_SECONDS":

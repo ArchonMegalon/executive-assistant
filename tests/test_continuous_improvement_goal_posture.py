@@ -23,6 +23,8 @@ def _office_provider_cost_routing_posture() -> dict[str, object]:
             "provider_key": "gemini_vortex",
             "token_tracking_required": True,
             "dispatch_ledger": "provider_dispatch_events.jsonl",
+            "live_pressure_probe_command": "python3 scripts/ea_live_ops.py probe-provider-cost-pressure --window 24h --format json",
+            "live_pressure_probe_source": "runtime_container_exec:provider_ledger_cache",
             "soft_cap_env": "EA_RESPONSES_GEMINI_VORTEX_TOKEN_SOFT_CAP_24H",
             "soft_cap_window_env": "EA_RESPONSES_GEMINI_VORTEX_TOKEN_SOFT_CAP_WINDOW_SECONDS",
             "soft_cap_action": "remove_gemini_vortex_from_cost_gated_background_candidate_lists",
@@ -1019,6 +1021,11 @@ def test_build_goal_posture_emits_required_lenses_and_conservative_claims(tmp_pa
     assert provider_cost["gemini_provider_key"] == "gemini_vortex"
     assert provider_cost["gemini_token_tracking_required"] is True
     assert provider_cost["gemini_dispatch_ledger"] == "provider_dispatch_events.jsonl"
+    assert (
+        provider_cost["gemini_live_pressure_probe_command"]
+        == "python3 scripts/ea_live_ops.py probe-provider-cost-pressure --window 24h --format json"
+    )
+    assert provider_cost["gemini_live_pressure_probe_source"] == "runtime_container_exec:provider_ledger_cache"
     assert provider_cost["gemini_soft_cap_env"] == "EA_RESPONSES_GEMINI_VORTEX_TOKEN_SOFT_CAP_24H"
     assert provider_cost["gemini_soft_cap_window_env"] == "EA_RESPONSES_GEMINI_VORTEX_TOKEN_SOFT_CAP_WINDOW_SECONDS"
     assert provider_cost["gemini_soft_cap_action"] == "remove_gemini_vortex_from_cost_gated_background_candidate_lists"

@@ -333,6 +333,8 @@ def _provider_cost_routing_posture() -> dict[str, Any]:
             "provider_label": "Gemini/Vertex",
             "token_tracking_required": True,
             "dispatch_ledger": "provider_dispatch_events.jsonl",
+            "live_pressure_probe_command": "python3 scripts/ea_live_ops.py probe-provider-cost-pressure --window 24h --format json",
+            "live_pressure_probe_source": "runtime_container_exec:provider_ledger_cache",
             "tracked_dispatch_fields": [
                 "provider_key",
                 "model",
