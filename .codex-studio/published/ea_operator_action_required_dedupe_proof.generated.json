@@ -2,18 +2,18 @@
   "contract_name": "ea.operator_action_required_dedupe_proof.v1",
   "counts": {
     "included_count": 1,
-    "input_count": 6,
+    "input_count": 7,
     "suppressed_out_of_scope_count": 3,
     "suppressed_policy_blocked_count": 1,
     "suppressed_privacy_blocked_count": 0,
-    "suppressed_queue_only_count": 1
+    "suppressed_queue_only_count": 2
   },
   "current_actions_covered_by_prior_state": true,
   "current_digest_sha256": "68ac9bd2649870c9b22d9db99514730e0802e9f483d86dafd5b906cac04e8258",
   "dedupe_checked": true,
   "delivery_policy": "action_required_only",
   "force_required_to_resend": true,
-  "generated_at": "2026-07-07T12:26:28Z",
+  "generated_at": "2026-07-07T13:14:53Z",
   "generated_by": "scripts/materialize_operator_action_required_dedupe_proof.py",
   "head_semantics": "source_state",
   "included_action_keys": [
@@ -49,12 +49,12 @@
   ],
   "send_attempted": false,
   "send_requested": false,
-  "source_git_head": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
+  "source_git_head": "c3d9aa91236ae5c8c5c3458fc8cbbcada60571b6",
   "source_receipts": {
     "posture": {
       "path": ".codex-studio/published/ea_continuous_improvement_goal_posture.generated.json",
       "present": true,
-      "sha256": "10848ab1c7791ffeb01d1f871834e2291975c309aa0fa5c6e63de6629911df4f"
+      "sha256": "b3627f90dec37d6901b4d91b25d32aaafb2efaebe6477276096b67ed5b9fea95"
     },
     "sent_digest": {
       "digest_match": true,
@@ -67,7 +67,7 @@
       "status": "suppressed_duplicate"
     }
   },
-  "source_state_fingerprint": "f48911bae286969986d3ca5a1d05174f054610c0415736476b8a9f99799672af",
+  "source_state_fingerprint": "82100084f9e2b7c3aa62f9d8d1af681ae965724e0ecc6250704da4c4ecaf4b89",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "state": {
     "last_digest_match": true,

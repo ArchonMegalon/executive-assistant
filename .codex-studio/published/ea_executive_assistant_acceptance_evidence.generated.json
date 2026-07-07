@@ -315,7 +315,7 @@
   ],
   "blocked_keys": [],
   "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
-  "generated_at": "2026-07-07T09:51:55Z",
+  "generated_at": "2026-07-07T13:16:50Z",
   "generated_by": "ea/scripts/materialize_executive_assistant_acceptance_evidence.py",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
@@ -350,14 +350,14 @@
   "real_provider_recovery_verified": true,
   "rejected_input_count": 0,
   "remaining_external_proofs": [],
-  "source_git_head": "4496e6a105826afa6b711e92db5b5fc34f2f6ae7",
+  "source_git_head": "c3d9aa91236ae5c8c5c3458fc8cbbcada60571b6",
   "source_input": {
     "commitment_closure_bundle_provided": false,
     "google_workspace_auth_action_bundle_provided": false,
     "provided": false,
     "provider_runtime_recovery_bundle_provided": false
   },
-  "source_state_fingerprint": "4ef6fa548655b48806e3713b754e4e55c9e5213cbae8216b0ba40de9c575fc9a",
+  "source_state_fingerprint": "3044e8f6bf19e2d041cde518c0db07af359d8eb4423bec770df6bc8eb700e375",
   "source_state_fingerprint_semantics": "worktree_source_files_sha256_excluding_generated_only_paths",
   "status": "ready_real_world_acceptance_evidence"
 }
