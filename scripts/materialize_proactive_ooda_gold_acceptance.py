@@ -1739,6 +1739,11 @@ def _operator_runtime_next_action(
     if not operator_status_source_ready:
         next_action = str(operator_status_source_detail.get("next_action") or "").strip()
         return concrete_operator_action or next_action or "repair_proactive_operator_runtime_posture"
+    source_health_ready, source_health_detail = _operator_runtime_source_health_posture(operator_status)
+    if not source_health_ready:
+        next_action = str(source_health_detail.get("next_action") or "").strip()
+        if next_action:
+            return next_action
     reason = str(operator_status.get("reason") or "").strip()
     if concrete_operator_action:
         return concrete_operator_action
@@ -1800,6 +1805,72 @@ def _concrete_operator_recovery_action(operator_status: Mapping[str, Any]) -> st
             if issue_action and issue_action not in generic_repair_actions:
                 return issue_action
     return ""
+
+
+def _operator_runtime_source_health_posture(operator_status: Mapping[str, Any]) -> tuple[bool, dict[str, Any]]:
+    source_health = dict(operator_status.get("source_health") or {})
+    if not source_health:
+        operator_status_state = str(operator_status.get("status") or "").strip()
+        legacy_ready = operator_status_state.startswith("ready")
+        return (
+            legacy_ready,
+            {
+                "source_health_present": False,
+                "source_health_status": "legacy_not_recorded",
+                "source_health_ready": legacy_ready,
+                "source_health_issue_count": 0,
+                "source_health_operator_action_required": False,
+                "source_health_user_action_required": False,
+                "source_health_blocking_sources": [],
+                "source_health_blocking_error_codes": [],
+                "source_health_legacy_compatibility": True,
+                "next_action": "" if legacy_ready else "repair_proactive_operator_runtime_posture",
+            },
+        )
+    issues = [dict(item or {}) for item in list(source_health.get("issues") or []) if isinstance(item, Mapping)]
+    operator_action_required = bool(source_health.get("operator_action_required"))
+    user_action_required = bool(source_health.get("user_action_required"))
+    normalized_status = str(source_health.get("status") or "").strip()
+    if not normalized_status:
+        normalized_status = "clear" if not issues and not operator_action_required and not user_action_required else "recovery_required"
+    blocking_sources = sorted(
+        {
+            str(issue.get("source_key") or issue.get("source_type") or "").strip()
+            for issue in issues
+            if str(issue.get("source_key") or issue.get("source_type") or "").strip()
+        }
+    )
+    blocking_error_codes = sorted(
+        {
+            str(issue.get("error_code") or "").strip()
+            for issue in issues
+            if str(issue.get("error_code") or "").strip()
+        }
+    )
+    ready = (
+        normalized_status in {"clear", "healthy", "ready"}
+        and not issues
+        and not operator_action_required
+        and not user_action_required
+    )
+    next_action = ""
+    if not ready:
+        next_action = _concrete_operator_recovery_action(operator_status) or "repair_proactive_operator_runtime_posture"
+    return (
+        ready,
+        {
+            "source_health_present": True,
+            "source_health_status": normalized_status,
+            "source_health_ready": ready,
+            "source_health_issue_count": len(issues),
+            "source_health_operator_action_required": operator_action_required,
+            "source_health_user_action_required": user_action_required,
+            "source_health_blocking_sources": blocking_sources,
+            "source_health_blocking_error_codes": blocking_error_codes,
+            "source_health_legacy_compatibility": False,
+            "next_action": next_action,
+        },
+    )
 
 
 def _operator_runtime_source_coverage_posture(operator_status: Mapping[str, Any]) -> tuple[bool, dict[str, Any]]:
@@ -3514,6 +3585,7 @@ def materialize_proactive_ooda_gold_acceptance(
         current_source_git_head=current_source_git_head,
         current_source_fingerprint=current_source_fingerprint,
     )
+    source_health_ready, source_health_detail = _operator_runtime_source_health_posture(operator_status)
     source_coverage_ready, source_coverage_detail = _operator_runtime_source_coverage_posture(operator_status)
     context_grounding_ready, context_grounding_detail = _operator_runtime_context_grounding_posture_for_packet(
         operator_status,
@@ -3530,6 +3602,7 @@ def materialize_proactive_ooda_gold_acceptance(
     operator_runtime_ready = (
         operator_status_state.startswith("ready")
         and operator_status_source_ready
+        and source_health_ready
         and source_coverage_ready
         and context_grounding_ready
         and safe_work_audit_ready
@@ -3554,6 +3627,7 @@ def materialize_proactive_ooda_gold_acceptance(
             "status": operator_status_state,
             "reason": str(operator_status.get("reason") or "").strip(),
             **operator_status_source_detail,
+            **source_health_detail,
             **source_coverage_detail,
             **context_grounding_detail,
             **safe_work_audit_detail,

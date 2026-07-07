@@ -43,6 +43,38 @@ def test_gold_operator_runtime_blocks_when_source_coverage_has_missing_lane() ->
     assert detail["next_action"] == "sync_pocket_ai_audio_transcripts"
 
 
+def test_gold_operator_runtime_blocks_when_source_health_requires_recovery() -> None:
+    ready, detail = gold_acceptance._operator_runtime_source_health_posture(  # noqa: SLF001
+        {
+            "status": "ready_with_recovery_action",
+            "reason": "source_health_google_workspace:google_oauth_invalid_grant",
+            "next_action": "reauthorize_google_workspace_binding",
+            "source_health": {
+                "present": True,
+                "status": "recovery_required",
+                "operator_action_required": True,
+                "user_action_required": True,
+                "issues": [
+                    {
+                        "source_key": "google_workspace",
+                        "source_type": "google_workspace",
+                        "error_code": "google_oauth_invalid_grant",
+                        "next_action": "reauthorize_google_workspace_binding",
+                    }
+                ],
+            },
+        }
+    )
+
+    assert ready is False
+    assert detail["source_health_ready"] is False
+    assert detail["source_health_status"] == "recovery_required"
+    assert detail["source_health_issue_count"] == 1
+    assert detail["source_health_blocking_sources"] == ["google_workspace"]
+    assert detail["source_health_blocking_error_codes"] == ["google_oauth_invalid_grant"]
+    assert detail["next_action"] == "reauthorize_google_workspace_binding"
+
+
 def test_gold_materializer_prefers_live_runtime_probe_when_operator_status_is_live(
     monkeypatch: object,
     tmp_path: Path,
@@ -1391,6 +1423,137 @@ def test_materializer_prefers_historical_accepted_bundle_when_current_packet_is_
     assert receipt["proofs"]["teable_projection"]["present"] is True
     assert receipt["proofs"]["action_required_only_delivery"]["present"] is True
     assert receipt["evidence_receipts"]["stage_packet"]["path"].endswith("historical-stage.json")
+
+
+def test_gold_materializer_blocks_when_source_health_requires_recovery(
+    monkeypatch: object,
+    tmp_path: Path,
+) -> None:
+    operator_status_path = tmp_path / "operator_status.json"
+    output_path = tmp_path / "gold.json"
+    operator_status_path.write_text(
+        json.dumps(
+            {
+                "contract_name": "ea.proactive_ooda_operator_status.v1",
+                "status": "ready_with_recovery_action",
+                "generated_at": "2026-07-02T12:30:00Z",
+                "reason": "source_health_google_workspace:google_oauth_invalid_grant",
+                "next_action": "reauthorize_google_workspace_binding",
+                "source_health": {
+                    "present": True,
+                    "status": "recovery_required",
+                    "operator_action_required": True,
+                    "user_action_required": True,
+                    "issues": [
+                        {
+                            "source_key": "google_workspace",
+                            "source_type": "google_workspace",
+                            "error_code": "google_oauth_invalid_grant",
+                            "next_action": "reauthorize_google_workspace_binding",
+                        }
+                    ],
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        gold_acceptance,
+        "_runtime_artifact_bundle",
+        lambda **_kwargs: (
+            {
+                "run_receipt_path": None,
+                "run_receipt": {},
+                "action_required_only_quiet_receipt_path": None,
+                "action_required_only_quiet_receipt": {},
+                "stage_packet_dir": tmp_path,
+                "safe_work_result_dir": tmp_path,
+                "approval_outcome_path": tmp_path / "approval.json",
+                "approval_callback_dir": tmp_path / "callbacks",
+                "stage_packet_path": None,
+                "stage_packet": {},
+                "safe_work_result_path": None,
+                "safe_work_result": {},
+                "approval_outcome": {},
+            },
+            False,
+        ),
+    )
+    monkeypatch.setattr(gold_acceptance, "_refresh_operator_status_snapshot", lambda path, current: current)
+    monkeypatch.setattr(gold_acceptance, "_git_head", lambda path=gold_acceptance.ROOT: "head")
+    monkeypatch.setattr(gold_acceptance, "_source_fingerprint", lambda path=gold_acceptance.ROOT: "fingerprint")
+    monkeypatch.setattr(
+        gold_acceptance,
+        "_operator_status_source_posture",
+        lambda *args, **kwargs: (True, {"operator_status_source_current": True}),
+    )
+    monkeypatch.setattr(
+        gold_acceptance,
+        "_operator_runtime_source_coverage_posture",
+        lambda *args, **kwargs: (True, {"source_coverage_ready": True}),
+    )
+    monkeypatch.setattr(
+        gold_acceptance,
+        "_operator_runtime_context_grounding_posture_for_packet",
+        lambda *args, **kwargs: (True, {"context_grounding_ready": True}),
+    )
+    monkeypatch.setattr(
+        gold_acceptance,
+        "_operator_runtime_safe_work_audit_posture",
+        lambda *args, **kwargs: (True, {"safe_work_audit_ready": True}),
+    )
+    monkeypatch.setattr(
+        gold_acceptance,
+        "_operator_runtime_current_artifact_filter_posture",
+        lambda *args, **kwargs: (True, {"current_artifact_filter_ready": True}),
+    )
+    monkeypatch.setattr(
+        gold_acceptance,
+        "_operator_runtime_suppressed_projection_posture",
+        lambda *args, **kwargs: (True, {"suppressed_projection_ready": True}),
+    )
+    monkeypatch.setattr(
+        gold_acceptance,
+        "_approval_capture_surface_receipt",
+        lambda **kwargs: (
+            {
+                "present": False,
+                "ready": False,
+                "telegram_approval_surface_ready": False,
+                "manual_outcome_capture_ready": False,
+                "current_packet_approval_request_recordable": False,
+                "current_packet_matches_packet_artifacts": False,
+            },
+            False,
+        ),
+    )
+    monkeypatch.setattr(
+        gold_acceptance,
+        "_action_required_only_policy_probe",
+        lambda: {
+            "checked": True,
+            "status": "pass",
+            "low_value_research_prompt_requires_user_action": False,
+            "internal_proof_packet_requires_user_action": False,
+            "executable_draft_prompt_requires_user_action": True,
+            "raw_policy_prompt_exposed": False,
+        },
+    )
+
+    receipt = gold_acceptance.materialize_proactive_ooda_gold_acceptance(
+        output_path=output_path,
+        operator_status_path=operator_status_path,
+    )
+
+    assert receipt["status"] == "blocked_operator_runtime_posture"
+    assert receipt["next_action"] == "reauthorize_google_workspace_binding"
+    assert receipt["proofs"]["operator_runtime_posture"]["present"] is False
+    assert receipt["proofs"]["operator_runtime_posture"]["source_health_ready"] is False
+    assert receipt["proofs"]["operator_runtime_posture"]["source_health_blocking_sources"] == ["google_workspace"]
 
 
 def test_materializer_prefers_live_historical_bundle_when_current_paths_are_container_only(
